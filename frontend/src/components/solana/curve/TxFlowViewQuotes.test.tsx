@@ -167,7 +167,7 @@ describe.each(COINS)('adding to a pool paired with $symbol: the review', (coin) 
     ];
     await review(deposit(coin, { price: OFF_PRICE, warnings: said, priceGap: { diff: 0.1, lossQuote: 214_427n } }));
     expect(value('Price check')).toBe('10.0% above the outside price (Jupiter), read just now. That is off by more than 3%.');
-    expect(value('Estimated cost of that gap')).toBe(`up to about 0.214427 ${C} of what you put in (an estimate)`);
+    expect(value('Estimated cost of that gap')).toBe(`up to about 0.214427 ${C} of what you put in`);
     const box = screen.getByTestId('tx-review-warnings');
     expect(Array.from(box.querySelectorAll('li')).map((li) => li.textContent)).toEqual(said);
     expect(box.textContent).not.toContain('SOL');
@@ -175,7 +175,7 @@ describe.each(COINS)('adding to a pool paired with $symbol: the review', (coin) 
     cleanup();
     // The smallest cost there is: one unit of the coin, never a nothing.
     await review(deposit(coin, { price: OFF_PRICE, warnings: said, priceGap: { diff: 0.1, lossQuote: 1n } }));
-    expect(value('Estimated cost of that gap')).toBe(`up to about 0.000001 ${C} of what you put in (an estimate)`);
+    expect(value('Estimated cost of that gap')).toBe(`up to about 0.000001 ${C} of what you put in`);
   }, 30_000);
 
   it('the costs paid in SOL stay in SOL', async () => {
@@ -375,7 +375,7 @@ describe.each(COINS)('opening a pool paired with $symbol: the review', (coin) =>
     );
     expect(value('Opening price')).toBe(`1 token = 0.025 ${C}. Market (Jupiter, read just now): 0.02 ${C}, 25.0% above. That is off by more than 3%.`);
     // 2,500,001 of the coin's smallest units, to the last digit. As lamports: 0.002500001 SOL.
-    expect(value('Estimated cost of that gap')).toBe(`up to about 2.500001 ${C} of what you put in (an estimate)`);
+    expect(value('Estimated cost of that gap')).toBe(`up to about 2.500001 ${C} of what you put in`);
     expect(reviewText()).not.toContain('0.002500001');
   });
 

@@ -1205,7 +1205,7 @@ describe('the review as lines', () => {
   ])('%s: each warning is a line of its own, right under the heading, and the cost is a row', (_kind, summary) => {
     const got = reviewLines(<TxReview prepared={prepared(summary)} decimals={6} display={(s) => s} />);
     expect(got.slice(1, 4)).toEqual(['Read these warnings first. Nothing here stops you signing, and each one is a risk to what you put in:', ...SAID]);
-    expect(got).toContain('Estimated cost of that gap: up to about 0.002 SOL of what you put in (an estimate)');
+    expect(got).toContain('Estimated cost of that gap: up to about 0.002 SOL of what you put in');
   });
 });
 
@@ -1392,7 +1392,7 @@ describe('liquidity reviews', () => {
   it('adding with warnings: the price row does not read as a check that passed, and the cost has its own row', async () => {
     await review(off());
     expect(value('Price check')).toBe('10.0% above the outside price (Jupiter), read just now. That is off by more than 3%.');
-    expect(value('Estimated cost of that gap')).toBe('up to about 0.0045 SOL of what you put in (an estimate)');
+    expect(value('Estimated cost of that gap')).toBe('up to about 0.0045 SOL of what you put in');
     // The words follow the rule (poolHealth.ts): more than 3% apart is what "off" means.
     expect(PRICE_TOLERANCE).toBe(0.03);
   });
@@ -1400,7 +1400,7 @@ describe('liquidity reviews', () => {
   it('adding below a launch pool’s own average: the row says which way, and that it is off', async () => {
     await review(off({ origin: 'launch-pool', price: { state: 'disagrees', pool: 0.8, reference: 1, against: 'own-average', diff: -0.2 }, priceGap: { diff: -0.2, lossQuote: 1n } }));
     expect(value('Price check')).toBe('20.0% below its own average over the last 30 minutes. That is off by more than 3%.');
-    expect(value('Estimated cost of that gap')).toBe('up to about 0.000000001 SOL of what you put in (an estimate)');
+    expect(value('Estimated cost of that gap')).toBe('up to about 0.000000001 SOL of what you put in');
   });
 
   it('a cost that could not be worked out is said as that, never as 0', async () => {
@@ -1621,7 +1621,7 @@ describe('opening a pool: the review', () => {
     expect(heading).toHaveAttribute('aria-describedby', box.id);
     expect(box.compareDocumentPosition(screen.getByRole('button', { name: 'Sign in wallet' })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(value('Opening price')).toBe('1 token = 0.3 SOL. Market (Jupiter, read just now): 0.2 SOL, 50.0% above. That is off by more than 3%.');
-    expect(value('Estimated cost of that gap')).toBe('up to about 0.0334 SOL of what you put in (an estimate)');
+    expect(value('Estimated cost of that gap')).toBe('up to about 0.0334 SOL of what you put in');
     expect(screen.getByRole('button', { name: 'Sign in wallet' })).toBeEnabled();
   });
 

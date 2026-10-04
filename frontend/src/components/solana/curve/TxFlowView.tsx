@@ -322,7 +322,7 @@ type PriceGap = NonNullable<Extract<TxSummary, { kind: 'lp-deposit' }>['priceGap
  * as that, never shown as 0.
  */
 const gapCostText = (g: PriceGap, q: QuoteCoin) =>
-  g.lossQuote === null ? 'could not be worked out' : `up to about ${coinExact(g.lossQuote, q)} of what you put in (an estimate)`;
+  g.lossQuote === null ? 'could not be worked out' : `up to about ${coinExact(g.lossQuote, q)} of what you put in`;
 
 /**
  * What the builder says must be read before this is signed (`summary.warnings`: a price

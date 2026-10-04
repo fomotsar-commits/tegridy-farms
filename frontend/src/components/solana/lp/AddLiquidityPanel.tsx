@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useId, useMemo, useState } from 'react';
 import { PublicKey } from '@solana/web3.js';
 import { parseDecimalToBaseUnits } from '../../../lib/launcher/solana/curve/format';
 import { displaySafe } from '../../../lib/launchMetadata/validate';
@@ -238,6 +238,8 @@ function AddInner({
       : priceGapLossText(loss === null ? null : coinExact(loss, coin), off.against === 'outside' ? 'the outside price' : 'its own average');
   // The pool's own warnings, then the cost line: the same order as on the review.
   const warningLines = lossLine ? [...health.deposits.warnings, lossLine] : health.deposits.warnings;
+  // Review is described by them, so a screen reader says them when focus reaches the button.
+  const warningsId = useId();
 
   // A price that is off is read out with the amounts: its cost changes with them.
   const status = useDebounced(
@@ -359,7 +361,7 @@ function AddInner({
           </div>
           {/* What the pool's own checks warn of, said before Review and again on the review. It never switches Review off. */}
           {warningLines.length > 0 && (
-            <div data-testid="lp-add-warnings" className="space-y-1">
+            <div id={warningsId} data-testid="lp-add-warnings" className="space-y-1">
               <Notice tone="warn">Read these before you review. You can still add, and each one is a risk to what you put in:</Notice>
               {warningLines.map((w) => (
                 <Notice key={w} tone="warn">
@@ -381,7 +383,14 @@ function AddInner({
             </p>
           )}
           <div className="flex flex-col sm:flex-row gap-2">
-            <button ref={reviewRef} type="button" className="btn-primary w-full min-h-[44px] text-[13px] disabled:opacity-60 disabled:grayscale" disabled={!canReview} onClick={review}>
+            <button
+              ref={reviewRef}
+              type="button"
+              className="btn-primary w-full min-h-[44px] text-[13px] disabled:opacity-60 disabled:grayscale"
+              aria-describedby={warningLines.length > 0 ? warningsId : undefined}
+              disabled={!canReview}
+              onClick={review}
+            >
               Review: add liquidity
             </button>
             <button type="button" className="btn-secondary min-h-[44px] px-4 text-[13px]" onClick={onClose}>

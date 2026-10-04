@@ -194,6 +194,7 @@ describe('Add liquidity', () => {
     fireEvent.change(within(panel).getByLabelText('SOL to add'), { target: { value: '1' } });
     expect(within(panel).queryByTestId('lp-add-warnings')).toBeNull();
     expect(panel).not.toHaveTextContent(/Read these before you review|a move back to|could cost you/);
+    expect(within(panel).getByRole('button', { name: 'Review: add liquidity' })).not.toHaveAttribute('aria-describedby');
   });
 
   // The owner on a phone (2026-10-03): "there is still no way to" add. The button was a

@@ -243,6 +243,9 @@ describe.each(CASES)('a %s pool whose price is 10%% above the outside price', (s
     expect(said()).toEqual([PRICE_10_ABOVE, TYPE_FIRST]);
     expect(warnings).not.toHaveTextContent(/\b0 (SOL|USDC|BAYLA)\b/);
     expect(warnings.compareDocumentPosition(review()) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // A screen reader that lands on Review is read them: the button is described by the block.
+    expect(warnings.id).not.toBe('');
+    expect(review()).toHaveAttribute('aria-describedby', warnings.id);
 
     type(typed);
     const LOSS_LINE = `At these amounts, a move back to the outside price would take up to about ${loss} of what you put in. That is an estimate.`;
@@ -391,7 +394,7 @@ describe('a USDC pool 10% off the market whose token is a freezable copy', () =>
     expect(follows(within(panel).getByText('Pool kind'))).toBeTruthy();
     const value =(label: string) => within(panel).getByText(label).nextElementSibling?.textContent;
     expect(value('Price check')).toBe('10.0% above the outside price (Jupiter), read just now. That is off by more than 3%.');
-    expect(value('Estimated cost of that gap')).toBe('up to about 0.214427 USDC of what you put in (an estimate)');
+    expect(value('Estimated cost of that gap')).toBe('up to about 0.214427 USDC of what you put in');
     expect(value('You put in about')).toBe('99.009 USDC and 9,900.9 tokens');
     expect(top.compareDocumentPosition(within(panel).getByRole('button', { name: 'Sign in wallet' })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     // No amount on the coin's side of this review is in SOL.
