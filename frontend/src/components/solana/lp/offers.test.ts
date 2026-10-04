@@ -5,17 +5,17 @@
 import { describe, it, expect, expectTypeOf } from 'vitest';
 import { Keypair, type PublicKey } from '@solana/web3.js';
 import { POOL_STATUS_DISABLE_DEPOSIT, POOL_STATUS_DISABLE_SWAP, POOL_STATUS_DISABLE_WITHDRAW, publicTierConfig } from '../../../lib/solana/cpswap/program';
-import { assessPool, FAR_FUTURE_SECS, type PoolHealth } from '../../../lib/solana/lp/poolHealth';
+import { assessPool, FAR_FUTURE_SECS, tokenReasons, type PoolHealth } from '../../../lib/solana/lp/poolHealth';
 import type { PoolSearch, PoolSearchRead, PoolView } from '../../../lib/solana/lp/poolFinder';
 import type { Position } from '../../../lib/solana/lp/positions';
-import type { TokenSafety } from '../../../lib/solana/lp/tokenSafety';
+import type { SafetyReason, TokenSafety } from '../../../lib/solana/lp/tokenSafety';
 import { TOKEN_2022_NATIVE_MINT } from '../../../lib/solana/lp/opening';
 import { PROGRAM, buildPool, key, viewOf } from '../../../lib/solana/lp/testkit.fixture';
 import type { CreateFacts } from '../../../lib/launcher/solana/write/types';
 import type { PendingTrade } from '../curve/pendingTrade';
 import type { CurveWriteConfig, LpGate } from '../curve/ports';
 import { BAYLA_QUOTE, SOL_QUOTE, USDC_QUOTE, type QuoteCoin } from '../../../lib/solana/lp/quotes';
-import { createAdvice, createHeld, createOffer, depositOffer, lpHeld, pairFacts, poolListCut, standardState, withdrawOffer, type CreateOffer } from './offers';
+import { POOL_RISK_CODES, createAdvice, createHeld, createOffer, depositOffer, lpHeld, openingCautions, pairFacts, poolListCut, standardState, withdrawOffer, type CreateOffer } from './offers';
 
 const mint = key();
 const SOL = 10n * 10n ** 9n;
@@ -31,21 +31,27 @@ const BLOCKED: LpGate[] = [
   { kind: 'off' },
 ];
 const okToken: TokenSafety = { kind: 'read', mint: mint.toBase58(), verdict: 'ok', blocks: [], warnings: [], facts: null, name: null, symbol: null, metadataSource: 'none' };
-const blockedToken = { ...okToken, verdict: 'blocked', blocks: [{ code: 'freeze-authority', text: 'x' }] } as TokenSafety;
+// A transfer fee is a block that stays: this site cannot build an exact withdrawal for it.
+const blockedToken = { ...okToken, verdict: 'blocked', blocks: [{ code: 'transfer-fee', text: 'x' }] } as TokenSafety;
 const warnedToken = { ...okToken, verdict: 'warn', warnings: [{ code: 'mint-authority', text: 'x' }] } as TokenSafety;
+/** A token that carries one warning, with its own sentence. */
+const warnedWith = (code: SafetyReason['code'], text = `the ${code} sentence`): TokenSafety => ({ ...okToken, verdict: 'warn', warnings: [{ code, text }] });
 const outside = (p: number) => ({ kind: 'ok' as const, solPerToken: p, source: 'Jupiter' as const });
+/** Jupiter ANSWERED that it has no market for the token. A failed read is 'unread', never this. */
+const NO_ROUTE = { kind: 'no-route' as const, detail: 'Jupiter has no route for this token' };
 
 function view(o: { status?: number; openTime?: bigint; frozen?: boolean; sol?: bigint; tok?: bigint; lpSupply?: bigint; config?: null } = {}): PoolView {
   const b = buildPool({ mint, quoteReserve: o.sol ?? SOL, tokenReserve: o.tok ?? TOK, status: o.status ?? 0, openTime: o.openTime ?? 100n, lpSupply: o.lpSupply });
   return viewOf(b, { sol: o.sol ?? SOL, tok: o.tok ?? TOK, frozen: o.frozen, ...(o.config === null ? { config: null } : {}) });
 }
 
-const health = (v: PoolView, o: { safety?: TokenSafety | null; price?: number | 'unread' } = {}) =>
+type Price = number | 'unread' | 'no-route';
+const health = (v: PoolView, o: { safety?: TokenSafety | null; price?: Price } = {}) =>
   assessPool({
     view: v,
     tokenDecimals: 6,
     chainNow: NOW,
-    outside: o.price === 'unread' ? { kind: 'unread', detail: 'Jupiter did not give a price (HTTP 502)' } : outside(o.price ?? 0.01),
+    outside: o.price === 'unread' ? { kind: 'unread', detail: 'Jupiter did not give a price (HTTP 502)' } : o.price === 'no-route' ? NO_ROUTE : outside(o.price ?? 0.01),
     safety: o.safety === undefined ? okToken : o.safety,
   });
 
@@ -62,7 +68,7 @@ function position(v: PoolView | null, o: { lpAmount?: bigint; pool?: Position['p
   };
 }
 
-const add = (v: PoolView, o: { mode?: 'off' | 'on' | 'withdraw-only'; gate?: LpGate | null; held?: boolean; safety?: TokenSafety | null; price?: number | 'unread' } = {}) =>
+const add = (v: PoolView, o: { mode?: 'off' | 'on' | 'withdraw-only'; gate?: LpGate | null; held?: boolean; safety?: TokenSafety | null; price?: Price } = {}) =>
   depositOffer({ mode: o.mode ?? 'on', gate: o.gate === undefined ? OPEN : o.gate, health: health(v, o), held: o.held ?? false });
 const remove = (p: Position, o: { mode?: 'off' | 'on' | 'withdraw-only'; gate?: LpGate | null; held?: boolean } = {}) =>
   withdrawOffer({ mode: o.mode ?? 'on', gate: o.gate === undefined ? OPEN : o.gate, position: p, held: o.held ?? false });
@@ -115,11 +121,28 @@ describe('the leave rule, row by row (spec 3.7)', () => {
     expect(remove(position(v))).toBe('vault-frozen');
   });
 
-  it('a price off by more than 3%, or unread: no add; remove offered', () => {
-    for (const price of [0.02, 0.005, 'unread' as const]) {
-      expect(add(view(), { price })).toBe('checks');
+  // Owner ruling 2026-10-04: a price off the market is a warning, not a refusal.
+  it('a price off by more than 3%: add is offered, and the pool carries the warning; remove offered', () => {
+    for (const price of [0.02, 0.005]) {
+      expect(add(view(), { price })).toBe('offer');
+      const { deposits } = health(view(), { price });
+      expect(deposits.verdict).toBe('allowed');
+      expect(deposits.warnings).toEqual([expect.stringMatching(/^Its price is \d+\.\d% (above|below) the outside price\./)]);
       expect(remove(position(view()))).toBe('offer');
     }
+  });
+
+  it('a price that could not be read: no add, and it is not a warning; remove offered', () => {
+    expect(add(view(), { price: 'unread' })).toBe('checks');
+    expect(health(view(), { price: 'unread' }).deposits).toMatchObject({ verdict: 'unchecked', warnings: [] });
+    expect(remove(position(view()))).toBe('offer');
+  });
+
+  it('no market price at all (Jupiter answered that it has no route): add is offered, with the warning', () => {
+    expect(add(view(), { price: 'no-route' })).toBe('offer');
+    const h = health(view(), { price: 'no-route' });
+    expect(h.price.state).toBe('no-market');
+    expect(h.deposits.warnings).toEqual([expect.stringMatching(/^Jupiter has no market price for this token/)]);
   });
 
   it('a token blocked, warned or unread: add no / yes / no; remove offered in every case', () => {
@@ -128,6 +151,13 @@ describe('the leave rule, row by row (spec 3.7)', () => {
     expect(add(view(), { safety: null })).toBe('checks');
     expect(add(view(), { safety: { kind: 'unread', mint: mint.toBase58(), detail: 'x' } })).toBe('checks');
     expect(remove(position(view()))).toBe('offer');
+  });
+
+  it('a copy of a well-known name, and a token its creator can freeze: add is offered, with the warning', () => {
+    for (const code of ['copies-known-name', 'freeze-authority'] as const) {
+      expect(add(view(), { safety: warnedWith(code) }), code).toBe('offer');
+      expect(health(view(), { safety: warnedWith(code) }).deposits.warnings, code).toHaveLength(1);
+    }
   });
 
   it('fee settings unread: no add (unchecked); remove offered', () => {
@@ -293,7 +323,6 @@ describe('createOffer', () => {
     ['token-unread', (a) => ({ ...a, safety: { kind: 'unread', mint: mint.toBase58(), detail: 'x' } })],
     ['token-refused', (a) => ({ ...a, safety: blockedToken })],
     ['price-unread', (a) => ({ ...a, outside: { kind: 'unread', detail: 'HTTP 502' } })],
-    ['no-route', (a) => ({ ...a, outside: { kind: 'no-route', detail: 'no route' } })],
     ['pools-unread', (a) => withPool(a, { kind: 'unread', address: key().toBase58(), detail: 'x' })],
   ];
 
@@ -573,6 +602,93 @@ describe('createOffer', () => {
 
   it('SOL under the newer token program is refused', () => {
     expect(createOffer({ ...base(), safety: { ...okToken, mint: TOKEN_2022_NATIVE_MINT } })).toBe('token-refused');
+  });
+
+  // Owner ruling 2026-10-04: any token may have a pool. Four refusals became warnings.
+  describe('any token may have a pool: what used to be refused is offered', () => {
+    it('no market price (Jupiter answered that it has no route): offer', () => {
+      expect(createOffer({ ...base(), outside: NO_ROUTE })).toBe('offer');
+    });
+
+    it('…but a price that was not read is not "no market price": it still stops', () => {
+      expect(createOffer({ ...base(), outside: { kind: 'unread', detail: 'HTTP 502' } })).toBe('price-unread');
+      expect(createOffer({ ...base(), outside: null })).toBe('price-unread');
+    });
+
+    it('a copy of a well-known name, a freezable token, a changing amount: offer', () => {
+      for (const code of ['copies-known-name', 'freeze-authority', 'interest-bearing', 'scaled-amount'] as const) {
+        expect(createOffer({ ...base(), safety: warnedWith(code) }), code).toBe('offer');
+      }
+    });
+
+    it('all of them at once on one token: still offer', () => {
+      const all = { ...okToken, verdict: 'warn', warnings: [{ code: 'freeze-authority', text: 'f' }, { code: 'copies-known-name', text: 'c' }] } as TokenSafety;
+      expect(createOffer({ ...base(), safety: all, outside: NO_ROUTE })).toBe('offer');
+    });
+
+    it('what stays refused: a blocked token and a token that does not exist, whatever the price says', () => {
+      for (const o of [outside(0.01), NO_ROUTE, null]) {
+        expect(createOffer({ ...base(), safety: blockedToken, outside: o })).toBe('token-refused');
+        expect(createOffer({ ...base(), safety: { kind: 'absent', mint: mint.toBase58() }, outside: o })).toBe('token-refused');
+      }
+      // A blocked token that also copies a name is refused for the block: the warning lifts nothing.
+      const both = { ...blockedToken, warnings: [{ code: 'copies-known-name', text: 'c' }] } as TokenSafety;
+      expect(createOffer({ ...base(), safety: both })).toBe('token-refused');
+    });
+
+    it('by type: "no route" is not an answer the card can give any more', () => {
+      expectTypeOf<'no-route'>().not.toMatchTypeOf<CreateOffer>();
+    });
+  });
+
+  describe('openingCautions: what the card says before its button', () => {
+    it('a clean token at a market price: nothing', () => {
+      expect(openingCautions(okToken, outside(0.01))).toEqual([]);
+    });
+
+    it('each warning that changes what a pool risks, in the token’s own words and in its order', () => {
+      const t = {
+        ...okToken,
+        verdict: 'warn',
+        warnings: [
+          { code: 'freeze-authority', text: 'freeze sentence' },
+          { code: 'mint-authority', text: 'mint sentence' },
+          { code: 'copies-known-name', text: 'copy sentence, naming the real mint' },
+          { code: 'metadata-mutable', text: 'name can change' },
+        ],
+      } as TokenSafety;
+      // The others stay on the token card and in the form's own list: they were never a refusal.
+      expect(openingCautions(t, outside(0.01))).toEqual(['freeze sentence', 'copy sentence, naming the real mint']);
+    });
+
+    it('no market price: said last, and only when Jupiter ANSWERED that there is none', () => {
+      const noMarket = 'Jupiter has no market price for this token, so there is nothing to compare an opening price with. If you open a pool, you set its first price yourself.';
+      expect(openingCautions(okToken, NO_ROUTE)).toEqual([noMarket]);
+      expect(openingCautions(warnedWith('freeze-authority', 'freeze sentence'), NO_ROUTE)).toEqual(['freeze sentence', noMarket]);
+      // Not read is never a warning.
+      expect(openingCautions(okToken, { kind: 'unread', detail: 'HTTP 502' })).toEqual([]);
+      expect(openingCautions(okToken, null)).toEqual([]);
+    });
+
+    it('a token that was not read, or does not exist, has no warnings to give', () => {
+      expect(openingCautions({ kind: 'unread', mint: mint.toBase58(), detail: 'x' }, outside(0.01))).toEqual([]);
+      expect(openingCautions({ kind: 'absent', mint: mint.toBase58() }, outside(0.01))).toEqual([]);
+    });
+
+    // The form leaves these codes out of the list above its amount boxes because the
+    // opening check says each of them above Review. If the check ever stopped saying one,
+    // it would be said nowhere in the form: this pins that it cannot.
+    it('every code the form leaves out of its top list has a line from the opening check', () => {
+      expect([...POOL_RISK_CODES].sort()).toEqual(['copies-known-name', 'freeze-authority', 'interest-bearing', 'scaled-amount']);
+      for (const code of POOL_RISK_CODES) {
+        expect(tokenReasons(warnedWith(code), 'pools').warned, code).toHaveLength(1);
+      }
+      // And a warning the check does not repeat is not left out.
+      for (const code of ['mint-authority', 'metadata-mutable', 'lookalike-letters', 'no-metadata'] as const) {
+        expect(POOL_RISK_CODES.has(code), code).toBe(false);
+        expect(tokenReasons(warnedWith(code), 'pools').warned, code).toEqual([]);
+      }
+    });
   });
 });
 

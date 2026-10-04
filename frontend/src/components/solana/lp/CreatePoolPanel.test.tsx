@@ -21,6 +21,8 @@ import { prepared } from '../curve/fakeWriteApi.fixture';
 import type { LpWriteApi, Prepared, SubmitDeps, TxOutcome } from '../curve/ports';
 import { TIER1_ADDRESS, fakeLpApi, lpCreateSummary, LP_PROGRAM, readyFacts, unusedGateRpc } from './fakeLpWriteApi.fixture';
 import { recordedTier } from '../../../lib/solana/cpswap/mainnetVenueReplay.fixture';
+// The review's own loss sentence: the form says the same words before Review.
+import { LP_COPY } from '../../../lib/launcher/solana/write/liquidity';
 
 vi.mock('../../../lib/solana/cpswap/program', async (orig) => {
   const { PublicKey: Key } = await import('@solana/web3.js');
@@ -228,24 +230,163 @@ describe('the panel', () => {
     expect(sol(panel)).toHaveValue('0.5');
   });
 
-  it('a price far from the market: the problems line with the gap and a loss, Review off; Match fixes it', async () => {
-    mount(readers());
+  // Owner ruling 2026-10-04: a price off the market is the opener's choice. It used to
+  // switch Review off. It is a warning above Review now, with the gap and what it is
+  // estimated to cost at the typed amounts, and Match is the way to avoid it.
+  it('a price far from the market: a warning with the gap and the estimated loss, Review ON; Match avoids it', async () => {
+    const r = readers();
+    const prepareLpCreate = vi.fn(async (): Promise<Prepared> => ({ ok: false, outcome: { status: 'not-sent', stage: 'build', message: 'x' } }));
+    mount(r, { api: { prepareLpCreate } });
     const { panel } = await openPanel();
+    await within(panel).findByRole('button', { name: 'Max SOL' });
+    expect(within(panel).queryByTestId('lp-create-warnings')).toBeNull();
     fireEvent.change(sol(panel), { target: { value: '1.5' } });
     fireEvent.change(tokens(panel), { target: { value: '100' } });
-    expect(within(panel).getByTestId('lp-create-price')).toHaveAttribute('data-price', 'disagrees');
-    const alert = within(panel).getByRole('alert');
-    // The line is read out once typing settles (B review person-4).
-    await waitFor(() => expect(alert).not.toHaveTextContent(''));
-    expect(alert).toHaveTextContent(/^Your opening price is 50\.0% above the market price\. Bots would trade against your pool as soon as it opens, taking about 0\.05\d* SOL of what you put in\. Pools opened from this site must start within 3% of the market\.$/);
-    expect(reviewButton(panel)).toBeDisabled();
-    // The line's own Match keeps the token box (typed last).
-    fireEvent.click(within(panel).getAllByRole('button', { name: 'Match the market price' }).find((b) => !b.hasAttribute('data-testid'))!);
+    const price = within(panel).getByTestId('lp-create-price');
+    expect(price).toHaveAttribute('data-price', 'disagrees');
+    expect(price).toHaveTextContent('Your opening price: 1 token = 0.015 SOL. Market: 0.01 SOL. Yours is 50.0% above the market.');
+    const warnings = within(panel).getByTestId('lp-create-warnings');
+    expect(warnings).toHaveTextContent('Your opening price is 50.0% above the market price (Jupiter). The first trades would move it to the market price, at your cost.');
+    // (√1.5 − √(100 × 0.01))² SOL, rounded up to the lamport: the review's own sentence.
+    const loss = LP_COPY.priceGapLoss('0.050510258 SOL', 'the market price');
+    expect(loss).toBe('At these amounts, a move back to the market price would take up to about 0.050510258 SOL of what you put in. That is an estimate.');
+    expect(warnings).toHaveTextContent(loss);
+    expect(warnings).toHaveTextContent('Match the market price to avoid that, or go on at your own price.');
+    // The old rule is gone from the form.
+    expect(panel).not.toHaveTextContent(/must start within|within 3%/);
+    // A warning is not a problem: the problems line is empty, and Review is on.
+    expect(within(panel).getByRole('alert')).toHaveTextContent('');
+    expect(reviewButton(panel)).toBeEnabled();
+    expect(within(panel).queryByTestId('lp-review-why')).toBeNull();
+    // Under the amount boxes (a phone keeps them on its first screen) and above Review.
+    expect(tokens(panel).compareDocumentPosition(warnings) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(warnings.compareDocumentPosition(reviewButton(panel)) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // The warning's own Match keeps the token box (typed last), and the warning goes.
+    fireEvent.click(within(warnings).getByRole('button', { name: 'Match the market price' }));
     expect(tokens(panel)).toHaveValue('100');
     expect(sol(panel)).toHaveValue('1');
     expect(within(panel).getByTestId('lp-create-price')).toHaveAttribute('data-price', 'agrees');
-    expect(within(panel).getByRole('alert')).toHaveTextContent('');
+    expect(within(panel).queryByTestId('lp-create-warnings')).toBeNull();
     expect(reviewButton(panel)).toBeEnabled();
+    // Off the market again, and reviewed as it is: the builder is handed the typed amounts.
+    fireEvent.change(sol(panel), { target: { value: '1.5' } });
+    expect(within(panel).getByTestId('lp-create-warnings')).toHaveTextContent('50.0% above the market price');
+    await act(async () => {
+      fireEvent.click(reviewButton(panel));
+    });
+    expect(prepareLpCreate).toHaveBeenCalledTimes(1);
+    expect((prepareLpCreate.mock.calls[0] as unknown[])[3]).toMatchObject({ quote: 1_500_000_000n, token: 100_000_000n });
+  });
+
+  it('below the market the warning says below, and the loss is still what the gap costs', async () => {
+    mount(readers());
+    const { panel } = await openPanel();
+    await within(panel).findByRole('button', { name: 'Max SOL' });
+    fireEvent.change(sol(panel), { target: { value: '0.5' } });
+    fireEvent.change(tokens(panel), { target: { value: '100' } });
+    const warnings = within(panel).getByTestId('lp-create-warnings');
+    expect(warnings).toHaveTextContent('Your opening price is 50.0% below the market price (Jupiter).');
+    // (√0.5 − √1)² SOL = 0.085786438 SOL, rounded up.
+    expect(warnings).toHaveTextContent('would take up to about 0.085786438 SOL of what you put in');
+    expect(reviewButton(panel)).toBeEnabled();
+  });
+
+  // A loss that cannot be worked out is said as that. It is never shown as 0.
+  it('a loss that could not be worked out says so, and never reads as 0', async () => {
+    // A market price too large to multiply: the estimate has no answer.
+    mount(readers({ outsidePrice: vi.fn(async () => ({ kind: 'ok' as const, solPerToken: 1e300, source: 'Jupiter' as const })) }));
+    const { panel } = await openPanel();
+    await within(panel).findByRole('button', { name: 'Max SOL' });
+    fireEvent.change(sol(panel), { target: { value: '1' } });
+    fireEvent.change(tokens(panel), { target: { value: '1000000000' } });
+    expect(within(panel).getByTestId('lp-create-price')).toHaveAttribute('data-price', 'disagrees');
+    const warnings = within(panel).getByTestId('lp-create-warnings');
+    expect(warnings).toHaveTextContent(LP_COPY.priceGapLoss(null, 'the market price'));
+    expect(warnings).toHaveTextContent('What a move back to the market price would cost you at these amounts could not be worked out.');
+    expect(warnings).not.toHaveTextContent(/up to about|\b0 SOL/);
+  });
+
+  it('what a screen reader hears once typing settles says the price is off the market', async () => {
+    mount(readers());
+    const { panel } = await openPanel();
+    await within(panel).findByRole('button', { name: 'Max SOL' });
+    fireEvent.change(sol(panel), { target: { value: '1.5' } });
+    fireEvent.change(tokens(panel), { target: { value: '100' } });
+    const status = panel.querySelector('p.sr-only[role="status"]');
+    await waitFor(() => expect(status).toHaveTextContent(/^You would open the pool at 1 token = 0\.015 SOL and get \d\.\d+ pool shares\. That price is 50\.0% above the market price: the warning above Review says what that may cost\.$/));
+    // At the market it says the price and the shares, as it always did.
+    fireEvent.change(sol(panel), { target: { value: '1' } });
+    await waitFor(() => expect(status).toHaveTextContent(/^You would open the pool at 1 token = 0\.01 SOL and get 0\.316227666 pool shares\.$/));
+  });
+
+  // Jupiter ANSWERED that the token has no market. The card offers the opening, and the
+  // form says there is no market price, that the opener sets the first price, and has no
+  // Match button: there is nothing to match.
+  describe('a token with no market price', () => {
+    const NO_ROUTE = { kind: 'no-route' as const, detail: 'Jupiter has no route for this token' };
+
+    it('the form says so, draws no Match button, warns above Review, and Review is ON', async () => {
+      const r = readers({ outsidePrice: vi.fn(async () => NO_ROUTE) });
+      const prepareLpCreate = vi.fn(async (): Promise<Prepared> => ({ ok: false, outcome: { status: 'not-sent', stage: 'build', message: 'x' } }));
+      mount(r, { api: { prepareLpCreate } });
+      const { panel } = await openPanel();
+      await within(panel).findByRole('button', { name: 'Max SOL' });
+      expect(within(panel).getByTestId('lp-create-market')).toHaveTextContent(
+        /^Market price \(Jupiter, read \d\d:\d\d:\d\d\): there is none for this token\. You are setting this pool’s first price yourself\.$/,
+      );
+      expect(within(panel).getByTestId('lp-create-market')).not.toHaveTextContent('could not be read');
+      expect(within(panel).queryByTestId('lp-create-match')).toBeNull();
+      expect(within(panel).queryByRole('button', { name: 'Match the market price' })).toBeNull();
+      expect(within(panel).queryByRole('button', { name: 'Use the most both balances allow' })).toBeNull();
+      // Reading again stays: a later read may find a market.
+      expect(within(panel).getByRole('button', { name: 'Read the market price again' })).toBeInTheDocument();
+      fireEvent.change(sol(panel), { target: { value: '1' } });
+      fireEvent.change(tokens(panel), { target: { value: '100' } });
+      const price = within(panel).getByTestId('lp-create-price');
+      expect(price).toHaveAttribute('data-price', 'no-market');
+      expect(price).toHaveTextContent('Your opening price: 1 token = 0.01 SOL. There is no market price to compare it with.');
+      const warnings = within(panel).getByTestId('lp-create-warnings');
+      expect(warnings).toHaveTextContent(
+        'Jupiter has no market price for this token, so there is nothing to compare your opening price with. You are setting the price yourself: if it is off, the first trades take the difference out of what you put in.',
+      );
+      // Nothing is compared, so no loss is worked out and none is claimed.
+      expect(warnings).not.toHaveTextContent(/a move back to the market price/);
+      expect(warnings.compareDocumentPosition(reviewButton(panel)) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(within(panel).getByRole('alert')).toHaveTextContent('');
+      expect(reviewButton(panel)).toBeEnabled();
+      await waitFor(() =>
+        expect(panel.querySelector('p.sr-only[role="status"]')).toHaveTextContent(
+          'You would open the pool at 1 token = 0.01 SOL and get 0.316227666 pool shares. There is no market price to compare it with: you are setting the price yourself.',
+        ),
+      );
+      await act(async () => {
+        fireEvent.click(reviewButton(panel));
+      });
+      expect((prepareLpCreate.mock.calls[0] as unknown[])[3]).toMatchObject({ quoteMint: new PublicKey(SOL_QUOTE.mint), quote: 1_000_000_000n, token: 100_000_000n });
+    });
+
+    // Unread is never "no market price". A panel that was open when Jupiter stopped
+    // answering keeps Review off, and does not say there is no market.
+    it('…but a price that could not be READ still switches Review off, and is not said as "none"', async () => {
+      const r = readers();
+      mount(r);
+      const { card, panel } = await openPanel();
+      await within(panel).findByRole('button', { name: 'Max SOL' });
+      fireEvent.change(sol(panel), { target: { value: '1' } });
+      fireEvent.change(tokens(panel), { target: { value: '100' } });
+      expect(reviewButton(panel)).toBeEnabled();
+      (r.outsidePrice as ReturnType<typeof vi.fn>).mockResolvedValue({ kind: 'unread' as const, detail: 'Jupiter did not give a price (HTTP 502)' });
+      fireEvent.click(within(panel).getByRole('button', { name: 'Read the market price again' }));
+      await waitFor(() => expect(card).toHaveAttribute('data-create', 'price-unread'));
+      expect(reviewButton(panel)).toBeDisabled();
+      expect(within(panel).getByTestId('lp-create-market')).toHaveTextContent('Market price (Jupiter): could not be read (Jupiter did not give a price (HTTP 502)).');
+      const price = within(panel).getByTestId('lp-create-price');
+      expect(price).toHaveAttribute('data-price', 'unread');
+      expect(price).toHaveTextContent('Your opening price: 1 token = 0.01 SOL. It is not checked: the market price has not been read.');
+      expect(price).not.toHaveTextContent('There is no market price');
+      // Not read is never a warning either.
+      expect(within(panel).queryByTestId('lp-create-warnings')).toBeNull();
+    });
   });
 
   it('too small, and a locked part above 0.1%: said, and Review off', async () => {
@@ -411,18 +552,22 @@ describe('the panel', () => {
   it('the problems line is read out once typing settles, not on every digit', async () => {
     mount(readers());
     const { panel } = await openPanel();
+    await within(panel).findByRole('button', { name: 'Max SOL' });
     const alert = within(panel).getByRole('alert');
-    fireEvent.change(tokens(panel), { target: { value: '100' } });
-    fireEvent.change(sol(panel), { target: { value: '1.5' } });
-    expect(within(panel).getByTestId('lp-create-price')).toHaveAttribute('data-price', 'disagrees');
+    // The wallet holds 500 tokens.
+    fireEvent.change(sol(panel), { target: { value: '6' } });
+    fireEvent.change(tokens(panel), { target: { value: '600' } });
     // Not yet: the person is still typing.
     expect(alert).toHaveTextContent('');
-    fireEvent.change(sol(panel), { target: { value: '1.52' } });
-    expect(alert).toHaveTextContent('');
-    await waitFor(() => expect(alert).toHaveTextContent(/^Your opening price is 52\.0% above the market price\./));
-    // A fixed problem goes at once.
     fireEvent.change(sol(panel), { target: { value: '1' } });
+    fireEvent.change(tokens(panel), { target: { value: '601' } });
     expect(alert).toHaveTextContent('');
+    await waitFor(() => expect(alert).toHaveTextContent(/^You have 500 tokens; this needs 601 tokens\.$/));
+    expect(reviewButton(panel)).toBeDisabled();
+    // A fixed problem goes at once.
+    fireEvent.change(tokens(panel), { target: { value: '100' } });
+    expect(alert).toHaveTextContent('');
+    expect(reviewButton(panel)).toBeEnabled();
   });
 
   // B review person-3: the market price's Read again says it is reading, and what it found.

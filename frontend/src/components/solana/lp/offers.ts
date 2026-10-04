@@ -20,7 +20,7 @@ import { tokenReasons, type PoolHealth } from '../../../lib/solana/lp/poolHealth
 import type { PoolSearchRead, PoolView } from '../../../lib/solana/lp/poolFinder';
 import type { Position } from '../../../lib/solana/lp/positions';
 import { SOL_QUOTE, quotesFor, type QuoteCoin } from '../../../lib/solana/lp/quotes';
-import type { TokenSafety } from '../../../lib/solana/lp/tokenSafety';
+import type { SafetyReason, TokenSafety } from '../../../lib/solana/lp/tokenSafety';
 import { isLpKind } from '../../../lib/launcher/solana/write/lpKinds';
 import type { CreateFacts } from '../../../lib/launcher/solana/write/types';
 import type { PendingTrade } from '../curve/pendingTrade';
@@ -31,7 +31,9 @@ export type DepositOffer = 'offer' | 'paused-here' | 'held' | 'checks' | 'gate' 
 /**
  * Add liquidity, in this order: LP switched off → the gate is not open → adding is
  * paused ('withdraw-only') → a deposit to this pool is still pending → the pool's
- * deposit checks do not say 'allowed' → offer. 'unchecked' never deposits.
+ * deposit checks do not say 'allowed' → offer. 'unchecked' never deposits. An 'allowed'
+ * pool is offered whatever warnings it carries (poolHealth.ts): a warning is told, and
+ * never takes the button away.
  */
 export function depositOffer(a: { mode: LpWriteMode; gate: LpGate | null; health: PoolHealth; held: boolean }): DepositOffer {
   if (a.mode === 'off') return 'off';
@@ -118,7 +120,6 @@ export type CreateOffer =
   | 'token-unread'
   | 'token-refused'
   | 'price-unread'
-  | 'no-route'
   | 'pools-unread';
 
 /**
@@ -148,10 +149,17 @@ export function poolListCut(search: PoolSearchRead): boolean {
  * gate is not open → paused ('withdraw-only') → an opening is still pending → the create
  * facts are not read yet → the public tier: unread, not created, not a tier, switched
  * off, fee above the ceiling → the fee account: unread, not set up → the token: unread,
- * refused → the market price: unread, no route → any pool unread or unchecked → offer.
+ * refused → the market price unread → any pool unread or unchecked → offer.
  *
  * Unread is never "no": every unread input stops here before `offer`. A truncated index
  * is not unread (`poolListCut`): the answer comes from the pools that were read.
+ *
+ * ANY TOKEN MAY HAVE A POOL (owner ruling 2026-10-04). A token is refused only when it is
+ * absent or blocked (tokenSafety.ts says what still blocks), or is SOL under the newer
+ * token program. A token that copies a well-known name, one its creator can freeze, and
+ * one Jupiter ANSWERED it has no market price for are all offered: the card says each as
+ * a warning before the button (`openingCautions`). Jupiter failing to answer is not "no
+ * market price": that is unread, and stops here.
  *
  * A pool that already exists NEVER stops an opening (owner ruling 2026-10-03): a token
  * may have as many pools as people open. The card points to the pool to add to first
@@ -194,8 +202,8 @@ export function createOffer(a: {
   if (token.unchecked.length > 0) return 'token-unread';
   if (token.refused.length > 0 || a.safety.mint === TOKEN_2022_NATIVE_MINT) return 'token-refused';
 
+  // Not asked, or Jupiter failed to answer. "No route" is an answer, and goes on.
   if (!a.outside || a.outside.kind === 'unread') return 'price-unread';
-  if (a.outside.kind === 'no-route') return 'no-route';
 
   if (a.search.kind !== 'ok') return 'pools-unread';
   const s = a.search.search;
@@ -206,6 +214,37 @@ export function createOffer(a: {
     if (verdict === undefined || verdict === 'unchecked') return 'pools-unread';
   }
   return 'offer';
+}
+
+/**
+ * The token warnings that change what a pool for the token risks: it copies a well-known
+ * name, its creator can freeze accounts, or a wallet shows a changing amount for it.
+ * `tokenReasons` (poolHealth.ts) says each of these again for the pool, and the
+ * open-a-pool form shows those lines above Review. So the form leaves these out of the
+ * list above its amount boxes (on a phone that list pushes the boxes off the first
+ * screen), and the card says them in the token's own words before its button. A test pins
+ * that every code here has such a line: none may be left out of the form and said nowhere.
+ */
+export const POOL_RISK_CODES: ReadonlySet<SafetyReason['code']> = new Set<SafetyReason['code']>([
+  'copies-known-name',
+  'freeze-authority',
+  'interest-bearing',
+  'scaled-amount',
+]);
+
+const NO_MARKET_CAUTION =
+  'Jupiter has no market price for this token, so there is nothing to compare an opening price with. If you open a pool, you set its first price yourself.';
+
+/**
+ * What the Open-a-pool card says, before its button, about a token it offers a pool for:
+ * each `POOL_RISK_CODES` warning in the token's own words (the copy warning names the real
+ * token's mint), and that there is no market price when Jupiter ANSWERED it has none.
+ * These are warnings: none of them takes the button away. A price that was not read is
+ * not one of them (`createOffer` stops on it).
+ */
+export function openingCautions(safety: TokenSafety, outside: OutsidePrice | null): string[] {
+  const token = safety.kind === 'read' ? safety.warnings.filter((w) => POOL_RISK_CODES.has(w.code)).map((w) => w.text) : [];
+  return outside?.kind === 'no-route' ? [...token, NO_MARKET_CAUTION] : token;
 }
 
 /**
