@@ -29,7 +29,14 @@ const BURN_ADDRESS_BALANCE_CALL = '0x70a0823100000000000000000000000000000000000
 type Erc20Recording = { token: string; totalSupply: bigint; decimals: number; atBurnAddress: bigint; inOwnContract?: bigint };
 type RpcCall = { id: number; method: string; params?: unknown[] };
 /** What the chain answers. `recording: null` refuses every read. Mutable, so a test can bring the chain back. */
-type Chain = { evm: Erc20Recording | null; solana: { mint: string; amount: string } | null; multicalls: number; supplyReads: number };
+type Chain = {
+  evm: Erc20Recording | null;
+  solana: { mint: string; amount: string } | null;
+  /** Hold every Solana read open and never answer it, as a stalled connection does. */
+  solanaHangs?: boolean;
+  multicalls: number;
+  supplyReads: number;
+};
 
 async function seed(page: Page, id: string) {
   await page.addInitScript((door) => {
@@ -80,6 +87,7 @@ async function stubChain(page: Page, initial: Partial<Pick<Chain, 'evm' | 'solan
   });
 
   await page.route('**/api/solrpc', async (route) => {
+    if (chain.solanaHangs) return; // never fulfilled, never aborted
     const rec = chain.solana;
     if (!rec) return route.fulfill({ status: 503, body: 'sealed' });
     const body = route.request().postDataJSON() as RpcCall | RpcCall[];
@@ -194,6 +202,11 @@ test.describe('the burn card, on every door', () => {
       const card = burnCard(page, b.symbol);
       await expect(card).toHaveCount(1, { timeout: 30_000 });
       await expect(card.getByRole('status')).toHaveText(OUTAGE(b.symbol), { timeout: 30_000 });
+      // Inside the page column, not glued to the window's edges with its corners cut off.
+      const box = (await card.boundingBox())!;
+      const width = page.viewportSize()!.width;
+      expect(box.x, 'the card touches the left edge of the window').toBeGreaterThanOrEqual(16);
+      expect(width - (box.x + box.width), 'the card touches the right edge of the window').toBeGreaterThanOrEqual(16);
     });
   }
 });
@@ -323,4 +336,71 @@ test.describe('the burn card, read and fitted', () => {
       await expect(card.getByRole('status')).toHaveCount(0);
     });
   }
+
+  test('/pepe with the device offline: Refresh says it could not read, it does not sit silent on the old figure', async ({ page }) => {
+    test.skip(test.info().project.name !== 'chromium', 'the same hook on every device');
+    await seed(page, 'pepe');
+    const chain = await stubChain(page, { evm: PEPE_RECORDING() });
+    await gotoRoute(page, '/pepe');
+    const card = burnCard(page, 'PEPE');
+    await expect(headline(page, 'PEPE')).toHaveText('1.65%', { timeout: 30_000 });
+
+    // The device loses its connection. A paused read would change nothing on screen.
+    await page.context().setOffline(true);
+    chain.evm = null;
+    await card.getByRole('button', { name: 'Refresh' }).click();
+    await expect(card.getByRole('status')).toHaveText(OUTAGE('PEPE'), { timeout: 30_000 });
+    await expect(card.locator('dl')).toHaveCount(0);
+    await expect(card.getByRole('button', { name: 'Refresh' })).toBeEnabled();
+  });
+
+  test('/brainlet with a read that never answers: the card gives up and Refresh comes back', async ({ page }) => {
+    test.skip(test.info().project.name !== 'chromium', 'the same hook on every device');
+    test.slow();
+    await seed(page, 'brainlet');
+    const chain = await stubChain(page);
+    chain.solanaHangs = true;
+    await gotoRoute(page, '/brainlet');
+    const card = burnCard(page, 'BRAINLET');
+    await expect(card).toContainText('Reading the BRAINLET burn', { timeout: 20_000 });
+    // The card waits 20 seconds for an answer, then says so. It used to read "Reading…" for good.
+    await expect(card.getByRole('status')).toHaveText(OUTAGE('BRAINLET'), { timeout: 40_000 });
+    await expect(card.getByRole('button', { name: 'Refresh' })).toBeEnabled();
+  });
+
+  test('/toweli on a phone: the older "Burned forever" row prints the card\'s percent and is not cut off', async ({ page }) => {
+    const toweli = room('toweli');
+    const narrow = test.info().project.name === 'chromium';
+    if (narrow) await page.setViewportSize({ width: 320, height: 700 });
+    await seed(page, 'toweli');
+    await stubChain(page, {
+      evm: { token: toweli.address!, totalSupply: 1_000_000_000n * 10n ** 18n, decimals: 18, atBurnAddress: 257_626_865_814586290000000000n },
+    });
+    await gotoRoute(page, '/toweli');
+    await expect(headline(page, 'TOWELI')).toHaveText('25.76%', { timeout: 30_000 });
+
+    const rowLink = page.locator('a', { hasText: 'Burned forever' });
+    await rowLink.scrollIntoViewIfNeeded();
+    await expect(rowLink).toContainText('25.76% of everything minted');
+    await page.evaluate(() => document.fonts.ready);
+    // Every character of the value is painted: nothing hidden behind an ellipsis or past its box.
+    const clipped = await rowLink.evaluate((a) => {
+      // The innermost span: the one that holds the text itself, not the row's flex wrapper around it.
+      const value = [...a.querySelectorAll('span')].find(
+        (el) => el.children.length === 0 && (el.textContent ?? '').includes('of everything minted'),
+      )!;
+      const style = getComputedStyle(value);
+      const box = a.getBoundingClientRect();
+      const range = document.createRange();
+      range.selectNodeContents(value);
+      const rects = [...range.getClientRects()].filter((r) => r.width > 0);
+      return {
+        ellipsis: style.textOverflow === 'ellipsis' && value.scrollWidth > value.clientWidth,
+        overflowX: value.scrollWidth - value.clientWidth,
+        pastRow: Math.max(0, ...rects.map((r) => Math.round(r.right - box.right)), ...rects.map((r) => Math.round(box.left - r.left))),
+      };
+    });
+    expect(clipped).toEqual({ ellipsis: false, overflowX: 0, pastRow: 0 });
+    expect(await slidSideways(page), 'the page slid sideways').toBe(0);
+  });
 });

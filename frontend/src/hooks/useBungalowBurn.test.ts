@@ -51,7 +51,7 @@ vi.mock('../lib/bungalowBurn', async (importOriginal) => {
   };
 });
 
-const { useBungalowBurn } = await import('./useBungalowBurn');
+const { useBungalowBurn, SOLANA_READ_TIMEOUT_MS } = await import('./useBungalowBurn');
 
 const room = (id: string): Bungalow => BUNGALOWS.find((b) => b.id === id)!;
 const ok = (result: unknown): ReadCell => ({ status: 'success', result });
@@ -194,6 +194,9 @@ describe('useBungalowBurn on an EVM token', () => {
     expect(query.enabled).toBe(true);
     // 0, not the app's 30 s default: a second mount of the same token must read, not reuse.
     expect(query.staleTime).toBe(0);
+    // 'always': the default pauses a read while the device is offline, so Refresh did nothing
+    // and the old figure stayed on screen. It must run and fail into the outage line.
+    expect(query.networkMode).toBe('always');
     expect(query.refetchOnWindowFocus).toBe(false);
     expect(query.refetchOnReconnect).toBe(false);
     expect(query.refetchInterval).toBeUndefined();
@@ -267,6 +270,27 @@ describe('useBungalowBurn on a Solana token', () => {
 
     await act(async () => { releaseBayla(supplyResponse('989301008790751')); });
     expect(result.current.burn).toMatchObject({ status: 'read', tally: { burntRaw: 7_165_822529n } });
+  });
+
+  it('gives up a read that never answers: unread, with Refresh back, not "Reading…" for good', async () => {
+    vi.useFakeTimers();
+    try {
+      // A fetch that only ever ends by being aborted, as a stalled connection does.
+      const spy = vi.fn((_url: unknown, init?: RequestInit) => new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')));
+      }));
+      vi.stubGlobal('fetch', spy);
+      const { result } = renderHook(() => useBungalowBurn(room('brainlet')));
+      await act(async () => { await vi.advanceTimersByTimeAsync(SOLANA_READ_TIMEOUT_MS - 1000); });
+      expect(spy).toHaveBeenCalledTimes(1);
+      expect(result.current.burn).toEqual({ status: 'loading' });
+
+      await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+      expect(result.current.burn).toEqual({ status: 'unread' });
+      expect(result.current.isReading).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('aborts its read when the card unmounts', async () => {

@@ -185,6 +185,8 @@ describe('BungalowBurn, a full read', () => {
     render(<BungalowBurn bungalow={room(id)} />);
     const link = screen.getByRole('link', { name: `${label} (opens in new tab)` });
     expect(link.getAttribute('href')).toContain(prefix + room(id).address);
+    // A no-break space ties the arrow to the last word, so it cannot wrap onto a line alone.
+    expect(link.textContent).toBe(`${label}\u00A0↗`);
     expect(link.getAttribute('rel')).toBe('noopener noreferrer');
   });
 });
