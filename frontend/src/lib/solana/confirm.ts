@@ -25,9 +25,18 @@
 // kept its own copy that threw on a timeout and on a single RPC error, and called
 // both "Swap failed". The second rule came from the swap path's own poller
 // (lib/solana/swap/confirm.ts, #703), which this module replaced.
-import type { Connection } from '@solana/web3.js';
-
 export type ConfirmOutcome = { outcome: 'confirmed' | 'reverted' | 'unknown'; slot: number | null };
+
+/**
+ * All this module reads of a connection: one status per signature, and of each status
+ * only its error, its level and its slot. A web3.js `Connection` is one of these; so is
+ * a sender's own injected reader (lib/solana/swap/jupiterSend.ts), with no cast.
+ */
+export interface SignatureStatusSource {
+  getSignatureStatuses(
+    sigs: string[],
+  ): Promise<{ value: Array<{ err: unknown; confirmationStatus?: string | null; slot?: number } | null> }>;
+}
 
 /**
  * Poll `signature` until it is confirmed (or finalized), reverted, or the clock runs out.
@@ -36,7 +45,7 @@ export type ConfirmOutcome = { outcome: 'confirmed' | 'reverted' | 'unknown'; sl
  * status did not carry one.
  */
 export async function pollConfirm(
-  conn: Pick<Connection, 'getSignatureStatuses'>,
+  conn: SignatureStatusSource,
   signature: string,
   timeoutMs = 60_000,
   sleep: (ms: number) => Promise<void> = (ms) => new Promise<void>((r) => setTimeout(r, ms)),

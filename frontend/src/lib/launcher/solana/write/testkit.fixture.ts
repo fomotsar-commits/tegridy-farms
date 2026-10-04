@@ -29,21 +29,27 @@ import {
   CREATOR_FEE_ON_TOKEN_0,
   CREATOR_FEE_ON_TOKEN_1,
   IX_INITIALIZE,
+  IX_SWAP_BASE_INPUT,
   POOL_STATE_LEN,
   POOL_STATE_OFFSETS,
   decodeAmmConfig,
+  decodePoolState,
   deriveAuthority,
   deriveLpMint,
   deriveObservation,
   derivePool,
   deriveVault,
+  isCreatorFeeOnInput,
   publicTierConfig,
   sortMints,
+  swapEnabled,
 } from '../../../solana/cpswap/program';
+import { swapBaseInput } from '../../../solana/cpswap/math';
 import { isqrt } from '../../../solana/lp/liquidityMath';
 import { associatedTokenAddress } from '../curve/ix';
 import { priorityLamports } from './budget';
 import { CP_CREATE_POOL_FEE_RECEIVER } from './config';
+import { LIGHTHOUSE_PROGRAM_ID } from './intent';
 import {
   BAYLA_MINT,
   PLANT_BURN_RAW,
@@ -463,12 +469,15 @@ export function addPool(
     tokenProgram?: PublicKey;
     tokenDecimals?: number;
     frozenTokenVault?: boolean;
+    /** The fee tier the pool records, and (without `address` or `launch`) the one its standard address is derived from. Default: tier 0. */
+    ammConfig?: PublicKey;
     /** Override recorded fields (to test a pool whose record and derivation disagree). */
     record?: Partial<Record<'token0Vault' | 'token1Vault' | 'lpMint' | 'observationKey' | 'token0Program' | 'token1Program', PublicKey>>;
   },
 ): PoolFixture {
   const { token0, token1 } = sortMints(WSOL_MINT, mint);
-  const address = o.address ?? (o.launch ? poolStatePda(mint, LAUNCH) : derivePool(CPSWAP, AMM_CONFIG, token0, token1));
+  const ammConfig = o.ammConfig ?? AMM_CONFIG;
+  const address = o.address ?? (o.launch ? poolStatePda(mint, LAUNCH) : derivePool(CPSWAP, ammConfig, token0, token1));
   const solIsToken0 = token0.equals(WSOL_MINT);
   const tokenProgram = o.tokenProgram ?? TOKEN_PROGRAM_ID;
   const vault0 = deriveVault(CPSWAP, address, token0);
@@ -480,7 +489,7 @@ export function addPool(
   d.set(ACCOUNT_POOL_STATE, 0);
   const r = o.record ?? {};
   const keys: Array<[number, PublicKey]> = [
-    [off.ammConfig, AMM_CONFIG],
+    [off.ammConfig, ammConfig],
     [off.poolCreator, mint],
     [off.token0Vault, r.token0Vault ?? vault0],
     [off.token1Vault, r.token1Vault ?? vault1],
@@ -872,4 +881,185 @@ export function createSimulator(o: CreateSimOptions = {}): SimHandler {
   };
 }
 
+export interface RouteSwapSimOptions {
+  /** A token program that keeps a native account's stored reserve on sync (default: re-prices it to this chain's rent, as mainnet's does). */
+  keepsReserve?: boolean;
+  /** An unrelated payment that lands on the site's fee account meanwhile (an opening fee, a Jupiter fee). */
+  treasuryCredit?: bigint;
+  /** What the pool pays out, given what its own maths quotes (default: exactly that). Below the minimum, the pool refuses (6005). */
+  fillOut?: (quoted: bigint) => bigint;
+  /** What reaches the fee account, given the fee the transaction carries (default: exactly that). */
+  feeArrives?: (fee: bigint) => bigint;
+  /** The pool program refuses the swap with this custom error. */
+  failCode?: number;
+}
+
+/**
+ * Runs a swap through one of our pools on the fake chain's accounts, instruction by
+ * instruction, and reports the watched post-state:
+ *   - create-if-missing: the account's rent leaves the wallet (165 bytes classic, 170
+ *     Token-2022); over an address that only holds SOL someone sent it, only the top-up
+ *     does (`openAccount`), and a close returns every lamport the account holds;
+ *   - a System transfer into the wallet's wrapped-SOL account;
+ *   - SyncNative on it: balance = lamports − reserve, and mainnet's token program also
+ *     re-prices a stale stored reserve to this chain's rent (as `createSimulator` models it);
+ *   - TransferChecked of wrapped SOL (the site fee): amount AND lamports move, no sync;
+ *   - cp-swap's `swap_base_input`, with the program's own maths on the pool's vaults and
+ *     the pool's own fee tier: switched off or not yet open (6000), a zero result (6006),
+ *     below the minimum (6005);
+ *   - CloseAccount: everything in the wrapped-SOL account returns to the wallet.
+ * A token instruction on any other account, or one this does not know, fails the run.
+ */
+export function routeSwapSimulator(o: RouteSwapSimOptions = {}): SimHandler {
+  return (vtx, config, chain) => {
+    const keys = vtx.message.staticAccountKeys;
+    const ixs = vtx.message.compiledInstructions.map((ix) => ({ program: keys[ix.programIdIndex]!, accounts: ix.accountKeyIndexes.map((i) => keys[i]!), data: ix.data }));
+    const signer = keys[0]!;
+    const wsolAta = associatedTokenAddress(WSOL_MINT, signer);
+    const view = (d: Uint8Array) => new DataView(d.buffer, d.byteOffset, d.byteLength);
+    const fail = (index: number, code: number, program: PublicKey) => ({
+      err: { InstructionError: [index, { Custom: code }] },
+      logs: [`Program ${program.toBase58()} failed: custom program error: 0x${code.toString(16)}`],
+      unitsConsumed: 30_000,
+    });
+    const rentNow = BigInt(rent(165));
+
+    let signerDelta = 0n;
+    const wsolAcc = chain.accounts.get(wsolAta.toBase58());
+    // An address that only holds SOL someone sent it (System-owned, no data) is no account yet.
+    const wsolIsAccount = !!wsolAcc && !(wsolAcc.owner.equals(SYSTEM_PROGRAM) && wsolAcc.data.length === 0);
+    const wsol = wsolAcc && wsolIsAccount
+      ? { open: true, lamports: BigInt(wsolAcc.lamports), amount: amountOnChain(chain, wsolAta) ?? 0n, reserve: storedReserve(wsolAcc.data) ?? rentNow }
+      : { open: false, lamports: BigInt(wsolAcc?.lamports ?? 0), amount: 0n, reserve: rentNow };
+    let wsolClosed = false;
+    /** Token balances this run changes, other than the wallet's wrapped SOL: address -> { amount, mint, owner }. */
+    const moved = new Map<string, { amount: bigint; mint: PublicKey; owner: PublicKey }>();
+    const balance = (k: PublicKey, mint: PublicKey, owner: PublicKey) => {
+      const at = k.toBase58();
+      let b = moved.get(at);
+      if (!b) {
+        b = { amount: amountOnChain(chain, k) ?? 0n, mint, owner };
+        moved.set(at, b);
+      }
+      return b;
+    };
+    const opened = new Set<string>();
+    /** A token account is there: on the chain as an account (not an address that only holds SOL), or opened by this run. */
+    const exists = (k: PublicKey) => {
+      const a = chain.accounts.get(k.toBase58());
+      return opened.has(k.toBase58()) || (!!a && !(a.owner.equals(SYSTEM_PROGRAM) && a.data.length === 0));
+    };
+
+    for (let n = 0; n < ixs.length; n++) {
+      const ix = ixs[n]!;
+      const d = ix.data;
+      if (ix.program.equals(ASSOCIATED_TOKEN_PROGRAM_ID)) {
+        const address = ix.accounts[1]!;
+        if (address.equals(wsolAta)) {
+          if (!wsol.open) {
+            // Opened over whatever the address already holds (`openAccount`): the signer pays
+            // only the top-up, and a native account starts with the lamports above its
+            // deposit as balance.
+            const o = openAccount(chain, wsolAta);
+            wsol.open = true;
+            wsol.lamports = BigInt(o.lamports);
+            wsol.amount = wsol.lamports - rentNow;
+            signerDelta -= BigInt(o.paid);
+          }
+        } else if (!exists(address)) {
+          opened.add(address.toBase58());
+          signerDelta -= BigInt(openAccount(chain, address, ix.accounts[5]!.equals(TOKEN_2022_PROGRAM_ID) ? 170 : 165).paid);
+        }
+      } else if (ix.program.equals(SYSTEM_PROGRAM)) {
+        const lamports = view(d).getBigUint64(4, true);
+        if (!ix.accounts[1]!.equals(wsolAta) || !wsol.open) return fail(n, 1, SYSTEM_PROGRAM);
+        wsol.lamports += lamports;
+        signerDelta -= lamports;
+      } else if (ix.program.equals(TOKEN_PROGRAM_ID) && d[0] === 17) {
+        if (!ix.accounts[0]!.equals(wsolAta) || !wsol.open) return fail(n, 3, TOKEN_PROGRAM_ID);
+        if (!o.keepsReserve && wsol.reserve > rentNow) wsol.reserve = rentNow;
+        wsol.amount = wsol.lamports - wsol.reserve;
+      } else if (ix.program.equals(TOKEN_PROGRAM_ID) && d[0] === 12) {
+        const amount = view(d).getBigUint64(1, true);
+        const to = ix.accounts[2]!;
+        if (!ix.accounts[0]!.equals(wsolAta) || !wsol.open || !chain.accounts.has(to.toBase58())) return fail(n, 3, TOKEN_PROGRAM_ID);
+        if (wsol.amount < amount) return fail(n, 1, TOKEN_PROGRAM_ID);
+        wsol.amount -= amount;
+        wsol.lamports -= amount;
+        balance(to, WSOL_MINT, VAULT).amount += o.feeArrives ? o.feeArrives(amount) : amount;
+      } else if (ix.program.equals(TOKEN_PROGRAM_ID) && d[0] === 9) {
+        if (!ix.accounts[0]!.equals(wsolAta) || !wsol.open) return fail(n, 3, TOKEN_PROGRAM_ID);
+        signerDelta += wsol.lamports;
+        wsol.open = false;
+        wsolClosed = true;
+      } else if (ix.program.equals(CPSWAP) && IX_SWAP_BASE_INPUT.every((b, j) => d[j] === b)) {
+        if (o.failCode !== undefined) return fail(n, o.failCode, CPSWAP);
+        const at = (i: number) => ix.accounts[i]!;
+        const poolAcc = chain.accounts.get(at(3).toBase58());
+        const state = poolAcc ? decodePoolState(at(3).toBase58(), poolAcc.data) : null;
+        const tierAcc = chain.accounts.get(at(2).toBase58());
+        const tier = tierAcc ? decodeAmmConfig(at(2).toBase58(), tierAcc.data) : null;
+        if (!state || !tier || state.ammConfig !== at(2).toBase58()) return fail(n, 3012, CPSWAP);
+        const clock = chain.accounts.get(CLOCK_SYSVAR.toBase58());
+        const now = clock ? view(clock.data).getBigInt64(32, true) : 0n;
+        if (!swapEnabled(state) || now < state.openTime) return fail(n, 6000, CPSWAP);
+        const inMint = at(10);
+        const outMint = at(11);
+        const inIs0 = inMint.toBase58() === state.token0Mint;
+        const onInput = isCreatorFeeOnInput(state.creatorFeeOn, inIs0);
+        const r0 = (amountOnChain(chain, new PublicKey(state.token0Vault)) ?? 0n) - state.protocolFeesToken0 - state.fundFeesToken0 - state.creatorFeesToken0;
+        const r1 = (amountOnChain(chain, new PublicKey(state.token1Vault)) ?? 0n) - state.protocolFeesToken1 - state.fundFeesToken1 - state.creatorFeesToken1;
+        const amountIn = view(d).getBigUint64(8, true);
+        const minOut = view(d).getBigUint64(16, true);
+        const quoted =
+          onInput === null
+            ? null
+            : swapBaseInput({
+                inputAmount: amountIn,
+                inputVaultAmount: inIs0 ? r0 : r1,
+                outputVaultAmount: inIs0 ? r1 : r0,
+                tradeFeeRate: tier.tradeFeeRate,
+                creatorFeeRate: state.enableCreatorFee ? tier.creatorFeeRate : 0n,
+                protocolFeeRate: tier.protocolFeeRate,
+                fundFeeRate: tier.fundFeeRate,
+                isCreatorFeeOnInput: onInput,
+              });
+        if (!quoted || quoted.outputAmount === 0n) return fail(n, 6006, CPSWAP);
+        const out = o.fillOut ? o.fillOut(quoted.outputAmount) : quoted.outputAmount;
+        if (out < minOut) return fail(n, 6005, CPSWAP);
+        if (inMint.equals(WSOL_MINT)) {
+          if (!wsol.open || wsol.amount < amountIn || !exists(at(5))) return fail(n, 1, TOKEN_PROGRAM_ID);
+          wsol.amount -= amountIn;
+          wsol.lamports -= amountIn;
+          balance(at(5), outMint, signer).amount += out;
+        } else {
+          const source = balance(at(4), inMint, signer);
+          if (!wsol.open || source.amount < amountIn) return fail(n, 1, TOKEN_PROGRAM_ID);
+          source.amount -= amountIn;
+          wsol.amount += out;
+          wsol.lamports += out;
+        }
+      } else if (!ix.program.equals(COMPUTE_BUDGET_PROGRAM) && !ix.program.equals(LIGHTHOUSE_PROGRAM_ID)) {
+        // A wallet's Lighthouse guard only asserts; it moves nothing.
+        return { err: 'an instruction this simulator does not know', logs: [], unitsConsumed: 1 };
+      }
+    }
+    if (!config?.accounts) return { err: null, logs: [], unitsConsumed: 60_000 };
+
+    if (o.treasuryCredit) for (const b of moved.values()) if (b.owner.equals(VAULT)) b.amount += o.treasuryCredit;
+    const changes: Parameters<FakeChain['post']>[1] = {
+      [signer.toBase58()]: { lamportsDelta: Number(signerDelta) },
+      [wsolAta.toBase58()]: wsolClosed || !wsol.open ? { closed: true } : { tokenAmount: wsol.amount, mint: WSOL_MINT, owner: signer },
+    };
+    for (const [at, b] of moved) changes[at] = { tokenAmount: b.amount, mint: b.mint, owner: b.owner };
+    return {
+      err: null,
+      logs: [`Program ${CPSWAP.toBase58()} invoke [1]`, 'Program log: Instruction: SwapBaseInput', `Program ${CPSWAP.toBase58()} success`],
+      unitsConsumed: 60_000,
+      accounts: chain.post(config.accounts.addresses, changes),
+    };
+  };
+}
+
 const SYSTEM_PROGRAM = new PublicKey('11111111111111111111111111111111');
+const COMPUTE_BUDGET_PROGRAM = new PublicKey('ComputeBudget111111111111111111111111111111');

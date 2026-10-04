@@ -26,10 +26,11 @@ export function loadLpWriteApi(): Promise<LpWriteApi> {
 }
 
 async function build(): Promise<LpWriteApi> {
-  const [config, liquidity, createPool, submit, validate] = await Promise.all([
+  const [config, liquidity, createPool, routeSwap, submit, validate] = await Promise.all([
     import('../../../lib/launcher/solana/write/config'),
     import('../../../lib/launcher/solana/write/liquidity'),
     import('../../../lib/launcher/solana/write/createPool'),
+    import('../../../lib/launcher/solana/write/routeSwap'),
     import('../../../lib/launcher/solana/write/submit'),
     import('../../../lib/launchMetadata/validate.js'),
   ]);
@@ -40,6 +41,8 @@ async function build(): Promise<LpWriteApi> {
     prepareLpDeposit: liquidity.prepareLpDeposit,
     prepareLpWithdraw: liquidity.prepareLpWithdraw,
     prepareLpCreate: createPool.prepareLpCreate,
+    // The page never passes the fourth argument (tests and the dry-run harness only).
+    prepareRouteSwap: (rpc, gate, a) => routeSwap.prepareRouteSwap(rpc, gate, a),
     submitPrepared: submit.submitPrepared,
     recheckOutcome: (rpc, signature, opts) => submit.recheckOutcome(rpc, signature, opts ?? {}),
     explorerTxUrl: config.explorerTxUrl,

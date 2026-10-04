@@ -64,8 +64,9 @@ function feeEnabled(): boolean {
  * Derive the fee token account (ATA of `feeMint` owned by the fee wallet).
  * `feeMint` is always legacy SPL {wSOL, USDC}, so the default token program is
  * correct. `allowOwnerOffCurve = true` because the owner may be a Squads PDA.
+ * Exported for tests only: nothing outside this file decides a fee account.
  */
-function feeAccountFor(feeMint: string): string | null {
+export function feeAccountFor(feeMint: string): string | null {
   if (!SOLANA_FEE_ACCOUNT) return null;
   try {
     const owner = new PublicKey(SOLANA_FEE_ACCOUNT);
@@ -112,18 +113,7 @@ export class NoRouteError extends Error {
   }
 }
 
-/** The proxy's "no route" answer, and nothing else (api/_lib/aggregator-proxy.js). */
-async function isNoRouteAnswer(res: Response): Promise<boolean> {
-  if (res.status !== 404) return false;
-  try {
-    const body = (await res.json()) as { code?: unknown } | null;
-    return body !== null && typeof body === 'object' && body.code === 'NO_ROUTE';
-  } catch {
-    return false;
-  }
-}
-
-export async function getQuote(params: {
+export interface QuoteParams {
   inputMint: string;
   outputMint: string;
   /** Integer amount in the INPUT mint's base units. */
@@ -136,7 +126,10 @@ export async function getQuote(params: {
    * after the fee-bearing build failed simulation with Jupiter's 6014.
    */
   noPlatformFee?: boolean;
-}): Promise<JupiterQuote> {
+}
+
+/** The one quote request both readers send, and the platform fee it carried (null: none). */
+function quoteRequest(params: QuoteParams): { url: string; feeBpsSent: number | null } {
   const qs = new URLSearchParams({
     inputMint: params.inputMint,
     outputMint: params.outputMint,
@@ -148,16 +141,155 @@ export async function getQuote(params: {
   // Attach the platform fee ONLY when a leg of the pair is fee-supported. The
   // SAME decision drives /swap, so platformFeeBps is never sent without a
   // matching feeAccount (which Jupiter rejects) and the fee account always exists.
+  let feeBpsSent: number | null = null;
   if (!params.noPlatformFee && feeEnabled() && pickFeeMint(params.inputMint, params.outputMint)) {
     qs.set('platformFeeBps', String(SOLANA_PLATFORM_FEE_BPS));
+    feeBpsSent = SOLANA_PLATFORM_FEE_BPS;
   }
-  const res = await fetch(`${JUPITER_PROXY_BASE}/quote?${qs.toString()}`, {
+  return { url: `${JUPITER_PROXY_BASE}/quote?${qs.toString()}`, feeBpsSent };
+}
+
+/**
+ * The older reader: it THROWS for every answer that is not a quote. Jupiter's
+ * own "no route" is a NoRouteError; everything else is "Quote unavailable
+ * (status)" or the fetch's own error, so the swap page can word the two apart.
+ * The swap page still calls it; the page half of SPEC_S3 step S1 moves the page
+ * to readQuote below and deletes this.
+ */
+export async function getQuote(params: QuoteParams): Promise<JupiterQuote> {
+  const res = await fetch(quoteRequest(params).url, {
     headers: { Accept: 'application/json' },
     signal: params.signal,
   });
-  if (await isNoRouteAnswer(res)) throw new NoRouteError();
+  // The same one rule readQuote follows: a 404 AND the proxy's fixed body.
+  if (res.status === 404 && (await isNoRouteBody(res))) throw new NoRouteError();
   if (!res.ok) throw new Error(`Quote unavailable (${res.status})`);
   return (await res.json()) as JupiterQuote;
+}
+
+/**
+ * The proxy's "no route" body: `{"error":"No route","code":"NO_ROUTE"}` (api/_lib/aggregator-proxy.js).
+ * The body alone is not the answer: every caller also requires the 404 it comes with.
+ */
+export async function isNoRouteBody(res: Response): Promise<boolean> {
+  try {
+    const body = (await res.json()) as { code?: unknown } | null;
+    return body !== null && typeof body === 'object' && body.code === 'NO_ROUTE';
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * One quote request, with its three honest answers kept apart:
+ *   - `quote`: Jupiter priced THIS trade. `feeBpsSent` is the platformFeeBps the
+ *     request carried (null: none), which jupiterNet needs to know what
+ *     `outAmount` means;
+ *   - `no-route`: Jupiter answered that it has no route. Only our proxy's fixed
+ *     404 body (`code: "NO_ROUTE"`) is that answer;
+ *   - `unread`: anything else. A 502, a 429, a network error, bad JSON, any
+ *     other 404, an answer for a different trade, an answer without amounts.
+ * "Unread" is never "no route": a page that says "No route" while Jupiter is
+ * down sends people away from a trade that exists, and a route rule that reads
+ * a down Jupiter as "no competitor" would let any pool win against nothing.
+ */
+export type QuoteRead =
+  | { kind: 'quote'; quote: JupiterQuote; feeBpsSent: number | null }
+  | { kind: 'no-route' }
+  | { kind: 'unread'; detail: string };
+
+const RAW_AMOUNT = /^\d{1,30}$/;
+
+/** Never throws, except to pass on an AbortError (the caller cancelled; that is not an answer). */
+export async function readQuote(params: QuoteParams): Promise<QuoteRead> {
+  const { url, feeBpsSent } = quoteRequest(params);
+  let res: Response;
+  try {
+    res = await fetch(url, { headers: { Accept: 'application/json' }, signal: params.signal });
+  } catch (e) {
+    if (isAbort(e)) throw e;
+    return { kind: 'unread', detail: 'Jupiter could not be reached' };
+  }
+  if (res.status === 404 && (await isNoRouteBody(res))) return { kind: 'no-route' };
+  if (!res.ok) return { kind: 'unread', detail: `Jupiter did not give a price (HTTP ${res.status})` };
+  let q: Partial<JupiterQuote> | null;
+  try {
+    q = (await res.json()) as Partial<JupiterQuote> | null;
+  } catch (e) {
+    if (isAbort(e)) throw e;
+    return { kind: 'unread', detail: 'Jupiter’s answer could not be read' };
+  }
+  if (q === null || typeof q !== 'object' || Array.isArray(q)) return { kind: 'unread', detail: 'Jupiter’s answer could not be read' };
+  if (q.inputMint !== params.inputMint || q.outputMint !== params.outputMint || q.inAmount !== params.amount) {
+    return { kind: 'unread', detail: 'Jupiter answered for a different trade' };
+  }
+  if (typeof q.outAmount !== 'string' || !RAW_AMOUNT.test(q.outAmount) || BigInt(q.outAmount) <= 0n) {
+    return { kind: 'unread', detail: 'Jupiter answered without an amount' };
+  }
+  return { kind: 'quote', quote: q as JupiterQuote, feeBpsSent };
+}
+
+function isAbort(e: unknown): boolean {
+  return typeof e === 'object' && e !== null && (e as { name?: unknown }).name === 'AbortError';
+}
+
+/**
+ * The one platform-fee rate at which a Jupiter quote can be compared with one
+ * of our own pools (SPEC_S3 D3, D4): 50 bps, the site's 0.5%. Committed, never
+ * read from the environment; a build configured with any other rate simply
+ * never gets a comparable number out of jupiterNet.
+ */
+export const COMPARABLE_PLATFORM_FEE_BPS = 50;
+
+/**
+ * What a trader receives through Jupiter for this trade AFTER our platform fee,
+ * or null when the quote does not PROVE that its `outAmount` means that.
+ *
+ * Why not just read `outAmount`: whether it is before or after the platform fee
+ * is Jupiter's convention, not ours, and it has drifted before on other
+ * aggregators. Ranking our pool against a gross number would send trades to
+ * whichever side the convention happens to favour. So the quote has to show its
+ * own working. With S = the sum of `swapInfo.outAmount` over the legs that pay
+ * out in the quote's output mint, all of these must hold:
+ *   - the request carried platformFeeBps = 50, and the quote records feeBps 50;
+ *   - platformFee.amount == floor(S x 50 / 10000);
+ *   - outAmount + platformFee.amount == S;
+ *   - the mints, the input amount and ExactIn echo what was asked.
+ * Measured on mainnet 2026-10-03 on 7 of 7 pairs: one leg, three hops, a
+ * four-leg split, split plus hop, both directions.
+ *
+ * Null means "unread", never "zero": Jupiter may still run the trade, but our
+ * pool does not compete against a number whose meaning is not proven.
+ */
+export function jupiterNet(
+  r: Extract<QuoteRead, { kind: 'quote' }>,
+  asked: { inputMint: string; outputMint: string; amount: string },
+): bigint | null {
+  if (r.feeBpsSent !== COMPARABLE_PLATFORM_FEE_BPS) return null;
+  const q = r.quote;
+  if (q.inputMint !== asked.inputMint || q.outputMint !== asked.outputMint) return null;
+  if (q.inAmount !== asked.amount || q.swapMode !== 'ExactIn') return null;
+  if (typeof q.outAmount !== 'string' || !RAW_AMOUNT.test(q.outAmount)) return null;
+  const pf = q.platformFee;
+  if (pf === null || pf === undefined || typeof pf !== 'object') return null;
+  if (pf.feeBps !== COMPARABLE_PLATFORM_FEE_BPS) return null;
+  if (typeof pf.amount !== 'string' || !RAW_AMOUNT.test(pf.amount)) return null;
+  if (!Array.isArray(q.routePlan) || q.routePlan.length === 0) return null;
+  let sum = 0n;
+  for (const leg of q.routePlan) {
+    const info = (leg as { swapInfo?: { outputMint?: unknown; outAmount?: unknown } } | null)?.swapInfo;
+    // Every leg must be readable, not only the final ones: a leg we cannot read
+    // could be a final leg we failed to count.
+    if (!info || typeof info.outputMint !== 'string') return null;
+    if (typeof info.outAmount !== 'string' || !RAW_AMOUNT.test(info.outAmount)) return null;
+    if (info.outputMint === q.outputMint) sum += BigInt(info.outAmount);
+  }
+  const out = BigInt(q.outAmount);
+  const fee = BigInt(pf.amount);
+  if (fee !== (sum * BigInt(COMPARABLE_PLATFORM_FEE_BPS)) / 10_000n) return null;
+  if (out + fee !== sum) return null;
+  // A plan with no leg paying the output mint sums to 0, so it ends here too.
+  return out > 0n ? out : null;
 }
 
 /**
@@ -168,18 +300,37 @@ export async function getQuote(params: {
 export type PriorityLevel = 'medium' | 'high' | 'veryHigh';
 export const MAX_PRIORITY_LAMPORTS = 5_000_000; // 0.005 SOL — disclosed in the UI
 
-/**
- * Build the (unsigned) swap transaction from a quote. Returns the base64
- * `swapTransaction` (a serialized VersionedTransaction) for the wallet to sign.
- */
-export async function buildSwapTransaction(params: {
+export interface BuildSwapParams {
   quote: JupiterQuote;
   userPublicKey: string;
   /** Omitted → Jupiter's default fee behavior (how v1 always ran). */
   priorityLevel?: PriorityLevel;
   /** Build with NO fee account. Must be paired with a quote taken with noPlatformFee. */
   noPlatformFee?: boolean;
-}): Promise<string> {
+}
+
+export interface BuiltSwap {
+  /** Base64 of a serialized VersionedTransaction, for the wallet to sign. */
+  swapTransaction: string;
+  /**
+   * The last block height at which this transaction's blockhash is still valid,
+   * as Jupiter reports it. Past it, a sent transaction that has not landed never
+   * will. Null when the response did not carry a usable number: unknown, not 0.
+   */
+  lastValidBlockHeight: number | null;
+}
+
+/**
+ * Build the (unsigned) swap transaction from a quote. Returns the base64
+ * `swapTransaction` only. The swap page still calls this; the page half of
+ * SPEC_S3 step S1 moves it to buildSwapWithExpiry and folds the two together.
+ */
+export async function buildSwapTransaction(params: BuildSwapParams): Promise<string> {
+  return (await buildSwapWithExpiry(params)).swapTransaction;
+}
+
+/** The same build, with the block height the transaction expires at. */
+export async function buildSwapWithExpiry(params: BuildSwapParams): Promise<BuiltSwap> {
   // A no-fee build of a quote that was priced WITH a fee would hand Jupiter
   // platformFeeBps and no feeAccount, which it rejects. Refuse it here so the
   // two halves cannot drift apart.
@@ -213,9 +364,13 @@ export async function buildSwapTransaction(params: {
     body: JSON.stringify(body),
   });
   if (!res.ok) throw new Error(`Could not build swap (${res.status})`);
-  const json = (await res.json()) as { swapTransaction?: string };
+  const json = (await res.json()) as { swapTransaction?: string; lastValidBlockHeight?: unknown };
   if (!json.swapTransaction) throw new Error('No swap transaction returned');
-  return json.swapTransaction;
+  const height = json.lastValidBlockHeight;
+  return {
+    swapTransaction: json.swapTransaction,
+    lastValidBlockHeight: typeof height === 'number' && Number.isSafeInteger(height) && height > 0 ? height : null,
+  };
 }
 
 /** Convert a human decimal string to an integer base-unit string (no floats). */
@@ -401,7 +556,11 @@ export interface SwapSimulation {
 /**
  * Pre-sign simulation of a built swap tx via our RPC proxy. Catches reverting
  * swaps (honeypots, freeze, slippage, insufficient balance) BEFORE the user
- * signs — saving gas. Best-effort: callers should FAIL OPEN if this throws.
+ * signs — saving gas. Callers FAIL CLOSED if this throws: a swap that could
+ * not be simulated is not sent to the wallet (lib/solana/swap/jupiterSend.ts).
+ * The swap page's own send path still runs the older rule, where an unreadable
+ * FIRST simulation goes to the wallet, until the page half of SPEC_S3 step S1
+ * moves it onto jupiterSend.
  */
 export async function simulateSwap(b64Tx: string, signal?: AbortSignal): Promise<SwapSimulation> {
   const res = await fetch(SOLANA_RPC_PROXY_PATH, {

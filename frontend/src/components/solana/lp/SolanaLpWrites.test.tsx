@@ -16,6 +16,7 @@ import { POOL_STATUS_DISABLE_WITHDRAW, decodeAmmConfig, decodePoolState } from '
 import type { Position } from '../../../lib/solana/lp/positions';
 import type { WalletFacts } from '../../../lib/solana/lp/walletFacts';
 import { buildPool, key } from '../../../lib/solana/lp/testkit.fixture';
+import { yieldClaim } from '../../../lib/solana/lp/yieldCopy.fixture';
 import { LP_PENDING_SCOPE, savePendingTrade } from '../curve/pendingTrade';
 import { prepared } from '../curve/fakeWriteApi.fixture';
 import type { LpWriteApi, Prepared, TxOutcome, TxSummary } from '../curve/ports';
@@ -283,7 +284,7 @@ describe('Add liquidity', () => {
     expect(before).toHaveTextContent(/Jupiter does not send trades to these pools yet/);
     expect(before).toHaveTextContent(/liquidity providers keep 0\.\d{3}%, read from this pool's fee tier just now/);
     expect(before).not.toHaveTextContent(/burned the launch's own pool shares/); // not a launch pool
-    expect(panel).not.toHaveTextContent(/\bAPR\b|\bAPY\b|yield of/i);
+    expect(yieldClaim(panel.textContent ?? '')).toBeNull();
     fireEvent.click(within(panel).getByRole('button', { name: 'Close' }));
     await waitFor(() => expect(screen.queryByTestId('lp-add-panel')).toBeNull());
     expect(add).toHaveFocus();

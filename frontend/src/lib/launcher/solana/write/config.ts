@@ -42,6 +42,7 @@ import {
   SPENT_PROGRAM_ID,
   cpPermissionPda,
   isAmmConfigured,
+  PLATFORM_TREASURY_VAULT,
   migrationAuthorityPda,
 } from '../curve/program';
 import { clipDetail, readDeployment, readGlobal, type CurveRpc, type LaunchState } from '../curve/read';
@@ -475,6 +476,37 @@ export function feeAccountStateOf(acc: { owner: string; data: Uint8Array } | nul
   if (state !== 1) return { kind: 'not-wsol', detail: state === 2 ? 'it is frozen' : 'it is not set up' };
   const native = new DataView(d.buffer, d.byteOffset, d.byteLength).getUint32(TOKEN_ACCOUNT_IS_NATIVE, true);
   if (native !== 1) return { kind: 'not-wsol', detail: 'it is not a native wrapped-SOL account' };
+  return { kind: 'ready' };
+}
+
+export type SiteFeeAccountState = { kind: 'ready' } | { kind: 'missing' } | { kind: 'wrong'; detail: string };
+
+const TOKEN_ACCOUNT_OWNER = 32;
+const TOKEN_ACCOUNT_CLOSE_AUTHORITY = 129;
+
+/**
+ * Whether the site's fee account can take a swap's site fee, and is still the team
+ * vault's. `feeAccountStateOf`'s rules (the classic token program, 165 bytes, wrapped
+ * SOL, set up, native), and two more that an opening does not need but a fee PAID BY A
+ * TRADER does: the account's own owner field is the team vault, and nobody but the vault
+ * can close it. A native account's close authority can close it with SOL inside and send
+ * every lamport wherever it likes, so a stranger there could take the fees.
+ *
+ * `null` = no account there. Anything that is not exactly right is `wrong`, and a swap is
+ * never built without its fee step: prepare refuses instead.
+ */
+export function siteFeeAccountStateOf(acc: { owner: string; data: Uint8Array } | null): SiteFeeAccountState {
+  const base = feeAccountStateOf(acc);
+  if (base.kind === 'missing') return { kind: 'missing' };
+  if (base.kind !== 'ready' || !acc) return { kind: 'wrong', detail: 'detail' in base ? base.detail : 'it could not be read' };
+  const d = acc.data;
+  const vault = PLATFORM_TREASURY_VAULT.toBytes();
+  const isVault = (at: number) => vault.every((b, i) => d[at + i] === b);
+  if (!isVault(TOKEN_ACCOUNT_OWNER)) return { kind: 'wrong', detail: "it does not belong to the team's vault" };
+  const closeTag = new DataView(d.buffer, d.byteOffset, d.byteLength).getUint32(TOKEN_ACCOUNT_CLOSE_AUTHORITY, true);
+  if (closeTag !== 0 && !(closeTag === 1 && isVault(TOKEN_ACCOUNT_CLOSE_AUTHORITY + 4))) {
+    return { kind: 'wrong', detail: "someone other than the team's vault can close it" };
+  }
   return { kind: 'ready' };
 }
 

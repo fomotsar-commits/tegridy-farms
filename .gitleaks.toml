@@ -212,4 +212,27 @@ regexes = [
   # Flagged by `generic-api-key` as TOKEN_2022_NATIVE_MINT in
   # frontend/src/lib/solana/lp/opening.ts:23 (commit 27131a79, PR #693).
   '''\b9pan9bMn5HatX4EJdBwg9VgCa7Uz5HL8N1m5D3NdXejP\b''',
+  #
+  # \ MAINNET DRY-RUN STAND-INS, added 2026-10-03 \\\\\\\\\\\\\\\\\\\\\\\\@
+  #
+  # Four public ids typed in ONE file, the mainnet dry-run harness for the swap
+  # page's own-pool route (frontend/src/lib/launcher/solana/write/
+  # routeSwap.mainnet.test.ts; skipped unless SOLANA_MAINNET_DRYRUN=1). It runs the
+  # site's real builder against Raydium's CPMM program, whose code our pool program
+  # is a fork of, by simulation only: nothing is signed or sent. All four were read
+  # on mainnet by that harness on 2026-10-03 (the builder refuses unless the pool is
+  # owned by the program, the mints by their token programs, and every derived
+  # account matches), and again with getMultipleAccounts at slot 452,888,667: the
+  # owner, the executable flag and the size given on each line below.
+  # EXACT strings, per the SOLANA section above.
+  # Raydium's CPMM program id (owner BPFLoaderUpgradeab1e..., executable).
+  '''\bCPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C\b''',
+  # USELESS: a classic SPL mint (owner Tokenkeg..., 82 bytes). Already on trunk inside
+  # a recorded GeckoTerminal answer
+  # (frontend/src/lib/geckoTerminal/fixtures/solana_trending_pools.json).
+  '''\bDz9mQ9NzkBcCsuGPFJ3r1bS4wgqKMHBPiVuniW8Mbonk\b''',
+  # ai16z: a Token-2022 mint (owner TokenzQd..., 408 bytes: name and picture extensions).
+  '''\bHeLp6NuQkmYB4pYWo2zYs22mESHXPQYzXbB8n4V98jwC\b''',
+  # The ai16z/SOL pool account on Raydium's CPMM (owner that program, 637 bytes).
+  '''\b7qAVrzrbULwg1B13YseqA95Uapf8EVp9jQE5uipqFMoP\b''',
 ]

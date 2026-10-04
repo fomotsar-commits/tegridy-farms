@@ -41,7 +41,9 @@ import { TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID, WSOL_MINT } from '../curve/pro
 import { associatedTokenAddress } from '../curve/ix';
 import { formatSol, formatTokenAmount } from '../curve/format';
 import {
+  decodeAmmConfig,
   decodePoolState,
+  deriveAmmConfig,
   deriveLpMint,
   deriveObservation,
   deriveVault,
@@ -57,6 +59,7 @@ import type { OutsidePrice } from '../../../solana/lp/outsidePrice';
 import { CLOCK_SYSVAR, chainTimeOf, poolViewFrom, type PoolView } from '../../../solana/lp/poolFinder';
 import { assessPool, formatWhen } from '../../../solana/lp/poolHealth';
 import { EXTENSION, SITE_ALLOWED_EXTENSIONS, classifyToken, decodeMintAccount, extensionPlain } from '../../../solana/lp/tokenSafety';
+import { SITE_FEE_WSOL_ACCOUNT } from '../../../solana/swap/siteFeeAccount';
 import { MAX_OWN_PRIORITY_LAMPORTS } from './budget';
 import { metadataPda } from './metaplex';
 import { bodySteps, buildAndSimulate, notSent } from './prepare';
@@ -135,10 +138,19 @@ export interface WriteSnapshot {
    * a missing account needs, and D21 refuses that first.
    */
   rents: { walletFloor: bigint; tokenAccount165: bigint; tokenAccountForMint: bigint | null };
+  /**
+   * Only with `forSwap`: the site's fee account as it was in the SAME slot as the pool
+   * (null = no account there), and which of the two routed fee tiers the pool is on.
+   */
+  swap?: { feeAccount: RawAccount | null; tier: 0 | 1 };
 }
 
 /** The answer when the network could not be read: each prepare says it in its own words. */
 export const POOL_READ_FAILED = 'the pool could not be read';
+
+/** A swap's refusals from the one read (routeSwap.ts ROUTE_COPY names them). */
+export const SWAP_TIER_NOT_ROUTED = 'This pool is on a fee tier this site does not route to. Nothing was built.';
+export const SWAP_CONFIG_UNREAD = "We could not read this pool's fee settings, so nothing was built.";
 
 export function toRaw(keys: PublicKey[], infos: unknown): (RawAccount | null)[] {
   if (!Array.isArray(infos) || infos.length !== keys.length) throw new Error('the account read returned the wrong number of accounts');
@@ -210,11 +222,18 @@ export function tokenAccountSize(mint: RawAccount): number | string {
  * The one fresh read (3.1 step 2-4, 3.2 step 2-4). Round 1: ONE getMultipleAccountsInfo
  * of the 13 maths keys. Round 2, together: the pool's own config account (display, and
  * assessPool's "fee settings unread" rule; never the maths) and three rents.
+ *
+ * `forSwap` (a swap PRICES with the fee settings, so they are maths there): the same one
+ * call reads three more keys, both routed fee tiers (derived from constants) and the
+ * site's fee account, so the pool, its fee settings and the fee account all come from
+ * ONE slot. The config used is the tier whose address the pool records. Neither, or one
+ * that is not the pool program's or does not decode, refuses: nothing is defaulted, and
+ * round 2 reads no config (there, a failed read is "no account").
  */
 export async function readPoolForWrite(
   rpc: WriteRpc,
   cfg: CurveWriteConfig,
-  a: { pool: PublicKey; tokenMint: PublicKey; owner: PublicKey; lpAccount?: PublicKey },
+  a: { pool: PublicKey; tokenMint: PublicKey; owner: PublicKey; lpAccount?: PublicKey; forSwap?: true },
 ): Promise<WriteSnapshot | string> {
   const cp = cfg.cpSwapProgram;
   const { token0, token1 } = sortMints(WSOL_MINT, a.tokenMint);
@@ -237,6 +256,8 @@ export async function readPoolForWrite(
     wsolAddress,
     lpAddress,
   ];
+  const tiers = a.forSwap ? ([deriveAmmConfig(cp, 0), deriveAmmConfig(cp, 1)] as const) : null;
+  if (tiers) keys.push(tiers[0], tiers[1], SITE_FEE_WSOL_ACCOUNT);
   let accs: (RawAccount | null)[];
   try {
     accs = toRaw(keys, await rpc.getMultipleAccountsInfo(keys, 'confirmed'));
@@ -256,6 +277,16 @@ export async function readPoolForWrite(
   const solIs0 = pool.token0Mint === WSOL_MINT.toBase58();
   const tokenProgram = solIs0 ? pool.token1Program : pool.token0Program;
 
+  // A swap: the pool's fee settings from THIS read, or nothing is built.
+  let swap: { config: RawAccount; feeAccount: RawAccount | null; tier: 0 | 1 } | null = null;
+  if (tiers) {
+    const tier = pool.ammConfig === tiers[0].toBase58() ? 0 : pool.ammConfig === tiers[1].toBase58() ? 1 : null;
+    if (tier === null) return SWAP_TIER_NOT_ROUTED;
+    const tierAcc = accs[13 + tier] ?? null;
+    if (!tierAcc || tierAcc.owner !== cp.toBase58() || !decodeAmmConfig(tierAcc.address, tierAcc.data)) return SWAP_CONFIG_UNREAD;
+    swap = { config: tierAcc, feeAccount: accs[15] ?? null, tier };
+  }
+
   // Round 2.
   const size = tokenAccountSize(mintAcc);
   let config: RawAccount | null;
@@ -263,12 +294,13 @@ export async function readPoolForWrite(
   try {
     const [cfgInfo, r0, r165, rMint] = await Promise.all([
       // Display only, and "unread" is an answer here: a failed read is no account.
-      rpc.getAccountInfo(new PublicKey(pool.ammConfig), 'confirmed').catch(() => null),
+      // A swap never takes this path: its config came from round 1.
+      swap ? Promise.resolve(null) : rpc.getAccountInfo(new PublicKey(pool.ammConfig), 'confirmed').catch(() => null),
       rpc.getMinimumBalanceForRentExemption(0),
       rpc.getMinimumBalanceForRentExemption(165),
       typeof size === 'number' ? rpc.getMinimumBalanceForRentExemption(size) : Promise.resolve(null),
     ]);
-    config = cfgInfo ? toRaw([new PublicKey(pool.ammConfig)], [cfgInfo])[0]! : null;
+    config = swap ? swap.config : cfgInfo ? toRaw([new PublicKey(pool.ammConfig)], [cfgInfo])[0]! : null;
     rents = { walletFloor: rentOf(r0), tokenAccount165: rentOf(r165), tokenAccountForMint: rMint === null ? null : rentOf(rMint) };
   } catch {
     return POOL_READ_FAILED;
@@ -298,6 +330,7 @@ export async function readPoolForWrite(
     wsol: { address: wsolAddress, account: opened(wsolAcc) },
     lp: { address: lpAddress, account: opened(lpAcc) },
     rents,
+    ...(swap ? { swap: { feeAccount: swap.feeAccount, tier: swap.tier } } : {}),
   };
 }
 

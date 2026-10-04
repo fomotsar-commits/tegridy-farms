@@ -15,14 +15,16 @@ import {
   createInitializeMint2Instruction,
   createSyncNativeInstruction,
   createTransferCheckedInstruction,
+  createTransferInstruction,
 } from '@solana/spl-token';
 import { SYSTEM_PROGRAM_ID, TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID, WSOL_MINT } from '../curve/program';
 import { associatedTokenAddress } from '../curve/ix';
 import { deriveLpMint, deriveObservation, deriveVault, sortMints } from '../../../solana/cpswap/program';
 import { depositIx, swapBaseInputIx, withdrawIx } from '../../../solana/cpswap/ix';
 import { LIGHTHOUSE_PROGRAM_ID, PROGRAMS_BY_KIND, decodeIntent, isPoolIntent } from './intent';
+import { CP_CREATE_POOL_FEE_RECEIVER } from './config';
 import { AMM_CONFIG, CPSWAP, VAULT, cfgLocal } from './testkit.fixture';
-import type { IntentContext, PoolIntent, PoolPins } from './types';
+import type { CurveIntent, IntentContext, PoolIntent, PoolPins } from './types';
 
 const ME = Keypair.generate().publicKey;
 const STRANGER = Keypair.generate().publicKey;
@@ -403,5 +405,59 @@ describe('the token accounts a liquidity transaction may open', () => {
     refused([withKey(createAta(p.lpMint, TOKEN_PROGRAM_ID), 4, fresh()), deposit(p)], /under the wrong programs/, dep);
     refused([createAta(p.lpMint, TOKEN_PROGRAM_ID, { address: fresh() }), deposit(p)], /at the wrong address/, dep);
     expect(SYSTEM_PROGRAM_ID.equals(createAta(p.lpMint, TOKEN_PROGRAM_ID).keys[4]!.pubkey)).toBe(true);
+  });
+});
+
+// Pins on today's rules (SPEC_S3 5.2, P-01 and P-02), written BEFORE the swap kind
+// exists. Stage 3 lets exactly one new kind carry one TransferChecked (its site fee).
+// These say what must stay true for every kind that exists today: no token transfer of
+// any shape, and the pool program's fee account is never paid SOL or synced by a
+// transaction of ours. On mainnet a sync there re-prices that account's old reserve
+// and credits 550,840 lamports nobody sent.
+describe('pinned for every kind built today: no token transfer, and the fee account is never paid or synced', () => {
+  const p = pinsFor();
+  const curve = (kind: CurveIntent['kind']): CurveIntent => ({
+    kind, signer: ME, cfg: cfgLocal, feeRecipient: VAULT, ammConfig: AMM_CONFIG, mint: p.tokenMint, maxPriorityLamports: 1_000_000n,
+  });
+  const KINDS: [string, IntentContext][] = [
+    ['lp-deposit', ctxFor('lp-deposit', p)],
+    ['lp-withdraw', ctxFor('lp-withdraw', p)],
+    ['lp-create', ctxFor('lp-create', p)],
+    ['pool-buy', curve('pool-buy')],
+    ['pool-sell', curve('pool-sell')],
+    ['create', curve('create')],
+  ];
+  const wsol = mine(WSOL_MINT, TOKEN_PROGRAM_ID);
+  const NEVER = /a token instruction this page never builds/;
+
+  it.each(KINDS)('%s: a classic TransferChecked (tag 12) and a Transfer (tag 3) are refused, whoever they pay', (_name, c) => {
+    for (const to of [CP_CREATE_POOL_FEE_RECEIVER, STRANGER, wsol]) {
+      const checked = createTransferCheckedInstruction(wsol, WSOL_MINT, to, ME, 5_000n, 9);
+      expect(checked.data[0]).toBe(12);
+      refused([checked], NEVER, c);
+      const plain = createTransferInstruction(wsol, to, ME, 5_000n);
+      expect(plain.data[0]).toBe(3);
+      refused([plain], NEVER, c);
+    }
+  });
+
+  it.each(KINDS)('%s: SOL sent straight to the pool program’s fee account, and a sync of it, are refused', (_name, c) => {
+    const pay = SystemProgram.transfer({ fromPubkey: ME, toPubkey: CP_CREATE_POOL_FEE_RECEIVER, lamports: 100_000 });
+    // A withdrawal never reaches the System program at all; every other kind here does,
+    // and only to wrap the signer's own SOL.
+    const why = PROGRAMS_BY_KIND[c.kind].has('system')
+      ? /a SOL transfer to an account that is not your own wrapped-SOL account/
+      : /this kind of transaction never uses/;
+    refused([pay], why, c);
+    refused([createSyncNativeInstruction(CP_CREATE_POOL_FEE_RECEIVER)], /syncs an account that is not your wrapped-SOL account/, c);
+  });
+
+  // Stage 3 added exactly one kind that reaches the token program: `lp-swap`, the only
+  // kind allowed a TransferChecked (its site fee, pinned in intentRouteSwap.test.ts,
+  // which also holds it to the second rule above: T-DEC-29). Any kind after it must be
+  // added to KINDS here, or argued for by name like this one.
+  it('the list above is every kind that reaches the token program, but for the swap’s own kind', () => {
+    const reachToken = (Object.keys(PROGRAMS_BY_KIND) as (keyof typeof PROGRAMS_BY_KIND)[]).filter((k) => PROGRAMS_BY_KIND[k].has('token'));
+    expect(reachToken.sort()).toEqual([...KINDS.map(([name]) => name), 'lp-swap'].sort());
   });
 });

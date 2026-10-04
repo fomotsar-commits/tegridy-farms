@@ -27,6 +27,7 @@
 #   E2E_LEDGER                     default $HOME/tegridy-e2e-ledger (wiped on every start)
 #   SOLANA_BIN                     default the active install
 #   E2E_RPC_PORT                   default 8899
+#   E2E_LIMIT_LEDGER_SIZE          default 50000000 (shreds of history kept; see below)
 set -euo pipefail
 
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
@@ -34,6 +35,14 @@ ART=${TEGRIDY_RELEASE_ARTIFACTS_WSL:-/mnt/c/Users/jimbo/solana-launch-release-20
 ACC=${E2E_ACCOUNTS_DIR:-$HERE/.accounts}
 LEDGER=${E2E_LEDGER:-$HOME/tegridy-e2e-ledger}
 PORT=${E2E_RPC_PORT:-8899}
+# How much history the validator keeps. Its own default (10,000 shreds) is a few hundred
+# slots: measured 2026-10-03, every landed transaction more than 600 slots old (about four
+# minutes) answered null to getSignatureStatuses WITH searchTransactionHistory and to
+# getTransaction (85 of 85). The page then reads a transaction that landed as "expired",
+# which no mainnet RPC would say, and a "reload while unconfirmed" spec that takes longer
+# than that on a busy machine fails. 50 million shreds outlasts any run; the ledger is
+# wiped on every start.
+KEEP_SHREDS=${E2E_LIMIT_LEDGER_SIZE:-50000000}
 BIN=${SOLANA_BIN:-$(dirname "$(readlink -f "$(command -v solana-test-validator)")")}
 URL=http://127.0.0.1:$PORT
 
@@ -71,6 +80,7 @@ rm -rf "$LEDGER"; mkdir -p "$LEDGER"
   --upgradeable-program "$LAUNCH" "$ART/tegridy_launch.mainnet.so" none \
   --upgradeable-program "$CPSWAP" "$ART/cp_swap.mainnet.so" none \
   "${ACCOUNT_ARGS[@]}" \
+  --limit-ledger-size "$KEEP_SHREDS" \
   --rpc-port "$PORT" --quiet > "$LEDGER/../tegridy-e2e-validator.out" 2>&1 &
 VP=$!
 trap 'kill $VP 2>/dev/null; wait $VP 2>/dev/null; echo "validator stopped"' EXIT INT TERM

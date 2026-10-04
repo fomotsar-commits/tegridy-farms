@@ -35,6 +35,7 @@ import type { GateRpc } from '../../../lib/launcher/solana/write/config';
 import type { CreateLaunchInput } from '../../../lib/launcher/solana/write/launch';
 import type { LpDepositArgs, LpPrepareReads, LpWithdrawArgs } from '../../../lib/launcher/solana/write/liquidity';
 import type { LpCreateArgs } from '../../../lib/launcher/solana/write/createPool';
+import type { RouteSwapArgs } from '../../../lib/launcher/solana/write/routeSwap';
 import type { PlantBalance } from '../../../lib/launcher/solana/write/plant';
 import type { LaunchPool, LaunchPoolRead } from '../../../lib/launcher/solana/discover/pool';
 import type { TokenMetadata } from '../../../lib/launcher/solana/discover/metadata';
@@ -73,6 +74,8 @@ export type {
   OpenGate,
   Prepared,
   PreparedTx,
+  RouteIntent,
+  RouteSwapSummary,
   SimulatedEffect,
   SolanaCluster,
   SubmitDeps,
@@ -87,7 +90,7 @@ export type {
   WriteRpc,
 } from '../../../lib/launcher/solana/write/types';
 export type { GateRpc, CreateLaunchInput, PlantBalance, LaunchPool, LaunchPoolRead, TokenMetadata, LaunchListItem, LaunchListPage, LaunchOrigin };
-export type { LpCreateArgs, LpDepositArgs, LpPrepareReads, LpWithdrawArgs };
+export type { LpCreateArgs, LpDepositArgs, LpPrepareReads, LpWithdrawArgs, RouteSwapArgs };
 export type { Checked, ImageMime, LaunchLinks, LaunchMetadataJson, ReadLaunchMetadata } from '../../../lib/launchMetadata/validate.js';
 export type { MetadataRead, PreparedImage, PreparedImageResult, UploadInput, UploadResult } from '../../../lib/launchMetadata/upload';
 
@@ -205,6 +208,8 @@ export interface LpWriteApi {
   prepareLpDeposit(rpc: WriteRpc, gate: LpOpenGate, reads: LpPrepareReads, a: LpDepositArgs): Promise<Prepared>;
   prepareLpWithdraw(rpc: WriteRpc, gate: LpOpenGate, a: LpWithdrawArgs): Promise<Prepared>;
   prepareLpCreate(rpc: WriteRpc, gate: LpOpenGate, reads: LpPrepareReads, a: LpCreateArgs): Promise<Prepared>;
+  /** A swap through one of our pools from the main swap page. It decides the route itself, on its own fresh read. */
+  prepareRouteSwap(rpc: WriteRpc, gate: LpOpenGate, a: RouteSwapArgs): Promise<Prepared>;
   submitPrepared(rpc: WriteRpc, signer: TxSigner, p: PreparedTx, deps?: SubmitDeps): Promise<TxOutcome>;
   /** As `WriteApi.recheckOutcome`: with `cfg` and a liquidity `kind`, a refusal is said in that kind's words. */
   recheckOutcome(rpc: WriteRpc, signature: string, opts?: { lastValidBlockHeight?: number; cfg?: CurveWriteConfig; kind?: LpKind }): Promise<TxOutcome>;

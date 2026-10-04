@@ -77,11 +77,16 @@ export function withdrawOffer(a: { mode: LpWriteMode; gate: LpGate | null; posit
   return 'offer';
 }
 
-/** Which form each liquidity kind's pending note holds. A Record, so a new kind must say. */
-const LP_SIDE: Readonly<Record<LpKind, 'add' | 'remove' | 'create'>> = {
+/**
+ * Which form each liquidity kind's pending note holds. A Record, so a new kind must say.
+ * `null`: none. A swap through a pool is not a liquidity change, and its notes live in
+ * the swap page's own scope, so one never holds Add or Remove.
+ */
+const LP_SIDE: Readonly<Record<LpKind, 'add' | 'remove' | 'create' | null>> = {
   'lp-deposit': 'add',
   'lp-withdraw': 'remove',
   'lp-create': 'create',
+  'lp-swap': null,
 };
 
 /**

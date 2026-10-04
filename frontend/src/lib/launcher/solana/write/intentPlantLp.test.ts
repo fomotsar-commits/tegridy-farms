@@ -50,7 +50,8 @@ describe('the plant is a create’s alone', () => {
     for (const kind of Object.keys(LP_KINDS) as LpKind[]) {
       for (const ix of plantInstructions(ME)) {
         for (const opts of [{}, { allowWalletGuards: true }]) {
-          const r = decodeIntent([ix], { kind, signer: ME, cfg: cfgLocal, maxPriorityLamports: 1_000_000n, pins: pins() }, opts);
+          const base = { signer: ME, cfg: cfgLocal, maxPriorityLamports: 1_000_000n, pins: pins() };
+          const r = decodeIntent([ix], kind === 'lp-swap' ? { ...base, kind, side: 'buy' } : { ...base, kind }, opts);
           expect(r.ok).toBe(false);
           expect(!r.ok && r.reason).toMatch(/a program this page never uses \(TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb\)/);
         }

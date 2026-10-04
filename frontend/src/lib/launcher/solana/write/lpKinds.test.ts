@@ -8,8 +8,8 @@ import { LP_KINDS, isLpKind } from './lpKinds';
 import type { LpKind, TxKind } from './types';
 
 describe('LP_KINDS and isLpKind', () => {
-  it('holds exactly the three liquidity kinds', () => {
-    const all: LpKind[] = ['lp-deposit', 'lp-withdraw', 'lp-create'];
+  it('holds exactly the three liquidity kinds and the swap through a pool', () => {
+    const all: LpKind[] = ['lp-deposit', 'lp-withdraw', 'lp-create', 'lp-swap'];
     expect(Object.keys(LP_KINDS).sort()).toEqual([...all].sort());
     for (const k of all) expect(isLpKind(k)).toBe(true);
   });
@@ -17,7 +17,8 @@ describe('LP_KINDS and isLpKind', () => {
   it('says no to every other kind, to nonsense, and to nothing', () => {
     const others: TxKind[] = ['create', 'buy', 'sell', 'migrate', 'pool-buy', 'pool-sell'];
     for (const k of others) expect(isLpKind(k)).toBe(false);
-    expect(isLpKind('lp-swap')).toBe(false);
+    expect(isLpKind('lp-swap')).toBe(true);
+    expect(isLpKind('lp-swop')).toBe(false);
     expect(isLpKind('')).toBe(false);
     expect(isLpKind(undefined)).toBe(false);
     expect(isLpKind(null)).toBe(false);

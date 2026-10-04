@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { LP_WRITES, lpWriteMode } from './lpWriteFlag';
+import { LP_WRITES, OWN_POOL_ROUTE, lpWriteMode, ownPoolRouteMode } from './lpWriteFlag';
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -58,5 +58,63 @@ describe('LP write mode', () => {
   it('a committed withdraw-only is never raised by env', () => {
     expect(lpWriteMode({ ...E2E, VITE_SOLANA_CURVE_WRITES: '1' }, 'withdraw-only')).toBe('withdraw-only');
     expect(lpWriteMode({ ...DEV, VITE_SOLANA_CURVE_WRITES: '1' }, 'withdraw-only')).toBe('withdraw-only');
+  });
+});
+
+// The swap's own-pool route has its own switch, with the same hardened rule (SPEC_S3 D1,
+// T-FLAG-01..04). Whether a trade may actually run through our pool also needs LP mode
+// 'on', a program id and the fee env: that is siteFee.ts ownPoolRouteOffered, tested there.
+describe('own-pool route mode', () => {
+  it('ships OFF: a production build compares the routes and sends every trade through Jupiter', () => {
+    // Flipping it is the owner's own one-line commit, after the first real pool exists.
+    expect(OWN_POOL_ROUTE).toBe('off');
+    expect(ownPoolRouteMode(PROD)).toBe('off');
+  });
+
+  it('T-FLAG-01: a committed off is not raised by the env flag in production', () => {
+    expect(ownPoolRouteMode({ ...PROD, VITE_SOLANA_CURVE_WRITES: '1' }, 'off')).toBe('off');
+    expect(ownPoolRouteMode({ ...PROD, VITE_SOLANA_CURVE_WRITES: '1' })).toBe('off');
+  });
+
+  it('T-FLAG-02: the named e2e build, or a dev server, raises it with the flag (and only for the exact value 1)', () => {
+    expect(ownPoolRouteMode({ ...E2E, VITE_SOLANA_CURVE_WRITES: '1' }, 'off')).toBe('on');
+    expect(ownPoolRouteMode({ ...DEV, VITE_SOLANA_CURVE_WRITES: '1' }, 'off')).toBe('on');
+    expect(ownPoolRouteMode({ ...E2E, VITE_SOLANA_CURVE_WRITES: 'true' }, 'off')).toBe('off');
+    expect(ownPoolRouteMode(E2E, 'off')).toBe('off');
+    expect(ownPoolRouteMode(DEV, 'off')).toBe('off');
+  });
+
+  it('T-FLAG-03: a committed on is never lowered by env', () => {
+    for (const env of [PROD, E2E, DEV]) {
+      expect(ownPoolRouteMode({ ...env, VITE_SOLANA_CURVE_WRITES: '0' }, 'on')).toBe('on');
+      expect(ownPoolRouteMode(env, 'on')).toBe('on');
+    }
+  });
+
+  it('T-FLAG-04: no env name raises it in production: not a custom mode, not a route flag of its own, not DEV as a string', () => {
+    expect(ownPoolRouteMode({ DEV: false, MODE: 'staging', VITE_SOLANA_CURVE_WRITES: '1' }, 'off')).toBe('off');
+    expect(ownPoolRouteMode({ DEV: 'true', MODE: 'production', VITE_SOLANA_CURVE_WRITES: '1' }, 'off')).toBe('off');
+    expect(
+      ownPoolRouteMode({ ...PROD, VITE_SOLANA_OWN_POOL_ROUTE: 'on', VITE_OWN_POOL_ROUTE: '1', OWN_POOL_ROUTE: 'on', VITE_SOLANA_LP_WRITES: '1' }, 'off'),
+    ).toBe('off');
+  });
+
+  it('a build with DEV true (NODE_ENV=development on the build host) still ignores the env flag', () => {
+    for (const v of [false, undefined]) {
+      vi.stubGlobal('__VITE_DEV_SERVER__', v);
+      expect(ownPoolRouteMode({ ...DEV, VITE_SOLANA_CURVE_WRITES: '1' }, 'off'), String(v)).toBe('off');
+      expect(ownPoolRouteMode({ DEV: true, MODE: 'production', VITE_SOLANA_CURVE_WRITES: '1' }, 'off'), String(v)).toBe('off');
+      expect(ownPoolRouteMode({ ...E2E, VITE_SOLANA_CURVE_WRITES: '1' }, 'off'), String(v)).toBe('on');
+    }
+  });
+
+  it('the route’s switch and LP’s switch are separate: neither moves the other', () => {
+    // LP 'on' does not open the route...
+    expect(lpWriteMode(PROD, 'on')).toBe('on');
+    expect(ownPoolRouteMode(PROD, 'off')).toBe('off');
+    // ...and the route 'on' does not raise a committed LP 'withdraw-only' or 'off'.
+    expect(ownPoolRouteMode(PROD, 'on')).toBe('on');
+    expect(lpWriteMode(PROD, 'withdraw-only')).toBe('withdraw-only');
+    expect(lpWriteMode(PROD, 'off')).toBe('off');
   });
 });

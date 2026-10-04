@@ -194,6 +194,8 @@ const NOTE_WHAT: Record<LpKind, string> = {
   'lp-deposit': 'adding liquidity',
   'lp-withdraw': 'removing liquidity',
   'lp-create': 'opening a pool. Opening another pool stays off until this is checked.',
+  // Never shown here: a swap's note lives in the swap page's own scope, not this one.
+  'lp-swap': 'a swap through one of these pools',
 };
 
 /** The section's one sentence about what it can do, by LP's mode (spec 4.3). */
