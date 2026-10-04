@@ -1320,3 +1320,69 @@ describe('the card, per coin (round 3)', () => {
     });
   }, LONG);
 });
+
+// THE LEAVE RULE: nobody is let in who cannot be let out. The pool program refuses a
+// withdrawal that pays 0 on a side. With ONE base unit on a side, the opener's 99.9% of
+// the pool's shares pays floor(0.999) = 0 of that side, so no share of the pool could ever
+// be taken out. For a token with no decimals, "1" is exactly what someone types. The form
+// let it through to Review, and so did the builder (review, 2026-10-04).
+describe('an opening whose own share could never be taken out', () => {
+  /** A token with no decimals: its smallest unit is one whole token. */
+  const whole = (mint: string): TokenSafety => {
+    const t = tokenFor(mint);
+    return t.kind === 'read' && t.facts ? { ...t, facts: { ...t.facts, decimals: 0 } } : t;
+  };
+  /** Nobody trades it: Jupiter ANSWERS that it has no route, which is a warning and never a stop. */
+  const noRoute: OutsidePrice = { kind: 'no-route', detail: 'Jupiter has no route for this token' };
+  /** A wallet that can cover any amount typed here: only the share rule can stop the opening. */
+  const rich = (quote: QuoteCoin | undefined): WalletFacts =>
+    walletFor(quote, {
+      lamports: 50n * UNIT.SOL,
+      token: { address: key().toBase58(), amount: 20_000_000_000n },
+      ...(quote && !quote.native ? { coin: { address: key().toBase58(), exists: true, amount: 50_000n * 10n ** 6n } } : {}),
+    });
+  const mountWhole = () =>
+    mount(
+      readers({
+        safety: vi.fn(async (mints: string[]) => new Map(mints.map((m) => [m, whole(m)]))),
+        outsidePrice: vi.fn(async (mint: string) => (mint === M ? noRoute : priceOf(mint))),
+        wallet: vi.fn<WalletFn>(async (_o, _m, _p, _l, opts) => rich(opts?.quote)),
+      }),
+    );
+  const cannotLeave = (what: string) =>
+    `Too small: your own share of this pool could never be taken out, because it would pay out less than one unit of ${what}. Put in more of it.`;
+  // 10 SOL, 10,000 USDC and 10,000 BAYLA are each 10,000,000,000 base units: with one
+  // token that is exactly 100,000 pool shares, so no other "too small" rule is in the way.
+  const COINS: Array<[QuoteSymbol, string]> = [['SOL', '10'], ['USDC', '10000'], ['BAYLA', '10000']];
+
+  it.each(COINS)('%s: ONE token with no decimals: the form says why, names the token, and Review is off; with two it is on', async (symbol, amount) => {
+    mountWhole();
+    const { panel } = await openPanel();
+    if (symbol === 'SOL') await within(panel).findByRole('button', { name: 'Max SOL' });
+    else await pair(panel, symbol);
+    type(coinBox(panel, symbol), amount);
+    type(tokens(panel), '1');
+    const alert = within(panel).getByRole('alert');
+    await waitFor(() => expect(alert).toHaveTextContent(cannotLeave('the token')));
+    expect(reviewButton(panel)).toBeDisabled();
+    // Not sent to the wrong fix: nothing here says the locked part is too large.
+    expect(alert).not.toHaveTextContent('0.1%');
+    // Two tokens: the opener's share pays one of them back, so it can leave.
+    type(tokens(panel), '2');
+    await waitFor(() => expect(alert).toHaveTextContent(''));
+    expect(reviewButton(panel)).toBeEnabled();
+  }, LONG);
+
+  it.each(COINS)('%s: ONE base unit of the coin against 10,000,000,000 tokens: the words name the coin', async (symbol) => {
+    mountWhole();
+    const { panel } = await openPanel();
+    if (symbol === 'SOL') await within(panel).findByRole('button', { name: 'Max SOL' });
+    else await pair(panel, symbol);
+    type(coinBox(panel, symbol), symbol === 'SOL' ? '0.000000001' : '0.000001');
+    type(tokens(panel), '10000000000');
+    const alert = within(panel).getByRole('alert');
+    await waitFor(() => expect(alert).toHaveTextContent(cannotLeave(symbol)));
+    expect(alert).not.toHaveTextContent('the token');
+    expect(reviewButton(panel)).toBeDisabled();
+  }, LONG);
+});

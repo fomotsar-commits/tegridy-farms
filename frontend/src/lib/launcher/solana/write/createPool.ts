@@ -124,6 +124,11 @@ export const CREATE_COPY = {
   tooSmall: `Too small: the pool program keeps ${LOCKED_SHARES_TEXT} in every new pool forever, and this opening would not cover them. Put in more of either side.`,
   lockTooLarge: (pct: string) =>
     `Too small to be worth it: the ${LOCKED_SHARES_TEXT} the pool program keeps forever would be ${pct}% of this pool. Put in more, so that part is 0.1% or less.`,
+  // The leave rule: the pool program refuses a withdrawal that pays 0 on a side, so an
+  // opening whose own shares would pay 0 of `what` (the coin's symbol, or "the token") is
+  // never built. Nobody is let in who cannot be let out.
+  cannotLeave: (what: string) =>
+    `Too small: your own share of this pool could never be taken out, because it would pay out less than one unit of ${what}. Put in more of it.`,
   rentBand: (most: string) =>
     `That would leave your wallet with too little SOL to pay the fee to open, the account deposits and stay open on the network. The most you can put in from this wallet is ${most}.`,
   signerMismatch: "Internal check failed: the pool's signer does not match the review.",
@@ -388,6 +393,8 @@ function createProblemCopy(p: CreateProblem, decimals: number, quote: QuoteCoin)
       return CREATE_COPY.tooSmall;
     case 'lock-too-large':
       return CREATE_COPY.lockTooLarge(lockPct(p.supply));
+    case 'cannot-leave':
+      return CREATE_COPY.cannotLeave(p.side === 'quote' ? quote.symbol : 'the token');
     case 'over-balance':
       // SOL: `have` is what the wallet can put in after the fee, the deposits and its own
       // floor, so it is named as the most it can put in. Any other coin's is its balance.

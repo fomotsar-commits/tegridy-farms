@@ -45,6 +45,11 @@ const lossLine = (loss: string | null) =>
 const TOO_SMALL = `Too small: the pool program keeps ${LOCKED_SHARES_TEXT} in every new pool forever, and this opening would not cover them. Put in more of either side.`;
 const lockTooLarge = (pct: string) =>
   `Too small to be worth it: the ${LOCKED_SHARES_TEXT} the pool program keeps forever would be ${pct}% of this pool. Put in more, so that part is 0.1% or less.`;
+// The leave rule (liquidityMath.ts `openingProblem`): with one smallest unit on a side, the
+// opener's own shares would pay 0 of it, and the pool program refuses a withdrawal that
+// pays 0 on a side. `what` is the coin's symbol, or "the token".
+const cannotLeave = (what: string) =>
+  `Too small: your own share of this pool could never be taken out, because it would pay out less than one unit of ${what}. Put in more of it.`;
 
 /** A token that can be paired with nothing (SOL itself) still draws the form, on SOL, with Review off elsewhere. */
 const NO_PAIR: PairFacts = { coin: SOL_QUOTE, advice: { kind: 'none' }, warned: false, hasPool: false, standard: 'empty' };
@@ -419,6 +424,8 @@ function CreateInner({
     problemText = TOO_SMALL;
   } else if (problem?.problem === 'lock-too-large') {
     problemText = lockTooLarge(lockPct(problem.supply));
+  } else if (problem?.problem === 'cannot-leave') {
+    problemText = cannotLeave(problem.side === 'quote' ? coin.symbol : 'the token');
   } else if (problem?.problem === 'overflow') {
     problemText = 'The amounts are too large for one transaction.';
   } else if (problem?.problem === 'over-balance' && problem.side === 'quote') {
