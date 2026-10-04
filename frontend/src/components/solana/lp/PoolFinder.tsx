@@ -13,7 +13,7 @@ import { TOGGLE_CLS, inputCls, inputStyle } from '../curve/uiFormat';
 import { TokenSafetyCard } from './TokenSafetyCard';
 import { PoolCard, UnreadPoolCard } from './PoolCard';
 import { CreatePoolCard } from './CreatePoolCard';
-import { depositOffer, lpHeld } from './offers';
+import { depositOffer, lpHeld, priceWarned } from './offers';
 import { useLpWrites } from './useLpWrites';
 import type { LpReaders } from './readers';
 
@@ -515,8 +515,15 @@ function SearchResults({
     }
     return m;
   }, [pools, decimals, outside, coins, safety]);
-  // Where a wish ends. Adding goes to the deepest pool that offers it; with none, and for
-  // creating, it goes to the "Open a new pool" card, which opens its form or says why not.
+  // Where a wish ends. Adding goes to the first pool in the list (the deepest of its coin)
+  // that offers it with no price warning; with none, and for creating, it goes to the
+  // "Open a new pool" card, which opens its form or says why not.
+  // A pool whose price is off, or was compared with nothing, takes deposits now (owner
+  // ruling 2026-10-04), and the list is deepest first. So "the first that offers it" sent
+  // the visitor, by itself, into a deep pool at a wrong price while the Open card on the
+  // same page suggested the pool at the market (review, 2026-10-04). Such a pool is the
+  // wish's answer only when no other pool offers adding: a warning never takes the form
+  // away, and its form says the warning. The same rule as the card's (`createAdvice`).
   // A wish that names its pool (`LpWish.pool`) is for that pool alone: its Add form when
   // the pool offers adding, else its card, brought onto the screen so the pool's own
   // reason is what is read. It is never passed on to another pool or to the Open card.
@@ -526,12 +533,16 @@ function SearchResults({
   const named = wish?.task === 'add' ? wish.pool ?? null : null;
   const addTo = useMemo(() => {
     if (wish?.task !== 'add' || pools.kind !== 'ok' || !notes) return null;
+    let warned: string | null = null;
     for (const p of pools.search.pools) {
       if (p.kind !== 'pool' || (named !== null && p.view.address !== named)) continue;
       const health = healths.get(p.view.address);
-      if (health && depositOffer({ mode, gate, health, held: lpHeld(notes, p.view.address, 'add') }) === 'offer') return p.view.address;
+      if (!health || depositOffer({ mode, gate, health, held: lpHeld(notes, p.view.address, 'add') }) !== 'offer') continue;
+      if (!priceWarned(health)) return p.view.address;
+      warned ??= p.view.address;
     }
-    return null;
+    // A wish that names its pool looked at that pool alone, so it gets it whatever its price.
+    return warned;
   }, [wish, named, pools, healths, mode, gate, notes]);
   // Waits for the gate: until it has answered, no pool can say whether it offers adding.
   const gateAnswered = writes !== null && writes.status !== 'loading' && gate !== null;
