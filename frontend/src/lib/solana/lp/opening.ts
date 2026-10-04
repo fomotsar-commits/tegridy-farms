@@ -1,29 +1,31 @@
-import { PRICE_TOLERANCE, comparePrice, tokenReasons, type PriceCheck } from './poolHealth';
+import { comparePrice, tokenReasons, type PriceCheck } from './poolHealth';
 import { priceInQuote, type OutsidePrice } from './outsidePrice';
 import { QUOTE_COINS_OR, SOL_QUOTE, canPair, type QuoteCoin } from './quotes';
 import type { TokenSafety } from './tokenSafety';
 
 /**
- * May a new pool open at this price? Pure: every input was read elsewhere.
+ * May a new pool open at this price, and what must its opener be told first? Pure: every
+ * input was read elsewhere.
  *
  * An opening sets the pool's first price. One far from the market is handed to the first
- * arbitrage trade out of the opener's deposit, and a pool that opens mispriced then
- * refuses every later depositor (they get the same deposit check, poolHealth.ts). So an
- * opening must start within the deposit check's own 3% of a fresh Jupiter price, and a
- * pool opened that way passes that check at once.
+ * arbitrage trade out of the opener's deposit. The opener may still choose it (owner
+ * ruling 2026-10-04): the gap is a warning, with what it is estimated to cost.
  *
  * THE PRICE IS IN THE POOL'S OWN PAIRING COIN (quotes.ts): SOL per token for a SOL pool,
  * USDC per token for a USDC pool, BAYLA per token for a BAYLA pool. The market price in
  * a coin that is not SOL is the token's SOL price over that coin's own SOL price
- * (`priceInQuote`), so an opening in USDC or BAYLA also needs the coin's price read.
+ * (`priceInQuote`), so a comparison in USDC or BAYLA also needs the coin's price read.
  *
- * REFUSED: the token is absent, blocked, or copies a well-known name (the same
- * `tokenReasons` deposits use); it is SOL under the newer token program; the token
- * cannot be paired with that coin (a coin is only priced in the coins that outrank it);
- * the price is more than 3% from Jupiter's; Jupiter ANSWERED that it has no route for
- * the token (nobody here opens a pool for a token only its opener can price).
- * UNCHECKED, which never opens: the token, its decimals, Jupiter's price, or the pairing
- * coin's own price could not be read.
+ * REFUSED: the token is absent or blocked (the same `tokenReasons` deposits use); it is
+ * SOL under the newer token program; the token cannot be paired with that coin (a coin is
+ * only priced in the coins that outrank it).
+ * WARNED, and allowed: the price is more than 3% from Jupiter's; Jupiter ANSWERED that it
+ * has no route for the token, so there is nothing to compare with and the opener sets the
+ * price alone (the pairing coin's own price is then not needed: nothing is compared); the
+ * token copies a well-known name, can be frozen, or shows a changing amount in a wallet.
+ * UNCHECKED, which never opens and is never a warning: the token, its decimals, Jupiter's
+ * price (a failed read is not "no route"), or the pairing coin's own price when a
+ * comparison needs it could not be read.
  */
 
 /** SOL under the Token-2022 program (spl-token `NATIVE_MINT_2022`, pinned by a test). */
@@ -45,6 +47,8 @@ export interface OpeningCheck {
   verdict: 'allowed' | 'refused' | 'unchecked';
   price: PriceCheck | { state: 'empty' };
   reasons: string[];
+  /** Always there, empty when there are none. They do not change the verdict: `allowed` may carry them. */
+  warnings: string[];
 }
 
 export function assessOpening(a: {
@@ -64,6 +68,7 @@ export function assessOpening(a: {
   const t = tokenReasons(a.safety, 'pools');
   const refused = [...t.refused];
   const unchecked = [...t.unchecked];
+  const warnings = [...t.warned];
   if (a.tokenMint === TOKEN_2022_NATIVE_MINT) refused.push(`This is SOL under the newer token program. Pools here pair a token with ${QUOTE_COINS_OR}.`);
   else if (!canPair(a.tokenMint, a.quote)) refused.push(`This site does not open a pool that prices this token in ${a.quote.symbol}.`);
   // The token's market price in the pool's own coin; null when Jupiter was not asked.
@@ -84,13 +89,17 @@ export function assessOpening(a: {
     } else if (market?.kind === 'ok') {
       price = comparePrice(opening, market.perToken, 'outside');
       if (price.state === 'disagrees') {
-        refused.push(
-          `Your opening price is ${gapText(price.diff)} the market price (Jupiter). Pools opened from this site must start within ${PRICE_TOLERANCE * 100}% of it.`,
+        warnings.push(
+          `Your opening price is ${gapText(price.diff)} the market price (Jupiter). The first trades would move it to the market price, at your cost.`,
         );
       }
     } else if (market?.kind === 'no-route') {
-      price = { state: 'unread', pool: opening, detail: market.detail };
-      refused.push('Jupiter has no market price for this token, so this site does not open a pool for it.');
+      // Jupiter ANSWERED that the token has no market. Nothing is compared, so the pairing
+      // coin's own price is not needed here either (`priceInQuote` answers before it looks).
+      price = { state: 'no-market', pool: opening, detail: market.detail };
+      warnings.push(
+        'Jupiter has no market price for this token, so there is nothing to compare your opening price with. You are setting the price yourself: if it is off, the first trades take the difference out of what you put in.',
+      );
     } else {
       const detail = market?.detail ?? 'not asked';
       price = { state: 'unread', pool: opening, detail };
@@ -102,6 +111,7 @@ export function assessOpening(a: {
     verdict: refused.length ? 'refused' : unchecked.length ? 'unchecked' : 'allowed',
     price,
     reasons: [...refused, ...unchecked],
+    warnings,
   };
 }
 
@@ -152,18 +162,48 @@ export function mostBothAtMarket(a: {
   return { quote: quoteForAllTokens > a.spendableQuote ? a.spendableQuote : quoteForAllTokens, token: a.tokenBalance };
 }
 
+interface LossInput {
+  quoteAmount: bigint;
+  token: bigint;
+  tokenDecimals: number;
+  marketPricePerToken: number;
+  quote: QuoteCoin;
+}
+
 /**
  * What arbitrage would take from an opening at these amounts, in the pairing coin's base
  * units, if the pool's price were moved to the market: `x + y·m − 2·√(x·y·m)` in whole
  * coins, written as `(√x − √(y·m))²` so it is never negative. The trade fee is ignored,
  * so it is an upper bound. Display only.
  */
-export function arbitrageLoss(a: { quoteAmount: bigint; token: bigint; tokenDecimals: number; marketPricePerToken: number; quote: QuoteCoin }): number {
+export function arbitrageLoss(a: LossInput): number {
+  return lossOrNull(a) ?? 0;
+}
+
+/** The sum behind `arbitrageLoss`, or null when these numbers cannot give one. */
+function lossOrNull(a: LossInput): number | null {
   const quoteScale = 10 ** a.quote.decimals;
   const x = Number(a.quoteAmount) / quoteScale;
   const y = Number(a.token) / 10 ** a.tokenDecimals;
   const m = a.marketPricePerToken;
-  if (!(x >= 0) || !(y >= 0) || !(m > 0) || !Number.isFinite(x * y * m)) return 0;
+  if (!(x >= 0) || !(y >= 0) || !(m > 0) || !Number.isFinite(x * y * m)) return null;
   const gap = Math.sqrt(x) - Math.sqrt(y * m);
   return gap * gap * quoteScale;
+}
+
+/**
+ * `arbitrageLoss` for the amounts that go in, as a whole number of the pairing coin's
+ * base units, rounded UP. For an opening those are its two sides. For a DEPOSIT into a
+ * pool whose price is off they are what the deposit puts in: a deposit goes in at the
+ * pool's own price, so the same sum holds for its share, with `marketPricePerToken` the
+ * price the pool was checked against.
+ *
+ * An ESTIMATE and an upper bound (the trade fee is ignored). Display only: it must never
+ * decide anything. Null when it cannot be worked out from these numbers (a price that is
+ * not a positive number, a sum too large for a number): that is said as such, never
+ * shown as 0.
+ */
+export function estimatedLoss(a: LossInput): bigint | null {
+  const loss = lossOrNull(a);
+  return loss !== null && Number.isFinite(loss) ? BigInt(Math.ceil(loss)) : null;
 }

@@ -7,26 +7,41 @@ import { foldForCompare, foldedForms, impersonatesAll } from '../../launchMetada
 import { getMultipleAccounts, type RawAccount } from './accounts';
 
 /**
- * Is this token safe to put in a pool? Read from the mint itself, never from a name.
+ * May this token go in a pool here, and what must its holder be told first? Read from the
+ * mint itself, never from a name.
  *
- * WHAT THE POOL PROGRAM ALLOWS vs WHAT THIS SITE ALLOWS. cp-swap (utils/token.rs:208-237)
- * accepts every classic SPL token, even one whose creator can still freeze accounts or
- * mint more, and Token-2022 tokens with transfer fees, interest or scaled amounts, plus
- * four stablecoins by name that carry a permanent delegate. The SITE is stricter, because
- * each of those lets one person take money out of a pool:
+ * THE RULE (owner ruling 2026-10-04). Any token may have a pool. What could go wrong is
+ * said as a WARNING, on the token, in the form and again on the review, and the visitor
+ * may go on. Only three kinds of token are BLOCKED:
  *
- *   - a live FREEZE authority can freeze the pool's own token vault, and then nobody can
- *     withdraw the SOL beside it (blocked, except USDC and USDT, whose issuers hold one);
- *   - a PERMANENT DELEGATE can move tokens out of any account, the pool's included
- *     (blocked, including the four Raydium lets through by name);
- *   - any Token-2022 extension but the two metadata ones is blocked: a transfer fee its
- *     authority can raise to 100%, a transfer hook that can refuse or redirect, a default
- *     frozen state, and the ones not listed here that nobody has checked yet;
- *   - a live MINT authority can mint without limit and drain the SOL side (warned);
- *   - metadata that can still change means the name and picture can change (warned).
+ *   - what is not a token a pool can hold: an address that is not a mint, a mint that was
+ *     never set up, and wrapped SOL itself (it is the other side of a pool);
+ *   - what the POOL PROGRAM rejects. cp-swap (utils/token.rs `is_supported_mint`) takes
+ *     every classic SPL token, and a Token-2022 token only when each of its extensions is
+ *     a transfer fee, a metadata pointer, token metadata, interest-bearing amounts or
+ *     scaled amounts. Any other (a transfer hook, a default frozen state, a permanent
+ *     delegate, a close authority, a pause switch, one nobody has listed yet) makes the
+ *     opening fail on chain, so nothing is built for it;
+ *   - what this site cannot let back OUT. The pool program also takes a transfer fee, and
+ *     four stablecoins by name that carry a permanent delegate. This site cannot build an
+ *     exact deposit or withdrawal for those, and nobody is let in who cannot be let out
+ *     (the leave rule), so it opens and adds to no pool for them. That is this site's
+ *     limit, not a judgement of the token, and the block says so.
  *
- * An unread mint is `unread`, never a verdict. A name or symbol is shown as the token's
- * own claim and nothing more; the mint address is the only identity.
+ * WARNED, and allowed:
+ *
+ *   - a live FREEZE authority can freeze any account that holds the token, a pool's own
+ *     vault and the holder's own account included, and while a pool's vault is frozen
+ *     nobody can take liquidity out of that pool (USDC and USDT keep one by design, which
+ *     is said in its own words);
+ *   - INTEREST-BEARING and SCALED amounts: the amount a wallet displays changes over
+ *     time, while this site shows and moves raw token units;
+ *   - a live MINT authority can mint without limit and drain the other side of a pool;
+ *   - metadata that can still change means the name and picture can change;
+ *   - a name copied from a well-known token, or written in look-alike letters.
+ *
+ * An unread mint is `unread`: never a verdict, and never a warning. A name or symbol is
+ * shown as the token's own claim and nothing more; the mint address is the only identity.
  */
 
 export const TOKEN_PROGRAM = 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA';
@@ -44,8 +59,8 @@ export const BAYLA_MINT = '7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump';
  * Solana (TOWELI lives on Ethereum only), so every claim is a copy.
  *
  * The island's tokens that have ONE real Solana mint in the island canon (bungalows.ts)
- * are listed, so "open the first BOBO pool here" with a look-alike BOBO is refused by
- * name: Jupiter would price the copy, so the price check alone cannot catch it. Each
+ * are listed, so "open the first BOBO pool here" with a look-alike BOBO is warned about
+ * by name: Jupiter would price the copy, so the price check alone cannot catch it. Each
  * mint is pinned by a test to its bungalows.ts entry.
  *
  * Launch tickers are still not listed: anyone can launch the same ticker on our
@@ -135,7 +150,7 @@ const EXTENSION_PLAIN: Record<number, string> = {
   4: 'confidential transfers, which hide balances',
   6: 'a default account state, which can make new accounts start frozen',
   9: 'non-transferable, so it cannot move in or out of a pool',
-  10: 'interest-bearing amounts, which pool maths does not follow',
+  10: 'interest-bearing amounts, so the amount a wallet displays for it grows over time',
   12: 'a permanent delegate, which can take tokens out of any account, the pool’s included',
   14: 'a transfer hook, a program that runs on every transfer and can refuse or redirect it',
   16: 'confidential transfer fees',
@@ -144,12 +159,25 @@ const EXTENSION_PLAIN: Record<number, string> = {
   22: 'a group member pointer',
   23: 'group membership',
   24: 'confidential minting and burning',
-  25: 'scaled amounts, which pool maths does not follow',
+  25: 'scaled amounts, so the amount a wallet displays for it changes when its issuer changes the scale',
   26: 'a pause switch, which can stop every transfer',
 };
 
-/** The only Token-2022 extensions this site accepts: the two that carry the token's name. */
-export const SITE_ALLOWED_EXTENSIONS: ReadonlySet<number> = new Set([EXTENSION.MetadataPointer, EXTENSION.TokenMetadata]);
+/**
+ * The Token-2022 extensions this site builds for: the two that carry the token's name, and
+ * the two whose raw amounts stay exact (interest-bearing and scaled amounts only change
+ * what a wallet DISPLAYS). ONE set on purpose. The verdict below, the size of a pool's
+ * vault, and all three builders (open a pool, add, remove) read this same set, so the
+ * site lets in exactly what it can let out. Every one is on the pool program's own list;
+ * a transfer fee is on that list too, and is left out here because this site cannot
+ * build an exact withdrawal for it.
+ */
+export const BUILDABLE_EXTENSIONS: ReadonlySet<number> = new Set([
+  EXTENSION.MetadataPointer,
+  EXTENSION.TokenMetadata,
+  EXTENSION.InterestBearingConfig,
+  EXTENSION.ScaledUiAmountConfig,
+]);
 
 export function extensionPlain(type: number): string {
   return EXTENSION_PLAIN[type] ?? `an extension this site does not know (type ${type})`;
@@ -281,7 +309,10 @@ export interface SafetyReason {
     | 'freeze-authority'
     | 'freeze-authority-accepted'
     | 'permanent-delegate-whitelist'
+    | 'transfer-fee'
     | 'extension'
+    | 'interest-bearing'
+    | 'scaled-amount'
     | 'mint-authority'
     | 'metadata-mutable'
     | 'no-metadata'
@@ -351,23 +382,41 @@ export function classifyToken(mint: string, mintAccount: RawAccount | null, meta
         text: `Its issuer can freeze accounts (${f.freezeAuthority}). That is normal for ${mint === USDC_MINT ? 'USDC' : 'USDT'} and accepted here.`,
       });
     } else {
-      blocks.push({
+      warnings.push({
         code: 'freeze-authority',
-        text: `Its creator can still freeze token accounts (freeze authority ${f.freezeAuthority}). That includes a pool's own vault, which would trap the SOL beside it.`,
+        text: `Its creator can freeze any account that holds it (freeze authority ${f.freezeAuthority}), a pool’s own vault and your own account included. While a pool’s vault is frozen, nobody can take liquidity out of that pool.`,
       });
     }
   }
 
-  if (RAYDIUM_WHITELISTED_MINTS.has(mint)) {
+  // The four stablecoins the pool program takes by name, whatever their extensions.
+  const takenByName = RAYDIUM_WHITELISTED_MINTS.has(mint);
+  if (takenByName) {
     blocks.push({
       code: 'permanent-delegate-whitelist',
-      text: 'This stablecoin has a permanent delegate that can move tokens out of any account, a pool’s included. The pool program lets it in by name; this site does not.',
+      text: 'This stablecoin has a permanent delegate, which can move tokens out of any account, a pool’s included. The pool program accepts it by name, but this site cannot build exact deposits and withdrawals for it, so it does not open or add to pools for it.',
     });
   }
 
   for (const e of f.extensions) {
-    if (!SITE_ALLOWED_EXTENSIONS.has(e)) {
-      blocks.push({ code: 'extension', text: `It uses ${extensionPlain(e)}. This site only accepts tokens whose only extras are their name and picture.` });
+    // The one set decides what may go in. Inside it, only the two that change what a
+    // wallet displays need saying; a name and a picture need nothing.
+    if (BUILDABLE_EXTENSIONS.has(e)) {
+      if (e === EXTENSION.InterestBearingConfig || e === EXTENSION.ScaledUiAmountConfig) {
+        warnings.push({
+          code: e === EXTENSION.InterestBearingConfig ? 'interest-bearing' : 'scaled-amount',
+          text: `It uses ${extensionPlain(e)}. This site shows and moves raw token units, so an amount here can differ from the one your wallet shows.`,
+        });
+      }
+    } else if (e === EXTENSION.TransferFeeConfig) {
+      // The pool program takes a transfer fee. The limit is this site's, and the words say so.
+      blocks.push({
+        code: 'transfer-fee',
+        text: `It uses ${extensionPlain(e)}. This site cannot build exact deposits and withdrawals for a token that charges a transfer fee, so it does not open or add to pools for it.`,
+      });
+    } else if (!takenByName) {
+      // Never said of the four stablecoins: the pool program takes those by name.
+      blocks.push({ code: 'extension', text: `It uses ${extensionPlain(e)}. The pool program does not accept tokens with it.` });
     }
   }
 

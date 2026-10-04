@@ -14,9 +14,12 @@
 //      each vault, the LP mint and the price record equal to BOTH the derivation from
 //      its address and its own record (`poolPins`);
 //   3. a deposit runs stage 1's own deposit check again (`assessPool`, with a fresh
-//      outside price) and must hear 'allowed'; a withdrawal never does (the leave
-//      rule, spec 3.7: only the pool program's own rules, the network's, and "the
-//      money must go to your own account" may refuse it);
+//      outside price) and must hear 'allowed'. 'allowed' may carry warnings (a price
+//      off the market, no market price at all, a token that copies a name or can be
+//      frozen): they go on the summary, with the estimated loss, for the review to
+//      say. A withdrawal never runs that check (the leave rule, spec 3.7: only the
+//      pool program's own rules, the network's, and "the money must go to your own
+//      account" may refuse it);
 //   4. the wallet's accounts are checked (`accountCheck`);
 //   5. the bounds come from liquidityMath.ts: a deposit's maxima are never 0 and never
 //      u64::MAX, a withdrawal's minima never below 1;
@@ -52,17 +55,18 @@ import {
 import { depositIx, withdrawIx } from '../../../solana/cpswap/ix';
 import type { RawAccount } from '../../../solana/lp/accounts';
 import { isPlanProblem, planDeposit, planWithdraw, solSetAside, spendableSol, type PlanProblem } from '../../../solana/lp/liquidityMath';
+import { estimatedLoss } from '../../../solana/lp/opening';
 import type { OutsidePrice } from '../../../solana/lp/outsidePrice';
 import { CLOCK_SYSVAR, chainTimeOf, poolViewFrom, type PoolView } from '../../../solana/lp/poolFinder';
 import { assessPool, formatWhen } from '../../../solana/lp/poolHealth';
 import { QUOTE_COINS_OR, canPair, quoteCoin, type QuoteCoin } from '../../../solana/lp/quotes';
 import { tokenAccountSize } from '../../../solana/lp/tokenAccountSize';
-import { EXTENSION, SITE_ALLOWED_EXTENSIONS, classifyToken, decodeMintAccount, extensionPlain } from '../../../solana/lp/tokenSafety';
+import { BUILDABLE_EXTENSIONS, classifyToken, decodeMintAccount, extensionPlain } from '../../../solana/lp/tokenSafety';
 import { MAX_OWN_PRIORITY_LAMPORTS } from './budget';
 import { metadataPda } from './metaplex';
 import { bodySteps, buildAndSimulate, notSent } from './prepare';
 import { slippageProblem } from './trade';
-import type { CurveWriteConfig, IntentStep, LpOpenGate, PoolPins, Prepared, TxSummary, WriteRpc } from './types';
+import type { CurveWriteConfig, IntentStep, LpOpenGate, PoolPins, Prepared, PriceGap, TxSummary, WriteRpc } from './types';
 import { closeWsolIxs, openWsolIx, opened, syncCredit, wrapIxs, wsolPlanFrom } from './wsol';
 
 // ── copy (spec 3.9) ──────────────────────────────────────────────────────────
@@ -115,6 +119,12 @@ export const LP_COPY = {
   swapsOff: 'Swaps on this pool are switched off. That does not stop you taking your liquidity out.',
   swapsBlocked: (when: string) => `Swaps on this pool are blocked until ${when}. That does not stop you taking your liquidity out.`,
   tokenBlockedInform: (reason: string) => `This token is blocked on this site for new deposits (${reason}). You can still take your liquidity out.`,
+  // The estimated loss when a price is off, for a deposit and for an opening. `back` is
+  // what the price would move back to. It is an upper bound and an estimate, and says so.
+  priceGapLoss: (loss: string | null, back: string) =>
+    loss === null
+      ? `What a move back to ${back} would cost you at these amounts could not be worked out.`
+      : `At these amounts, a move back to ${back} would take up to about ${loss} of what you put in. That is an estimate.`,
 } as const;
 
 // ── the single read ──────────────────────────────────────────────────────────
@@ -558,8 +568,10 @@ export async function prepareLpDeposit(rpc: WriteRpc, gate: LpOpenGate, reads: L
   if (snap.mint.owner !== tokenProgram.toBase58()) return notSent('build', LP_COPY.poolChanged("the token's program"));
   const decimals = facts.decimals;
   if (decimals !== (quoteIsToken0 ? p.mint1Decimals : p.mint0Decimals)) return notSent('build', LP_COPY.poolChanged("the token's decimals"));
-  // Repeats the verdict on purpose: a future loosening of classifyToken cannot loosen deposits.
-  const outsideSet = facts.extensions.find((e) => !SITE_ALLOWED_EXTENSIONS.has(e));
+  // A second guard, on purpose, against the ONE set of extensions this site builds for
+  // (the same set the withdrawal below reads): a verdict loosened by mistake still cannot
+  // let in a token this site could not let back out.
+  const outsideSet = facts.extensions.find((e) => !BUILDABLE_EXTENSIONS.has(e));
   if (outsideSet !== undefined) return notSent('build', LP_COPY.tokenBlocked(`It uses ${extensionPlain(outsideSet)}.`));
 
   // 6. The outside price, read again: the token's, and the pairing coin's own when the
@@ -573,7 +585,9 @@ export async function prepareLpDeposit(rpc: WriteRpc, gate: LpOpenGate, reads: L
   };
   const [outside, coinOutside] = await Promise.all([readPrice(a.tokenMint.toBase58(), decimals), quote.native ? null : readPrice(quote.mint, quote.decimals)]);
 
-  // 7. The gate: stage 1's own check, on reads seconds old.
+  // 7. The gate: stage 1's own check, on reads seconds old. 'allowed' may carry warnings
+  // (a price that is off, no market price, a copied name, a freezable token): they do not
+  // stop the build, and go on the summary below for the review to say.
   const health = assessPool({ view, tokenDecimals: decimals, chainNow: snap.chainNow, outside, coinOutside, safety });
   if (health.deposits.verdict !== 'allowed') return notSent('build', LP_COPY.gateSaysNo(health.deposits.reasons));
 
@@ -621,6 +635,19 @@ export async function prepareLpDeposit(rpc: WriteRpc, gate: LpOpenGate, reads: L
   if (isPlanProblem(planned)) return notSent('build', depositProblemCopy(planned, { driving: a.driving, decimals, s: view, bps: a.slippageBps }));
   const maxSol = quoteIsToken0 ? planned.max0 : planned.max1;
   const maxTok = quoteIsToken0 ? planned.max1 : planned.max0;
+  const quoted = { quote: quoteIsToken0 ? planned.cost0 : planned.cost1, token: quoteIsToken0 ? planned.cost1 : planned.cost0 };
+
+  // 11b. What the review must say. A price that is off gets its estimated loss at the
+  // amounts that go in, in the pool's own coin. Display only: it decides nothing.
+  const off = health.price.state === 'disagrees' ? health.price : null;
+  const priceGap: PriceGap | null = off && {
+    diff: off.diff,
+    lossQuote: estimatedLoss({ quoteAmount: quoted.quote, token: quoted.token, tokenDecimals: decimals, marketPricePerToken: off.reference, quote }),
+  };
+  const warnings = [...health.deposits.warnings];
+  if (off && priceGap) {
+    warnings.push(LP_COPY.priceGapLoss(priceGap.lossQuote === null ? null : coin(priceGap.lossQuote, quote), off.against === 'outside' ? 'the outside price' : 'its own average'));
+  }
 
   // 12. Moved since shown.
   const otherMax = a.driving === 'quote' ? maxTok : maxSol;
@@ -726,12 +753,14 @@ export async function prepareLpDeposit(rpc: WriteRpc, gate: LpOpenGate, reads: L
         quoteIsToken0,
         lpAmount: d.lpAmount,
         lpDecimals: p.lpMintDecimals,
-        quoted: { quote: quoteIsToken0 ? planned.cost0 : planned.cost1, token: quoteIsToken0 ? planned.cost1 : planned.cost0 },
+        quoted,
         max: { quote: quoteIsToken0 ? d.max0 : d.max1, token: quoteIsToken0 ? d.max1 : d.max0 },
         limitedByBalance: planned.limitedByBalance,
         sharePct: { before: pct(lpHeldBefore, S), after: pct(lpHeldBefore + d.lpAmount, S + d.lpAmount) },
         price: health.price,
         tokenWarnings: safety.warnings,
+        warnings,
+        priceGap,
         unwrapsWsol: bodySteps(steps).some((s) => s.kind === 'close-wsol'),
         wsolHeldBefore: plan ? plan.heldBefore : 0n,
         notices,
@@ -755,19 +784,15 @@ export interface LpWithdrawArgs {
   slippageBps: bigint;
 }
 
-/** The Token-2022 extensions whose raw amounts are exact, so this site builds their withdrawals (D21). */
-const WITHDRAW_BUILDABLE_EXTENSIONS: ReadonlySet<number> = new Set([
-  EXTENSION.MetadataPointer,
-  EXTENSION.TokenMetadata,
-  EXTENSION.InterestBearingConfig,
-  EXTENSION.ScaledUiAmountConfig,
-]);
-
-/** Why this site cannot build a withdrawal that pays out this Token-2022 mint, or null (D21). */
+/**
+ * Why this site cannot build a withdrawal that pays out this Token-2022 mint, or null
+ * (D21). It reads the SAME set the deposit and the opening are guarded by
+ * (`BUILDABLE_EXTENSIONS`), so whatever this site lets in, it can let out.
+ */
 function unbuildable(mint: RawAccount): string | null {
   const m = decodeMintAccount(mint.owner, mint.data);
   if (!m.ok) return m.reason;
-  const other = m.value.extensions.find((e) => !WITHDRAW_BUILDABLE_EXTENSIONS.has(e));
+  const other = m.value.extensions.find((e) => !BUILDABLE_EXTENSIONS.has(e));
   return other === undefined ? null : `it uses ${extensionPlain(other)}`;
 }
 

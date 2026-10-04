@@ -1,16 +1,20 @@
 // @vitest-environment node
 //
-// May a new pool open at this price (SPEC_S2_CREATE N7, N16)? Within the deposit check's
-// own 3% of a fresh Jupiter price, for a token deposits would take, and never on an
-// unread input. Plus the panel's helpers: match the market, the most both balances
-// allow, and what arbitrage would take from a mispriced opening.
+// May a new pool open at this price (SPEC_S2_CREATE N7, N16), and what must its opener be
+// told? A price off the market, no market price at all, a copied name and a freezable
+// token are warnings (owner ruling 2026-10-04); an unread input never opens. Plus the
+// panel's helpers: match the market, the most both balances allow, and what arbitrage
+// would take from a mispriced opening or deposit.
 import { describe, it, expect } from 'vitest';
 import { NATIVE_MINT_2022 } from '@solana/spl-token';
-import { TOKEN_2022_NATIVE_MINT, arbitrageLoss, assessOpening, matchMarket, mostBothAtMarket, openingSolPerToken } from './opening';
+import { TOKEN_2022_NATIVE_MINT, arbitrageLoss, assessOpening, estimatedLoss, matchMarket, mostBothAtMarket, openingSolPerToken } from './opening';
 import type { OutsidePrice } from './outsidePrice';
 import type { TokenSafety } from './tokenSafety';
 import { key } from './testkit.fixture';
-import { SOL_QUOTE } from './quotes';
+import { SOL_QUOTE, USDC_QUOTE } from './quotes';
+
+const NO_MARKET =
+  'Jupiter has no market price for this token, so there is nothing to compare your opening price with. You are setting the price yourself: if it is off, the first trades take the difference out of what you put in.';
 
 const mint = key().toBase58();
 const OK: TokenSafety = { kind: 'read', mint, verdict: 'ok', blocks: [], warnings: [], facts: null, name: null, symbol: null, metadataSource: 'none' };
@@ -29,35 +33,55 @@ const at = (o: { sol?: bigint; token?: bigint; outside?: OutsidePrice | null; sa
   });
 
 describe('assessOpening: the price', () => {
-  it('at the market: allowed, with the comparison', () => {
+  it('at the market: allowed, with the comparison, and nothing to warn of', () => {
     const c = at();
-    expect(c).toMatchObject({ verdict: 'allowed', reasons: [], price: { state: 'agrees', against: 'outside', pool: 0.2, reference: 0.2 } });
+    expect(c).toEqual({ verdict: 'allowed', reasons: [], warnings: [], price: { state: 'agrees', against: 'outside', pool: 0.2, reference: 0.2, diff: 0 } });
   });
 
-  it('2.9% off agrees; 3% (as near as a double gets) agrees; 3.1% is refused, naming the gap', () => {
-    expect(at({ sol: 1_029_000_000n }).verdict).toBe('allowed');
+  it('2.9% off agrees; 3% (as near as a double gets) agrees; 3.1% is allowed with a warning that names the gap', () => {
+    expect(at({ sol: 1_029_000_000n })).toMatchObject({ verdict: 'allowed', warnings: [] });
     // 0.206 against 0.2: 3%, to the last bit a double holds.
-    expect(at({ sol: 206_000_000n, token: 1_000_000n })).toMatchObject({ verdict: 'allowed', price: { state: 'agrees' } });
+    expect(at({ sol: 206_000_000n, token: 1_000_000n })).toMatchObject({ verdict: 'allowed', price: { state: 'agrees' }, warnings: [] });
     const off = at({ sol: 1_031_000_000n });
-    expect(off.verdict).toBe('refused');
-    expect(off.reasons).toEqual(['Your opening price is 3.1% above the market price (Jupiter). Pools opened from this site must start within 3% of it.']);
-    expect(at({ sol: 969_000_000n }).reasons[0]).toMatch(/3\.1% below the market price/);
+    expect(off).toMatchObject({ verdict: 'allowed', reasons: [], price: { state: 'disagrees', against: 'outside' } });
+    expect(off.warnings).toEqual(['Your opening price is 3.1% above the market price (Jupiter). The first trades would move it to the market price, at your cost.']);
+    expect(at({ sol: 969_000_000n }).warnings).toEqual(['Your opening price is 3.1% below the market price (Jupiter). The first trades would move it to the market price, at your cost.']);
+    // No sentence says this site refuses a price it now takes.
+    expect(off.warnings.join(' ')).not.toMatch(/must start within|does not open/);
   });
 
-  it('Jupiter answered "no route": refused, never allowed', () => {
+  it('Jupiter answered "no route": allowed as "no market", and the opener is told they set the price themselves', () => {
     const c = at({ outside: { kind: 'no-route', detail: 'Jupiter has no route for this token' } });
-    expect(c.verdict).toBe('refused');
-    expect(c.reasons).toEqual(['Jupiter has no market price for this token, so this site does not open a pool for it.']);
+    expect(c).toEqual({
+      verdict: 'allowed',
+      reasons: [],
+      warnings: [NO_MARKET],
+      price: { state: 'no-market', pool: 0.2, detail: 'Jupiter has no route for this token' },
+    });
   });
 
-  it('Jupiter could not be read, or was not asked: unchecked, never allowed', () => {
+  // With no route nothing is compared, so the pairing coin's own price is not needed.
+  it('no route for the token in a USDC opening: the coin’s own price unread, missing or without a route does not make it unchecked', () => {
+    const noRoute: OutsidePrice = { kind: 'no-route', detail: 'Jupiter has no route for this token' };
+    for (const coinOutside of [undefined, null, { kind: 'unread', detail: 'HTTP 502' }, noRoute, jupiter(0.005)] as const) {
+      const c = assessOpening({ tokenMint: mint, quote: USDC_QUOTE, quoteAmount: 200_000_000n, token: 100_000_000n, tokenDecimals: 6, outside: noRoute, coinOutside, safety: OK });
+      expect(c).toMatchObject({ verdict: 'allowed', reasons: [], warnings: [NO_MARKET], price: { state: 'no-market', pool: 2 } });
+    }
+  });
+
+  it('Jupiter could not be read, or was not asked: unchecked, never allowed and never a warning', () => {
     const down = at({ outside: { kind: 'unread', detail: 'Jupiter did not give a price (HTTP 502)' } });
-    expect(down).toMatchObject({ verdict: 'unchecked', reasons: ['We could not get a market price from Jupiter (Jupiter did not give a price (HTTP 502)).'] });
-    expect(at({ outside: null }).verdict).toBe('unchecked');
+    expect(down).toMatchObject({
+      verdict: 'unchecked',
+      reasons: ['We could not get a market price from Jupiter (Jupiter did not give a price (HTTP 502)).'],
+      warnings: [],
+      price: { state: 'unread' },
+    });
+    expect(at({ outside: null })).toMatchObject({ verdict: 'unchecked', warnings: [], price: { state: 'unread' } });
   });
 
   it('the decimals not read: unchecked', () => {
-    expect(at({ decimals: null })).toMatchObject({ verdict: 'unchecked', price: { state: 'unread' } });
+    expect(at({ decimals: null })).toMatchObject({ verdict: 'unchecked', price: { state: 'unread' }, warnings: [] });
   });
 
   it('nothing typed on one side: no price yet, and no reason given', () => {
@@ -67,21 +91,40 @@ describe('assessOpening: the price', () => {
 });
 
 describe('assessOpening: the token', () => {
-  it('blocked, absent or copying a well-known name: refused', () => {
-    const blocked = { ...OK, verdict: 'blocked', blocks: [{ code: 'freeze-authority', text: 'x' }] } as TokenSafety;
-    const copy = { ...OK, verdict: 'warn', warnings: [{ code: 'copies-known-name', text: 'x' }] } as TokenSafety;
-    expect(at({ safety: blocked }).verdict).toBe('refused');
-    expect(at({ safety: { kind: 'absent', mint } }).reasons).toContain('The token does not exist.');
-    expect(at({ safety: copy }).reasons).toContain('It calls itself by a well-known token’s name but has a different mint. This site does not open pools for copies.');
+  it('blocked or absent: refused', () => {
+    const blocked = { ...OK, verdict: 'blocked', blocks: [{ code: 'transfer-fee', text: 'x' }] } as TokenSafety;
+    expect(at({ safety: blocked })).toMatchObject({ verdict: 'refused', reasons: ['This token is blocked on this site (see why above).'] });
+    expect(at({ safety: { kind: 'absent', mint } })).toMatchObject({ verdict: 'refused', reasons: ['The token does not exist.'] });
   });
 
-  it('a live mint authority stays a warning: allowed', () => {
-    expect(at({ safety: { ...OK, verdict: 'warn', warnings: [{ code: 'mint-authority', text: 'x' }] } as TokenSafety }).verdict).toBe('allowed');
+  it('a copied name, a freezable token, and interest or scaled amounts: allowed, each said about the pool being opened', () => {
+    const warned = (...codes: string[]) => ({ ...OK, verdict: 'warn', warnings: codes.map((code) => ({ code, text: 'x' })) }) as TokenSafety;
+    const copy = at({ safety: warned('copies-known-name') });
+    expect(copy).toMatchObject({ verdict: 'allowed', reasons: [] });
+    expect(copy.warnings).toEqual([
+      'It calls itself by a well-known token’s name but has a different mint, so it is not that token. If the copy turns out to be worth nothing, so is your share of the pool you open.',
+    ]);
+    const freezable = at({ safety: warned('freeze-authority') });
+    expect(freezable).toMatchObject({ verdict: 'allowed', reasons: [] });
+    expect(freezable.warnings).toEqual([
+      'Its creator can freeze the vault of the pool you open, and while it is frozen nobody can take liquidity out, you included. They can also freeze your own account for the token.',
+    ]);
+    expect(at({ safety: warned('interest-bearing') }).warnings).toHaveLength(1);
+    expect(at({ safety: warned('scaled-amount') }).warnings[0]).toMatch(/^The amount a wallet displays for this token changes over time\./);
+    // The token's warnings come first, the price's last.
+    const both = at({ safety: warned('copies-known-name', 'freeze-authority'), sol: 2_000_000_000n });
+    expect(both.verdict).toBe('allowed');
+    expect(both.warnings).toHaveLength(3);
+    expect(both.warnings[2]).toMatch(/^Your opening price is 100\.0% above the market price/);
   });
 
-  it('the token not read: unchecked', () => {
-    expect(at({ safety: { kind: 'unread', mint, detail: 'x' } }).verdict).toBe('unchecked');
-    expect(at({ safety: null }).verdict).toBe('unchecked');
+  it('a live mint authority stays a warning on the token only: allowed, and nothing is added here', () => {
+    expect(at({ safety: { ...OK, verdict: 'warn', warnings: [{ code: 'mint-authority', text: 'x' }] } as TokenSafety })).toMatchObject({ verdict: 'allowed', warnings: [] });
+  });
+
+  it('the token not read: unchecked, never a warning', () => {
+    expect(at({ safety: { kind: 'unread', mint, detail: 'x' } })).toMatchObject({ verdict: 'unchecked', warnings: [] });
+    expect(at({ safety: null })).toMatchObject({ verdict: 'unchecked', warnings: [] });
   });
 
   it('SOL under the newer token program is refused by name', () => {
@@ -185,5 +228,46 @@ describe('arbitrageLoss', () => {
     const y = 5;
     const m = 0.4;
     expect(loss(1_000_000_000n, m)).toBeCloseTo((x + y * m - 2 * Math.sqrt(x * y * m)) * 1e9, 0);
+  });
+});
+
+// The same sum as a whole number of the coin's base units, for the review of an opening
+// and of a deposit. Display only, an upper bound, rounded UP, and never a made-up 0.
+describe('estimatedLoss', () => {
+  const sol = (quoteAmount: bigint, token: bigint, market: number) => estimatedLoss({ quoteAmount, token, tokenDecimals: 6, marketPricePerToken: market, quote: SOL_QUOTE });
+
+  it('is arbitrageLoss rounded UP to the coin’s base unit, never down', () => {
+    // 1 SOL against 5 tokens with the market at 0.4: (1 − √2)² SOL = 171,572,875.25… lamports.
+    const exact = arbitrageLoss({ quoteAmount: 1_000_000_000n, token: 5_000_000n, tokenDecimals: 6, marketPricePerToken: 0.4, quote: SOL_QUOTE });
+    expect(Number.isInteger(exact)).toBe(false);
+    expect(sol(1_000_000_000n, 5_000_000n, 0.4)).toBe(BigInt(Math.floor(exact)) + 1n);
+    expect(sol(1_000_000_000n, 5_000_000n, 0.4)).toBe(171_572_876n);
+    // A loss far below one unit is still one unit, not nothing.
+    const tiny = sol(1_000n, 5n, 0.21);
+    expect(arbitrageLoss({ quoteAmount: 1_000n, token: 5n, tokenDecimals: 6, marketPricePerToken: 0.21, quote: SOL_QUOTE })).toBeLessThan(1);
+    expect(tiny).toBe(1n);
+  });
+
+  it('is in the pool’s own coin: USDC’s six decimals, not SOL’s nine', () => {
+    // (√200 − √800)² = 200 whole USDC.
+    const usdc = estimatedLoss({ quoteAmount: 200_000_000n, token: 100_000_000n, tokenDecimals: 6, marketPricePerToken: 8, quote: USDC_QUOTE })!;
+    expect(Number(usdc) / 1e6).toBeCloseTo(200, 5);
+  });
+
+  it('a deposit’s amounts go in at the pool’s price, so its loss scales with its size', () => {
+    // A pool at 0.2 SOL a token against a reference of 0.25: a deposit ten times larger loses ten times more.
+    const small = sol(100_000_000n, 500_000n, 0.25)!;
+    const large = sol(1_000_000_000n, 5_000_000n, 0.25)!;
+    // Ten times, but for the one unit each is rounded up by.
+    expect(Number(large) / Number(small)).toBeCloseTo(10, 4);
+    expect(small).toBeGreaterThan(0n);
+  });
+
+  it('what cannot be worked out is null, never 0: a price that is not a positive number, a sum too large for a number', () => {
+    for (const m of [0, -1, Number.NaN, Number.POSITIVE_INFINITY]) expect(sol(1_000_000_000n, 5_000_000n, m), String(m)).toBeNull();
+    // 1 lamport against 10^19 whole tokens at 1e290 SOL each: the sum is not a finite number.
+    expect(estimatedLoss({ quoteAmount: 1n, token: 10n ** 19n, tokenDecimals: 0, marketPricePerToken: 1e290, quote: SOL_QUOTE })).toBeNull();
+    // The panel's own helper keeps its old answer for those: this one must not copy it.
+    expect(arbitrageLoss({ quoteAmount: 1_000_000_000n, token: 5_000_000n, tokenDecimals: 6, marketPricePerToken: 0, quote: SOL_QUOTE })).toBe(0);
   });
 });

@@ -337,20 +337,51 @@ describe('prepareLpDeposit: a pool paired with USDC or BAYLA', () => {
   it.each([
     ['could not be read', { kind: 'unread', detail: 'HTTP 502' } as OutsidePrice],
     ['has no route', { kind: 'no-route', detail: 'no route' } as OutsidePrice],
-  ])('the coin’s own price %s: the deposit check is unchecked, so nothing is built', async (_n, coin) => {
+  ])('the coin’s own price %s, with a token price to compare: the deposit check is unchecked, so nothing is built', async (_n, coin) => {
     const w = world(USDC_QUOTE);
     const msg = refused(await deposit(w, {}, priced(USDC_QUOTE, { coin })));
     expect(msg).toMatch(/^We did not build this deposit: /);
     expect(msg).toMatch(/the price of USDC/);
   });
 
-  it('a pool more than 3% off the market in the COIN is refused, though its number would pass as a SOL price', async () => {
+  // With no route for the TOKEN nothing is compared, so the coin's own price is not needed.
+  it.each([
+    ['could not be read', { kind: 'unread', detail: 'HTTP 502' } as OutsidePrice],
+    ['has no route', { kind: 'no-route', detail: 'no route' } as OutsidePrice],
+    ['was read', ok(0.005)],
+  ])('no route for the token, and the coin’s own price %s: it builds as "no market", with the warning', async (_n, coin) => {
     const w = world(USDC_QUOTE);
-    // The pool says 2 USDC a token. With USDC at 0.005 SOL the market says 4: 50% off.
-    const msg = refused(await deposit(w, {}, priced(USDC_QUOTE, { token: ok(0.02) })));
-    expect(msg).toMatch(/Its price is 50\.0% below the outside price/);
-    // The same pool read as "2 SOL a token" against a 2 SOL market would have passed.
-    expect((await deposit(w, {}, priced(USDC_QUOTE, { token: ok(2), coin: ok(1) }))).ok).toBe(true);
+    const s = prepared(await deposit(w, {}, priced(USDC_QUOTE, { token: { kind: 'no-route', detail: 'Jupiter has no route for this token' }, coin }))).summary as LpDepositSummary;
+    expect(s.price).toMatchObject({ state: 'no-market' });
+    expect(s.priceGap).toBeNull();
+    expect(s.warnings).toEqual([
+      'Jupiter has no market price for this token, so this pool’s price was not checked against anything. If it is off, a deposit here hands the difference to whoever trades it back.',
+    ]);
+  });
+
+  it.each(COINS)('%s: a pool more than 3%% off the market in the COIN builds, and the gap and the estimated loss are said in that coin, never in SOL', async (_n, quote) => {
+    const w = world(quote);
+    // The pool says 2 coins a token. With the coin at 0.005 SOL the market says 4: 50% off.
+    const s = prepared(await deposit(w, {}, priced(quote, { token: ok(0.02) }))).summary as LpDepositSummary;
+    expect(s.price).toMatchObject({ state: 'disagrees', against: 'outside' });
+    expect(s.price.state === 'disagrees' && s.price.reference).toBeCloseTo(4, 9);
+    expect(s.priceGap!.diff).toBeCloseTo(-0.5, 9);
+    // About 99 coins and 49.5 tokens go in. At 4 coins a token: (√99 − √198)² is about 17 coins.
+    const loss = Number(s.priceGap!.lossQuote) / 1e6;
+    expect(loss).toBeGreaterThan(16.5);
+    expect(loss).toBeLessThan(17.5);
+    expect(s.warnings).toHaveLength(2);
+    expect(s.warnings[0]).toBe('Its price is 50.0% below the outside price. A deposit here would hand that gap to the first arbitrage trade.');
+    expect(s.warnings[1]).toMatch(new RegExp(`^At these amounts, a move back to the outside price would take up to about 1[67]\\.\\d+ ${quote.symbol} of what you put in\\. That is an estimate\\.$`));
+    expect(s.warnings.join(' ')).not.toMatch(/\bSOL\b/);
+  });
+
+  it('the units cannot be mixed up: the same pool read as "2 SOL a token" against a 2 SOL market has no gap at all', async () => {
+    const w = world(USDC_QUOTE);
+    const s = prepared(await deposit(w, {}, priced(USDC_QUOTE, { token: ok(2), coin: ok(1) }))).summary as LpDepositSummary;
+    expect(s.price.state).toBe('agrees');
+    expect(s.priceGap).toBeNull();
+    expect(s.warnings).toEqual([]);
   });
 
   it('a coin that is not on the list is refused before anything is read', async () => {

@@ -4,7 +4,7 @@ import { priceInQuote, type OutsidePrice } from './outsidePrice';
 import { ownAveragePrice, type OwnPrice } from './ownPrice';
 import type { PoolView } from './poolFinder';
 import { readPair } from './quotes';
-import type { TokenSafety } from './tokenSafety';
+import type { SafetyReason, TokenSafety } from './tokenSafety';
 
 /**
  * Is this pool safe to deposit into right now? Pure: every input was read elsewhere.
@@ -20,11 +20,17 @@ import type { TokenSafety } from './tokenSafety';
  *     pair first with an open time years away; swaps are then blocked (swap_base_input.rs
  *     79-80) while deposits still go through (deposit.rs 96), so liquidity added there
  *     can never earn a fee;
+ *   - the pool is empty on either side (no price at all);
+ *   - the token itself is blocked (tokenSafety.ts).
+ *
+ * A deposit is WARNED ABOUT, and allowed (owner ruling 2026-10-04), when:
  *   - its price is more than 3% from the reference price: the difference goes to the
  *     first arbitrage trade, paid out of the depositor's share;
- *   - the pool is empty on either side (no price at all);
- *   - the token itself is blocked (tokenSafety.ts), or it copies a well-known token's
- *     name from a different mint.
+ *   - Jupiter ANSWERED that the token has no market, and the pool is one anyone could
+ *     open: its price was checked against nothing (`no-market`);
+ *   - the token copies a well-known name, can be frozen by its creator, or shows a
+ *     changing amount in a wallet (`tokenReasons`).
+ * The warnings are sentences for the person about to sign, and `allowed` may carry them.
  *
  * EVERY PRICE HERE IS IN THE POOL'S OWN PAIRING COIN (quotes.ts): SOL per token for a
  * SOL pool, USDC per token for a USDC pool, BAYLA per token for a BAYLA pool. Jupiter is
@@ -38,10 +44,12 @@ import type { TokenSafety } from './tokenSafety';
  * a launch pool is checked against its OWN average over the last half hour instead
  * (ownPrice.ts): someone who pushes its price just before a deposit is caught. A pool
  * anyone could have opened is never checked against its own history, because its opener
- * wrote that history.
+ * wrote that history. With no route it has no reference at all, and says so.
  *
- * A deposit is UNCHECKED (never "allowed") when something that decides it was not read:
- * the chain clock, the reference price, the pool's fee settings, or the token.
+ * A deposit is UNCHECKED (never "allowed", and never a warning) when something that
+ * decides it was not read: the chain clock, the reference price (Jupiter failing to
+ * answer is not "no route"), a launch pool's own price record, the pairing coin's own
+ * price when a comparison needs it, the pool's fee settings, or the token.
  */
 
 export const PRICE_TOLERANCE = 0.03;
@@ -64,6 +72,11 @@ export type PriceCheck =
   /** A launch pool that has never traded: its price is still the one the launch program set. */
   | { state: 'no-trades-yet'; pool: number }
   | { state: 'empty-pool' }
+  /**
+   * Jupiter ANSWERED that the token has no market, and nothing else can stand in for one:
+   * the price was compared with nothing. Read, not unread: a warning, never a refusal.
+   */
+  | { state: 'no-market'; pool: number; detail: string }
   /** Not compared on purpose (the token is blocked, so nothing here will be deposited). */
   | { state: 'skipped'; pool: number | null; detail: string }
   | { state: 'unread'; pool: number | null; detail: string };
@@ -74,7 +87,11 @@ export interface PoolHealth {
   swaps: SwapState;
   withdrawals: WithdrawalsState;
   price: PriceCheck;
-  deposits: { verdict: 'allowed' | 'refused' | 'unchecked'; reasons: string[] };
+  /**
+   * `reasons` say why a deposit is refused or unchecked. `warnings` are always there
+   * (empty when there are none) and do not change the verdict: `allowed` may carry them.
+   */
+  deposits: { verdict: 'allowed' | 'refused' | 'unchecked'; reasons: string[]; warnings: string[] };
 }
 
 /** Whether money can come out of this pool, from its status bit and its vaults. */
@@ -127,27 +144,44 @@ function ownPriceOf(view: PoolView, tokenDecimals: number, chainNow: bigint | nu
 
 /**
  * The token's part of the verdict, one function for deposits AND for opening a pool, so
- * both judge a token the same way. Unread is unchecked, never a pass; an absent token, a
- * blocked one, and one that copies a well-known name from another mint are refused.
- * `action` changes only the copied-name sentence: what this site will not do with a copy.
+ * both judge a token the same way. Unread is unchecked, never a pass and never a warning;
+ * an absent token and a blocked one are refused.
+ *
+ * `warned` is what the person must be told before they put money beside this token, and
+ * may still go on: it copies a well-known name, its creator can freeze the pool's vault,
+ * or a wallet displays a changing amount for it. Only the token warnings that change what
+ * a deposit or an opening risks are repeated here; the rest stay on the token itself.
+ * `action` names the pool in those sentences: the one being added to, or the one opened.
  */
-export function tokenReasons(safety: TokenSafety | null, action: 'deposits' | 'pools'): { refused: string[]; unchecked: string[] } {
+export function tokenReasons(safety: TokenSafety | null, action: 'deposits' | 'pools'): { refused: string[]; unchecked: string[]; warned: string[] } {
   const refused: string[] = [];
   const unchecked: string[] = [];
+  const warned: string[] = [];
   if (!safety || safety.kind === 'unread') unchecked.push('We could not read the token, so we cannot say whether it is safe.');
   else if (safety.kind === 'absent') refused.push('The token does not exist.');
-  else if (safety.verdict === 'blocked') refused.push('This token is blocked on this site (see why above).');
-  // A copied well-known name stays a warning on the token itself, but nobody adds
-  // liquidity here to a token that poses as one on WELL_KNOWN_NAMES (SOL, USDC, USDT,
-  // BAYLA, TOWELI and the island's Solana tokens).
-  if (safety?.kind === 'read' && safety.warnings.some((w) => w.code === 'copies-known-name')) {
-    refused.push(
-      action === 'deposits'
-        ? 'It calls itself by a well-known token’s name but has a different mint. This site does not take deposits into copies.'
-        : 'It calls itself by a well-known token’s name but has a different mint. This site does not open pools for copies.',
-    );
+  else {
+    if (safety.verdict === 'blocked') refused.push('This token is blocked on this site (see why above).');
+    const has = (code: SafetyReason['code']) => safety.warnings.some((w) => w.code === code);
+    const pool = action === 'deposits' ? 'this pool' : 'the pool you open';
+    // A name on WELL_KNOWN_NAMES (SOL, USDC, USDT, BAYLA, TOWELI and the island's Solana
+    // tokens) claimed from another mint.
+    if (has('copies-known-name')) {
+      warned.push(
+        `It calls itself by a well-known token’s name but has a different mint, so it is not that token. If the copy turns out to be worth nothing, so is your share of ${pool}.`,
+      );
+    }
+    if (has('freeze-authority')) {
+      warned.push(
+        `Its creator can freeze the vault of ${pool}, and while it is frozen nobody can take liquidity out, you included. They can also freeze your own account for the token.`,
+      );
+    }
+    if (has('interest-bearing') || has('scaled-amount')) {
+      warned.push(
+        'The amount a wallet displays for this token changes over time. This site shows and moves raw token units, so check the amounts against your wallet before you sign.',
+      );
+    }
   }
-  return { refused, unchecked };
+  return { refused, unchecked, warned };
 }
 
 export function assessPool(input: {
@@ -173,6 +207,7 @@ export function assessPool(input: {
   const tokenBlocked = safety?.kind === 'read' && safety.verdict === 'blocked';
   const refused: string[] = [];
   const unchecked: string[] = [];
+  const warnings: string[] = [];
 
   let swaps: SwapState;
   if (!swapEnabled(pool)) swaps = { state: 'switched-off' };
@@ -207,27 +242,26 @@ export function assessPool(input: {
     price = comparePrice(poolPrice, reference.perToken, 'outside');
   } else if (tokenBlocked) {
     price = { state: 'skipped', pool: poolPrice, detail: 'not compared, because the token is blocked' };
-  } else if (isLaunchPool && reference?.kind === 'no-route') {
+  } else if (reference?.kind === 'no-route') {
     // Only when Jupiter ANSWERED "no route". A failed read is not "no outside market":
     // the token may trade elsewhere at another price, so it stays unread below.
-    const own = ownPriceOf(view, tokenDecimals, chainNow);
-    price =
-      own.kind === 'ok'
-        ? comparePrice(poolPrice, own.solPerToken, 'own-average')
-        : own.kind === 'no-trades'
-          ? { state: 'no-trades-yet', pool: poolPrice }
-          : { state: 'unread', pool: poolPrice, detail: `no outside price (${reference.detail}), and its own price history could not be used: ${own.detail}` };
+    if (isLaunchPool) {
+      const own = ownPriceOf(view, tokenDecimals, chainNow);
+      price =
+        own.kind === 'ok'
+          ? comparePrice(poolPrice, own.solPerToken, 'own-average')
+          : own.kind === 'no-trades'
+            ? { state: 'no-trades-yet', pool: poolPrice }
+            : { state: 'unread', pool: poolPrice, detail: `no outside price (${reference.detail}), and its own price history could not be used: ${own.detail}` };
+    } else {
+      // A pool anyone could open has no history worth trusting, so there is no reference
+      // at all. That is an answer, said as a warning, and never "the checks pass" in silence.
+      price = { state: 'no-market', pool: poolPrice, detail: reference.detail };
+    }
   } else {
     price = { state: 'unread', pool: poolPrice, detail: reference?.detail ?? 'not asked' };
   }
   if (price.state === 'empty-pool') refused.push('The pool is empty on one side, so it has no price.');
-  if (price.state === 'disagrees') {
-    refused.push(
-      price.against === 'outside'
-        ? `Its price is ${(Math.abs(price.diff) * 100).toFixed(1)}% ${price.diff > 0 ? 'above' : 'below'} the outside price. A deposit here would hand that gap to the first arbitrage trade.`
-        : `Its price is ${(Math.abs(price.diff) * 100).toFixed(1)}% ${price.diff > 0 ? 'above' : 'below'} its own average over the last half hour. Someone may have just pushed it; a deposit now would pay for that.`,
-    );
-  }
   if (price.state === 'unread') {
     unchecked.push(isLaunchPool ? `We could not check its price (${price.detail}).` : `We could not check its price against an outside price (${price.detail}).`);
   }
@@ -237,15 +271,28 @@ export function assessPool(input: {
   const token = tokenReasons(safety, 'deposits');
   refused.push(...token.refused);
   unchecked.push(...token.unchecked);
+  warnings.push(...token.warned);
+  if (price.state === 'disagrees') {
+    warnings.push(
+      price.against === 'outside'
+        ? `Its price is ${(Math.abs(price.diff) * 100).toFixed(1)}% ${price.diff > 0 ? 'above' : 'below'} the outside price. A deposit here would hand that gap to the first arbitrage trade.`
+        : `Its price is ${(Math.abs(price.diff) * 100).toFixed(1)}% ${price.diff > 0 ? 'above' : 'below'} its own average over the last half hour. Someone may have just pushed it; a deposit now would pay for that.`,
+    );
+  }
+  if (price.state === 'no-market') {
+    warnings.push(
+      'Jupiter has no market price for this token, so this pool’s price was not checked against anything. If it is off, a deposit here hands the difference to whoever trades it back.',
+    );
+  }
 
   return {
     swaps,
     withdrawals,
     price,
     deposits: refused.length
-      ? { verdict: 'refused', reasons: [...refused, ...unchecked] }
+      ? { verdict: 'refused', reasons: [...refused, ...unchecked], warnings }
       : unchecked.length
-        ? { verdict: 'unchecked', reasons: unchecked }
-        : { verdict: 'allowed', reasons: [] },
+        ? { verdict: 'unchecked', reasons: unchecked, warnings }
+        : { verdict: 'allowed', reasons: [], warnings },
   };
 }

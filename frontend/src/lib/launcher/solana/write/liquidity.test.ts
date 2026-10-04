@@ -18,9 +18,11 @@ import {
 } from '../../../solana/cpswap/program';
 import { lpTokensToTradingTokens } from '../../../solana/cpswap/math';
 import { spendableSol } from '../../../solana/lp/liquidityMath';
+import { estimatedLoss } from '../../../solana/lp/opening';
 import { assessPool } from '../../../solana/lp/poolHealth';
-import { classifyToken } from '../../../solana/lp/tokenSafety';
+import { BUILDABLE_EXTENSIONS, EXTENSION, classifyToken } from '../../../solana/lp/tokenSafety';
 import type { OutsidePrice } from '../../../solana/lp/outsidePrice';
+import { METAPLEX_TOKEN_METADATA_ID, metadataPda } from './metaplex';
 import {
   LP_COPY,
   LP_FEE_RESERVE,
@@ -67,6 +69,31 @@ const METADATA_ONLY: Array<[number, number]> = [[EXT.MetadataPointer, 64], [EXT.
 
 const priced = (solPerToken = 0.01): LpPrepareReads => ({ outsidePrice: async () => ({ kind: 'ok', solPerToken, source: 'Jupiter' }) });
 const answering = (o: OutsidePrice): LpPrepareReads => ({ outsidePrice: async () => o });
+const NO_ROUTE: OutsidePrice = { kind: 'no-route', detail: 'Jupiter has no route for this token' };
+
+/** The body length each Token-2022 mint extension needs to decode (the two name ones); any other is opaque here. */
+const extensionOf = (type: number): [number, number] => [type, type === EXTENSION.MetadataPointer ? 64 : type === EXTENSION.TokenMetadata ? 76 : 8];
+/** A Token-2022 mint's extra beyond its name and picture. */
+const withExtra = (type: number): Array<[number, number]> => [extensionOf(type), ...METADATA_ONLY];
+
+function str(s: string): number[] {
+  const b = Buffer.from(s, 'utf8');
+  return [b.length & 255, (b.length >> 8) & 255, 0, 0, ...b];
+}
+/** Gives the token a Metaplex name record (key 4), immutable. */
+function nameToken(chain: FakeChain, mint: PublicKey, name: string, symbol: string): void {
+  const data = Uint8Array.from([4, ...Keypair.generate().publicKey.toBytes(), ...mint.toBytes(), ...str(name), ...str(symbol), ...str('https://x.test/a.json'), 0, 0, 0, 0, 0]);
+  chain.set(metadataPda(mint), { lamports: 1, owner: METAPLEX_TOKEN_METADATA_ID, data });
+}
+
+const NO_MARKET_DEPOSIT =
+  'Jupiter has no market price for this token, so this pool’s price was not checked against anything. If it is off, a deposit here hands the difference to whoever trades it back.';
+const COPY_DEPOSIT =
+  'It calls itself by a well-known token’s name but has a different mint, so it is not that token. If the copy turns out to be worth nothing, so is your share of this pool.';
+const FREEZE_DEPOSIT =
+  'Its creator can freeze the vault of this pool, and while it is frozen nobody can take liquidity out, you included. They can also freeze your own account for the token.';
+const AMOUNTS =
+  'The amount a wallet displays for this token changes over time. This site shows and moves raw token units, so check the amounts against your wallet before you sign.';
 
 // ── the simulator: the pool program's own maths on the fake chain ─────────────
 
@@ -357,6 +384,11 @@ describe('prepareLpDeposit', () => {
     expect(p.check.intent).toMatchObject({ kind: 'lp-deposit' });
     // The pool shares and the wrapped SOL are watched, each in its own decimals.
     expect(p.check.watch.tokenAccounts.map((t) => [t.role, t.decimals])).toEqual([['token', 6], ['lp', 9], ['wsol', 9]]);
+    // A clean token at the market price: nothing to warn of, and no price gap.
+    expect(s.price).toMatchObject({ state: 'agrees', against: 'outside' });
+    expect(s.warnings).toEqual([]);
+    expect(s.priceGap).toBeNull();
+    expect(s.tokenWarnings.map((x) => x.code)).toEqual(['no-metadata']);
   });
 
   it('refused while adding is paused (withdraw-only); a withdrawal from the same pool still prepares', async () => {
@@ -365,32 +397,153 @@ describe('prepareLpDeposit', () => {
     ok(await withdraw(w, {}, WITHDRAW_ONLY));
   });
 
-  it('refused when the price was pushed after the card read it (the card said allowed; the fresh read is 4% off)', async () => {
+  // Owner ruling 2026-10-04: a price that is off is a warning. The gap and the estimated
+  // loss come from the builder's own fresh reads, not from what the card showed.
+  it('a price pushed after the card read it (the card saw it agree; the fresh read is 4% off) builds, with the gap and the estimated loss from the fresh read', async () => {
     const w = world();
     const first = (await readPoolForWrite(W(w.chain), cfgLocal, { pool: w.pool.address, tokenMint: w.mint, quote: SOL_QUOTE, owner: ME })) as WriteSnapshot;
     const safety = classifyToken(w.mint.toBase58(), first.mint, first.metaplex);
-    expect(assessPool({ view: first.view, tokenDecimals: 6, chainNow: NOW, outside: { kind: 'ok', solPerToken: 0.01, source: 'Jupiter' }, safety }).deposits.verdict).toBe('allowed');
+    const card = assessPool({ view: first.view, tokenDecimals: 6, chainNow: NOW, outside: { kind: 'ok', solPerToken: 0.01, source: 'Jupiter' }, safety });
+    expect(card.deposits).toEqual({ verdict: 'allowed', reasons: [], warnings: [] });
     // Someone pushes the pool's SOL side up 4% before Review.
     w.chain.tokenAccount(w.pool.solVault, WSOL_MINT, new PublicKey(w.chain.accounts.get(w.pool.solVault.toBase58())!.data.subarray(32, 64)), (SOL_RESERVE * 104n) / 100n);
-    expect(refused(await deposit(w))).toMatch(/^We did not build this deposit: Its price is 4\.0% above the outside price/);
+    const s = ok(await deposit(w)).summary as LpDepositSummary;
+    expect(s.price).toMatchObject({ state: 'disagrees', against: 'outside' });
+    expect(s.priceGap!.diff).toBeCloseTo(0.04, 9);
+    // The loss is worked out from the amounts that go in, against the price just read, rounded up.
+    const loss = estimatedLoss({ quoteAmount: s.quoted.quote, token: s.quoted.token, tokenDecimals: 6, marketPricePerToken: 0.01, quote: SOL_QUOTE })!;
+    expect(s.priceGap!.lossQuote).toBe(loss);
+    expect(loss).toBeGreaterThan(0n);
+    // About 0.1 SOL at 4% off costs about 0.00002 SOL, never more than what goes in.
+    expect(loss).toBeLessThan(s.quoted.quote / 1_000n);
+    expect(s.warnings).toEqual([
+      'Its price is 4.0% above the outside price. A deposit here would hand that gap to the first arbitrage trade.',
+      `At these amounts, a move back to the outside price would take up to about ${(Number(loss) / 1e9).toFixed(9).replace(/0+$/, '')} SOL of what you put in. That is an estimate.`,
+    ]);
   });
 
-  it('refused when the outside price cannot be read at prepare, or the read throws', async () => {
+  it('the estimated loss never decides anything: a pool 50% off still builds, and the transaction is the one a pool at the market gets', async () => {
+    const at = async (reads: LpPrepareReads) => ok(await deposit(world(), {}, reads));
+    const fair = await at(priced(0.01));
+    const off = await at(priced(0.02));
+    const [f, o] = [fair.summary as LpDepositSummary, off.summary as LpDepositSummary];
+    expect(o.priceGap!.diff).toBeCloseTo(-0.5, 9);
+    expect(o.priceGap!.lossQuote).toBeGreaterThan(0n);
+    expect(f.priceGap).toBeNull();
+    // The same shares, the same limits, the same bounds on what may leave.
+    expect([o.lpAmount, o.max, o.quoted]).toEqual([f.lpAmount, f.max, f.quoted]);
+    expect(off.check.expect.maxSolOut).toBe(fair.check.expect.maxSolOut);
+  });
+
+  it('a loss that cannot be worked out is said as such, never as 0', async () => {
+    // A market price no number can be multiplied by: the gap is real, its cost is not known.
+    const s = ok(await deposit(world(), {}, priced(1e300))).summary as LpDepositSummary;
+    expect(s.price.state).toBe('disagrees');
+    expect(s.priceGap).toMatchObject({ lossQuote: null });
+    expect(s.warnings[s.warnings.length - 1]).toBe('What a move back to the outside price would cost you at these amounts could not be worked out.');
+    expect(s.warnings.join(' ')).not.toMatch(/about 0 SOL/);
+  });
+
+  it('refused when the outside price cannot be read at prepare, or the read throws: unread is never a warning', async () => {
     const w = world();
     expect(refused(await deposit(w, {}, answering({ kind: 'unread', detail: 'Jupiter did not give a price (HTTP 502)' })))).toMatch(/could not check its price.*HTTP 502/);
     const throwing: LpPrepareReads = { outsidePrice: async () => { throw new Error('offline'); } };
     expect(refused(await deposit(w, {}, throwing))).toMatch(/could not check its price.*offline/);
   });
 
-  it('refused for a token now blocked, a mint under another program than the pool’s, other decimals, and a 0-bps transfer fee', async () => {
-    expect(refused(await deposit(world({ freezeAuthority: STRANGER })))).toMatch(/^This token is now blocked on this site: Its creator can still freeze/);
+  // Owner ruling 2026-10-04. Jupiter ANSWERING "no route" for a pool anyone could open is
+  // "no market": it builds, and says the price was checked against nothing.
+  it('Jupiter answers "no route" for a pool anyone could open: it builds as "no market", with the warning and no price gap', async () => {
+    const s = ok(await deposit(world(), {}, answering(NO_ROUTE))).summary as LpDepositSummary;
+    expect(s.origin).toBe('standard');
+    expect(s.price).toMatchObject({ state: 'no-market', detail: 'Jupiter has no route for this token' });
+    expect(s.warnings).toEqual([NO_MARKET_DEPOSIT]);
+    expect(s.priceGap).toBeNull();
+  });
+
+  it('what still refuses a deposit, each in its own words: a mint under another program than the pool’s, other decimals, a 0-bps transfer fee, an extension the pool program rejects', async () => {
     // The pool says classic; the mint is Token-2022.
     const w = world();
     w.chain.mint2022(w.mint, METADATA_ONLY, { decimals: 6 });
     expect(refused(await deposit(w))).toBe(LP_COPY.poolChanged("the token's program"));
     expect(refused(await deposit(world({ mintDecimals: 9 })))).toBe(LP_COPY.poolChanged("the token's decimals"));
+    // A transfer fee: the leave rule. The words say it is this site's limit.
     const fee = world({ tokenProgram: TOKEN_2022_PROGRAM_ID, mintExtensions: [[EXT.TransferFeeConfig, 108], ...METADATA_ONLY] });
-    expect(refused(await deposit(fee))).toMatch(/^This token is now blocked on this site: It uses a transfer fee/);
+    expect(refused(await deposit(fee))).toBe(
+      LP_COPY.tokenBlocked(
+        'It uses a transfer fee, which its owner can raise as high as 100%. This site cannot build exact deposits and withdrawals for a token that charges a transfer fee, so it does not open or add to pools for it.',
+      ),
+    );
+    const hook = world({ tokenProgram: TOKEN_2022_PROGRAM_ID, mintExtensions: withExtra(EXTENSION.TransferHook) });
+    expect(refused(await deposit(hook))).toBe(
+      LP_COPY.tokenBlocked('It uses a transfer hook, a program that runs on every transfer and can refuse or redirect it. The pool program does not accept tokens with it.'),
+    );
+    // The token gone, or no longer a mint.
+    const gone = world();
+    gone.chain.accounts.delete(gone.mint.toBase58());
+    expect(refused(await deposit(gone))).toBe(LP_COPY.poolChanged('its token mint is missing'));
+    const broken = world();
+    const m = broken.chain.accounts.get(broken.mint.toBase58())!;
+    broken.chain.set(broken.mint, { ...m, data: m.data.subarray(0, 81) });
+    expect(refused(await deposit(broken))).toMatch(/^This token is now blocked on this site: This address is not a token this site can use/);
+  });
+
+  // Owner ruling 2026-10-04: a token its creator can freeze takes deposits, with the warning.
+  it('a token whose creator can freeze accounts builds, and the summary says what a freeze means for this pool and for the holder', async () => {
+    const s = ok(await deposit(world({ freezeAuthority: STRANGER }))).summary as LpDepositSummary;
+    expect(s.warnings).toEqual([FREEZE_DEPOSIT]);
+    expect(s.priceGap).toBeNull();
+    const own = s.tokenWarnings.find((x) => x.code === 'freeze-authority')!;
+    expect(own.text).toContain(STRANGER.toBase58());
+    expect(own.text).toMatch(/While a pool’s vault is frozen, nobody can take liquidity out of that pool\./);
+  });
+
+  it('a freezable token whose pool vault IS frozen right now is still refused: the warning lifts nothing about the pool', async () => {
+    const msg = refused(await deposit(world({ freezeAuthority: STRANGER, frozenTokenVault: true })));
+    expect(msg).toMatch(/^We did not build this deposit: One of this pool’s vaults is frozen by the token’s issuer/);
+  });
+
+  it('a copy of a well-known name builds, and the copy warning is on the summary', async () => {
+    const w = world();
+    nameToken(w.chain, w.mint, 'USD Coin', 'USDC');
+    const s = ok(await deposit(w)).summary as LpDepositSummary;
+    expect(s.warnings).toEqual([COPY_DEPOSIT]);
+    expect(s.tokenWarnings.map((x) => x.code)).toEqual(['copies-known-name']);
+  });
+
+  it('every warning that applies is carried together: a freezable copy in a pool with no market price', async () => {
+    const w = world({ freezeAuthority: STRANGER });
+    nameToken(w.chain, w.mint, 'BAYLA', 'BAYLA');
+    const s = ok(await deposit(w, {}, answering(NO_ROUTE))).summary as LpDepositSummary;
+    expect(s.warnings).toEqual([COPY_DEPOSIT, FREEZE_DEPOSIT, NO_MARKET_DEPOSIT]);
+  });
+
+  it.each([
+    ['interest-bearing', EXTENSION.InterestBearingConfig],
+    ['scaled-amount', EXTENSION.ScaledUiAmountConfig],
+  ] as const)('a Token-2022 token with %s amounts builds, with the line about what a wallet displays, and its withdrawal builds too', async (code, type) => {
+    const w = world({ tokenProgram: TOKEN_2022_PROGRAM_ID, mintExtensions: withExtra(type), heldLp: LP_SUPPLY / 10n });
+    const s = ok(await deposit(w)).summary as LpDepositSummary;
+    expect(s.warnings).toEqual([AMOUNTS]);
+    expect(s.tokenWarnings.map((x) => x.code)).toContain(code);
+    // The leave rule: what went in can come out.
+    expect((ok(await withdraw(w)).summary as LpWithdrawSummary).lpAmount).toBe(LP_SUPPLY / 20n);
+  });
+
+  // The leave rule as code, with the real verdict: this site adds to a pool for exactly
+  // the extensions it can also build a withdrawal for, and for no other.
+  it('for each Token-2022 extension: a deposit builds only if a withdrawal builds, and only for the one set this site builds for', async () => {
+    const letIn: number[] = [];
+    const letOut: number[] = [];
+    for (const type of [...Object.values(EXTENSION), 99]) {
+      const w = world({ tokenProgram: TOKEN_2022_PROGRAM_ID, mintExtensions: [extensionOf(type)], heldLp: LP_SUPPLY / 10n });
+      if ((await deposit(w)).ok) letIn.push(type);
+      if ((await withdraw(w)).ok) letOut.push(type);
+    }
+    const sorted = (xs: Iterable<number>) => [...xs].sort((a, b) => a - b);
+    expect(sorted(letIn)).toEqual(sorted(BUILDABLE_EXTENSIONS));
+    expect(sorted(letOut)).toEqual(sorted(BUILDABLE_EXTENSIONS));
+    for (const type of letIn) expect(letOut, String(type)).toContain(type);
   });
 
   it('refused for a token account a stranger owns (naming the owner), a frozen source, and CPI Guard', async () => {
@@ -570,15 +723,30 @@ describe('prepareLpWithdraw: the leave rule', () => {
   });
 
   it('prepares while every fact that refuses a deposit holds', async () => {
-    const cases: Array<[string, Parameters<typeof world>[0]]> = [
+    const cases: Array<[string, Parameters<typeof world>[0], ((w: World) => void)?]> = [
       ['the deposit switch is off', { status: POOL_STATUS_DISABLE_DEPOSIT }],
       ['swaps are switched off', { status: POOL_STATUS_DISABLE_SWAP }],
       ['the pool opens in 10 years', { openTime: NOW + 10n * 365n * 24n * 3600n }],
-      ['the token is blocked (a freeze authority)', { freezeAuthority: STRANGER }],
+      // A token blocked for new deposits: its mint reads as never set up.
+      ['the token is blocked (a mint that was never set up)', {}, (w) => { w.chain.accounts.get(w.mint.toBase58())!.data[45] = 0; }],
     ];
-    for (const [why, o] of cases) {
-      const r = await withdraw(holding(o));
-      expect(r.ok, why).toBe(true);
+    for (const [why, o, change] of cases) {
+      const w = holding(o);
+      change?.(w);
+      // Each of these does refuse a deposit ...
+      expect((await deposit(w)).ok, why).toBe(false);
+      // ... and none of them stops the way out.
+      expect((await withdraw(w)).ok, why).toBe(true);
+    }
+  });
+
+  it('prepares while every fact that only WARNS a deposit holds, and says nothing about them: leaving never depends on a warning', async () => {
+    const freezable = holding({ freezeAuthority: STRANGER });
+    const copy = holding();
+    nameToken(copy.chain, copy.mint, 'USD Coin', 'USDC');
+    for (const w of [freezable, copy]) {
+      const s = ok(await withdraw(w)).summary as LpWithdrawSummary;
+      expect(s.notices).toEqual([]);
     }
   });
 
@@ -606,8 +774,10 @@ describe('prepareLpWithdraw: the leave rule', () => {
     expect(off.notices).toContain(LP_COPY.swapsOff);
     const later = ok(await withdraw(holding({ openTime: NOW + 3600n }))).summary as LpWithdrawSummary;
     expect(later.notices.join(' ')).toMatch(/^Swaps on this pool are blocked until .*That does not stop you taking your liquidity out\.$/);
-    const blocked = ok(await withdraw(holding({ freezeAuthority: STRANGER }))).summary as LpWithdrawSummary;
-    expect(blocked.notices.join(' ')).toMatch(/This token is blocked on this site for new deposits \(Its creator can still freeze/);
+    const never = holding();
+    never.chain.accounts.get(never.mint.toBase58())!.data[45] = 0;
+    const blocked = ok(await withdraw(never)).summary as LpWithdrawSummary;
+    expect(blocked.notices).toEqual([LP_COPY.tokenBlockedInform('This token mint was never set up.')]);
   });
 });
 
