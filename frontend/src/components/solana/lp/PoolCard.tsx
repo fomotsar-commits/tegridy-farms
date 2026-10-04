@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, type RefObject } from 'react';
 import { isCreatedPool, type PoolEntry, type PoolView } from '../../../lib/solana/lp/poolFinder';
 import { formatWhen, type PoolHealth, type WithdrawalsState } from '../../../lib/solana/lp/poolHealth';
 import { feeRateText, priceText, quoteText, tokenText, tradeCostText } from '../../../lib/solana/lp/format';
@@ -81,12 +81,31 @@ function PriceRows({ price, quote }: { price: PoolHealth['price']; quote: QuoteC
   }
 }
 
+/**
+ * A wish that names this pool and cannot end in its Add form (PoolFinder `LpWish.pool`:
+ * the pool refuses deposits, could not be checked or read, has a deposit pending, or
+ * adding is paused). The card comes onto the screen and its heading takes focus, once,
+ * so this pool's own reason is what the visitor reads, by eye, keyboard or screen
+ * reader. Nothing else opens in its place.
+ */
+function useShownOnce(showNow: number, onActed: ((n: number) => void) | undefined, card: RefObject<HTMLLIElement | null>, heading: RefObject<HTMLHeadingElement | null>) {
+  const shown = useRef(0);
+  useEffect(() => {
+    if (!showNow || shown.current === showNow) return;
+    shown.current = showNow;
+    heading.current?.focus({ preventScroll: true });
+    card.current?.scrollIntoView?.({ block: 'start' });
+    onActed?.(showNow);
+  }, [showNow, onActed, card, heading]);
+}
+
 export function PoolCard({
   view,
   health,
   tokenDecimals,
   safety = null,
   openNow = 0,
+  showNow = 0,
   onActed,
 }: {
   view: PoolView;
@@ -96,9 +115,14 @@ export function PoolCard({
   safety?: TokenSafety | null;
   /** A wish's number (PoolFinder LpWish), or 0: open this pool's Add form by itself, once. */
   openNow?: number;
+  /** A wish's number, or 0: the wish named this pool and its form cannot open (`useShownOnce`). */
+  showNow?: number;
   /** Told when this card acts on a wish, so the finder spends it. */
   onActed?: (n: number) => void;
 }) {
+  const cardRef = useRef<HTMLLIElement | null>(null);
+  const headingRef = useRef<HTMLHeadingElement | null>(null);
+  useShownOnce(showNow, onActed, cardRef, headingRef);
   const writes = useLpWrites();
   const offer: DepositOffer = writes
     ? depositOffer({ mode: writes.mode, gate: writes.gate, health, held: lpHeld(writes.pending.notes, view.address, 'add') })
@@ -115,7 +139,8 @@ export function PoolCard({
 
   return (
     <li
-      className={CARD}
+      ref={cardRef}
+      className={`${CARD} scroll-mt-[4.5rem]`}
       style={CARD_STYLE}
       data-testid="lp-pool"
       data-pool={view.address}
@@ -127,7 +152,7 @@ export function PoolCard({
       data-price={price.state}
       data-add={offer}
     >
-      <h3 className="text-white font-semibold text-[13px] mb-1" style={SHADOW}>
+      <h3 ref={headingRef} tabIndex={-1} className="text-white font-semibold text-[13px] mb-1 outline-none" style={SHADOW}>
         {view.origin === 'launch-pool' ? 'Launch pool' : view.origin === 'standard' ? `Standard address, fee tier ${cfg?.index ?? '?'}` : 'Pool at its own address'}
       </h3>
       <p className="text-white/50 text-[11px] mb-2">{ORIGIN_LABEL[view.origin]}</p>
@@ -275,10 +300,22 @@ function OfferLine({ offer, health }: { offer: DepositOffer; health: PoolHealth 
   }
 }
 
-export function UnreadPoolCard({ entry }: { entry: Extract<PoolEntry, { kind: 'unread' }> }) {
+export function UnreadPoolCard({
+  entry,
+  showNow = 0,
+  onActed,
+}: {
+  entry: Extract<PoolEntry, { kind: 'unread' }>;
+  /** As on PoolCard: a wish named this pool, and a pool that was not read opens no form. */
+  showNow?: number;
+  onActed?: (n: number) => void;
+}) {
+  const cardRef = useRef<HTMLLIElement | null>(null);
+  const headingRef = useRef<HTMLHeadingElement | null>(null);
+  useShownOnce(showNow, onActed, cardRef, headingRef);
   return (
-    <li className={CARD} style={CARD_STYLE} data-testid="lp-pool" data-pool={entry.address} data-deposits="unchecked" data-swaps="unread">
-      <h3 className="text-white font-semibold text-[13px] mb-1" style={SHADOW}>Pool not read</h3>
+    <li ref={cardRef} className={`${CARD} scroll-mt-[4.5rem]`} style={CARD_STYLE} data-testid="lp-pool" data-pool={entry.address} data-deposits="unchecked" data-swaps="unread">
+      <h3 ref={headingRef} tabIndex={-1} className="text-white font-semibold text-[13px] mb-1 outline-none" style={SHADOW}>Pool not read</h3>
       <div className="text-white/60 text-[11px] leading-relaxed space-y-2">
         <Row label="Pool address" value={entry.address} />
         <Notice tone="warn">We could not read this pool ({entry.detail}). Nothing about it is checked.</Notice>
