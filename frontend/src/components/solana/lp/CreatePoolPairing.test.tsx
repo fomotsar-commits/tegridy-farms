@@ -254,6 +254,9 @@ describe('an amount typed for a coin is that coin’s, to the base unit', () => 
     type(coinBox(panel, 'USDC'), '50');
     type(tokens(panel), '25');
     expect(row(panel, 'You put in')).toHaveTextContent('50 USDC and 25 tokens, exactly');
+    // The locked part's worth is in USDC's own 6 decimals: 100 shares of isqrt(50,000,000 × 25,000,000) = 35,355,339
+    // are 141 units of USDC and 70 of the token. Printed with SOL's 9 it would read 0.000000141.
+    expect(row(panel, 'Locked in the pool forever')).toHaveTextContent('0.0000001 pool shares (100 of the smallest unit), worth about 0.000141 USDC and 0.00007 tokens');
     // Two coins leave the wallet, and they are never added into one number.
     expect(row(panel, 'In all, from your wallet')).toHaveTextContent('50 USDC, and about 0.192 SOL for the fee to open and the account deposits, plus the network fee');
     expect(reviewButton(panel)).toBeEnabled();
@@ -342,7 +345,7 @@ describe('an amount typed for a coin is that coin’s, to the base unit', () => 
 });
 
 describe('changing the coin', () => {
-  it('empties both boxes, and the old coin’s balance is never shown under the new coin, not even while its own is read', async () => {
+  it('empties the coin’s box and keeps the token amount, and the old coin’s balance is never shown under the new coin, not even while its own is read', async () => {
     // Each wallet read is answered by hand, so the test sees the moment between the change and the answer.
     const asks: Array<{ quote: QuoteCoin | undefined; answer: (f: WalletFacts) => void }> = [];
     const walletRead = vi.fn<WalletFn>((_o, _m, _p, _l, opts) => new Promise<WalletFacts>((answer) => asks.push({ quote: opts?.quote, answer })));
@@ -358,9 +361,10 @@ describe('changing the coin', () => {
     expect(reviewButton(panel)).toBeEnabled();
 
     fireEvent.click(within(panel).getByRole('radio', { name: 'USDC' }));
-    // At once, before any read answers: the boxes are empty and nothing of SOL's is on the form.
+    // At once, before any read answers: the coin's box is empty and nothing of SOL's is on
+    // the form. The token amount stays: 100 tokens are 100 tokens under any coin.
     expect(coinBox(panel, 'USDC')).toHaveValue('');
-    expect(tokens(panel)).toHaveValue('');
+    expect(tokens(panel)).toHaveValue('100');
     expect(within(panel).queryByLabelText('SOL to put in')).toBeNull();
     expect(within(panel).getAllByText('Reading your wallet…')).toHaveLength(2);
     expect(panel).not.toHaveTextContent('You have 5 SOL');
@@ -378,7 +382,7 @@ describe('changing the coin', () => {
     type(tokens(panel), '25');
     fireEvent.click(within(panel).getByRole('radio', { name: 'BAYLA' }));
     expect(coinBox(panel, 'BAYLA')).toHaveValue('');
-    expect(tokens(panel)).toHaveValue('');
+    expect(tokens(panel)).toHaveValue('25');
     expect(panel).not.toHaveTextContent('You have 250');
     expect(within(panel).getAllByText('Reading your wallet…')).toHaveLength(2);
     await waitFor(() => expect(asks).toHaveLength(3));
@@ -415,10 +419,11 @@ describe('changing the coin', () => {
     mount(readers());
     const { panel } = await openPanel();
     await within(panel).findByRole('button', { name: 'Max SOL' });
-    type(coinBox(panel, 'SOL'), '1.5');
-    type(tokens(panel), '100');
+    // At the market, and more SOL than the wallet can put in after the costs.
+    type(coinBox(panel, 'SOL'), '4.9');
+    type(tokens(panel), '490');
     const alert = within(panel).getByRole('alert');
-    await waitFor(() => expect(alert).toHaveTextContent(/taking about 0\.05\d* SOL of what you put in/));
+    await waitFor(() => expect(alert).toHaveTextContent(/The most you can put in from this wallet is 4\.80491144 SOL\./));
     fireEvent.click(within(panel).getByRole('radio', { name: 'USDC' }));
     expect(alert).toHaveTextContent('');
     // Typed at once: 20 units of USDC and 10 of the token, at the market and too small
@@ -491,7 +496,10 @@ describe('the market price in the coin', () => {
     type(coinBox(panel, 'USDC'), '50');
     type(tokens(panel), '25');
     expect(price(panel)).toHaveAttribute('data-price', 'unread');
-    expect(price(panel)).toHaveTextContent('Your opening price: 1 token = 2 USDC. There is no market price to compare it with.');
+    // Not read yet is said as that. "There is no market price" is a different answer, and an allowed one.
+    expect(price(panel)).toHaveTextContent('Your opening price: 1 token = 2 USDC. It is not checked: the market price has not been read.');
+    expect(price(panel)).not.toHaveTextContent('There is no market price');
+    expect(within(panel).queryByTestId('lp-create-warnings')).toBeNull();
     expect(matchButton(panel)).toBeDisabled();
     expect(reviewButton(panel)).toBeDisabled();
     expect(within(panel).getByTestId('lp-create-coin-price')).toHaveTextContent('Review is off while the price of USDC is read: your opening price is checked in USDC.');
@@ -596,33 +604,51 @@ describe('the opening price is checked in the coin', () => {
     expect(reviewButton(panel)).toBeEnabled();
   });
 
-  it('2.9% off passes and 3.1% off is refused, with the loss said in USDC', async () => {
-    mount(readers());
+  // Owner ruling 2026-10-04: a price off the market is a warning, and Review stays on. The
+  // gap and the loss are in the pool's own coin: 6 decimals for USDC, never SOL's 9.
+  it('2.9% off passes with no warning; 3.1% off is warned about, with the estimated loss said in USDC, and Review stays ON', async () => {
+    const prepareLpCreate = notBuilt();
+    mount(readers(), { api: { prepareLpCreate } });
     const { panel } = await openPanel();
     await pair(panel, 'USDC');
     type(tokens(panel), '25');
     // 51.45 USDC for 25 tokens is 2.058 USDC a token: 2.9% above 2.
     type(coinBox(panel, 'USDC'), '51.45');
     expect(price(panel)).toHaveAttribute('data-price', 'agrees');
+    expect(within(panel).queryByTestId('lp-create-warnings')).toBeNull();
     expect(reviewButton(panel)).toBeEnabled();
     // 51.55 is 2.062: 3.1% above.
     type(coinBox(panel, 'USDC'), '51.55');
     expect(price(panel)).toHaveAttribute('data-price', 'disagrees');
     expect(price(panel)).toHaveTextContent('Your opening price: 1 token = 2.062 USDC. Market: 2 USDC. Yours is 3.1% above the market.');
-    expect(reviewButton(panel)).toBeDisabled();
-    const alert = within(panel).getByRole('alert');
-    await waitFor(() => expect(alert).not.toHaveTextContent(''));
-    expect(alert).toHaveTextContent(
-      /^Your opening price is 3\.1% above the market price\. Bots would trade against your pool as soon as it opens, taking about 0\.01\d* USDC of what you put in\. Pools opened from this site must start within 3% of the market\.$/,
+    const warnings = within(panel).getByTestId('lp-create-warnings');
+    expect(warnings).toHaveTextContent('Your opening price is 3.1% above the market price (Jupiter). The first trades would move it to the market price, at your cost.');
+    // (√51.55 − √(25 × 2))² USDC = 0.011829… USDC: 11,830 of USDC's smallest unit, rounded up.
+    // Worked out or printed with SOL's 9 decimals it would not read 0.01183 USDC.
+    expect(warnings).toHaveTextContent('At these amounts, a move back to the market price would take up to about 0.01183 USDC of what you put in. That is an estimate.');
+    expect(warnings).not.toHaveTextContent('SOL');
+    expect(panel).not.toHaveTextContent(/must start within|within 3%/);
+    expect(within(panel).getByRole('alert')).toHaveTextContent('');
+    expect(reviewButton(panel)).toBeEnabled();
+    // What a screen reader hears once typing settles is in USDC too.
+    await waitFor(() =>
+      expect(panel.querySelector('p.sr-only[role="status"]')).toHaveTextContent(/^You would open the pool at 1 token = 2\.062 USDC and get [\d.]+ pool shares\. That price is 3\.1% above the market price:/),
     );
-    // The line's own Match keeps the USDC (typed last) and moves the tokens.
-    fireEvent.click(within(panel).getAllByRole('button', { name: 'Match the market price' }).find((b) => !b.hasAttribute('data-testid'))!);
+    // The warning's own Match keeps the USDC (typed last) and moves the tokens.
+    fireEvent.click(within(warnings).getByRole('button', { name: 'Match the market price' }));
     expect(coinBox(panel, 'USDC')).toHaveValue('51.55');
     expect(tokens(panel)).toHaveValue('25.775');
+    expect(within(panel).queryByTestId('lp-create-warnings')).toBeNull();
     expect(reviewButton(panel)).toBeEnabled();
+    // Off the market again and reviewed as it is: USDC's mint and USDC's base units.
+    type(tokens(panel), '25');
+    await act(async () => {
+      fireEvent.click(reviewButton(panel));
+    });
+    expect(handed(prepareLpCreate)).toMatchObject({ quoteMint: new PublicKey(USDC), quote: 51_550_000n, token: 25_000_000n });
   });
 
-  it('a price that would pass only if USDC were read as SOL is refused', async () => {
+  it('a price that would be at the market only if USDC were read as SOL is warned about, in USDC', async () => {
     mount(readers());
     const { panel } = await openPanel();
     await pair(panel, 'USDC');
@@ -632,12 +658,18 @@ describe('the opening price is checked in the coin', () => {
     type(tokens(panel), '25');
     expect(price(panel)).toHaveAttribute('data-price', 'disagrees');
     expect(price(panel)).toHaveTextContent('Your opening price: 1 token = 0.01 USDC. Market: 2 USDC. Yours is 99.5% below the market.');
-    expect(reviewButton(panel)).toBeDisabled();
+    const warnings = within(panel).getByTestId('lp-create-warnings');
+    expect(warnings).toHaveTextContent('Your opening price is 99.5% below the market price (Jupiter).');
+    // (√0.25 − √50)² USDC: nearly all of the 50 USDC the tokens are worth.
+    expect(warnings).toHaveTextContent('would take up to about 43.178933 USDC of what you put in');
+    // The opener's choice now: Review is on.
+    expect(reviewButton(panel)).toBeEnabled();
     // The same amounts on SOL are at SOL's market: the check is each coin's own.
     await pair(panel, 'SOL');
     type(coinBox(panel, 'SOL'), '0.25');
-    type(tokens(panel), '25');
+    expect(tokens(panel)).toHaveValue('25');
     expect(price(panel)).toHaveAttribute('data-price', 'agrees');
+    expect(within(panel).queryByTestId('lp-create-warnings')).toBeNull();
   });
 });
 
@@ -932,7 +964,8 @@ describe('what the coin adds to the risks', () => {
   });
 
   // A live mint authority can make new tokens and sell them into the pool: what it takes
-  // out is the pool's pairing coin, so that is the coin the warning names.
+  // out is the pool's pairing coin, so that is the coin the warning names. It was never a
+  // refusal, so it stays in the form's own list above the boxes.
   it('a token whose mint authority is live: what can be sold out of the pool is the chosen coin', async () => {
     const warned: TokenSafety = { ...tokenFor(M), verdict: 'warn', warnings: [{ code: 'mint-authority', text: 'Someone can still make more of this token.' }] } as TokenSafety;
     mount(readers({ safety: vi.fn(async () => new Map([[M, warned]])) }));
@@ -942,4 +975,229 @@ describe('what the coin adds to the risks', () => {
     expect(panel).toHaveTextContent('Whoever holds it can make new tokens at any time and sell them into your pool for its USDC.');
     expect(panel).not.toHaveTextContent('for its SOL');
   });
+});
+
+// Round 3 of the forms review. Each of these was a rule with no failing test, or a place
+// where one coin's answer could be shown as another's, or as current when it was not.
+describe('a coin’s price is only ever the answer to the read that is out now', () => {
+  // F2: USDC, SOL, USDC again. The kept answer used to be shown as the current price, with
+  // Review on, while a new read of it was out.
+  it('coming back to a coin through SOL reads its price again: the old one is not shown as current, and Review waits', async () => {
+    const held: Array<(p: OutsidePrice) => void> = [];
+    let usdcReads = 0;
+    const outsidePrice = vi.fn((mint: string) => {
+      if (mint !== USDC) return Promise.resolve(priceOf(mint));
+      usdcReads += 1;
+      // The first read of USDC answers. The second is held open.
+      return usdcReads === 1 ? Promise.resolve(priceOf(USDC)) : new Promise<OutsidePrice>((res) => held.push(res));
+    });
+    mount(readers({ outsidePrice }));
+    const { panel } = await openPanel();
+    await pair(panel, 'USDC');
+    await waitFor(() => expect(market(panel)).toHaveTextContent('1 token = 2 USDC.'));
+    type(coinBox(panel, 'USDC'), '50');
+    type(tokens(panel), '25');
+    expect(reviewButton(panel)).toBeEnabled();
+    await pair(panel, 'SOL');
+    await pair(panel, 'USDC');
+    await waitFor(() => expect(usdcReads).toBe(2));
+    // The second read is out: nothing is priced in USDC until it answers.
+    expect(market(panel)).toHaveTextContent('Market price in USDC: reading the price of USDC from Jupiter…');
+    expect(market(panel)).not.toHaveTextContent('1 token =');
+    type(coinBox(panel, 'USDC'), '50');
+    expect(tokens(panel)).toHaveValue('25');
+    expect(price(panel)).toHaveAttribute('data-price', 'unread');
+    expect(matchButton(panel)).toBeDisabled();
+    expect(reviewButton(panel)).toBeDisabled();
+    expect(within(panel).getByTestId('lp-create-coin-price')).toHaveTextContent('Review is off while the price of USDC is read: your opening price is checked in USDC.');
+    // USDC moved while the form was on SOL: the new answer is the one that is checked.
+    await act(async () => held[0]!(ok(0.004)));
+    expect(market(panel)).toHaveTextContent('1 token = 2.5 USDC.');
+    expect(price(panel)).toHaveAttribute('data-price', 'disagrees');
+    expect(within(panel).queryByTestId('lp-create-coin-price')).toBeNull();
+  }, LONG);
+
+  // F4: on a read-again the token's price comes back first. Its new price over the
+  // coin's OLD one is a market price of no moment at all.
+  it('a read-again never mixes the token’s new price with the coin’s old one: the line says "reading" and Match is off until both are in', async () => {
+    let release!: (p: OutsidePrice) => void;
+    let tokenSol = TOKEN_SOL;
+    const usdc = vi
+      .fn<() => Promise<OutsidePrice>>()
+      .mockResolvedValueOnce(priceOf(USDC))
+      .mockImplementationOnce(() => new Promise<OutsidePrice>((res) => (release = res)));
+    mount(readers({ outsidePrice: vi.fn((mint: string) => (mint === USDC ? usdc() : Promise.resolve(ok(tokenSol)))) }));
+    const { panel } = await openPanel();
+    await pair(panel, 'USDC');
+    await waitFor(() => expect(market(panel)).toHaveTextContent('1 token = 2 USDC.'));
+    type(coinBox(panel, 'USDC'), '50');
+    expect(matchButton(panel)).toBeEnabled();
+    // The token doubles in SOL before the next read.
+    tokenSol = 0.02;
+    fireEvent.click(within(within(panel).getByTestId('lp-create-market-again')).getByRole('button', { name: 'Read the market price again' }));
+    await waitFor(() => expect(usdc).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(screen.queryByText('Reading the token and its pools again…')).toBeNull());
+    // The token's new price is in and USDC's is not. 0.02 over the old 0.005 would read "4 USDC".
+    expect(market(panel)).toHaveTextContent('Market price in USDC: reading the price of USDC from Jupiter…');
+    expect(market(panel)).not.toHaveTextContent('1 token =');
+    expect(matchButton(panel)).toBeDisabled();
+    expect(reviewButton(panel)).toBeDisabled();
+    // USDC doubled in SOL too, so the token is still 2 USDC.
+    await act(async () => release(ok(0.01)));
+    expect(market(panel)).toHaveTextContent('1 token = 2 USDC.');
+    expect(matchButton(panel)).toBeEnabled();
+    fireEvent.click(matchButton(panel));
+    expect(tokens(panel)).toHaveValue('25');
+  }, LONG);
+
+  // F6: with the guard gone, USDC's late answer took the place of BAYLA's.
+  it('a late price answer for a coin that was left is dropped: it never takes the place of the chosen coin’s', async () => {
+    let releaseUsdc!: (p: OutsidePrice) => void;
+    const outsidePrice = vi.fn((mint: string) => (mint === USDC ? new Promise<OutsidePrice>((res) => (releaseUsdc = res)) : Promise.resolve(priceOf(mint))));
+    mount(readers({ outsidePrice }));
+    const { panel } = await openPanel();
+    await pair(panel, 'USDC');
+    expect(market(panel)).toHaveTextContent('reading the price of USDC');
+    await pair(panel, 'BAYLA');
+    await waitFor(() => expect(market(panel)).toHaveTextContent('1 token = 100 BAYLA.'));
+    type(coinBox(panel, 'BAYLA'), '1000');
+    type(tokens(panel), '10');
+    expect(reviewButton(panel)).toBeEnabled();
+    // USDC's answer lands now, for a read that was left.
+    await act(async () => releaseUsdc(priceOf(USDC)));
+    expect(market(panel)).toHaveTextContent('1 token = 100 BAYLA.');
+    expect(price(panel)).toHaveAttribute('data-price', 'agrees');
+    expect(reviewButton(panel)).toBeEnabled();
+  });
+
+  // F8: Jupiter's own words for "no route" say "this token". Here the token HAS a price;
+  // it is the coin that has none, and that is a price that could not be read.
+  it('when Jupiter has no route for the COIN, the line names the coin, never "this token", and Review stays off', async () => {
+    const noRoute = { kind: 'no-route' as const, detail: 'Jupiter has no route for this token' };
+    mount(readers({ outsidePrice: vi.fn(async (mint: string) => (mint === BAYLA ? noRoute : priceOf(mint))) }));
+    const { panel } = await openPanel();
+    await pair(panel, 'BAYLA');
+    await waitFor(() => expect(market(panel)).toHaveTextContent('Market price in BAYLA: could not be worked out (Jupiter has no route for BAYLA).'));
+    expect(market(panel)).not.toHaveTextContent('this token');
+    type(coinBox(panel, 'BAYLA'), '1000');
+    type(tokens(panel), '10');
+    // The token has a market, so a comparison is owed and cannot be made: unread, never a warning.
+    expect(price(panel)).toHaveAttribute('data-price', 'unread');
+    expect(within(panel).queryByTestId('lp-create-warnings')).toBeNull();
+    expect(reviewButton(panel)).toBeDisabled();
+    expect(within(panel).getByTestId('lp-create-coin-price')).toHaveTextContent('Review is off: the price of BAYLA could not be read');
+  });
+});
+
+describe('changing the coin is never silent', () => {
+  const status = (p: HTMLElement) => p.querySelector('p.sr-only[role="status"]');
+
+  // F9: the radio group's arrow keys change the coin, and a typed amount went with it
+  // without a word.
+  it('the token amount is kept, the coin’s box is cleared, and the status line says so', async () => {
+    mount(readers());
+    const { panel } = await openPanel();
+    await within(panel).findByRole('button', { name: 'Max SOL' });
+    expect(status(panel)).toHaveTextContent('');
+    type(coinBox(panel, 'SOL'), '1');
+    type(tokens(panel), '100');
+    await pair(panel, 'USDC');
+    expect(coinBox(panel, 'USDC')).toHaveValue('');
+    expect(tokens(panel)).toHaveValue('100');
+    expect(status(panel)).toHaveTextContent(/^Now pairing with USDC\. Type the USDC amount again\.$/);
+    // The kept token amount is what Match works from: 100 tokens at 2 USDC.
+    await waitFor(() => expect(market(panel)).toHaveTextContent('1 token = 2 USDC.'));
+    fireEvent.click(matchButton(panel));
+    expect(coinBox(panel, 'USDC')).toHaveValue('200');
+    expect(tokens(panel)).toHaveValue('100');
+    // With the coin's amount in, there is nothing left to ask for.
+    expect(status(panel)).not.toHaveTextContent('Now pairing');
+  });
+
+  it('with nothing typed for the coin, it says the new coin and asks for nothing "again"', async () => {
+    mount(readers());
+    const { panel } = await openPanel();
+    await within(panel).findByRole('button', { name: 'Max SOL' });
+    type(tokens(panel), '100');
+    await pair(panel, 'BAYLA');
+    expect(tokens(panel)).toHaveValue('100');
+    expect(status(panel)).toHaveTextContent(/^Now pairing with BAYLA\.$/);
+  });
+
+  // F6: the line a screen reader hears is kept for half a second after it changes.
+  it('what a screen reader heard under one coin is not said again under the next', async () => {
+    mount(readers());
+    const { panel } = await openPanel();
+    await within(panel).findByRole('button', { name: 'Max SOL' });
+    type(coinBox(panel, 'SOL'), '1');
+    type(tokens(panel), '100');
+    await waitFor(() => expect(status(panel)).toHaveTextContent('You would open the pool at 1 token = 0.01 SOL and get 0.316227666 pool shares.'));
+    fireEvent.click(within(panel).getByRole('radio', { name: 'USDC' }));
+    // At once: the settled line was SOL's, and is not USDC's.
+    expect(status(panel)).not.toHaveTextContent('You would open the pool');
+    expect(status(panel)).not.toHaveTextContent('SOL');
+    expect(status(panel)).toHaveTextContent('Now pairing with USDC. Type the USDC amount again.');
+  });
+});
+
+describe('the card, per coin (round 3)', () => {
+  // F6: the line was in no test at all.
+  it('a coin whose pools all fail their checks is said by name, beside the coin that has a pool to add to', async () => {
+    const solPool = view();
+    // Not open for swaps yet: a pool, and one that passes no deposit check.
+    const failingUsdc = view({ quote: USDC_QUOTE, openTime: 10n ** 12n });
+    mount(readers({ findPools: vi.fn(async () => search([solPool, failingUsdc])) }));
+    const card = await offered();
+    expect(within(card).getByTestId('lp-create-refer')).toHaveAttribute('data-coin', 'SOL');
+    expect(within(card).getByTestId('lp-create-failing')).toHaveTextContent(/^None of this token's USDC pools passes the checks above\.$/);
+    expect(within(card).getByTestId('lp-create-none-yet')).toHaveTextContent('This token has no BAYLA pool yet.');
+  });
+
+  // F6: the card's "same answer" key covered the first coin only. A read that changes
+  // only what a later coin has must say the answer is new.
+  it('Read again says the answer is new when only a coin after the first changed, and the same when nothing did', async () => {
+    const unread: OutsidePrice = { kind: 'unread', detail: 'Jupiter did not give a price (HTTP 502)' };
+    const usdcPool = view({ quote: USDC_QUOTE });
+    // Between the first read and the second, someone opens a USDC pool. SOL has none throughout.
+    const findPools = vi.fn().mockResolvedValueOnce(search([])).mockResolvedValue(search([usdcPool]));
+    mount(readers({ findPools, outsidePrice: vi.fn(async (mint: string) => (mint === M ? unread : priceOf(mint))) }));
+    const card = await screen.findByTestId('lp-create');
+    await waitFor(() => expect(card).toHaveAttribute('data-create', 'price-unread'));
+    const reread = within(card).getByTestId('lp-create-reread');
+    fireEvent.click(within(card).getByRole('button', { name: 'Read again' }));
+    await waitFor(() => expect(reread).toHaveTextContent('Read again just now: the answer above is new.'));
+    expect(card).toHaveAttribute('data-create', 'price-unread');
+    fireEvent.click(within(card).getByRole('button', { name: 'Read again' }));
+    await waitFor(() => expect(findPools).toHaveBeenCalledTimes(3));
+    await waitFor(() => expect(reread).toHaveTextContent('Read again just now: the same answer.'));
+  }, LONG);
+
+  // F1: the card's Add button is a second, recommended way into the Add form. That form
+  // once typed SOL for every pool: a typed 1 was handed over as 1,000 USDC. This pins the
+  // whole way from the card to the builder, so no merge order can bring that back.
+  it('"Add liquidity to that pool" on a USDC pool opens a form that types USDC: a typed 1 is 1,000,000 of its smallest unit', async () => {
+    const usdcPool = view({ quote: USDC_QUOTE });
+    const prepareLpDeposit = notBuilt();
+    mount(readers({ findPools: vi.fn(async () => search([usdcPool])) }), { api: { prepareLpDeposit } });
+    const card = await offered();
+    fireEvent.click(await within(card).findByRole('button', { name: 'Add liquidity to that pool' }));
+    const add = await screen.findByTestId('lp-add-panel');
+    await within(add).findByRole('button', { name: 'Max USDC' });
+    expect(within(add).queryByLabelText('SOL to add')).toBeNull();
+    type(within(add).getByLabelText('USDC to add'), '1');
+    const review = within(add).getByRole('button', { name: 'Review: add liquidity' });
+    await waitFor(() => expect(review).toBeEnabled());
+    await act(async () => {
+      fireEvent.click(review);
+    });
+    expect(prepareLpDeposit).toHaveBeenCalledTimes(1);
+    expect((prepareLpDeposit.mock.calls[0] as unknown[])[3]).toMatchObject({
+      pool: new PublicKey(usdcPool.address),
+      tokenMint: MINT,
+      quoteMint: new PublicKey(USDC),
+      driving: 'quote',
+      // 1 USDC. With SOL's 9 decimals this would be 1,000,000,000: a thousand USDC.
+      maxIn: 1_000_000n,
+    });
+  }, LONG);
 });

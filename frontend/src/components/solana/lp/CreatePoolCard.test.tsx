@@ -10,6 +10,7 @@ import { LpInner, type LpWritesOverrides } from './SolanaLpSection';
 import type { LpReaders } from './readers';
 import type { TokenSafety } from '../../../lib/solana/lp/tokenSafety';
 import { SOL_QUOTE } from '../../../lib/solana/lp/quotes';
+import { TOKEN_2022_NATIVE_MINT } from '../../../lib/solana/lp/opening';
 import { isCreatedPool, rememberCreatedPool, type PoolSearchRead, type PoolView } from '../../../lib/solana/lp/poolFinder';
 import { decodeAmmConfig, decodePoolState } from '../../../lib/solana/cpswap/program';
 import type { WalletFacts } from '../../../lib/solana/lp/walletFacts';
@@ -17,6 +18,7 @@ import { buildPool, key } from '../../../lib/solana/lp/testkit.fixture';
 import { LP_PENDING_SCOPE, readPendingTrades, savePendingTrade } from '../curve/pendingTrade';
 import type { CreateFacts, LpWriteApi } from '../curve/ports';
 import { TIER1_ADDRESS, fakeLpApi, lpOpenGate, LP_PROGRAM, notOpenFacts, readyFacts, tier1Config, unusedGateRpc } from './fakeLpWriteApi.fixture';
+import { realToken, reasonText } from './anyToken.fixture';
 
 // web3's address derivation cannot run under jsdom (a cross-realm Uint8Array check): the
 // public tier's address is the fixture's fixed key, as `readyFacts()` reports it.
@@ -112,11 +114,11 @@ function readers(o: Partial<LpReaders> = {}): LpReaders {
   };
 }
 
-function mount(r: LpReaders, o: { mode?: LpWritesOverrides['mode']; api?: LpWriteApi; createFacts?: CreateFacts } = {}) {
+function mount(r: LpReaders, o: { mode?: LpWritesOverrides['mode']; api?: LpWriteApi; createFacts?: CreateFacts; mint?: string } = {}) {
   const api = o.api ?? fakeLpApi({ readCreateFacts: vi.fn(async () => o.createFacts ?? readyFacts()) });
   const load = vi.fn(async () => api);
   render(
-    <MemoryRouter initialEntries={[`/pools?mint=${M}`]}>
+    <MemoryRouter initialEntries={[`/pools?mint=${o.mint ?? M}`]}>
       <LpInner readers={r} writes={{ mode: o.mode ?? 'on', load, gateRpc: unusedGateRpc }} />
     </MemoryRouter>,
   );
@@ -229,11 +231,60 @@ describe('each answer has its own line, and only `offer` has the button', () => 
 
   it('a stopped card names no pool to add to: the stop has its own line', async () => {
     const theirs = view({ tier1: true });
-    mount(readers({ findPools: vi.fn(async () => search([theirs])), outsidePrice: vi.fn(async () => ({ kind: 'no-route' as const, detail: 'no route' })) }));
-    const c = await settled('no-route');
+    mount(readers({ findPools: vi.fn(async () => search([theirs])), outsidePrice: vi.fn(async () => ({ kind: 'unread' as const, detail: 'Jupiter did not give a price (HTTP 502)' })) }));
+    const c = await settled('price-unread');
     expect(c).toHaveAttribute('data-advice', 'none');
     expect(within(c).queryByTestId('lp-create-refer')).toBeNull();
     expect(within(c).queryByRole('button', { name: 'Open a pool' })).toBeNull();
+    // A stop is not a warning: the card has no list of warnings beside it.
+    expect(within(c).queryByTestId('lp-create-cautions')).toBeNull();
+  });
+
+  // Owner ruling 2026-10-04: a pool whose price is off the market takes deposits, with a
+  // warning. The card still names it, but never says "we suggest adding to it" of a pool
+  // that a deposit would lose money in, and puts no Add button of its own for it.
+  it('a pool whose price is off the market is named, but adding to it is not suggested', async () => {
+    const theirs = view({ tier1: true });
+    // The pool holds 10 SOL and 1,000 tokens (0.01 SOL a token). Jupiter says 0.02.
+    mount(readers({ findPools: vi.fn(async () => search([theirs])), outsidePrice: vi.fn(async () => ({ kind: 'ok' as const, solPerToken: 0.02, source: 'Jupiter' as const })) }));
+    const c = await settled('offer');
+    expect(c).toHaveAttribute('data-advice', 'exists');
+    const refer = within(c).getByTestId('lp-create-refer');
+    expect(refer).toHaveTextContent(
+      `This token already has a pool on the public fee tier that passes the checks (above). The biggest is ${theirs.address}, holding 10 SOL. Its price is 50.0% below the price it is checked against (its card above shows both), so we do not suggest adding to it now: a deposit there would pay for that gap.`,
+    );
+    expect(refer).not.toHaveTextContent('We suggest adding to it');
+    // The pool's own card still offers adding: the warning takes no button away there.
+    await waitFor(() => expect(screen.getByTestId('lp-pool')).toHaveAttribute('data-add', 'offer'));
+    // This card puts no Add button of its own beside a pool it does not suggest.
+    expect(within(c).queryByRole('button', { name: /^Add liquidity to/ })).toBeNull();
+    // With nothing suggested beside it, Open a pool is the first choice, and looks it.
+    expect(within(c).getByRole('button', { name: 'Open a pool' })).toHaveClass('btn-primary');
+  });
+
+  it('a pool this tab opened whose price is off the market: named as yours, and adding to it is not suggested either', async () => {
+    const mine = view({ tier1: true });
+    rememberCreatedPool(mine.address);
+    // 0.01 SOL a token in the pool; Jupiter says 0.005: the pool is 100% above it.
+    mount(readers({ findPools: vi.fn(async () => search([mine])), outsidePrice: vi.fn(async () => ({ kind: 'ok' as const, solPerToken: 0.005, source: 'Jupiter' as const })) }));
+    const c = await settled('offer');
+    expect(c).toHaveAttribute('data-advice', 'opened-here');
+    const opened = within(c).getByTestId('lp-create-opened');
+    expect(opened).toHaveTextContent(
+      `You opened a pool for this token just now (${mine.address}). Your share is under 'Your positions'. Its price is 100.0% above the price it is checked against (its card above shows both), so we do not suggest adding to it now: a deposit there would pay for that gap.`,
+    );
+    expect(opened).not.toHaveTextContent('Adding to it keeps your liquidity in one place');
+    await waitFor(() => expect(screen.getByTestId('lp-pool')).toHaveAttribute('data-add', 'offer'));
+    expect(within(c).queryByRole('button', { name: /^Add liquidity to/ })).toBeNull();
+  });
+
+  it('…and at the market price it is suggested, with its own Add button first', async () => {
+    const theirs = view({ tier1: true });
+    mount(readers({ findPools: vi.fn(async () => search([theirs])) }));
+    const c = await settled('offer');
+    expect(within(c).getByTestId('lp-create-refer')).toHaveTextContent('We suggest adding to it: liquidity in one place gives traders a better price.');
+    expect(await within(c).findByRole('button', { name: 'Add liquidity to that pool' })).toHaveClass('btn-primary');
+    expect(within(c).getByRole('button', { name: 'Open a pool' })).toHaveClass('btn-secondary');
   });
 
   it('pools-unread: an index outage; Read again searches again', async () => {
@@ -245,9 +296,28 @@ describe('each answer has its own line, and only `offer` has the button', () => 
     await waitFor(() => expect(r.findPools).toHaveBeenCalledTimes(2));
   });
 
-  it('no-route', async () => {
+  // Owner ruling 2026-10-04: any token may have a pool. Jupiter ANSWERING that it has no
+  // route used to stop the card. It is offered now, and said as a warning before the button.
+  it('no market price (Jupiter answered that it has no route): offered, and said before the button', async () => {
     mount(readers({ outsidePrice: vi.fn(async () => ({ kind: 'no-route' as const, detail: 'Jupiter has no route for this token' })) }));
-    expect(await settled('no-route')).toHaveTextContent('Jupiter has no market price for this token. This site opens pools only for tokens that already trade somewhere it can price');
+    const c = await settled('offer');
+    const cautions = within(c).getByTestId('lp-create-cautions');
+    expect(cautions).toHaveTextContent('Read these about this token first:');
+    expect(cautions).toHaveTextContent(
+      'Jupiter has no market price for this token, so there is nothing to compare an opening price with. If you open a pool, you set its first price yourself.',
+    );
+    const button = within(c).getByRole('button', { name: 'Open a pool' });
+    expect(button).toBeEnabled();
+    expect(cautions.compareDocumentPosition(button) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // Nothing says this site refuses it any more.
+    expect(c).not.toHaveTextContent(/opens pools only for tokens|does not open pools/);
+  });
+
+  it('a clean token at a market price has no list of warnings on the card', async () => {
+    mount(readers());
+    const c = await settled('offer');
+    expect(within(c).queryByTestId('lp-create-cautions')).toBeNull();
+    expect(c).not.toHaveTextContent('Read these about this token first:');
   });
 
   it('price-unread says the detail and reads again', async () => {
@@ -259,11 +329,82 @@ describe('each answer has its own line, and only `offer` has the button', () => 
     await waitFor(() => expect(r.outsidePrice).toHaveBeenCalledTimes(2));
   });
 
-  it('token-refused names the first reason', async () => {
-    const copy: TokenSafety = { ...okToken, verdict: 'warn', warnings: [{ code: 'copies-known-name', text: 'It calls itself BOBO.' }] } as TokenSafety;
+  // A copy of a well-known name used to be refused here. It is offered now, and the card
+  // says the copy warning in full before the button: it names the real token's mint.
+  it('a token that copies a well-known name: offered, with the copy warning in full before the button', async () => {
+    const copy = realToken(MINT, { name: 'BOBO', symbol: 'BOBO' });
     mount(readers({ safety: vi.fn(async () => new Map([[M, copy]])) }));
+    const c = await settled('offer');
+    const cautions = within(c).getByTestId('lp-create-cautions');
+    const warning = reasonText(copy, 'copies-known-name');
+    expect(warning).toContain('NOT the real BOBO (whose mint is 4nV5gNwwP68zUDat26ySChREqVaQaLudfJBkSgEzpump)');
+    expect(cautions).toHaveTextContent(warning);
+    const button = within(c).getByRole('button', { name: 'Open a pool' });
+    expect(button).toBeEnabled();
+    expect(cautions.compareDocumentPosition(button) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(c).not.toHaveTextContent(/does not open pools/);
+  });
+
+  it('a token its creator can freeze: offered, with the freeze warning before the button', async () => {
+    const authority = key();
+    const freezable = realToken(MINT, { freeze: authority });
+    mount(readers({ safety: vi.fn(async () => new Map([[M, freezable]])) }));
+    const c = await settled('offer');
+    const warning = reasonText(freezable, 'freeze-authority');
+    expect(warning).toContain(`freeze authority ${authority.toBase58()}`);
+    expect(warning).toContain('nobody can take liquidity out of that pool');
+    expect(within(c).getByTestId('lp-create-cautions')).toHaveTextContent(warning);
+    expect(within(c).getByRole('button', { name: 'Open a pool' })).toBeEnabled();
+  });
+
+  // What stays refused is refused in the check's own words. A transfer fee: the pool
+  // program would take it, the limit is this site's, and the block says so.
+  it('token-refused: a token that charges a transfer fee, in the words of the check that blocked it', async () => {
+    const feeToken = realToken(MINT, { transferFee: true });
+    const block = reasonText(feeToken, 'transfer-fee');
+    expect(block).toContain('This site cannot build exact deposits and withdrawals for a token that charges a transfer fee, so it does not open or add to pools for it.');
+    mount(readers({ safety: vi.fn(async () => new Map([[M, feeToken]])) }));
+    const c = await settled('token-refused');
+    expect(c).toHaveTextContent(`This site does not open pools for this token: ${block}`);
+    expect(within(c).queryByRole('button', { name: 'Open a pool' })).toBeNull();
+    expect(within(c).queryByTestId('lp-create-cautions')).toBeNull();
+  });
+
+  it('token-refused: a freezable copy that ALSO charges a transfer fee is refused for the fee; the warnings lift nothing', async () => {
+    const feeToken = realToken(MINT, { transferFee: true, freeze: key(), name: 'BOBO', symbol: 'BOBO' });
+    mount(readers({ safety: vi.fn(async () => new Map([[M, feeToken]])) }));
+    const c = await settled('token-refused');
+    expect(c).toHaveTextContent(`This site does not open pools for this token: ${reasonText(feeToken, 'transfer-fee')}`);
+    expect(within(c).queryByRole('button', { name: 'Open a pool' })).toBeNull();
+    // A refusal has no button to warn before: its warnings stay on the token's own card.
+    expect(reasonText(feeToken, 'copies-known-name')).toContain('NOT the real BOBO');
+    expect(within(c).queryByTestId('lp-create-cautions')).toBeNull();
+    expect(c).not.toHaveTextContent('NOT the real BOBO');
+  });
+
+  // Two blocks of two kinds: one is this site's limit, the other is the pool program's.
+  // Both are said, so nobody fixes one and comes back to be told about the next.
+  it('token-refused: a token blocked twice over is told both reasons, each in its own words', async () => {
+    const twice = realToken(MINT, { transferFee: true, transferHook: true });
+    const fee = reasonText(twice, 'transfer-fee');
+    const hook = reasonText(twice, 'extension');
+    expect(hook).toContain('a transfer hook');
+    expect(hook).toContain('The pool program does not accept tokens with it.');
+    mount(readers({ safety: vi.fn(async () => new Map([[M, twice]])) }));
+    expect(await settled('token-refused')).toHaveTextContent(`This site does not open pools for this token: ${fee} ${hook}`);
+  });
+
+  it('token-refused: an address with no account behind it', async () => {
+    mount(readers({ safety: vi.fn(async () => new Map([[M, { kind: 'absent' as const, mint: M }]])) }));
+    expect(await settled('token-refused')).toHaveTextContent('This site does not open pools for this token: The token does not exist.');
+  });
+
+  // The one refusal that is neither a block nor a missing token: its mint reads as a clean one.
+  it('token-refused: SOL under the newer token program, in its own words', async () => {
+    const native: TokenSafety = { ...okToken, mint: TOKEN_2022_NATIVE_MINT } as TokenSafety;
+    mount(readers({ safety: vi.fn(async () => new Map([[TOKEN_2022_NATIVE_MINT, native]])) }), { mint: TOKEN_2022_NATIVE_MINT });
     expect(await settled('token-refused')).toHaveTextContent(
-      'This site does not open pools for this token: It calls itself by a well-known token’s name but has a different mint. This site does not open pools for copies.',
+      'This site does not open pools for this token: This is SOL under the newer token program. Pools here pair a token with SOL, USDC or BAYLA.',
     );
   });
 

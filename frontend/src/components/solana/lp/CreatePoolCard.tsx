@@ -6,21 +6,18 @@ import type { OutsidePrice } from '../../../lib/solana/lp/outsidePrice';
 import type { TokenSafety } from '../../../lib/solana/lp/tokenSafety';
 import { tradeCostText } from '../../../lib/solana/lp/format';
 import { CREATOR_FEE_SWITCH } from '../../../lib/solana/cpswap/venue';
-import { TOKEN_2022_NATIVE_MINT } from '../../../lib/solana/lp/opening';
 import { QUOTE_COINS_OR } from '../../../lib/solana/lp/quotes';
 import { Notice } from '../curve/ui';
 import { CARD, CARD_STYLE, SHADOW } from '../curve/uiFormat';
 import type { CreateFacts, TierState } from '../curve/ports';
 import { CreatePoolPanel } from './CreatePoolPanel';
 import { MONEY_NOTE } from './LpDisclosures';
-import { createOffer, depositOffer, lpHeld, pairFacts, poolListCut, type CreateOffer, type PairFacts } from './offers';
+import { createOffer, depositOffer, lpHeld, openingCautions, pairFacts, poolListCut, type CreateOffer, type PairFacts } from './offers';
 import { coinAbout } from './panelKit';
 import { useLpWrites, type LpWrites } from './useLpWrites';
 
 const NATIVE_2022_LINE = `This is SOL under the newer token program. Pools here pair a token with ${QUOTE_COINS_OR}.`;
 
-/** A sentence ends once: reasons from the checks already carry their own full stop. */
-const sentence = (s: string) => (/[.!?]$/.test(s) ? s : `${s}.`);
 /** Coin names in a sentence: "USDC", "USDC or BAYLA", "SOL, USDC or BAYLA". */
 const orList = (names: string[]) => (names.length <= 1 ? names.join('') : `${names.slice(0, -1).join(', ')} or ${names[names.length - 1]}`);
 const solFee = (lamports: bigint) => formatSol(lamports, 9);
@@ -38,6 +35,12 @@ const solFee = (lamports: bigint) => formatSol(lamports, 9);
  * A pool that already exists never takes the button away. The card names the pool to add
  * to first (`createAdvice`: one this tab opened, else the biggest passing pool on the
  * public tier) and says a new pool is separate; the choice is the opener's.
+ *
+ * ANY TOKEN MAY HAVE A POOL (owner ruling 2026-10-04). A token that copies a well-known
+ * name, one its creator can freeze, and one with no market price are offered like any
+ * other. The card says each as a warning before its buttons (`openingCautions`), the form
+ * says them again above Review, and the review screen once more. Only a token that is
+ * absent or blocked is refused, in the words of the check that blocked it.
  *
  * ONE ANSWER PER PAIRING COIN (`pairFacts`). A new pool pairs the token with SOL, USDC or
  * BAYLA, and the pool to add to instead is one paired with the same coin. So each coin
@@ -108,6 +111,8 @@ function CreateCard({
   // The pools the card points to, one per coin at most, SOL's first.
   const pointers = pairs.flatMap((x) => (x.advice.kind === 'none' ? [] : [{ coin: x.coin, kind: x.advice.kind, pool: x.advice.pool }]));
   const answer = answerKey(offer, pairs, facts, outside, search, healths);
+  // What the opener is warned about before any button. Only beside an offer: a stopped card has no button.
+  const cautions = offer === 'offer' ? openingCautions(safety, outside) : [];
   // A pressed Read again: what the card said before, until the new answer is in.
   const [asked, setAsked] = useState<string | null>(null);
   const [said, setSaid] = useState<'same' | 'changed' | null>(null);
@@ -151,11 +156,14 @@ function CreateCard({
   // Add button follows. It sits beside Open a pool, which stays: a token may have as
   // many pools as people open (owner ruling 2026-10-03). One button per pool pointed to,
   // and with more than one each says its coin, so "that pool" is never a guess.
+  // Not for a pool whose price is off the market: this card does not suggest adding to
+  // it (`offMarketLine`), so it puts no button for that here. The pool's own card keeps
+  // its Add button.
   const { mode, gate } = writes;
   const notes = writes.pending.notes;
   const addInstead = pointers.filter(({ pool }) => {
     const health = healths.get(pool.address);
-    return !!health && gate?.kind === 'open' && depositOffer({ mode, gate, health, held: lpHeld(notes, pool.address, 'add') }) === 'offer';
+    return !!health && offMarketLine(health) === null && gate?.kind === 'open' && depositOffer({ mode, gate, health, held: lpHeld(notes, pool.address, 'add') }) === 'offer';
   });
   if (offer === 'off') return null;
 
@@ -193,6 +201,17 @@ function CreateCard({
             onReread={readAgain(onReread)}
             onRereadFacts={readAgain(writes.refreshCreateFacts)}
           />
+          {/* Warnings, never a stop: the buttons below stay. The same lead-in as the forms and the review. */}
+          {cautions.length > 0 && (
+            <div className="space-y-1" data-testid="lp-create-cautions">
+              <Notice tone="warn">Read these about this token first:</Notice>
+              <ul className="list-disc pl-4 text-amber-300/90 space-y-0.5">
+                {cautions.map((c) => (
+                  <li key={c}>{c}</li>
+                ))}
+              </ul>
+            </div>
+          )}
         </div>
         {/* What the last Read again found, so the same answer is not silence. */}
         <p role="status" className="text-white/55 text-[11px]" data-testid="lp-create-reread">
@@ -253,6 +272,20 @@ function CreateCard({
       </div>
     </section>
   );
+}
+
+/**
+ * A pool whose price is more than 3% from its reference takes deposits now, with a
+ * warning (owner ruling 2026-10-04). It is still named as the pool that exists, but this
+ * card never says "we suggest adding to it" of a pool that a deposit would lose money
+ * in. What it says instead, or null for a pool whose price is not off. The pool's own
+ * card shows its price and the price it was checked against, so neither is repeated here.
+ */
+function offMarketLine(health: PoolHealth | undefined): string | null {
+  if (health?.price.state !== 'disagrees') return null;
+  const { diff } = health.price;
+  const gap = `${(Math.abs(diff) * 100).toFixed(1)}% ${diff > 0 ? 'above' : 'below'}`;
+  return `Its price is ${gap} the price it is checked against (its card above shows both), so we do not suggest adding to it now: a deposit there would pay for that gap.`;
 }
 
 /** Why some pool for this token could not be read or checked, in a few words. */
@@ -410,13 +443,13 @@ function OfferLines({
             return kind === 'opened-here' ? (
               <p key={coin.mint} data-testid="lp-create-opened" data-coin={coin.symbol}>
                 You opened {aPool} for this token just now (<span className="font-mono break-all">{pool.address}</span>). Your share is under
-                &apos;Your positions&apos;. Adding to it keeps your liquidity in one place.
+                &apos;Your positions&apos;. {offMarketLine(healths.get(pool.address)) ?? 'Adding to it keeps your liquidity in one place.'}
               </p>
             ) : (
               <p key={coin.mint} data-testid="lp-create-refer" data-coin={coin.symbol}>
                 This token already has {aPool} on the public fee tier that passes the checks (above). The biggest is{' '}
-                <span className="font-mono break-all">{pool.address}</span>, holding {coinAbout(pool.quoteReserve, coin)}. We suggest adding to
-                it: liquidity in one place gives traders a better price.
+                <span className="font-mono break-all">{pool.address}</span>, holding {coinAbout(pool.quoteReserve, coin)}.{' '}
+                {offMarketLine(healths.get(pool.address)) ?? 'We suggest adding to it: liquidity in one place gives traders a better price.'}
               </p>
             );
           })}
@@ -445,13 +478,6 @@ function OfferLines({
           <ReadAgain onClick={onReread} busy={busy} />
         </>
       );
-    case 'no-route':
-      return (
-        <p>
-          Jupiter has no market price for this token. This site opens pools only for tokens that already trade somewhere it can price, so nobody
-          can be talked into an opening price that only they would pay.
-        </p>
-      );
     case 'price-unread':
       return (
         <>
@@ -463,8 +489,12 @@ function OfferLines({
         </>
       );
     case 'token-refused': {
-      const reason = tokenReasons(safety, 'pools').refused[0] ?? (safety.mint === TOKEN_2022_NATIVE_MINT ? NATIVE_2022_LINE : 'it did not pass the checks');
-      return <p>This site does not open pools for this token: {sentence(reason)}</p>;
+      // In the words of the check that refused it: every block on a blocked token (they say
+      // whether the pool program or this site is the limit), or that the token does not
+      // exist. Each is a whole sentence. The one refusal with neither is SOL under the
+      // newer token program.
+      const reasons = safety.kind === 'read' ? safety.blocks.map((b) => b.text) : tokenReasons(safety, 'pools').refused;
+      return <p>This site does not open pools for this token: {reasons.length > 0 ? reasons.join(' ') : NATIVE_2022_LINE}</p>;
     }
     case 'token-unread':
       return (
