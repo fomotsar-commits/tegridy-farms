@@ -14,7 +14,8 @@ import { PROGRAM, buildPool, key, viewOf } from '../../../lib/solana/lp/testkit.
 import type { CreateFacts } from '../../../lib/launcher/solana/write/types';
 import type { PendingTrade } from '../curve/pendingTrade';
 import type { CurveWriteConfig, LpGate } from '../curve/ports';
-import { createAdvice, createHeld, createOffer, depositOffer, lpHeld, poolListCut, withdrawOffer, type CreateOffer } from './offers';
+import { BAYLA_QUOTE, SOL_QUOTE, USDC_QUOTE, type QuoteCoin } from '../../../lib/solana/lp/quotes';
+import { createAdvice, createHeld, createOffer, depositOffer, lpHeld, pairFacts, poolListCut, standardState, withdrawOffer, type CreateOffer } from './offers';
 
 const mint = key();
 const SOL = 10n * 10n ** 9n;
@@ -420,6 +421,153 @@ describe('createOffer', () => {
       expectTypeOf<'exists'>().not.toMatchTypeOf<CreateOffer>();
       expectTypeOf<'opened-here'>().not.toMatchTypeOf<CreateOffer>();
       expectTypeOf<Parameters<typeof createOffer>[0]>().not.toHaveProperty('openedHere');
+    });
+  });
+
+  // Pairing coins (owner ruling 2026-10-03): a new pool is paired with SOL, USDC or BAYLA,
+  // and the pool to add to instead is one paired with the SAME coin. The owner's own case:
+  // BAYLA has a SOL pool, and he opens the first BAYLA/USDC pool.
+  describe('the advice is per pairing coin', () => {
+    /** A pool for `mint` paired with `quote` on fee tier `tier`; `reserve` is in that coin's own base units. */
+    const pairedOn = (quote: QuoteCoin, reserve: bigint, tier = 1, address: PublicKey = key()) => ({
+      kind: 'pool' as const,
+      view: viewOf(buildPool({ mint, quote, quoteReserve: reserve, tokenReserve: TOK, configIndex: tier, address }), { sol: reserve, tok: TOK }),
+    });
+    const adviceFor = (a: In, quote: QuoteCoin, openedHere: (pool: string) => boolean = () => false) =>
+      createAdvice({ gate: a.gate, search: a.search, healths: a.healths, openedHere, quote });
+    const USDC_UNIT = 10n ** 6n;
+
+    it('the fixture: each pool reads as paired with its own coin', () => {
+      expect(pairedOn(USDC_QUOTE, USDC_UNIT).view.quote).toBe(USDC_QUOTE);
+      expect(pairedOn(BAYLA_QUOTE, USDC_UNIT).view.quote).toBe(BAYLA_QUOTE);
+      expect(poolOn(1).view.quote).toBe(SOL_QUOTE);
+    });
+
+    it('a SOL pool is the pool to add to for SOL only: someone opening the first USDC or BAYLA pool is pointed nowhere', () => {
+      const sol = poolOn(1);
+      const a = withPool(base(), sol, 'allowed');
+      expect(adviceFor(a, SOL_QUOTE)).toEqual({ kind: 'exists', pool: sol.view });
+      expect(adviceFor(a, USDC_QUOTE)).toEqual({ kind: 'none' });
+      expect(adviceFor(a, BAYLA_QUOTE)).toEqual({ kind: 'none' });
+    });
+
+    it('a USDC pool is the pool to add to for USDC only', () => {
+      const usdc = pairedOn(USDC_QUOTE, 500n * USDC_UNIT);
+      const a = withPool(base(), usdc, 'allowed');
+      expect(adviceFor(a, USDC_QUOTE)).toEqual({ kind: 'exists', pool: usdc.view });
+      expect(adviceFor(a, SOL_QUOTE)).toEqual({ kind: 'none' });
+      expect(adviceFor(a, BAYLA_QUOTE)).toEqual({ kind: 'none' });
+    });
+
+    it('left out, the coin is SOL: the answer a SOL-only page has always had', () => {
+      const sol = poolOn(1);
+      const usdc = pairedOn(USDC_QUOTE, 10n ** 12n);
+      const a = withPool(withPool(base(), usdc, 'allowed'), sol, 'allowed');
+      expect(adviceOf(a)).toEqual({ kind: 'exists', pool: sol.view });
+      expect(adviceOf(withPool(base(), usdc, 'allowed'))).toEqual({ kind: 'none' });
+    });
+
+    // The same count of base units is 10 SOL in one pool and 10,000 USDC in the next, so
+    // "the biggest" is only ever asked among pools of one coin.
+    it('reserves of different coins are never compared: each coin has its own biggest pool', () => {
+      // In base units: 10^9 (1 SOL) > 10^7 (10 USDC) > 5·10^6 (5 USDC), and 10^11 (100,000 USDC) > 10^10 (10 SOL).
+      const oneSol = poolOn(1, key(), 10n ** 9n);
+      const tenUsdc = pairedOn(USDC_QUOTE, 10n * USDC_UNIT);
+      const fiveUsdc = pairedOn(USDC_QUOTE, 5n * USDC_UNIT);
+      let a = base();
+      for (const e of [fiveUsdc, oneSol, tenUsdc]) a = withPool(a, e, 'allowed');
+      expect(adviceFor(a, USDC_QUOTE)).toEqual({ kind: 'exists', pool: tenUsdc.view });
+      expect(adviceFor(a, SOL_QUOTE)).toEqual({ kind: 'exists', pool: oneSol.view });
+
+      const tenSol = poolOn(1, key(), 10n * 10n ** 9n);
+      const bigUsdc = pairedOn(USDC_QUOTE, 100_000n * USDC_UNIT);
+      let b = base();
+      for (const e of [bigUsdc, tenSol]) b = withPool(b, e, 'allowed');
+      expect(adviceFor(b, SOL_QUOTE)).toEqual({ kind: 'exists', pool: tenSol.view });
+      expect(adviceFor(b, USDC_QUOTE)).toEqual({ kind: 'exists', pool: bigUsdc.view });
+    });
+
+    it('a pool this tab opened is pointed to first for ITS coin, and says nothing for another', () => {
+      const mine = pairedOn(USDC_QUOTE, 5n * USDC_UNIT);
+      const theirsUsdc = pairedOn(USDC_QUOTE, 900n * USDC_UNIT);
+      const theirsSol = poolOn(1);
+      let a = base();
+      for (const e of [theirsUsdc, theirsSol]) a = withPool(a, e, 'allowed');
+      a = withPool(a, mine, 'refused');
+      const opened = (p: string) => p === mine.view.address;
+      expect(adviceFor(a, USDC_QUOTE, opened)).toEqual({ kind: 'opened-here', pool: mine.view });
+      expect(adviceFor(a, SOL_QUOTE, opened)).toEqual({ kind: 'exists', pool: theirsSol.view });
+      expect(adviceFor(a, BAYLA_QUOTE, opened)).toEqual({ kind: 'none' });
+    });
+
+    it('per coin too: only a passing pool on the public tier is pointed to', () => {
+      for (const a of [withPool(base(), pairedOn(USDC_QUOTE, USDC_UNIT, 0), 'allowed'), withPool(base(), pairedOn(USDC_QUOTE, USDC_UNIT), 'refused')]) {
+        expect(createOffer(a)).toBe('offer');
+        expect(adviceFor(a, USDC_QUOTE)).toEqual({ kind: 'none' });
+      }
+    });
+
+    describe('pairFacts: one answer for each coin the token can be paired with', () => {
+      const facts = (a: In, o: { tokenMint?: string; advise?: boolean; openedHere?: (p: string) => boolean } = {}) =>
+        pairFacts({ tokenMint: o.tokenMint ?? mint.toBase58(), gate: a.gate, search: a.search, healths: a.healths, openedHere: o.openedHere ?? (() => false), advise: o.advise ?? true });
+
+      it('an ordinary token: SOL, USDC and BAYLA, in that order; BAYLA: SOL and USDC; USDC: SOL only; SOL: none', () => {
+        expect(facts(base()).map((x) => x.coin)).toEqual([SOL_QUOTE, USDC_QUOTE, BAYLA_QUOTE]);
+        expect(facts(base(), { tokenMint: BAYLA_QUOTE.mint }).map((x) => x.coin)).toEqual([SOL_QUOTE, USDC_QUOTE]);
+        expect(facts(base(), { tokenMint: USDC_QUOTE.mint }).map((x) => x.coin)).toEqual([SOL_QUOTE]);
+        expect(facts(base(), { tokenMint: SOL_QUOTE.mint })).toEqual([]);
+      });
+
+      it('each coin gets its own pool to add to, and whether it has any pool at all', () => {
+        const sol = poolOn(1);
+        const failingUsdc = pairedOn(USDC_QUOTE, USDC_UNIT);
+        const a = withPool(withPool(base(), sol, 'allowed'), failingUsdc, 'refused');
+        expect(facts(a).map((x) => [x.coin.symbol, x.advice, x.hasPool])).toEqual([
+          ['SOL', { kind: 'exists', pool: sol.view }, true],
+          // A pool that does not pass is still a pool: USDC is not "no pool yet".
+          ['USDC', { kind: 'none' }, true],
+          ['BAYLA', { kind: 'none' }, false],
+        ]);
+      });
+
+      it('a card that offers no opening names no pool for any coin', () => {
+        const a = withPool(base(), poolOn(1), 'allowed');
+        expect(facts(a, { advise: false }).map((x) => x.advice)).toEqual([{ kind: 'none' }, { kind: 'none' }, { kind: 'none' }]);
+        // What was read is still said: SOL has a pool.
+        expect(facts(a, { advise: false }).map((x) => x.hasPool)).toEqual([true, false, false]);
+      });
+
+      // Every pair has its own standard address. A SOL pool at the SOL pair's address says
+      // nothing about where a USDC pool would go.
+      it("the standard address is each pair's own: tier 1 only, and anything found there takes it", () => {
+        const [solStd, solStd0, usdcStd, baylaStd] = [key(), key(), key(), key()].map((k) => k.toBase58());
+        const known = {
+          launchPool: key().toBase58(),
+          standard: [
+            { index: 1, config: TIER1.toBase58(), address: solStd!, quote: SOL_QUOTE.mint },
+            { index: 0, config: key().toBase58(), address: solStd0!, quote: SOL_QUOTE.mint },
+            { index: 1, config: TIER1.toBase58(), address: usdcStd!, quote: USDC_QUOTE.mint },
+            { index: 1, config: TIER1.toBase58(), address: baylaStd!, quote: BAYLA_QUOTE.mint },
+          ],
+        };
+        const withState = (knownState: PoolSearch['knownState']): PoolSearchRead => ({
+          kind: 'ok',
+          search: { mint: mint.toBase58(), known, index: { kind: 'ok', pools: [], truncated: false }, pools: [], otherPairs: 0, knownState, chainNow: NOW },
+        });
+        const states = (s: PoolSearchRead) => [SOL_QUOTE, USDC_QUOTE, BAYLA_QUOTE].map((q) => standardState(s, q));
+
+        expect(states(withState({ [solStd!]: 'pool', [usdcStd!]: 'absent', [baylaStd!]: 'absent' }))).toEqual(['taken', 'empty', 'empty']);
+        expect(states(withState({ [solStd!]: 'absent', [usdcStd!]: 'pool', [baylaStd!]: 'absent' }))).toEqual(['empty', 'taken', 'empty']);
+        expect(states(withState({ [solStd!]: 'absent', [usdcStd!]: 'absent', [baylaStd!]: 'not-a-pool' }))).toEqual(['empty', 'empty', 'taken']);
+        // The tier-0 address is another tier's: a pool there does not take tier 1's.
+        expect(states(withState({ [solStd0!]: 'pool', [solStd!]: 'absent' }))).toEqual(['empty', 'empty', 'empty']);
+        // An unread address may hold something: the opening goes to an address of its own, and Prepare reads again.
+        expect(states(withState({ [usdcStd!]: 'unread' }))).toEqual(['empty', 'taken', 'empty']);
+        // An unread search, and a coin the search has no address for.
+        expect(standardState({ kind: 'unread', detail: 'x', index: { kind: 'unread', detail: 'x' } }, USDC_QUOTE)).toBe('empty');
+        expect(standardState(searchOf([]), USDC_QUOTE)).toBe('empty');
+        expect(pairFacts({ tokenMint: mint.toBase58(), gate: GATE, search: withState({ [usdcStd!]: 'pool' }), healths: new Map(), openedHere: () => false, advise: true }).map((x) => x.standard)).toEqual(['empty', 'taken', 'empty']);
+      });
     });
   });
 
