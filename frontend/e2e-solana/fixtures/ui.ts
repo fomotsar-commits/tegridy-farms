@@ -157,18 +157,21 @@ export async function expectClickable(loc: Locator, what = 'element'): Promise<v
   // Visible first (bounded by the expect timeout): a read of a missing element would wait
   // out the whole test.
   await expect(loc, `${what} should be visible`).toBeVisible();
-  // Brought onto the screen and hit-tested in ONE step in the page, and asked again until
-  // it holds. Scrolling in one call and measuring in the next are two moments: a page that
-  // is still loading (a card landing above this one after a reload) moves the control off
-  // the screen in between, and the answer was "nothing at (640, 1798)" for a button that
-  // was never covered (outcomes.spec.ts, 1 run in 3). A control that IS covered stays
-  // covered, so this still fails for it, with what covers it.
-  const hit = () =>
-    loc.evaluate(
+  // Scrolled into view, then asked what is on top at its centre, and asked AGAIN until it
+  // holds. Those are two moments: a page that is still loading (a card landing above this
+  // one after a reload) moves the control off the screen in between, and the answer was
+  // "nothing at (640, 1798)" for a button that was never covered (outcomes.spec.ts, 1 run
+  // in 3). So one look is not the answer: the next one scrolls again. A control that IS
+  // covered stays covered, and this still fails for it, naming what covers it.
+  //
+  // The scroll stays the browser's own scroll-if-needed. It knows the page's scroll
+  // padding (the fixed bar at the top, the tab bar at the foot of a phone), so a control
+  // that sits under one of those is moved out from under it, as a person would move it.
+  const hit = async () => {
+    // Both bounded: a read with no timeout of its own waits out the whole test when the element goes.
+    await loc.scrollIntoViewIfNeeded({ timeout: 5_000 });
+    return loc.evaluate(
       (el) => {
-        const onScreen = (r: DOMRect) => r.top >= 0 && r.left >= 0 && r.bottom <= window.innerHeight && r.right <= window.innerWidth;
-        // To the middle of the screen, at once, when it is not wholly on it (as Playwright's own scroll-if-needed does).
-        if (!onScreen(el.getBoundingClientRect())) el.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' });
         const r = el.getBoundingClientRect();
         const x = r.left + r.width / 2;
         const y = r.top + r.height / 2;
@@ -179,9 +182,9 @@ export async function expectClickable(loc: Locator, what = 'element'): Promise<v
         return `<${d.tagName.toLowerCase()} class="${d.className}"> "${(d.textContent ?? '').trim().slice(0, 60)}" covers it at (${x.toFixed(0)}, ${y.toFixed(0)})`;
       },
       undefined,
-      // Bounded: a read with no timeout of its own waits out the whole test when the element goes.
       { timeout: 5_000 },
     );
+  };
   await expect.poll(hit, { message: `${what} is visible but not clickable`, timeout: 10_000 }).toBeNull();
 }
 
