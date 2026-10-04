@@ -16,10 +16,11 @@ import { TxFlowView } from '../curve/TxFlowView';
 import { WalletNeeded } from '../curve/WalletNeeded';
 import { useReturnFocus, useTxFlow, type OnSettled } from '../curve/useTxFlow';
 import type { LpOpenGate, LpWriteApi, TierState, TierTerms } from '../curve/ports';
+import { FundingNextStep } from './FundingNextStep';
 import { LpAmountPair, type LpSide } from './LpAmountPair';
 import { LpBeforeYouOpen, LpReviewDisclosure } from './LpDisclosures';
 import { PanelFrame } from './PanelFrame';
-import { LOCKED_SHARES_TEXT, cannotFundText, sharePct, solAbout, solExact, tokensAbout, unitsExact, useDebounced, useFlowReports, useSettledAlert, useWalletFacts } from './panelKit';
+import { LOCKED_SHARES_TEXT, NOTES_BELOW, cannotFundText, reviewOffWhy, sharePct, solAbout, solExact, tokensAbout, unitsExact, useDebounced, useFlowReports, useSettledAlert, useWalletFacts } from './panelKit';
 import { createHeld, type CreateAdvice, type CreateOffer } from './offers';
 import { useLpWrites, type LpWrites } from './useLpWrites';
 
@@ -282,7 +283,17 @@ function CreateInner({
   } else if (problem?.problem === 'over-balance' && problem.side === 'sol') {
     problemText = rentBand(solExact(problem.have));
     const have = problem.have;
-    if (have > 0n) fix = { label: `Use ${solExact(have)}`, run: () => setSide('sol', have) };
+    // The SOL side now drives: left on the token side, "Match the market price" put the
+    // SOL straight back over the limit and the two fixes undid each other for ever.
+    if (have > 0n) {
+      fix = {
+        label: `Use ${solExact(have)}`,
+        run: () => {
+          setSide('sol', have);
+          setDriving('sol');
+        },
+      };
+    }
   } else if (problem?.problem === 'over-balance' && problem.side === 'token') {
     problemText = `You have ${tok(problem.have)}; this needs ${tok(problem.need)}.`;
     if (mostBoth) fix = { label: 'Use the most both balances allow', run: applyMostBoth };
@@ -313,18 +324,21 @@ function CreateInner({
     !blockedByOther;
   const review = () => {
     if (!canReview || !signer || !config || solRaw === null || tokRaw === null) return;
-    void flow.prepare(() =>
+    const build = () =>
       api.prepareLpCreate(writes.rpc, gate, writes.readers, {
         owner: signer.publicKey,
         tokenMint: new PublicKey(mint),
         sol: solRaw,
         token: tokRaw,
         shown: { terms: terms(config), standard },
-      }),
-    );
+      });
+    void flow.prepare(build, { repeatable: true });
   };
 
   const warnings = safety.kind === 'read' && safety.verdict === 'warn' ? safety.warnings : [];
+  const walletReady = writes.signerState.kind === 'ready';
+  // An amount that does not parse has its own line under its box: it is not "type both amounts".
+  const reviewWhy = reviewOffWhy({ hasWallet: !!signer, cannot: cannotOpen !== null, hasAmounts: both || bad('sol') || bad('token'), amountsWord: 'both amounts' });
   const callsItself =
     safety.kind === 'read' && safety.verdict !== 'blocked' && (safety.name || safety.symbol)
       ? `${displaySafe(safety.name ?? '', 32)} (${displaySafe(safety.symbol ?? '', 12)})`
@@ -361,20 +375,7 @@ function CreateInner({
             <p className="text-white/55">Check this is the token you mean: compare the address with the one its project publishes. Names can be copied.</p>
           </>
         )}
-        {/* Opened with cp-swap's `initialize`, so the new pool never charges the tier's creator fee. */}
-        <Row
-          label="Fee tier"
-          value={config ? `1: traders pay ${tradeCostText(config, CREATOR_FEE_SWITCH.publicOpen)}; LPs keep ${feeSplit(config).lpKeepsPct.toFixed(3)}% of each trade` : 'not read'}
-          mono={false}
-        />
-        <Row label="Fee to open" value={fee === null ? 'not read' : `${formatSol(fee, 9)} SOL, paid to the team's vault (read just now)`} mono={false} />
-        <Row
-          label="Pool address"
-          value={standard === 'empty' ? 'the standard address for fee tier 1' : 'a new address of its own (the standard address is already taken)'}
-          mono={false}
-        />
       </div>
-      <LpBeforeYouOpen fee={fee ?? 0n} neverRefunded={neverRefunded} />
       {readyConfig === null && flow.state.step === 'idle' && (
         <Notice tone="warn">The public fee tier is not ready to open pools right now (see the card above), so Review is off.</Notice>
       )}
@@ -412,28 +413,19 @@ function CreateInner({
               </ul>
             </div>
           )}
+          {/* First on the form: no wallet yet, or a wallet that cannot pay for an opening. */}
+          {!walletReady && <WalletNeeded state={writes.signerState} />}
+          {cannotOpen && (
+            <div data-testid="lp-create-cannot" className="text-[13px] leading-relaxed space-y-1">
+              <Notice tone="warn">{cannotOpen}</Notice>
+              <FundingNextStep needsSol={availableSol === 0n} needsToken={availableToken === 0n} mint={mint} wallet={signer?.publicKey.toBase58() ?? null} />
+            </div>
+          )}
           <div className="space-y-2" data-testid="lp-create-market">
             <p>
               {market !== null
                 ? `Market price (Jupiter${readAt}): 1 token = ${formatSolPrice(market)} SOL.`
                 : `Market price (Jupiter): could not be read (${outside && outside.kind !== 'ok' ? outside.detail : 'not read'}).`}
-            </p>
-            <button
-              type="button"
-              className="btn-secondary w-full sm:w-auto min-h-[44px] px-4 text-[13px] aria-disabled:opacity-60"
-              aria-disabled={reading}
-              onClick={readMarketAgain}
-            >
-              Read again
-            </button>
-            <p role="status" className="text-white/55 text-[11px]">
-              {askedMarket !== null
-                ? 'Reading the market price again…'
-                : saidMarket === 'same'
-                  ? 'Read again just now: the same answer.'
-                  : saidMarket === 'changed'
-                    ? 'Read again just now: the line above is new.'
-                    : ''}
             </p>
           </div>
           <LpAmountPair
@@ -473,6 +465,26 @@ function CreateInner({
                 Use the most both balances allow
               </button>
             )}
+            {/* Under the boxes: above them, on a phone, it stood between the price and the first box. */}
+            <div className="space-y-2" data-testid="lp-create-market-again">
+              <button
+                type="button"
+                className="btn-secondary w-full min-h-[44px] px-4 text-[13px] aria-disabled:opacity-60"
+                aria-disabled={reading}
+                onClick={readMarketAgain}
+              >
+                Read the market price again
+              </button>
+              <p role="status" className="text-white/55 text-[11px]">
+                {askedMarket !== null
+                  ? 'Reading the market price again…'
+                  : saidMarket === 'same'
+                    ? 'Read again just now: the same answer.'
+                    : saidMarket === 'changed'
+                      ? 'Read again just now: the market price above is new.'
+                      : ''}
+              </p>
+            </div>
           </div>
           <p data-testid="lp-create-price" data-price={priceState}>
             {opening !== null && market !== null && (check.price.state === 'agrees' || check.price.state === 'disagrees')
@@ -491,7 +503,9 @@ function CreateInner({
                 value={
                   neverRefunded !== null && lpRent !== null
                     ? `about ${solAbout(neverRefunded)} kept by the pool's accounts forever, plus ${solExact(lpRent)} for your pool-share account (it comes back if you close that account later)`
-                    : 'could not be read'
+                    : signer
+                      ? 'could not be read'
+                      : 'read once a wallet is connected (the fee tiers list on this page has the amount)'
                 }
                 mono={false}
               />
@@ -507,14 +521,16 @@ function CreateInner({
                 value={
                   neverRefunded !== null && lpRent !== null
                     ? `about ${solAbout((solRaw ?? 0n) + config.createPoolFee + neverRefunded + lpRent)}, plus the network fee`
-                    : 'could not be worked out (the account deposits could not be read)'
+                    : signer
+                      ? 'could not be worked out (the account deposits could not be read)'
+                      : 'worked out once a wallet is connected'
                 }
                 mono={false}
               />
               <Row label="Trading opens" value="right away" mono={false} />
             </div>
           )}
-          <WalletNeeded state={writes.signerState} />
+          {walletReady && <WalletNeeded state={writes.signerState} />}
           {/* Always there, so a new problem is read out the moment it appears. */}
           <div className="space-y-2">
             <p role="alert" className="text-rose-300/90">
@@ -526,17 +542,18 @@ function CreateInner({
               </button>
             )}
           </div>
-          {cannotOpen && (
-            <div data-testid="lp-create-cannot">
-              <Notice tone="warn">{cannotOpen}</Notice>
-            </div>
-          )}
           {held && <Notice tone="warn">A pool you opened is not confirmed yet (see the top of this section), so opening another is off.</Notice>}
+          <p className="text-white/60">{NOTES_BELOW}</p>
+          {!canReview && reviewWhy && (
+            <p className="text-amber-300/90 text-[12px]" data-testid="lp-review-why">
+              {reviewWhy}
+            </p>
+          )}
           <div className="flex flex-col sm:flex-row gap-2">
             <button
               ref={reviewRef}
               type="button"
-              className="btn-primary w-full min-h-[44px] text-[13px] disabled:opacity-60"
+              className="btn-primary w-full min-h-[44px] text-[13px] disabled:opacity-60 disabled:grayscale"
               disabled={!canReview}
               onClick={review}
             >
@@ -553,6 +570,21 @@ function CreateInner({
           </p>
         </>
       )}
+      <div className="space-y-1.5" data-testid="lp-create-terms">
+        {/* Opened with cp-swap's `initialize`, so the new pool never charges the tier's creator fee. */}
+        <Row
+          label="Fee tier"
+          value={config ? `1: traders pay ${tradeCostText(config, CREATOR_FEE_SWITCH.publicOpen)}; LPs keep ${feeSplit(config).lpKeepsPct.toFixed(3)}% of each trade` : 'not read'}
+          mono={false}
+        />
+        <Row label="Fee to open" value={fee === null ? 'not read' : `${formatSol(fee, 9)} SOL, paid to the team's vault (read just now)`} mono={false} />
+        <Row
+          label="Pool address"
+          value={standard === 'empty' ? 'the standard address for fee tier 1' : 'a new address of its own (the standard address is already taken)'}
+          mono={false}
+        />
+      </div>
+      <LpBeforeYouOpen fee={fee ?? 0n} neverRefunded={neverRefunded} walletConnected={!!signer} />
       <p role="status" className="sr-only">
         {flow.state.step === 'idle' ? status : ''}
       </p>

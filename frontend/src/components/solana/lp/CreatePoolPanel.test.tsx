@@ -3,7 +3,7 @@
 // Max from one wallet read, the disclosures, the review and what a confirmed opening
 // leaves behind. The write layer is a fake; nothing touches a chain.
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { act, render, screen, waitFor, within, fireEvent } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { PublicKey } from '@solana/web3.js';
@@ -292,6 +292,23 @@ describe('the panel', () => {
     expect(sol(panel)).toHaveValue('4.80491144');
   });
 
+  // Phone walk of the build, 2026-10-03: Max on both sides, then the two offered fixes
+  // undid each other for ever. The token side was left driving, so Match put the SOL back.
+  it('after Use that much, Match the market price keeps the SOL and moves the tokens: the two fixes do not undo each other', async () => {
+    mount(readers());
+    const { panel } = await openPanel();
+    await within(panel).findByRole('button', { name: 'Max SOL' });
+    // The token side is typed last, so it drives: Match works the SOL out from it.
+    fireEvent.change(tokens(panel), { target: { value: '490' } });
+    fireEvent.click(matchButton(panel));
+    expect(sol(panel)).toHaveValue('4.9');
+    fireEvent.click(await within(panel).findByRole('button', { name: 'Use 4.80491144 SOL' }));
+    expect(sol(panel)).toHaveValue('4.80491144');
+    fireEvent.click(matchButton(panel));
+    expect(sol(panel)).toHaveValue('4.80491144');
+    expect(tokens(panel)).toHaveValue('480.491144');
+  });
+
   it('more tokens than the wallet holds: says so, and the most both balances allow fits', async () => {
     mount(readers({ wallet: vi.fn(async () => facts({ token: { address: key().toBase58(), amount: 10n * 10n ** 6n } })) }));
     const { panel } = await openPanel();
@@ -325,6 +342,14 @@ describe('the panel', () => {
       expect(cannot).toHaveTextContent('this wallet has 0.005960758 SOL');
       expect(cannot).toHaveTextContent('holds none of this token');
       expect(reviewButton(panel)).toBeDisabled();
+      // The greyed Review says why, right beside it.
+      expect(within(panel).getByTestId('lp-review-why')).toHaveTextContent('Review is off for this wallet: the top of this form says what it is short of.');
+      // And what to do about it, with the way there (it used to stop at the numbers).
+      expect(cannot).toHaveTextContent('Send SOL to this wallet first.');
+      expect(within(cannot).getByRole('link', { name: 'this site’s Solana swap' })).toHaveAttribute('href', `/solana?out=${M}`);
+      // First on the form: a phone reads it before the amount boxes, not two screens under them.
+      const sol = within(panel).getByLabelText('SOL to put in');
+      expect(cannot.compareDocumentPosition(sol) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     });
 
     it('too little SOL only: no word about the token', async () => {
@@ -333,6 +358,9 @@ describe('the panel', () => {
       const cannot = await within(panel).findByTestId('lp-create-cannot');
       expect(cannot).toHaveTextContent('This wallet cannot open a pool yet.');
       expect(cannot).not.toHaveTextContent('none of this token');
+      // It holds the token: the next step is SOL, and the swap is not offered for a token it has.
+      expect(cannot).toHaveTextContent('Send SOL to this wallet, then come back to this tab.');
+      expect(within(cannot).queryByRole('link')).toBeNull();
     });
 
     it('none of the token only: says a pool needs both, and nothing about SOL being short', async () => {
@@ -342,6 +370,10 @@ describe('the panel', () => {
       expect(cannot).toHaveTextContent('This wallet holds none of this token');
       expect(cannot).toHaveTextContent('needs both SOL and the token');
       expect(cannot).not.toHaveTextContent('needs about');
+      // It has the SOL: it is not told to send any.
+      expect(cannot).not.toHaveTextContent('Send SOL');
+      expect(cannot).toHaveTextContent('Try this site’s Solana swap for the token (it opens on this token, by its address), then come back to this tab.');
+      expect(within(cannot).getByRole('link', { name: 'this site’s Solana swap' })).toHaveAttribute('href', `/solana?out=${M}`);
     });
 
     it('one lamport above what opening needs, with the token: nothing is said', async () => {
@@ -349,6 +381,7 @@ describe('the panel', () => {
       const { panel } = await openPanel();
       await within(panel).findByRole('button', { name: 'Max SOL' });
       expect(within(panel).queryByTestId('lp-create-cannot')).toBeNull();
+      expect(within(panel).getByTestId('lp-review-why')).toHaveTextContent('Type both amounts to review.');
     });
 
     it('an unread wallet is never told it cannot: nothing is claimed from a read that failed', async () => {
@@ -392,14 +425,14 @@ describe('the panel', () => {
     const r = readers();
     mount(r);
     const { panel } = await openPanel();
-    const market = within(panel).getByTestId('lp-create-market');
+    const market = within(panel).getByTestId('lp-create-market-again');
     let release!: () => void;
     (r.outsidePrice as ReturnType<typeof vi.fn>).mockImplementationOnce(
       () => new Promise((res) => (release = () => res({ kind: 'ok' as const, solPerToken: 0.01, source: 'Jupiter' as const }))),
     );
-    fireEvent.click(within(market).getByRole('button', { name: 'Read again' }));
+    fireEvent.click(within(market).getByRole('button', { name: 'Read the market price again' }));
     await waitFor(() => expect(within(market).getByRole('status')).toHaveTextContent('Reading the market price again…'));
-    expect(within(market).getByRole('button', { name: 'Read again' })).toHaveAttribute('aria-disabled', 'true');
+    expect(within(market).getByRole('button', { name: 'Read the market price again' })).toHaveAttribute('aria-disabled', 'true');
     await act(async () => release());
     await waitFor(() => expect(within(market).getByRole('status')).toHaveTextContent('Read again just now: the same answer.'));
   });
@@ -537,5 +570,72 @@ describe('the review and a confirmed opening', () => {
     expect(screen.getByTestId('lp-create-panel')).toBe(panel);
     expect(outcome.isConnected).toBe(true);
     expect(within(screen.getByTestId('lp-pool')).getByTestId('lp-opened-here')).toBeInTheDocument();
+  });
+
+  // The opening review is two screens on a phone and outlives its blockhash. Preparing an
+  // opening only reads the chain, so Sign prepares it again (useTxFlow). The block height
+  // here says the first one's window is nearly over (the fixture's ends at 1234).
+  describe('a review too old to sign when Sign in wallet is pressed', () => {
+    const rpc = conn.connection as { getBlockHeight?: () => Promise<number> };
+    beforeEach(() => {
+      rpc.getBlockHeight = async () => 1234 - 5;
+    });
+    afterEach(() => {
+      delete rpc.getBlockHeight;
+    });
+    const toReview = async (prepareLpCreate: () => Promise<Prepared>, submitPrepared: () => Promise<TxOutcome>) => {
+      mount(readers(), { api: { prepareLpCreate, submitPrepared } });
+      const { panel } = await openPanel();
+      fireEvent.change(sol(panel), { target: { value: '1' } });
+      fireEvent.click(matchButton(panel));
+      await act(async () => {
+        fireEvent.click(reviewButton(panel));
+      });
+      await act(async () => {
+        fireEvent.click(await within(panel).findByRole('button', { name: 'Sign in wallet' }));
+      });
+      return panel;
+    };
+
+    it('the same opening is prepared again and the wallet gets the fresh transaction', async () => {
+      const summary = lpCreateSummary(key(), MINT);
+      const fresh = prepared(summary, { lastValidBlockHeight: 5_000 });
+      const prepareLpCreate = vi.fn<() => Promise<Prepared>>().mockResolvedValueOnce({ ok: true, prepared: prepared(summary) }).mockResolvedValueOnce({ ok: true, prepared: fresh });
+      const submitPrepared = vi.fn(async (): Promise<TxOutcome> => ({ status: 'confirmed', signature: SIG, slot: 7 }));
+      const panel = await toReview(prepareLpCreate, submitPrepared);
+      expect(await within(panel).findByTestId('tx-outcome')).toHaveAttribute('data-status', 'confirmed');
+      expect(prepareLpCreate).toHaveBeenCalledTimes(2);
+      expect(submitPrepared.mock.calls.map((c: unknown[]) => c[2])).toEqual([fresh]);
+    });
+
+    // A one-off pool address is a fresh key each time it is prepared, and the market
+    // price is read again: neither is signed until the person has seen it.
+    it('an opening that reads differently is shown, with the lines that changed, and is not signed', async () => {
+      const first = key();
+      const second = key();
+      const market = (reference: number) => ({ state: 'agrees' as const, pool: 0.01, reference, against: 'outside' as const, diff: 0.01 / reference - 1 });
+      const fresh = prepared(lpCreateSummary(second, MINT, { origin: 'other', price: market(0.0102) }), { lastValidBlockHeight: 5_000 });
+      const prepareLpCreate = vi
+        .fn<() => Promise<Prepared>>()
+        .mockResolvedValueOnce({ ok: true, prepared: prepared(lpCreateSummary(first, MINT, { origin: 'other', price: market(0.01) })) })
+        .mockResolvedValueOnce({ ok: true, prepared: fresh });
+      const submitPrepared = vi.fn(async (): Promise<TxOutcome> => ({ status: 'confirmed', signature: SIG, slot: 7 }));
+      const panel = await toReview(prepareLpCreate, submitPrepared);
+      const changed = await within(panel).findByTestId('tx-review-changed');
+      expect(submitPrepared).not.toHaveBeenCalled();
+      expect(changed).toHaveTextContent('2 lines read differently now:');
+      expect(changed).toHaveTextContent(`Pool: ${second.toBase58()}`);
+      expect(changed).toHaveTextContent('Opening price: 1 token = 0.01 SOL. Market (Jupiter, read just now): 0.0102 SOL, 2.0% below');
+      expect(changed).toHaveTextContent(`In place of:Pool: ${first.toBase58()}`);
+      expect(changed).not.toHaveTextContent('You put in');
+      expect(changed).toHaveFocus();
+      // One more press signs the opening that is on screen now.
+      await act(async () => {
+        fireEvent.click(within(panel).getByRole('button', { name: 'Sign in wallet' }));
+      });
+      expect(await within(panel).findByTestId('tx-outcome')).toHaveAttribute('data-status', 'confirmed');
+      expect(submitPrepared.mock.calls.map((c: unknown[]) => c[2])).toEqual([fresh]);
+      expect(prepareLpCreate).toHaveBeenCalledTimes(2);
+    });
   });
 });

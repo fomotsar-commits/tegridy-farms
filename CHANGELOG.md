@@ -6,8 +6,21 @@ page keeps the newest thirty days.
 
 ## [Unreleased]
 
+### 2026-10-04
+
+- Read Heat: inside a wallet's own browser that carries both Ethereum and Solana, such as Trust Wallet's, the wallet button no longer asks for Ethereum only. It offers "Use my Ethereum address" and "Use my Solana address", and each asks its own network. A Solana wallet you have already connected to the site is filled without asking the wallet anything. On a launch page the button reads that page's network only: Solana on the Solana page, Ethereum on the Ethereum ones. On a phone the address box shows its whole hint again.
+- Solana pools and trades: a review you take your time reading can still be signed. Sign in wallet builds it again on fresh numbers first; if every line reads the same your wallet opens, and if any line changed you are shown which, beside the button. It used to say the quote was too old and send you back to the form. A launch review is unchanged.
+- Every bungalow now has a burn tracker. Each token's bungalow shows the percent of everything ever minted that is burnt, the amount, and where it went: sent to the burn address, stuck for good in the token's own contract, or destroyed outright so the supply itself fell. It is read from the token's own chain when the card loads. A burn that could not be read says so and never shows as zero. For QR, DRB and JBM a fall in supply is not counted.
+- TOWELI: the "Burned forever" row on its page now prints the same figure as the burn card, 25.76% of everything minted. It read 25.8% of supply.
+
 ### 2026-10-03
 
+- Solana LP on a phone: the tab now opens on three buttons, Create a pool, Add liquidity and Remove liquidity, and on the site's own Solana tokens (BAYLA, BOBO, SOY, Brainlet, RIZZ) as buttons, so nothing has to be pasted. Two presses open the form with its amount boxes on the screen. Before, the first screen was a paragraph and an empty box asking for a 44-character token address, with nothing else to press.
+- Solana LP: the open-a-pool and add-liquidity forms start with the wallet and the amount boxes. The long notes that used to fill two phone screens above them now follow the form, and the review still repeats the main ones before you sign. A wallet that cannot pay is told so first, with what to do next.
+- Solana LP: when a token already has a pool, the Open a new pool card has a button that opens that pool's Add liquidity form (the first pool on the venue, BAYLA/SOL, was opened on 2026-10-03). A greyed Review button now says why right above it.
+- Solana LP: Remove liquidity takes you to Your positions, which says that is where liquidity is taken out and, for a wallet with no shares, that there is nothing to remove yet.
+- The page that Pools opens has a link to the Solana LP tab on its first screen, and the Pools icon in the phone's bottom bar stays lit on every Pools tab.
+- Connecting on a phone with no wallet in the browser: the wallet list says that Open app loads the page inside that wallet's own app.
 - Open a pool: a token that already has a pool can have another. The card names the biggest pool that passes the checks and suggests adding to it first, and the Open a pool button stays, so anyone can open a separate pool of their own. Before, the button was taken away once one passing pool existed.
 - Solana LP: in a Solana room (BAYLA, BOBO, SOY, Brainlet, RIZZ) one button looks up that room's token, so a phone does not have to paste its address. After a lookup the page moves to the answer, and a token with no pool yet says that opening the pool is how the first liquidity goes in.
 - Pools has a Solana LP tab that opens on the pool finder: find a pool, add or remove liquidity, or open a pool on the venue's own Solana AMM.

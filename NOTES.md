@@ -82,6 +82,78 @@ once at a size that cannot fit before trusting its zero. Take screenshots from
 `vite preview` of a build, and open them: a measurement that passes says nothing about
 what was painted.
 
+## 2026-10-03: a helper that asks "the wallet" picks a network when the browser carries two
+
+**Believed:** a "use my wallet" helper that tries the Ethereum provider and falls back to
+Solana serves both kinds of visitor, and a Solana wallet's provider is at `window.solana`.
+
+**Measured:** at 393px on a production build, with a stand-in for Trust Wallet's own
+browser (`window.ethereum` and `window.trustwallet.solana`, each recording its calls), the
+Heat reader's button sent `eth_accounts`, then `eth_requestAccounts`, and never called the
+Solana provider. It did so on the home page, on the Solana launch door, and on trunk with
+#714 merged after the top bar showed the connected Solana address. Once each network had
+its own button, an Ethereum prompt approved after the Solana button was pressed replaced
+the Solana address in the field.
+
+**Do:** a fill or connect helper takes the network as an argument, and the caller names it:
+the page's own network, or one button per network. Where the site already holds the
+address (a connected wallet), use it and ask no provider. Two buttons are two answers that
+can arrive in either order: drop an answer only when the field was written after its press
+(typing, or another fill). "Latest press wins" was tried first and lost a prompt the
+visitor approved after a second press on the same button had been refused. Read
+`window.trustwallet.solana` wherever `window.solana` is read.
+
+## 2026-10-03: a plain `vite build` is not the build the e2e suite runs against
+
+**Believed:** `vite build --outDir <temp>` plus `vite preview --outDir <temp>` is the
+production build, so any spec can run against it.
+
+**Measured:** against such a folder `e2e/door-first-frame.spec.ts` failed 11 tests on
+chromium ("/bayla: served the stock shell"). Against the `dist/` that `npm run build`
+writes, the same eleven spec files listed 456 tests on chromium and mobile-chrome: 284
+passed, 172 skipped by design, none failed. `npm run build` runs
+`render-bungalow-doors.mjs` after `vite build`, and the door pages exist only after it.
+
+**Do:** walk a flow on a plain `vite build`; run specs against `npm run build`. A local,
+uncommitted config that spreads `playwright.config.ts` and overrides `webServer` (its own
+port, `reuseExistingServer: false`), `use.baseURL` and `outputDir` keeps the run off
+another session's preview on 4173.
+
+## 2026-10-03: a `flex: 1 1 0; min-width: 0` field does not let a sibling wrap; it shrinks
+
+**Believed:** `flex-wrap` on a form drops a third control to the next row on a phone.
+
+**Measured:** at 393px the address field (`flex-1 min-w-0`), Read Heat and one wallet
+button stayed on one row. The field's hint needs 158px and the field was left 99px on the
+home page and 57px on the launch door. A line wraps on the items' starting sizes, and a
+zero basis with no minimum starts at zero. With the wallet button in a `w-full sm:w-auto`
+row of its own the field had 212px and 170px.
+
+**Do:** give the control that must not squeeze the field its own full-width row below the
+breakpoint, or give the field a real minimum. Pin it by measuring the hint's drawn width
+(canvas `measureText` with the field's computed font) against the field's content width.
+
+## 2026-10-03: a Solana blockhash lasts about 40 seconds on mainnet now, not a minute
+
+**Believed:** a block takes about 0.4 seconds, so a blockhash (150 blocks) is good for
+about a minute, and a 45-second clock on a review "stays well inside" it.
+
+**Measured:** on mainnet (api.mainnet-beta.solana.com, apiVersion 4.3.0),
+`getRecentPerformanceSamples` gave 219 to 228 slots a minute over five samples, and
+`getBlockHeight` at 'confirmed' rose 114 in 30.6 seconds with the slot rising the same 114:
+0.27 seconds a block, 150 blocks in about 40 seconds. Two `getLatestBlockhash` answers 46.7
+seconds apart were 171 blocks apart, so the first was dead before the second was read: the
+45-second clock ran out after the blockhash had died. A phone walk of Add liquidity (Pixel
+5, a production build, mainnet reads, a wallet that refuses) took 3.0 seconds to prepare
+and showed "too old" 42.4 seconds after the review appeared: the timer, not the chain.
+Worked out from that rate and not pressed: the review's block-height check (25 blocks to
+spare) refuses from 125 blocks, about 33 seconds after the blockhash is read.
+
+**Do:** never turn blocks into seconds from a remembered block time; read
+`getRecentPerformanceSamples` (numSlots over samplePeriodSecs) the day you size a clock, and
+pin the clock to that number in a test. Let a block-height read decide, and treat any
+wall-clock limit as the fallback for when the height cannot be read.
+
 ## 2026-10-03: a flag carried through a wallet's "Open app" link is an input anyone can write
 
 **Believed:** after a phone visitor presses a wallet's "Open app" row and the page reopens
