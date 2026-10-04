@@ -179,8 +179,14 @@ async function checkOpeningRows(rows: Record<string, string>, o: Opening & { mar
   expect(rows['Account deposits that never come back']).toBe(`${solExact(rents.poolAccounts)} (the pool, its price record, its share token and its two vaults; none can be closed)`);
   expect(rows['Your pool-share account']).toBe(`${solExact(rents.r165)} (it comes back if you close that account later)`);
   expect(rows['You get']).toBe(`${units(supply - LOCKED, 9)} pool shares, exactly`);
+  // What stays behind on each side, by hand: what went in, less what the opener's own
+  // shares (the supply less the locked 100) pay out, rounded down the pool program's way.
+  // So it rounds UP and is never 0 (it was floor(100 x put / supply), which said "0 tokens"
+  // of a whole-unit token when one whole token stayed behind).
+  const stays = (put: bigint) => put - ((supply - LOCKED) * put) / supply;
+  expect(stays(o.coinIn) >= 1n && stays(o.tokenIn) >= 1n, 'something stays behind on each side').toBe(true);
   expect(rows['Locked in the pool forever']).toBe(
-    `${LOCKED_SHARES}, worth about ${coinAbout((LOCKED * o.coinIn) / supply, coin)} and ${tok((LOCKED * o.tokenIn) / supply, d)} tokens at these amounts`,
+    `${LOCKED_SHARES}, worth about ${coinAbout(stays(o.coinIn), coin)} and ${tok(stays(o.tokenIn), d)} tokens at these amounts`,
   );
   // The test run, in each thing's own units.
   expect(rows["Test run: the team's vault account gains, in SOL (the fee, plus any SOL that account was already holding)"]).toBe(`+${tok(FEE_TO_OPEN, 9)}`);
@@ -297,7 +303,12 @@ test.describe('a BAYLA/USDC pool (chromium only)', () => {
     await openPools(p, BAYLA_MINT);
     await connect(p);
     await expect(ui.lp.create.card(p)).toHaveAttribute('data-create', 'offer', { timeout: 60_000 });
-    await expect(ui.lp.create.card(p)).toContainText('No pool for this token yet.');
+    // BAYLA is itself a pairing coin, so its lookup searched only the coins that outrank
+    // it, and the card names them: "no SOL or USDC pool", never a bare "no pool" (a pair
+    // that was not looked for is not said to have none).
+    await expect(ui.lp.create.card(p)).toContainText('There is no SOL or USDC pool to add liquidity to yet. Opening one is how the first liquidity goes in.');
+    await expect(ui.lp.create.card(p)).toContainText('No SOL or USDC pool for this token yet. You can open the first one on the public fee tier:');
+    await expect(ui.lp.noPools(p)).toHaveText('No pools pairing this token with SOL or USDC found.');
 
     const panel = await openCreateForm(p, USDC_COIN);
     // BAYLA is priced in the coins that outrank it: SOL and USDC, never itself.
@@ -329,10 +340,13 @@ test.describe('a BAYLA/USDC pool (chromium only)', () => {
     const rows = await reviewRows(p);
     const o: Opening = { coin: USDC_COIN, token: BAYLA_TOKEN, coinIn, tokenIn };
     const { pool, rents, supply } = await checkOpeningRows(rows, { ...o, market: S.market });
-    await expect(ui.review(p)).toContainText(USDC_RISK);
     await expect(ui.review(p)).toContainText(`${spentFrom(USDC_COIN)} The fee to open and the account deposits are paid in SOL.`);
-    // At the market, and BAYLA cannot be frozen and copies no name: nothing to warn of.
-    await expect(ui.reviewWarnings(p)).toHaveCount(0);
+    // At the market, and BAYLA cannot be frozen and copies no name: the token and the
+    // price give nothing to warn of. What USDC itself adds to the risks is the one warning,
+    // first on the review with the others' lead-in, and said once: no row below repeats it.
+    await expect(ui.reviewWarnings(p)).toContainText(REVIEW_WARNINGS_LEAD);
+    await expect(ui.reviewWarnings(p).getByRole('listitem')).toHaveText([USDC_RISK]);
+    await expect(ui.review(p).getByText(USDC_RISK, { exact: true })).toHaveCount(1);
     const reviewSolLine = rows['Test run: your SOL changes by']!;
     const before = await beforeOpening(S.opener.publicKey, o);
 
@@ -401,7 +415,9 @@ test.describe('a BAYLA/USDC pool (chromium only)', () => {
     expect(rows['Test run: your pool shares change by']).toBe(signedTok(plan.lp, 9));
     expect(rows['Test run: your wrapped SOL changes by']).toBeUndefined();
     await expect(ui.review(p)).toContainText(`${spentFrom(USDC_COIN).replace(/\.$/, '')}, and what the pool does not use never leaves that account.`);
-    await expect(ui.review(p)).toContainText(USDC_RISK);
+    // The pool is at the market: the one warning on the review is USDC's own, said once.
+    await expect(ui.reviewWarnings(p).getByRole('listitem')).toHaveText([USDC_RISK]);
+    await expect(ui.review(p).getByText(USDC_RISK, { exact: true })).toHaveCount(1);
     const reviewSolLine = rows['Test run: your SOL changes by']!;
     const before = await held(owner, S.pool);
     expect(before.wsol, 'no wrapped-SOL account before').toBeNull();

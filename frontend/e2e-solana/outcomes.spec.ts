@@ -4,7 +4,7 @@
 //
 // The launches here are made from Node with the frontend's own curve/ix.ts and carry no
 // metadata (how a launch made outside this site looks); the page under test only trades.
-import { test, expect, type Browser } from '@playwright/test';
+import { test, expect, type Browser, type Page, type Response } from '@playwright/test';
 import { PublicKey, type Keypair } from '@solana/web3.js';
 import { ata, buyDirect, createLaunchDirect, curve, fundedKeypair, lamports, landedTx, sol, tokenAmount } from './fixtures/chain';
 import { bayla, giveBayla } from './fixtures/bayla';
@@ -22,6 +22,35 @@ async function trader(browser: Browser, kp: Keypair) {
   await installHeatStub(ctx);
   const page = await ctx.newPage();
   return { ctx, wallet, rpc, page };
+}
+
+/**
+ * The network's answer to the page's first broadcast of a transaction. Ask for it BEFORE
+ * pressing Sign, and wait for it before a reload that is meant to happen "while it is in
+ * the air".
+ *
+ * The "sent" card is not that proof. The page draws it, and writes its note, BEFORE the
+ * first byte leaves (submit.ts: the note must exist before the first send). A reload in the
+ * next moment stops that request in the browser, the transaction never reaches the chain,
+ * and a test that then asks the chain for it fails: in a whole run on 2026-10-04 the reload
+ * came 87 ms after the broadcast began, and the launch never landed. "In the air" is
+ * broadcast and not yet confirmed, so that is what these tests wait for.
+ */
+function firstBroadcast(page: Page): Promise<Response> {
+  const answered = page.waitForResponse(
+    (r) => r.url().endsWith('/api/solrpc') && r.request().method() === 'POST' && (r.request().postData() ?? '').includes('"sendTransaction"'),
+    { timeout: 120_000 },
+  );
+  // Awaited later: a test that stops before then must not leave a rejection nobody handles.
+  answered.catch(() => undefined);
+  return answered;
+}
+
+/** The broadcast was taken: the network answered with this transaction's own signature, and no error. */
+async function expectBroadcastTaken(answered: Promise<Response>, signature: string): Promise<void> {
+  const answer = (await (await answered).json()) as { result?: unknown; error?: unknown };
+  expect(answer.error ?? null, 'the network took the broadcast').toBeNull();
+  expect(answer.result, 'the network answered with the signature the wallet gave').toBe(signature);
 }
 
 let mint: PublicKey;
@@ -136,6 +165,7 @@ test('a reload WHILE the trade is still in the air: leaving asks first, and the 
   await expect(ui.review(t.page)).toBeVisible({ timeout: 60_000 });
   // No status can be read, so the page keeps waiting: this is the window that was unsafe.
   t.rpc.fail('getSignatureStatuses', 500, 10 * 60_000);
+  const broadcast = firstBroadcast(t.page);
   await clickReal(ui.signButton(t.page), 'Sign in wallet');
   const sent = ui.sent(t.page);
   await expect(sent).toBeVisible({ timeout: 60_000 });
@@ -146,6 +176,9 @@ test('a reload WHILE the trade is still in the air: leaving asks first, and the 
   // The note is already there, before any answer.
   expect(await t.page.evaluate((m) => sessionStorage.getItem(`curve-launch:pending-trade:${m}`), mint.toBase58())).toContain(signature);
 
+  // In the air: broadcast, and still not confirmed (no status can be read).
+  await expectBroadcastTaken(broadcast, signature);
+  await expect(ui.outcome(t.page)).toHaveCount(0);
   await t.page.reload();
   expect(dialogs, 'leaving while it was in the air asked first').toContain('beforeunload');
   const card = ui.pendingTrade(t.page);
@@ -183,10 +216,14 @@ test('a reload WHILE a launch is in the air: the form comes back holding Review 
   await clickReal(ui.form.reviewButton(t.page), 'Review launch');
   await expect(ui.review(t.page)).toBeVisible({ timeout: 60_000 });
   t.rpc.fail('getSignatureStatuses', 500, 10 * 60_000);
+  const broadcast = firstBroadcast(t.page);
   await clickReal(ui.signButton(t.page), 'Sign in wallet');
   await expect(ui.sent(t.page)).toBeVisible({ timeout: 60_000 });
   const launched = t.wallet.lastIx('create_launch').accounts.mint;
 
+  // In the air: broadcast, and still not confirmed (no status can be read).
+  await expectBroadcastTaken(broadcast, t.wallet.lastSigned().signature!);
+  await expect(ui.outcome(t.page)).toHaveCount(0);
   await t.page.reload();
   // The wallet reconnects on its own after a reload.
   await expectConnected(ui.createForm(t.page), kp.publicKey.toBase58());
