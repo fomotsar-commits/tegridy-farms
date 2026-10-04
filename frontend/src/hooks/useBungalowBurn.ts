@@ -14,6 +14,8 @@ import { readSolanaSupply } from '../lib/bungalowBurnSolana';
 
 const EVM_CHAIN_IDS: Partial<Record<Bungalow['chain'], number>> = { ethereum: 1, base: 8453 };
 const PLACEHOLDER_ADDR = '0x0000000000000000000000000000000000000001' as const;
+/** How long a Solana read may stay unanswered before the card gives it up as unread. */
+export const SOLANA_READ_TIMEOUT_MS = 20_000;
 
 /**
  * A bungalow token's burn, read from its own chain with no wallet.
@@ -57,7 +59,15 @@ export function useBungalowBurn(bungalow: Bungalow | null): BungalowBurnResult {
       { address: token, abi: ERC20_ABI, chainId, functionName: 'balanceOf', args: [token] },
     ],
     // staleTime 0: every mount reads, even when another mount of this token left a figure cached.
-    query: { enabled: evmEnabled, staleTime: 0, refetchOnWindowFocus: false, refetchOnReconnect: false },
+    // networkMode 'always': with no connection a read must run and FAIL into the outage line.
+    // The default pauses it, so Refresh did nothing and the old figure stayed up as if current.
+    query: {
+      enabled: evmEnabled,
+      staleTime: 0,
+      networkMode: 'always',
+      refetchOnWindowFocus: false,
+      refetchOnReconnect: false,
+    },
   });
 
   // Solana: one getTokenSupply. `reading: null` is a failed read, kept apart from "not yet".
@@ -68,6 +78,8 @@ export function useBungalowBurn(bungalow: Bungalow | null): BungalowBurnResult {
     if (!solanaMint) return;
     const controller = new AbortController();
     let cancelled = false;
+    // A read that never answers must still end: it is given up as unread, and Refresh comes back.
+    const giveUp = setTimeout(() => controller.abort(), SOLANA_READ_TIMEOUT_MS);
     // Deferred so the first setState is not synchronous inside the effect body.
     queueMicrotask(async () => {
       if (cancelled) return;
@@ -78,12 +90,14 @@ export function useBungalowBurn(bungalow: Bungalow | null): BungalowBurnResult {
       } catch {
         reading = null;
       }
+      clearTimeout(giveUp);
       if (cancelled) return;
       setSolana({ mint: solanaMint, reading });
       setSolanaReading(false);
     });
     return () => {
       cancelled = true;
+      clearTimeout(giveUp);
       controller.abort();
     };
   }, [solanaMint, nonce]);

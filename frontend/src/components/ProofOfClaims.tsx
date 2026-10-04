@@ -27,7 +27,8 @@ function Row({ label, value, verified, href }: { label: string; value: string; v
     >
       <span className="text-[13px] text-text-secondary">{label}</span>
       <span className="flex items-center gap-2 min-w-0">
-        <span className="stat-value text-[13px] text-white truncate">{value}</span>
+        {/* Wraps, never truncates: on a phone an ellipsis cut the figure or its words off. */}
+        <span className="stat-value text-[13px] text-white text-right min-w-0">{value}</span>
         {verified && (
           <span
             className="flex-shrink-0 w-4 h-4 rounded-full flex items-center justify-center text-[10px]"
