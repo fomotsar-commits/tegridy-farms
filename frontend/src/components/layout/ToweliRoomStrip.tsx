@@ -1,4 +1,5 @@
 import { Link } from 'react-router-dom';
+import { CardArt } from '../ui/CardArt';
 
 /**
  * WAVE SEVEN, ruling 2 (row Q): THE TOWELI ROOM'S BAND.
@@ -72,9 +73,10 @@ export function ToweliSectionBand() {
   return (
     <div
       data-voice-band="toweli"
-      className="mb-6 rounded-xl border px-4 py-2 text-[12px] md:text-[13px] flex flex-wrap items-center justify-between gap-x-4"
+      className="relative isolate mb-6 rounded-xl border px-4 py-2 text-[12px] md:text-[13px] flex flex-wrap items-center justify-between gap-x-4"
       style={{ background: 'rgba(6,12,26,0.85)', borderColor: 'var(--color-purple-20)' }}
     >
+      <CardArt pageId="toweli-section-band" idx={0} />
       <p className="text-white/85 py-2" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>
         The tabs below describe TOWELI&apos;s own protocol, not the venue&apos;s.
       </p>

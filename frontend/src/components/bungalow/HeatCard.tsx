@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { fetchHeat, isSupportedHeatAddress } from '../../lib/heat/heatClient';
 import type { HeatReading } from '../../lib/heat/heatOracle';
+import { CardArt } from '../ui/CardArt';
 
 /**
  * "Check your heat" on a room's farm: one address in, the island oracle's reading out,
@@ -39,7 +40,8 @@ export function HeatCard({ defaultAddress }: { defaultAddress?: string }) {
   };
 
   return (
-    <div className="mt-6 rounded-2xl p-6" style={{ background: 'rgba(4,9,18,0.72)', border: '1px solid var(--color-purple-25)' }}>
+    <div className="relative isolate mt-6 rounded-2xl p-6" style={{ background: 'rgba(4,9,18,0.72)', border: '1px solid var(--color-purple-25)' }}>
+      <CardArt pageId="bungalow-heat-card" idx={0} />
       <p className="text-[10px] uppercase tracking-wider mb-1" style={{ color: 'var(--color-kyle)' }}>Check your heat</p>
       <p className="text-white/70 text-[12px] mb-3">
         Time held is what counts. Give the Island an address and it answers with what you held.

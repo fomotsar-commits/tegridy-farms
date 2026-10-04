@@ -54,6 +54,7 @@ import {
 import { usePendingTrades, type PendingTradesState } from '../components/solana/curve/usePendingTrades';
 import { curveTradeScope } from '../components/solana/curve/pendingTrade';
 import { PendingTradeCard } from '../components/solana/curve/PendingTradeCard';
+import { CardArt } from '../components/ui/CardArt';
 import { BeforeYouTrade } from '../components/solana/curve/BeforeYouTrade';
 import { reserveDisclosure, sharePercent } from '../components/solana/curve/uiFormat';
 import type { OnSettled } from '../components/solana/curve/useTxFlow';
@@ -147,7 +148,7 @@ export function SolanaLaunchView({
 }: SolanaLaunchViewProps) {
   if (gateState.status === 'disabled') {
     return (
-      <Card title="Launching and trading are not switched on here yet">
+      <Card title="Launching and trading are not switched on here yet" art={<CardArt pageId="curve-launch" idx={14} />}>
         <p>This site does not offer launches on its own Solana curve yet, so there is nothing to show for this address.</p>
         <Row label="Token address (mint)" value={mint.toBase58()} />
         {backLink}
@@ -247,7 +248,7 @@ export function SolanaLaunchView({
   return (
     <>
       {banner}
-      <Card title="Launch" testId="launch-identity-card">
+      <Card title="Launch" testId="launch-identity-card" art={<CardArt pageId="curve-launch" idx={15} />}>
         <LaunchIdentity
           meta={api.meta}
           mint={mint}
@@ -261,7 +262,11 @@ export function SolanaLaunchView({
       {data === null && <Notice>Reading this launch from the network…</Notice>}
 
       {awaitingOwnLaunch(pending, phase) && pending ? (
-        <Card title={phase === 'unreadable' ? 'Could not check yet' : 'Not found yet'} testId="pending-launch">
+        <Card
+          title={phase === 'unreadable' ? 'Could not check yet' : 'Not found yet'}
+          testId="pending-launch"
+          art={<CardArt pageId="curve-launch" idx={16} />}
+        >
           <Notice tone="warn">
             {phase === 'unreadable'
               ? 'We could not read the network just now. Your launch may still be landing. Do not launch it again.'
@@ -290,7 +295,7 @@ export function SolanaLaunchView({
         </Card>
       ) : (
         phase === 'pre-launch' && (
-          <Card title="No launch at this address">
+          <Card title="No launch at this address" art={<CardArt pageId="curve-launch" idx={17} />}>
             <p>This token address has no curve on this program. Check the address you were given.</p>
           </Card>
         )
@@ -621,7 +626,7 @@ export default function CurveLaunchDetailPage() {
             <SolanaLaunchInner key={mint.toBase58()} mint={mint} />
           </SolanaProviders>
         ) : (
-          <Card title="Not a token address">
+          <Card title="Not a token address" art={<CardArt pageId="curve-launch" idx={23} />}>
             <p>That is not a Solana token address. Check the link you followed.</p>
             {backLink}
           </Card>

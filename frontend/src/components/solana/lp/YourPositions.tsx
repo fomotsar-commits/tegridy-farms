@@ -10,6 +10,7 @@ import { solText, tokenText } from '../../../lib/solana/lp/format';
 import { SolanaConnectButton } from '../SolanaConnectButton';
 import { WalletAppHint } from '../curve/WalletNeeded';
 import { Card, Notice, Row } from '../curve/ui';
+import { CardArt } from '../../ui/CardArt';
 import { LeaveWithoutThisSite } from './LpDisclosures';
 import { lpHeld, withdrawOffer, type WithdrawOffer } from './offers';
 import { RemoveLiquidityPanel } from './RemoveLiquidityPanel';
@@ -123,7 +124,7 @@ export function YourPositions({
   const readAgain = useCallback(() => setNonce((n) => n + 1), []);
   return (
     <section ref={sectionRef} tabIndex={sectionRef ? -1 : undefined} className="scroll-mt-[4.5rem] outline-none" data-testid="lp-positions" aria-label="Your positions">
-      <Card title="Your positions">
+      <Card title="Your positions" art={<CardArt pageId="solana-lp" idx={3} />}>
         {/* One live region for the whole section, always mounted: only its text changes. */}
         <p role="status" aria-live="polite" className="sr-only" data-testid="lp-positions-status">
           {statusText(owner, state)}

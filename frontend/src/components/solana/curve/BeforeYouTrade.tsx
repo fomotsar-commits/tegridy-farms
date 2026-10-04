@@ -1,3 +1,4 @@
+import { CardArt } from '../../ui/CardArt';
 import { Card } from './ui';
 import { bpsPercent } from './uiFormat';
 
@@ -84,7 +85,7 @@ export function BeforeYouTrade({
     );
   }
   return (
-    <Card title="Before you trade" testId="before-you-trade">
+    <Card title="Before you trade" testId="before-you-trade" art={<CardArt pageId="curve-launch" idx={18} />}>
       {list}
     </Card>
   );

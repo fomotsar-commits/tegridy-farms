@@ -12,6 +12,7 @@ import { isAddress, type Address } from 'viem';
 import { usePageTitle } from '../hooks/usePageTitle';
 import { trackPageView } from '../lib/analytics';
 import { PageArtBackdrop } from '../components/PageArtBackdrop';
+import { CardArt } from '../components/ui/CardArt';
 import { FeatureNotDeployed } from '../components/ui/FeatureNotDeployed';
 import { WrongChainBanner } from '../components/ui/WrongChainGuard';
 import { CHAIN_ID } from '../lib/constants';
@@ -25,6 +26,7 @@ import { CurveTradePanel } from '../components/launcher/CurveTradePanel';
 import { CurveLaunchesGrid } from '../components/launcher/CurveLaunchesGrid';
 
 const PAGE_ID = 'eth-curve';
+// eth-curve art idx: 0 backdrop, 1-3 cards here, 4-14 in components/launcher and CurveTokenPage.
 const cardStyle = { border: '1px solid rgba(255,255,255,0.12)', background: 'rgba(6,12,26,0.6)' } as const;
 
 /** Pure, prop-free explainer of the curve's economics — safe to render anywhere. */
@@ -37,7 +39,8 @@ export function CurveHowItWorks() {
     { k: 'Creators keep 0.40% of volume', v: 'On-chain, claimable any time from the token page — multiples of the going launchpad creator share.' },
   ];
   return (
-    <div className="rounded-2xl p-5 space-y-3" style={cardStyle}>
+    <div className="relative isolate rounded-2xl p-5 space-y-3" style={cardStyle}>
+      <CardArt pageId="eth-curve" idx={3} />
       <h2 className="text-white font-semibold text-sm">How the Memetics curve works</h2>
       <ul className="space-y-2">
         {points.map((p) => (
@@ -81,7 +84,8 @@ function TradeByAddress({ launcher, chainId, prefill }: { launcher: Address; cha
   const token = useMemo<Address | null>(() => (isAddress(input) ? (input as Address) : null), [input]);
   return (
     <div className="space-y-3">
-      <div className="rounded-2xl p-5" style={cardStyle}>
+      <div className="relative isolate rounded-2xl p-5" style={cardStyle}>
+        <CardArt pageId="eth-curve" idx={2} />
         <label className="block text-[11px] text-white/55 mb-1">Trade a curve token — paste its address</label>
         <input
           className="w-full px-3 py-2 rounded-lg bg-black/55 text-white text-[13px] font-mono outline-none"
@@ -125,7 +129,8 @@ function ChainLaunchCounts({
   });
 
   return (
-    <div className="rounded-2xl p-3" style={cardStyle}>
+    <div className="relative isolate rounded-2xl p-3" style={cardStyle}>
+      <CardArt pageId="eth-curve" idx={1} />
       <p className="text-white/50 text-[11px] uppercase tracking-wider mb-1">Launch on</p>
       <p className="text-white/60 text-[12px] mb-2 leading-relaxed">
         The same curve, deployed on each of these. Pick one and the form below — and every

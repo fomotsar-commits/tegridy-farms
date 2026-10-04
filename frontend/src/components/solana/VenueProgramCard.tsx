@@ -1,3 +1,5 @@
+import { CardArt } from '../ui/CardArt';
+
 const CARD = { background: 'rgba(4,9,18,0.90)', border: '1px solid var(--color-purple-25)' } as const;
 
 /**
@@ -7,7 +9,8 @@ const CARD = { background: 'rgba(4,9,18,0.90)', border: '1px solid var(--color-p
  */
 export function VenueProgramCard() {
   return (
-    <section className="rounded-2xl p-6 mt-6" style={CARD} aria-label="The program">
+    <section className="relative isolate rounded-2xl p-6 mt-6" style={CARD} aria-label="The program">
+      <CardArt pageId="venue-amm" idx={1} />
       <p className="text-[10px] uppercase tracking-wider mb-2" style={{ color: 'var(--color-kyle)' }}>The program</p>
       <h2 className="heading-luxury text-lg text-white mb-3">Raydium&rsquo;s CPMM, unmodified</h2>
       <p className="text-white/80 text-[13px] leading-relaxed mb-3">

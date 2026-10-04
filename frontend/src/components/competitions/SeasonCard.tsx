@@ -4,6 +4,7 @@ import {
   seasonStatus,
   type Season,
 } from '../../lib/competitions/season';
+import { CardArt } from '../ui/CardArt';
 
 // THE ROUTER SEASON'S CARD, WITH ITS STATUS TIED TO A SOURCE.
 //
@@ -34,7 +35,8 @@ function utcDay(unixSeconds: number): string {
 
 export function SeasonCard({ seasons, season, onSeasonChange, syncedAt }: SeasonCardProps) {
   return (
-    <section className="rounded-xl border border-white/15 bg-white/[0.02] p-4">
+    <section className="relative isolate rounded-xl border border-white/15 bg-white/[0.02] p-4">
+      <CardArt pageId="competitions" idx={6} />
       <div className="flex flex-wrap items-end gap-3">
         <label
           htmlFor="competition-season"

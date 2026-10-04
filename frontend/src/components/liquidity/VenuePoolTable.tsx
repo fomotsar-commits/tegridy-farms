@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom';
 import type { usePoolTVL } from '../../hooks/usePoolTVL';
 import { TOKEN_LOGOS } from '../farm/poolConfig';
+import { CardArt } from '../ui/CardArt';
 
 /**
  * The venue's own pools, as a table.
@@ -76,9 +77,10 @@ export function VenuePoolTable({ poolData }: { poolData: ReturnType<typeof usePo
           inside its own box on a 390px phone rather than making the document
           scroll sideways. */}
       <div
-        className="rounded-2xl overflow-hidden"
+        className="relative isolate rounded-2xl overflow-hidden"
         style={{ background: 'rgba(4,9,18,0.72)', border: '1px solid var(--color-purple-25)' }}
       >
+        <CardArt pageId="liquidity" idx={1} />
         {/* `relative` IS LOAD-BEARING — it is what CONTAINS the sr-only span in the
             last <th>. Tailwind's `sr-only` is `position:absolute`, and an
             absolutely-positioned element is clipped by an ancestor's overflow

@@ -9,6 +9,7 @@ import { PREMIUM_ACCESS_ADDRESS, CHAIN_ID, isDeployed } from '../lib/constants';
 import { usePageTitle } from '../hooks/usePageTitle';
 import { getTxUrl } from '../lib/explorer';
 import { ArtImg } from '../components/ArtImg';
+import { CardArt } from '../components/ui/CardArt';
 import { FeatureNotDeployed } from '../components/ui/FeatureNotDeployed';
 import { goldCardBenefits, goldCardSubhead, revenueSharingSubhead } from '../lib/premiumBenefits';
 
@@ -24,6 +25,12 @@ const PLANS = [
   { months: 6, label: '6 Months', discount: 0 },
   { months: 12, label: '1 Year', discount: 0 },
 ];
+
+// Card art on this page: premium:3-5 notices, 6-9 stat tiles, 10-11 benefits, 12 notice,
+// 13-16 plans, 17-21 the rest. Each slot count is the list's length, so idx wraps if it grows.
+const STAT_ART_SLOTS = 4;
+const BENEFIT_ART_SLOTS = 2;
+const PLAN_ART_SLOTS = 4;
 
 // HONESTY PASS 2026-07-18 cut the vapor benefits; 2026-07-31 moved the two survivors into
 // lib/premiumBenefits.ts so the "Real ETH yield" line is CONDITIONED on what
@@ -155,12 +162,13 @@ export default function PremiumPage() {
 
         {/* Fix #2: Wallet-disconnected prompt */}
         {!address && (
-          <m.div className="mb-8 rounded-xl p-6 text-center"
+          <m.div className="relative isolate mb-8 rounded-xl p-6 text-center"
             initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }}
             style={{
               background: 'linear-gradient(135deg, var(--color-purple-12) 0%, var(--color-purple-04) 100%)',
               border: '1px solid var(--color-purple-25)',
             }}>
+            <CardArt pageId="premium" idx={3} />
             <div className="text-white text-[14px] font-semibold mb-2">Connect your wallet to get started</div>
             <p className="text-white text-[12px] mb-4">View your subscription status, subscribe, and claim revenue.</p>
             <div className="flex justify-center">
@@ -171,12 +179,13 @@ export default function PremiumPage() {
 
         {/* Fix #4: Error state */}
         {hasError && address && (
-          <m.div className="mb-8 rounded-xl p-4 text-center"
+          <m.div className="relative isolate mb-8 rounded-xl p-4 text-center"
             initial={{ opacity: 0 }} animate={{ opacity: 1 }}
             style={{
               background: 'rgba(239,68,68,0.1)',
               border: '1px solid rgba(239,68,68,0.3)',
             }}>
+            <CardArt pageId="premium" idx={4} />
             <div className="text-red-400 text-[13px] font-semibold mb-1">Error Loading Data</div>
             <div className="text-white text-[12px]">{errorMsg.split('\n')[0] ?? errorMsg}</div>
             <button onClick={() => { premium.refetch(); revenue.refetch(); }}
@@ -189,12 +198,13 @@ export default function PremiumPage() {
 
         {/* Status Banner */}
         {premium.hasPremium && (
-          <m.div className="mb-8 rounded-xl p-4 text-center"
+          <m.div className="relative isolate mb-8 rounded-xl p-4 text-center"
             initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }}
             style={{
               background: 'linear-gradient(135deg, rgba(212,160,23,0.15) 0%, rgba(212,160,23,0.05) 100%)',
               border: '1px solid rgba(212,160,23,0.3)',
             }}>
+            <CardArt pageId="premium" idx={5} />
             <div className="text-[13px] font-semibold" style={{ color: '#d4a017' }}>
               {premium.subscriptionUnread ? '\u{1F451} GOLD CARD ACTIVE' : premium.isLifetime ? '\u{1F451} LIFETIME GOLD CARD ACTIVE' : '\u{1F451} GOLD CARD ACTIVE'}
             </div>
@@ -241,8 +251,9 @@ export default function PremiumPage() {
               { label: 'Active Subscribers', value: premium.statsUnread ? '—' : premium.totalSubscribers.toString() },
               { label: 'Total Revenue', value: premium.statsUnread ? '—' : premium.totalRevenueFormatted > 0 ? `${premium.totalRevenueFormatted.toLocaleString()} TOWELI` : '0' },
               { label: 'Revenue Distributed', value: revenue.totalDistributed > 0 ? `${revenue.totalDistributed.toFixed(4)} ETH` : '0 ETH' },
-            ].map((s) => (
-              <div key={s.label} className="glass-card p-3 text-center">
+            ].map((s, i) => (
+              <div key={s.label} className="relative isolate glass-card p-3 text-center">
+                <CardArt pageId="premium" idx={6 + (i % STAT_ART_SLOTS)} />
                 <div className="text-white text-[11px] uppercase tracking-wider label-pill mb-1">{s.label}</div>
                 <div className="stat-value text-white text-[14px]">{s.value}</div>
               </div>
@@ -256,9 +267,10 @@ export default function PremiumPage() {
           <p className="text-white text-[12px] mb-5">Everything included with your Gold Card membership</p>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
             {goldCardBenefits({ ethDistributed: revenue.totalDistributed, isLoading: revenue.isDataLoading }).map((b, i) => (
-              <m.div key={b.title} className="glass-card p-4"
+              <m.div key={b.title} className="relative isolate glass-card p-4"
                 initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }}
                 viewport={{ once: true }} transition={{ delay: i * 0.06 }}>
+                <CardArt pageId="premium" idx={10 + (i % BENEFIT_ART_SLOTS)} />
                 <div className="text-2xl mb-2">{b.icon}</div>
                 <h3 className="text-white text-[14px] font-semibold mb-1">{b.title}</h3>
                 <p className="text-white text-[12px] leading-relaxed">{b.desc}</p>
@@ -273,7 +285,8 @@ export default function PremiumPage() {
             gold-card banner and rendered the whole sales section below to
             someone who may already hold LIFETIME access. */}
         {premium.premiumUnread && (
-          <div className="mb-8 rounded-xl p-4 text-center" style={{ background: 'rgba(240,178,107,0.08)', border: '1px solid rgba(240,178,107,0.35)' }}>
+          <div className="relative isolate mb-8 rounded-xl p-4 text-center" style={{ background: 'rgba(240,178,107,0.08)', border: '1px solid rgba(240,178,107,0.35)' }}>
+            <CardArt pageId="premium" idx={12} />
             <p className="text-[13px]" style={{ color: '#f0b26b' }}>
               We could not read your membership status just now &mdash; this is not a statement that you have none.
               Retry in a moment before buying anything.
@@ -302,7 +315,7 @@ export default function PremiumPage() {
 
                 return (
                   <button key={p.months} onClick={() => setSelectedPlan(i)}
-                    className="relative rounded-xl p-4 text-center transition-all"
+                    className="relative isolate rounded-xl p-4 text-center transition-all"
                     style={{
                       background: selectedPlan === i
                         ? 'linear-gradient(135deg, rgba(212,160,23,0.15) 0%, rgba(212,160,23,0.05) 100%)'
@@ -311,6 +324,7 @@ export default function PremiumPage() {
                         ? '1px solid rgba(212,160,23,0.4)'
                         : '1px solid var(--color-purple-75)',
                     }}>
+                    <CardArt pageId="premium" idx={13 + (i % PLAN_ART_SLOTS)} />
                     {p.discount > 0 && (
                       <div className="absolute -top-2 right-2 text-[10px] font-bold px-1.5 py-0.5 rounded-full"
                         style={{ background: '#d4a017', color: '#0a0a0f' }}>
@@ -336,7 +350,8 @@ export default function PremiumPage() {
             </div>
 
             {/* Subscribe Action */}
-            <div className="glass-card p-5">
+            <div className="relative isolate glass-card p-5">
+              <CardArt pageId="premium" idx={17} />
               <div className="flex items-center justify-between mb-4">
                 <div>
                   <div className="text-white text-[11px] uppercase tracking-wider label-pill">Total Cost</div>
@@ -450,12 +465,14 @@ export default function PremiumPage() {
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-              <div className="glass-card p-4">
+              <div className="relative isolate glass-card p-4">
+                <CardArt pageId="premium" idx={18} />
                 <div className="text-white text-[11px] uppercase tracking-wider label-pill mb-1">Total Distributed</div>
                 <div className="stat-value text-white text-lg">{revenue.totalDistributed.toFixed(4)} ETH</div>
                 <div className="text-white text-[11px] mt-1">{revenue.globalUnread ? '–' : `${revenue.epochCount} epochs`}</div>
               </div>
-              <div className="glass-card p-4">
+              <div className="relative isolate glass-card p-4">
+                <CardArt pageId="premium" idx={19} />
                 <div className="text-white text-[11px] uppercase tracking-wider label-pill mb-1">Your Pending</div>
                 <div className="stat-value text-lg" style={{ color: revenue.pendingRevenue > 0 ? '#22c55e' : 'rgba(255,255,255,1)' }}>
                   {(revenue.pendingRevenue ?? 0).toFixed(6)} ETH
@@ -479,7 +496,8 @@ export default function PremiumPage() {
                   <div className="text-white text-[11px] mt-1">No pending revenue</div>
                 )}
               </div>
-              <div className="glass-card p-4">
+              <div className="relative isolate glass-card p-4">
+                <CardArt pageId="premium" idx={20} />
                 <div className="text-white text-[11px] uppercase tracking-wider label-pill mb-1">Referral Earnings</div>
                 <div className="stat-value text-lg" style={{ color: revenue.referralPending > 0 ? '#22c55e' : 'rgba(255,255,255,1)' }}>
                   {(revenue.referralPending ?? 0).toFixed(6)} ETH
@@ -507,7 +525,8 @@ export default function PremiumPage() {
 
         {/* JBAC NFT Section */}
         <m.div className="mb-10" initial={{ opacity: 0, y: 15 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}>
-          <div className="glass-card p-5 flex flex-col md:flex-row items-center gap-5" style={{ border: '1px solid rgba(212,160,23,0.15)' }}>
+          <div className="relative isolate glass-card p-5 flex flex-col md:flex-row items-center gap-5" style={{ border: '1px solid rgba(212,160,23,0.15)' }}>
+            <CardArt pageId="premium" idx={21} />
             <div className="w-20 h-20 rounded-xl overflow-hidden flex-shrink-0" style={{ border: '1px solid rgba(212,160,23,0.3)' }}>
               <ArtImg pageId="premium" idx={2} alt="" loading="lazy" className="w-full h-full object-cover" />
             </div>

@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { CardArt } from '../../ui/CardArt';
 import { Card, Row } from './ui';
 import type { PendingTrade } from './pendingTrade';
 import type { PendingTradesState } from './usePendingTrades';
@@ -26,7 +27,7 @@ export function PendingTradeCard({
   describe?: (note: PendingTrade) => ReactNode;
 }) {
   return (
-    <Card title={title} testId={testId}>
+    <Card title={title} testId={testId} art={<CardArt pageId="pending-trade" idx={0} />}>
       {lead}
       {/* Always there, so each check's answer is read out when it arrives. */}
       <p role="status" className="text-white/55">

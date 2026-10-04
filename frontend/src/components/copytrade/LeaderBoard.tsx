@@ -6,6 +6,7 @@ import {
 import type { FollowerRelativeSummary } from '../../lib/copytrade/followerRelative';
 import { formatQuoteAmount } from '../../lib/copytrade/quoteTokens';
 import { formatTimeAgo, shortenAddress } from '../../lib/formatting';
+import { CardArt } from '../ui/CardArt';
 
 // The board, with the column everybody expects deliberately absent.
 //
@@ -41,7 +42,8 @@ export function LeaderBoard({
   const byLeader = new Map(followerRecord.map((r) => [r.leader, r]));
 
   return (
-    <section className="rounded-xl border border-white/15 bg-white/[0.02] p-4">
+    <section className="relative isolate rounded-xl border border-white/15 bg-white/[0.02] p-4">
+      <CardArt pageId="copy-trading" idx={6} />
       <h2 className="text-sm font-semibold text-white">Wallets trading the venue</h2>
       <p className="mt-1.5 text-xs leading-relaxed text-white/80">{RETURN_RANKING.reason}</p>
       <p className="mt-1.5 text-xs leading-relaxed text-white/70">{RETURN_RANKING.rankedInstead}</p>

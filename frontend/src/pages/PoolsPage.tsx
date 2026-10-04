@@ -7,6 +7,7 @@ import { usePageTitle } from '../hooks/usePageTitle';
 import { useVenueStatus } from '../hooks/useVenueStatus';
 import { trackPageView } from '../lib/analytics';
 import { ArtImg } from '../components/ArtImg';
+import { CardArt } from '../components/ui/CardArt';
 import { ChainSwitch } from '../components/swap/ChainSwitch';
 import { VenueStatusCard } from '../components/solana/VenueStatusCard';
 import { VenueProgramCard } from '../components/solana/VenueProgramCard';
@@ -115,7 +116,8 @@ export default function PoolsPage() {
         )}
 
         {/* ── The fee sheet ───────────────────────────────────────────────── */}
-        <section className="rounded-2xl p-6 mt-6" style={CARD} aria-label="Fee sheet">
+        <section className="relative isolate rounded-2xl p-6 mt-6" style={CARD} aria-label="Fee sheet">
+          <CardArt pageId="venue-amm" idx={2} />
           <div className="flex items-baseline justify-between gap-3 flex-wrap mb-1">
             <p className="text-[10px] uppercase tracking-wider" style={{ color: 'var(--color-kyle)' }}>
               {liveConfig
@@ -177,7 +179,8 @@ export default function PoolsPage() {
 
         {/* ── How LPs earn ────────────────────────────────────────────────── */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6">
-          <section className="rounded-2xl p-6" style={CARD}>
+          <section className="relative isolate rounded-2xl p-6" style={CARD}>
+            <CardArt pageId="venue-amm" idx={3} />
             <p className="text-[10px] uppercase tracking-wider mb-2" style={{ color: 'var(--color-kyle)' }}>For liquidity providers</p>
             <h2 className="heading-luxury text-lg text-white mb-3">
               {venueIsOpen ? 'Deposit a pair, hold the LP token' : 'How it works: deposit a pair, hold the LP token'}
@@ -200,7 +203,8 @@ export default function PoolsPage() {
             </ul>
           </section>
 
-          <section className="rounded-2xl p-6" style={CARD}>
+          <section className="relative isolate rounded-2xl p-6" style={CARD}>
+            <CardArt pageId="venue-amm" idx={4} />
             <p className="text-[10px] uppercase tracking-wider mb-2" style={{ color: 'var(--color-kyle)' }}>How the swap routes</p>
             <h2 className="heading-luxury text-lg text-white mb-3">Our pools, side by side with Jupiter</h2>
             <p className="text-white/80 text-[13px] leading-relaxed mb-3">

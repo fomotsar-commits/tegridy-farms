@@ -2,6 +2,7 @@
 import '../../lib/solanaPolyfill';
 import type { Ref } from 'react';
 import { CopyButton } from '../ui/CopyButton';
+import { CardArt } from '../ui/CardArt';
 import type { VenueStatus } from '../../lib/solana/cpswap/read';
 import { SPENT_PROGRAM_ID, hasProgramId } from '../../lib/solana/cpswap/program';
 import type { LpWriteMode } from '../../lib/launcher/solana/lpWriteFlag';
@@ -36,11 +37,12 @@ export function VenueStatusCard({ status, onRefresh, lpMode, feeSheetBelow = tru
   const amber = { background: 'rgba(28,21,6,0.92)', border: '1px solid rgba(227,179,65,0.45)' };
   const green = { background: 'rgba(6,24,14,0.92)', border: '1px solid rgba(34,197,94,0.45)' };
   // A card that is scrolled to stops clear of the fixed header and the tab strip under it.
-  const frame = ref ? 'rounded-2xl p-6 scroll-mt-24' : 'rounded-2xl p-6';
+  const frame = ref ? 'relative isolate rounded-2xl p-6 scroll-mt-24' : 'relative isolate rounded-2xl p-6';
 
   if (status === null) {
     return (
       <section ref={ref} className={frame} style={CARD}>
+        <CardArt pageId="venue-amm" idx={0} />
         <p className="text-white/70 text-[13px]">Reading the venue&rsquo;s status from the chain…</p>
       </section>
     );
@@ -51,6 +53,7 @@ export function VenueStatusCard({ status, onRefresh, lpMode, feeSheetBelow = tru
   if (status.kind === 'live') {
     return (
       <section ref={ref} className={frame} style={green} aria-label="Venue status">
+        <CardArt pageId="venue-amm" idx={0} />
         <div className="flex items-center justify-between gap-3 flex-wrap mb-2">
           <p className="text-[10px] uppercase tracking-wider" style={{ color: '#4ade80' }}>Venue · LIVE</p>
           <button type="button" onClick={onRefresh} className="text-white/50 hover:text-white text-[11px] underline underline-offset-2">Refresh</button>
@@ -117,6 +120,7 @@ export function VenueStatusCard({ status, onRefresh, lpMode, feeSheetBelow = tru
 
   return (
     <section ref={ref} className={frame} style={amber} aria-label="Venue status">
+      <CardArt pageId="venue-amm" idx={0} />
       <div className="flex items-center justify-between gap-3 flex-wrap mb-2">
         <p className="text-[10px] uppercase tracking-wider" style={{ color: '#e3b341' }}>Venue status · live chain read</p>
         <button type="button" onClick={onRefresh} className="text-white/50 hover:text-white text-[11px] underline underline-offset-2">Refresh</button>

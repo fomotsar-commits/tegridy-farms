@@ -32,6 +32,7 @@ import { useTabListKeys } from '../../hooks/useTabListKeys';
 import { useSafeConnectModal } from '../../hooks/useSafeConnectModal';
 import { useReceiptOutcome } from '../../hooks/useReceiptOutcome';
 import { artImgProps } from '../../lib/artSrcSet';
+import { CardArt } from '../ui/CardArt';
 import { noteReplacement } from '../../lib/txErrors';
 
 // ─── Constants ────────────────────────────────────────────────────
@@ -1695,7 +1696,8 @@ function PoolCard({
   // knows why — the MyPoolsTab remove button sits over this card.
   if (poolInfoError) {
     return (
-      <div className="rounded-2xl border border-[rgba(239,68,68,0.2)] bg-[rgba(13,21,48,0.6)] backdrop-blur-[20px] p-4">
+      <div className="relative isolate rounded-2xl border border-[rgba(239,68,68,0.2)] bg-[rgba(13,21,48,0.6)] backdrop-blur-[20px] p-4">
+        <CardArt pageId="nft-finance" idx={21} />
         <p className="text-sm font-medium text-red-400 mb-1">Pool unreachable</p>
         <p className="text-[12px] text-white/70 mb-1">
           This address didn't respond to <span className="font-mono">getPoolInfo</span> — it may be from an old deployment.
@@ -2920,9 +2922,10 @@ export function AMMSection() {
     <div>
       {!deployed && (
         <div
-          className="rounded-xl px-4 py-3 text-center text-[13px] text-amber-400/80 border border-amber-500/20 mb-6"
+          className="relative isolate rounded-xl px-4 py-3 text-center text-[13px] text-amber-400/80 border border-amber-500/20 mb-6"
           style={{ background: 'rgba(245,158,11,0.06)' }}
         >
+          <CardArt pageId="nft-finance" idx={22} />
           The NFT pool factory is deployed on mainnet; this notice appears only if its address is ever unset. Explore the interface below. <Link to="/security" className="underline hover:text-amber-300 transition-colors">View security details</Link>
         </div>
       )}

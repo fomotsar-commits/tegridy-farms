@@ -7,6 +7,7 @@ import { detectChain } from '../lib/scanner';
 import { ScanReport } from '../components/scanner/ScanReport';
 import { TOWELI_ADDRESS } from '../lib/constants';
 import { PageArtBackdrop } from '../components/PageArtBackdrop';
+import { CardArt } from '../components/ui/CardArt';
 
 // PUBLIC TOKEN SCANNER — a free, shareable, standalone magnet tool.
 //
@@ -86,7 +87,8 @@ export default function ScannerPage() {
       </m.div>
 
       {/* ── Address form ───────────────────────────────────────────── */}
-      <form onSubmit={submit} className="glass-card rounded-xl p-4 mb-4">
+      <form onSubmit={submit} className="glass-card relative isolate rounded-xl p-4 mb-4">
+        <CardArt pageId="scanner" idx={1} />
         <label htmlFor="scan-address" className="block text-[11px] uppercase tracking-wider text-text-muted mb-2">
           Token address
         </label>
@@ -157,7 +159,8 @@ export default function ScannerPage() {
       )}
 
       {scan.status === 'loading' && (
-        <div className="glass-card rounded-xl p-6 text-center">
+        <div className="glass-card relative isolate rounded-xl p-6 text-center">
+          <CardArt pageId="scanner" idx={4} />
           <p className="text-[13px] text-text-secondary animate-pulse">
             Reading {scan.chain ? CHAIN_LABEL[scan.chain] : ''} holders and computing distribution…
           </p>
@@ -260,7 +263,8 @@ export default function ScannerPage() {
 
 function IdleHint() {
   return (
-    <div className="glass-card rounded-xl p-5">
+    <div className="glass-card relative isolate rounded-xl p-5">
+      <CardArt pageId="scanner" idx={2} />
       <h2 className="text-[14px] font-semibold text-text-primary mb-2">What you'll get</h2>
       <ul className="space-y-1.5 text-[12.5px] text-text-secondary">
         <li>• A plain-English effective-holder count (how many equally-sized holders this concentration is worth).</li>
@@ -287,7 +291,8 @@ function StateCard({
   const color =
     tone === 'danger' ? 'var(--color-danger)' : tone === 'warning' ? 'var(--color-warning)' : 'var(--color-text-muted)';
   return (
-    <div className="glass-card rounded-xl p-5" style={{ borderColor: color }}>
+    <div className="glass-card relative isolate rounded-xl p-5" style={{ borderColor: color }}>
+      <CardArt pageId="scanner" idx={3} />
       <h2 className="text-[14px] font-semibold mb-1.5" style={{ color }}>
         {title}
       </h2>

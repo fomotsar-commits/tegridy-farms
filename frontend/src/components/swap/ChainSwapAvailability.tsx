@@ -1,4 +1,5 @@
 import { Link } from 'react-router-dom';
+import { CardArt } from '../ui/CardArt';
 // FROM ./registry, NOT the ../../lib/chains barrel — deliberate, and the same
 // import the repo already uses in ContractsPage and CurveTokenPage. The barrel
 // re-exports viemChains (index.ts:23), which imports `fallback` from wagmi, so
@@ -43,13 +44,14 @@ export function ChainSwapAvailability({ chainId }: { chainId: number | undefined
 
   return (
     <div
-      className="mb-4 rounded-xl border p-4"
+      className="relative isolate mb-4 rounded-xl border p-4"
       style={{
         background: 'rgba(245, 158, 11, 0.08)',
         borderColor: 'rgba(245, 158, 11, 0.30)',
       }}
       role="status"
     >
+      <CardArt pageId="trade" idx={5} />
       <p className="text-amber-200 text-[13px] font-semibold mb-1">
         Swapping is not live on {config.name} yet
       </p>

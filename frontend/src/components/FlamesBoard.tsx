@@ -18,6 +18,7 @@
 
 import { useEffect, useState } from 'react';
 import { fetchFlames, type Flame } from '../lib/heat/flamesClient';
+import { CardArt } from './ui/CardArt';
 
 const TIER_COLOR: Record<string, string> = {
   Elder: '#f5e4b8',
@@ -83,7 +84,7 @@ export function FlamesBoard({ limit, claimed = true }: FlamesBoardProps) {
   return (
     <section aria-label="The board" className="pb-16">
       <div
-        className="rounded-2xl p-5"
+        className="relative isolate rounded-2xl p-5"
         style={{
           background: 'rgba(0,0,0,0.45)',
           backdropFilter: 'blur(8px)',
@@ -91,6 +92,7 @@ export function FlamesBoard({ limit, claimed = true }: FlamesBoardProps) {
           border: '1px solid rgba(255,255,255,0.10)',
         }}
       >
+        <CardArt pageId="flames-board" idx={0} />
         <h2 className="heading-luxury text-xl text-white tracking-tight mb-1">The board</h2>
         <p className="text-white/60 text-[13px] leading-relaxed mb-4">
           Who has held the longest on Jungle Bay Island. Named by their own hand at the

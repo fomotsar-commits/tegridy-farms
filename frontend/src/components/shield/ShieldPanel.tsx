@@ -4,6 +4,7 @@ import { SHIELD_COPY } from '../../lib/shield/automation';
 import { ShieldAutomationNotice } from './ShieldAutomationNotice';
 import { ShieldCoverageNotice } from './ShieldCoverageNotice';
 import { ShieldPositionCard } from './ShieldPositionCard';
+import { CardArt } from '../ui/CardArt';
 
 // The shield surface.
 //
@@ -78,10 +79,11 @@ export function ShieldPanel() {
 
       {alerts.rules.length > 0 && (
         <section
-          className="rounded-xl p-4"
+          className="relative isolate rounded-xl p-4"
           style={{ background: '#000', border: '1px solid var(--color-purple-75)' }}
           aria-label="Deadline alerts"
         >
+          <CardArt pageId="shield" idx={3} />
           <p className="text-white text-[12px] font-semibold">
             Deadline alerts — {alerts.rules.length} rule{alerts.rules.length === 1 ? '' : 's'}
           </p>

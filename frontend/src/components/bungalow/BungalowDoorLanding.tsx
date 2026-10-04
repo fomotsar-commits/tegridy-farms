@@ -13,6 +13,7 @@ import { CopyButton } from '../ui/CopyButton';
 import { shortenAddress } from '../../lib/formatting';
 import { artImgProps } from '../../lib/artSrcSet';
 import { ArtImg } from '../ArtImg';
+import { CardArt } from '../ui/CardArt';
 import { HeatCard } from './HeatCard';
 import { BungalowMarket } from './BungalowMarket';
 
@@ -124,7 +125,8 @@ export function BungalowDoorLanding({ bungalow }: { bungalow: Bungalow }) {
         {hasToken && (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {/* Contract + live surfaces */}
-            <div className="relative overflow-hidden rounded-2xl glass-card-animated" style={{ border: '1px solid var(--color-purple-75)' }}>
+            <div className="relative isolate overflow-hidden rounded-2xl glass-card-animated" style={{ border: '1px solid var(--color-purple-75)' }}>
+              <CardArt pageId="bungalow-door" idx={2} scrim="transparent" />
               <div className="absolute inset-0" style={{ background: 'rgba(4,9,18,0.82)' }} />
               <div className="relative z-10 p-6">
                 <p className="text-[10px] uppercase tracking-wider mb-2" style={{ color: accent }}>Live today</p>

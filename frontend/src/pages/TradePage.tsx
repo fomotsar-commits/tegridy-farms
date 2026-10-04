@@ -23,6 +23,7 @@ import { TokenSelectModal } from '../components/swap/TokenSelectModal';
 import { ChainSwitch } from '../components/swap/ChainSwitch';
 import { ChainSwapAvailability } from '../components/swap/ChainSwapAvailability';
 import { ArtImg } from '../components/ArtImg';
+import { CardArt } from '../components/ui/CardArt';
 import { useTowelie } from '../hooks/useTowelie';
 import { useTabListKeys } from '../hooks/useTabListKeys';
 
@@ -715,7 +716,8 @@ export default function TradePage() {
                 (the honesty-vocabulary bar). Both claims link to their
                 checkable surfaces. */}
             <RealYieldProof />
-            <div className="glass-card rounded-2xl p-4 mt-4" style={{ border: '1px solid var(--color-purple-12)' }}>
+            <div className="relative isolate glass-card rounded-2xl p-4 mt-4" style={{ border: '1px solid var(--color-purple-12)' }}>
+              <CardArt pageId="trade" idx={4} />
               <p className="text-[13px] text-text-secondary leading-relaxed">
                 <span className="text-text-primary font-medium">Launching something?</span>{' '}
                 The <Link to="/eth-curve" className="text-emerald-400/80 hover:text-emerald-300 underline">Memetics Curve</Link>{' '}

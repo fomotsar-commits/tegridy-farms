@@ -20,6 +20,7 @@ import { usePageTitle } from '../hooks/usePageTitle';
 import { useReceiptOutcome } from '../hooks/useReceiptOutcome';
 import { trackPageView } from '../lib/analytics';
 import { PageArtBackdrop } from '../components/PageArtBackdrop';
+import { CardArt } from '../components/ui/CardArt';
 import { WrongChainBanner } from '../components/ui/WrongChainGuard';
 import { getChainConfig } from '../lib/chains/registry';
 import {
@@ -67,7 +68,8 @@ export interface CurveCreatorClaimViewProps {
  *  forget. Never pausable on-chain; never hidden behind a dead control here. */
 export function CurveCreatorClaimView({ claimableWei, pending, mining = false, onClaim }: CurveCreatorClaimViewProps) {
   return (
-    <div className="rounded-2xl p-4" style={cardStyle}>
+    <div className="relative isolate rounded-2xl p-4" style={cardStyle}>
+      <CardArt pageId="eth-curve" idx={12} />
       <div className="flex items-center justify-between gap-3">
         <div>
           <p className="text-white/90 text-[13px] font-semibold">Your creator fees</p>
@@ -299,7 +301,8 @@ export default function CurveTokenPage() {
         </div>
 
         {!token ? (
-          <div className="rounded-2xl p-5" style={cardStyle}>
+          <div className="relative isolate rounded-2xl p-5" style={cardStyle}>
+            <CardArt pageId="eth-curve" idx={8} />
             <p className="text-white/85 text-sm font-semibold">That's not a token address.</p>
             <p className="text-white/55 text-[12px] mt-1 leading-relaxed">
               The path needs a 0x… address of a curve launch.{' '}
@@ -310,11 +313,13 @@ export default function CurveTokenPage() {
             </p>
           </div>
         ) : probing || (probesRaw === undefined && deployed.length > 0) ? (
-          <div className="rounded-2xl p-5 text-white/55 text-[13px]" style={cardStyle}>
+          <div className="relative isolate rounded-2xl p-5 text-white/55 text-[13px]" style={cardStyle}>
+            <CardArt pageId="eth-curve" idx={8} />
             Looking for this token on {deployed.length} chain{deployed.length === 1 ? '' : 's'}…
           </div>
         ) : !resolved ? (
-          <div className="rounded-2xl p-5" style={cardStyle}>
+          <div className="relative isolate rounded-2xl p-5" style={cardStyle}>
+            <CardArt pageId="eth-curve" idx={8} />
             <p className="text-white/85 text-sm font-semibold">No curve launch at this address.</p>
             <p className="text-white/55 text-[12px] mt-1 leading-relaxed">
               Checked every chain the Memetics curve is deployed on. Nothing launched from our
@@ -334,7 +339,8 @@ export default function CurveTokenPage() {
             <CurveMakerCreateBuy chainId={resolved.chainId} launcher={resolved.launcher} token={token} creator={resolved.creator} />
             {!resolved.launch.graduated && (
               <>
-                <div className="rounded-2xl p-4 grid grid-cols-2 gap-3" style={cardStyle}>
+                <div className="relative isolate rounded-2xl p-4 grid grid-cols-2 gap-3" style={cardStyle}>
+                  <CardArt pageId="eth-curve" idx={9} />
                   <div>
                     <p className="text-white/45 text-[11px]">Market cap</p>
                     <p className="text-white/90 text-[13px] font-mono">{fmtEth(curveMarketCapWei(resolved.launch), 4)} ETH</p>
@@ -354,7 +360,8 @@ export default function CurveTokenPage() {
             )}
             <CurveTradePanel launcher={resolved.launcher} token={token} chainId={resolved.chainId} />
             {resolved.launch.graduated && (
-              <div className="rounded-2xl p-4" style={cardStyle}>
+              <div className="relative isolate rounded-2xl p-4" style={cardStyle}>
+                <CardArt pageId="eth-curve" idx={11} />
                 <p className="text-white/85 text-sm font-semibold mb-1">Graduated — it lives on the venue now</p>
                 <p className="text-white/55 text-[12px] leading-relaxed mb-3">
                   The curve closed and its liquidity is live in our own pool with the LP burned.
@@ -371,7 +378,8 @@ export default function CurveTokenPage() {
             {/* Trust strip — the venue's whole pitch, placed where buyers decide.
                 Scan is chain-gated (RH 4663 has no holder source yet) and the
                 deployer graph reads mainnet only. */}
-            <div className="rounded-2xl p-4 space-y-3" style={cardStyle}>
+            <div className="relative isolate rounded-2xl p-4 space-y-3" style={cardStyle}>
+              <CardArt pageId="eth-curve" idx={13} />
               <p className="text-white/45 text-[11px]">Verify it yourself — every token here is checkable</p>
               <div className="flex items-center gap-2 flex-wrap">
                 <span className="text-white/45 text-[10px] uppercase tracking-wider">CA</span>

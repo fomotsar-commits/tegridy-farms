@@ -5,6 +5,7 @@ import type { Invoice } from '../../lib/commerce/invoice';
 import { settlementStandingText, TX_HASH_RE } from '../../lib/commerce/settlement';
 import { previouslyAcceptedFor, recordAccepted } from '../../lib/commerce/acceptedHashes';
 import { useReceiptProof } from '../../hooks/useReceiptProof';
+import { CardArt } from '../ui/CardArt';
 
 // Reading a transaction hash back out of the chain and saying what it proves.
 //
@@ -62,7 +63,8 @@ export function ProofOfPaymentPanel({ invoice, txHash = null, merchant = null }:
   const owed = `${formatScaled(invoice.settleAmount, invoice.settleDecimals)} ${invoice.settleSymbol}`;
 
   return (
-    <section className={CARD}>
+    <section className={`relative isolate ${CARD}`}>
+      <CardArt pageId="checkout" idx={13} />
       <h2 className="text-sm font-semibold text-white">
         {txHash ? 'Proof of payment' : 'Verify a payment'}
       </h2>

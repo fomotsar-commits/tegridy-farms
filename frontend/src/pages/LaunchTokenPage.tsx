@@ -6,6 +6,7 @@ import type { Address, Hex } from 'viem';
 import { usePageTitle } from '../hooks/usePageTitle';
 import { PageArtBackdrop } from '../components/PageArtBackdrop';
 import { ArtImg } from '../components/ArtImg';
+import { CardArt } from '../components/ui/CardArt';
 import { shortenAddress, formatTimeAgo } from '../lib/formatting';
 import { collectTokenFacts, viemChainReader } from '../lib/launcher/collector';
 import { buildFactSheet } from '../lib/launcher/gate';
@@ -45,6 +46,9 @@ import {
 // renders as unreadable here: never as 0, never as a clean bill of health, and never
 // as an accusation. Classification lives in lib/launcher/tokenDossier.ts, where it is
 // pure and unit-tested; this file is presentation.
+//
+// launch-token art idx: 0 backdrop, 1 Fact Sheet strip, 2 loading card, 3 state cards,
+// 4-6 provenance / attestation / graduation, 7 the maker's allocation (EvmMakerPlates.tsx).
 
 interface Dossier {
   presence: TokenPresence;
@@ -156,7 +160,8 @@ export default function LaunchTokenPage() {
         <MakerPlatesCard client={publicClient} token={parsed.address} />
 
         {state.phase === 'loading' && (
-          <div className="glass-card rounded-xl p-6 text-center">
+          <div className="relative isolate glass-card rounded-xl p-6 text-center">
+            <CardArt pageId="launch-token" idx={2} />
             <p className="text-[13px] text-text-secondary animate-pulse">
               {/* A COLON, NOT A DASH, AND THE ROUTE IS WHY (element I, answer eight).
                   This line is only on screen while the reads are in flight, so it never
@@ -315,7 +320,8 @@ const PROVENANCE_TONE: Record<Provenance['kind'], 'good' | 'muted' | 'unknown'> 
 function ProvenanceCard({ p }: { p: Provenance }) {
   const tone = PROVENANCE_TONE[p.kind];
   return (
-    <section className="glass-card rounded-xl p-5">
+    <section className="relative isolate glass-card rounded-xl p-5">
+      <CardArt pageId="launch-token" idx={4} />
       <div className="flex items-start justify-between gap-3 flex-wrap">
         <h2 className="text-[14px] font-semibold text-text-primary">Provenance</h2>
         <Pill tone={tone}>{p.label}</Pill>
@@ -331,7 +337,8 @@ function ProvenanceCard({ p }: { p: Provenance }) {
 
 function AttestationCard({ lookup }: { lookup: AttestationLookup | null }) {
   return (
-    <section className="glass-card rounded-xl p-5">
+    <section className="relative isolate glass-card rounded-xl p-5">
+      <CardArt pageId="launch-token" idx={5} />
       <div className="flex items-start justify-between gap-3 flex-wrap">
         <h2 className="text-[14px] font-semibold text-text-primary">Disclosure attestation</h2>
         <Pill
@@ -503,7 +510,8 @@ function FactSheetSection({
 function GraduationCard({ g }: { g: GraduationState }) {
   const pair = g.numeraire.toLowerCase() === TOWELI_NUMERAIRE.toLowerCase() ? 'token / TOWELI' : 'token / ETH';
   return (
-    <section className="glass-card rounded-xl p-5">
+    <section className="relative isolate glass-card rounded-xl p-5">
+      <CardArt pageId="launch-token" idx={6} />
       <div className="flex items-start justify-between gap-3 flex-wrap">
         <h2 className="text-[14px] font-semibold text-text-primary">Post-graduation state</h2>
         <Pill tone={g.kind === 'graduated' ? 'good' : g.kind === 'not-graduated' ? 'muted' : 'unknown'}>
@@ -584,7 +592,8 @@ function StateCard({
   const color =
     tone === 'danger' ? 'var(--color-danger)' : tone === 'warning' ? 'var(--color-warning)' : 'var(--color-text-muted)';
   return (
-    <div className="glass-card rounded-xl p-5" style={{ borderColor: color }}>
+    <div className="relative isolate glass-card rounded-xl p-5" style={{ borderColor: color }}>
+      <CardArt pageId="launch-token" idx={3} />
       <h2 className="text-[14px] font-semibold mb-1.5" style={{ color }}>
         {title}
       </h2>

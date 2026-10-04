@@ -31,6 +31,7 @@ const BnplSection = lazy(() =>
   import('../components/nftfinance/BnplSection').then((mod) => ({ default: mod.BnplSection })),
 );
 import { ArtImg } from '../components/ArtImg';
+import { CardArt } from '../components/ui/CardArt';
 import { FeatureNotDeployed } from '../components/ui/FeatureNotDeployed';
 import { PageSkeleton } from '../components/PageSkeleton';
 import { ShieldPanel } from '../components/shield/ShieldPanel';
@@ -367,12 +368,13 @@ export default function LendingPage() {
             intro banner above the panel; logged-in behaviour is unchanged. */}
         {!isConnected && (
           <m.div
-            className="max-w-2xl mx-auto mb-6 rounded-xl px-4 py-3 text-center"
+            className="relative isolate max-w-2xl mx-auto mb-6 rounded-xl px-4 py-3 text-center"
             style={{ background: 'rgba(6,12,26,0.72)', border: '1px solid rgba(245,228,184,0.12)', backdropFilter: 'blur(6px)', WebkitBackdropFilter: 'blur(6px)' }}
             initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.08 }}
           >
+            <CardArt pageId="nft-finance" idx={5} />
             <p className="text-white text-[13px] font-semibold mb-0.5">{SECTION_PROMPTS[section].title}</p>
             <p className="text-white/70 text-[12px] leading-relaxed">{SECTION_PROMPTS[section].description}</p>
           </m.div>

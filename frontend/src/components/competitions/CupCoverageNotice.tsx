@@ -7,6 +7,7 @@ import {
   type PoolCoverage,
 } from '../../lib/competitions/islandCup';
 import type { IslandCupStatus } from '../../hooks/useIslandCup';
+import { CardArt } from '../ui/CardArt';
 
 // WHAT WAS READ, BEFORE ANY RANK IS SHOWN.
 //
@@ -92,7 +93,8 @@ export function CupCoverageNotice({
   ];
 
   return (
-    <div className={`rounded-xl border px-4 py-3 ${TONES[status]}`} role="status">
+    <div className={`relative isolate rounded-xl border px-4 py-3 ${TONES[status]}`} role="status">
+      <CardArt pageId="competitions" idx={1} />
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 data-unread-ledger="heading" className="text-sm font-semibold text-white">
           {title(status, answered, poolsTotal)}

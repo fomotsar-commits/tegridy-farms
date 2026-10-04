@@ -22,6 +22,7 @@ import { m } from 'framer-motion';
 import { Link } from 'react-router-dom';
 import { LOCK_DURATIONS } from '../../lib/copy';
 import { usePoolData } from '../../hooks/usePoolData';
+import { CardArt } from './CardArt';
 
 // Fallback reference baseline, used only when the live on-chain base APR is
 // unavailable (pool not deployed, or a near-empty pool whose APR is capped).
@@ -106,7 +107,7 @@ export function YieldCalculator() {
       initial={{ opacity: 0, y: 16 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.4, delay: 0.2 }}
-      className="rounded-2xl overflow-hidden"
+      className="relative isolate rounded-2xl overflow-hidden"
       style={{
         background: 'rgba(13, 21, 48, 0.6)',
         border: '1px solid rgba(245, 228, 184, 0.15)',
@@ -115,6 +116,7 @@ export function YieldCalculator() {
       id="yield-calculator"
       aria-label="Yield calculator"
     >
+      <CardArt pageId="yield-calculator" idx={0} />
       <header className="px-5 py-4 border-b border-white/5 flex items-center justify-between flex-wrap gap-2">
         <div>
           <h3 className="text-white font-semibold text-[15px] tracking-tight">See what you'd earn</h3>

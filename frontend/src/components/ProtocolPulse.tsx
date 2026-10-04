@@ -5,6 +5,7 @@ import { useTOWELIPrice } from '../contexts/PriceContext';
 import { shortenAddress } from '../lib/formatting';
 import { PulseDot } from './PulseDot';
 import { staggerContainer, staggerItem } from '../lib/motion';
+import { CardArt } from './ui/CardArt';
 
 /**
  * Live "Protocol Pulse" — real recent TOWELI buys/sells from the chain (via
@@ -139,7 +140,8 @@ export function ProtocolPulse({ limit = 8 }: { limit?: number }) {
           Real protocol activity &mdash; TOWELI trades, fee distributions &amp; liquidity, live from the chain.
         </p>
       </div>
-      <div className="glass-card rounded-xl p-4 md:p-5">
+      <div className="relative isolate glass-card rounded-xl p-4 md:p-5">
+        <CardArt pageId="protocol-pulse" idx={0} />
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
             <PulseDot color="#22c55e" size={7} />

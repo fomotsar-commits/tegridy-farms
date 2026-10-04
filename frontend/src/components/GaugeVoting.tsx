@@ -10,6 +10,7 @@ import { InfoTooltip } from './ui/InfoTooltip';
 import { surfaceTxError, noteReplacement } from '../lib/txErrors';
 import { pageArt } from '../lib/artConfig';
 import { ArtImg } from './ArtImg';
+import { CardArt } from './ui/CardArt';
 import { useGaugeList } from '../hooks/useGaugeList';
 import { useReceiptOutcome } from '../hooks/useReceiptOutcome';
 import { artImgProps } from '../lib/artSrcSet';
@@ -476,7 +477,8 @@ export function GaugeVoting() {
 
       {/* ── Commit-Reveal State Banner ─────────────────────────── */}
       {tokenId !== undefined && tokenId > 0n && hasOnchainCommitment && !hasVotedThisEpoch && (
-        <div className="rounded-xl p-4" style={{ background: 'rgba(245, 228, 184, 0.08)', border: '1px solid rgba(245, 228, 184, 0.25)' }}>
+        <div className="relative isolate rounded-xl p-4" style={{ background: 'rgba(245, 228, 184, 0.08)', border: '1px solid rgba(245, 228, 184, 0.25)' }}>
+          <CardArt pageId="gauge-voting" idx={7} />
           <div className="flex items-start gap-3">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#f5e4b8" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="mt-0.5 flex-shrink-0">
               <circle cx="12" cy="12" r="9" />

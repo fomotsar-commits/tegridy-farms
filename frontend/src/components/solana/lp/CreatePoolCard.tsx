@@ -9,6 +9,7 @@ import { CREATOR_FEE_SWITCH } from '../../../lib/solana/cpswap/venue';
 import { TOKEN_2022_NATIVE_MINT } from '../../../lib/solana/lp/opening';
 import { Notice } from '../curve/ui';
 import { CARD, CARD_STYLE, SHADOW } from '../curve/uiFormat';
+import { CardArt } from '../../ui/CardArt';
 import type { CreateFacts, TierState } from '../curve/ports';
 import { CreatePoolPanel } from './CreatePoolPanel';
 import { MONEY_NOTE } from './LpDisclosures';
@@ -160,7 +161,7 @@ function CreateCard({
   return (
     <section
       ref={sectionRef}
-      className={`${CARD} scroll-mt-[4.5rem]`}
+      className={`${CARD} isolate scroll-mt-[4.5rem]`}
       style={CARD_STYLE}
       data-testid="lp-create"
       data-create={offer}
@@ -168,6 +169,7 @@ function CreateCard({
       aria-labelledby={headingId}
       aria-busy={reading}
     >
+      <CardArt pageId="solana-lp" idx={9} />
       <h3 id={headingId} ref={headingRef} tabIndex={-1} className="text-white font-semibold text-[13px] mb-2 outline-none" style={SHADOW}>
         Open a new pool
       </h3>

@@ -8,6 +8,7 @@ import { LEGACY_STAKING_ADDRESSES, CHAIN_ID } from '../../lib/constants';
 import { TEGRIDY_STAKING_ABI } from '../../lib/contracts';
 import { useReceiptOutcome } from '../../hooks/useReceiptOutcome';
 import { ArtImg } from '../ArtImg';
+import { CardArt } from '../ui/CardArt';
 import { noteReplacement } from '../../lib/txErrors';
 
 // The legacy deployments are the same TegridyStaking family as the live one, so
@@ -147,9 +148,10 @@ export function LegacyStakingExit() {
   if (positions.length === 0 && legacyUnread) {
     return (
       <div
-        className="mb-8 rounded-xl border border-amber-500/40 bg-amber-500/10 p-4 text-[13px] text-amber-100"
+        className="relative isolate mb-8 rounded-xl border border-amber-500/40 bg-amber-500/10 p-4 text-[13px] text-amber-100"
         data-testid="legacy-staking-exit-unread"
       >
+        <CardArt pageId="legacy-exit" idx={1} />
         We could not check the retired staking contracts just now — the network did
         not answer. If you have a position stranded in one, it is still there and
         still yours; this check failing does not move or forfeit anything. Reload

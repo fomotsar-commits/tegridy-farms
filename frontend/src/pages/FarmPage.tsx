@@ -49,6 +49,8 @@ import { UPCOMING_POOLS } from '../components/farm/poolConfig';
 import { LivePoolCard } from '../components/farm/LivePoolCard';
 import { UpcomingPoolCard } from '../components/farm/UpcomingPoolCard';
 import { ArtImg } from '../components/ArtImg';
+import { CardArt } from '../components/ui/CardArt';
+import { PageArtBackdrop } from '../components/PageArtBackdrop';
 
 /**
  * Earn's Staking tab. `/earn` is the list of every pool (VenueEarn) whatever
@@ -89,19 +91,24 @@ function VenueEarn() {
     'Every resident pool on Jungle Bay Island — stake a token for a share of its rewards, or provide liquidity and earn a cut of the swaps.',
   );
   return (
-    <div className="mx-auto w-full max-w-[900px] px-4 py-8 sm:py-10">
-      <header className="mb-6">
-        <p className="text-[11px] uppercase tracking-wider label-pill mb-2" style={{ color: 'var(--color-kyle)' }}>
-          Jungle Bay Island
-        </p>
-        <h1 className="heading-luxury text-3xl md:text-4xl text-white leading-tight mb-3">Earn</h1>
-        <p className="text-white/75 text-[14px] md:text-[15px] leading-relaxed max-w-[62ch]">
-          Stake a token to earn a share of its pool, or provide liquidity and take a cut of every
-          swap that routes through it. The longer you lock, the larger your share of the same
-          rewards.
-        </p>
-      </header>
-      <VenuePoolIndex />
+    <div className="relative">
+      <PageArtBackdrop pageId="earn" />
+      {/* `relative` with no z-index: above the backdrop by coming after it, and
+          not a stacking context that would trap a dialog under the tab strip. */}
+      <div className="relative mx-auto w-full max-w-[900px] px-4 py-8 sm:py-10">
+        <header className="mb-6">
+          <p className="text-[11px] uppercase tracking-wider label-pill mb-2" style={{ color: 'var(--color-kyle)' }}>
+            Jungle Bay Island
+          </p>
+          <h1 className="heading-luxury text-3xl md:text-4xl text-white leading-tight mb-3">Earn</h1>
+          <p className="text-white/75 text-[14px] md:text-[15px] leading-relaxed max-w-[62ch]">
+            Stake a token to earn a share of its pool, or provide liquidity and take a cut of every
+            swap that routes through it. The longer you lock, the larger your share of the same
+            rewards.
+          </p>
+        </header>
+        <VenuePoolIndex />
+      </div>
     </div>
   );
 }
@@ -522,9 +529,10 @@ function ToweliFarm() {
             here in one transaction. */}
         {lpBoost.needsRefresh && (
           <div
-            className="mb-4 px-4 py-3 rounded-xl flex flex-col sm:flex-row sm:items-center gap-3"
+            className="relative isolate mb-4 px-4 py-3 rounded-xl flex flex-col sm:flex-row sm:items-center gap-3"
             style={{ background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.25)' }}
           >
+            <CardArt pageId="farm" idx={2} />
             <p className="text-amber-200 text-[12px] leading-snug flex-1">
               Your JBAC boost is not applied to your staked LP. The farm recalculates the boost only
               when you stake, withdraw or exit, so LP staked before you acquired the NFT is still
@@ -555,7 +563,8 @@ function ToweliFarm() {
                 <span className="stat-value text-[15px] text-green-400">+{restaking.bonusAPR.toFixed(1)}% Bonus APR</span>
               )}
             </div>
-            <div className="glass-card p-5 rounded-xl" style={{ border: '1px solid var(--color-purple-12)' }}>
+            <div className="relative isolate glass-card p-5 rounded-xl" style={{ border: '1px solid var(--color-purple-12)' }}>
+              <CardArt pageId="farm" idx={3} />
               {/* F112 (R075): when an RPC quotes impossible reward numbers the hook
                   zeroes the values — without this notice users just see 0.0000 with
                   no explanation. Prompt them to verify on-chain instead. */}

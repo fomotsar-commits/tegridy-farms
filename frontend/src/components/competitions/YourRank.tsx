@@ -9,6 +9,7 @@ import {
   type CupBoardStatus,
 } from '../../lib/competitions/islandCup';
 import { ShareCard } from './ShareCard';
+import { CardArt } from '../ui/CardArt';
 
 // FINDING YOURSELF, AND THE SENTENCE FOR WHEN YOU ARE NOT THERE.
 //
@@ -43,7 +44,8 @@ export function YourRank({ board, status, account }: YourRankProps) {
       : null;
 
   return (
-    <section className="rounded-xl border border-white/15 bg-white/[0.02] p-4">
+    <section className="relative isolate rounded-xl border border-white/15 bg-white/[0.02] p-4">
+      <CardArt pageId="competitions" idx={3} />
       <h2 className="text-sm font-semibold text-white">Find a sender</h2>
 
       <label

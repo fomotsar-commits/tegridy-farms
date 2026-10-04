@@ -158,7 +158,8 @@ describe('when the venue is live', () => {
     const card = screen.getByRole('region', { name: 'Venue status' });
     expect(section.previousElementSibling).toBe(card);
     // The card is this tab's own: nothing the Solana LP tab asks of it (a scroll margin) is on it.
-    expect(card.className).toBe('rounded-2xl p-6');
+    // `relative isolate` is what its CardArt layer needs, on both tabs.
+    expect(card.className).toBe('relative isolate rounded-2xl p-6');
   });
 
   it('drops the PROPOSAL badge and reads the fees from the chain', async () => {

@@ -4,6 +4,7 @@ import { usePageTitle } from '../hooks/usePageTitle';
 import { trackPageView } from '../lib/analytics';
 import { LaunchSimulator } from '../components/launchSim/LaunchSimulator';
 import { PageArtBackdrop } from '../components/PageArtBackdrop';
+import { CardArt } from '../components/ui/CardArt';
 
 /**
  * Launch Simulator — a pre-launch DESIGN tool.
@@ -43,7 +44,9 @@ export default function LaunchSimulatorPage() {
 
       <LaunchSimulator />
 
-      <div className="mt-10 rounded-2xl border border-white/10 bg-black/20 p-5">
+      {/* launch-simulator art idx: 0 backdrop, 1-8 cards in components/launchSim, 9 this card */}
+      <div className="relative isolate mt-10 rounded-2xl border border-white/10 bg-black/20 p-5">
+        <CardArt pageId="launch-simulator" idx={9} />
         <h2 className="text-white/80 font-semibold text-sm mb-2">How the score is built</h2>
         <ul className="text-white/50 text-xs space-y-1.5 leading-relaxed list-disc pl-4 marker:text-white/25">
           <li>

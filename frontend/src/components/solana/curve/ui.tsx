@@ -24,15 +24,19 @@ export function Card({
   children,
   testId,
   headingRef,
+  art,
 }: {
   title: string;
   children: ReactNode;
   testId?: string;
   /** Set when focus may be sent to the heading (a flow ending with no button to return to). */
   headingRef?: Ref<HTMLHeadingElement>;
+  /** The card's CardArt, written at the call site so the studio's scan finds a literal pageId and idx. */
+  art?: ReactNode;
 }) {
   return (
-    <section className={CARD} style={CARD_STYLE} data-testid={testId}>
+    <section className={art ? `${CARD} isolate` : CARD} style={CARD_STYLE} data-testid={testId}>
+      {art}
       <h2
         ref={headingRef}
         tabIndex={headingRef ? -1 : undefined}

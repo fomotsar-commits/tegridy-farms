@@ -7,6 +7,7 @@ import { TIMEFRAME_IDS, TIMEFRAMES, DEFAULT_TIMEFRAME, type TimeframeId } from '
 import { shortenAddress } from '../../lib/formatting';
 import { CandleChart } from './CandleChart';
 import { ChartStatus } from './ChartStatus';
+import { CardArt } from '../ui/CardArt';
 
 // THE SECOND SOURCE: candles for a venue pair, built from indexed swaps.
 //
@@ -129,7 +130,8 @@ export function IndexedVenueChart() {
       </div>
 
       {chart.status === 'ready' && chart.series && resolution?.ok ? (
-        <div className="mb-3 rounded-xl border border-white/12 bg-black/25 p-3">
+        <div className="relative isolate mb-3 rounded-xl border border-white/12 bg-black/25 p-3">
+          <CardArt pageId="chart" idx={5} />
           <CandleChart
             series={chart.series}
             baseSymbol={resolution.base.symbol}

@@ -10,6 +10,7 @@ import {
   type LaunchPhase,
   type TreasuryDescription,
 } from '../../../lib/launcher/solana/curve';
+import { CardArt } from '../../ui/CardArt';
 import { Card, Row } from './ui';
 import { feeSplitLabel } from './uiFormat';
 
@@ -76,7 +77,7 @@ export function CurveStateCard({
   const notYet = !lookedUp && phase.kind === 'unreadable';
   const p = notYet ? NOT_LOOKED_UP : PHASE_COPY[phase.kind];
   return (
-    <Card title="Curve state">
+    <Card title="Curve state" art={<CardArt pageId="curve-launch" idx={3} />}>
       <div className="flex flex-wrap items-center gap-2">
         <span className="text-white/90 text-[12px] font-medium">{p.label}</span>
         {paused === true && (

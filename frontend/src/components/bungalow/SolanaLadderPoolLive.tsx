@@ -30,6 +30,7 @@ import { basisBehindWrite, confirmedSlotOf, slotOrNull, type WriteFence } from '
 import { useAccrualMeter } from '../../hooks/useAccrualMeter';
 import { Fact, HEAD, PANEL_BG, LEDGER_BG, HAIR, DIVIDED_BG } from './ledger';
 import { HeldTimeLine } from './HeldTimeLine';
+import { CardArt } from '../ui/CardArt';
 import { Reveal } from '../motion/Reveal';
 import { DUR, EASE_OUT, pressTap, staggerContainer, staggerItem } from '../../lib/motion';
 
@@ -441,7 +442,8 @@ export function SolanaLadderPoolCard({ bungalow }: { bungalow: Bungalow & { ladd
 
   return (
     <Reveal>
-    <div className="relative overflow-hidden rounded-2xl glass-card-animated" style={{ border: '1px solid var(--color-purple-75)' }}>
+    <div className="relative isolate overflow-hidden rounded-2xl glass-card-animated" style={{ border: '1px solid var(--color-purple-75)' }}>
+      <CardArt pageId="solana-ladder-pool-live" idx={0} scrim="transparent" />
       <div className="absolute inset-0" style={{ background: 'rgba(4,9,18,0.52)' }} />
       <div className="relative z-10 p-5 sm:p-6 flex flex-col gap-6">
         <header>

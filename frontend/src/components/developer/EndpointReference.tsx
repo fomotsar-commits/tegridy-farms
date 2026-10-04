@@ -1,8 +1,12 @@
 import type { ApiRoute, ApiRoadmapEntry } from '../../../api/_lib/apiTiers';
 import { API_ROUTES, API_ROADMAP } from '../../../api/_lib/apiTiers.js';
+import { CardArt } from '../ui/CardArt';
 
 const ROUTES = API_ROUTES as ApiRoute[];
 const ROADMAP = API_ROADMAP as ApiRoadmapEntry[];
+
+// The endpoint rows take developer:2..8 (wraps at the route count, so a route added later reuses one).
+const ENDPOINT_ART_SLOTS = 7;
 
 export function EndpointReference() {
   return (
@@ -17,12 +21,13 @@ export function EndpointReference() {
       </p>
 
       <ul className="space-y-3" data-testid="endpoint-list">
-        {ROUTES.map((route) => (
+        {ROUTES.map((route, i) => (
           <li
             key={route.id}
-            className="rounded-xl px-4 py-3"
+            className="relative isolate rounded-xl px-4 py-3"
             style={{ border: '1px solid var(--color-purple-12)' }}
           >
+            <CardArt pageId="developer" idx={2 + (i % ENDPOINT_ART_SLOTS)} />
             <div className="flex flex-wrap items-baseline gap-2">
               <span className="font-mono text-xs px-2 py-0.5 rounded" style={{ background: 'rgba(255,255,255,0.08)' }}>
                 {route.method}

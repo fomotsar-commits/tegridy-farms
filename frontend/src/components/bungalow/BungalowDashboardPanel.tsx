@@ -24,6 +24,7 @@ import { usePageTitle } from '../../hooks/usePageTitle';
 import { CopyButton } from '../ui/CopyButton';
 import { shortenAddress } from '../../lib/formatting';
 import { ArtImg } from '../ArtImg';
+import { CardArt } from '../ui/CardArt';
 import { HeatCard } from './HeatCard';
 import { BungalowMarket } from './BungalowMarket';
 import { BungalowHolders } from './BungalowHolders';
@@ -362,7 +363,8 @@ function Inner({ bungalow }: { bungalow: Bungalow & { identity: BungalowIdentity
 
           {/* Lighthouse position */}
           {stakePool && !membersOnly && (
-            <div className="rounded-2xl p-5" style={CARD}>
+            <div className="relative isolate rounded-2xl p-5" style={CARD}>
+              <CardArt pageId="bungalow-dashboard" idx={2} />
               <p className="text-[10px] uppercase tracking-wider mb-2" style={{ color: 'var(--color-kyle)' }}>At the lighthouse</p>
               {!publicKey ? (
                 <>
@@ -418,7 +420,8 @@ function Inner({ bungalow }: { bungalow: Bungalow & { identity: BungalowIdentity
               everyone else, loading and disconnected included, gets the ladder card,
               so a non-member never sees the old pool flash up. */}
           {membersOnly && (openEntries.length > 0 ? (
-            <div className="rounded-2xl p-5" style={CARD}>
+            <div className="relative isolate rounded-2xl p-5" style={CARD}>
+              <CardArt pageId="bungalow-dashboard" idx={3} />
               <p className="text-[10px] uppercase tracking-wider mb-2" style={{ color: 'var(--color-kyle)' }}>The lighthouse pool · retired</p>
               <p className="text-white/60 text-[11px] leading-relaxed mb-3">
                 This pool takes no new stakes. Claims and withdrawals are on the pool page,
@@ -427,7 +430,8 @@ function Inner({ bungalow }: { bungalow: Bungalow & { identity: BungalowIdentity
               {position}
             </div>
           ) : (
-            <div className="rounded-2xl p-5" style={CARD}>
+            <div className="relative isolate rounded-2xl p-5" style={CARD}>
+              <CardArt pageId="bungalow-dashboard" idx={4} />
               <p className="text-[10px] uppercase tracking-wider mb-2" style={{ color: 'var(--color-kyle)' }}>Staking</p>
               <h2 className="heading-luxury text-lg text-white mb-2">The lock ladder</h2>
               <p className="text-white/80 text-[12px] leading-relaxed mb-3">
@@ -446,7 +450,8 @@ function Inner({ bungalow }: { bungalow: Bungalow & { identity: BungalowIdentity
           ))}
 
           {/* Where to go next + the contract, which this page never showed. */}
-          <div className="rounded-2xl p-5" style={CARD}>
+          <div className="relative isolate rounded-2xl p-5" style={CARD}>
+            <CardArt pageId="bungalow-dashboard" idx={5} />
             <p className="text-[10px] uppercase tracking-wider mb-3" style={{ color: 'var(--color-kyle)' }}>Live surfaces</p>
             <div className="flex flex-wrap gap-2 mb-4">
               {trade && ('to' in trade ? (

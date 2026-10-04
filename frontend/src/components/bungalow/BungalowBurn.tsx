@@ -8,6 +8,7 @@ import {
   formatWholeTokens,
   type BurnTally,
 } from '../../lib/bungalowBurn';
+import { CardArt } from '../ui/CardArt';
 import { HAIR, LEDGER_BG } from './ledger';
 
 const CHAIN_LABEL: Partial<Record<Bungalow['chain'], string>> = { ethereum: 'Ethereum', base: 'Base', solana: 'Solana' };
@@ -31,10 +32,11 @@ export function BungalowBurn({ bungalow }: { bungalow: Bungalow }) {
   const { symbol } = bungalow;
   return (
     <section
-      className="rounded-2xl p-6"
+      className="relative isolate rounded-2xl p-6"
       style={{ background: 'rgba(4,9,18,0.72)', border: '1px solid var(--color-purple-25)' }}
       aria-label={`${symbol} burn`}
     >
+      <CardArt pageId="bungalow-burn" idx={0} />
       <div className="flex items-center gap-3 flex-wrap mb-4">
         <p className="text-[10px] uppercase tracking-wider" style={{ color: 'var(--color-kyle)' }}>
           The burn

@@ -7,6 +7,7 @@ import { ratePercent } from '../../../lib/solana/cpswap/math';
 import type { TokenSafety } from '../../../lib/solana/lp/tokenSafety';
 import { Notice, Row } from '../curve/ui';
 import { CARD, CARD_STYLE, SHADOW } from '../curve/uiFormat';
+import { CardArt } from '../../ui/CardArt';
 import { AddLiquidityPanel } from './AddLiquidityPanel';
 import { depositOffer, lpHeld, type DepositOffer } from './offers';
 import { useLpWrites, type LpWrites } from './useLpWrites';
@@ -113,7 +114,7 @@ export function PoolCard({
 
   return (
     <li
-      className={CARD}
+      className={`${CARD} isolate`}
       style={CARD_STYLE}
       data-testid="lp-pool"
       data-pool={view.address}
@@ -124,6 +125,7 @@ export function PoolCard({
       data-price={price.state}
       data-add={offer}
     >
+      <CardArt pageId="solana-lp" idx={7} />
       <h3 className="text-white font-semibold text-[13px] mb-1" style={SHADOW}>
         {view.origin === 'launch-pool' ? 'Launch pool' : view.origin === 'standard' ? `Standard address, fee tier ${cfg?.index ?? '?'}` : 'Pool at its own address'}
       </h3>
@@ -273,7 +275,8 @@ function OfferLine({ offer, health }: { offer: DepositOffer; health: PoolHealth 
 
 export function UnreadPoolCard({ entry }: { entry: Extract<PoolEntry, { kind: 'unread' }> }) {
   return (
-    <li className={CARD} style={CARD_STYLE} data-testid="lp-pool" data-pool={entry.address} data-deposits="unchecked" data-swaps="unread">
+    <li className={`${CARD} isolate`} style={CARD_STYLE} data-testid="lp-pool" data-pool={entry.address} data-deposits="unchecked" data-swaps="unread">
+      <CardArt pageId="solana-lp" idx={8} />
       <h3 className="text-white font-semibold text-[13px] mb-1" style={SHADOW}>Pool not read</h3>
       <div className="text-white/60 text-[11px] leading-relaxed space-y-2">
         <Row label="Pool address" value={entry.address} />

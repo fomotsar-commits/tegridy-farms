@@ -6,6 +6,7 @@ import { shortenAddress } from '../../lib/formatting';
 import { FeatureNotDeployed } from '../ui/FeatureNotDeployed';
 import { NoData, UnavailableNotice } from './NoData';
 import { VestingScheduleBar } from './VestingScheduleBar';
+import { CardArt } from '../ui/CardArt';
 
 /**
  * Streams in and out for the connected wallet.
@@ -24,7 +25,8 @@ function StreamCard({ stream, now }: { stream: VestingStream; now: number }) {
   const { info, tokenDecimals, tokenSymbol } = stream;
 
   return (
-    <li className="rounded-2xl border border-white/10 bg-black/20 p-5">
+    <li className="relative isolate rounded-2xl border border-white/10 bg-black/20 p-5">
+      <CardArt pageId="vesting" idx={2} />
       <div className="flex items-start justify-between gap-3">
         <div>
           <p className="text-white/85 text-sm font-semibold font-mono">{shortenAddress(stream.wallet, 6)}</p>
@@ -140,12 +142,14 @@ export function VestingDashboard() {
     <div className="space-y-6">
       {streams.registryIncomplete && (
         <UnavailableNotice
+          art={<CardArt pageId="vesting" idx={3} />}
           title="Registry read incomplete"
           detail={`One or more registry calls to ${streams.factoryAddress} did not return. The lists below may be missing streams — treat this page as partial until it reloads cleanly.`}
         />
       )}
       {streams.streamReadIncomplete && (
         <UnavailableNotice
+          art={<CardArt pageId="vesting" idx={3} />}
           title="Some streams did not report"
           detail="At least one vesting wallet in the registry did not answer its own read. Those rows are listed with a no-data marker rather than dropped."
         />

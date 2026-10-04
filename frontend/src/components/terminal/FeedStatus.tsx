@@ -1,6 +1,7 @@
 import type { IndexedStatus } from '../../hooks/useTerminalFeed';
 import type { TerminalFeed } from '../../lib/terminal/feed';
 import { NOT_A_ZERO } from '../../lib/terminal/feedBanner';
+import { CardArt } from '../ui/CardArt';
 
 // What the feed is, in words, before any row is drawn.
 //
@@ -39,7 +40,8 @@ export function FeedStatus({ status, detail, feed, syncedAt, onRetry }: FeedStat
   const showRetry = status === 'unavailable' || status === 'backfilling';
 
   return (
-    <div className={`rounded-xl border px-4 py-3 ${TONES[status]}`} role="status">
+    <div className={`relative isolate rounded-xl border px-4 py-3 ${TONES[status]}`} role="status">
+      <CardArt pageId="terminal" idx={3} />
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 className="text-sm font-semibold text-white">{TITLES[status]}</h2>
         {showRetry ? (

@@ -4,6 +4,7 @@ import { ERC20_ABI, SWAP_FEE_ROUTER_ABI } from '../lib/contracts';
 import { TOWELI_ADDRESS, SWAP_FEE_ROUTER_ADDRESS, TOWELI_DECIMALS, CHAIN_ID, isDeployed } from '../lib/constants';
 import { formatBurnPercent, homeBurnRoom } from '../lib/bungalowBurn';
 import { useBungalowBurn } from '../hooks/useBungalowBurn';
+import { CardArt } from './ui/CardArt';
 
 /**
  * "Prove It" — every headline claim rendered FROM a live on-chain read, not from
@@ -98,7 +99,8 @@ export function ProofOfClaims() {
   if (rows.length === 0) return null;
 
   return (
-    <div className="glass-card rounded-xl p-4 md:p-5">
+    <div className="relative isolate glass-card rounded-xl p-4 md:p-5">
+      <CardArt pageId="proof-of-claims" idx={0} />
       <div className="flex items-center justify-between mb-3">
         <h3 className="heading-luxury text-[15px] text-white">Don&rsquo;t trust — verify</h3>
         <span className="text-[10px] uppercase tracking-wider" style={{ color: '#22c55e' }}>live on-chain</span>

@@ -7,6 +7,7 @@ import {
 } from '../../lib/referrals/link';
 import { REF_CODE_RE } from '../../lib/referrals/attribution';
 import { claimCode, readOwnCode, type CodeStoreStatus } from '../../lib/referrals/codesClient';
+import { CardArt } from '../ui/CardArt';
 
 // The link a referrer carries off-site, and the two forms it comes in.
 //
@@ -138,10 +139,11 @@ export function ReferralShareCard({ address, warnBeforeSharing, fetchImpl }: Pro
   if (!address) {
     return (
       <section
-        className="rounded-xl p-4"
+        className="relative isolate rounded-xl p-4"
         style={{ background: '#000', border: '1px solid var(--color-purple-75)' }}
         aria-label="Your referral link"
       >
+        <CardArt pageId="referrals" idx={2} />
         <h3 className="text-white text-[13px] font-medium">Your referral link</h3>
         <p className="mt-2 text-white/60 text-[12px] leading-relaxed">
           A referral link points at a payee address, so there is nothing to mint until a wallet is connected. This is
@@ -158,10 +160,11 @@ export function ReferralShareCard({ address, warnBeforeSharing, fetchImpl }: Pro
 
   return (
     <section
-      className="rounded-xl p-4"
+      className="relative isolate rounded-xl p-4"
       style={{ background: '#000', border: '1px solid var(--color-purple-75)' }}
       aria-label="Your referral link"
     >
+      <CardArt pageId="referrals" idx={2} />
       <h3 className="text-white text-[13px] font-medium">Your referral link</h3>
 
       {warnBeforeSharing && (

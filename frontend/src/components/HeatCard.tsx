@@ -27,6 +27,7 @@ import { heatExampleLine, VENUE } from '../lib/arrival';
 import { injectedNetworks, readInjectedAddress, type FillNetwork } from '../lib/heat/walletFill';
 import { useSolanaSurface } from '../lib/solanaSurface';
 import { SITE_URL } from '../lib/constants';
+import { CardArt } from './ui/CardArt';
 
 const TIER_COLOR: Record<HeatTier, string> = {
   Elder: '#f5e4b8',
@@ -277,7 +278,7 @@ export function HeatCard({
 
   return (
     <div
-      className={embedded ? '' : 'rounded-2xl p-5 md:p-6'}
+      className={embedded ? '' : 'relative isolate rounded-2xl p-5 md:p-6'}
       style={
         embedded
           ? undefined
@@ -289,6 +290,8 @@ export function HeatCard({
             }
       }
     >
+      {/* The panel variant is the card; the embedded one sits inside a host card that owns its own art. */}
+      {!embedded && <CardArt pageId="heat-card" idx={0} />}
       {/* THE ROOM'S HEADING, and it has to sit OUTSIDE the ready state.
           `embedded` deliberately drops the card's own title, which is right in
           the gate (the gate introduces itself). In a room it left a cold

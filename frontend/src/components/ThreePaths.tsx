@@ -6,6 +6,10 @@
 import { Link } from 'react-router-dom';
 import { heatLaunchFloor } from '../lib/heat/heatGateConfig';
 import { tierAtFloor } from '../lib/heat/heatOracle';
+import { CardArt } from './ui/CardArt';
+
+// The three cards; a path added later reuses a registered art surface (idx wraps).
+const PATH_ART_SLOTS = 3;
 
 export function ThreePaths() {
   const floor = heatLaunchFloor();
@@ -38,11 +42,11 @@ export function ThreePaths() {
   return (
     <section aria-label="Three paths" className="pb-16">
       <div className="grid gap-3 sm:grid-cols-3">
-        {paths.map((p) => (
+        {paths.map((p, i) => (
           <Link
             key={p.to}
             to={p.to}
-            className="group rounded-2xl p-5 transition-all hover:brightness-125 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent"
+            className="group relative isolate rounded-2xl p-5 transition-all hover:brightness-125 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent"
             style={{
               background: 'rgba(0,0,0,0.45)',
               backdropFilter: 'blur(8px)',
@@ -50,6 +54,7 @@ export function ThreePaths() {
               border: '1px solid rgba(255,255,255,0.10)',
             }}
           >
+            <CardArt pageId="three-paths" idx={0 + (i % PATH_ART_SLOTS)} />
             <h3
               className="text-[13px] uppercase tracking-[0.16em] font-semibold mb-2"
               style={{ color: p.accent }}

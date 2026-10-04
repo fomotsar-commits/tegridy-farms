@@ -9,6 +9,7 @@ import { CreateWizard } from '../launchpad/wizard/CreateWizard';
 import { CollectionDetailV2 } from '../launchpad/CollectionDetailV2';
 import { FEATURE_BULLETS } from '../launchpad/launchpadConstants';
 import { ArtImg } from '../ArtImg';
+import { CardArt } from '../ui/CardArt';
 
 // V1 factory is deprecated as of 2026-04-19. Mainnet clones created via V1 remain
 // live and browseable on Etherscan, but the frontend no longer reads from it.
@@ -99,7 +100,8 @@ export function LaunchpadSection() {
 
   if (!v2Live) {
     return (
-      <div className="rounded-2xl p-8 text-center" style={{ background: CARD_BG, border: `1px solid ${CARD_BORDER}` }}>
+      <div className="relative isolate rounded-2xl p-8 text-center" style={{ background: CARD_BG, border: `1px solid ${CARD_BORDER}` }}>
+        <CardArt pageId="nft-finance" idx={15} />
         <p className="text-white/70 text-sm">Launchpad V2 factory not deployed yet.</p>
         <p className="text-white/40 text-[11px] mt-2">
           Historical V1 collections remain live — browse the{' '}
@@ -185,7 +187,8 @@ export function LaunchpadSection() {
       )}
 
       {/* Collection List */}
-      <div className="rounded-2xl overflow-hidden" style={{ background: CARD_BG, border: `1px solid ${CARD_BORDER}` }}>
+      <div className="relative isolate rounded-2xl overflow-hidden" style={{ background: CARD_BG, border: `1px solid ${CARD_BORDER}` }}>
+        <CardArt pageId="nft-finance" idx={16} />
         <div className="px-5 py-4 border-b border-white/5">
           <h3 className="text-sm font-semibold text-white">Deployed Collections</h3>
         </div>

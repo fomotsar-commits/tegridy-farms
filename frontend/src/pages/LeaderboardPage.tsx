@@ -11,6 +11,7 @@ import { AnimatedCounter } from '../components/AnimatedCounter';
 import { usePageTitle } from '../hooks/usePageTitle';
 import { PageSkeleton } from '../components/PageSkeleton';
 import { ArtImg } from '../components/ArtImg';
+import { CardArt } from '../components/ui/CardArt';
 
 export default function LeaderboardPage() {
   // AUDIT LEADERBOARD-HONEST: prior title + meta said "Top stakers ranked
@@ -43,14 +44,16 @@ export default function LeaderboardPage() {
       </div>
 
       <div className="relative z-10 max-w-[900px] mx-auto px-4 md:px-6 pt-32 pb-28 md:pb-12">
-        <div className="rounded-xl p-4 mb-6" style={{ background: 'rgba(234,179,8,0.08)', border: '1px solid rgba(234,179,8,0.2)' }}>
+        <div className="relative isolate rounded-xl p-4 mb-6" style={{ background: 'rgba(234,179,8,0.08)', border: '1px solid rgba(234,179,8,0.2)' }}>
+          <CardArt pageId="leaderboard" idx={6} />
           <p className="text-yellow-400 text-[13px] font-semibold mb-1">On-Chain Verified Points</p>
           <p className="text-white/60 text-[12px]">Points and badges are derived entirely from on-chain activity (swaps, staking, lock duration, LP, referrals) — nothing is awarded for off-chain actions like daily visits.</p>
         </div>
 
         <m.div className="mb-6" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
           <h1 className="heading-luxury text-2xl md:text-3xl lg:text-4xl text-white tracking-tight mb-1">Your Venue Score</h1>
-          <div className="rounded-lg p-3 inline-block max-w-full" style={{ background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(2px)', border: '1px solid rgba(255,255,255,0.08)' }}>
+          <div className="relative isolate rounded-lg p-3 inline-block max-w-full" style={{ background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(2px)', border: '1px solid rgba(255,255,255,0.08)' }}>
+            <CardArt pageId="leaderboard" idx={7} />
             {/* The season line had NO date check: past endDate it kept inviting people to
                 earn points in a window that had closed. Points themselves stay on-chain and
                 keep accruing — it is the SEASON that ends, and it now says which it is. */}

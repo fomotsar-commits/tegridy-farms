@@ -1,4 +1,5 @@
 import type { IndexedStatus } from '../../hooks/useCopyLeaderboard';
+import { CardArt } from '../ui/CardArt';
 
 // What a copy-trading read is, in words, before a single wallet is drawn.
 //
@@ -62,7 +63,8 @@ export function CopyDataNotice({
   const showRetry = onRetry !== undefined && (status === 'unavailable' || status === 'backfilling');
 
   return (
-    <div className={`rounded-xl border px-4 py-3 ${TONES[status]}`} role="status">
+    <div className={`relative isolate rounded-xl border px-4 py-3 ${TONES[status]}`} role="status">
+      <CardArt pageId="copy-trading" idx={2} />
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h3 className="text-sm font-semibold text-white">{title(status, subject)}</h3>
         {showRetry ? (

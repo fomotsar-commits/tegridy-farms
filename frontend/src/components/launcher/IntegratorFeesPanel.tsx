@@ -26,6 +26,7 @@ import { LAUNCHER_INTEGRATOR_ADDRESS } from '../../lib/launcher/config';
 import { CHAIN_ID } from '../../lib/constants';
 import { surfaceReceiptNotice, waitForReceiptOutcome } from '../../lib/txErrors';
 import { formatWei, shortenAddress } from '../../lib/formatting';
+import { CardArt } from '../ui/CardArt';
 
 function FeeRow({
   fee,
@@ -133,7 +134,8 @@ export function IntegratorFeesPanel() {
   };
 
   return (
-    <div className="glass-card p-6 rounded-2xl">
+    <div className="relative isolate glass-card p-6 rounded-2xl">
+      <CardArt pageId="integrator-fees" idx={0} />
       <div className="flex items-start justify-between gap-3 flex-wrap mb-2">
         <h2
           className="heading-luxury text-white text-[20px] tracking-tight"

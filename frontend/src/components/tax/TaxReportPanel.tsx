@@ -3,6 +3,7 @@ import { capitalGainsFormExport } from '../../lib/tax/formExport';
 import { INCOMPLETE_REASON_TEXT } from '../../lib/tax/lots';
 import { NOT_TAX_ADVICE } from '../../lib/tax/methods';
 import { reportStandingText, type TaxReport } from '../../lib/tax/report';
+import { CardArt } from '../ui/CardArt';
 
 // The report, on screen, with the same qualifiers the file carries.
 //
@@ -64,16 +65,18 @@ export function TaxReportPanel({ report }: { report: TaxReport }) {
   return (
     <div className="space-y-4">
       <section
-        className={`rounded-xl border p-4 ${
+        className={`relative isolate rounded-xl border p-4 ${
           report.usableAsFiled ? 'border-emerald-400/25 bg-emerald-400/[0.06]' : 'border-amber-400/30 bg-amber-400/[0.06]'
         }`}
       >
+        <CardArt pageId="tax" idx={5} />
         <h2 className="text-sm font-semibold text-white">Standing of this report</h2>
         <p className="mt-2 text-[13px] leading-relaxed text-white/85">{reportStandingText(report)}</p>
       </section>
 
       {report.coverage.complete ? null : (
-        <section className="rounded-xl border border-white/15 bg-white/[0.02] p-4">
+        <section className="relative isolate rounded-xl border border-white/15 bg-white/[0.02] p-4">
+          <CardArt pageId="tax" idx={6} />
           <h2 className="text-sm font-semibold text-white">
             Coverage gaps — {report.coverage.gaps.length} stretch
             {report.coverage.gaps.length === 1 ? '' : 'es'} of this period could not be read
@@ -97,7 +100,8 @@ export function TaxReportPanel({ report }: { report: TaxReport }) {
       )}
 
       {report.limitations.length > 0 ? (
-        <section className="rounded-xl border border-white/15 bg-white/[0.02] p-4">
+        <section className="relative isolate rounded-xl border border-white/15 bg-white/[0.02] p-4">
+          <CardArt pageId="tax" idx={7} />
           <h2 className="text-sm font-semibold text-white">What this venue cannot tell you</h2>
           <ul className="mt-2 space-y-2 text-[12px] leading-relaxed text-white/75">
             {report.limitations.map((l) => (
@@ -109,7 +113,8 @@ export function TaxReportPanel({ report }: { report: TaxReport }) {
         </section>
       ) : null}
 
-      <section className="rounded-xl border border-white/15 bg-white/[0.02] p-4">
+      <section className="relative isolate rounded-xl border border-white/15 bg-white/[0.02] p-4">
+        <CardArt pageId="tax" idx={8} />
         <h2 className="text-sm font-semibold text-white">Capital gains</h2>
         <dl className="mt-2 grid gap-2 text-[12px] sm:grid-cols-3">
           <div>
@@ -185,7 +190,8 @@ export function TaxReportPanel({ report }: { report: TaxReport }) {
         ) : null}
       </section>
 
-      <section className="rounded-xl border border-white/15 bg-white/[0.02] p-4">
+      <section className="relative isolate rounded-xl border border-white/15 bg-white/[0.02] p-4">
+        <CardArt pageId="tax" idx={9} />
         <h2 className="text-sm font-semibold text-white">Income</h2>
         <p className="mt-2 text-[12px] text-white/60">
           {report.income.rows.length} receipt(s), {report.income.unpricedRows} of them with no value attached.
@@ -224,7 +230,8 @@ export function TaxReportPanel({ report }: { report: TaxReport }) {
       </section>
 
       {report.informational.length > 0 ? (
-        <section className="rounded-xl border border-white/15 bg-white/[0.02] p-4">
+        <section className="relative isolate rounded-xl border border-white/15 bg-white/[0.02] p-4">
+          <CardArt pageId="tax" idx={10} />
           <h2 className="text-sm font-semibold text-white">
             Recorded, but not classified — {report.informational.length} row(s)
           </h2>
@@ -255,7 +262,8 @@ export function TaxReportPanel({ report }: { report: TaxReport }) {
         </section>
       ) : null}
 
-      <section className="rounded-xl border border-white/15 bg-white/[0.02] p-4">
+      <section className="relative isolate rounded-xl border border-white/15 bg-white/[0.02] p-4">
+        <CardArt pageId="tax" idx={11} />
         <h2 className="text-sm font-semibold text-white">Export</h2>
         <p className="mt-1 text-[12px] leading-relaxed text-white/60">
           Every file starts with the method, the period, each coverage gap and this notice, above the header

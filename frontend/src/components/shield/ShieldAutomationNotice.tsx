@@ -1,4 +1,5 @@
 import { SHIELD_COPY, shieldAutomationState } from '../../lib/shield/automation';
+import { CardArt } from '../ui/CardArt';
 
 // The block that keeps this product honest.
 //
@@ -13,10 +14,11 @@ export function ShieldAutomationNotice() {
 
   return (
     <section
-      className="rounded-xl p-4"
+      className="relative isolate rounded-xl p-4"
       style={{ background: '#000', border: '1px solid var(--color-kenny)' }}
       aria-label="How this shield works"
     >
+      <CardArt pageId="shield" idx={1} />
       <p className="text-[12px] font-semibold" style={{ color: 'var(--color-kenny)' }}>
         {state.statusLabel}
       </p>

@@ -2,6 +2,7 @@ import { m } from 'framer-motion';
 import { useAccount, useChainId, useChains, useSwitchChain } from 'wagmi';
 import { CHAIN_ID } from '../../lib/constants';
 import { ArtImg } from '../ArtImg';
+import { CardArt } from './CardArt';
 
 /**
  * Phase 2 primitive — collapses three inlined copies (AdminPage
@@ -71,9 +72,10 @@ export function WrongChainBanner({
       role="alert"
       initial={{ opacity: 0, y: -8 }}
       animate={{ opacity: 1, y: 0 }}
-      className={`rounded-xl px-4 py-3 flex items-center justify-between gap-3 flex-wrap ${className ?? ''}`}
+      className={`relative isolate rounded-xl px-4 py-3 flex items-center justify-between gap-3 flex-wrap ${className ?? ''}`}
       style={{ background: 'rgba(245, 158, 11, 0.10)', border: '1px solid rgba(245, 158, 11, 0.35)' }}
     >
+      <CardArt pageId="wrong-chain" idx={0} />
       <div className="min-w-0">
         <p
           className="text-amber-300 text-[13px] font-semibold"

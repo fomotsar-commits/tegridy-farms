@@ -2,6 +2,7 @@ import { displaySafe } from '../../../lib/launchMetadata/validate';
 import type { TokenSafety } from '../../../lib/solana/lp/tokenSafety';
 import { CopyButton } from '../../ui/CopyButton';
 import { Card, Notice, Row } from '../curve/ui';
+import { CardArt } from '../../ui/CardArt';
 
 const VERDICT_TITLE: Record<'blocked' | 'warn' | 'ok', string> = {
   blocked: 'Blocked on this site',
@@ -17,7 +18,7 @@ export function TokenSafetyCard({ mint, safety }: { mint: string; safety: TokenS
   const verdict = safety.kind === 'read' ? safety.verdict : safety.kind;
   return (
     <div data-testid="token-safety" data-verdict={verdict}>
-      <Card title="The token">
+      <Card title="The token" art={<CardArt pageId="solana-lp" idx={5} />}>
         <Row label="Mint address" value={mint} />
         <div>
           <CopyButton text={mint} display="Copy the mint address" className="min-h-[44px] underline text-white/70 text-[12px]" />

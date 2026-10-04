@@ -17,6 +17,7 @@ import { getTxUrl } from '../../lib/explorer';
 // stored content via SafeText to harden against pre-fix payloads.
 import { sanitizeUserText, isAllowedSubmissionUri, SUBMISSION_URI_ERROR, DEFAULT_DESCRIPTION_LIMIT } from '../../lib/textSafety';
 import { SafeText } from '../ui/SafeText';
+import { CardArt } from '../ui/CardArt';
 import { artImgProps } from '../../lib/artSrcSet';
 
 const CARD_BORDER = 'var(--color-purple-12)';
@@ -278,7 +279,8 @@ export function BountiesSection() {
           rather than implying there is nothing to claim. */}
       {(payoutUnread || refundUnread) && (
         <p data-testid="bounties-claims-unread"
-          className="rounded-xl px-4 py-3 text-[12px] text-amber-100 border border-amber-500/40 bg-amber-500/10">
+          className="relative isolate rounded-xl px-4 py-3 text-[12px] text-amber-100 border border-amber-500/40 bg-amber-500/10">
+          <CardArt pageId="bounties" idx={6} />
           We could not read what the bounty board owes you just now — the network did not
           answer. Anything owed is still yours and still claimable; reload before concluding
           you have nothing to claim.

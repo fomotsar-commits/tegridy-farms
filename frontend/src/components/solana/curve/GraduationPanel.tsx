@@ -7,6 +7,7 @@ import {
   type LaunchState,
   type TreasuryDescription,
 } from '../../../lib/launcher/solana/curve';
+import { CardArt } from '../../ui/CardArt';
 import { Card, Notice, Row } from './ui';
 import { TxFlowView } from './TxFlowView';
 import { WalletNeeded } from './WalletNeeded';
@@ -80,6 +81,7 @@ export function GraduationPanel({
         title="Finish graduation"
         testId="graduation-panel"
         headingRef={headingRef}
+        art={<CardArt pageId="curve-launch" idx={20} />}
       >
         <TxFlowView flow={flow} api={api} cluster={gate.cfg.cluster} decimals={decimals} signer={signer} />
       </Card>
@@ -89,7 +91,7 @@ export function GraduationPanel({
   if (phase === 'awaiting-migration') {
     const e = migrationEligibility(gate.global, curve, rentFloor);
     return (
-      <Card title="Finish graduation" testId="graduation-panel" headingRef={headingRef}>
+      <Card title="Finish graduation" testId="graduation-panel" headingRef={headingRef} art={<CardArt pageId="curve-launch" idx={20} />}>
         <p>
           This launch has raised everything it needs. Finishing graduation opens its pool with the curve&apos;s SOL and
           unsold tokens, and burns the pool&apos;s LP tokens so that liquidity can never be pulled.
@@ -130,7 +132,7 @@ export function GraduationPanel({
 
   const reserve = formatTokenAmount(c.platformReserveTokens, decimals);
   return (
-    <Card title="Graduated" testId="graduation-panel" headingRef={headingRef}>
+    <Card title="Graduated" testId="graduation-panel" headingRef={headingRef} art={<CardArt pageId="curve-launch" idx={21} />}>
       <Row label="Pool" value={c.pool.toBase58()} />
       {c.platformReserveTokens === 0n ? (
         <Notice>This launch has no platform reserve.</Notice>

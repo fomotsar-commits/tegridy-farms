@@ -12,6 +12,7 @@ import {
 } from '../../lib/copytrade/tapeReconcile';
 import { formatQuoteAmount } from '../../lib/copytrade/quoteTokens';
 import { shortenAddress } from '../../lib/formatting';
+import { CardArt } from '../ui/CardArt';
 
 // Your own mirrors: how late you were, and whether the mirror happened at all.
 //
@@ -72,7 +73,8 @@ export function FollowerRecord({
   const hasIdentity = Boolean(account) || solanaAddress !== null;
 
   return (
-    <section className="rounded-xl border border-white/15 bg-white/[0.02] p-4">
+    <section className="relative isolate rounded-xl border border-white/15 bg-white/[0.02] p-4">
+      <CardArt pageId="copy-trading" idx={4} />
       <h2 className="text-sm font-semibold text-white">Your mirrors, as they actually went</h2>
       <p className="mt-1.5 text-xs leading-relaxed text-white/80">{FOLLOWER_RETURN_UNMEASURABLE}</p>
       <p className="mt-1.5 text-[11px] leading-relaxed text-white/60">{MATCH_BASIS}</p>

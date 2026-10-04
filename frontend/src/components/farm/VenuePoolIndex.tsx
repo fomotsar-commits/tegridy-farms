@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom';
 import { BUNGALOWS, DEFAULT_BUNGALOW_ID } from '../../lib/bungalows';
 import { TEGRIDY_STAKING_ADDRESS, isDeployed } from '../../lib/constants';
 import { poolShape } from '../../lib/poolShape';
+import { CardArt } from '../ui/CardArt';
 
 /**
  * Every pool on the island: /earn, whatever room the visitor is in. Each row
@@ -99,9 +100,10 @@ export function VenuePoolIndex() {
       </div>
 
       <div
-        className="rounded-2xl overflow-hidden"
+        className="relative isolate rounded-2xl overflow-hidden"
         style={{ background: 'rgba(4,9,18,0.72)', border: '1px solid var(--color-purple-25)' }}
       >
+        <CardArt pageId="earn" idx={1} />
         {/* `relative` IS LOAD-BEARING — it is what CONTAINS the sr-only span in the
             last <th>. Tailwind's `sr-only` is `position:absolute`, and an
             absolutely-positioned element is clipped by an ancestor's overflow

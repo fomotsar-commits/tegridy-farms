@@ -18,6 +18,7 @@
 import { m } from 'framer-motion';
 import { formatCurrency, formatTimeAgo } from '../../lib/formatting';
 import type { PortfolioSourceReport, PortfolioSourceState, PortfolioTotal } from '../../lib/portfolio/types';
+import { CardArt } from '../ui/CardArt';
 
 export interface UnifiedPortfolioProps {
   sources: PortfolioSourceReport[];
@@ -50,11 +51,12 @@ export function UnifiedPortfolio({ sources, total, summary, onRefresh, isRefresh
   return (
     <m.section
       aria-label="Unified portfolio"
-      className="relative overflow-hidden rounded-xl glass-card-animated mb-6"
+      className="relative isolate overflow-hidden rounded-xl glass-card-animated mb-6"
       style={{ border: '1px solid var(--color-purple-75)', background: 'rgba(6,12,26,0.72)' }}
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
     >
+      <CardArt pageId="portfolio" idx={0} />
       <div className="relative z-10 p-4 md:p-5">
         <div className="flex items-center justify-between gap-3 flex-wrap mb-3">
           <h2 className="heading-luxury text-[16px] text-white">Portfolio</h2>

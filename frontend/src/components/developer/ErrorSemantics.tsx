@@ -1,5 +1,6 @@
 import type { ApiErrorSemantic } from '../../../api/_lib/apiTiers';
 import { API_ERROR_SEMANTICS } from '../../../api/_lib/apiTiers.js';
+import { CardArt } from '../ui/CardArt';
 
 const SEMANTICS = API_ERROR_SEMANTICS as ApiErrorSemantic[];
 
@@ -23,10 +24,11 @@ export function ErrorSemantics() {
         the table, in the words a reader will need at 3am.
       */}
       <div
-        className="rounded-xl px-4 py-3 mb-4 text-sm"
+        className="relative isolate rounded-xl px-4 py-3 mb-4 text-sm"
         style={{ border: '1px solid var(--color-purple-12)', background: 'rgba(0,0,0,0.25)' }}
         data-testid="scanned-flag-contract"
       >
+        <CardArt pageId="developer" idx={1} />
         <p className="mb-2">
           Every scan response carries a top-level <code>scanned</code> boolean, and every refusal
           omits <code>distribution</code> entirely. A <strong>502 is not a clean scan</strong> — it

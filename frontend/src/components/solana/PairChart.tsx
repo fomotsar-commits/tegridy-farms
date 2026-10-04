@@ -15,6 +15,7 @@ import {
   type ChartTimeframe,
   type OhlcvPoint,
 } from '../../lib/solanaChart';
+import { CardArt } from '../ui/CardArt';
 
 const TIMEFRAMES: ChartTimeframe[] = ['1H', '1D', '1W'];
 
@@ -66,7 +67,8 @@ function PairChartInner({ mint, symbol }: PairChartProps) {
   const chg = hasChart ? rangeChangePct(points) : null;
 
   return (
-    <div className="rounded-xl overflow-hidden" style={{ background: 'rgba(0,0,0,0.45)', border: '1px solid rgba(255,255,255,0.10)' }}>
+    <div className="relative isolate rounded-xl overflow-hidden" style={{ background: 'rgba(0,0,0,0.45)', border: '1px solid rgba(255,255,255,0.10)' }}>
+      <CardArt pageId="solana-swap" idx={1} />
       <button
         type="button"
         onClick={() => setExpanded((e) => !e)}

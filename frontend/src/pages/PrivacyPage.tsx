@@ -1,6 +1,11 @@
 import { m } from 'framer-motion';
 import { usePageTitle } from '../hooks/usePageTitle';
 import { ArtImg } from '../components/ArtImg';
+import { CardArt } from '../components/ui/CardArt';
+
+/** How many section cards have an art surface of their own (privacy-cards idx 0 to 9).
+ *  The index wraps here, so a section added below reuses a registered surface. */
+const PRIVACY_ART_SLOTS = 10;
 
 // Stable anchor slugs so sections can be deep-linked from FAQs / emails.
 const SECTIONS = [
@@ -89,12 +94,13 @@ export default function PrivacyPage() {
         <div
           role="note"
           aria-labelledby="notice-error-reports-heading"
-          className="rounded-2xl p-6 md:p-8 mb-6 backdrop-blur-md"
+          className="relative isolate rounded-2xl p-6 md:p-8 mb-6 backdrop-blur-md"
           style={{
             background: 'rgba(13, 21, 48, 0.92)',
             border: '1px solid var(--color-purple-12)',
           }}
         >
+          <CardArt pageId="privacy" idx={1} />
           <h2 id="notice-error-reports-heading" className="text-lg font-semibold text-white mb-3">
             Notice of a change on 16 October 2026: error reports
           </h2>
@@ -125,13 +131,14 @@ export default function PrivacyPage() {
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.4, delay: 0.1 + i * 0.05 }}
-              className="rounded-2xl p-6 md:p-8 backdrop-blur-md scroll-mt-24"
+              className="relative isolate rounded-2xl p-6 md:p-8 backdrop-blur-md scroll-mt-24"
               style={{
                 background: 'rgba(13, 21, 48, 0.88)',
                 border: '1px solid var(--color-purple-12)',
               }}
               aria-labelledby={`${section.id}-heading`}
             >
+              <CardArt pageId="privacy-cards" idx={i % PRIVACY_ART_SLOTS} />
               <h2 id={`${section.id}-heading`} className="text-lg font-semibold text-white mb-3">
                 {section.title}
               </h2>

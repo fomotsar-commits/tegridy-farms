@@ -6,12 +6,17 @@
 // cannot keep, and this repo already has a guard that says so for hooks.
 
 import { usePageTitle } from '../../hooks/usePageTitle';
+import { PageArtBackdrop } from '../PageArtBackdrop';
 import { ZapPanel } from './ZapPanel';
 
 export default function ZapPage() {
   usePageTitle('Zap');
   return (
-    <div className="mx-auto w-full max-w-2xl px-4 py-8 sm:py-12">
+    <>
+    <PageArtBackdrop pageId="zap" />
+    {/* `relative` with no z-index: above the backdrop by coming after it, and
+        not a stacking context that would trap a dialog under the tab strip. */}
+    <div className="relative mx-auto w-full max-w-2xl px-4 py-8 sm:py-12">
       <header className="mb-6">
         <h1 className="text-2xl font-semibold text-white">Zap</h1>
         <p className="mt-2 text-[13px] text-white/65">
@@ -25,5 +30,6 @@ export default function ZapPage() {
       </header>
       <ZapPanel />
     </div>
+    </>
   );
 }

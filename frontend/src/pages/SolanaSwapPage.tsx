@@ -10,6 +10,7 @@ import { useConnection, useWallet } from '@solana/wallet-adapter-react';
 import { usePageTitle } from '../hooks/usePageTitle';
 import { trackPageView } from '../lib/analytics';
 import { ArtImg } from '../components/ArtImg';
+import { PageArtBackdrop } from '../components/PageArtBackdrop';
 import { FeatureNotDeployed } from '../components/ui/FeatureNotDeployed';
 import { SolanaProviders } from '../components/solana/SolanaProviders';
 import { SolanaConnectButton } from '../components/solana/SolanaConnectButton';
@@ -1574,7 +1575,12 @@ function SolanaSwapInner() {
     : 'Fetching quote…';
 
   return (
-    <div className="max-w-md mx-auto px-4 py-8">
+    <>
+    <PageArtBackdrop pageId="solana-swap" />
+    {/* `relative` with no z-index on purpose: it paints above the backdrop by
+        coming after it, without becoming a stacking context. A z-10 here would
+        trap the token pickers below (z-[60]) under the tab strip (z-30). */}
+    <div className="relative max-w-md mx-auto px-4 py-8">
       <ChainSwitch />
       <m.div
         initial={{ opacity: 0, y: 16 }}
@@ -1960,6 +1966,7 @@ function SolanaSwapInner() {
       )}
       {detailToken && <TokenDetail token={detailToken} onClose={() => setDetailToken(null)} />}
     </div>
+    </>
   );
 }
 
@@ -1972,14 +1979,19 @@ export default function SolanaSwapPage() {
   // than deleted) so a future operator kill-switch has one place to live.
   if (!isSolanaSwapLive()) {
     return (
-      <div className="max-w-md mx-auto px-4 py-10">
-        <FeatureNotDeployed
-          pageId="swap"
-          idx={2}
-          title="Solana swap isn't live yet"
-          subtitle="Buy Solana tokens on the venue — coming soon."
-        />
-      </div>
+      <>
+        {/* idx is spelled out: the coverage guard pairs a pageId with the next
+            idx it finds, and the next one here belongs to the card below. */}
+        <PageArtBackdrop pageId="solana-swap" idx={0} />
+        <div className="relative z-10 max-w-md mx-auto px-4 py-10">
+          <FeatureNotDeployed
+            pageId="swap"
+            idx={2}
+            title="Solana swap isn't live yet"
+            subtitle="Buy Solana tokens on the venue — coming soon."
+          />
+        </div>
+      </>
     );
   }
 

@@ -24,6 +24,7 @@ import {
 import type { LaunchFactSheet, LaunchTier } from '../../lib/launcher/factSheet';
 import { DistributionReport } from './DistributionReport';
 import { BandDeltaPanel } from './BandDeltaPanel';
+import { CardArt } from '../ui/CardArt';
 
 const inputCls =
   'w-full px-2.5 py-1.5 rounded-lg bg-black/30 border border-white/12 text-white text-sm outline-none focus:border-emerald-500/60 transition';
@@ -210,7 +211,8 @@ const TIER_STYLE: Record<LaunchTier, string> = {
  *  from the reused launcher gate via `simulate`). */
 function ProjectedFactSheet({ sheet }: { sheet: LaunchFactSheet }) {
   return (
-    <div className="rounded-2xl border border-white/12 bg-[rgba(6,12,26,0.6)] p-5 sm:p-6">
+    <div className="relative isolate rounded-2xl border border-white/12 bg-[rgba(6,12,26,0.6)] p-5 sm:p-6">
+      <CardArt pageId="launch-simulator" idx={4} />
       <div className="flex items-center justify-between mb-3">
         <span className="text-white/80 text-sm font-semibold">Projected Fact Sheet</span>
         <span className={`px-2 py-0.5 rounded-full text-[11px] font-semibold border ${TIER_STYLE[sheet.tier]}`}>
@@ -253,7 +255,8 @@ export function LaunchSimulator() {
     <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] lg:items-start">
       {/* ── LEFT: inputs ── */}
       <div className="space-y-5">
-        <section className="rounded-2xl border border-white/12 bg-[rgba(6,12,26,0.6)] p-5">
+        <section className="relative isolate rounded-2xl border border-white/12 bg-[rgba(6,12,26,0.6)] p-5">
+          <CardArt pageId="launch-simulator" idx={1} />
           <div className="flex items-center justify-between mb-2">
             <h2 className="text-white font-semibold text-sm">Proposed allocation</h2>
             <span className="text-white/40 text-[11px] tabular-nums">
@@ -309,7 +312,8 @@ export function LaunchSimulator() {
           </div>
         </section>
 
-        <section className="rounded-2xl border border-white/12 bg-[rgba(6,12,26,0.6)] p-5">
+        <section className="relative isolate rounded-2xl border border-white/12 bg-[rgba(6,12,26,0.6)] p-5">
+          <CardArt pageId="launch-simulator" idx={2} />
           <h2 className="text-white font-semibold text-sm mb-2">Structural configuration</h2>
           <p className="text-white/45 text-xs mb-3 leading-relaxed">
             These drive both the distribution gate and the projected Fact Sheet from one place.
@@ -401,7 +405,8 @@ export function LaunchSimulator() {
       {/* ── RIGHT: results (self-gated) ── */}
       <div className="space-y-5">
         {!result.hasData ? (
-          <div className="rounded-2xl border border-dashed border-white/15 bg-black/20 p-8 text-center">
+          <div className="relative isolate rounded-2xl border border-dashed border-white/15 bg-black/20 p-8 text-center">
+            <CardArt pageId="launch-simulator" idx={3} />
             <div className="text-white/70 text-sm font-semibold">Nothing to measure yet</div>
             <p className="text-white/45 text-xs mt-2 max-w-sm mx-auto leading-relaxed">
               Add at least one allocation with a non-zero amount (or load an example) to see the distribution band, the

@@ -11,6 +11,7 @@
 // always prints the method version, timestamp, caveats and correction path.
 
 import type { Band, ConfidenceLevel, DistributionAnalysis, HolderCategory } from '../../lib/detection';
+import { CardArt } from '../ui/CardArt';
 
 function pct(x: number, dp = 1): string {
   return `${(x * 100).toFixed(dp)}%`;
@@ -70,7 +71,8 @@ export function DistributionReport({ analysis }: { analysis: DistributionAnalysi
   const observed = new Date(analysis.observedAt * 1000);
 
   return (
-    <div className="rounded-2xl border border-white/12 bg-[rgba(6,12,26,0.6)] p-5 sm:p-6">
+    <div className="relative isolate rounded-2xl border border-white/12 bg-[rgba(6,12,26,0.6)] p-5 sm:p-6">
+      <CardArt pageId="launch-simulator" idx={5} />
       {/* Band + headline + confidence */}
       <div className="flex flex-wrap items-center gap-2 justify-between">
         <span className={`px-2.5 py-1 rounded-full text-xs font-semibold border ${band.cls}`}>{band.label}</span>

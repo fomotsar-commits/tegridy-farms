@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
 import { formatEther } from 'viem';
+import { CardArt } from '../ui/CardArt';
 
 /**
  * The EVM bonding curve, drawn from the launch's own on-chain state — pure
@@ -67,7 +68,8 @@ export function EvmCurveChart({
   const { W, H, PAD, pts, marker, traveled } = geometry;
 
   return (
-    <div className="rounded-2xl p-4" style={{ border: '1px solid rgba(255,255,255,0.12)', background: 'rgba(6,12,26,0.6)' }}>
+    <div className="relative isolate rounded-2xl p-4" style={{ border: '1px solid rgba(255,255,255,0.12)', background: 'rgba(6,12,26,0.6)' }}>
+      <CardArt pageId="eth-curve" idx={10} />
       <div className="flex items-baseline justify-between gap-2 mb-2">
         <p className="text-white/45 text-[11px]">The curve — price vs ETH raised</p>
         <p className="text-white/35 text-[10px]">

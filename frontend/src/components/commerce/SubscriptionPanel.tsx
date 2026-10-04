@@ -13,6 +13,7 @@ import {
   type Subscription,
 } from '../../lib/commerce/subscription';
 import { useCheckoutSubscription } from '../../hooks/useCheckoutSubscription';
+import { CardArt } from '../ui/CardArt';
 
 // Recurring billing as it actually exists on this venue.
 //
@@ -181,7 +182,8 @@ export function SubscriptionPanel() {
 
   return (
     <div className="space-y-4">
-      <section className="rounded-xl border border-white/15 bg-white/[0.02] p-4">
+      <section className="relative isolate rounded-xl border border-white/15 bg-white/[0.02] p-4">
+        <CardArt pageId="checkout" idx={14} />
         <h2 className="text-sm font-semibold text-white">Terms</h2>
         <p className="mt-1 text-[12px] leading-relaxed text-white/60">
           These terms are YOUR record, kept in this browser. Nothing on chain stores them and nothing on chain
@@ -292,7 +294,8 @@ export function SubscriptionPanel() {
 
       {subscription ? (
         <>
-          <section className="rounded-xl border border-amber-400/30 bg-amber-400/[0.06] p-4">
+          <section className="relative isolate rounded-xl border border-amber-400/30 bg-amber-400/[0.06] p-4">
+            <CardArt pageId="checkout" idx={15} />
             <h2 className="text-sm font-semibold text-white">What this actually authorises</h2>
             <p className="mt-2 text-[13px] leading-relaxed text-white/85">
               {subscription.initiator === 'merchant-pull'
@@ -302,7 +305,8 @@ export function SubscriptionPanel() {
             <p className="mt-2 text-[13px] font-medium text-white">{renewalNotice(subscription)}</p>
           </section>
 
-          <section className="rounded-xl border border-white/15 bg-white/[0.02] p-4">
+          <section className="relative isolate rounded-xl border border-white/15 bg-white/[0.02] p-4">
+            <CardArt pageId="checkout" idx={16} />
             <h2 className="text-sm font-semibold text-white">On-chain standing</h2>
             {read.charge === null ? (
               <p className="mt-2 text-[13px] leading-relaxed text-white/70">{read.detail}</p>
@@ -340,7 +344,8 @@ export function SubscriptionPanel() {
           </section>
 
           {subscription.initiator === 'merchant-pull' && grantAmount !== null ? (
-            <section className="rounded-xl border border-white/15 bg-white/[0.02] p-4">
+            <section className="relative isolate rounded-xl border border-white/15 bg-white/[0.02] p-4">
+              <CardArt pageId="checkout" idx={17} />
               <h2 className="text-sm font-semibold text-white">Allowance</h2>
               <p className="mt-2 text-[13px] leading-relaxed text-white/75">
                 Granting sets the allowance to exactly{' '}
@@ -369,7 +374,8 @@ export function SubscriptionPanel() {
           ) : null}
         </>
       ) : (
-        <section className="rounded-xl border border-white/15 bg-white/[0.02] p-4">
+        <section className="relative isolate rounded-xl border border-white/15 bg-white/[0.02] p-4">
+          <CardArt pageId="checkout" idx={18} />
           <p className="text-[13px] leading-relaxed text-white/70">
             {address
               ? 'Fill in a merchant address and a positive amount to see what a subscription on these terms would authorise. Nothing is evaluated against a wallet until then.'

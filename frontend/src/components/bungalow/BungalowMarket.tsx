@@ -2,6 +2,7 @@ import { Suspense, lazy, useMemo } from 'react';
 import type { Bungalow } from '../../lib/bungalows';
 import { usePoolMarket } from '../../hooks/usePoolMarket';
 import { ErrorBoundary } from '../ui/ErrorBoundary';
+import { CardArt } from '../ui/CardArt';
 import { BungalowTrades } from './BungalowTrades';
 
 // The chart pulls in lightweight-charts; keep it out of the bungalow's first
@@ -51,10 +52,11 @@ export function BungalowMarket({ bungalow }: { bungalow: Bungalow }) {
 
   return (
     <section
-      className="rounded-2xl p-6"
+      className="relative isolate rounded-2xl p-6"
       style={{ background: 'rgba(4,9,18,0.72)', border: '1px solid var(--color-purple-25)' }}
       aria-label={`${bungalow.symbol} market`}
     >
+      <CardArt pageId="bungalow-market" idx={0} />
       <div className="flex items-center gap-3 flex-wrap mb-4">
         <p className="text-[10px] uppercase tracking-wider" style={{ color: 'var(--color-kyle)' }}>
           The market

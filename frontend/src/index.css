@@ -549,6 +549,13 @@ body {
   overflow: hidden;
   animation: border-glow 4s ease-in-out infinite;
 }
+/* A card carrying CardArt is its own stacking context (`isolate`), so a tooltip
+   or menu that opens past its edge would be painted under the NEXT such card.
+   Lift the card while the pointer or focus is inside it. */
+.isolate:has(> [data-card-art]):is(:hover, :focus-within),
+.isolate:has(> summary > [data-card-art]):is(:hover, :focus-within) {
+  z-index: 1;
+}
 @keyframes scoreGlow {
   0%, 100% { opacity: 0.5; transform: scale(1); }
   50% { opacity: 1; transform: scale(1.06); }

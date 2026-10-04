@@ -43,6 +43,7 @@ import { useRevenueStats } from '../hooks/useRevenueStats';
 import { ReferralWidget } from '../components/ReferralWidget';
 import { PriceAlertWidget } from '../components/PriceAlertWidget';
 import { ArtImg } from '../components/ArtImg';
+import { CardArt } from '../components/ui/CardArt';
 import { useTowelie } from '../hooks/useTowelie';
 import { useTabListKeys } from '../hooks/useTabListKeys';
 import { usePortfolio } from '../hooks/usePortfolio';
@@ -75,6 +76,10 @@ const DASH_TABS: { key: DashTab; label: string }[] = [
   { key: 'rewards',   label: 'Rewards' },
 ];
 const VALID_DASH_TABS: DashTab[] = ['overview', 'positions', 'loans', 'rewards'];
+
+// dashboard:15-25 are the notice and status cards, 26-29 the four projection tiles
+// (the horizons below; idx wraps if a horizon is added).
+const PROJECTION_ART_SLOTS = 4;
 function dashTabFromQuery(v: string | null): DashTab | null {
   if (!v) return null;
   return (VALID_DASH_TABS as string[]).includes(v) ? (v as DashTab) : null;
@@ -291,7 +296,8 @@ function ToweliDashboard() {
           <ArtImg pageId="dashboard" idx={0} fallbackPosition="center 5%" alt="" loading="lazy" className="w-full h-full object-cover" />
         </div>
         <div className="relative z-10 min-h-screen flex items-center justify-center px-6" role="status" aria-label="Reconnecting wallet">
-          <div className="flex flex-col items-center gap-3 px-6 py-8 rounded-2xl" style={{ background: 'rgba(6, 12, 26, 0.82)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)', border: '1px solid rgba(245, 228, 184, 0.12)' }}>
+          <div className="relative isolate flex flex-col items-center gap-3 px-6 py-8 rounded-2xl" style={{ background: 'rgba(6, 12, 26, 0.82)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)', border: '1px solid rgba(245, 228, 184, 0.12)' }}>
+            <CardArt pageId="dashboard" idx={15} />
             <div className="w-6 h-6 rounded-full border-2 border-white/20 border-t-white/70 animate-spin" />
             <p className="text-white/70 text-[13px]">Reconnecting your wallet…</p>
           </div>
@@ -351,7 +357,8 @@ function ToweliDashboard() {
           </div>
 
           {/* TOWELI price chart — wallet-independent. */}
-          <div className="rounded-xl glass-card-animated p-4 mb-2" style={{ border: '1px solid var(--color-purple-75)', background: 'rgba(6,12,26,0.72)' }}>
+          <div className="relative isolate rounded-xl glass-card-animated p-4 mb-2" style={{ border: '1px solid var(--color-purple-75)', background: 'rgba(6,12,26,0.72)' }}>
+            <CardArt pageId="dashboard" idx={16} />
             <div className="h-[260px]">
               <ErrorBoundary fallback={<div className="flex items-center justify-center h-full text-white text-[13px]">Chart unavailable</div>}><PriceChart market={TOWELI_MARKET} /></ErrorBoundary>
             </div>
@@ -377,7 +384,8 @@ function ToweliDashboard() {
       <ErrorBoundary>
       <div className="relative z-10 max-w-[1200px] mx-auto px-4 md:px-6 pt-20 pb-28 md:pb-12">
         {isWrongNetwork && (
-          <div role="alert" aria-live="assertive" className="mb-4 px-4 py-3 rounded-xl bg-warning/10 border border-warning/30 text-warning text-[13px] text-center">
+          <div role="alert" aria-live="assertive" className="relative isolate mb-4 px-4 py-3 rounded-xl bg-warning/10 border border-warning/30 text-warning text-[13px] text-center">
+            <CardArt pageId="dashboard" idx={17} />
             Wrong network detected. Please switch to Ethereum Mainnet.
           </div>
         )}
@@ -578,7 +586,8 @@ function ToweliDashboard() {
             {/* Chart */}
             <m.div initial={{ opacity: 0, y: 10 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}>
               <h3 className="heading-luxury text-[16px] text-white mb-3">Price Chart</h3>
-              <div className="relative rounded-xl overflow-hidden glass-card-animated h-[280px] md:h-[400px]" style={{ background: '#000', border: '1px solid var(--color-purple-75)' }}>
+              <div className="relative isolate rounded-xl overflow-hidden glass-card-animated h-[280px] md:h-[400px]" style={{ background: '#000', border: '1px solid var(--color-purple-75)' }}>
+                <CardArt pageId="dashboard" idx={18} />
                 <ErrorBoundary fallback={<div className="flex items-center justify-center h-full text-white text-[13px]">Chart unavailable</div>}><PriceChart market={TOWELI_MARKET} /></ErrorBoundary>
               </div>
             </m.div>
@@ -658,9 +667,10 @@ function ToweliDashboard() {
                  about the chain, so it is gated on having actually read the
                  chain. An unanswered multicall is not an empty position. */
               <div
-                className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-5 mb-10 text-[13px] text-amber-100"
+                className="relative isolate rounded-xl border border-amber-500/40 bg-amber-500/10 p-5 mb-10 text-[13px] text-amber-100"
                 data-testid="dashboard-position-unread"
               >
+                <CardArt pageId="dashboard" idx={19} />
                 <p>
                   Your staking position could not be read just now - the network did not
                   answer. This is not a statement that you have nothing staked: anything
@@ -705,7 +715,8 @@ function ToweliDashboard() {
             {lpPos.lpUnread && (
               <m.div className="mb-10" initial={{ opacity: 0, y: 10 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}>
                 <h3 className="heading-luxury text-[16px] text-white mb-4">Your Liquidity</h3>
-                <div className="relative overflow-hidden rounded-xl glass-card-animated" style={{ border: '1px solid rgba(255,178,55,0.35)' }}>
+                <div className="relative isolate overflow-hidden rounded-xl glass-card-animated" style={{ border: '1px solid rgba(255,178,55,0.35)' }}>
+                  <CardArt pageId="dashboard" idx={20} />
                   <div className="relative z-10 p-8 py-12 text-center" data-testid="dash-lp-unread">
                     <p className="text-amber-300 text-[15px] mb-2">Couldn't read your liquidity position</p>
                     <p className="text-white/70 text-[12px] max-w-sm mx-auto">
@@ -816,8 +827,9 @@ function ToweliDashboard() {
             ) : myLoans.isError ? (
               // Don't render "no loans" when the reads actually FAILED — that
               // showed the borrow CTAs as if the user had none. Say so honestly.
-              <m.div className="relative overflow-hidden rounded-xl glass-card-animated mb-10" style={{ border: '1px solid var(--color-purple-75)' }}
+              <m.div className="relative isolate overflow-hidden rounded-xl glass-card-animated mb-10" style={{ border: '1px solid var(--color-purple-75)' }}
                 initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+                <CardArt pageId="dashboard" idx={21} />
                 <div className="relative z-10 p-8 py-12 text-center">
                   <p className="text-white text-[15px] mb-2">Couldn’t load your loans</p>
                   <p className="text-white/70 text-[12px] max-w-sm mx-auto">
@@ -829,8 +841,9 @@ function ToweliDashboard() {
               // A PARTIAL SWEEP IS NOT AN EMPTY BOOK. Some loan records did not
               // answer, so "No outstanding loans" - under two borrow CTAs - would
               // be a claim about a set we already know has holes in it.
-              <m.div className="relative overflow-hidden rounded-xl glass-card-animated mb-10" style={{ border: '1px solid var(--color-purple-75)' }}
+              <m.div className="relative isolate overflow-hidden rounded-xl glass-card-animated mb-10" style={{ border: '1px solid var(--color-purple-75)' }}
                 initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+                <CardArt pageId="dashboard" idx={22} />
                 <div className="relative z-10 p-8 py-12 text-center">
                   <p className="text-amber-300 text-[15px] mb-2">Some loan records couldn't be read</p>
                   <p className="text-white/70 text-[12px] max-w-sm mx-auto">
@@ -884,8 +897,9 @@ function ToweliDashboard() {
                 On breach/rounding the staking contract can hold rewards that
                 getReward() won't sweep; claimUnsettled() recovers them. */}
             {pos.unsettledRewards > 0n && (
-              <m.div className="relative overflow-hidden rounded-xl glass-card-animated mb-5" style={{ border: '1px solid var(--color-purple-75)' }}
+              <m.div className="relative isolate overflow-hidden rounded-xl glass-card-animated mb-5" style={{ border: '1px solid var(--color-purple-75)' }}
                 initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+                <CardArt pageId="dashboard" idx={23} />
                 <div className="relative z-10 p-4 flex items-center justify-between flex-wrap gap-2">
                   <div>
                     <p className="text-white text-[13px] font-medium">Unsettled Rewards</p>
@@ -913,8 +927,9 @@ function ToweliDashboard() {
                 unread balances. Claiming is what resets the 7d / 14d / 90d
                 forfeiture clocks — silence here runs them down. */}
             {!revenueStats.pendingUnread && pendingTotal < 0.01 && pos.unsettledRewards <= 0n && revenueStats.pendingRevenue < 0.000001 && revenueStats.referralPending < 0.000001 && (
-              <m.div className="relative overflow-hidden rounded-xl glass-card-animated mb-5" style={{ border: '1px solid var(--color-purple-75)' }}
+              <m.div className="relative isolate overflow-hidden rounded-xl glass-card-animated mb-5" style={{ border: '1px solid var(--color-purple-75)' }}
                 initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+                <CardArt pageId="dashboard" idx={24} />
                 <div className="relative z-10 p-6 text-center">
                   <p className="text-white text-[14px] mb-1">All caught up — nothing to claim right now</p>
                   <p className="text-white/60 text-[12px]">
@@ -1162,8 +1177,9 @@ export function ETHRevenueClaim({ address, isWrongNetwork }: { address: string; 
   // Surface a small error row so an RPC failure can't hide claimable ETH.
   if (pendingError && !pending) {
     return (
-      <m.div className="relative overflow-hidden rounded-xl glass-card-animated mb-5" style={{ border: '1px solid rgba(239,68,68,0.25)' }}
+      <m.div className="relative isolate overflow-hidden rounded-xl glass-card-animated mb-5" style={{ border: '1px solid rgba(239,68,68,0.25)' }}
         initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+        <CardArt pageId="dashboard" idx={25} />
         <div className="relative z-10 p-4 flex items-center gap-2">
           <span className="w-2 h-2 rounded-full bg-danger shrink-0" aria-hidden="true" />
           <div>
@@ -1356,10 +1372,11 @@ function Projections({ staked, apr, price, boost = 1, secondsRemaining = 0, aprD
   return (
     <>
       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
-        {[{ l: '7 Days', m: 7 }, { l: '30 Days', m: 30 }, { l: '90 Days', m: 90 }, { l: '1 Year', m: 365 }].map(({ l, m }) => {
+        {[{ l: '7 Days', m: 7 }, { l: '30 Days', m: 30 }, { l: '90 Days', m: 90 }, { l: '1 Year', m: 365 }].map(({ l, m }, i) => {
           const exceedsRunway = runwayDays > 0 && m > runwayDays;
           return (
-            <div key={l} className="glass-card rounded-lg p-3 text-center card-hover" style={exceedsRunway ? { opacity: 0.6 } : undefined}>
+            <div key={l} className="relative isolate glass-card rounded-lg p-3 text-center card-hover" style={exceedsRunway ? { opacity: 0.6 } : undefined}>
+              <CardArt pageId="dashboard" idx={26 + (i % PROJECTION_ART_SLOTS)} />
               <p className="text-white text-[10px] mb-1">{l}</p>
               <AnimatedCounter value={daily * m} decimals={0} className="stat-value text-[14px] text-white" />
               <p className="text-white text-[9px]">~{formatCurrency(daily * m * price)}</p>

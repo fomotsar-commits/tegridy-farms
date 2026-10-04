@@ -4,6 +4,10 @@ import { formatEther } from 'viem';
 import { REVENUE_DISTRIBUTOR_ABI } from '../lib/contracts';
 import { REVENUE_DISTRIBUTOR_ADDRESS, CHAIN_ID, isDeployed } from '../lib/constants';
 import { useTOWELIPrice } from '../contexts/PriceContext';
+import { CardArt } from './ui/CardArt';
+
+// The three stat tiles (idx 1-3; idx 0 is the unread / empty notice card).
+const YIELD_ART_SLOTS = 3;
 
 /**
  * Real-yield proof strip — the protocol's one true differentiator is
@@ -98,7 +102,8 @@ export function RealYieldProof({ showWhenEmpty = false }: { showWhenEmpty?: bool
         </p>
       </div>
       {unreadable ? (
-        <div className="rounded-xl p-4" style={{ border: '1px solid var(--color-purple-75)', background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(2px)' }}>
+        <div className="relative isolate rounded-xl p-4" style={{ border: '1px solid var(--color-purple-75)', background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(2px)' }}>
+          <CardArt pageId="real-yield-proof" idx={0} />
           <p className="text-[13px] leading-relaxed text-white" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>
             The cumulative-distribution read has not returned, so this panel cannot say whether any
             ETH has been paid out. That is a gap in what we can show you, not a figure of zero — the
@@ -106,7 +111,8 @@ export function RealYieldProof({ showWhenEmpty = false }: { showWhenEmpty?: bool
           </p>
         </div>
       ) : isEmpty ? (
-        <div className="rounded-xl p-4" style={{ border: '1px solid var(--color-purple-75)', background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(2px)' }}>
+        <div className="relative isolate rounded-xl p-4" style={{ border: '1px solid var(--color-purple-75)', background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(2px)' }}>
+          <CardArt pageId="real-yield-proof" idx={0} />
           {/* 2026-08-07: dropped "100% of protocol swap fees". AUDIT R073 — swap fees
               split 5/6 to LPs and 1/6 to the protocol, and the protocol's share then
               splits again between stakers, liquidity and operations. Same correction
@@ -118,12 +124,13 @@ export function RealYieldProof({ showWhenEmpty = false }: { showWhenEmpty?: bool
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-          {items.map((it) => (
+          {items.map((it, i) => (
             <div
               key={it.l}
-              className="rounded-xl p-3 md:p-4"
+              className="relative isolate rounded-xl p-3 md:p-4"
               style={{ border: '1px solid var(--color-purple-75)', background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(2px)' }}
             >
+              <CardArt pageId="real-yield-proof" idx={1 + (i % YIELD_ART_SLOTS)} />
               <p
                 className="text-[11px] uppercase tracking-wider mb-1.5 flex items-center gap-1.5"
                 style={{ color: '#22c55e', textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}

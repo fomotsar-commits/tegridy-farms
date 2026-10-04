@@ -16,6 +16,7 @@ import { GECKO_NETWORKS } from '../../lib/geckoTerminal/pools';
 import { ETH_ADDRESS_RE, SOL_ADDRESS_RE } from '../../lib/scanner/scanner';
 import { PageArtBackdrop } from '../PageArtBackdrop';
 import { ArtCard } from '../ui/ArtCard';
+import { CardArt } from '../ui/CardArt';
 import { CandleChart } from './CandleChart';
 import { ChartStatus } from './ChartStatus';
 import { IndexedVenueChart } from './IndexedVenueChart';
@@ -137,8 +138,9 @@ export default function ChartPage() {
             {initial.refusals.map((refusal) => (
               <li
                 key={refusal.param}
-                className="rounded-lg border border-amber-400/40 bg-amber-400/[0.07] px-4 py-3 text-xs leading-relaxed text-white/80"
+                className="relative isolate rounded-lg border border-amber-400/40 bg-amber-400/[0.07] px-4 py-3 text-xs leading-relaxed text-white/80"
               >
+                <CardArt pageId="chart" idx={3} />
                 {refusal.message}
               </li>
             ))}
@@ -222,7 +224,8 @@ export default function ChartPage() {
               a bare axis, which reads as a market that traded nothing — the
               banner below says what actually happened instead. */}
           {candles.status === 'ready' && candles.series && candles.series.candleCount > 0 && market ? (
-            <div className="mb-3 rounded-xl border border-white/12 bg-black/25 p-3">
+            <div className="relative isolate mb-3 rounded-xl border border-white/12 bg-black/25 p-3">
+              <CardArt pageId="chart" idx={4} />
               <CandleChart
                 series={candles.series}
                 baseSymbol={candles.baseSymbol ?? market.label}
@@ -240,7 +243,8 @@ export default function ChartPage() {
               timeframeLabel={GECKO_TIMEFRAMES[timeframe].label}
             />
           ) : (
-            <div className="rounded-xl border border-white/20 bg-white/[0.03] px-4 py-3" role="status">
+            <div className="relative isolate rounded-xl border border-white/20 bg-white/[0.03] px-4 py-3" role="status">
+              <CardArt pageId="chart" idx={6} />
               <h2 className="text-sm font-semibold text-white">No pool to chart</h2>
               <p className="mt-1.5 text-xs leading-relaxed text-white/80">
                 No pool is selected, so nothing was asked of any source.

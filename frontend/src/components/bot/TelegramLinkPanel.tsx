@@ -8,6 +8,7 @@ import {
   type LinkStoreResult,
   type TelegramLink,
 } from './botLinkClient';
+import { CardArt } from '../ui/CardArt';
 
 // The browser half of the Telegram link, and the only place a binding can be created.
 //
@@ -129,10 +130,11 @@ export function TelegramLinkPanel({ fetchImpl }: Props) {
 
   return (
     <section
-      className="rounded-xl p-4"
+      className="relative isolate rounded-xl p-4"
       style={{ background: '#000', border: '1px solid var(--color-purple-75)' }}
       aria-label="Telegram"
     >
+      <CardArt pageId="alerts" idx={6} />
       <h3 className="text-white text-[13px] font-medium">Telegram</h3>
 
       <p className="mt-2 text-white/70 text-[11px] leading-snug">

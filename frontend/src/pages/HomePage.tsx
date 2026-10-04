@@ -27,6 +27,7 @@ import { YieldCalculator } from '../components/ui/YieldCalculator';
 import { TOWELIE_QUOTES, FAQ_INTRO, HOME_SWAP_CARD, CONNECT_ETHEREUM_WALLET } from '../lib/copy';
 import { TOWELI_FAQ_DATA } from '../lib/faqData';
 import { ArtImg } from '../components/ArtImg';
+import { CardArt } from '../components/ui/CardArt';
 import { ProtocolStats } from '../components/ProtocolStats';
 import { RealYieldProof } from '../components/RealYieldProof';
 import { ProtocolPulse } from '../components/ProtocolPulse';
@@ -639,9 +640,10 @@ export default function HomePage() {
                 plain terms, unreadable. This is BungalowHolders' panel, matched
                 exactly, so the room's three cards read as one set. */}
             <div
-              className="rounded-2xl p-6"
+              className="relative isolate rounded-2xl p-6"
               style={{ background: 'rgba(4,9,18,0.72)', border: '1px solid var(--color-purple-25)' }}
             >
+              <CardArt pageId="home" idx={18} />
               <HeatCard
                 variant="embedded"
                 showEligibility={false}
@@ -1190,12 +1192,13 @@ export default function HomePage() {
         {isToweliArrival && !bungalowIdentity && (
         <div className="pb-16">
           <m.div
-            className="rounded-2xl p-6 md:p-8 text-center"
+            className="relative isolate rounded-2xl p-6 md:p-8 text-center"
             style={{ background: 'rgba(6,12,26,0.78)', border: '1px solid var(--color-purple-40)', backdropFilter: 'blur(10px)', WebkitBackdropFilter: 'blur(10px)' }}
             initial={{ opacity: 0, y: 15 }}
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true }}
           >
+            <CardArt pageId="home" idx={19} />
             <h2 className="heading-luxury text-xl text-white tracking-tight mb-2" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>
               {FAQ_INTRO.headline}
             </h2>

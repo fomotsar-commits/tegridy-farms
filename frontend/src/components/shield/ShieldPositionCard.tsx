@@ -7,6 +7,7 @@ import { BAND_LABEL, type ShieldHealthBand } from '../../lib/shield/health';
 import { prepareRepay } from '../../lib/shield/preparedAction';
 import { SHIELD_COPY } from '../../lib/shield/automation';
 import type { ShieldPosition } from '../../lib/shield/positions';
+import { CardArt } from '../ui/CardArt';
 
 // One position, its health, and the transaction that fixes it.
 //
@@ -73,9 +74,10 @@ export function ShieldPositionCard({ position }: { position: ShieldPosition }) {
 
   return (
     <li
-      className="list-none rounded-xl p-4"
+      className="relative isolate list-none rounded-xl p-4"
       style={{ background: 'rgba(0,0,0,0.6)', border: `1px solid ${color}` }}
     >
+      <CardArt pageId="shield" idx={0} />
       <div className="flex items-baseline justify-between gap-2">
         <p className="text-white text-[13px] font-semibold">
           Loan #{position.loanId}

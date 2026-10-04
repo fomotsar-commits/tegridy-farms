@@ -11,6 +11,7 @@ import type { FeeTierRead } from '../../../lib/solana/lp/poolFinder';
 import { lpWriteMode, type LpWriteMode } from '../../../lib/launcher/solana/lpWriteFlag';
 import { isLpKind } from '../../../lib/launcher/solana/write/lpKinds';
 import { Card, Notice, Row } from '../curve/ui';
+import { CardArt } from '../../ui/CardArt';
 import { PendingTradeCard } from '../curve/PendingTradeCard';
 import type { GateRpc, LpKind, LpWriteApi } from '../curve/ports';
 import { PoolFinder } from './PoolFinder';
@@ -146,7 +147,8 @@ const RISK_LINE_STYLE = { background: 'rgba(28,21,6,0.92)', border: '1px solid r
  */
 function LpRiskLine() {
   return (
-    <p data-testid="lp-risk-line" className="rounded-xl px-4 py-2.5 sm:py-3 text-amber-200 text-[13px] leading-snug sm:leading-relaxed" style={RISK_LINE_STYLE}>
+    <p data-testid="lp-risk-line" className="relative isolate rounded-xl px-4 py-2.5 sm:py-3 text-amber-200 text-[13px] leading-snug sm:leading-relaxed" style={RISK_LINE_STYLE}>
+      <CardArt pageId="solana-lp" idx={10} />
       These pools run on a pool program whose admin-key changes have not had their own independent review yet. Put in only what
       you can afford to lose. The full notice is right under your positions.
     </p>
@@ -208,7 +210,7 @@ export function LpDisclosure({ programId, mode = 'off' }: { programId: string; m
   // "The program" (VenueProgramCard) is the last section of every page that mounts this one.
   return (
     <section data-testid="lp-disclosure" aria-label="Before you provide liquidity">
-      <Card title="Before you provide liquidity">
+      <Card title="Before you provide liquidity" art={<CardArt pageId="solana-lp" idx={0} />}>
         <p className="text-white/80">
           Our pool program is Raydium’s constant-product pool; we changed only its admin keys (see “The program” below).{' '}
           <strong>Those changes have not had their own independent review yet.</strong> Put in only what you can afford to lose.
@@ -269,7 +271,7 @@ function FeeTiers({ readers }: { readers: LpReaders }) {
   }, [readers]);
   return (
     <section data-testid="fee-tiers" aria-label="Fee tiers">
-      <Card title="Fee tiers, read from the chain">
+      <Card title="Fee tiers, read from the chain" art={<CardArt pageId="solana-lp" idx={1} />}>
         {!read ? (
           <p>Reading the fee tiers…</p>
         ) : read.kind === 'unread' ? (

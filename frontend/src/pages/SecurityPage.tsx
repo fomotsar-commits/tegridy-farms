@@ -7,6 +7,7 @@ import { usePageTitle } from '../hooks/usePageTitle';
 import { useSourceVerification } from '../hooks/useSourceVerification';
 import { VerifiedBadge } from '../components/ui/VerifiedBadge';
 import { ArtImg } from '../components/ArtImg';
+import { CardArt } from '../components/ui/CardArt';
 import { CopyButton } from '../components/ui/CopyButton';
 import {
   TEGRIDY_STAKING_ADDRESS,
@@ -167,7 +168,8 @@ export default function SecurityPage() {
             what we actually do instead. Additive copy — every claim is already
             true elsewhere on this page. */}
         <m.div initial="hidden" animate="visible" variants={fade} transition={{ duration: 0.6, delay: 0.1 }} className="mb-14">
-          <div className="rounded-2xl p-5 md:p-6" style={{ background: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(4px)', border: '1px solid rgba(234,179,8,0.35)' }}>
+          <div className="relative isolate rounded-2xl p-5 md:p-6" style={{ background: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(4px)', border: '1px solid rgba(234,179,8,0.35)' }}>
+            <CardArt pageId="security" idx={22} />
             <h2 className="text-lg md:text-xl font-bold text-amber-300 mb-2" style={{ textShadow: '0 1px 4px rgba(0,0,0,0.9)' }}>No paid third-party audit yet. Here is exactly what we do instead</h2>
             <p className="text-white/85 text-sm md:text-base" style={{ textShadow: '0 1px 4px rgba(0,0,0,0.9)' }}>We have not commissioned a paid audit from an outside security firm. In its place we run repeated internal multi-agent security reviews backed by an extensive Foundry test suite, track every finding and fix in public audit files, and keep the code immutable and non-upgradeable after deployment. The methodology, artifacts, and still-open items are all linked below: read the source of truth directly.</p>
           </div>

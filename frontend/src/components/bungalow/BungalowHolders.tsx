@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import type { Bungalow } from '../../lib/bungalows';
 import { useTokenScan } from '../../hooks/useTokenScan';
 import { bungalowScanRoute } from '../../lib/bungalows';
+import { CardArt } from '../ui/CardArt';
 
 /**
  * Who holds the bungalow's token — distribution, in the bungalow.
@@ -46,10 +47,11 @@ export function BungalowHolders({ bungalow }: { bungalow: Bungalow }) {
 
   return (
     <section
-      className="rounded-2xl p-6"
+      className="relative isolate rounded-2xl p-6"
       style={{ background: 'rgba(4,9,18,0.72)', border: '1px solid var(--color-purple-25)' }}
       aria-label={`${bungalow.symbol} holder distribution`}
     >
+      <CardArt pageId="bungalow-holders" idx={0} />
       <div className="flex items-center gap-3 flex-wrap mb-4">
         <p className="text-[10px] uppercase tracking-wider" style={{ color: 'var(--color-kyle)' }}>
           Who holds her

@@ -8,6 +8,7 @@ import type { OutsidePrice } from '../../../lib/solana/lp/outsidePrice';
 import { BUNGALOWS } from '../../../lib/bungalows';
 import { useActiveBungalowId } from '../../../hooks/useActiveBungalowId';
 import { Card, Field, Notice } from '../curve/ui';
+import { CardArt } from '../../ui/CardArt';
 import { TOGGLE_CLS, inputCls, inputStyle } from '../curve/uiFormat';
 import { TokenSafetyCard } from './TokenSafetyCard';
 import { PoolCard, UnreadPoolCard } from './PoolCard';
@@ -238,7 +239,10 @@ export function PoolFinder({
 
   return (
     <section data-testid="lp-finder" aria-label="Find pools for a token" className="space-y-4">
-      <Card title={tasks.length > 0 ? 'Create a pool, add or remove liquidity' : 'Find pools for a token'}>
+      <Card
+        title={tasks.length > 0 ? 'Create a pool, add or remove liquidity' : 'Find pools for a token'}
+        art={<CardArt pageId="solana-lp" idx={2} />}
+      >
         {tasks.length > 0 && (
           <div ref={tasksRef} data-testid="lp-tasks" className="space-y-2 scroll-mt-[4.5rem]">
             <div className="flex gap-2" role="group" aria-label="What do you want to do?">
@@ -403,7 +407,7 @@ function SearchResults({
     <div className="space-y-4">
       <TokenSafetyCard mint={mint} safety={safety} />
       {pools.kind === 'unread' ? (
-        <Card title="Pools">
+        <Card title="Pools" art={<CardArt pageId="solana-lp" idx={6} />}>
           <Notice tone="warn">
             We could not read the pools ({pools.detail}). That is a problem on our side; it does not mean there are none.
           </Notice>
@@ -412,7 +416,7 @@ function SearchResults({
         <div data-testid="lp-pools" className="space-y-3">
           <IndexNote read={pools} />
           {pools.search.pools.length === 0 ? (
-            <Card title="Pools">
+            <Card title="Pools" art={<CardArt pageId="solana-lp" idx={6} />}>
               <p data-testid="lp-no-pools">
                 {pools.search.index.kind !== 'ok'
                   ? 'No TOKEN/SOL pools found at the addresses we could check.'

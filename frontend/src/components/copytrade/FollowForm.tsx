@@ -14,6 +14,7 @@ import {
 import type { PoolFamily } from '../../lib/copytrade/tape';
 import { MIRROR_EXECUTION } from '../../lib/copytrade/mirror';
 import { shortenAddress } from '../../lib/formatting';
+import { CardArt } from '../ui/CardArt';
 
 // Adding a follow, and stating what a follow is not.
 //
@@ -114,7 +115,8 @@ export function FollowForm({
   }
 
   return (
-    <section className="rounded-xl border border-white/15 bg-white/[0.02] p-4">
+    <section className="relative isolate rounded-xl border border-white/15 bg-white/[0.02] p-4">
+      <CardArt pageId="copy-trading" idx={3} />
       <h2 className="text-sm font-semibold text-white">Follow an address</h2>
       <p className="mt-1.5 text-xs leading-relaxed text-white/70">{MIRROR_EXECUTION}</p>
 

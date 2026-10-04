@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { peekHeat } from '../lib/heat/heatClient';
 import { readLastBuy, markLastBuyPosted } from '../lib/heat/lastBuy';
 import { SITE_URL } from '../lib/constants';
+import { CardArt } from './ui/CardArt';
 
 /**
  * WAVE SEVEN, element O: THE COMMITMENT LINE, THE MOMENT AFTER A BUY.
@@ -65,9 +66,10 @@ export function ClockLine() {
   return (
     <div
       data-element="o-clock-line"
-      className="mt-4 rounded-lg p-3 text-[13px]"
+      className="relative isolate mt-4 rounded-lg p-3 text-[13px]"
       style={{ background: 'rgba(0,0,0,0.72)', border: '1px solid var(--color-kyle-40)' }}
     >
+      <CardArt pageId="clock-line" idx={0} />
       <p className="text-white/90" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>
         {sentence}
       </p>

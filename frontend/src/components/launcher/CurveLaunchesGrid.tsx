@@ -22,6 +22,7 @@ import {
   type CurveLaunch,
 } from '../../lib/launcher/curve';
 import { useCurveIdentity } from '../../hooks/useCurveIdentity';
+import { CardArt } from '../ui/CardArt';
 
 const cardStyle = { border: '1px solid rgba(255,255,255,0.12)', background: 'rgba(6,12,26,0.6)' } as const;
 
@@ -140,9 +141,10 @@ export function CurveGridCardView({ card, chainId }: { card: CurveGridCardData; 
     // curve; only a positioned child with a z-index sits above it, which is
     // exactly what the planter's door does and nothing else does.
     <div
-      className="relative rounded-2xl p-3 flex gap-3 items-center hover:bg-white/5 transition-colors focus-within:ring-2 focus-within:ring-[#8b5cf6]"
+      className="relative isolate rounded-2xl p-3 flex gap-3 items-center hover:bg-white/5 transition-colors focus-within:ring-2 focus-within:ring-[#8b5cf6]"
       style={cardStyle}
     >
+      <CardArt pageId="eth-curve" idx={6} />
       <Link
         to={`/eth-curve/${card.token}?c=${chainId}`}
         className="absolute inset-0 rounded-2xl"
@@ -238,11 +240,13 @@ export function CurveLaunchesGridView({ chainName, launchCount, tokens, tokensUn
         )}
       </div>
       {launchCount === null ? (
-        <div className="rounded-2xl p-5 text-white/55 text-[13px]" style={cardStyle}>
+        <div className="relative isolate rounded-2xl p-5 text-white/55 text-[13px]" style={cardStyle}>
+          <CardArt pageId="eth-curve" idx={5} />
           Reading the curve…
         </div>
       ) : launchCount === 0n ? (
-        <div className="rounded-2xl p-5" style={cardStyle}>
+        <div className="relative isolate rounded-2xl p-5" style={cardStyle}>
+          <CardArt pageId="eth-curve" idx={5} />
           <p className="text-white/85 text-[13px] font-semibold">No launches on {chainName} yet.</p>
           <p className="text-white/55 text-[12px] mt-1 leading-relaxed">
             The curve is live and the first launch writes history — create one above and your coin
@@ -250,7 +254,8 @@ export function CurveLaunchesGridView({ chainName, launchCount, tokens, tokensUn
           </p>
         </div>
       ) : tokensUnread && tokens.length === 0 ? (
-        <div className="rounded-2xl p-5" style={cardStyle}>
+        <div className="relative isolate rounded-2xl p-5" style={cardStyle}>
+          <CardArt pageId="eth-curve" idx={5} />
           <p className="text-white/85 text-[13px] font-semibold">Could not load the launches on {chainName}.</p>
           <p className="text-white/55 text-[12px] mt-1 leading-relaxed">
             The curve reports {launchCount.toString()} of them, but the page read did not come

@@ -22,6 +22,7 @@ import { DEFAULT_TOKENS, type TokenInfo } from '../../lib/tokenList';
 import { zapVenues, type ZapVenueId } from '../../lib/zap/venues';
 import { useZapPlan } from '../../hooks/useZapPlan';
 import { useZapRun } from '../../hooks/useZapRun';
+import { CardArt } from '../ui/CardArt';
 import { ZapStepList } from './ZapStepList';
 
 const LOCK_CHOICES: { label: string; seconds: bigint }[] = [
@@ -92,7 +93,8 @@ export function ZapPanel() {
 
   return (
     <div className="space-y-5">
-      <section className="rounded-xl border border-white/10 bg-white/[0.02] p-4 space-y-4">
+      <section className="relative isolate rounded-xl border border-white/10 bg-white/[0.02] p-4 space-y-4">
+        <CardArt pageId="zap" idx={1} />
         <div>
           <label className="block text-[11px] uppercase tracking-wider text-white/50 mb-1.5" htmlFor="zap-venue">
             Destination
@@ -204,7 +206,8 @@ export function ZapPanel() {
       {isQuoting ? (
         <p className="text-[12px] text-white/60">Pricing each leg…</p>
       ) : result && !result.ok ? (
-        <section className="rounded-xl border border-amber-400/40 bg-amber-500/5 p-4">
+        <section className="relative isolate rounded-xl border border-amber-400/40 bg-amber-500/5 p-4">
+          <CardArt pageId="zap" idx={2} />
           <h3 className="text-[13px] text-amber-200">This zap cannot be composed right now</h3>
           <p className="mt-1 text-[12px] text-amber-100/85">{result.detail}</p>
           <p className="mt-2 text-[12px] text-white/70">
@@ -213,7 +216,8 @@ export function ZapPanel() {
           </p>
         </section>
       ) : plan ? (
-        <section className="rounded-xl border border-white/10 bg-white/[0.02] p-4 space-y-3">
+        <section className="relative isolate rounded-xl border border-white/10 bg-white/[0.02] p-4 space-y-3">
+          <CardArt pageId="zap" idx={3} />
           <div className="flex items-baseline justify-between gap-3">
             <h3 className="text-[13px] text-white">
               {plan.steps.length} step{plan.steps.length === 1 ? '' : 's'} into {plan.venue.positionLabel}
@@ -267,7 +271,8 @@ export function ZapPanel() {
 
       {/* ─── The run ───────────────────────────────────────────────────── */}
       {run && readout && plan ? (
-        <section className={`rounded-xl border p-4 space-y-3 ${TONE_CLASS[readout.tone] ?? TONE_CLASS.neutral}`}>
+        <section className={`relative isolate rounded-xl border p-4 space-y-3 ${TONE_CLASS[readout.tone] ?? TONE_CLASS.neutral}`}>
+          <CardArt pageId="zap" idx={4} />
           <div>
             <h3 className="text-[13px] font-medium">{readout.headline}</h3>
             <p className="mt-1 text-[12px] opacity-90">{readout.detail}</p>
@@ -309,7 +314,8 @@ export function ZapPanel() {
       ) : null}
 
       {orphanedRun ? (
-        <section className="rounded-xl border border-amber-400/40 bg-amber-500/5 p-4 space-y-2">
+        <section className="relative isolate rounded-xl border border-amber-400/40 bg-amber-500/5 p-4 space-y-2">
+          <CardArt pageId="zap" idx={5} />
           <h3 className="text-[13px] text-amber-200">An unfinished zap is saved for this wallet</h3>
           <p className="text-[12px] text-amber-100/90 font-mono break-words">{orphanedRun.summary}</p>
           <p className="text-[12px] text-white/70">

@@ -1,4 +1,5 @@
 import { Card, Notice } from '../curve/ui';
+import { CardArt } from '../../ui/CardArt';
 import type { LpWrites } from './useLpWrites';
 
 /**
@@ -12,7 +13,7 @@ export function LpGateBanner({ writes }: { writes: LpWrites }) {
   if (!text) return null;
   const unreadable = writes.gate?.kind === 'blocked' && writes.gate.reason === 'unreadable';
   return (
-    <Card title="Adding and removing liquidity" testId="lp-gate-banner">
+    <Card title="Adding and removing liquidity" testId="lp-gate-banner" art={<CardArt pageId="solana-lp" idx={4} />}>
       <Notice tone="warn">{text}</Notice>
       {writes.gate?.kind === 'blocked' && writes.gate.detail && <p className="text-white/40 text-[10px] break-all">{writes.gate.detail}</p>}
       {unreadable && (
