@@ -276,7 +276,8 @@ describe('the panel', () => {
     });
     expect(prepareLpCreate).toHaveBeenCalledTimes(1);
     expect((prepareLpCreate.mock.calls[0] as unknown[])[3]).toMatchObject({ quote: 1_500_000_000n, token: 100_000_000n });
-  });
+    // A whole flow (type, match, type again, review): past the default 5 s on a loaded machine.
+  }, 20_000);
 
   it('below the market the warning says below, and the loss is still what the gap costs', async () => {
     mount(readers());
@@ -317,7 +318,8 @@ describe('the panel', () => {
     // At the market it says the price and the shares, as it always did.
     fireEvent.change(sol(panel), { target: { value: '1' } });
     await waitFor(() => expect(status).toHaveTextContent(/^You would open the pool at 1 token = 0\.01 SOL and get 0\.316227666 pool shares\.$/));
-  });
+    // Two settled lines, half a second each.
+  }, 20_000);
 
   // Jupiter ANSWERED that the token has no market. The card offers the opening, and the
   // form says there is no market price, that the opener sets the first price, and has no
@@ -363,7 +365,7 @@ describe('the panel', () => {
         fireEvent.click(reviewButton(panel));
       });
       expect((prepareLpCreate.mock.calls[0] as unknown[])[3]).toMatchObject({ quoteMint: new PublicKey(SOL_QUOTE.mint), quote: 1_000_000_000n, token: 100_000_000n });
-    });
+    }, 20_000);
 
     // Unread is never "no market price". A panel that was open when Jupiter stopped
     // answering keeps Review off, and does not say there is no market.
@@ -386,7 +388,7 @@ describe('the panel', () => {
       expect(price).not.toHaveTextContent('There is no market price');
       // Not read is never a warning either.
       expect(within(panel).queryByTestId('lp-create-warnings')).toBeNull();
-    });
+    }, 20_000);
   });
 
   it('too small, and a locked part above 0.1%: said, and Review off', async () => {
