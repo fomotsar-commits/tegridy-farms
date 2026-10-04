@@ -5,7 +5,7 @@ import { displaySafe } from '../../../lib/launchMetadata/validate';
 import { feeReserveFor, isPlanProblem, planDeposit, solSetAside, spendableSol, type DepositPlan, type PlanProblem } from '../../../lib/solana/lp/liquidityMath';
 import { estimatedLoss } from '../../../lib/solana/lp/opening';
 import type { PoolView } from '../../../lib/solana/lp/poolFinder';
-import type { PoolHealth } from '../../../lib/solana/lp/poolHealth';
+import { REFERENCE_NAME, type PoolHealth } from '../../../lib/solana/lp/poolHealth';
 import type { TokenSafety } from '../../../lib/solana/lp/tokenSafety';
 import { solText, tokenText } from '../../../lib/solana/lp/format';
 import { Notice, Row, SlippagePicker } from '../curve/ui';
@@ -237,7 +237,7 @@ function AddInner({
       ? typed && typed.text.trim() !== ''
         ? null
         : 'Type an amount to see about how much that could cost you.'
-      : priceGapLossText(loss === null ? null : coinExact(loss, coin), off.against === 'outside' ? 'the outside price' : 'its own average');
+      : priceGapLossText(loss === null ? null : coinExact(loss, coin), REFERENCE_NAME[off.against]);
   // The pool's own warnings, then the cost line: the same order as on the review.
   const warningLines = lossLine ? [...health.deposits.warnings, lossLine] : health.deposits.warnings;
   // Review is described by them, so a screen reader says them when focus reaches the button.

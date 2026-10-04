@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, type Ref } from 'react';
 import { PublicKey } from '@solana/web3.js';
 import { parseMintInput } from '../../../lib/solana/lp/mintInput';
-import { assessPool, type PoolHealth } from '../../../lib/solana/lp/poolHealth';
+import { assessPools, type PoolHealth } from '../../../lib/solana/lp/poolHealth';
 import type { TokenSafety } from '../../../lib/solana/lp/tokenSafety';
 import type { PoolSearchRead } from '../../../lib/solana/lp/poolFinder';
 import type { OutsidePrice } from '../../../lib/solana/lp/outsidePrice';
@@ -504,16 +504,13 @@ function SearchResults({
   const { safety, pools, outside, coins, outsideAt, mint } = state;
   const writes = useLpWrites();
   const decimals = safety.kind === 'read' ? safety.facts?.decimals ?? null : null;
-  // One check per pool, shared by its card and by the "Open a new pool" card.
+  // One check per pool, shared by its card and by the "Open a new pool" card. All of them
+  // together (`assessPools`): the launch pool this search read is the other pools'
+  // reference when Jupiter has no route.
   const healths = useMemo(() => {
-    const m = new Map<string, PoolHealth>();
-    if (pools.kind !== 'ok') return m;
-    for (const p of pools.search.pools) {
-      if (p.kind === 'pool') {
-        m.set(p.view.address, assessPool({ view: p.view, tokenDecimals: decimals, chainNow: pools.search.chainNow, outside, coinOutside: coins[p.view.quote.mint] ?? null, safety }));
-      }
-    }
-    return m;
+    if (pools.kind !== 'ok') return new Map<string, PoolHealth>();
+    const views = pools.search.pools.flatMap((p) => (p.kind === 'pool' ? [p.view] : []));
+    return assessPools({ views, tokenDecimals: decimals, chainNow: pools.search.chainNow, outside, coins, safety });
   }, [pools, decimals, outside, coins, safety]);
   // Where a wish ends. Adding goes to the deepest pool that offers it; with none, and for
   // creating, it goes to the "Open a new pool" card, which opens its form or says why not.
