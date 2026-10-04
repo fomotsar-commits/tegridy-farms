@@ -16,6 +16,13 @@ export const solExact = (lamports: bigint) => `${formatSol(lamports, 9)} SOL`;
 export const unitsExact = (raw: bigint, decimals: number) => formatTokenAmount(raw, decimals, decimals).text;
 /** An amount said "about": four decimals is plenty for a preview the review restates exactly. */
 export const solAbout = (lamports: bigint) => `${formatSol(lamports, 4)} SOL`;
+/**
+ * An amount of SOL that something NEEDS, to four decimals, rounded UP. Cut down, a need
+ * of 0.00393516 SOL read "about 0.0039 SOL" beside a wallet that "has 0.00392 SOL": it
+ * looked like enough and was not (review, 2026-10-04). A figure that is needed never
+ * reads as less than it is. What a wallet HAS stays exact.
+ */
+export const solAboutUp = (lamports: bigint) => solAbout(((lamports + 99_999n) / 100_000n) * 100_000n);
 export const tokensAbout = (raw: bigint, decimals: number) => `${formatTokenAmount(raw, decimals, 4).text} tokens`;
 /**
  * An amount of the pool's pairing coin (quotes.ts), in that coin's own decimals and with
@@ -56,7 +63,7 @@ export function cannotFundText(a: {
   const noToken = a.availableToken === 0n;
   if (a.quote.native) {
     if (a.availableQuote === 0n && a.setAside !== null && a.lamports !== null) {
-      return `This wallet cannot ${a.doing} yet. That needs about ${solAbout(a.setAside)} for ${a.forWhat} before any SOL goes into the pool, and this wallet has ${solExact(a.lamports)}.${noToken ? ' It also holds none of this token, and a pool needs both.' : ''}`;
+      return `This wallet cannot ${a.doing} yet. That needs about ${solAboutUp(a.setAside)} for ${a.forWhat} before any SOL goes into the pool, and this wallet has ${solExact(a.lamports)}.${noToken ? ' It also holds none of this token, and a pool needs both.' : ''}`;
     }
     if (noToken) return `This wallet holds none of this token, so it cannot ${a.doing} yet. A pool needs both SOL and the token.`;
     return null;
@@ -66,11 +73,27 @@ export function cannotFundText(a: {
   const needsBoth = `A pool needs both ${coin} and the token.`;
   if (a.setAside !== null && a.lamports !== null && a.lamports < a.setAside) {
     const also = noCoin && noToken ? ` It also holds no ${coin} and none of this token. ${needsBoth}` : noCoin ? ` It also holds no ${coin}. ${needsBoth}` : noToken ? ` It also holds none of this token. ${needsBoth}` : '';
-    return `This wallet cannot ${a.doing} yet. That needs about ${solAbout(a.setAside)} for ${a.forWhat}, and this wallet has ${solExact(a.lamports)}. No SOL goes into the pool, but those costs are paid in SOL.${also}`;
+    return `This wallet cannot ${a.doing} yet. That needs about ${solAboutUp(a.setAside)} for ${a.forWhat}, and this wallet has ${solExact(a.lamports)}. No SOL goes into the pool, but those costs are paid in SOL.${also}`;
   }
   if (noCoin) return `This wallet holds no ${coin}${noToken ? ' and none of this token' : ''}, so it cannot ${a.doing} yet. ${needsBoth}`;
   if (noToken) return `This wallet holds none of this token, so it cannot ${a.doing} yet. ${needsBoth}`;
   return null;
+}
+
+/**
+ * What a pool price that is off is estimated to cost at the amounts typed: the Add form's
+ * line. These are the review's own words for it (write/liquidity.ts `LP_COPY.priceGapLoss`),
+ * so the form and the review say one thing; a test pins that the two are the same. They are
+ * written out here because the write layer is only loaded when a form is used.
+ *
+ * `loss` is the estimate, already printed in the pool's own coin. Null means it could not
+ * be worked out: that is said, never shown as 0. `back` is what the price would move back
+ * to ("the outside price", "its own average").
+ */
+export function priceGapLossText(loss: string | null, back: string): string {
+  return loss === null
+    ? `What a move back to ${back} would cost you at these amounts could not be worked out.`
+    : `At these amounts, a move back to ${back} would take up to about ${loss} of what you put in. That is an estimate.`;
 }
 
 /**

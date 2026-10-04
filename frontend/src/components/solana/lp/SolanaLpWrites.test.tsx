@@ -8,7 +8,6 @@ import { act, render, screen, waitFor, within, fireEvent } from '@testing-librar
 import { MemoryRouter } from 'react-router-dom';
 import { PublicKey } from '@solana/web3.js';
 import { LpInner, type LpWritesOverrides } from './SolanaLpSection';
-import { solAbout } from './panelKit';
 import type { LpReaders } from './readers';
 import type { TokenSafety } from '../../../lib/solana/lp/tokenSafety';
 import { SOL_QUOTE } from '../../../lib/solana/lp/quotes';
@@ -185,6 +184,16 @@ describe('Add liquidity', () => {
     expect(within(c).getByText('These checks run again, on fresh reads, when you press Review.')).toBeInTheDocument();
     expect(screen.getByTestId('lp-disclosure')).toHaveTextContent(/Opening a pool, adding and removing liquidity here send real transactions/);
     expect(screen.getByTestId('lp-disclosure')).not.toHaveTextContent(/only reads/);
+    // A clean token at the market price: the same green pass as ever, and no warning anywhere.
+    expect(within(c).getByText('Deposits: the checks pass')).toHaveClass('text-emerald-300/90');
+    expect(within(c).queryByTestId('lp-pool-warnings')).toBeNull();
+    expect(within(c).getByText('Difference').nextElementSibling?.textContent).toBe('0.0% above');
+    fireEvent.click(within(c).getByRole('button', { name: 'Add liquidity' }));
+    const panel = await screen.findByTestId('lp-add-panel');
+    await within(panel).findByRole('button', { name: 'Max SOL' });
+    fireEvent.change(within(panel).getByLabelText('SOL to add'), { target: { value: '1' } });
+    expect(within(panel).queryByTestId('lp-add-warnings')).toBeNull();
+    expect(panel).not.toHaveTextContent(/Read these before you review|a move back to|could cost you/);
   });
 
   // The owner on a phone (2026-10-03): "there is still no way to" add. The button was a
@@ -245,19 +254,53 @@ describe('Add liquidity', () => {
     await waitFor(() => expect(c).toHaveAttribute('data-add', 'checks'));
     expect(c).toHaveAttribute('data-deposits', 'unchecked');
     expect(within(c).queryByRole('button', { name: 'Add liquidity' })).toBeNull();
-    expect(c).toHaveTextContent(
-      "We offer adding liquidity only after checking the pool's price against a price from outside it, and we could not get one.",
-    );
+    // The reason is on the card, and the line under it says the rule as it is now: a
+    // check that could not be RUN. It no longer says an outside price is always needed
+    // (a pool with no market price at all is offered, with a warning).
+    expect(c).toHaveTextContent('We could not check its price against an outside price (Jupiter did not give a price (HTTP 502)).');
+    expect(c).toHaveTextContent('We offer adding liquidity only when every check above could be run, and one of them could not be run just now.');
+    expect(c).not.toHaveTextContent(/only after checking the pool's price against a price from outside it/);
     expect(c).not.toHaveTextContent(/Often that means/);
+    // Unread is not a warning: nothing here says deposits are open.
+    expect(c).not.toHaveTextContent('Deposits: open, with warnings');
+    expect(within(c).queryByTestId('lp-pool-warnings')).toBeNull();
   });
 
-  it('is never offered on a token that copies a well-known name', async () => {
-    const copy: TokenSafety = { ...okToken, verdict: 'warn', warnings: [{ code: 'copies-known-name', text: 'It calls itself USDC.' }] } as TokenSafety;
-    mount(readers({ safety: vi.fn(async () => new Map([[M, copy]])) }));
+  // Owner ruling 2026-10-04 ("any token"): a copied name stopped being a refusal. It is a
+  // warning, said on the card, on the form in full, and again on the review.
+  it('is offered on a token that copies a well-known name, and the copy is said on the card and on the form, with Review left on', async () => {
+    const TOKEN_LINE = 'It calls itself USDC, but it is NOT the real USDC (whose mint is EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v). It is a different token that copied the name.';
+    const POOL_LINE =
+      'It calls itself by a well-known token’s name but has a different mint, so it is not that token. If the copy turns out to be worth nothing, so is your share of this pool.';
+    const copy: TokenSafety = { ...okToken, verdict: 'warn', warnings: [{ code: 'copies-known-name', text: TOKEN_LINE }] } as TokenSafety;
+    const api = fakeLpApi({ prepareLpDeposit: vi.fn(async () => ({ ok: false as const, outcome: { status: 'not-sent' as const, stage: 'build' as const, message: 'x' } })) });
+    mount(readers({ safety: vi.fn(async () => new Map([[M, copy]])) }), { api });
     const c = await card();
-    await waitFor(() => expect(c).toHaveAttribute('data-add', 'checks'));
-    expect(c).toHaveAttribute('data-deposits', 'refused');
-    expect(within(c).queryByRole('button', { name: 'Add liquidity' })).toBeNull();
+    await waitFor(() => expect(c).toHaveAttribute('data-add', 'offer'));
+    expect(c).toHaveAttribute('data-deposits', 'allowed');
+    // Never a clean pass: the heading says there are warnings, and the warning is under it.
+    const deposits = within(c).getByTestId('lp-pool-deposits');
+    expect(deposits).toHaveTextContent('Deposits: open, with warnings');
+    expect(deposits).not.toHaveTextContent('Deposits: the checks pass');
+    expect(within(deposits).getByText(POOL_LINE)).toHaveClass('text-amber-300/90');
+    expect(c).not.toHaveTextContent(/does not take deposits|refused here/);
+    fireEvent.click(within(c).getByRole('button', { name: 'Add liquidity' }));
+    const panel = await screen.findByTestId('lp-add-panel');
+    // In full: the token's own sentence (which names the real one), and what it means for this pool.
+    expect(within(panel).getByText(TOKEN_LINE)).toBeInTheDocument();
+    const warnings = within(panel).getByTestId('lp-add-warnings');
+    expect(warnings).toHaveTextContent('Read these before you review. You can still add, and each one is a risk to what you put in:');
+    expect(within(warnings).getByText(POOL_LINE)).toHaveClass('text-amber-300/90');
+    const review = within(panel).getByRole('button', { name: 'Review: add liquidity' });
+    expect(warnings.compareDocumentPosition(review) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // A warning never switches Review off.
+    await within(panel).findByRole('button', { name: 'Max SOL' });
+    fireEvent.change(within(panel).getByLabelText('SOL to add'), { target: { value: '1' } });
+    expect(review).toBeEnabled();
+    await act(async () => {
+      fireEvent.click(review);
+    });
+    expect(api.prepareLpDeposit).toHaveBeenCalledTimes(1);
   });
 
   it("'withdraw-only': adding is paused on every card, removing is still offered", async () => {
@@ -359,7 +402,10 @@ describe('Add liquidity', () => {
     expect(cannot).toHaveTextContent('This wallet cannot add to this pool yet.');
     // (5,000 + 1,000,000) for one signature and the reserve, 2,039,280 for the share
     // account, and max(2,039,280, 890,880) kept in the wallet.
-    expect(cannot).toHaveTextContent(`needs about ${solAbout(5_083_560n)}`);
+    // What is needed is rounded UP when it is cut to four decimals (5,083,560 lamports is
+    // 0.00508356 SOL): cut down, "needs about 0.005" beside a wallet holding 0.00505 read
+    // as enough.
+    expect(cannot).toHaveTextContent('needs about 0.0051 SOL');
     expect(cannot).toHaveTextContent('this wallet has 0.003 SOL');
     expect(cannot).toHaveTextContent('holds none of this token');
     expect(within(panel).getByRole('button', { name: 'Review: add liquidity' })).toBeDisabled();
@@ -421,9 +467,10 @@ describe('the URL selects a token and nothing else', () => {
 });
 
 describe('Remove liquidity', () => {
-  it('is offered while deposits are refused (far-future open, price off) and on a set-aside row', async () => {
+  it('is offered while deposits are refused (an open time years away) and on a set-aside row', async () => {
     const far = view({ openTime: 10n ** 10n });
-    const blocked: TokenSafety = { ...okToken, verdict: 'blocked', blocks: [{ code: 'freeze-authority', text: 'Its creator can still freeze token accounts.' }] } as TokenSafety;
+    // A token that is still blocked: one the pool program itself does not accept.
+    const blocked: TokenSafety = { ...okToken, verdict: 'blocked', blocks: [{ code: 'extension', text: 'It uses a transfer hook. The pool program does not accept tokens with it.' }] } as TokenSafety;
     const otherMint = key().toBase58();
     const aside = view();
     const asideView: PoolView = { ...aside, tokenMint: otherMint };

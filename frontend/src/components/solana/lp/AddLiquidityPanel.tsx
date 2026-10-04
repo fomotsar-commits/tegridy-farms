@@ -3,6 +3,7 @@ import { PublicKey } from '@solana/web3.js';
 import { parseDecimalToBaseUnits } from '../../../lib/launcher/solana/curve/format';
 import { displaySafe } from '../../../lib/launchMetadata/validate';
 import { feeReserveFor, isPlanProblem, planDeposit, solSetAside, spendableSol, type DepositPlan, type PlanProblem } from '../../../lib/solana/lp/liquidityMath';
+import { estimatedLoss } from '../../../lib/solana/lp/opening';
 import type { PoolView } from '../../../lib/solana/lp/poolFinder';
 import type { PoolHealth } from '../../../lib/solana/lp/poolHealth';
 import type { TokenSafety } from '../../../lib/solana/lp/tokenSafety';
@@ -17,7 +18,7 @@ import { FundingNextStep } from './FundingNextStep';
 import { LpAmountPair, type LpSide } from './LpAmountPair';
 import { LpBeforeYouAdd, LpReviewDisclosure } from './LpDisclosures';
 import { PanelFrame } from './PanelFrame';
-import { NOTES_BELOW, cannotFundText, coinAbout, coinExact, reviewOffWhy, sharePct, solExact, tokensAbout, unitsExact, useDebounced, useFlowReports, useSettledAlert, useWalletFacts } from './panelKit';
+import { NOTES_BELOW, cannotFundText, coinAbout, coinExact, priceGapLossText, reviewOffWhy, sharePct, solExact, tokensAbout, unitsExact, useDebounced, useFlowReports, useSettledAlert, useWalletFacts } from './panelKit';
 import { lpHeld } from './offers';
 import { useLpWrites, type LpWrites } from './useLpWrites';
 
@@ -36,6 +37,13 @@ const ADD_HINT = 'If the pool’s price moves more than this before your deposit
  * in is what is left after the fees and the account deposits. Any other coin is spent
  * from the wallet's own account for it: the whole balance can go in, and the wallet's
  * SOL only has to cover the network fee and the pool-share account's deposit.
+ *
+ * WARNINGS (owner ruling 2026-10-04: any token may have a pool). A pool whose checks say
+ * 'allowed' may carry warnings (`health.deposits.warnings`): its price is off, it has no
+ * market price to be checked against, its token copies a well-known name or can be frozen.
+ * Each is said here, above Review, and again on the review, which reads everything fresh.
+ * A price that is off also gets what it is estimated to cost at the amounts typed, in the
+ * pool's own coin. A warning never switches Review off: the visitor is told, and decides.
  */
 export function AddLiquidityPanel(p: { view: PoolView; health: PoolHealth; safety: TokenSafety | null; tokenDecimals: number | null; onClose: () => void }) {
   const writes = useLpWrites();
@@ -46,6 +54,7 @@ export function AddLiquidityPanel(p: { view: PoolView; health: PoolHealth; safet
 
 function AddInner({
   view,
+  health,
   safety,
   tokenDecimals,
   onClose,
@@ -54,6 +63,7 @@ function AddInner({
   gate,
 }: {
   view: PoolView;
+  health: PoolHealth;
   safety: TokenSafety | null;
   tokenDecimals: number | null;
   onClose: () => void;
@@ -209,8 +219,31 @@ function AddInner({
       : `${sharePct(held, S)} → ${sharePct(held + plan.lp, S + plan.lp)}`
     : '';
   const wsolKept = facts?.kind === 'ok' && facts.wsol.exists && facts.wsol.amount > 0n;
+
+  // ── the warnings ──
+  // The pool's price is off what it was checked against. That is a warning, not a stop,
+  // so the form says what it is estimated to cost at the amounts typed. The same sum as
+  // the review's (opening.ts `estimatedLoss`), fed what goes in (not the maximums) and
+  // the price the check compared with. The answer is in the COIN's base units and is
+  // printed in the coin's decimals. Null is "could not be worked out", never 0.
+  const off = health.price.state === 'disagrees' ? health.price : null;
+  const loss =
+    off && plan
+      ? estimatedLoss({ quoteAmount: coinOf(plan).cost, token: tokOf(plan).cost, tokenDecimals: decimals, marketPricePerToken: off.reference, quote: coin })
+      : null;
+  const lossLine = !off
+    ? null
+    : !plan
+      ? 'Type an amount to see about how much that could cost you.'
+      : priceGapLossText(loss === null ? null : coinExact(loss, coin), off.against === 'outside' ? 'the outside price' : 'its own average');
+  // The pool's own warnings, then the cost line: the same order as on the review.
+  const warningLines = lossLine ? [...health.deposits.warnings, lossLine] : health.deposits.warnings;
+
+  // A price that is off is read out with the amounts: its cost changes with them.
   const status = useDebounced(
-    plan ? `You would add about ${coinAbout(coinOf(plan).cost, coin)} and ${tok(tokOf(plan).cost)} and get ${unitsExact(plan.lp, pool.lpMintDecimals)} pool shares.` : '',
+    plan
+      ? `You would add about ${coinAbout(coinOf(plan).cost, coin)} and ${tok(tokOf(plan).cost)} and get ${unitsExact(plan.lp, pool.lpMintDecimals)} pool shares.${lossLine ? ` ${lossLine}` : ''}`
+      : '',
   );
 
   // A deposit to this pool still pending (this panel's own, or one found after a reload) holds it.
@@ -324,6 +357,17 @@ function AddInner({
               </button>
             )}
           </div>
+          {/* What the pool's own checks warn of, said before Review and again on the review. It never switches Review off. */}
+          {warningLines.length > 0 && (
+            <div data-testid="lp-add-warnings" className="space-y-1">
+              <Notice tone="warn">Read these before you review. You can still add, and each one is a risk to what you put in:</Notice>
+              {warningLines.map((w) => (
+                <Notice key={w} tone="warn">
+                  {w}
+                </Notice>
+              ))}
+            </div>
+          )}
           {/* What this coin adds to the risks (quotes.ts), said before Review and again on it. */}
           {coin.risk && (
             <div data-testid="lp-add-coin-risk">

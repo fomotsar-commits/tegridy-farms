@@ -77,8 +77,19 @@ export interface LpFailureCopy {
 
 // The copy is final (spec 3.9), with plain apostrophes, so it reads the same in
 // the page and in the spec the e2e checks it against.
+//
+// A pool has two sides: the token, and the coin it is paired with (SOL, USDC or BAYLA).
+// The log of a frozen account does not say which side it was, and USDC's issuer can
+// freeze as well as a token's creator can. So the words cover both sides.
 const LP_FROZEN =
-  "The token's issuer has frozen an account this needs (the pool's vault or your token account), so nothing can move. That is the issuer's doing, not the pool program's.";
+  "The issuer of the token, or of what it is paired with, has frozen an account this needs (one of the pool's vaults, or your own account for either), so nothing can move. That is the issuer's doing, not the pool program's.";
+/**
+ * A token program's "insufficient funds" while adding to a pool or opening one. Both
+ * spend two things, the token and what it is paired with, and the log does not say which
+ * ran short: on a USDC pool it may be the USDC. Only for those two kinds. Every other
+ * kind spends one token and keeps "You do not hold that many tokens."
+ */
+export const LP_SHORT_OF_EITHER = 'You do not hold that much of the token, or of what it is paired with.';
 const LP_ATA_OWNER = 'One of your token accounts now belongs to another wallet, so this was stopped before anything moved.';
 
 export const LP_FAILURE_COPY: Record<Exclude<LpKind, 'lp-create'>, LpFailureCopy> = {
@@ -124,7 +135,8 @@ export const CREATE_FAILURE_COPY = {
   accountMissing:
     'An account the pool program needs is missing or wrong (the public fee tier, or the account that receives the fee to open a pool), so no pool can be opened right now. Nothing was opened.',
   constraint: 'The pool program refused the accounts this named. That is a fault in this site; nothing was opened. Please tell us.',
-  accountFrozen: "Your token account is frozen by the token's issuer, so nothing can move out of it. Nothing was opened.",
+  // Either side of the opening: the token's account, or the account of what it is paired with.
+  accountFrozen: 'Your account for the token, or for what it is paired with, is frozen by its issuer, so nothing can move out of it. Nothing was opened.',
 } as const;
 
 /** Anchor's own error numbers (anchor-lang 0.32.1 error.rs), raised inside cp-swap. */
@@ -292,13 +304,13 @@ export function explainFailure(
     if (lp !== null) return { program, code, message: lp };
     // In a create, Token-2022 runs only the $BAYLA plant, so its "insufficient funds"
     // is the plant's. Only in a create: a liquidity transaction's pool token can be a
-    // Token-2022 token, and its shortfall is the general one below.
+    // Token-2022 token (so can BAYLA, as a pool's coin), and its shortfall is said below.
     if (kind === 'create' && program === 'other' && id === TOKEN_2022_PROGRAM_ID.toBase58() && code === 1) {
       return { program, code, message: PLANT_SHORT };
     }
     // Both token programs number "insufficient funds" 1.
     if (program === 'other' && TOKEN_PROGRAMS.has(id) && code === 1) {
-      return { program, code, message: 'You do not hold that many tokens.' };
+      return { program, code, message: kind === 'lp-deposit' || kind === 'lp-create' ? LP_SHORT_OF_EITHER : 'You do not hold that many tokens.' };
     }
     if (/insufficient lamports/i.test(joined)) return { program, code, message: NOT_ENOUGH_SOL };
     if (/exceeded CUs meter|Computational budget exceeded/i.test(rest)) {

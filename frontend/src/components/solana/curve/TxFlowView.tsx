@@ -1,4 +1,4 @@
-import { useEffect, useRef, type ReactNode, type Ref } from 'react';
+import { useEffect, useId, useRef, type ReactNode, type Ref } from 'react';
 import { describeTreasury, formatSol, formatTokenAmount } from '../../../lib/launcher/solana/curve';
 import { ImpactRows, Notice, Row } from './ui';
 import { DIVIDER, bpsPercent, fractionToBps, sharePercent } from './uiFormat';
@@ -283,14 +283,24 @@ function shareText(pct: number): string {
   return pct < 0.01 ? '<0.01%' : `${pct.toFixed(2)}%`;
 }
 
+/**
+ * A price further than 3% from what it was checked against (poolHealth.ts
+ * `PRICE_TOLERANCE`; a test pins the two together). It no longer stops a deposit or an
+ * opening, so the price row must not read as a check that passed: it says so in words.
+ */
+const OFF_PRICE = 'That is off by more than 3%.';
+
 function priceText(p: Extract<TxSummary, { kind: 'lp-deposit' }>['price']): string {
   switch (p.state) {
-    case 'agrees':
-    case 'disagrees': {
+    case 'agrees': {
       const d = (Math.abs(p.diff) * 100).toFixed(1);
       return p.against === 'outside'
         ? `${d}% ${p.diff >= 0 ? 'above' : 'below'} the outside price (Jupiter), read just now`
         : `${d}% from its own average over the last 30 minutes`;
+    }
+    case 'disagrees': {
+      const gap = `${(Math.abs(p.diff) * 100).toFixed(1)}% ${p.diff >= 0 ? 'above' : 'below'}`;
+      return `${gap} ${p.against === 'outside' ? 'the outside price (Jupiter), read just now' : 'its own average over the last 30 minutes'}. ${OFF_PRICE}`;
     }
     case 'no-trades-yet':
       return 'nobody has traded since the launch program opened it';
@@ -302,6 +312,44 @@ function priceText(p: Extract<TxSummary, { kind: 'lp-deposit' }>['price']): stri
     case 'unread':
       return `not checked (${p.detail})`;
   }
+}
+
+type PriceGap = NonNullable<Extract<TxSummary, { kind: 'lp-deposit' }>['priceGap']>;
+/**
+ * What a price that is off is estimated to cost at the amounts going in, in the pool's
+ * OWN coin and that coin's decimals (the builder gives base units of the coin, never
+ * lamports for a USDC or BAYLA pool). An estimate that could not be worked out is said
+ * as that, never shown as 0.
+ */
+const gapCostText = (g: PriceGap, q: QuoteCoin) =>
+  g.lossQuote === null ? 'could not be worked out' : `up to about ${coinExact(g.lossQuote, q)} of what you put in (an estimate)`;
+
+/**
+ * What the builder says must be read before this is signed (`summary.warnings`: a price
+ * that is off and what it may cost, no market price, a copied name, a freezable token).
+ * Only adding and opening carry any. A removal never does: nothing here may give someone
+ * a reason to wait before taking their money out.
+ */
+function reviewWarnings(s: TxSummary): string[] {
+  return s.kind === 'lp-deposit' || s.kind === 'lp-create' ? s.warnings : [];
+}
+
+/**
+ * The warnings, first on the review, above every row: on a phone the review is two screens
+ * long, and a warning at the foot of it is read after the decision is made. The review's
+ * heading is described by them, so a screen reader says them when the review opens.
+ */
+function ReviewWarnings({ id, warnings }: { id: string; warnings: string[] }) {
+  return (
+    <div id={id} className="space-y-1" data-testid="tx-review-warnings">
+      <Notice tone="warn">Read these warnings first. Nothing here stops you signing, and each one is a risk to what you put in:</Notice>
+      <ul className="list-disc pl-4 text-amber-300/90 space-y-0.5">
+        {warnings.map((w, i) => (
+          <li key={`${i}:${w}`}>{w}</li>
+        ))}
+      </ul>
+    </div>
+  );
 }
 
 function LpPoolRows({ summary }: { summary: LpSummary }) {
@@ -334,6 +382,7 @@ function LpDepositRows({ summary: s }: { summary: Extract<TxSummary, { kind: 'lp
       <Row label="You get" value={`${unitsExact(s.lpAmount, s.lpDecimals)} pool shares, exactly`} />
       <Row label="Your share of the pool" value={`${shareText(s.sharePct.before)} → ${shareText(s.sharePct.after)}`} />
       <Row label="Price check" value={priceText(s.price)} mono={false} />
+      {s.priceGap && <Row label="Estimated cost of that gap" value={gapCostText(s.priceGap, q)} mono={false} />}
       <Row label="Pool fee to add" value="none" mono={false} />
       {s.tokenWarnings.length > 0 && (
         <div className="space-y-1">
@@ -410,11 +459,21 @@ function LpWithdrawRows({ summary: s }: { summary: Extract<TxSummary, { kind: 'l
 /** What a live mint authority allows, said once more where a pool is about to be opened. */
 const mintAuthorityLine = (q: QuoteCoin) => `Whoever holds it can make new tokens at any time and sell them into your pool for its ${q.symbol}.`;
 
-/** The opening price against the market, from the check that passed while preparing. */
+/**
+ * The opening price against the market, from the fresh check made while preparing. An
+ * opening is built when that check agrees, and also when the price is off or there is no
+ * market price at all (owner ruling 2026-10-04). Neither of those two is a check that
+ * passed, and the row says which it is.
+ */
 function openingPriceText(p: Extract<TxSummary, { kind: 'lp-create' }>['price'], q: QuoteCoin): string {
   if ((p.state === 'agrees' || p.state === 'disagrees') && p.against === 'outside') {
     const d = (Math.abs(p.diff) * 100).toFixed(1);
-    return `1 token = ${formatSolPrice(p.pool)} ${q.symbol}. Market (Jupiter, read just now): ${formatSolPrice(p.reference)} ${q.symbol}, ${d}% ${p.diff >= 0 ? 'above' : 'below'}`;
+    const line = `1 token = ${formatSolPrice(p.pool)} ${q.symbol}. Market (Jupiter, read just now): ${formatSolPrice(p.reference)} ${q.symbol}, ${d}% ${p.diff >= 0 ? 'above' : 'below'}`;
+    return p.state === 'disagrees' ? `${line}. ${OFF_PRICE}` : line;
+  }
+  // The opening price is still said: with no market, it is the only price there is.
+  if (p.state === 'no-market') {
+    return `1 token = ${formatSolPrice(p.pool)} ${q.symbol}. Jupiter has no market price for this token, so there is nothing to compare it with: you are setting the price yourself`;
   }
   return priceText(p);
 }
@@ -446,6 +505,7 @@ function LpCreateRows({ summary: s }: { summary: Extract<TxSummary, { kind: 'lp-
       {/* Sentences break only between words (mono={false}); only an address row breaks anywhere. */}
       <Row label="You put in" value={`${coinExact(s.put.quote, q)} and ${unitsExact(s.put.token, s.tokenDecimals)} tokens, exactly`} mono={false} />
       <Row label="Opening price" value={openingPriceText(s.price, q)} mono={false} />
+      {s.priceGap && <Row label="Estimated cost of that gap" value={gapCostText(s.priceGap, q)} mono={false} />}
       <Row label="Opens for trading" value="At once (one second after it lands)" mono={false} />
       <Row
         label="Fee to open the pool"
@@ -680,11 +740,14 @@ export function TxReview({
   /** Focus lands here when the review appears. */
   headingRef?: Ref<HTMLHeadingElement>;
 }) {
+  const warnings = reviewWarnings(prepared.summary);
+  const warningsId = useId();
   return (
     <div className="space-y-2" data-testid="tx-review">
-      <h3 ref={headingRef} tabIndex={-1} className="text-white font-semibold text-[12px] outline-none">
+      <h3 ref={headingRef} tabIndex={-1} aria-describedby={warnings.length > 0 ? warningsId : undefined} className="text-white font-semibold text-[12px] outline-none">
         {TITLES[prepared.kind]}
       </h3>
+      {warnings.length > 0 && <ReviewWarnings id={warningsId} warnings={warnings} />}
       {extra}
       <SummaryRows summary={prepared.summary} decimals={decimals} display={display} />
       <div className="pt-2 space-y-1.5" style={DIVIDER}>

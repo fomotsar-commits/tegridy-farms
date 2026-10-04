@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState, type RefObject } from 'react';
 import { isCreatedPool, type PoolEntry, type PoolView } from '../../../lib/solana/lp/poolFinder';
-import { formatWhen, type PoolHealth, type WithdrawalsState } from '../../../lib/solana/lp/poolHealth';
+import { PRICE_TOLERANCE, formatWhen, type PoolHealth, type WithdrawalsState } from '../../../lib/solana/lp/poolHealth';
 import { feeRateText, priceText, quoteText, tokenText, tradeCostText } from '../../../lib/solana/lp/format';
 import type { QuoteCoin } from '../../../lib/solana/lp/quotes';
 import { chargedCreatorFeeRate, feeSplit } from '../../../lib/solana/cpswap/venue';
@@ -39,17 +39,37 @@ function swapsText(h: PoolHealth): { text: string; tone: 'good' | 'warn' | 'bad'
   }
 }
 
-const DEPOSIT_TITLE = {
-  allowed: 'Deposits: the checks pass',
-  refused: 'Deposits: refused here',
-  unchecked: 'Deposits: not checked',
-} as const;
+/**
+ * The heading over a pool's deposit checks. A pool that takes deposits WITH warnings
+ * (owner ruling 2026-10-04: its price is off, it has no market price, its token copies a
+ * name or can be frozen) is never called a clean pass: the heading says there are
+ * warnings, in the warning colour, and they are listed under it.
+ */
+function depositHeading(d: PoolHealth['deposits']): { title: string; tone: string } {
+  if (d.verdict === 'refused') return { title: 'Deposits: refused here', tone: 'text-rose-300/90' };
+  if (d.verdict === 'unchecked') return { title: 'Deposits: not checked', tone: 'text-amber-300/90' };
+  return d.warnings.length > 0
+    ? { title: 'Deposits: open, with warnings', tone: 'text-amber-300/90' }
+    : { title: 'Deposits: the checks pass', tone: 'text-emerald-300/90' };
+}
+
+/** How far a price is from what it was checked against, said once: "2.6% above", "1.2% below" (never "-1.2% below"). */
+const differenceText = (diff: number) => `${(Math.abs(diff) * 100).toFixed(1)}% ${diff >= 0 ? 'above' : 'below'}`;
 
 /** The pool's price and what it was checked against, both in the pool's own pairing coin. */
 function PriceRows({ price, quote }: { price: PoolHealth['price']; quote: QuoteCoin }) {
   switch (price.state) {
     case 'empty-pool':
       return <Row label="Price" value="No price: one side is empty" mono={false} />;
+    case 'no-market':
+      // Jupiter ANSWERED that it has no market for the token. That is not a failed read,
+      // so it is not "unread": the price is shown, and what it was not checked against.
+      return (
+        <>
+          <Row label="Price here" value={priceText(price.pool, quote)} mono={false} />
+          <Row label="Checked against" value="Nothing: Jupiter has no market price for this token" mono={false} />
+        </>
+      );
     case 'no-trades-yet':
       return (
         <>
@@ -75,7 +95,12 @@ function PriceRows({ price, quote }: { price: PoolHealth['price']; quote: QuoteC
             value={priceText(price.reference, quote)}
             mono={false}
           />
-          <Row label="Difference" value={`${(price.diff * 100).toFixed(1)}% ${price.diff >= 0 ? 'above' : 'below'}`} mono={false} />
+          {/* Further apart than the check allows is a warning (listed with the deposit checks), not a refusal: the row says which side of the line it is. */}
+          <Row
+            label="Difference"
+            value={`${differenceText(price.diff)}${price.state === 'disagrees' ? `. That is more than ${Math.round(PRICE_TOLERANCE * 100)}% apart: see the warning above.` : ''}`}
+            mono={false}
+          />
         </>
       );
   }
@@ -180,6 +205,7 @@ export function PoolCard({
   const quoteFees = view.quoteIsToken0 ? [pool.protocolFeesToken0 + pool.fundFeesToken0, pool.creatorFeesToken0] : [pool.protocolFeesToken1 + pool.fundFeesToken1, pool.creatorFeesToken1];
   const tokFees = view.quoteIsToken0 ? [pool.protocolFeesToken1 + pool.fundFeesToken1, pool.creatorFeesToken1] : [pool.protocolFeesToken0 + pool.fundFeesToken0, pool.creatorFeesToken0];
   const price = health.price;
+  const depositsHead = depositHeading(health.deposits);
 
   return (
     <li
@@ -214,12 +240,19 @@ export function PoolCard({
         <Row label="Swaps" value={swaps.text} mono={false} />
         <Row label="Withdrawals" value={WITHDRAWALS_TEXT[health.withdrawals]} mono={false} />
         <div data-testid="lp-pool-deposits">
-          <p className={`text-[12px] font-semibold ${health.deposits.verdict === 'allowed' ? 'text-emerald-300/90' : health.deposits.verdict === 'refused' ? 'text-rose-300/90' : 'text-amber-300/90'}`}>
-            {DEPOSIT_TITLE[health.deposits.verdict]}
-          </p>
+          <p className={`text-[12px] font-semibold ${depositsHead.tone}`}>{depositsHead.title}</p>
           {health.deposits.reasons.map((r) => (
             <Notice key={r} tone={health.deposits.verdict === 'refused' ? 'bad' : 'warn'}>{r}</Notice>
           ))}
+          {/* Said whatever the verdict is: a pool that is refused or unchecked for another reason still has them. */}
+          {health.deposits.warnings.length > 0 && (
+            <div data-testid="lp-pool-warnings" className="space-y-1">
+              {health.deposits.verdict !== 'allowed' && <p className="text-amber-300/90 font-semibold">Warnings about this pool, apart from that:</p>}
+              {health.deposits.warnings.map((w) => (
+                <Notice key={w} tone="warn">{w}</Notice>
+              ))}
+            </div>
+          )}
           {!writes && health.deposits.verdict === 'allowed' && (
             <Notice>Adding liquidity from this page is not switched on yet. These checks will run again before any deposit.</Notice>
           )}
@@ -335,8 +368,11 @@ function OfferLine({ offer, health }: { offer: DepositOffer; health: PoolHealth 
     case 'held':
       return <Notice tone="warn">A deposit you sent to this pool is not confirmed yet (see the top of this section).</Notice>;
     case 'checks':
+      // Not about the outside price alone any more: a pool with no market price at all is
+      // offered, with a warning. What stops it here is a check that could not be RUN (the
+      // reasons above say which), and a read that failed is never taken as a pass.
       return health.deposits.verdict === 'unchecked' ? (
-        <Notice>We offer adding liquidity only after checking the pool&apos;s price against a price from outside it, and we could not get one.</Notice>
+        <Notice>We offer adding liquidity only when every check above could be run, and one of them could not be run just now.</Notice>
       ) : null;
     case 'offer':
     case 'gate':

@@ -2,7 +2,8 @@
 import { describe, it, expect } from 'vitest';
 import { tokenText } from '../../../lib/solana/lp/format';
 import { BAYLA_QUOTE, SOL_QUOTE, USDC_QUOTE } from '../../../lib/solana/lp/quotes';
-import { cannotFundText, coinAbout, coinExact, solAbout, solExact, tokensAbout, unitsExact } from './panelKit';
+import { LP_COPY } from '../../../lib/launcher/solana/write/liquidity';
+import { cannotFundText, coinAbout, coinExact, priceGapLossText, solAbout, solAboutUp, solExact, tokensAbout, unitsExact } from './panelKit';
 
 describe('the "about" amounts on the liquidity panels', () => {
   it('never say a real amount is 0, on the token side as on the SOL side', () => {
@@ -54,6 +55,61 @@ describe('an amount of the pool’s pairing coin', () => {
   });
 });
 
+// "That needs about 0.0039 SOL ... and this wallet has 0.00392 SOL" read as enough, and
+// the wallet was 15,160 lamports short (review, 2026-10-04). Cut to four decimals, what
+// is NEEDED is rounded up, so it can never read as less than it is.
+describe('an amount of SOL that is needed is rounded up when it is cut', () => {
+  it('goes up to the next 0.0001 SOL, and a figure already on the line stays where it is', () => {
+    expect(solAbout(3_935_160n)).toBe('0.0039 SOL');
+    expect(solAboutUp(3_935_160n)).toBe('0.004 SOL');
+    expect(solAboutUp(3_900_001n)).toBe('0.004 SOL');
+    expect(solAboutUp(3_900_000n)).toBe('0.0039 SOL');
+    expect(solAboutUp(193_989_240n)).toBe('0.194 SOL');
+    expect(solAboutUp(1n)).toBe('0.0001 SOL');
+    expect(solAboutUp(0n)).toBe('0 SOL');
+    expect(solAboutUp(1_000_000_000n)).toBe('1 SOL');
+  });
+
+  it('is never below the amount itself, for any amount', () => {
+    for (const need of [1n, 4_999n, 99_999n, 100_000n, 100_001n, 3_935_159n, 3_935_160n, 5_083_560n, 193_940_160n, 195_088_560n, 999_999_999n, 12_345_678_901n]) {
+      const shown = BigInt(Math.round(Number(solAboutUp(need).replace(' SOL', '')) * 1e9));
+      expect(shown >= need, `${need}`).toBe(true);
+      expect(shown - need < 100_000n, `${need}`).toBe(true);
+    }
+  });
+
+  it('the sentence a short wallet reads: the need is above what it has', () => {
+    const add = { doing: 'add to this pool', forWhat: 'fees and account deposits' };
+    expect(cannotFundText({ ...add, quote: USDC_QUOTE, lamports: 3_920_000n, setAside: 3_935_160n, availableQuote: 1n, availableToken: 1n })).toBe(
+      'This wallet cannot add to this pool yet. That needs about 0.004 SOL for fees and account deposits, and this wallet has 0.00392 SOL. No SOL goes into the pool, but those costs are paid in SOL.',
+    );
+    // A SOL pool's sentence is the same one.
+    expect(cannotFundText({ ...add, quote: SOL_QUOTE, lamports: 5_050_000n, setAside: 5_083_560n, availableQuote: 0n, availableToken: 1n })).toBe(
+      'This wallet cannot add to this pool yet. That needs about 0.0051 SOL for fees and account deposits before any SOL goes into the pool, and this wallet has 0.00505 SOL.',
+    );
+  });
+});
+
+// The Add form says what a price that is off may cost in the review's own words. They are
+// written twice (the write layer is loaded only when a form is used), so this pins that
+// the two copies are one sentence.
+describe('the estimated cost of a price that is off', () => {
+  it('is said on the form exactly as the builder says it on the review', () => {
+    for (const back of ['the outside price', 'its own average', 'the market price']) {
+      expect(priceGapLossText('0.214427 USDC', back)).toBe(LP_COPY.priceGapLoss('0.214427 USDC', back));
+      expect(priceGapLossText(null, back)).toBe(LP_COPY.priceGapLoss(null, back));
+    }
+  });
+
+  it('an estimate that could not be worked out names no amount', () => {
+    expect(priceGapLossText(null, 'the outside price')).toBe('What a move back to the outside price would cost you at these amounts could not be worked out.');
+    expect(priceGapLossText(null, 'the outside price')).not.toMatch(/\d/);
+    expect(priceGapLossText('0.214427 USDC', 'the outside price')).toBe(
+      'At these amounts, a move back to the outside price would take up to about 0.214427 USDC of what you put in. That is an estimate.',
+    );
+  });
+});
+
 describe('cannotFundText: a wallet that cannot fund the action is told so, and why', () => {
   const OPEN = { doing: 'open a pool', forWhat: 'the fee to open, the account deposits and network fees' };
   const SET_ASIDE = 193_989_240n;
@@ -65,13 +121,13 @@ describe('cannotFundText: a wallet that cannot fund the action is told so, and w
 
     it('no SOL left to put in after the costs', () => {
       expect(sol({ availableQuote: 0n, availableToken: 500n })).toBe(
-        'This wallet cannot open a pool yet. That needs about 0.1939 SOL for the fee to open, the account deposits and network fees before any SOL goes into the pool, and this wallet has 0.005960758 SOL.',
+        'This wallet cannot open a pool yet. That needs about 0.194 SOL for the fee to open, the account deposits and network fees before any SOL goes into the pool, and this wallet has 0.005960758 SOL.',
       );
     });
 
     it('no SOL to put in and none of the token', () => {
       expect(sol({ availableQuote: 0n, availableToken: 0n })).toBe(
-        'This wallet cannot open a pool yet. That needs about 0.1939 SOL for the fee to open, the account deposits and network fees before any SOL goes into the pool, and this wallet has 0.005960758 SOL. It also holds none of this token, and a pool needs both.',
+        'This wallet cannot open a pool yet. That needs about 0.194 SOL for the fee to open, the account deposits and network fees before any SOL goes into the pool, and this wallet has 0.005960758 SOL. It also holds none of this token, and a pool needs both.',
       );
     });
 
@@ -102,7 +158,7 @@ describe('cannotFundText: a wallet that cannot fund the action is told so, and w
     const usdc = (o: { lamports?: bigint | null; setAside?: bigint | null; availableQuote: bigint | null; availableToken: bigint | null }) =>
       cannotFundText({ ...OPEN, quote: USDC_QUOTE, lamports: SET_ASIDE, setAside: SET_ASIDE, ...o });
     const SOL_LINE =
-      'This wallet cannot open a pool yet. That needs about 0.1939 SOL for the fee to open, the account deposits and network fees, and this wallet has 0.005960758 SOL. No SOL goes into the pool, but those costs are paid in SOL.';
+      'This wallet cannot open a pool yet. That needs about 0.194 SOL for the fee to open, the account deposits and network fees, and this wallet has 0.005960758 SOL. No SOL goes into the pool, but those costs are paid in SOL.';
 
     it('(a) too little SOL for the network fee and the account deposits: the amount needed and the amount held', () => {
       expect(usdc({ lamports: SHORT, availableQuote: 250_000_000n, availableToken: 500n })).toBe(SOL_LINE);

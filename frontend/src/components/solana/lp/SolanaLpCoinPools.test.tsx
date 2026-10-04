@@ -211,6 +211,19 @@ async function openRemove(v: PoolView, o: { api?: LpWriteApi; readers?: Partial<
 /** The wallet read has landed once the form says what the wallet holds. */
 const walletRead = (panel: HTMLElement) => waitFor(() => expect(panel).not.toHaveTextContent('Reading your wallet…'));
 
+/**
+ * The line a form reads out to a screen reader (its `role="status"` paragraph, which is
+ * not on screen). A panel has more than one status, so it is found by how it starts.
+ */
+const statusLine = (panel: HTMLElement, starts: string) =>
+  within(panel)
+    .getAllByRole('status')
+    .map((s) => s.textContent ?? '')
+    .find((t) => t.startsWith(starts)) ?? null;
+
+/** One signature's fee and the reserve kept for it (liquidityMath.ts `feeReserveFor(1)`). */
+const FEE_RESERVE = 1_005_000n;
+
 beforeEach(() => {
   sessionStorage.clear();
   wallet.publicKey = OWNER;
@@ -302,6 +315,18 @@ describe.each(COINS)('Add liquidity to a pool paired with %s', (symbol, coin) =>
     type(COIN_BOX, '100');
     expect(within(panel).getByText(`Worked out from the ${symbol} amount: at most 9,999.909 tokens can leave your wallet. You have 50,000 tokens.`)).toBeInTheDocument();
   });
+
+  // The one place the coin amount is said that is not on screen. Printed with SOL's 9
+  // decimals a screen-reader user would hear "0.099009 SOL" on this pool.
+  it('the line read out to a screen reader says the coin amount in the coin’s own decimals', async () => {
+    const { panel, type } = await openAdd(view(coin, LOW));
+    await within(panel).findByRole('button', { name: `Max ${symbol}` });
+    type(COIN_BOX, '100');
+    // Read out once typing settles, never on every digit.
+    await waitFor(() => expect(statusLine(panel, 'You would add')).toBe(`You would add about 99.009 ${symbol} and 9,900.9 tokens and get 0.000099009 pool shares.`), {
+      timeout: 4_000,
+    });
+  }, 20_000);
 
   it('Max puts in the whole coin balance when the tokens cover it', async () => {
     const { panel, box, review, row } = await openAdd(view(coin, LOW));
@@ -408,9 +433,10 @@ describe.each(COINS)('Add liquidity to a pool paired with %s', (symbol, coin) =>
     const { panel, type, review } = await openAdd(view(coin, LOW), { readers: { wallet: vi.fn(async () => poor) } });
     const cannot = await within(panel).findByTestId('lp-add-cannot');
     // (5,000 + 1,000,000) for one signature and the reserve, 2,039,280 for the pool-share
-    // account, and 890,880 kept in the wallet. No wrapped-SOL account is opened, so none is paid for.
+    // account, and 890,880 kept in the wallet: 3,935,160 lamports. No wrapped-SOL account
+    // is opened, so none is paid for. What is needed is rounded UP to four decimals.
     expect(cannot).toHaveTextContent(
-      `This wallet cannot add to this pool yet. That needs about ${solAbout(3_935_160n)} for fees and account deposits, and this wallet has 0.003 SOL. No SOL goes into the pool, but those costs are paid in SOL.`,
+      'This wallet cannot add to this pool yet. That needs about 0.004 SOL for fees and account deposits, and this wallet has 0.003 SOL. No SOL goes into the pool, but those costs are paid in SOL.',
     );
     expect(cannot).not.toHaveTextContent(`holds no ${symbol}`);
     expect(within(cannot).getByTestId('lp-funding-next')).toHaveTextContent('Send SOL to this wallet, then come back to this tab.');
@@ -419,6 +445,17 @@ describe.each(COINS)('Add liquidity to a pool paired with %s', (symbol, coin) =>
     expect(within(panel).getByTestId('lp-add-preview')).toBeInTheDocument();
     expect(review()).toBeDisabled();
     expect(within(panel).getByTestId('lp-review-why')).toHaveTextContent('Review is off for this wallet: the top of this form says what it is short of.');
+  });
+
+  // "needs about 0.0039 SOL ... has 0.00392 SOL" read as enough when it was not (review,
+  // 2026-10-04). The figure needed never reads as less than it is.
+  it('a wallet just short of the SOL is never told a need smaller than what it has', async () => {
+    const nearly = walletOf(coin, { lamports: 3_920_000n });
+    const { panel, review } = await openAdd(view(coin, LOW), { readers: { wallet: vi.fn(async () => nearly) } });
+    const cannot = await within(panel).findByTestId('lp-add-cannot');
+    expect(cannot).toHaveTextContent('That needs about 0.004 SOL for fees and account deposits, and this wallet has 0.00392 SOL.');
+    expect(cannot).not.toHaveTextContent('0.0039 SOL');
+    expect(review()).toBeDisabled();
   });
 
   it('the SOL it needs is the fee and the share account’s deposit only when that account is missing', async () => {
@@ -611,6 +648,87 @@ describe.each(COINS)('Remove liquidity from a pool paired with %s', (symbol, coi
     expect(api.prepareLpWithdraw).toHaveBeenCalledTimes(1);
   }, 20_000);
 
+  // What the warning measures: the deposit, the fee and its reserve, and what a wallet must
+  // keep to stay open. Exactly that much is enough; one lamport less may not be.
+  it.each([
+    ['exactly what it needs: no warning', 0n, false],
+    ['one lamport less: the warning', -1n, true],
+  ] as const)('the warning counts the deposit, the fee reserve and the wallet’s floor (%s)', async (_n, under, warned) => {
+    const w = walletOf(coin, { coin: noCoinAccount, lamports: coinRent(coin) + FEE_RESERVE + FLOOR + under });
+    const { panel, review, row } = await openRemove(view(coin, LOW), { readers: { wallet: vi.fn(async () => w) } });
+    fireEvent.click(within(panel).getByRole('button', { name: '50%' }));
+    await waitFor(() => expect(row(ARRIVES)).toHaveTextContent(COIN_ACCOUNT));
+    expect(within(panel).queryByTestId('lp-remove-may-lack-sol') !== null).toBe(warned);
+    expect(review()).toBeEnabled();
+  });
+
+  it('a poor wallet that opens both accounts is told what the two deposits come to', async () => {
+    const poor = walletOf(coin, { coin: noCoinAccount, token: null, lamports: 1_000_000n });
+    const { panel, review } = await openRemove(view(coin, LOW), { readers: { wallet: vi.fn(async () => poor) } });
+    fireEvent.click(within(panel).getByRole('button', { name: '50%' }));
+    const warn = await within(panel).findByTestId('lp-remove-may-lack-sol');
+    // The token's classic account (2,039,280) and the coin's own.
+    const total = coin === BAYLA_QUOTE ? '0.00411336 SOL' : '0.00407856 SOL';
+    expect(warn).toHaveTextContent(
+      `This wallet may be short of SOL for this. It has 0.001 SOL. This withdrawal opens the token account and the ${symbol} account, whose deposits come to ${total}, and pays the network fee. You can still press Review: it test-runs the withdrawal and says for sure. If it is refused, send a little SOL to this wallet and try again.`,
+    );
+    // Both were read, so the figure is exact and says so by not hedging.
+    expect(warn).not.toHaveTextContent('at least');
+    expect(review()).toBeEnabled();
+  });
+
+  // A Token-2022 token's account is sized at the review, so its deposit is not read here.
+  // It was counted as 0: the total was half the truth, and some wallets were told nothing.
+  // It is counted at the least any token account costs (2,039,280), and the words say so.
+  it('a deposit that was not read counts as the least it can be: "at least", and the review has the exact figure', async () => {
+    // 4,500,000 lamports covers the coin's deposit alone and would have shown nothing.
+    const poor = walletOf(coin, { coin: noCoinAccount, token: null, lamports: 4_500_000n });
+    const { api, panel, review, row } = await openRemove(view(coin, LOW, { token2022: true }), {
+      api: fakeLpApi({ prepareLpWithdraw: notSent() }),
+      readers: { wallet: vi.fn(async () => poor) },
+    });
+    fireEvent.click(within(panel).getByRole('button', { name: '50%' }));
+    const warn = await within(panel).findByTestId('lp-remove-may-lack-sol');
+    const atLeast = coin === BAYLA_QUOTE ? '0.00411336 SOL' : '0.00407856 SOL';
+    expect(warn).toHaveTextContent(
+      `This wallet may be short of SOL for this. It has 0.0045 SOL. This withdrawal opens the token account and the ${symbol} account, whose deposits come to at least ${atLeast} (the review shows the exact figure), and pays the network fee.`,
+    );
+    // The cost row beside it still gives no total: the two lines agree.
+    expect(row('Network fee and account deposit')).toHaveTextContent('plus a deposit for the token account and the');
+    // Said, never a stop: the review's own reads and its test run decide.
+    expect(review()).toBeEnabled();
+    await act(async () => {
+      fireEvent.click(review());
+    });
+    expect(api.prepareLpWithdraw).toHaveBeenCalledTimes(1);
+  }, 20_000);
+
+  it.each([
+    ['exactly the least it can need: no warning', 0n, false],
+    ['one lamport less: the warning', -1n, true],
+  ] as const)('only the unread token account is opened: the check uses that same least figure (%s)', async (_n, under, warned) => {
+    const w = walletOf(coin, { token: null, lamports: RENT_165 + FEE_RESERVE + FLOOR + under });
+    const { panel, review, row } = await openRemove(view(coin, LOW, { token2022: true }), { readers: { wallet: vi.fn(async () => w) } });
+    fireEvent.click(within(panel).getByRole('button', { name: '50%' }));
+    await waitFor(() => expect(row('The tokens arrive in')).toHaveTextContent(TOKEN_ATA));
+    const warn = within(panel).queryByTestId('lp-remove-may-lack-sol');
+    expect(warn !== null).toBe(warned);
+    if (warn) {
+      expect(warn).toHaveTextContent('This withdrawal opens the token account, whose deposit is at least 0.00203928 SOL (the review shows the exact figure), and pays the network fee.');
+    }
+    expect(review()).toBeEnabled();
+  });
+
+  it('the line read out to a screen reader says what comes back in the coin’s own decimals', async () => {
+    const { panel } = await openRemove(view(coin, LOW));
+    fireEvent.click(within(panel).getByRole('button', { name: '50%' }));
+    // 123,750,000 base units: 123.75 of the coin, never 0.12375 SOL.
+    await waitFor(
+      () => expect(statusLine(panel, 'You would give back')).toBe(`You would give back 0.000125 pool shares and get at least 123.75 ${symbol} and 12,375 tokens.`),
+      { timeout: 4_000 },
+    );
+  }, 20_000);
+
   it('a wallet with both accounts and almost no SOL is told nothing: nothing is opened', async () => {
     const poor = walletOf(coin, { lamports: 10_000n });
     const { panel, review, row } = await openRemove(view(coin, LOW), { readers: { wallet: vi.fn(async () => poor) } });
@@ -668,12 +786,49 @@ describe.each(COINS)('Remove liquidity from a pool paired with %s', (symbol, coi
 
   it('a token that is blocked on this site can still be taken out', async () => {
     const v = view(coin, LOW);
-    const blocked: TokenSafety = { ...okToken(v.tokenMint), verdict: 'blocked', blocks: [{ code: 'freeze-authority', text: 'Its creator can still freeze token accounts.' }] } as TokenSafety;
+    // A reason that still blocks: the pool program itself does not accept the token.
+    const HOOK = 'It uses a transfer hook, a program that runs on every transfer and can refuse or redirect it. The pool program does not accept tokens with it.';
+    const blocked: TokenSafety = { ...okToken(v.tokenMint), verdict: 'blocked', blocks: [{ code: 'extension', text: HOOK }] } as TokenSafety;
     const { panel, review } = await openRemove(v, { readers: { safety: vi.fn(async () => new Map([[v.tokenMint, blocked]])) } });
     fireEvent.click(within(panel).getByRole('button', { name: 'All' }));
-    expect(panel).toHaveTextContent('This token is blocked on this site for new deposits (Its creator can still freeze token accounts.). You can still take your liquidity out.');
+    expect(panel).toHaveTextContent(`This token is blocked on this site for new deposits (${HOOK}). You can still take your liquidity out.`);
     expect(review()).toBeEnabled();
   });
+
+  // "Any token" (owner ruling 2026-10-04) made four refusals into warnings for ADDING and
+  // OPENING. Taking liquidity out is not touched by any of it: no warning, no wait, nothing off.
+  it('a freezable copy in a pool 10% off the market: Remove says nothing of it and Review is on at once', async () => {
+    const v = view(coin, LOW);
+    const risky: TokenSafety = {
+      ...okToken(v.tokenMint),
+      verdict: 'warn',
+      warnings: [
+        { code: 'freeze-authority', text: 'Its creator can freeze any account that holds it.' },
+        { code: 'copies-known-name', text: 'It calls itself USDC, but it is NOT the real USDC.' },
+      ],
+    } as TokenSafety;
+    const { api, panel, review } = await openRemove(v, {
+      api: fakeLpApi({ prepareLpWithdraw: notSent() }),
+      path: `/pools?mint=${v.tokenMint}`,
+      readers: {
+        safety: vi.fn(async () => new Map([[v.tokenMint, risky]])),
+        // The token's market price puts the pool 10% above it.
+        outsidePrice: vi.fn(async (mint: string) => ({ kind: 'ok' as const, solPerToken: mint === coin.mint ? 0.005 : 0.00005 / 1.1, source: 'Jupiter' as const })),
+      },
+    });
+    // The pool's own card carries the warnings, for someone adding.
+    const card = await screen.findByTestId('lp-pool');
+    await waitFor(() => expect(within(card).getByTestId('lp-pool-warnings').querySelectorAll('p')).toHaveLength(3));
+    // The Remove form carries none of them.
+    fireEvent.click(within(panel).getByRole('button', { name: 'All' }));
+    expect(panel).not.toHaveTextContent(/freeze|copied|calls itself by|outside price|arbitrage|warning|blocked on this site/i);
+    expect(within(panel).queryByTestId('lp-remove-may-lack-sol')).toBeNull();
+    expect(review()).toBeEnabled();
+    await act(async () => {
+      fireEvent.click(review());
+    });
+    expect(api.prepareLpWithdraw).toHaveBeenCalledTimes(1);
+  }, 20_000);
 });
 
 describe('a SOL pool’s Remove form says what it always said', () => {
