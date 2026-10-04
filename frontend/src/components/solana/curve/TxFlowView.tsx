@@ -464,7 +464,7 @@ function LpWithdrawRows({ summary: s }: { summary: Extract<TxSummary, { kind: 'l
 }
 
 /** What a live mint authority allows, said once more where a pool is about to be opened. */
-const mintAuthorityLine = (q: QuoteCoin) => `Whoever holds it can make new tokens at any time and sell them into your pool for its ${q.symbol}.`;
+const mintAuthorityLine = (q: QuoteCoin) => `Whoever holds that mint authority can make new tokens at any time and sell them into your pool for its ${q.symbol}.`;
 
 /**
  * The opening price against the market, from the fresh check made while preparing. An

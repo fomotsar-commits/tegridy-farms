@@ -26,7 +26,7 @@ import { useLpWrites, type LpWrites } from './useLpWrites';
 
 const LP_DECIMALS = 9;
 /** What a live mint authority can do to the new pool: the pool holds the pairing coin, so that is what is at risk. */
-const mintAuthorityLine = (coin: QuoteCoin) => `Whoever holds it can make new tokens at any time and sell them into your pool for its ${coin.symbol}.`;
+const mintAuthorityLine = (coin: QuoteCoin) => `Whoever holds that mint authority can make new tokens at any time and sell them into your pool for its ${coin.symbol}.`;
 
 /**
  * What an opening off the market is estimated to cost, in the words the review says again
