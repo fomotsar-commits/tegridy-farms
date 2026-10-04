@@ -648,5 +648,13 @@ describe('a frozen vault: who can have frozen it', () => {
     expect(within(row).getByText('Withdrawals').nextElementSibling?.textContent).toBe(`blocked: a pool vault is frozen by ${who}`);
     // The coin is named as a possible freezer on the USDC pool only.
     for (const el of [c, row]) expect(/issuer or (SOL|USDC|BAYLA)’s/.test(el.textContent ?? '')).toBe(coin === USDC_QUOTE);
+    // The notice right under that row says the same thing as the row. It was a fixed
+    // sentence that blamed the token's issuer on every pool, so on a USDC pool it
+    // contradicted the row one line above it (whole-change review, 2026-10-04). On a SOL
+    // or a BAYLA pool it reads, to the letter, as it always did.
+    const freezer = coin === USDC_QUOTE ? "The token's issuer or USDC's" : "The token's issuer";
+    expect(within(row).getByText(/has frozen one of this pool/).textContent).toBe(
+      `${freezer} has frozen one of this pool's vaults, so nothing can move in or out, for anyone. That is the issuer's doing, not the pool program's. Your pool shares stay in your wallet.`,
+    );
   }, 20_000);
 });

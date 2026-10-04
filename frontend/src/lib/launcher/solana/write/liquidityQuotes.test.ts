@@ -338,12 +338,14 @@ describe('prepareLpDeposit: a pool paired with USDC or BAYLA', () => {
 
   it.each([
     ['could not be read', { kind: 'unread', detail: 'HTTP 502' } as OutsidePrice],
-    ['has no route', { kind: 'no-route', detail: 'no route' } as OutsidePrice],
+    ['has no route', { kind: 'no-route', detail: 'Jupiter has no route for this token' } as OutsidePrice],
   ])('the coin’s own price %s, with a token price to compare: the deposit check is unchecked, so nothing is built', async (_n, coin) => {
     const w = world(USDC_QUOTE);
     const msg = refused(await deposit(w, {}, priced(USDC_QUOTE, { coin })));
     expect(msg).toMatch(/^We did not build this deposit: /);
     expect(msg).toMatch(/the price of USDC/);
+    // Jupiter's "no route" words say "this token"; of the coin, the refusal names the coin.
+    expect(msg).not.toMatch(/this token/);
   });
 
   // With no route for the TOKEN nothing is compared, so the coin's own price is not needed.

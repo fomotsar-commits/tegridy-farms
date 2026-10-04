@@ -620,9 +620,10 @@ describe('prepareLpCreate with USDC or BAYLA: what refuses it, each in its own w
     expect(refused(await create(w, {}, priced(quote, { coin: unread })))).toBe(CREATE_COPY.coinPriceUnread(quote.symbol, 'Jupiter did not give a price (HTTP 502)'));
     const noRoute: OutsidePrice = { kind: 'no-route', detail: 'Jupiter has no route for this token' };
     const msg = refused(await create(w, {}, priced(quote, { coin: noRoute })));
-    expect(msg).toBe(CREATE_COPY.coinPriceUnread(quote.symbol, 'Jupiter has no route for this token'));
-    // "No market price for this token" is only ever said about the token.
-    expect(msg).not.toMatch(/no market price for this token/);
+    // Jupiter's own sentence says "this token"; said of the coin it names the coin. A token
+    // with no route is allowed now, so "this token" here read as refusing a lifted case.
+    expect(msg).toBe(`We could not get the price of ${quote.symbol} from Jupiter just now (Jupiter has no route for ${quote.symbol}), so we could not check the opening price. Try again in a moment.`);
+    expect(msg).not.toMatch(/this token/);
     expect(refused(await create(w, {}, priced(quote, { coin: new Error('offline') })))).toBe(CREATE_COPY.coinPriceUnread(quote.symbol, 'offline'));
     // A price that is a number but prices nothing is not a pass either.
     expect(refused(await create(w, {}, priced(quote, { coin: price(0) })))).toMatch(/^We did not build this opening: We could not get a market price from Jupiter/);

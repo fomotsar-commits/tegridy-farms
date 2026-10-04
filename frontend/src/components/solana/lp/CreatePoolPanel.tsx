@@ -6,7 +6,7 @@ import { sortMints, type AmmConfigView } from '../../../lib/solana/cpswap/progra
 import { CREATOR_FEE_SWITCH, feeSplit } from '../../../lib/solana/cpswap/venue';
 import { LOCKED_LP, feeReserveFor, planCreate, solSetAside, spendableSol, type CreatePlan, type CreateProblem } from '../../../lib/solana/lp/liquidityMath';
 import { assessOpening, estimatedLoss, matchMarket, mostBothAtMarket, openingPricePerToken } from '../../../lib/solana/lp/opening';
-import { priceInQuote, type OutsidePrice } from '../../../lib/solana/lp/outsidePrice';
+import { coinPriceDetail, priceInQuote, type OutsidePrice } from '../../../lib/solana/lp/outsidePrice';
 import { QUOTE_COINS, SOL_QUOTE, quoteCoin, type QuoteCoin } from '../../../lib/solana/lp/quotes';
 import { TOKEN_2022_PROGRAM, TOKEN_PROGRAM, type TokenSafety } from '../../../lib/solana/lp/tokenSafety';
 import { formatSolPrice, tradeCostText } from '../../../lib/solana/lp/format';
@@ -602,7 +602,7 @@ function CreateInner({
             ? `Market price in ${coin.symbol}: reading the price of ${coin.symbol} from Jupiter…`
             : coinOutside.kind === 'no-route'
               ? // The reason is about the COIN: Jupiter's own words say "this token", which here would mean the wrong one.
-                `Market price in ${coin.symbol}: could not be worked out (Jupiter has no route for ${coin.symbol}).`
+                `Market price in ${coin.symbol}: could not be worked out (${coinPriceDetail(coin, coinOutside)}).`
               : `Market price in ${coin.symbol}: could not be worked out (${quoted && quoted.kind !== 'ok' ? quoted.detail : 'not read'}).`;
   // A pairing coin looked up as the token (USDC) is paired only with the coins that outrank
   // it. Its pool with a lower coin (USDC with BAYLA) is the same pool read from the other

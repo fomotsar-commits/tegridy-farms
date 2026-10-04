@@ -71,7 +71,7 @@ import { ratePercent } from '../../../solana/cpswap/math';
 import type { RawAccount } from '../../../solana/lp/accounts';
 import { LOCKED_LP, LOCKED_SHARES_TEXT, U64_MAX, feeReserveFor, isqrt, planCreate, solSetAside, spendableSol, type CreateProblem } from '../../../solana/lp/liquidityMath';
 import { TOKEN_2022_NATIVE_MINT, assessOpening, estimatedLoss } from '../../../solana/lp/opening';
-import type { OutsidePrice } from '../../../solana/lp/outsidePrice';
+import { coinPriceDetail, type OutsidePrice } from '../../../solana/lp/outsidePrice';
 import { QUOTE_COINS_OR, canPair, quoteCoin, type QuoteCoin } from '../../../solana/lp/quotes';
 import { BUILDABLE_EXTENSIONS, classifyToken, decodeMintAccount, extensionPlain } from '../../../solana/lp/tokenSafety';
 import { MAX_OWN_PRIORITY_LAMPORTS } from './budget';
@@ -525,7 +525,7 @@ export async function prepareLpCreate(rpc: WriteRpc, gate: LpOpenGate, reads: Lp
   if (opening.verdict !== 'allowed' || (price.state !== 'agrees' && price.state !== 'disagrees' && price.state !== 'no-market')) {
     if (outside.kind === 'unread') return notSent('build', CREATE_COPY.priceUnread(outside.detail));
     // The coin's own price only matters when there is a token price to compare with.
-    if (outside.kind === 'ok' && coinOutside && coinOutside.kind !== 'ok') return notSent('build', CREATE_COPY.coinPriceUnread(quote.symbol, coinOutside.detail));
+    if (outside.kind === 'ok' && coinOutside && coinOutside.kind !== 'ok') return notSent('build', CREATE_COPY.coinPriceUnread(quote.symbol, coinPriceDetail(quote, coinOutside)));
     return notSent('build', CREATE_COPY.notBuilt(opening.reasons));
   }
 
