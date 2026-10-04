@@ -433,6 +433,7 @@ function LpWithdrawRows({ summary: s }: { summary: Extract<TxSummary, { kind: 'l
       <Row label="You get at least" value={`${coinExact(s.min.quote, q)} and ${unitsExact(s.min.token, s.tokenDecimals)} tokens`} mono={false} />
       <Row label="You keep" value={s.keep > 0n ? `${shares(s.keep)} pool shares` : 'none in this pool'} mono={false} />
       <Row
+        words
         label="The tokens arrive in"
         value={`${s.tokenAccount.toBase58()}${
           s.tokenAccountRent > 0n
@@ -445,6 +446,7 @@ function LpWithdrawRows({ summary: s }: { summary: Extract<TxSummary, { kind: 'l
         <Row label="The SOL arrives" value={s.unwrapsWsol ? 'as plain SOL' : 'as wrapped SOL in the account you already hold'} mono={false} />
       ) : s.quoteAccount ? (
         <Row
+          words
           label={`The ${q.symbol} arrives in`}
           value={`${s.quoteAccount.address.toBase58()}${
             s.quoteAccount.rent > 0n ? ` (opened for you; its deposit of ${solExact(s.quoteAccount.rent)} stays in that account)` : ''

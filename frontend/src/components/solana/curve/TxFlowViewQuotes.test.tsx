@@ -301,6 +301,15 @@ describe.each(COINS)('removing from a pool paired with $symbol: the review', (co
     await review(withdraw(coin, { tokenAccountRent: TOKEN_RENT }), fees(TOKEN_RENT));
     expect(value('One-time deposit for your new token account (it stays in that account)')).toBe('0.002 SOL');
     expect(value('The tokens arrive in')).toBe(tokenRow);
+    // Both "arrives in" rows carry an address and then a sentence with a SOL amount in it: they
+    // break between words, never in the middle of that amount. A row that is only an address
+    // (the pool) still breaks anywhere.
+    const valueSpan = (label: string) => screen.getByText(label).nextElementSibling as HTMLElement;
+    for (const label of ['The tokens arrive in', `The ${C} arrives in`]) {
+      expect(valueSpan(label).className, label).toMatch(/font-mono/);
+      expect(valueSpan(label).className, label).not.toMatch(/break-all/);
+    }
+    expect(valueSpan('Pool').className).toMatch(/break-all/);
     cleanup();
 
     await review(withdraw(coin, { quoteAccount: { address: COIN_ACCOUNT, rent: COIN_RENT } }), fees(COIN_RENT));
