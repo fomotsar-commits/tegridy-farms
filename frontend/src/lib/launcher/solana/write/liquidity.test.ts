@@ -598,6 +598,21 @@ describe('prepareLpDeposit', () => {
     expect(refused(await deposit(w))).toBe(LP_COPY.noTokenAccount(w.tokenAta.toBase58()));
   });
 
+  // Whole-change review 2026-10-04 (L4). A withdrawal is refused while the token account
+  // it pays into has an approved spender. A deposit spends from that same account and
+  // built in silence, so the wallet was let in and then refused on the way out.
+  it('an approved spender on the token account: the deposit builds, and its review says a withdrawal into that account is off until it is revoked', async () => {
+    const w = world({ heldLp: LP_SUPPLY / 10n });
+    w.chain.tokenAccount(w.tokenAta, w.mint, ME, 10n ** 12n, { delegate: STRANGER, delegatedAmount: 1_000_000n });
+    expect((ok(await deposit(w)).summary as LpDepositSummary).notices).toEqual([
+      `An approved spender (${STRANGER.toBase58()}) can move up to 1 out of your token account (${w.tokenAta.toBase58()}). This site will not pay a withdrawal into that account until you revoke that approval.`,
+    ]);
+    // The way out for the same wallet: refused, as it always was.
+    expect(refused(await withdraw(w))).toBe(LP_COPY.delegatedDestination(STRANGER.toBase58(), '1', 'token', w.tokenAta.toBase58()));
+    // No approval: the review says nothing more than it did.
+    expect((ok(await deposit(world())).summary as LpDepositSummary).notices).toEqual([]);
+  });
+
   it('refused above the most this wallet can put in, saying that number (the rent band)', async () => {
     const wallet = 1_000_000_000n;
     const w = world({ wallet });

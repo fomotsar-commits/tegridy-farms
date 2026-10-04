@@ -5,8 +5,8 @@
 // The launches here are made from Node with the frontend's own curve/ix.ts and carry no
 // metadata (how a launch made outside this site looks); the page under test only trades.
 import { test, expect, type Browser } from '@playwright/test';
-import type { Keypair, PublicKey } from '@solana/web3.js';
-import { ata, buyDirect, createLaunchDirect, fundedKeypair, lamports, landedTx, sol, tokenAmount } from './fixtures/chain';
+import { PublicKey, type Keypair } from '@solana/web3.js';
+import { ata, buyDirect, createLaunchDirect, curve, fundedKeypair, lamports, landedTx, sol, tokenAmount } from './fixtures/chain';
 import { bayla, giveBayla } from './fixtures/bayla';
 import { installTestWallet } from './fixtures/testWallet';
 import { installRpcGuard } from './fixtures/rpcGuard';
@@ -56,10 +56,11 @@ test('a confirmation we could not read is "sent, not confirmed yet", never "fail
   await expect(ui.tradePanel(t.page)).not.toContainText(/fail/i);
   expect(t.rpc.failedCount('getSignatureStatuses')).toBeGreaterThan(0);
 
-  // The chain says it landed.
-  const landed = await landedTx(signature);
-  expect(landed.meta?.err ?? null).toBeNull();
-  expect((await tokenAmount(ata(mint, kp.publicKey)))! > 0n).toBe(true);
+  // The chain says it landed: the tokens are in the buyer's account (a fresh wallet, which
+  // held none). Asked of the account, not of the signature: the buy is over a minute old
+  // by now, and under load the local validator may have dropped it from its transaction
+  // history already (chain.ts landedTx).
+  await expect.poll(async () => ((await tokenAmount(ata(mint, kp.publicKey))) ?? 0n) > 0n, { message: 'the buy landed: its tokens are on chain', timeout: 30_000 }).toBe(true);
 
   t.rpc.release('getSignatureStatuses');
   await clickReal(ui.checkAgain(t.page), 'Check again');
@@ -184,7 +185,6 @@ test('a reload WHILE a launch is in the air: the form comes back holding Review 
   t.rpc.fail('getSignatureStatuses', 500, 10 * 60_000);
   await clickReal(ui.signButton(t.page), 'Sign in wallet');
   await expect(ui.sent(t.page)).toBeVisible({ timeout: 60_000 });
-  const signature = t.wallet.lastSigned().signature!;
   const launched = t.wallet.lastIx('create_launch').accounts.mint;
 
   await t.page.reload();
@@ -201,8 +201,9 @@ test('a reload WHILE a launch is in the air: the form comes back holding Review 
   ]);
 
   // The chain can be read again and the launch landed: a fresh visit says it went through
-  // and no longer holds Review.
-  expect((await landedTx(signature)).meta?.err ?? null).toBeNull();
+  // and no longer holds Review. "Landed" is asked of the launch's own curve account, not
+  // of the signature (the local validator forgets old signatures: chain.ts landedTx).
+  await expect.poll(async () => (await curve(new PublicKey(launched))) !== null, { message: 'the launch landed: its curve is on chain', timeout: 30_000 }).toBe(true);
   t.rpc.release('getSignatureStatuses');
   await t.page.reload();
   await expectConnected(ui.createForm(t.page), kp.publicKey.toBase58());

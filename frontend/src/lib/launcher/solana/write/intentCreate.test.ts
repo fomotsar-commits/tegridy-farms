@@ -272,6 +272,19 @@ describe('refused: the arguments', () => {
     ok(siteOpening(p, opening(p, { init0: 100_000n, init1: 100_000n })), c);
   });
 
+  // The leave rule, in the checker too: the pool program refuses a withdrawal that pays 0
+  // on a side, and the opener's 99.9% of a pool holding ONE unit of a side pays 0 of it.
+  it('an opening whose own share could never be taken out: one unit on a side, however much is on the other', () => {
+    const never = /your own share of the pool could never be taken out/;
+    refused(siteOpening(p, opening(p, { init0: 1n, init1: 10_000_000_000n })), never, c);
+    refused(siteOpening(p, opening(p, { init0: 10_000_000_000n, init1: 1n })), never, c);
+    // Not said as the 0.1% rule: at 100,000 shares the locked part IS 0.1%.
+    refused(siteOpening(p, opening(p, { init0: 1n, init1: 10_000_000_000n })), /^(?!.*0\.1%)/, c);
+    // Two units can leave (one of them comes back), so that opening goes through.
+    ok(siteOpening(p, opening(p, { init0: 2n, init1: 10_000_000_000n })), c);
+    ok(siteOpening(p, opening(p, { init0: 10_000_000_000n, init1: 2n })), c);
+  });
+
   it('a 21st account (the program would read it as a support-mint record)', () => {
     const ix = opening(p);
     const longer = new TransactionInstruction({ programId: ix.programId, keys: [...ix.keys, { pubkey: fresh(), isSigner: false, isWritable: false }], data: ix.data });

@@ -15,7 +15,7 @@ import type { CreateFacts } from '../../../lib/launcher/solana/write/types';
 import type { PendingTrade } from '../curve/pendingTrade';
 import type { CurveWriteConfig, LpGate } from '../curve/ports';
 import { BAYLA_QUOTE, SOL_QUOTE, USDC_QUOTE, type QuoteCoin } from '../../../lib/solana/lp/quotes';
-import { POOL_RISK_CODES, createAdvice, createHeld, createOffer, depositOffer, lpHeld, openingCautions, pairFacts, poolListCut, standardState, withdrawOffer, type CreateOffer } from './offers';
+import { POOL_RISK_CODES, createAdvice, createHeld, createOffer, depositOffer, depositWarned, lpHeld, openingCautions, pairFacts, poolListCut, priceWarned, standardState, withdrawOffer, type CreateOffer } from './offers';
 
 const mint = key();
 const SOL = 10n * 10n ** 9n;
@@ -648,19 +648,32 @@ describe('createOffer', () => {
         expect(facts(a, { advise: false }).map((x) => x.hasPool)).toEqual([true, false, false]);
       });
 
-      // Review 2026-10-04 (C2). The card and the form say "passes the checks" only of a
-      // pool whose price check simply passed. `warned` is how the form knows: the pool
-      // pointed to has a price that is off, or one that was compared with nothing.
-      it('warned: the pool pointed to has a price that is off, or no market price to be checked against', () => {
+      // Review 2026-10-04 (C2, then W3). The card and the form say "passes the checks" only
+      // of a pool that carries no warning at all. `warned` is how they know: the pool
+      // pointed to has a price that is off, or one that was compared with nothing, or a
+      // token that copies a name, can be frozen, or shows a changing amount.
+      it('warned: the pool pointed to carries any warning, about its price or about its token', () => {
         const sol = poolOn(1);
-        const warnedFor = (price: Price) => {
+        const warnedFor = (price: Price, safety: TokenSafety = okToken) => {
           const a = withPool(base(), sol);
-          return facts({ ...a, healths: new Map([[sol.view.address, health(sol.view, { price })]]) }).map((x) => [x.coin.symbol, x.advice.kind, x.warned]);
+          return facts({ ...a, healths: new Map([[sol.view.address, health(sol.view, { price, safety })]]) }).map((x) => [x.coin.symbol, x.advice.kind, x.warned]);
         };
         // The pool is at 0.01 SOL a token.
         expect(warnedFor(0.01)).toEqual([['SOL', 'exists', false], ['USDC', 'none', false], ['BAYLA', 'none', false]]);
         expect(warnedFor(0.02)).toEqual([['SOL', 'exists', true], ['USDC', 'none', false], ['BAYLA', 'none', false]]);
         expect(warnedFor('no-route')).toEqual([['SOL', 'exists', true], ['USDC', 'none', false], ['BAYLA', 'none', false]]);
+        // At the market, and the token itself is what the pool's card warns of.
+        for (const code of POOL_RISK_CODES) {
+          expect(warnedFor(0.01, warnedWith(code)), code).toEqual([['SOL', 'exists', true], ['USDC', 'none', false], ['BAYLA', 'none', false]]);
+        }
+        // A token warning that changes nothing about a pool (a live mint authority) is not
+        // on the pool's card, so the pool still passes clean.
+        expect(warnedFor(0.01, warnedToken)).toEqual([['SOL', 'exists', false], ['USDC', 'none', false], ['BAYLA', 'none', false]]);
+        // The one test behind it, and the price-only one beside it: they differ exactly on a token warning.
+        const freezable = health(sol.view, { price: 0.01, safety: warnedWith('freeze-authority') });
+        expect([depositWarned(freezable), priceWarned(freezable)]).toEqual([true, false]);
+        expect([depositWarned(health(sol.view, { price: 0.02 })), priceWarned(health(sol.view, { price: 0.02 }))]).toEqual([true, true]);
+        expect([depositWarned(health(sol.view)), depositWarned(undefined)]).toEqual([false, false]);
         // No pool pointed to, no warning about one: a card that offers nothing names nothing.
         const off = withPool(base(), sol);
         const stopped = facts({ ...off, healths: new Map([[sol.view.address, health(sol.view, { price: 0.02 })]]) }, { advise: false });

@@ -183,6 +183,18 @@ export type QuotePrice =
   | { kind: 'unread'; detail: string };
 
 /**
+ * Why a pairing coin's OWN price is missing, in words about the coin. The coin is priced
+ * by the same read as any token, and that read's words for "no route" say "this token".
+ * Said of the coin beside a pool or an opening, "this token" means the token on the other
+ * side, and a token with no route is allowed now: the sentence read as the site refusing
+ * a case it had lifted. So "no route" names the coin. Every other detail is the read's own.
+ * One place, for the pool card, the opening check and both builders.
+ */
+export function coinPriceDetail(quote: QuoteCoin, coin: Exclude<OutsidePrice, { kind: 'ok' }>): string {
+  return coin.kind === 'no-route' ? `Jupiter has no route for ${quote.symbol}` : coin.detail;
+}
+
+/**
  * The token's outside price in `quote`, from SOL prices only: the token's own
  * (`readOutsidePrice`) and, for a coin that is not SOL, that coin's own, read the same
  * way. Both are the mid of a 0.05 SOL round trip, so their ratio is the token priced in
@@ -210,7 +222,7 @@ export function priceInQuote(token: OutsidePrice, quote: QuoteCoin, coin: Outsid
 export function solPriceIn(quote: QuoteCoin, solPerToken: number, coin: OutsidePrice | null): { kind: 'ok'; perToken: number } | { kind: 'unread'; detail: string } {
   if (quote.native) return { kind: 'ok', perToken: solPerToken };
   if (!coin) return { kind: 'unread', detail: `the price of ${quote.symbol} was not read` };
-  if (coin.kind !== 'ok') return { kind: 'unread', detail: `the price of ${quote.symbol} could not be read (${coin.detail})` };
+  if (coin.kind !== 'ok') return { kind: 'unread', detail: `the price of ${quote.symbol} could not be read (${coinPriceDetail(quote, coin)})` };
   const perToken = solPerToken / coin.solPerToken;
   if (!Number.isFinite(perToken) || perToken <= 0) return { kind: 'unread', detail: `the price of ${quote.symbol} did not give a usable price` };
   return { kind: 'ok', perToken };

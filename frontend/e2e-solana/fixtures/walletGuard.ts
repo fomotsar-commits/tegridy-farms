@@ -21,6 +21,12 @@
 // address or a co-signing fresh key, open at once, every account derived here, and the
 // only account the transaction may open itself is the wallet's wrapped-SOL account.
 //
+// Pairing coins (owner ruling 2026-10-03): a pool pairs a token with SOL, USDC or BAYLA
+// (coins.ts, written out by hand). Only SOL is ever wrapped. So a transaction that opens,
+// adds to or takes from a pool paired with USDC or BAYLA may not wrap SOL, sync or close a
+// wrapped-SOL account, or open one. An opening paired with one of them therefore opens no
+// account at all: the coin is spent from the wallet's own account for it.
+//
 // Account POSITIONS come from the release IDLs (pinned by sha256 in genesis-accounts.mjs),
 // never from the frontend's ix.ts, so a builder bug cannot pass its own check here.
 import { PublicKey, VersionedTransaction, type MessageCompiledInstruction } from '@solana/web3.js';
@@ -29,6 +35,7 @@ import { loadVerifiedIdls } from '../../scripts/solana-localnet/genesis-accounts
 import { chain, LAUNCH_PROGRAM, CP_SWAP_PROGRAM, METAPLEX, WSOL, ata, curve, globalConfig, tokenAmount } from './chain';
 import { poolStatePda, TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID, SYSTEM_PROGRAM_ID } from '../../src/lib/launcher/solana/curve/program';
 import { BAYLA_DECIMALS, BAYLA_MINT, PLANT_HALF, TOKEN_2022, WORKSHOP_BAYLA_ACCOUNT, baylaAccount } from './bayla';
+import { coinOfPool } from './coins';
 
 export const COMPUTE_BUDGET = new PublicKey('ComputeBudget111111111111111111111111111111');
 /** Critic A6: our own transactions pay at most 0.001 SOL of priority fee. */
@@ -382,6 +389,16 @@ export async function checkTransaction(bytes: Uint8Array, wallet: PublicKey): Pr
     refuse(`program ${program.toBase58()} is not one this site calls`);
   }
 
+  // Only SOL is wrapped. A pool paired with USDC or BAYLA takes its coin from, and pays it
+  // into, the wallet's own account for that coin, so nothing in its transaction may touch
+  // wrapped SOL. (An opening may open no other account either: the rule above, in the
+  // associated-token branch, already refuses any account but the wrapped-SOL one.)
+  const notSol = out.find((i) => i.program === 'cp-swap' && i.args.pairedWith !== undefined && i.args.pairedWith !== 'SOL');
+  if (notSol) {
+    const touches = out.find((i) => i.name === 'wrap-sol' || i.name === 'sync-native' || i.name === 'close-wsol' || (i.program === 'ata' && i.accounts.mint === WSOL.toBase58()));
+    if (touches) refuse(`${notSol.name}: the pool is paired with ${notSol.args.pairedWith}, not SOL, and the transaction still carries ${touches.name} on wrapped SOL`);
+  }
+
   // The plant rides only in a launch, and whole: its burn and its transfer together.
   if (plant.burns + plant.gives > 0) {
     if (!launchedMints.length) refuse('a $BAYLA plant in a transaction that launches nothing');
@@ -449,9 +466,12 @@ async function checkLiquidity(ix: IdlIx, acc: PublicKey[], d: Uint8Array, wallet
   } else {
     for (const [side, v] of [['0', a0], ['1', a1]] as const) if (v === 0n) refuse(`withdraw: minimum_token_${side}_amount is 0, which accepts any payout`);
   }
+  // The pool's coin, from the pool as the chain records it: 'other' when neither side is
+  // SOL, USDC or BAYLA (the site builds nothing for such a pool; the rules above still hold).
+  const pairedWith = coinOfPool(pool.token0Mint.toBase58(), pool.token1Mint.toBase58())?.coin.symbol ?? 'other';
   const args: Record<string, string> = what === 'deposit'
-    ? { lpTokenAmount: String(lp), maximumToken0Amount: String(a0), maximumToken1Amount: String(a1) }
-    : { lpTokenAmount: String(lp), minimumToken0Amount: String(a0), minimumToken1Amount: String(a1) };
+    ? { lpTokenAmount: String(lp), maximumToken0Amount: String(a0), maximumToken1Amount: String(a1), pairedWith }
+    : { lpTokenAmount: String(lp), minimumToken0Amount: String(a0), minimumToken1Amount: String(a1), pairedWith };
   return { program: 'cp-swap', name: what, args, accounts: Object.fromEntries(Object.entries(m).map(([k, v]) => [k, v.toBase58()])) };
 }
 
@@ -466,7 +486,7 @@ const tierConfig = (index: number) => cpPda(Buffer.from('amm_config'), Buffer.fr
  *  - exactly 20 accounts (a 21st would be read as a support-mint record) and 32 bytes;
  *  - creator = the wallet; the authority and every PDA by the program's own seeds;
  *  - amm_config = fee tier 1 by derivation; tier 0 (the launch tier) is refused by name;
- *  - the two mints byte-sorted, one of them wrapped SOL;
+ *  - the two mints byte-sorted, one of them a pairing coin (SOL, USDC or BAYLA: coins.ts);
  *  - pool_state = the standard address for tier 1 and the pair, or a CO-SIGNER of this
  *    message (the fresh key the page signs with after the wallet);
  *  - create_pool_fee = the program's fixed fee account (the IDL's address, 2sa31zce…);
@@ -497,7 +517,7 @@ async function checkInitialize(
   const t0 = m.token_0_mint;
   const t1 = m.token_1_mint;
   if (Buffer.compare(t0.toBuffer(), t1.toBuffer()) >= 0) refuse('initialize: the two mints are not in the program\'s order');
-  if (!t0.equals(WSOL) && !t1.equals(WSOL)) refuse('initialize: the pool does not pair a token with SOL');
+  const pair = coinOfPool(t0.toBase58(), t1.toBase58()) ?? refuse('initialize: the pool does not pair a token with SOL, USDC or BAYLA');
   const standard = cpPda(Buffer.from('pool'), m.amm_config.toBuffer(), t0.toBuffer(), t1.toBuffer());
   const pool = m.pool_state;
   if (!pool.equals(standard) && !coSigners.some((k) => k.equals(pool))) refuse('initialize: the pool is neither the standard address nor a fresh key that signs this transaction');
@@ -523,7 +543,7 @@ async function checkInitialize(
   return {
     program: 'cp-swap',
     name: 'initialize',
-    args: { initAmount0: String(a0), initAmount1: String(a1), openTime: String(openTime), origin: pool.equals(standard) ? 'standard' : 'co-signer' },
+    args: { initAmount0: String(a0), initAmount1: String(a1), openTime: String(openTime), origin: pool.equals(standard) ? 'standard' : 'co-signer', pairedWith: pair.coin.symbol },
     accounts: Object.fromEntries(Object.entries(m).map(([k, v]) => [k, v.toBase58()])),
   };
 }

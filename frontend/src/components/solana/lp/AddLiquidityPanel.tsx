@@ -240,8 +240,26 @@ function AddInner({
       : priceGapLossText(loss === null ? null : coinExact(loss, coin), REFERENCE_NAME[off.against]);
   // The pool's own warnings, then the cost line: the same order as on the review.
   const warningLines = lossLine ? [...health.deposits.warnings, lossLine] : health.deposits.warnings;
-  // Review is described by them, so a screen reader says them when focus reaches the button.
+  // An open form stays open when its pool is read again, so it can sit under a card that
+  // no longer takes deposits. That is said whenever the pool's check is not 'allowed',
+  // with warnings or with none: drawn only beside warnings, a form on a pool with none
+  // said nothing at all (review, 2026-10-04). Review is left as it is: the builder reads
+  // everything again and refuses.
+  const allowed = health.deposits.verdict === 'allowed';
+  const showWarnings = warningLines.length > 0 || !allowed;
+  // "You can still add" is about the pool AND this wallet: not said when the form has just
+  // told this wallet, above, that it cannot add.
+  const warningsHead = !allowed
+    ? `This pool’s checks no longer let a deposit through (its card above says why).${warningLines.length > 0 ? ' Its warnings:' : ''}`
+    : cannotAdd
+      ? 'Read these before you review. Each one is a risk to what you put in:'
+      : 'Read these before you review. You can still add, and each one is a risk to what you put in:';
+  // Review is described by them, so a screen reader says them when focus reaches the
+  // button: the pool's warnings, then what the pool's coin itself adds to the risks
+  // (quotes.ts `risk`), which sat outside the description on a pool with no other warning.
   const warningsId = useId();
+  const coinRiskId = useId();
+  const describedBy = [showWarnings ? warningsId : null, coin.risk ? coinRiskId : null].filter((id) => id !== null).join(' ') || undefined;
 
   // A price that is off is read out with the amounts: its cost changes with them.
   const status = useDebounced(
@@ -361,14 +379,11 @@ function AddInner({
               </button>
             )}
           </div>
-          {/* What the pool's own checks warn of, said before Review and again on the review. It never switches Review off. */}
-          {warningLines.length > 0 && (
+          {/* What the pool's own checks warn of, said before Review and again on the review. It never
+              switches Review off. Also here: that the pool's checks no longer let a deposit through. */}
+          {showWarnings && (
             <div id={warningsId} data-testid="lp-add-warnings" className="space-y-1">
-              <Notice tone="warn">
-                {health.deposits.verdict === 'allowed'
-                  ? 'Read these before you review. You can still add, and each one is a risk to what you put in:'
-                  : 'This pool’s checks no longer let a deposit through (its card above says why). Its warnings:'}
-              </Notice>
+              <Notice tone="warn">{warningsHead}</Notice>
               {warningLines.map((w) => (
                 <Notice key={w} tone="warn">
                   {w}
@@ -378,7 +393,7 @@ function AddInner({
           )}
           {/* What this coin adds to the risks (quotes.ts), said before Review and again on it. */}
           {coin.risk && (
-            <div data-testid="lp-add-coin-risk">
+            <div id={coinRiskId} data-testid="lp-add-coin-risk">
               <Notice tone="warn">{coin.risk}</Notice>
             </div>
           )}
@@ -393,7 +408,7 @@ function AddInner({
               ref={reviewRef}
               type="button"
               className="btn-primary w-full min-h-[44px] text-[13px] disabled:opacity-60 disabled:grayscale"
-              aria-describedby={warningLines.length > 0 ? warningsId : undefined}
+              aria-describedby={describedBy}
               disabled={!canReview}
               onClick={review}
             >

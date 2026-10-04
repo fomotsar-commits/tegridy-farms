@@ -244,9 +244,12 @@ describe.each(CASES)('a %s pool whose price is 10%% above the outside price', (s
     expect(said()).toEqual([PRICE_10_ABOVE, TYPE_FIRST]);
     expect(warnings).not.toHaveTextContent(/\b0 (SOL|USDC|BAYLA)\b/);
     expect(warnings.compareDocumentPosition(review()) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    // A screen reader that lands on Review is read them: the button is described by the block.
+    // A screen reader that lands on Review is read them: the button is described by the
+    // block, and after it by what the pool's coin itself adds to the risks (USDC's only).
     expect(warnings.id).not.toBe('');
-    expect(review()).toHaveAttribute('aria-describedby', warnings.id);
+    const riskId = coin.risk ? within(panel).getByTestId('lp-add-coin-risk').id : null;
+    expect(review()).toHaveAttribute('aria-describedby', riskId ? `${warnings.id} ${riskId}` : warnings.id);
+    expect(riskId).not.toBe('');
 
     type(typed);
     const LOSS_LINE = `At these amounts, a move back to the outside price would take up to about ${loss} of what you put in. That is an estimate.`;
@@ -381,13 +384,15 @@ describe('a USDC pool 10% off the market whose token is a freezable copy', () =>
     expect(within(panel).getByTestId('lp-add-coin-risk')).toHaveTextContent(USDC_QUOTE.risk!);
     expect(review()).toBeEnabled();
 
-    // The review: the same four sentences, first, before any row and before the Sign button.
+    // The review: the same four sentences, first, before any row and before the Sign button,
+    // and after them USDC's own line, which is said there once and not again in the rows.
     await act(async () => {
       fireEvent.click(review());
     });
     await within(panel).findByRole('heading', { name: 'Review: add liquidity' });
     const top = within(panel).getByTestId('tx-review-warnings');
-    expect(Array.from(top.querySelectorAll('li')).map((li) => li.textContent)).toEqual([copy, freeze, gap, cost]);
+    expect(Array.from(top.querySelectorAll('li')).map((li) => li.textContent)).toEqual([copy, freeze, gap, cost, USDC_QUOTE.risk]);
+    expect(within(panel).getAllByText(USDC_QUOTE.risk!)).toHaveLength(1);
     expect(top).toHaveTextContent('Read these warnings first.');
     // Before the form's own notes about the pool program too, which every review carries.
     const follows = (el: Element) => top.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING;
@@ -622,6 +627,87 @@ describe('an Add form left open while its pool stops taking deposits', () => {
     expect(formLines()).toEqual([NOT_NOW_HEAD, PRICE_10_ABOVE, TYPE_FIRST]);
     expect(form()).not.toHaveTextContent('You can still add');
   }, 20_000);
+
+  // Whole-change review 2026-10-04 (unread-3). That notice was drawn only inside the
+  // warnings block, so on a pool with NO warnings the form said nothing at all when a
+  // re-read left the pool not checked or refused: an open form, under a card that no
+  // longer takes deposits, with nothing on it to say so. It is said whenever the pool's
+  // check is not 'allowed', warnings or not. Review is left as it was: the builder reads
+  // everything again and refuses.
+  const NOT_NOW_ALONE = 'This pool’s checks no longer let a deposit through (its card above says why).';
+
+  it('a clean pool, with no warning at all, left "not checked" by a re-read: the form says so, and Review is described by it', async () => {
+    const v = view(USDC_QUOTE);
+    let jupiterDown = false;
+    const r = readers(v);
+    r.outsidePrice = vi.fn(async (mint: string): Promise<OutsidePrice> => {
+      if (jupiterDown) return { kind: 'unread', detail: 'Jupiter did not give a price (HTTP 502)' };
+      return mint === M ? tokenAt(USDC_QUOTE, 1) : { kind: 'ok', solPerToken: COIN_IN_SOL, source: 'Jupiter' };
+    });
+    mount(r);
+    const c = await cardWith('offer');
+    const { type, review } = await openAdd(c, USDC_QUOTE);
+    // At the market, a clean token: nothing to warn of, so there is no warnings block.
+    expect(within(form()).queryByTestId('lp-add-warnings')).toBeNull();
+    type('100');
+    expect(review()).toBeEnabled();
+
+    jupiterDown = true;
+    readAgain();
+    await waitFor(() => expect(c).toHaveAttribute('data-deposits', 'unchecked'));
+    expect(c).toContainElement(form());
+    expect(formLines()).toEqual([NOT_NOW_ALONE]);
+    expect(within(form()).getByText(NOT_NOW_ALONE)).toHaveClass('text-amber-300/90');
+    expect(review()).toHaveAccessibleDescription(expect.stringContaining(NOT_NOW_ALONE));
+    // Review itself is as it was: pressing it builds from fresh reads, and the builder refuses.
+    expect(review()).toBeEnabled();
+
+    // Jupiter answers again: the pool takes deposits again, and the notice goes.
+    jupiterDown = false;
+    readAgain();
+    await waitFor(() => expect(c).toHaveAttribute('data-deposits', 'allowed'));
+    expect(within(form()).queryByTestId('lp-add-warnings')).toBeNull();
+  }, 20_000);
+
+  it('a clean SOL pool whose vault is frozen on a re-read: refused, no warnings, and the form says so', async () => {
+    const v = view(SOL_QUOTE);
+    let frozen = false;
+    const r = readers(v);
+    r.findPools = vi.fn(async () => search(frozen ? { ...v, vaultsFrozen: true } : v));
+    mount(r);
+    const c = await cardWith('offer');
+    await openAdd(c, SOL_QUOTE);
+    expect(within(form()).queryByTestId('lp-add-warnings')).toBeNull();
+
+    frozen = true;
+    readAgain();
+    await waitFor(() => expect(c).toHaveAttribute('data-deposits', 'refused'));
+    expect(c).toContainElement(form());
+    expect(formLines()).toEqual([NOT_NOW_ALONE]);
+  }, 20_000);
+});
+
+// Whole-change review 2026-10-04 (W8). The lead-in said "You can still add" whenever the
+// pool's check allowed a deposit, even when the same form had just said, a few lines up,
+// that this wallet cannot add. The pool takes deposits; this wallet cannot make one.
+describe('the lead-in over the warnings, for a wallet that cannot add', () => {
+  it('a wallet that holds none of the token: the warnings are still said, without "You can still add"', async () => {
+    const v = view(USDC_QUOTE);
+    const r = readers(v, { token: tokenAt(USDC_QUOTE, 1.1) });
+    r.wallet = vi.fn(async (): Promise<WalletFacts> => ({ ...walletOf(USDC_QUOTE), token: null } as WalletFacts));
+    mount(r);
+    await openAdd(await cardWith('offer'), USDC_QUOTE);
+    expect(within(form()).getByTestId('lp-add-cannot')).toHaveTextContent('This wallet holds none of this token, so it cannot add to this pool yet.');
+    expect(formLines()).toEqual(['Read these before you review. Each one is a risk to what you put in:', PRICE_10_ABOVE, TYPE_FIRST]);
+    expect(form()).not.toHaveTextContent('You can still add');
+  }, 20_000);
+
+  it('a wallet that can add: the lead-in is what it was', async () => {
+    mount(readers(view(USDC_QUOTE), { token: tokenAt(USDC_QUOTE, 1.1) }));
+    await openAdd(await cardWith('offer'), USDC_QUOTE);
+    expect(within(form()).queryByTestId('lp-add-cannot')).toBeNull();
+    expect(formLines()).toEqual([HEAD, PRICE_10_ABOVE, TYPE_FIRST]);
+  }, 20_000);
 });
 
 // The line was chosen on "there is no plan yet". There is also no plan when the amount in
@@ -729,5 +815,13 @@ describe('a frozen vault: who can have frozen it', () => {
     expect(within(row).getByText('Withdrawals').nextElementSibling?.textContent).toBe(`blocked: a pool vault is frozen by ${who}`);
     // The coin is named as a possible freezer on the USDC pool only.
     for (const el of [c, row]) expect(/issuer or (SOL|USDC|BAYLA)’s/.test(el.textContent ?? '')).toBe(coin === USDC_QUOTE);
+    // The notice right under that row says the same thing as the row. It was a fixed
+    // sentence that blamed the token's issuer on every pool, so on a USDC pool it
+    // contradicted the row one line above it (whole-change review, 2026-10-04). On a SOL
+    // or a BAYLA pool it reads, to the letter, as it always did.
+    const freezer = coin === USDC_QUOTE ? "The token's issuer or USDC's" : "The token's issuer";
+    expect(within(row).getByText(/has frozen one of this pool/).textContent).toBe(
+      `${freezer} has frozen one of this pool's vaults, so nothing can move in or out, for anyone. That is the issuer's doing, not the pool program's. Your pool shares stay in your wallet.`,
+    );
   }, 20_000);
 });

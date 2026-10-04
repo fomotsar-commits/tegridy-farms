@@ -335,9 +335,17 @@ const gapCostText = (g: PriceGap, q: QuoteCoin) =>
  * that is off and what it may cost, no market price, a copied name, a freezable token).
  * Only adding and opening carry any. A removal never does: nothing here may give someone
  * a reason to wait before taking their money out.
+ *
+ * What the pool's pairing coin itself adds to the risks (quotes.ts `risk`: Circle can
+ * freeze a pool's USDC account) is one of them, said last. It was a plain notice far down
+ * the rows, so a clean USDC review had no warnings box and its heading was described by
+ * nothing: someone moving by keyboard reached Sign without hearing it (review, 2026-10-04).
+ * Here it is read out when the review opens, like a token its creator can freeze. It is
+ * said once: the rows below do not repeat it.
  */
 function reviewWarnings(s: TxSummary): string[] {
-  return s.kind === 'lp-deposit' || s.kind === 'lp-create' ? s.warnings : [];
+  if (s.kind !== 'lp-deposit' && s.kind !== 'lp-create') return [];
+  return s.quote.risk ? [...s.warnings, s.quote.risk] : s.warnings;
 }
 
 /**
@@ -405,7 +413,6 @@ function LpDepositRows({ summary: s }: { summary: Extract<TxSummary, { kind: 'lp
           {n}
         </Notice>
       ))}
-      {q.risk && <Notice tone="warn">{q.risk}</Notice>}
       <Notice>
         {!q.native
           ? `Your ${q.symbol} is spent straight from your own ${q.symbol} account. Nothing is wrapped, and what the pool does not use never leaves that account.`
@@ -547,7 +554,6 @@ function LpCreateRows({ summary: s }: { summary: Extract<TxSummary, { kind: 'lp-
           {n}
         </Notice>
       ))}
-      {q.risk && <Notice tone="warn">{q.risk}</Notice>}
       <Notice>
         {!q.native
           ? `Your ${q.symbol} is spent straight from your own ${q.symbol} account. Nothing is wrapped. The fee to open and the account deposits are paid in SOL.`

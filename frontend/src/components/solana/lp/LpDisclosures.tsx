@@ -85,12 +85,13 @@ export function LpRisksDetails() {
 /**
  * What pairing with this coin adds to the risks (quotes.ts `risk`), in the coin's own
  * words, or nothing for a coin that adds none. Said where the coin is chosen; the review
- * says it again before the signature (TxFlowView.tsx).
+ * says it again before the signature (TxFlowView.tsx). `id`: so Review can be described by
+ * it, and a screen reader says it when focus reaches the button.
  */
-export function CoinRiskNotice({ coin }: { coin: QuoteCoin }) {
+export function CoinRiskNotice({ coin, id }: { coin: QuoteCoin; id?: string }) {
   if (!coin.risk) return null;
   return (
-    <div data-testid="lp-coin-risk" data-coin={coin.symbol}>
+    <div id={id} data-testid="lp-coin-risk" data-coin={coin.symbol}>
       <Notice tone="warn">{coin.risk}</Notice>
     </div>
   );

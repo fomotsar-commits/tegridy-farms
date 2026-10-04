@@ -244,7 +244,18 @@ export async function waitForPoolOpenByWallClock(mint: PublicKey, maxMs = 5 * 60
 export const migrationAuthority =() => migrationAuthorityPda(LAUNCH_PROGRAM);
 
 type AnyTx = TransactionResponse | VersionedTransactionResponse;
-/** The landed transaction, polled briefly (confirmed commitment). */
+/**
+ * The landed transaction, polled briefly (confirmed commitment).
+ *
+ * ONLY FOR A TRANSACTION THAT JUST LANDED. The local validator keeps a short transaction
+ * history: about a thousand slots when idle, and far fewer in a full run (380 slots, about
+ * three minutes, measured mid-run; fuller blocks fill its ledger sooner). A transaction
+ * that landed more than a minute ago may already be gone from it, and this then says "did
+ * not land" about one that did (lp-create P2 and lp-write E12, each once in a full run).
+ * Where a test waits a long time before asking (the ones that hold status reads failing
+ * until the blockhash runs out), ask what the transaction LEFT on chain instead: the pool
+ * account, the share balance, the tokens.
+ */
 export async function landedTx(signature: string, tries = 40): Promise<AnyTx> {
   for (let i = 0; i < tries; i++) {
     const t = await chain().getTransaction(signature, { commitment: 'confirmed', maxSupportedTransactionVersion: 0 });

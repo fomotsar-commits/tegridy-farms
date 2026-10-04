@@ -295,12 +295,30 @@ export function createAdvice(a: {
 
 /**
  * Did a pool's price check end in a warning: its price is more than 3% off its reference,
- * or the token has no market price, so it was compared with nothing? Such a pool takes
- * deposits, and nothing on the page says it "passes the checks": the Open-a-pool card
- * and its form both say it "takes deposits, with a warning" (review, 2026-10-04).
+ * or the token has no market price, so it was compared with nothing? A deposit there may
+ * lose money to the price alone, so an Add wish that names no pool passes such a pool over
+ * while another offers adding (PoolFinder `addTo`).
  */
 export function priceWarned(health: PoolHealth | undefined): boolean {
   return health?.price.state === 'disagrees' || health?.price.state === 'no-market';
+}
+
+/**
+ * Does a pool carry a warning of ANY kind: about its price (`priceWarned`), or about its
+ * token (a copied name, a freezable token, a changing amount)? This is the test the pool
+ * card's own heading uses ("the checks pass" against "the checks pass, with warnings").
+ * Only a pool with no warning at all is said to "pass the checks", anywhere on the page:
+ * the Open-a-pool card (the pool it points to, and a pool on another fee tier) and its
+ * form say "takes deposits, with a warning" of every other pool that takes deposits. They
+ * once went by the price alone, and said "passes the checks" of a pool whose card, on the
+ * same screen, was headed "with warnings" (review, 2026-10-04).
+ *
+ * It decides the WORDS only. Whether adding to the pool is suggested, and whether the card
+ * puts an Add button for it, stays a matter of the price: a warning about the token
+ * applies just as much to a pool the visitor would open themselves.
+ */
+export function depositWarned(health: PoolHealth | undefined): boolean {
+  return (health?.deposits.warnings.length ?? 0) > 0;
 }
 
 /**
@@ -312,7 +330,7 @@ export interface PairFacts {
   coin: QuoteCoin;
   /** The pool to add to first among the pools paired with this coin (`createAdvice`). */
   advice: CreateAdvice;
-  /** The pool `advice` names takes deposits with a warning about its price (`priceWarned`). False when it names none. */
+  /** The pool `advice` names takes deposits with a warning of any kind (`depositWarned`). False when it names none. */
   warned: boolean;
   /** Did the search read any pool paired with this coin, passing its checks or not? */
   hasPool: boolean;
@@ -352,7 +370,7 @@ export function pairFacts(a: {
     return {
       coin,
       advice,
-      warned: advice.kind !== 'none' && priceWarned(a.healths.get(advice.pool.address)),
+      warned: advice.kind !== 'none' && depositWarned(a.healths.get(advice.pool.address)),
       hasPool: paired.has(coin.mint),
       standard: standardState(a.search, coin),
     };

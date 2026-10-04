@@ -327,6 +327,74 @@ describe('each answer has its own line, and only `offer` has the button', () => 
     expect(within(panel).getByText('Pool', { exact: true }).nextElementSibling).toHaveTextContent(atMarket.address);
   }, 20_000);
 
+  // Whole-change review 2026-10-04 (L3). The first screen's Add liquidity asks for no pool
+  // by name, and went to the first pool in the list that takes deposits. The list is
+  // deepest first, and a pool at a wrong price takes deposits now, so the site itself put
+  // the visitor in the pool a deposit loses money in, while this card suggested the other.
+  const addTask = () => fireEvent.click(within(screen.getByTestId('lp-tasks')).getByRole('button', { name: 'Add liquidity' }));
+  const addFormPool = async () => {
+    const panel = await screen.findByTestId('lp-add-panel');
+    return screen.getAllByTestId('lp-pool').find((card) => card.contains(panel))?.getAttribute('data-pool');
+  };
+
+  it('Add liquidity on the first screen, a big pool at a wrong price listed above one at the market: the form opens in the pool at the market, the one this card suggests', async () => {
+    const atMarket = view({ tier1: true });
+    const off = view({ tier1: true, address: key(), sol: 40n * 10n ** 9n });
+    mount(readers({ findPools: vi.fn(async () => search([off, atMarket])) }));
+    const c = await settled('offer');
+    // Both take deposits; only the deeper one carries a price warning.
+    await waitFor(() => expect(poolCard(atMarket.address)).toHaveAttribute('data-add', 'offer'));
+    expect(poolCard(off.address)).toHaveAttribute('data-add', 'offer');
+    expect(poolCard(off.address)).toHaveAttribute('data-price', 'disagrees');
+    addTask();
+    expect(await addFormPool()).toBe(atMarket.address);
+    // The pool this card suggests, and the pool its own Add button opens, are that same pool.
+    expect(within(c).getByTestId('lp-create-refer')).toHaveTextContent(`The biggest is ${atMarket.address}, holding 10 SOL. We suggest adding to it`);
+    expect(screen.getAllByTestId('lp-add-panel')).toHaveLength(1);
+  }, 20_000);
+
+  it('…two pools at the market: still the deepest, as it always was', async () => {
+    const small = view({ tier1: true });
+    const big = view({ tier1: true, address: key(), sol: 40n * 10n ** 9n });
+    // Jupiter says 0.04 for the big one's sake: then the small one is the pool that is off.
+    mount(readers({ findPools: vi.fn(async () => search([big, small])), outsidePrice: vi.fn(async () => ({ kind: 'ok' as const, solPerToken: 0.04, source: 'Jupiter' as const })) }));
+    await settled('offer');
+    await waitFor(() => expect(poolCard(big.address)).toHaveAttribute('data-add', 'offer'));
+    expect(poolCard(big.address)).toHaveAttribute('data-price', 'agrees');
+    addTask();
+    expect(await addFormPool()).toBe(big.address);
+  }, 20_000);
+
+  // A warning never takes the form away: when every pool that takes deposits carries a
+  // price warning, the first of them still opens, and its form says the warning.
+  it('…and when the only pool is at a wrong price, its form still opens, with the warning in it', async () => {
+    const off = view({ tier1: true, sol: 40n * 10n ** 9n });
+    mount(readers({ findPools: vi.fn(async () => search([off])) }));
+    await settled('offer');
+    await waitFor(() => expect(poolCard(off.address)).toHaveAttribute('data-add', 'offer'));
+    addTask();
+    expect(await addFormPool()).toBe(off.address);
+    expect(within(screen.getByTestId('lp-add-panel')).getByTestId('lp-add-warnings')).toHaveTextContent('Its price is 300.0% above the outside price.');
+  }, 20_000);
+
+  // A launch pool that passed its own check is listed below a deeper pool anyone could
+  // open. With no market price that pool is checked against the launch pool's price
+  // (poolHealth.ts): at four times it, it carries the price warning, and is passed over.
+  it('…a token with no market price: a deeper pool anyone could open, off the launch pool’s price, is passed over for the launch pool', async () => {
+    const stranger = view({ tier1: true, sol: 40n * 10n ** 9n });
+    const neverTraded = { initialized: false, index: 0, poolId: new Uint8Array(32), observations: [], lastUpdate: 0n };
+    const launch: PoolView = { ...view({ address: key() }), origin: 'launch-pool', history: { kind: 'ok', obs: neverTraded } };
+    mount(readers({ findPools: vi.fn(async () => search([stranger, launch])), outsidePrice: vi.fn(async () => ({ kind: 'no-route' as const, detail: 'Jupiter has no route for this token' })) }));
+    await settled('offer');
+    await waitFor(() => expect(poolCard(launch.address)).toHaveAttribute('data-add', 'offer'));
+    expect(poolCard(stranger.address)).toHaveAttribute('data-add', 'offer');
+    expect(poolCard(stranger.address)).toHaveAttribute('data-price', 'disagrees');
+    expect(within(poolCard(stranger.address)).getByTestId('lp-pool-warnings')).toHaveTextContent('Its price is 300.0% above the launch pool’s price.');
+    expect(poolCard(launch.address)).toHaveAttribute('data-price', 'no-trades-yet');
+    addTask();
+    expect(await addFormPool()).toBe(launch.address);
+  }, 20_000);
+
   // Review 2026-10-04 (C2). What the card says of the pool it points to, by what the
   // price check found. Only a price that AGREES is "passes the checks" and "we suggest".
   // No market price: nothing was compared, so neither is said, and its Add button stays
@@ -451,6 +519,62 @@ describe('each answer has its own line, and only `offer` has the button', () => 
       expect(card).toContainElement(await screen.findByTestId('lp-add-panel'));
     }, 20_000);
   });
+
+  // Whole-change review 2026-10-04 (W3). "Passes the checks" was decided by the PRICE
+  // alone, and on the other-tier line by nothing at all. So the Open card said it of pools
+  // whose own card, on the same screen, was headed "the checks pass, with warnings". It is
+  // now said only of a pool with no warning of any kind, by the test that heading uses.
+  // Whether adding is SUGGESTED, and whether the card puts an Add button, is still about
+  // the price alone: a token warning applies just as much to a pool the visitor opens.
+  it('a pool on another fee tier whose price is off: the card does not say it "passes the checks"', async () => {
+    const otherTier = view({});
+    // 0.01 SOL a token in the pool; Jupiter says 0.0125: the pool is 20% below it.
+    mount(readers({ findPools: vi.fn(async () => search([otherTier])), outsidePrice: vi.fn(async () => jupiter(0.0125)) }));
+    const c = await settled('offer');
+    await waitFor(() => expect(poolCard(otherTier.address)).toHaveAttribute('data-price', 'disagrees'));
+    // That pool's own card: allowed, and headed "with warnings".
+    expect(poolCard(otherTier.address)).toHaveAttribute('data-deposits', 'allowed');
+    expect(within(poolCard(otherTier.address)).getByText('Deposits: the checks pass, with warnings')).toBeInTheDocument();
+    expect(c).toHaveTextContent('This token also has a pool on fee tier 0 that takes deposits, with a warning. A new pool will not share its liquidity or fees.');
+    expect(c).not.toHaveTextContent('that passes the checks');
+  });
+
+  it('…one clean and one warned pool on other tiers: each is said as what it is', async () => {
+    const clean = view({});
+    // The same tier 0, at a price 300% above the market: only this one carries a warning.
+    const warned = view({ address: key(), sol: 40n * 10n ** 9n });
+    mount(readers({ findPools: vi.fn(async () => search([warned, clean])) }));
+    const c = await settled('offer');
+    await waitFor(() => expect(poolCard(warned.address)).toHaveAttribute('data-price', 'disagrees'));
+    // A tier that has a pool with no warning is said to have one that passes, and only that.
+    expect(c).toHaveTextContent('This token also has a pool on fee tier 0 that passes the checks. A new pool will not share its liquidity or fees.');
+    expect(c).not.toHaveTextContent('takes deposits, with a warning');
+  });
+
+  it('a pool at the market for a token its creator can freeze: "takes deposits, with a warning", and adding to it is still suggested, with its button', async () => {
+    const freezable = realToken(MINT, { freeze: key() });
+    const theirs = view({ tier1: true });
+    mount(readers({ findPools: vi.fn(async () => search([theirs])), safety: vi.fn(async () => new Map([[M, freezable]])) }));
+    const c = await settled('offer');
+    const pool = screen.getByTestId('lp-pool');
+    await waitFor(() => expect(pool).toHaveAttribute('data-add', 'offer'));
+    // At the market, and its card is headed "with warnings": the token can be frozen.
+    expect(pool).toHaveAttribute('data-price', 'agrees');
+    expect(within(pool).getByText('Deposits: the checks pass, with warnings')).toBeInTheDocument();
+    const refer = within(c).getByTestId('lp-create-refer');
+    expect(said(refer)).toBe(
+      `This token already has a pool on the public fee tier that takes deposits, with a warning (above). The biggest is ${theirs.address}, holding 10 SOL. We suggest adding to it: liquidity in one place gives traders a better price.`,
+    );
+    expect(c).not.toHaveTextContent('passes the checks (above)');
+    // Not suggested against: the price is right, and its Add button is the first choice.
+    expect(await within(c).findByRole('button', { name: 'Add liquidity to that pool' })).toHaveClass('btn-primary');
+    // The form says of that pool what the card says.
+    fireEvent.click(within(c).getByRole('button', { name: 'Open a pool' }));
+    const form = await screen.findByTestId('lp-create-panel');
+    expect(said(within(form).getByTestId('lp-create-advice'))).toBe(
+      'This token already has a pool that takes deposits, with a warning (the card above names it). Opening here makes a separate pool: it does not share that pool’s liquidity or fees.',
+    );
+  }, 20_000);
 
   it('pools-unread: an index outage; Read again searches again', async () => {
     const r = readers({ findPools: vi.fn(async () => search([], { index: { kind: 'unread', detail: 'HTTP 502' } })) });

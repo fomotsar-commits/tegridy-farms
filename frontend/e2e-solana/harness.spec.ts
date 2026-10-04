@@ -22,7 +22,8 @@ import { installHeatStub } from './fixtures/heatStub';
 import { buyIx, createLaunchIx } from '../src/lib/launcher/solana/curve/ix';
 import { poolStatePda, TOKEN_PROGRAM_ID, cpAmmAuthorityPda, cpAmmConfigPda, cpObservationPda, cpPoolVaultPda } from '../src/lib/launcher/solana/curve/program';
 import { depositIx, initializeIx, withdrawIx, type DepositArgs, type WithdrawArgs } from '../src/lib/solana/cpswap/ix';
-import { deriveAmmConfig, deriveLpMint, derivePool, sortMints } from '../src/lib/solana/cpswap/program';
+import { deriveAmmConfig, deriveLpMint, derivePool, deriveVault, sortMints } from '../src/lib/solana/cpswap/program';
+import { USDC_MINT, giveUsdc, usdc, usdcAmount } from './fixtures/usdc';
 import { closeWsolIxs, openWsolIx, wrapIxs } from '../src/lib/launcher/solana/write/wsol';
 import { isPlanProblem, planDeposit, planWithdraw } from '../src/lib/solana/lp/liquidityMath';
 
@@ -226,7 +227,7 @@ const withMutation = (ix: TransactionInstruction, o: LpTxOpts) => { o.mutate?.(i
 /** A deposit of about 0.01 SOL's worth, as W/liquidity.ts builds it (1% slippage, SOL typed). */
 async function depositTx(owner: PublicKey, f: PoolFacts, o: LpTxOpts = {}): Promise<{ bytes: Uint8Array; lp: bigint }> {
   const s = sides(f);
-  const plan = planDeposit(f.snapshot, { quoteIsToken0: s.solIs0, driving: 'sol', maxIn: sol(0.01), bps: 100n, availableSol: null, availableToken: null });
+  const plan = planDeposit(f.snapshot, { quoteIsToken0: s.solIs0, driving: 'quote', maxIn: sol(0.01), bps: 100n, availableQuote: null, availableToken: null });
   if (isPlanProblem(plan)) throw new Error(`deposit plan: ${plan.problem}`);
   const lpAta = ata(s.lpMint, owner);
   const args: DepositArgs = {
@@ -544,6 +545,80 @@ test.describe('the test wallet guard: opening a pool', () => {
     ];
     for (const [what, build, why] of cases) {
       await expect(checkTransaction((await build).bytes, opener.publicKey), what).rejects.toThrow(why);
+    }
+  });
+
+  // ── pools paired with USDC or BAYLA (owner ruling 2026-10-03) ──
+  // Only SOL is wrapped. A pool paired with USDC takes the USDC from the wallet's own
+  // account, so its opening is the pool instruction alone, and nothing in an opening or a
+  // deposit may touch wrapped SOL.
+
+  /** The site's opening of a pool paired with USDC (W/createPool.ts): 10 USDC against 100,000 tokens, the pool instruction alone. */
+  async function usdcOpeningTx(owner: PublicKey, o: { pre?: TransactionInstruction[]; post?: TransactionInstruction[] } = {}): Promise<{ bytes: Uint8Array; pool: PublicKey }> {
+    const config = deriveAmmConfig(CP_SWAP_PROGRAM, 1);
+    const { token0, token1 } = sortMints(USDC_MINT, mint);
+    const usdcIs0 = token0.equals(USDC_MINT);
+    const pool = derivePool(CP_SWAP_PROGRAM, config, token0, token1);
+    const init = initializeIx({
+      programId: CP_SWAP_PROGRAM, creator: owner, ammConfig: config, token0Mint: token0, token1Mint: token1,
+      creatorToken0: ata(token0, owner), creatorToken1: ata(token1, owner), creatorLpToken: ata(deriveLpMint(CP_SWAP_PROGRAM, pool), owner),
+      token0Program: TOKEN_PROGRAM_ID, token1Program: TOKEN_PROGRAM_ID, createPoolFee: CREATE_POOL_FEE_RECEIVER,
+      initAmount0: usdcIs0 ? usdc(10) : 100_000n * UNIT, initAmount1: usdcIs0 ? 100_000n * UNIT : usdc(10), openTime: 0n,
+    });
+    return { bytes: await finish([...(o.pre ?? []), init, ...(o.post ?? [])], owner), pool };
+  }
+
+  test('H18: signs an opening paired with USDC and a deposit into it, neither wrapping anything, and the chain takes both; the same deposit with SOL wrapped beside it is refused', async () => {
+    test.setTimeout(4 * 60_000);
+    const owner = opener.publicKey;
+    await giveUsdc(opener, usdc(100));
+    const { bytes, pool } = await usdcOpeningTx(owner);
+    const ixs = await checkTransaction(bytes, owner);
+    expect(ixs.map((i) => i.name)).toEqual(['set-compute-unit-limit', 'set-compute-unit-price', 'initialize']);
+    expect(ixs[2].args).toMatchObject({ pairedWith: 'USDC', origin: 'standard', openTime: '0' });
+    await land(bytes, opener);
+    expect(await usdcAmount(deriveVault(CP_SWAP_PROGRAM, pool, USDC_MINT)), 'the pool holds the 10 USDC').toBe(usdc(10));
+    expect(await tokenAmount(ata(WSOL, owner)), 'no wrapped-SOL account was opened').toBeNull();
+
+    // A deposit of up to 1 USDC, as W/liquidity.ts builds it for a pool that is not paired with SOL.
+    const f = await poolFacts(pool);
+    const s = sides(f);
+    const plan = planDeposit(f.snapshot, { quoteIsToken0: s.m0.equals(USDC_MINT), driving: 'quote', maxIn: usdc(1), bps: 100n, availableQuote: null, availableToken: null });
+    if (isPlanProblem(plan)) throw new Error(`deposit plan: ${plan.problem}`);
+    const lpAta = ata(s.lpMint, owner);
+    const body = [
+      createAssociatedTokenAccountIdempotentInstruction(owner, lpAta, owner, s.lpMint, TOKEN_PROGRAM_ID),
+      depositIx({
+        programId: CP_SWAP_PROGRAM, owner, poolState: pool, ownerLpToken: lpAta,
+        token0Account: ata(s.m0, owner, s.prog0), token1Account: ata(s.m1, owner, s.prog1),
+        token0Vault: new PublicKey(f.pool.token0Vault), token1Vault: new PublicKey(f.pool.token1Vault),
+        vault0Mint: s.m0, vault1Mint: s.m1, lpMint: s.lpMint,
+        lpTokenAmount: plan.lp, maximumToken0Amount: plan.max0, maximumToken1Amount: plan.max1,
+      }),
+    ];
+    const good = await finish(body, owner);
+    const signed = await checkTransaction(good, owner);
+    expect(signed.map((i) => i.name)).toEqual(['set-compute-unit-limit', 'set-compute-unit-price', 'create-idempotent', 'deposit']);
+    expect(signed[3].args.pairedWith).toBe('USDC');
+    const heldBefore = (await tokenAmount(lpAta))!;
+    await land(good, opener);
+    expect((await tokenAmount(lpAta))! - heldBefore).toBe(plan.lp);
+    // The same deposit, with SOL wrapped and unwrapped around it as a SOL pool's is.
+    const wrapped = await finish([openWsolIx(owner), ...wrapIxs(owner, sol(0.01)), ...body, ...closeWsolIxs({ ata: ata(WSOL, owner), closeAfter: true, heldBefore: 0n }, owner)], owner);
+    await expect(checkTransaction(wrapped, owner)).rejects.toThrow(/deposit: the pool is paired with USDC, not SOL, and the transaction still carries create-idempotent on wrapped SOL/);
+  });
+
+  test('H19: refuses an opening paired with USDC that wraps SOL, opens or closes a wrapped-SOL account, or opens any other account', async () => {
+    const owner = opener.publicKey;
+    const notSol = /initialize: the pool is paired with USDC, not SOL, and the transaction still carries/;
+    const cases: [string, Promise<{ bytes: Uint8Array }>, RegExp][] = [
+      ['SOL wrapped beside it', usdcOpeningTx(owner, { pre: [openWsolIx(owner), ...wrapIxs(owner, sol(0.1))] }), notSol],
+      ['a wrapped-SOL account opened', usdcOpeningTx(owner, { pre: [openWsolIx(owner)] }), notSol],
+      ['a wrapped-SOL account closed', usdcOpeningTx(owner, { post: closeWsolIxs({ ata: ata(WSOL, owner), closeAfter: true, heldBefore: 0n }, owner) }), notSol],
+      ['the token account opened', usdcOpeningTx(owner, { pre: [createAssociatedTokenAccountIdempotentInstruction(owner, ata(mint, owner), owner, mint)] }), /an opening creates only your wrapped-SOL account/],
+    ];
+    for (const [what, build, why] of cases) {
+      await expect(checkTransaction((await build).bytes, owner), what).rejects.toThrow(why);
     }
   });
 });

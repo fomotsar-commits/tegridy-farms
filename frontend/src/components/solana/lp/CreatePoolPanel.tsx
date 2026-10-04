@@ -6,8 +6,8 @@ import { sortMints, type AmmConfigView } from '../../../lib/solana/cpswap/progra
 import { CREATOR_FEE_SWITCH, feeSplit } from '../../../lib/solana/cpswap/venue';
 import { LOCKED_LP, feeReserveFor, planCreate, solSetAside, spendableSol, type CreatePlan, type CreateProblem } from '../../../lib/solana/lp/liquidityMath';
 import { assessOpening, estimatedLoss, matchMarket, mostBothAtMarket, openingPricePerToken } from '../../../lib/solana/lp/opening';
-import { priceInQuote, type OutsidePrice } from '../../../lib/solana/lp/outsidePrice';
-import { QUOTE_COINS, SOL_QUOTE, quoteCoin, type QuoteCoin } from '../../../lib/solana/lp/quotes';
+import { coinPriceDetail, priceInQuote, type OutsidePrice } from '../../../lib/solana/lp/outsidePrice';
+import { SOL_QUOTE, lowerCoins, quoteCoin, type QuoteCoin } from '../../../lib/solana/lp/quotes';
 import { TOKEN_2022_PROGRAM, TOKEN_PROGRAM, type TokenSafety } from '../../../lib/solana/lp/tokenSafety';
 import { formatSolPrice, tradeCostText } from '../../../lib/solana/lp/format';
 import { Notice, Row } from '../curve/ui';
@@ -20,7 +20,7 @@ import { FundingNextStep } from './FundingNextStep';
 import { LpAmountPair, type LpSide } from './LpAmountPair';
 import { CoinRiskNotice, LpBeforeYouOpen, LpReviewDisclosure } from './LpDisclosures';
 import { PanelFrame } from './PanelFrame';
-import { LOCKED_SHARES_TEXT, NOTES_BELOW, cannotFundText, coinExact, reviewOffWhy, sharePct, solAbout, solExact, tokensAbout, unitsExact, useDebounced, useFlowReports, useSettledAlert, useWalletFacts } from './panelKit';
+import { LOCKED_SHARES_TEXT, NOTES_BELOW, cannotFundText, coinExact, reviewOffWhy, sharePct, solAbout, solAboutUp, solExact, tokensAbout, unitsExact, useDebounced, useFlowReports, useSettledAlert, useWalletFacts } from './panelKit';
 import { POOL_RISK_CODES, createHeld, type CreateOffer, type PairFacts } from './offers';
 import { useLpWrites, type LpWrites } from './useLpWrites';
 
@@ -45,6 +45,11 @@ const lossLine = (loss: string | null) =>
 const TOO_SMALL = `Too small: the pool program keeps ${LOCKED_SHARES_TEXT} in every new pool forever, and this opening would not cover them. Put in more of either side.`;
 const lockTooLarge = (pct: string) =>
   `Too small to be worth it: the ${LOCKED_SHARES_TEXT} the pool program keeps forever would be ${pct}% of this pool. Put in more, so that part is 0.1% or less.`;
+// The leave rule (liquidityMath.ts `openingProblem`): with one smallest unit on a side, the
+// opener's own shares would pay 0 of it, and the pool program refuses a withdrawal that
+// pays 0 on a side. `what` is the coin's symbol, or "the token".
+const cannotLeave = (what: string) =>
+  `Too small: your own share of this pool could never be taken out, because it would pay out less than one unit of ${what}. Put in more of it.`;
 
 /** A token that can be paired with nothing (SOL itself) still draws the form, on SOL, with Review off elsewhere. */
 const NO_PAIR: PairFacts = { coin: SOL_QUOTE, advice: { kind: 'none' }, warned: false, hasPool: false, standard: 'empty' };
@@ -80,8 +85,8 @@ function adviceLine(pair: PairFacts, named: boolean): string | null {
     case 'opened-here':
       return `You opened ${a} for this token just now. Opening again makes a second, separate pool and pays the fee to open again.`;
     case 'exists':
-      // The card's own words for it: a pool whose price is off, or was checked against
-      // nothing, is never said to pass the checks (offers.ts `priceWarned`).
+      // The card's own words for it: a pool that carries any warning, about its price or
+      // about its token, is never said to pass the checks (offers.ts `depositWarned`).
       return `This token already has ${a} that ${pair.warned ? 'takes deposits, with a warning' : 'passes the checks'} (the card above names it). Opening here makes a separate pool: it does not share that pool’s liquidity or fees.`;
   }
 }
@@ -335,7 +340,14 @@ function CreateInner({
   // A coin that is not SOL puts no SOL in, but the wallet's SOL must still cover the costs
   // (the write layer's own rule, `lamports < setAside`). Short of it, Review is off.
   const solShort = !coin.native && lamports !== null && setAside !== null && lamports < setAside;
-  const availableToken = facts?.kind === 'ok' ? (facts.token?.amount ?? 0n) : null;
+  // What the wallet holds of the token. Null while the token itself is not read: an open
+  // form stays open when a re-read of the token fails, and then its program is not known
+  // (`tokenProgram` above falls back to the classic one). The wallet, asked under the wrong
+  // program, answers "no account", and that was shown as "holds none of this token" to a
+  // wallet that held it (review, 2026-10-04). Nothing is claimed about the holding until
+  // the token is read again. With the token read, no account is a real 0.
+  // `decimals` is the token's own, from that read: null exactly when the token is not read.
+  const availableToken = facts?.kind === 'ok' && decimals !== null ? (facts.token?.amount ?? 0n) : null;
   // Said before anything is typed: a wallet that can put nothing in is not left with a greyed-out Review.
   const cannotOpen = cannotFundText({
     doing: 'open a pool',
@@ -396,7 +408,8 @@ function CreateInner({
     if (!signer) return 'Connect a wallet to see what you can put in.';
     if (!facts) return 'Reading your wallet…';
     if (facts.kind === 'unread') return `You have: could not read (${facts.detail})`;
-    if (side === 'token') return `You have ${unitsExact(availableToken ?? 0n, dec)} tokens.`;
+    // Not read is said as that: never as 0, and never as a count in the wrong decimals.
+    if (side === 'token') return availableToken === null ? 'You have: could not read (this token was not read just now)' : `You have ${unitsExact(availableToken, dec)} tokens.`;
     if (coin.native) {
       return availableQuote === null
         ? `You have ${solExact(facts.lamports)}.`
@@ -419,6 +432,8 @@ function CreateInner({
     problemText = TOO_SMALL;
   } else if (problem?.problem === 'lock-too-large') {
     problemText = lockTooLarge(lockPct(problem.supply));
+  } else if (problem?.problem === 'cannot-leave') {
+    problemText = cannotLeave(problem.side === 'quote' ? coin.symbol : 'the token');
   } else if (problem?.problem === 'overflow') {
     problemText = 'The amounts are too large for one transaction.';
   } else if (problem?.problem === 'over-balance' && problem.side === 'quote') {
@@ -562,7 +577,9 @@ function CreateInner({
     const cleared = boxes.quote.trim() !== '';
     setBoxes((b) => ({ quote: '', token: b.token }));
     // Never silent: the arrow keys in the radio group change the coin, and a typed amount goes with it.
-    setCoinNote(`Now pairing with ${next.symbol}.${cleared ? ` Type the ${next.symbol} amount again.` : ''}`);
+    // What the new coin adds to the risks appears beside the group as it is chosen, so the
+    // line says that too: the notice alone is not read out to a screen reader.
+    setCoinNote(`Now pairing with ${next.symbol}.${next.risk ? ` ${next.risk}` : ''}${cleared ? ` Type the ${next.symbol} amount again.` : ''}`);
     // The coin that was left keeps no price: coming back to it reads its price again, and
     // says "reading" until that answer is in. Its old price is never shown as the current one.
     setCoinPrice(null);
@@ -587,17 +604,23 @@ function CreateInner({
             ? `Market price in ${coin.symbol}: reading the price of ${coin.symbol} from Jupiter…`
             : coinOutside.kind === 'no-route'
               ? // The reason is about the COIN: Jupiter's own words say "this token", which here would mean the wrong one.
-                `Market price in ${coin.symbol}: could not be worked out (Jupiter has no route for ${coin.symbol}).`
+                `Market price in ${coin.symbol}: could not be worked out (${coinPriceDetail(coin, coinOutside)}).`
               : `Market price in ${coin.symbol}: could not be worked out (${quoted && quoted.kind !== 'ok' ? quoted.detail : 'not read'}).`;
   // A pairing coin looked up as the token (USDC) is paired only with the coins that outrank
   // it. Its pool with a lower coin (USDC with BAYLA) is the same pool read from the other
   // side, and a visitor who started from USDC was left at a dead end (phone walk, 2026-10-03).
+  // The card and the pool list say the same before the form is opened (quotes.ts `otherSideLine`).
   const own = quoteCoin(mint);
-  const lower = own ? QUOTE_COINS.slice(QUOTE_COINS.indexOf(own) + 1).map((q) => q.symbol) : [];
+  const lower = lowerCoins(mint).map((q) => q.symbol);
   const otherSide = own && lower.length > 0 ? `. A pool of ${own.symbol} and ${lower.join(' or ')} is opened from the other side: look up ${lower.join(' or ')} and pair it with ${own.symbol}` : '';
   const pairLabel = useId();
   const warningsId = useId();
   const pairName = useId();
+  // What Review is described by, so a screen reader says it when focus reaches the button:
+  // the check's warnings, then what the chosen coin itself adds to the risks. The coin's
+  // line was not among them, so a clean USDC opening had a Review described by nothing.
+  const coinRiskId = useId();
+  const describedBy = [warned.length > 0 ? warningsId : null, coin.risk ? coinRiskId : null].filter((id) => id !== null).join(' ') || undefined;
   // SOL keeps its plain words until another coin has a pool to point to as well.
   const named = !coin.native || pairs.filter((x) => x.advice.kind !== 'none').length > 1;
   const advice = adviceLine(pair, named);
@@ -660,7 +683,7 @@ function CreateInner({
             // Nothing to choose: the coin is said, and no group is drawn.
             <Row label="Paired with" value={`${coin.symbol}: this site pairs this token with ${coin.symbol} only${otherSide}`} mono={false} />
           )}
-          <CoinRiskNotice coin={coin} />
+          <CoinRiskNotice coin={coin} id={coinRiskId} />
           {readyConfig !== null && offer === 'offer' && advice && (
             <div data-testid="lp-create-advice">
               <Notice tone="warn">{advice}</Notice>
@@ -724,11 +747,13 @@ function CreateInner({
             errors={{ quote: parseError('quote'), token: parseError('token') }}
           />
           {/* Under the boxes, so the first box stays on a phone's first screen. Someone putting
-              in USDC must not read the fee as USDC, or think their SOL is not needed. */}
+              in USDC must not read the fee as USDC, or think their SOL is not needed. The
+              need is the notice's own figure, rounded up the same way (`solAboutUp`): cut
+              down, it read as less than the balance printed beside it. */}
           {!coin.native && (
             <p data-testid="lp-create-paid-in-sol">
               The fee to open{fee === null ? '' : ` (${formatSol(fee, 9)} SOL)`}, the account deposits and the network fee are paid in SOL, whatever
-              the pool is paired with.{setAside !== null && lamports !== null ? ` This wallet needs about ${solAbout(setAside)} for them and has ${solExact(lamports)}.` : ''}{' '}
+              the pool is paired with.{setAside !== null && lamports !== null ? ` This wallet needs about ${solAboutUp(setAside)} for them and has ${solExact(lamports)}.` : ''}{' '}
               Only your {coin.symbol} and your tokens go into the pool.
             </p>
           )}
@@ -811,8 +836,9 @@ function CreateInner({
                     ? coin.native
                       ? // The tokens leave the wallet too: "in all" names them (phone walk, 2026-10-03).
                         `about ${solAbout((quoteRaw ?? 0n) + config.createPoolFee + neverRefunded + lpRent)} and ${unitsExact(tokRaw ?? 0n, dec)} tokens, plus the network fee`
-                      : // Three things leave the wallet, and they are never added together.
-                        `${coinExact(quoteRaw ?? 0n, coin)} and ${unitsExact(tokRaw ?? 0n, dec)} tokens, and about ${solAbout(config.createPoolFee + neverRefunded + lpRent)} for the fee to open and the account deposits, plus the network fee`
+                      : // Three things leave the wallet, and they are never added together. The SOL
+                        // is what the wallet must pay, so it is rounded up like the need above.
+                        `${coinExact(quoteRaw ?? 0n, coin)} and ${unitsExact(tokRaw ?? 0n, dec)} tokens, and about ${solAboutUp(config.createPoolFee + neverRefunded + lpRent)} for the fee to open and the account deposits, plus the network fee`
                     : signer
                       ? 'could not be worked out (the account deposits could not be read)'
                       : 'worked out once a wallet is connected'
@@ -872,7 +898,7 @@ function CreateInner({
               type="button"
               className="btn-primary w-full min-h-[44px] text-[13px] disabled:opacity-60 disabled:grayscale"
               disabled={!canReview}
-              aria-describedby={warned.length > 0 ? warningsId : undefined}
+              aria-describedby={describedBy}
               onClick={review}
             >
               Review: open the pool

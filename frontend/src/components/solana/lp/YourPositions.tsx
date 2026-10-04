@@ -508,14 +508,21 @@ function RemoveBlock({
         </Notice>
       );
       break;
-    case 'vault-frozen':
+    case 'vault-frozen': {
+      // Who can have frozen it is the Withdrawals row's own answer (`vaultFreezer`): the
+      // read does not say which vault is frozen, and on a pool paired with USDC it may be
+      // USDC's. This notice blamed the token's issuer on every pool, one line under a row
+      // that said otherwise. Written with the sentence's own apostrophes, so on a pool
+      // whose coin nobody can freeze it reads to the letter as it always did.
+      const who = view ? vaultFreezer(view.quote).replace(/’/g, "'") : 'an issuer';
       line = (
         <Notice tone="warn">
-          The token&apos;s issuer has frozen one of this pool&apos;s vaults, so nothing can move in or out, for anyone. That is the
+          {who.charAt(0).toUpperCase() + who.slice(1)} has frozen one of this pool&apos;s vaults, so nothing can move in or out, for anyone. That is the
           issuer&apos;s doing, not the pool program&apos;s. Your pool shares stay in your wallet.
         </Notice>
       );
       break;
+    }
     case 'dust':
       line = (
         <Notice tone="warn">
