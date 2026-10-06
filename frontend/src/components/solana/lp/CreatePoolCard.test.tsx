@@ -14,7 +14,8 @@ import { TOKEN_2022_NATIVE_MINT } from '../../../lib/solana/lp/opening';
 import { isCreatedPool, rememberCreatedPool, type PoolSearchRead, type PoolView } from '../../../lib/solana/lp/poolFinder';
 import { decodeAmmConfig, decodePoolState } from '../../../lib/solana/cpswap/program';
 import type { WalletFacts } from '../../../lib/solana/lp/walletFacts';
-import { buildPool, key } from '../../../lib/solana/lp/testkit.fixture';
+import { decodeObservationState } from '../../../lib/solana/lp/ownPrice';
+import { buildPool, key, observationBytes } from '../../../lib/solana/lp/testkit.fixture';
 import { LP_PENDING_SCOPE, readPendingTrades, savePendingTrade } from '../curve/pendingTrade';
 import type { CreateFacts, LpWriteApi } from '../curve/ports';
 import { TIER1_ADDRESS, fakeLpApi, lpOpenGate, LP_PROGRAM, notOpenFacts, readyFacts, tier1Config, unusedGateRpc } from './fakeLpWriteApi.fixture';
@@ -392,10 +393,10 @@ describe('each answer has its own line, and only `offer` has the button', () => 
     expect(screen.getAllByTestId('lp-add-panel')).toHaveLength(1);
   }, 20_000);
 
-  // "No market price" is a price warning too (offers.ts `priceWarned`): the pool was
-  // compared with nothing. A launch pool that passed its own check is listed below a
-  // deeper pool anyone could open, and is the one with no price warning.
-  it('…a token with no market price: a deeper pool anyone could open is passed over for a launch pool that passed its own check', async () => {
+  // A launch pool that passed its own check is listed below a deeper pool anyone could
+  // open. With no market price that pool is checked against the launch pool's price
+  // (poolHealth.ts): at four times it, it carries the price warning, and is passed over.
+  it('…a token with no market price: a deeper pool anyone could open, off the launch pool’s price, is passed over for the launch pool', async () => {
     const stranger = view({ tier1: true, sol: 40n * 10n ** 9n });
     const neverTraded = { initialized: false, index: 0, poolId: new Uint8Array(32), observations: [], lastUpdate: 0n };
     const launch: PoolView = { ...view({ address: key() }), origin: 'launch-pool', history: { kind: 'ok', obs: neverTraded } };
@@ -403,7 +404,8 @@ describe('each answer has its own line, and only `offer` has the button', () => 
     await settled('offer');
     await waitFor(() => expect(poolCard(launch.address)).toHaveAttribute('data-add', 'offer'));
     expect(poolCard(stranger.address)).toHaveAttribute('data-add', 'offer');
-    expect(poolCard(stranger.address)).toHaveAttribute('data-price', 'no-market');
+    expect(poolCard(stranger.address)).toHaveAttribute('data-price', 'disagrees');
+    expect(within(poolCard(stranger.address)).getByTestId('lp-pool-warnings')).toHaveTextContent('Its price is 300.0% above the launch pool’s price.');
     expect(poolCard(launch.address)).toHaveAttribute('data-price', 'no-trades-yet');
     addTask();
     expect(await addFormPool()).toBe(launch.address);
@@ -473,6 +475,66 @@ describe('each answer has its own line, and only `offer` has the button', () => 
       expect(pool).toContainElement(await screen.findByTestId('lp-add-panel'));
     }
   }, 20_000);
+
+  // Review 2026-10-04 (leave/L2). A token with a launch pool and no Jupiter route: a pool a
+  // stranger opened on the public tier, at any price, read as "no market", and this card's
+  // first button was Add liquidity to it. The launch pool the same lookup read is its reference.
+  describe('a token with a launch pool and no route: a stranger’s pool on the public tier', () => {
+    /** The launch pool: 10 SOL and 1,000 tokens (0.01 SOL a token), on the launch tier, never traded. */
+    const launchPool = (): PoolView => {
+      const v = view({ address: key() });
+      return { ...v, origin: 'launch-pool', history: { kind: 'ok', obs: decodeObservationState(observationBytes({ pool: new PublicKey(v.address), initialized: false }))! } };
+    };
+    const lookUp = (views: PoolView[]) => mount(readers({ findPools: vi.fn(async () => search(views)), outsidePrice: vi.fn(async () => NO_ROUTE) }));
+    const row = (c: HTMLElement, label: string) => within(c).getByText(label).nextElementSibling?.textContent;
+
+    it('at ten times the launch price: its card says the gap against the launch pool, and this card puts no Add button for it', async () => {
+      const launch = launchPool();
+      // 100 SOL against the same 1,000 tokens: 0.1 SOL a token.
+      const theirs = view({ tier1: true, address: key(), sol: 100n * 10n ** 9n });
+      // Listed biggest first, as the real lookup lists them.
+      lookUp([theirs, launch]);
+      const c = await settled('offer');
+      await waitFor(() => expect(poolCard(theirs.address)).toHaveAttribute('data-add', 'offer'));
+      const card = poolCard(theirs.address);
+      expect(card).toHaveAttribute('data-price', 'disagrees');
+      expect(card).toHaveAttribute('data-deposits', 'allowed');
+      expect(within(card).getByText('Deposits: the checks pass, with warnings')).toBeInTheDocument();
+      expect(within(card).getByTestId('lp-pool-warnings')).toHaveTextContent(
+        'Its price is 900.0% above the launch pool’s price. A deposit here would hand that gap to the first arbitrage trade.',
+      );
+      expect(row(card, 'Price here')).toBe('1 token = 0.1 SOL');
+      expect(row(card, 'The launch pool’s price')).toBe('1 token = 0.01 SOL');
+      expect(row(card, 'Difference')).toBe('900.0% above. That is more than 3% apart: see the warning above.');
+      // Nothing on it says its price was compared with nothing.
+      expect(card).not.toHaveTextContent('Jupiter has no market price');
+      // The launch pool keeps its own check.
+      expect(poolCard(launch.address)).toHaveAttribute('data-price', 'no-trades-yet');
+
+      expect(c).toHaveAttribute('data-advice', 'exists');
+      expect(said(within(c).getByTestId('lp-create-refer'))).toBe(
+        `This token already has a pool on the public fee tier that takes deposits, with a warning (above). The biggest is ${theirs.address}, holding 100 SOL. Its price is 900.0% above the price it is checked against (its card above shows both), so we do not suggest adding to it now: a deposit there would pay for that gap.`,
+      );
+      expect(within(c).queryByRole('button', { name: /^Add liquidity to/ })).toBeNull();
+      expect(within(c).getByRole('button', { name: 'Open a pool' })).toHaveClass('btn-primary');
+    }, 20_000);
+
+    it('at the launch price: it passes the checks against the launch pool, and is the pool this card suggests', async () => {
+      const launch = launchPool();
+      const theirs = view({ tier1: true, address: key() });
+      lookUp([launch, theirs]);
+      const c = await settled('offer');
+      await waitFor(() => expect(poolCard(theirs.address)).toHaveAttribute('data-add', 'offer'));
+      const card = poolCard(theirs.address);
+      expect(card).toHaveAttribute('data-price', 'agrees');
+      expect(within(card).getByText('Deposits: the checks pass')).toBeInTheDocument();
+      expect(row(card, 'The launch pool’s price')).toBe('1 token = 0.01 SOL');
+      expect(within(c).getByTestId('lp-create-refer')).toHaveTextContent('We suggest adding to it: liquidity in one place gives traders a better price.');
+      const add = await within(c).findByRole('button', { name: 'Add liquidity to that pool' });
+      fireEvent.click(add);
+      expect(card).toContainElement(await screen.findByTestId('lp-add-panel'));
+    }, 20_000);
+  });
 
   // Whole-change review 2026-10-04 (W3). "Passes the checks" was decided by the PRICE
   // alone, and on the other-tier line by nothing at all. So the Open card said it of pools

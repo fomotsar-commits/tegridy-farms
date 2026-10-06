@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState, type RefObject } from 'react';
 import { isCreatedPool, type PoolEntry, type PoolView } from '../../../lib/solana/lp/poolFinder';
-import { PRICE_TOLERANCE, formatWhen, vaultFreezer, type PoolHealth, type WithdrawalsState } from '../../../lib/solana/lp/poolHealth';
+import { PRICE_TOLERANCE, formatWhen, vaultFreezer, type PoolHealth, type PriceReference, type WithdrawalsState } from '../../../lib/solana/lp/poolHealth';
 import { feeRateText, priceText, quoteText, tokenText, tradeCostText } from '../../../lib/solana/lp/format';
 import type { QuoteCoin } from '../../../lib/solana/lp/quotes';
 import { chargedCreatorFeeRate, feeSplit } from '../../../lib/solana/cpswap/venue';
@@ -57,6 +57,13 @@ function depositHeading(d: PoolHealth['deposits']): { title: string; tone: strin
 /** How far a price is from what it was checked against, said once: "2.6% above", "1.2% below" (never "-1.2% below"). */
 const differenceText = (diff: number) => `${(Math.abs(diff) * 100).toFixed(1)}% ${diff >= 0 ? 'above' : 'below'}`;
 
+/** The row label for what a price was checked against. A Record, so a new reference must say. */
+const REFERENCE_LABEL: Readonly<Record<PriceReference, string>> = {
+  outside: 'Outside price (Jupiter)',
+  'own-average': 'Its own average, last 30 minutes',
+  'launch-pool': 'The launch pool’s price',
+};
+
 /** The pool's price and what it was checked against, both in the pool's own pairing coin. */
 function PriceRows({ price, quote }: { price: PoolHealth['price']; quote: QuoteCoin }) {
   switch (price.state) {
@@ -92,7 +99,7 @@ function PriceRows({ price, quote }: { price: PoolHealth['price']; quote: QuoteC
         <>
           <Row label="Price here" value={priceText(price.pool, quote)} mono={false} />
           <Row
-            label={price.against === 'outside' ? 'Outside price (Jupiter)' : 'Its own average, last 30 minutes'}
+            label={REFERENCE_LABEL[price.against]}
             value={priceText(price.reference, quote)}
             mono={false}
           />

@@ -88,7 +88,7 @@ export function cannotFundText(a: {
  *
  * `loss` is the estimate, already printed in the pool's own coin. Null means it could not
  * be worked out: that is said, never shown as 0. `back` is what the price would move back
- * to ("the outside price", "its own average").
+ * to, in the words of what it was checked against (poolHealth.ts `REFERENCE_NAME`).
  */
 export function priceGapLossText(loss: string | null, back: string): string {
   return loss === null

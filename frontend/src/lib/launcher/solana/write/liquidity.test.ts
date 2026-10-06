@@ -695,6 +695,135 @@ describe('prepareLpDeposit', () => {
     expect(s.warnings.join(' ')).not.toMatch(/outside price|market price/);
   });
 
+  // Review, 2026-10-04 (leave/L2). With no route, a pool a stranger opened for a token
+  // that has a launch pool was "no market" at any price. The builder reads the launch
+  // pool itself, so the review says the gap and its cost from fresh reads.
+  describe('a pool anyone could open, for a token with a launch pool and no route', () => {
+    /** The launch pool (10 SOL, 1,000 tokens: 0.01 SOL a token, never traded) beside a stranger's pool at the standard address. */
+    function besideLaunch(o: { sol?: bigint; tokens?: bigint; launch?: Partial<Parameters<typeof addPool>[2]> } = {}) {
+      const w = world({ sol: o.sol ?? 10n ** 9n, tokens: o.tokens ?? 10n * 10n ** 6n });
+      const launch = addPool(w.chain, w.mint, { sol: SOL_RESERVE, tokens: TOKEN_RESERVE, launch: true, ...o.launch });
+      return { w, launch };
+    }
+    /** An hour of trading on `pool` at `perBase` lamports a token base unit, last written ten seconds ago. */
+    function traded(chain: FakeChain, pool: PoolFixture, perBase: bigint) {
+      const Q32 = 1n << 32n;
+      const [first, last] = [NOW - 3_610n, NOW - 10n];
+      const own = perBase * Q32 * (last - first);
+      const other = ((Q32 * Q32) / (perBase * Q32)) * (last - first);
+      const [c0, c1] = pool.quoteIsToken0 ? [other, own] : [own, other];
+      chain.set(pool.observation, { lamports: rent(4075), owner: CPSWAP, data: observationBytes({ pool: pool.address, index: 1, lastUpdate: last, obs: [[0, first, 0n, 0n], [1, last, c0, c1]] }) });
+    }
+    /** Every address each account read asked for, in order. */
+    function reads(w: World): string[][] {
+      const asked: string[][] = [];
+      const orig = w.chain.getMultipleAccountsInfo;
+      w.chain.getMultipleAccountsInfo = async (keys: PublicKey[]) => {
+        asked.push(keys.map((k) => k.toBase58()));
+        return orig(keys);
+      };
+      return asked;
+    }
+    const GAP = 'Its price is 900.0% above the launch pool’s price. A deposit here would hand that gap to the first arbitrage trade.';
+    const summaryOf = async (w: World, r: LpPrepareReads = answering(NO_ROUTE)) => ok(await deposit(w, {}, r)).summary as LpDepositSummary;
+
+    it('at ten times the launch price it builds as off-price: the gap and the estimated loss, against the launch pool read just now', async () => {
+      // The stranger's pool: 1 SOL against 10 tokens, 0.1 SOL a token.
+      for (const history of ['never traded', 'traded at its price for an hour'] as const) {
+        const { w, launch } = besideLaunch();
+        if (history !== 'never traded') traded(w.chain, launch, 10n);
+        const s = await summaryOf(w);
+        expect(s.origin, history).toBe('standard');
+        expect(s.price, history).toMatchObject({ state: 'disagrees', against: 'launch-pool' });
+        if (s.price.state !== 'disagrees') throw new Error('unreachable');
+        expect(s.price.reference).toBeCloseTo(0.01, 12);
+        expect(s.priceGap!.diff).toBeCloseTo(9, 9);
+        const loss = estimatedLoss({ quoteAmount: s.quoted.quote, token: s.quoted.token, tokenDecimals: 6, marketPricePerToken: s.price.reference, quote: SOL_QUOTE })!;
+        expect(loss).toBeGreaterThan(0n);
+        expect(s.priceGap!.lossQuote).toBe(loss);
+        expect(s.warnings).toEqual([
+          GAP,
+          `At these amounts, a move back to the launch pool’s price would take up to about ${(Number(loss) / 1e9).toFixed(9).replace(/0+$/, '')} SOL of what you put in. That is an estimate.`,
+        ]);
+        // Nothing says the price was compared with nothing, and nothing names Jupiter's price.
+        expect(s.warnings.join(' ')).not.toMatch(/not checked against anything|outside price/);
+      }
+    });
+
+    it('the launch pool is read fresh: its price moves after the page read it, and the review follows', async () => {
+      // The stranger's pool sits at 0.02 SOL a token. The page saw the launch pool there too.
+      const { w, launch } = besideLaunch({ sol: 2n * 10n ** 9n, tokens: 100n * 10n ** 6n, launch: { sol: 2n * SOL_RESERVE } });
+      expect((await summaryOf(w)).price).toMatchObject({ state: 'agrees', against: 'launch-pool' });
+      // Before Review the launch pool is back at 0.01: the stranger's pool is now 100% above it.
+      w.chain.tokenAccount(launch.solVault, WSOL_MINT, new PublicKey(w.chain.accounts.get(launch.solVault.toBase58())!.data.subarray(32, 64)), SOL_RESERVE);
+      const s = await summaryOf(w);
+      expect(s.price).toMatchObject({ state: 'disagrees', against: 'launch-pool' });
+      expect(s.priceGap!.diff).toBeCloseTo(1, 9);
+    });
+
+    it('at the launch price it agrees with the launch pool: nothing to warn of, and no price gap', async () => {
+      const { w } = besideLaunch({ sol: SOL_RESERVE / 2n, tokens: TOKEN_RESERVE / 2n });
+      const s = await summaryOf(w);
+      expect(s.price).toMatchObject({ state: 'agrees', against: 'launch-pool' });
+      expect(s.warnings).toEqual([]);
+      expect(s.priceGap).toBeNull();
+    });
+
+    // Unread stays unread: no reference, so the deposit is "no market", as it was.
+    it('no reference is "no market", never a refusal: the launch read fails, the launch pool is off its own average, or its accounts are not the ones its address gives', async () => {
+      const failing = besideLaunch();
+      const orig = failing.w.chain.getMultipleAccountsInfo;
+      failing.w.chain.getMultipleAccountsInfo = async (keys: PublicKey[]) => {
+        if (keys.some((k) => k.equals(failing.launch.address))) throw new Error('HTTP 502');
+        return orig(keys);
+      };
+      const pushed = besideLaunch();
+      traded(pushed.w.chain, pushed.launch, 5n);
+      const wrongVault = besideLaunch({ launch: { record: { token0Vault: Keypair.generate().publicKey } } });
+      for (const [name, w] of [['the read fails', failing.w], ['pushed', pushed.w], ['a vault that is not its own', wrongVault.w]] as const) {
+        const s = await summaryOf(w);
+        expect(s.price, name).toMatchObject({ state: 'no-market', detail: 'Jupiter has no route for this token' });
+        expect(s.warnings, name).toEqual([NO_MARKET_DEPOSIT]);
+        expect(s.priceGap, name).toBeNull();
+      }
+    });
+
+    it('the launch pool is read once, in one call with its vaults, its price record and the clock, and only when it decides something', async () => {
+      const { w, launch } = besideLaunch();
+      const noRoute = reads(w);
+      await summaryOf(w);
+      const launchReads = noRoute.filter((keys) => keys.includes(launch.address.toBase58()));
+      expect(launchReads).toEqual([[launch.address, launch.vault0, launch.vault1, launch.observation, new PublicKey('SysvarC1ock11111111111111111111111111111111')].map((k) => k.toBase58())]);
+
+      // Jupiter has a price: that is the reference, and the launch pool is not read at all.
+      const withPrice = besideLaunch();
+      const priced1 = reads(withPrice.w);
+      expect((await summaryOf(withPrice.w, priced(0.1))).price).toMatchObject({ state: 'agrees', against: 'outside' });
+      expect(priced1.flat()).not.toContain(withPrice.launch.address.toBase58());
+
+      // Jupiter is down: refused as unread, and the launch pool does not stand in.
+      const down = besideLaunch();
+      const downReads = reads(down.w);
+      expect(refused(await deposit(down.w, {}, answering({ kind: 'unread', detail: 'Jupiter did not give a price (HTTP 502)' })))).toMatch(/could not check its price against an outside price.*HTTP 502/);
+      expect(downReads.flat()).not.toContain(down.launch.address.toBase58());
+
+      // A deposit into the launch pool itself reads it once, as the pool it writes to.
+      const own = world({ launch: true });
+      const ownReads = reads(own);
+      expect((await summaryOf(own)).price.state).toBe('no-trades-yet');
+      expect(ownReads.filter((keys) => keys.includes(own.pool.address.toBase58()))).toHaveLength(1);
+    });
+
+    it('removing liquidity never reads the launch pool, and prepares whatever it holds', async () => {
+      const w = holding({ sol: 10n ** 9n, tokens: 10n * 10n ** 6n });
+      const launch = addPool(w.chain, w.mint, { sol: SOL_RESERVE, tokens: TOKEN_RESERVE, launch: true });
+      const asked = reads(w);
+      ok(await withdraw(w));
+      expect(asked.length).toBeGreaterThan(0);
+      expect(asked.flat()).not.toContain(launch.address.toBase58());
+    });
+  });
+
   it('existing wrapped SOL is never closed, and only what the pool did not use may stay in it', async () => {
     const w = world({ heldWsol: 500_000_000n });
     const p = ok(await deposit(w));
