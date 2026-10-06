@@ -88,18 +88,10 @@ export function assessOpening(a: {
       unchecked.push('We could not work out the opening price from these amounts.');
     } else if (market?.kind === 'ok') {
       price = comparePrice(opening, market.perToken, 'outside');
-      if (price.state === 'disagrees') {
-        warnings.push(
-          `Your opening price is ${gapText(price.diff)} the market price (Jupiter). The first trades would move it to the market price, at your cost.`,
-        );
-      }
     } else if (market?.kind === 'no-route') {
       // Jupiter ANSWERED that the token has no market. Nothing is compared, so the pairing
       // coin's own price is not needed here either (`priceInQuote` answers before it looks).
       price = { state: 'no-market', pool: opening, detail: market.detail };
-      warnings.push(
-        'Jupiter has no market price for this token, so there is nothing to compare your opening price with. You are setting the price yourself: if it is off, the first trades take the difference out of what you put in.',
-      );
     } else {
       const detail = market?.detail ?? 'not asked';
       price = { state: 'unread', pool: opening, detail };
@@ -111,8 +103,25 @@ export function assessOpening(a: {
     verdict: refused.length ? 'refused' : unchecked.length ? 'unchecked' : 'allowed',
     price,
     reasons: [...refused, ...unchecked],
-    warnings,
+    warnings: [...warnings, ...openingPriceWarnings(price)],
   };
+}
+
+/**
+ * What an opening's price check warns of: a price off the market, or no market to check it
+ * against. They are the last of `warnings`, and the builder marks them as the market's on
+ * the summary (`marketWarnings`).
+ */
+export function openingPriceWarnings(price: OpeningCheck['price']): string[] {
+  if (price.state === 'disagrees') {
+    return [`Your opening price is ${gapText(price.diff)} the market price (Jupiter). The first trades would move it to the market price, at your cost.`];
+  }
+  if (price.state === 'no-market') {
+    return [
+      'Jupiter has no market price for this token, so there is nothing to compare your opening price with. You are setting the price yourself: if it is off, the first trades take the difference out of what you put in.',
+    ];
+  }
+  return [];
 }
 
 /** "2.6% above" / "4.0% below". */

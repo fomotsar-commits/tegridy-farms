@@ -754,6 +754,9 @@ describe('the review and a confirmed opening', () => {
     expect(disclosure).toHaveTextContent(/have not had their own independent review yet/);
     expect(disclosure).toHaveTextContent(/change the public fee tier's rates and its fee to open a pool at once/);
     expect(disclosure).toHaveTextContent('Trades on this site go through Jupiter, and Jupiter does not send trades to our pools.');
+    // Each stands once on the review screen: the panel's list under the buttons does not say it again.
+    expect(within(panel).getAllByText(/have not had their own independent review yet/)).toHaveLength(1);
+    expect(within(panel).getAllByText(/change the public fee tier's rates and its fee to open a pool at once/)).toHaveLength(1);
     expect(isCreatedPool(pool.toBase58())).toBe(false);
     await act(async () => {
       fireEvent.click(within(panel).getByRole('button', { name: 'Sign in wallet' }));

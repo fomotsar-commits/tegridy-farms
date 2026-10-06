@@ -6,6 +6,11 @@ page keeps the newest thirty days.
 
 ## [Unreleased]
 
+### 2026-10-06
+
+- Solana pools and trades: a review read at your own pace now signs in one press. When Sign in wallet builds it again, the lines read from Jupiter just now (the price check, the estimated cost of a price gap, and the warnings that restate them) may have moved without stopping you, and what moved is listed while your wallet is open. A price warning you had not seen, or any change to the pool, the token, what you pay, what you get, your share, the fees or the test run, is still shown first. The line above the button no longer turns into "too old to sign" while you read.
+- Add liquidity and Open a pool: on the review, the notices about the pool program's changed admin keys and what the team's vault can switch off are said once, above the rows. The list under the buttons no longer repeats them.
+
 ### 2026-10-04
 
 - Solana LP: a pool can be paired with SOL, USDC or BAYLA. Open a pool has a "Pair with" choice, so a BAYLA/USDC pool can be opened from the site. Every amount, price and review is in the pool's own coin; the fee to open and the account deposits are still paid in SOL. Pools are listed SOL first, then USDC, then BAYLA.

@@ -480,6 +480,8 @@ describe('prepareLpCreate: what refuses it, each in its own words', () => {
       'Your opening price is 4.2% above the market price (Jupiter). The first trades would move it to the market price, at your cost.',
       `At these amounts, a move back to the market price would take up to about ${(Number(loss) / 1e9).toFixed(9).replace(/0+$/, '')} SOL of what you put in. That is an estimate.`,
     ]);
+    // Both restate the opening check and its cost: read from the market, they move between two reads.
+    expect(above.marketWarnings).toEqual(above.warnings);
     const below = summaryOf(ok(await create(w, {}, priced(0.0104))));
     expect(below.priceGap!.diff).toBeCloseTo(0.01 / 0.0104 - 1, 12);
     expect(below.warnings[0]).toBe('Your opening price is 3.8% below the market price (Jupiter). The first trades would move it to the market price, at your cost.');
@@ -514,6 +516,7 @@ describe('prepareLpCreate: what refuses it, each in its own words', () => {
   it('every warning that applies is carried together: a freezable copy with no market price', async () => {
     const s = summaryOf(ok(await create(world({ freezeAuthority: STRANGER, name: ['BAYLA', 'BAYLA'] }), {}, answering(NO_ROUTE))));
     expect(s.warnings).toEqual([COPY_OPENING, FREEZE_OPENING, NO_MARKET_OPENING]);
+    expect(s.marketWarnings).toEqual([NO_MARKET_OPENING]);
   });
 
   it('the price, NOT read: Jupiter down, or a read that throws, still builds nothing and is never a warning', async () => {

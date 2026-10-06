@@ -58,7 +58,7 @@ import { isPlanProblem, planDeposit, planWithdraw, solSetAside, spendableSol, ty
 import { estimatedLoss } from '../../../solana/lp/opening';
 import type { OutsidePrice } from '../../../solana/lp/outsidePrice';
 import { CLOCK_SYSVAR, chainTimeOf, poolViewFrom, type PoolView } from '../../../solana/lp/poolFinder';
-import { assessPool, formatWhen } from '../../../solana/lp/poolHealth';
+import { assessPool, depositPriceWarnings, formatWhen } from '../../../solana/lp/poolHealth';
 import { QUOTE_COINS_OR, canPair, quoteCoin, type QuoteCoin } from '../../../solana/lp/quotes';
 import { tokenAccountSize } from '../../../solana/lp/tokenAccountSize';
 import { BUILDABLE_EXTENSIONS, classifyToken, decodeMintAccount, extensionPlain } from '../../../solana/lp/tokenSafety';
@@ -697,10 +697,12 @@ export async function prepareLpDeposit(rpc: WriteRpc, gate: LpOpenGate, reads: L
     diff: off.diff,
     lossQuote: estimatedLoss({ quoteAmount: quoted.quote, token: quoted.token, tokenDecimals: decimals, marketPricePerToken: off.reference, quote }),
   };
-  const warnings = [...health.deposits.warnings];
-  if (off && priceGap) {
-    warnings.push(LP_COPY.priceGapLoss(priceGap.lossQuote === null ? null : coin(priceGap.lossQuote, quote), off.against === 'outside' ? 'the outside price' : 'its own average'));
-  }
+  const gapLine =
+    off && priceGap
+      ? [LP_COPY.priceGapLoss(priceGap.lossQuote === null ? null : coin(priceGap.lossQuote, quote), off.against === 'outside' ? 'the outside price' : 'its own average')]
+      : [];
+  const warnings = [...health.deposits.warnings, ...gapLine];
+  const marketWarnings = [...depositPriceWarnings(health.price), ...gapLine];
 
   // 12. Moved since shown.
   const otherMax = a.driving === 'quote' ? maxTok : maxSol;
@@ -816,6 +818,7 @@ export async function prepareLpDeposit(rpc: WriteRpc, gate: LpOpenGate, reads: L
         price: health.price,
         tokenWarnings: safety.warnings,
         warnings,
+        marketWarnings,
         priceGap,
         unwrapsWsol: bodySteps(steps).some((s) => s.kind === 'close-wsol'),
         wsolHeldBefore: plan ? plan.heldBefore : 0n,

@@ -809,6 +809,10 @@ describe('the review', () => {
     const disclosure = within(panel).getByTestId('lp-review-disclosure');
     expect(disclosure).toHaveTextContent(/have not had their own independent review yet/);
     expect(disclosure).toHaveTextContent(/change its fee rates at once/);
+    // Each stands once on the review screen: the panel's list under the buttons does not say it again.
+    expect(within(panel).getAllByText(/have not had their own independent review yet/)).toHaveLength(1);
+    expect(within(panel).getAllByText(/change its fee rates at once/)).toHaveLength(1);
+    expect(within(panel).getByTestId('lp-before-you-add')).toHaveTextContent(/bots trade against the pool/);
   });
 });
 

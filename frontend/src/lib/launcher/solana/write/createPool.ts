@@ -70,7 +70,7 @@ import { initializeIx } from '../../../solana/cpswap/ix';
 import { ratePercent } from '../../../solana/cpswap/math';
 import type { RawAccount } from '../../../solana/lp/accounts';
 import { LOCKED_LP, LOCKED_SHARES_TEXT, U64_MAX, feeReserveFor, isqrt, lockedBehind, planCreate, solSetAside, spendableSol, type CreateProblem } from '../../../solana/lp/liquidityMath';
-import { TOKEN_2022_NATIVE_MINT, assessOpening, estimatedLoss } from '../../../solana/lp/opening';
+import { TOKEN_2022_NATIVE_MINT, assessOpening, estimatedLoss, openingPriceWarnings } from '../../../solana/lp/opening';
 import { coinPriceDetail, type OutsidePrice } from '../../../solana/lp/outsidePrice';
 import { QUOTE_COINS_OR, canPair, quoteCoin, type QuoteCoin } from '../../../solana/lp/quotes';
 import { BUILDABLE_EXTENSIONS, classifyToken, decodeMintAccount, extensionPlain } from '../../../solana/lp/tokenSafety';
@@ -535,8 +535,9 @@ export async function prepareLpCreate(rpc: WriteRpc, gate: LpOpenGate, reads: Lp
     price.state === 'disagrees'
       ? { diff: price.diff, lossQuote: estimatedLoss({ quoteAmount: a.quote, token: a.token, tokenDecimals: decimals, marketPricePerToken: price.reference, quote }) }
       : null;
-  const warnings = [...opening.warnings];
-  if (priceGap) warnings.push(LP_COPY.priceGapLoss(priceGap.lossQuote === null ? null : coinText(priceGap.lossQuote, quote), 'the market price'));
+  const gapLine = priceGap ? [LP_COPY.priceGapLoss(priceGap.lossQuote === null ? null : coinText(priceGap.lossQuote, quote), 'the market price')] : [];
+  const warnings = [...opening.warnings, ...gapLine];
+  const marketWarnings = [...openingPriceWarnings(price), ...gapLine];
 
   // 10. The wallet's accounts. The tokens leave by CPI inside `initialize`, so CPI Guard
   // on the source refuses (accountCheck). An approved spender on a source is not refused:
@@ -722,6 +723,7 @@ export async function prepareLpCreate(rpc: WriteRpc, gate: LpOpenGate, reads: Lp
         price,
         tokenWarnings: safety.warnings,
         warnings,
+        marketWarnings,
         priceGap,
         unwrapsWsol: bodySteps(steps).some((s) => s.kind === 'close-wsol'),
         wsolHeldBefore: plan ? plan.heldBefore : 0n,

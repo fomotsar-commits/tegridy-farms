@@ -199,6 +199,28 @@ export function tokenReasons(safety: TokenSafety | null, action: 'deposits' | 'p
   return { refused, unchecked, warned };
 }
 
+/**
+ * What a deposit's price check warns of: a price that is off, or nothing to check it
+ * against. They are the last of `deposits.warnings`, and the builder marks them as the
+ * market's on the summary (`marketWarnings`).
+ */
+export function depositPriceWarnings(price: PriceCheck): string[] {
+  if (price.state === 'disagrees') {
+    const gap = `${(Math.abs(price.diff) * 100).toFixed(1)}% ${price.diff > 0 ? 'above' : 'below'}`;
+    return [
+      price.against === 'outside'
+        ? `Its price is ${gap} the outside price. A deposit here would hand that gap to the first arbitrage trade.`
+        : `Its price is ${gap} its own average over the last half hour. Someone may have just pushed it; a deposit now would pay for that.`,
+    ];
+  }
+  if (price.state === 'no-market') {
+    return [
+      'Jupiter has no market price for this token, so this pool’s price was not checked against anything. If it is off, a deposit here hands the difference to whoever trades it back.',
+    ];
+  }
+  return [];
+}
+
 export function assessPool(input: {
   view: PoolView;
   tokenDecimals: number | null;
@@ -290,19 +312,7 @@ export function assessPool(input: {
   const token = tokenReasons(safety, 'deposits');
   refused.push(...token.refused);
   unchecked.push(...token.unchecked);
-  warnings.push(...token.warned);
-  if (price.state === 'disagrees') {
-    warnings.push(
-      price.against === 'outside'
-        ? `Its price is ${(Math.abs(price.diff) * 100).toFixed(1)}% ${price.diff > 0 ? 'above' : 'below'} the outside price. A deposit here would hand that gap to the first arbitrage trade.`
-        : `Its price is ${(Math.abs(price.diff) * 100).toFixed(1)}% ${price.diff > 0 ? 'above' : 'below'} its own average over the last half hour. Someone may have just pushed it; a deposit now would pay for that.`,
-    );
-  }
-  if (price.state === 'no-market') {
-    warnings.push(
-      'Jupiter has no market price for this token, so this pool’s price was not checked against anything. If it is off, a deposit here hands the difference to whoever trades it back.',
-    );
-  }
+  warnings.push(...token.warned, ...depositPriceWarnings(price));
 
   return {
     swaps,

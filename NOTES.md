@@ -15,6 +15,26 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-10-06: a review built again reads the same when its transaction is the same
+
+**Believed:** comparing every line of a rebuilt review with the one being read tells whether
+the wallet would be asked to sign what was read, so a slow reader loses only a few seconds.
+
+**Seen** (the holder's four screens as the island relayed them, then the code): an
+add-liquidity review carries lines read from Jupiter during the build: "Price check: 7.2%
+above the outside price (Jupiter), read just now", "Estimated cost of that gap: up to about
+0.001170414 SOL" (printed to nine decimals), and two warnings that restate them. Any tick in
+Jupiter's price changes them, so no two builds of a live pool read the same, even when the
+instructions, amounts, shares and fees do. A holder in Phantom's phone browser tried from
+12:27 to 4:09 PM their time on 2026-10-06, and every press shut the wallet: each rebuild was
+"a review that changed", whose new 30 seconds ran out while they read what changed.
+
+**Do:** a line computed from an outside read is the market's, not the transaction's. Mark it
+(`market` on `Row`/`Notice`, `data-market` on a list item, `marketWarnings` on the summary)
+and a rebuild may sign over it moving or going; only a market line that is new stops the press.
+A new review line computed from Jupiter, a clock or any read outside the transaction must be
+marked, or the loop comes back. `TxFlowView.test.tsx` pins which lines are marked, per kind.
+
 ## 2026-10-04: a test that asks the app's own planner what a row should read agrees with the app whatever it does
 
 **Believed:** the end-to-end check of the "Locked in the pool forever" row was independent of

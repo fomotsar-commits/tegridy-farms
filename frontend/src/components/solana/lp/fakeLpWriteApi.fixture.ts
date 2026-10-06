@@ -90,6 +90,7 @@ export function lpDepositSummary(pool: PublicKey, tokenMint: PublicKey, over: Pa
     wsolHeldBefore: 0n,
     notices: [],
     warnings: [],
+    marketWarnings: [],
     priceGap: null,
     ...over,
   };
@@ -190,6 +191,7 @@ export function lpCreateSummary(pool: PublicKey, tokenMint: PublicKey, over: Par
     wsolHeldBefore: 0n,
     notices: [],
     warnings: [],
+    marketWarnings: [],
     priceGap: null,
     ...over,
   };

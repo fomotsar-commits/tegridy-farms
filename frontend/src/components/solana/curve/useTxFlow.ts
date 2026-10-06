@@ -3,6 +3,7 @@ import { clipDetail } from '../../../lib/launcher/solana/curve';
 import { isLpKind } from '../../../lib/launcher/solana/write/lpKinds';
 import { sameToSign } from '../../../lib/launcher/solana/write/sameToSign';
 import type { Prepared, PreparedTx, TxOutcome, TxSigner, WriteApi, WriteRpc } from './ports';
+import type { ReviewLine } from './reviewLines';
 
 // One transaction, start to finish, for any kind:
 //
@@ -45,36 +46,51 @@ async function confirmedHeight(rpc: WriteRpc): Promise<number | null> {
 const nearlyOver = (height: number | null, p: PreparedTx) => height !== null && height + SIGN_MARGIN_BLOCKS >= p.lastValidBlockHeight;
 
 /** A review's lines as its reader sees them: `reviewLines` in TxFlowView. */
-export type ReviewLines = (p: PreparedTx) => string[];
+export type ReviewLines = (p: PreparedTx) => ReviewLine[];
 
-type Changed = { now: string[]; gone: string[] };
+/** Lines that read differently: `now` as they read now, `gone` no longer there. */
+export type Changed = { now: string[]; gone: string[] };
+
+/** What `now` has that `was` does not, and what `was` has that `now` does not, each counted. */
+function diff(was: string[], now: string[]): Changed {
+  const left = [...was];
+  const added = now.filter((l) => {
+    const at = left.indexOf(l);
+    if (at >= 0) left.splice(at, 1);
+    return at < 0;
+  });
+  return { now: added, gone: left };
+}
 
 /**
- * Is `fresh` the review being read: every line the same and every instruction the same,
- * byte for byte? `null` = yes. Otherwise the lines that read differently, and empty lists
- * when the lines could not be read or only the bytes differ: unreadable is never "same".
+ * Is `fresh` the review being read? `stop` is null when it may go to the wallet: every
+ * line but the market's reads the same, in order; no market line is new (one may move or
+ * go); every instruction is the same. Else what reads differently, or empty lists when the
+ * lines could not be read or only the bytes differ. `moved`: the market's lines that did.
  */
-function whatChanged(reviewed: PreparedTx, fresh: PreparedTx, lines: ReviewLines | undefined): Changed | null {
-  const unknown: Changed = { now: [], gone: [] };
+function compare(reviewed: PreparedTx, fresh: PreparedTx, lines: ReviewLines | undefined): { stop: Changed | null; moved: Changed } {
+  const none: Changed = { now: [], gone: [] };
+  const unknown = { stop: none, moved: none };
   if (!lines) return unknown;
   try {
     const was = lines(reviewed);
     const now = lines(fresh);
-    const same = was.length > 0 && was.length === now.length && was.every((l, i) => l === now[i]);
-    if (!same) {
-      const left = [...was];
-      const added = now.filter((l) => {
-        const at = left.indexOf(l);
-        if (at >= 0) left.splice(at, 1);
-        return at < 0;
-      });
-      return { now: added, gone: left };
-    }
-    return sameToSign(reviewed, fresh) ? null : unknown;
+    if (was.length === 0) return unknown;
+    const text = (ls: ReviewLine[]) => ls.map((l) => l.text);
+    const own = (ls: ReviewLine[]) => text(ls.filter((l) => l.market === null));
+    const market = (ls: ReviewLine[]) => ls.filter((l) => l.market !== null);
+    const [a, b] = [own(was), own(now)];
+    const same = a.length === b.length && a.every((l, i) => l === b[i]);
+    const newMarket = diff(market(was).map((l) => l.market!), market(now).map((l) => l.market!)).now.length > 0;
+    if (!same || newMarket) return { stop: diff(text(was), text(now)), moved: none };
+    if (!sameToSign(reviewed, fresh)) return unknown;
+    return { stop: null, moved: diff(text(market(was)), text(market(now))) };
   } catch {
     return unknown;
   }
 }
+
+const movedAny = (m: Changed) => m.now.length + m.gone.length > 0;
 
 export interface ReviewState {
   step: 'review';
@@ -94,14 +110,16 @@ export interface ReviewState {
    * not be compared line by line, or only the instructions differ.
    */
   replaced?: { n: number } & Changed;
+  /** Built again, its market lines read differently from those read (`compare`). They stop nothing. */
+  moved?: Changed;
 }
 
 export type TxFlowState =
   | { step: 'idle' }
   | { step: 'preparing' }
   | ReviewState
-  /** The wallet's turn. */
-  | { step: 'submitting'; prepared: PreparedTx }
+  /** The wallet's turn. `moved`: the market lines that read differently when it was built again. */
+  | { step: 'submitting'; prepared: PreparedTx; moved?: Changed }
   /** The signature is known: from here it may land even if this tab goes away. */
   | { step: 'sent'; prepared: PreparedTx; signature: string }
   /** `checks`: how many times "Check again" has answered, so each answer reads as new. */
@@ -229,6 +247,7 @@ export function useTxFlow(
       const mine = ++press.current;
       const abandoned = () => press.current !== mine || !alive.current;
       let prepared = s.prepared;
+      let moved: { moved?: Changed } = {};
       let stale = s.expired;
       if (!stale) {
         // A signature the network can no longer accept is wasted: read the height first.
@@ -268,26 +287,27 @@ export function useTxFlow(
         }
         const fresh = r.prepared;
         const review = { step: 'review' as const, prepared: fresh, expiresAt: startedAt + REVIEW_TTL_MS, renewable: true };
-        const changed = whatChanged(prepared, fresh, lines);
-        if (changed) {
+        const { stop, moved: market } = compare(prepared, fresh, lines);
+        if (stop) {
           // Not the review that was read: it is shown, and signing it takes another press.
           rebuilding.current = false;
           busy.current = false;
-          setState({ ...review, expired: false, replaced: { n: (s.replaced?.n ?? 0) + 1, ...changed } });
+          setState({ ...review, expired: false, replaced: { n: (s.replaced?.n ?? 0) + 1, ...stop } });
           return;
         }
+        moved = movedAny(market) ? { moved: market } : {};
         // The review that was read, on a newer blockhash: held to both clocks like any other.
         const height = await confirmedHeight(rpc);
         if (abandoned()) return;
         rebuilding.current = false;
         if (Date.now() >= review.expiresAt || nearlyOver(height, fresh)) {
           busy.current = false;
-          setState({ ...review, expired: true, ...(s.replaced ? { replaced: s.replaced } : {}) });
+          setState({ ...review, expired: true, ...(s.replaced ? { replaced: s.replaced } : {}), ...moved });
           return;
         }
         prepared = fresh;
       }
-      setState({ step: 'submitting', prepared });
+      setState({ step: 'submitting', prepared, ...moved });
       let sentSignature: string | null = null;
       let outcome: TxOutcome;
       try {

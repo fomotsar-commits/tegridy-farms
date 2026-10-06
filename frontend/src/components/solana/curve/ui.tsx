@@ -55,9 +55,10 @@ export function Card({
  * characters. Words in a sentence break only at spaces, or mid-word only when
  * one word alone is wider than the card, so a phone never reads "Blocked unt/il".
  */
-export function Row({ label, value, mono = true }: { label: string; value: string; mono?: boolean }) {
+/** `market`: what this row is when it was read from the market just now (reviewLines.ts). */
+export function Row({ label, value, mono = true, market }: { label: string; value: string; mono?: boolean; market?: string }) {
   return (
-    <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5 text-white/75">
+    <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5 text-white/75" data-market={market}>
       <span className="break-words">{label}</span>
       <span className={`text-right min-w-0 ${mono ? 'font-mono break-all' : '[overflow-wrap:anywhere]'}`}>{value}</span>
     </div>
@@ -122,7 +123,7 @@ export function Field({
 }
 
 /** A plain notice line. `tone` picks the colour only; the words carry the meaning. */
-export function Notice({ tone = 'info', children }: { tone?: 'info' | 'warn' | 'bad' | 'good'; children: ReactNode }) {
+export function Notice({ tone = 'info', market, children }: { tone?: 'info' | 'warn' | 'bad' | 'good'; market?: string; children: ReactNode }) {
   const cls =
     tone === 'warn'
       ? 'text-amber-300/90'
@@ -133,7 +134,11 @@ export function Notice({ tone = 'info', children }: { tone?: 'info' | 'warn' | '
           : 'text-white/55';
   // A 44-character address has no place to break: without this it ran off the right edge
   // of a phone and lost its last characters (phone walk, 2026-10-03).
-  return <p className={`${cls} [overflow-wrap:anywhere]`}>{children}</p>;
+  return (
+    <p className={`${cls} [overflow-wrap:anywhere]`} data-market={market}>
+      {children}
+    </p>
+  );
 }
 
 /** The price impact row, and its warning when it is large or could not be computed. Form and review alike. */

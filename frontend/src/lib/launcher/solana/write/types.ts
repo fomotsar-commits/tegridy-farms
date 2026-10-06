@@ -351,6 +351,12 @@ export interface LpDepositSummary {
    * showed. Always there; empty when there is nothing to warn of.
    */
   warnings: string[];
+  /**
+   * Those of `warnings` that restate the price check and its cost. Read from the market
+   * just now, they read differently on the next build while the transaction does not
+   * (useTxFlow lets a review built again sign over them).
+   */
+  marketWarnings: string[];
   /** Set when the pool's price is off what it was checked against; null when it is not. */
   priceGap: PriceGap | null;
   /**
@@ -438,6 +444,8 @@ export interface LpCreateSummary {
    * showed. Always there; empty when there is nothing to warn of.
    */
   warnings: string[];
+  /** Those of `warnings` that restate the opening check and its cost: read from the market just now. */
+  marketWarnings: string[];
   /** Set when the opening price is off the market price; null when it is not. */
   priceGap: PriceGap | null;
   unwrapsWsol: boolean;

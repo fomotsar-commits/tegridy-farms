@@ -41,6 +41,7 @@ const createSummary = (): TxSummary => ({
   wsolHeldBefore: 0n,
   notices: [],
   warnings: [],
+  marketWarnings: [],
   priceGap: null,
 });
 

@@ -428,7 +428,7 @@ function AddInner({
           </p>
         </>
       )}
-      <LpBeforeYouAdd launchPool={view.origin === 'launch-pool'} config={view.config} enableCreatorFee={pool.enableCreatorFee} />
+      <LpBeforeYouAdd launchPool={view.origin === 'launch-pool'} config={view.config} enableCreatorFee={pool.enableCreatorFee} reviewing={flow.state.step === 'review'} />
       <p role="status" className="sr-only">
         {flow.state.step === 'idle' ? status : ''}
       </p>

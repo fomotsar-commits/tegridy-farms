@@ -440,6 +440,8 @@ describe('prepareLpDeposit', () => {
       'Its price is 4.0% above the outside price. A deposit here would hand that gap to the first arbitrage trade.',
       `At these amounts, a move back to the outside price would take up to about ${(Number(loss) / 1e9).toFixed(9).replace(/0+$/, '')} SOL of what you put in. That is an estimate.`,
     ]);
+    // Both restate the price check and its cost: read from the market, they move between two reads.
+    expect(s.marketWarnings).toEqual(s.warnings);
   });
 
   it('the estimated loss never decides anything: a pool 50% off still builds, and the transaction is the one a pool at the market gets', async () => {
@@ -512,6 +514,7 @@ describe('prepareLpDeposit', () => {
   it('a token whose creator can freeze accounts builds, and the summary says what a freeze means for this pool and for the holder', async () => {
     const s = ok(await deposit(world({ freezeAuthority: STRANGER }))).summary as LpDepositSummary;
     expect(s.warnings).toEqual([FREEZE_DEPOSIT]);
+    expect(s.marketWarnings).toEqual([]);
     expect(s.priceGap).toBeNull();
     const own = s.tokenWarnings.find((x) => x.code === 'freeze-authority')!;
     expect(own.text).toContain(STRANGER.toBase58());
@@ -536,6 +539,8 @@ describe('prepareLpDeposit', () => {
     nameToken(w.chain, w.mint, 'BAYLA', 'BAYLA');
     const s = ok(await deposit(w, {}, answering(NO_ROUTE))).summary as LpDepositSummary;
     expect(s.warnings).toEqual([COPY_DEPOSIT, FREEZE_DEPOSIT, NO_MARKET_DEPOSIT]);
+    // Only the one about the price is the market's: the token's own stay what they are between two reads.
+    expect(s.marketWarnings).toEqual([NO_MARKET_DEPOSIT]);
   });
 
   it.each([

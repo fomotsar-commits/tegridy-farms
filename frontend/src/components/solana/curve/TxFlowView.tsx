@@ -6,7 +6,7 @@ import { CREATOR_FEE_SWITCH, feeSplit } from '../../../lib/solana/cpswap/venue';
 import { formatSolPrice, tradeCostText } from '../../../lib/solana/lp/format';
 import type { FeeSplitView, NotSent, PreparedTx, SolanaCluster, TokenRole, TxKind, TxOutcome, TxSigner, TxSummary, TxViewApi } from './ports';
 import { reviewLines } from './reviewLines';
-import type { ReviewState, TxFlow } from './useTxFlow';
+import type { Changed, ReviewState, TxFlow } from './useTxFlow';
 import type { QuoteCoin } from '../../../lib/solana/lp/quotes';
 
 // What the user sees between pressing a Review button and the chain's answer.
@@ -325,35 +325,34 @@ const gapCostText = (g: PriceGap, q: QuoteCoin) =>
   g.lossQuote === null ? 'could not be worked out' : `up to about ${coinExact(g.lossQuote, q)} of what you put in`;
 
 /**
- * What the builder says must be read before this is signed (`summary.warnings`: a price
- * that is off and what it may cost, no market price, a copied name, a freezable token).
- * Only adding and opening carry any. A removal never does: nothing here may give someone
- * a reason to wait before taking their money out.
- *
- * What the pool's pairing coin itself adds to the risks (quotes.ts `risk`: Circle can
- * freeze a pool's USDC account) is one of them, said last. It was a plain notice far down
- * the rows, so a clean USDC review had no warnings box and its heading was described by
- * nothing: someone moving by keyboard reached Sign without hearing it (review, 2026-10-04).
- * Here it is read out when the review opens, like a token its creator can freeze. It is
- * said once: the rows below do not repeat it.
+ * What must be read before this is signed (`summary.warnings`), then what the pairing coin
+ * adds to the risks (quotes.ts `risk`), said once and read out when the review opens. Only
+ * adding and opening carry any: nothing may give someone a reason to wait before taking
+ * their money out. `market`: it restates the price check (`summary.marketWarnings`).
  */
-function reviewWarnings(s: TxSummary): string[] {
+function reviewWarnings(s: TxSummary): { text: string; market: boolean }[] {
   if (s.kind !== 'lp-deposit' && s.kind !== 'lp-create') return [];
-  return s.quote.risk ? [...s.warnings, s.quote.risk] : s.warnings;
+  const said = s.warnings.map((text) => ({ text, market: s.marketWarnings.includes(text) }));
+  return s.quote.risk ? [...said, { text: s.quote.risk, market: false }] : said;
 }
 
 /**
  * The warnings, first on the review, above every row: on a phone the review is two screens
  * long, and a warning at the foot of it is read after the decision is made. The review's
- * heading is described by them, so a screen reader says them when the review opens.
+ * heading is described by them, so a screen reader says them when the review opens. Those
+ * restating the price are the market's lines, and so is the head when they are all there is.
  */
-function ReviewWarnings({ id, warnings }: { id: string; warnings: string[] }) {
+function ReviewWarnings({ id, warnings }: { id: string; warnings: { text: string; market: boolean }[] }) {
   return (
     <div id={id} className="space-y-1" data-testid="tx-review-warnings">
-      <Notice tone="warn">Read these warnings first. Nothing here stops you signing, and each one is a risk to what you put in:</Notice>
+      <Notice tone="warn" market={warnings.every((w) => w.market) ? 'warnings-head' : undefined}>
+        Read these warnings first. Nothing here stops you signing, and each one is a risk to what you put in:
+      </Notice>
       <ul className="list-disc pl-4 text-amber-300/90 space-y-0.5">
         {warnings.map((w, i) => (
-          <li key={`${i}:${w}`}>{w}</li>
+          <li key={`${i}:${w.text}`} data-market={w.market ? 'warning' : undefined}>
+            {w.text}
+          </li>
         ))}
       </ul>
     </div>
@@ -389,8 +388,8 @@ function LpDepositRows({ summary: s }: { summary: Extract<TxSummary, { kind: 'lp
       <Row label="At most" value={`${coinExact(s.max.quote, q)} and ${unitsExact(s.max.token, s.tokenDecimals)} tokens${limited}`} />
       <Row label="You get" value={`${unitsExact(s.lpAmount, s.lpDecimals)} pool shares, exactly`} />
       <Row label="Your share of the pool" value={`${shareText(s.sharePct.before)} → ${shareText(s.sharePct.after)}`} />
-      <Row label="Price check" value={priceText(s.price)} mono={false} />
-      {s.priceGap && <Row label="Estimated cost of that gap" value={gapCostText(s.priceGap, q)} mono={false} />}
+      <Row label="Price check" value={priceText(s.price)} mono={false} market="price" />
+      {s.priceGap && <Row label="Estimated cost of that gap" value={gapCostText(s.priceGap, q)} mono={false} market="gap" />}
       <Row label="Pool fee to add" value="none" mono={false} />
       {s.tokenWarnings.length > 0 && (
         <div className="space-y-1">
@@ -511,8 +510,8 @@ function LpCreateRows({ summary: s }: { summary: Extract<TxSummary, { kind: 'lp-
       <Row label="Fee tier" value={feeTierText(s.config, CREATOR_FEE_SWITCH.publicOpen)} mono={false} />
       {/* Sentences break only between words (mono={false}); only an address row breaks anywhere. */}
       <Row label="You put in" value={`${coinExact(s.put.quote, q)} and ${unitsExact(s.put.token, s.tokenDecimals)} tokens, exactly`} mono={false} />
-      <Row label="Opening price" value={openingPriceText(s.price, q)} mono={false} />
-      {s.priceGap && <Row label="Estimated cost of that gap" value={gapCostText(s.priceGap, q)} mono={false} />}
+      <Row label="Opening price" value={openingPriceText(s.price, q)} mono={false} market="price" />
+      {s.priceGap && <Row label="Estimated cost of that gap" value={gapCostText(s.priceGap, q)} mono={false} market="gap" />}
       <Row label="Opens for trading" value="At once (one second after it lands)" mono={false} />
       <Row
         label="Fee to open the pool"
@@ -764,17 +763,42 @@ export function TxReview({
   );
 }
 
+const lineList = (items: string[]) => (
+  <ul className="list-disc pl-4 space-y-0.5 [overflow-wrap:anywhere]">
+    {items.map((line, i) => (
+      <li key={`${i}:${line}`}>{line}</li>
+    ))}
+  </ul>
+);
+
+/**
+ * The market's lines that read differently when Sign built the review again: shown beside
+ * the buttons, and while the wallet is open. They stop nothing (useTxFlow `compare`).
+ */
+function MarketMoved({ moved, walletOpen }: { moved: Changed; walletOpen: boolean }) {
+  const k = moved.now.length;
+  const g = moved.gone.length;
+  return (
+    <div className="text-white/60 space-y-1" data-testid="tx-market-moved">
+      <p>
+        The price was read again as you pressed Sign in wallet.{' '}
+        {k > 0 ? 'These lines read differently now:' : `${g === 1 ? 'This line is' : 'These lines are'} no longer on it:`}
+      </p>
+      {k > 0 && lineList(moved.now)}
+      {k > 0 && g > 0 && <p>In place of:</p>}
+      {g > 0 && lineList(moved.gone)}
+      <p>
+        Nothing else changed, and none of these stops you signing.
+        {walletOpen ? ' If one changes your mind, reject it in your wallet.' : ''}
+      </p>
+    </div>
+  );
+}
+
 /** Beside the buttons: what a review that was built again says differently from the one being read. */
 function ReviewChanged({ changed, boxRef }: { changed: NonNullable<ReviewState['replaced']>; boxRef: Ref<HTMLDivElement> }) {
   const k = changed.now.length;
   const g = changed.gone.length;
-  const list = (items: string[]) => (
-    <ul className="list-disc pl-4 space-y-0.5 [overflow-wrap:anywhere]">
-      {items.map((line, i) => (
-        <li key={`${i}:${line}`}>{line}</li>
-      ))}
-    </ul>
-  );
   return (
     <div ref={boxRef} tabIndex={-1} role="alert" className="text-amber-300/90 space-y-1 outline-none" data-testid="tx-review-changed">
       {k === 0 && g === 0 ? (
@@ -790,9 +814,9 @@ function ReviewChanged({ changed, boxRef }: { changed: NonNullable<ReviewState['
               ? `${k} ${k === 1 ? 'line reads' : 'lines read'} differently now:`
               : `${g === 1 ? 'This line is' : 'These lines are'} no longer on it:`}
           </p>
-          {k > 0 && list(changed.now)}
+          {k > 0 && lineList(changed.now)}
           {k > 0 && g > 0 && <p>In place of:</p>}
-          {g > 0 && list(changed.gone)}
+          {g > 0 && lineList(changed.gone)}
           <p>Every other line reads as it did. Sign in wallet if this is still what you want.</p>
         </>
       )}
@@ -800,16 +824,23 @@ function ReviewChanged({ changed, boxRef }: { changed: NonNullable<ReviewState['
   );
 }
 
-/** The line above the buttons: what Sign in wallet will do, or what it is doing. */
+const SIGN_NEXT = 'Your wallet will show this transaction next. Sign only if it matches what is above.';
+
+/**
+ * The line above the buttons: what Sign in wallet will do, or what it is doing. On a review
+ * that can be built again it is the same line whatever the review's age: reading is never
+ * a failure, and a press past its clock builds it again first.
+ */
 function signStatus(s: ReviewState): string {
   if (s.renewing) {
-    return 'This review was too old to sign, so it is being built and test-run again on fresh numbers. Your wallet opens next only if every line still reads the same.';
+    return 'Building this again on fresh numbers and test-running it. Your wallet opens next if every line about the transaction reads the same.';
   }
   if (s.checking) return 'Checking the network before your wallet opens…';
-  if (s.expired) {
-    return 'This review is too old to sign as it is. Sign in wallet builds it again on fresh numbers first: your wallet opens only if every line still reads the same. If any line reads differently, you are shown which.';
-  }
-  return 'Your wallet will show this transaction next. Sign only if it matches what is above.';
+  if (!s.renewable) return SIGN_NEXT;
+  const priced = s.prepared.kind === 'lp-deposit' || s.prepared.kind === 'lp-create';
+  return `${SIGN_NEXT} Take your time: once it has been open a while, Sign in wallet builds it again on fresh numbers first, and your wallet opens in the same press if every line about the transaction reads the same.${
+    priced ? ' A price read just now may have moved by then. That is shown, and does not stop you.' : ''
+  }`;
 }
 
 function ExplorerLink({ href }: { href: string }) {
@@ -1058,6 +1089,7 @@ export function TxFlowView({
           headingRef={setFocus}
         />
         {s.replaced && <ReviewChanged changed={s.replaced} boxRef={changedRef} />}
+        {s.moved && <MarketMoved moved={s.moved} walletOpen={false} />}
         {dead ? (
           <p ref={staleRef} tabIndex={-1} role="alert" className="text-amber-300/90 outline-none">
             This quote is too old to sign: the network would soon refuse it. Start over for a fresh one.
@@ -1065,10 +1097,9 @@ export function TxFlowView({
         ) : signer === null ? (
           <Notice tone="warn">Connect a wallet that can sign to continue.</Notice>
         ) : (
-          // One status line, changed in place so it is read out: the waits between Sign
-          // and the wallet (the block height read, a stale review built again), and what
-          // Sign will do on a review that is too old to sign as it is.
-          <p role="status" className={s.expired ? 'text-amber-300/90' : 'text-white/40 text-[10px]'}>
+          // One status line, changed in place so it is read out: what Sign will do, and the
+          // waits between Sign and the wallet (the block height read, a review built again).
+          <p role="status" className="text-white/40 text-[10px]">
             {signStatus(s)}
           </p>
         )}
@@ -1083,7 +1114,7 @@ export function TxFlowView({
             Sign in wallet
           </button>
           <button type="button" className="btn-secondary min-h-[44px] w-full py-2.5 text-[13px]" onClick={flow.reset}>
-            {s.expired ? 'Start over' : 'Cancel'}
+            {dead ? 'Start over' : 'Cancel'}
           </button>
         </div>
       </div>
@@ -1091,9 +1122,10 @@ export function TxFlowView({
   }
   if (s.step === 'submitting') {
     return (
-      <p ref={setFocus} tabIndex={-1} role="status" className="text-white/55 outline-none">
-        Waiting for your wallet. Approve the transaction there to send it.
-      </p>
+      <div ref={setFocus} tabIndex={-1} role="status" className="space-y-2 outline-none">
+        <p className="text-white/55">Waiting for your wallet. Approve the transaction there to send it.</p>
+        {s.moved && <MarketMoved moved={s.moved} walletOpen />}
+      </div>
     );
   }
   if (s.step === 'sent') {
