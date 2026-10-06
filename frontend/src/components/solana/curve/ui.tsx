@@ -55,11 +55,17 @@ export function Card({
  * characters. Words in a sentence break only at spaces, or mid-word only when
  * one word alone is wider than the card, so a phone never reads "Blocked unt/il".
  */
-export function Row({ label, value, mono = true }: { label: string; value: string; mono?: boolean }) {
+/**
+ * `words`: a mono value that is an address FOLLOWED BY a sentence ("<address> (opened for
+ * you; its deposit of 0.00203928 SOL stays in that account)"). It breaks between words
+ * first and inside one only when it cannot fit, so the address still wraps and the amount
+ * is never split in the middle of a number (review of the phone fixes, 2026-10-04).
+ */
+export function Row({ label, value, mono = true, words = false }: { label: string; value: string; mono?: boolean; words?: boolean }) {
   return (
     <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5 text-white/75">
       <span className="break-words">{label}</span>
-      <span className={`text-right min-w-0 ${mono ? 'font-mono break-all' : '[overflow-wrap:anywhere]'}`}>{value}</span>
+      <span className={`text-right min-w-0 ${mono ? (words ? 'font-mono [overflow-wrap:anywhere]' : 'font-mono break-all') : '[overflow-wrap:anywhere]'}`}>{value}</span>
     </div>
   );
 }
@@ -201,7 +207,7 @@ export function SlippagePicker({
           </button>
         ))}
         <input
-          className={`${inputCls} flex-1 min-w-[72px] !w-auto disabled:opacity-50`}
+          className={`${inputCls} flex-1 min-w-[96px] !w-auto disabled:opacity-50`}
           style={inputStyle}
           inputMode="decimal"
           placeholder="Other %"

@@ -26,7 +26,7 @@ import { useLpWrites, type LpWrites } from './useLpWrites';
 
 const LP_DECIMALS = 9;
 /** What a live mint authority can do to the new pool: the pool holds the pairing coin, so that is what is at risk. */
-const mintAuthorityLine = (coin: QuoteCoin) => `Whoever holds it can make new tokens at any time and sell them into your pool for its ${coin.symbol}.`;
+const mintAuthorityLine = (coin: QuoteCoin) => `Whoever holds that mint authority can make new tokens at any time and sell them into your pool for its ${coin.symbol}.`;
 
 /**
  * What an opening off the market is estimated to cost, in the words the review says again
@@ -665,12 +665,13 @@ function CreateInner({
                 Pair with
               </span>
               {/* Real radio buttons: one Tab stop, and the arrow keys move the choice. The
-                  whole label is the 44px target. `relative` keeps the input inside it. */}
-              <div className="flex gap-2">
+                  whole label is the 44px target. `relative` keeps the input inside it. Three
+                  choices fit one row from 360 wide; narrower, the row wraps instead of spilling. */}
+              <div className="flex flex-wrap gap-2">
                 {pairs.map(({ coin: q }) => (
                   <label
                     key={q.mint}
-                    className={`${TOGGLE_CLS} relative flex items-center justify-center gap-2 px-3 cursor-pointer has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-white/70`}
+                    className={`${TOGGLE_CLS} relative flex items-center justify-center gap-1.5 px-2 cursor-pointer has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-white/70`}
                     style={{ background: q.mint === coin.mint ? 'rgba(45,139,78,0.45)' : 'rgba(0,0,0,0.45)', border: '1px solid rgba(255,255,255,0.18)' }}
                   >
                     <input type="radio" name={pairName} value={q.symbol} checked={q.mint === coin.mint} onChange={() => chooseCoin(q)} />
@@ -697,7 +698,7 @@ function CreateInner({
           {warnings.length > 0 && (
             <div className="space-y-1">
               <Notice tone="warn">Read these about this token first:</Notice>
-              <ul className="list-disc pl-4 text-amber-300/90 space-y-0.5">
+              <ul className="list-disc pl-4 text-amber-300/90 space-y-0.5 [overflow-wrap:anywhere]">
                 {warnings.map((w) => (
                   <li key={w.code}>{w.text}</li>
                 ))}

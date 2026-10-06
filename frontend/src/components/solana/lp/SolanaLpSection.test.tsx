@@ -379,6 +379,17 @@ describe('Row', () => {
     expect(prose!.className).toMatch(/overflow-wrap:anywhere/);
     expect(mono!.className).toMatch(/break-all/);
   });
+
+  // An address followed by a sentence with an amount in it: `break-all` split the amount
+  // in the middle of a number on a phone. `words` keeps the mono font and breaks between
+  // words first, and inside one (the address) only when it cannot fit.
+  it('a mono value marked `words` breaks between words first, and is still mono', () => {
+    const { container } = render(<Row words label="c" value={`${M} (opened for you; its deposit of 0.00203928 SOL stays in that account)`} />);
+    const span = container.querySelector('span.text-right')!;
+    expect(span.className).toMatch(/font-mono/);
+    expect(span.className).toMatch(/overflow-wrap:anywhere/);
+    expect(span.className).not.toMatch(/break-all/);
+  });
 });
 
 // 6006: a share the pool program would refuse to burn is said to be too small, never

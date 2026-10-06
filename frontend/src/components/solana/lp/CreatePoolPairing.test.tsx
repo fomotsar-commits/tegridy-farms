@@ -1084,9 +1084,9 @@ describe('what the coin adds to the risks', () => {
     const warned: TokenSafety = { ...tokenFor(M), verdict: 'warn', warnings: [{ code: 'mint-authority', text: 'Someone can still make more of this token.' }] } as TokenSafety;
     mount(readers({ safety: vi.fn(async () => new Map([[M, warned]])) }));
     const { panel } = await openPanel();
-    expect(panel).toHaveTextContent('Whoever holds it can make new tokens at any time and sell them into your pool for its SOL.');
+    expect(panel).toHaveTextContent('Whoever holds that mint authority can make new tokens at any time and sell them into your pool for its SOL.');
     await pair(panel, 'USDC');
-    expect(panel).toHaveTextContent('Whoever holds it can make new tokens at any time and sell them into your pool for its USDC.');
+    expect(panel).toHaveTextContent('Whoever holds that mint authority can make new tokens at any time and sell them into your pool for its USDC.');
     expect(panel).not.toHaveTextContent('for its SOL');
   });
 });

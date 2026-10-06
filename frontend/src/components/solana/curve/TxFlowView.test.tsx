@@ -1563,7 +1563,7 @@ describe('opening a pool: the review', () => {
     expect(value('Your share of the pool')).toBe('100.00%');
     expect(screen.getByText('Read these about this token first:')).toBeInTheDocument();
     expect(screen.getByText('Its creator can still mint more.')).toBeInTheDocument();
-    expect(screen.getByText('Whoever holds it can make new tokens at any time and sell them into your pool for its SOL.')).toBeInTheDocument();
+    expect(screen.getByText('Whoever holds that mint authority can make new tokens at any time and sell them into your pool for its SOL.')).toBeInTheDocument();
     expect(screen.getByText('A spender is approved on your token account.')).toBeInTheDocument();
     expect(screen.getByText(/wrapped into a token account for the opening, and that account is closed in the same transaction/)).toBeInTheDocument();
     expect(screen.queryByText(/needs a second signature/)).not.toBeInTheDocument();

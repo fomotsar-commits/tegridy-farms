@@ -53,7 +53,7 @@ export function VenueStatusCard({ status, onRefresh, lpMode, feeSheetBelow = tru
       <section ref={ref} className={frame} style={green} aria-label="Venue status">
         <div className="flex items-center justify-between gap-3 flex-wrap mb-2">
           <p className="text-[10px] uppercase tracking-wider" style={{ color: '#4ade80' }}>Venue · LIVE</p>
-          <button type="button" onClick={onRefresh} className="text-white/50 hover:text-white text-[11px] underline underline-offset-2">Refresh</button>
+          <button type="button" onClick={onRefresh} className="inline-flex items-center min-h-[44px] px-2 text-white/50 hover:text-white text-[11px] underline underline-offset-2">Refresh</button>
         </div>
         <h2 className="heading-luxury text-xl text-white mb-2">Pools are open</h2>
         <p className="text-white/80 text-[13px] leading-relaxed mb-3">
@@ -119,7 +119,7 @@ export function VenueStatusCard({ status, onRefresh, lpMode, feeSheetBelow = tru
     <section ref={ref} className={frame} style={amber} aria-label="Venue status">
       <div className="flex items-center justify-between gap-3 flex-wrap mb-2">
         <p className="text-[10px] uppercase tracking-wider" style={{ color: '#e3b341' }}>Venue status · live chain read</p>
-        <button type="button" onClick={onRefresh} className="text-white/50 hover:text-white text-[11px] underline underline-offset-2">Refresh</button>
+        <button type="button" onClick={onRefresh} className="inline-flex items-center min-h-[44px] px-2 text-white/50 hover:text-white text-[11px] underline underline-offset-2">Refresh</button>
       </div>
       <h2 className="heading-luxury text-xl text-white mb-2">{body.title}</h2>
       {body.lines.map((l) => (
@@ -144,10 +144,10 @@ export function VenueStatusCard({ status, onRefresh, lpMode, feeSheetBelow = tru
 
 function Addr({ label, value }: { label: string; value: string }) {
   return (
-    <span className="inline-flex items-center gap-2 rounded-lg px-2.5 py-1.5"
+    <span className="inline-flex items-center gap-2 rounded-lg px-2.5"
       style={{ background: 'rgba(0,0,0,0.5)', border: '1px solid var(--color-kyle-40)' }}>
       <span className="text-[10px] uppercase tracking-wider" style={{ color: 'var(--color-kyle)' }}>{label}</span>
-      <CopyButton text={value} display={`${value.slice(0, 4)}…${value.slice(-4)}`} className="font-mono text-[12px]" style={{ color: 'var(--color-kyle)' }} />
+      <CopyButton text={value} display={`${value.slice(0, 4)}…${value.slice(-4)}`} className="font-mono text-[12px] min-h-[44px]" style={{ color: 'var(--color-kyle)' }} />
     </span>
   );
 }
