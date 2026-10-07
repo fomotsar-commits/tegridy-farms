@@ -6,6 +6,10 @@ page keeps the newest thirty days.
 
 ## [Unreleased]
 
+### 2026-10-06
+
+- Solana swap: a trade now goes to one of our own pools when that pool pays you at least as much as Jupiter, and to Jupiter when it does not. The line under the quote says which, and by how much. A swap in our pool opens a review with a test run before your wallet is asked, as adding liquidity does, and both prices are checked again when you press Buy. Our pools on the public fee tier are now found: the swap used to look only at the launch tier, and sent every trade to Jupiter whatever the line said.
+
 ### 2026-10-04
 
 - Solana LP on a small phone: a warning that names a long address no longer runs off the edge of its card, the three "Pair with" choices stay inside the form, the amounts on the add and remove reviews no longer break in the middle of a number, and the small links and buttons (the swap link in the form, Refresh and the copy buttons on the venue status card) are full-size press targets.

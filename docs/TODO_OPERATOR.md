@@ -1357,11 +1357,16 @@ is advisory today. Unenforced, it is a comment.
 
 ### ⬜ REMAINING — an agent can do these alone, AFTER the deploy above
 
-1. **Wire execution against our own pool.** The instruction builders exist and are source-verified
-   (`lib/solana/cpswap/ix.ts`), but nothing sends them, because the program is not deployed and an
-   unexercised money path is the ledger's most common defect class. Moot until step 4 above: with
-   no venue, the router always picks the aggregator. CI's `migration-rehearsal` job is where these
-   builders get their first real execution.
+1. ~~**Wire execution against our own pool.**~~ **Built 2026-10-06**, on branch
+   `feat/solana-swap-routes-to-own-pool`; it is live once that branch is merged. The swap page
+   finds every pool of ours for the pair (the launch pool, the standard address on fee tier 1 and
+   on tier 0, and what the pool index names), prices each with its own tier's fee, and lets
+   `lib/solana/route.ts` pick: our pool unless Jupiter pays more, a tie stays here. When our pool
+   wins, Buy opens a review of a swap in that pool (`write/venueSwap.ts`, kind `venue-swap`), with
+   the same test run and Sign in wallet as liquidity. Both venues are quoted again when Buy is
+   pressed, and a route that changed is shown, not taken. Before this the page looked only at
+   tier 0's standard address, so the owner's BAYLA/SOL pool (tier 1) was never compared, and
+   every trade was sent to Jupiter whatever the line said.
 2. **The LP forms on `/pools`** — create-pool / deposit / withdraw. Same reason, same unblock.
 3. ⚠️ **PICK ONE HOME for cp-swap client code — this is the repo's THIRD "two
    implementations of one thing".** `lib/launcher/solana/curve/program.ts` grew
