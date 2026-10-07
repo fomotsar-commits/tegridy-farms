@@ -73,6 +73,14 @@ export const OWN_EXCLUDED = {
   paysNothing: 'it pays nothing for this amount',
 } as const;
 
+/** The exclusions that are a read that failed: nothing was learned about that pool. */
+const READ_FAILURES: ReadonlySet<string> = new Set([OWN_EXCLUDED.tokenUnread, OWN_EXCLUDED.feesUnread, OWN_EXCLUDED.clockUnread]);
+
+/** True when a "no" from these quotes is no finding: a pool may have been missed, or not judged. */
+export function quotesIncomplete(q: Pick<OwnQuotes, 'gaps' | 'excluded'>): boolean {
+  return q.gaps.length > 0 || q.excluded.some((e) => READ_FAILURES.has(e.reason));
+}
+
 export interface OwnCandidate {
   view: PoolView;
   quote: OwnPoolQuote;

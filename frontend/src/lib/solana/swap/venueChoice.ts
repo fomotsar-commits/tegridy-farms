@@ -121,7 +121,7 @@ export function routeSentence(jupiter: JupiterSide, own: OwnSide, send: OwnSend)
   if (send.kind === 'no') return `${wins}, but ${send.reason}, so Buy sends this trade to Jupiter.`;
   if (vs.closeCall) {
     const lead = vs.edge === 0 ? "Our pool quotes the same as Jupiter's quote" : `Our pool quotes ${pct(vs.edge)} more than Jupiter's quote`;
-    return `${lead}, which includes this site's fee. Buy asks Jupiter again and sends whichever pays you more.`;
+    return `${lead}, which includes this site's fee. Buy asks Jupiter again first: if Jupiter would pay more, nothing is sent and its quote is shown.`;
   }
   return `${wins}, so Buy sends it to our pool.`;
 }

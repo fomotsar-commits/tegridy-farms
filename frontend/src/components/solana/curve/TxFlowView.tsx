@@ -9,16 +9,11 @@ import { reviewLines } from './reviewLines';
 import type { Changed, ReviewState, TxFlow } from './useTxFlow';
 import type { QuoteCoin } from '../../../lib/solana/lp/quotes';
 
-// What the user sees between pressing a Review button and the chain's answer.
-// Every word here is about THIS transaction, and the numbers come from the
-// prepared transaction, never from the form the user typed into.
-//
-// Screen readers: this view replaces the panel's form, so the button that had focus
-// is gone. Each step moves focus to its own heading or notice (tabIndex -1), which
-// also reads it out. Progress is role="status"; what needs attention (a refusal, an
-// unconfirmed send, a review that changed or can no longer be signed) is role="alert"
-// and takes focus. A button whose work is running stays focusable and says so in a
-// status line, instead of switching off under the keyboard.
+// Between pressing Review and the chain's answer: every number comes from the prepared
+// transaction, never the form. This view replaces the form, so each step moves focus to its
+// own heading or notice. Progress is role="status"; what needs attention (a refusal, an
+// unconfirmed send, a review that changed or can no longer be signed) is role="alert" and
+// takes focus. A button whose work is running stays focusable and says so in a status line.
 
 const SOL = (l: bigint) => `${formatSol(l)} SOL`;
 const signedSol = (l: bigint) => `${l < 0n ? '-' : '+'}${SOL(l < 0n ? -l : l)}`;

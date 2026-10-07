@@ -107,11 +107,12 @@ describe('settleVenue: our pool beats the fee-bearing quote, so the no-fee retry
     expect(await settleVenue(deps({ prepareJupiter: async () => p }), { ...ARGS, ownOut: FEE_OUT })).toEqual({ venue: 'own', against: null });
   });
 
-  it('a retry that moved: our pool takes it when it meets the moved quote, and nothing is sent when it does not', async () => {
+  it('a retry that moved: our pool takes it when it meets the moved quote; short of that the moved quote is handed back to be shown', async () => {
     const moved = quote({ outAmount: '14900000', platformFee: null });
     const p: PreparedJupiterSwap = { status: 'moved', quote: moved };
     expect(await settleVenue(deps({ prepareJupiter: async () => p }), { ...ARGS, ownOut: 14_900_000n })).toEqual({ venue: 'own', against: 14_900_000n });
-    expect(await settleVenue(deps({ prepareJupiter: async () => p }), { ...ARGS, ownOut: 14_899_999n })).toEqual({ venue: 'unavailable', detail: SETTLE_COPY.moved });
+    // Jupiter's path would show the moved quote, not send it: so is it here, to be pressed again.
+    expect(await settleVenue(deps({ prepareJupiter: async () => p }), { ...ARGS, ownOut: 14_899_999n })).toEqual({ venue: 'moved', quote: moved });
   });
 
   it('a retry that could not be read, or a build that threw, sends nothing anywhere', async () => {

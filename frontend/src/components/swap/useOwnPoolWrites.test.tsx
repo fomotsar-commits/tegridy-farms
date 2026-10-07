@@ -17,6 +17,7 @@ import { fakeLpApi, lpCfg, lpOpenGate, LP_PROGRAM } from '../solana/lp/fakeLpWri
 import { SWAP_PENDING_SCOPE, savePendingTrade } from '../solana/curve/pendingTrade';
 
 const gateRpc = {} as GateRpc;
+const failedLoad = async (): Promise<LpWriteApi> => Promise.reject(new Error('chunk 404'));
 const USER = new PublicKey('5tzFkiKscXHK5ZXCGbXZxdw7gTjjD1mBwuoFbhUvuAi9');
 const connect = (canSign = true) => {
   h.wallet = { publicKey: USER, signTransaction: canSign ? async <T,>(t: T) => t : undefined };
@@ -79,6 +80,35 @@ describe('useOwnPoolWrites', () => {
     gate = lpOpenGate();
     act(() => result.current.refreshGate());
     await waitFor(() => expect(result.current.send).toEqual({ kind: 'yes' }));
+  });
+
+  it('a gate that could not be read is read again the next time the form finds our pool', async () => {
+    connect();
+    let gate: LpGate = { kind: 'blocked', reason: 'unreadable', detail: 'HTTP 502' };
+    const api = fakeLpApi({ readLpGate: vi.fn(async () => gate) });
+    const load = async () => api;
+    const onResolved = vi.fn();
+    const { result, rerender } = renderHook((p: { wanted: boolean }) => useOwnPoolWrites({ wanted: p.wanted, onResolved, load, gateRpc, programId: LP_PROGRAM }), { initialProps: { wanted: true } });
+    await waitFor(() => expect(result.current.send).toEqual({ kind: 'no', reason: OWN_SEND_COPY.gateUnread }));
+    gate = lpOpenGate();
+    rerender({ wanted: false });
+    rerender({ wanted: true });
+    await waitFor(() => expect(result.current.send).toEqual({ kind: 'yes' }));
+    expect(api.readLpGate).toHaveBeenCalledTimes(2);
+  });
+
+  it('says whether a note can be checked: while the code loads, once it can, and when it cannot', async () => {
+    savePendingTrade(SWAP_PENDING_SCOPE, { kind: 'venue-swap', signature: '5'.repeat(88), lastValidBlockHeight: 9 });
+    let finish: (a: LpWriteApi) => void = () => {};
+    const api = fakeLpApi({ recheckOutcome: vi.fn(async (_r, signature: string) => ({ status: 'unknown' as const, signature, message: 'slow' })) });
+    const load = () => new Promise<LpWriteApi>((r) => { finish = r; });
+    const onResolved = vi.fn();
+    const { result } = renderHook(() => useOwnPoolWrites({ wanted: false, onResolved, load, gateRpc, programId: LP_PROGRAM }));
+    expect(result.current.noteCheck).toBe('loading');
+    act(() => finish(api));
+    await waitFor(() => expect(result.current.noteCheck).toBe('ready'));
+    const failed = renderHook(() => useOwnPoolWrites({ wanted: false, onResolved, load: failedLoad, gateRpc, programId: LP_PROGRAM }));
+    await waitFor(() => expect(failed.result.current.noteCheck).toBe('cannot'));
   });
 
   it('once a pool of ours was found, the gate is read once: the form reading again for each amount does not read it again', async () => {

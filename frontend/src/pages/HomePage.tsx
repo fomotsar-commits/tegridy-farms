@@ -140,13 +140,13 @@ export default function HomePage() {
   // so every search result, every link preview, and every share of the front door
   // described a single-chain product. Both halves below are separately checkable:
   // TOWELI staking really is Ethereum-only (do not let that rot into "multichain
-  // staking"), and the Solana swap really is live and routed through Jupiter.
+  // staking"), and the Solana swap really is live, through our own pools or Jupiter.
   usePageTitle(
     bungalowIdentity ? `${bungalowIdentity.symbol}. ${bungalowIdentity.identity.heroLine}` : 'Home',
     bungalowIdentity
       ? `${bungalowIdentity.name} bungalow on Jungle Bay Island. ${bungalowIdentity.identity.museLine} ${bungalowTradeBlurb(bungalowIdentity, isSolanaSwapLive())}`
       : isToweliArrival
-        ? 'Ethereum and Solana. Stake TOWELI on Ethereum — protocol swap fees flow on-chain to stakers, verifiable on Etherscan. Swap Solana tokens via Jupiter, and scan any token on either chain.'
+        ? 'Ethereum and Solana. Stake TOWELI on Ethereum — protocol swap fees flow on-chain to stakers, verifiable on Etherscan. Swap Solana tokens in our own pools or through Jupiter, and scan any token on either chain.'
         : VENUE.description,
   );
   const { address } = useAccount();
@@ -356,13 +356,13 @@ export default function HomePage() {
             {/* 2026-08-07: added the Solana sentence. It is deliberately a SEPARATE
                 sentence rather than a rewrite of the staking claim — TOWELI staking is
                 Ethereum-only and must keep saying so. The Solana clause names only what
-                is live today (the Jupiter-routed swap and the two-chain scanner); the
+                is live today (the swap, through our pools or Jupiter, and the two-chain scanner); the
                 launch rail is claimed by its own self-gating card further down. */}
             <p className="text-white text-base md:text-lg mb-6 max-w-md leading-relaxed">
               Stake TOWELI on Ethereum. Every protocol fee flows on-chain &mdash; to stakers, the
               liquidity engine, and operations. Every core contract is source-verified on Etherscan,
-              so you can read the code that holds your stake. On Solana we swap through Jupiter and
-              scan any token &mdash; same rails, second chain.
+              so you can read the code that holds your stake. On Solana we swap in our own pools or through
+              Jupiter, whichever pays you more, and scan any token &mdash; same rails, second chain.
             </p>
 
             <div className="flex flex-wrap gap-3">

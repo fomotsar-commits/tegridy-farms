@@ -14,6 +14,8 @@ export type Settled =
   | { venue: 'own'; against: bigint | null }
   /** `prepared`: the transaction compared, built and simulated: the one to send. */
   | { venue: 'jupiter'; fresh: JupiterQuote; prepared: ReadyJupiterSwap }
+  /** Jupiter's retry pays less than the quote it replaces, and more than our pool: shown, not sent. */
+  | { venue: 'moved'; quote: JupiterQuote }
   | { venue: 'unavailable'; detail: string };
 
 export interface SettleDeps {
@@ -26,7 +28,6 @@ export const SETTLE_COPY = {
   quoteUnread: 'Jupiter could not be asked for a quote just now',
   quoteOdd: 'Jupiter answered with a quote this page cannot read',
   buildUnread: 'Jupiter could not build its trade just now',
-  moved: "Jupiter's price moved while it was being checked",
 } as const;
 
 function amount(raw: unknown): bigint | null {
@@ -71,6 +72,6 @@ export async function settleVenue(
   const out = amount(p.quote.outAmount);
   if (out === null) return { venue: 'unavailable', detail: SETTLE_COPY.quoteOdd };
   // Its retry pays less than the quote it replaces: Jupiter's path would show it, not send it.
-  if (p.status === 'moved') return a.ownOut >= out ? { venue: 'own', against: out } : { venue: 'unavailable', detail: SETTLE_COPY.moved };
+  if (p.status === 'moved') return a.ownOut >= out ? { venue: 'own', against: out } : { venue: 'moved', quote: p.quote };
   return out > a.ownOut ? { venue: 'jupiter', fresh, prepared: p } : { venue: 'own', against: out };
 }

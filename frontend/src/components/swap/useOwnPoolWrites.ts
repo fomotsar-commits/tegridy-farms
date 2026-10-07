@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useConnection } from '@solana/wallet-adapter-react';
 import { browserCurveRpc, browserRpc } from '../../lib/launcher/solana/curve/rpc';
 import { lpWriteMode } from '../../lib/launcher/solana/lpWriteFlag';
@@ -39,6 +39,8 @@ export interface OwnPoolWrites {
   pending: PendingTradesState;
   /** Read the gate again (after one that could not be read). */
   refreshGate(): void;
+  /** Whether a note of an earlier trade can be checked from this page: not yet, yes, or not at all. */
+  noteCheck: 'loading' | 'ready' | 'cannot';
 }
 
 export function useOwnPoolWrites(o: {
@@ -72,6 +74,15 @@ export function useOwnPoolWrites(o: {
   const raw = gateState.status === 'ready' ? gateState.gate : null;
   const gate = raw?.kind === 'open' && raw.mode === 'on' && raw.cfg.cpSwapProgram.toBase58() === programId ? raw : null;
 
+  // A gate that could not be read is read again each time the form finds our pool again.
+  const unreadable = raw?.kind === 'blocked' && raw.reason === 'unreadable';
+  const refresh = gateState.refresh;
+  useEffect(() => {
+    if (o.wanted && unreadable) refresh();
+    // Only on the form finding our pool again, never on the read's own answer.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [o.wanted]);
+
   const check = useMemo<CheckSignature | null>(
     () => (api && cfg ? (sig, lvbh, kind) => api.recheckOutcome(connection, sig, { lastValidBlockHeight: lvbh ?? undefined, cfg, kind }) : null),
     [api, cfg, connection],
@@ -100,5 +111,6 @@ export function useOwnPoolWrites(o: {
     rpc: connection,
     pending,
     refreshGate: gateState.refresh,
+    noteCheck: check ? 'ready' : gateState.status === 'load-failed' || (gateState.status === 'ready' && !cfg) ? 'cannot' : 'loading',
   };
 }

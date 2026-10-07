@@ -284,6 +284,15 @@ describe('refused, each for its own reason', () => {
     };
     const simless = await buy(noSim, 1_000_000n);
     expect(!simless.ok && simless.outcome).toMatchObject({ stage: 'simulate', message: expect.stringMatching(/^Could not run the safety check/), retry: true });
+    // A node behind on the blockhash, or one that left out the balances it was asked for, is no verdict either.
+    const behind = world();
+    behind.chain.simulate = () => ({ err: 'BlockhashNotFound', logs: [], unitsConsumed: 0 });
+    const lagged = await buy(behind, 1_000_000n);
+    expect(!lagged.ok && lagged.outcome).toMatchObject({ stage: 'simulate', retry: true });
+    const blind = world();
+    blind.chain.simulate = () => ({ err: null, logs: [], unitsConsumed: 50_000 });
+    const unconfirmed = await buy(blind, 1_000_000n);
+    expect(!unconfirmed.ok && unconfirmed.outcome).toMatchObject({ stage: 'simulate', message: expect.stringMatching(/^The safety check could not confirm this/), retry: true });
     for (const r of [await buy(world({ status: POOL_STATUS_DISABLE_SWAP }), 1_000_000n), await buy(world({ frozenTokenVault: true }), 1_000_000n)]) {
       expect(!r.ok && 'retry' in r.outcome).toBe(false);
     }

@@ -9,7 +9,7 @@ import { findPools, readPools } from '../lp/poolFinder';
 import { readTokenSafety, BAYLA_MINT, TOKEN_2022_PROGRAM, TOKEN_PROGRAM, USDC_MINT, WSOL_MINT } from '../lp/tokenSafety';
 import { USDC_QUOTE } from '../lp/quotes';
 import { CLOCK, LAUNCH, PROGRAM, buildPool, clockAccount, configBytes, fakeIndex, fakeRpc, key, mintBytes, type BuiltPool, type FakeAccount } from '../lp/testkit.fixture';
-import { OWN_EXCLUDED, OWN_GAPS, ownPair, pickOwnPool, quoteOwnPools, searchOwnPools, type OwnPoolReaders } from './ownPools';
+import { OWN_EXCLUDED, OWN_GAPS, ownPair, pickOwnPool, quoteOwnPools, quotesIncomplete, searchOwnPools, type OwnPoolReaders } from './ownPools';
 
 const SOL = 1_000_000_000n;
 const CHAIN_NOW = 1_000n;
@@ -280,3 +280,21 @@ function transferFeeMint(): Uint8Array {
   v.setUint16(168, 108, true);
   return out;
 }
+
+describe('quotesIncomplete: when a "no" from our pools is no finding', () => {
+  const base = { found: 1, best: null, gaps: [] as string[], excluded: [] as { address: string; reason: string }[] };
+  it('a gap in the search, or a pool that could not be judged because a read failed', () => {
+    expect(quotesIncomplete({ ...base, gaps: [OWN_GAPS.truncated] })).toBe(true);
+    for (const reason of [OWN_EXCLUDED.tokenUnread, OWN_EXCLUDED.feesUnread, OWN_EXCLUDED.clockUnread]) {
+      expect(quotesIncomplete({ ...base, excluded: [{ address: 'P', reason }] }), reason).toBe(true);
+    }
+  });
+
+  it('a complete search whose pools were read and cannot fill is a finding', () => {
+    for (const reason of [OWN_EXCLUDED.frozen, OWN_EXCLUDED.cannotPrice, OWN_EXCLUDED.paysNothing, OWN_EXCLUDED.tokenBlocked]) {
+      expect(quotesIncomplete({ ...base, excluded: [{ address: 'P', reason }] }), reason).toBe(false);
+    }
+    const none = { ...base, found: 0 };
+    expect(quotesIncomplete(none)).toBe(false);
+  });
+});

@@ -79,7 +79,7 @@ import {
 } from '../lib/jupiter';
 import { prepareJupiterSwap, NO_SITE_FEE_ROUTE_COPY } from '../lib/solana/swap/jupiterFeeRetry';
 import { OWN_PRIORITY_CAP_LAMPORTS } from '../lib/solana/swap/ownPoolSwaps';
-import type { OwnCandidate } from '../lib/solana/swap/ownPools';
+import { quotesIncomplete, type OwnCandidate } from '../lib/solana/swap/ownPools';
 import { settleVenue, type ReadyJupiterSwap, type SettleDeps } from '../lib/solana/swap/settleVenue';
 import { chooseVenue, routeSentence, standingSentence, type JupiterSide, type OwnSend } from '../lib/solana/swap/venueChoice';
 import { SiteFeeRow } from '../components/swap/SiteFeeRow';
@@ -1293,7 +1293,8 @@ function SolanaSwapInner() {
     retryBalance();
   }, [rereadVenues, retryBalance]);
   const writes = useOwnPoolWrites({ wanted: ownFound && !!publicKey, onResolved: noteResolved });
-  const refusalKey = `${requestKey}|${publicKey?.toBase58() ?? ''}`;
+  // What was typed, not the base units a USD price turns it into, so a price tick lifts nothing.
+  const refusalKey = `${payToken.mint}|${buyToken.mint}|${usdMode ? `usd:${amount}` : (baseAmount ?? '')}|${slippageBps}|${publicKey?.toBase58() ?? ''}`;
   const ownSend: OwnSend = ownRefused === refusalKey ? { kind: 'no', reason: OWN_SWAP_COPY.refused } : writes.send;
 
   // A trade in our pool settled (useTxFlow). What it says comes from the summary it was built with.
@@ -1418,17 +1419,23 @@ function SolanaSwapInner() {
   // USD prices for the pay + receive legs (one call, refreshed on pair change
   // — and every 30s while USD-denominated input is on, so a stale price can't
   // mis-size the trade).
-  // Paused while a trade is under way: a new price would change the amount under it.
+  // The 30 s tick pauses while a trade is under way: a new price would change the amount under it.
   useEffect(() => {
     let cancelled = false;
-    const load = () => {
+    getUsdPrices([payToken.mint, buyToken.mint])
+      .then((p) => { if (!cancelled) setPrices(p); })
+      .catch(() => { /* USD context is best-effort */ });
+    return () => { cancelled = true; };
+  }, [payToken.mint, buyToken.mint, usdMode]);
+  useEffect(() => {
+    if (!usdMode || formLocked) return;
+    let cancelled = false;
+    const iv = setInterval(() => {
       getUsdPrices([payToken.mint, buyToken.mint])
         .then((p) => { if (!cancelled) setPrices(p); })
         .catch(() => { /* USD context is best-effort */ });
-    };
-    if (!formLocked) load();
-    const iv = usdMode && !formLocked ? setInterval(load, 30_000) : null;
-    return () => { cancelled = true; if (iv) clearInterval(iv); };
+    }, 30_000);
+    return () => { cancelled = true; clearInterval(iv); };
   }, [payToken.mint, buyToken.mint, usdMode, formLocked]);
 
   // Persist the speed choice (best-effort — private windows just don't keep it).
@@ -1681,9 +1688,9 @@ function SolanaSwapInner() {
   }
 
   // Buy. With a pool of ours in play, every press reads our pools again and asks Jupiter again
-  // (settleVenue.ts), and the trade goes only to the venue the screen showed: a press that
-  // finds the other one ahead sends nothing and puts the new numbers on screen. A check
-  // that could not run sends nothing.
+  // (settleVenue.ts). Jupiter's trade goes out only when the screen showed Jupiter; our pool's
+  // only through its review. A press that finds Jupiter ahead of a pool shown sends nothing and
+  // shows Jupiter's numbers, and a read that did not finish sends nothing.
   async function onBuy() {
     if (pressing.current) return;
     pressing.current = true;
@@ -1708,21 +1715,34 @@ function SolanaSwapInner() {
       };
       // What this read finds is on screen from here (useOwnPoolRoute), whatever it decides.
       const now = await ownRoute.quoteNow();
-      const best = now.kind === 'ok' ? now.quotes.best : null;
+      // A read that did not finish sends nothing, whichever venue is shown: it decides nothing.
+      if (now.kind !== 'ok' || (!now.quotes.best && quotesIncomplete(now.quotes))) {
+        toast.error('Not sent', { description: OWN_SWAP_COPY.unread });
+        return;
+      }
+      const best = now.quotes.best;
       if (!best) {
-        if (shownVenue === 'jupiter' && now.kind === 'ok') {
+        if (shownVenue === 'jupiter') {
           setSettling(false);
           await handleSwap();
           return;
         }
-        const unread = now.kind !== 'ok' || now.quotes.gaps.length > 0;
-        toast.error('Not sent', { description: unread ? OWN_SWAP_COPY.unread : OWN_SWAP_COPY.poolGone });
+        toast.error('Not sent', { description: OWN_SWAP_COPY.poolGone });
         rereadVenues();
         return;
       }
       const settled = await settleVenue(deps, { ownOut: best.quote.outAmount, ...req });
       if (settled.venue === 'unavailable') {
         toast.error('Not sent', { description: OWN_SWAP_COPY.unchecked(settled.detail) });
+        return;
+      }
+      if (settled.venue === 'moved') {
+        // As Jupiter's own path does: the moved no-fee quote goes on screen, labelled, to be pressed again.
+        setWaivedQuote(settled.quote);
+        setQuote(settled.quote);
+        setQuoteFail(null);
+        setQuoteFor(requestKey);
+        toast.error('Price moved', { description: `The quote dropped beyond your ${(slippageBps / 100).toFixed(2)}% slippage. Review the new rate and swap again.` });
         return;
       }
       if (settled.venue === 'jupiter') {
@@ -1759,7 +1779,7 @@ function SolanaSwapInner() {
         // Built again for a review left open, or below the number just settled: settled again, in full.
         const again = await settleVenue(deps, { ownOut: out, ...req });
         if (again.venue === 'own') return r;
-        return notSent(again.venue === 'jupiter' ? OWN_SWAP_COPY.jupiterNow : OWN_SWAP_COPY.unchecked(again.detail));
+        return notSent(again.venue === 'unavailable' ? OWN_SWAP_COPY.unchecked(again.detail) : OWN_SWAP_COPY.jupiterNow);
       };
       reviewedFor.current = requestKey;
       await flow.prepare(build, { repeatable: true });
@@ -1770,8 +1790,9 @@ function SolanaSwapInner() {
   }
 
   const canBuy = choice?.venue === 'own' || (choice?.venue === 'jupiter' && quote !== null);
-  // One of our pools quotes this trade, whether or not it can be sent from here.
-  const ownQuotes = ownRoute.own.kind === 'ok' && ownRoute.own.quotes.best !== null;
+  // Our pools quote nothing for this trade, and that is a finding: a complete search, or none to search.
+  const own = ownRoute.own;
+  const ownNone = own.kind === 'absent' || own.kind === 'not-a-pair' || (own.kind === 'ok' && !own.quotes.best && !quotesIncomplete(own.quotes));
   const actionDisabled =
     !canBuy || quoteLoading || formLocked || pendingHold || flow.locked || sameToken || (needsAck && !ack) || insufficient;
   // What the buy button says. "No route" only when the quote service said it:
@@ -1785,7 +1806,7 @@ function SolanaSwapInner() {
     : insufficient ? `Insufficient ${payToken.symbol}`
     : canBuy ? `Buy ${buyToken.symbol}`
     : choice?.venue === 'wait' && jupiterSide.kind !== 'pending' ? 'Checking our pools…'
-    : quoteFail === 'no-route' ? (ownQuotes ? 'Not available here right now' : 'No route')
+    : quoteFail === 'no-route' ? (ownNone ? 'No route' : 'Not available here right now')
     : quoteFail === 'unavailable' ? 'Quote unavailable'
     : 'Fetching quote…';
 
@@ -2041,7 +2062,7 @@ function SolanaSwapInner() {
 
           {/* Where Buy sends the trade, and why, in every state: the ones where our pool
               loses or is not there included. The words are venueChoice.ts's. */}
-          <SolanaRouteLine text={routeText} good={choice?.venue === 'own'} />
+          <SolanaRouteLine text={flowIdle ? routeText : OWN_SWAP_COPY.inFlow} good={!flowIdle || choice?.venue === 'own'} />
 
           {/* While a trade in our pool is built, reviewed or sent, its steps take this place. */}
           {!flowIdle && writes.api ? (
@@ -2087,7 +2108,7 @@ function SolanaSwapInner() {
               </div>
             )}
             {sameToken && <p className="text-amber-300">Pick two different tokens.</p>}
-            {quoteFail === 'no-route' && !sameToken && !ownQuotes && <p className="text-amber-300">No route for this pair / amount.</p>}
+            {quoteFail === 'no-route' && !sameToken && ownNone && <p className="text-amber-300">No route for this pair / amount.</p>}
             {quoteFail === 'unavailable' && !sameToken && (
               <p className="text-amber-300" data-testid="solana-quote-unavailable">
                 Could not get a quote just now. This is not a statement that the pair cannot be traded.
@@ -2136,7 +2157,7 @@ function SolanaSwapInner() {
                 explorerUrl={(sig) => (writes.api && writes.cfg ? writes.api.explorerTxUrl(sig, writes.cfg.cluster) : `https://solscan.io/tx/${sig}`)}
                 title="Your last trade in our pool may still be landing"
                 testId="solana-swap-pending"
-                lead={<p>{writes.api ? OWN_SWAP_COPY.pendingLead : `${OWN_SWAP_COPY.pendingLead} ${OWN_SWAP_COPY.cannotCheck}`}</p>}
+                lead={<p>{writes.noteCheck === 'cannot' ? `${OWN_SWAP_COPY.pendingLead} ${OWN_SWAP_COPY.cannotCheck}` : OWN_SWAP_COPY.pendingLead}</p>}
               />
             </div>
           )}

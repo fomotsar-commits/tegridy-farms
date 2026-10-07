@@ -55,8 +55,8 @@ describe('routeSentence', () => {
   it.each<[string, JupiterSide, OwnSide, OwnSend, string]>([
     ['our pool wins', jup(900_000n, null), quotes(), YES, 'Our pool quotes 11.111% more than Jupiter, so Buy sends it to our pool.'],
     ['a tie', jup(1_000_000n, null), quotes(), YES, 'Our pool and Jupiter quote the same for this trade, so Buy sends it to our pool.'],
-    ['a tie with a quote that carries the site fee', jup(1_000_000n), quotes(), YES, "Our pool quotes the same as Jupiter's quote, which includes this site's fee. Buy asks Jupiter again and sends whichever pays you more."],
-    ['a close call', jup(996_000n), quotes(), YES, "Our pool quotes 0.402% more than Jupiter's quote, which includes this site's fee. Buy asks Jupiter again and sends whichever pays you more."],
+    ['a tie with a quote that carries the site fee', jup(1_000_000n), quotes(), YES, "Our pool quotes the same as Jupiter's quote, which includes this site's fee. Buy asks Jupiter again first: if Jupiter would pay more, nothing is sent and its quote is shown."],
+    ['a close call', jup(996_000n), quotes(), YES, "Our pool quotes 0.402% more than Jupiter's quote, which includes this site's fee. Buy asks Jupiter again first: if Jupiter would pay more, nothing is sent and its quote is shown."],
     ['Jupiter wins', jup(1_010_000n), quotes(), YES, 'Jupiter quotes 1% more than our pool, so Buy sends this trade to Jupiter.'],
     ['an edge too small to print', jup(999_999_999n, null), quotes({ best: cand(1_000_000_000n) }), YES, 'Our pool quotes a little more than Jupiter, so Buy sends it to our pool.'],
     ['ours wins but cannot send', jup(900_000n), quotes(), OFF, 'Our pool quotes 11.111% more than Jupiter, but trades in our pools are switched off on this page, so Buy sends this trade to Jupiter.'],

@@ -1,22 +1,8 @@
-// The contract between the write layer and the page that drives it.
-//
-// Everything a page needs to offer a launch, a trade, a graduation, a pool
-// swap or a liquidity change passes through these types, and every one of them keeps
-// three answers apart that this repo has collapsed before:
-//
-//   - we READ it and the answer is no,
-//   - we READ it and the answer is yes,
-//   - we COULD NOT READ it.
-//
-// And for a transaction, the four answers a person must never confuse:
-//
-//   - confirmed: it landed and did what the review said;
-//   - reverted: it landed and the program refused it (nothing moved but the fee);
-//   - expired: it can no longer land, so trying again is safe;
-//   - unknown: it was sent and we could not find out. NEVER shown as "failed",
-//     because a person told "failed" presses the button again and pays twice.
-//
-// There is no React here and there must not be.
+// The contract between the write layer and the page that drives it. Every answer keeps
+// "read, and no", "read, and yes" and "could not read" apart, and a transaction's outcome
+// is one of confirmed, reverted, expired or unknown. Unknown means sent and not found out,
+// and is never shown as "failed": a person told "failed" presses again and pays twice.
+// No React here.
 
 import type { Connection, Keypair, PublicKey, Transaction } from '@solana/web3.js';
 import type { GlobalConfig } from '../curve/program';

@@ -8,16 +8,10 @@ import type { OwnSend, OwnSide } from '../lib/solana/swap/venueChoice';
 import type { LpWriteApi, Prepared, PreparedTx, TxOutcome } from '../components/solana/curve/ports';
 
 /**
- * THE SWAP PAGE SENDS A TRADE TO OUR POOL WHEN OUR POOL PAYS AT LEAST AS MUCH.
- *
- * Owner, 2026-10-07: "wire up so our pool gets hit when its more efficient". Before this
- * the page compared one of our pools with Jupiter and then sent Jupiter's transaction
- * whatever the comparison said: every case below that expects our pool's builder fails
- * on that code, because the page had no way to build a trade in our pool.
- *
- * Our pools' reads and the write layer's gate are stubbed here (their own tests are
- * useOwnPoolRoute.test.ts, ownPools.test.ts, useOwnPoolWrites.test.tsx); the decision,
- * the settle at the press, the review flow and Jupiter's path are the page's real code.
+ * The swap page sends a trade to our pool when our pool pays at least as much (owner,
+ * 2026-10-07), and only to the venue its screen showed. Before, it sent Jupiter's transaction
+ * whatever the comparison said. Our pools' reads and the write gate are stubbed (their own
+ * tests are useOwnPoolRoute, ownPools, useOwnPoolWrites); the rest is the page's real code.
  */
 
 const USER = new PublicKey('5tzFkiKscXHK5ZXCGbXZxdw7gTjjD1mBwuoFbhUvuAi9');
@@ -56,6 +50,8 @@ const h = vi.hoisted(() => ({
   quoteNow: vi.fn(),
   routeArgs: [] as unknown[],
   wanted: [] as boolean[],
+  noteCheck: 'ready' as 'loading' | 'ready' | 'cannot',
+  getUsdPrices: vi.fn(),
   send: { kind: 'yes' } as unknown,
   api: null as unknown,
   check: vi.fn(),
@@ -85,7 +81,7 @@ vi.mock('../lib/jupiter', async (orig) => ({
   buildSwapTransaction: h.buildSwapTransaction,
   simulateSwap: h.simulateSwap,
   swapCarriesPlatformFee: () => true,
-  getUsdPrices: vi.fn(async () => ({})),
+  getUsdPrices: (...a: unknown[]) => h.getUsdPrices(...a),
   getShield: vi.fn(async () => ({})),
 }));
 vi.mock('../lib/solana/confirm', async (orig) => {
@@ -117,7 +113,7 @@ vi.mock('../components/swap/useOwnPoolWrites', async () => {
       h.wanted.push(o.wanted);
       const pending = usePendingTrades(SWAP_PENDING_SCOPE, h.check, o.onResolved, { live: true });
       signer ??= { publicKey: USER, signTransaction: async <T,>(t: T) => t };
-      return { send: h.send, api: h.api, gate, cfg: gate.cfg, signer, signerState: { kind: 'ready', signer, address: USER.toBase58(), signMessage: null }, rpc: connection, pending, refreshGate: () => {} };
+      return { send: h.send, api: h.api, gate, cfg: gate.cfg, signer, signerState: { kind: 'ready', signer, address: USER.toBase58(), signMessage: null }, rpc: connection, pending, refreshGate: () => {}, noteCheck: h.noteCheck };
     },
   };
 });
@@ -182,6 +178,8 @@ beforeEach(() => {
   h.own = ownAt(15_100_000n);
   h.routeArgs = [];
   h.wanted = [];
+  h.noteCheck = 'ready';
+  h.getUsdPrices.mockResolvedValue({});
   h.quoteNow.mockImplementation(async () => ({ kind: 'ok', quotes: (h.own as { quotes: OwnQuotes }).quotes }));
   h.send = { kind: 'yes' } as OwnSend;
   h.getQuote.mockImplementation(async (p: { noPlatformFee?: boolean }) => (p.noPlatformFee ? NO_FEE_QUOTE : FEE_QUOTE));
@@ -314,7 +312,7 @@ describe('Jupiter paying more', () => {
     h.own = ownAt(14_950_000n);
     h.simulateSwap.mockImplementation(async (b64: string) => (b64 === TX_FEE ? JUP_6014 : OK));
     await typeAmount();
-    await waitFor(() => expect(routeLine()).toBe("RouteOur pool quotes 0.168% more than Jupiter's quote, which includes this site's fee. Buy asks Jupiter again and sends whichever pays you more."));
+    await waitFor(() => expect(routeLine()).toBe("RouteOur pool quotes 0.168% more than Jupiter's quote, which includes this site's fee. Buy asks Jupiter again first: if Jupiter would pay more, nothing is sent and its quote is shown."));
     await buy();
     await waitFor(() => expect(h.toast.error).toHaveBeenCalledWith('Not sent', expect.anything()));
     expect(h.sendTransaction).not.toHaveBeenCalled();
@@ -331,7 +329,7 @@ describe('Jupiter paying more', () => {
   it('a close call with the fee build simulating clean stays in our pool', async () => {
     h.own = ownAt(14_950_000n);
     await typeAmount();
-    await waitFor(() => expect(routeLine()).toMatch(/Buy asks Jupiter again/));
+    await waitFor(() => expect(routeLine()).toMatch(/Buy asks Jupiter again first/));
     await buy();
     await waitFor(() => expect(api.prepareVenueSwap).toHaveBeenCalledTimes(1));
     expect(h.sendTransaction).not.toHaveBeenCalled();
@@ -362,7 +360,7 @@ describe('the press checks again before anything is built', () => {
     useApi({ prepareVenueSwap: vi.fn(async () => built(14_900_000n)) });
     await typeAmount();
     await buy();
-    expect(await screen.findByText('Jupiter now pays more for this trade, so nothing was signed. Press Buy again and it goes to Jupiter.')).toBeInTheDocument();
+    expect(await screen.findByText('Jupiter now pays more for this trade, so nothing was signed. Both quotes are being read again.')).toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: 'Review your swap in our pool' })).not.toBeInTheDocument();
     expect(api.submitPrepared).not.toHaveBeenCalled();
   });
@@ -387,6 +385,62 @@ describe('the press checks again before anything is built', () => {
     }));
     expect(api.prepareVenueSwap).not.toHaveBeenCalled();
     expect(h.sendTransaction).not.toHaveBeenCalled();
+  });
+
+  it('a Jupiter retry that moved: its quote goes on screen, said as moved, and the next press can take it', async () => {
+    h.own = ownAt(14_950_000n);
+    // A 6014 route whose no-fee rebuild pays less than the fee quote by more than the slippage.
+    const movedQuote = quote({ outAmount: '14800000', otherAmountThreshold: '14726000', platformFee: null });
+    h.getQuote.mockImplementation(async (p: { noPlatformFee?: boolean }) => (p.noPlatformFee ? movedQuote : FEE_QUOTE));
+    h.simulateSwap.mockImplementation(async (b64: string) => (b64 === TX_FEE ? JUP_6014 : OK));
+    // As the real hook does, the press's fresh read of our pool becomes what the form shows.
+    h.quoteNow.mockImplementation(async () => {
+      h.own = ownAt(14_700_000n);
+      return { kind: 'ok', quotes: quotes(14_700_000n) };
+    });
+    await typeAmount();
+    await buy();
+    await waitFor(() => expect(h.toast.error).toHaveBeenCalledWith('Price moved', expect.anything()));
+    expect(h.sendTransaction).not.toHaveBeenCalled();
+    await waitFor(() => expect(document.querySelector('[aria-live="polite"][aria-atomic="true"]')?.textContent).toBe('14.8'));
+    expect(screen.getByTestId('site-fee-value')).toHaveTextContent('None on this route');
+  });
+
+  it('with Jupiter shown, a re-read of our pools that did not finish sends nothing', async () => {
+    h.own = ownAt(14_924_999n);
+    await typeAmount();
+    await waitFor(() => expect(routeLine()).toMatch(/so Buy sends this trade to Jupiter\.$/));
+    h.quoteNow.mockImplementation(async () => ({ kind: 'ok', quotes: { found: 1, gaps: ['one of our pools could not be read'], best: null, excluded: [] } }));
+    await buy();
+    await waitFor(() => expect(h.toast.error).toHaveBeenCalledWith('Not sent', expect.objectContaining({ description: expect.stringMatching(/^Our pools could not be read just now/) })));
+    expect(h.sendTransaction).not.toHaveBeenCalled();
+  });
+
+  it('while a trade in our pool is under way, the route line says that trade, not the comparison before it', async () => {
+    await typeAmount();
+    await buy();
+    await screen.findByRole('heading', { name: 'Review your swap in our pool' });
+    expect(routeLine()).toBe('RouteThis trade goes to our pool. What your wallet would sign is the review below, and nothing is sent until you sign it.');
+  });
+
+  it('Jupiter with no route while our pools could not be read: no "No route", which would be a finding nobody made', async () => {
+    h.getQuote.mockImplementation(async () => { throw new NoRouteError(); });
+    h.own = { kind: 'unread' } as OwnSide;
+    await typeAmount();
+    await waitFor(() => expect(routeLine()).toMatch(/^RouteOur pools could not be read just now, and Jupiter has no route/));
+    expect(screen.queryByText('No route for this pair / amount.')).not.toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: 'Not available here right now' })).toBeDisabled();
+  });
+
+  it('closing an outcome reads no new USD price, so the request pressed stays the one on screen', async () => {
+    useApi({ prepareVenueSwap: vi.fn(async (): Promise<Prepared> => ({ ok: false, outcome: { status: 'not-sent', stage: 'build', message: 'You hold too little SOL.' } })) });
+    await typeAmount();
+    const loads = h.getUsdPrices.mock.calls.length;
+    await buy();
+    await screen.findByText('You hold too little SOL.');
+    fireEvent.click(screen.getByRole('button', { name: 'Start over' }));
+    await waitFor(() => expect(routeLine()).toMatch(/was refused for this wallet/));
+    expect(h.getUsdPrices.mock.calls.length).toBe(loads);
   });
 
   it('while the press checks, the form it was pressed on cannot change', async () => {
@@ -428,7 +482,7 @@ describe('a review in our pool built again', () => {
     h.getBlockHeight.mockResolvedValue(1234);
     (api.prepareVenueSwap as ReturnType<typeof vi.fn>).mockImplementationOnce(async () => built(14_900_000n));
     fireEvent.click(screen.getByRole('button', { name: 'Sign in wallet' }));
-    expect(await screen.findByText('Jupiter now pays more for this trade, so nothing was signed. Press Buy again and it goes to Jupiter.')).toBeInTheDocument();
+    expect(await screen.findByText('Jupiter now pays more for this trade, so nothing was signed. Both quotes are being read again.')).toBeInTheDocument();
     expect(api.submitPrepared).not.toHaveBeenCalled();
   });
 
@@ -441,7 +495,7 @@ describe('a review in our pool built again', () => {
     h.getQuote.mockImplementation(async () => quote({ outAmount: '16000000' }));
     fireEvent.click(screen.getByRole('button', { name: 'Sign in wallet' }));
     expect(await screen.findByText('Not sent. This trade in our pool was stopped before your wallet was asked, and nothing was signed.')).toBeInTheDocument();
-    expect(screen.getByText('Jupiter now pays more for this trade, so nothing was signed. Press Buy again and it goes to Jupiter.')).toBeInTheDocument();
+    expect(screen.getByText('Jupiter now pays more for this trade, so nothing was signed. Both quotes are being read again.')).toBeInTheDocument();
     expect(api.prepareVenueSwap).toHaveBeenCalledTimes(2);
     expect(api.submitPrepared).not.toHaveBeenCalled();
     expect(h.sendTransaction).not.toHaveBeenCalled();
@@ -461,6 +515,7 @@ describe('what holds Buy', () => {
   it('a note this page cannot check, because the write code did not load, says how to clear it', async () => {
     savePendingTrade(SWAP_PENDING_SCOPE, { kind: 'venue-swap', signature: SIG, lastValidBlockHeight: 9 });
     h.api = null;
+    h.noteCheck = 'cannot';
     await typeAmount();
     expect(await screen.findByTestId('solana-swap-pending')).toHaveTextContent(
       "This page could not load what checks it, so look it up in your wallet's activity, then press I checked my wallet.",
