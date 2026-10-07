@@ -52,7 +52,7 @@ const VENUE_VOICE_DEBT: Record<string, number> = {
   '/nakamigos': 1,
   '/terms': 3,
   '/terminal': 2,
-  '/solana': 4,
+  '/solana': 1,
   '/launch-simulator': 4,
   '/leaderboard': 3,
   '/community': 2,
@@ -87,7 +87,7 @@ const FEED_ROUTES = new Set(['/terminal', '/chart', '/copy-trading', '/competiti
  *  the count moved with the network. Sealed, each is the branch that cannot read the chain,
  *  on every machine. A route that starts asking the RPC belongs here. /pools' live branch,
  *  read from a recording, is held in its own block below (POOLS_LIVE_DEBT). */
-const SOLRPC_SEALED_ROUTES = new Set(['/solana', '/pools', '/solana-lp', '/curve-launch']);
+const SOLRPC_SEALED_ROUTES = new Set(['/pools', '/solana-lp', '/curve-launch']);
 
 /** `/nakamigos` opens on a full-viewport splash with no `main` behind it, so it
  *  needs the fixture's own driver rather than the standard mount probe. */
