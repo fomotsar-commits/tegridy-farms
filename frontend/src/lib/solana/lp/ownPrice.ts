@@ -89,8 +89,11 @@ export type OwnPrice =
   | { kind: 'unread'; detail: string };
 
 /**
- * The pool's average price (SOL per whole token) over up to the last 30 minutes, ending
- * now. `tokenIsToken0` says which side is the token; reserves are net of fees.
+ * The pool's average price, in whole pairing coins a whole token, over up to the last 30
+ * minutes, ending now. `tokenIsToken0` says which side is the token; reserves are net of
+ * fees. `solReserve` and `solPerToken` are the PAIRING coin's (SOL, USDC or BAYLA:
+ * quotes.ts), named for the SOL pool this was written for; `quoteDecimals` is that
+ * coin's decimals, and the scale is the token's decimals over the coin's.
  */
 export function ownAveragePrice(input: {
   obs: ObservationStateView;
@@ -98,9 +101,10 @@ export function ownAveragePrice(input: {
   solReserve: bigint;
   tokenReserve: bigint;
   tokenDecimals: number;
+  quoteDecimals: number;
   now: bigint;
 }): OwnPrice {
-  const { obs, tokenIsToken0, solReserve, tokenReserve, tokenDecimals, now } = input;
+  const { obs, tokenIsToken0, solReserve, tokenReserve, tokenDecimals, quoteDecimals, now } = input;
   if (!obs.initialized) return { kind: 'no-trades' };
   if (solReserve <= 0n || tokenReserve <= 0n) return { kind: 'unread', detail: 'the pool is empty on one side' };
   const latest = obs.observations[obs.index]!;
@@ -127,7 +131,7 @@ export function ownAveragePrice(input: {
   const elapsed = now - lastUpdate;
   const avgOwn = ((((own[0]! - own[1]!) % U128) + U128) % U128 + ownNow * elapsed) / window;
   const avgOther = ((((other[0]! - other[1]!) % U128) + U128) % U128 + otherNow * elapsed) / window;
-  const scale = 10 ** tokenDecimals / 1e9;
+  const scale = 10 ** tokenDecimals / 10 ** quoteDecimals;
   let solPerToken: number;
   if (avgOwn >= avgOther) solPerToken = (Number(avgOwn) / Number(Q32)) * scale;
   else solPerToken = avgOther > 0n ? (Number(Q32) / Number(avgOther)) * scale : NaN;

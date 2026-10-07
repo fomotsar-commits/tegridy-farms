@@ -172,6 +172,7 @@ function ownPriceOf(view: PoolView, tokenDecimals: number, chainNow: bigint | nu
     solReserve: view.quoteReserve,
     tokenReserve: view.tokenReserve,
     tokenDecimals,
+    quoteDecimals: view.quote.decimals,
     now: chainNow,
   });
 }
