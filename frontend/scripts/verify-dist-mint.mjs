@@ -5,12 +5,14 @@
 // The same question as verify-dist-derivatives.mjs, asked of the thing about to ship.
 import { createHash } from 'node:crypto';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
-import { join } from 'node:path';
+import { posix } from 'node:path';
 import {
   DEFAULT_FILE, DEFAULT_TOKEN, MINT_IMG_PATH, MINT_PATH, MINT_TOKENS, SITE,
   metadataFileNames, pictureFile,
 } from './lib/mint-identity.mjs';
 
+// Forward slashes on every OS, so a path in a message reads as the URL it is served at.
+const { join } = posix;
 const DIST = 'dist';
 const MINT_DIR = join(DIST, MINT_PATH.slice(1));
 const IMG_DIR = join(DIST, MINT_IMG_PATH.slice(1));

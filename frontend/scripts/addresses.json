@@ -500,14 +500,14 @@
       }
     },
     {
-      "$comment": "Token identity (2026-10-06): the tokens this site serves a name and a picture for at /mint/<mint address>.json, and the accounts they hang from. The list is frontend/scripts/lib/mint-identity.mjs; src/lib/mintIdentity.test.ts requires each of its addresses to be a row here and re-derives each mint from its pool. Every address in this block was derived and matched, then read on mainnet-beta at finalized slot 454,077,498 (2026-10-06). Nothing is written on these mints yet: the two pool-share mints have no Metaplex record (2T6Tmx5GgSWz8W7P83Qn5R6xJVfbjwyqNsXjnZTREj8N and F8cdPRB7G2UvNggxtuCjEq1XtmR8ss5TALuGquoj52tT both read null) and the receipt carries no name."
+      "$comment": "Token identity: the tokens this site serves a name and a picture for at /mint/<mint address>.json, and the accounts they hang from. The list is frontend/scripts/lib/mint-identity.mjs; src/lib/mintIdentity.test.ts requires each of its addresses to be a row here and re-derives each mint from its pool. Every address in this block was derived and matched, then read on mainnet-beta at finalized slot 454,077,498 (2026-10-07T01:38Z). Nothing is written on these mints yet: the two pool-share mints have no Metaplex record (2T6Tmx5GgSWz8W7P83Qn5R6xJVfbjwyqNsXjnZTREj8N and F8cdPRB7G2UvNggxtuCjEq1XtmR8ss5TALuGquoj52tT both read null) and the receipt carries no name."
     },
     {
       "id": "venue-pool-bayla-sol",
       "address": "ErvzV1NMZmcfAqZtGH4AQhYAjn77nJEworKK1mYPz5w4",
       "role": "The venue's BAYLA/SOL pool: a cp-swap PoolState under cp-swap-program-restart, 637 bytes. Token 0 is wrapped SOL (So11111111111111111111111111111111111111112), token 1 is bayla-mint, and its fee tier is AmmConfig CapqvAA9HvERTwzmE26xrtFhMaNcaXXoQUADpBWqWjKy. Its pool_creator field is Upmhw8i6RSLXoj4yGzq9ZYLXb4UzZMRm7BSX8BxCdEd.",
       "custody": "program-derived, no key. Only the pool program's own instructions change it.",
-      "status": "live. At finalized slot 454,077,498 (2026-10-06) it is owned by cp-swap-program-restart and its lp_mint field is venue-lp-mint-bayla-sol.",
+      "status": "live. At finalized slot 454,077,498 (2026-10-07T01:38Z) it is owned by cp-swap-program-restart and its lp_mint field is venue-lp-mint-bayla-sol.",
       "expect": {
         "type": "program-owned"
       }
@@ -517,7 +517,7 @@
       "address": "J35mQ6UF9PpB6bQMes2TRVUMbJVPwMYjcfapbkdm8mYm",
       "role": "The venue's BAYLA/USDC pool: a cp-swap PoolState under cp-swap-program-restart, 637 bytes. Token 0 is bayla-mint, token 1 is USDC (EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v), and its fee tier is AmmConfig CapqvAA9HvERTwzmE26xrtFhMaNcaXXoQUADpBWqWjKy. Its pool_creator field is Upmhw8i6RSLXoj4yGzq9ZYLXb4UzZMRm7BSX8BxCdEd.",
       "custody": "program-derived, no key. Only the pool program's own instructions change it.",
-      "status": "live. At finalized slot 454,077,498 (2026-10-06) it is owned by cp-swap-program-restart and its lp_mint field is venue-lp-mint-bayla-usdc.",
+      "status": "live. At finalized slot 454,077,498 (2026-10-07T01:38Z) it is owned by cp-swap-program-restart and its lp_mint field is venue-lp-mint-bayla-usdc.",
       "expect": {
         "type": "program-owned"
       }
@@ -527,7 +527,7 @@
       "address": "BQZth5DhHZT9H1AxZonoLAwGHknWo4LebQBxjKWtzY8e",
       "role": "Pool-share (LP) mint of venue-pool-bayla-sol: PDA seeds [\"pool_lp_mint\", pool] under cp-swap-program-restart, bump 255, derived and matched. A classic SPL Token mint, 9 decimals, no freeze authority; its mint authority is cp-swap-authority-restart. The site serves its name and picture at /mint/BQZth5DhHZT9H1AxZonoLAwGHknWo4LebQBxjKWtzY8e.json: \"BAYLA/SOL Pool Share\", symbol BAYLA-SOL.",
       "custody": "program-derived, no key. Only the pool program mints it, on a deposit, and burns it, on a withdrawal.",
-      "status": "live, supply 362.216155450 shares at finalized slot 454,077,498 (2026-10-06). No on-chain name yet: it has no Metaplex record, and only an instruction of the pool program can create one, because the record needs this mint's authority to sign.",
+      "status": "live, supply 362.216155450 shares at finalized slot 454,077,498 (2026-10-07T01:38Z). No on-chain name yet: it has no Metaplex record, and only an instruction of the pool program can create one, because the record needs this mint's authority to sign.",
       "expect": {
         "type": "program-owned"
       }
@@ -537,7 +537,7 @@
       "address": "3D3EKJxfePDQ1N8YtNwg8W6eSL4mjVpbYf57pnqgcAQx",
       "role": "Pool-share (LP) mint of venue-pool-bayla-usdc: PDA seeds [\"pool_lp_mint\", pool] under cp-swap-program-restart, bump 254, derived and matched. A classic SPL Token mint, 9 decimals, no freeze authority; its mint authority is cp-swap-authority-restart. The site serves its name and picture at /mint/3D3EKJxfePDQ1N8YtNwg8W6eSL4mjVpbYf57pnqgcAQx.json: \"BAYLA/USDC Pool Share\", symbol BAYLA-USDC.",
       "custody": "program-derived, no key. Only the pool program mints it, on a deposit, and burns it, on a withdrawal.",
-      "status": "live, supply 5.006253412 shares at finalized slot 454,077,498 (2026-10-06). No on-chain name yet: it has no Metaplex record, and only an instruction of the pool program can create one, because the record needs this mint's authority to sign.",
+      "status": "live, supply 5.006253412 shares at finalized slot 454,077,498 (2026-10-07T01:38Z). No on-chain name yet: it has no Metaplex record, and only an instruction of the pool program can create one, because the record needs this mint's authority to sign.",
       "expect": {
         "type": "program-owned"
       }
@@ -547,7 +547,7 @@
       "address": "Bkr8XPZySJmcUAxKSDNCcH5KE2WDs2Y3GeZLRbeATSfB",
       "role": "The pool program's one signer for every pool: PDA seeds [\"vault_and_lp_mint_auth_seed\"] under cp-swap-program-restart, bump 254, derived and matched. It is the mint authority of every pool-share mint AND the owner of every pool vault, so an instruction that signs as it deserves the care of one that can move pool funds.",
       "custody": "program-derived, no key. Only the pool program can sign as it.",
-      "status": "IN USE, and ABSENT at rest: it signs and holds nothing, so no account exists here (read null at finalized slot 454,077,498, 2026-10-06). `expect: absent` is the true reading, not a leftover tripwire: an account here would mean someone sent it lamports.",
+      "status": "IN USE, and ABSENT at rest: it signs and holds nothing, so no account exists here (read null at finalized slot 454,077,498, 2026-10-07T01:38Z). `expect: absent` is the true reading, not a leftover tripwire: an account here would mean someone sent it lamports.",
       "expect": {
         "type": "absent"
       }
@@ -557,7 +557,7 @@
       "address": "STAKEvGqQTtzJZH6BWDcbpzXXn2BBerPAgQ3EGLN2GH",
       "role": "Streamflow's stake-pool program: the owner of every lighthouse-* stake pool, and the program whose set_token_metadata_t22 instruction names a pool's receipt mint (frontend/scripts/streamflow-receipt-name.mjs). Its id is the `address` of the IDL shipped in @streamflow/staking, which streamflow-receipt-name.test.mjs checks.",
       "custody": "third party (Streamflow). Not ours to upgrade or pause.",
-      "status": "live third-party program, executable at finalized slot 454,077,498 (2026-10-06).",
+      "status": "live third-party program, executable at finalized slot 454,077,498 (2026-10-07T01:38Z).",
       "expect": {
         "type": "executable"
       }
@@ -567,7 +567,7 @@
       "address": "EFWpSpH9rU6jGqpMPpo9VavMdBd64CdodakaJtCXEZ9f",
       "role": "BAYLA lighthouse: the Streamflow stake pool src/lib/bungalows.ts ships as BAYLA's stakePool. Nonce 1, stakes bayla-mint, 1 to 365 days ramping 1.00x to 5.00x, freeze_stake_mint on, permissionless off. Its creator field is GCCSLE7dBPMijj5F4pDxe592mcGAK83N84R2w5HPauV9 and its authority field is bayla-ladder-deployer.",
       "custody": "stake-pool PDA (Streamflow program). Its authority field names the one key that may change its reward settings or name its receipt mint.",
-      "status": "live. Decoded at finalized slot 454,077,498 (2026-10-06): 296 bytes, total_stake 2,680,285.885758 BAYLA.",
+      "status": "live. Decoded at finalized slot 454,077,498 (2026-10-07T01:38Z): 296 bytes, total_stake 2,680,285.885758 BAYLA.",
       "expect": {
         "type": "program-owned"
       }
@@ -577,7 +577,7 @@
       "address": "g8W2HWmS1dKJwHHKDkR1k7SmtTTx7ic97z1ssAZ8NwN",
       "role": "The staking receipt of lighthouse-bayla: PDA seeds [\"stake-mint\", pool] under streamflow-stake-program, bump 255, derived and matched. A Token-2022 mint, 5 decimals; its mint authority and freeze authority are both the pool, and the pool freezes every holder's account, so a receipt cannot be sent or sold. The site serves its name and picture at /mint/g8W2HWmS1dKJwHHKDkR1k7SmtTTx7ic97z1ssAZ8NwN.json: \"Staked BAYLA\", symbol sBAYLA.",
       "custody": "program-derived, no key. Only Streamflow's program mints and burns it. Only the pool's authority can name it.",
-      "status": "live, 234 bytes, supply 8,401,513.81040 at finalized slot 454,077,498 (2026-10-06). It carries a metadata pointer and no name, symbol or link yet.",
+      "status": "live, 234 bytes, supply 8,401,513.81040 at finalized slot 454,077,498 (2026-10-07T01:38Z). It carries a metadata pointer and no name, symbol or link yet.",
       "expect": {
         "type": "program-owned"
       }

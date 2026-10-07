@@ -6,7 +6,7 @@ page keeps the newest thirty days.
 
 ## [Unreleased]
 
-### 2026-10-06
+### 2026-10-07
 
 - Pool shares and the lighthouse staking receipt: the site now serves a name and a picture for the BAYLA/SOL and BAYLA/USDC pool share tokens and for the Staked BAYLA receipt, at memetics.finance/mint/ followed by the token's address and .json. A wallet shows them only once that link is written on each token, which has not happened yet.
 
