@@ -93,7 +93,7 @@ describe('site copy about the pool program on mainnet follows the binary the har
       'src/components/solana/VenueProgramCard.tsx': 'which lets a pool’s share token carry a name and a picture in wallets.',
     };
     expect(problems(another, (f) => afterUpgrade[f] ?? '')).toEqual([]);
-    const silent = { ...afterUpgrade, 'src/components/solana/lp/LpDisclosures.tsx': "Our pool program is Raydium's." };
+    const silent: Record<string, string> = { ...afterUpgrade, 'src/components/solana/lp/LpDisclosures.tsx': "Our pool program is Raydium's." };
     expect(problems(another, (f) => silent[f] ?? '')).toEqual([
       'src/components/solana/lp/LpDisclosures.tsx: after the upgrade the risk line must name the "one added instruction"',
     ]);

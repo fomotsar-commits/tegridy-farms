@@ -384,7 +384,7 @@ Run on `7648994d…`, on a local validator with mainnet's feature set and Metapl
 | instruction | run? |
 |---|---|
 | `create_lp_metadata` | Yes: `prove-lp-metadata.mjs`, four pools, twenty-five refusals |
-| `initialize`, `deposit`, `withdraw`, `swap_base_input`, `swap_base_output` | Yes: the same script, to the exact amounts, and the same amounts as under the deployed binary |
+| `initialize`, `deposit`, `withdraw`, `swap_base_input`, `swap_base_output` | Yes: the same script opens two pools, and on both real pools the deposit, the withdraw and both swaps move the exact amounts, the same amounts as under the deployed binary |
 | `initialize_with_permission` (graduation, called by the launch program) | Yes, once: `frontend/e2e-solana/launch-flow.spec.ts` in chromium on 2026-10-06. A launch was bought to its target, graduated into a pool through the launch program's call, and then traded in that pool. CI's `migration-rehearsal` has NOT run on it (A2). |
 | `collect_protocol_fee`, `collect_fund_fee`, `collect_creator_fee`, `update_pool_status`, `create_amm_config`, `update_amm_config`, `create_permission_pda`, `close_permission_pda`, `create_support_mint_associated`, `close_support_mint_associated` | NOT YET. All but the creator's fee need the admin's signature, which only the vault has. They belong in the devnet rehearsal, where the stand-in vault can sign. Their source is byte-identical to upstream and the build log shows no stack warning for any function, which is a reason to expect a pass and not a run. |
 
