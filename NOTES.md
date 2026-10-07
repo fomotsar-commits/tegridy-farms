@@ -15,6 +15,47 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-10-06: a fake-clock test that runs ten periods in one jump proves a timer never fires
+
+**Believed:** `await act(async () => { await vi.advanceTimersByTimeAsync(10 * PERIOD) })`
+straight after `renderHook`, then "the read was called once", shows that a retry timer did
+not fire in ten periods.
+
+**Measured:** React 19.3.0, vitest 5.0.3, `@testing-library/react` 16.3.3, the gate hook's
+retry (`useWriteGate.ts`). The hook's first answer is a promise. The state it sets, and the
+effect that arms the timer, are drawn only when that `act` call ends, and by then the fake
+clock has already moved the whole jump. So the timer is armed after the wait, and nothing
+could have fired inside it. With the rule broken on purpose (every closed gate counted as
+unread, so every one should have been read again), all five "never asked again" cases
+stayed green at one read each. A removed `clearTimeout` stayed green for the same reason:
+the timer armed by the first answer and the one armed after a pressed Refresh were both
+armed at the same clock time, so they fired together as one read. After the tests were
+changed to land the first answer in its own zero-length `act`, then move one period per
+`act`, the first break failed seven tests where it had failed one, and the second failed
+one where it had failed none.
+
+**Do:** under a fake clock, give the first answer its own `act` with a zero-length wait,
+then advance one period per `act`. A "never fires" check is only worth keeping once
+breaking the rule it guards has turned it red.
+
+## 2026-10-06: a vitest worker that runs out of memory leaves a summary with passes and no failure line
+
+**Believed:** a test file with a broken test shows a failed test in the summary, so a
+filter on the failure marks and the totals is enough to read a run.
+
+**Measured:** vitest 5.0.3. A new test passed `load: async () => api` inside `renderHook`'s
+callback. That makes a new function on every render, the hook's effect depends on it, and
+each run of the effect sets state: an endless render loop. The worker died with
+`FATAL ERROR: ... JavaScript heap out of memory` and `Worker exited unexpectedly with exit
+code 134`. The summary read `Test Files  (1)` and `Tests  7 passed (30)`: no failed file,
+no failed test, and 23 tests never ran. Run with two other files, the totals of all three
+were mixed together, and the crash showed only as an error line a filter can drop.
+
+**Do:** read the totals as a sum: passed plus failed plus skipped must equal the number in
+brackets, and the file count must name a result. When they do not, the run did not
+complete, which is not a pass and not a fail. In a hook test, make every function the hook
+depends on once, outside the render callback.
+
 ## 2026-10-04: a test that asks the app's own planner what a row should read agrees with the app whatever it does
 
 **Believed:** the end-to-end check of the "Locked in the pool forever" row was independent of
