@@ -6,6 +6,8 @@
 //                                           first, then USDC's, then BAYLA's, deepest first
 //                                           within a coin
 //   GET /api/pools?lpMint=<LP mint>      → the address of the pool whose share this is
+//   GET /api/pools?all=1                 → every pool on the venue that pairs a token with a
+//                                           coin, grouped and ranked the same way
 //
 // WHY A SERVER FUNCTION. The browser cannot list pools: `getProgramAccounts` stays OFF
 // the /api/solrpc proxy (an open scan against a keyed RPC is the hole audit L-1 closed).
@@ -20,6 +22,9 @@
 // When X is itself a coin, only with the coins that outrank it: a BAYLA/SOL pool is
 // BAYLA's pool and never SOL's, so BAYLA is searched with SOL and USDC, USDC with SOL,
 // and SOL itself is a 400. The same rule as the browser's `quotesFor`.
+// `?all=1` names no token: each coin is scanned at both mint slots. A pool of two coins
+// (the venue's BAYLA/SOL) is found by both coins' scans and listed once, under the
+// higher coin: the coin a `?mint=BAYLA` search pairs it with.
 //
 // WHAT IT RETURNS: ADDRESSES ONLY. The browser reads every address itself and checks it
 // (owned by the program, decodes as a pool, holds the token). So this function is never
@@ -56,15 +61,17 @@
 // RATE LIMITS, on cache MISSES only (a cache hit costs the upstream nothing):
 //   - per IP, counted per REQUEST: a visitor asked one question, whatever it costs us;
 //   - the global scan budget (POOLS_GLOBAL_RPM), counted per SCAN: a `?mint=` miss is
-//     charged once for each coin it scans (three for an ordinary token), all of them
-//     before the first scan is sent. The budget exists to cap what the keyed RPC is
+//     charged once for each coin it scans (three for an ordinary token), an `?all=1`
+//     miss once for each of its six scans (two a coin), all of them before the first
+//     scan is sent. The budget exists to cap what the keyed RPC is
 //     asked for, and the scan is the costly call. Counted per request, the same number
 //     would let three times the scans through that it was set to allow. The price: 600
 //     a minute now covers 200 ordinary-token misses, not 600. Raise the env if real
 //     traffic needs more.
 //
 // Hardening: GET only; the shared request-origin gate; the query must be exactly one
-// base58 32-byte key (decoded, not pattern-matched); the key must be a token mint
+// base58 32-byte key (decoded, not pattern-matched) or exactly `all=1` (one spelling,
+// so the edge cache holds one copy of the venue's answer); a key must be a token mint
 // (one cheap account read, on its own global budget) before any scan is paid for, and a
 // key that is not one is remembered for 10 minutes, so random keys cannot spend the scan
 // budget; a response cap; the keyed RPC URL never leaves the server. Upstream failure
@@ -242,12 +249,11 @@ export function shareSlots(totals, max = MAX_POOLS) {
 }
 
 /**
- * One coin's scan: every pool of exactly `mint` and `coin` (both mint slots matched),
- * each with the key of its vault for the coin. Not ranked yet.
+ * One filtered scan: every pool matching `mintFilters` (memcmp rows on the mint slots),
+ * each with the key of its vault for `coin`, which is token0's vault when `coinIs0`.
+ * Not ranked, and not held to MAX_SCANNED: the caller knows the coin's whole count.
  */
-async function scanPair(mint, coin, fetchImpl) {
-  const coinIs0 = compareBytes(base58.decode(coin.mint), base58.decode(mint)) < 0;
-  const [token0, token1] = coinIs0 ? [coin.mint, mint] : [mint, coin.mint];
+async function scanSide(coin, coinIs0, mintFilters, fetchImpl) {
   const result = await rpc(
     "getProgramAccounts",
     [
@@ -256,7 +262,7 @@ async function scanPair(mint, coin, fetchImpl) {
         encoding: "base64",
         commitment: "confirmed",
         dataSlice: { offset: OFFSETS.token0Vault, length: 64 },
-        filters: poolFilters([{ memcmp: { offset: OFFSETS.token0Mint, bytes: token0 } }, { memcmp: { offset: OFFSETS.token1Mint, bytes: token1 } }]),
+        filters: poolFilters(mintFilters),
       },
     ],
     fetchImpl,
@@ -275,20 +281,55 @@ async function scanPair(mint, coin, fetchImpl) {
     // a vault that is missing or odd, which ranks last.
     pools.push({ address, vault: base58.encode(Uint8Array.from(slice.subarray(coinIs0 ? 0 : 32, coinIs0 ? 32 : 64))), program: coin.program, depth: -1n });
   }
+  return pools;
+}
+
+/**
+ * One coin's scan for a token: every pool of exactly `mint` and `coin` (both mint slots
+ * matched), each with the key of its vault for the coin. Not ranked yet.
+ */
+async function scanPair(mint, coin, fetchImpl) {
+  const coinIs0 = compareBytes(base58.decode(coin.mint), base58.decode(mint)) < 0;
+  const [token0, token1] = coinIs0 ? [coin.mint, mint] : [mint, coin.mint];
+  const pools = await scanSide(coin, coinIs0, [{ memcmp: { offset: OFFSETS.token0Mint, bytes: token0 } }, { memcmp: { offset: OFFSETS.token1Mint, bytes: token1 } }], fetchImpl);
   if (pools.length > MAX_SCANNED) throw new Error(`more than ${MAX_SCANNED} ${coin.symbol} pools for one token`);
   return pools;
 }
 
 /**
- * Every pool of `mint` with each of `coins`: one list of addresses per coin, in the
- * order given, deepest first. One scan per coin, then every pool's vault for its coin is
- * read to rank it. Throws when ANY scan or vault read failed, so one coin's failure
- * never leaves an answer that looks whole.
+ * Every pool on the venue with `coin`, whatever its token: two scans, the coin's mint at
+ * token0 and then at token1 (a pair has one order, so no pool answers both), each pool
+ * with the key of its vault for the coin. MAX_SCANNED is on the coin's count over both.
  */
-async function scanPools(mint, coins, fetchImpl) {
-  const scans = await Promise.all(coins.map((coin) => scanPair(mint, coin, fetchImpl)));
-  // Vault reads for all the coins share the calls (100 keys each, 8 calls at a time): an
-  // ordinary answer is ranked by ONE read, however many coins were scanned.
+async function scanCoinPools(coin, fetchImpl) {
+  const [at0, at1] = await Promise.all([
+    scanSide(coin, true, [{ memcmp: { offset: OFFSETS.token0Mint, bytes: coin.mint } }], fetchImpl),
+    scanSide(coin, false, [{ memcmp: { offset: OFFSETS.token1Mint, bytes: coin.mint } }], fetchImpl),
+  ]);
+  const pools = [...at0, ...at1];
+  if (pools.length > MAX_SCANNED) throw new Error(`more than ${MAX_SCANNED} ${coin.symbol} pools on the venue`);
+  return pools;
+}
+
+/** The same lists, every pool kept only in the first list that holds it. */
+function firstSeen(lists) {
+  const seen = new Set();
+  return lists.map((pools) =>
+    pools.filter((p) => {
+      if (seen.has(p.address)) return false;
+      seen.add(p.address);
+      return true;
+    }),
+  );
+}
+
+/**
+ * Rank scanned pools: one list of addresses per coin, in the order given, deepest first
+ * by the coin's own vault. Vault reads for all the coins share the calls (100 keys each,
+ * 8 calls at a time): an ordinary answer is ranked by ONE read, however many coins were
+ * scanned. Throws when ANY vault read failed.
+ */
+async function rankPools(scans, fetchImpl) {
   const all = scans.flat();
   const chunks = [];
   for (let i = 0; i < all.length; i += RANK_CHUNK) chunks.push(all.slice(i, i + RANK_CHUNK));
@@ -321,6 +362,21 @@ async function scanPools(mint, coins, fetchImpl) {
   return scans.map((pools) => pools.sort(deepestFirst).map((p) => p.address));
 }
 
+/**
+ * Every pool of `mint` with each of `coins`: one list of addresses per coin, in the
+ * order given, deepest first. One scan per coin, then ranked. Throws when ANY scan or
+ * vault read failed, so one coin's failure never leaves an answer that looks whole.
+ */
+async function scanPools(mint, coins, fetchImpl) {
+  return rankPools(await Promise.all(coins.map((coin) => scanPair(mint, coin, fetchImpl))), fetchImpl);
+}
+
+/** The ranked lists cut to their shares and joined in coin order; `truncated` when any coin had more than it was given. */
+function shareLists(lists) {
+  const given = shareSlots(lists.map((l) => l.length));
+  return { found: lists.flatMap((l, i) => l.slice(0, given[i])), truncated: lists.some((l, i) => l.length > given[i]) };
+}
+
 function remember(cacheKey, entry) {
   if (cache.size >= CACHE_MAX) cache.delete(cache.keys().next().value);
   cache.set(cacheKey, { at: Date.now(), ...entry });
@@ -335,14 +391,15 @@ export async function handlePoolIndex(req, res, fetchImpl = fetch) {
   if (!isRequestOriginAllowed(req)) return res.status(403).json({ error: "Origin not allowed" });
 
   // `resource` is the catchall's own routing key (the rewrite adds it); nothing else
-  // may ride along.
+  // may ride along. The venue's question is spelled `all=1` and no other way.
   const q = { ...(req.query || {}) };
   delete q.resource;
   const keys = Object.keys(q);
-  const which = keys.length === 1 && (keys[0] === "mint" || keys[0] === "lpMint") ? keys[0] : null;
+  const all = keys.length === 1 && keys[0] === "all" && q.all === "1";
+  const which = !all && keys.length === 1 && (keys[0] === "mint" || keys[0] === "lpMint") ? keys[0] : null;
   const key = which ? parseKey(q[which]) : null;
-  if (!which || !key) {
-    return res.status(400).json({ error: "Give exactly one of mint or lpMint, as a Solana address" });
+  if (!all && !key) {
+    return res.status(400).json({ error: "Give exactly one of mint or lpMint, as a Solana address, or all=1" });
   }
   // SOL is the top coin: no coin outranks it, so it is never the token of a pool.
   const coins = which === "mint" ? quotesFor(key) : null;
@@ -350,7 +407,7 @@ export async function handlePoolIndex(req, res, fetchImpl = fetch) {
     return res.status(400).json({ error: "Give the other token of the pair, not SOL itself" });
   }
 
-  const cacheKey = `${which}:${key}`;
+  const cacheKey = all ? "all" : `${which}:${key}`;
   const hit = cache.get(cacheKey);
   if (hit && hit.notAMint && Date.now() - hit.at < NOT_A_MINT_TTL_MS) {
     return res.status(404).json({ error: "That address is not a token mint" });
@@ -360,35 +417,40 @@ export async function handlePoolIndex(req, res, fetchImpl = fetch) {
     payload = hit.payload;
   } else {
     if (!(await checkRateLimit(req, res, RATE))) return;
-    if (!(await checkGlobalLimit(res, PRECHECK))) return;
+    if (!all && !(await checkGlobalLimit(res, PRECHECK))) return;
     let found;
     let truncated;
     try {
-      if (!(await isTokenMint(key, which, fetchImpl))) {
+      if (all) {
+        // Two scans a coin, one charge per scan, all taken before the first scan is sent.
+        for (let i = 0; i < QUOTE_COINS.length * 2; i++) {
+          if (!(await checkGlobalLimit(res, GLOBAL))) return;
+        }
+        const scans = await Promise.all(QUOTE_COINS.map((coin) => scanCoinPools(coin, fetchImpl)));
+        // A pool of two coins answers both coins' scans: it is ranked and listed under
+        // the higher coin only, before any vault is read for it.
+        ({ found, truncated } = shareLists(await rankPools(firstSeen(scans), fetchImpl)));
+      } else if (!(await isTokenMint(key, which, fetchImpl))) {
         remember(cacheKey, { notAMint: true });
         return res.status(404).json({ error: "That address is not a token mint" });
-      }
-      if (coins) {
+      } else if (coins) {
         // One charge per scan, all taken before the first scan is sent (RATE LIMITS above).
         for (let i = 0; i < coins.length; i++) {
           if (!(await checkGlobalLimit(res, GLOBAL))) return;
         }
-        const lists = await scanPools(key, coins, fetchImpl);
-        const given = shareSlots(lists.map((l) => l.length));
-        found = lists.flatMap((l, i) => l.slice(0, given[i]));
-        truncated = lists.some((l, i) => l.length > given[i]);
+        ({ found, truncated } = shareLists(await scanPools(key, coins, fetchImpl)));
       } else {
         if (!(await checkGlobalLimit(res, GLOBAL))) return;
-        const all = [...new Set(await scanLpMint(key, fetchImpl))].sort();
-        found = all.slice(0, MAX_POOLS);
-        truncated = all.length > MAX_POOLS;
+        const lpPools = [...new Set(await scanLpMint(key, fetchImpl))].sort();
+        found = lpPools.slice(0, MAX_POOLS);
+        truncated = lpPools.length > MAX_POOLS;
       }
     } catch (err) {
       console.error("[pools] scan failed:", logSafe(err));
       return res.status(502).json({ error: "The pool index could not read the chain" });
     }
     payload = {
-      [which]: key,
+      ...(all ? { all: true } : { [which]: key }),
       program: CP_SWAP_PROGRAM,
       pools: found,
       truncated,
