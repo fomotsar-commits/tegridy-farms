@@ -547,10 +547,8 @@
       "address": "Bkr8XPZySJmcUAxKSDNCcH5KE2WDs2Y3GeZLRbeATSfB",
       "role": "The pool program's one signer for every pool: PDA seeds [\"vault_and_lp_mint_auth_seed\"] under cp-swap-program-restart, bump 254, derived and matched. It is the mint authority of every pool-share mint AND the owner of every pool vault, so an instruction that signs as it deserves the care of one that can move pool funds.",
       "custody": "program-derived, no key. Only the pool program can sign as it.",
-      "status": "IN USE, and ABSENT at rest: it signs and holds nothing, so no account exists here (read null at finalized slot 454,077,498, 2026-10-07T01:38Z). `expect: absent` is the true reading, not a leftover tripwire: an account here would mean someone sent it lamports.",
-      "expect": {
-        "type": "absent"
-      }
+      "status": "IN USE, and absent at rest: it signs and holds nothing, so no account exists here (read null at finalized slot 454,077,498, 2026-10-07T01:38Z). `onchain: false` on purpose. Anyone can make an account appear here by sending this address the rent minimum (about 0.0009 SOL), and no instruction of the pool program can take lamports back out, so `expect: absent` would be a switch a stranger can flip once to turn the daily registry job red for good. Nothing is lost by not reading it: the address is pinned by derivation in src/lib/mintIdentity.test.ts, and lamports sitting here give nobody any power. (tegridy-launch-migauth-restart keeps `expect: absent` because it differs: the next migrate sweeps that address, and lamports stranded there are worth knowing about.)",
+      "onchain": false
     },
     {
       "id": "streamflow-stake-program",

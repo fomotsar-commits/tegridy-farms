@@ -312,7 +312,7 @@ jobs:
 
           Verified by synthetic monitor run: $RUN_URL
 
-          Every probe in this workflow succeeded: the app shell on the Vercel alias and on both production domains, the Alchemy proxy, the native orderbook, the trades endpoint, and the venue checks — the EVM and Solana RPC proxies returning a real block number and slot, and the Railway indexer both ready and serving rows, and each token file under /mint/ answering with its own JSON and a real PNG." 2>/dev/null \
+          Every probe in this workflow succeeded: the app shell on the Vercel alias and on both production domains, the Alchemy proxy, the native orderbook, the trades endpoint, and the venue checks: the EVM and Solana RPC proxies returning a real block number and slot, and the Railway indexer both ready and serving rows, and each token file under /mint/ answering with its own JSON and a real PNG." 2>/dev/null \
               || echo "WARNING: could not comment on #$N — prod is healthy; this is bookkeeping only"
             gh issue close "$N" --repo "$GITHUB_REPOSITORY" 2>/dev/null \
               || echo "WARNING: could not close #$N — prod is healthy; this is bookkeeping only"
