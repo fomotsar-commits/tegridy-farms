@@ -9,6 +9,10 @@ import { NO_USD_PRICES, USD_LINES, usdLine, usdOfCoin, usdOfPair, usdOfPool, usd
 
 const prices = (p: Partial<Record<'SOL' | 'USDC' | 'BAYLA', number | null>>): UsdPerCoin => ({ ...NO_USD_PRICES, ...p });
 
+// DESIGN's shared forecast regex, verbatim. B1 exports it from ./format (format.ts is B1's
+// file); at integration this line becomes `import { FORECAST_WORDS } from './format'`.
+const FORECAST_WORDS = /\bAPR\b|\bAPY\b|yield of|a year|annual|per day|per week|rate of return|earn fees on every trade/i;
+
 describe('usd lines', () => {
   it('ships off: the committed switch is "off" until the owner rules (open question 7.36)', () => {
     expect(USD_LINES).toBe('off');
@@ -76,7 +80,7 @@ describe('usd lines', () => {
     const lines = [usdLine(1234.56, { quote: 'SOL', readAt: now - 1000 }, now), usdLine(0.001, { quote: 'USDC', readAt: now }, now), usdText(5)];
     for (const line of lines) {
       expect(line).not.toBeNull();
-      expect(line).not.toMatch(/\bAPR\b|\bAPY\b|yield of|a year|annual|per day|per week|rate of return|earn fees on every trade/i);
+      expect(line).not.toMatch(FORECAST_WORDS);
       expect(line).not.toContain('—');
     }
   });
