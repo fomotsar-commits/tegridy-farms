@@ -6,6 +6,18 @@ import type { QuoteCoin } from './quotes';
 /** Display helpers for the LP pages. Numbers that ride a transaction never pass through here. */
 
 /**
+ * Words that promise a return. No LP copy carries one; every pin uses this regex and no
+ * other, so a word added here is caught everywhere at once.
+ */
+export const FORECAST_WORDS = /\bAPR\b|\bAPY\b|yield of|a year|annual|per day|per week|rate of return|earn fees on every trade/i;
+
+/** A chain time to the minute, in UTC ("2026-10-03 22:30 UTC"); a time the node did not record says so. */
+export function minuteText(unixSecs: number | null): string {
+  if (unixSecs === null || !Number.isFinite(unixSecs)) return 'a time the chain did not record';
+  return `${new Date(unixSecs * 1000).toISOString().slice(0, 16).replace('T', ' ')} UTC`;
+}
+
+/**
  * A price written out (never scientific notation), four significant digits. The unit is
  * the caller's: SOL per token for a SOL pool, the pool's own pairing coin otherwise
  * (`priceText` adds it).

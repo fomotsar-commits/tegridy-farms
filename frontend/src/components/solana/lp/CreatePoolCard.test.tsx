@@ -10,6 +10,7 @@ import { LpInner, type LpWritesOverrides } from './SolanaLpSection';
 import type { LpReaders } from './readers';
 import type { TokenSafety } from '../../../lib/solana/lp/tokenSafety';
 import { SOL_QUOTE, USDC_QUOTE } from '../../../lib/solana/lp/quotes';
+import { FORECAST_WORDS } from '../../../lib/solana/lp/format';
 import { TOKEN_2022_NATIVE_MINT } from '../../../lib/solana/lp/opening';
 import { isCreatedPool, rememberCreatedPool, type PoolSearchRead, type PoolView } from '../../../lib/solana/lp/poolFinder';
 import { decodeAmmConfig, decodePoolState } from '../../../lib/solana/cpswap/program';
@@ -166,7 +167,7 @@ describe('each answer has its own line, and only `offer` has the button', () => 
     // The swap has sent trades to our pools since it began executing its own route.
     expect(c).not.toHaveTextContent(/not built yet|Trades on this site go through Jupiter/);
     expect(within(c).getByRole('button', { name: 'Open a pool' })).toBeEnabled();
-    expect(c).not.toHaveTextContent(/\bAPR\b|\bAPY\b|yield of|earn fees on every trade/i);
+    expect(c).not.toHaveTextContent(FORECAST_WORDS);
     // N20: Jupiter is asked even with no pool, once, so an opening price can be checked.
     expect(r.outsidePrice).toHaveBeenCalledTimes(1);
   });
