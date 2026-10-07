@@ -11,12 +11,22 @@
     "               dated promise to revisit, never a permanent pardon. Extending one is a commit",
     "               someone reviews.",
     "",
+    "               Also requires `projects`: the projects the reason was judged for, named as the",
+    "               baseline names them ('.', 'frontend', 'indexer'). The acceptance counts in those",
+    "               projects and in no other. Anywhere else the advisory blocks until someone judges",
+    "               it for that tree. An entry with no `projects` list counts nowhere. The same id",
+    "               may have a second entry, with its own reason, for another project.",
+    "",
     "  baseline   — the advisories that already existed when the gate was armed (2026-08-18),",
     "               recorded verbatim from that run. No reason is written for them because nobody",
     "               has triaged them, and inventing 32 rationales would be exactly the fabrication",
     "               this repo's honesty rule forbids. The whole baseline expires at once. After",
     "               that date every untriaged inherited advisory blocks — either fix it, or move it",
     "               into accepted[] with a real reason.",
+    "",
+    "WHEN A RUN SAYS 'PRUNE'. Each project's run reports only its own suppressions whose advisory is",
+    "gone from that project. For a baseline id, delete it from that project's list. For an accepted",
+    "id, take that project out of `projects`, and delete the entry when no project is left.",
     "",
     "THE UNIT IS THE GHSA ID, NEVER THE PACKAGE. Suppressing 'axios' would silently absorb the next",
     "axios advisory too; suppressing GHSA-gcfj-64vw-6mp9 suppresses exactly one known finding.",
@@ -31,12 +41,14 @@
     {
       "ghsa": "GHSA-vfj7-8cjw-p6xm",
       "reason": "Accepted by the owner on 2026-10-03. No fixed braces exists: 3.0.3 is the newest release and the advisory covers every version up to and including it (GitHub lists no patched version; checked 2026-10-03). The indexer gets braces only through ponder 0.8 -> kysely-pglite (chokidar 3, and micromatch via globby/fast-glob and kysely-codegen). Ponder imports just the KyselyPGlite database dialect from that package; the code that hands patterns to braces is kysely-pglite's own codegen CLI, file watcher and migration finder, which the indexer never runs. The flaw is a stack overflow on a deeply nested brace pattern, so it needs an attacker who chooses the pattern, and no network input reaches one here. Removing braces means leaving ponder 0.8, a migration rather than a lockfile bump. Expires with the baseline so both come due together; delete this entry as soon as braces ships a fix.",
-      "expires": "2026-11-16"
+      "expires": "2026-11-16",
+      "projects": ["indexer"]
     },
     {
       "ghsa": "GHSA-7mx3-vvmw-hjmv",
-      "reason": "Proposed on 2026-10-06 in the pull request that added this entry; on trunk it means the owner merged that request. Scope: the indexer, the only project that installs @graphql-tools/utils. The fix is utils 12.0.1 and there is no safe way to reach it yet. graphql-yoga runs every query through @graphql-tools/executor. yoga 5.21.0, which ponder 0.8.33 resolves to, takes only executor 1.x, and utils 12.0.0 changed what collectFields takes, so forcing utils 12 under executor 1.5.2 breaks queries: measured on 2026-10-06, every query with @include or @skip on a variable came back as an error. Newer releases do not clear it either: graphql-yoga 5.24.2, the newest, still asks for utils ^11, and ponder 0.18.0, the newest, pins graphql-yoga 5.17.1. The flaw is in mergeDeep, when it merges objects an attacker shaped. In the indexer's tree mergeDeep has two callers: mergeIncrementalResult, which nothing calls, and @graphql-tools/merge, reached only through makeExecutableSchema and mergeSchemas. ponder builds its own schema and calls only createYoga, and no first-party indexer file imports any of them, so no request reaches mergeDeep. The published attack needs a gateway that merges answers from two subgraphs; the indexer serves one schema and installs no stitching or federation package. The advisory's own query, sent to the locked tree on 2026-10-06, was answered normally and left Function.prototype.call intact. Expires with the baseline so the indexer's ponder 0.8 debt comes due together. It can go when a graphql-yoga inside ponder's ^5.3.0 range asks for utils 12.0.1 or later; that bump needs a test against the running indexer first.",
-      "expires": "2026-11-16"
+      "reason": "Accepted on 2026-10-07. Proposed on 2026-10-06 in pull request 754. The owner, asked whether to accept it, delegated the call in chat, and Claude accepted it after re-checking the reachability claims below against the indexer's installed tree that day. Scope: the indexer, the only project that installs @graphql-tools/utils. The fix is utils 12.0.1 and there is no safe way to reach it yet. graphql-yoga runs every query through @graphql-tools/executor. yoga 5.21.0, which ponder 0.8.33 resolves to, takes only executor 1.x, and utils 12.0.0 changed what collectFields takes, so forcing utils 12 under executor 1.5.2 breaks queries: measured on 2026-10-06, every query with @include or @skip on a variable came back as an error. Newer releases do not clear it either: graphql-yoga 5.24.2, the newest, still asks for utils ^11, and ponder 0.18.0, the newest, pins graphql-yoga 5.17.1. The flaw is in mergeDeep, when it merges objects an attacker shaped. In the indexer's tree mergeDeep has two callers: mergeIncrementalResult, which nothing calls, and @graphql-tools/merge, reached only through makeExecutableSchema and mergeSchemas. ponder builds its own schema and calls only createYoga, and no first-party indexer file imports any of them, so no request reaches mergeDeep. The published attack needs a gateway that merges answers from two subgraphs; the indexer serves one schema and installs no stitching or federation package. The advisory's own query, sent to the locked tree on 2026-10-06, was answered normally and left Function.prototype.call intact. Expires with the baseline so the indexer's ponder 0.8 debt comes due together. It can go when a graphql-yoga inside ponder's ^5.3.0 range asks for utils 12.0.1 or later; that bump needs a test against the running indexer first.",
+      "expires": "2026-11-16",
+      "projects": ["indexer"]
     }
   ],
   "baseline": {
