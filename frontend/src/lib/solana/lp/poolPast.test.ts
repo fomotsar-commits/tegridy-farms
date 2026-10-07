@@ -37,6 +37,14 @@ describe('lastTrade', () => {
     expect(lastTrade(viewWith(observationBytes({ pool, index: 5, lastUpdate: 0n, obs: [[5, slotTime, 1n, 1n], [4, slotTime - 60n, 1n, 1n]] })))).toEqual({ kind: 'at', time: slotTime });
   });
 
+  // The program writes both times from the Clock, so a ring that is initialized yet carries
+  // no time at all is not one it wrote: unread, never "Last trade: 1970-01-01 00:00:00 UTC".
+  it('an initialized ring with no time anywhere is unread, not a 1970 date', () => {
+    const t = lastTrade(viewWith(observationBytes({ pool, initialized: true, index: 0, lastUpdate: 0n })));
+    expect(t).toEqual({ kind: 'unread', detail: 'its price record carries no time' });
+    expect(lastTradeText(t)).not.toMatch(/1970/);
+  });
+
   it('a record the finder could not read is unread with the finder’s reason, and one never read says so', () => {
     const b = buildPool({ mint: key(), configIndex: 1, quoteReserve: 10n ** 9n, tokenReserve: 10n ** 12n });
     expect(lastTrade(viewOf(b, { sol: 10n ** 9n, tok: 10n ** 12n, history: { kind: 'unread', detail: 'its price record account is missing' } }))).toEqual({
