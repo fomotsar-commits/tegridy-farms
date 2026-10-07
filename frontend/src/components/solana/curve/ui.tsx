@@ -38,6 +38,7 @@ type LpSurface = { pageId: typeof LP_PAGE_ID; idx: number } | { pageId?: undefin
 
 export function Card({
   title,
+  titleHidden = false,
   children,
   testId,
   headingRef,
@@ -45,6 +46,8 @@ export function Card({
   idx,
 }: {
   title: string;
+  /** The heading is for screen readers only: the card's own content says what it is (the finder's three verbs). */
+  titleHidden?: boolean;
   children: ReactNode;
   testId?: string;
   /** Set when focus may be sent to the heading (a flow ending with no button to return to). */
@@ -54,7 +57,7 @@ export function Card({
     <h2
       ref={headingRef}
       tabIndex={headingRef ? -1 : undefined}
-      className={`${HEAD} mb-2.5 outline-none`}
+      className={titleHidden ? 'sr-only' : `${HEAD} mb-2.5 outline-none`}
       data-text-role="head"
       style={SHADOW}
     >

@@ -6,13 +6,14 @@ import type { TokenSafety } from '../../../lib/solana/lp/tokenSafety';
 import type { PoolSearchRead } from '../../../lib/solana/lp/poolFinder';
 import type { OutsidePrice } from '../../../lib/solana/lp/outsidePrice';
 import { QUOTE_COINS_OR, otherSideLine, quoteCoin, quotesFor, searchedCoinsOr } from '../../../lib/solana/lp/quotes';
-import { BUNGALOWS } from '../../../lib/bungalows';
+import { siteTokens } from '../../../lib/solana/lp/identity';
 import { useActiveBungalowId } from '../../../hooks/useActiveBungalowId';
 import { Card, Field, Notice } from '../curve/ui';
 import { TOGGLE_CLS, inputCls, inputStyle } from '../curve/uiFormat';
 import { TokenSafetyCard } from './TokenSafetyCard';
 import { PoolCard, UnreadPoolCard } from './PoolCard';
 import { CreatePoolCard } from './CreatePoolCard';
+import { ReadAt } from './ReadAt';
 import { depositOffer, lpHeld, priceWarned } from './offers';
 import { useLpWrites } from './useLpWrites';
 import type { LpReaders } from './readers';
@@ -26,7 +27,8 @@ export type LpTask = 'create' | 'add' | 'remove';
  * panel the visitor closed is not opened again by a later re-read.
  */
 export interface LpWish {
-  task: 'create' | 'add';
+  /** 'show': end on one pool's card (`pool`), its heading focused, with no form opened. */
+  task: 'create' | 'add' | 'show';
   mint: string;
   n: number;
   /**
@@ -46,6 +48,12 @@ export interface PoolFinderHandle {
    * so there is one lookup and one set of checks, whichever button started it.
    */
   addTo(mint: string, pool: string): void;
+  /**
+   * The same lookup, ending on the card of the pool at `pool` with its heading focused and
+   * no form: a pool pressed in the venue's list, or pointed to by the "Open a new pool"
+   * card. A pool already on the page is shown as it stands, with nothing read again.
+   */
+  show(mint: string, pool: string): void;
 }
 
 /** Is this pool in the lookup's answer, read or not? A lookup that failed lists nothing. */
@@ -54,27 +62,21 @@ function listsPool(pools: PoolSearchRead, address: string): boolean {
 }
 
 /**
- * The line for a position's wish whose pool the lookup did not return. A lookup that
- * could not be read says that: it is never told as "your pool is not there". The pool's
- * own address is read with every such lookup (`also`), so the second line means the chain
- * answered and that address did not hold a pool for this token. Both end in the press
- * that works: the wish is spent, so Read again alone opens nothing.
+ * The line for a wish whose pool the lookup did not return. A lookup that could not be
+ * read says that: it is never told as "your pool is not there". The pool's own address is
+ * read with every such lookup (`also`), so the second line means the chain answered and
+ * that address did not hold a pool for this token. Each ends in the press that works: the
+ * wish is spent, so Read again alone opens or shows nothing.
  */
-function unfoundText(pools: PoolSearchRead, pool: string): string {
+function unfoundText(pools: PoolSearchRead, pool: string, task: 'add' | 'show'): string {
+  if (task === 'show') {
+    return pools.kind !== 'ok'
+      ? `This token’s pools could not be read just now, so the pool at ${pool} is not shown. Press it again in a minute.`
+      : `The pool at ${pool} did not read as a pool for this token just now, so it is not shown here. Press it again in a minute.`;
+  }
   return pools.kind !== 'ok'
     ? `This token’s pools could not be read just now, so the Add form for your position’s pool (${pool}) was not opened. Press Add more liquidity on your position again.`
     : `Your position’s pool (${pool}) did not read as a pool for this token just now, so its Add form was not opened, and no other pool’s was opened in its place. Press Add more liquidity on your position again in a minute.`;
-}
-
-/**
- * The tokens with a room on this site whose mint is on Solana, by the addresses in the
- * site's own registry (lib/bungalows.ts). A phone has no token address to paste: these
- * are picked by a press, and what is looked up is the address, never the name.
- */
-function siteTokens(roomId: string | null): { id: string; symbol: string; mint: string }[] {
-  const all = BUNGALOWS.flatMap((b) => (b.chain === 'solana' && b.address ? [{ id: b.id, symbol: b.symbol, mint: b.address }] : []));
-  // The visitor's own room first.
-  return [...all.filter((t) => t.id === roomId), ...all.filter((t) => t.id !== roomId)];
 }
 
 const TASK_LABEL: Record<LpTask, string> = { create: 'Create a pool', add: 'Add liquidity', remove: 'Remove liquidity' };
@@ -96,6 +98,7 @@ type SearchState =
   | { status: 'loading'; mint: string }
   /**
    * `refreshing`: the last answer for this same mint, shown while it is read again.
+   * `readAt`: the device's clock (ms) when this answer landed, for the read stamp.
    * `outsideAt`: when Jupiter's price was read (ms), or null when it was not asked.
    * `coins`: each pairing coin's own SOL price, by its mint, for the coins that were asked
    * (USDC, BAYLA). A pool paired with one is checked in that coin (poolHealth.ts), and a
@@ -108,6 +111,7 @@ type SearchState =
       pools: PoolSearchRead;
       outside: OutsidePrice | null;
       coins: CoinPrices;
+      readAt: number;
       outsideAt: number | null;
       refreshing?: boolean;
     };
@@ -157,10 +161,11 @@ function usePoolSearch(readers: LpReaders, mint: string | null, nonce: number, r
       wanted.forEach((q, i) => {
         coins[q.mint] = coinPrices[i]!;
       });
-      finish({ status: 'done', mint, safety, pools, outside, coins, outsideAt: ask ? Date.now() : null });
+      const readAt = Date.now();
+      finish({ status: 'done', mint, safety, pools, outside, coins, readAt, outsideAt: ask ? readAt : null });
     })().catch((e: unknown) => {
       const detail = e instanceof Error ? e.message : String(e);
-      finish({ status: 'done', mint, safety: { kind: 'unread', mint, detail }, pools: { kind: 'unread', detail, index: { kind: 'unread', detail } }, outside: null, coins: {}, outsideAt: null });
+      finish({ status: 'done', mint, safety: { kind: 'unread', mint, detail }, pools: { kind: 'unread', detail, index: { kind: 'unread', detail } }, outside: null, coins: {}, readAt: Date.now(), outsideAt: null });
     });
     return () => {
       live = false;
@@ -219,11 +224,10 @@ export function PoolFinder({
   // act: the page moving to another token drops it (Back, Forward, a link), and the card
   // that acts on it spends it (`spent`), so nothing later can act on it again.
   const [wish, setWish] = useState<LpWish | null>(null);
-  // A position's wish whose pool the lookup did not return. The wish is spent and this is
-  // the line the page keeps in its place (`unfoundText`). It is about one lookup of one
-  // token: the next thing the visitor asks for, or the page moving to another token,
-  // takes it away.
-  const [unfound, setUnfound] = useState<{ mint: string; pool: string } | null>(null);
+  // A wish naming a pool the lookup did not return. The wish is spent and this is the line
+  // the page keeps in its place (`unfoundText`). It is about one lookup of one token: the
+  // next thing the visitor asks for, or the page moving to another token, takes it away.
+  const [unfound, setUnfound] = useState<{ mint: string; pool: string; task: 'add' | 'show' } | null>(null);
   if (linkKey !== shownLink) {
     setShownLink(linkKey);
     if (wish && wish.mint !== mint) setWish(null);
@@ -242,11 +246,11 @@ export function PoolFinder({
   // A later answer that does list the pool takes the line away again.
   if (state.status === 'done' && !state.refreshing) {
     if (wish?.pool && wish.mint === state.mint && !listsPool(state.pools, wish.pool)) {
-      setUnfound({ mint: wish.mint, pool: wish.pool });
+      setUnfound({ mint: wish.mint, pool: wish.pool, task: wish.task === 'show' ? 'show' : 'add' });
       setWish(null);
     } else if (unfound && unfound.mint === state.mint && listsPool(state.pools, unfound.pool)) setUnfound(null);
   }
-  const unfoundLine = unfound && state.status === 'done' && unfound.mint === state.mint ? unfoundText(state.pools, unfound.pool) : null;
+  const unfoundLine = unfound && state.status === 'done' && unfound.mint === state.mint ? unfoundText(state.pools, unfound.pool, unfound.task) : null;
 
   // A lookup the visitor asked for is brought onto the screen. On a phone the answer
   // begins below the fold, so a press on Find pools looked as if it had done nothing
@@ -287,6 +291,24 @@ export function PoolFinder({
     },
     [mint, onMint],
   );
+  // A pool pressed in the venue's list, or pointed to by the "Open a new pool" card: its
+  // card, with the same lookup and checks as any press. A pool already in the answer on the
+  // page is shown as it stands: nothing is read again to move the visitor to a card they
+  // can see (the read budget), and the card is the same one the pointer described.
+  const showPool = useCallback(
+    (next: string, pool: string) => {
+      setInput(next);
+      setError(null);
+      if (state.status === 'done' && !state.refreshing && state.mint === next && listsPool(state.pools, pool)) {
+        wishes.current += 1;
+        setUnfound(null);
+        setWish({ task: 'show', mint: next, n: wishes.current, pool });
+        return;
+      }
+      lookUp(next, 'show', pool);
+    },
+    [state, lookUp],
+  );
   // "Add more liquidity" on a position (the section passes it on). The token goes into
   // the box and is looked up like a picked one, so the holder sees which token and which
   // checks the form came from.
@@ -300,8 +322,9 @@ export function PoolFinder({
         setTask('add');
         lookUp(next, 'add', pool);
       },
+      show: showPool,
     }),
-    [lookUp],
+    [lookUp, showPool],
   );
   useEffect(() => {
     if (!asked.current || state.status === 'idle') return;
@@ -359,10 +382,16 @@ export function PoolFinder({
   );
   // Create and Add need adding switched on; Remove needs only the write code.
   const tasks: LpTask[] = !writes ? [] : canAdd ? ['create', 'add', 'remove'] : ['remove'];
+  // The first frame is the verbs alone: the tokens and the address box pushed the venue's
+  // pools under a phone's fold, and a visitor who has not said what they want has nothing
+  // to type yet. A token already on the page (a ?mint= link, good or bad) or no verbs at
+  // all (LP's switch 'off') shows them from the start: there is nothing to press first.
+  const picker = task !== null || answered !== null || linkError !== null || tasks.length === 0;
 
   return (
     <section data-testid="lp-finder" aria-label="Find pools for a token" className="space-y-4">
-      <Card title={tasks.length > 0 ? 'Create a pool, add or remove liquidity' : 'Find pools for a token'}>
+      {/* With verbs, the heading is their group's name, for screen readers: the buttons say it on screen. */}
+      <Card title={tasks.length > 0 ? 'What do you want to do?' : 'Find pools for a token'} titleHidden={tasks.length > 0} pageId="solana-lp" idx={0}>
         {tasks.length > 0 && (
           <div ref={tasksRef} data-testid="lp-tasks" className="space-y-2 scroll-mt-[4.5rem]">
             <div className="flex gap-2" role="group" aria-label="What do you want to do?">
@@ -393,7 +422,7 @@ export function PoolFinder({
             </p>
           </div>
         )}
-        {tokens.length > 0 && (
+        {picker && tokens.length > 0 && (
           <div data-testid="lp-site-tokens" className="space-y-1.5">
             <p className="text-white/75 text-[12px]">{canAdd ? 'Then pick a token with a room on this site' : 'Tokens with a room on this site'}</p>
             <div className="flex flex-wrap gap-2" role="group" aria-label="Tokens with a room on this site">
@@ -413,42 +442,44 @@ export function PoolFinder({
             <p className="text-white/55 text-[11px]">Each is looked up by its address from this site’s own list, not by its name.</p>
           </div>
         )}
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            submit();
-          }}
-        >
-          {tokens.length > 0 && <p className="text-white/75 text-[12px] mb-1.5">Or any other token, by its address:</p>}
-          <Field label="Token mint address" hint="The token’s address, not its name: anyone can copy a name." error={error}>
-            {(a11y) => (
-              <input
-                {...a11y}
-                className={`${inputCls} font-mono`}
-                style={inputStyle}
-                value={input}
-                onChange={(e) => {
-                  setInput(e.target.value);
-                  // The refusal was about the text that was there: it does not stay over a new one.
-                  setError(null);
-                }}
-                autoComplete="off"
-                spellCheck={false}
-                inputMode="text"
-              />
-            )}
-          </Field>
-          <div className="flex flex-wrap gap-2">
-            <button type="submit" className="btn-primary min-h-[44px] px-4 text-[13px]">
-              Find pools
-            </button>
-            {state.status === 'done' && (
-              <button type="button" className="btn-secondary min-h-[44px] px-4 text-[13px]" onClick={() => setNonce((n) => n + 1)}>
-                Read again
+        {picker && (
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              submit();
+            }}
+          >
+            {tokens.length > 0 && <p className="text-white/75 text-[12px] mb-1.5">Or any other token, by its address:</p>}
+            <Field label="Token mint address" hint="The token’s address, not its name: anyone can copy a name." error={error}>
+              {(a11y) => (
+                <input
+                  {...a11y}
+                  className={`${inputCls} font-mono`}
+                  style={inputStyle}
+                  value={input}
+                  onChange={(e) => {
+                    setInput(e.target.value);
+                    // The refusal was about the text that was there: it does not stay over a new one.
+                    setError(null);
+                  }}
+                  autoComplete="off"
+                  spellCheck={false}
+                  inputMode="text"
+                />
+              )}
+            </Field>
+            <div className="flex flex-wrap gap-2">
+              <button type="submit" className="btn-primary min-h-[44px] px-4 text-[13px]">
+                Find pools
               </button>
-            )}
-          </div>
-        </form>
+              {state.status === 'done' && (
+                <button type="button" className="btn-secondary min-h-[44px] px-4 text-[13px]" onClick={() => setNonce((n) => n + 1)}>
+                  Read again
+                </button>
+              )}
+            </div>
+          </form>
+        )}
       </Card>
 
       {/* Where a lookup the visitor asked for scrolls to: clear of the fixed bar and tabs. */}
@@ -467,7 +498,7 @@ export function PoolFinder({
         </div>
       )}
       {state.status === 'done' && (
-        <SearchResults state={state} onReread={reread} wish={wish && !state.refreshing && wish.mint === state.mint ? wish : null} onActed={spent} />
+        <SearchResults state={state} onReread={reread} onShow={showPool} wish={wish && !state.refreshing && wish.mint === state.mint ? wish : null} onActed={spent} />
       )}
     </section>
   );
@@ -498,16 +529,19 @@ function announce(s: Extract<SearchState, { status: 'done' }>): string {
 function SearchResults({
   state,
   onReread,
+  onShow,
   wish,
   onActed,
 }: {
   state: Extract<SearchState, { status: 'done' }>;
   onReread: () => void;
+  /** The "Open a new pool" card points at a pool: show its card (`PoolFinderHandle.show`). */
+  onShow: (mint: string, pool: string) => void;
   wish: LpWish | null;
   /** A card acted on wish number `n`: it is spent. */
   onActed: (n: number) => void;
 }) {
-  const { safety, pools, outside, coins, outsideAt, mint } = state;
+  const { safety, pools, outside, coins, outsideAt, mint, readAt } = state;
   const writes = useLpWrites();
   const decimals = safety.kind === 'read' ? safety.facts?.decimals ?? null : null;
   // One check per pool, shared by its card and by the "Open a new pool" card. All of them
@@ -534,6 +568,8 @@ function SearchResults({
   const mode = writes?.mode ?? 'off';
   const notes = writes?.pending.notes;
   const named = wish?.task === 'add' ? wish.pool ?? null : null;
+  // A show wish: that pool's card, once, whatever it offers, and never a form.
+  const shown = wish?.task === 'show' ? wish.pool ?? null : null;
   const addTo = useMemo(() => {
     if (wish?.task !== 'add' || pools.kind !== 'ok' || !notes) return null;
     let warned: string | null = null;
@@ -550,9 +586,12 @@ function SearchResults({
   // Waits for the gate: until it has answered, no pool can say whether it offers adding.
   const gateAnswered = writes !== null && writes.status !== 'loading' && gate !== null;
   const due = wish && gateAnswered ? wish.n : 0;
-  const openCreate = wish && named === null && (wish.task === 'create' || addTo === null) ? due : 0;
+  const openCreate = wish && wish.task !== 'show' && named === null && (wish.task === 'create' || addTo === null) ? due : 0;
   // The named pool cannot open its form: its card is shown instead, once.
   const showNamed = named !== null && addTo === null ? due : 0;
+  const showNow = (address: string) => (named === address ? showNamed : shown === address ? due : 0);
+  // When this answer landed, above its pools. The lookup's one Read again is in the finder's form.
+  const stamp = <ReadAt at={readAt} />;
   // The coins this lookup searched (all three for an ordinary token; only the coins that
   // outrank it for USDC or BAYLA), and for such a coin where its pool with a lower coin
   // is. The list said "SOL, USDC or BAYLA" whatever was searched: for USDC that told a
@@ -563,14 +602,17 @@ function SearchResults({
     <div className="space-y-4">
       <TokenSafetyCard mint={mint} safety={safety} />
       {pools.kind === 'unread' ? (
-        <Card title="Pools">
-          <Notice tone="warn">
-            We could not read the pools ({pools.detail}). That is a problem on our side; it does not mean there are none.
-          </Notice>
-        </Card>
+        <div className="space-y-3">
+          {stamp}
+          <Card title="Pools">
+            <Notice tone="warn">
+              We could not read the pools ({pools.detail}). That is a problem on our side; it does not mean there are none.
+            </Notice>
+          </Card>
+        </div>
       ) : (
         <div data-testid="lp-pools" className="space-y-3">
-          <IndexNote read={pools} />
+          {stamp}
           {pools.search.pools.length === 0 ? (
             <Card title="Pools">
               <p data-testid="lp-no-pools">
@@ -598,11 +640,11 @@ function SearchResults({
                     safety={safety}
                     health={healths.get(p.view.address)!}
                     openNow={wish && addTo === p.view.address ? wish.n : 0}
-                    showNow={named === p.view.address ? showNamed : 0}
+                    showNow={showNow(p.view.address)}
                     onActed={onActed}
                   />
                 ) : (
-                  <UnreadPoolCard key={p.address} entry={p} showNow={named === p.address ? showNamed : 0} onActed={onActed} />
+                  <UnreadPoolCard key={p.address} entry={p} showNow={showNow(p.address)} onActed={onActed} />
                 ),
               )}
             </ul>
@@ -616,6 +658,8 @@ function SearchResults({
               <Notice>{otherSide}</Notice>
             </div>
           )}
+          {/* The footnote: how the list was made, under it. */}
+          <IndexNote read={pools} />
         </div>
       )}
       <CreatePoolCard
@@ -627,6 +671,7 @@ function SearchResults({
         outside={outside}
         outsideAt={outsideAt}
         onReread={onReread}
+        onShow={onShow}
         refreshing={state.refreshing === true}
         openNow={openCreate}
         onActed={onActed}
@@ -643,9 +688,8 @@ function IndexNote({ read }: { read: Extract<PoolSearchRead, { kind: 'ok' }> }) 
       {index.kind === 'ok' ? (
         <>
           <p>
-            Pools are listed from our pool index and each one is then read and checked on chain. SOL pools first, then USDC, then
-            BAYLA, the deepest of each first. None of them is
-            “the” pool for this token: anyone can open one, at any price.
+            Listed from our pool index, then each pool read and checked on the chain. The index can leave a pool out; it cannot add one
+            that is not on the chain. None of them is “the” pool for this token: anyone can open one, at any price.
           </p>
           {index.truncated && (
             <p className="text-amber-300/90" data-testid="lp-index-truncated">

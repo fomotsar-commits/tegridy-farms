@@ -265,8 +265,8 @@ describe('each answer has its own line, and only `offer` has the button', () => 
     expect(refer).not.toHaveTextContent('passes the checks');
     // The pool's own card still offers adding: the warning takes no button away there.
     await waitFor(() => expect(screen.getByTestId('lp-pool')).toHaveAttribute('data-add', 'offer'));
-    // This card puts no Add button of its own beside a pool it does not suggest.
-    expect(within(c).queryByRole('button', { name: /^Add liquidity to/ })).toBeNull();
+    // This card puts no pointer of its own beside a pool it does not suggest.
+    expect(within(c).queryByRole('button', { name: /^See / })).toBeNull();
     // With nothing suggested beside it, Open a pool is the first choice, and looks it.
     expect(within(c).getByRole('button', { name: 'Open a pool' })).toHaveClass('btn-primary');
   });
@@ -284,22 +284,37 @@ describe('each answer has its own line, and only `offer` has the button', () => 
     );
     expect(opened).not.toHaveTextContent('Adding to it keeps your liquidity in one place');
     await waitFor(() => expect(screen.getByTestId('lp-pool')).toHaveAttribute('data-add', 'offer'));
-    expect(within(c).queryByRole('button', { name: /^Add liquidity to/ })).toBeNull();
+    expect(within(c).queryByRole('button', { name: /^See / })).toBeNull();
   });
 
-  it('…and at the market price it is suggested, with its own Add button first', async () => {
+  it('…and at the market price it is suggested, with its pointer to that pool first', async () => {
     const theirs = view({ tier1: true });
     mount(readers({ findPools: vi.fn(async () => search([theirs])) }));
     const c = await settled('offer');
     expect(within(c).getByTestId('lp-create-refer')).toHaveTextContent('We suggest adding to it: liquidity in one place gives traders a better price.');
-    expect(await within(c).findByRole('button', { name: 'Add liquidity to that pool' })).toHaveClass('btn-primary');
+    expect(await within(c).findByRole('button', { name: 'See that pool' })).toHaveClass('btn-primary');
     expect(within(c).getByRole('button', { name: 'Open a pool' })).toHaveClass('btn-secondary');
+  });
+
+  // B3 (2026-10-06): the card points at the pool; adding is the pool card's own button. A
+  // second Add button here opened a form from a card that had just said "see that pool".
+  it('the pointer shows that pool’s card, with its heading focused, and opens no form: the Add button is the pool card’s own', async () => {
+    const theirs = view({ tier1: true });
+    mount(readers({ findPools: vi.fn(async () => search([theirs])) }));
+    const c = await settled('offer');
+    const pool = screen.getByTestId('lp-pool');
+    await waitFor(() => expect(pool).toHaveAttribute('data-add', 'offer'));
+    expect(within(c).queryByRole('button', { name: /^Add liquidity/ })).toBeNull();
+    fireEvent.click(await within(c).findByRole('button', { name: 'See that pool' }));
+    await waitFor(() => expect(within(pool).getByRole('heading', { level: 3 })).toHaveFocus());
+    expect(screen.queryByTestId('lp-add-panel')).toBeNull();
+    expect(within(pool).getByRole('button', { name: 'Add liquidity' })).toHaveAttribute('aria-expanded', 'false');
   });
 
   // Review 2026-10-04 (C1). A pool at a wrong price takes deposits now, so it used to be
   // "the biggest passing pool": the card named it, did not suggest it, and never showed the
   // smaller pool at the market or a way into it.
-  it('a big pool at a wrong price beside a smaller one at the market: the card suggests the pool at the market, and its Add button opens THAT pool’s form', async () => {
+  it('a big pool at a wrong price beside a smaller one at the market: the card suggests the pool at the market, and its pointer shows THAT pool’s card', async () => {
     const atMarket = view({ tier1: true });
     // 40 SOL against the same 1,000 tokens: 0.04 SOL a token, 300% above Jupiter's 0.01.
     const off = view({ tier1: true, address: key(), sol: 40n * 10n ** 9n });
@@ -316,15 +331,14 @@ describe('each answer has its own line, and only `offer` has the button', () => 
     expect(c).not.toHaveTextContent(off.address);
     expect(c).not.toHaveTextContent('40 SOL');
     expect(c).not.toHaveTextContent('we do not suggest adding to it');
-    // One Add button, the first choice, and it is the at-market pool's.
-    const add = await within(c).findByRole('button', { name: 'Add liquidity to that pool' });
-    expect(within(c).getAllByRole('button', { name: /^Add liquidity to/ })).toHaveLength(1);
-    expect(add).toHaveClass('btn-primary');
-    fireEvent.click(add);
-    const panel = await screen.findByTestId('lp-add-panel');
-    expect(poolCard(atMarket.address)).toContainElement(panel);
-    expect(poolCard(off.address)).not.toContainElement(panel);
-    expect(within(panel).getByText('Pool', { exact: true }).nextElementSibling).toHaveTextContent(atMarket.address);
+    // One pointer, the first choice, and it is the at-market pool's.
+    const see = await within(c).findByRole('button', { name: 'See that pool' });
+    expect(within(c).getAllByRole('button', { name: /^See / })).toHaveLength(1);
+    expect(see).toHaveClass('btn-primary');
+    fireEvent.click(see);
+    await waitFor(() => expect(within(poolCard(atMarket.address)).getByRole('heading', { level: 3 })).toHaveFocus());
+    expect(within(poolCard(off.address)).getByRole('heading', { level: 3 })).not.toHaveFocus();
+    expect(screen.queryByTestId('lp-add-panel')).toBeNull();
   }, 20_000);
 
   // Whole-change review 2026-10-04 (L3). The first screen's Add liquidity asks for no pool
@@ -415,7 +429,7 @@ describe('each answer has its own line, and only `offer` has the button', () => 
   // price check found. Only a price that AGREES is "passes the checks" and "we suggest".
   // No market price: nothing was compared, so neither is said, and its Add button stays
   // (for a token with no market the pool that exists may be the right place). Off its
-  // reference: neither is said, and this card puts no Add button for it.
+  // reference: neither is said, and this card puts no pointer to it.
   const NO_ROUTE = { kind: 'no-route' as const, detail: 'Jupiter has no route for this token' };
   const jupiter = (solPerToken: number) => ({ kind: 'ok' as const, solPerToken, source: 'Jupiter' as const });
   const PASSES = 'that passes the checks (above)';
@@ -427,7 +441,7 @@ describe('each answer has its own line, and only `offer` has the button', () => 
       state: 'agrees',
       how: PASSES,
       line: 'We suggest adding to it: liquidity in one place gives traders a better price.',
-      add: true,
+      pointer: true,
     },
     {
       name: 'the token has no market price',
@@ -435,7 +449,7 @@ describe('each answer has its own line, and only `offer` has the button', () => 
       state: 'no-market',
       how: WARNED,
       line: 'Jupiter has no market price for this token, so that pool’s price was not checked against anything. Adding to it keeps liquidity in one place; a pool of your own starts at the price you set.',
-      add: true,
+      pointer: true,
     },
     {
       name: 'its price is off',
@@ -443,9 +457,9 @@ describe('each answer has its own line, and only `offer` has the button', () => 
       state: 'disagrees',
       how: WARNED,
       line: 'Its price is 50.0% below the price it is checked against (its card above shows both), so we do not suggest adding to it now: a deposit there would pay for that gap.',
-      add: false,
+      pointer: false,
     },
-  ])('what the card says of the pool it points to, when $name (price check: $state)', async ({ outside, state, how, line, add }) => {
+  ])('what the card says of the pool it points to, when $name (price check: $state)', async ({ outside, state, how, line, pointer }) => {
     const theirs = view({ tier1: true });
     mount(readers({ findPools: vi.fn(async () => search([theirs])), outsidePrice: vi.fn(async () => outside) }));
     const c = await settled('offer');
@@ -457,9 +471,9 @@ describe('each answer has its own line, and only `offer` has the button', () => 
     // Only a price that agrees is called passing, and only that pool is suggested.
     expect(refer.textContent?.includes('passes the checks')).toBe(state === 'agrees');
     expect(refer.textContent?.includes('We suggest adding to it')).toBe(state === 'agrees');
-    const addButtons = within(c).queryAllByRole('button', { name: 'Add liquidity to that pool' });
-    expect(addButtons).toHaveLength(add ? 1 : 0);
-    if (add) expect(addButtons[0]).toBeEnabled();
+    const pointers = within(c).queryAllByRole('button', { name: 'See that pool' });
+    expect(pointers).toHaveLength(pointer ? 1 : 0);
+    if (pointer) expect(pointers[0]).toBeEnabled();
     // Whatever the card says of that pool, opening another stays offered. The form under
     // the card says of that pool what the card says: it never "passes the checks" there
     // when the card, one line above, says it takes deposits with a warning.
@@ -469,16 +483,17 @@ describe('each answer has its own line, and only `offer` has the button', () => 
     expect(said(within(form).getByTestId('lp-create-advice'))).toBe(
       `This token already has a pool ${inForm} (the card above names it). Opening here makes a separate pool: it does not share that pool’s liquidity or fees.`,
     );
-    // The card's Add button, where there is one, opens that pool's own form.
-    if (add) {
-      fireEvent.click(addButtons[0]!);
-      expect(pool).toContainElement(await screen.findByTestId('lp-add-panel'));
+    // The card's pointer, where there is one, shows that pool's card: its heading takes focus, and no form opens.
+    if (pointer) {
+      fireEvent.click(pointers[0]!);
+      await waitFor(() => expect(within(pool).getByRole('heading', { level: 3 })).toHaveFocus());
+      expect(screen.queryByTestId('lp-add-panel')).toBeNull();
     }
   }, 20_000);
 
   // Review 2026-10-04 (leave/L2). A token with a launch pool and no Jupiter route: a pool a
   // stranger opened on the public tier, at any price, read as "no market", and this card's
-  // first button was Add liquidity to it. The launch pool the same lookup read is its reference.
+  // first button pointed to it. The launch pool the same lookup read is its reference.
   describe('a token with a launch pool and no route: a stranger’s pool on the public tier', () => {
     /** The launch pool: 10 SOL and 1,000 tokens (0.01 SOL a token), on the launch tier, never traded. */
     const launchPool = (): PoolView => {
@@ -488,7 +503,7 @@ describe('each answer has its own line, and only `offer` has the button', () => 
     const lookUp = (views: PoolView[]) => mount(readers({ findPools: vi.fn(async () => search(views)), outsidePrice: vi.fn(async () => NO_ROUTE) }));
     const row = (c: HTMLElement, label: string) => within(c).getByText(label).nextElementSibling?.textContent;
 
-    it('at ten times the launch price: its card says the gap against the launch pool, and this card puts no Add button for it', async () => {
+    it('at ten times the launch price: its card says the gap against the launch pool, and this card puts no pointer to it', async () => {
       const launch = launchPool();
       // 100 SOL against the same 1,000 tokens: 0.1 SOL a token.
       const theirs = view({ tier1: true, address: key(), sol: 100n * 10n ** 9n });
@@ -515,7 +530,7 @@ describe('each answer has its own line, and only `offer` has the button', () => 
       expect(said(within(c).getByTestId('lp-create-refer'))).toBe(
         `This token already has a pool on the public fee tier that takes deposits, with a warning (above). The biggest is ${theirs.address}, holding 100 SOL. Its price is 900.0% above the price it is checked against (its card above shows both), so we do not suggest adding to it now: a deposit there would pay for that gap.`,
       );
-      expect(within(c).queryByRole('button', { name: /^Add liquidity to/ })).toBeNull();
+      expect(within(c).queryByRole('button', { name: /^See / })).toBeNull();
       expect(within(c).getByRole('button', { name: 'Open a pool' })).toHaveClass('btn-primary');
     }, 20_000);
 
@@ -530,9 +545,9 @@ describe('each answer has its own line, and only `offer` has the button', () => 
       expect(within(card).getByText('Deposits: the checks pass')).toBeInTheDocument();
       expect(row(card, 'The launch pool’s price')).toBe('1 token = 0.01 SOL');
       expect(within(c).getByTestId('lp-create-refer')).toHaveTextContent('We suggest adding to it: liquidity in one place gives traders a better price.');
-      const add = await within(c).findByRole('button', { name: 'Add liquidity to that pool' });
-      fireEvent.click(add);
-      expect(card).toContainElement(await screen.findByTestId('lp-add-panel'));
+      fireEvent.click(await within(c).findByRole('button', { name: 'See that pool' }));
+      await waitFor(() => expect(within(card).getByRole('heading', { level: 3 })).toHaveFocus());
+      expect(screen.queryByTestId('lp-add-panel')).toBeNull();
     }, 20_000);
   });
 
@@ -582,7 +597,7 @@ describe('each answer has its own line, and only `offer` has the button', () => 
     expect(c).not.toHaveTextContent('that passes the checks');
   });
 
-  it('a pool at the market for a token its creator can freeze: "takes deposits, with a warning", and adding to it is still suggested, with its button', async () => {
+  it('a pool at the market for a token its creator can freeze: "takes deposits, with a warning", and adding to it is still suggested, with its pointer', async () => {
     const freezable = realToken(MINT, { freeze: key() });
     const theirs = view({ tier1: true });
     mount(readers({ findPools: vi.fn(async () => search([theirs])), safety: vi.fn(async () => new Map([[M, freezable]])) }));
@@ -597,8 +612,8 @@ describe('each answer has its own line, and only `offer` has the button', () => 
       `This token already has a pool on the public fee tier that takes deposits, with a warning (above). The biggest is ${theirs.address}, holding 10 SOL. We suggest adding to it: liquidity in one place gives traders a better price.`,
     );
     expect(c).not.toHaveTextContent('passes the checks (above)');
-    // Not suggested against: the price is right, and its Add button is the first choice.
-    expect(await within(c).findByRole('button', { name: 'Add liquidity to that pool' })).toHaveClass('btn-primary');
+    // Not suggested against: the price is right, and the pointer to it is the first choice.
+    expect(await within(c).findByRole('button', { name: 'See that pool' })).toHaveClass('btn-primary');
     // The form says of that pool what the card says.
     fireEvent.click(within(c).getByRole('button', { name: 'Open a pool' }));
     const form = await screen.findByTestId('lp-create-panel');

@@ -18,6 +18,16 @@ export function registryToken(mint: string): { id: string; symbol: string } | nu
   return room ? { id: room.id, symbol: room.symbol } : null;
 }
 
+/**
+ * Every token with a room here whose mint is on Solana, from the same registry
+ * `registryToken` reads, the visitor's own room first. A phone has no address to paste:
+ * the finder offers these as a press, and what it looks up is the address, never the name.
+ */
+export function siteTokens(roomId: string | null): { id: string; symbol: string; mint: string }[] {
+  const all = BUNGALOWS.flatMap((b) => (b.chain === 'solana' && b.address ? [{ id: b.id, symbol: b.symbol, mint: b.address }] : []));
+  return [...all.filter((t) => t.id === roomId), ...all.filter((t) => t.id !== roomId)];
+}
+
 /** The registry's symbol, else a pairing coin's (quotes.ts), else the short address. */
 export function tokenSymbol(mint: string): string {
   return registryToken(mint)?.symbol ?? quoteCoin(mint)?.symbol ?? shortAddress(mint);
