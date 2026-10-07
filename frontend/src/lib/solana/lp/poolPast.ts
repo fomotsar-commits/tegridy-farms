@@ -22,6 +22,8 @@ export function lastTrade(view: PoolView): LastTrade {
   if (!obs.initialized) return { kind: 'none' };
   // The newest slot's own time stands in when `last_update_timestamp` is 0 (as ownPrice.ts reads it).
   const time = obs.lastUpdate > 0n ? obs.lastUpdate : obs.observations[obs.index]!.blockTimestamp;
+  // `update` writes both times from the Clock; a ring with neither is not one the program wrote.
+  if (time === 0n) return { kind: 'unread', detail: 'its price record carries no time' };
   return { kind: 'at', time };
 }
 
