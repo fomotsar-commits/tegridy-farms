@@ -19,10 +19,11 @@ the split wrong.
 admin, pool-creation-fee receiver, support-mint owner), the on-chain `security_txt` block,
 one `Cargo.toml` description line, and one added instruction, `create_lp_metadata` (about
 150 lines with its comments). That instruction gives a pool's lp token a Metaplex name
-record so wallets can show it; it takes no arguments and moves no funds, but it signs a
+record so wallets can show it; it takes no arguments and moves no pool funds (its caller
+pays the record's rent and Metaplex's fee, about 0.014 SOL), but it signs a
 Metaplex call with the address that also owns the pool vaults, so it wants a careful read.
 All swap, curve, fee, deposit, withdraw and oracle logic is byte-identical to upstream. We
-think this is a **diff-review**, not a from-scratch AMM audit — tell us if you disagree.
+think this is a **diff-review**, not a from-scratch AMM audit. Tell us if you disagree.
 
 **Scope B — `tegridy-launch`.** ~1,170 production nSLOC of novel Anchor code with no
 upstream to diff against: a bonding curve over virtual reserves, and a `migrate_to_amm`

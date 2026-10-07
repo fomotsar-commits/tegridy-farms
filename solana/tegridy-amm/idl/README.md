@@ -128,9 +128,11 @@ hash with no run behind it is decoration.
 
 ## `tegridy_launch.json` and `raydium_cp_swap.json`
 
-The IDLs emitted with the **exact mainnet binaries** of the 2026-09-26 Solana launcher
-restart (`tegridy_launch.mainnet.so` sha256 `a3c41afa…`, the reserve-at-create build;
-`cp_swap.mainnet.so`), copied byte for byte from that release's `artifacts/` folder. The
+`tegridy_launch.json` is the IDL emitted with the **exact mainnet binary** of the 2026-09-26
+Solana launcher restart (`tegridy_launch.mainnet.so` sha256 `a3c41afa…`, the
+reserve-at-create build), copied byte for byte from that release's `artifacts/` folder.
+`raydium_cp_swap.json` was that release's pool IDL (emitted with `cp_swap.mainnet.so`),
+byte for byte, until 2026-10-06; since then it has one more instruction (next paragraph). The
 earlier `tegridy_launch.json` (`d987fafe…`, from the reserve-held `9b78be02…` build) is
 superseded: that program had `release_platform_reserve` and an 8-account `create_launch`. Their `address` fields are the registered restart ids
 (`64WBTeNcrSHfmBpiqymyifW6FUNNLvJcuiqF9rXmz4q2`, `EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT`).

@@ -1357,7 +1357,7 @@ in this order. Detail and the traps are in `SOLANA_LP_VENUE_2026_08_29.md` §3.
    BUILD time, so setting it in Vercel does nothing to the site until a new build ships.
 
 Optional but cheap, and it protects the whole thing: **arm branch protection on `mvp-launch`.**
-`diff-guard` — which proves the AMM is still verbatim Raydium — has **zero required checks**, so it
+`diff-guard`, which proves the AMM differs from Raydium only by the pinned delta, has **zero required checks**, so it
 is advisory today. Unenforced, it is a comment.
 
 ### ⬜ REMAINING — an agent can do these alone, AFTER the deploy above

@@ -25,7 +25,8 @@ launched tokens **graduate into a venue we own**.
 - Protocol fee is **config-driven, not hardcoded** — `amm_config.protocol_fee_rate` set at
   `create_config`, collected by `protocol_owner`. So the venue economics need no code change.
 - Ships with `AUDIT_RFQ.md`, `MAINNET_RUNBOOK.md`, `SECURITY.md`, and a devnet deploy script.
-- **Status: Phase 0. Devnet. NOT audited. NOT on mainnet. Holds no real funds.**
+- **Status (corrected 2026-10-06): NOT audited. Live on mainnet since 2026-09-29, and it
+  holds funded pools.** When this was written it was Phase 0: devnet only, with no funds held.
 
 **The bonding curve now EXISTS.** ⚠️ Corrected 2026-08-02: this section previously read *"What
 does NOT exist: the bonding curve. `programs/` contains only `cp-swap`."* That was written

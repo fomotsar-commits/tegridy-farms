@@ -9,9 +9,10 @@ All swap, curve and fee math is byte-identical to upstream.
 
 The added instruction gives a pool's lp token a name record, so wallets stop listing it as an
 unknown token. Only the program can ask Metaplex for that record, because the lp mint's
-authority is the program's own address. It takes no arguments, anyone may call it, and it
-moves no funds; `TEGRIDY_FORK.md` has the detail. The binary on mainnet was built before it
-was added and gets it only through a program upgrade.
+authority is the program's own address. It takes no arguments and anyone may call it. It
+moves no pool funds: the caller pays the record's rent and Metaplex's fee, about 0.014 SOL.
+`TEGRIDY_FORK.md` has the detail. The binary on mainnet was built before it was added and
+gets it only through a program upgrade.
 
 Upstream's features carry over: no Openbook market ID needed for pool creation, Token22
 support, a built-in price oracle, written in Anchor.

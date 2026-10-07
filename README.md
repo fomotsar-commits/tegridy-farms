@@ -88,7 +88,7 @@ Tegridy Farms is a set of DeFi primitives that share one token and one revenue s
 | **Token launcher — Doppler rail** | Launch an ERC-20 through Doppler with vetted defaults, a published fee constitution, Fact Sheets, a permanent per-token record at `/launch/:token`, afterlife tracking, and an opt-in **TOWELI** base pair; the auction's integrator fee accrues to the protocol and is withdrawable from `/admin`. Full detail — including the **two** distinct fee phases — in [Token launcher](#token-launcher). | (Doppler periphery — no *deployed* Tegridy contract) | 🟢 Live (EVM) |
 | **Solana swap** | Jupiter-routed swap with three modes — Instant, Limit order, and **DCA** via Jupiter Recurring — plus a price chart, a priority/speed control, USD-denominated input and real receipts. Takes a platform fee; custodies no liquidity. | — (aggregator integration) | 🟢 Live |
 | **Solana launcher — our own curve** | `tegridy-launch`: a bonding curve that graduates into our own pool at 25 SOL and burns the pool's LP tokens in the same step. 3.69% of each token goes to the treasury vault when it is created. [/curve-launch](https://memetics.finance/curve-launch) reads it live; the launch form opens only for holders the island reads at Resident or better. | `tegridy-launch` (Solana) | 🟢 Program live 2026-09-29 · ⏸ site launching off until the island's answer |
-| **Solana pools — our own AMM** | A fork of Raydium's CPMM: the trading code is untouched, the admin keys differ, and the source adds one instruction that lets a pool's share token carry a name in wallets (it reaches the live program only through an upgrade). Anyone can open a pool on chain; [/pools](https://memetics.finance/pools) finds a token's pools, checks the token and each pool's price and status, and shows a wallet's shares. Adding and removing liquidity from the site comes next. | cp-swap fork (Solana) | 🟢 Program live 2026-09-29 · 🔵 site reads only |
+| **Solana pools: our own AMM** | A fork of Raydium's CPMM: the trading code is untouched, the admin keys differ, and the source adds one instruction that lets a pool's share token carry a name in wallets (it reaches the live program only through an upgrade). Anyone can open a pool on chain; [/pools](https://memetics.finance/pools) finds a token's pools, checks the token and each pool's price and status, and shows a wallet's shares. Adding and removing liquidity from the site comes next. | cp-swap fork (Solana) | 🟢 Program live 2026-09-29 · 🔵 site reads only |
 | **Airdrops & vesting** | Merkle airdrop factory (verbatim Uniswap merkle-distributor fork, upstream pinned in-tree) and vesting/lock rails, with client-side tree building and the leaf encoding derived from the Solidity rather than assumed. | `AirdropFactory`, `TegridyAirdropDistributor`, `VestingFactory`, `TegridyVestingWallet`, `TegridyLockVault` | 🟡 Built · deployed nowhere |
 | **Yield & discovery surfaces** | Portfolio (states when a total is PARTIAL), alerts (four verdicts — "quiet" and "could not look" are different facts), the safety-scored trenches terminal, charting, copy-trading, competitions, a keyed public API with rate tiers, and `/yield` reading 27 registered mainnet protocol addresses live. | — (frontend + `api/`) | 🟢 Live 2026-09-03 |
 | **Premium / community** | Subscription premium tier, staker-voted community grants, meme-bounty board. | `PremiumAccess`, `CommunityGrants`, `MemeBountyBoard` | 🟢 Premium live · 🔵 grants/bounties on-chain |
@@ -525,7 +525,7 @@ token, ever). Solana is fee-capture, staking, and a venue we intend to own.
   layout decoders pinned against **bytes taken off a live mainnet PDA**, the offset tables the
   decoders read *through* so a table and its decode cannot drift apart, the Squads custody
   gate (discriminator-guarded, threshold ≥ 2), the CI diff-guard that sha256-pins the fork's
-  86-line delta from upstream, and the runbook correction that `admin::ID` must be a
+  delta from upstream (about 260 lines), and the runbook correction that `admin::ID` must be a
   **system-owned, funded key** — the Squads *multisig account* can neither sign nor pay, and
   naming it there bricked graduation outright.
 - **The cp-swap fork itself** remains a **fork of Raydium's audited CPMM**
@@ -533,8 +533,8 @@ token, ever). Solana is fee-capture, staking, and a venue we intend to own.
   protocol can earn a config-set fee on pools it hosts. The entire code delta from upstream is
   authority/identity constants, comments and, since 2026-10-06, one added instruction
   (`create_lp_metadata`, which gives a pool's lp token a name record so wallets can show it),
-  CI-enforced. A fund-holding mainnet deploy stays
-  gated behind a professional diff-audit. See
+  CI-enforced. The program has been live on mainnet since 2026-09-29 and holds funded
+  pools. It has not been audited yet. See
   [`solana/tegridy-amm/TEGRIDY_FORK.md`](solana/tegridy-amm/TEGRIDY_FORK.md) and
   [`MAINNET_RUNBOOK.md`](solana/tegridy-amm/MAINNET_RUNBOOK.md).
 

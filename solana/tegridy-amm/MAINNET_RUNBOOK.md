@@ -262,7 +262,7 @@ That is the intended workflow, not a breakage:
    one added instruction, `create_lp_metadata` (in the delta since 2026-10-06).
 3. Update `EXPECTED_DELTA_SHA256` to the printed `actual` value **in the same PR**.
 
-The delta is about 260 lines over **three** files — `lib.rs`,
+The delta is about 260 lines over **three** files: `lib.rs`,
 `instructions/admin/create_support_mint_associated.rs`, and `Cargo.toml`. It was 94 lines
 until 2026-10-06, when `create_lp_metadata` was added to `lib.rs`: the instruction that
 gives a pool's lp token a name record (see `TEGRIDY_FORK.md`). The binary deployed on
@@ -312,6 +312,114 @@ solana program set-upgrade-authority <PROGRAM_ID> \
 solana program show <PROGRAM_ID>   # verify authority == GRMtSx… + last-deployed slot
 ```
 > Optionally publish a verifiable build so explorers show source == bytecode.
+
+## 4b. The `create_lp_metadata` upgrade: the gates, the order, and what ships with it
+
+Added 2026-10-06. This would be cp-swap's FIRST upgrade on mainnet, of a program that holds
+funded pools. It has not been rehearsed: enlarging a program and then upgrading it to a
+larger file has never been run by this project on any cluster. This section is the list of
+gates. The command sheet is written after the devnet rehearsal, not before.
+
+What the instruction is, and why the vaults are out of its reach: `TEGRIDY_FORK.md`, "The one
+added instruction".
+
+### A. Before the upgrade PROPOSAL is created. Every one, on the exact commit being built.
+
+1. **The link answers, checked from outside our own network.** Both
+   `https://memetics.finance/mint/BQZth5DhHZT9H1AxZonoLAwGHknWo4LebQBxjKWtzY8e.json` and
+   `https://memetics.finance/mint/3D3EKJxfePDQ1N8YtNwg8W6eSL4mjVpbYf57pnqgcAQx.json` return
+   JSON with the four fields and a picture that loads. A mint with NO file (try any other
+   address) returns the JSON default, never the app's HTML page.
+   Why this gates the upgrade and not only our own two calls: anyone may call the instruction
+   from the first slot after the upgrade lands, for the flagship pools and for every other
+   pool. Wallets and indexers fetch the link at once and keep what they get. The first
+   on-chain write is not ours to schedule.
+2. **CI on the exact commit.** Read the `solana-ci` run job by job: `scope`, `diff-guard`,
+   `build`, `launch-curve`, `bayla-ladder`, `ladder-constraints`, `launch-constraints`,
+   `migration-rehearsal`, then `all-checks-pass`, and `mergeStateStatus == CLEAN`. Never a
+   count of green checks. (A branch that is not on the remote has run none of them.)
+3. **Every instruction has run on the new binary.** An upgrade replaces the whole program,
+   so the old instructions are new bytes too. See the table in C for what has run and what
+   has not. Nothing in "not yet" may still be there when the proposal is created.
+4. **One upgrade or two: the owner decides before anything is built.** The to-do
+   `O-0929-10` (`docs/TODO_OPERATOR.md`) says the next cp-swap upgrade must also fix the
+   on-chain security contact, which still points at a dead link. Folding it in is one more
+   `lib.rs` edit, and then the binary hash, its size, the delta pin and the costs below all
+   change and every build and proof result so far is about a binary that will not ship.
+   Do not carry numbers across that edit: rebuild, re-pin and re-run.
+5. **Build from the merged commit, twice, byte for byte the same.** Run
+   `node scripts/verify-program-constants.mjs --so <file> --roster cp-swap` on it. Run
+   `frontend/scripts/solana-localnet/prove-lp-metadata.mjs` against it on a local validator
+   seeded from a fresh read of both pools.
+6. **The file in the buffer is the file that was built.** The mainnet build and the devnet
+   build are the SAME size (724,672 bytes on 2026-10-06), and a devnet build at the mainnet
+   id fails every instruction with `DeclaredProgramIdMismatch`: deposits, swaps and
+   withdrawals would stop until a second upgrade. So, before either member signs: read the
+   buffer account's bytes BACK from chain, sha256 them, compare with the build from step 5,
+   and run `verify-program-constants.mjs` on those same bytes. Prepare the upgrade from a
+   folder that holds that one `.so` and nothing else: no devnet build, no test build.
+7. **Ready to send the moment the upgrade lands:** the two `create_lp_metadata` calls (anyone
+   can send them; whoever does pays about 0.014 SOL each), and the vault's rename proposal
+   (D below).
+
+### B. Order on the day
+
+Files live and checked (A1) → enlarge the program account by the growth of the binary → in a
+LATER slot, the upgrade → the two `create_lp_metadata` calls → the rename proposal.
+
+Numbers measured 2026-10-06 for the build `7648994d…` (re-read every one on the day; all of
+them change if `lib.rs` changes):
+
+| | |
+|---|---|
+| Growth of the binary | 33,032 bytes (691,640 → 724,672) |
+| Enlarging the program account | 167,802,560 lamports (0.1678 SOL) at 5,080 lamports per byte, locked for good. The smallest step the loader accepts is 10,240 bytes, so the growth sets the price. Any wallet can pay it; it is not a vault action. It re-deploys the program at that slot, so calls fail for about one slot. |
+| The upgrade buffer | 3,682,171,960 lamports (3.682 SOL), returned when the upgrade executes |
+| One name record | 13,733,800 lamports from whoever calls: 3,733,800 rent plus Metaplex's flat 10,000,000 |
+
+### C. What has run on the new binary, and what ships in the same release
+
+Run on `7648994d…`, on a local validator with mainnet's feature set and Metaplex cloned:
+
+| instruction | run? |
+|---|---|
+| `create_lp_metadata` | Yes: `prove-lp-metadata.mjs`, four pools, twenty-five refusals |
+| `initialize`, `deposit`, `withdraw`, `swap_base_input`, `swap_base_output` | Yes: the same script, to the exact amounts, and the same amounts as under the deployed binary |
+| `initialize_with_permission` (graduation, called by the launch program) | NOT YET. Run `frontend/e2e-solana/launch-flow.spec.ts` or CI's `migration-rehearsal` against it. |
+| `collect_protocol_fee`, `collect_fund_fee`, `collect_creator_fee`, `update_pool_status`, `create_amm_config`, `update_amm_config`, `create_permission_pda`, `close_permission_pda`, `create_support_mint_associated`, `close_support_mint_associated` | NOT YET. All but the creator's fee need the admin's signature, which only the vault has. They belong in the devnet rehearsal, where the stand-in vault can sign. Their source is byte-identical to upstream and the build log shows no stack warning for any function, which is a reason to expect a pass and not a run. |
+
+In the SAME release as the upgrade (site and repo):
+
+- `frontend/src/components/solana/lp/LpDisclosures.tsx` (`FORK_LINE`) and
+  `frontend/src/components/solana/lp/SolanaLpSection.tsx` ("we changed only its admin keys"):
+  both are risk lines a depositor reads, and both go false the day the program is upgraded.
+  Upgrade-day wording: "Our pool program is Raydium's, with its admin keys changed and one
+  added instruction that names pool share tokens. Those changes have not had their own
+  independent review yet." Their tests: `CreatePoolPanel.test.tsx`, `SolanaLpWrites.test.tsx`.
+- `frontend/src/components/solana/VenueProgramCard.tsx`: delete the paragraph that says the
+  program on Solana was built before the instruction was added.
+- The pins of the deployed binary: `PIN_CPSWAP` in
+  `frontend/scripts/solana-localnet/start-validator.sh`, `cp_swap.mainnet.so` in
+  `genesis-accounts.mjs` (and fold the release IDL pin and the repo IDL pin back into one),
+  the expected bytecode hash in `frontend/scripts/addresses.json`, and the hashes in §0 here.
+  `frontend/src/test/poolProgramCopy.test.ts` fails as soon as those two harness pins move
+  and any of the three lines above still has its old wording. It cannot fire if the pins are
+  left alone, so move them.
+- The docs that say the mainnet binary was built before the instruction: `README.md` here,
+  the root `README.md` feature row, `idl/README.md`, the status note in `TEGRIDY_FORK.md`,
+  `AUDIT_RFQ.md` ("Corrected again 2026-10-06") and §2 of this file.
+
+### D. The name records afterwards
+
+- The vault renames the two flagship pools with a plain Metaplex update: "BAYLA/SOL Pool
+  Share" (`BAYLA-SOL`) and "BAYLA/USDC Pool Share" (`BAYLA-USDC`). That proposal has not been
+  built or rehearsed. **Simulate every rename first, and keep the record mutable**: one update
+  signed with "mutable" turned off freezes the words for good.
+- The editor is copied into each record when it is created. If `admin::ID` is ever moved by
+  an upgrade, or a vault is retired, every existing record keeps the old vault as its editor.
+  **Hand the records over with a Metaplex update BEFORE retiring a vault.**
+- Any pool anyone opens can get the house name through this instruction. The default file for
+  an unknown mint must not read as us vouching for that pool.
 
 ## 5. 🔑 Create the AmmConfig (this is where Tegridy's fee is set)
 
