@@ -28,15 +28,23 @@ fallback for pairs we don't host well.
 > keypair; absent on mainnet when read 2026-09-26), and both non-devnet authority
 > constants are the Squads **vault PDA** `GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd`
 > (owner rulings 2026-09-25). `diff-guard` was re-pinned for exactly these three lines.
+>
+> **2026-10-06: the source gained ONE instruction, `create_lp_metadata`** (owner ruling
+> 2026-10-06; see "The one added instruction" below). The delta from upstream is no longer
+> constants only, and `diff-guard` was re-pinned for it. The program is live on mainnet
+> (since 2026-09-29, with funded pools) and runs the binary built BEFORE this change: it
+> gets the instruction only when the owner upgrades it through the Squads vault.
 
 ---
 
 ## The entire code diff from upstream
 
-Exactly **four authority/identity constants** across **two files** — `lib.rs` and
-`instructions/admin/create_support_mint_associated.rs`. **Nothing else** — all swap, curve,
-and fee math is byte-identical to upstream. After the fork, **no external party retains any
-authority on this program**; every authority is the Tegridy admin/treasury.
+Exactly **four authority/identity constants** across **two files** (`lib.rs` and
+`instructions/admin/create_support_mint_associated.rs`) **plus one added instruction**,
+`create_lp_metadata`, all of it in `lib.rs`. **Nothing else**: all swap, curve,
+and fee math is byte-identical to upstream, and no upstream instruction is changed. After
+the fork, **no external party retains any authority on this program**; every authority is
+the Tegridy admin/treasury.
 
 | Constant (file) | Upstream (Raydium, mainnet arm) | Tegridy — mainnet arm (committed) | Tegridy — devnet arm | Purpose |
 |---|---|---|---|---|
@@ -46,6 +54,43 @@ authority on this program**; every authority is the Tegridy admin/treasury.
 | `create_support_mint_associated_owner::ID` — `create_support_mint_associated.rs` | `Rayv2LG4tFSMizZhMP8aSUYxDPjV8qJtx2NQY9RKYZy` | `GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd` (Squads vault PDA) | `GgE6AfEH2AVSrKGckyKMzC6mhtXWiAn39EzAikAsWq5a` | alt authority for the Token-2022 support-mint allowlist (was Raydium's key; now ours) |
 
 The devnet values are throwaway keypairs in `keys/` (gitignored).
+
+### The one added instruction: `create_lp_metadata` (2026-10-06)
+
+**Why it exists.** A pool's lp token is a classic SPL mint with no name record, so a wallet
+lists it as an unknown token with no name and no picture. Metaplex only creates that record
+when the mint authority signs, and the mint authority of every lp mint is this program's own
+address (`AUTH_SEED`). No wallet can sign as that address, so only the program can ask.
+Upstream Raydium CPMM has no such instruction, which is why this is an addition and not a
+resync.
+
+**What it does.** One call to Metaplex `create_metadata_accounts_v3`, signed by `AUTH_SEED`.
+
+| | |
+|---|---|
+| Who may call it | Anyone. The caller pays the record's rent and Metaplex's creation fee. |
+| Arguments | None. The caller cannot choose a word. |
+| Name / symbol | `Memetics Pool Share` / `MEM-LP`, fixed in the program |
+| Link | `https://memetics.finance/mint/<lp mint address>.json`, built in the program |
+| Which mint | `lp_mint` must be the mint recorded in `pool_state` (`IncorrectLpMint` otherwise), and `pool_state` must be a pool account this program owns |
+| Who can edit the record later | `admin::ID` (the Squads vault on mainnet), with a plain Metaplex update. The program has no update path. The record is mutable. |
+| How often | Once per pool. Metaplex refuses a second record for the same mint. |
+
+**Where the code came from.** The two helpers are Raydium CLMM's `get_metadata_data` and
+`initialize_metadata_account` (`raydium-io/raydium-clmm` @
+`ed7c84a54ced59c55981780546adb0b4583dcf85`, `programs/amm/src/instructions/open_position.rs`,
+Apache-2.0, the same Anchor 0.32.1). What differs from that source: the words; the editor is
+`admin::ID` and not the signing address; the editor does not sign; the record is mutable; no
+creator is listed. No dependency was added: upstream's `Cargo.toml` already turns on
+anchor-spl's `metadata` feature.
+
+**The one thing a reviewer must hold it to.** `AUTH_SEED` also owns every pool vault. The
+inner call is handed Metaplex's own six accounts and nothing else: the record, the lp mint
+(read-only), `AUTH_SEED` (read-only), the payer, the editor and the System program. No vault,
+no token program and no remaining account is passed on, so that signature cannot reach a
+token account. `frontend/scripts/solana-localnet/prove-lp-metadata.mjs` proves this on a
+local validator against copies of the real mainnet pools: the inner call's account list, the
+refusals, and that every vault, lp mint and pool account is byte-identical afterwards.
 
 **Mainnet history of this table, so nobody repeats it.** The binary deployed 2026-08-08 at
 the now-spent `3ZvZXEBr21Kz7JeWFCeKv8Hyy8AzHqCSXNjif8QHPM9y` had the Squads **multisig
@@ -126,19 +171,23 @@ volume; Jupiter de-routes under-funded pools (30-min liquidity recheck) — keep
 
 ## Audit
 
-Scope is tiny and mechanical: **"confirm the only delta from audited upstream `raydium-cp-swap`
-is the four identity/authority constants (program id, `admin`, fee receiver, support-mint
-owner) + program name, and that the mainnet authorities are the Squads vault PDA and its WSOL
-ATA."** Recommended Solana firms: OtterSec, Neodyme, Sec3, Zellic. This diff-audit
-should be fast and inexpensive relative to a from-scratch AMM audit — which is the entire point
-of the verbatim-fork approach.
+Scope is small and mostly mechanical: **"confirm the only delta from audited upstream
+`raydium-cp-swap` is the four identity/authority constants (program id, `admin`, fee receiver,
+support-mint owner) + program name + the one added instruction `create_lp_metadata`; that the
+mainnet authorities are the Squads vault PDA and its WSOL ATA; and that `create_lp_metadata`
+can do nothing but create the name record of a real pool's lp mint (it signs a Metaplex call
+with the address that also owns every vault)."** Recommended Solana firms: OtterSec, Neodyme,
+Sec3, Zellic. This diff-audit should be fast and inexpensive relative to a from-scratch AMM
+audit, which is the entire point of changing as little as possible. It is no longer a
+constants-only diff: the added instruction is about 150 lines and needs a real read.
 
 ---
 
 ## Layout
 ```
 programs/cp-swap/src/
-  lib.rs            ← 3 of the 4 authority constants (+ fork header)
+  lib.rs            ← 3 of the 4 authority constants (+ fork header) and the one added
+                      instruction, create_lp_metadata (accounts, handler, two helpers)
   instructions/admin/create_support_mint_associated.rs  ← 4th authority constant
   curve/fees.rs     ← fee math (untouched, audited upstream)
   states/config.rs  ← AmmConfig: protocol_owner / fee rates (untouched)

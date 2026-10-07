@@ -312,7 +312,10 @@ solana_security_txt::security_txt! {
   put a git-host URL in a program binary again.
 - The edit changes cp-swap's diff against upstream Raydium, so move the diff-guard's
   `EXPECTED_DELTA_SHA256` in the same commit. Start from the value on the deployed branch
-  (`ship/solana-launch-on`: `5c737ac7…`), not trunk's.
+  (`ship/solana-launch-on`: `5c737ac7…`), not trunk's. (2026-10-06: the pin moved to
+  `c18d4d63…` when `create_lp_metadata`, the instruction that names a pool's lp token, was
+  added to cp-swap's `lib.rs`. `5c737ac7…` is still the delta of the binary on mainnet. An
+  upgrade that carries both changes starts from `c18d4d63…`.)
 
 **You should see**, before the upgrade:
 `curl -sI https://memetics.finance/source/solana/tegridy-amm/SECURITY.md` answers `307`, and

@@ -318,12 +318,12 @@ describe('always', () => {
 
   // Review 2026-09-30: this card said the swap "takes" our pool when it pays more, but
   // every Solana swap executes through Jupiter (SolanaRouteLine says so on the swap).
-  it('says the swap compares our pools but still trades through Jupiter, and that the AMM is unmodified Raydium', async () => {
+  it('says the swap compares our pools but still trades through Jupiter, and that the AMM is Raydium with one added instruction', async () => {
     await mount();
     await waitFor(() => expect(screen.getByText(/side by side with Jupiter/i)).toBeInTheDocument());
     expect(screen.getByText(/still goes through\s+Jupiter/i)).toBeInTheDocument();
     expect(screen.queryByText(/takes the one that pays/i)).toBeNull();
-    expect(screen.getByText(/verbatim fork/i)).toBeInTheDocument();
+    expect(screen.getByText(/one added instruction/i)).toBeInTheDocument();
   });
 
   it('says the browser cannot list pools itself, and how the server index fills that gap', async () => {
@@ -377,7 +377,7 @@ describe('always', () => {
     await mount();
     await settled();
     const program = screen.getByRole('region', { name: 'The program' });
-    expect(program).toHaveTextContent(/verbatim fork/i);
+    expect(program).toHaveTextContent(/one added instruction/i);
     expect(program).toHaveTextContent(/A browser cannot list pools itself/i);
     const sheet = screen.getByRole('region', { name: 'Fee sheet' });
     expect(sheet.compareDocumentPosition(program) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();

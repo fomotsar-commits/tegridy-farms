@@ -15,11 +15,14 @@ like them **priced separately** — quoting them as one number would almost cert
 the split wrong.
 
 **Scope A — `cp-swap`.** A fork of Raydium's `raydium-cp-swap` at pinned upstream commit
-`78f254e`. The delta is 86 lines across three files: four identity constants (program ID,
+`78f254e`. The delta is about 260 lines across three files: four identity constants (program ID,
 admin, pool-creation-fee receiver, support-mint owner), the on-chain `security_txt` block,
-and one `Cargo.toml` description line. All swap, curve, fee, deposit, withdraw and oracle
-logic is byte-identical to upstream. We think this is a **diff-review**, not a from-scratch
-AMM audit — tell us if you disagree.
+one `Cargo.toml` description line, and one added instruction, `create_lp_metadata` (about
+150 lines with its comments). That instruction gives a pool's lp token a Metaplex name
+record so wallets can show it; it takes no arguments and moves no funds, but it signs a
+Metaplex call with the address that also owns the pool vaults, so it wants a careful read.
+All swap, curve, fee, deposit, withdraw and oracle logic is byte-identical to upstream. We
+think this is a **diff-review**, not a from-scratch AMM audit — tell us if you disagree.
 
 **Scope B — `tegridy-launch`.** ~1,170 production nSLOC of novel Anchor code with no
 upstream to diff against: a bonding curve over virtual reserves, and a `migrate_to_amm`

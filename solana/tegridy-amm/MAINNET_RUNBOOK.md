@@ -258,11 +258,15 @@ That is the intended workflow, not a breakage:
 
 1. Push the constant change. `diff-guard` fails and **prints the full delta and the actual
    hash**.
-2. Read the printed delta and satisfy yourself it is still only identity constants.
+2. Read the printed delta and satisfy yourself it is still only identity constants and the
+   one added instruction, `create_lp_metadata` (in the delta since 2026-10-06).
 3. Update `EXPECTED_DELTA_SHA256` to the printed `actual` value **in the same PR**.
 
-The delta is 86 lines over **three** files — `lib.rs`,
-`instructions/admin/create_support_mint_associated.rs`, and `Cargo.toml`.
+The delta is about 260 lines over **three** files — `lib.rs`,
+`instructions/admin/create_support_mint_associated.rs`, and `Cargo.toml`. It was 94 lines
+until 2026-10-06, when `create_lp_metadata` was added to `lib.rs`: the instruction that
+gives a pool's lp token a name record (see `TEGRIDY_FORK.md`). The binary deployed on
+2026-09-29 was built before that and does not have it.
 
 The program id is **mirrored in two more places** that the guard does not cover; all three
 must agree or the client derives PDAs that do not exist under the deployed program:
@@ -433,7 +437,8 @@ date to move it — not a default the build inherits. Moving it later is a progr
 > committed, which is exactly why reading lib.rs tells you nothing about what is live.
 
 A **separate program** from cp-swap, deliberately — folding it in would break
-`diff-guard` and turn a cheap four-constant diff-audit into a full AMM audit.
+`diff-guard` and turn a cheap diff-audit (four constants and one small added instruction
+that names lp tokens) into a full AMM audit.
 
 1. Generate its own mainnet keypair, then patch **both** `declare_id!(...)` and
    `deployer::ID` (the `#[cfg(not(feature = "devnet"))]` arm, which ships a

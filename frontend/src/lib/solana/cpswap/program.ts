@@ -18,11 +18,13 @@ import { PublicKey } from '@solana/web3.js';
  * `executable: true`, so a naive `getAccountInfo(PROGRAM_ID)` reports
  * "deployed" for a spent id.
  *
- * WHAT THIS PROGRAM IS: a VERBATIM fork of raydium-cp-swap @ 78f254e1023751e7…
+ * WHAT THIS PROGRAM IS: a fork of raydium-cp-swap @ 78f254e1023751e7…
  * CI's `diff-guard` clones upstream, refuses any differing file outside two,
- * and sha256-hashes the remaining delta against a pinned value — currently 86
+ * and sha256-hashes the remaining delta against a pinned value: about 260
  * lines across `lib.rs`, `create_support_mint_associated.rs` and `Cargo.toml`,
- * all of it authority constants and comments. So every layout, seed and
+ * all of it authority constants, comments and ONE added instruction,
+ * `create_lp_metadata` (it names a pool's lp token; this site does not send
+ * it, and it adds no account type). So every layout, seed and
  * discriminator below is Raydium's, and a resync that changes any of them
  * fails `program.test.ts` before it can misdecode an account.
  *
