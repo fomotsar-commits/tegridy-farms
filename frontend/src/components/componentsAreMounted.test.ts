@@ -57,6 +57,14 @@ const COMPONENTS = join(SRC, 'components');
  */
 const UNMOUNTED_BY_DESIGN: Array<{ pattern: RegExp; because: string }> = [
   {
+    pattern: /^solana\/lp\/useUsdPrices\.ts$/,
+    because:
+      'Wave 1 of the Solana LP work lands in groups: useUsdPrices (group B, task B2) is the one ' +
+      'Jupiter price read behind the "about $" lines, which the venue list (group C, task C3) ' +
+      'mounts. Until that group merges nothing reaches it. The guard below fails this entry the ' +
+      'moment it is reached: delete it in the same change.',
+  },
+  {
     pattern: /^solana\/lp\/AddressRow\.tsx$/,
     because:
       'Wave 1 of the Solana LP work lands in groups: AddressRow (group A, task A6) is the short ' +

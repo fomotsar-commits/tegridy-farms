@@ -48,7 +48,7 @@ export interface LedgerFigures {
 }
 
 export interface LedgerWindow { count: number; oldest: number | null; more: boolean }
-export type WorthOnlyWhy = 'shares-left' | 'withdrawal-unbalanced' | 'run-start-not-read' | 'unread-entry' | 'mixed-entry';
+export type WorthOnlyWhy = 'shares-left' | 'withdrawal-unbalanced' | 'run-start-not-read' | 'unread-entry' | 'mixed-entry' | 'no-deposit-read';
 
 export type LedgerRead =
   | { kind: 'ok'; figures: LedgerFigures; entries: LedgerEntry[]; window: LedgerWindow; case: 'A' | 'B' }
@@ -201,6 +201,9 @@ export function ledgerFigures(entries: LedgerEntry[], view: PoolView, lpAmount: 
   const proven = run.filter(isProven).reverse(); // oldest first
   const inward = proven.filter((e) => e.kind !== 'withdrawal');
   const withdrawals = proven.filter((e) => e.kind === 'withdrawal');
+  // Shares that only ever arrived by transfer have no cost this page can read: no figure
+  // over zero proven shares, which would print "0 SOL and 0 X, in 0 deposits".
+  if (inward.length === 0) return worthOnly('no-deposit-read');
   const provenShares = sum(inward, (e) => e.lp) - sum(withdrawals, (e) => e.lp);
   let ledgerCase: 'A' | 'B';
   if (provenShares === lpAmount) ledgerCase = 'A';
@@ -384,6 +387,7 @@ export const ledgerText = {
       case 'run-start-not-read': return `Your history in this pool goes back further than the ${plural(r.window.count, 'transaction')} this page reads (the oldest read is from ${minuteText(r.window.oldest)}), so what you put in could not be fully read.`;
       case 'unread-entry': return `One of your transactions in this pool (${when('unread')}) could not be read.`;
       case 'mixed-entry': return `A transaction on ${when('mixed')} changed this pool in more than one way at once, which this page cannot read as one deposit or withdrawal.`;
+      case 'no-deposit-read': return `None of the ${plural(r.window.count, 'transaction')} read on this share account is a deposit by this wallet into this pool, so these shares arrived another way (sent to this account) and what they cost is not known.`;
     }
   },
   unread(detail: string): string {

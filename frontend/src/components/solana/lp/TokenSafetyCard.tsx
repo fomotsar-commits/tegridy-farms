@@ -17,7 +17,7 @@ export function TokenSafetyCard({ mint, safety }: { mint: string; safety: TokenS
   const verdict = safety.kind === 'read' ? safety.verdict : safety.kind;
   return (
     <div data-testid="token-safety" data-verdict={verdict}>
-      <Card title="The token">
+      <Card title="The token" pageId="solana-lp" idx={2}>
         <Row label="Mint address" value={mint} />
         <div>
           <CopyButton text={mint} display="Copy the mint address" className="min-h-[44px] underline text-white/70 text-[12px]" />
