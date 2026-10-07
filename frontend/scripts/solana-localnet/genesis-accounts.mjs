@@ -100,6 +100,15 @@ export const PINNED_SHA256 = Object.freeze({
   'tegridy_launch.idl.json': 'cd9e173c666940f82222a2798dc1c5bc0cf30edf7b32450530e65aa523a3cb31',
 });
 
+/**
+ * The COMMITTED pool IDL (solana/tegridy-amm/idl/raydium_cp_swap.json). It is one instruction
+ * ahead of the release: the source has `create_lp_metadata` (it names a pool's share token),
+ * and the binary on mainnet does not until the owner upgrades it. The release's own copy keeps
+ * its pin above; src/lib/launcher/solana/write/idl.test.ts holds that this file with the one
+ * instruction taken out is that copy, byte for byte.
+ */
+export const PINNED_REPO_CPSWAP_IDL_SHA256 = '1e8fd7928c0fce6788b880703a1cbfc932e808ab5acadfd5217eb637d739f736';
+
 export function defaultArtifactsDir() {
   return process.env.TEGRIDY_RELEASE_ARTIFACTS || 'C:/Users/jimbo/solana-launch-release-2026-09-26/artifacts';
 }
@@ -131,22 +140,25 @@ export function idlCandidates(artifactsDir = defaultArtifactsDir()) {
 
 /**
  * The two IDLs, from the first location that exists, each refused unless it hashes to
- * the release pin. Returns null when neither location has them (a machine without the
- * release and before the IDLs are committed); every caller must treat that as "cannot
- * check", never as a pass.
+ * the pin for THAT location (the repo's pool IDL and the release's differ by one
+ * instruction, see PINNED_REPO_CPSWAP_IDL_SHA256). Returns null when neither location has
+ * them (a machine without the release and before the IDLs are committed); every caller
+ * must treat that as "cannot check", never as a pass.
  */
 export function loadVerifiedIdls(artifactsDir = defaultArtifactsDir()) {
   const c = idlCandidates(artifactsDir);
-  const pick = (list, pin) => {
-    const file = list.find((f) => fs.existsSync(f));
-    if (!file) return null;
+  const pick = (list, pins) => {
+    const at = list.findIndex((f) => fs.existsSync(f));
+    if (at < 0) return null;
+    const file = list[at];
+    const pin = pins[at];
     const raw = fs.readFileSync(file);
     const actual = sha256(raw);
     if (actual !== pin) throw new Error(`${file} hashes to ${actual}, pinned ${pin}: refusing`);
     return { file, idl: JSON.parse(raw.toString('utf8')) };
   };
-  const l = pick(c.launch, PINNED_SHA256['tegridy_launch.idl.json']);
-  const p = pick(c.cp, PINNED_SHA256['raydium_cp_swap.idl.json']);
+  const l = pick(c.launch, [PINNED_SHA256['tegridy_launch.idl.json'], PINNED_SHA256['tegridy_launch.idl.json']]);
+  const p = pick(c.cp, [PINNED_REPO_CPSWAP_IDL_SHA256, PINNED_SHA256['raydium_cp_swap.idl.json']]);
   if (!l || !p) return null;
   if (l.idl.address !== LAUNCH_PROGRAM.toBase58()) throw new Error(`launch IDL address ${l.idl.address}`);
   if (p.idl.address !== CP_SWAP_PROGRAM.toBase58()) throw new Error(`cp-swap IDL address ${p.idl.address}`);

@@ -4,7 +4,14 @@ pub mod instructions;
 pub mod states;
 pub mod utils;
 use crate::curve::fees::FEE_RATE_DENOMINATOR_VALUE;
+use crate::error::ErrorCode;
+use crate::states::PoolState;
 use anchor_lang::prelude::*;
+use anchor_spl::metadata::{
+    create_metadata_accounts_v3, mpl_token_metadata::types::DataV2, CreateMetadataAccountsV3,
+    Metadata,
+};
+use anchor_spl::token_interface::Mint;
 use instructions::*;
 pub use states::CreatorFeeOn;
 
@@ -25,7 +32,10 @@ solana_security_txt::security_txt! {
 // ─── TEGRIDY FORK CHANGES (2026-07-11) ────────────────────────────────────────
 // The ENTIRE code delta from upstream raydium-cp-swap (Apache-2.0) is 4 authority/
 // identity constants (3 here + create_support_mint_associated_owner in
-// instructions/admin/create_support_mint_associated.rs). Every line of swap/curve/
+// instructions/admin/create_support_mint_associated.rs) plus, since 2026-10-06, ONE
+// added instruction: `create_lp_metadata`, which gives a pool's lp token a name
+// record. The whole of it (accounts, handler, two helpers) is in this file, under
+// the "TEGRIDY FORK ADDITION" heading at the bottom. Every line of swap/curve/
 // fee logic is byte-identical to the audited upstream. The per-swap PROTOCOL fee is
 // NOT here: it accrues per `amm_config.protocol_fee_rate` and is collected by
 // `amm_config.protocol_owner` (which create_config sets = the admin caller).
@@ -344,4 +354,161 @@ pub mod raydium_cp_swap {
     pub fn close_support_mint_associated(ctx: Context<CloseSupportMintAssociated>) -> Result<()> {
         instructions::close_support_mint_associated(ctx)
     }
+
+    /// Create the Metaplex name record of a pool's lp token mint. Anyone may call it and
+    /// the caller pays. It takes no arguments: the name, the symbol and the link are fixed
+    /// by the program.
+    ///
+    /// # Arguments
+    ///
+    /// * `ctx`- The context of accounts
+    ///
+    pub fn create_lp_metadata(ctx: Context<CreateLpMetadata>) -> Result<()> {
+        let (name, symbol, uri) = get_lp_metadata_data(ctx.accounts.lp_mint.key());
+        initialize_metadata_account(
+            &ctx.accounts.payer,
+            &ctx.accounts.authority.to_account_info(),
+            &ctx.accounts.lp_mint.to_account_info(),
+            &ctx.accounts.metadata,
+            &ctx.accounts.update_authority.to_account_info(),
+            &ctx.accounts.metadata_program,
+            &ctx.accounts.system_program,
+            &ctx.accounts.rent,
+            name,
+            symbol,
+            uri,
+            &[&[crate::AUTH_SEED.as_bytes(), &[ctx.bumps.authority]]],
+        )
+    }
+}
+
+// ─── TEGRIDY FORK ADDITION (2026-10-06): create_lp_metadata ───────────────────
+// The one instruction this fork adds to upstream. A pool's lp token is a classic SPL
+// mint with no name record, so a wallet lists it as an unknown token. Metaplex only
+// creates that record when the mint authority signs, and the mint authority is this
+// program's own address (AUTH_SEED), so no wallet can ask for it: this program must.
+//
+// The helpers are Raydium CLMM's `get_metadata_data` and `initialize_metadata_account`
+// (raydium-io/raydium-clmm @ ed7c84a54ced59c55981780546adb0b4583dcf85,
+// programs/amm/src/instructions/open_position.rs, Apache-2.0, same Anchor 0.32.1).
+// What differs from that source: the words; the record's editor is `admin::ID` and
+// not the signing address; the editor does not sign; the record is mutable; no
+// creator is listed; and both helpers are `#[inline(never)]` (see the stack note).
+//
+// WHO MAY CALL IT: anyone. That is safe because the caller chooses nothing. The name
+// and symbol are fixed in `get_lp_metadata_data` and the link is built there from the
+// lp mint address.
+// `lp_mint` must be the mint recorded in `pool_state` (IncorrectLpMint), and
+// `pool_state` must be a pool account this program owns, so a stranger's own mint
+// that merely names AUTH_SEED as its mint authority cannot be given our label.
+// Metaplex refuses a second record for the same mint, so it runs once per pool.
+//
+// WHO CAN EDIT THE RECORD LATER: `admin::ID` only (the Squads vault on mainnet), with
+// a plain Metaplex update. This program has no update path. The editor must be an
+// address that can sign: see the note in `mod admin` above.
+//
+// FUND SAFETY: the AUTH_SEED address that signs the inner call also owns every pool
+// vault. The inner call is handed Metaplex's own six accounts and nothing else: the
+// record, the lp mint (read-only), AUTH_SEED (read-only), the payer, the editor and
+// the System program. No vault, no token program and no remaining account is ever
+// passed on, so that signature cannot reach a token account. AUTH_SEED is never the
+// payer and holds no lamports.
+//
+// STACK: an SBF frame over 4,096 bytes is only a linker warning and then faults on
+// chain. `lp_mint` is boxed, `pool_state` is an `AccountLoader` (no copy), and the
+// string building and the inner call each keep their own small frame.
+#[derive(Accounts)]
+pub struct CreateLpMetadata<'info> {
+    /// Pays the record's rent and Metaplex's creation fee
+    #[account(mut)]
+    pub payer: Signer<'info>,
+
+    /// CHECK: pool vault and lp mint authority
+    #[account(
+        seeds = [
+            crate::AUTH_SEED.as_bytes(),
+        ],
+        bump,
+    )]
+    pub authority: UncheckedAccount<'info>,
+
+    pub pool_state: AccountLoader<'info, PoolState>,
+
+    /// Lp token mint
+    #[account(
+        address = pool_state.load()?.lp_mint @ ErrorCode::IncorrectLpMint
+    )]
+    pub lp_mint: Box<InterfaceAccount<'info, Mint>>,
+
+    /// To store metaplex metadata
+    /// CHECK: Metaplex checks it is the record address derived for `lp_mint`
+    #[account(mut)]
+    pub metadata: UncheckedAccount<'info>,
+
+    /// CHECK: the record's editor, which does not sign here
+    #[account(
+        address = crate::admin::ID
+    )]
+    pub update_authority: UncheckedAccount<'info>,
+
+    /// Program to create the metadata record
+    pub metadata_program: Program<'info, Metadata>,
+
+    pub system_program: Program<'info, System>,
+
+    pub rent: Sysvar<'info, Rent>,
+}
+
+#[inline(never)]
+fn get_lp_metadata_data(lp_mint: Pubkey) -> (String, String, String) {
+    return (
+        String::from("Memetics Pool Share"),
+        String::from("MEM-LP"),
+        format!("https://memetics.finance/mint/{}.json", lp_mint.to_string()),
+    );
+}
+
+#[inline(never)]
+fn initialize_metadata_account<'info>(
+    payer: &Signer<'info>,
+    authority: &AccountInfo<'info>,
+    lp_mint: &AccountInfo<'info>,
+    metadata_account: &UncheckedAccount<'info>,
+    update_authority: &AccountInfo<'info>,
+    metadata_program: &Program<'info, Metadata>,
+    system_program: &Program<'info, System>,
+    rent: &Sysvar<'info, Rent>,
+    name: String,
+    symbol: String,
+    uri: String,
+    signers_seeds: &[&[&[u8]]],
+) -> Result<()> {
+    create_metadata_accounts_v3(
+        CpiContext::new_with_signer(
+            metadata_program.to_account_info(),
+            CreateMetadataAccountsV3 {
+                metadata: metadata_account.to_account_info(),
+                mint: lp_mint.to_account_info(),
+                mint_authority: authority.to_account_info(),
+                payer: payer.to_account_info(),
+                update_authority: update_authority.to_account_info(),
+                system_program: system_program.to_account_info(),
+                rent: rent.to_account_info(),
+            },
+            signers_seeds,
+        ),
+        DataV2 {
+            name,
+            symbol,
+            uri,
+            seller_fee_basis_points: 0,
+            creators: None,
+            collection: None,
+            uses: None,
+        },
+        true,
+        false,
+        None,
+    )?;
+    Ok(())
 }

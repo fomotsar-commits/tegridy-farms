@@ -1,7 +1,9 @@
 name: solana-ci
 
-# Tegridy CP-AMM (solana/tegridy-amm) — a verbatim fork of raydium-cp-swap,
-# plus tegridy-launch, our own bonding curve that graduates into it.
+# Tegridy CP-AMM (solana/tegridy-amm): a fork of raydium-cp-swap that differs from
+# it by four authority constants and one added instruction (create_lp_metadata,
+# which names a pool's lp token), plus tegridy-launch, our own bonding curve that
+# graduates into it.
 # Gates:
 #   1. diff-guard  — proves the fork's delta from pinned audited upstream is
 #      EXACTLY the pinned hash. Not a file allowlist: the previous version accepted
@@ -31,7 +33,8 @@ name: solana-ci
 #      the curve is closed and records it, and LP SUPPLY IS ZERO (the burn).
 #      It patches cp-swap's hardcoded admin + fee-receiver in a throwaway
 #      checkout because we hold neither key; diff-guard runs on its own clean
-#      checkout and independently proves the COMMITTED fork is untouched.
+#      checkout and independently proves the COMMITTED fork still carries exactly
+#      the pinned delta.
 on:
   push:
     paths: ["solana/**", ".github/workflows/solana-ci.yml"]
@@ -145,7 +148,9 @@ jobs:
           # arbitrary logic could be added there and this job stayed green — while the
           # comment above it claimed the files hold "ONLY hardcoded authority constants".
           # That assumption was never enforced, and it is the exact claim we make to
-          # auditors ("the delta is four constants"), so it has to be mechanical.
+          # auditors (since 2026-10-06: "the delta is four constants and one instruction
+          # that names lp tokens"; before that, "four constants"), so it has to be
+          # mechanical.
           #
           # Now: the delta is canonicalised and hashed. Any change to it — including
           # inside the allowed files — fails until a human deliberately re-pins
@@ -175,14 +180,34 @@ jobs:
           # devnet arm and create_pool_fee_reveiver are unchanged. Reproduced locally
           # with this exact recipe: the unmodified base (b500db57) yields the previous
           # pin 7b2adbad…, which is the positive control for this value.
-          EXPECTED_DELTA_SHA256=5c737ac733c35f6507f6f3a16ecee4a2b3cb9ea3c134891242a8bef4ff30afc0
+          # RE-PINNED 2026-10-06: the delta is no longer constants only. It gained ONE
+          # instruction, `create_lp_metadata`, all of it inside lib.rs (step 1 below is
+          # unchanged: still only the two files may differ). Why it exists: a pool's lp
+          # token is a classic SPL mint with no name record, so wallets list it as an
+          # unknown token, and Metaplex only creates the record when the mint authority
+          # signs, which is this program's own address. Diffing the old delta against the
+          # new one shows, apart from `//` and `///` comments and diff hunk headers:
+          #   7 `use` lines (ErrorCode, PoolState, the anchor-spl metadata helper, Mint)
+          #   the 18-line handler in the #[program] module (no arguments)
+          #   `struct CreateLpMetadata` (9 accounts)
+          #   `get_lp_metadata_data` and `initialize_metadata_account`, taken from
+          #   raydium-clmm @ ed7c84a5 open_position.rs (Apache-2.0)
+          # No constant, no existing instruction and no Cargo.toml line changed: the
+          # `metadata` feature of anchor-spl was already on, inherited from upstream.
+          # What a reviewer must hold it to: the caller passes no words; `lp_mint` is
+          # bound to `pool_state`; the editor is `admin::ID`; and the inner call is handed
+          # Metaplex's own six accounts and nothing else, because the address that signs
+          # it also owns every pool vault. Reproduced locally with this exact recipe: the
+          # unmodified base (f1e60f60) yields the previous pin 5c737ac7…, which is the
+          # positive control for this value.
+          EXPECTED_DELTA_SHA256=c18d4d6358a878a0b22b3916813be02bd4a80b81e4522d13495703140a4edd6d
 
           # 1. NO file outside the two allowed source files may differ at all.
           #    Paths are anchored to their full relative path — the old pattern matched
           #    a bare `lib.rs ` anywhere in the tree.
           UNEXPECTED=$(diff -rq "$UP/src" "$OURS/src"             | grep -vE "(^Files .*/src/lib\.rs and .* differ$|^Files .*/src/instructions/admin/create_support_mint_associated\.rs and .* differ$)"             || true)
           if [ -n "$UNEXPECTED" ]; then
-            echo "::error::Fork diverges from audited upstream beyond the two authority files:"
+            echo "::error::Fork diverges from audited upstream beyond the two allowed files:"
             echo "$UNEXPECTED"
             exit 1
           fi
@@ -208,7 +233,8 @@ jobs:
             echo "  expected $EXPECTED_DELTA_SHA256"
             echo "  actual   $ACTUAL"
             echo "If the change is intentional, read the diff printed above, satisfy yourself"
-            echo "it is still ONLY authority/identity constants and comments, then update"
+            echo "it is still ONLY the four authority/identity constants, the one"
+            echo "create_lp_metadata instruction and comments, then update"
             echo "EXPECTED_DELTA_SHA256 in this workflow IN THE SAME PR."
             exit 1
           fi
@@ -889,8 +915,8 @@ jobs:
       #
       # This patches a THROWAWAY CHECKOUT for test purposes only. The `diff-guard`
       # job runs on its own clean checkout and independently proves the COMMITTED
-      # cp-swap source is byte-identical to audited upstream, so this cannot launder
-      # a real change into the fork.
+      # cp-swap source differs from audited upstream by exactly the pinned delta, so
+      # this cannot launder a real change into the fork.
       - name: Pin every identity, then build both programs
         run: |
           set -euo pipefail
