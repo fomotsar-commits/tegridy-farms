@@ -2,21 +2,10 @@ import type { ReactNode } from 'react';
 import { ArtImg } from '../ArtImg';
 
 /**
- * Shared art-backed card.
- *
- * WHY: the protocol's identity is art-first ("Art-first yield farming on
- * Ethereum" — Footer), and the established pages (Security, Dashboard,
- * Tokenomics, Lending) put a full-bleed art piece behind every card. Several
- * newer surfaces — the launcher pages in particular — shipped as bare dark
- * boxes, so they read as a different, colder app. This is the same treatment,
- * factored once instead of hand-rolled per page.
- *
- * Art is resolved through `ArtImg`, so /art-studio overrides, focal
- * `objectPosition`, `scale`, CLS-reserving width/height and the broken-image
- * fallback all come for free — this component adds no new art logic.
- *
- * CONTRAST: content sits on an opaque dark panel above the image (same values
- * as SecurityPage's card), so adding art never costs text legibility.
+ * An art-backed card: a full-bleed piece through ArtImg (studio overrides, focal point, the
+ * broken-image fallback) under a dark panel that holds the content. `scrim` is the panel's
+ * black opacity: 0.85 by default, SecurityPage's value, so text costs nothing; the LP cards
+ * pass LP_SCRIM (0.78, the owner's rule) so their art shows through.
  */
 export function ArtCard({
   pageId,
@@ -25,6 +14,7 @@ export function ArtCard({
   className = '',
   padding = 'p-5 md:p-6',
   fallbackPosition,
+  scrim = 0.85,
 }: {
   pageId: string;
   idx: number;
@@ -32,6 +22,7 @@ export function ArtCard({
   className?: string;
   padding?: string;
   fallbackPosition?: string;
+  scrim?: number;
 }) {
   return (
     <div
@@ -51,7 +42,7 @@ export function ArtCard({
       <div
         className={`relative z-10 m-2 md:m-3 rounded-lg ${padding}`}
         style={{
-          background: 'rgba(0,0,0,0.85)',
+          background: `rgba(0,0,0,${scrim})`,
           backdropFilter: 'blur(4px)',
           WebkitBackdropFilter: 'blur(4px)',
           border: '1px solid rgba(255,255,255,0.08)',

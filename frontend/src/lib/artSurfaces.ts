@@ -46,6 +46,7 @@ export const PAGE_ROUTES: Record<string, string> = {
   'curve-launch': '/curve-launch',
   'eth-curve': '/eth-curve',
   swap: '/solana',
+  'solana-lp': '/solana-lp',
   treasury: '/treasury',
   'nav-logo': '/',
   'token-icon': '/trade',
@@ -388,6 +389,18 @@ export const SURFACES: Surface[] = [
   // surface lives on /pools even though PAGE_ROUTES sends 'swap' to /solana —
   // the Live-page tab will show the Solana route, the Art tab is the true one.
   { group: 'Launch & Solana', pageId: 'swap',             idx: 0, label: 'LS4b — Pools page bg' },
+  // The Solana LP page's cards: curve/ui.tsx `Card` with pageId and a literal idx at each call
+  // site (the guard pins literals only). The owner's rule: every card a surface, art visible.
+  // A row may precede its call site while the page's components are rebuilt (Wave 1, 2026-10).
+  { group: 'Launch & Solana', pageId: 'solana-lp', idx: 0, label: 'SLP1 - Finder: the three verbs' },
+  { group: 'Launch & Solana', pageId: 'solana-lp', idx: 1, label: 'SLP2 - Pools on the venue' },
+  { group: 'Launch & Solana', pageId: 'solana-lp', idx: 2, label: 'SLP3 - The token' },
+  { group: 'Launch & Solana', pageId: 'solana-lp', idx: 3, label: 'SLP4 - A pool card' },
+  { group: 'Launch & Solana', pageId: 'solana-lp', idx: 4, label: 'SLP5 - Pool not read' },
+  { group: 'Launch & Solana', pageId: 'solana-lp', idx: 5, label: 'SLP6 - Open a new pool' },
+  { group: 'Launch & Solana', pageId: 'solana-lp', idx: 6, label: 'SLP7 - Your positions' },
+  { group: 'Launch & Solana', pageId: 'solana-lp', idx: 7, label: 'SLP8 - Before you provide liquidity' },
+  { group: 'Launch & Solana', pageId: 'solana-lp', idx: 8, label: 'SLP9 - Fee tiers' },
   // The Solana Swap page used to paint ONE surface (the swap card at idx 2) —
   // the staking rail, the trending grid and every margin sat on the bare app
   // gradient, so no skin could reach the page. idx 1 is the page backdrop, 3-6

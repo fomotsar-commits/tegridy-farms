@@ -4,10 +4,17 @@
 
 import { useId, useState, type ReactNode, type Ref } from 'react';
 import { decimalCommaToPoint } from '../../../lib/launcher/solana/curve/format';
+import { ArtCard } from '../../ui/ArtCard';
 import {
+  BODY,
   CARD,
   CARD_STYLE,
   DEFAULT_SLIPPAGE_BPS,
+  ERROR,
+  HEAD,
+  HINT,
+  LABEL,
+  LP_SCRIM,
   SHADOW,
   SLIPPAGE_PRESETS_BPS,
   TOGGLE_CLS,
@@ -19,29 +26,62 @@ import {
   parseSlippagePercent,
 } from './uiFormat';
 
+/**
+ * The one page whose cards are studio surfaces (lib/artSurfaces.ts, the nine `solana-lp` rows).
+ * A constant, so the coverage guard (pages/artStudioCoverage.test.ts) reads the page from the
+ * ArtCard tag in Card; each call site passes a literal idx, which the guard pins.
+ */
+const LP_PAGE_ID = 'solana-lp';
+
+/** A card is a studio surface with both, or neither: the LP page's id and its literal idx. */
+type LpSurface = { pageId: typeof LP_PAGE_ID; idx: number } | { pageId?: undefined; idx?: undefined };
+
 export function Card({
   title,
   children,
   testId,
   headingRef,
+  pageId,
+  idx,
 }: {
   title: string;
   children: ReactNode;
   testId?: string;
   /** Set when focus may be sent to the heading (a flow ending with no button to return to). */
   headingRef?: Ref<HTMLHeadingElement>;
-}) {
+} & LpSurface) {
+  const heading = (
+    <h2
+      ref={headingRef}
+      tabIndex={headingRef ? -1 : undefined}
+      className={`${HEAD} mb-2.5 outline-none`}
+      data-text-role="head"
+      style={SHADOW}
+    >
+      {title}
+    </h2>
+  );
+  const body = (
+    <div className={`${BODY} leading-relaxed space-y-2`} data-text-role="body">
+      {children}
+    </div>
+  );
+  if (pageId === undefined) {
+    return (
+      <section className={CARD} style={CARD_STYLE} data-testid={testId}>
+        {heading}
+        {body}
+      </section>
+    );
+  }
+  // Art under the card at the owner's scrim. The page is the constant, not the prop, so the
+  // coverage guard can read it from this tag; the type above makes the two equal.
   return (
-    <section className={CARD} style={CARD_STYLE} data-testid={testId}>
-      <h2
-        ref={headingRef}
-        tabIndex={headingRef ? -1 : undefined}
-        className="text-white font-semibold text-[13px] mb-2.5 outline-none"
-        style={SHADOW}
-      >
-        {title}
-      </h2>
-      <div className="text-white/60 text-[11px] leading-relaxed space-y-2">{children}</div>
+    <section data-testid={testId}>
+      <ArtCard pageId={LP_PAGE_ID} idx={idx} scrim={LP_SCRIM}>
+        {heading}
+        {body}
+      </ArtCard>
     </section>
   );
 }
@@ -109,17 +149,17 @@ export function Field({
   };
   return (
     <label className="block mb-3">
-      <span id={labelId} className="text-white text-[11px] block mb-1.5" style={SHADOW}>
+      <span id={labelId} className={`${LABEL} block mb-1.5`} style={SHADOW} data-text-role="label">
         {label}
       </span>
       {typeof children === 'function' ? children(a11y) : children}
       {error && (
-        <span id={errorId} className="text-rose-300/90 text-[10px] block mt-1">
+        <span id={errorId} className={`${ERROR} block mt-1`} data-text-role="error">
           {error}
         </span>
       )}
       {hint && (
-        <span id={hintId} className="text-white/40 text-[10px] block mt-1">
+        <span id={hintId} className={`${HINT} block mt-1`} data-text-role="hint">
           {hint}
         </span>
       )}
@@ -136,10 +176,11 @@ export function Notice({ tone = 'info', children }: { tone?: 'info' | 'warn' | '
         ? 'text-rose-300/90'
         : tone === 'good'
           ? 'text-emerald-300/90'
-          : 'text-white/55';
+          : // What /55 rendered as (index.css floors /10 to /65), in a class that says so.
+            'text-white/85';
   // A 44-character address has no place to break: without this it ran off the right edge
   // of a phone and lost its last characters (phone walk, 2026-10-03).
-  return <p className={`${cls} [overflow-wrap:anywhere]`}>{children}</p>;
+  return <p className={`${cls} [overflow-wrap:anywhere]`} data-text-role="notice">{children}</p>;
 }
 
 /** The price impact row, and its warning when it is large or could not be computed. Form and review alike. */
