@@ -26,7 +26,7 @@ describe('decodeObservationState', () => {
 
 describe('ownAveragePrice', () => {
   // A token (6 decimals) as token1, SOL as token0: "own" is cumulative1, SOL base per token base.
-  const base = { tokenIsToken0: false, solReserve: 10n * 10n ** 9n, tokenReserve: 1_000n * 10n ** 6n, tokenDecimals: 6 };
+  const base = { tokenIsToken0: false, solReserve: 10n * 10n ** 9n, tokenReserve: 1_000n * 10n ** 6n, tokenDecimals: 6, quoteDecimals: 9 };
   const obs = (older: [bigint, bigint], latest: [bigint, bigint], lastUpdate: bigint) =>
     decodeObservationState(observationBytes({ pool, index: 1, lastUpdate, obs: [[0, older[0], 0n, older[1]], [1, latest[0], 0n, latest[1]]] }))!;
 
@@ -54,6 +54,26 @@ describe('ownAveragePrice', () => {
     }))!;
     const r = ownAveragePrice({ ...base, obs: d, now });
     expect(r.kind === 'ok' && [r.solPerToken, r.windowSecs]).toEqual([0.01, AVERAGE_WINDOW_SECS]);
+  });
+
+  // Economics 8.11. A USDC pool: 2,000,000 USDC base units beside 1,000,000 token base
+  // units is 2 USDC a token, and the ring agrees over the whole window. The second case
+  // is a 9-decimal token in the same pool, so a scale that swaps the two decimals (equal
+  // at 6 and 6) is caught by this test on its own.
+  it('scales by the pairing coin’s decimals, not SOL’s: a USDC pool averages in USDC a token', () => {
+    const now = 2_800n;
+    const ring = (ownX32: bigint, otherX32: bigint) =>
+      decodeObservationState(observationBytes({
+        pool, index: 1, lastUpdate: now,
+        obs: [[0, now - AVERAGE_WINDOW_SECS, 0n, 0n], [1, now, otherX32 * AVERAGE_WINDOW_SECS, ownX32 * AVERAGE_WINDOW_SECS]],
+      }))!;
+    const usdc = { tokenIsToken0: false, solReserve: 2_000_000n, quoteDecimals: 6, now };
+    const six = ownAveragePrice({ ...usdc, tokenReserve: 1_000_000n, tokenDecimals: 6, obs: ring(2n * Q32, Q32 / 2n) });
+    expect(six.kind).toBe('ok');
+    expect(six.kind === 'ok' && six.solPerToken).toBeCloseTo(2, 9);
+    expect(six.kind === 'ok' && six.windowSecs).toBe(AVERAGE_WINDOW_SECS);
+    const nine = ownAveragePrice({ ...usdc, tokenReserve: 1_000_000_000n, tokenDecimals: 9, obs: ring((2_000_000n * Q32) / 1_000_000_000n, 500n * Q32) });
+    expect(nine.kind === 'ok' && nine.solPerToken).toBeCloseTo(2, 9);
   });
 
   it('never traded is its own answer; too little history, or a record from the future, is unread', () => {
