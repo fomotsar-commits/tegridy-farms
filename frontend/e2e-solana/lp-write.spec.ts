@@ -967,7 +967,7 @@ test.describe('group B (chromium only)', () => {
     await expect(poolCard(p, B.a1.address)).toHaveAttribute('data-add', 'offer', { timeout: 60_000 });
     const page = (await p.locator('body').innerText()).replace(/\s+/g, ' ');
     for (const bad of [/takes (whichever|the one)/i, /unless elsewhere is better/i, /whichever is better/i]) expect(page).not.toMatch(bad);
-    expect(page).toContain('still goes through Jupiter');
+    expect(page).toContain('is sent through Jupiter');
     expect(page).not.toContain('adding and removing liquidity from here is not switched on yet');
 
     const tierText = (f: PoolFacts) =>
