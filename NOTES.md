@@ -15,6 +15,64 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-10-06: an override that forces the patched major is a safe way to clear a transitive advisory
+
+**Believed:** when the fix for an advisory in a transitive package is a newer major, an
+`overrides` entry that forces it is a lockfile-level change. It installs, so it works.
+
+**Measured:** GHSA-7mx3-vvmw-hjmv is fixed in `@graphql-tools/utils` 12.0.1. The indexer has
+10.x and 11.x under `graphql-yoga` 5.21.0 and `@graphql-tools/executor` 1.5.2. A scratch
+install with utils forced to 12.0.3 installed cleanly and answered a plain query. Then every
+query with `@include` or `@skip` on a variable came back as an error: 4 wrong answers out of 7
+probe queries, and all 7 right without the override. utils 12.0.0 had changed what
+`collectFields` takes, and executor 1.x still passes the old shape. `npm audit` was no guide:
+npm 11.6.2 called the fix "available", npm 11.21.0 called it semver-major, and the fix it
+named was `ponder` 0.0.1.
+
+**Do:** before forcing a major with an override, read the BREAKING notes of each major
+crossed, find which installed package calls what changed, and run that package's real path
+against the forced version. For a server that means queries with variables, not one plain
+query. A clean install and one answered query prove nothing.
+
+## 2026-10-06: two npm 11 releases write the same lockfile
+
+**Believed:** a one-package lockfile bump comes out the same from any npm 11, so the npm
+that happens to be installed is fine.
+
+**Measured:** `npm update source-map-js --package-lock-only`, on the same two lockfiles, with
+two npm versions.
+
+- npm 11.6.2 on `frontend/package-lock.json` also deleted the `libc` field from six
+  `@rolldown/binding-linux-*` entries it had no reason to touch. A newer npm had written them.
+- npm 11.21.0 on the same file kept those six.
+- npm 11.21.0 on `indexer/package-lock.json`, which 11.6.2 had written, also deleted
+  `"peer": true` from eleven entries. npm 11.6.2 there gave a three-line diff.
+
+The default `git diff` shows none of this. `.gitattributes` marks lockfiles binary, so it
+prints one "Bin" line.
+
+**Do:** after any lockfile edit, read `git diff --text -U0 -- <lockfile>` and look at every
+line that is not a `version`, `resolved` or `integrity` of a package you meant to move. If
+untouched entries changed, run the same edit with the other npm (`npx -y npm@<version> ...`)
+and keep the one that leaves them alone. Say in the commit which npm wrote each file.
+
+## 2026-10-06: an id on the advisory gate's "prune them" line is dead
+
+**Believed:** when the npm advisory gate prints "Suppressions no longer matching any advisory
+(prune them)", every id on that line can be deleted from
+`.github/npm-advisory-allowlist.json`.
+
+**Measured:** the gate runs once per project (`.`, `frontend`, `indexer`) and each run prints
+its own line. A `baseline` id belongs to one project, so its line is right. An `accepted`
+entry belongs to no project: it applies to all three, and each run calls it dead when that
+project's audit does not contain it. On 2026-10-06 the root run and the `frontend` run both
+said to prune GHSA-vfj7-8cjw-p6xm (braces) while the `indexer` run was using it. Deleting it
+would have turned the indexer red.
+
+**Do:** before pruning an id, find which list holds it. A baseline id can go when its own
+project's run names it. An accepted id can go only when all three runs name it. Run all
+three first: the lists differ.
+
 ## 2026-10-04: a test that asks the app's own planner what a row should read agrees with the app whatever it does
 
 **Believed:** the end-to-end check of the "Locked in the pool forever" row was independent of
