@@ -160,8 +160,10 @@ describe('each answer has its own line, and only `offer` has the button', () => 
     mount(r);
     const c = await settled('offer');
     expect(c).toHaveTextContent('No pool for this token yet. You can open the first one on the public fee tier: 1% a trade, 0.15 SOL to open (read just now).');
-    expect(c).toHaveTextContent('Trades on this site go through Jupiter, and Jupiter does not send trades to our pools.');
+    expect(c).toHaveTextContent("Jupiter does not send trades to our pools. This site's own swap sends a trade to a pool only when that pool pays the trader at least as much as Jupiter does.");
     expect(c).toHaveTextContent(/a new pool earns fees only when bots trade our pool program directly, mostly arbitrage/);
+    // The swap has sent trades to our pools since it began executing its own route.
+    expect(c).not.toHaveTextContent(/not built yet|Trades on this site go through Jupiter/);
     expect(within(c).getByRole('button', { name: 'Open a pool' })).toBeEnabled();
     expect(c).not.toHaveTextContent(/\bAPR\b|\bAPY\b|yield of|earn fees on every trade/i);
     // N20: Jupiter is asked even with no pool, once, so an opening price can be checked.
