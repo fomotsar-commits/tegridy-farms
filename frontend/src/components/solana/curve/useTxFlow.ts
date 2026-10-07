@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { clipDetail } from '../../../lib/launcher/solana/curve';
-import { isLpKind } from '../../../lib/launcher/solana/write/lpKinds';
+import { isPoolKind } from '../../../lib/launcher/solana/write/lpKinds';
 import { sameToSign } from '../../../lib/launcher/solana/write/sameToSign';
 import type { Prepared, PreparedTx, TxOutcome, TxSigner, WriteApi, WriteRpc } from './ports';
 import type { ReviewLine } from './reviewLines';
@@ -350,15 +350,15 @@ export function useTxFlow(
     let outcome: TxOutcome;
     try {
       // With the blockhash window, "no record and the window has passed" becomes
-      // `expired` (safe to retry) instead of staying unknown. A liquidity transaction
-      // also passes its config and kind, so a refusal found now is said in its own
-      // words; every other kind is asked exactly as it always was.
+      // `expired` (safe to retry) instead of staying unknown. A transaction to one of
+      // our pools also passes its config and kind, so a refusal found now is said in the
+      // pool program's words; every other kind is asked exactly as it always was.
       const p = s.prepared;
       outcome = await api.recheckOutcome(
         rpc,
         sig,
         p
-          ? isLpKind(p.kind)
+          ? isPoolKind(p.kind)
             ? { lastValidBlockHeight: p.lastValidBlockHeight, cfg: p.check.intent.cfg, kind: p.kind }
             : { lastValidBlockHeight: p.lastValidBlockHeight }
           : undefined,

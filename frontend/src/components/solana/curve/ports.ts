@@ -18,9 +18,9 @@ import type {
   CreateFacts,
   CurveWriteConfig,
   LpGate,
-  LpKind,
   LpOpenGate,
   OpenGate,
+  PoolKind,
   Prepared,
   PreparedTx,
   SolanaCluster,
@@ -30,6 +30,7 @@ import type {
   WriteGate,
   WriteRpc,
   ActionAvailability,
+  VenueSwapArgs,
 } from '../../../lib/launcher/solana/write/types';
 import type { GateRpc } from '../../../lib/launcher/solana/write/config';
 import type { CreateLaunchInput } from '../../../lib/launcher/solana/write/launch';
@@ -71,6 +72,7 @@ export type {
   GraduationReadiness,
   NotSent,
   OpenGate,
+  PoolKind,
   Prepared,
   PreparedTx,
   SimulatedEffect,
@@ -160,7 +162,7 @@ export interface WriteApi {
    * With `lastValidBlockHeight`, a signature with no record past that height is `expired` (safe to retry).
    * With `cfg` and a liquidity `kind`, a refusal is said in that kind's words (useTxFlow passes them for LP kinds only).
    */
-  recheckOutcome(rpc: WriteRpc, signature: string, opts?: { lastValidBlockHeight?: number; cfg?: CurveWriteConfig; kind?: LpKind }): Promise<TxOutcome>;
+  recheckOutcome(rpc: WriteRpc, signature: string, opts?: { lastValidBlockHeight?: number; cfg?: CurveWriteConfig; kind?: PoolKind }): Promise<TxOutcome>;
 
   readTokenMetadata(rpc: CurveRpc, mint: PublicKey): Promise<Read<TokenMetadata>>;
   /** Anyone can appear in this list. The page must say so. */
@@ -193,7 +195,8 @@ export interface WriteApi {
 export type TxViewApi = Pick<WriteApi, 'explorerTxUrl'> & { meta: Pick<MetadataApi, 'displaySafe'> };
 
 /**
- * Adding and removing liquidity, and opening a pool, on /pools. A sibling of `WriteApi`,
+ * Adding and removing liquidity and opening a pool on /pools, and the swap page's trades
+ * in our pools. A sibling of `WriteApi`,
  * loaded by its own file (`components/solana/lp/lpWriteApi.ts`), so the pools page never
  * downloads the launch page's upload and metadata clients (spec D19).
  */
@@ -205,9 +208,11 @@ export interface LpWriteApi {
   prepareLpDeposit(rpc: WriteRpc, gate: LpOpenGate, reads: LpPrepareReads, a: LpDepositArgs): Promise<Prepared>;
   prepareLpWithdraw(rpc: WriteRpc, gate: LpOpenGate, a: LpWithdrawArgs): Promise<Prepared>;
   prepareLpCreate(rpc: WriteRpc, gate: LpOpenGate, reads: LpPrepareReads, a: LpCreateArgs): Promise<Prepared>;
+  /** A swap the Solana swap page sends to one of our pools, once it has settled that the pool pays at least as much as Jupiter. */
+  prepareVenueSwap(rpc: WriteRpc, gate: LpOpenGate, a: VenueSwapArgs): Promise<Prepared>;
   submitPrepared(rpc: WriteRpc, signer: TxSigner, p: PreparedTx, deps?: SubmitDeps): Promise<TxOutcome>;
   /** As `WriteApi.recheckOutcome`: with `cfg` and a liquidity `kind`, a refusal is said in that kind's words. */
-  recheckOutcome(rpc: WriteRpc, signature: string, opts?: { lastValidBlockHeight?: number; cfg?: CurveWriteConfig; kind?: LpKind }): Promise<TxOutcome>;
+  recheckOutcome(rpc: WriteRpc, signature: string, opts?: { lastValidBlockHeight?: number; cfg?: CurveWriteConfig; kind?: PoolKind }): Promise<TxOutcome>;
   explorerTxUrl(signature: string, cluster: SolanaCluster): string;
   meta: Pick<MetadataApi, 'displaySafe'>;
 }

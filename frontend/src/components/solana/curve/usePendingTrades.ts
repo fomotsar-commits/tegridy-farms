@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { clipDetail } from '../../../lib/launcher/solana/curve';
-import { isLpKind } from '../../../lib/launcher/solana/write/lpKinds';
+import { isLpKind, isPoolKind } from '../../../lib/launcher/solana/write/lpKinds';
 import { PENDING_TRADE_TTL_MS, clearPendingTrade, readPendingTrades, savePendingTrade, type PendingTrade } from './pendingTrade';
-import type { LpKind, PreparedTx, TxOutcome, TxSummary } from './ports';
+import type { LpKind, PoolKind, PreparedTx, TxOutcome, TxSummary } from './ports';
 
 /**
  * The page-level half of "sent, not confirmed yet": a transaction in this scope (one
@@ -47,12 +47,11 @@ function poolOf(p: PreparedTx): string | null {
 }
 
 /**
- * Look a note's transaction up again. A liquidity note's check is also told its kind,
- * so a refusal found there is said in that kind's own words ("Withdrawals are switched
- * off on this pool…"), not as a bare program error. Every other note is checked with
- * the two arguments it always was.
+ * Look a note's transaction up again. A note sent to one of our pools (liquidity, or a
+ * swap) is also told its kind, so a refusal found there is said in the pool program's own
+ * words, not as a bare program error. Every other note is checked with two arguments.
  */
-export type CheckSignature = (signature: string, lastValidBlockHeight: number | null, kind?: LpKind) => Promise<TxOutcome>;
+export type CheckSignature = (signature: string, lastValidBlockHeight: number | null, kind?: PoolKind) => Promise<TxOutcome>;
 
 export function usePendingTrades(
   /** The storage scope: `curveTradeScope(mint)` for a launch, `LP_PENDING_SCOPE` for liquidity. */
@@ -106,7 +105,7 @@ export function usePendingTrades(
     for (const n of toCheck) {
       let o: TxOutcome;
       try {
-        o = await (isLpKind(n.kind)
+        o = await (isPoolKind(n.kind)
           ? check(n.signature, n.lastValidBlockHeight, n.kind)
           : check(n.signature, n.lastValidBlockHeight));
       } catch (e) {

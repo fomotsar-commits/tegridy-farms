@@ -1,26 +1,8 @@
-// The Jupiter swap's build-and-simulate step, with ONE narrow retry.
-//
-// WHY THIS EXISTS (live bug, 2026-10-03). Buying BAYLA with SOL builds a swap
-// with the 0.5% platform fee on the SOL side. On BAYLA's only route (Pump.fun
-// AMM) Jupiter's own program then reverts with custom error 6014
-// (IncorrectTokenProgramID), so the pre-sign simulation blocked every such buy.
-// The same trade with no platform fee simulates fine.
-//
-// THE RULE (owner decision 2026-10-02, "retry now, BAYLA fee after"):
-//   - the fee-bearing transaction is always built and simulated first;
-//   - ONLY when that simulation fails with exactly Jupiter's 6014, raised by the
-//     Jupiter program (lib/jupiter.ts isJupiterIncorrectTokenProgram), the SAME
-//     trade is quoted once more with no platform fee and no fee account,
-//     rebuilt, and put through the SAME simulation;
-//   - only a retry whose simulation PASSES may reach the wallet. A retry that
-//     fails, cannot be read, or comes back as a different or worse trade is
-//     blocked. There is never a second retry.
-// Nothing else opens the retry: not a URL, not a token name, not a route label,
-// not "any simulation failure".
-//
-// No React and no wallet in here, so every branch is unit-testable. The later
-// lib/solana/swap/jupiterSend.ts (SPEC_S3 step S1) is expected to call this for
-// its build and simulate steps.
+// The Jupiter swap's build and simulate, with ONE narrow retry (owner rule 2026-10-02).
+// The fee-bearing build is simulated first. Only Jupiter's own 6014, raised by the Jupiter
+// program on a build that carried the platform fee, re-quotes the same trade once with no
+// fee, rebuilds it, and simulates it again; only a passing retry may reach the wallet.
+// Nothing else opens the retry, and there is never a second one. No React, no wallet.
 import {
   quoteHasPlatformFee,
   type JupiterQuote,
@@ -53,8 +35,12 @@ export interface FeeRetryDeps {
 export type PreparedJupiterSwap =
   /** Hand `swapTransaction` to the wallet. `quote` is the one it was built from: show ITS amounts. */
   | { status: 'ready'; quote: JupiterQuote; swapTransaction: string; siteFeeWaived: boolean }
-  /** Nothing may be signed. `reason` is the simulation's own words when it has any. */
-  | { status: 'blocked'; reason: string | null; retried: boolean }
+  /**
+   * Nothing may be signed. `reason` is the simulation's own words when it has any. `cause`:
+   * 'refused' when a simulation or Jupiter's own answer said no; 'unread' when the retry's
+   * quote, build or simulation could not be had, so asking again may still find this trade.
+   */
+  | { status: 'blocked'; reason: string | null; retried: boolean; cause: 'refused' | 'unread' }
   /** The no-fee re-quote pays less than the fee-bearing one beyond the slippage: not silently sent. */
   | { status: 'moved'; quote: JupiterQuote };
 
@@ -95,12 +81,13 @@ export async function prepareJupiterSwap(
   // and the error the chain returned for it.
   const feeWasAttached = deps.swapCarriesPlatformFee(a.inputMint, a.outputMint);
   if (!sim.jupiterIncorrectTokenProgram || !feeWasAttached) {
-    return { status: 'blocked', reason: sim.reason, retried: false };
+    return { status: 'blocked', reason: sim.reason, retried: false, cause: 'refused' };
   }
 
   // ONE retry. From here every doubt is a block: the trader has not agreed to
   // anything but the trade they clicked, minus a fee.
-  const blocked: PreparedJupiterSwap = { status: 'blocked', reason: sim.reason, retried: true };
+  const blocked: PreparedJupiterSwap = { status: 'blocked', reason: sim.reason, retried: true, cause: 'refused' };
+  const unread: PreparedJupiterSwap = { ...blocked, cause: 'unread' };
   let retried: JupiterQuote;
   try {
     retried = await deps.getQuote({
@@ -111,7 +98,7 @@ export async function prepareJupiterSwap(
       noPlatformFee: true,
     });
   } catch {
-    return blocked;
+    return unread;
   }
   // The SAME trade, and really fee-free, by Jupiter's own fields.
   if (
@@ -147,15 +134,15 @@ export async function prepareJupiterSwap(
       noPlatformFee: true,
     });
   } catch {
-    return blocked;
+    return unread;
   }
   let sim2: SwapSimulation;
   try {
     sim2 = await deps.simulateSwap(second);
   } catch {
     // The retry is never sent unsimulated.
-    return { status: 'blocked', reason: 'The no-fee rebuild could not be simulated.', retried: true };
+    return { status: 'blocked', reason: 'The no-fee rebuild could not be simulated.', retried: true, cause: 'unread' };
   }
-  if (!sim2.ok) return { status: 'blocked', reason: sim2.reason ?? sim.reason, retried: true };
+  if (!sim2.ok) return { status: 'blocked', reason: sim2.reason ?? sim.reason, retried: true, cause: 'refused' };
   return { status: 'ready', quote: retried, swapTransaction: second, siteFeeWaived: true };
 }

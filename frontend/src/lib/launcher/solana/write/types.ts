@@ -130,7 +130,14 @@ export interface ActionAvailability {
 /** Adding and removing liquidity in one of our cp-swap pools, and opening a new one. */
 export type LpKind = 'lp-deposit' | 'lp-withdraw' | 'lp-create';
 
-export type TxKind = 'create' | 'buy' | 'sell' | 'migrate' | 'pool-buy' | 'pool-sell' | LpKind;
+/**
+ * The kinds judged against `PoolPins` (intent.ts): the liquidity kinds, and a swap the
+ * Solana swap page sends to one of our pools (`venue-swap`). Only the first three are
+ * liquidity changes: a swap has no liquidity copy, scope or pool note.
+ */
+export type PoolKind = LpKind | 'venue-swap';
+
+export type TxKind = 'create' | 'buy' | 'sell' | 'migrate' | 'pool-buy' | 'pool-sell' | PoolKind;
 
 /**
  * What a watched token account is, so the review can name it and print it in its
@@ -294,7 +301,52 @@ export type TxSummary =
     }
   | LpDepositSummary
   | LpWithdrawSummary
-  | LpCreateSummary;
+  | LpCreateSummary
+  | VenueSwapSummary;
+
+/** One side of a swap, as the review prints it. `symbol`: a pairing coin's; null for any other token. */
+export interface SwapSide {
+  mint: PublicKey;
+  symbol: string | null;
+  decimals: number;
+}
+
+/**
+ * A swap against one of our pools, sent from the Solana swap page because that pool paid
+ * at least as much as Jupiter. `amountIn` and `minimumAmountOut` are decoded from the
+ * bytes; `quote` is the builder's fresh read of the pool, priced with the pool's own fee
+ * tier on the chain's clock.
+ */
+export interface VenueSwapSummary {
+  kind: 'venue-swap';
+  pool: PublicKey;
+  origin: PoolPins['origin'];
+  /** The pool's own fee tier, read while preparing. Never null: the fees are the maths. */
+  config: AmmConfigView;
+  enableCreatorFee: boolean;
+  input: SwapSide;
+  output: SwapSide;
+  amountIn: bigint;
+  minimumAmountOut: bigint;
+  quote: OwnPoolQuote;
+  /** SOL is one side: it is wrapped in or out through the signer's wrapped-SOL account. */
+  wrapsSol: boolean;
+  /** True when the transaction closes the wrapped-SOL account, so SOL comes back as plain SOL. */
+  unwrapsWsol: boolean;
+  /** What opening the output account costs; `0n` when it exists. */
+  outputAccountRent: bigint;
+  notices: string[];
+}
+
+/** What the swap page hands `prepareVenueSwap`. The pool must trade exactly `inputMint` for `outputMint`. */
+export interface VenueSwapArgs {
+  owner: PublicKey;
+  pool: PublicKey;
+  inputMint: PublicKey;
+  outputMint: PublicKey;
+  amountIn: bigint;
+  slippageBps: bigint;
+}
 
 /**
  * A price more than 3% from what it was checked against, from the builder's fresh reads.
@@ -561,7 +613,7 @@ export interface CurveIntent {
    * What this transaction is for. Each kind may call only its own programs: a create
    * never reaches the pool program, a curve trade never reaches Token Metadata.
    */
-  kind: Exclude<TxKind, LpKind>;
+  kind: Exclude<TxKind, PoolKind>;
   signer: PublicKey;
   cfg: CurveWriteConfig;
   /** Read off the decoded global, never guessed. */
@@ -608,9 +660,9 @@ export interface PoolPins {
   lpAccount: PublicKey;
 }
 
-/** Adding or removing liquidity: every account the pool instruction names is pinned by `pins`. */
+/** Adding or removing liquidity, or a swap in one pool: every account the pool instruction names is pinned by `pins`. */
 export interface PoolIntent {
-  kind: LpKind;
+  kind: PoolKind;
   signer: PublicKey;
   cfg: CurveWriteConfig;
   /** The most priority fee this transaction may carry, in lamports. */
@@ -643,8 +695,11 @@ export interface WatchList {
 
 export type NotSent = {
   status: 'not-sent';
-  /** `gate`: the heat door refused the maker at submit (LaunchCreateForm), before any build. */
-  stage: 'gate' | 'build' | 'simulate' | 'sign' | 'send';
+  /**
+   * `gate`: the heat door refused the maker at submit (LaunchCreateForm), before any build.
+   * `venue`: a swap meant for our pool, checked against Jupiter again, was not sent.
+   */
+  stage: 'gate' | 'venue' | 'build' | 'simulate' | 'sign' | 'send';
   message: string;
   logs?: string[];
 };

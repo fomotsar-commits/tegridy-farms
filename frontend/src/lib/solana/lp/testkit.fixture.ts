@@ -92,6 +92,8 @@ export interface PoolSpec {
   tokenDecimals?: number;
   /** Freeze the token-side vault (SPL account state 2). */
   frozenVault?: boolean;
+  /** The token side's program: the pool records it and owns that vault. Default the classic one. */
+  tokenProgram?: string;
   /**
    * Random keys instead of program-derived addresses. For jsdom tests, where
    * findProgramAddressSync fails every bump; nothing under test derives there.
@@ -123,8 +125,9 @@ export function buildPool(s: PoolSpec): BuiltPool {
   d.set(lpMint.toBytes(), o.lpMint);
   d.set(token0.toBytes(), o.token0Mint);
   d.set(token1.toBytes(), o.token1Mint);
-  d.set(new PublicKey(solIs0 ? quote.program : TOKEN_PROGRAM).toBytes(), o.token0Program);
-  d.set(new PublicKey(solIs0 ? TOKEN_PROGRAM : quote.program).toBytes(), o.token1Program);
+  const tokenProgram = s.tokenProgram ?? TOKEN_PROGRAM;
+  d.set(new PublicKey(solIs0 ? quote.program : tokenProgram).toBytes(), o.token0Program);
+  d.set(new PublicKey(solIs0 ? tokenProgram : quote.program).toBytes(), o.token1Program);
   d.set(observation.toBytes(), o.observationKey);
   d[o.status] = s.status ?? 0;
   d[o.lpMintDecimals] = 9;
@@ -145,7 +148,7 @@ export function buildPool(s: PoolSpec): BuiltPool {
     accounts: {
       [address.toBase58()]: { owner: PROGRAM.toBase58(), data: d },
       [solVault.toBase58()]: { owner: quote.program, data: tokenAccountBytes(quoteMint, authority, s.quoteReserve + fees) },
-      [tokVault.toBase58()]: { owner: TOKEN_PROGRAM, data: tokenAccountBytes(s.mint, authority, s.tokenReserve, s.frozenVault ? 2 : 1) },
+      [tokVault.toBase58()]: { owner: tokenProgram, data: tokenAccountBytes(s.mint, authority, s.tokenReserve, s.frozenVault ? 2 : 1) },
       [config.toBase58()]: { owner: PROGRAM.toBase58(), data: configBytes(s.configIndex ?? 1) },
       [lpMint.toBase58()]: { owner: TOKEN_PROGRAM, data: mintBytes(authority, 9) },
     },

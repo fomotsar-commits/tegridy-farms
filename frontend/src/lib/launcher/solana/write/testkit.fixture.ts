@@ -456,6 +456,8 @@ export function addPool(
     address?: PublicKey;
     /** At the launch program's address for this mint, with a never-traded price record. */
     launch?: boolean;
+    /** The fee tier the pool records, and derives its standard address from. Default tier 0 (AMM_CONFIG). */
+    ammConfig?: PublicKey;
     /**
      * The pool's own creator-fee switch, on as the launch program opens a pool: charged in
      * SOL (`OnlyToken0`/`OnlyToken1` for the SOL side). Default off, as `initialize` opens one.
@@ -477,7 +479,8 @@ export function addPool(
   const quoteMint = new PublicKey(quote.mint);
   const quoteProgram = new PublicKey(quote.program);
   const { token0, token1 } = sortMints(quoteMint, mint);
-  const address = o.address ?? (o.launch ? poolStatePda(mint, LAUNCH) : derivePool(CPSWAP, AMM_CONFIG, token0, token1));
+  const ammConfig = o.ammConfig ?? AMM_CONFIG;
+  const address = o.address ?? (o.launch ? poolStatePda(mint, LAUNCH) : derivePool(CPSWAP, ammConfig, token0, token1));
   const quoteIsToken0 = token0.equals(quoteMint);
   const tokenProgram = o.tokenProgram ?? TOKEN_PROGRAM_ID;
   const vault0 = deriveVault(CPSWAP, address, token0);
@@ -489,7 +492,7 @@ export function addPool(
   d.set(ACCOUNT_POOL_STATE, 0);
   const r = o.record ?? {};
   const keys: Array<[number, PublicKey]> = [
-    [off.ammConfig, AMM_CONFIG],
+    [off.ammConfig, ammConfig],
     [off.poolCreator, mint],
     [off.token0Vault, r.token0Vault ?? vault0],
     [off.token1Vault, r.token1Vault ?? vault1],

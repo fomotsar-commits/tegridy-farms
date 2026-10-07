@@ -4,8 +4,9 @@
 // Everything is a dynamic import, called only once LP's own switch
 // (lib/launcher/solana/lpWriteFlag.ts) is not 'off'. A production build with the
 // switch 'off' therefore never fetches the liquidity builders or the signer path.
-// It loads only what adding, removing and opening a pool need: the gate and the create
-// facts, the builders, the send path and one display rule. Never the launch page's upload or metadata clients (D19).
+// It loads only what adding, removing and opening a pool, and a swap in one, need: the
+// gate and the create facts, the builders, the send path and one display rule. Never the
+// launch page's upload or metadata clients (D19). The Solana swap page loads it too.
 //
 // The real functions are assigned into `LpWriteApi` (curve/ports.ts) below, so a drift
 // between the write layer and the UI is a type error here, and nowhere else.
@@ -26,10 +27,11 @@ export function loadLpWriteApi(): Promise<LpWriteApi> {
 }
 
 async function build(): Promise<LpWriteApi> {
-  const [config, liquidity, createPool, submit, validate] = await Promise.all([
+  const [config, liquidity, createPool, venueSwap, submit, validate] = await Promise.all([
     import('../../../lib/launcher/solana/write/config'),
     import('../../../lib/launcher/solana/write/liquidity'),
     import('../../../lib/launcher/solana/write/createPool'),
+    import('../../../lib/launcher/solana/write/venueSwap'),
     import('../../../lib/launcher/solana/write/submit'),
     import('../../../lib/launchMetadata/validate.js'),
   ]);
@@ -40,6 +42,7 @@ async function build(): Promise<LpWriteApi> {
     prepareLpDeposit: liquidity.prepareLpDeposit,
     prepareLpWithdraw: liquidity.prepareLpWithdraw,
     prepareLpCreate: createPool.prepareLpCreate,
+    prepareVenueSwap: venueSwap.prepareVenueSwap,
     submitPrepared: submit.submitPrepared,
     recheckOutcome: (rpc, signature, opts) => submit.recheckOutcome(rpc, signature, opts ?? {}),
     explorerTxUrl: config.explorerTxUrl,

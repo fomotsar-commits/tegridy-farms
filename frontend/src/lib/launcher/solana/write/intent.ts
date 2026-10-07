@@ -14,13 +14,11 @@
 // Metadata or the launch program, and only a launch reaches Token-2022, for the
 // two exact instructions of its $BAYLA plant.
 //
-// Adding and removing liquidity (`PoolIntent`) are judged against `PoolPins`, the
-// pool as it was read and checked while preparing: every account of the pool's
-// deposit or withdraw instruction must equal its pin, and the transaction must hold
-// exactly one of them. Opening a pool (`lp-create`) is a third PoolIntent kind: its
-// one `initialize` is pinned slot by slot, always on the public fee tier (tier 1),
-// derived here from the constant. The launch-program kinds (`CurveIntent`) are judged
-// exactly as before; their branches below did not change.
+// Adding and removing liquidity, opening a pool, and a swap in one of our pools
+// (`PoolIntent`) are judged against `PoolPins`, the pool as read and checked while
+// preparing: every account of the pool instruction must equal its pin, and the
+// transaction holds exactly one of them. An opening is always on tier 1, derived here
+// from the constant. The launch-program kinds (`CurveIntent`) are judged as before.
 //
 // This runs twice: on the transaction before any wallet sees it, and again on
 // whatever the wallet hands back. The review screen is built from the steps it
@@ -69,7 +67,7 @@ import {
   decodeCreateMetadataV3,
   metadataPda,
 } from './metaplex';
-import { isLpKind } from './lpKinds';
+import { isPoolKind } from './lpKinds';
 import {
   BAYLA_DECIMALS,
   BAYLA_MINT,
@@ -80,7 +78,7 @@ import {
   WORKSHOP_BAYLA_ACCOUNT,
   baylaAccountOf,
 } from './plant';
-import type { CurveIntent, IntentContext, IntentStep, LpKind, PoolIntent, TxKind } from './types';
+import type { CurveIntent, IntentContext, IntentStep, PoolIntent, PoolKind, TxKind } from './types';
 import { canPair, quoteCoin, type QuoteCoin } from '../../../solana/lp/quotes';
 
 /** Phantom's Lighthouse guard program: assertion-only instructions a wallet may append. */
@@ -97,9 +95,9 @@ const refuse = (reason: string): never => {
   throw new Refuse(reason);
 };
 
-/** Adding or removing liquidity, or opening a pool, as opposed to a launch-program transaction. */
+/** Adding or removing liquidity, opening a pool, or a swap in one, as opposed to a launch-program transaction. */
 export function isPoolIntent(c: IntentContext): c is PoolIntent {
-  return isLpKind(c.kind);
+  return isPoolKind(c.kind);
 }
 
 /**
@@ -238,6 +236,7 @@ function ata(ix: TransactionInstruction, ctx: IntentContext): IntentStep {
   if (!payer.equals(ctx.signer) || !owner.equals(ctx.signer)) refuse('creates a token account for someone else');
   if (isPoolIntent(ctx)) {
     if (ctx.kind === 'lp-create') openingAtaRule(ctx, mint);
+    if (ctx.kind === 'venue-swap' && mint.equals(ctx.pins.lpMint)) refuse('a swap never opens a pool-share account');
     return poolAta(ctx, { address, owner, mint, sys, tok });
   }
   if (!(mint.equals(ctx.mint) || mint.equals(WSOL_MINT))) refuse('creates a token account for an unrelated token');
@@ -432,6 +431,8 @@ function cpswap(ix: TransactionInstruction, ctx: IntentContext): IntentStep {
         return poolWithdraw(ix, ctx);
       case 'lp-create':
         return poolInitialize(ix, ctx);
+      case 'venue-swap':
+        return poolSwapPinned(ix, ctx);
       default:
         return noPoolInstructionFor(ctx);
     }
@@ -464,6 +465,50 @@ function cpswap(ix: TransactionInstruction, ctx: IntentContext): IntentStep {
   if (amountIn === 0n) refuse('the swap amount is zero');
   if (minimumAmountOut === 0n) refuse('the swap accepts any price (no minimum)');
   return { kind: 'pool-swap', pool, inputMint: inMint, outputMint: outMint, amountIn, minimumAmountOut };
+}
+
+/**
+ * cp-swap `swap_base_input` in one of our pools (`venue-swap`): `IX_SWAP_BASE_INPUT ‖
+ * amount_in u64 ‖ minimum_amount_out u64`, its 13 accounts pinned from `PoolPins`. cp-swap
+ * does not check who owns the output account (swap_base_input.rs: only `mut`), so slot 5,
+ * the signer's own account under that mint's program, is what stops a payout to a stranger.
+ */
+function poolSwapPinned(ix: TransactionInstruction, ctx: PoolIntent): IntentStep {
+  const d = ix.data;
+  if (!startsWith(d, IX_SWAP_BASE_INPUT) || d.length !== 24) refuse('a pool instruction other than a swap');
+  expectKeyCount(ix, 13, 'pool swap');
+  const p = ctx.pins;
+  pinnedQuote(ctx);
+  const inMint = key(ix, 10);
+  const outMint = key(ix, 11);
+  const sideOf = (m: PublicKey) =>
+    m.equals(p.token0Mint)
+      ? { vault: p.vault0, program: p.token0Program }
+      : m.equals(p.token1Mint)
+        ? { vault: p.vault1, program: p.token1Program }
+        : refuse('the swap is not between this pool’s two tokens');
+  if (inMint.equals(outMint)) refuse('the swap is not between this pool’s two tokens');
+  const into = sideOf(inMint);
+  const out = sideOf(outMint);
+  const checks: Array<[number, PublicKey, string]> = [
+    [0, ctx.signer, 'the swap is paid by someone else'],
+    [1, deriveAuthority(ctx.cfg.cpSwapProgram), 'the swap names the wrong pool authority'],
+    [2, p.ammConfig, 'the swap names the wrong fee settings'],
+    [3, p.address, 'the swap is against a different pool than the one checked'],
+    [4, associatedTokenAddress(inMint, ctx.signer, into.program), 'the swap spends from an account that is not yours'],
+    [5, associatedTokenAddress(outMint, ctx.signer, out.program), 'the swap pays out to an account that is not yours'],
+    [6, into.vault, 'the swap names the wrong pool vault'],
+    [7, out.vault, 'the swap names the wrong pool vault'],
+    [8, into.program, 'the swap names the wrong token program'],
+    [9, out.program, 'the swap names the wrong token program'],
+    [12, p.observation, 'the swap names the wrong price record'],
+  ];
+  for (const [i, want, why] of checks) if (!key(ix, i).equals(want)) refuse(why);
+  const amountIn = u64(d, 8);
+  const minimumAmountOut = u64(d, 16);
+  if (amountIn === 0n) refuse('the swap amount is zero');
+  if (minimumAmountOut === 0n) refuse('the swap accepts any price (no minimum)');
+  return { kind: 'pool-swap', pool: p.address, inputMint: inMint, outputMint: outMint, amountIn, minimumAmountOut };
 }
 
 /** The largest maximum a deposit may carry: u64::MAX itself means "no limit". */
@@ -633,16 +678,19 @@ export const PROGRAMS_BY_KIND: Readonly<Record<TxKind, ReadonlySet<ProgramFamily
   // Opening a pool wraps SOL exactly like adding liquidity, and nothing more: the pool
   // program creates the pool's own accounts and the pool-share account itself.
   'lp-create': new Set<ProgramFamily>(['compute', 'system', 'token', 'ata', 'pool']),
+  // A swap in one of our pools wraps SOL in or out of a SOL pool, and opens its output account.
+  'venue-swap': new Set<ProgramFamily>(['compute', 'system', 'token', 'ata', 'pool']),
 };
 
 /**
- * The one pool step each liquidity kind must hold exactly once, and what to say when it
- * does not. A Record, so a new kind cannot fall into another kind's rule.
+ * The one pool step each pool kind must hold exactly once, and what to say when it does
+ * not. A Record, so a new kind cannot fall into another kind's rule.
  */
-const OWN_STEP: Readonly<Record<LpKind, { step: IntentStep['kind']; refuse: string }>> = {
+const OWN_STEP: Readonly<Record<PoolKind, { step: IntentStep['kind']; refuse: string }>> = {
   'lp-deposit': { step: 'pool-deposit', refuse: 'it does not hold exactly one deposit into the pool' },
   'lp-withdraw': { step: 'pool-withdraw', refuse: 'it does not hold exactly one withdrawal from the pool' },
   'lp-create': { step: 'pool-create', refuse: 'it does not open exactly one pool' },
+  'venue-swap': { step: 'pool-swap', refuse: 'it does not hold exactly one swap in the pool' },
 };
 
 function familyOf(p: PublicKey, ctx: IntentContext): ProgramFamily | null {
@@ -700,7 +748,7 @@ export function decodeIntent(
       else steps.push(cpswap(ix, ctx));
     }
     if (isPoolIntent(ctx)) {
-      // One liquidity change per transaction, of the kind's own type: the review
+      // One pool instruction per transaction, of the kind's own type: the review
       // shows one, and the balance check is sized for one.
       const own = OWN_STEP[ctx.kind];
       if (steps.filter((s) => s.kind === own.step).length !== 1) refuse(own.refuse);

@@ -50,6 +50,9 @@ function tradeLamports(s: TxSummary): bigint | null {
       return s.quote.native ? s.quoted.quote : null;
     case 'lp-create':
       return s.quote.native ? s.put.quote : null;
+    // A swap in one of our pools moves SOL only when SOL is one of its sides.
+    case 'venue-swap':
+      return s.input.symbol === 'SOL' ? s.amountIn : s.output.symbol === 'SOL' ? s.quote.outAmount : null;
     default:
       return null;
   }
@@ -190,6 +193,8 @@ export function SummaryRows({
       return <LpWithdrawRows summary={summary} />;
     case 'lp-create':
       return <LpCreateRows summary={summary} />;
+    case 'venue-swap':
+      return <VenueSwapRows summary={summary} />;
     default:
       // A new kind of transaction is a compile error here until it has rows.
       return noRowsFor(summary);
@@ -462,6 +467,68 @@ function LpWithdrawRows({ summary: s }: { summary: Extract<TxSummary, { kind: 'l
   );
 }
 
+type VenueSwap = Extract<TxSummary, { kind: 'venue-swap' }>;
+
+/** A swap side's amount in its own decimals: SOL to the character, a pairing coin by its symbol, any other token as "tokens". */
+function sideText(v: bigint, side: VenueSwap['input'], exact = false): string {
+  if (side.symbol === 'SOL') return exact ? solExact(v) : SOL(v);
+  return `${tokenText(v, side.decimals, exact ? side.decimals : undefined)} ${side.symbol ?? 'tokens'}`;
+}
+
+/**
+ * A swap in one of our pools, sent from the Solana swap page. Every value comes from the
+ * prepared transaction: the amounts from its bytes, the quote from the builder's fresh
+ * read of the pool, priced with the pool's own fee tier. No line is read from outside it.
+ */
+function VenueSwapRows({ summary: s }: { summary: VenueSwap }) {
+  const q = s.quote;
+  const r = q.result;
+  const kind =
+    s.origin === 'launch-pool'
+      ? 'Launch pool: opened by the launch program at graduation'
+      : s.origin === 'standard'
+        ? `Standard address for fee tier ${s.config.index}`
+        : 'Its own address';
+  const solIn = s.input.symbol === 'SOL';
+  return (
+    <>
+      <Row label="Pool" value={s.pool.toBase58()} />
+      <Row label="Pool kind" value={kind} mono={false} />
+      <Row label="Fee tier" value={feeTierText(s.config, s.enableCreatorFee)} mono={false} />
+      <Row label="You pay" value={sideText(s.amountIn, s.input, true)} />
+      <Row label="You receive (quoted)" value={sideText(q.outAmount, s.output)} />
+      <Row label="You receive at least" value={sideText(s.minimumAmountOut, s.output, true)} />
+      <Row
+        label="Pool fee (inside what you pay)"
+        value={`${sideText(r.tradeFee, s.input, true)}, of which ${sideText(r.protocolFee + r.fundFee, s.input, true)} goes to the venue and the rest to the pool's liquidity providers`}
+        mono={false}
+      />
+      {r.creatorFee > 0n && (
+        <Row
+          label={q.creatorFeeOnInput ? 'Creator fee (on top, from what you pay)' : 'Creator fee (taken from what you receive)'}
+          value={sideText(r.creatorFee, q.creatorFeeOnInput ? s.input : s.output, true)}
+        />
+      )}
+      <ImpactRows bps={fractionToBps(q.priceImpact)} />
+      {s.notices.map((n) => (
+        <Notice key={n} tone="warn">
+          {n}
+        </Notice>
+      ))}
+      {s.wrapsSol && (
+        <Notice>
+          {solIn ? 'Your SOL is wrapped into a token account for the swap' : 'The pool pays out wrapped SOL'}
+          {s.unwrapsWsol
+            ? solIn
+              ? ', and that account is closed at the end.'
+              : ', and that account is closed at the end, so you get plain SOL back.'
+            : '. You already had a wrapped SOL account, so it is left open with its balance.'}
+        </Notice>
+      )}
+    </>
+  );
+}
+
 /** What a live mint authority allows, said once more where a pool is about to be opened. */
 const mintAuthorityLine = (q: QuoteCoin) => `Whoever holds it can make new tokens at any time and sell them into your pool for its ${q.symbol}.`;
 
@@ -600,6 +667,9 @@ function deltaRow(t: PreparedTx['simulated']['tokenDeltas'][number], prepared: P
   // cannot call it wrapped SOL, and a token with 9 decimals cannot make 250 USDC read as 0.25.
   const coin = isLpSummary(summary) && !summary.quote.native && t.mint.toBase58() === summary.quote.mint ? summary.quote : null;
   if (coin) return { label: `Test run: your ${coin.symbol} changes by`, value: `${sign}${tokenText(amount, coin.decimals)}` };
+  // A swap's two sides are named and sized by the summary's own sides. Wrapped SOL keeps its row's words.
+  const side = summary.kind === 'venue-swap' && t.role !== 'wsol' ? [summary.input, summary.output].find((x) => x.mint.equals(t.mint)) : undefined;
+  if (side) return { label: `Test run: your ${side.symbol ?? 'tokens'} change${side.symbol ? 's' : ''} by`, value: `${sign}${tokenText(amount, side.decimals)}` };
   return { label: testRunLabel(prepared.kind, t.role ?? 'token'), value: `${sign}${tokenText(amount, t.decimals ?? decimals)}` };
 }
 
@@ -662,6 +732,7 @@ const RENT_ROW_LABEL: Record<TxKind, string> = {
   'lp-withdraw': 'One-time deposit for your new token account (it stays in that account)',
   'lp-create':
     "One-time account deposits: the new pool's own accounts (never returned) and your pool-share account (yours to close later)",
+  'venue-swap': 'One-time deposit for your new token account (it stays in that account)',
 };
 
 /**
@@ -728,6 +799,7 @@ const TITLES: Record<PreparedTx['kind'], string> = {
   'lp-deposit': 'Review: add liquidity',
   'lp-withdraw': 'Review: remove liquidity',
   'lp-create': 'Review: open a pool',
+  'venue-swap': 'Review your swap in our pool',
 };
 
 export function TxReview({
@@ -878,6 +950,7 @@ const EXPIRED_TEXT ='Did not go through, and it can no longer go through. Nothin
 
 const NOT_SENT_COPY: Record<NotSent['stage'], string> = {
   gate: 'Not sent. The launch door did not open for this wallet, so nothing was uploaded, built or signed.',
+  venue: 'Not sent. This trade was checked against Jupiter again before your wallet was asked, and nothing was signed.',
   build: 'Not sent. We could not build this transaction.',
   simulate: 'Not sent. A test run of this transaction was refused, so we did not ask your wallet to sign it.',
   sign: 'Not sent. Your wallet did not sign it.',

@@ -1,13 +1,13 @@
 import { describe, expect, it, vi, afterEach } from 'vitest';
-import { act, fireEvent, render, renderHook, screen, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, renderHook, screen, within } from '@testing-library/react';
 import { Transaction, TransactionInstruction, type PublicKey } from '@solana/web3.js';
 import { FeeRows, TxFlowView, TxOutcomeCard, TxReview } from './TxFlowView';
 import { reviewLines, type ReviewLine } from './reviewLines';
 import { REVIEW_TTL_MS, SIGN_MARGIN_BLOCKS, useTxFlow } from './useTxFlow';
 import { CREATOR, KEY, PLANT_SUMMARY, SIG, buySummary, fakeApi, prepared } from './fakeWriteApi.fixture';
-import { lpCreateSummary, lpDepositSummary, lpWithdrawSummary } from '../lp/fakeLpWriteApi.fixture';
+import { lpCreateSummary, lpDepositSummary, lpWithdrawSummary, venueSwapSummary } from '../lp/fakeLpWriteApi.fixture';
 import type { Prepared, PreparedTx, TxOutcome, TxSigner, TxSummary, WriteApi, WriteRpc } from './ports';
-import { SOL_QUOTE } from '../../../lib/solana/lp/quotes';
+import { BAYLA_QUOTE, SOL_QUOTE, USDC_QUOTE } from '../../../lib/solana/lp/quotes';
 import { PRICE_TOLERANCE } from '../../../lib/solana/lp/poolHealth';
 
 const SOL_1 = 1_000_000_000n;
@@ -1360,6 +1360,7 @@ describe('the review as lines', () => {
     ['lp-withdraw', lpWithdrawSummary(KEY(30), KEY(31), KEY(32), { all: true, notices: ['Swaps on this pool are switched off.'] })],
     ['lp-create', lpCreateSummary(KEY(30), KEY(31), { ...withWarnings, origin: 'other' })],
     ['lp-create with warnings', lpCreateSummary(KEY(30), KEY(31), { ...offPrice, origin: 'other' })],
+    ['venue-swap', venueSwapSummary(KEY(30), KEY(31), { notices: ['Swaps on this pool open in 2 minutes.'] })],
   ])('%s: no text on the review is outside its lines', (_kind, summary) => {
     const p = prepared(summary, {
       simulated: { signerLamportsDelta: -SOL_1, tokenDeltas: [{ mint: KEY(20), account: KEY(21), delta: 2_500_000n, role: 'token' }] },
@@ -1410,6 +1411,8 @@ describe('the review as lines', () => {
   it.each<[string, TxSummary]>([
     ['buy', buySummary()],
     ['lp-withdraw', lpWithdrawSummary(KEY(30), KEY(31), KEY(32))],
+    // The swap page settled the venue before the review: nothing on it is Jupiter's, so a rebuild signs over nothing that moved.
+    ['venue-swap', venueSwapSummary(KEY(30), KEY(31))],
   ])('%s: no line is the market\'s', (_kind, summary) => {
     expect(reviewLines(<TxReview prepared={prepared(summary)} decimals={6} display={(t) => t} />).filter((l) => l.market !== null)).toEqual([]);
   });
@@ -1901,5 +1904,106 @@ describe('opening a pool: the review wraps sentences between words', () => {
       expect(valueOf(label).className, label).not.toMatch(/break-all/);
     }
     for (const label of ['Pool', 'Token (mint)']) expect(valueOf(label).className, label).toMatch(/break-all/);
+  });
+});
+
+// A swap in one of our pools, sent from the Solana swap page because that pool paid at
+// least as much as Jupiter. Every row is the prepared summary's; none is the market's.
+describe('a swap in our pool: the review', () => {
+  const value = (label: string) => screen.getByText(label).nextElementSibling?.textContent;
+  const review = async (summary: TxSummary, simulated?: PreparedTx['simulated']) => {
+    const api = fakeApi();
+    const { result } = flowAt(api);
+    await act(() => result.current.prepare(async () => ({ ok: true, prepared: prepared(summary, simulated ? { simulated } : {}) })));
+    render(<TxFlowView flow={result.current} api={api} cluster="localnet" decimals={6} signer={signer} />);
+  };
+  const SOL_SIDE = { mint: KEY(29), symbol: 'SOL', decimals: 9 };
+  const TOKEN = { mint: KEY(31), symbol: null, decimals: 6 };
+
+  it('a buy: every row, from the prepared summary, to the last digit', async () => {
+    await review(venueSwapSummary(KEY(30), KEY(31)));
+    expect(screen.getByRole('heading', { name: 'Review your swap in our pool' })).toBeInTheDocument();
+    expect(value('Pool')).toBe(KEY(30).toBase58());
+    expect(value('Pool kind')).toBe('Standard address for fee tier 1');
+    expect(value('Fee tier')).toBe('1: traders pay 1% a trade; LPs keep 0.840% of each trade');
+    expect(value('You pay')).toBe('1 SOL');
+    expect(value('You receive (quoted)')).toBe('123.4567 tokens');
+    expect(value('You receive at least')).toBe('122.222221 tokens');
+    expect(value('Pool fee (inside what you pay)')).toBe(
+      "0.01 SOL, of which 0.0016 SOL goes to the venue and the rest to the pool's liquidity providers",
+    );
+    expect(value('Price impact')).toBe('0.99%');
+    expect(screen.queryByText(/Creator fee/)).not.toBeInTheDocument();
+    expect(screen.getByText('Your SOL is wrapped into a token account for the swap, and that account is closed at the end.')).toBeInTheDocument();
+    expect(screen.getByText('One-time deposit for your new token account (it stays in that account)')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Sign in wallet' })).toBeEnabled();
+  });
+
+  it('a sale for SOL: the wrapped SOL is closed so SOL comes back plain, or left open when it was already there', async () => {
+    const sale = { input: TOKEN, output: SOL_SIDE, amountIn: 5_000_000n, minimumAmountOut: 39_600_000n };
+    const q = venueSwapSummary(KEY(30), KEY(31)).quote;
+    const quote = { ...q, outAmount: 40_000_000n, result: { ...q.result, tradeFee: 50_000n, protocolFee: 8_000n } };
+    await review(venueSwapSummary(KEY(30), KEY(31), { ...sale, quote }));
+    expect(value('You pay')).toBe('5 tokens');
+    expect(value('You receive (quoted)')).toBe('0.04 SOL');
+    expect(value('You receive at least')).toBe('0.0396 SOL');
+    expect(value('Pool fee (inside what you pay)')).toBe(
+      "0.05 tokens, of which 0.008 tokens goes to the venue and the rest to the pool's liquidity providers",
+    );
+    expect(screen.getByText('The pool pays out wrapped SOL, and that account is closed at the end, so you get plain SOL back.')).toBeInTheDocument();
+    cleanup();
+    await review(venueSwapSummary(KEY(30), KEY(31), { ...sale, quote, unwrapsWsol: false }));
+    expect(screen.getByText('The pool pays out wrapped SOL. You already had a wrapped SOL account, so it is left open with its balance.')).toBeInTheDocument();
+  });
+
+  it('a creator fee is its own row, on the side the pool takes it from', async () => {
+    const q = venueSwapSummary(KEY(30), KEY(31)).quote;
+    await review(venueSwapSummary(KEY(30), KEY(31), { enableCreatorFee: true, quote: { ...q, creatorFeeOnInput: false, result: { ...q.result, creatorFee: 61_729n } } }));
+    expect(value('Creator fee (taken from what you receive)')).toBe('0.061729 tokens');
+    cleanup();
+    await review(venueSwapSummary(KEY(30), KEY(31), { enableCreatorFee: true, quote: { ...q, creatorFeeOnInput: true, result: { ...q.result, creatorFee: 500_000n } } }));
+    expect(value('Creator fee (on top, from what you pay)')).toBe('0.0005 SOL');
+  });
+
+  it('a pool paired with USDC: both sides in their own decimals and names, and no SOL is wrapped', async () => {
+    const usdc = { mint: KEY(28), symbol: USDC_QUOTE.symbol, decimals: USDC_QUOTE.decimals };
+    const bayla = { mint: KEY(27), symbol: BAYLA_QUOTE.symbol, decimals: BAYLA_QUOTE.decimals };
+    const q = venueSwapSummary(KEY(30), KEY(27)).quote;
+    await review(
+      venueSwapSummary(KEY(30), KEY(27), {
+        input: usdc, output: bayla, amountIn: 250_000_000n, minimumAmountOut: 1_000_000n, wrapsSol: false, unwrapsWsol: false, outputAccountRent: 0n,
+        quote: { ...q, outAmount: 1_010_101n, result: { ...q.result, tradeFee: 2_500_000n, protocolFee: 400_000n } },
+      }),
+      { signerLamportsDelta: -5_000n, tokenDeltas: [
+        { mint: KEY(28), account: KEY(21), delta: -250_000_000n, role: 'token' },
+        { mint: KEY(27), account: KEY(22), delta: 1_010_101n, role: 'token' },
+      ] },
+    );
+    expect(value('You pay')).toBe('250 USDC');
+    expect(value('You receive (quoted)')).toBe('1.0101 BAYLA');
+    expect(value('You receive at least')).toBe('1 BAYLA');
+    expect(value('Pool fee (inside what you pay)')).toBe("2.5 USDC, of which 0.4 USDC goes to the venue and the rest to the pool's liquidity providers");
+    expect(value('Test run: your USDC changes by')).toBe('-250');
+    expect(value('Test run: your BAYLA changes by')).toBe('+1.0101');
+    expect(screen.queryByText(/wrapped/)).not.toBeInTheDocument();
+  });
+
+  it('a test-run change of a token with no name is "your tokens", in its own decimals', async () => {
+    await review(venueSwapSummary(KEY(30), KEY(31), { output: { mint: KEY(31), symbol: null, decimals: 9 } }), {
+      signerLamportsDelta: -SOL_1,
+      tokenDeltas: [{ mint: KEY(31), account: KEY(21), delta: 2_500_000_000n, role: 'token', decimals: 6 }],
+    });
+    expect(value('Test run: your tokens change by')).toBe('+2.5');
+  });
+
+  it("a builder's notice is shown in the warning colour", async () => {
+    await review(venueSwapSummary(KEY(30), KEY(31), { notices: ['This token can charge a fee on each transfer.'] }));
+    expect(screen.getByText('This token can charge a fee on each transfer.')).toBeInTheDocument();
+  });
+
+  it('a rebuild that found Jupiter paying more is not sent, and says the trade was checked again', () => {
+    outcome({ status: 'not-sent', stage: 'venue', message: 'Jupiter now pays more for this trade. Press Buy again to swap through Jupiter.' });
+    expect(screen.getByText('Not sent. This trade was checked against Jupiter again before your wallet was asked, and nothing was signed.')).toBeInTheDocument();
+    expect(screen.getByText('Nothing was charged.')).toBeInTheDocument();
   });
 });

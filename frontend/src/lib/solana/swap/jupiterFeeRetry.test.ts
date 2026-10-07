@@ -114,7 +114,7 @@ describe('prepareJupiterSwap: nothing else opens the retry', () => {
   it('any other simulation failure stays blocked, with no re-quote and no second build', async () => {
     const d = deps({ simulateSwap: vi.fn(async () => SLIPPAGE) });
     const r = await prepareJupiterSwap(d, ARGS);
-    expect(r).toEqual({ status: 'blocked', reason: 'custom program error: 0x1771', retried: false });
+    expect(r).toEqual({ status: 'blocked', reason: 'custom program error: 0x1771', retried: false, cause: 'refused' });
     expect(d.getQuote).not.toHaveBeenCalled();
     expect(d.buildSwapTransaction).toHaveBeenCalledTimes(1);
   });
@@ -125,14 +125,14 @@ describe('prepareJupiterSwap: nothing else opens the retry', () => {
     const lookalike: SwapSimulation = { ok: false, reason: 'custom program error: 0x177e', jupiterIncorrectTokenProgram: false };
     const d = deps({ simulateSwap: vi.fn(async () => lookalike) });
     const r = await prepareJupiterSwap(d, ARGS);
-    expect(r.status).toBe('blocked');
+    expect(r).toMatchObject({ status: 'blocked', cause: 'refused' });
     expect(d.getQuote).not.toHaveBeenCalled();
   });
 
   it('a 6014 on a build that carried NO fee stays blocked: there is no fee to drop', async () => {
     const d = deps({ swapCarriesPlatformFee: vi.fn(() => false) });
     const r = await prepareJupiterSwap(d, ARGS);
-    expect(r).toEqual({ status: 'blocked', reason: 'custom program error: 0x177e', retried: false });
+    expect(r).toEqual({ status: 'blocked', reason: 'custom program error: 0x177e', retried: false, cause: 'refused' });
     expect(d.getQuote).not.toHaveBeenCalled();
   });
 });
@@ -141,13 +141,13 @@ describe('prepareJupiterSwap: a failing retry is blocked, and there is never a s
   it('the retry failing simulation blocks', async () => {
     const d = deps({ simulateSwap: vi.fn(async (tx: string) => (tx === 'TX_FEE' ? JUP_6014 : SLIPPAGE)) });
     const r = await prepareJupiterSwap(d, ARGS);
-    expect(r).toEqual({ status: 'blocked', reason: 'custom program error: 0x1771', retried: true });
+    expect(r).toEqual({ status: 'blocked', reason: 'custom program error: 0x1771', retried: true, cause: 'refused' });
   });
 
   it('the retry failing with 6014 AGAIN blocks: one re-quote, two builds, two simulations, then stop', async () => {
     const d = deps({ simulateSwap: vi.fn(async () => JUP_6014) });
     const r = await prepareJupiterSwap(d, ARGS);
-    expect(r.status).toBe('blocked');
+    expect(r).toMatchObject({ status: 'blocked', cause: 'refused' });
     expect(d.getQuote).toHaveBeenCalledTimes(1);
     expect(d.buildSwapTransaction).toHaveBeenCalledTimes(2);
     expect(d.simulateSwap).toHaveBeenCalledTimes(2);
@@ -161,13 +161,14 @@ describe('prepareJupiterSwap: a failing retry is blocked, and there is never a s
       }),
     });
     const r = await prepareJupiterSwap(d, ARGS);
-    expect(r.status).toBe('blocked');
+    // Not a verdict: asking again may still find the trade.
+    expect(r).toMatchObject({ status: 'blocked', cause: 'unread' });
   });
 
   it('a re-quote that cannot be fetched blocks', async () => {
     const d = deps({ getQuote: vi.fn(async () => { throw new Error('Quote unavailable (429)'); }) });
     const r = await prepareJupiterSwap(d, ARGS);
-    expect(r).toEqual({ status: 'blocked', reason: 'custom program error: 0x177e', retried: true });
+    expect(r).toEqual({ status: 'blocked', reason: 'custom program error: 0x177e', retried: true, cause: 'unread' });
     expect(d.buildSwapTransaction).toHaveBeenCalledTimes(1);
   });
 
@@ -179,7 +180,7 @@ describe('prepareJupiterSwap: a failing retry is blocked, and there is never a s
       }),
     });
     const r = await prepareJupiterSwap(d, ARGS);
-    expect(r.status).toBe('blocked');
+    expect(r).toMatchObject({ status: 'blocked', cause: 'unread' });
     expect(d.simulateSwap).toHaveBeenCalledTimes(1);
   });
 });
@@ -198,7 +199,8 @@ describe('prepareJupiterSwap: the re-quote must be the same trade, fee-free, and
   it.each(cases)('%s blocks before anything is rebuilt', async (_name, over) => {
     const d = deps({ getQuote: vi.fn(async () => ({ ...NO_FEE_QUOTE, ...over })) });
     const r = await prepareJupiterSwap(d, ARGS);
-    expect(r.status).toBe('blocked');
+    // Jupiter answered, and the answer is not this trade: a verdict, not a gap.
+    expect(r).toMatchObject({ status: 'blocked', cause: 'refused' });
     expect(d.buildSwapTransaction).toHaveBeenCalledTimes(1);
   });
 
@@ -246,7 +248,7 @@ describe('prepareJupiterSwap: the re-quote must be the same trade, fee-free, and
   it.each([-1, 10_001, 0.5])('a slippage of %s is not a tolerance: blocked, nothing rebuilt', async (slippageBps) => {
     const d = deps({ getQuote: vi.fn(async () => ({ ...NO_FEE_QUOTE, slippageBps })) });
     const r = await prepareJupiterSwap(d, { ...ARGS, slippageBps });
-    expect(r).toEqual({ status: 'blocked', reason: 'custom program error: 0x177e', retried: true });
+    expect(r).toEqual({ status: 'blocked', reason: 'custom program error: 0x177e', retried: true, cause: 'refused' });
     expect(d.buildSwapTransaction).toHaveBeenCalledTimes(1);
   });
 });

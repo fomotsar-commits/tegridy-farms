@@ -4,7 +4,8 @@ import { PROGRAM_ID as LAUNCH_PROGRAM_ID } from '../../../lib/launcher/solana/cu
 import { LIVE_PROGRAM_ID } from '../../../lib/solana/cpswap/program';
 import { withReadCommitment } from '../curve/confirmedRpc';
 import { readTokenSafety, type TokenSafety } from '../../../lib/solana/lp/tokenSafety';
-import { findPools, readFeeTiers, type FeeTierRead, type PoolSearchRead } from '../../../lib/solana/lp/poolFinder';
+import { findPools, readFeeTiers, readPools, type FeeTierRead, type PoolSearchRead } from '../../../lib/solana/lp/poolFinder';
+import type { OwnPoolReaders } from '../../../lib/solana/swap/ownPools';
 import { readOutsidePrice, type OutsidePrice } from '../../../lib/solana/lp/outsidePrice';
 import { placeShareOnChain, readPositions, type ChainPlacement, type PositionsRead } from '../../../lib/solana/lp/positions';
 import type { QuoteCoin } from '../../../lib/solana/lp/quotes';
@@ -70,5 +71,18 @@ export function browserLpReaders(): LpReaders | null {
     feeTiers: () => readFeeTiers(rpc, programId),
     wallet: (owner, tokenMint, tokenProgram, lpMint, o) => readWalletFacts(rpc, walletArgs(owner, tokenMint, tokenProgram, lpMint, o)),
     placeShareOnChain: (share) => placeShareOnChain(rpc, opts, share),
+  };
+}
+
+/** The swap page's reads of our pools (lib/solana/swap/ownPools.ts): the same proxy, program and commitment. */
+export function browserOwnPoolReaders(): OwnPoolReaders | null {
+  const programId = LIVE_PROGRAM_ID;
+  if (!programId) return null;
+  const rpc = withReadCommitment(browserRpc(), 'confirmed');
+  const opts = { programId, launchProgramId: LAUNCH_PROGRAM_ID };
+  return {
+    findPools: (mint) => findPools(rpc, mint, opts),
+    readPools: (addresses) => readPools(rpc, addresses, opts),
+    safety: (mints) => readTokenSafety(rpc, mints),
   };
 }

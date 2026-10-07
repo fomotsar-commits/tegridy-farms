@@ -12,6 +12,8 @@ import { lpHeld } from '../lp/offers';
 import { MAX_POSITIONS } from '../../../lib/solana/lp/positions';
 import type { CurveWriteConfig, PreparedTx, TxSummary, WriteRpc } from './ports';
 import { SOL_QUOTE } from '../../../lib/solana/lp/quotes';
+import { venueSwapSummary } from '../lp/fakeLpWriteApi.fixture';
+import { SWAP_PENDING_SCOPE } from './pendingTrade';
 
 // Spelled out rather than imported, so this file says what the stored bytes are.
 const LP = 'lp:pending';
@@ -201,5 +203,32 @@ describe('checking a liquidity transaction again says it in liquidity words', ()
     await act(() => result.current.confirm({ publicKey: KEY(2), signTransaction: async (t) => t }));
     await act(() => result.current.recheck());
     expect(api.recheckOutcome).toHaveBeenCalledWith({}, SIG, { lastValidBlockHeight: 1234 });
+  });
+});
+
+// A swap the Solana swap page sent to one of our pools is judged by the same pool program,
+// so Check again and the pending note pass its config and kind too: a refusal found later is
+// said in the pool program's words, never as a bare "a program refused this".
+describe('checking a swap in our pool again says it in the pool program\'s words', () => {
+  const CFG = { tag: 'the prepared transaction’s own config' } as unknown as CurveWriteConfig;
+
+  it('Check again on its outcome passes its config and kind', async () => {
+    const api = fakeApi({
+      submitPrepared: vi.fn(async () => ({ status: 'unknown' as const, signature: SIG, message: 'slow' })),
+      recheckOutcome: vi.fn(async () => ({ status: 'unknown' as const, signature: SIG, message: 'slow' })),
+    });
+    const { result } = renderHook(() => useTxFlow(api, {} as WriteRpc));
+    const p = prepared(venueSwapSummary(POOL, KEY(31)), { check: { intent: { cfg: CFG } } as unknown as PreparedTx['check'] });
+    await act(() => result.current.prepare(async () => ({ ok: true, prepared: p })));
+    await act(() => result.current.confirm({ publicKey: KEY(2), signTransaction: async (t) => t }));
+    await act(() => result.current.recheck());
+    expect(api.recheckOutcome).toHaveBeenCalledWith({}, SIG, { lastValidBlockHeight: 1234, cfg: CFG, kind: 'venue-swap' });
+  });
+
+  it('the pending note\'s check is told its kind', async () => {
+    savePendingTrade(SWAP_PENDING_SCOPE, { kind: 'venue-swap', signature: SIG, lastValidBlockHeight: 9 });
+    const check = vi.fn<CheckSignature>(async (s) => ({ status: 'unknown', signature: s, message: 'slow' }));
+    renderHook(() => usePendingTrades(SWAP_PENDING_SCOPE, check, vi.fn(), { live: true }));
+    await waitFor(() => expect(check).toHaveBeenCalledWith(SIG, 9, 'venue-swap'));
   });
 });

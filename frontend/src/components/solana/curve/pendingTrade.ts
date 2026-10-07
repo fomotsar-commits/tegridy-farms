@@ -3,9 +3,10 @@
 // person a fresh, unlocked form while the first transaction may still land. That
 // is how someone pays twice.
 //
-// It covers buy, sell, graduation and pool swaps (one scope per launch mint), and
-// adding and removing liquidity and opening a pool (one scope for every pool, each
-// note naming its pool). The launch create flow has its own note (pendingLaunch.ts).
+// It covers buy, sell, graduation and pool swaps (one scope per launch mint), adding and
+// removing liquidity and opening a pool (one scope for every pool, each note naming its
+// pool), and the swap page's trades in our pools (`SWAP_PENDING_SCOPE`). The launch
+// create flow has its own note (pendingLaunch.ts).
 //
 // sessionStorage, and only as a convenience: it can be empty, blocked or throw (a
 // private window, cleared site data), and the page must still be right without it.
@@ -23,6 +24,8 @@ import type { TxKind } from './ports';
 export const curveTradeScope = (mint: string): string => 'curve-launch:pending-trade:' + mint;
 /** Where every liquidity note lives, whatever its pool. */
 export const LP_PENDING_SCOPE = 'lp:pending';
+/** Where the Solana swap page's notes live: a trade it sent to one of our pools. */
+export const SWAP_PENDING_SCOPE = 'solana-swap:pending';
 
 /**
  * Past this, a note is ignored. A transaction can only land inside its blockhash
@@ -49,6 +52,7 @@ const KNOWN: Record<TradeKind, true> = {
   'lp-deposit': true,
   'lp-withdraw': true,
   'lp-create': true,
+  'venue-swap': true,
 };
 const TRADE_KINDS: ReadonlySet<string> = new Set(Object.keys(KNOWN));
 

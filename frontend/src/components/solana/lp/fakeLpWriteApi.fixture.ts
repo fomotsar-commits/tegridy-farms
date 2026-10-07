@@ -47,6 +47,7 @@ export function fakeLpApi(over: Partial<LpWriteApi> & { gate?: LpGate } = {}): L
     prepareLpDeposit: vi.fn(),
     prepareLpWithdraw: vi.fn(),
     prepareLpCreate: vi.fn(),
+    prepareVenueSwap: vi.fn(),
     submitPrepared: vi.fn(),
     recheckOutcome: vi.fn(),
     explorerTxUrl: vi.fn((sig: string) => `https://explorer.test/tx/${sig}`),
@@ -193,6 +194,43 @@ export function lpCreateSummary(pool: PublicKey, tokenMint: PublicKey, over: Par
     warnings: [],
     marketWarnings: [],
     priceGap: null,
+    ...over,
+  };
+}
+
+/**
+ * A `venue-swap` summary, as `prepareVenueSwap` would return it: 1 SOL into a public-tier
+ * pool for 123.456789 of a token with no pairing-coin symbol. The pool fee is 1% of what is
+ * paid, 16% of that to the venue. Pass `input` / `output` in `over` for a sale or another coin.
+ */
+export function venueSwapSummary(
+  pool: PublicKey,
+  tokenMint: PublicKey,
+  over: Partial<Extract<TxSummary, { kind: 'venue-swap' }>> = {},
+): Extract<TxSummary, { kind: 'venue-swap' }> {
+  return {
+    kind: 'venue-swap',
+    pool,
+    origin: 'standard',
+    config: tier1Config(),
+    enableCreatorFee: false,
+    input: { mint: new PublicKey(SOL_QUOTE.mint), symbol: 'SOL', decimals: 9 },
+    output: { mint: tokenMint, symbol: null, decimals: 6 },
+    amountIn: 1_000_000_000n,
+    minimumAmountOut: 122_222_221n,
+    quote: {
+      poolAddress: pool.toBase58(),
+      outAmount: 123_456_789n,
+      reserveIn: 100_000_000_000n,
+      reserveOut: 12_500_000_000n,
+      priceImpact: 0.0099,
+      creatorFeeOnInput: true,
+      result: { outputAmount: 123_456_789n, tradeFee: 10_000_000n, protocolFee: 1_600_000n, fundFee: 0n, creatorFee: 0n, newInputVaultAmount: 0n, newOutputVaultAmount: 0n },
+    },
+    wrapsSol: true,
+    unwrapsWsol: true,
+    outputAccountRent: 2_074_080n,
+    notices: [],
     ...over,
   };
 }
