@@ -11,12 +11,22 @@
     "               dated promise to revisit, never a permanent pardon. Extending one is a commit",
     "               someone reviews.",
     "",
+    "               Also requires `projects`: the projects the reason was judged for, named as the",
+    "               baseline names them ('.', 'frontend', 'indexer'). The acceptance counts in those",
+    "               projects and in no other. Anywhere else the advisory blocks until someone judges",
+    "               it for that tree. An entry with no `projects` list counts nowhere. The same id",
+    "               may have a second entry, with its own reason, for another project.",
+    "",
     "  baseline   — the advisories that already existed when the gate was armed (2026-08-18),",
     "               recorded verbatim from that run. No reason is written for them because nobody",
     "               has triaged them, and inventing 32 rationales would be exactly the fabrication",
     "               this repo's honesty rule forbids. The whole baseline expires at once. After",
     "               that date every untriaged inherited advisory blocks — either fix it, or move it",
     "               into accepted[] with a real reason.",
+    "",
+    "WHEN A RUN SAYS 'PRUNE'. Each project's run reports only its own suppressions whose advisory is",
+    "gone from that project. For a baseline id, delete it from that project's list. For an accepted",
+    "id, take that project out of `projects`, and delete the entry when no project is left.",
     "",
     "THE UNIT IS THE GHSA ID, NEVER THE PACKAGE. Suppressing 'axios' would silently absorb the next",
     "axios advisory too; suppressing GHSA-gcfj-64vw-6mp9 suppresses exactly one known finding.",
@@ -31,7 +41,8 @@
     {
       "ghsa": "GHSA-vfj7-8cjw-p6xm",
       "reason": "Accepted by the owner on 2026-10-03. No fixed braces exists: 3.0.3 is the newest release and the advisory covers every version up to and including it (GitHub lists no patched version; checked 2026-10-03). The indexer gets braces only through ponder 0.8 -> kysely-pglite (chokidar 3, and micromatch via globby/fast-glob and kysely-codegen). Ponder imports just the KyselyPGlite database dialect from that package; the code that hands patterns to braces is kysely-pglite's own codegen CLI, file watcher and migration finder, which the indexer never runs. The flaw is a stack overflow on a deeply nested brace pattern, so it needs an attacker who chooses the pattern, and no network input reaches one here. Removing braces means leaving ponder 0.8, a migration rather than a lockfile bump. Expires with the baseline so both come due together; delete this entry as soon as braces ships a fix.",
-      "expires": "2026-11-16"
+      "expires": "2026-11-16",
+      "projects": ["indexer"]
     }
   ],
   "baseline": {
