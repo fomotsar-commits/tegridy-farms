@@ -15,6 +15,24 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-10-07: a test wallet that says it is on mainnet signs whatever a mainnet build asks
+
+**Believed:** a Wallet Standard test wallet whose account lists `solana:mainnet` can sign and
+send everything the mainnet build of /solana asks for, served from a local preview.
+
+**Seen** (`frontend/e2e/solana-own-pool-swap.spec.ts` on a `vite build`, Chromium): our pool's
+trade signed and confirmed; Jupiter's ended in "Swap failed" with nothing signed. Jupiter's path
+sends through the adapter's `sendTransaction`, which names the chain from the RPC address
+(`getChainForEndpoint`): `http://localhost:4199/api/solrpc` is `solana:localnet`, and an account
+without it is refused before the wallet is asked. Our pool's path only calls `signTransaction`,
+which checks no chain. Two more traps in that harness: a `class` with a `#private` field inside
+an `addInitScript` function threw `_classPrivateFieldInitSpec is not defined` (Babel's helper is
+not sent with the function), and a spec cannot import `write/testkit.fixture.ts` (it reaches
+`lib/solana.ts`, whose `import.meta.env.X` is undefined in Node); `lp/testkit.fixture.ts` works.
+
+**Do:** a signing test wallet lists mainnet, devnet and localnet, as e2e-solana's does; register
+it with a plain `CustomEvent`; build an e2e fake chain from `lp/testkit.fixture.ts`.
+
 ## 2026-10-07: settling the venue again at the press makes the trade the one on screen
 
 **Believed:** reading both venues fresh when Buy is pressed, and sending to whichever pays

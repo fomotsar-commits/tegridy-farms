@@ -1362,8 +1362,10 @@ is advisory today. Unenforced, it is a comment.
 1. ✅ **Wire execution against our own pool** (done 2026-10-07). The Solana swap sends a trade to
    one of our pools when it pays at least as much as Jupiter, settled again at the press, through
    the LP write layer's `venue-swap` kind and its review (`lib/solana/swap/settleVenue.ts`,
-   `lib/launcher/solana/write/venueSwap.ts`). Still open: it has not run on a local validator
-   (no Solana toolchain where it was built), so the first live trade in our pool is its first real
+   `lib/launcher/solana/write/venueSwap.ts`). `frontend/e2e/solana-own-pool-swap.spec.ts` runs
+   the page end to end in Chromium (line, press, review, signature, confirmation) against a fake
+   chain. Still open: it has not run on a local validator against the real program (no Solana
+   toolchain where it was built), so the first live trade in our pool is its first real
    execution. Watch the first few on the explorer; `OWN_POOL_SWAPS` in
    `lib/solana/swap/ownPoolSwaps.ts` switches it off in one commit.
 2. **The LP forms on `/pools`** — create-pool / deposit / withdraw. Same reason, same unblock.
