@@ -100,7 +100,7 @@ export default function PoolsPage() {
             )}
           </p>
           <p className="text-[13px] mt-2">
-            <Link to={withMint('/solana-lp', params)} className="inline-block py-2 underline underline-offset-2 text-white hover:text-white/80">
+            <Link to={withMint('/solana-lp', params)} className="inline-flex min-h-[44px] items-center underline underline-offset-2 text-white hover:text-white/80">
               {venueIsOpen ? SOLANA_LP_LINK[lpMode] : SOLANA_LP_LINK_NOT_OPEN}
             </Link>
           </p>
@@ -189,9 +189,9 @@ export default function PoolsPage() {
               </p>
             )}
             <ul className="text-white/80 text-[13px] leading-relaxed space-y-2 list-disc pl-4">
-              <li>Deposit both sides of a pair and the pool mints you an <strong>LP token</strong> for your share.</li>
+              <li>Deposit both sides of a pair and the pool mints you <strong>pool shares</strong> (an LP token) for your share.</li>
               <li>Every trade adds its fee to the reserves, so your share is worth more each time the pool trades. There is nothing to claim.</li>
-              <li>Withdraw any time — burning the LP token returns your share of both sides. Pools have no lock.</li>
+              <li>Withdraw any time: burning your pool shares returns your share of both sides. Pools have no lock.</li>
               <li className="text-white/60">
                 Impermanent loss is real: a constant-product pool rebalances against you when
                 the price moves, and fees are what compensate for it. This page will never
@@ -203,10 +203,11 @@ export default function PoolsPage() {
           <section className="rounded-2xl p-6" style={CARD}>
             <p className="text-[10px] uppercase tracking-wider mb-2" style={{ color: 'var(--color-kyle)' }}>How the swap routes</p>
             <h2 className="heading-luxury text-lg text-white mb-3">Our pools, side by side with Jupiter</h2>
+            {/* The swap page compares quotes and executes only through Jupiter
+                (SolanaRouteLine.tsx): no own-pool path exists there, so none is claimed. */}
             <p className="text-white/80 text-[13px] leading-relaxed mb-3">
-              Every quote on the Solana swap also asks our own pools, and prints which one
-              pays the trader more and by how much. The trade itself still goes through
-              Jupiter: sending it to our pool when ours pays more is not switched on yet.
+              For now, every swap on the Solana swap page is sent through Jupiter. Sending it to
+              our own pool when ours pays more is not wired into the swap yet.
             </p>
             <Link to="/solana" className="btn-secondary px-4 py-2 text-[12px] inline-block">
               Go to the Solana swap
