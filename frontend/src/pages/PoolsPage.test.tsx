@@ -378,6 +378,10 @@ describe('always', () => {
     await settled();
     const program = screen.getByRole('region', { name: 'The program' });
     expect(program).toHaveTextContent(/one added instruction/i);
+    // Calling the added instruction is not free (the record's rent and Metaplex's fee), so the
+    // card says who pays, and never that it takes nothing or moves no funds.
+    expect(program).toHaveTextContent(/It cannot move pool funds\. Whoever calls it pays a small one-time fee for the record\./);
+    expect(program).not.toHaveTextContent(/takes nothing from its caller|moves no funds/i);
     expect(program).toHaveTextContent(/A browser cannot list pools itself/i);
     const sheet = screen.getByRole('region', { name: 'Fee sheet' });
     expect(sheet.compareDocumentPosition(program) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
