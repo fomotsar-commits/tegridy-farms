@@ -6,6 +6,10 @@ page keeps the newest thirty days.
 
 ## [Unreleased]
 
+### 2026-10-06
+
+- Solana LP: when the page could not check the network as it loaded, it now checks again by itself every 15 seconds. Add liquidity, Remove liquidity and Open a pool come back without pressing Read again or reloading the page.
+
 ### 2026-10-04
 
 - Solana LP on a small phone: a warning that names a long address no longer runs off the edge of its card, the three "Pair with" choices stay inside the form, the amounts on the add and remove reviews no longer break in the middle of a number, and the small links and buttons (the swap link in the form, Refresh and the copy buttons on the venue status card) are full-size press targets.
