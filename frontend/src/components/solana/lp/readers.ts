@@ -4,8 +4,10 @@ import { PROGRAM_ID as LAUNCH_PROGRAM_ID } from '../../../lib/launcher/solana/cu
 import { LIVE_PROGRAM_ID } from '../../../lib/solana/cpswap/program';
 import { withReadCommitment } from '../curve/confirmedRpc';
 import { readTokenSafety, type TokenSafety } from '../../../lib/solana/lp/tokenSafety';
-import { findPools, readFeeTiers, type FeeTierRead, type PoolSearchRead } from '../../../lib/solana/lp/poolFinder';
+import { findPools, readFeeTiers, type FeeTierRead, type PoolSearchRead, type PoolView } from '../../../lib/solana/lp/poolFinder';
+import { readLedger, type LedgerRead } from '../../../lib/solana/lp/ledger';
 import { readOutsidePrice, type OutsidePrice } from '../../../lib/solana/lp/outsidePrice';
+import { readPoolPast, type PoolPastRead } from '../../../lib/solana/lp/poolPast';
 import { placeShareOnChain, readPositions, type ChainPlacement, type PositionsRead } from '../../../lib/solana/lp/positions';
 import type { QuoteCoin } from '../../../lib/solana/lp/quotes';
 import { lpFetch } from '../../../lib/solana/lp/readFetch';
@@ -41,6 +43,13 @@ export interface LpReaders {
   wallet(owner: PublicKey, tokenMint: string, tokenProgram: string, lpMint: string | null, opts?: { opening?: true; quote?: QuoteCoin }): Promise<WalletFacts>;
   /** Find a share's pool from its own chain history, when our pool index cannot answer (D12). */
   placeShareOnChain(share: { lpMint: string; lpAccount: string }): Promise<ChainPlacement>;
+  /**
+   * On a press only, never on page load (ledger.ts, poolPast.ts): a position's ledger from
+   * its share account's last 20 transactions, and a pool's last 20 classified. Optional:
+   * a reader without them shows no history block, and every existing fake still fits.
+   */
+  ledger?(share: { lpAccount: string; lpMint: string; owner: PublicKey; lpAmount: bigint }, view: PoolView, opts?: { before?: string }): Promise<LedgerRead>;
+  poolPast?(view: PoolView, opts?: { before?: string }): Promise<PoolPastRead>;
 }
 
 /**
@@ -75,5 +84,7 @@ export function browserLpReaders(): LpReaders | null {
     feeTiers: () => readFeeTiers(rpc, programId),
     wallet: (owner, tokenMint, tokenProgram, lpMint, o) => readWalletFacts(rpc, walletArgs(owner, tokenMint, tokenProgram, lpMint, o)),
     placeShareOnChain: (share) => placeShareOnChain(rpc, opts, share),
+    ledger: (share, view, o) => readLedger(rpc, { ...share, owner: share.owner.toBase58() }, view, programId.toBase58(), o ?? {}),
+    poolPast: (view, o) => readPoolPast(rpc, view, programId.toBase58(), o ?? {}),
   };
 }

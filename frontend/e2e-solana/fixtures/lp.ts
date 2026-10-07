@@ -20,8 +20,8 @@ import {
 import type { BrowserContext, Route } from '@playwright/test';
 import { initializeIx } from '../../src/lib/solana/cpswap/ix';
 import { deriveAmmConfig, deriveLpMint, derivePool, deriveVault, sortMints } from '../../src/lib/solana/cpswap/program';
-import { CP_SWAP_PROGRAM, CREATE_POOL_FEE_RECEIVER, LOCALNET_RPC, METAPLEX, WSOL, accountOwner, assertLocalCluster, chain, metadataAddress, mintFacts, tokenAmount } from './chain';
-import { BAYLA_COIN, SOL_COIN, USDC_COIN, type Coin } from './coins';
+import { CP_SWAP_PROGRAM, CREATE_POOL_FEE_RECEIVER, LOCALNET_RPC, METAPLEX, WSOL, accountOwner, assertLocalCluster, chain, metadataAddress, mintFacts, poolFacts, swapDirect as swapOnPool, tokenAmount } from './chain';
+import { BAYLA_COIN, SOL_COIN, USDC_COIN, coinOfPool, type Coin } from './coins';
 
 /** The vault's WSOL account: cp-swap's fixed create-pool-fee receiver (defined in chain.ts). */
 export { CREATE_POOL_FEE_RECEIVER };
@@ -472,4 +472,17 @@ export async function squatStandard(
   }
   const tokenProgram = (await accountOwner(mint)) ?? TOKEN_PROGRAM_ID;
   return createSolPool(stranger, mint, { configIndex: 1, sol: lamports, tokens, openTime, at: 'standard', tokenProgram });
+}
+
+/**
+ * One swap on `pool` from Node, the pool's COIN side in (SOL, USDC or BAYLA, by the pool's
+ * own mints): `amountIn` of the coin's base units, settled to finalized so a history read
+ * from the page sees it. The instruction is chain.ts's `swapDirect` (swapBaseInputIx); this
+ * only picks the side, so a spec says "one swap on this pool" and nothing about mints.
+ */
+export async function swapDirect(trader: Keypair, pool: PublicKey, amountIn: bigint): Promise<{ signature: string; outAmount: bigint }> {
+  const { pool: p } = await poolFacts(pool);
+  const side = coinOfPool(p.token0Mint, p.token1Mint);
+  if (!side) throw new Error(`${pool.toBase58()} pairs no coin this site reads`);
+  return swapOnPool(trader, pool, side.coin.mint, amountIn, { settle: 'finalized' });
 }
