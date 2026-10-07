@@ -16,12 +16,14 @@
 //   4. Remove liquidity goes to the positions, which say what an empty list means.
 //   5. The form starts with the wallet and the amount boxes; the long notes follow it.
 
-import { useEffect } from 'react';
+import { createRef, useEffect, useState, type RefObject } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter, useNavigate, type NavigateFunction } from 'react-router-dom';
 import type { PublicKey } from '@solana/web3.js';
 import { LpInner, type LpWritesOverrides } from './SolanaLpSection';
+import { PoolFinder, type PoolFinderHandle } from './PoolFinder';
+import { LpWritesProvider } from './useLpWrites';
 import type { LpReaders } from './readers';
 import type { TokenSafety } from '../../../lib/solana/lp/tokenSafety';
 import { SOL_QUOTE } from '../../../lib/solana/lp/quotes';
@@ -65,12 +67,16 @@ const noPools = (mint: string): PoolSearchRead => ({
   },
 });
 
-/** A pool holding 10 SOL and 1,000 tokens (0.01 SOL a token): on the public fee tier with `tier1`, else on another. */
-function poolView(tier1 = false): PoolView {
+/**
+ * A pool holding 10 SOL and 1,000 tokens (0.01 SOL a token): on the public fee tier with
+ * `tier1`, else on another. Open since `openTime`: one far in the future cannot trade yet,
+ * so deposits to it are refused.
+ */
+function poolView(tier1 = false, openTime = 1n): PoolView {
   const sol = 10n * 10n ** 9n;
   const tok = 1_000n * 10n ** 6n;
   const mint = key();
-  const b = buildPool({ plain: true, mint, configIndex: 1, quoteReserve: sol, tokenReserve: tok, openTime: 1n });
+  const b = buildPool({ plain: true, mint, configIndex: 1, quoteReserve: sol, tokenReserve: tok, openTime });
   const raw = decodePoolState(b.address.toBase58(), b.accounts[b.address.toBase58()]!.data)!;
   const pool = { ...raw, ammConfig: tier1 ? TIER1_ADDRESS.toBase58() : raw.ammConfig };
   const solIsToken0 = pool.token0Mint.startsWith('So111');
@@ -153,11 +159,13 @@ describe('what a visitor can do is on the first card, as buttons', () => {
     mount();
     const tasks = within(await finder()).getByTestId('lp-tasks');
     expect(within(tasks).getAllByRole('button').map((b) => b.textContent)).toEqual(['Create a pool', 'Add liquidity', 'Remove liquidity']);
-    // Nothing is chosen for them, and the card is named for what it does.
+    // Nothing is chosen for them; the card's heading is the verbs' group name, for screen readers only.
     for (const b of within(tasks).getAllByRole('button')) expect(b).toHaveAttribute('aria-pressed', 'false');
-    expect(await finder()).toHaveTextContent('Create a pool, add or remove liquidity');
-    // No helper line until one is pressed: on a phone it would push the tokens off the first screen.
+    expect(within(await finder()).getByRole('heading', { level: 2, name: 'What do you want to do?' })).toHaveClass('sr-only');
+    // No helper line, no tokens and no field until one is pressed: on a phone each pushes the venue off the first screen.
     expect(within(tasks).getByTestId('lp-task-line')).toBeEmptyDOMElement();
+    expect(within(await finder()).queryByTestId('lp-site-tokens')).toBeNull();
+    fireEvent.click(await task('Create a pool'));
     expect(within(await finder()).getByTestId('lp-site-tokens')).toHaveTextContent('Then pick a token with a room on this site');
   });
 
@@ -192,6 +200,7 @@ describe("the site's own tokens are picked by a press, in any room", () => {
   it('lists every Solana token with a room here, with no room chosen', async () => {
     expect(SITE.length).toBeGreaterThan(1);
     mount();
+    fireEvent.click(await task('Add liquidity'));
     const chips = within(await finder()).getByTestId('lp-site-tokens');
     expect(within(chips).getAllByRole('button').map((b) => b.textContent)).toEqual(SITE.map((t) => t.symbol));
     expect(chips).toHaveTextContent('looked up by its address from this site’s own list, not by its name');
@@ -201,6 +210,7 @@ describe("the site's own tokens are picked by a press, in any room", () => {
     const last = SITE[SITE.length - 1]!;
     window.localStorage.setItem(BUNGALOW_STORAGE_KEY, last.id);
     mount();
+    fireEvent.click(await task('Add liquidity'));
     const names = within(within(await finder()).getByTestId('lp-site-tokens')).getAllByRole('button').map((b) => b.textContent);
     expect(names[0]).toBe(last.symbol);
     expect(names).toHaveLength(SITE.length);
@@ -209,6 +219,7 @@ describe("the site's own tokens are picked by a press, in any room", () => {
 
   it('a press looks the token up by its address, and the address goes into the box to be checked', async () => {
     const r = mount();
+    fireEvent.click(await task('Create a pool'));
     fireEvent.click(await chip('BAYLA'));
     await waitFor(() => expect(r.findPools).toHaveBeenCalled());
     expect((r.findPools as ReturnType<typeof vi.fn>).mock.calls[0]![0].toBase58()).toBe(BAYLA);
@@ -273,7 +284,7 @@ describe('a lookup asked for with a button ends in a form', () => {
 
   // The first BAYLA pool was opened on mainnet on 2026-10-03, while this was being built:
   // from then on "Create a pool" then BAYLA ended on a card with nothing to press.
-  it('Create a pool on a token that already has a pool on the public tier: the card says so, on the screen, with a button that opens that pool\'s Add form', async () => {
+  it('Create a pool on a token that already has a pool on the public tier: the card says so, on the screen, with a button that shows that pool', async () => {
     const v = poolView(true);
     mount('/solana-lp', 'on', {
       findPools: vi.fn(async (mint: PublicKey) => onePool(mint.toBase58(), v)),
@@ -294,10 +305,14 @@ describe('a lookup asked for with a button ends in a form', () => {
     expect(screen.queryByTestId('lp-create-panel')).toBeNull();
     expect(screen.queryByTestId('lp-add-panel')).toBeNull();
     await waitFor(() => expect(scrolledTo()).toContain(card));
-    fireEvent.click(within(card).getByRole('button', { name: 'Add liquidity to that pool' }));
-    const panel = await screen.findByTestId('lp-add-panel');
-    expect(screen.getByTestId('lp-pool')).toHaveAttribute('data-pool', v.address);
-    expect(screen.getByTestId('lp-pool')).toContainElement(panel);
+    // The pointer shows that pool's card: it comes onto the screen with its heading focused, and no form opens.
+    fireEvent.click(within(card).getByRole('button', { name: 'See that pool' }));
+    const pool = screen.getByTestId('lp-pool');
+    expect(pool).toHaveAttribute('data-pool', v.address);
+    await waitFor(() => expect(within(pool).getByRole('heading', { level: 3 })).toHaveFocus());
+    expect(scrolledTo()[scrolledTo().length - 1]).toBe(pool);
+    expect(screen.queryByTestId('lp-add-panel')).toBeNull();
+    expect(screen.queryByTestId('lp-create-panel')).toBeNull();
   });
 
   it('a second press on Create a pool with its form already open brings the form back onto the screen', async () => {
@@ -314,10 +329,11 @@ describe('a lookup asked for with a button ends in a form', () => {
     expect(screen.getByTestId('lp-create-panel')).toBe(panel);
   });
 
-  it('a token pressed with nothing chosen still ends in a form', async () => {
-    mount();
+  it('a token pressed with nothing chosen still ends in a form (the chips are on the page once a token is)', async () => {
+    mount(`/solana-lp?mint=${OTHER}`);
+    await screen.findByTestId('lp-create');
     fireEvent.click(await chip('BAYLA'));
-    expect(await screen.findByTestId('lp-create-panel')).toBeTruthy();
+    expect(await screen.findByTestId('lp-create-panel')).toHaveTextContent(BAYLA);
   });
 
   it('a typed address goes to the chosen form too', async () => {
@@ -328,11 +344,13 @@ describe('a lookup asked for with a button ends in a form', () => {
     expect(await screen.findByTestId('lp-create-panel')).toHaveTextContent(OTHER);
   });
 
-  it('a typed address with nothing chosen opens nothing: the cards and their buttons, as before', async () => {
-    mount();
+  it('a typed address with nothing chosen opens nothing: the cards and their buttons, as before (the box is on the page once a token is)', async () => {
+    mount(`/solana-lp?mint=${BAYLA}`);
+    await screen.findByTestId('lp-create');
     fireEvent.change(within(await finder()).getByLabelText('Token mint address'), { target: { value: OTHER } });
     fireEvent.click(within(await finder()).getByRole('button', { name: 'Find pools' }));
     const card = await screen.findByTestId('lp-create');
+    await waitFor(() => expect(screen.getByTestId('token-safety')).toHaveTextContent(OTHER));
     await within(card).findByRole('button', { name: 'Open a pool' });
     expect(screen.queryByTestId('lp-create-panel')).toBeNull();
   });
@@ -511,6 +529,7 @@ describe('Remove liquidity goes to the positions', () => {
 describe('the address box', () => {
   it('a refused address stops being called wrong as soon as it is typed over', async () => {
     mount();
+    fireEvent.click(await task('Create a pool'));
     const box = within(await finder()).getByLabelText('Token mint address');
     fireEvent.change(box, { target: { value: 'BAYLA' } });
     fireEvent.click(within(await finder()).getByRole('button', { name: 'Find pools' }));
@@ -523,6 +542,9 @@ describe('the address box', () => {
 describe('a lookup the visitor asked for is brought onto the screen', () => {
   it('pressing Find pools scrolls to the answer', async () => {
     mount();
+    // The press that brings the box onto the page scrolls the verbs up; typing moves nothing.
+    fireEvent.click(await task('Create a pool'));
+    scrolled.mockClear();
     fireEvent.change(within(await finder()).getByLabelText('Token mint address'), { target: { value: BAYLA } });
     expect(scrolled).not.toHaveBeenCalled();
     fireEvent.click(within(await finder()).getByRole('button', { name: 'Find pools' }));
@@ -540,5 +562,72 @@ describe('a token with no pool yet', () => {
     await waitFor(() => expect(card).toHaveTextContent('There is no SOL or USDC pool to add liquidity to yet. Opening one is how the first liquidity goes in.'));
     // The sentence the card already had is kept.
     expect(card).toHaveTextContent('No SOL or USDC pool for this token yet. You can open the first one on the public fee tier');
+  });
+});
+
+/** The finder alone, with the handle the section holds: how a pointer or a venue-list press reaches it. */
+function Finder({ r, handle }: { r: LpReaders; handle: RefObject<PoolFinderHandle | null> }) {
+  const [mint, setMint] = useState<string | null>(null);
+  return <PoolFinder ref={handle} readers={r} mint={mint} onMint={setMint} wantOutside />;
+}
+function mountFinder(over: Partial<LpReaders>) {
+  const r = readers(over);
+  const handle = createRef<PoolFinderHandle>();
+  const api = fakeLpApi({ readCreateFacts: vi.fn(async () => readyFacts()) });
+  render(
+    <MemoryRouter initialEntries={['/solana-lp']}>
+      <LpWritesProvider readers={r} mode="on" load={vi.fn(async () => api)} gateRpc={unusedGateRpc}>
+        <Finder r={r} handle={handle} />
+      </LpWritesProvider>
+    </MemoryRouter>,
+  );
+  return handle;
+}
+
+// A pointer on the "Open a new pool" card, or a press in the venue's list, asks for a pool's
+// CARD: nothing was asked to open. A position's "Add more liquidity" asks for a FORM, and
+// when the pool cannot open it the card says why (PositionAddMore.test.tsx). The two came
+// through the same prop, so a shown card on a paused or refused pool read "This is your
+// position's pool. Its Add form was not opened" to a visitor who holds no position and
+// pressed no Add (review of B3, 2026-10-06).
+describe('a pool shown, not opened (PoolFinderHandle.show)', () => {
+  it('a pool that does not offer adding: its card comes onto the screen with its heading focused, and nothing is said about a form', async () => {
+    const closed = poolView(false, 10n ** 10n);
+    const handle = mountFinder({ findPools: vi.fn(async (mint: PublicKey) => onePool(mint.toBase58(), closed)) });
+    act(() => handle.current!.show(OTHER, closed.address));
+    const card = await screen.findByTestId('lp-pool');
+    expect(card).toHaveAttribute('data-pool', closed.address);
+    await waitFor(() => expect(card).toHaveAttribute('data-add', 'checks'));
+    const heading = within(card).getByRole('heading', { level: 3 });
+    await waitFor(() => expect(heading).toHaveFocus());
+    expect(scrolledTo()[scrolledTo().length - 1]).toBe(card);
+    // The card's own words are what is read: its refusal, and no sentence about a form,
+    // before the wish is spent and after.
+    await act(async () => {});
+    expect(card).toHaveTextContent(/Deposits: refused here/);
+    expect(screen.queryByTestId('lp-wish-why')).toBeNull();
+    expect(heading).not.toHaveAttribute('aria-describedby');
+    expect(screen.queryByTestId('lp-add-panel')).toBeNull();
+    expect(screen.queryByTestId('lp-create-panel')).toBeNull();
+  });
+
+  it('a pool that was listed but could not be read: its card comes onto the screen, and nothing says to press Add more liquidity', async () => {
+    const address = key().toBase58();
+    const unread = (mint: string): PoolSearchRead => {
+      const none = noPools(mint);
+      if (none.kind !== 'ok') throw new Error('unreachable');
+      return { kind: 'ok', search: { ...none.search, index: { kind: 'ok', pools: [address], truncated: false }, pools: [{ kind: 'unread', address, detail: 'HTTP 502' }] } };
+    };
+    const handle = mountFinder({ findPools: vi.fn(async (mint: PublicKey) => unread(mint.toBase58())) });
+    act(() => handle.current!.show(OTHER, address));
+    const card = await screen.findByTestId('lp-pool');
+    expect(card).toHaveAttribute('data-pool', address);
+    const heading = within(card).getByRole('heading', { level: 3 });
+    await waitFor(() => expect(heading).toHaveFocus());
+    await act(async () => {});
+    expect(card).toHaveTextContent('We could not read this pool (HTTP 502). Nothing about it is checked.');
+    expect(card).not.toHaveTextContent('Add more liquidity');
+    expect(screen.queryByTestId('lp-wish-why')).toBeNull();
+    expect(heading).not.toHaveAttribute('aria-describedby');
   });
 });

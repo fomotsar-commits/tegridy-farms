@@ -42,9 +42,9 @@ const solFee = (lamports: bigint) => formatSol(lamports, 9);
  *
  * ONE ANSWER PER PAIRING COIN (`pairFacts`). A new pool pairs the token with SOL, USDC or
  * BAYLA, and the pool to add to instead is one paired with the same coin. So each coin
- * that has such a pool gets its own line and its own Add button, what a pool holds is
- * said in that pool's own coin, and the card says which coins have no pool yet. The coin
- * itself is chosen in the form.
+ * that has such a pool gets its own line and its own pointer to that pool, what a pool
+ * holds is said in that pool's own coin, and the card says which coins have no pool yet.
+ * The coin itself is chosen in the form.
  */
 export function CreatePoolCard(p: {
   mint: string;
@@ -57,6 +57,8 @@ export function CreatePoolCard(p: {
   outsideAt: number | null;
   /** Search the same token again (pools, token and price). */
   onReread: () => void;
+  /** Show the card of the pool at `pool` for `mint` (the finder's `show`): the pointer's press. */
+  onShow: (mint: string, pool: string) => void;
   /** The search on screen is the last answer, shown while the same token is read again. */
   refreshing?: boolean;
   /**
@@ -82,6 +84,7 @@ function CreateCard({
   outside,
   outsideAt,
   onReread,
+  onShow,
   refreshing = false,
   openNow = 0,
   onActed,
@@ -148,19 +151,15 @@ function CreateCard({
     else openPanel('create', key, openButton.current, headingRef.current);
     onActed?.(openNow);
   }, [openNow, settled, offer, pointsTo, open, busy, openPanel, key, onActed]);
-  // A pool the card points to (createAdvice) gets a button, not only words: asked to
-  // create a pool for a token that has one, a phone ended on a card with nothing to press
-  // for it (phone walk of the build, 2026-10-03, the day the first BAYLA pool was
-  // opened). Offered when that pool takes deposits right now, by the same rule its own
-  // Add button follows. It sits beside Open a pool, which stays: a token may have as
-  // many pools as people open (owner ruling 2026-10-03). One button per pool pointed to,
-  // and with more than one each says its coin, so "that pool" is never a guess.
-  // Not for a pool whose price is off the market: this card does not suggest adding to
-  // it (`adviceCaveat`), so it puts no button for that here. The pool's own card keeps
-  // its Add button.
+  // A pool the card points to gets a button that shows its card, not only words: a phone
+  // ended here with nothing to press (walk, 2026-10-03). One per pool that takes deposits
+  // now (its own Add button's rule), each naming its coin when there are several. Adding
+  // is the pool card's own button: a second Add here opened a form from a card that had
+  // just said "see that pool". None for a pool whose price is off: this card does not
+  // suggest adding to it (`adviceCaveat`).
   const { mode, gate } = writes;
   const notes = writes.pending.notes;
-  const addInstead = pointers.filter(({ pool }) => {
+  const pointed = pointers.filter(({ pool }) => {
     const health = healths.get(pool.address);
     return !!health && adviceCaveat(health)?.add !== false && gate?.kind === 'open' && depositOffer({ mode, gate, health, held: lpHeld(notes, pool.address, 'add') }) === 'offer';
   });
@@ -219,18 +218,18 @@ function CreateCard({
         <p role="status" className="text-white/55 text-[11px]" data-testid="lp-create-reread">
           {asked !== null ? 'Reading again…' : said === 'same' ? 'Read again just now: the same answer.' : said === 'changed' ? 'Read again just now: the answer above is new.' : ''}
         </p>
-        {addInstead.length > 0 && (
+        {pointed.length > 0 && (
           <div className="flex flex-col sm:flex-row sm:flex-wrap gap-2">
-            {addInstead.map(({ coin, pool }) => (
+            {pointed.map(({ coin, pool }) => (
               <button
                 key={pool.address}
                 type="button"
                 className="btn-primary w-full sm:w-auto min-h-[44px] px-4 text-[13px] disabled:opacity-60"
                 disabled={writes.busy}
                 data-coin={coin.symbol}
-                onClick={(e) => writes.open('add', `add:${pool.address}`, e.currentTarget)}
+                onClick={() => onShow(mint, pool.address)}
               >
-                {pointers.length > 1 ? `Add liquidity to the ${coin.symbol} pool` : 'Add liquidity to that pool'}
+                {pointers.length > 1 ? `See the ${coin.symbol} pool` : 'See that pool'}
               </button>
             ))}
           </div>
@@ -242,8 +241,8 @@ function CreateCard({
             <button
               ref={openButton}
               type="button"
-              // Beside "Add liquidity to that pool" this is the second choice, and looks it.
-              className={`${addInstead.length > 0 ? 'btn-secondary' : 'btn-primary'} w-full sm:w-auto min-h-[44px] px-4 text-[13px] disabled:opacity-60`}
+              // Beside "See that pool" this is the second choice, and looks it.
+              className={`${pointed.length > 0 ? 'btn-secondary' : 'btn-primary'} w-full sm:w-auto min-h-[44px] px-4 text-[13px] disabled:opacity-60`}
               disabled={blockedByOther}
               aria-expanded={open}
               onClick={(e) => writes.open('create', key, e.currentTarget, headingRef.current)}

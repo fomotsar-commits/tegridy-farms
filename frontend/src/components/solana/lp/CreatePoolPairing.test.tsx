@@ -805,7 +805,7 @@ describe('the pool to add to first is the chosen coin’s (advice, never a block
     );
     // The card names the way to it before the form is open: the owner could not see how to open a BAYLA/USDC pool.
     expect(within(card).getByTestId('lp-create-none-yet')).toHaveTextContent('This token has no USDC pool yet. Open a pool lets you choose what to pair it with.');
-    expect(within(card).getByRole('button', { name: 'Add liquidity to that pool' })).toBeEnabled();
+    expect(within(card).getByRole('button', { name: 'See that pool' })).toBeEnabled();
     expect(within(card).getByRole('button', { name: 'Open a pool' })).toBeEnabled();
 
     // The form, on SOL: the pool that exists is said.
@@ -838,7 +838,7 @@ describe('the pool to add to first is the chosen coin’s (advice, never a block
     });
   }, LONG);
 
-  it('a SOL pool and a USDC pool: each has its own line in its own coin and its own Add button, and the form follows the chosen coin', async () => {
+  it('a SOL pool and a USDC pool: each has its own line in its own coin and its own pointer, and the form follows the chosen coin', async () => {
     const solPool = view();
     const usdcPool = view({ quote: USDC_QUOTE });
     mount(readers({ findPools: vi.fn(async () => search([solPool, usdcPool])) }));
@@ -852,14 +852,14 @@ describe('the pool to add to first is the chosen coin’s (advice, never a block
       "You can still open your own on the public fee tier (1% a trade, 0.15 SOL to open). It will be a separate pool: it does not share the other pools' liquidity or fees.",
     );
     // With more than one, each button says its coin: "that pool" would be a guess.
-    expect(within(card).queryByRole('button', { name: 'Add liquidity to that pool' })).toBeNull();
-    expect(within(card).getByRole('button', { name: 'Add liquidity to the SOL pool' })).toBeEnabled();
+    expect(within(card).queryByRole('button', { name: 'See that pool' })).toBeNull();
+    expect(within(card).getByRole('button', { name: 'See the SOL pool' })).toBeEnabled();
     expect(within(card).getByRole('button', { name: 'Open a pool' })).toBeEnabled();
-    // The USDC button opens the USDC pool's own Add form, in that pool's card.
-    fireEvent.click(within(card).getByRole('button', { name: 'Add liquidity to the USDC pool' }));
-    const add = await screen.findByTestId('lp-add-panel');
+    // The USDC button shows the USDC pool's own card: its heading takes focus, and no form opens.
+    fireEvent.click(within(card).getByRole('button', { name: 'See the USDC pool' }));
     const usdcCard = screen.getAllByTestId('lp-pool').find((c) => c.getAttribute('data-pool') === usdcPool.address)!;
-    expect(usdcCard).toContainElement(add);
+    await waitFor(() => expect(within(usdcCard).getByRole('heading', { level: 3 })).toHaveFocus());
+    expect(screen.queryByTestId('lp-add-panel')).toBeNull();
 
     fireEvent.click(within(card).getByRole('button', { name: 'Open a pool' }));
     const panel = await screen.findByTestId('lp-create-panel');
@@ -881,7 +881,7 @@ describe('the pool to add to first is the chosen coin’s (advice, never a block
     expect(refer).toHaveAttribute('data-coin', 'USDC');
     expect(refer).toHaveTextContent(`This token already has a USDC pool on the public fee tier that passes the checks (above). The biggest is ${usdcPool.address}, holding 2,000 USDC.`);
     expect(within(card).getByTestId('lp-create-none-yet')).toHaveTextContent('This token has no SOL or BAYLA pool yet.');
-    expect(within(card).getByRole('button', { name: 'Add liquidity to that pool' })).toBeEnabled();
+    expect(within(card).getByRole('button', { name: 'See that pool' })).toBeEnabled();
     // On SOL (where the form starts) no pool exists, and the SOL form adds no line of its own.
     expect(within(panel).queryByTestId('lp-create-advice')).toBeNull();
     expect(within(panel).queryByTestId('lp-create-first')).toBeNull();
@@ -902,7 +902,7 @@ describe('the pool to add to first is the chosen coin’s (advice, never a block
     fireEvent.click(within(screen.getByTestId('lp-finder')).getByRole('button', { name: 'Create a pool' }));
     await act(async () => {});
     expect(card).toHaveAttribute('data-advice', 'exists');
-    expect(within(card).getByRole('button', { name: 'Add liquidity to that pool' })).toBeEnabled();
+    expect(within(card).getByRole('button', { name: 'See that pool' })).toBeEnabled();
     expect(screen.queryByTestId('lp-create-panel')).toBeNull();
   });
 
@@ -1418,15 +1418,19 @@ describe('the card, per coin (round 3)', () => {
     await waitFor(() => expect(reread).toHaveTextContent('Read again just now: the same answer.'));
   }, LONG);
 
-  // F1: the card's Add button is a second, recommended way into the Add form. That form
-  // once typed SOL for every pool: a typed 1 was handed over as 1,000 USDC. This pins the
-  // whole way from the card to the builder, so no merge order can bring that back.
-  it('"Add liquidity to that pool" on a USDC pool opens a form that types USDC: a typed 1 is 1,000,000 of its smallest unit', async () => {
+  // F1: the card's pointer is the recommended way to the pool, and the pool card's own Add
+  // button is the way into the Add form. That form once typed SOL for every pool: a typed 1
+  // was handed over as 1,000 USDC. This pins the whole way from the card to the builder, so
+  // no merge order can bring that back.
+  it('"See that pool" on a USDC pool, then its Add button: the form types USDC, so a typed 1 is 1,000,000 of its smallest unit', async () => {
     const usdcPool = view({ quote: USDC_QUOTE });
     const prepareLpDeposit = notBuilt();
     mount(readers({ findPools: vi.fn(async () => search([usdcPool])) }), { api: { prepareLpDeposit } });
     const card = await offered();
-    fireEvent.click(await within(card).findByRole('button', { name: 'Add liquidity to that pool' }));
+    fireEvent.click(await within(card).findByRole('button', { name: 'See that pool' }));
+    const usdcCard = screen.getAllByTestId('lp-pool').find((c) => c.getAttribute('data-pool') === usdcPool.address)!;
+    await waitFor(() => expect(within(usdcCard).getByRole('heading', { level: 3 })).toHaveFocus());
+    fireEvent.click(within(usdcCard).getByRole('button', { name: 'Add liquidity' }));
     const add = await screen.findByTestId('lp-add-panel');
     await within(add).findByRole('button', { name: 'Max USDC' });
     expect(within(add).queryByLabelText('SOL to add')).toBeNull();
