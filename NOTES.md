@@ -63,15 +63,19 @@ and keep the one that leaves them alone. Say in the commit which npm wrote each 
 `.github/npm-advisory-allowlist.json`.
 
 **Measured:** the gate runs once per project (`.`, `frontend`, `indexer`) and each run prints
-its own line. A `baseline` id belongs to one project, so its line is right. An `accepted`
-entry belongs to no project: it applies to all three, and each run calls it dead when that
-project's audit does not contain it. On 2026-10-06 the root run and the `frontend` run both
+its own line. A `baseline` id belongs to one project, so its line was right. An `accepted`
+entry belonged to no project: it applied to all three, and each run called it dead when that
+project's audit did not contain it. On 2026-10-06 the root run and the `frontend` run both
 said to prune GHSA-vfj7-8cjw-p6xm (braces) while the `indexer` run was using it. Deleting it
 would have turned the indexer red.
 
-**Do:** before pruning an id, find which list holds it. A baseline id can go when its own
-project's run names it. An accepted id can go only when all three runs name it. Run all
-three first: the lists differ.
+**Fixed 2026-10-07:** an accepted entry now names its `projects`. It counts in those projects
+only, and a run reports it stale only for a project it names. An entry with no `projects`
+counts nowhere. The line now says which project it is about.
+
+**Do:** when one check runs once per project over a shared list, a "nothing uses this" line
+from one run is a claim about that project and no other. Give each entry the projects it
+belongs to, or collect every run before deleting anything.
 
 ## 2026-10-04: a test that asks the app's own planner what a row should read agrees with the app whatever it does
 

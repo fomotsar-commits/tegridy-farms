@@ -152,13 +152,11 @@ start the task again. It should pull the new run and pass. The report is in
 **If GitHub is gone again,** this is not the list to follow: OPS_SCHEDULER.md section 5 moves the
 six jobs GitHub ran onto this PC (`register-tasks.ps1 -Failover`) and takes the backup by hand.
 
-**Found while testing (2026-09-30):** the failover `npm-advisories` job found six blocking
-advisories. GitHub's `npm-advisories` workflow uses the same gate, so it should fail on them too.
-This is the set seen on 2026-09-30; the next run may add more. `frontend`: `undici`
-GHSA-rfgv-xxqx-mfg5 and GHSA-w293-vg96-wgc3, and `brace-expansion` GHSA-6j4f-fj2g-mc7p and
-GHSA-qhr7-859c-m2p7. `indexer`: the same two `brace-expansion` advisories. All have a fix
-available. An agent can bump the dependencies, or triage them into
-`.github/npm-advisory-allowlist.json` with a reason.
+**Done 2026-10-07:** the six blocking advisories the failover `npm-advisories` job found on
+2026-09-30 (`undici` and `brace-expansion`) are gone from both audits, and GitHub's
+`npm advisories` workflow is green on the trunk for all three projects (`9e1b7b5e`). The next
+date is 2026-11-16: the baseline and both accepted entries expire together (GIT_HOSTING.md,
+section 8).
 
 ---
 
