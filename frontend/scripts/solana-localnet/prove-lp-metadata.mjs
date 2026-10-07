@@ -20,13 +20,22 @@
 //      (and one it owns that is not a pool), a wrong editor (a stranger, and the multisig
 //      account), a wrong record address, a program that is not Metaplex, a wrong signing
 //      address, and a second call for the same mint
+//   b2 the record slot and the payer are the two accounts the CALLER picks, and the program does
+//      not check the record slot. So every hostile choice is tried on the real BAYLA/SOL pool:
+//      a vault (classic and Token-2022), the lp mint, the pool, the token program, the signing
+//      address itself, the editor, a token account, another mint's record address, a payer
+//      that is a token account, a payer with no lamports. Each must be refused by Metaplex or
+//      the System program, by its own error, with no call into a token program
 //   c  a record address a stranger funded first still works (below and above the rent minimum),
 //      and costs the caller the same
-//   d  the inner call is handed Metaplex's own six accounts and nothing else, even when the
-//      caller appends vaults and token programs; and the pool, its lp mint, both vaults, its
-//      observation account, its fee config and the signing address are byte-identical after
+//   d  the inner call is handed six accounts and nothing else, even when the caller appends
+//      vaults and token programs, and even when the caller marks the lp mint, the pool and
+//      the signing address writable (done on a fourth pool whose shares were all burned
+//      first); and the pool, its lp mint, both vaults, its observation account, its fee
+//      config and the signing address are byte-identical after
 //   e  deposit, swap and withdraw still work on both real pools, to the exact amounts the
-//      site's own maths (src/lib/solana/cpswap/math.ts) gives
+//      site's own maths (src/lib/solana/cpswap/math.ts) gives; and a swap that names the
+//      amount OUT (swap_base_output) pays out exactly that amount
 //
 // Run against the binary WITHOUT the instruction, parts a to d FAIL and part e passes with the
 // same amounts: that is the control for both halves. Exit 1 on any failure.
@@ -84,8 +93,16 @@ const METAPLEX_CREATE_FEE = 10_000_000n;
 const ERR = { ConstraintSeeds: 2006, ConstraintAddress: 2012, AccountDiscriminatorMismatch: 3002, AccountOwnedByWrongProgram: 3007, InvalidProgramId: 3008, IncorrectLpMint: 6004 };
 /** Metaplex Token Metadata: "Metadata's key must match seed of ['metadata', program id, mint] provided". */
 const MPL_INVALID_METADATA_KEY = 5;
-/** Metaplex Token Metadata's answer to a create for a record that already exists (measured on this validator). */
+/**
+ * Metaplex Token Metadata: "Expected account to be uninitialized". Its answer to a record slot
+ * that already holds data: a record that exists, and also a vault, a mint, a pool or a program
+ * put there by a hostile caller. It comes before Metaplex calls anything (measured here).
+ */
 const MPL_EXPECTED_UNINITIALIZED = 199;
+/** What the Metaplex binary on mainnet answers when the record slot is a Token-2022 account (measured here). */
+const MPL_REFUSES_TOKEN_2022_ACCOUNT = 153;
+/** The System program's "insufficient lamports", as a custom code. */
+const SYSTEM_INSUFFICIENT_LAMPORTS = 1;
 
 let failed = 0;
 let passed = 0;
@@ -95,15 +112,23 @@ const sha256 = (b) => crypto.createHash('sha256').update(b).digest('hex');
 
 // ── the instruction, built by hand from the committed IDL's own order ────────
 const IX_CREATE_LP_METADATA = crypto.createHash('sha256').update('global:create_lp_metadata').digest().subarray(0, 8);
+// The site never sends swap_base_output, so src/lib/solana/cpswap/ix.ts has no builder for it.
+// It takes the same accounts as swap_base_input (both are `Context<Swap>`); the IDL check below holds that.
+const IX_SWAP_BASE_OUTPUT = crypto.createHash('sha256').update('global:swap_base_output').digest().subarray(0, 8);
+const u64le = (n) => { const b = Buffer.alloc(8); b.writeBigUInt64LE(n); return b; };
 const metadataPda = (mint) => PublicKey.findProgramAddressSync([Buffer.from('metadata'), METAPLEX.toBuffer(), mint.toBuffer()], METAPLEX)[0];
-function createLpMetadataIx({ payer, poolState, lpMint, metadata, authority = AUTHORITY, updateAuthority = VAULT, metadataProgram = METAPLEX, extra = [] }) {
+/**
+ * `writable` names accounts a hostile caller marks writable although the program asks for
+ * them read-only: 'authority', 'poolState', 'lpMint'. An honest caller passes none.
+ */
+function createLpMetadataIx({ payer, poolState, lpMint, metadata, authority = AUTHORITY, updateAuthority = VAULT, metadataProgram = METAPLEX, extra = [], writable = [] }) {
   return new TransactionInstruction({
     programId: CP,
     keys: [
       { pubkey: payer, isSigner: true, isWritable: true },
-      { pubkey: authority, isSigner: false, isWritable: false },
-      { pubkey: poolState, isSigner: false, isWritable: false },
-      { pubkey: lpMint, isSigner: false, isWritable: false },
+      { pubkey: authority, isSigner: false, isWritable: writable.includes('authority') },
+      { pubkey: poolState, isSigner: false, isWritable: writable.includes('poolState') },
+      { pubkey: lpMint, isSigner: false, isWritable: writable.includes('lpMint') },
       { pubkey: metadata ?? metadataPda(lpMint), isSigner: false, isWritable: true },
       { pubkey: updateAuthority, isSigner: false, isWritable: false },
       { pubkey: metadataProgram, isSigner: false, isWritable: false },
@@ -166,6 +191,14 @@ const customCode = (r) => {
   const e = r.err?.InstructionError;
   return Array.isArray(e) && e[1] && typeof e[1] === 'object' && 'Custom' in e[1] ? e[1].Custom : null;
 };
+/** The runtime's own name for a failed instruction ("InvalidArgument"), or null when it is a custom code or no failure. */
+const builtinError = (r) => {
+  const e = r.err?.InstructionError;
+  return Array.isArray(e) && typeof e[1] === 'string' ? e[1] : null;
+};
+/** Every inner instruction of a transaction: the program called and the accounts it was handed. */
+const innerCalls = (r) => r.inner.flatMap((g) => g.instructions).map((i) => ({ program: r.keys[i.programIdIndex].toBase58(), accounts: i.accounts.map((a) => r.keys[a].toBase58()) }));
+const TOKEN_PROGRAMS = [SPL.TOKEN_PROGRAM_ID.toBase58(), SPL.TOKEN_2022_PROGRAM_ID.toBase58()];
 /** Which program's invocation the failure came out of, read from the chain's own log. */
 const failedIn = (r) => {
   const line = r.logs.find((l) => /^Program \S+ failed/.test(l));
@@ -233,6 +266,11 @@ section('the instruction as the committed IDL describes it');
     const fixed = ix.accounts.map((a, i) => [a, built.keys[i]]).filter(([a]) => a.address);
     check(fixed.length === 4 && fixed.every(([a, k]) => a.address === k.pubkey.toBase58()), `the IDL's fixed addresses are the ones sent: ${fixed.map(([a]) => `${a.name}=${a.address}`).join(', ')}`);
   }
+  const byInput = idls.cpIdl.instructions.find((i) => i.name === 'swap_base_input');
+  const byOutput = idls.cpIdl.instructions.find((i) => i.name === 'swap_base_output');
+  check(!!byInput && !!byOutput && Buffer.from(byOutput.discriminator).equals(Buffer.from(IX_SWAP_BASE_OUTPUT)) && JSON.stringify(byOutput.accounts) === JSON.stringify(byInput.accounts)
+    && JSON.stringify(byOutput.args.map((a) => [a.name, a.type])) === JSON.stringify([['max_amount_in', 'u64'], ['amount_out', 'u64']]),
+    'swap_base_output in the IDL: the same accounts as swap_base_input, and two u64 arguments, the most to pay and the amount out');
 }
 
 // ── 1. wallets, and a freshly opened pool ────────────────────────────────────
@@ -252,29 +290,58 @@ async function newClassicMint(owner, authority) {
   ], [owner, kp]);
   return kp.publicKey;
 }
-const mintA = await newClassicMint(payer, payer.publicKey);
-const mintB = await newClassicMint(payer, payer.publicKey);
-const { token0: fresh0, token1: fresh1 } = C.sortMints(mintA, mintB);
-for (const m of [fresh0, fresh1]) {
-  await mustLand('fund the fresh pool creator', [
-    SPL.createAssociatedTokenAccountIdempotentInstruction(payer.publicKey, ata(m, payer.publicKey, SPL.TOKEN_PROGRAM_ID), payer.publicKey, m),
-    SPL.createMintToInstruction(m, ata(m, payer.publicKey, SPL.TOKEN_PROGRAM_ID), payer.publicKey, 1_000_000_000_000n),
+/** Opens a pool of two new classic test mints on fee tier 1, as `payer`. */
+async function openFreshPool() {
+  const mintA = await newClassicMint(payer, payer.publicKey);
+  const mintB = await newClassicMint(payer, payer.publicKey);
+  const { token0, token1 } = C.sortMints(mintA, mintB);
+  for (const m of [token0, token1]) {
+    await mustLand('fund the fresh pool creator', [
+      SPL.createAssociatedTokenAccountIdempotentInstruction(payer.publicKey, ata(m, payer.publicKey, SPL.TOKEN_PROGRAM_ID), payer.publicKey, m),
+      SPL.createMintToInstruction(m, ata(m, payer.publicKey, SPL.TOKEN_PROGRAM_ID), payer.publicKey, 1_000_000_000_000n),
+    ], [payer]);
+  }
+  const pool = C.derivePool(CP, TIER_1, token0, token1);
+  const lpMint = C.deriveLpMint(CP, pool);
+  await mustLand('open a fresh pool', [
+    ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }),
+    C.initializeIx({
+      programId: CP, creator: payer.publicKey, ammConfig: TIER_1, token0Mint: token0, token1Mint: token1,
+      creatorToken0: ata(token0, payer.publicKey, SPL.TOKEN_PROGRAM_ID), creatorToken1: ata(token1, payer.publicKey, SPL.TOKEN_PROGRAM_ID),
+      creatorLpToken: ata(lpMint, payer.publicKey, SPL.TOKEN_PROGRAM_ID),
+      token0Program: SPL.TOKEN_PROGRAM_ID, token1Program: SPL.TOKEN_PROGRAM_ID, createPoolFee: FEE_ATA,
+      initAmount0: 500_000_000_000n, initAmount1: 250_000_000_000n, openTime: 0n,
+    }),
   ], [payer]);
+  return { pool, lpMint, token0, token1 };
 }
-const freshPool = C.derivePool(CP, TIER_1, fresh0, fresh1);
-const freshLp = C.deriveLpMint(CP, freshPool);
-await mustLand('open the fresh pool', [
-  ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }),
-  C.initializeIx({
-    programId: CP, creator: payer.publicKey, ammConfig: TIER_1, token0Mint: fresh0, token1Mint: fresh1,
-    creatorToken0: ata(fresh0, payer.publicKey, SPL.TOKEN_PROGRAM_ID), creatorToken1: ata(fresh1, payer.publicKey, SPL.TOKEN_PROGRAM_ID),
-    creatorLpToken: ata(freshLp, payer.publicKey, SPL.TOKEN_PROGRAM_ID),
-    token0Program: SPL.TOKEN_PROGRAM_ID, token1Program: SPL.TOKEN_PROGRAM_ID, createPoolFee: FEE_ATA,
-    initAmount0: 500_000_000_000n, initAmount1: 250_000_000_000n, openTime: 0n,
-  }),
-], [payer]);
+const { pool: freshPool, lpMint: freshLp } = await openFreshPool();
 const freshView = await readPool(freshPool);
 check(freshView.lpMint === freshLp.toBase58(), `a pool was opened on fee tier 1 under the binary under test: ${freshPool.toBase58()}, lp mint ${freshLp.toBase58()}`);
+
+// A second fresh pool whose creator then takes every share back out, so its lp mint's supply
+// is 0. (The pool itself still counts the 100 shares locked at opening, which were never minted.)
+const burned = await openFreshPool();
+{
+  const view = await readPool(burned.pool);
+  const lpAccount = ata(burned.lpMint, payer.publicKey, SPL.TOKEN_PROGRAM_ID);
+  // No floors: this withdraw is setup, on a pool only this script trades in.
+  await mustLand('take every share out of the second fresh pool', [C.withdrawIx({
+    programId: CP, owner: payer.publicKey, poolState: burned.pool, ownerLpToken: lpAccount,
+    token0Account: ata(burned.token0, payer.publicKey, SPL.TOKEN_PROGRAM_ID), token1Account: ata(burned.token1, payer.publicKey, SPL.TOKEN_PROGRAM_ID),
+    token0Vault: pk(view.token0Vault), token1Vault: pk(view.token1Vault), vault0Mint: burned.token0, vault1Mint: burned.token1, lpMint: burned.lpMint,
+    lpTokenAmount: await tokenAmount(lpAccount), minimumToken0Amount: 0n, minimumToken1Amount: 0n,
+  })], [payer]);
+  check((await mintSupply(burned.lpMint)) === 0n, `a second pool was opened and every share taken back out: ${burned.pool.toBase58()}, lp mint ${burned.lpMint.toBase58()}, supply 0`);
+}
+
+// The stranger's own wrapped-SOL token account at a KEYPAIR address, so the stranger can also
+// sign as it. It is used below as a hostile record slot, a hostile extra account and a hostile payer.
+const strangerToken = Keypair.generate();
+await mustLand('the stranger\'s token account', [
+  SystemProgram.createAccount({ fromPubkey: stranger.publicKey, newAccountPubkey: strangerToken.publicKey, lamports: (await conn.getMinimumBalanceForRentExemption(SPL.ACCOUNT_SIZE)) + LAMPORTS_PER_SOL, space: SPL.ACCOUNT_SIZE, programId: SPL.TOKEN_PROGRAM_ID }),
+  SPL.createInitializeAccount3Instruction(strangerToken.publicKey, WSOL_MINT, stranger.publicKey, SPL.TOKEN_PROGRAM_ID),
+], [stranger, strangerToken]);
 
 // A mint a stranger made, naming our signing address as its mint authority. Metaplex alone
 // would accept it (the authority matches and signs); only the pool binding keeps it out.
@@ -286,6 +353,10 @@ const targets = [
   { ...REAL_POOLS[0], prefund: 1_000_000n, extra: true },
   // Funded by a stranger ABOVE the rent minimum.
   { ...REAL_POOLS[1], prefund: rentRecord + 2_000_000n, extra: false },
+  // Every share burned first (supply 0), and the caller sets every hostile flag it can: the lp
+  // mint, the pool and the signing address marked writable, and vaults, token programs and a
+  // token account appended.
+  { label: 'pool whose shares were all burned', pool: burned.pool, lpMint: burned.lpMint, prefund: 0n, extra: false, hostile: true },
 ];
 for (const t of targets) {
   t.view = await readPool(t.pool);
@@ -323,6 +394,58 @@ refused(await send([createLpMetadataIx({ ...good, authority: stranger.publicKey 
 }
 check(JSON.stringify(await snapshot([...F.watch, ...S.watch, F.record, S.record])) === JSON.stringify(beforeRefusals), 'after every refusal: both pools, their lp mints, vaults, observation accounts and fee config are byte-identical, and no record exists');
 
+// ── 2b. hostile record slots and payers, on a real pool ──────────────────────
+// The program checks four of the six accounts it hands to Metaplex. The other two are the
+// caller's: the payer, which must sign, and the record slot, which the program does NOT check
+// and passes on writable, beside the signature of the address that owns every vault. What
+// keeps a vault out of reach is the runtime (a program can only call a program it was handed,
+// and one slot cannot hold both a vault and the token program) and Metaplex, measured here:
+// it refuses every wrong record slot, and the only program it ever calls is the System program.
+section('b2. hostile record slots and payers (on the real BAYLA/SOL pool, before its record exists)');
+{
+  const T = targets[1];
+  const O = targets[2];
+  const sides = [0, 1].map((i) => ({ vault: pk(i ? T.view.token1Vault : T.view.token0Vault), program: i ? T.view.token1Program : T.view.token0Program }));
+  const classicVault = sides.find((s) => s.program === SPL.TOKEN_PROGRAM_ID.toBase58())?.vault;
+  const token2022Vault = sides.find((s) => s.program === SPL.TOKEN_2022_PROGRAM_ID.toBase58())?.vault;
+  if (!classicVault || !token2022Vault) throw new Error(`${T.label}: expected one classic vault and one Token-2022 vault`);
+  const emptyWallet = Keypair.generate();
+  // Everything a hostile caller would want Metaplex to reach, appended to OUR instruction.
+  const appended = [
+    { pubkey: SPL.TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
+    { pubkey: SPL.TOKEN_2022_PROGRAM_ID, isSigner: false, isWritable: false },
+    { pubkey: strangerToken.publicKey, isSigner: false, isWritable: true },
+    { pubkey: classicVault, isSigner: false, isWritable: true },
+    { pubkey: token2022Vault, isSigner: false, isWritable: true },
+  ];
+  const base = { payer: stranger.publicKey, poolState: T.pool, lpMint: T.lpMint };
+  const MPL = METAPLEX.toBase58();
+  const SYS = SystemProgram.programId.toBase58();
+  const cases = [
+    { what: 'record slot = the pool\'s wrapped-SOL vault, with both token programs, a token account and both vaults appended', ix: createLpMetadataIx({ ...base, metadata: classicVault, extra: appended }), want: MPL_EXPECTED_UNINITIALIZED, by: MPL },
+    { what: 'record slot = the pool\'s BAYLA vault (a Token-2022 account), same accounts appended', ix: createLpMetadataIx({ ...base, metadata: token2022Vault, extra: appended }), want: MPL_REFUSES_TOKEN_2022_ACCOUNT, by: MPL },
+    { what: 'record slot = the signing address itself (so it is writable AND signing in the inner call)', ix: createLpMetadataIx({ ...base, metadata: AUTHORITY, writable: ['authority'], extra: appended }), want: MPL_INVALID_METADATA_KEY, by: MPL },
+    { what: 'record slot = the lp mint itself (so it is writable in the inner call)', ix: createLpMetadataIx({ ...base, metadata: T.lpMint, writable: ['lpMint'], extra: appended }), want: MPL_EXPECTED_UNINITIALIZED, by: MPL },
+    { what: 'record slot = the pool account', ix: createLpMetadataIx({ ...base, metadata: T.pool, writable: ['poolState'], extra: appended }), want: MPL_EXPECTED_UNINITIALIZED, by: MPL },
+    { what: 'record slot = the token program', ix: createLpMetadataIx({ ...base, metadata: SPL.TOKEN_PROGRAM_ID, extra: appended.slice(2) }), want: MPL_EXPECTED_UNINITIALIZED, by: MPL },
+    { what: 'record slot = the Squads vault (the editor)', ix: createLpMetadataIx({ ...base, metadata: VAULT }), want: MPL_INVALID_METADATA_KEY, by: MPL },
+    { what: 'record slot = a token account the caller owns', ix: createLpMetadataIx({ ...base, metadata: strangerToken.publicKey, extra: appended.slice(0, 2) }), want: MPL_EXPECTED_UNINITIALIZED, by: MPL },
+    { what: 'record slot = the OTHER real pool\'s record address', ix: createLpMetadataIx({ ...base, metadata: O.record }), want: MPL_INVALID_METADATA_KEY, by: MPL },
+    { what: 'payer = a token account its owner signs as (right record address)', ix: createLpMetadataIx({ ...base, payer: strangerToken.publicKey }), signers: [stranger, strangerToken], want: 'InvalidArgument', by: SYS },
+    { what: 'payer = a wallet with no lamports (right record address)', ix: createLpMetadataIx({ ...base, payer: emptyWallet.publicKey }), signers: [stranger, emptyWallet], want: SYSTEM_INSUFFICIENT_LAMPORTS, by: SYS },
+  ];
+  const watch = [...T.watch, ...O.watch, T.record, O.record, VAULT, strangerToken.publicKey];
+  const before = await snapshot(watch);
+  for (const c of cases) {
+    const r = await send([c.ix], c.signers ?? [stranger]);
+    const got = customCode(r) ?? builtinError(r);
+    const tokenCalls = innerCalls(r).filter((i) => TOKEN_PROGRAMS.includes(i.program));
+    check(got === c.want && failedIn(r) === c.by && tokenCalls.length === 0,
+      `${c.what}: refused with ${c.want} by ${c.by === MPL ? 'Metaplex' : 'the System program'}, and no inner call reached a token program (got ${JSON.stringify(r.err)} from ${failedIn(r)}, ${tokenCalls.length} token program calls)`);
+  }
+  check(JSON.stringify(await snapshot(watch)) === JSON.stringify(before), 'after every hostile call: both real pools, their lp mints, all four vaults, observation accounts, fee config, the signing address, the Squads vault and the caller\'s token account are byte-identical, and no record exists');
+}
+
 // ── 3. the call itself, three times ──────────────────────────────────────────
 const results = [];
 for (const t of targets) {
@@ -332,14 +455,18 @@ for (const t of targets) {
     const funded = await conn.getAccountInfo(t.record, 'confirmed');
     check(!!funded && BigInt(funded.lamports) === t.prefund && funded.data.length === 0, `c. a stranger put ${t.prefund} lamports on the record address first (${t.prefund < rentRecord ? 'below' : 'above'} the rent minimum)`);
   }
-  const extra = t.extra
-    ? [t.view.token0Vault, t.view.token1Vault].map((v) => ({ pubkey: pk(v), isSigner: false, isWritable: true }))
-      .concat([SPL.TOKEN_PROGRAM_ID, SPL.TOKEN_2022_PROGRAM_ID].map((p) => ({ pubkey: p, isSigner: false, isWritable: false })))
-    : [];
-  const before = await snapshot(t.watch);
+  const ownVaults = [t.view.token0Vault, t.view.token1Vault].map((v) => ({ pubkey: pk(v), isSigner: false, isWritable: true }));
+  const tokenPrograms = [SPL.TOKEN_PROGRAM_ID, SPL.TOKEN_2022_PROGRAM_ID].map((p) => ({ pubkey: p, isSigner: false, isWritable: false }));
+  // The hostile caller also appends a real pool's vaults and a token account of its own.
+  const foreign = t.hostile ? [pk(targets[1].view.token0Vault), pk(targets[1].view.token1Vault), strangerToken.publicKey] : [];
+  const extra = t.hostile ? [...ownVaults, ...tokenPrograms, ...foreign.map((k) => ({ pubkey: k, isSigner: false, isWritable: true }))] : t.extra ? [...ownVaults, ...tokenPrograms] : [];
+  const writable = t.hostile ? ['authority', 'poolState', 'lpMint'] : [];
+  const watch = [...t.watch, ...foreign];
+  const before = await snapshot(watch);
   const payerBefore = BigInt(await conn.getBalance(payer.publicKey, 'confirmed'));
-  const r = await send([createLpMetadataIx({ payer: payer.publicKey, poolState: t.pool, lpMint: t.lpMint, extra })], [payer]);
-  if (!check(r.err === null, `a. the call landed${t.extra ? ' (with both vaults and both token programs appended by the caller)' : ''}: ${r.err === null ? r.sig : JSON.stringify(r.err)}`)) {
+  const r = await send([createLpMetadataIx({ payer: payer.publicKey, poolState: t.pool, lpMint: t.lpMint, extra, writable })], [payer]);
+  const how = t.hostile ? ' (lp mint supply 0; the lp mint, the pool and the signing address marked writable; vaults, token programs and a token account appended)' : t.extra ? ' (with both vaults and both token programs appended by the caller)' : '';
+  if (!check(r.err === null, `a. the call landed${how}: ${r.err === null ? r.sig : JSON.stringify(r.err)}`)) {
     console.log(r.logs.map((l) => `      ${l}`).join('\n'));
     continue;
   }
@@ -361,14 +488,16 @@ for (const t of targets) {
 
   // d. what Metaplex was handed. Our instruction is the only top-level one, so every inner
   // instruction belongs to it: exactly one call into Metaplex, then only System program calls.
-  const inner = r.inner.flatMap((g) => g.instructions).map((i) => ({ program: r.keys[i.programIdIndex].toBase58(), accounts: i.accounts.map((a) => r.keys[a].toBase58()) }));
+  const inner = innerCalls(r);
   const toMetaplex = inner.filter((i) => i.program === METAPLEX.toBase58());
   const wantAccounts = [t.record, t.lpMint, AUTHORITY, payer.publicKey, VAULT, SystemProgram.programId].map((k) => k.toBase58());
   check(toMetaplex.length === 1 && JSON.stringify(toMetaplex[0].accounts) === JSON.stringify(wantAccounts), `d. one call into Metaplex, handed exactly its six accounts: record, lp mint, signing address, payer, editor, System program (got ${toMetaplex.map((i) => i.accounts.length).join(',')} accounts)`);
   const others = [...new Set(inner.filter((i) => i.program !== METAPLEX.toBase58()).map((i) => i.program))];
   check(others.every((p) => p === SystemProgram.programId.toBase58()), `d. every other inner call is to the System program; none reaches a token program (${inner.length} inner calls: ${[...new Set(inner.map((i) => i.program))].join(', ')})`);
   check(inner.every((i) => !i.accounts.includes(t.view.token0Vault) && !i.accounts.includes(t.view.token1Vault)), 'd. no inner call names either vault');
-  check(JSON.stringify(await snapshot(t.watch)) === JSON.stringify(before), 'd. the pool, its lp mint, both vaults, its observation account, its fee config and the signing address are byte-identical after (owner, lamports, data)');
+  const systemCalls = inner.filter((i) => i.program === SystemProgram.programId.toBase58());
+  check(systemCalls.length > 0 && systemCalls.every((i) => i.accounts.every((a) => a === t.record.toBase58() || a === payer.publicKey.toBase58())), `d. the ${systemCalls.length} System program calls name only the record and the payer`);
+  check(JSON.stringify(await snapshot(watch)) === JSON.stringify(before), `d. the pool, its lp mint, both vaults, its observation account, its fee config and the signing address are byte-identical after (owner, lamports, data)${t.hostile ? ', and so are the real pool\'s vaults and the token account the caller appended' : ''}`);
   console.log(`  compute units used: ${r.units}`);
   results.push({ pool: t.label, lpMint: t.lpMint.toBase58(), record: t.record.toBase58(), signature: r.sig, computeUnits: r.units, bytes: rec.data.length, lamports: rec.lamports, callerPaid: paid.toString(), prefunded: t.prefund.toString() });
 
@@ -463,7 +592,39 @@ for (const t of REAL_POOLS) {
     `withdraw returned exactly the site's numbers, with the floors set to them: ${back.token0Amount} and ${back.token1Amount}`);
   const end = await readPool(t.pool);
   check((await tokenAmount(lpAccount)) === 0n && end.lpSupply === view.lpSupply && (await mintSupply(t.lpMint)) === view.lpSupply - 100n, 'withdraw burned every share: the pool\'s count is back where it started, and the mint\'s supply is that less the 100 locked at opening');
-  amounts.push({ pool: t.label, lpAmount: lpAmount.toString(), depositCost: [cost.token0Amount.toString(), cost.token1Amount.toString()], swapIn: amountIn.toString(), swapOut: quote.outputAmount.toString(), withdrawBack: [back.token0Amount.toString(), back.token1Amount.toString()], units: { deposit: dep.units, swap: swap.units, withdraw: wd.units } });
+
+  // swap naming the amount OUT (swap_base_output): token 1 in, token 0 out, 0.05% of the token 0 vault.
+  // The most to pay is everything the trader holds of token 1: the ceiling is not what is under test.
+  const amountOut = v3[0] / 2000n;
+  const likeInput = C.swapBaseInputIx({
+    programId: CP, payer: trader.publicKey, ammConfig: pk(view.ammConfig), poolState: t.pool, inputTokenAccount: side[1].account, outputTokenAccount: side[0].account,
+    inputVault: side[1].vault, outputVault: side[0].vault, inputTokenProgram: side[1].program, outputTokenProgram: side[0].program, inputTokenMint: side[1].mint, outputTokenMint: side[0].mint,
+    observationState: pk(view.observationKey), amountIn: 0n, minimumAmountOut: 0n,
+  });
+  const sbo = await send([new TransactionInstruction({ programId: CP, keys: likeInput.keys, data: Buffer.concat([IX_SWAP_BASE_OUTPUT, u64le(w3[1]), u64le(amountOut)]) })], [trader]);
+  const v4 = await vaults();
+  const w4 = await wallet();
+  const paid = w3[1] - w4[1];
+  check(sbo.err === null, `swap naming the amount out landed: ${sbo.err === null ? sbo.sig : JSON.stringify(sbo.err)}`);
+  check(v3[0] - v4[0] === amountOut && w4[0] - w3[0] === amountOut, `it paid out exactly the ${amountOut} asked for (vault -${v3[0] - v4[0]}, wallet +${w4[0] - w3[0]})`);
+  // What it must cost: the curve's amount in (rounded up, the site's own swapBaseOutputWithoutFees),
+  // then the fee added on top, rounded up. curve/calculator.rs swap_base_output, typed out here.
+  const wf3 = [0, 1].map((i) => C.vaultAmountWithoutFee(v3[i], i ? end.protocolFeesToken1 : end.protocolFeesToken0, i ? end.fundFeesToken1 : end.fundFeesToken0, i ? end.creatorFeesToken1 : end.creatorFeesToken0));
+  const D = C.FEE_RATE_DENOMINATOR;
+  const beforeFee = (after, rate) => (rate === 0n ? after : (after * D + (D - rate) - 1n) / (D - rate));
+  const creatorRate = end.enableCreatorFee ? cfg.creatorFeeRate : 0n;
+  const creatorOnInput = C.isCreatorFeeOnInput(end.creatorFeeOn, false) ?? true;
+  const curveIn = C.swapBaseOutputWithoutFees(creatorOnInput ? amountOut : beforeFee(amountOut, creatorRate), wf3[1], wf3[0]);
+  if (curveIn === null) throw new Error('the site\'s maths gave no amount in');
+  const wantPaid = beforeFee(curveIn, creatorOnInput ? cfg.tradeFeeRate + creatorRate : cfg.tradeFeeRate);
+  check(paid === wantPaid && v4[1] - v3[1] === paid, `it took exactly ${wantPaid} of token 1 from the trader, and the vault gained exactly that (wallet -${paid}, vault +${v4[1] - v3[1]})`);
+  // And the site's forward maths agrees: that much in buys at least the amount asked for.
+  const forward = paid > 0n ? C.swapBaseInput({
+    inputAmount: paid, inputVaultAmount: wf3[1], outputVaultAmount: wf3[0],
+    tradeFeeRate: cfg.tradeFeeRate, creatorFeeRate: creatorRate, protocolFeeRate: cfg.protocolFeeRate, fundFeeRate: cfg.fundFeeRate, isCreatorFeeOnInput: creatorOnInput,
+  }) : null;
+  check(!!forward && forward.outputAmount >= amountOut, `the site's forward maths says ${paid} in buys ${forward?.outputAmount}, which covers the ${amountOut} asked for`);
+  amounts.push({ pool: t.label, lpAmount: lpAmount.toString(), depositCost: [cost.token0Amount.toString(), cost.token1Amount.toString()], swapIn: amountIn.toString(), swapOut: quote.outputAmount.toString(), withdrawBack: [back.token0Amount.toString(), back.token1Amount.toString()], swapNamingOut: { out: amountOut.toString(), paid: paid.toString() }, units: { deposit: dep.units, swap: swap.units, withdraw: wd.units, swapNamingOut: sbo.units } });
   // The record written above (if it was) is untouched by all of it.
   const rec = await conn.getAccountInfo(metadataPda(t.lpMint), 'confirmed');
   if (rec?.owner.equals(METAPLEX)) check(decodeMetadata(rec.data).name === WANT_NAME && rec.data.length === RECORD_BYTES, 'the lp mint\'s record is still there, unchanged in name and size, after deposit, swap and withdraw');
