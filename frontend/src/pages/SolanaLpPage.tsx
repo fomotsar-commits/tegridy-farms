@@ -33,7 +33,7 @@ export default function SolanaLpPage() {
   // The token being looked at (?mint=) follows the reader to the Venue AMM tab.
   const [params] = useSearchParams();
   const venueAmmLink = (
-    <Link to={withMint('/pools', params)} className="inline-block py-2 underline underline-offset-2 text-white hover:text-white/80">
+    <Link to={withMint('/pools', params)} className="inline-flex min-h-[44px] items-center underline underline-offset-2 text-white hover:text-white/80">
       See fees, status and how the pools work on the Venue AMM tab
     </Link>
   );

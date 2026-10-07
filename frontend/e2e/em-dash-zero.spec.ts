@@ -59,7 +59,7 @@ const VENUE_VOICE_DEBT: Record<string, number> = {
   '/liquidity': 6,
   '/privacy': 7,
   '/trust': 7,
-  '/pools': 1,
+  '/pools': 0,
   '/solana-lp': 0,
   '/nft-finance': 10,
   '/developers': 10,
@@ -452,10 +452,10 @@ test.describe('element I: the BAYLA lock ladder card, once its pool reads', () =
 // read unanswered, some card would be on its unread branch and the count would be of a
 // mixed page. The count holds both ways, like every budget here, and the page must show
 // the figures it read, or the test fails: a sheet that never read proves nothing.
-// The one it carries is the same one the sealed branch does (VENUE_VOICE_DEBT['/pools']), in the
-// sections below the sheet that do not depend on the read. It was three until the Solana
-// LP section moved to its own tab (/solana-lp) and took two with it.
-const POOLS_LIVE_DEBT: number = 1;
+// At zero, like the sealed branch (VENUE_VOICE_DEBT['/pools']): the sentences below the sheet
+// do not depend on the read, and the last dash there (the withdraw line) is gone. It was
+// three until the Solana LP section moved to its own tab (/solana-lp) and took two with it.
+const POOLS_LIVE_DEBT: number = 0;
 
 test.describe('element I: /pools, once its venue reads', () => {
   const path = '/pools';
