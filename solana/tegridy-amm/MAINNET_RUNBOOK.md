@@ -258,15 +258,18 @@ That is the intended workflow, not a breakage:
 
 1. Push the constant change. `diff-guard` fails and **prints the full delta and the actual
    hash**.
-2. Read the printed delta and satisfy yourself it is still only identity constants and the
-   one added instruction, `create_lp_metadata` (in the delta since 2026-10-06).
+2. Read the printed delta and satisfy yourself it is still only identity constants, the
+   program's own name and contact text (the `security_txt!` macro and one `Cargo.toml`
+   line), and the one added instruction, `create_lp_metadata` (in the delta since
+   2026-10-06).
 3. Update `EXPECTED_DELTA_SHA256` to the printed `actual` value **in the same PR**.
 
 The delta is about 260 lines over **three** files: `lib.rs`,
 `instructions/admin/create_support_mint_associated.rs`, and `Cargo.toml`. It was 94 lines
 until 2026-10-06, when `create_lp_metadata` was added to `lib.rs`: the instruction that
-gives a pool's lp token a name record (see `TEGRIDY_FORK.md`). The binary deployed on
-2026-09-29 was built before that and does not have it.
+gives a pool's lp token a name record (see `TEGRIDY_FORK.md`). The same day four values of
+the on-chain security text changed in `lib.rs`, which left the count at 261. The binary
+deployed on 2026-09-29 was built before both and has neither.
 
 The program id is **mirrored in two more places** that the guard does not cover; all three
 must agree or the client derives PDAs that do not exist under the deployed program:
@@ -320,8 +323,13 @@ funded pools. It has not been rehearsed: enlarging a program and then upgrading 
 larger file has never been run by this project on any cluster. This section is the list of
 gates. The command sheet is written after the devnet rehearsal, not before.
 
+**One upgrade carries two changes** (decided 2026-10-06, gate A4): the instruction
+`create_lp_metadata`, and the program's on-chain security text, which moves to an email and
+links on `memetics.finance`.
+
 What the instruction is, and why the vaults are out of its reach: `TEGRIDY_FORK.md`, "The one
-added instruction".
+added instruction". What the security text says and why: the same file, "The on-chain
+security text".
 
 ### A. Before the upgrade PROPOSAL is created. Every one, on the exact commit being built.
 
@@ -341,23 +349,44 @@ added instruction".
 3. **Every instruction has run on the new binary.** An upgrade replaces the whole program,
    so the old instructions are new bytes too. See the table in C for what has run and what
    has not. Nothing in "not yet" may still be there when the proposal is created.
-4. **One upgrade or two: the owner decides before anything is built.** The to-do
-   `O-0929-10` (`docs/TODO_OPERATOR.md`) says the next cp-swap upgrade must also fix the
-   on-chain security contact, which still points at a dead link. Folding it in is one more
-   `lib.rs` edit, and then the binary hash, its size, the delta pin and the costs below all
-   change and every build and proof result so far is about a binary that will not ship.
-   Do not carry numbers across that edit: rebuild, re-pin and re-run.
-5. **Build from the merged commit, twice, byte for byte the same.** Run
+4. **Decided: one upgrade, both changes.** The owner was asked "one upgrade or two" and
+   delegated the call on 2026-10-06. The answer is one. So this upgrade also carries the
+   on-chain security text of to-do `O-0929-10` (`docs/TODO_OPERATOR.md`): four values of the
+   `security_txt!` macro in `lib.rs`, an email as the first contact, every link on
+   `memetics.finance`. Those strings are in the binary, so the build that has them
+   (`99a9e73d…`) is a different file from the build made earlier that day (`7648994d…`),
+   which must never be deployed. Every hash, size and cost in this section is for
+   `99a9e73d…`. Two checks come with the text:
+   - **Its three links answer, checked from outside our own network, on the day.**
+     `curl -sI https://memetics.finance/source/solana/tegridy-amm/SECURITY.md` and
+     `curl -sI https://memetics.finance/source/solana/tegridy-amm` each answer `307`, and
+     each `location` opens the real file and the real folder: not a `404` page and not the
+     repo root. `https://memetics.finance/.well-known/security.txt` is the text file, and its
+     `Contact:` email is the one in the macro. Read 2026-10-06: all three did.
+   - **The binary says what the source says.** In the built file, and again in the bytes
+     read back from the buffer (gate 6): `grep -a -c -F 'github.com' <file>` and
+     `grep -a -c -F 'memetic.fun' <file>` both print `0`, and
+     `grep -a -c -F 'email:fomotsar@gmail.com,link:https://memetics.finance/.well-known/security.txt' <file>`
+     prints `1`. (`memetic.fun` is the old host. It is not inside `memetics.finance`.)
+
+   Do not carry numbers across another `lib.rs` edit: rebuild, re-pin and re-run.
+5. **Build from the merged commit, twice, byte for byte the same.** The result is
+   `99a9e73d…` only if `programs/cp-swap/` and `Cargo.lock` are byte for byte what they
+   were on 2026-10-06. If the hash differs, find out why before going on. Run
    `node scripts/verify-program-constants.mjs --so <file> --roster cp-swap` on it. Run
    `frontend/scripts/solana-localnet/prove-lp-metadata.mjs` against it on a local validator
    seeded from a fresh read of both pools.
 6. **The file in the buffer is the file that was built.** The mainnet build and the devnet
-   build are the SAME size (724,672 bytes on 2026-10-06), and a devnet build at the mainnet
+   build are the SAME size (724,688 bytes on 2026-10-06), and a devnet build at the mainnet
    id fails every instruction with `DeclaredProgramIdMismatch`: deposits, swaps and
-   withdrawals would stop until a second upgrade. So, before either member signs: read the
-   buffer account's bytes BACK from chain, sha256 them, compare with the build from step 5,
-   and run `verify-program-constants.mjs` on those same bytes. Prepare the upgrade from a
-   folder that holds that one `.so` and nothing else: no devnet build, no test build.
+   withdrawals would stop until a second upgrade. The build made before the security text
+   changed (`7648994d…`, 724,672 bytes) is only 16 bytes smaller and passes the constants
+   check, so size and that check alone do not tell it apart: the sha256 and the three `grep`
+   lines of gate 4 do. So, before either member signs: read the buffer account's bytes BACK
+   from chain, sha256 them, compare with the build from step 5, and run
+   `verify-program-constants.mjs` and gate 4's `grep` lines on those same bytes. Prepare the
+   upgrade from a folder that holds that one `.so` and nothing else: no devnet build, no
+   test build, no earlier build.
 7. **Ready to send the moment the upgrade lands:** the two `create_lp_metadata` calls (anyone
    can send them; whoever does pays about 0.014 SOL each), and the vault's rename proposal
    (D below).
@@ -367,19 +396,24 @@ added instruction".
 Files live and checked (A1) → enlarge the program account by the growth of the binary → in a
 LATER slot, the upgrade → the two `create_lp_metadata` calls → the rename proposal.
 
-Numbers measured 2026-10-06 for the build `7648994d…` (re-read every one on the day; all of
-them change if `lib.rs` changes):
+Numbers measured 2026-10-06 for the build that carries both changes (re-read every one on
+the day; all of them change if `lib.rs` changes). The rent was read on chain that day
+(05:04 UTC on the 7th): 5,080 lamports per byte, and the program account holds exactly its
+minimum, with no spare bytes and no spare lamports.
 
 | | |
 |---|---|
-| Growth of the binary | 33,032 bytes (691,640 → 724,672) |
-| Enlarging the program account | 167,802,560 lamports (0.1678 SOL) at 5,080 lamports per byte, locked for good. The smallest step the loader accepts is 10,240 bytes, so the growth sets the price. Any wallet can pay it; it is not a vault action. It re-deploys the program at that slot, so calls fail for about one slot. |
-| The upgrade buffer | 3,682,171,960 lamports (3.682 SOL), returned when the upgrade executes |
+| The build | 724,688 bytes, sha256 `99a9e73dc469755b178d8029196be0ee8f92e557bbd65e15e4511084b6a0fe25`. Built twice from clean copies, byte for byte the same. |
+| Growth of the binary | 33,048 bytes (691,640 → 724,688). The security text is 16 of them: the build with the instruction alone was 724,672. |
+| Enlarging the program account | 167,883,840 lamports (0.1679 SOL) at 5,080 lamports per byte, locked for good. The smallest step the loader accepts is 10,240 bytes, so the growth sets the price. Any wallet can pay it; it is not a vault action. It re-deploys the program at that slot, so calls fail for about one slot. |
+| The upgrade buffer | 3,682,253,240 lamports (3.682 SOL) for its 724,725 bytes, returned when the upgrade executes |
 | One name record | 13,733,800 lamports from whoever calls: 3,733,800 rent plus Metaplex's flat 10,000,000 |
 
 ### C. What has run on the new binary, and what ships in the same release
 
-Run on `7648994d…`, on a local validator with mainnet's feature set and Metaplex cloned:
+Run on `99a9e73d…`, the build that carries both changes, on a local validator with mainnet's
+feature set and Metaplex cloned. (Both runs had passed earlier that day on `7648994d…`, the
+build with the instruction alone. They were run again because that is a different file.)
 
 | instruction | run? |
 |---|---|
@@ -408,6 +442,11 @@ In the SAME release as the upgrade (site and repo):
 - The docs that say the mainnet binary was built before the instruction: `README.md` here,
   the root `README.md` feature row, `idl/README.md`, the status note in `TEGRIDY_FORK.md`,
   `AUDIT_RFQ.md` ("Corrected again 2026-10-06") and §2 of this file.
+- The docs that say the on-chain security text is waiting for the upgrade: to-do `O-0929-10`
+  in `docs/TODO_OPERATOR.md` (tick it once the explorer's security tab shows the new
+  values), `docs/DEPLOY_RUNBOOK.md` ("Moving the source links"), `docs/SECURITY_TOOLING.md`
+  (step 3), "The on-chain security text" in `TEGRIDY_FORK.md`, `README.md` here, and
+  `AUDIT_RFQ.md`.
 
 ### D. The name records afterwards
 

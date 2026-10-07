@@ -276,7 +276,15 @@ GIT_HOSTING.md, the runbook's four GitLab lines and `OUR_REPOS` in
 
 ## 🟡 2026-09-29: at the next cp-swap upgrade, point its on-chain security.txt at our own domain
 
-### ⬜ O-0929-10: four `security_txt!` fields, changed in the same commit as the upgrade
+### ⬜ O-0929-10: four `security_txt!` fields. In source since 2026-10-06, waiting for the upgrade
+
+**Where it stands (2026-10-06).** The values below are in the source, on the branch that adds
+`create_lp_metadata` (PR #758), and the stale comment is gone. **Nothing on chain has
+changed.** The program on mainnet shows the old text until the Squads vault upgrades it. The
+owner was asked "one upgrade or two" and delegated the call on 2026-10-06. The answer is ONE:
+the same upgrade carries the instruction and this text. Its gates and its order are in
+`solana/tegridy-amm/MAINNET_RUNBOOK.md`, section 4b. Tick this box when the explorer shows the
+new values, not before.
 
 **What is wrong.** cp-swap has been live on mainnet since 2026-09-29
 (`EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT`). Explorers show its on-chain security.txt,
@@ -285,13 +293,16 @@ and no link in it does its job. Measured 2026-09-30: `policy` opens `SECURITY.md
 because `main` has no `solana/tegridy-amm`. `contacts` points at `memetic.fun/trust`, which is
 now another project's 404. And all three depend on one git host, which went dark from
 2026-09-24 to 2026-09-29. Only a program upgrade can change them. Do not upgrade for this alone.
+Read again 2026-10-06: GitHub no longer has a `main` branch, so `policy` is a `404` too. All
+three links in the live program's text now fail.
 
-**Do, in the commit that builds the next cp-swap upgrade:** in
-`solana/tegridy-amm/programs/cp-swap/src/lib.rs`, set the macro to exactly these values. The
-email is the `Contact:` in `frontend/public/.well-known/security.txt` on the day you build
-(today `fomotsar@gmail.com`; if they differ, use the file's). Then drop the stale "add a
-dedicated security disclosure email here" comment inside the macro, because the email is now
-there:
+**Done in source on 2026-10-06:** in `solana/tegridy-amm/programs/cp-swap/src/lib.rs`, the
+macro is set to exactly these values. The email is the `Contact:` in
+`frontend/public/.well-known/security.txt`, read on the day of the build
+(`fomotsar@gmail.com`). If that file's contact changes before the upgrade is built, the macro
+must follow it, and that is a new binary: rebuild, re-pin and re-run everything in runbook 4b.
+The stale "add a dedicated security disclosure email here" comment inside the macro is gone,
+because the email is now there:
 
 ```rust
 solana_security_txt::security_txt! {
@@ -310,18 +321,31 @@ solana_security_txt::security_txt! {
   that path). `/source/...` is a redirect in `frontend/vercel.json` to whichever git host holds
   the code, so a future host move is a `vercel.json` edit, never another program upgrade. Never
   put a git-host URL in a program binary again.
-- The edit changes cp-swap's diff against upstream Raydium, so move the diff-guard's
-  `EXPECTED_DELTA_SHA256` in the same commit. Start from the value on the deployed branch
-  (`ship/solana-launch-on`: `5c737ac7…`), not trunk's. (2026-10-06: the pin moved to
-  `c18d4d63…` when `create_lp_metadata`, the instruction that names a pool's lp token, was
-  added to cp-swap's `lib.rs`. `5c737ac7…` is still the delta of the binary on mainnet. An
-  upgrade that carries both changes starts from `c18d4d63…`.)
+- The edit changes cp-swap's diff against upstream Raydium, so the diff-guard's
+  `EXPECTED_DELTA_SHA256` moved in the same commit, from `2bbd1e55…` to `5d7baf26…`. The
+  pin's history: `5c737ac7…` is the delta of the binary on mainnet (the deployed branch,
+  `ship/solana-launch-on`). `c18d4d63…` and then `2bbd1e55…` came on 2026-10-06 with
+  `create_lp_metadata`, the instruction that names a pool's lp token. `5d7baf26…` adds this
+  text: eight changed lines, four of them these values and four of them comments.
+- These strings are in the binary, so the build that carries them (`99a9e73d…`, 724,688
+  bytes) is a different file from the build made earlier that day with the instruction alone
+  (`7648994d…`, 724,672 bytes). Runbook 4b has the full hash and what the upgrade costs.
+  Never deploy the earlier build: it still carries the dead links.
 
 **You should see**, before the upgrade:
 `curl -sI https://memetics.finance/source/solana/tegridy-amm/SECURITY.md` answers `307`, and
 its `location` opens that file on the git host. Check the file itself opens, not a `404` page
-or the repo root: GitLab answers a path it does not have with the repo root. After the
-upgrade, the explorer's security tab for the program shows the four new values.
+or the repo root: GitLab answers a path it does not have with the repo root. The same for
+`https://memetics.finance/source/solana/tegridy-amm`, which must open the folder. And
+`https://memetics.finance/.well-known/security.txt` must be the text file, with the same
+`Contact:` email as the macro. Read on 2026-10-06 (04:53 UTC on the 7th): all three did. Both
+`/source` links answered `307` and opened the real file and the real folder on GitHub's
+`mvp-launch`, and the text file was the committed one, byte for byte. The folder link takes
+one more hop: our redirect sends it to the host's `/blob/` address, and the host forwards a
+folder from there to `/tree/`. GitHub does, and so did the GitLab standby when read the same
+day. A third host may not, so test the folder link itself after any host move. Check again
+on the day.
+After the upgrade, the explorer's security tab for the program shows the four new values.
 
 ### ⬜ O-0929-12: decide whether the two new Solana programs are in the root security scope
 

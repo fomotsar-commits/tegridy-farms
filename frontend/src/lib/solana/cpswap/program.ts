@@ -22,11 +22,12 @@ import { PublicKey } from '@solana/web3.js';
  * CI's `diff-guard` clones upstream, refuses any differing file outside two,
  * and sha256-hashes the remaining delta against a pinned value: about 260
  * lines across `lib.rs`, `create_support_mint_associated.rs` and `Cargo.toml`,
- * all of it authority constants, comments and ONE added instruction,
- * `create_lp_metadata` (it names a pool's lp token; this site does not send
- * it, and it adds no account type). So every layout, seed and
- * discriminator below is Raydium's, and a resync that changes any of them
- * fails `program.test.ts` before it can misdecode an account.
+ * all of it authority constants, the program's own name and contact text,
+ * comments and ONE added instruction, `create_lp_metadata` (it names a pool's
+ * lp token; this site does not send it, and it adds no account type). So
+ * every layout, seed and discriminator below is Raydium's, and a resync that
+ * changes any of them fails `program.test.ts` before it can misdecode an
+ * account.
  *
  * There is NO committed IDL (`solana/tegridy-amm/.gitignore` ignores `target/`),
  * so the layouts here are encoded BY HAND from the program source and pinned by

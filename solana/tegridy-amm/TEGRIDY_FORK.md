@@ -39,6 +39,13 @@ fallback for pairs we don't host well.
 > constants only, and `diff-guard` was re-pinned for it. The program is live on mainnet
 > (since 2026-09-29, with funded pools) and runs the binary built BEFORE this change: it
 > gets the instruction only when the owner upgrades it through the Squads vault.
+>
+> **2026-10-06, the same day: the on-chain security text moved to our own domain, in source.**
+> The binary on mainnet shows a contact that is another project's 404 and two links to a
+> GitHub branch that no longer exists. The source now carries an email and links on
+> `memetics.finance` (see "The on-chain security text" below). The owner delegated "one
+> upgrade or two" that day and the answer is one: the same upgrade carries the instruction
+> and this text. `diff-guard` was re-pinned for it.
 
 ---
 
@@ -46,10 +53,15 @@ fallback for pairs we don't host well.
 
 Exactly **four authority/identity constants** across **two files** (`lib.rs` and
 `instructions/admin/create_support_mint_associated.rs`) **plus one added instruction**,
-`create_lp_metadata`, all of it in `lib.rs`. **Nothing else**: all swap, curve,
+`create_lp_metadata`, all of it in `lib.rs`. **No other code**: all swap, curve,
 and fee math is byte-identical to upstream, and no upstream instruction is changed. After
 the fork, **no external party retains any authority on this program**; every authority is
 the Tegridy admin/treasury.
+
+Two pieces of text differ as well, and both are in the hashed delta: the program's on-chain
+security text (the `security_txt!` macro at the top of `lib.rs`, see "The on-chain security
+text" below) and the `description` line of `Cargo.toml`. Neither is code, but the security
+text is compiled into the binary, so changing it changes the binary's hash.
 
 | Constant (file) | Upstream (Raydium, mainnet arm) | Tegridy — mainnet arm (committed) | Tegridy — devnet arm | Purpose |
 |---|---|---|---|---|
@@ -59,6 +71,38 @@ the Tegridy admin/treasury.
 | `create_support_mint_associated_owner::ID` — `create_support_mint_associated.rs` | `Rayv2LG4tFSMizZhMP8aSUYxDPjV8qJtx2NQY9RKYZy` | `GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd` (Squads vault PDA) | `GgE6AfEH2AVSrKGckyKMzC6mhtXWiAn39EzAikAsWq5a` | alt authority for the Token-2022 support-mint allowlist (was Raydium's key; now ours) |
 
 The devnet values are throwaway keypairs in `keys/` (gitignored).
+
+### The on-chain security text (2026-10-06)
+
+`lib.rs` opens with a `security_txt!` macro. Its text is compiled into the binary, and
+explorers show it on the program's page. Upstream's names Raydium. Ours has always named us,
+and upstream's `auditors:` line is deliberately gone, because that audit does not cover this
+fork. Since 2026-10-06 the source says:
+
+| Field | Value |
+|---|---|
+| `name` | `tegridy-cp-amm` |
+| `project_url` | `https://memetics.finance` |
+| `contacts` | `email:fomotsar@gmail.com,link:https://memetics.finance/.well-known/security.txt` |
+| `policy` | `https://memetics.finance/source/solana/tegridy-amm/SECURITY.md` |
+| `source_code` | `https://memetics.finance/source/solana/tegridy-amm` |
+| `preferred_languages` | `en` |
+
+Why these values. The email works even when our site is down, so it comes first. Every link
+is on our own domain. The two `/source` links are redirects in `frontend/vercel.json` to
+whichever git host holds the code, so a host move is one edit there and never another program
+upgrade. **Never put a git-host URL in this macro.** The email is the `Contact:` of
+`frontend/public/.well-known/security.txt`. If that changes, the macro must follow, and that
+is a new binary.
+
+**The program on mainnet does not show this yet.** The binary deployed on 2026-09-29 carries
+`https://memetic.fun` as its project (now another project's site), a contact link that is a
+404 there, and two links to GitHub's `main` branch, which no longer exists. Read on
+2026-10-06: the text, from the release's copy of that binary, whose sha256 (`88b98aa9…`) is
+the program's on chain; and the three links, which all answered 404. Only an upgrade changes
+it, and it rides the same upgrade as
+`create_lp_metadata`: `MAINNET_RUNBOOK.md`, section 4b, and to-do `O-0929-10` in
+`docs/TODO_OPERATOR.md`.
 
 ### The one added instruction: `create_lp_metadata` (2026-10-06)
 
@@ -247,7 +291,7 @@ volume; Jupiter de-routes under-funded pools (30-min liquidity recheck) — keep
 
 Scope is small and mostly mechanical: **"confirm the only delta from audited upstream
 `raydium-cp-swap` is the four identity/authority constants (program id, `admin`, fee receiver,
-support-mint owner) + program name + the one added instruction `create_lp_metadata`; that the
+support-mint owner) + program name and on-chain security text + the one added instruction `create_lp_metadata`; that the
 mainnet authorities are the Squads vault PDA and its WSOL ATA; and that `create_lp_metadata`
 can do nothing but create the name record of a real pool's lp mint (it signs a Metaplex call
 with the address that also owns every vault)."** Recommended Solana firms: OtterSec, Neodyme,

@@ -12,7 +12,8 @@ unknown token. Only the program can ask Metaplex for that record, because the lp
 authority is the program's own address. It takes no arguments and anyone may call it. It
 moves no pool funds: the caller pays the record's rent and Metaplex's fee, about 0.014 SOL.
 `TEGRIDY_FORK.md` has the detail. The binary on mainnet was built before it was added and
-gets it only through a program upgrade.
+gets it only through a program upgrade. The same upgrade also replaces the program's on-chain
+security text, whose links are dead today, with an email and links on `memetics.finance`.
 
 Upstream's features carry over: no Openbook market ID needed for pool creation, Token22
 support, a built-in price oracle, written in Anchor.

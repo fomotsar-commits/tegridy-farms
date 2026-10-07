@@ -213,8 +213,8 @@ jobs:
           # upgrade carries it together with the instruction (docs/TODO_OPERATOR.md
           # O-0929-10; the owner delegated "one upgrade or two" that day and the answer is
           # one). The binary on mainnet shows a contact that is another project's 404 and
-          # two links into a stale branch on one git host. Diffing the old delta against
-          # the new one shows eight changed lines and the same count (261):
+          # two links to a GitHub branch that no longer exists. Diffing the old delta
+          # against the new one shows eight changed lines and the same count (261):
           #   4 values of the `security_txt!` macro: project_url, contacts, policy and
           #     source_code. Every link is on memetics.finance and the first contact is an
           #     email. `name` and `preferred_languages` are as they were.

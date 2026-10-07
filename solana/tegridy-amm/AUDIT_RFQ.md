@@ -39,7 +39,7 @@ changed and one instruction added (`create_lp_metadata`, above). Everything else
 upstream's code, unchanged.
 
 - **Upstream:** https://github.com/raydium-io/raydium-cp-swap @ commit `78f254e1023751e706df7dc15c453fc3e046697c` (Apache-2.0)
-- **Anchor** 0.32.1 · **Solana** 2.3.0 · program size (SBF): 691,640 bytes for the binary live on mainnet, which was built before `create_lp_metadata`; 724,672 bytes for a mainnet build of this source (2026-10-06)
+- **Anchor** 0.32.1 · **Solana** 2.3.0 · program size (SBF): 691,640 bytes for the binary live on mainnet, which was built before `create_lp_metadata`; 724,688 bytes for a mainnet build of this source (2026-10-06, sha256 `99a9e73d…`)
 - **Repo path:** `solana/tegridy-amm/` (see `TEGRIDY_FORK.md` for full detail)
 
 ## Exact scope: the whole code delta
@@ -77,7 +77,10 @@ let you find them and wonder what else we did not mention:
   Raydium to us, and upstream's `auditors:` line (the MadShield report) **deliberately
   removed**, because that audit does not cover this fork and leaving it would be a false
   on-chain claim. Please confirm we removed it correctly and that nothing else in that
-  block still asserts a Raydium property.
+  block still asserts a Raydium property. Since 2026-10-06 the source's block has an email
+  as its first contact and every link on `memetics.finance` (`TEGRIDY_FORK.md`, "The
+  on-chain security text"). The binary on mainnet still carries the older text, whose links
+  are dead, until the upgrade.
 - **`Cargo.toml`** — the `description` string only. The old CI guard did not inspect
   `Cargo.toml` at all, which left a dependency swap unguarded; the current hash-based
   guard covers it.
@@ -141,9 +144,10 @@ keypairs and a new `declare_id!` (see MAINNET_RUNBOOK.md § "THE RESTART, IN ORD
 since 2026-09-29, at `EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT` (cp-swap) and
 `64WBTeNcrSHfmBpiqymyifW6FUNNLvJcuiqF9rXmz4q2` (tegridy-launch), and cp-swap holds funded
 pools. Neither has been audited. So the audit target is a live program as well as its source.
-For cp-swap the two differ by one instruction: the binary on mainnet (sha256 `88b98aa9…`,
-691,640 bytes, read on chain 2026-10-06) was built before `create_lp_metadata` was added, and
-the instruction reaches mainnet only through an upgrade that the Squads vault signs.
+For cp-swap the two differ by one instruction and by the on-chain security text: the binary
+on mainnet (sha256 `88b98aa9…`, 691,640 bytes, read on chain 2026-10-06) was built before
+`create_lp_metadata` was added and before the security text moved to `memetics.finance`.
+Both reach mainnet only through one upgrade that the Squads vault signs.
 
 ---
 
