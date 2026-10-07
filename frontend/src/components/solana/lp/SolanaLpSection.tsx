@@ -225,8 +225,9 @@ export function LpDisclosure({ programId, mode = 'off' }: { programId: string; m
           withdrawals or swaps on any pool, change the fee rates of a fee tier, and upgrade the program.
         </p>
         <p>
-          Anyone can open a pool for any token, at any price. Aggregators such as Jupiter do not send trades to these pools yet, so
-          most trades against a pool will be arbitrage bots, which can cost liquidity providers money when the price moves.
+          Anyone can open a pool for any token, at any price. Aggregators such as Jupiter do not send trades to these pools. This
+          site&apos;s swap sends a trade to one only when it pays the trader at least as much as Jupiter; most other trades against a
+          pool will be arbitrage bots, which can cost liquidity providers money when the price moves.
         </p>
         <Row label="Pool program" value={programId} />
         <Notice>{DISCLOSURE_NOTICE[mode]}</Notice>

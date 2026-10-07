@@ -327,7 +327,7 @@ describe('Add liquidity', () => {
     const before = within(panel).getByTestId('lp-before-you-add');
     expect(before).toHaveTextContent(/Our pool program is Raydium's, with only its admin keys changed\. Those changes have not had their own independent review yet\./);
     expect(before).toHaveTextContent(/change its fee rates at once/);
-    expect(before).toHaveTextContent(/Jupiter does not send trades to these pools yet/);
+    expect(before).toHaveTextContent(/Jupiter does not send trades to these pools\. This site's swap sends a trade to one of them only when it pays the trader at least as much as Jupiter/);
     expect(before).toHaveTextContent(/liquidity providers keep 0\.\d{3}%, read from this pool's fee tier just now/);
     expect(before).not.toHaveTextContent(/burned the launch's own pool shares/); // not a launch pool
     expect(panel).not.toHaveTextContent(/\bAPR\b|\bAPY\b|yield of/i);

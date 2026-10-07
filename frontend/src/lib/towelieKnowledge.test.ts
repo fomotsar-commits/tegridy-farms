@@ -28,13 +28,13 @@ describe("Towelie's Solana answers", () => {
   });
 
   it("a Solana question about a swap, a price or an order keeps its own answer", () => {
-    expect(answerQuestion('solana swap')).toMatch(/^Jupiter is the router behind \/solana/);
+    expect(answerQuestion('solana swap')).toMatch(/^Jupiter is one of the two routes behind \/solana: .* When one of our own pools pays you at least as much, the trade goes to that pool instead\./);
     expect(answerQuestion('limit order solana')).toBe(answerQuestion('limit order'));
     expect(answerQuestion('sol price impact')).toBe(answerQuestion('price impact'));
   });
 
   it('a several-word keyword can match', () => {
-    expect(answerQuestion('swap solana')).toMatch(/^Jupiter is the router behind \/solana/);
+    expect(answerQuestion('swap solana')).toMatch(/^Jupiter is one of the two routes behind \/solana/);
     expect(answerQuestion('meteora bonding curve')).toMatch(/^We don't run on Meteora any more\./);
   });
 

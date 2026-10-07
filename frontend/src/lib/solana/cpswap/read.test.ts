@@ -1,11 +1,11 @@
 // @vitest-environment node
 //
-// readPoolAt / readPoolForPair keep the account OWNER: the bytes of a pool can be
+// readPoolAt keeps the account OWNER: the bytes of a pool can be
 // copied under any program, so a pool (and its vaults) only count when the right
 // program owns them.
 import { describe, it, expect } from 'vitest';
 import { Keypair, PublicKey } from '@solana/web3.js';
-import { readPoolAt, readPoolForPair } from './read';
+import { readPoolAt } from './read';
 import {
   ACCOUNT_POOL_STATE,
   POOL_STATE_LEN,
@@ -68,14 +68,12 @@ describe('pool reads check the owner', () => {
     const r = await readPoolAt(rpc(healthy()), PROGRAM, POOL);
     expect(r.kind).toBe('ok');
     if (r.kind === 'ok') expect([r.value.reserve0, r.value.reserve1]).toEqual([100n, 200n]);
-    expect((await readPoolForPair(rpc(healthy()), PROGRAM, CONFIG, B, A)).kind).toBe('ok');
   });
 
   it('the same bytes under another program are NOT a pool', async () => {
     const accts = healthy();
     accts[POOL.toBase58()] = { ...accts[POOL.toBase58()]!, owner: Keypair.generate().publicKey };
     expect(await readPoolAt(rpc(accts), PROGRAM, POOL)).toEqual({ kind: 'not-a-pool', address: POOL.toBase58() });
-    expect((await readPoolForPair(rpc(accts), PROGRAM, CONFIG, A, B)).kind).toBe('not-a-pool');
   });
 
   it('a vault not owned by the token program the pool names is refused, never quoted', async () => {

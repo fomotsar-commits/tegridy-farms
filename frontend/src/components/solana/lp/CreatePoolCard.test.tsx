@@ -160,7 +160,7 @@ describe('each answer has its own line, and only `offer` has the button', () => 
     mount(r);
     const c = await settled('offer');
     expect(c).toHaveTextContent('No pool for this token yet. You can open the first one on the public fee tier: 1% a trade, 0.15 SOL to open (read just now).');
-    expect(c).toHaveTextContent('Trades on this site go through Jupiter, and Jupiter does not send trades to our pools.');
+    expect(c).toHaveTextContent("Jupiter does not send trades to our pools. This site's swap sends a trade to one of our pools only when that pool pays the trader at least as much as Jupiter;");
     expect(c).toHaveTextContent(/a new pool earns fees only when bots trade our pool program directly, mostly arbitrage/);
     expect(within(c).getByRole('button', { name: 'Open a pool' })).toBeEnabled();
     expect(c).not.toHaveTextContent(/\bAPR\b|\bAPY\b|yield of|earn fees on every trade/i);

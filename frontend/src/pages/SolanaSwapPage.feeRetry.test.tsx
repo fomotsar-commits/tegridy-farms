@@ -60,6 +60,8 @@ vi.mock('../components/ArtImg', () => ({ ArtImg: () => null }));
 vi.mock('../components/ClockLine', () => ({ ClockLine: () => null }));
 vi.mock('../components/swap/ChainSwitch', () => ({ ChainSwitch: () => null }));
 vi.mock('../components/swap/SolanaRouteLine', () => ({ SolanaRouteLine: () => null }));
+// No pool program on this build: our pools take no part, and nothing reads the chain for them.
+vi.mock('../components/swap/useOwnPoolRoute', () => ({ useOwnPoolRoute: () => ({ own: { kind: 'absent' }, quoteNow: async () => ({ kind: 'absent' }) }) }));
 vi.mock('../components/solana/PairChart', () => ({ PairChart: () => null }));
 vi.mock('../components/solana/TokenDetail', () => ({ TokenDetail: () => null }));
 vi.mock('../components/solana/SolanaConnectButton', () => ({ SolanaConnectButton: () => null }));
@@ -239,7 +241,7 @@ describe('SolanaSwapPage: while the waiver is on screen nothing else on the card
     h.simulateSwap.mockResolvedValue(OK);
     await typeAmountAndBuy();
     await waitFor(() => expect(h.sendTransaction).toHaveBeenCalledTimes(1));
-    expect(atSign!.footer).toMatch(/% platform fee applies on pairs that include SOL or USDC\./);
+    expect(atSign!.footer).toMatch(/% platform fee applies to Jupiter trades on pairs that include SOL or USDC\./);
   });
 });
 

@@ -153,7 +153,7 @@ describe('the panel', () => {
     const before = within(panel).getByTestId('lp-before-you-open');
     expect(before).toHaveTextContent(/Our pool program is Raydium's, with only its admin keys changed\. Those changes have not had their own independent review yet\./);
     expect(before).toHaveTextContent(/change the public fee tier's rates and its fee to open a pool at once/);
-    expect(before).toHaveTextContent(/this site's swap goes through Jupiter, and Jupiter does not send trades to our pools/);
+    expect(before).toHaveTextContent(/Jupiter does not send trades to our pools\. This site's swap sends a trade to your pool only when it pays the trader at least as much as Jupiter\./);
     expect(before).toHaveTextContent(/Expect little or nothing in fees at first\./);
     expect(before).toHaveTextContent('Opening costs 0.15 SOL, paid to the team\'s vault, and about 0.04 SOL in account deposits that never come back.');
     // Shares are said in 9 decimals everywhere on this page: never "100 pool shares".
@@ -753,7 +753,7 @@ describe('the review and a confirmed opening', () => {
     expect(disclosure).toHaveAttribute('data-kind', 'create');
     expect(disclosure).toHaveTextContent(/have not had their own independent review yet/);
     expect(disclosure).toHaveTextContent(/change the public fee tier's rates and its fee to open a pool at once/);
-    expect(disclosure).toHaveTextContent('Trades on this site go through Jupiter, and Jupiter does not send trades to our pools.');
+    expect(disclosure).toHaveTextContent("Jupiter does not send trades to our pools. This site's swap sends a trade to one of our pools only when that pool pays the trader at least as much as Jupiter;");
     // Each stands once on the review screen: the panel's list under the buttons does not say it again.
     expect(within(panel).getAllByText(/have not had their own independent review yet/)).toHaveLength(1);
     expect(within(panel).getAllByText(/change the public fee tier's rates and its fee to open a pool at once/)).toHaveLength(1);

@@ -254,11 +254,11 @@ export const KNOWLEDGE_BASE: KnowledgeEntry[] = [
     // a curve, memecoin or graduation question that names Solana.
     priority: 1,
     keywords: ['solana', 'sol', 'phantom', 'spl', 'solana launch', 'solana token', 'solana curve', 'solana bonding', 'solana memecoin', 'solana graduate'],
-    answer: "Solana's live here two ways. /solana swaps SPL tokens through Jupiter, with limit orders and SOL liquid-staking. /curve-launch is our own Solana bonding curve, priced in SOL: anyone can buy and sell a launch there, and a maker at Resident or better (80° of held time on Jungle Bay Island) can launch a new token through the memetics.finance gate, which reads the maker's wallet at create. The program itself accepts any wallet, so check the full token address before you buy. TOWELI itself is never deployed on Solana: that's deliberate, Solana is a separate rail, not a second home for the token.",
+    answer: "Solana's live here two ways. /solana swaps SPL tokens in our own pools or through Jupiter, whichever pays you more, with limit orders and SOL liquid-staking. /curve-launch is our own Solana bonding curve, priced in SOL: anyone can buy and sell a launch there, and a maker at Resident or better (80° of held time on Jungle Bay Island) can launch a new token through the memetics.finance gate, which reads the maker's wallet at create. The program itself accepts any wallet, so check the full token address before you buy. TOWELI itself is never deployed on Solana: that's deliberate, Solana is a separate rail, not a second home for the token.",
   },
   {
     keywords: ['jupiter', 'jup', 'swap solana', 'solana swap'],
-    answer: "Jupiter is the router behind /solana — it shops your trade across Solana's DEXes for the best price. Our platform fee is shown before you sign, every time.",
+    answer: "Jupiter is one of the two routes behind /solana: it shops your trade across Solana's DEXes. When one of our own pools pays you at least as much, the trade goes to that pool instead. A Jupiter trade's platform fee is shown before you sign, every time; our pools add none on top.",
   },
   {
     // The Meteora rail was retired 2026-08-23; anyone asking about it gets that answer.

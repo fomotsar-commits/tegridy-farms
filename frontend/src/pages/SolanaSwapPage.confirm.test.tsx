@@ -61,6 +61,8 @@ vi.mock('../components/solana/PairChart', () => ({ PairChart: () => null }));
 vi.mock('../components/ClockLine', () => ({ ClockLine: () => null }));
 vi.mock('../components/swap/ChainSwitch', () => ({ ChainSwitch: () => null }));
 vi.mock('../components/swap/SolanaRouteLine', () => ({ SolanaRouteLine: () => null }));
+// No pool program on this build: our pools take no part, and nothing reads the chain for them.
+vi.mock('../components/swap/useOwnPoolRoute', () => ({ useOwnPoolRoute: () => ({ own: { kind: 'absent' }, quoteNow: async () => ({ kind: 'absent' }) }) }));
 vi.mock('../components/ArtImg', () => ({ ArtImg: () => null }));
 vi.mock('../lib/analytics', () => ({ trackPageView: () => {} }));
 vi.mock('../lib/solanaTokenList', async (importOriginal) => ({

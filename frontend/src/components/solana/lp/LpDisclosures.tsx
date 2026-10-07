@@ -16,7 +16,7 @@ const VAULT_LINE =
 const LAUNCH_POOL_LINE =
   "The launch program opened this pool when the token graduated and burned the launch's own pool shares, so that part can never be taken out. You get shares only for what you add, and you can take your part back out. The creator's fee and the venue's share are kept apart in the pool and are not yours.";
 const ROUTING_LINE =
-  'Jupiter does not send trades to these pools yet, so the trades that pay this pool its fees come mostly from bots that trade our pool program directly.';
+  "Jupiter does not send trades to these pools. This site's swap sends a trade to one of them only when it pays the trader at least as much as Jupiter; the other trades that pay this pool its fees come from bots that trade our pool program directly.";
 const PRICE_MOVES_LINE =
   'When the price moves, bots trade against the pool, and you can end up with less than if you had just held both tokens.';
 
@@ -32,10 +32,10 @@ const CREATE_VAULT_LINE =
  * routes trades here a new pool sees only bots that trade our program directly.
  */
 export const MONEY_NOTE =
-  'Trades on this site go through Jupiter, and Jupiter does not send trades to our pools. Until this site can send trades here (planned, not built yet), a new pool earns fees only when bots trade our pool program directly, mostly arbitrage.';
+  "Jupiter does not send trades to our pools. This site's swap sends a trade to one of our pools only when that pool pays the trader at least as much as Jupiter; otherwise a new pool earns fees only when bots trade our pool program directly, mostly arbitrage.";
 
 const MONEY_LINE =
-  "How a new pool earns, honestly: this site's swap goes through Jupiter, and Jupiter does not send trades to our pools. Until this site can send trades here (planned, not built yet), the only trades against your pool come from bots and tools that use our pool program directly, mostly arbitrage, which trades only when your pool's price drifts from the market. Expect little or nothing in fees at first. When the price moves, you can also end up with less than if you had just held both tokens.";
+  "How a new pool earns, honestly: Jupiter does not send trades to our pools. This site's swap sends a trade to your pool only when it pays the trader at least as much as Jupiter. Every other trade against your pool comes from bots and tools that use our pool program directly, mostly arbitrage, which trades only when your pool's price drifts from the market. Expect little or nothing in fees at first. When the price moves, you can also end up with less than if you had just held both tokens.";
 
 const NOT_THE_POOL_LINE = "Anyone can open other pools for this token, at any price. Yours will not be 'the' pool.";
 

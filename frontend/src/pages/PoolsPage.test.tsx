@@ -316,13 +316,14 @@ describe('while the first read is in flight', () => {
 describe('always', () => {
   beforeEach(() => { readVenue.mockResolvedValue({ kind: 'no-program-id' }); });
 
-  // Review 2026-09-30: this card said the swap "takes" our pool when it pays more, but
-  // every Solana swap executes through Jupiter (SolanaRouteLine says so on the swap).
-  it('says the swap compares our pools but still trades through Jupiter, and that the AMM is unmodified Raydium', async () => {
+  // 2026-10-07: the swap sends a trade to our pool when it pays at least as much as Jupiter,
+  // settled again at the press; Jupiter itself still sends none here, and the card says both.
+  it('says the swap sends a trade to our pool when it pays at least as much, and that Jupiter sends none, and that the AMM is unmodified Raydium', async () => {
     await mount();
     await waitFor(() => expect(screen.getByText(/side by side with Jupiter/i)).toBeInTheDocument());
-    expect(screen.getByText(/still goes through\s+Jupiter/i)).toBeInTheDocument();
-    expect(screen.queryByText(/takes the one that pays/i)).toBeNull();
+    expect(screen.getByText(/When one of our pools pays at least as much\s+as Jupiter, checked again when Buy is pressed, the trade goes to that pool;\s+otherwise it goes through Jupiter\./)).toBeInTheDocument();
+    expect(screen.getByText(/Jupiter itself does not send trades to our pools\./)).toBeInTheDocument();
+    expect(screen.queryByText(/still goes through\s+Jupiter/i)).toBeNull();
     expect(screen.getByText(/verbatim fork/i)).toBeInTheDocument();
   });
 
@@ -408,7 +409,7 @@ describe("what this site can do with the pools follows LP's own switch", () => {
     expect(screen.getByText(/adding and removing\s+liquidity from here is not switched on yet/i)).toBeInTheDocument();
     expect(screen.getByText(/This site only reads pools so far\./)).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Find a pool on the Solana LP tab' })).toHaveAttribute('href', '/solana-lp');
-    expect(screen.getByText(/still goes through\s+Jupiter/i)).toBeInTheDocument();
+    expect(screen.getByText(/otherwise it goes through Jupiter/i)).toBeInTheDocument();
   });
 
   it("'on': says what the section below can do, and never that it is not switched on", async () => {
@@ -426,11 +427,10 @@ describe("what this site can do with the pools follows LP's own switch", () => {
     expect(document.body.textContent).not.toMatch(/once (the public fee tier|that tier) exists/i);
     expect(screen.getByRole('link', { name: 'Add or remove liquidity on the Solana LP tab' })).toHaveAttribute('href', '/solana-lp');
     expect(screen.queryByText(/does not open pools/i)).toBeNull();
-    // The swap's routing card keeps its own "not switched on yet" (addendum D24); this is the LP one.
     expect(screen.queryByText(/adding and removing\s+liquidity from here is not switched on yet/i)).toBeNull();
     expect(screen.queryByText(/only reads pools so far/i)).toBeNull();
-    // The swap's own routing is a different matter: still through Jupiter, in every mode.
-    expect(screen.getByText(/still goes through\s+Jupiter/i)).toBeInTheDocument();
+    // The swap's own routing card says the same in every LP mode.
+    expect(screen.getByText(/otherwise it goes through Jupiter/i)).toBeInTheDocument();
   });
 
   it("'withdraw-only': adding is paused, taking liquidity out still works", async () => {

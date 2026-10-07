@@ -10,11 +10,9 @@ import {
   LIVE_PROGRAM_ID,
   DEFAULT_AMM_CONFIG_INDEX,
   deriveAmmConfig,
-  derivePool,
   deriveVault,
   decodeAmmConfig,
   decodePoolState,
-  sortMints,
   swapEnabled,
   isCreatorFeeOnInput,
   type AmmConfigView,
@@ -153,27 +151,9 @@ export interface PoolSnapshot {
 }
 
 /**
- * Read the pool for a pair, if one exists.
- *
- * The caller may name the mints in either order; the program requires
- * `token_0 < token_1` by raw bytes, so they are sorted before derivation.
- */
-export async function readPoolForPair(
-  rpc: AccountRpc,
-  programId: PublicKey,
-  configAddress: PublicKey,
-  mintA: PublicKey,
-  mintB: PublicKey,
-): Promise<PoolRead<PoolSnapshot>> {
-  const { token0, token1 } = sortMints(mintA, mintB);
-  const poolAddress = derivePool(programId, configAddress, token0, token1);
-  return readPoolAt(rpc, programId, poolAddress);
-}
-
-/**
  * Read the pool at a KNOWN address — for a launch, the address the launch program
- * recorded on its curve, never the standard derivation above (which anyone can
- * occupy first, since pool creation is permissionless).
+ * recorded on its curve, never a standard derivation (which anyone can occupy
+ * first, since pool creation is permissionless).
  *
  * The account must be OWNED by `programId` and decode as a pool; otherwise it is
  * `not-a-pool`. The two vaults must be owned by the token program the pool names.
