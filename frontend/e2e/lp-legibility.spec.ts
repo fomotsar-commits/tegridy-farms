@@ -4,8 +4,9 @@ import { playLiveVenue } from './fixtures/playedVenue';
 import { LP_SCRIM } from '../src/components/solana/curve/uiFormat';
 
 /**
- * The LP text kit (components/solana/curve/ui.tsx) is legible on the production page: body,
- * labels and notices 13px or more, hints and errors 12px or more, every one at 4.5:1 or better,
+ * The LP text kit (components/solana/curve/ui.tsx) is legible on the production page: card
+ * headings 15px or more, body, labels and notices 13px or more, hints and errors 12px or more,
+ * every one at 4.5:1 or better,
  * measured on each text leaf the kit renders inside the LP section of /solana-lp at a phone
  * width and a desktop width. Each colour is measured over the LP scrim (uiFormat.ts LP_SCRIM,
  * black) laid over the page's own colour: the art under a card may not have painted, so the
@@ -14,7 +15,8 @@ import { LP_SCRIM } from '../src/components/solana/curve/uiFormat';
  *
  * Red on the kit before 2026-10-06: card body 11px, field label 11px, field hint 10px, all
  * under [data-testid="lp-section"]. (Their colours passed: index.css's contrast floor renders
- * text-white/60 at 0.88 and /40 at 0.82.)
+ * text-white/60 at 0.88 and /40 at 0.82.) Red again on 0c4a49c0: the card heading at 13px, the
+ * same size as the body under it.
  */
 
 const WIDTHS = [
@@ -25,9 +27,11 @@ const WIDTHS = [
 /** The page's own colour under every card (SolanaLpPage.tsx, #060c1a), as r, g, b. */
 const PAGE_RGB: [number, number, number] = [6, 12, 26];
 
-/** Body, labels and notices read as prose; hints and errors are the small print. */
-const FLOORS = { body: 13, label: 13, notice: 13, hint: 12, error: 12 } as const;
+/** A heading stands over its body; body, labels and notices read as prose; hints and errors are the small print. */
+const FLOORS = { head: 15, body: 13, label: 13, notice: 13, hint: 12, error: 12 } as const;
 type Role = keyof typeof FLOORS;
+/** Every Card in the LP section after one press of Create a pool has one kit heading. */
+const HEADINGS_ON_PAGE = 4;
 /** WCAG AA for text of this size, over the scrim. */
 const RATIO = 4.5;
 
@@ -113,7 +117,7 @@ test.describe('the LP text kit is legible on the production page', () => {
   test.skip(({ browserName }) => browserName !== 'chromium', 'a size and a colour measure the same in every engine; chromium is the gate');
 
   for (const vp of WIDTHS) {
-    test(`/solana-lp: the kit's body is 13px and its hints 12px, all at 4.5:1 or better over the LP scrim, at ${vp.name}`, async ({ page, walletMock: _w }) => {
+    test(`/solana-lp: the kit's headings are 15px, its body 13px and its hints 12px, all at 4.5:1 or better over the LP scrim, at ${vp.name}`, async ({ page, walletMock: _w }) => {
       test.slow();
       await page.setViewportSize(vp.size);
       const venue = await playLiveVenue(page, { gateOpen: true });
@@ -146,6 +150,7 @@ test.describe('the LP text kit is legible on the production page', () => {
 
       // Enough of each kind, or this is not the page the floors are for.
       const count = (role: Role) => measured.filter((l) => l.role === role).length;
+      expect(count('head'), 'card heading leaves measured').toBeGreaterThanOrEqual(HEADINGS_ON_PAGE);
       expect(count('body'), 'card body leaves measured').toBeGreaterThanOrEqual(6);
       expect(count('label'), 'field label leaves measured').toBeGreaterThanOrEqual(1);
       expect(count('hint'), 'field hint leaves measured').toBeGreaterThanOrEqual(1);

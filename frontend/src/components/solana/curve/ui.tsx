@@ -11,6 +11,7 @@ import {
   CARD_STYLE,
   DEFAULT_SLIPPAGE_BPS,
   ERROR,
+  HEAD,
   HINT,
   LABEL,
   LP_SCRIM,
@@ -53,7 +54,8 @@ export function Card({
     <h2
       ref={headingRef}
       tabIndex={headingRef ? -1 : undefined}
-      className="text-white font-semibold text-[13px] mb-2.5 outline-none"
+      className={`${HEAD} mb-2.5 outline-none`}
+      data-text-role="head"
       style={SHADOW}
     >
       {title}
