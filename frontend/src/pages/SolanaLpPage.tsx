@@ -34,9 +34,10 @@ export default function SolanaLpPage() {
   const [params] = useSearchParams();
   // A finger-sized press area on a 19.5px line: 14px of padding above and below (47.5px).
   // The negative margin takes 6px of each back, so the line keeps the 8px it always had.
+  // The keyboard's ring goes round the words (`ring-on-words`, index.css).
   const venueAmmLink = (
-    <Link to={withMint('/pools', params)} className="inline-block py-3.5 -my-1.5 underline underline-offset-2 text-white hover:text-white/80">
-      See fees, status and how the pools work on the Venue AMM tab
+    <Link to={withMint('/pools', params)} className="inline-block py-3.5 -my-1.5 underline underline-offset-2 text-white hover:text-white/80 ring-on-words">
+      <span className="ring-words">See fees, status and how the pools work on the Venue AMM tab</span>
     </Link>
   );
 

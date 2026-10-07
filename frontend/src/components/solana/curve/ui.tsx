@@ -132,11 +132,13 @@ export function Field({
  * of small text with a finger-sized press area around it: 14px of padding above and below
  * (46px in all), taken back by the same negative margin, so nothing around it moves. The
  * button under it is drawn later, so where the two overlap a press is the button's.
+ * The keyboard's ring goes round the words (`ring-on-words`, index.css): round the area
+ * its bottom edge was hidden behind that button and its top edge struck through the row above.
  */
 export function ExplorerLink({ href }: { href: string }) {
   return (
-    <a href={href} target="_blank" rel="noopener noreferrer nofollow" className="inline-block py-3.5 -my-3.5 underline text-white/80">
-      View on the explorer
+    <a href={href} target="_blank" rel="noopener noreferrer nofollow" className="inline-block py-3.5 -my-3.5 underline text-white/80 ring-on-words">
+      <span className="ring-words">View on the explorer</span>
     </a>
   );
 }

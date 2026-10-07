@@ -6,6 +6,10 @@ page keeps the newest thirty days.
 
 ## [Unreleased]
 
+### 2026-10-07
+
+- Solana LP on a phone: the small links and buttons keep their finger-sized press area without stretching the page around them. The "what to do next" sentence reads as one paragraph again, the venue status card is back to the height it had, and "View on the explorer" is easier to press. With a keyboard, the focus ring goes round the words of each of them.
+
 ### 2026-10-04
 
 - Solana LP on a small phone: a warning that names a long address no longer runs off the edge of its card, the three "Pair with" choices stay inside the form, the amounts on the add and remove reviews no longer break in the middle of a number, and the small links and buttons (the swap link in the form, Refresh and the copy buttons on the venue status card) are full-size press targets.

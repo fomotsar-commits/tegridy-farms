@@ -55,16 +55,18 @@ export function FundingNextStep({
   //     link's area on the next line;
   //   each link's own words (`z-20`), over any other target's area.
   // So a press on a target's words is always that target.
-  const press = 'relative px-1 -mx-1 py-3 -my-3';
+  // The keyboard's ring goes round the words too (`ring-on-words`, index.css): round the
+  // area it is 53px tall on a 21px line and strikes through the lines above and below.
+  const press = 'relative px-1 -mx-1 py-3 -my-3 ring-on-words';
   const swapOn = (to: string, text: string) => (
     <Link to={`/solana?out=${to}`} className={`inline-block ${press} underline underline-offset-2 text-white hover:text-white/80`}>
-      <span className="relative z-20">{text}</span>
+      <span className="relative z-20 ring-words">{text}</span>
     </Link>
   );
   const copy = wallet ? (
     <>
       {' '}
-      <CopyButton text={wallet} display="Copy this wallet’s address" className={`${press} z-10 underline text-white/85`} />
+      <CopyButton text={wallet} display="Copy this wallet’s address" className={`${press} z-10 underline text-white/85`} wordsClassName="ring-words" />
     </>
   ) : null;
   // What the swap is tried for: the words after "try".
