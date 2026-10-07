@@ -2,7 +2,7 @@
 // the pair for a connected wallet (or a note of an earlier trade stands), and Buy is told
 // in plain words when a trade there cannot be sent from this page.
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { renderHook, waitFor } from '@testing-library/react';
+import { act, renderHook, waitFor } from '@testing-library/react';
 import { PublicKey } from '@solana/web3.js';
 import type { GateRpc, LpGate, LpWriteApi } from '../solana/curve/ports';
 
@@ -25,7 +25,7 @@ const connect = (canSign = true) => {
 function mount(o: { wanted: boolean; gate?: LpGate; load?: () => Promise<LpWriteApi> }) {
   const api = fakeLpApi({ gate: o.gate ?? lpOpenGate(), recheckOutcome: vi.fn(async (_r, signature: string) => ({ status: 'unknown' as const, signature, message: 'slow' })) });
   const load = o.load ?? vi.fn(async () => api);
-  const hook = renderHook(() => useOwnPoolWrites({ wanted: o.wanted, onResolved: vi.fn(), load, gateRpc, programId: LP_PROGRAM }));
+  const hook = renderHook((p: { wanted: boolean }) => useOwnPoolWrites({ wanted: p.wanted, onResolved: vi.fn(), load, gateRpc, programId: LP_PROGRAM }), { initialProps: { wanted: o.wanted } });
   return { ...hook, load, api };
 }
 
@@ -56,8 +56,8 @@ describe('useOwnPoolWrites', () => {
     const paused = mount({ wanted: true, gate: lpOpenGate({ mode: 'withdraw-only' }) });
     await waitFor(() => expect(paused.result.current.send).toEqual({ kind: 'no', reason: OWN_SEND_COPY.paused }));
     expect(paused.result.current.gate).toBeNull();
-    const blocked = mount({ wanted: true, gate: { kind: 'blocked', reason: 'unreadable', detail: 'x' } });
-    await waitFor(() => expect(blocked.result.current.send).toEqual({ kind: 'no', reason: OWN_SEND_COPY.paused }));
+    const off = mount({ wanted: true, gate: { kind: 'off' } });
+    await waitFor(() => expect(off.result.current.send).toEqual({ kind: 'no', reason: OWN_SEND_COPY.paused }));
     const other = mount({ wanted: true, gate: lpOpenGate({ cfg: lpCfg('3ZvZXEBr21Kz7JeWFCeKv8Hyy8AzHqCSXNjif8QHPM9y') }) });
     await waitFor(() => expect(other.result.current.send).toEqual({ kind: 'no', reason: OWN_SEND_COPY.otherProgram }));
     expect(other.result.current.gate).toBeNull();
@@ -66,6 +66,29 @@ describe('useOwnPoolWrites', () => {
     connect(false);
     const noSign = mount({ wanted: true });
     expect(noSign.result.current.send).toEqual({ kind: 'no', reason: OWN_SEND_COPY.cannotSign });
+  });
+
+  it('a gate that could not be read says that, never "paused", and reading it again can open it', async () => {
+    connect();
+    let gate: LpGate = { kind: 'blocked', reason: 'unreadable', detail: 'HTTP 502' };
+    const api = fakeLpApi({ readLpGate: vi.fn(async () => gate) });
+    const load = async () => api;
+    const onResolved = vi.fn();
+    const { result } = renderHook(() => useOwnPoolWrites({ wanted: true, onResolved, load, gateRpc, programId: LP_PROGRAM }));
+    await waitFor(() => expect(result.current.send).toEqual({ kind: 'no', reason: OWN_SEND_COPY.gateUnread }));
+    gate = lpOpenGate();
+    act(() => result.current.refreshGate());
+    await waitFor(() => expect(result.current.send).toEqual({ kind: 'yes' }));
+  });
+
+  it('once a pool of ours was found, the gate is read once: the form reading again for each amount does not read it again', async () => {
+    connect();
+    const { result, rerender, api } = mount({ wanted: true });
+    await waitFor(() => expect(result.current.send).toEqual({ kind: 'yes' }));
+    rerender({ wanted: false });
+    rerender({ wanted: true });
+    await waitFor(() => expect(result.current.send).toEqual({ kind: 'yes' }));
+    expect(api.readLpGate).toHaveBeenCalledTimes(1);
   });
 
   it('with no wallet, Buy is not pressable anyway: the line says what it would do', () => {
@@ -77,7 +100,8 @@ describe('useOwnPoolWrites', () => {
     savePendingTrade(SWAP_PENDING_SCOPE, { kind: 'venue-swap', signature: '5'.repeat(88), lastValidBlockHeight: 9 });
     const { result, load, api } = mount({ wanted: false });
     await waitFor(() => expect(load).toHaveBeenCalled());
-    await waitFor(() => expect(api.recheckOutcome).toHaveBeenCalledWith({}, '5'.repeat(88), expect.objectContaining({ kind: 'venue-swap', lastValidBlockHeight: 9 })));
+    // With the pool program's config, so a refusal found later is said in its words.
+    await waitFor(() => expect(api.recheckOutcome).toHaveBeenCalledWith({}, '5'.repeat(88), { kind: 'venue-swap', lastValidBlockHeight: 9, cfg: lpCfg() }));
     expect(result.current.pending.notes).toHaveLength(1);
   });
 });

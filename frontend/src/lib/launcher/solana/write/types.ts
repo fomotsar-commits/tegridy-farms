@@ -697,11 +697,13 @@ export type NotSent = {
   status: 'not-sent';
   /**
    * `gate`: the heat door refused the maker at submit (LaunchCreateForm), before any build.
-   * `venue`: a swap meant for our pool, checked against Jupiter again, was not sent.
+   * `venue`: a swap meant for our pool was stopped by the check against Jupiter before signing.
    */
   stage: 'gate' | 'venue' | 'build' | 'simulate' | 'sign' | 'send';
   message: string;
   logs?: string[];
+  /** A read or a check could not run, so nothing was learned about the transaction: asking again may work. */
+  retry?: true;
 };
 
 export type TxOutcome =

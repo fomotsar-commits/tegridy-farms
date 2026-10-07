@@ -1,19 +1,9 @@
-// A swap against one of our pools, sent from the Solana swap page (`venue-swap`).
-//
-// The page sends a trade here only once it has settled that this pool pays at least as
-// much as Jupiter (lib/solana/swap/settleVenue.ts). This builds it on ONE fresh read of
-// the pool and the wallet (`readPoolForWrite`), priced with the pool's OWN fee tier on
-// the chain's clock, with every account pinned to that read (`PoolPins`, intent.ts):
-//
-//   SOL in:   [open WSOL, wrap amountIn, sync, open the output account, swap, close WSOL*]
-//   SOL out:  [open WSOL, swap, close WSOL*]
-//   no SOL:   [open the output account, swap]
-//
-//   * only when the wrapped-SOL account was absent or empty (wsol.ts), so a wallet's own
-//     wrapped SOL is never unwrapped behind its back.
-//
-// Each account is its own mint's: classic for SOL and USDC, Token-2022 for BAYLA, the
-// pool's recorded program for the token. Nothing here signs or sends.
+// A swap in one of our pools (`venue-swap`), sent by the Solana swap page once it has
+// settled that this pool pays at least as much as Jupiter (lib/solana/swap/settleVenue.ts).
+// Built on ONE fresh read of the pool and the wallet, priced with the pool's own fee tier
+// on the chain's clock, every account pinned to that read (`PoolPins`, intent.ts). Each
+// account is its own mint's (classic or Token-2022). A wallet's own wrapped SOL is never
+// unwrapped behind its back (wsol.ts). Nothing here signs or sends.
 
 import { createAssociatedTokenAccountIdempotentInstruction } from '@solana/spl-token';
 import { PublicKey, type TransactionInstruction } from '@solana/web3.js';
@@ -28,7 +18,7 @@ import { quoteCoin, readPair, QUOTE_COINS_OR } from '../../../solana/lp/quotes';
 import { BUILDABLE_EXTENSIONS, classifyToken, extensionPlain } from '../../../solana/lp/tokenSafety';
 import { MAX_OWN_PRIORITY_LAMPORTS } from './budget';
 import { LP_COPY, LP_FEE_RESERVE, POOL_READ_FAILED, accountCheck, coinAccount, poolPins, readPoolForWrite } from './liquidity';
-import { bodySteps, buildAndSimulate, notSent } from './prepare';
+import { bodySteps, buildAndSimulate, notRead, notSent } from './prepare';
 import { slippageProblem } from './trade';
 import type { Expectation, IntentStep, LpOpenGate, Prepared, SwapSide, TxSummary, VenueSwapArgs, WriteRpc } from './types';
 import { closeWsolIxs, openWsolIx, syncCredit, wrapIxs, wsolPlanFrom, type WsolPlan } from './wsol';
@@ -117,20 +107,20 @@ export async function prepareVenueSwap(rpc: WriteRpc, gate: LpOpenGate, a: Venue
   // 2. One fresh read. The pool must pair exactly this token with exactly this coin
   //    (`readPoolForWrite` refuses any other), so its two mints are the trade's two.
   const snap = await readPoolForWrite(rpc, cfg, { pool: a.pool, tokenMint, quote, owner: a.owner });
-  if (snap === POOL_READ_FAILED) return notSent('build', SWAP_COPY.poolUnread);
+  if (snap === POOL_READ_FAILED) return notRead('build', SWAP_COPY.poolUnread);
   if (typeof snap === 'string') return notSent('build', snap);
   const { view } = snap;
   const p = view.snapshot.pool;
 
   // 3. The fees ARE the maths here: the pool's own tier, read now.
   const config = view.config;
-  if (!config) return notSent('build', SWAP_COPY.feesUnread);
+  if (!config) return notRead('build', SWAP_COPY.feesUnread);
   if (view.vaultsFrozen) return notSent('build', SWAP_COPY.vaultFrozen);
 
   // 4. The token, read again: never one this site cannot build for (a transfer fee would
   //    take its own cut outside the quote).
   const safety = classifyToken(tokenMint.toBase58(), snap.mint, snap.metaplex);
-  if (safety.kind !== 'read' || !safety.facts) return notSent('build', SWAP_COPY.tokenUnread);
+  if (safety.kind !== 'read' || !safety.facts) return notRead('build', SWAP_COPY.tokenUnread);
   if (safety.verdict === 'blocked') return notSent('build', LP_COPY.tokenBlocked(safety.blocks[0]?.text ?? 'see the token check'));
   const tokenProgram = new PublicKey(view.quoteIsToken0 ? p.token1Program : p.token0Program);
   const tokenDecimals = safety.facts.decimals;
@@ -140,7 +130,7 @@ export async function prepareVenueSwap(rpc: WriteRpc, gate: LpOpenGate, a: Venue
   if (outsideSet !== undefined) return notSent('build', LP_COPY.tokenBlocked(`It uses ${extensionPlain(outsideSet)}.`));
 
   // 5. The price: the pool's own tier, on the chain's clock (never the viewer's).
-  if (snap.chainNow === null) return notSent('build', SWAP_COPY.clockUnread);
+  if (snap.chainNow === null) return notRead('build', SWAP_COPY.clockUnread);
   const q = quoteOwnPool(view.snapshot, config, a.inputMint.toBase58(), a.amountIn, Number(snap.chainNow));
   if (!q) return notSent('build', SWAP_COPY.cannotPrice);
   const minimumAmountOut = applySlippage(q.outAmount, a.slippageBps);

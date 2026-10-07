@@ -15,6 +15,22 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-10-07: settling the venue again at the press makes the trade the one on screen
+
+**Believed:** reading both venues fresh when Buy is pressed, and sending to whichever pays
+more, keeps the swap honest.
+
+**Seen** (an adversarial review of this branch, each case traced and run in a scratch test):
+when the press found Jupiter ahead of the pool the screen showed, Jupiter's trade went
+straight to the wallet while the page still showed our pool's output, "None on top" and
+"sends it to our pool"; its price-moved guard measured Jupiter's fresh quote against
+Jupiter's old one, or against itself when Jupiter had no route on screen. A one-off read
+failure while building was latched as "refused for this wallet" for the rest of the session.
+
+**Do:** a press sends only to the venue the screen showed; finding the other one ahead puts
+its numbers on screen and sends nothing, so the next press is the consent. A not-sent that
+only failed to read (`retry` on `NotSent`) is never a verdict.
+
 ## 2026-10-07: a swap that compares our pool with Jupiter sends trades to our pool when it wins
 
 **Believed:** the Solana swap's route line quoted our pool beside Jupiter, so a pool of ours that

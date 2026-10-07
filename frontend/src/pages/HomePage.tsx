@@ -885,7 +885,7 @@ export default function HomePage() {
               // SOON wall, so the card is simply absent and the grid falls back to
               // three. A card advertising a wall is worse than no card.
               ...(isSolanaSwapLive()
-                ? [{ to: '/solana', title: 'Solana Swap', desc: 'Buy Solana tokens routed through Jupiter, with limit orders and SOL liquid-staking yield. Trending pairs listed, fee shown before you sign.', stat: 'Jupiter', label: 'Solana', art: pageArt('home', 15) }]
+                ? [{ to: '/solana', title: 'Solana Swap', desc: 'Buy Solana tokens in our own pools or through Jupiter, whichever pays you more, with limit orders and SOL liquid-staking yield. Trending pairs listed, fee shown before you sign.', stat: 'Our pools + Jupiter', label: 'Solana', art: pageArt('home', 15) }]
                 : []),
               { to: '/dashboard', title: 'Dashboard', desc: 'Track your portfolio, positions, claimable rewards, and projections.', stat: 'Real-time', label: 'On-chain Data', art: pageArt('home', 8) },
             ].map((f, i) => (

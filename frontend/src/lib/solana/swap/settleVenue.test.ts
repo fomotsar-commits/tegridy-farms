@@ -31,16 +31,24 @@ function deps(over: { getQuote?: SettleDeps['getQuote']; prepareJupiter?: Settle
 }
 
 describe('settleVenue: the fresh quote', () => {
-  it('Jupiter paying one raw unit more wins, and nothing is built here', async () => {
+  it('Jupiter paying one raw unit more wins once its own path is ready to sign, and that transaction is handed on', async () => {
     const d = deps();
-    expect(await settleVenue(d, { ...ARGS, ownOut: FEE_OUT - 1n })).toEqual({ venue: 'jupiter', fresh: FEE_QUOTE, prepared: null });
-    expect(d.prepareJupiter).not.toHaveBeenCalled();
+    expect(await settleVenue(d, { ...ARGS, ownOut: FEE_OUT - 1n })).toEqual({
+      venue: 'jupiter', fresh: FEE_QUOTE, prepared: { status: 'ready', quote: FEE_QUOTE, swapTransaction: 'TX', siteFeeWaived: false },
+    });
+    expect(d.prepareJupiter).toHaveBeenCalledTimes(1);
   });
 
-  it('a tie on a quote with no site fee goes to our pool, with the number it met', async () => {
+  it('Jupiter quoting more but refused by its own simulation cannot deliver: our pool takes it, with no Jupiter number to meet', async () => {
+    const refused: PreparedJupiterSwap = { status: 'blocked', reason: 'custom program error: 0x1771', retried: false, cause: 'refused' };
+    expect(await settleVenue(deps({ prepareJupiter: async () => refused }), { ...ARGS, ownOut: FEE_OUT - 1n })).toEqual({ venue: 'own', against: null });
+  });
+
+  it('a tie on a quote with no site fee goes to our pool, with the number it met, and asks Jupiter nothing more', async () => {
     const noFee = quote({ platformFee: null });
     const d = deps({ getQuote: async () => noFee });
     expect(await settleVenue(d, { ...ARGS, ownOut: FEE_OUT })).toEqual({ venue: 'own', against: FEE_OUT });
+    expect(d.getQuote).toHaveBeenCalledTimes(1);
     expect(d.prepareJupiter).not.toHaveBeenCalled();
   });
 
@@ -94,13 +102,16 @@ describe('settleVenue: our pool beats the fee-bearing quote, so the no-fee retry
     expect(await settleVenue(d, { ...ARGS, ownOut: NO_FEE_OUT })).toEqual({ venue: 'own', against: NO_FEE_OUT });
   });
 
-  it('Jupiter refused (a simulation said no) or its retry moved: our pool takes it', async () => {
-    for (const p of [
-      { status: 'blocked', reason: 'x', retried: true, cause: 'refused' },
-      { status: 'moved', quote: NO_FEE_QUOTE },
-    ] as PreparedJupiterSwap[]) {
-      expect(await settleVenue(deps({ prepareJupiter: async () => p }), { ...ARGS, ownOut: FEE_OUT })).toEqual({ venue: 'own', against: FEE_OUT });
-    }
+  it('Jupiter refused (a simulation said no): it can deliver nothing, so our pool takes it with no number to meet', async () => {
+    const p: PreparedJupiterSwap = { status: 'blocked', reason: 'x', retried: true, cause: 'refused' };
+    expect(await settleVenue(deps({ prepareJupiter: async () => p }), { ...ARGS, ownOut: FEE_OUT })).toEqual({ venue: 'own', against: null });
+  });
+
+  it('a retry that moved: our pool takes it when it meets the moved quote, and nothing is sent when it does not', async () => {
+    const moved = quote({ outAmount: '14900000', platformFee: null });
+    const p: PreparedJupiterSwap = { status: 'moved', quote: moved };
+    expect(await settleVenue(deps({ prepareJupiter: async () => p }), { ...ARGS, ownOut: 14_900_000n })).toEqual({ venue: 'own', against: 14_900_000n });
+    expect(await settleVenue(deps({ prepareJupiter: async () => p }), { ...ARGS, ownOut: 14_899_999n })).toEqual({ venue: 'unavailable', detail: SETTLE_COPY.moved });
   });
 
   it('a retry that could not be read, or a build that threw, sends nothing anywhere', async () => {

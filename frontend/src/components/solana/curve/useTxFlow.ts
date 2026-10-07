@@ -228,7 +228,7 @@ export function useTxFlow(
       }
     } catch (e) {
       // Nothing was signed yet, so this is safely "not sent".
-      const outcome: TxOutcome = { status: 'not-sent', stage: 'build', message: clipDetail(e) };
+      const outcome: TxOutcome = { status: 'not-sent', stage: 'build', message: clipDetail(e), retry: true };
       setState({ step: 'outcome', outcome, prepared: null, rechecking: false });
       settledRef.current?.(outcome, null);
     } finally {
@@ -275,7 +275,7 @@ export function useTxFlow(
         try {
           r = await build();
         } catch (e) {
-          r = { ok: false, outcome: { status: 'not-sent', stage: 'build', message: clipDetail(e) } };
+          r = { ok: false, outcome: { status: 'not-sent', stage: 'build', message: clipDetail(e), retry: true } };
         }
         if (abandoned()) return;
         if (!r.ok) {

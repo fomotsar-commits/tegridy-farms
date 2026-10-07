@@ -1,15 +1,8 @@
-// THE POOLS PAGE'S ONLY WAY INTO THE WRITE LAYER (the other loader is
-// components/solana/curve/writeApi.ts, the launch page's).
-//
-// Everything is a dynamic import, called only once LP's own switch
-// (lib/launcher/solana/lpWriteFlag.ts) is not 'off'. A production build with the
-// switch 'off' therefore never fetches the liquidity builders or the signer path.
-// It loads only what adding, removing and opening a pool, and a swap in one, need: the
-// gate and the create facts, the builders, the send path and one display rule. Never the
-// launch page's upload or metadata clients (D19). The Solana swap page loads it too.
-//
-// The real functions are assigned into `LpWriteApi` (curve/ports.ts) below, so a drift
-// between the write layer and the UI is a type error here, and nowhere else.
+// The pools page's and the swap page's only way into the LP write layer (the launch page
+// has curve/writeApi.ts). Everything is a dynamic import, loaded only once LP's switch is
+// not 'off', so such a build never fetches the builders or the signer path, and never the
+// launch page's upload or metadata clients. The real functions are assigned into
+// `LpWriteApi` (curve/ports.ts) below, so a drift between the layer and the UI is a type error.
 
 import type { LpWriteApi } from '../curve/ports';
 

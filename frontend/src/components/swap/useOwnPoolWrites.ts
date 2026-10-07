@@ -22,6 +22,7 @@ import { loadLpWriteApi } from '../solana/lp/lpWriteApi';
 export const OWN_SEND_COPY = {
   switchedOff: 'trades in our pools are switched off on this page',
   paused: 'trades in our pools are paused right now',
+  gateUnread: 'this page could not check just now that trades in our pools are open',
   notLoaded: 'the code that sends trades to our pools did not load',
   otherProgram: 'this page would send to a different pool program than the one it reads',
   cannotSign: 'this wallet cannot sign a transaction for this site to send',
@@ -36,6 +37,8 @@ export interface OwnPoolWrites {
   signerState: CurveSignerState;
   rpc: WriteRpc;
   pending: PendingTradesState;
+  /** Read the gate again (after one that could not be read). */
+  refreshGate(): void;
 }
 
 export function useOwnPoolWrites(o: {
@@ -57,8 +60,11 @@ export function useOwnPoolWrites(o: {
   }, [o.gateRpc]);
   // A note from before a reload must be checked whatever is on screen now.
   const [noted] = useState(() => readPendingTrades(SWAP_PENDING_SCOPE).length > 0);
+  // Once wanted, kept: the form reads our pools again for each amount, and the gate is read once.
+  const [armed, setArmed] = useState(false);
+  if (o.wanted && !armed) setArmed(true);
   const mode = lpWriteMode();
-  const enabled = mode !== 'off' && (noted || (OWN_POOL_SWAPS && o.wanted));
+  const enabled = mode !== 'off' && (noted || (OWN_POOL_SWAPS && (o.wanted || armed)));
   const gateState = useLpGate<LpWriteApi>(gateRpc, { enabled, load: o.load ?? loadLpWriteApi });
 
   const api = gateState.status === 'ready' ? gateState.api : null;
@@ -81,6 +87,7 @@ export function useOwnPoolWrites(o: {
   else if (gateState.status === 'load-failed') send = { kind: 'no', reason: OWN_SEND_COPY.notLoaded };
   else if (gateState.status !== 'ready') send = { kind: 'checking' };
   else if (raw?.kind === 'open' && raw.cfg.cpSwapProgram.toBase58() !== programId) send = { kind: 'no', reason: OWN_SEND_COPY.otherProgram };
+  else if (raw?.kind === 'blocked' && raw.reason === 'unreadable') send = { kind: 'no', reason: OWN_SEND_COPY.gateUnread };
   else send = gate ? { kind: 'yes' } : { kind: 'no', reason: OWN_SEND_COPY.paused };
 
   return {
@@ -92,5 +99,6 @@ export function useOwnPoolWrites(o: {
     signerState,
     rpc: connection,
     pending,
+    refreshGate: gateState.refresh,
   };
 }

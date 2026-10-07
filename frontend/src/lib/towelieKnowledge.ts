@@ -247,7 +247,7 @@ export const KNOWLEDGE_BASE: KnowledgeEntry[] = [
   // coins are priced in SOL: never call them island coins or "born in $BAYLA".
   {
     keywords: ['network', 'chain', 'switch', 'mainnet', 'chains'],
-    answer: "Four chains. TOWELI staking, farming and the launchers run on Ethereum mainnet; the Memetics Curve also launches on Base and Robinhood Chain — wrong chain and your wallet shows a 'Switch' button, hit it. On Solana, /solana routes SPL trades through Jupiter, and /curve-launch is our own Solana curve: anyone can trade there, and a maker at Resident or better can launch through the memetics.finance gate. The token scanner reads EVM and Solana both.",
+    answer: "Four chains. TOWELI staking, farming and the launchers run on Ethereum mainnet; the Memetics Curve also launches on Base and Robinhood Chain — wrong chain and your wallet shows a 'Switch' button, hit it. On Solana, /solana sends an SPL trade to one of our own pools when it pays you at least as much as Jupiter, and through Jupiter otherwise, and /curve-launch is our own Solana curve: anyone can trade there, and a maker at Resident or better can launch through the memetics.finance gate. The token scanner reads EVM and Solana both.",
   },
   {
     // The bump wins "launch a token on solana" from the EVM launch entry; the phrases win

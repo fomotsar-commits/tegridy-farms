@@ -85,6 +85,11 @@ describe('routeSentence', () => {
       quotes({ best: null, found: 2, excluded: [{ address: 'P', reason: 'one of its vaults is frozen' }, { address: 'Q', reason: 'it pays nothing for this amount' }] }),
       'None of our 2 pools for this pair can take this trade: one of its vaults is frozen; it pays nothing for this amount, so Buy sends this trade to Jupiter.',
     ],
+    [
+      'pools that cannot fill, after a search that did not finish',
+      quotes({ best: null, gaps: ['one of our pools could not be read'], excluded: [{ address: 'P', reason: 'it pays nothing for this amount' }] }),
+      'Our pool for this pair cannot take this trade: it pays nothing for this amount, and the search did not finish (one of our pools could not be read), so Buy sends this trade to Jupiter.',
+    ],
     ['a pair we cannot hold', { kind: 'not-a-pair' }, 'Our pools pair a token with SOL, USDC or BAYLA, and this pair has none of them, so Buy sends this trade to Jupiter.'],
     ['no pools on this network', { kind: 'absent' }, 'This site has no pools of its own on this network yet, so Buy sends this trade to Jupiter.'],
   ])('%s', (_name, own, text) => {

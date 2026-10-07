@@ -83,7 +83,10 @@ function ownNote(own: OwnSide): string | null {
         return q.gaps.length ? `No pool of ours was found for this pair, but the search did not finish (${q.gaps.join('; ')})` : 'We have no pool for this pair';
       }
       const reasons = [...new Set(q.excluded.map((e) => e.reason))].join('; ');
-      return q.found === 1 ? `Our pool for this pair cannot take this trade: ${reasons}` : `None of our ${q.found} pools for this pair can take this trade: ${reasons}`;
+      const unfinished = q.gaps.length ? `, and the search did not finish (${q.gaps.join('; ')})` : '';
+      return q.found === 1
+        ? `Our pool for this pair cannot take this trade: ${reasons}${unfinished}`
+        : `None of our ${q.found} pools for this pair can take this trade: ${reasons}${unfinished}`;
     }
   }
 }

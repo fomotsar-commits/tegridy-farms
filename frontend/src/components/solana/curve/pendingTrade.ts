@@ -1,17 +1,9 @@
-// A per-viewer note of "I sent a transaction here and could not confirm it",
-// kept so that a reload, or leaving the page and coming back, does not hand the
-// person a fresh, unlocked form while the first transaction may still land. That
-// is how someone pays twice.
-//
-// It covers buy, sell, graduation and pool swaps (one scope per launch mint), adding and
-// removing liquidity and opening a pool (one scope for every pool, each note naming its
-// pool), and the swap page's trades in our pools (`SWAP_PENDING_SCOPE`). The launch
-// create flow has its own note (pendingLaunch.ts).
-//
-// sessionStorage, and only as a convenience: it can be empty, blocked or throw (a
-// private window, cleared site data), and the page must still be right without it.
-// The chain is the truth. The page checks every note against the chain before it
-// shows any form the note holds.
+// A per-viewer note of "I sent a transaction here and could not confirm it", so a reload
+// does not hand back an open form while the first one may still land. Scopes: one per
+// launch's trades, `LP_PENDING_SCOPE` for every liquidity change (each note names its
+// pool), `SWAP_PENDING_SCOPE` for the swap page's trades in our pools. sessionStorage is a
+// convenience only (it can be empty or throw): the chain is the truth, and every note is
+// checked against it before the form it holds is shown.
 
 import { PublicKey } from '@solana/web3.js';
 import { isLpKind } from '../../../lib/launcher/solana/write/lpKinds';

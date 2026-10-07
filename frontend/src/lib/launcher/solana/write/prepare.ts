@@ -96,6 +96,12 @@ const notSent = (stage: NotSent['stage'], message: string, logs?: string[]): { o
   outcome: { status: 'not-sent', stage, message, ...(logs && logs.length ? { logs } : {}) },
 });
 
+/** Not sent because a read or a check could not run: no verdict on the transaction. */
+const notRead = (stage: NotSent['stage'], message: string): { ok: false; outcome: NotSent } => ({
+  ok: false,
+  outcome: { status: 'not-sent', stage, message, retry: true },
+});
+
 function tokenAmount(data: Uint8Array | null | undefined): bigint | null {
   if (!data || data.length < 72) return null;
   return new DataView(data.buffer, data.byteOffset, data.byteLength).getBigUint64(64, true);
@@ -267,7 +273,7 @@ export async function buildAndSimulate(rpc: WriteRpc, spec: BuildSpec): Promise<
     pre = preState;
     rents = { tokenAccount: BigInt(tokenRent) };
   } catch (e) {
-    return notSent('build', `Could not read the network to prepare this: ${clipDetail(e)}`);
+    return notRead('build', `Could not read the network to prepare this: ${clipDetail(e)}`);
   }
 
   // Pass 1: find the units, at the ceiling and no priority fee.
@@ -275,7 +281,7 @@ export async function buildAndSimulate(rpc: WriteRpc, spec: BuildSpec): Promise<
   try {
     first = await simulate(rpc, assemble(signer, blockhash, lastValidBlockHeight, MAX_COMPUTE_UNITS, 0n, spec.body), null);
   } catch (e) {
-    return notSent('simulate', `Could not run the safety check: ${clipDetail(e)}`);
+    return notRead('simulate', `Could not run the safety check: ${clipDetail(e)}`);
   }
   if (!first.ok) {
     const why = explainFailure(first.err, first.logs, spec.intent.cfg, spec.kind);
@@ -304,7 +310,7 @@ export async function buildAndSimulate(rpc: WriteRpc, spec: BuildSpec): Promise<
   try {
     second = await simulate(rpc, tx, spec.watch);
   } catch (e) {
-    return notSent('simulate', `Could not run the safety check: ${clipDetail(e)}`);
+    return notRead('simulate', `Could not run the safety check: ${clipDetail(e)}`);
   }
   if (!second.ok) {
     const why = explainFailure(second.err, second.logs, spec.intent.cfg, spec.kind);
@@ -350,4 +356,4 @@ export function bodySteps(steps: IntentStep[]): IntentStep[] {
   return steps.filter((s) => s.kind !== 'compute-limit' && s.kind !== 'compute-price');
 }
 
-export { notSent };
+export { notSent, notRead };

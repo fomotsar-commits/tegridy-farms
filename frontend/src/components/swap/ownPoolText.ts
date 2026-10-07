@@ -8,6 +8,9 @@ import type { OwnCandidate } from '../../lib/solana/swap/ownPools';
 /** What a trade in one of our pools says when it stops before the wallet is asked. */
 export const OWN_SWAP_COPY = {
   poolGone: 'Our pool can no longer take this trade as it stands. Nothing was sent; both quotes are being read again.',
+  unread: 'Our pools could not be read just now, so this trade was not checked against them. Nothing was sent. Try again in a moment.',
+  jupiterAhead: 'Jupiter pays more for this trade now. Its new quote is on screen; nothing was sent. Press Buy again to swap through Jupiter.',
+  cannotCheck: "This page could not load what checks it, so look it up in your wallet's activity, then press I checked my wallet.",
   jupiterNow: 'Jupiter now pays more for this trade, so nothing was signed. Press Buy again and it goes to Jupiter.',
   unchecked: (detail: string) => `${detail}, so this trade could not be checked against it. Nothing was sent. Try again in a moment.`,
   refused: 'the last try in our pool was refused for this wallet',

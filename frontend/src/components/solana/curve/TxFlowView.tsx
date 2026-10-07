@@ -950,7 +950,7 @@ const EXPIRED_TEXT ='Did not go through, and it can no longer go through. Nothin
 
 const NOT_SENT_COPY: Record<NotSent['stage'], string> = {
   gate: 'Not sent. The launch door did not open for this wallet, so nothing was uploaded, built or signed.',
-  venue: 'Not sent. This trade was checked against Jupiter again before your wallet was asked, and nothing was signed.',
+  venue: 'Not sent. This trade in our pool was stopped before your wallet was asked, and nothing was signed.',
   build: 'Not sent. We could not build this transaction.',
   simulate: 'Not sent. A test run of this transaction was refused, so we did not ask your wallet to sign it.',
   sign: 'Not sent. Your wallet did not sign it.',

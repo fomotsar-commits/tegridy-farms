@@ -8,7 +8,7 @@ page keeps the newest thirty days.
 
 ### 2026-10-07
 
-- Solana swap: a trade now goes to one of our own pools when that pool pays you at least as much as Jupiter, checked again on fresh quotes when you press Buy, and through Jupiter otherwise. The route line says which and by how much; a trade in our pool is reviewed before your wallet signs it, and our pools add no platform fee on top of their own trade fee.
+- Solana swap: a trade now goes to one of our own pools when that pool pays you at least as much as Jupiter, checked again on fresh quotes when you press Buy, and through Jupiter otherwise. The route line says which and by how much; if the press finds the other venue ahead, nothing is sent and its new quote is shown first. A trade in our pool is reviewed before your wallet signs it, and our pools add no platform fee on top of their own trade fee.
 
 ### 2026-10-06
 

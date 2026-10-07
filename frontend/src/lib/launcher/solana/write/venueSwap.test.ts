@@ -261,6 +261,34 @@ describe('refused, each for its own reason', () => {
     expect(refused(await buy(world({ clock: null }), 1_000_000n))).toBe(SWAP_COPY.clockUnread);
   });
 
+  // A read that could not run is no verdict: the outcome says asking again may work, so the
+  // swap page does not take it as our pool refusing this wallet (SolanaSwapPage onOwnSettled).
+  it('a read that could not run says so; a refusal does not', async () => {
+    const noClock = await buy(world({ clock: null }), 1_000_000n);
+    expect(!noClock.ok && noClock.outcome).toMatchObject({ stage: 'build', message: SWAP_COPY.clockUnread, retry: true });
+    const down = world();
+    down.chain.getMultipleAccountsInfo = async () => {
+      throw new Error('HTTP 502');
+    };
+    const unread = await buy(down, 1_000_000n);
+    expect(!unread.ok && unread.outcome).toMatchObject({ stage: 'build', message: SWAP_COPY.poolUnread, retry: true });
+    const noHash = world();
+    noHash.chain.getLatestBlockhash = async () => {
+      throw new Error('HTTP 429');
+    };
+    const hashless = await buy(noHash, 1_000_000n);
+    expect(!hashless.ok && hashless.outcome).toMatchObject({ stage: 'build', message: expect.stringMatching(/^Could not read the network to prepare this/), retry: true });
+    const noSim = world();
+    noSim.chain.simulateTransaction = async () => {
+      throw new Error('HTTP 503');
+    };
+    const simless = await buy(noSim, 1_000_000n);
+    expect(!simless.ok && simless.outcome).toMatchObject({ stage: 'simulate', message: expect.stringMatching(/^Could not run the safety check/), retry: true });
+    for (const r of [await buy(world({ status: POOL_STATUS_DISABLE_SWAP }), 1_000_000n), await buy(world({ frozenTokenVault: true }), 1_000_000n)]) {
+      expect(!r.ok && 'retry' in r.outcome).toBe(false);
+    }
+  });
+
   it('a frozen vault', async () => {
     expect(refused(await buy(world({ frozenTokenVault: true }), 1_000_000n))).toBe(SWAP_COPY.vaultFrozen);
   });

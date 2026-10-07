@@ -1,28 +1,9 @@
-// What a transaction will do, read back out of its own bytes — and a refusal for
-// anything this site would never build.
-//
-// WHY NOT A PROGRAM ALLOWLIST: allowing "the System program" allows a SOL transfer
-// to anyone, and allowing "the Token program" allows a transfer, an approve or an
-// authority change to anyone. And cp-swap does not check who owns the swap's
-// output account (swap_base_input.rs declares it only `mut`), so a wrong output
-// account sends the proceeds to a stranger. So every instruction must match one
-// SHAPE this site builds, down to its accounts and arguments, and every account
-// that decides where value goes must be the signer's own or read off chain state.
-//
-// And each KIND of transaction may call only its own programs (PROGRAMS_BY_KIND):
-// a launch never reaches the pool program, a pool swap never reaches Token
-// Metadata or the launch program, and only a launch reaches Token-2022, for the
-// two exact instructions of its $BAYLA plant.
-//
-// Adding and removing liquidity, opening a pool, and a swap in one of our pools
-// (`PoolIntent`) are judged against `PoolPins`, the pool as read and checked while
-// preparing: every account of the pool instruction must equal its pin, and the
-// transaction holds exactly one of them. An opening is always on tier 1, derived here
-// from the constant. The launch-program kinds (`CurveIntent`) are judged as before.
-//
-// This runs twice: on the transaction before any wallet sees it, and again on
-// whatever the wallet hands back. The review screen is built from the steps it
-// returns, so what a person reads is what the bytes say.
+// What a transaction will do, read back out of its own bytes, and a refusal for anything
+// this site would never build. Every instruction must match a shape this site builds, down
+// to its accounts and arguments, and each kind may call only its own programs
+// (PROGRAMS_BY_KIND). The pool kinds (`PoolIntent`) are judged against `PoolPins`, the pool
+// as read while preparing. It runs on the transaction before any wallet sees it and again
+// on what the wallet hands back; the review is built from the steps it returns.
 
 import {
   ComputeBudgetProgram,

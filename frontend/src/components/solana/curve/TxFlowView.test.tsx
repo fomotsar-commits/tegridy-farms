@@ -475,7 +475,8 @@ describe('useTxFlow', () => {
     const api = fakeApi();
     const { result } = flowAt(api);
     await act(() => result.current.prepare(async () => Promise.reject(new Error('boom'))));
-    expect(result.current.state).toMatchObject({ step: 'outcome', outcome: { status: 'not-sent', stage: 'build' } });
+    // Nothing was learned about the transaction: asking again may work.
+    expect(result.current.state).toMatchObject({ step: 'outcome', outcome: { status: 'not-sent', stage: 'build', retry: true } });
   });
 
   // F1: a refusal is often "the price moved". The page must read the chain again, or
@@ -2001,9 +2002,9 @@ describe('a swap in our pool: the review', () => {
     expect(screen.getByText('This token can charge a fee on each transfer.')).toBeInTheDocument();
   });
 
-  it('a rebuild that found Jupiter paying more is not sent, and says the trade was checked again', () => {
+  it('a trade in our pool stopped before signing says so, and the reason says why', () => {
     outcome({ status: 'not-sent', stage: 'venue', message: 'Jupiter now pays more for this trade. Press Buy again to swap through Jupiter.' });
-    expect(screen.getByText('Not sent. This trade was checked against Jupiter again before your wallet was asked, and nothing was signed.')).toBeInTheDocument();
+    expect(screen.getByText('Not sent. This trade in our pool was stopped before your wallet was asked, and nothing was signed.')).toBeInTheDocument();
     expect(screen.getByText('Nothing was charged.')).toBeInTheDocument();
   });
 });

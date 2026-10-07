@@ -82,6 +82,24 @@ describe('useOwnPoolRoute', () => {
     expect(h.search).not.toHaveBeenCalled();
   });
 
+  it('what quoteNow reads is what the form shows from then on, so the screen and the press agree', async () => {
+    const { result } = renderHook(() => useOwnPoolRoute({ inputMint: SOL, outputMint: TOKEN, amountIn: 9n, readers }));
+    await settle();
+    expect(result.current.own).toMatchObject({ kind: 'ok', quotes: { found: 9 } });
+    h.quote.mockResolvedValueOnce(quoted(4));
+    await act(async () => { await result.current.quoteNow(); });
+    expect(result.current.own).toMatchObject({ kind: 'ok', quotes: { found: 4 } });
+  });
+
+  it('a new nonce reads again for the same form', async () => {
+    const { rerender } = renderHook((p: { nonce: number }) => useOwnPoolRoute({ inputMint: SOL, outputMint: TOKEN, amountIn: 9n, readers, nonce: p.nonce }), { initialProps: { nonce: 0 } });
+    await settle();
+    expect(h.quote).toHaveBeenCalledTimes(1);
+    rerender({ nonce: 1 });
+    await settle();
+    expect(h.quote).toHaveBeenCalledTimes(2);
+  });
+
   it('quoteNow reads the pools again, fresh, through the cached search', async () => {
     const { result } = renderHook(() => useOwnPoolRoute({ inputMint: SOL, outputMint: TOKEN, amountIn: 9n, readers }));
     await settle();

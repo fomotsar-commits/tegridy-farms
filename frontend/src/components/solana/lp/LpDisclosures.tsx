@@ -27,9 +27,8 @@ const CREATE_VAULT_LINE =
   "The team's vault (a Squads multisig, two signatures) can switch off deposits, withdrawals or swaps on this pool, change the public fee tier's rates and its fee to open a pool at once, and upgrade the program. If it switched off withdrawals, you could not take your money out until it switched them back on.";
 
 /**
- * How a new pool earns, honestly, in short: on the card and the review. The site's own
- * swap goes through Jupiter, which does not send trades to our pools, so until this site
- * routes trades here a new pool sees only bots that trade our program directly.
+ * How a new pool earns, honestly, in short: on the card and the review. Jupiter sends no
+ * trades to our pools; this site's swap sends one only when the pool pays at least as much.
  */
 export const MONEY_NOTE =
   "Jupiter does not send trades to our pools. This site's swap sends a trade to one of our pools only when that pool pays the trader at least as much as Jupiter; otherwise a new pool earns fees only when bots trade our pool program directly, mostly arbitrage.";

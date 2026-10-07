@@ -652,9 +652,9 @@ function EarnRail({ onPick }: { onPick: (t: SolToken) => void }) {
         ))}
       </div>
       <p className="text-white/55 text-[11px] mt-1.5">
-        Buy a liquid-staking token to earn ~validator APY automatically — its value grows each epoch, no lockup, sell
-        back to SOL anytime. APY is variable.{' '}
-        {isSolanaFeeConfigured() ? `A ${SOLANA_PLATFORM_FEE_BPS / 100}% fee applies on the SOL buy.` : 'No platform fee is charged on the buy.'}
+        Buy a liquid-staking token to earn about the validator APY automatically: its value grows each epoch, there is no
+        lockup, and you can sell back to SOL anytime. APY is variable.{' '}
+        {isSolanaFeeConfigured() ? `A ${SOLANA_PLATFORM_FEE_BPS / 100}% fee applies when the buy goes through Jupiter; our pools add none on top.` : 'No platform fee is charged on the buy.'}
       </p>
     </div>
   );
@@ -1273,29 +1273,37 @@ function SolanaSwapInner() {
   const requestKey = `${payToken.mint}|${buyToken.mint}|${baseAmount ?? ''}|${slippageBps}`;
 
   // Our pools: read for the form on screen (useOwnPoolRoute), and the write path for a
-  // trade Buy sends to one of them. A refusal there sends this pair to Jupiter for this
-  // wallet until the pair or the wallet changes.
+  // trade Buy sends to one of them. A refusal there (a verdict, not a read that could not
+  // run) sends this exact request to Jupiter for this wallet; any edit tries our pool again.
   const [ownNonce, setOwnNonce] = useState(0);
   const [ownRefused, setOwnRefused] = useState<string | null>(null);
   const [settling, setSettling] = useState(false);
   const pressing = useRef(false);
+  const pressedFor = useRef('');
   const ownRoute = useOwnPoolRoute({ inputMint: payToken.mint, outputMint: buyToken.mint, amountIn: canQuote && baseAmount ? BigInt(baseAmount) : null, nonce: ownNonce });
   const rereadVenues = useCallback(() => {
     setOwnNonce((n) => n + 1);
     setQuoteAttempt((n) => n + 1);
   }, []);
   const ownFound = ownRoute.own.kind === 'ok' && ownRoute.own.quotes.found > 0;
-  const writes = useOwnPoolWrites({ wanted: ownFound && !!publicKey, onResolved: rereadVenues });
-  const refusalKey = `${payToken.mint}|${buyToken.mint}|${publicKey?.toBase58() ?? ''}`;
+  const retryBalance = payBalance.retry;
+  // A note the card settled: both venues, and the balance it spent from, are read again.
+  const noteResolved = useCallback(() => {
+    rereadVenues();
+    retryBalance();
+  }, [rereadVenues, retryBalance]);
+  const writes = useOwnPoolWrites({ wanted: ownFound && !!publicKey, onResolved: noteResolved });
+  const refusalKey = `${requestKey}|${publicKey?.toBase58() ?? ''}`;
   const ownSend: OwnSend = ownRefused === refusalKey ? { kind: 'no', reason: OWN_SWAP_COPY.refused } : writes.send;
 
   // A trade in our pool settled (useTxFlow). What it says comes from the summary it was built with.
   const onOwnSettled = (o: TxOutcome, prepared: PreparedTx | null, sentSignature?: string | null) => {
     writes.pending.record(o, prepared, sentSignature);
     if (o.status === 'not-sent') {
-      // Refused before the wallet was asked: this pair goes to Jupiter for this wallet.
-      if (o.stage === 'build' || o.stage === 'simulate') setOwnRefused(refusalKey);
+      // Refused before the wallet was asked: the request pressed goes to Jupiter for this wallet.
+      if ((o.stage === 'build' || o.stage === 'simulate') && !o.retry) setOwnRefused(pressedFor.current);
       rereadVenues();
+      if (o.retry) writes.refreshGate();
       return;
     }
     const sum = prepared?.summary;
@@ -1308,6 +1316,8 @@ function SolanaSwapInner() {
     const sig = 'signature' in o ? o.signature : '';
     if (o.status === 'unknown') {
       if (sig) recordActivity(publicKey.toBase58(), { sig, ts: Date.now(), kind: 'swap', summary: `Sent, not confirmed: ${words}` });
+      // As the Jupiter path does: the same buy is not one click away while this one may land.
+      setAmount('');
       return;
     }
     if (o.status !== 'confirmed') {
@@ -1325,6 +1335,8 @@ function SolanaSwapInner() {
   };
   const flow = useTxFlow(writes.api ?? NO_WRITE_API, writes.rpc, onOwnSettled, writes.pending.sent);
   const flowIdle = flow.state.step === 'idle';
+  // While a trade is checked, built, reviewed or sent, the form it was pressed on stays as it was.
+  const formLocked = !flowIdle || settling || swapping;
   const { target: buyRef, fallback: headingRef } = useReturnFocus(flow.state.step);
   // A review is of the form as it was when Buy was pressed. Changed since (a picked token,
   // a new price in USD mode), it is dropped, never signed for numbers nobody is reading.
@@ -1406,7 +1418,7 @@ function SolanaSwapInner() {
   // USD prices for the pay + receive legs (one call, refreshed on pair change
   // — and every 30s while USD-denominated input is on, so a stale price can't
   // mis-size the trade).
-  // Paused while a trade in our pool is under way: a new price would change the amount under its review.
+  // Paused while a trade is under way: a new price would change the amount under it.
   useEffect(() => {
     let cancelled = false;
     const load = () => {
@@ -1414,10 +1426,10 @@ function SolanaSwapInner() {
         .then((p) => { if (!cancelled) setPrices(p); })
         .catch(() => { /* USD context is best-effort */ });
     };
-    if (flowIdle) load();
-    const iv = usdMode && flowIdle ? setInterval(load, 30_000) : null;
+    if (!formLocked) load();
+    const iv = usdMode && !formLocked ? setInterval(load, 30_000) : null;
     return () => { cancelled = true; if (iv) clearInterval(iv); };
-  }, [payToken.mint, buyToken.mint, usdMode, flowIdle]);
+  }, [payToken.mint, buyToken.mint, usdMode, formLocked]);
 
   // Persist the speed choice (best-effort — private windows just don't keep it).
   useEffect(() => {
@@ -1507,12 +1519,11 @@ function SolanaSwapInner() {
     );
   }
 
-  // `settled`: the Buy press already asked Jupiter (settleVenue), so its fresh quote, and the
-  // transaction when that was built, are the ones compared and used here.
-  async function handleSwap(settled?: { fresh: JupiterQuote; prepared: ReadyJupiterSwap | null }) {
-    const clicked = quote ?? settled?.fresh ?? null;
-    if (!publicKey || !clicked || !baseAmount) return;
-    const shown = clicked; // snapshot the exact quote the user clicked on
+  // `settled`: the Buy press already asked Jupiter (settleVenue) while Jupiter's quote was on
+  // screen, so its fresh quote and the transaction built from it are the ones used here.
+  async function handleSwap(settled?: { fresh: JupiterQuote; prepared: ReadyJupiterSwap }) {
+    if (!publicKey || !quote || !baseAmount) return;
+    const shown = quote; // snapshot the exact quote the user clicked on
     // Did the trader click the NO-FEE re-quote (left on screen by a wallet
     // reject, a send error or a "moved" result)? Then `fresh` below, which is
     // fee-bearing, is about 0.5% under it by construction and is not the trade
@@ -1669,20 +1680,23 @@ function SolanaSwapInner() {
     }
   }
 
-  // Buy. A trade goes to our pool only once a fresh read of our pools and a fresh Jupiter
-  // quote agree it pays at least as much (settleVenue.ts); a Jupiter verdict goes to the
-  // path above with what was compared, and a check that could not run sends nothing.
+  // Buy. With a pool of ours in play, every press reads our pools again and asks Jupiter again
+  // (settleVenue.ts), and the trade goes only to the venue the screen showed: a press that
+  // finds the other one ahead sends nothing and puts the new numbers on screen. A check
+  // that could not run sends nothing.
   async function onBuy() {
     if (pressing.current) return;
     pressing.current = true;
     try {
-      if (choice?.venue !== 'own') {
+      const { api, gate, signer } = writes;
+      const shownVenue = choice?.venue;
+      const inPlay = ownFound && ownSend.kind === 'yes' && (shownVenue === 'own' || shownVenue === 'jupiter');
+      if (!inPlay || !api || !gate || !signer || !publicKey || !baseAmount) {
         await handleSwap();
         return;
       }
-      const { api, gate, signer } = writes;
-      if (!api || !gate || !signer || !publicKey || !baseAmount) return;
       setSettling(true);
+      pressedFor.current = refusalKey;
       const amountIn = BigInt(baseAmount);
       const req = { inputMint: payToken.mint, outputMint: buyToken.mint, amount: baseAmount, slippageBps };
       const user = publicKey.toBase58();
@@ -1692,10 +1706,17 @@ function SolanaSwapInner() {
         prepareJupiter: (fresh) =>
           prepareJupiterSwap({ getQuote, buildSwapTransaction, simulateSwap, swapCarriesPlatformFee }, { fresh, shown: onScreen ?? fresh, ...req, user, priority: speed }),
       };
+      // What this read finds is on screen from here (useOwnPoolRoute), whatever it decides.
       const now = await ownRoute.quoteNow();
       const best = now.kind === 'ok' ? now.quotes.best : null;
       if (!best) {
-        toast.error('Not sent', { description: OWN_SWAP_COPY.poolGone });
+        if (shownVenue === 'jupiter' && now.kind === 'ok') {
+          setSettling(false);
+          await handleSwap();
+          return;
+        }
+        const unread = now.kind !== 'ok' || now.quotes.gaps.length > 0;
+        toast.error('Not sent', { description: unread ? OWN_SWAP_COPY.unread : OWN_SWAP_COPY.poolGone });
         rereadVenues();
         return;
       }
@@ -1705,8 +1726,18 @@ function SolanaSwapInner() {
         return;
       }
       if (settled.venue === 'jupiter') {
-        setSettling(false);
-        await handleSwap({ fresh: settled.fresh, prepared: settled.prepared });
+        if (shownVenue === 'jupiter') {
+          setSettling(false);
+          await handleSwap({ fresh: settled.fresh, prepared: settled.prepared });
+          return;
+        }
+        // The screen said our pool. Jupiter's numbers go on screen, and the next press is the consent.
+        const shownNow = settled.prepared.siteFeeWaived ? settled.prepared.quote : settled.fresh;
+        setWaivedQuote(settled.prepared.siteFeeWaived ? shownNow : null);
+        setQuote(shownNow);
+        setQuoteFail(null);
+        setQuoteFor(requestKey);
+        toast.error('Not sent', { description: OWN_SWAP_COPY.jupiterAhead });
         return;
       }
       const notSent = (message: string): Prepared => ({ ok: false, outcome: { status: 'not-sent', stage: 'venue', message } });
@@ -1722,11 +1753,10 @@ function SolanaSwapInner() {
         });
         if (!r.ok || r.prepared.summary.kind !== 'venue-swap') return r;
         const out = r.prepared.summary.quote.outAmount;
-        if (first) {
-          first = false;
-          return settled.against !== null && out < settled.against ? notSent(OWN_SWAP_COPY.jupiterNow) : r;
-        }
-        // Built again for a review left open: settled again, in full, before the wallet sees it.
+        const metPress = first && (settled.against === null || out >= settled.against);
+        first = false;
+        if (metPress) return r;
+        // Built again for a review left open, or below the number just settled: settled again, in full.
         const again = await settleVenue(deps, { ownOut: out, ...req });
         if (again.venue === 'own') return r;
         return notSent(again.venue === 'jupiter' ? OWN_SWAP_COPY.jupiterNow : OWN_SWAP_COPY.unchecked(again.detail));
@@ -1740,8 +1770,10 @@ function SolanaSwapInner() {
   }
 
   const canBuy = choice?.venue === 'own' || (choice?.venue === 'jupiter' && quote !== null);
+  // One of our pools quotes this trade, whether or not it can be sent from here.
+  const ownQuotes = ownRoute.own.kind === 'ok' && ownRoute.own.quotes.best !== null;
   const actionDisabled =
-    !canBuy || quoteLoading || swapping || settling || pendingHold || !flowIdle || flow.locked || sameToken || (needsAck && !ack) || insufficient;
+    !canBuy || quoteLoading || formLocked || pendingHold || flow.locked || sameToken || (needsAck && !ack) || insufficient;
   // What the buy button says. "No route" only when the quote service said it:
   // a quote that could not be fetched, two of the same token, and the moment
   // before the first quote is asked for each get their own words.
@@ -1753,7 +1785,7 @@ function SolanaSwapInner() {
     : insufficient ? `Insufficient ${payToken.symbol}`
     : canBuy ? `Buy ${buyToken.symbol}`
     : choice?.venue === 'wait' && jupiterSide.kind !== 'pending' ? 'Checking our pools…'
-    : quoteFail === 'no-route' ? 'No route'
+    : quoteFail === 'no-route' ? (ownQuotes ? 'Not available here right now' : 'No route')
     : quoteFail === 'unavailable' ? 'Quote unavailable'
     : 'Fetching quote…';
 
@@ -1794,7 +1826,7 @@ function SolanaSwapInner() {
                 key={mTab}
                 type="button"
                 onClick={() => setMode(mTab)}
-                disabled={!flowIdle}
+                disabled={formLocked}
                 aria-pressed={mode === mTab}
                 className="flex-1 py-2.5 rounded-lg text-[12px] font-medium text-white transition-colors"
                 style={{
@@ -1817,7 +1849,7 @@ function SolanaSwapInner() {
                 <button
                   type="button"
                   onClick={() => { setUsdMode((v) => !v); setAmount(''); }}
-                  disabled={!payPrice || !flowIdle}
+                  disabled={!payPrice || formLocked}
                   aria-pressed={usdMode}
                   title={payPrice ? 'Enter the amount in US dollars' : 'Price unavailable for this token'}
                   className="ml-1.5 px-2 py-2.5 -my-2 rounded font-semibold text-[11px] disabled:opacity-40"
@@ -1844,7 +1876,7 @@ function SolanaSwapInner() {
                     </button>
                   )}
                   {payBalance.raw !== null && payBalance.raw > 0n && (
-                    <button type="button" onClick={handleMax} disabled={!flowIdle} className="ml-1 px-2 py-2.5 -my-2 font-semibold disabled:opacity-40" style={{ color: 'var(--color-stan)' }}>MAX</button>
+                    <button type="button" onClick={handleMax} disabled={formLocked} className="ml-1 px-2 py-2.5 -my-2 font-semibold disabled:opacity-40" style={{ color: 'var(--color-stan)' }}>MAX</button>
                   )}
                 </span>
               )}
@@ -1853,7 +1885,7 @@ function SolanaSwapInner() {
               <button
                 type="button"
                 onClick={() => setPicker('pay')}
-                disabled={!flowIdle}
+                disabled={formLocked}
                 aria-haspopup="dialog"
                 className="flex items-center gap-2 px-3 py-1.5 rounded-lg min-h-[40px] hover:bg-white/5 transition-colors"
               >
@@ -1864,7 +1896,7 @@ function SolanaSwapInner() {
                 type="text" inputMode="decimal" autoComplete="off" placeholder="0.0"
                 aria-label={usdMode ? `US dollars of ${payToken.symbol} to pay` : `Amount of ${payToken.symbol} to pay`}
                 value={amount}
-                disabled={!flowIdle}
+                disabled={formLocked}
                 onChange={(e) => acceptAmountInput(e.target.value, setAmount)}
                 className="flex-1 bg-transparent text-right text-white text-[20px] font-mono outline-none min-w-0"
               />
@@ -1877,7 +1909,7 @@ function SolanaSwapInner() {
                       key={usd}
                       type="button"
                       onClick={() => setAmount(usd)}
-                      disabled={!flowIdle}
+                      disabled={formLocked}
                       className="px-2 py-2 -my-1 rounded-md text-[10px] font-medium text-white"
                       style={{ background: 'rgba(0,0,0,0.45)', border: '1px solid rgba(255,255,255,0.12)' }}
                     >
@@ -1899,7 +1931,7 @@ function SolanaSwapInner() {
             <button
               type="button"
               onClick={() => { setPayToken(buyToken); setBuyToken(payToken); setAmount(''); }}
-              disabled={!flowIdle}
+              disabled={formLocked}
               aria-label="Flip pay and receive tokens"
               className="w-10 h-10 rounded-full flex items-center justify-center transition-transform hover:scale-105"
               style={{ background: 'var(--color-stan)', border: '2px solid rgba(255,255,255,0.95)', boxShadow: '0 4px 16px rgba(0,0,0,0.70), 0 0 0 4px rgba(6,12,26,0.85)' }}
@@ -1936,7 +1968,7 @@ function SolanaSwapInner() {
               <button
                 type="button"
                 onClick={() => setPicker('buy')}
-                disabled={!flowIdle}
+                disabled={formLocked}
                 aria-haspopup="dialog"
                 className="flex items-center gap-2 px-3 py-1.5 rounded-lg min-h-[40px] hover:bg-white/5 transition-colors"
               >
@@ -1965,7 +1997,7 @@ function SolanaSwapInner() {
                     key={bps}
                     type="button"
                     onClick={() => setSlippageBps(bps)}
-                    disabled={!flowIdle}
+                    disabled={formLocked}
                     aria-pressed={active}
                     className="flex-1 py-1.5 min-h-[40px] rounded-lg text-[11px] font-medium transition-all text-white"
                     style={{
@@ -1989,7 +2021,7 @@ function SolanaSwapInner() {
                     key={level}
                     type="button"
                     onClick={() => setSpeed(level)}
-                    disabled={!flowIdle}
+                    disabled={formLocked}
                     aria-pressed={active}
                     className="flex-1 py-1.5 min-h-[40px] rounded-lg text-[11px] font-medium transition-all text-white"
                     style={{
@@ -2055,7 +2087,7 @@ function SolanaSwapInner() {
               </div>
             )}
             {sameToken && <p className="text-amber-300">Pick two different tokens.</p>}
-            {quoteFail === 'no-route' && !sameToken && !ownBest && <p className="text-amber-300">No route for this pair / amount.</p>}
+            {quoteFail === 'no-route' && !sameToken && !ownQuotes && <p className="text-amber-300">No route for this pair / amount.</p>}
             {quoteFail === 'unavailable' && !sameToken && (
               <p className="text-amber-300" data-testid="solana-quote-unavailable">
                 Could not get a quote just now. This is not a statement that the pair cannot be traded.
@@ -2104,7 +2136,7 @@ function SolanaSwapInner() {
                 explorerUrl={(sig) => (writes.api && writes.cfg ? writes.api.explorerTxUrl(sig, writes.cfg.cluster) : `https://solscan.io/tx/${sig}`)}
                 title="Your last trade in our pool may still be landing"
                 testId="solana-swap-pending"
-                lead={<p>{OWN_SWAP_COPY.pendingLead}</p>}
+                lead={<p>{writes.api ? OWN_SWAP_COPY.pendingLead : `${OWN_SWAP_COPY.pendingLead} ${OWN_SWAP_COPY.cannotCheck}`}</p>}
               />
             </div>
           )}
@@ -2160,8 +2192,8 @@ function SolanaSwapInner() {
               <PairChart key={buyToken.mint} mint={buyToken.mint} symbol={buyToken.symbol} />
             </div>
           )}
-          <EarnRail onPick={(t) => { setPayToken(SOL); setBuyToken(t); }} />
-          <TrendingRail onPick={(t) => { setPayToken(SOL); setBuyToken(t); }} />
+          <EarnRail onPick={(t) => { if (formLocked) return; setPayToken(SOL); setBuyToken(t); }} />
+          <TrendingRail onPick={(t) => { if (formLocked) return; setPayToken(SOL); setBuyToken(t); }} />
           <ActivityRail />
         </>
       )}

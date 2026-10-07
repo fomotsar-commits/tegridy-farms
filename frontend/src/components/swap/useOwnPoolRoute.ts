@@ -68,7 +68,7 @@ function sideOf(r: OwnQuoteNow): OwnSide {
 
 export interface OwnPoolRoute {
   own: OwnSide;
-  /** Read our pools for this pair and amount again, now. The Buy press uses it. */
+  /** Read our pools for this pair and amount again, now, and show that read. The Buy press uses it. */
   quoteNow(): Promise<OwnQuoteNow>;
 }
 
@@ -104,10 +104,13 @@ export function useOwnPoolRoute(a: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [readers, inputMint, outputMint, amountIn, key]);
 
-  const quoteNow = useCallback(
-    () => (amountIn === null || amountIn <= 0n ? Promise.resolve<OwnQuoteNow>({ kind: 'unread', detail: 'no amount' }) : quoteOwnPoolsNow(readers, inputMint, outputMint, amountIn)),
-    [readers, inputMint, outputMint, amountIn],
-  );
+  // The press's fresh read becomes the form's, so the screen never shows an older one than the press used.
+  const quoteNow = useCallback(async (): Promise<OwnQuoteNow> => {
+    if (amountIn === null || amountIn <= 0n) return { kind: 'unread', detail: 'no amount' };
+    const r = await quoteOwnPoolsNow(readers, inputMint, outputMint, amountIn);
+    setRead({ key, own: sideOf(r) });
+    return r;
+  }, [readers, inputMint, outputMint, amountIn, key]);
   const own: OwnSide = settled ?? (read && read.key === key ? read.own : { kind: 'pending' });
   return { own, quoteNow };
 }
