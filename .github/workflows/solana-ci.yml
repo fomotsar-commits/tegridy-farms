@@ -188,19 +188,28 @@ jobs:
           # signs, which is this program's own address. Diffing the old delta against the
           # new one shows, apart from `//` and `///` comments and diff hunk headers:
           #   7 `use` lines (ErrorCode, PoolState, the anchor-spl metadata helper, Mint)
-          #   the 18-line handler in the #[program] module (no arguments)
+          #   the 17-line handler in the #[program] module (no arguments)
           #   `struct CreateLpMetadata` (9 accounts)
           #   `get_lp_metadata_data` and `initialize_metadata_account`, taken from
           #   raydium-clmm @ ed7c84a5 open_position.rs (Apache-2.0)
           # No constant, no existing instruction and no Cargo.toml line changed: the
           # `metadata` feature of anchor-spl was already on, inherited from upstream.
           # What a reviewer must hold it to: the caller passes no words; `lp_mint` is
-          # bound to `pool_state`; the editor is `admin::ID`; and the inner call is handed
-          # Metaplex's own six accounts and nothing else, because the address that signs
-          # it also owns every pool vault. Reproduced locally with this exact recipe: the
-          # unmodified base (f1e60f60) yields the previous pin 5c737ac7…, which is the
-          # positive control for this value.
-          EXPECTED_DELTA_SHA256=c18d4d6358a878a0b22b3916813be02bd4a80b81e4522d13495703140a4edd6d
+          # bound to `pool_state`; the editor is `admin::ID`; and the inner call gets six
+          # accounts and no remaining account, because the address that signs it also owns
+          # every pool vault. Four of the six are fixed by the program. The caller picks the
+          # payer and the record slot, and the program does not check the record slot:
+          # Metaplex does. Reproduced locally with this exact recipe: the unmodified base
+          # (f1e60f60) yields the previous pin 5c737ac7…, which is the positive control.
+          # That first pin of the instruction was c18d4d63….
+          # RE-PINNED 2026-10-06, a second time, for comments only: five `//` lines of the
+          # FUND SAFETY note in lib.rs. The note said no vault and no token program is ever
+          # passed on. That was more than the program checks, since a caller can put any
+          # account in the record slot. It now says what is so (see TEGRIDY_FORK.md). Diffing
+          # the old delta against the new one shows five changed lines, every one a `//`
+          # comment, and the same count of changed lines (261). The control for this value:
+          # the same recipe on the commit before yields c18d4d63….
+          EXPECTED_DELTA_SHA256=2bbd1e5593be4271237f78c26a2b59b55bcd3b1f0c7d18c1796f8dd35ece8a53
 
           # 1. NO file outside the two allowed source files may differ at all.
           #    Paths are anchored to their full relative path — the old pattern matched

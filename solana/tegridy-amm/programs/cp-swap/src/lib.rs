@@ -408,11 +408,11 @@ pub mod raydium_cp_swap {
 // address that can sign: see the note in `mod admin` above.
 //
 // FUND SAFETY: the AUTH_SEED address that signs the inner call also owns every pool
-// vault. The inner call is handed Metaplex's own six accounts and nothing else: the
-// record, the lp mint (read-only), AUTH_SEED (read-only), the payer, the editor and
-// the System program. No vault, no token program and no remaining account is ever
-// passed on, so that signature cannot reach a token account. AUTH_SEED is never the
-// payer and holds no lamports.
+// vault. The inner call gets six accounts and no remaining account. Four are fixed by
+// the checks below: the lp mint and AUTH_SEED (read-only in their own slots), the
+// editor and the System program. The caller picks two: the payer, which must sign, and
+// the record slot, which this program does NOT check. So at most one slot can hold a
+// vault or the token program, never both, and a program can only call one it was handed.
 //
 // STACK: an SBF frame over 4,096 bytes is only a linker warning and then faults on
 // chain. `lp_mint` is boxed, `pool_state` is an `AccountLoader` (no copy), and the
