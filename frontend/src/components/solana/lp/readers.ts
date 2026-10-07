@@ -7,6 +7,7 @@ import { readTokenSafety, type TokenSafety } from '../../../lib/solana/lp/tokenS
 import { findPools, readFeeTiers, type FeeTierRead, type PoolSearchRead, type PoolView } from '../../../lib/solana/lp/poolFinder';
 import { readLedger, type LedgerRead } from '../../../lib/solana/lp/ledger';
 import { readOutsidePrice, type OutsidePrice } from '../../../lib/solana/lp/outsidePrice';
+import { listPools, type PoolListRead } from '../../../lib/solana/lp/poolList';
 import { readPoolPast, type PoolPastRead } from '../../../lib/solana/lp/poolPast';
 import { placeShareOnChain, readPositions, type ChainPlacement, type PositionsRead } from '../../../lib/solana/lp/positions';
 import type { QuoteCoin } from '../../../lib/solana/lp/quotes';
@@ -50,6 +51,12 @@ export interface LpReaders {
    */
   ledger?(share: { lpAccount: string; lpMint: string; owner: PublicKey; lpAmount: bigint }, view: PoolView, opts?: { before?: string }): Promise<LedgerRead>;
   poolPast?(view: PoolView, opts?: { before?: string }): Promise<PoolPastRead>;
+  /**
+   * Every pool on the venue with a pairing coin, for the list shown before a token is typed
+   * (poolList.ts): one index fetch (`/api/pools?all=1`), then every address read on the
+   * chain. Optional: a reader without it shows no venue list, and every existing fake fits.
+   */
+  listPools?(): Promise<PoolListRead>;
 }
 
 /**
@@ -86,5 +93,6 @@ export function browserLpReaders(): LpReaders | null {
     placeShareOnChain: (share) => placeShareOnChain(rpc, opts, share),
     ledger: (share, view, o) => readLedger(rpc, { ...share, owner: share.owner.toBase58() }, view, programId.toBase58(), o ?? {}),
     poolPast: (view, o) => readPoolPast(rpc, view, programId.toBase58(), o ?? {}),
+    listPools: () => listPools(rpc, indexOpts),
   };
 }
