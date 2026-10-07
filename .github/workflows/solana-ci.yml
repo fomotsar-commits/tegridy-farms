@@ -208,8 +208,24 @@ jobs:
           # account in the record slot. It now says what is so (see TEGRIDY_FORK.md). Diffing
           # the old delta against the new one shows five changed lines, every one a `//`
           # comment, and the same count of changed lines (261). The control for this value:
-          # the same recipe on the commit before yields c18d4d63….
-          EXPECTED_DELTA_SHA256=2bbd1e5593be4271237f78c26a2b59b55bcd3b1f0c7d18c1796f8dd35ece8a53
+          # the same recipe on the commit before yields c18d4d63…. That pin was 2bbd1e55….
+          # RE-PINNED 2026-10-06, a third time, for the on-chain security.txt, so that ONE
+          # upgrade carries it together with the instruction (docs/TODO_OPERATOR.md
+          # O-0929-10; the owner delegated "one upgrade or two" that day and the answer is
+          # one). The binary on mainnet shows a contact that is another project's 404 and
+          # two links into a stale branch on one git host. Diffing the old delta against
+          # the new one shows eight changed lines and the same count (261):
+          #   4 values of the `security_txt!` macro: project_url, contacts, policy and
+          #     source_code. Every link is on memetics.finance and the first contact is an
+          #     email. `name` and `preferred_languages` are as they were.
+          #   4 `//` comment lines: two inside the macro (the stale "add a disclosure
+          #     email" note is gone) and two in the fork header under it.
+          # No constant, no instruction, no account check and no Cargo.toml line changed.
+          # Unlike a comment, these four strings ARE in the binary, so the build's hash
+          # and size moved with this pin. The control for this value: the same recipe on
+          # the commit before yields 2bbd1e55…, and on the unmodified base (f1e60f60) it
+          # still yields 5c737ac7….
+          EXPECTED_DELTA_SHA256=5d7baf2682af807a7b1c330a1ca6a10d65b0393f20a33e26555f86323354f2f1
 
           # 1. NO file outside the two allowed source files may differ at all.
           #    Paths are anchored to their full relative path — the old pattern matched
@@ -242,9 +258,9 @@ jobs:
             echo "  expected $EXPECTED_DELTA_SHA256"
             echo "  actual   $ACTUAL"
             echo "If the change is intentional, read the diff printed above, satisfy yourself"
-            echo "it is still ONLY the four authority/identity constants, the one"
-            echo "create_lp_metadata instruction and comments, then update"
-            echo "EXPECTED_DELTA_SHA256 in this workflow IN THE SAME PR."
+            echo "it is still ONLY the four authority/identity constants, the program's own"
+            echo "name and contact text, the one create_lp_metadata instruction and comments,"
+            echo "then update EXPECTED_DELTA_SHA256 in this workflow IN THE SAME PR."
             exit 1
           fi
           echo "✅ Delta from upstream $UPSTREAM_COMMIT matches the pinned hash exactly"

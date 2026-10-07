@@ -18,15 +18,15 @@ pub use states::CreatorFeeOn;
 #[cfg(not(feature = "no-entrypoint"))]
 solana_security_txt::security_txt! {
     name: "tegridy-cp-amm",
-    project_url: "https://memetic.fun",
-    contacts: "link:https://memetic.fun/trust",
-    policy: "https://github.com/fomotsar-commits/tegridy-farms/blob/main/SECURITY.md",
-    source_code: "https://github.com/fomotsar-commits/tegridy-farms/tree/main/solana/tegridy-amm",
+    project_url: "https://memetics.finance",
+    contacts: "email:fomotsar@gmail.com,link:https://memetics.finance/.well-known/security.txt",
+    policy: "https://memetics.finance/source/solana/tegridy-amm/SECURITY.md",
+    source_code: "https://memetics.finance/source/solana/tegridy-amm",
     preferred_languages: "en"
     // AUDITORS line intentionally REMOVED (was upstream's Raydium/MadShield audit):
     // this fork's diff-audit is PENDING; the upstream audit does NOT cover it, so
-    // claiming it on-chain would be false. ⚠️ OPERATOR: add a dedicated security
-    // disclosure email here before mainnet.
+    // claiming it on-chain would be false. Every link above is on our own domain:
+    // never put a git-host URL in this macro (docs/TODO_OPERATOR.md O-0929-10).
 }
 
 // ─── TEGRIDY FORK CHANGES (2026-07-11) ────────────────────────────────────────
@@ -34,8 +34,8 @@ solana_security_txt::security_txt! {
 // identity constants (3 here + create_support_mint_associated_owner in
 // instructions/admin/create_support_mint_associated.rs) plus, since 2026-10-06, ONE
 // added instruction: `create_lp_metadata`, which gives a pool's lp token a name
-// record. The whole of it (accounts, handler, two helpers) is in this file, under
-// the "TEGRIDY FORK ADDITION" heading at the bottom. Every line of swap/curve/
+// record (the "TEGRIDY FORK ADDITION" at the bottom of this file). The security.txt
+// above is ours too, on our own domain since 2026-10-06. Every line of swap/curve/
 // fee logic is byte-identical to the audited upstream. The per-swap PROTOCOL fee is
 // NOT here: it accrues per `amm_config.protocol_fee_rate` and is collected by
 // `amm_config.protocol_owner` (which create_config sets = the admin caller).
