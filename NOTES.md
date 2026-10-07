@@ -15,6 +15,21 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-10-07: a swap that compares our pool with Jupiter sends trades to our pool when it wins
+
+**Believed:** the Solana swap's route line quoted our pool beside Jupiter, so a pool of ours that
+paid more was getting the trade, or at least being compared.
+
+**Seen** (reading `SolanaRouteLine.tsx` and `handleSwap` on trunk 57532b8): the line read one
+address, tier 0's standard pool for the pair, priced with tier 0's fees and the viewer's clock.
+Our real BAYLA/SOL pool sits on tier 1 at another address, so it was never read; and `handleSwap`
+sent Jupiter's transaction whatever the line said, so a win changed only the words.
+
+**Do:** compare every pool `findPools` returns for the exact pair, each with its own fee tier on
+the chain's clock, against what this site's Jupiter path would deliver (on a 6014 route that is
+the no-fee retry, not the fee-bearing quote on screen), and settle it again at the press. A
+comparison whose winner nothing executes is a sentence, not a route.
+
 ## 2026-10-06: a review built again reads the same when its transaction is the same
 
 **Believed:** comparing every line of a rebuilt review with the one being read tells whether

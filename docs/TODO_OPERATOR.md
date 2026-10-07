@@ -1359,11 +1359,13 @@ is advisory today. Unenforced, it is a comment.
 
 ### ⬜ REMAINING — an agent can do these alone, AFTER the deploy above
 
-1. **Wire execution against our own pool.** The instruction builders exist and are source-verified
-   (`lib/solana/cpswap/ix.ts`), but nothing sends them, because the program is not deployed and an
-   unexercised money path is the ledger's most common defect class. Moot until step 4 above: with
-   no venue, the router always picks the aggregator. CI's `migration-rehearsal` job is where these
-   builders get their first real execution.
+1. ✅ **Wire execution against our own pool** (done 2026-10-07). The Solana swap sends a trade to
+   one of our pools when it pays at least as much as Jupiter, settled again at the press, through
+   the LP write layer's `venue-swap` kind and its review (`lib/solana/swap/settleVenue.ts`,
+   `lib/launcher/solana/write/venueSwap.ts`). Still open: it has not run on a local validator
+   (no Solana toolchain where it was built), so the first live trade in our pool is its first real
+   execution. Watch the first few on the explorer; `OWN_POOL_SWAPS` in
+   `lib/solana/swap/ownPoolSwaps.ts` switches it off in one commit.
 2. **The LP forms on `/pools`** — create-pool / deposit / withdraw. Same reason, same unblock.
 3. ⚠️ **PICK ONE HOME for cp-swap client code — this is the repo's THIRD "two
    implementations of one thing".** `lib/launcher/solana/curve/program.ts` grew
