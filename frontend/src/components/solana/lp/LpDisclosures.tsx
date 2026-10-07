@@ -1,13 +1,16 @@
 import type { AmmConfigView } from '../../../lib/solana/cpswap/program';
 import { chargedCreatorFeeRate, feeSplit } from '../../../lib/solana/cpswap/venue';
 import { feeRateText } from '../../../lib/solana/lp/format';
+import { IL_LINE_SHOWN, impermanentLossPctText } from '../../../lib/solana/lp/impermanentLoss';
 import { SOL_QUOTE, type QuoteCoin } from '../../../lib/solana/lp/quotes';
 import { Notice, Row } from '../curve/ui';
 import { LOCKED_SHARES_TEXT, solAbout, solExact } from './panelKit';
 
 // What a person must know before putting money into one of these pools, said in the
-// panel (always visible) and again on the review. No yield, APR or APY: none has been
-// measured, and none is ever shown.
+// panel (always visible) and again on the review. Each risk once: the page's notice card
+// (SolanaLpSection.tsx LpDisclosure) carries the routing and price-moves facts, so the
+// panel does not repeat them. No yield, APR or APY: none has been measured, and none is
+// ever shown.
 
 const FORK_LINE =
   "Our pool program is Raydium's, with only its admin keys changed. Those changes have not had their own independent review yet. Put in only what you can afford to lose.";
@@ -15,10 +18,17 @@ const VAULT_LINE =
   "The team's vault (a Squads multisig, two signatures) can switch off deposits, withdrawals or swaps on this pool, change its fee rates at once, and upgrade the program. If it switched off withdrawals, you could not take your money out until it switched them back on.";
 const LAUNCH_POOL_LINE =
   "The launch program opened this pool when the token graduated and burned the launch's own pool shares, so that part can never be taken out. You get shares only for what you add, and you can take your part back out. The creator's fee and the venue's share are kept apart in the pool and are not yours.";
-const ROUTING_LINE =
-  'Jupiter does not send trades to these pools yet, so the trades that pay this pool its fees come mostly from bots that trade our pool program directly.';
-const PRICE_MOVES_LINE =
-  'When the price moves, bots trade against the pool, and you can end up with less than if you had just held both tokens.';
+
+/**
+ * How far a share falls behind holding when the price moves, the two figures printed from
+ * impermanentLossPct so the words cannot drift from the arithmetic. The coin is named when
+ * the caller has it; the Add panel does not pass one yet, so it says "the coin it is paired
+ * with" rather than guess SOL on a pool paired with USDC or BAYLA.
+ */
+function ilLine(coin: QuoteCoin | null): string {
+  const against = coin ? coin.symbol : 'the coin it is paired with';
+  return `When the price moves, bots trade against the pool. If the token’s price doubles or halves against ${against}, a share is worth about ${impermanentLossPctText(2)} less than holding both; at four times or a quarter, about ${impermanentLossPctText(4)} less, before any fees it earns. Jupiter does not send trades here yet, so fees come mostly from arbitrage.`;
+}
 
 // ── opening a pool ──
 
@@ -51,14 +61,24 @@ function lpShareLine(config: AmmConfigView | null, enableCreatorFee: boolean): s
   return `Of each trade, liquidity providers keep ${feeSplit(config).lpKeepsPct.toFixed(3)}%, read from this pool's fee tier just now.${creatorLine} The vault can change that tier's rates at once, and a change applies to what you put in too.`;
 }
 
-export function LpBeforeYouAdd({ launchPool, config, enableCreatorFee }: { launchPool: boolean; config: AmmConfigView | null; enableCreatorFee: boolean }) {
+export function LpBeforeYouAdd({
+  launchPool,
+  config,
+  enableCreatorFee,
+  coin,
+}: {
+  launchPool: boolean;
+  config: AmmConfigView | null;
+  enableCreatorFee: boolean;
+  /** The coin the pool is paired with, when the caller has it; left out, the sentence does not name one. */
+  coin?: QuoteCoin;
+}) {
   return (
     <div className="space-y-2" data-testid="lp-before-you-add">
       <ul className="list-disc pl-4 space-y-1 text-white/75">
         <li>{FORK_LINE}</li>
         <li>{VAULT_LINE}</li>
-        <li>{PRICE_MOVES_LINE}</li>
-        <li>{ROUTING_LINE}</li>
+        {IL_LINE_SHOWN && <li>{ilLine(coin ?? null)}</li>}
         <li>{lpShareLine(config, enableCreatorFee)}</li>
         {launchPool && <li>{LAUNCH_POOL_LINE}</li>}
       </ul>
