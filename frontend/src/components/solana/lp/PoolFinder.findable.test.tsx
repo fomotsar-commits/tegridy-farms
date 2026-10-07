@@ -16,12 +16,14 @@
 //   4. Remove liquidity goes to the positions, which say what an empty list means.
 //   5. The form starts with the wallet and the amount boxes; the long notes follow it.
 
-import { useEffect } from 'react';
+import { createRef, useEffect, useState, type RefObject } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter, useNavigate, type NavigateFunction } from 'react-router-dom';
 import type { PublicKey } from '@solana/web3.js';
 import { LpInner, type LpWritesOverrides } from './SolanaLpSection';
+import { PoolFinder, type PoolFinderHandle } from './PoolFinder';
+import { LpWritesProvider } from './useLpWrites';
 import type { LpReaders } from './readers';
 import type { TokenSafety } from '../../../lib/solana/lp/tokenSafety';
 import { SOL_QUOTE } from '../../../lib/solana/lp/quotes';
@@ -65,12 +67,16 @@ const noPools = (mint: string): PoolSearchRead => ({
   },
 });
 
-/** A pool holding 10 SOL and 1,000 tokens (0.01 SOL a token): on the public fee tier with `tier1`, else on another. */
-function poolView(tier1 = false): PoolView {
+/**
+ * A pool holding 10 SOL and 1,000 tokens (0.01 SOL a token): on the public fee tier with
+ * `tier1`, else on another. Open since `openTime`: one far in the future cannot trade yet,
+ * so deposits to it are refused.
+ */
+function poolView(tier1 = false, openTime = 1n): PoolView {
   const sol = 10n * 10n ** 9n;
   const tok = 1_000n * 10n ** 6n;
   const mint = key();
-  const b = buildPool({ plain: true, mint, configIndex: 1, quoteReserve: sol, tokenReserve: tok, openTime: 1n });
+  const b = buildPool({ plain: true, mint, configIndex: 1, quoteReserve: sol, tokenReserve: tok, openTime });
   const raw = decodePoolState(b.address.toBase58(), b.accounts[b.address.toBase58()]!.data)!;
   const pool = { ...raw, ammConfig: tier1 ? TIER1_ADDRESS.toBase58() : raw.ammConfig };
   const solIsToken0 = pool.token0Mint.startsWith('So111');
@@ -556,5 +562,72 @@ describe('a token with no pool yet', () => {
     await waitFor(() => expect(card).toHaveTextContent('There is no SOL or USDC pool to add liquidity to yet. Opening one is how the first liquidity goes in.'));
     // The sentence the card already had is kept.
     expect(card).toHaveTextContent('No SOL or USDC pool for this token yet. You can open the first one on the public fee tier');
+  });
+});
+
+/** The finder alone, with the handle the section holds: how a pointer or a venue-list press reaches it. */
+function Finder({ r, handle }: { r: LpReaders; handle: RefObject<PoolFinderHandle | null> }) {
+  const [mint, setMint] = useState<string | null>(null);
+  return <PoolFinder ref={handle} readers={r} mint={mint} onMint={setMint} wantOutside />;
+}
+function mountFinder(over: Partial<LpReaders>) {
+  const r = readers(over);
+  const handle = createRef<PoolFinderHandle>();
+  const api = fakeLpApi({ readCreateFacts: vi.fn(async () => readyFacts()) });
+  render(
+    <MemoryRouter initialEntries={['/solana-lp']}>
+      <LpWritesProvider readers={r} mode="on" load={vi.fn(async () => api)} gateRpc={unusedGateRpc}>
+        <Finder r={r} handle={handle} />
+      </LpWritesProvider>
+    </MemoryRouter>,
+  );
+  return handle;
+}
+
+// A pointer on the "Open a new pool" card, or a press in the venue's list, asks for a pool's
+// CARD: nothing was asked to open. A position's "Add more liquidity" asks for a FORM, and
+// when the pool cannot open it the card says why (PositionAddMore.test.tsx). The two came
+// through the same prop, so a shown card on a paused or refused pool read "This is your
+// position's pool. Its Add form was not opened" to a visitor who holds no position and
+// pressed no Add (review of B3, 2026-10-06).
+describe('a pool shown, not opened (PoolFinderHandle.show)', () => {
+  it('a pool that does not offer adding: its card comes onto the screen with its heading focused, and nothing is said about a form', async () => {
+    const closed = poolView(false, 10n ** 10n);
+    const handle = mountFinder({ findPools: vi.fn(async (mint: PublicKey) => onePool(mint.toBase58(), closed)) });
+    act(() => handle.current!.show(OTHER, closed.address));
+    const card = await screen.findByTestId('lp-pool');
+    expect(card).toHaveAttribute('data-pool', closed.address);
+    await waitFor(() => expect(card).toHaveAttribute('data-add', 'checks'));
+    const heading = within(card).getByRole('heading', { level: 3 });
+    await waitFor(() => expect(heading).toHaveFocus());
+    expect(scrolledTo()[scrolledTo().length - 1]).toBe(card);
+    // The card's own words are what is read: its refusal, and no sentence about a form,
+    // before the wish is spent and after.
+    await act(async () => {});
+    expect(card).toHaveTextContent(/Deposits: refused here/);
+    expect(screen.queryByTestId('lp-wish-why')).toBeNull();
+    expect(heading).not.toHaveAttribute('aria-describedby');
+    expect(screen.queryByTestId('lp-add-panel')).toBeNull();
+    expect(screen.queryByTestId('lp-create-panel')).toBeNull();
+  });
+
+  it('a pool that was listed but could not be read: its card comes onto the screen, and nothing says to press Add more liquidity', async () => {
+    const address = key().toBase58();
+    const unread = (mint: string): PoolSearchRead => {
+      const none = noPools(mint);
+      if (none.kind !== 'ok') throw new Error('unreachable');
+      return { kind: 'ok', search: { ...none.search, index: { kind: 'ok', pools: [address], truncated: false }, pools: [{ kind: 'unread', address, detail: 'HTTP 502' }] } };
+    };
+    const handle = mountFinder({ findPools: vi.fn(async (mint: PublicKey) => unread(mint.toBase58())) });
+    act(() => handle.current!.show(OTHER, address));
+    const card = await screen.findByTestId('lp-pool');
+    expect(card).toHaveAttribute('data-pool', address);
+    const heading = within(card).getByRole('heading', { level: 3 });
+    await waitFor(() => expect(heading).toHaveFocus());
+    await act(async () => {});
+    expect(card).toHaveTextContent('We could not read this pool (HTTP 502). Nothing about it is checked.');
+    expect(card).not.toHaveTextContent('Add more liquidity');
+    expect(screen.queryByTestId('lp-wish-why')).toBeNull();
+    expect(heading).not.toHaveAttribute('aria-describedby');
   });
 });

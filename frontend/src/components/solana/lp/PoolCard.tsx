@@ -115,11 +115,18 @@ function PriceRows({ price, quote }: { price: PoolHealth['price']; quote: QuoteC
 }
 
 /**
- * A wish that names this pool and cannot end in its Add form (PoolFinder `LpWish.pool`:
- * the pool refuses deposits, could not be checked or read, has a deposit pending, or
- * adding is paused). The card comes onto the screen and its heading takes focus, once,
- * so this pool's own reason is what the visitor reads, by eye, keyboard or screen
- * reader. Nothing else opens in its place.
+ * What a wish that names this pool asked for (PoolFinder `LpWish`). 'add': its Add form,
+ * which cannot open (the pool refuses deposits, could not be checked or read, has a
+ * deposit pending, or adding is paused), so the card says why under its heading. 'show':
+ * the card alone (a pointer on the "Open a new pool" card, a press in the venue's list),
+ * so nothing is said about a form: nothing was asked to open.
+ */
+export type ShownAs = 'add' | 'show';
+
+/**
+ * A wish that names this pool and ends on its card (`ShownAs`). The card comes onto the
+ * screen and its heading takes focus, once, so this pool's own words are what the visitor
+ * reads, by eye, keyboard or screen reader. Nothing else opens in its place.
  */
 function useShownOnce(showNow: number, onActed: ((n: number) => void) | undefined, card: RefObject<HTMLLIElement | null>, heading: RefObject<HTMLHeadingElement | null>) {
   const shown = useRef(0);
@@ -156,11 +163,15 @@ function notOpenedWhy(offer: DepositOffer, health: PoolHealth): string {
   }
 }
 
-/** The wish number this card was last shown for (`useShownOnce`), kept after the wish is spent. */
-function useShownFor(showNow: number): number {
-  const [shownFor, setShownFor] = useState(0);
+/**
+ * The wish this card was last shown for (`useShownOnce`): its number and what it asked,
+ * both kept after the wish is spent. The finder forgets a spent wish, so the kind is
+ * remembered here with the number: read live, a spent 'show' would read as 'add'.
+ */
+function useShownFor(showNow: number, as: ShownAs): { n: number; as: ShownAs } {
+  const [shownFor, setShownFor] = useState<{ n: number; as: ShownAs }>({ n: 0, as: 'add' });
   // Adjusted during render, so the line is on the page before the heading takes focus.
-  if (showNow && showNow !== shownFor) setShownFor(showNow);
+  if (showNow && showNow !== shownFor.n) setShownFor({ n: showNow, as });
   return shownFor;
 }
 
@@ -179,6 +190,7 @@ export function PoolCard({
   safety = null,
   openNow = 0,
   showNow = 0,
+  shownAs = 'add',
   onActed,
 }: {
   view: PoolView;
@@ -188,22 +200,25 @@ export function PoolCard({
   safety?: TokenSafety | null;
   /** A wish's number (PoolFinder LpWish), or 0: open this pool's Add form by itself, once. */
   openNow?: number;
-  /** A wish's number, or 0: the wish named this pool and its form cannot open (`useShownOnce`). */
+  /** A wish's number, or 0: the wish named this pool and ends on its card (`useShownOnce`). */
   showNow?: number;
+  /** What `showNow` asked for: a form that cannot open, or the card alone (`ShownAs`). */
+  shownAs?: ShownAs;
   /** Told when this card acts on a wish, so the finder spends it. */
   onActed?: (n: number) => void;
 }) {
   const cardRef = useRef<HTMLLIElement | null>(null);
   const headingRef = useRef<HTMLHeadingElement | null>(null);
   useShownOnce(showNow, onActed, cardRef, headingRef);
-  const shownFor = useShownFor(showNow);
+  const shownFor = useShownFor(showNow, shownAs);
   const whyId = useId();
   const writes = useLpWrites();
   const offer: DepositOffer = writes
     ? depositOffer({ mode: writes.mode, gate: writes.gate, health, held: lpHeld(writes.pending.notes, view.address, 'add') })
     : 'off';
-  // Gone as soon as the pool offers adding again: the button under the checks says so then.
-  const why = shownFor && offer !== 'offer' ? notOpenedWhy(offer, health) : null;
+  // Said only for a form that was asked for, and gone as soon as the pool offers adding
+  // again: the button under the checks says so then.
+  const why = shownFor.n && shownFor.as === 'add' && offer !== 'offer' ? notOpenedWhy(offer, health) : null;
   const { pool } = view.snapshot;
   const swaps = swapsText(health);
   const cfg = view.config;
@@ -392,22 +407,27 @@ function OfferLine({ offer, health }: { offer: DepositOffer; health: PoolHealth 
 export function UnreadPoolCard({
   entry,
   showNow = 0,
+  shownAs = 'add',
   onActed,
 }: {
   entry: Extract<PoolEntry, { kind: 'unread' }>;
   /** As on PoolCard: a wish named this pool, and a pool that was not read opens no form. */
   showNow?: number;
+  /** As on PoolCard: what `showNow` asked for. */
+  shownAs?: ShownAs;
   onActed?: (n: number) => void;
 }) {
   const cardRef = useRef<HTMLLIElement | null>(null);
   const headingRef = useRef<HTMLHeadingElement | null>(null);
   useShownOnce(showNow, onActed, cardRef, headingRef);
-  const shownFor = useShownFor(showNow);
+  const shownFor = useShownFor(showNow, shownAs);
   const whyId = useId();
+  // A form was asked for and this pool, unread, cannot open one.
+  const why = shownFor.n > 0 && shownFor.as === 'add';
   return (
     <li ref={cardRef} className={`${CARD} scroll-mt-[4.5rem]`} style={CARD_STYLE} data-testid="lp-pool" data-pool={entry.address} data-deposits="unchecked" data-swaps="unread">
-      <h3 ref={headingRef} tabIndex={-1} aria-describedby={shownFor ? whyId : undefined} className="text-white font-semibold text-[13px] mb-1 outline-none" style={SHADOW}>Pool not read</h3>
-      {shownFor > 0 && <WishWhy id={whyId} why="this pool could not be read just now. Press Add more liquidity on your position again in a minute." />}
+      <h3 ref={headingRef} tabIndex={-1} aria-describedby={why ? whyId : undefined} className="text-white font-semibold text-[13px] mb-1 outline-none" style={SHADOW}>Pool not read</h3>
+      {why && <WishWhy id={whyId} why="this pool could not be read just now. Press Add more liquidity on your position again in a minute." />}
       <div className="text-white/60 text-[11px] leading-relaxed space-y-2">
         <Row label="Pool address" value={entry.address} />
         <Notice tone="warn">We could not read this pool ({entry.detail}). Nothing about it is checked.</Notice>

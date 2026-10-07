@@ -11,7 +11,7 @@ import { useActiveBungalowId } from '../../../hooks/useActiveBungalowId';
 import { Card, Field, Notice } from '../curve/ui';
 import { TOGGLE_CLS, inputCls, inputStyle } from '../curve/uiFormat';
 import { TokenSafetyCard } from './TokenSafetyCard';
-import { PoolCard, UnreadPoolCard } from './PoolCard';
+import { PoolCard, UnreadPoolCard, type ShownAs } from './PoolCard';
 import { CreatePoolCard } from './CreatePoolCard';
 import { ReadAt } from './ReadAt';
 import { depositOffer, lpHeld, priceWarned } from './offers';
@@ -590,6 +590,9 @@ function SearchResults({
   // The named pool cannot open its form: its card is shown instead, once.
   const showNamed = named !== null && addTo === null ? due : 0;
   const showNow = (address: string) => (named === address ? showNamed : shown === address ? due : 0);
+  // What the shown card is told it was shown for: a form that could not open says why
+  // under its heading; a card asked for as it stands says nothing about a form.
+  const shownAs: ShownAs = shown !== null ? 'show' : 'add';
   // When this answer landed, above its pools. The lookup's one Read again is in the finder's form.
   const stamp = <ReadAt at={readAt} />;
   // The coins this lookup searched (all three for an ordinary token; only the coins that
@@ -641,10 +644,11 @@ function SearchResults({
                     health={healths.get(p.view.address)!}
                     openNow={wish && addTo === p.view.address ? wish.n : 0}
                     showNow={showNow(p.view.address)}
+                    shownAs={shownAs}
                     onActed={onActed}
                   />
                 ) : (
-                  <UnreadPoolCard key={p.address} entry={p} showNow={showNow(p.address)} onActed={onActed} />
+                  <UnreadPoolCard key={p.address} entry={p} showNow={showNow(p.address)} shownAs={shownAs} onActed={onActed} />
                 ),
               )}
             </ul>

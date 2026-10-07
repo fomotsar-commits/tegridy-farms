@@ -30,8 +30,14 @@ const PAGE_RGB: [number, number, number] = [6, 12, 26];
 /** A heading stands over its body; body, labels and notices read as prose; hints and errors are the small print. */
 const FLOORS = { head: 15, body: 13, label: 13, notice: 13, hint: 12, error: 12 } as const;
 type Role = keyof typeof FLOORS;
-/** Every Card in the LP section after one press of Create a pool has one kit heading. */
-const HEADINGS_ON_PAGE = 4;
+/**
+ * Every Card in the LP section after one press of Create a pool has one kit heading, less the
+ * finder's: its heading is the verbs' group name, for screen readers only (the three buttons
+ * say it on screen), so it is clipped to a point and not measured here. Measured 3 at both
+ * widths on 2026-10-06 (positions, the disclosure, the fee tiers); the venue's pool list
+ * card (D1) adds its own and brings this back to 4.
+ */
+const HEADINGS_ON_PAGE = 3;
 /** WCAG AA for text of this size, over the scrim. */
 const RATIO = 4.5;
 
