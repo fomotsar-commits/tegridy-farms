@@ -138,7 +138,15 @@ async function send(ixs, signers) {
   tx.sign(...signers);
   // No preflight: a refusal must be the chain's own verdict on a landed transaction.
   const sig = await conn.sendRawTransaction(tx.serialize(), { skipPreflight: true });
-  await conn.confirmTransaction({ signature: sig, blockhash, lastValidBlockHeight }, 'confirmed');
+  try {
+    await conn.confirmTransaction({ signature: sig, blockhash, lastValidBlockHeight }, 'confirmed');
+  } catch (e) {
+    // web3.js sometimes REJECTS with the chain's error object for a transaction that landed and
+    // failed (when its own status poll wins the race), and sometimes returns it. A refusal is
+    // what half of this script is looking for, so only a real Error (expired, unreachable) stops
+    // it here; the transaction read back below is the verdict either way.
+    if (e instanceof Error) throw e;
+  }
   let got = null;
   for (let i = 0; i < 40 && !got; i++) {
     got = await conn.getTransaction(sig, { commitment: 'confirmed', maxSupportedTransactionVersion: 0 });
@@ -204,6 +212,10 @@ console.log(`pool program under test: ${programBytes.length} bytes, sha256 ${sha
 const LINK_PREFIX = 'https://memetics.finance/mint/';
 console.log(`the binary ${programBytes.includes(Buffer.from(LINK_PREFIX)) ? 'contains' : 'DOES NOT contain'} the text "${LINK_PREFIX}"`);
 if (!(await conn.getAccountInfo(METAPLEX, 'confirmed'))?.executable) throw new Error('UNREAD: Metaplex Token Metadata is not on this validator');
+// BEFORE ANYTHING IS SENT: this must be the validator built for this proof, not some other local
+// one that happens to answer on the port. Several validators run on this machine, and one stray
+// run of this script opened a pool on another checkout's chain before this check existed.
+for (const p of REAL_POOLS) await readPool(p.pool);
 const rentRecord = BigInt(await conn.getMinimumBalanceForRentExemption(RECORD_BYTES));
 console.log(`rent minimum for a ${RECORD_BYTES}-byte record on this validator: ${rentRecord} lamports`);
 
