@@ -22,11 +22,14 @@ import {
   MINT_IMG_PATH,
   MINT_PATH,
   MINT_TOKENS,
+  RETIRED_PICTURES,
   SITE,
+  carriesOwnHash,
   metadataFileNames,
   metadataFor,
   metadataUri,
   pictureFile,
+  pictureFolderProblems,
   serialize,
 } from '../../scripts/lib/mint-identity.mjs';
 import { stakeMintFor } from '../../scripts/streamflow-receipt-name.mjs';
@@ -65,6 +68,19 @@ describe('the one list of tokens', () => {
     for (const key of ['name', 'symbol', 'picture', 'ring'] as const) {
       expect(new Set(all.map((t) => t[key])).size, `two tokens share a ${key}`).toBe(all.length);
     }
+  });
+
+  it('carries the names and symbols the owner ruled on 2026-10-06, word for word', () => {
+    // Written out here on purpose. Every other check compares the files with the list, so
+    // a name changed in the list and regenerated would pass them all.
+    expect(MINT_TOKENS.map((t) => [t.mint, t.name, t.symbol])).toEqual([
+      ['BQZth5DhHZT9H1AxZonoLAwGHknWo4LebQBxjKWtzY8e', 'BAYLA/SOL Pool Share', 'BAYLA-SOL'],
+      ['3D3EKJxfePDQ1N8YtNwg8W6eSL4mjVpbYf57pnqgcAQx', 'BAYLA/USDC Pool Share', 'BAYLA-USDC'],
+      ['g8W2HWmS1dKJwHHKDkR1k7SmtTTx7ic97z1ssAZ8NwN', 'Staked BAYLA', 'sBAYLA'],
+    ]);
+    // The default is what the pool program writes on chain for every pool, so these two
+    // must stay the words fixed in that program.
+    expect([DEFAULT_TOKEN.name, DEFAULT_TOKEN.symbol]).toEqual(['Memetics Pool Share', 'MEM-LP']);
   });
 
   it('names the canonical host and no other', () => {
@@ -134,10 +150,34 @@ describe('public/mint/ holds exactly the files the list names', () => {
     expect(readdirSync(MINT_DIR).sort()).toEqual([...metadataFileNames(), 'img'].sort());
   });
 
-  it('has exactly the pictures those files name, and nothing else', () => {
+  it('has exactly the pictures those files name and the retired ones, and nothing else', () => {
     const named = ROWS.map((r) => pictureOf(r.file)).sort();
     expect(new Set(named).size).toBe(ROWS.length);
-    expect(readdirSync(IMG_DIR).sort()).toEqual(named);
+    expect(readdirSync(IMG_DIR).sort()).toEqual([...named, ...RETIRED_PICTURES].sort());
+    const onDisk = readdirSync(IMG_DIR).map((name) => ({ name, sha256: sha256(readFileSync(join(IMG_DIR, name))) }));
+    expect(pictureFolderProblems(onDisk, named)).toEqual([]);
+    for (const name of RETIRED_PICTURES) {
+      expect(readFileSync(join(IMG_DIR, name)).subarray(0, 8).toString('hex'), `${name} is not a PNG`).toBe('89504e470d0a1a0a');
+    }
+  });
+
+  it('never lets go of a picture that was deployed: a redesign retires it, and it stays', () => {
+    // A wallet that kept yesterday's metadata file still asks for the old picture address,
+    // and a missing file under /mint/ answers JSON, marked unchanging for a year.
+    const old = { name: 'bayla-sol-11111111.png', sha256: `11111111${'0'.repeat(56)}` };
+    const now = { name: 'bayla-sol-22222222.png', sha256: `22222222${'0'.repeat(56)}` };
+    expect(pictureFolderProblems([old, now], [now.name], [old.name])).toEqual([]);
+    expect(pictureFolderProblems([now], [now.name], [old.name]).join(' | ')).toMatch(/bayla-sol-11111111\.png is retired and missing/);
+    expect(pictureFolderProblems([old, now], [now.name], []).join(' | ')).toMatch(/bayla-sol-11111111\.png is named by no metadata file/);
+    expect(pictureFolderProblems([old, now], [now.name, old.name], [old.name]).join(' | ')).toMatch(/retired and a metadata file still points at it/);
+    expect(pictureFolderProblems([now], [now.name, old.name], []).join(' | ')).toMatch(/bayla-sol-11111111\.png is missing/);
+    // A retired picture is held to its own bytes too: its address must never change content.
+    expect(pictureFolderProblems([{ ...old, sha256: now.sha256 }, now], [now.name], [old.name]).join(' | ')).toMatch(
+      /bayla-sol-11111111\.png does not carry the hash/,
+    );
+    expect(carriesOwnHash('bayla-sol-11111111.png', old.sha256)).toBe(true);
+    expect(carriesOwnHash('11111111.png', old.sha256)).toBe(false);
+    expect(carriesOwnHash('bayla-sol-11111111.png.bak', old.sha256)).toBe(false);
   });
 
   it.each(ROWS)('$file is the four fields the list says, and nothing more', ({ file, token }) => {
@@ -228,6 +268,23 @@ describe('vercel.json keeps /mint/ answering what a wallet can use', () => {
     }
   });
 
+  it('lets a page on another site read a metadata file with fetch, by a rule of ours', () => {
+    // The platform sends this header on static files by itself today. A web wallet that
+    // reads the JSON from its own page depends on it, so it is written down here.
+    const rule = config.headers.find((r) => r.source === `${MINT_PATH}/(.*)`);
+    expect(rule?.headers).toContainEqual({ key: 'Access-Control-Allow-Origin', value: '*' });
+    for (const path of [aFile, aPicture, noSuchMint]) {
+      expect(header(path, 'Access-Control-Allow-Origin'), path).toBe('*');
+    }
+  });
+
+  it('keeps every address under /mint/ out of search results', () => {
+    // The default file answers for any path here, so each one would be a page to index.
+    for (const path of [aFile, aPicture, noSuchMint, `${MINT_PATH}/`, `${MINT_PATH}/a/b/c.html`]) {
+      expect(header(path, 'X-Robots-Tag'), path).toBe('noindex');
+    }
+  });
+
   it('caches a metadata file for a day and a picture for a year', () => {
     for (const path of [aFile, noSuchMint]) {
       expect(header(path, 'Cache-Control')).toContain('public');
@@ -271,6 +328,8 @@ describe('the build and the production monitor look for the same files', () => {
     }
   });
 
+  // Its own 30 second limit: this starts a second node process, which takes 170 ms alone
+  // and has passed the default 5 seconds while other work held the machine.
   it('probes every file in production, and the probe can fail', () => {
     const out = execFileSync(process.execPath, [join(REPO, 'scripts', 'monitoring', 'venueHealth.mjs'), '--self-test'], {
       encoding: 'utf8',
@@ -279,6 +338,7 @@ describe('the build and the production monitor look for the same files', () => {
       expect(out, `no probe for ${name}`).toContain(`ok   there is a probe for ${MINT_PATH}/${name}`);
     }
     expect(out).toContain('ok   a token file probe catches the app page answering 200');
+    expect(out).toContain('ok   a token file probe catches a file another site cannot read with fetch');
     expect(out).not.toContain('FAIL');
-  });
+  }, 30_000);
 });

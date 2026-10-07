@@ -2,13 +2,14 @@
 // names, and the picture each one points at? A file missing from a deploy is not a 404
 // on this host. /mint/<mint>.json would answer the default file, and a picture path would
 // answer JSON, both with status 200, to a wallet that keeps what it fetched.
+// A retired picture (RETIRED_PICTURES) must still be there too: its address was deployed.
 // The same question as verify-dist-derivatives.mjs, asked of the thing about to ship.
 import { createHash } from 'node:crypto';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { posix } from 'node:path';
 import {
   DEFAULT_FILE, DEFAULT_TOKEN, MINT_IMG_PATH, MINT_PATH, MINT_TOKENS, SITE,
-  metadataFileNames, pictureFile,
+  RETIRED_PICTURES, metadataFileNames, pictureFile, pictureFolderProblems,
 } from './lib/mint-identity.mjs';
 
 // Forward slashes on every OS, so a path in a message reads as the URL it is served at.
@@ -29,6 +30,7 @@ const filesIn = (dir) => {
   }
 };
 
+const sha256 = (bytes) => createHash('sha256').update(bytes).digest('hex');
 const shipped = filesIn(MINT_DIR);
 const pictures = filesIn(IMG_DIR);
 const wanted = metadataFileNames();
@@ -62,11 +64,20 @@ for (const [file, token] of rows) {
   }
   const bytes = readFileSync(join(IMG_DIR, picture));
   if (bytes.subarray(0, 8).toString('hex') !== PNG_SIGNATURE) problems.push(`${join(IMG_DIR, picture)} is not a PNG`);
-  if (picture !== pictureFile(token.picture, createHash('sha256').update(bytes).digest('hex'))) {
+  if (picture !== pictureFile(token.picture, sha256(bytes))) {
     problems.push(`${join(IMG_DIR, picture)} does not carry the hash of its own bytes in its name`);
   }
 }
-for (const name of pictures) if (!named.includes(name)) problems.push(`${join(IMG_DIR, name)} is named by no metadata file`);
+// Every other picture must be a retired one, still there, under the hash of its own bytes.
+const onDisk = pictures.map((name) => ({ name, bytes: readFileSync(join(IMG_DIR, name)) }));
+const present = named.filter((name) => pictures.includes(name));
+for (const p of pictureFolderProblems(onDisk.map((f) => ({ name: f.name, sha256: sha256(f.bytes) })), present)) {
+  // A named picture with the wrong hash was already reported above, in the same words.
+  if (!problems.includes(`${IMG_DIR}/${p}`)) problems.push(`${IMG_DIR}/${p}`);
+}
+for (const { name, bytes } of onDisk) {
+  if (RETIRED_PICTURES.includes(name) && bytes.subarray(0, 8).toString('hex') !== PNG_SIGNATURE) problems.push(`${join(IMG_DIR, name)} is not a PNG`);
+}
 
 if (problems.length > 0) {
   console.error(`✖ dist token files: ${problems.length} problem(s) in ${MINT_DIR}/. A wallet would be served the wrong thing:`);

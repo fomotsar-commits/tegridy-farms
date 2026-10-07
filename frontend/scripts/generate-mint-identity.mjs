@@ -5,11 +5,11 @@
 // Never part of `build` and never a pre* hook. src/lib/mintIdentity.test.ts pins the output.
 import sharp from 'sharp';
 import { createHash } from 'node:crypto';
-import { mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-  DEFAULT_FILE, DEFAULT_TOKEN, MINT_IMG_PATH, MINT_PATH, MINT_TOKENS,
+  DEFAULT_FILE, DEFAULT_TOKEN, MINT_IMG_PATH, MINT_PATH, MINT_TOKENS, RETIRED_PICTURES,
   metadataFor, pictureFile, serialize,
 } from './lib/mint-identity.mjs';
 
@@ -94,8 +94,19 @@ for (const [fileName, token] of rows) {
   files.set(fileName, Buffer.from(serialize(metadataFor(token, picture)), 'utf8'));
 }
 
+// A picture is never deleted here. One that has been deployed must keep answering at its
+// address: a wallet that kept yesterday's metadata file still asks for it, and a missing
+// file under /mint/ answers JSON, marked unchanging for a year.
+const onDisk = existsSync(IMG_DIR) ? readdirSync(IMG_DIR) : [];
+const unnamed = onDisk.filter((name) => !images.has(name) && !RETIRED_PICTURES.includes(name));
+if (unnamed.length > 0) {
+  throw new Error(`No token names ${unnamed.join(', ')} any more, and this script does not delete a picture. If it was ever deployed, add its file name to RETIRED_PICTURES in scripts/lib/mint-identity.mjs so its address keeps answering. If it never left this machine, delete it by hand. Then run again.`);
+}
+const lost = RETIRED_PICTURES.filter((name) => !onDisk.includes(name));
+if (lost.length > 0) throw new Error(`${lost.join(', ')} is in RETIRED_PICTURES and not on disk. Restore it from git: a retired picture must keep answering.`);
+
 console.log(`public${MINT_IMG_PATH}/`);
-sync(IMG_DIR, images, '.png');
+sync(IMG_DIR, images, '.png', RETIRED_PICTURES);
 console.log(`public${MINT_PATH}/`);
 sync(OUT_DIR, files, '.json', [MINT_IMG_PATH.split('/').pop()]);
 console.log(`\n${files.size} metadata files and ${images.size} pictures. Look at each picture, then commit them.`);

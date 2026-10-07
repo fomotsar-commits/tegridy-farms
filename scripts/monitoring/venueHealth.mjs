@@ -103,7 +103,7 @@ const MINT = await import('../../frontend/scripts/lib/mint-identity.mjs').catch(
 
 const PNG_SIGNATURE = '89504e470d0a1a0a';
 
-/** GET a static file as it is served: status, type, the cross-site header and the body. */
+/** GET a static file as it is served: status, type, the two cross-site headers and the body. */
 async function reqFile(url) {
   const ac = new AbortController();
   const t = setTimeout(() => ac.abort(), TIMEOUT_MS);
@@ -115,10 +115,11 @@ async function reqFile(url) {
       status: res.status,
       type: res.headers.get('content-type') || '',
       corp: res.headers.get('cross-origin-resource-policy') || '',
+      acao: res.headers.get('access-control-allow-origin') || '',
       body,
     };
   } catch (e) {
-    return { status: 0, type: '', corp: '', body: Buffer.alloc(0), error: e?.name === 'AbortError' ? `timeout after ${TIMEOUT_MS}ms` : String(e?.message || e) };
+    return { status: 0, type: '', corp: '', acao: '', body: Buffer.alloc(0), error: e?.name === 'AbortError' ? `timeout after ${TIMEOUT_MS}ms` : String(e?.message || e) };
   } finally {
     clearTimeout(t);
   }
@@ -147,6 +148,10 @@ export function mintVerdict(token, file, image) {
   if (!/^application\/json\b/i.test(file.type)) return { ok: false, detail: `served as ${file.type || 'no type'}, not JSON` };
   if (file.corp !== 'cross-origin') {
     return { ok: false, detail: `Cross-Origin-Resource-Policy is ${file.corp || 'missing'}, so a page on another site cannot load it` };
+  }
+  // A web wallet reads the JSON with fetch() from its own page, which needs this one.
+  if (file.acao !== '*') {
+    return { ok: false, detail: `Access-Control-Allow-Origin is ${file.acao || 'missing'}, so a page on another site cannot read it` };
   }
   if (!image) return { ok: false, detail: `its picture is not under ${MINT.SITE}${MINT.MINT_IMG_PATH}/` };
   if (image.error) return { ok: false, detail: `picture: ${image.error}` };
@@ -281,6 +286,7 @@ function mintCases(v) {
     status: 200,
     type: 'application/json; charset=utf-8',
     corp: 'cross-origin',
+    acao: '*',
     body: Buffer.from(MINT.serialize(MINT.metadataFor(t, 'a-00000000.png'))),
     ...over,
   });
@@ -300,6 +306,8 @@ function mintCases(v) {
     ['a token file probe catches the app page answering 200', false, mintVerdict(token, appPage, null)],
     ['a token file probe catches the default file answering for a named mint', false, mintVerdict(token, served(MINT.DEFAULT_TOKEN), png())],
     ['a token file probe catches a file another site cannot load', false, mintVerdict(token, served(token, { corp: 'same-site' }), png())],
+    ['a token file probe catches a file another site cannot read with fetch', false, mintVerdict(token, served(token, { acao: '' }), png())],
+    ['a token file probe catches the cross-site header sent twice', false, mintVerdict(token, served(token, { acao: '*, *' }), png())],
     ['a token file probe catches JSON served as something else', false, mintVerdict(token, served(token, { type: 'text/plain' }), png())],
     ['a token file probe catches a 404', false, mintVerdict(token, served(token, { status: 404 }), png())],
     ['a token file probe catches a transport failure', false, mintVerdict(token, unread, null)],
