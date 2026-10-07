@@ -16,6 +16,24 @@ export const inputStyle = { border: '1px solid rgba(255,255,255,0.18)' } as cons
 export const TOGGLE_CLS = 'flex-1 min-h-[44px] py-1.5 rounded-lg text-[12px] text-white transition-colors';
 export const DIVIDER = { borderTop: '1px solid rgba(255,255,255,0.08)' } as const;
 
+/**
+ * Every LP card is a studio surface (ArtCard) and its art stays visible: one black scrim at
+ * 0.78 over the art, never two scrims on one image, so a row inside a card keeps its flat
+ * sub-panel. The owner's rule, 2026-10-03. ArtCard's own default is 0.85.
+ */
+export const LP_SCRIM = 0.78;
+/**
+ * Text over art, measured in uiFormat.test.ts: body 13px at 7:1 or better under white art at
+ * LP_SCRIM, hints and errors 12px at 4.5:1 or better. A white token names /70 or more:
+ * index.css's contrast floor rewrites text-white/10 to /65 (to 0.55 to 0.88), so a lower
+ * class does not render what it says.
+ */
+export const BODY = 'text-[13px] text-white/90';
+export const HINT = 'text-[12px] text-white/80';
+export const HEAD = 'text-[15px] text-white font-semibold';
+export const LABEL = 'text-[13px] text-white';
+export const ERROR = 'text-[12px] text-rose-300/90';
+
 /** Basis points as a percentage with two decimals: 369n → "3.69%". */
 export const bpsPercent = (bps: bigint) => `${(Number(bps) / 100).toFixed(2)}%`;
 
