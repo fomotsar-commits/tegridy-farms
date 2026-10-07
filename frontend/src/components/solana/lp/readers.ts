@@ -8,6 +8,8 @@ import { findPools, readFeeTiers, type FeeTierRead, type PoolSearchRead } from '
 import { readOutsidePrice, type OutsidePrice } from '../../../lib/solana/lp/outsidePrice';
 import { placeShareOnChain, readPositions, type ChainPlacement, type PositionsRead } from '../../../lib/solana/lp/positions';
 import type { QuoteCoin } from '../../../lib/solana/lp/quotes';
+import { lpFetch } from '../../../lib/solana/lp/readFetch';
+import { noteResponse } from '../../../lib/solana/lp/rpcBudget';
 import { readWalletFacts, type WalletFacts } from '../../../lib/solana/lp/walletFacts';
 
 /**
@@ -59,14 +61,17 @@ export function walletArgs(
 export function browserLpReaders(): LpReaders | null {
   const programId = LIVE_PROGRAM_ID;
   if (!programId) return null;
-  const rpc = withReadCommitment(browserRpc(), 'confirmed');
+  // Every read ends (readFetch.ts); the chain's answers feed the budget (rpcBudget.ts).
+  const rpc = withReadCommitment(browserRpc(lpFetch({ what: 'the chain', onResponse: noteResponse })), 'confirmed');
   const opts = { programId, launchProgramId: LAUNCH_PROGRAM_ID };
+  const indexOpts = { ...opts, fetchImpl: lpFetch({ what: 'the pool index' }) };
+  const jupiter = lpFetch({ what: 'Jupiter' });
   return {
     programId: programId.toBase58(),
     safety: (mints) => readTokenSafety(rpc, mints),
-    findPools: (mint, also) => findPools(rpc, mint, also?.length ? { ...opts, also } : opts),
-    outsidePrice: (mint, decimals) => readOutsidePrice(mint, decimals, { rpc, programId: programId.toBase58() }),
-    positions: (owner, limit) => readPositions(rpc, owner, { ...opts, limit }),
+    findPools: (mint, also) => findPools(rpc, mint, also?.length ? { ...indexOpts, also } : indexOpts),
+    outsidePrice: (mint, decimals) => readOutsidePrice(mint, decimals, { rpc, programId: programId.toBase58() }, jupiter),
+    positions: (owner, limit) => readPositions(rpc, owner, { ...indexOpts, limit }),
     feeTiers: () => readFeeTiers(rpc, programId),
     wallet: (owner, tokenMint, tokenProgram, lpMint, o) => readWalletFacts(rpc, walletArgs(owner, tokenMint, tokenProgram, lpMint, o)),
     placeShareOnChain: (share) => placeShareOnChain(rpc, opts, share),
