@@ -301,6 +301,15 @@ describe.each(COINS)('removing from a pool paired with $symbol: the review', (co
     await review(withdraw(coin, { tokenAccountRent: TOKEN_RENT }), fees(TOKEN_RENT));
     expect(value('One-time deposit for your new token account (it stays in that account)')).toBe('0.002 SOL');
     expect(value('The tokens arrive in')).toBe(tokenRow);
+    // Both "arrives in" rows carry an address and then a sentence with a SOL amount in it: they
+    // break between words, never in the middle of that amount. A row that is only an address
+    // (the pool) still breaks anywhere.
+    const valueSpan = (label: string) => screen.getByText(label).nextElementSibling as HTMLElement;
+    for (const label of ['The tokens arrive in', `The ${C} arrives in`]) {
+      expect(valueSpan(label).className, label).toMatch(/font-mono/);
+      expect(valueSpan(label).className, label).not.toMatch(/break-all/);
+    }
+    expect(valueSpan('Pool').className).toMatch(/break-all/);
     cleanup();
 
     await review(withdraw(coin, { quoteAccount: { address: COIN_ACCOUNT, rent: COIN_RENT } }), fees(COIN_RENT));
@@ -419,7 +428,7 @@ describe.each(COINS)('opening a pool paired with $symbol: the review', (coin) =>
 
   it('a token that can still be minted is sold into the pool for the coin, not for SOL', async () => {
     await review(create(coin, { tokenWarnings: [{ code: 'mint-authority', text: 'Its creator can still mint more.' }] }));
-    expect(screen.getByText(`Whoever holds it can make new tokens at any time and sell them into your pool for its ${C}.`)).toBeInTheDocument();
+    expect(screen.getByText(`Whoever holds that mint authority can make new tokens at any time and sell them into your pool for its ${C}.`)).toBeInTheDocument();
     expect(reviewText()).not.toContain('for its SOL');
   });
 
@@ -643,7 +652,7 @@ describe('a pool paired with SOL, through the same builders', () => {
     await review(create(SOL_QUOTE, { put: { quote: 250_000_000n, token: 10_000_000_000n }, tokenWarnings: [{ code: 'mint-authority', text: 'Its creator can still mint more.' }] }));
     expect(value('You put in')).toBe('0.25 SOL and 10,000 tokens, exactly');
     expect(value('Opening price')).toBe('1 token = 0.025 SOL. Market (Jupiter, read just now): 0.0249 SOL, 0.4% above');
-    expect(screen.getByText('Whoever holds it can make new tokens at any time and sell them into your pool for its SOL.')).toBeInTheDocument();
+    expect(screen.getByText('Whoever holds that mint authority can make new tokens at any time and sell them into your pool for its SOL.')).toBeInTheDocument();
     expect(screen.getByText(/wrapped into a token account for the opening/)).toBeInTheDocument();
     expect(value('Priority fee')).toBe('0.0012 SOL (0.48% of this trade)');
   });

@@ -301,6 +301,37 @@ for (const size of [{ width: 390, height: 664 }, { width: 1280, height: 720 }]) 
   });
 }
 
+/**
+ * The venue status card under the LP section: its Refresh and its two address copy buttons
+ * are finger-sized and are what a press there hits. A sweep of the live page on phones
+ * (2026-10-04) measured Refresh at 40x17 and the copy buttons at 79x18: text links with no
+ * height of their own. The card is the same at every width, so one phone size holds it.
+ */
+test('/solana-lp: the venue status card\'s Refresh and copy buttons are 44px press targets at 390px', async ({ page, walletMock: _w }) => {
+  await page.setViewportSize(IPHONE_390);
+  await settledSolanaLp(page, '/solana-lp', { gateOpen: true });
+  await page.evaluate(() => document.fonts.ready);
+  const card = page.getByRole('region', { name: 'Venue status' });
+  await expect(card.getByRole('heading', { name: 'Pools are open' })).toBeVisible();
+  const targets = card.getByRole('button');
+  // Refresh, and one copy button for the pool program and one for its config.
+  await expect(targets).toHaveCount(3);
+  for (const target of await targets.all()) {
+    const what = (await target.textContent())?.trim() ?? 'a button';
+    await target.scrollIntoViewIfNeeded();
+    const seen = await target.evaluate((el) => {
+      // Centred, as a thumb scrolls: clear of the sticky tab strip and the bottom bar.
+      el.scrollIntoView({ block: 'center' });
+      const b = el.getBoundingClientRect();
+      const hit = document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2);
+      return { height: Math.round(b.height), onTop: !!hit && (hit === el || el.contains(hit)) };
+    });
+    expect(seen.height, `"${what}" is shorter than a finger`).toBeGreaterThanOrEqual(FLOOR);
+    expect(seen.onTop, `something covers "${what}"`).toBe(true);
+  }
+  await expectNoSidewaysScroll(page);
+});
+
 test('/solana-lp with the chain unreadable does not scroll horizontally at 390px', async ({ page, walletMock: _w }) => {
   await page.setViewportSize(IPHONE_390);
   await page.route('**/api/solrpc', (r) => r.abort());

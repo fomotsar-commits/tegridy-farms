@@ -348,7 +348,7 @@ function ReviewWarnings({ id, warnings }: { id: string; warnings: { text: string
       <Notice tone="warn" market={warnings.every((w) => w.market) ? 'warnings-head' : undefined}>
         Read these warnings first. Nothing here stops you signing, and each one is a risk to what you put in:
       </Notice>
-      <ul className="list-disc pl-4 text-amber-300/90 space-y-0.5">
+      <ul className="list-disc pl-4 text-amber-300/90 space-y-0.5 [overflow-wrap:anywhere]">
         {warnings.map((w, i) => (
           <li key={`${i}:${w.text}`} data-market={w.market ? 'warning' : undefined}>
             {w.text}
@@ -384,9 +384,9 @@ function LpDepositRows({ summary: s }: { summary: Extract<TxSummary, { kind: 'lp
       <LpPoolRows summary={s} />
       <Row label="Fee tier" value={feeTierText(s.config, s.enableCreatorFee)} mono={false} />
       <Row label="Paired with" value={q.symbol} mono={false} />
-      <Row label="You put in about" value={`${coinAbout(s.quoted.quote, q)} and ${tok(s.quoted.token)} tokens`} />
-      <Row label="At most" value={`${coinExact(s.max.quote, q)} and ${unitsExact(s.max.token, s.tokenDecimals)} tokens${limited}`} />
-      <Row label="You get" value={`${unitsExact(s.lpAmount, s.lpDecimals)} pool shares, exactly`} />
+      <Row label="You put in about" value={`${coinAbout(s.quoted.quote, q)} and ${tok(s.quoted.token)} tokens`} mono={false} />
+      <Row label="At most" value={`${coinExact(s.max.quote, q)} and ${unitsExact(s.max.token, s.tokenDecimals)} tokens${limited}`} mono={false} />
+      <Row label="You get" value={`${unitsExact(s.lpAmount, s.lpDecimals)} pool shares, exactly`} mono={false} />
       <Row label="Your share of the pool" value={`${shareText(s.sharePct.before)} → ${shareText(s.sharePct.after)}`} />
       <Row label="Price check" value={priceText(s.price)} mono={false} market="price" />
       {s.priceGap && <Row label="Estimated cost of that gap" value={gapCostText(s.priceGap, q)} mono={false} market="gap" />}
@@ -394,7 +394,7 @@ function LpDepositRows({ summary: s }: { summary: Extract<TxSummary, { kind: 'lp
       {s.tokenWarnings.length > 0 && (
         <div className="space-y-1">
           <Notice tone="warn">Read these about this token first:</Notice>
-          <ul className="list-disc pl-4 text-amber-300/90 space-y-0.5">
+          <ul className="list-disc pl-4 text-amber-300/90 space-y-0.5 [overflow-wrap:anywhere]">
             {s.tokenWarnings.map((w) => (
               <li key={w.code}>{w.text}</li>
             ))}
@@ -426,12 +426,13 @@ function LpWithdrawRows({ summary: s }: { summary: Extract<TxSummary, { kind: 'l
     <>
       <LpPoolRows summary={s} />
       <Row label="Paired with" value={q.symbol} mono={false} />
-      <Row label="Pool shares you give back" value={`${shares(s.lpAmount)}${ofYours ? ` (${ofYours} of yours)` : ''}`} />
+      <Row label="Pool shares you give back" value={`${shares(s.lpAmount)}${ofYours ? ` (${ofYours} of yours)` : ''}`} mono={false} />
       {s.all && <Notice>This is all of your share in this pool.</Notice>}
-      <Row label="You get about" value={`${coinAbout(s.quoted.quote, q)} and ${tok(s.quoted.token)} tokens`} />
-      <Row label="You get at least" value={`${coinExact(s.min.quote, q)} and ${unitsExact(s.min.token, s.tokenDecimals)} tokens`} />
-      <Row label="You keep" value={s.keep > 0n ? `${shares(s.keep)} pool shares` : 'none in this pool'} />
+      <Row label="You get about" value={`${coinAbout(s.quoted.quote, q)} and ${tok(s.quoted.token)} tokens`} mono={false} />
+      <Row label="You get at least" value={`${coinExact(s.min.quote, q)} and ${unitsExact(s.min.token, s.tokenDecimals)} tokens`} mono={false} />
+      <Row label="You keep" value={s.keep > 0n ? `${shares(s.keep)} pool shares` : 'none in this pool'} mono={false} />
       <Row
+        words
         label="The tokens arrive in"
         value={`${s.tokenAccount.toBase58()}${
           s.tokenAccountRent > 0n
@@ -444,6 +445,7 @@ function LpWithdrawRows({ summary: s }: { summary: Extract<TxSummary, { kind: 'l
         <Row label="The SOL arrives" value={s.unwrapsWsol ? 'as plain SOL' : 'as wrapped SOL in the account you already hold'} mono={false} />
       ) : s.quoteAccount ? (
         <Row
+          words
           label={`The ${q.symbol} arrives in`}
           value={`${s.quoteAccount.address.toBase58()}${
             s.quoteAccount.rent > 0n ? ` (opened for you; its deposit of ${solExact(s.quoteAccount.rent)} stays in that account)` : ''
@@ -525,7 +527,7 @@ function VenueSwapRows({ summary: s }: { summary: VenueSwap }) {
 }
 
 /** What a live mint authority allows, said once more where a pool is about to be opened. */
-const mintAuthorityLine = (q: QuoteCoin) => `Whoever holds it can make new tokens at any time and sell them into your pool for its ${q.symbol}.`;
+const mintAuthorityLine = (q: QuoteCoin) => `Whoever holds that mint authority can make new tokens at any time and sell them into your pool for its ${q.symbol}.`;
 
 /**
  * The opening price against the market, from the fresh check made while preparing. An
@@ -596,7 +598,7 @@ function LpCreateRows({ summary: s }: { summary: Extract<TxSummary, { kind: 'lp-
       {s.tokenWarnings.length > 0 && (
         <div className="space-y-1">
           <Notice tone="warn">Read these about this token first:</Notice>
-          <ul className="list-disc pl-4 text-amber-300/90 space-y-0.5">
+          <ul className="list-disc pl-4 text-amber-300/90 space-y-0.5 [overflow-wrap:anywhere]">
             {s.tokenWarnings.map((w) => (
               <li key={w.code}>{w.text}</li>
             ))}
