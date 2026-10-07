@@ -11,7 +11,7 @@ import { RECORDING, recordedTier } from '../lib/solana/cpswap/mainnetVenueReplay
 
 const readVenue = vi.fn();
 vi.mock('../lib/solana/cpswap/read', () => ({ readVenue: (...a: unknown[]) => readVenue(...a) }));
-vi.mock('../lib/launcher/solana/curve/rpc', () => ({ browserCurveRpc: () => ({}) }));
+vi.mock('../lib/launcher/solana/curve/rpc', () => ({ browserCurveRpc: () => ({}), browserRpc: () => ({}) }));
 vi.mock('../lib/analytics', () => ({ trackPageView: vi.fn() }));
 // The LP section has its own tests (components/solana/lp); here only WHEN it mounts matters,
 // and that this tab asks for the section's own order, never the Solana LP tab's finder-first.

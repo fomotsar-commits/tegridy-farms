@@ -100,7 +100,7 @@ export default function PoolsPage() {
             )}
           </p>
           <p className="text-[13px] mt-2">
-            <Link to={withMint('/solana-lp', params)} className="inline-flex min-h-[44px] items-center underline underline-offset-2 text-white hover:text-white/80">
+            <Link to={withMint('/solana-lp', params)} className="inline-block py-2 underline underline-offset-2 text-white hover:text-white/80">
               {venueIsOpen ? SOLANA_LP_LINK[lpMode] : SOLANA_LP_LINK_NOT_OPEN}
             </Link>
           </p>

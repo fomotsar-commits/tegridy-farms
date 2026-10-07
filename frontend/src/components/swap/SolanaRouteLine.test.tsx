@@ -22,7 +22,7 @@ vi.mock('../../lib/solana/cpswap/read', () => ({
   readPoolForPair: (...a: unknown[]) => readPoolForPair(...a),
   quoteOwnPool: (...a: unknown[]) => quoteOwnPool(...a),
 }));
-vi.mock('../../lib/launcher/solana/curve/rpc', () => ({ browserCurveRpc: () => ({}) }));
+vi.mock('../../lib/launcher/solana/curve/rpc', () => ({ browserCurveRpc: () => ({}), browserRpc: () => ({}) }));
 // PDA derivation is realm-sensitive under jsdom — web3.js's Node-realm Buffer
 // fails its `instanceof Uint8Array` guard and every derivation throws "Unable to
 // find a viable program address nonce". A component test needs jsdom, so the
