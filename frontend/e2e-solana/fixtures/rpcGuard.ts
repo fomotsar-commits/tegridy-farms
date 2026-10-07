@@ -29,9 +29,9 @@ export interface RpcGuard {
   /** Answer `method` with HTTP `status` (no body forwarded) for the next `forMs`. */
   fail(method: string, status: number, forMs: number): void;
   /**
-   * Hold every request carrying `method` unanswered until `forMs` have passed (then forward
-   * it). The page gives a read 20 s (readFetch.ts), so a hang longer than that is what a
-   * proxy that never answers looks like from the browser.
+   * Hold every request carrying `method` unanswered until `forMs` have passed, release() is
+   * called or the context closes (then forward it). The page gives a read 20 s (readFetch.ts),
+   * so a hang well past that is what a proxy that never answers looks like from the browser.
    */
   hang(method: string, forMs: number): void;
   /** Stop failing and stop holding `method` now; held requests go through. */
@@ -91,6 +91,8 @@ export async function installRpcGuard(context: BrowserContext): Promise<RpcGuard
   const rewrites = new Map<string, Rewrite>();
   const rewritten: string[] = [];
   let current = 'start';
+  // A hold never outlives its context: a test that fails before release() leaves no loop behind.
+  context.on('close', () => { for (const h of hangs.values()) h.until = 0; });
 
   await context.route('**/api/solrpc', async (route: Route) => {
     const req = route.request();

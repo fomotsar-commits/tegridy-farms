@@ -1,9 +1,10 @@
 /**
  * What the proxy's last answer said is left of this tab's calls a minute
- * (api/_lib/ratelimit.js sets X-RateLimit-Remaining and X-RateLimit-Reset on every
- * answer). An optional read (history) refuses to start under OPTIONAL_READ_FLOOR so the
- * live reads keep working. Memory only, per tab. A missing header is no information and
- * the gate then does nothing; a window that has reset is no information again.
+ * (api/_lib/ratelimit.js sets X-RateLimit-Remaining and X-RateLimit-Reset on every answer).
+ * An optional read (history) refuses to start under OPTIONAL_READ_FLOOR so the live reads
+ * keep working. Memory only, per tab. A missing header, or a window past its reset, is no
+ * information and the gate does nothing. The reset is the proxy's epoch second compared
+ * with this device's clock: a clock off by a minute moves the pause by as much.
  */
 import { OPTIONAL_READ_FLOOR } from './readFetch';
 
