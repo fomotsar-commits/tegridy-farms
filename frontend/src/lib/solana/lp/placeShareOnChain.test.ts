@@ -9,34 +9,38 @@ import { PublicKey } from '@solana/web3.js';
 import { POOL_STATE_OFFSETS } from '../cpswap/program';
 import { CHAIN_HISTORY_LIMIT, placeShareOnChain, readPositions } from './positions';
 import { TOKEN_PROGRAM } from './tokenSafety';
-import { CLOCK, LAUNCH, PROGRAM, buildPool, clockAccount, fakeIndex, fakeRpc, key, tokenAccountBytes, type FakeAccount } from './testkit.fixture';
+import { CLOCK, LAUNCH, PROGRAM, buildPool, clockAccount, fakeIndex, fakeRpcWithHistory, key, tokenAccountBytes, txJson, type FakeAccount } from './testkit.fixture';
+import type { SigEntry } from './txHistory';
 import type { SolanaRpc } from '../../launcher/solana/curve/rpc';
 
 const opts = { programId: PROGRAM, launchProgramId: LAUNCH };
 
-/** A chain with transaction history: `history[address]` = transactions newest first, each its account keys. */
+/**
+ * The kit's history transport over this file's shorthand: `history[address]` = transactions
+ * newest first, each its account keys (or 'junk', a malformed answer). Every address the
+ * read asks about must be listed, with `[]` for no history: the kit keeps "no history"
+ * apart from "not configured" and throws on the latter.
+ */
 function chainWith(accounts: Record<string, FakeAccount>, history: Record<string, Array<{ keys: string[]; loaded?: string[] } | 'junk'>>, calls: string[] = []): SolanaRpc {
-  const base = fakeRpc(accounts);
-  const txs = new Map<string, { keys: string[]; loaded?: string[] } | 'junk'>();
-  return async (method, params) => {
+  const entries: Record<string, SigEntry[]> = {};
+  const txs: Record<string, unknown> = {};
+  for (const [address, list] of Object.entries(history)) {
+    entries[address] = list.map((t, i) => {
+      const signature = `${address.slice(0, 20)}${i}`.padEnd(88, '1');
+      txs[signature] = t === 'junk'
+        ? { transaction: { message: { accountKeys: 'not a list' } } }
+        : txJson({ keys: t.keys, loaded: t.loaded && { writable: t.loaded }, instructions: [], balances: [], slot: 1, blockTime: null });
+      return { signature, slot: 1, blockTime: null, err: null, confirmationStatus: 'finalized' };
+    });
+  }
+  const rpc = fakeRpcWithHistory(accounts, entries, txs);
+  return (method, params) => {
     calls.push(method);
-    if (method === 'getSignaturesForAddress') {
-      const [address, o] = params as [string, { limit: number }];
-      return (history[address] ?? []).slice(0, o.limit).map((t, i) => {
-        const signature = `${address.slice(0, 20)}${i}`.padEnd(88, '1');
-        txs.set(signature, t);
-        return { signature, slot: 1, err: null };
-      });
-    }
-    if (method === 'getTransaction') {
-      const t = txs.get((params as [string])[0]);
-      if (!t) return null;
-      if (t === 'junk') return { transaction: { message: { accountKeys: 'not a list' } } };
-      return { transaction: { message: { accountKeys: t.keys } }, meta: { loadedAddresses: { writable: t.loaded ?? [], readonly: [] } } };
-    }
-    return base(method, params);
+    return rpc(method, params);
   };
 }
+/** No history on either address a share is placed from. */
+const none = (s: { lpAccount: string; lpMint: string }) => ({ [s.lpAccount]: [], [s.lpMint]: [] });
 
 function share(o: { lpMintRecord?: string } = {}) {
   const wallet = key();
@@ -60,7 +64,7 @@ describe('placeShareOnChain', () => {
 
   it('falls back to the share mint’s history, and reads keys loaded from lookup tables', async () => {
     const s = share();
-    const rpc = chainWith(s.accounts, { [s.lpMint]: [{ keys: noise(), loaded: [s.p.address.toBase58()] }] });
+    const rpc = chainWith(s.accounts, { [s.lpAccount]: [], [s.lpMint]: [{ keys: noise(), loaded: [s.p.address.toBase58()] }] });
     const r = await placeShareOnChain(rpc, opts, { lpMint: s.lpMint, lpAccount: s.lpAccount });
     expect(r.kind === 'placed' && r.entry.view.address).toBe(s.p.address.toBase58());
   });
@@ -68,7 +72,7 @@ describe('placeShareOnChain', () => {
   it('a junk transaction naming random keys, and another real pool, never misplace a share', async () => {
     const s = share();
     const other = buildPool({ mint: key(), address: key(), quoteReserve: 10n, tokenReserve: 10n });
-    const rpc = chainWith({ ...s.accounts, ...other.accounts }, { [s.lpAccount]: [{ keys: [...noise(), other.address.toBase58()] }, { keys: noise() }] });
+    const rpc = chainWith({ ...s.accounts, ...other.accounts }, { [s.lpAccount]: [{ keys: [...noise(), other.address.toBase58()] }, { keys: noise() }], [s.lpMint]: [] });
     expect(await placeShareOnChain(rpc, opts, { lpMint: s.lpMint, lpAccount: s.lpAccount })).toEqual({ kind: 'not-found' });
   });
 
@@ -132,7 +136,7 @@ describe('a share placed on chain stays placed for the session', () => {
 
   it('a share not found, or not read, is not kept: the index is asked again', async () => {
     const s = share();
-    expect((await placeShareOnChain(chainWith(s.accounts, {}), opts, { lpMint: s.lpMint, lpAccount: s.lpAccount })).kind).toBe('not-found');
+    expect((await placeShareOnChain(chainWith(s.accounts, none(s)), opts, { lpMint: s.lpMint, lpAccount: s.lpAccount })).kind).toBe('not-found');
     expect((await placeShareOnChain(chainWith(s.accounts, { [s.lpAccount]: ['junk'] }), opts, { lpMint: s.lpMint, lpAccount: s.lpAccount })).kind).toBe('unread');
     const asked: string[] = [];
     const r = await readPositions(chainWith(s.accounts, {}), s.wallet, { ...opts, fetchImpl: fakeIndex({}, { status: 502, calls: asked }) });
