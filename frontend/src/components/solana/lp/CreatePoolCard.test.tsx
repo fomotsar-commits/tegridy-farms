@@ -16,6 +16,7 @@ import { decodeAmmConfig, decodePoolState } from '../../../lib/solana/cpswap/pro
 import type { WalletFacts } from '../../../lib/solana/lp/walletFacts';
 import { buildPool, key } from '../../../lib/solana/lp/testkit.fixture';
 import { LP_PENDING_SCOPE, readPendingTrades, savePendingTrade } from '../curve/pendingTrade';
+import { GATE_RETRY_MS } from '../curve/useWriteGate';
 import type { CreateFacts, LpWriteApi } from '../curve/ports';
 import { TIER1_ADDRESS, fakeLpApi, lpOpenGate, LP_PROGRAM, notOpenFacts, readyFacts, tier1Config, unusedGateRpc } from './fakeLpWriteApi.fixture';
 import { realToken, reasonText } from './anyToken.fixture';
@@ -791,5 +792,30 @@ describe('Read again says it is reading, and what it found', () => {
     fireEvent.click(within(c).getByRole('button', { name: 'Read again' }));
     await waitFor(() => expect(c).toHaveAttribute('data-create', 'offer'));
     expect(within(c).getByTestId('lp-create-reread')).toHaveTextContent('Read again just now: the answer above is new.');
+  });
+});
+
+// One failed answer to the gate's read at page load left this card on "it cannot right
+// now" until Read again was pressed in the banner far above it. The gate is asked again.
+describe('a gate that could not be read when the page loaded', () => {
+  it('the card leaves "it cannot right now" for the button, with nothing pressed', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const api = fakeLpApi({ readCreateFacts: vi.fn(async () => readyFacts()) });
+      vi.mocked(api.readLpGate).mockResolvedValueOnce({ kind: 'blocked', reason: 'unreadable', detail: 'getAccountInfo: HTTP 503' });
+      mount(readers(), { api });
+      expect(await screen.findByTestId('lp-gate-banner')).toHaveTextContent('We could not check the network just now');
+      const c = await settled('gate');
+      expect(c).toHaveTextContent('Opening a pool needs this page to reach the pool program, and it cannot right now');
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(GATE_RETRY_MS);
+      });
+      await settled('offer');
+      expect(within(c).getByRole('button', { name: 'Open a pool' })).toBeEnabled();
+      expect(screen.queryByTestId('lp-gate-banner')).toBeNull();
+      expect(api.readLpGate).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

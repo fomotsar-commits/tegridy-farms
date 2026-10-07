@@ -6,19 +6,11 @@ import { loadWriteApi } from './writeApi';
 import type { CurveWriteConfig, GateRpc, LpGate, WriteApi, WriteGate } from './ports';
 
 /**
- * Where a write path stands for this page view: load its code, take its configuration,
- * read the chain for its gate. One body for both write paths (the launch page's and
- * the pools page's), so the rule "a gate read that throws closes, never opens" lives
- * in exactly one place.
- *
- *  - `disabled`: the flag is off. The write code was never fetched, and the page
- *    renders exactly what it rendered before any of this existed.
- *  - `loading`: fetching the write code, or reading the chain for the gate.
- *  - `load-failed`: the write code did not arrive. A statement about our download,
- *    not about the program; the page stays read-only.
- *  - `ready`: `gate` says whether anything may be offered. `cfg` is the configured
- *    program pair (null when the write layer found no usable config), so reads can
- *    use the same ids the writes would.
+ * Where a write path stands for this page view. One body for every write path, so the
+ * rule "a gate read that throws closes, never opens" lives in exactly one place.
+ * `disabled`: the flag is off, and the write code was never fetched. `load-failed`: the
+ * write code did not arrive, which says nothing about the program. `ready`: `gate` says
+ * what may be offered, and `cfg` is the configured program pair (null when none is usable).
  */
 export type LoadedGateState<A, C, G> =
   | { status: 'disabled' }
@@ -35,10 +27,19 @@ export interface LoadedGateOptions<A, C, G> {
   read(api: A, cfg: C | null): Promise<G>;
   /** The gate for a read that threw. It must be closed. */
   blocked(detail: string): G;
+  /**
+   * True only for a gate that says its read failed. Given, such a gate, and write code
+   * that did not load, are asked for again every GATE_RETRY_MS. A gate that was read
+   * and is closed is an answer: return false for it, and it is never asked again.
+   */
+  unread?(gate: G): boolean;
 }
 
+/** A gate that could not be read, or write code that did not load, is asked for again this often. */
+export const GATE_RETRY_MS = 15_000;
+
 export function useLoadedGate<A, C, G>(o: LoadedGateOptions<A, C, G>): LoadedGateState<A, C, G> & { refresh(): void } {
-  const { enabled, load, config, read, blocked } = o;
+  const { enabled, load, config, read, blocked, unread } = o;
   const [state, setState] = useState<LoadedGateState<A, C, G>>(enabled ? { status: 'loading' } : { status: 'disabled' });
   const [nonce, setNonce] = useState(0);
 
@@ -46,7 +47,9 @@ export function useLoadedGate<A, C, G>(o: LoadedGateOptions<A, C, G>): LoadedGat
     // Off is the initial state, and the flag is fixed for the life of a build.
     if (!enabled) return;
     let live = true;
-    setState((s) => (s.status === 'ready' ? s : { status: 'loading' }));
+    // What is on screen stays while it is asked for again, a failed answer included.
+    // Only an `enabled` that came on after mount goes from off to "loading" here.
+    setState((s) => (s.status === 'disabled' ? { status: 'loading' } : s));
     (async () => {
       let api: A;
       try {
@@ -74,6 +77,18 @@ export function useLoadedGate<A, C, G>(o: LoadedGateOptions<A, C, G>): LoadedGat
   }, [enabled, load, config, read, blocked, nonce]);
 
   const refresh = useCallback(() => setNonce((n) => n + 1), []);
+
+  // A failed read is not this page view's answer: without this, one bad moment at page
+  // load leaves the page read-only until someone reloads it. `state` is a dependency
+  // because each answer is a new object, so one that failed again arms the next try, a
+  // whole period after it landed. The try only reads, and a read that throws still closes.
+  const again = !!unread && (state.status === 'load-failed' || (state.status === 'ready' && unread(state.gate)));
+  useEffect(() => {
+    if (!again) return;
+    const t = setTimeout(refresh, GATE_RETRY_MS);
+    return () => clearTimeout(t);
+  }, [again, refresh, state]);
+
   // Stable identity until the state changes, so callers can key effects on it.
   return useMemo(() => ({ ...state, refresh }), [state, refresh]);
 }
@@ -90,11 +105,13 @@ export interface UseWriteGateOptions {
 }
 
 const unreadable = (detail: string) => ({ kind: 'blocked' as const, reason: 'unreadable' as const, detail });
+/** Only "the read failed" is asked again. Every other closed gate was read, and stands. */
+const isUnread = (gate: WriteGate | LpGate) => gate.kind === 'blocked' && gate.reason === 'unreadable';
 const curveConfig = (api: WriteApi) => api.curveWriteConfig();
 
 export function useWriteGate(gateRpc: GateRpc, opts: UseWriteGateOptions = {}): WriteGateState & { refresh: () => void } {
   const read = useCallback((api: WriteApi, cfg: CurveWriteConfig | null) => api.readWriteGate(gateRpc, cfg), [gateRpc]);
-  return useLoadedGate<WriteApi, CurveWriteConfig, WriteGate>({ enabled: opts.enabled ?? isCurveWriteEnabled(), load: opts.load ?? loadWriteApi, config: curveConfig, read, blocked: unreadable });
+  return useLoadedGate<WriteApi, CurveWriteConfig, WriteGate>({ enabled: opts.enabled ?? isCurveWriteEnabled(), load: opts.load ?? loadWriteApi, config: curveConfig, read, blocked: unreadable, unread: isUnread });
 }
 
 // ── the pools page's liquidity path ──────────────────────────────────────────
@@ -120,5 +137,5 @@ const lpConfig = (api: LpGateApi) => api.lpWriteConfig();
  */
 export function useLpGate<A extends LpGateApi>(gateRpc: GateRpc, opts: UseLpGateOptions<A>): LoadedGateState<A, CurveWriteConfig, LpGate> & { refresh: () => void } {
   const read = useCallback((api: A, cfg: CurveWriteConfig | null) => api.readLpGate(gateRpc, cfg), [gateRpc]);
-  return useLoadedGate<A, CurveWriteConfig, LpGate>({ enabled: opts.enabled ?? lpWriteMode() !== 'off', load: opts.load, config: lpConfig, read, blocked: unreadable });
+  return useLoadedGate<A, CurveWriteConfig, LpGate>({ enabled: opts.enabled ?? lpWriteMode() !== 'off', load: opts.load, config: lpConfig, read, blocked: unreadable, unread: isUnread });
 }
