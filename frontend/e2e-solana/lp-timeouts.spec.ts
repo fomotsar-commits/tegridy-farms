@@ -18,8 +18,13 @@ import { READ_TIMEOUT_MS, timeoutDetail } from '../src/lib/solana/lp/readFetch';
 
 const DEC = 6;
 const UNIT = 10n ** BigInt(DEC);
-/** Longer than the page waits, shorter than the test's patience. */
-const HANG_MS = READ_TIMEOUT_MS + 5_000;
+/**
+ * Far longer than the page waits. The page's 20 s start at its first read, after the bundle
+ * loads and React mounts; a window only a little longer than that could expire first on a
+ * slow box and the pool would render instead of the sentence. The test lifts the hold itself
+ * with release(), and the guard lifts it when the context closes, so the length costs nothing.
+ */
+const HANG_MS = 10 * READ_TIMEOUT_MS;
 /** The page's own figure plus the time a read takes to start and a card to render. */
 const MUST_SAY_SO_WITHIN_MS = 30_000;
 
