@@ -15,6 +15,24 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-10-07: a `WalletSignTransactionError` means the person declined
+
+**Believed:** the Solana write path's decline test could match the adapter's error class
+name, because a sign that throws is a prompt the person said no to.
+
+**Read, in `@solana/wallet-adapter-base` and every adapter in `lib/solanaWallets.ts` and
+`lib/solanaWalletConnect.ts`:** each one rethrows ANY failure inside `signTransaction` as
+`new WalletSignTransactionError(inner.message, inner)`: a wallet that broke before its prompt
+opened, a WalletConnect session that never granted signing, and a real "no" all wear the same
+class. A Trust Wallet LP add that failed with no prompt read "You cancelled in your wallet".
+And Trust's real "no" is not words at all: `trust-web3-provider`'s `CallbackAdapter` turns the
+app's numeric answer into `RPCError(4001, '4001')`, and an older build rejects with a bare
+string, so `inner.message` can be `"4001"` or `undefined`.
+
+**Do:** decide a decline from the wallet's own error under the wrapper (`.error`, then
+`.cause`): code 4001, or reject/declin/denied/cancel in its words. Anything else says what
+the wallet said, so the next report carries the real reason.
+
 ## 2026-10-04: a test that asks the app's own planner what a row should read agrees with the app whatever it does
 
 **Believed:** the end-to-end check of the "Locked in the pool forever" row was independent of

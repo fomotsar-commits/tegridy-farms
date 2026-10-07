@@ -63,9 +63,34 @@ function sameBytes(a: Uint8Array, b: Uint8Array): boolean {
   return true;
 }
 
+// An adapter rethrows ANY sign failure as WalletSignTransactionError(inner.message,
+// inner), a wallet that broke before its prompt opened included, so the wrapper's
+// name is never a decline. Read the wallet's own error under it (`.error`): Trust
+// declines with code 4001 and the message "4001", or with a bare string.
+function walletErrors(e: unknown): unknown[] {
+  const chain: unknown[] = [];
+  for (let cur = e, i = 0; cur != null && i < 4; i++) {
+    chain.push(cur);
+    cur = typeof cur === 'object' ? ((cur as { error?: unknown; cause?: unknown }).error ?? (cur as { cause?: unknown }).cause) : null;
+  }
+  return chain;
+}
+
 function isDecline(e: unknown): boolean {
-  const msg = e instanceof Error ? `${e.name} ${e.message}` : String(e ?? '');
-  return /reject|declin|denied|cancel|WalletSignTransactionError|User rejected/i.test(msg);
+  return walletErrors(e).some((x) => {
+    const o = (typeof x === 'object' ? x : { code: x, message: x }) as { name?: unknown; message?: unknown; code?: unknown };
+    if (o.code === 4001 || o.code === '4001') return true;
+    return /reject|declin|denied|cancel/i.test(`${String(o.name ?? '')} ${String(o.message ?? '')}`);
+  });
+}
+
+/** The wallet's own words for a failed sign, never "the RPC call failed". */
+function walletReason(e: unknown): string {
+  for (const x of walletErrors(e)) {
+    const s = typeof x === 'object' ? (x as { message?: unknown }).message : x;
+    if ((typeof s === 'string' || typeof s === 'number') && String(s).trim()) return clipDetail(String(s));
+  }
+  return 'it gave no reason';
 }
 
 /**
@@ -245,7 +270,7 @@ export async function submitPrepared(
       'sign',
       isDecline(e)
         ? 'You cancelled in your wallet. Nothing was sent.'
-        : `Your wallet did not sign this (${clipDetail(e)}). Nothing was sent.`,
+        : `Your wallet did not sign this (${walletReason(e)}). Nothing was sent.`,
     );
   }
   if (!(signed instanceof Transaction)) {

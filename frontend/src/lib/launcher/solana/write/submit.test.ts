@@ -8,6 +8,7 @@
 // carrying the signature.
 import { describe, it, expect, vi } from 'vitest';
 import { base58 } from '@scure/base';
+import { WalletSignTransactionError } from '@solana/wallet-adapter-base';
 import { Keypair, SendTransactionError, SystemProgram, Transaction, TransactionInstruction } from '@solana/web3.js';
 import { WSOL_MINT, cpPermissionPda, migrationAuthorityPda } from '../curve/program';
 import { associatedTokenAddress } from '../curve/ix';
@@ -88,6 +89,56 @@ describe('before anything is sent', () => {
     const o = await submitPrepared(W(chain), { publicKey: ME, signTransaction: async () => { throw new Error('User rejected the request.'); } }, p, deps);
     expect(o).toMatchObject({ status: 'not-sent', stage: 'sign', message: expect.stringMatching(/cancelled/) });
     expect(chain.calls).not.toContain('sendRawTransaction');
+  });
+
+  // Every adapter rethrows ANY failure inside its signTransaction as a
+  // WalletSignTransactionError(inner.message, inner): the shapes below are the ones
+  // Trust's provider and the WalletConnect adapter reject with.
+  const failingWith = (inner: unknown): TxSigner => ({
+    publicKey: ME,
+    signTransaction: async () => {
+      throw new WalletSignTransactionError((inner as Error)?.message, inner);
+    },
+  });
+
+  it.each([
+    ['a wallet that failed before showing a prompt', new Error('invalid account')],
+    ['a WalletConnect session that never allowed signing', new Error("This wallet didn't allow transaction signing over WalletConnect")],
+  ])('%s is not reported as a cancel, and says what the wallet said', async (_, inner) => {
+    const { chain, p } = await preparedBuy();
+    const o = await submitPrepared(W(chain), failingWith(inner), p, deps);
+    expect(o).toMatchObject({ status: 'not-sent', stage: 'sign' });
+    if (o.status !== 'not-sent') return;
+    expect(o.message).not.toMatch(/cancel/i);
+    expect(o.message).toContain(inner.message);
+    expect(chain.calls).not.toContain('sendRawTransaction');
+  });
+
+  it('a wallet that rejects with a bare string is quoted, never "the RPC call failed"', async () => {
+    const { chain, p } = await preparedBuy();
+    const o = await submitPrepared(W(chain), failingWith('Transaction could not be decoded'), p, deps);
+    expect(o).toMatchObject({ status: 'not-sent', stage: 'sign', message: expect.stringContaining('Transaction could not be decoded') });
+    if (o.status === 'not-sent') expect(o.message).not.toMatch(/cancel|RPC/i);
+  });
+
+  it('a wallet that gives no reason at all is not reported as a cancel', async () => {
+    const { chain, p } = await preparedBuy();
+    const o = await submitPrepared(W(chain), failingWith(undefined), p, deps);
+    expect(o).toMatchObject({ status: 'not-sent', stage: 'sign' });
+    if (o.status === 'not-sent') expect(o.message).not.toMatch(/cancel|RPC/i);
+  });
+
+  it.each([
+    // Trust's CallbackAdapter turns a numeric answer into RPCError(4001, '4001').
+    ['Trust’s 4001, whose message is only the number', Object.assign(new Error('4001'), { code: 4001 })],
+    ['Trust’s older bare-string answer', 'Canceled'],
+    ['a bare 4001 with no error around it', 4001],
+    ['a WalletConnect decline', Object.assign(new Error('User rejected.'), { code: 5000 })],
+    ['Phantom’s decline', Object.assign(new Error('User rejected the request.'), { code: 4001 })],
+  ])('%s still reads as a cancel', async (_, inner) => {
+    const { chain, p } = await preparedBuy();
+    const o = await submitPrepared(W(chain), failingWith(inner), p, deps);
+    expect(o).toMatchObject({ status: 'not-sent', stage: 'sign', message: expect.stringMatching(/cancelled/) });
   });
 
   it('a different connected wallet is refused before signing', async () => {

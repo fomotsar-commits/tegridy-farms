@@ -6,6 +6,10 @@ page keeps the newest thirty days.
 
 ## [Unreleased]
 
+### 2026-10-07
+
+- Solana LP and launch trades: when a wallet fails to sign without ever showing its prompt, the card now says what the wallet said, instead of "You cancelled in your wallet".
+
 ### 2026-10-04
 
 - Solana LP on a small phone: a warning that names a long address no longer runs off the edge of its card, the three "Pair with" choices stay inside the form, the amounts on the add and remove reviews no longer break in the middle of a number, and the small links and buttons (the swap link in the form, Refresh and the copy buttons on the venue status card) are full-size press targets.
