@@ -4,7 +4,7 @@
 // short of one; a read that did not finish is never said as "no pool"; and no line claims a
 // trade went anywhere before it was sent.
 import { describe, expect, it } from 'vitest';
-import type { OwnCandidate, OwnQuotes } from './ownPools';
+import { OWN_EXCLUDED, type OwnCandidate, type OwnQuotes } from './ownPools';
 import { chooseVenue, routeSentence, standingSentence, type JupiterSide, type OwnSend, type OwnSide } from './venueChoice';
 
 const cand = (out: bigint): OwnCandidate => ({ view: { address: 'PooL1' }, quote: { outAmount: out } }) as unknown as OwnCandidate;
@@ -89,6 +89,11 @@ describe('routeSentence', () => {
       'pools that cannot fill, after a search that did not finish',
       quotes({ best: null, gaps: ['one of our pools could not be read'], excluded: [{ address: 'P', reason: 'it pays nothing for this amount' }] }),
       'Our pool for this pair cannot take this trade: it pays nothing for this amount, and the search did not finish (one of our pools could not be read), so Buy sends this trade to Jupiter.',
+    ],
+    [
+      'a token this site trades only through Jupiter',
+      quotes({ best: null, excluded: [{ address: 'P', reason: OWN_EXCLUDED.tokenBlocked }] }),
+      'Our pool for this pair cannot take this trade: this site does not trade this token in our pools, so Buy sends this trade to Jupiter.',
     ],
     ['a pair we cannot hold', { kind: 'not-a-pair' }, 'Our pools pair a token with SOL, USDC or BAYLA, and this pair has none of them, so Buy sends this trade to Jupiter.'],
     ['no pools on this network', { kind: 'absent' }, 'This site has no pools of its own on this network yet, so Buy sends this trade to Jupiter.'],

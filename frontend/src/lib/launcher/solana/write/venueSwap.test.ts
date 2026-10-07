@@ -207,6 +207,12 @@ describe('a sale of BAYLA for SOL', () => {
     expect(refused(await sell(world({ heldBayla: 1_000n * 10n ** 6n }), 2_000n * 10n ** 6n))).toMatch(/^This swap spends 2,?000 BAYLA and your account for it holds 1,?000 BAYLA\.$/);
     expect(refused(await sell(world({ heldBayla: null }), 2_000n * 10n ** 6n))).toMatch(/^You hold no BAYLA in your main account for it/);
   });
+
+  it('sells exactly the whole balance (MAX), and refuses one raw unit more', async () => {
+    const held = 1_000n * 10n ** 6n;
+    expect(sum(ok(await sell(world({ heldBayla: held }), held))).amountIn).toBe(held);
+    expect(refused(await sell(world({ heldBayla: held }), held + 1n))).toMatch(/^This swap spends 1,?000\.000001 BAYLA and your account for it holds 1,?000 BAYLA\.$/);
+  });
 });
 
 describe('a pool paired with USDC: nothing is wrapped', () => {

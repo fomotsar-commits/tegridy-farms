@@ -468,6 +468,7 @@ test('our pool pays more: the line says so, Buy reviews it in our pool, the wall
   await shot(page, 'own-wins-review');
   await expect(page.getByText('Review your swap in our pool')).toBeVisible();
   await signOwn(page);
+  await expect(routeLine(page)).toHaveText('RouteWhat happened to this trade is below.');
   await shot(page, 'own-wins-confirmed');
   await report(w);
   expect(w.signed).toHaveLength(1);

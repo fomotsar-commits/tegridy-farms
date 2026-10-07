@@ -65,7 +65,7 @@ export async function searchOwnPools(readers: OwnPoolReaders, pair: OwnPair): Pr
 
 export const OWN_EXCLUDED = {
   tokenUnread: 'the token could not be read',
-  tokenBlocked: 'this site does not build trades for this token',
+  tokenBlocked: 'this site does not trade this token in our pools',
   feesUnread: 'its fee settings could not be read',
   frozen: 'one of its vaults is frozen',
   clockUnread: "the network's clock could not be read",

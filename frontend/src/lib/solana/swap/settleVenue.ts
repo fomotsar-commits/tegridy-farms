@@ -1,8 +1,8 @@
 // Which venue a swap goes to, settled at the Buy press on fresh numbers: our pool's quote,
 // just read, against what this site's Jupiter path would deliver now. Our pool wins a tie.
-// Jupiter wins only with a transaction its own path has built and simulated (its one no-fee
-// retry included, jupiterFeeRetry.ts) that pays strictly more. A Jupiter answer that could
-// not be had is never read as "no route": nothing is sent, and the person can ask again.
+// Jupiter wins only with the transaction its own path prepared (jupiterFeeRetry.ts: built,
+// test-run unless that run could not be read, one no-fee retry) that pays strictly more. A
+// Jupiter answer that could not be had is never "no route": nothing is sent, ask again.
 
 import { NoRouteError, quoteHasPlatformFee, type JupiterQuote } from '../../jupiter';
 import type { PreparedJupiterSwap } from './jupiterFeeRetry';
@@ -12,7 +12,7 @@ export type ReadyJupiterSwap = Extract<PreparedJupiterSwap, { status: 'ready' }>
 export type Settled =
   /** `against`: the Jupiter number our pool met, or null when Jupiter can deliver nothing. */
   | { venue: 'own'; against: bigint | null }
-  /** `prepared`: the transaction compared, built and simulated: the one to send. */
+  /** `prepared`: the transaction compared, as Jupiter's path prepared it: the one to send. */
   | { venue: 'jupiter'; fresh: JupiterQuote; prepared: ReadyJupiterSwap }
   /** Jupiter's retry pays less than the quote it replaces, and more than our pool: shown, not sent. */
   | { venue: 'moved'; quote: JupiterQuote }

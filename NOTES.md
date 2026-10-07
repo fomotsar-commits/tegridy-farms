@@ -15,6 +15,21 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-10-07: what a trade settles is recorded for the wallet that pressed Buy
+
+**Believed:** the swap page's settle callback runs for the press that started the trade, so
+the `publicKey` it reads is the wallet that signed.
+
+**Seen** (a third review of this branch, reproduced in `SolanaSwapPage.ownPool.test.tsx`):
+`useTxFlow` keeps the newest `onSettled` in a ref and calls it when the chain answers, up to two
+minutes after the signature. A wallet switched meanwhile got the activity row and the heat
+`lastBuy`; a wallet disconnected meanwhile skipped the cleanup, leaving the amount to be bought
+twice. The same review found the mirror of the entry below: a press that moved from Jupiter to
+our pool left Jupiter's figure above our pool's review.
+
+**Do:** read who traded from the transaction (its fee payer), never from the page at answer
+time; and whenever a press changes venue, in either direction, put that venue's numbers on screen.
+
 ## 2026-10-07: a test wallet that says it is on mainnet signs whatever a mainnet build asks
 
 **Believed:** a Wallet Standard test wallet whose account lists `solana:mainnet` can sign and

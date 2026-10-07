@@ -1308,7 +1308,9 @@ function SolanaSwapInner() {
       return;
     }
     const sum = prepared?.summary;
-    if (!publicKey || !sum || sum.kind !== 'venue-swap') return;
+    if (!sum || sum.kind !== 'venue-swap') return;
+    // The wallet that signed it (its fee payer), whichever is connected when the chain answers.
+    const owner = prepared?.tx.feePayer?.toBase58() ?? null;
     const name = (side: typeof sum.input) => {
       const m = side.mint.toBase58();
       return side.symbol ?? (m === buyToken.mint ? buyToken.symbol : m === payToken.mint ? payToken.symbol : 'tokens');
@@ -1316,7 +1318,7 @@ function SolanaSwapInner() {
     const words = `≈${prettyAmount(fromBaseUnits(sum.quote.outAmount.toString(), sum.output.decimals))} ${name(sum.output)} with ${prettyAmount(fromBaseUnits(sum.amountIn.toString(), sum.input.decimals))} ${name(sum.input)} in our pool`;
     const sig = 'signature' in o ? o.signature : '';
     if (o.status === 'unknown') {
-      if (sig) recordActivity(publicKey.toBase58(), { sig, ts: Date.now(), kind: 'swap', summary: `Sent, not confirmed: ${words}` });
+      if (sig && owner) recordActivity(owner, { sig, ts: Date.now(), kind: 'swap', summary: `Sent, not confirmed: ${words}` });
       // As the Jupiter path does: the same buy is not one click away while this one may land.
       setAmount('');
       return;
@@ -1325,10 +1327,12 @@ function SolanaSwapInner() {
       rereadVenues();
       return;
     }
-    recordActivity(publicKey.toBase58(), { sig, ts: Date.now(), kind: 'swap', summary: `Bought ${words}` });
-    const room = bungalowByAddress('solana', sum.output.mint.toBase58());
-    if (room) {
-      setLastBuy({ hash: sig, symbol: room.symbol, tokenAddress: sum.output.mint.toBase58(), chain: room.chain, buyer: publicKey.toBase58(), atUnix: Math.floor(Date.now() / 1000) });
+    if (owner) {
+      recordActivity(owner, { sig, ts: Date.now(), kind: 'swap', summary: `Bought ${words}` });
+      const room = bungalowByAddress('solana', sum.output.mint.toBase58());
+      if (room) {
+        setLastBuy({ hash: sig, symbol: room.symbol, tokenAddress: sum.output.mint.toBase58(), chain: room.chain, buyer: owner, atUnix: Math.floor(Date.now() / 1000) });
+      }
     }
     setAmount('');
     payBalance.retry();
@@ -1336,6 +1340,9 @@ function SolanaSwapInner() {
   };
   const flow = useTxFlow(writes.api ?? NO_WRITE_API, writes.rpc, onOwnSettled, writes.pending.sent);
   const flowIdle = flow.state.step === 'idle';
+  // While a trade in our pool is under way, the route line says where that trade stands.
+  const flowLine = flow.state.step === 'sent' ? OWN_SWAP_COPY.sentLine : flow.state.step === 'outcome' ? OWN_SWAP_COPY.doneLine : OWN_SWAP_COPY.inFlow;
+  const flowGood = flow.state.step !== 'outcome' || flow.state.outcome.status === 'confirmed';
   // While a trade is checked, built, reviewed or sent, the form it was pressed on stays as it was.
   const formLocked = !flowIdle || settling || swapping;
   const { target: buyRef, fallback: headingRef } = useReturnFocus(flow.state.step);
@@ -1456,8 +1463,12 @@ function SolanaSwapInner() {
   // and did not come back is a dash (the same mark as an unread balance),
   // never a 0, which reads as "you would receive nothing". With no amount
   // typed nothing was asked, and the 0 stands.
-  // With our pool taking the trade, its quote is the one on screen.
-  const shownOut = ownBest ? ownBest.quote.outAmount.toString() : (quote?.outAmount ?? null);
+  // With our pool taking the trade, its quote is the one on screen; while a trade in our pool
+  // is under way, that trade's: its review's quote once built, the press's read of the pool before.
+  const flowSum = 'prepared' in flow.state && flow.state.prepared?.summary.kind === 'venue-swap' ? flow.state.prepared.summary : null;
+  const ownNow = !flowIdle && ownRoute.own.kind === 'ok' ? ownRoute.own.quotes.best : null;
+  const ownShown = flowSum?.quote.outAmount ?? ownNow?.quote.outAmount ?? ownBest?.quote.outAmount ?? null;
+  const shownOut = ownShown !== null ? ownShown.toString() : (quote?.outAmount ?? null);
   const outputDisplay = shownOut !== null
     ? prettyAmount(fromBaseUnits(shownOut, buyToken.decimals))
     : quoteFail ? '–' : '0';
@@ -1690,7 +1701,7 @@ function SolanaSwapInner() {
   // Buy. With a pool of ours in play, every press reads our pools again and asks Jupiter again
   // (settleVenue.ts). Jupiter's trade goes out only when the screen showed Jupiter; our pool's
   // only through its review. A press that finds Jupiter ahead of a pool shown sends nothing and
-  // shows Jupiter's numbers, and a read that did not finish sends nothing.
+  // shows Jupiter's numbers; a read that did not finish sends nothing, unless the screen showed it.
   async function onBuy() {
     if (pressing.current) return;
     pressing.current = true;
@@ -1713,14 +1724,18 @@ function SolanaSwapInner() {
         prepareJupiter: (fresh) =>
           prepareJupiterSwap({ getQuote, buildSwapTransaction, simulateSwap, swapCarriesPlatformFee }, { fresh, shown: onScreen ?? fresh, ...req, user, priority: speed }),
       };
+      // The screen said our search did not finish, none of ours could take it, and Buy sends to Jupiter.
+      const shownUnfinished = ownRoute.own.kind === 'ok' && !ownRoute.own.quotes.best && quotesIncomplete(ownRoute.own.quotes);
       // What this read finds is on screen from here (useOwnPoolRoute), whatever it decides.
       const now = await ownRoute.quoteNow();
-      // A read that did not finish sends nothing, whichever venue is shown: it decides nothing.
-      if (now.kind !== 'ok' || (!now.quotes.best && quotesIncomplete(now.quotes))) {
+      // A read that did not finish sends nothing, unless it is the unfinished search the screen showed.
+      const unfinished = now.kind !== 'ok' || (!now.quotes.best && quotesIncomplete(now.quotes));
+      if (unfinished && !(now.kind === 'ok' && shownUnfinished && shownVenue === 'jupiter')) {
         toast.error('Not sent', { description: OWN_SWAP_COPY.unread });
+        rereadVenues();
         return;
       }
-      const best = now.quotes.best;
+      const best = now.kind === 'ok' ? now.quotes.best : null;
       if (!best) {
         if (shownVenue === 'jupiter') {
           setSettling(false);
@@ -1760,6 +1775,8 @@ function SolanaSwapInner() {
         toast.error('Not sent', { description: OWN_SWAP_COPY.jupiterAhead });
         return;
       }
+      // The screen said Jupiter: why the review is our pool's.
+      if (shownVenue === 'jupiter') toast.info(settled.against === null ? OWN_SWAP_COPY.ownInstead : OWN_SWAP_COPY.ownNowBetter);
       const notSent = (message: string): Prepared => ({ ok: false, outcome: { status: 'not-sent', stage: 'venue', message } });
       let first = true;
       const build = async (): Promise<Prepared> => {
@@ -2062,7 +2079,7 @@ function SolanaSwapInner() {
 
           {/* Where Buy sends the trade, and why, in every state: the ones where our pool
               loses or is not there included. The words are venueChoice.ts's. */}
-          <SolanaRouteLine text={flowIdle ? routeText : OWN_SWAP_COPY.inFlow} good={!flowIdle || choice?.venue === 'own'} />
+          <SolanaRouteLine text={flowIdle ? routeText : flowLine} good={flowIdle ? choice?.venue === 'own' : flowGood} />
 
           {/* While a trade in our pool is built, reviewed or sent, its steps take this place. */}
           {!flowIdle && writes.api ? (

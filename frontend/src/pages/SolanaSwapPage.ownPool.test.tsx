@@ -1,9 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent, waitFor, cleanup } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, cleanup, act } from '@testing-library/react';
 import { PublicKey, type VersionedTransaction } from '@solana/web3.js';
 import type { ReactNode } from 'react';
 import { NoRouteError, type JupiterQuote, type SwapSimulation } from '../lib/jupiter';
-import type { OwnCandidate, OwnQuotes } from '../lib/solana/swap/ownPools';
+import { OWN_EXCLUDED, OWN_GAPS, type OwnCandidate, type OwnQuotes } from '../lib/solana/swap/ownPools';
 import type { OwnSend, OwnSide } from '../lib/solana/swap/venueChoice';
 import type { LpWriteApi, Prepared, PreparedTx, TxOutcome } from '../components/solana/curve/ports';
 
@@ -19,6 +19,7 @@ const SOL_MINT = 'So11111111111111111111111111111111111111112';
 const USDC_MINT = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
 const POOL = new PublicKey(new Uint8Array(32).fill(30));
 const SIG = '5'.repeat(88);
+const OWN_SWAP_COPY_POOL_GONE = 'Our pool can no longer take this trade as it stands. Nothing was sent; both quotes are being read again.';
 
 // The fee build and the no-fee rebuild, as in SolanaSwapPage.feeRetry.test.tsx.
 const TX_HEAD =
@@ -123,7 +124,7 @@ const connection = {
   getSignatureStatuses: async () => ({ value: [{ err: null, confirmationStatus: 'confirmed' }] }),
   getBlockHeight: (...a: unknown[]) => h.getBlockHeight(...a) as Promise<number>,
 };
-const wallet = { publicKey: USER, sendTransaction: h.sendTransaction };
+const wallet: { publicKey: PublicKey | null; sendTransaction: typeof h.sendTransaction } = { publicKey: USER, sendTransaction: h.sendTransaction };
 vi.mock('@solana/wallet-adapter-react', () => ({
   useConnection: () => ({ connection }),
   useWallet: () => wallet,
@@ -155,7 +156,9 @@ function built(out: bigint): Prepared {
     quote: { ...venueSwapSummary(POOL, new PublicKey(USDC_MINT)).quote, outAmount: out },
     outputAccountRent: 0n,
   });
-  return { ok: true, prepared: prepared(summary) };
+  const p = prepared(summary);
+  p.tx.feePayer = USER;
+  return { ok: true, prepared: p };
 }
 
 let api: LpWriteApi;
@@ -172,6 +175,7 @@ function useApi(over: Partial<LpWriteApi> = {}) {
 }
 
 beforeEach(() => {
+  wallet.publicKey = USER;
   window.history.replaceState(null, '', '/solana');
   localStorage.clear();
   sessionStorage.clear();
@@ -220,6 +224,8 @@ describe('our pool quoting more', () => {
     expect(document.querySelector('[aria-live="polite"][aria-atomic="true"]')?.textContent).toBe('15.1');
     expect(screen.getByTestId('own-pool-fee')).toHaveTextContent('None on top. Inside the quote: this pool’s 1% trade fee, 0.16% to the venue and 0.84% to its liquidity providers.');
     expect(screen.getByText(/via our pool/)).toHaveTextContent(`via our pool ${POOL.toBase58().slice(0, 4)}…${POOL.toBase58().slice(-4)}, fee tier 1`);
+    // The minimum is the quote less the slippage, as the transaction's own floor is: 15.1 at 0.5%.
+    expect(screen.getByText('Minimum received').nextElementSibling).toHaveTextContent('15.0245 USDC');
     await buy();
     await waitFor(() => expect(api.prepareVenueSwap).toHaveBeenCalledTimes(1));
     expect(api.prepareVenueSwap).toHaveBeenCalledWith(connection, expect.objectContaining({ kind: 'open' }), {
@@ -233,6 +239,7 @@ describe('our pool quoting more', () => {
     await waitFor(() => expect(api.submitPrepared).toHaveBeenCalledTimes(1));
     expect(h.sendTransaction).not.toHaveBeenCalled();
     await screen.findByText('Done. The network confirmed it.');
+    expect(routeLine()).toBe('RouteWhat happened to this trade is below.');
     // The activity row is the summary's, not the screen's.
     expect(getActivity(USER.toBase58())[0]).toMatchObject({ sig: SIG, kind: 'swap', summary: 'Bought ≈15.1 USDC with 0.1 SOL in our pool' });
   });
@@ -278,6 +285,19 @@ describe('Jupiter paying more', () => {
     expect(h.buildSwapTransaction).toHaveBeenCalledTimes(1);
   });
 
+  it('the screen said Jupiter, whose trade fails its test run at the press: the figure above our review is our pool\'s', async () => {
+    h.own = ownAt(10_000_000n);
+    useApi({ prepareVenueSwap: vi.fn(async () => built(10_000_000n)) });
+    await typeAmount();
+    await waitFor(() => expect(routeLine()).toMatch(/so Buy sends this trade to Jupiter\.$/));
+    h.simulateSwap.mockResolvedValue({ ok: false, reason: 'slippage tolerance exceeded', jupiterIncorrectTokenProgram: false });
+    await buy();
+    expect(await screen.findByRole('heading', { name: 'Review your swap in our pool' })).toBeInTheDocument();
+    expect(document.querySelector('[aria-live="polite"][aria-atomic="true"]')?.textContent).toBe('10');
+    expect(h.toast.info).toHaveBeenCalledWith('Jupiter cannot make this trade right now, so it goes to our pool instead. Nothing is sent until you sign its review.');
+    expect(h.sendTransaction).not.toHaveBeenCalled();
+  });
+
   it('the screen said Jupiter, but our pool pays more at the press: the trade is built in our pool, behind its review', async () => {
     h.own = ownAt(14_924_999n);
     await typeAmount();
@@ -285,6 +305,7 @@ describe('Jupiter paying more', () => {
     h.quoteNow.mockImplementation(async () => ({ kind: 'ok', quotes: quotes(15_100_000n) }));
     await buy();
     expect(await screen.findByRole('heading', { name: 'Review your swap in our pool' })).toBeInTheDocument();
+    expect(h.toast.info).toHaveBeenCalledWith('Our pool now pays at least as much as Jupiter, so this trade goes there instead. Nothing is sent until you sign its review.');
     expect(api.prepareVenueSwap).toHaveBeenCalledTimes(1);
     expect(h.sendTransaction).not.toHaveBeenCalled();
   });
@@ -385,6 +406,8 @@ describe('the press checks again before anything is built', () => {
     }));
     expect(api.prepareVenueSwap).not.toHaveBeenCalled();
     expect(h.sendTransaction).not.toHaveBeenCalled();
+    // "Try again" means our pools: they are read again for the form, not left as the failed read.
+    await waitFor(() => expect(h.routeArgs.at(-1)).toMatchObject({ nonce: 1 }));
   });
 
   it('a Jupiter retry that moved: its quote goes on screen, said as moved, and the next press can take it', async () => {
@@ -416,6 +439,27 @@ describe('the press checks again before anything is built', () => {
     expect(h.sendTransaction).not.toHaveBeenCalled();
   });
 
+  it('the screen said our pool, and a complete read at the press finds none of ours can take it: nothing is sent, Jupiter included', async () => {
+    await typeAmount();
+    await waitFor(() => expect(routeLine()).toMatch(/so Buy sends it to our pool\.$/));
+    h.quoteNow.mockImplementation(async () => ({ kind: 'ok', quotes: { found: 1, gaps: [], best: null, excluded: [{ address: POOL.toBase58(), reason: OWN_EXCLUDED.cannotPrice }] } }));
+    await buy();
+    await waitFor(() => expect(h.toast.error).toHaveBeenCalledWith('Not sent', { description: OWN_SWAP_COPY_POOL_GONE }));
+    expect(h.sendTransaction).not.toHaveBeenCalled();
+    expect(api.prepareVenueSwap).not.toHaveBeenCalled();
+    await waitFor(() => expect(h.routeArgs.at(-1)).toMatchObject({ nonce: 1 }));
+  });
+
+  it('the screen said our search did not finish and Buy sends to Jupiter: a press finding the same sends to Jupiter', async () => {
+    const unfinished: OwnQuotes = { found: 1, gaps: [OWN_GAPS.index('HTTP 502')], best: null, excluded: [{ address: POOL.toBase58(), reason: OWN_EXCLUDED.cannotPrice }] };
+    h.own = { kind: 'ok', quotes: unfinished } as OwnSide;
+    await typeAmount();
+    await waitFor(() => expect(routeLine()).toMatch(/the search did not finish \(our pool index could not be read \(HTTP 502\)\), so Buy sends this trade to Jupiter\.$/));
+    await buy();
+    await waitFor(() => expect(h.sendTransaction).toHaveBeenCalledTimes(1));
+    expect(h.toast.error).not.toHaveBeenCalledWith('Not sent', expect.anything());
+  });
+
   it('while a trade in our pool is under way, the route line says that trade, not the comparison before it', async () => {
     await typeAmount();
     await buy();
@@ -430,6 +474,30 @@ describe('the press checks again before anything is built', () => {
     await waitFor(() => expect(routeLine()).toMatch(/^RouteOur pools could not be read just now, and Jupiter has no route/));
     expect(screen.queryByText('No route for this pair / amount.')).not.toBeInTheDocument();
     expect(await screen.findByRole('button', { name: 'Not available here right now' })).toBeDisabled();
+  });
+
+  it('USD mode: a new price at the 30 s tick does not drop the review the trader is reading', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      h.getUsdPrices.mockResolvedValue({ [SOL_MINT]: 150, [USDC_MINT]: 1 });
+      render(<SolanaSwapPage />);
+      const usd = await screen.findByRole('button', { name: '$ USD' });
+      await waitFor(() => expect(usd).toBeEnabled());
+      fireEvent.click(usd);
+      fireEvent.change(await screen.findByLabelText('US dollars of SOL to pay'), { target: { value: '15' } });
+      await waitFor(() => expect(routeLine()).toMatch(/so Buy sends it to our pool\.$/));
+      await buy();
+      await screen.findByRole('heading', { name: 'Review your swap in our pool' });
+      const prices = h.getUsdPrices.mock.calls.length;
+      const asked = h.getQuote.mock.calls.length;
+      h.getUsdPrices.mockResolvedValue({ [SOL_MINT]: 140, [USDC_MINT]: 1 });
+      await act(async () => { await vi.advanceTimersByTimeAsync(32_000); });
+      expect(h.getUsdPrices.mock.calls.length).toBe(prices);
+      expect(screen.getByRole('heading', { name: 'Review your swap in our pool' })).toBeInTheDocument();
+      expect(h.getQuote.mock.calls.length).toBe(asked);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('closing an outcome reads no new USD price, so the request pressed stays the one on screen', async () => {
@@ -597,5 +665,51 @@ describe('what holds Buy', () => {
     await buy();
     await waitFor(() => expect(h.sendTransaction).toHaveBeenCalledTimes(1));
     expect(api.prepareVenueSwap).not.toHaveBeenCalled();
+  });
+});
+
+describe('a trade in our pool that the chain answers after the wallet changed', () => {
+  /** A submit that is sent and then waits for `finish`: the chain's answer, given by the test. */
+  function heldSubmit() {
+    let finish: (o: TxOutcome) => void = () => {};
+    const submitPrepared = vi.fn(async (_rpc, _signer, _p: PreparedTx, opts?: { onSent?: (s: string) => void }) => {
+      opts?.onSent?.(SIG);
+      return new Promise<TxOutcome>((res) => { finish = res; });
+    });
+    return { submitPrepared, finish: (o: TxOutcome) => finish(o) };
+  }
+  async function signAndHold(held: ReturnType<typeof heldSubmit>) {
+    const r = render(<SolanaSwapPage />);
+    fireEvent.change(screen.getByLabelText('Amount of SOL to pay'), { target: { value: '0.1' } });
+    await buy();
+    await screen.findByRole('heading', { name: 'Review your swap in our pool' });
+    fireEvent.click(screen.getByRole('button', { name: 'Sign in wallet' }));
+    await waitFor(() => expect(routeLine()).toBe("RouteThis trade was sent to our pool. The network's answer is below."));
+    return { r, finish: held.finish };
+  }
+
+  it('is recorded for the wallet that signed it, not the one connected when it lands', async () => {
+    const OTHER = new PublicKey(new Uint8Array(32).fill(9));
+    const held = heldSubmit();
+    useApi({ submitPrepared: held.submitPrepared });
+    const { r, finish } = await signAndHold(held);
+    wallet.publicKey = OTHER;
+    r.rerender(<SolanaSwapPage />);
+    finish({ status: 'confirmed', signature: SIG, slot: 1 });
+    await screen.findByText('Done. The network confirmed it.');
+    expect(getActivity(USER.toBase58())[0]).toMatchObject({ sig: SIG, summary: 'Bought ≈15.1 USDC with 0.1 SOL in our pool' });
+    expect(getActivity(OTHER.toBase58())).toEqual([]);
+  });
+
+  it('with the wallet gone, the form is still cleared and the trade still recorded', async () => {
+    const held = heldSubmit();
+    useApi({ submitPrepared: held.submitPrepared });
+    const { r, finish } = await signAndHold(held);
+    wallet.publicKey = null;
+    r.rerender(<SolanaSwapPage />);
+    finish({ status: 'confirmed', signature: SIG, slot: 1 });
+    await screen.findByText('Done. The network confirmed it.');
+    expect(getActivity(USER.toBase58())[0]).toMatchObject({ sig: SIG });
+    expect(screen.getByLabelText('Amount of SOL to pay')).toHaveValue('');
   });
 });
