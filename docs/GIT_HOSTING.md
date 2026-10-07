@@ -732,7 +732,7 @@ someone looks. When you create one with an expiry, add its date here in a PR. Da
 | ~2026-10-01 | `git gc` in the OneDrive clone may prune 280 commits whose only copy is a bundle | Covered: the v2 vault holds them, and all 12 stash entries |
 | 2026-10-20 | The BAYLA mainnet build artifact expires on GitHub | A local copy exists and its hash matches |
 | ~2026-10-28 to 2026-12-20 | The 9 Supabase backup artifacts expire on GitHub | Covered: downloaded to OneDrive on 2026-09-29 |
-| 2026-11-16 | The npm-advisory baseline expires; 24 advisories start blocking CI | CI workstream |
+| 2026-11-16 | The npm-advisory baseline expires; its 15 advisories start blocking CI, and so does each accepted one dated that day | CI workstream |
 | 2026-11-23 to 12-08 | The BAYLA reload window | Operator task |
 | 2026-12-23T15:32Z | BAYLA emission stops unless reloaded | Operator task |
 | as set | The deploy key's expiry, if one was set | Section 7C |
