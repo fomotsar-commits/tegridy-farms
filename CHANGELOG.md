@@ -6,6 +6,10 @@ page keeps the newest thirty days.
 
 ## [Unreleased]
 
+### 2026-10-06
+
+- Pool shares and the lighthouse staking receipt: the site now serves a name and a picture for the BAYLA/SOL and BAYLA/USDC pool share tokens and for the Staked BAYLA receipt, at memetics.finance/mint/ followed by the token's address and .json. A wallet shows them only once that link is written on each token, which has not happened yet.
+
 ### 2026-10-04
 
 - Solana LP on a small phone: a warning that names a long address no longer runs off the edge of its card, the three "Pair with" choices stay inside the form, the amounts on the add and remove reviews no longer break in the middle of a number, and the small links and buttons (the swap link in the form, Refresh and the copy buttons on the venue status card) are full-size press targets.
