@@ -2,40 +2,10 @@ import { Link, useLocation, useSearchParams } from 'react-router-dom';
 import { getActiveBungalow } from '../../lib/bungalows';
 
 /**
- * The venue trades on two chains and had no way to say so.
- *
- * `/swap` is the Ethereum surface (Uniswap/CoW, TOWELI-denominated) and
- * `/solana` is the Jupiter one; the only route between them was the "More"
- * menu. So a visitor standing in the BAYLA bungalow — a token that exists
- * only on Solana — clicked "Trade" in the nav and landed on an ETH swap that
- * cannot touch her, with nothing on the page admitting the other half existed.
- *
- * This is that admission: one control, present on BOTH surfaces, that says
- * which chain you are on and moves you to the other one. It is a plain pair
- * of links (not a toggle with state) because the two surfaces are separate
- * routes with separate wallets — the URL IS the state.
- *
- * `?out=<mint>` on the Solana side is preserved when it is already there, so a
- * reload or a share of /solana?out=<mint> keeps the token you came for. It does
- * NOT survive the hop to Ethereum, and the header used to say it did: `?out=` is
- * a Solana mint and /swap has no use for one, so the Ethereum half is a bare
- * `/swap` and nothing in the app produces `/swap?out=`. The preservation is
- * real, but it is preservation of the SELF-link, not a round trip.
- *
- * WHICH ONE IS LIT IS READ OFF THE URL, NOT PASSED IN (2026-09-10). It used to be
- * an `active` prop, and a prop is a claim a caller can get wrong: /pools — the
- * venue's own Solana AMM, a LIQUIDITY page and neither of these two swap
- * surfaces — passed `active="solana"`, so the control sat there with the Solana
- * half highlighted and `aria-current="page"` on it, telling a screen reader the
- * visitor was on /solana. They were not. The URL is already the state (see
- * above), so deriving from it makes that class of mistake unrepresentable rather
- * than merely fixed: a page cannot mislabel itself, and a route that is neither
- * surface simply lights neither half and offers both as what they are — two
- * places to go.
- *
- * The segment-boundary match mirrors SectionHost's `matchesRoute` for the same
- * reason it exists there: a bare `startsWith` would light Solana on any future
- * `/solana-something`.
+ * Which chain's swap the visitor is on, and a link to the other: `/swap` (Ethereum) and
+ * `/solana` (our own pools or Jupiter). Plain links, lit by the URL (segment-boundary match,
+ * as SectionHost's `matchesRoute`), never by a prop: a route that is neither lights neither.
+ * `?out=` survives a reload of the Solana self-link only: /swap has no use for a Solana mint.
  */
 function isOn(pathname: string, route: string): boolean {
   return pathname === route || pathname.startsWith(`${route}/`);
@@ -73,7 +43,7 @@ export function ChainSwitch() {
       sub: ethToken ? `${ethToken} · Uniswap / CoW` : 'Uniswap / CoW',
       to: '/swap',
     },
-    { id: 'solana' as const, label: 'Solana', sub: solanaToken ? `${solanaToken} · Jupiter` : 'Jupiter', to: solanaTo },
+    { id: 'solana' as const, label: 'Solana', sub: solanaToken ? `${solanaToken} · Our pools + Jupiter` : 'Our pools + Jupiter', to: solanaTo },
   ];
 
   return (

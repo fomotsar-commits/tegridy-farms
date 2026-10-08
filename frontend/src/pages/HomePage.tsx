@@ -136,11 +136,9 @@ export default function HomePage() {
   const burnRoom = homeBurnRoom(bungalowIdentity, isToweliArrival);
   const coreLoop = coreLoopSteps(isToweliArrival);
   const howItWorks = howItWorksSteps(isToweliArrival);
-  // 2026-08-07: the meta description said "Stake TOWELI on Ethereum" and stopped there,
-  // so every search result, every link preview, and every share of the front door
-  // described a single-chain product. Both halves below are separately checkable:
-  // TOWELI staking really is Ethereum-only (do not let that rot into "multichain
-  // staking"), and the Solana swap really is live, through our own pools or Jupiter.
+  // The front door's description names both chains, each half checkable: TOWELI staking
+  // is Ethereum-only (never "multichain staking"), and the Solana swap is live, in our own
+  // pools or through Jupiter.
   usePageTitle(
     bungalowIdentity ? `${bungalowIdentity.symbol}. ${bungalowIdentity.identity.heroLine}` : 'Home',
     bungalowIdentity
@@ -271,20 +269,11 @@ export default function HomePage() {
                 left). Additive only: fades to transparent, so the art elsewhere is untouched. */}
             <div aria-hidden="true" className="absolute -left-6 -right-10 -top-8 -bottom-8 -z-10 pointer-events-none"
               style={{ background: 'radial-gradient(115% 115% at 12% 42%, rgba(6,12,26,0.88) 0%, rgba(6,12,26,0.6) 42%, rgba(6,12,26,0.2) 68%, transparent 84%)' }} />
-            {/* CHAIN RAIL 2026-08-07: this was a single "LIVE ON ETHEREUM" badge, and
-                it was the first thing every visitor read. It made a two-chain product
-                look like a one-chain product: the Jupiter-routed Solana swap at /solana
-                is fully live and fee-earning, /scan reads both chains, and the Solana
-                launch rail is real — yet none of that existed above the fold, and the
-                Solana entries sat two clicks deep in the More menu.
-
-                Each pill states what is LIVE on that chain and links to it, so the claim
-                is one click from being checked. Deliberately NOT a generic "multichain"
-                badge: the two chains carry different surfaces and the pills say which.
-                The Solana pill names swap + scan only — the Solana LAUNCH rail gets its
-                own self-gating card in Launch & Verify below, which reads "Preview"
-                until isSolanaSubmitReady() is true, so this rail can never advertise a
-                launch surface that cannot launch. */}
+            {/* CHAIN RAIL: each pill states what is LIVE on its chain and links to it, so
+                the claim is one click from being checked; never a generic "multichain"
+                badge. The Solana pill names swap and scan only: the Solana launch rail
+                has its own self-gating card in Launch & Verify, reading "Preview" until
+                isSolanaSubmitReady() is true. */}
             <div className="flex flex-wrap items-center gap-2 mb-5">
               <Link
                 // Above the voice branch, so in every room: TOWELI's own room goes to
@@ -353,10 +342,9 @@ export default function HomePage() {
               {TOWELI_HERO.heroTitle}{' '}<br /><span className="text-white">{TOWELI_HERO.heroLine}</span>
             </h1>
 
-            {/* 2026-08-07: added the Solana sentence. It is deliberately a SEPARATE
-                sentence rather than a rewrite of the staking claim — TOWELI staking is
-                Ethereum-only and must keep saying so. The Solana clause names only what
-                is live today (the swap, through our pools or Jupiter, and the two-chain scanner); the
+            {/* The Solana sentence is separate from the staking claim, which is
+                Ethereum-only and must keep saying so. It names only what is live (the
+                swap, in our pools or through Jupiter, and the two-chain scanner); the
                 launch rail is claimed by its own self-gating card further down. */}
             <p className="text-white text-base md:text-lg mb-6 max-w-md leading-relaxed">
               Stake TOWELI on Ethereum. Every protocol fee flows on-chain &mdash; to stakers, the
@@ -860,14 +848,9 @@ export default function HomePage() {
             <p className="text-white text-[13px]" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>Farm, swap, and track your positions &mdash; on Ethereum and on Solana.</p>
           </m.div>
 
-          {/* 2026-08-07: 3 -> 4 cards. The Solana swap has been fully live (Jupiter
-              routing, limit orders, SOL liquid-staking discovery, and a platform fee we
-              actually collect) while being reachable ONLY from the More menu, so the
-              product's second chain was invisible on its own front page. Nothing was
-              removed; each card now carries an explicit CHAIN label so a visitor can
-              tell at a glance which surface runs where.
-              Grid goes 1 -> 2 -> 4 rather than straight to 4: at md (iPad portrait) four
-              220px-min cards in a row are unreadably narrow, so tablets get a 2x2. */}
+          {/* Four cards, each with a CHAIN label so a visitor can tell which surface runs
+              where. The grid goes 1 -> 2 -> 4: at md (iPad portrait) four 220px-min cards
+              in a row are unreadably narrow, so tablets get a 2x2. */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             {[
               { to: '/swap', title: 'Swap', desc: HOME_SWAP_CARD.desc, stat: HOME_SWAP_CARD.stat, label: HOME_SWAP_CARD.label, art: pageArt('home', 6) },

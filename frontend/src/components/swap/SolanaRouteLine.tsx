@@ -65,7 +65,7 @@ export function SolanaRouteLine({ route, ownUnavailable = null, aggregatorFail =
     reason = decision.runnerUp
       ? `Our own pool quotes ${more} ${decision.runnerUp.label}, but a swap in it cannot be prepared here right now (${ownUnavailable}), so this swap executes via ${aggregatorLabel}.`
       : aggregatorFail === 'unavailable'
-        ? `Our pool quotes this pair, but a swap in it cannot be prepared here right now (${ownUnavailable}), and ${aggregatorLabel} could not be asked for a quote just now, so nothing can be sent until one of them answers.`
+        ? `Our pool quotes this pair, but a swap in it cannot be prepared here right now (${ownUnavailable}), and ${aggregatorLabel} could not be asked for a quote just now, so nothing can be sent until ${aggregatorLabel} answers or a swap in our pool can be prepared here.`
         : `Only our own pool quoted this pair, and a swap in it cannot be prepared here right now (${ownUnavailable}), so it cannot fill.`;
   } else if (!won && !decision.runnerUp) {
     // The aggregator is the only candidate. "No pool" is said only when that was FOUND:

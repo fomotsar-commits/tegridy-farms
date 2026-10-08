@@ -1089,7 +1089,8 @@ describe('"No route" only after our pools were found to have nothing', () => {
     await typed();
     await waitFor(() => expect(routeLine()).toMatch(/Our pool could not be quoted this time, and Jupiter has no route for this pair and amount\./));
     expect(screen.queryByText('No route for this pair / amount.')).toBeNull();
-    expect(cta()).not.toBe('No route');
+    // A quote that could not be had, never a verdict that it is not available here.
+    expect(cta()).toBe('Quote unavailable');
     const reads = h.readVenuePools.mock.calls.length;
     fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
     await waitFor(() => expect(h.readVenuePools.mock.calls.length).toBeGreaterThan(reads));
@@ -1101,7 +1102,7 @@ describe('"No route" only after our pools were found to have nothing', () => {
     await typed();
     await waitFor(() => expect(routeLine()).toMatch(/cannot be prepared here right now/));
     expect(screen.queryByText('No route for this pair / amount.')).toBeNull();
-    expect(cta()).not.toBe('No route');
+    expect(cta()).toBe('Not available here right now');
   });
 
   it('Jupiter has no route and we have no pool for the pair: "No route" is the finding', async () => {
@@ -1117,7 +1118,8 @@ describe('"No route" only after our pools were found to have nothing', () => {
     h.getQuote.mockImplementation(async () => { throw new Error('Quote unavailable (502)'); });
     h.readSwapGate.mockImplementation(async () => ({ kind: 'blocked', reason: 'unreadable', detail: 'HTTP 502' }));
     await typed();
-    await waitFor(() => expect(routeLine()).toMatch(/Jupiter could not be asked for a quote just now, so nothing can be sent until one of them answers\./));
+    // Only what would let a trade go: a blocked swap in our pool may not clear by itself.
+    await waitFor(() => expect(routeLine()).toMatch(/Jupiter could not be asked for a quote just now, so nothing can be sent until Jupiter answers or a swap in our pool can be prepared here\./));
     expect(routeLine()).not.toMatch(/cannot fill/);
   });
 });

@@ -28,6 +28,7 @@ const PLACES: { file: string; gone: string[]; says: string }[] = [
   { file: 'src/components/onboarding/onboardingSteps.ts', gone: ['Swap Solana tokens through Jupiter from'], says: 'in our own pools or through Jupiter' },
   { file: 'src/components/ui/OnboardingModal.tsx', gone: ['on Solana, swap through Jupiter and'], says: 'swap in our own pools or through Jupiter' },
   { file: 'src/components/layout/Footer.tsx', gone: ['On Solana, swap through Jupiter.'], says: 'swap in our own pools or through Jupiter' },
+  { file: 'src/components/swap/ChainSwitch.tsx', gone: ['· Jupiter`', ": 'Jupiter'"], says: 'Our pools + Jupiter' },
   {
     file: 'src/pages/HomePage.tsx',
     gone: ['Swap Solana tokens via Jupiter', 'On Solana we swap through Jupiter', 'routed through Jupiter', "stat: 'Jupiter'", 'Jupiter-routed swap'],

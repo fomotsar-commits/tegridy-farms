@@ -1952,7 +1952,7 @@ function SolanaSwapInner() {
     : insufficient ? `Insufficient ${payToken.symbol}`
     : ownPreparing ? 'Preparing…'
     : quote || ownBest ? `${words.verb} ${words.symbol}`
-    : quoteFail === 'no-route' ? (ownNone ? 'No route' : route.own === 'pending' ? 'Checking our pools…' : 'Not available here right now')
+    : quoteFail === 'no-route' ? (ownNone ? 'No route' : route.own === 'pending' ? 'Checking our pools…' : route.own === 'error' ? 'Quote unavailable' : 'Not available here right now')
     : quoteFail === 'unavailable' ? 'Quote unavailable'
     : 'Fetching quote…';
 
