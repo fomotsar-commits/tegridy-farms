@@ -6,6 +6,7 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { fetchHeat, peekHeat, clearHeatCache, isSupportedHeatAddress, HeatUnavailableError } from './heatClient';
+import { neverAnswered, stalledBody, watch } from '../../test/quietHost';
 
 const ADDR = '0xd71caf9fdbbd3dd7f974431edf7f9f2c7ba8f93a';
 const SOL = 'So11111111111111111111111111111111111111112';
@@ -82,6 +83,46 @@ describe('fetchHeat — fail-closed', () => {
     await expect(fetchHeat('not-an-address')).rejects.toThrow('That is not an Ethereum, Base, or Solana address.');
     fetchMock.mockResolvedValue(status(400));
     await expect(fetchHeat(ADDR)).rejects.toThrow('That is not an Ethereum, Base, or Solana address.');
+  });
+});
+
+// The 6 s cover the whole answer. Headers and half a body is an instrument we could not
+// reach, and "unreadable" would be a statement about what it sent.
+describe('fetchHeat: an answer that stops part-way was not an answer', () => {
+  const UNREACHABLE = 'The instrument is unreachable. Try again in a moment.';
+  const stalls = (_url: string, init: RequestInit) => Promise.resolve(stalledBody(init.signal));
+
+  it('gives up after 6 s and says unreachable, not unreadable', async () => {
+    vi.useFakeTimers();
+    fetchMock.mockImplementation(stalls);
+    const ended = await watch(() => fetchHeat(ADDR), 30_000);
+    expect(ended, 'still pending after 30 s').not.toBeNull();
+    expect(ended?.afterMs).toBe(6_000);
+    expect(ended?.error).toBeInstanceOf(HeatUnavailableError);
+    expect((ended?.error as Error).message).toBe(UNREACHABLE);
+  });
+
+  it('ends at the same moment, with the same words, as an instrument that never answers', async () => {
+    vi.useFakeTimers();
+    fetchMock.mockImplementation((_url: string, init: RequestInit) => neverAnswered(init.signal));
+    const ended = await watch(() => fetchHeat(ADDR), 30_000);
+    expect(ended?.afterMs).toBe(6_000);
+    expect((ended?.error as Error).message).toBe(UNREACHABLE);
+  });
+
+  it('a caller that stops waiting while the body arrives ends the read then', async () => {
+    vi.useFakeTimers();
+    fetchMock.mockImplementation(stalls);
+    const caller = new AbortController();
+    setTimeout(() => caller.abort(), 1_000);
+    const ended = await watch(() => fetchHeat(ADDR, { signal: caller.signal }), 30_000);
+    expect(ended?.afterMs).toBe(1_000);
+    expect((ended?.error as Error).message).toBe(UNREACHABLE);
+  });
+
+  it('still calls a whole answer that is not JSON unreadable', async () => {
+    fetchMock.mockResolvedValue(new Response('<!doctype html>', { status: 200 }));
+    await expect(fetchHeat(ADDR)).rejects.toThrow('The instrument returned something unreadable.');
   });
 });
 

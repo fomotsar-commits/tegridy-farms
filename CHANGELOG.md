@@ -8,6 +8,7 @@ page keeps the newest thirty days.
 
 ### 2026-10-07
 
+- An answer that starts and then stops is now given up at its time limit, the same as an answer that never comes. This covers a payment link's invoice, a wallet's heat reading, the island's board, a launch's picture upload, the sales feed of an NFT collection, an NFT listing or bundle being submitted, the token scanner's check of which holders are contracts, and a Solana token's birth record. Each used to be waited on with no limit once the first part of the answer had arrived. A listing whose submit runs out of time is reported as timed out after 30 seconds, with no further attempts.
 - Pool shares and the lighthouse staking receipt: the site now serves a name and a picture for the BAYLA/SOL and BAYLA/USDC pool share tokens and for the Staked BAYLA receipt, at memetics.finance/mint/ followed by the token's address and .json. A wallet shows them only once that link is written on each token, which has not happened yet.
 
 ### 2026-10-06
