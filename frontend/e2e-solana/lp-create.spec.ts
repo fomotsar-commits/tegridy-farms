@@ -1286,7 +1286,8 @@ test.describe('group B (chromium only)', () => {
     expect(body).toContain('This site can add and remove liquidity, and open new pools on the public fee tier (the pools section below says whether it can right now).');
     // Whether tier 1 exists is said only by the create card's live read, never by fixed page copy.
     expect(body).not.toMatch(/once (the public fee tier|that tier) exists/);
-    expect(body).toContain('still goes through Jupiter');
+    expect(body).toContain('to our pool when ours pays at least as much as Jupiter, and through Jupiter when it does not.');
+    expect(body).not.toContain('still goes through Jupiter');
     const panel = await openCreate(p);
     await expect(panel.getByTestId('lp-before-you-open')).toContainText(MONEY);
     await solThenMatch(p, '0.1');

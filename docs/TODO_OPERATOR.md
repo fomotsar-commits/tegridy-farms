@@ -29,6 +29,61 @@ stop and say so — a surprise is information.
 
 ---
 
+## 🔴 2026-10-07: token names and pictures (`/mint/`): files first, then the chain
+
+The site serves a name and a picture for the BAYLA/SOL and BAYLA/USDC pool shares and for the
+Staked BAYLA receipt at `https://memetics.finance/mint/<mint address>.json`. A wallet shows them
+only once that link is written on each token. **The files must be live before any link is
+written.** A wallet that follows a link before its file exists gets the app page, and may keep
+that answer.
+
+1. **Merge just after a half-hour tick.** The monitor runs from trunk at :00 and :30. A run that
+   lands between the merge and the end of the deploy opens a `prod-incident` issue for the five
+   token probes. It closes by itself on the next green run.
+2. **After the deploy, check the files.** From the repo root: `node scripts/monitoring/venueHealth.mjs`.
+   **You should see** `UP` on all five `Token file` lines.
+3. **Dry run the receipt name.** In `frontend`: `node scripts/streamflow-receipt-name.mjs`.
+   **You should see** `files           live:` and `simulation      passed`. `NOT LIVE YET` means
+   stop; the lines under it say why.
+4. **Only then broadcast**, with the key of the lighthouse pool's authority,
+   `Fu7mNAv67sRbKynEp7gpPLaaEGHcE2R5Sq89AMTEtTb6` (the dry run prints it under `pool authority`):
+   `node scripts/streamflow-receipt-name.mjs --broadcast --keypair <key file> --rpc <keyed endpoint>`.
+   About 0.00024 SOL. **You should see** `confirmed. signature ...`. If it says `not confirmed`, do
+   not send again: run the dry run, which reads what the chain holds now.
+5. **The two pool-share links are written by the Squads vault**, through the pool program's new
+   instruction (a separate change). Nothing on the site side stops the vault writing them early,
+   so steps 1 and 2 come first there too.
+
+**Four things to know afterwards.**
+
+- **Never roll production back past this change once a link is on chain.** Every link would
+  answer the app page again. The monitor notices within 30 minutes, but a wallet that asked in
+  between may keep the wrong answer. Fix forward.
+- **A picture is never deleted.** If one is redesigned, the generator (in `frontend`:
+  `node scripts/generate-mint-identity.mjs`, run by hand) stops and asks for the old file name to
+  be added to `RETIRED_PICTURES` in `frontend/scripts/lib/mint-identity.mjs`. The old address has
+  to keep answering a picture for any wallet that still holds yesterday's file.
+- **After PR #754 (sharp 0.35.5) merges, run the generator once** and check `git status` shows
+  nothing. On sharp 0.35.4 it writes the committed pictures byte for byte. No test re-runs it, so a
+  new sharp could draw different bytes, and with them new picture addresses, the next time someone
+  runs it. If it stops and names a picture, that has happened: commit nothing and say so.
+- **The off-GitHub failover runner does not check the token files.** `scripts/ops/lib/synthetic.mjs`
+  is a separate copy of the probes. During a GitHub outage nobody is watching `/mint/`.
+
+**Three calls that are yours.** All three are off chain: edit `frontend/scripts/lib/mint-identity.mjs`,
+run the generator, and only the JSON files change.
+
+- **The four descriptions.** One sentence was added to the receipt's on 2026-10-07: "The amount
+  shown is your stake multiplied by your lock boost, not a count of BAYLA." A wallet shows the
+  receipt count, and on 2026-10-07 there were about 3.1 receipts for each BAYLA staked. The words
+  are yours to change.
+- **The default picture** (`frontend/public/mint/img/pool-share-93eea003.png`, a pale ring). It is
+  not one of the three you approved. It can change freely until a pool's record points at it.
+- **Optional:** end each named description with its own mint address, so a copy of the file on
+  someone else's token contradicts itself. The default file answers for any address under `/mint/`.
+
+---
+
 ## 🔴 2026-10-02: turn on error reports (PR #466), in this order
 
 Approved by the owner on 2026-10-02, with two decisions: **reports are kept 30 days, then
@@ -152,13 +207,11 @@ start the task again. It should pull the new run and pass. The report is in
 **If GitHub is gone again,** this is not the list to follow: OPS_SCHEDULER.md section 5 moves the
 six jobs GitHub ran onto this PC (`register-tasks.ps1 -Failover`) and takes the backup by hand.
 
-**Found while testing (2026-09-30):** the failover `npm-advisories` job found six blocking
-advisories. GitHub's `npm-advisories` workflow uses the same gate, so it should fail on them too.
-This is the set seen on 2026-09-30; the next run may add more. `frontend`: `undici`
-GHSA-rfgv-xxqx-mfg5 and GHSA-w293-vg96-wgc3, and `brace-expansion` GHSA-6j4f-fj2g-mc7p and
-GHSA-qhr7-859c-m2p7. `indexer`: the same two `brace-expansion` advisories. All have a fix
-available. An agent can bump the dependencies, or triage them into
-`.github/npm-advisory-allowlist.json` with a reason.
+**Done 2026-10-07:** the six blocking advisories the failover `npm-advisories` job found on
+2026-09-30 (`undici` and `brace-expansion`) are gone from both audits, and GitHub's
+`npm advisories` workflow is green on the trunk for all three projects (`9e1b7b5e`). The next
+date is 2026-11-16: the baseline and both accepted entries expire together (GIT_HOSTING.md,
+section 8).
 
 ---
 
@@ -1359,11 +1412,16 @@ is advisory today. Unenforced, it is a comment.
 
 ### ⬜ REMAINING — an agent can do these alone, AFTER the deploy above
 
-1. **Wire execution against our own pool.** The instruction builders exist and are source-verified
-   (`lib/solana/cpswap/ix.ts`), but nothing sends them, because the program is not deployed and an
-   unexercised money path is the ledger's most common defect class. Moot until step 4 above: with
-   no venue, the router always picks the aggregator. CI's `migration-rehearsal` job is where these
-   builders get their first real execution.
+1. ~~**Wire execution against our own pool.**~~ **Built 2026-10-06**, on branch
+   `feat/solana-swap-routes-to-own-pool`; it is live once that branch is merged. The swap page
+   finds every pool of ours for the pair (the launch pool, the standard address on fee tier 1 and
+   on tier 0, and what the pool index names), prices each with its own tier's fee, and lets
+   `lib/solana/route.ts` pick: our pool unless Jupiter pays more, a tie stays here. When our pool
+   wins, Buy opens a review of a swap in that pool (`write/venueSwap.ts`, kind `venue-swap`), with
+   the same test run and Sign in wallet as liquidity. Both venues are quoted again when Buy is
+   pressed, and a route that changed is shown, not taken. Before this the page looked only at
+   tier 0's standard address, so the owner's BAYLA/SOL pool (tier 1) was never compared, and
+   every trade was sent to Jupiter whatever the line said.
 2. **The LP forms on `/pools`** — create-pool / deposit / withdraw. Same reason, same unblock.
 3. ⚠️ **PICK ONE HOME for cp-swap client code — this is the repo's THIRD "two
    implementations of one thing".** `lib/launcher/solana/curve/program.ts` grew

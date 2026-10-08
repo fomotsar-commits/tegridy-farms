@@ -7,8 +7,8 @@
  *   ROUTE TO OUR OWN POOL UNLESS SOMEWHERE ELSE IS MORE EFFICIENT.
  *
  * Read the second half as strictly as the first. Self-preferencing a worse
- * price is not a routing preference, it is a worse fill charged to the trader
- * — so a tie goes to our pool, and anything short of a tie does not. There is
+ * price is not a routing preference, it is a worse fill charged to the trader,
+ * so a tie goes to our pool, and anything short of a tie does not. There is
  * no configurable fudge factor, no "within 10 bps" band, and deliberately no
  * knob to add one: a band is exactly how a best-execution promise becomes a
  * marketing line.
@@ -25,9 +25,10 @@
  * candidate reaches this file, not compensated for inside it.
  *
  * WHAT THIS FILE DOES NOT DO: it does not execute, does not fetch, and does not
- * know what a wallet is. It takes two quotes and returns a decision plus the
+ * know what a wallet is. It takes the quotes and returns a decision plus the
  * sentence explaining it, so every surface can show the trader why their trade
- * went where it went.
+ * went where it went. The swap page executes what it decides
+ * (`swap/ownPoolRoute.ts` holds the decision again when Buy is pressed).
  */
 
 export type RouteVenue = 'own-pool' | 'aggregator';
@@ -65,8 +66,10 @@ function byOutputDesc(a: RouteCandidate, b: RouteCandidate): number {
   if (a.outAmount < b.outAmount) return 1;
   // Equal output: our own pool first. This is the tie-break the rule allows,
   // and the ONLY thing in this file that prefers us.
-  if (a.venue === b.venue) return 0;
-  return a.venue === 'own-pool' ? -1 : 1;
+  if (a.venue !== b.venue) return a.venue === 'own-pool' ? -1 : 1;
+  // Two of our pools quoting the same: by address, so input order decides nothing.
+  const [x, y] = [a.poolAddress ?? '', b.poolAddress ?? ''];
+  return x < y ? -1 : x > y ? 1 : 0;
 }
 
 function edgeOver(winner: RouteCandidate, loser: RouteCandidate): number {
@@ -74,9 +77,17 @@ function edgeOver(winner: RouteCandidate, loser: RouteCandidate): number {
   return Number(winner.outAmount - loser.outAmount) / Number(loser.outAmount);
 }
 
+/** An edge as a trader reads it. A real edge is never printed as 0%, which reads as a tie. */
+export function edgePercent(edge: number): string {
+  const pct = edge * 100;
+  if (pct > 0 && pct < 0.001) return 'under 0.001%';
+  return `${pct.toLocaleString(undefined, { maximumFractionDigits: 3 })}%`;
+}
+
 /**
- * Pick the venue. `candidates` may contain at most one of each venue; anything
- * that failed to quote should simply be absent rather than present with a zero.
+ * Pick the venue. `candidates` holds one entry for each of our pools that quoted
+ * (a pair can have several) and at most one for the aggregator; anything that
+ * failed to quote should simply be absent rather than present with a zero.
  */
 export function chooseRoute(candidates: RouteCandidate[]): RouteDecision {
   const live = candidates.filter((c) => c.outAmount > 0n).sort(byOutputDesc);
@@ -89,19 +100,21 @@ export function chooseRoute(candidates: RouteCandidate[]): RouteDecision {
   }
 
   const chosen = live[0]!;
-  const runnerUp = live[1] ?? null;
+  // The one that lost is the best of the OTHER venue. A second pool of ours is
+  // not somewhere else, and "more output than our own pool" is no disclosure.
+  const runnerUp = live.find((c) => c.venue !== chosen.venue) ?? null;
 
   if (!runnerUp) {
     return {
       chosen, candidates: live, runnerUp: null, edge: null,
       reason: chosen.venue === 'own-pool'
-        ? `Routed to the ${chosen.label} — it was the only venue that quoted this pair.`
+        ? `Routed to the ${chosen.label}. It was the only venue that quoted this pair.`
         : `Routed to ${chosen.label}. This venue has no pool for this pair.`,
     };
   }
 
   const edge = edgeOver(chosen, runnerUp);
-  const pct = (edge * 100).toLocaleString(undefined, { maximumFractionDigits: 3 });
+  const pct = edgePercent(edge);
 
   let reason: string;
   if (edge === 0) {
@@ -109,10 +122,10 @@ export function chooseRoute(candidates: RouteCandidate[]): RouteDecision {
       ? `The ${chosen.label} and ${runnerUp.label} quoted the same output, so the trade stays here.`
       : `${chosen.label} and ${runnerUp.label} quoted the same output.`;
   } else if (chosen.venue === 'own-pool') {
-    reason = `Routed to the ${chosen.label} — ${pct}% more output than ${runnerUp.label}.`;
+    reason = `Routed to the ${chosen.label}: ${pct} more output than ${runnerUp.label}.`;
   } else {
     // The case that proves the rule is real: our own pool existed and lost.
-    reason = `Routed to ${chosen.label} — ${pct}% better than our own pool, so the trade went there.`;
+    reason = `Routed to ${chosen.label}: ${pct} better than our own pool, so the trade went there.`;
   }
 
   return { chosen, candidates: live, runnerUp, edge, reason };

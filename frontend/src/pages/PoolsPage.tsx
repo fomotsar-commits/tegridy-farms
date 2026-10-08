@@ -205,8 +205,9 @@ export default function PoolsPage() {
             <h2 className="heading-luxury text-lg text-white mb-3">Our pools, side by side with Jupiter</h2>
             <p className="text-white/80 text-[13px] leading-relaxed mb-3">
               Every quote on the Solana swap also asks our own pools, and prints which one
-              pays the trader more and by how much. The trade itself still goes through
-              Jupiter: sending it to our pool when ours pays more is not switched on yet.
+              pays the trader more and by how much. The trade goes where it pays more: to
+              our pool when ours pays at least as much as Jupiter, and through Jupiter
+              when it does not.
             </p>
             <Link to="/solana" className="btn-secondary px-4 py-2 text-[12px] inline-block">
               Go to the Solana swap
