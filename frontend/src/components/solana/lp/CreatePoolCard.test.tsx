@@ -14,8 +14,8 @@ import { TOKEN_2022_NATIVE_MINT } from '../../../lib/solana/lp/opening';
 import { isCreatedPool, rememberCreatedPool, type PoolSearchRead, type PoolView } from '../../../lib/solana/lp/poolFinder';
 import { decodeAmmConfig, decodePoolState } from '../../../lib/solana/cpswap/program';
 import type { WalletFacts } from '../../../lib/solana/lp/walletFacts';
-import { decodeObservationState } from '../../../lib/solana/lp/ownPrice';
 import { buildPool, key, observationBytes } from '../../../lib/solana/lp/testkit.fixture';
+import { decodeObservationState } from '../../../lib/solana/lp/ownPrice';
 import { LP_PENDING_SCOPE, readPendingTrades, savePendingTrade } from '../curve/pendingTrade';
 import type { CreateFacts, LpWriteApi } from '../curve/ports';
 import { TIER1_ADDRESS, fakeLpApi, lpOpenGate, LP_PROGRAM, notOpenFacts, readyFacts, tier1Config, unusedGateRpc } from './fakeLpWriteApi.fixture';
@@ -161,8 +161,10 @@ describe('each answer has its own line, and only `offer` has the button', () => 
     mount(r);
     const c = await settled('offer');
     expect(c).toHaveTextContent('No pool for this token yet. You can open the first one on the public fee tier: 1% a trade, 0.15 SOL to open (read just now).');
-    expect(c).toHaveTextContent('Trades on this site go through Jupiter, and Jupiter does not send trades to our pools.');
+    expect(c).toHaveTextContent("Jupiter does not send trades to our pools. This site's own swap sends a trade to a pool only when that pool pays the trader at least as much as Jupiter does.");
     expect(c).toHaveTextContent(/a new pool earns fees only when bots trade our pool program directly, mostly arbitrage/);
+    // The swap has sent trades to our pools since it began executing its own route.
+    expect(c).not.toHaveTextContent(/not built yet|Trades on this site go through Jupiter/);
     expect(within(c).getByRole('button', { name: 'Open a pool' })).toBeEnabled();
     expect(c).not.toHaveTextContent(/\bAPR\b|\bAPY\b|yield of|earn fees on every trade/i);
     // N20: Jupiter is asked even with no pool, once, so an opening price can be checked.
@@ -535,6 +537,27 @@ describe('each answer has its own line, and only `offer` has the button', () => 
       expect(card).toContainElement(await screen.findByTestId('lp-add-panel'));
     }, 20_000);
   });
+
+  // Owner ruling 2026-10-07: a launch pool Jupiter has no route for, with under 10 minutes
+  // of trading, takes deposits with a warning. A card that points to such a pool says what
+  // its price was not checked against, in that pool's own words, never "passes the checks"
+  // or "we suggest", and keeps its Add button, as for a token with no market price.
+  it('what the card says of the pool it points to, when that pool is a launch pool that has traded for under 10 minutes (price check: too-new)', async () => {
+    const base = view({ tier1: true });
+    // A price record whose first trade was 100 seconds before the search's clock (1,000).
+    const obs = decodeObservationState(observationBytes({ pool: new PublicKey(base.address), index: 1, lastUpdate: 990n, obs: [[0, 900n, 0n, 0n], [1, 990n, 1n, 1n]] }))!;
+    const young: PoolView = { ...base, origin: 'launch-pool', history: { kind: 'ok', obs } };
+    mount(readers({ findPools: vi.fn(async () => search([young])), outsidePrice: vi.fn(async () => NO_ROUTE) }));
+    const c = await settled('offer');
+    const pool = screen.getByTestId('lp-pool');
+    await waitFor(() => expect(pool).toHaveAttribute('data-add', 'offer'));
+    expect(pool).toHaveAttribute('data-price', 'too-new');
+    expect(said(within(c).getByTestId('lp-create-refer'))).toBe(
+      `This token already has a pool on the public fee tier ${WARNED}. The biggest is ${young.address}, holding 10 SOL. That pool has traded for under 10 minutes and Jupiter has no price for this token, so its price was checked against nothing. Adding to it keeps liquidity in one place; a pool of your own starts at the price you set.`,
+    );
+    expect(c).not.toHaveTextContent(/passes the checks|We suggest adding to it/);
+    expect(within(c).getByRole('button', { name: 'Add liquidity to that pool' })).toBeEnabled();
+  }, 20_000);
 
   // Whole-change review 2026-10-04 (W3). "Passes the checks" was decided by the PRICE
   // alone, and on the other-tier line by nothing at all. So the Open card said it of pools

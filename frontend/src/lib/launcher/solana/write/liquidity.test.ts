@@ -505,7 +505,17 @@ describe('prepareLpDeposit', () => {
     const broken = world();
     const m = broken.chain.accounts.get(broken.mint.toBase58())!;
     broken.chain.set(broken.mint, { ...m, data: m.data.subarray(0, 81) });
-    expect(refused(await deposit(broken))).toMatch(/^This token is now blocked on this site: This address is not a token this site can use/);
+    expect(refused(await deposit(broken))).toMatch(/^This site does not add to pools for this token: This address is not a token this site can use/);
+  });
+
+  // Owner ruling 2026-10-07: a refusal says what this site does not do, and why. It never
+  // says the TOKEN is "blocked": the token is not accused of anything.
+  it('the builder’s two sentences about a token it will not add to: what this site does not do, never "blocked"', () => {
+    expect(LP_COPY.tokenBlocked('It uses a transfer hook.')).toBe('This site does not add to pools for this token: It uses a transfer hook.');
+    expect(LP_COPY.tokenBlockedInform('It uses a transfer hook.')).toBe(
+      'This site does not take new deposits of this token (It uses a transfer hook.). You can still take your liquidity out.',
+    );
+    for (const s of [LP_COPY.tokenBlocked('x'), LP_COPY.tokenBlockedInform('x')]) expect(s).not.toMatch(/blocked/i);
   });
 
   // Owner ruling 2026-10-04: a token its creator can freeze takes deposits, with the warning.
@@ -824,6 +834,66 @@ describe('prepareLpDeposit', () => {
     });
   });
 
+  // Owner ruling 2026-10-07: a brand-new launch pool (no route, under 10 minutes of
+  // trading) takes deposits. Its record is too short to prove anything, so the price was
+  // checked against nothing: the builder builds, and the warning reaches the review the
+  // person signs. Before, this was `unchecked` and nothing was built.
+  describe('a launch pool with no route and under 10 minutes of trading', () => {
+    const TOO_NEW =
+      'This pool has traded for under 10 minutes and Jupiter has no price for this token, so its price was checked against nothing. If someone has just pushed it, a deposit now pays for that.';
+    /** A launch pool whose first trade was `age` seconds ago, at today's price, last written ten seconds ago. */
+    const tradedFor = (age: bigint, o: Parameters<typeof world>[0] = {}) => {
+      const w = world({ launch: true, ...o });
+      const Q32 = 1n << 32n;
+      const [first, last] = [NOW - age, NOW - 10n];
+      const own = 10n * Q32 * (last - first);
+      const other = ((Q32 * Q32) / (10n * Q32)) * (last - first);
+      const [c0, c1] = w.pool.quoteIsToken0 ? [other, own] : [own, other];
+      w.chain.set(w.pool.observation, {
+        lamports: rent(4075),
+        owner: CPSWAP,
+        data: observationBytes({ pool: w.pool.address, index: 1, lastUpdate: last, obs: [[0, first, 0n, 0n], [1, last, c0, c1]] }),
+      });
+      return w;
+    };
+
+    it('it builds as "too new": the warning is on the summary, with no price gap, and the transaction is the one an older pool gets', async () => {
+      const young = ok(await deposit(tradedFor(120n), {}, answering(NO_ROUTE)));
+      const s = young.summary as LpDepositSummary;
+      expect(s.origin).toBe('launch-pool');
+      expect(s.price).toEqual({ state: 'too-new', pool: expect.closeTo(0.01, 12), historySecs: 120n });
+      expect(s.warnings).toEqual([TOO_NEW]);
+      expect(s.priceGap).toBeNull();
+      // The warning decides nothing: the same shares, limits and bounds as a pool an hour old.
+      const old = ok(await deposit(tradedFor(3_610n), {}, answering(NO_ROUTE)));
+      const o = old.summary as LpDepositSummary;
+      expect(o.price).toMatchObject({ state: 'agrees', against: 'own-average' });
+      expect(o.warnings).toEqual([]);
+      expect([s.lpAmount, s.max, s.quoted]).toEqual([o.lpAmount, o.max, o.quoted]);
+      expect(young.check.expect.maxSolOut).toBe(old.check.expect.maxSolOut);
+    });
+
+    it('one second short of 10 minutes is "too new"; at 10 minutes it is checked against its own average', async () => {
+      expect((ok(await deposit(tradedFor(599n), {}, answering(NO_ROUTE))).summary as LpDepositSummary).price.state).toBe('too-new');
+      expect((ok(await deposit(tradedFor(600n), {}, answering(NO_ROUTE))).summary as LpDepositSummary).price.state).toBe('agrees');
+    });
+
+    // UNREAD IS STILL REFUSED: the same brand-new pool builds nothing when something was not read.
+    it('nothing is built when Jupiter failed to answer, when the clock was not read, or when its price record is missing', async () => {
+      expect(refused(await deposit(tradedFor(120n), {}, answering({ kind: 'unread', detail: 'Jupiter did not give a price (HTTP 502)' })))).toMatch(/^We did not build this deposit: .*HTTP 502/);
+      const noClock = tradedFor(120n);
+      setClock(noClock.chain, null);
+      expect(refused(await deposit(noClock, {}, answering(NO_ROUTE)))).toMatch(/^We did not build this deposit: .*network clock/);
+      const noRecord = tradedFor(120n);
+      noRecord.chain.accounts.delete(noRecord.pool.observation.toBase58());
+      expect(refused(await deposit(noRecord, {}, answering(NO_ROUTE)))).toMatch(/^We did not build this deposit: .*its price record account is missing/);
+    });
+
+    it('it lifts nothing else: the same pool with withdrawals switched off is still refused', async () => {
+      expect(refused(await deposit(tradedFor(120n, { status: POOL_STATUS_DISABLE_WITHDRAW }), {}, answering(NO_ROUTE)))).toMatch(/^We did not build this deposit: Withdrawals are switched off/);
+    });
+  });
+
   it('existing wrapped SOL is never closed, and only what the pool did not use may stay in it', async () => {
     const w = world({ heldWsol: 500_000_000n });
     const p = ok(await deposit(w));
@@ -960,7 +1030,7 @@ describe('prepareLpWithdraw: the leave rule', () => {
     w.chain.accounts.delete(decodePoolState(w.pool.address.toBase58(), w.chain.accounts.get(w.pool.address.toBase58())!.data)!.ammConfig);
     const p = ok(await withdraw(w));
     expect((p.summary as LpWithdrawSummary).config).toBeNull();
-    expect((p.summary as LpWithdrawSummary).notices.join(' ')).toMatch(/blocked on this site for new deposits/);
+    expect((p.summary as LpWithdrawSummary).notices.join(' ')).toMatch(/This site does not take new deposits of this token \(/);
   });
 
   it('says what would stop a deposit, without refusing: swaps off, a far open time, a blocked token', async () => {

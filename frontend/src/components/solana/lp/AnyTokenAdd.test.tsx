@@ -31,7 +31,8 @@ import type { PoolSearchRead, PoolView } from '../../../lib/solana/lp/poolFinder
 import { decodeAmmConfig, decodePoolState } from '../../../lib/solana/cpswap/program';
 import type { WalletFacts } from '../../../lib/solana/lp/walletFacts';
 import type { Position } from '../../../lib/solana/lp/positions';
-import { buildPool, key, keyStartingWith } from '../../../lib/solana/lp/testkit.fixture';
+import { buildPool, key, keyStartingWith, observationBytes } from '../../../lib/solana/lp/testkit.fixture';
+import { decodeObservationState } from '../../../lib/solana/lp/ownPrice';
 import { LP_COPY } from '../../../lib/launcher/solana/write/liquidity';
 import { prepared } from '../curve/fakeWriteApi.fixture';
 import type { LpWriteApi } from '../curve/ports';
@@ -54,7 +55,7 @@ const M = MINT.toBase58();
 const UNIT = 10n ** 6n;
 
 /** A SOL pool: 10 SOL and 1,000 tokens. Any other coin: 1,000 of it and 100,000 tokens. Either way 0.01 of the coin a token. */
-function view(coin: QuoteCoin, o: { frozen?: boolean; origin?: PoolView['origin'] } = {}): PoolView {
+function view(coin: QuoteCoin, o: { frozen?: boolean; origin?: PoolView['origin']; history?: PoolView['history'] } = {}): PoolView {
   const q = coin.native ? 10n * 10n ** 9n : 1_000n * UNIT;
   const t = coin.native ? 1_000n * UNIT : 100_000n * UNIT;
   const b = buildPool({ plain: true, mint: MINT, quote: coin, configIndex: 1, quoteReserve: q, tokenReserve: t, openTime: 1n });
@@ -72,7 +73,7 @@ function view(coin: QuoteCoin, o: { frozen?: boolean; origin?: PoolView['origin'
     quoteReserve: q,
     tokenReserve: t,
     vaultsFrozen: o.frozen ?? false,
-    history: { kind: 'not-read' },
+    history: o.history ?? { kind: 'not-read' },
   };
 }
 
@@ -131,14 +132,15 @@ const COIN_IN_SOL = 0.005;
 const tokenAt = (coin: QuoteCoin, times: number): OutsidePrice => ({ kind: 'ok', solPerToken: (coin.native ? 0.01 : 0.01 * COIN_IN_SOL) / times, source: 'Jupiter' });
 const NO_ROUTE: OutsidePrice = { kind: 'no-route', detail: 'Jupiter has no route for this token' };
 
-function readers(v: PoolView, o: { token?: OutsidePrice; safety?: TokenSafety } = {}): LpReaders {
+/** `coin`: what Jupiter answers for the pool's own coin; left out, it has a price. */
+function readers(v: PoolView, o: { token?: OutsidePrice; coin?: OutsidePrice; safety?: TokenSafety } = {}): LpReaders {
   const coin = v.quote;
   const token = o.token ?? tokenAt(coin, 1);
   return {
     programId: LP_PROGRAM,
     safety: vi.fn(async () => new Map([[M, o.safety ?? okToken]])),
     findPools: vi.fn(async () => search(v)),
-    outsidePrice: vi.fn(async (mint: string): Promise<OutsidePrice> => (mint === M ? token : { kind: 'ok', solPerToken: COIN_IN_SOL, source: 'Jupiter' })),
+    outsidePrice: vi.fn(async (mint: string): Promise<OutsidePrice> => (mint === M ? token : (o.coin ?? { kind: 'ok', solPerToken: COIN_IN_SOL, source: 'Jupiter' }))),
     positions: vi.fn(async () => ({ kind: 'ok' as const, positions: [], chainNow: 1n, totalShares: 0 })),
     feeTiers: vi.fn(async () => ({ kind: 'ok' as const, openingDeposits: null, tiers: [] })),
     wallet: vi.fn(async () => walletOf(coin)),
@@ -329,6 +331,8 @@ describe.each([
     expect(cardRow(c, 'Checked against')).toBe('Nothing: Jupiter has no market price for this token');
     expect(c).not.toHaveTextContent('Deposits: not checked');
     expect(c).not.toHaveTextContent('could not be run');
+    // Every card says what its pool is paired with, a SOL pool's included (owner ruling 2026-10-07).
+    expect(cardRow(c, 'Paired with')).toBe(symbol);
 
     const { panel, type, review, said } = await openAdd(c, coin);
     type(coin.native ? '1' : '100');
@@ -336,6 +340,114 @@ describe.each([
     expect(said()).toEqual([NO_MARKET]);
     expect(panel).not.toHaveTextContent('a move back to');
     expect(review()).toBeEnabled();
+  });
+});
+
+// Owner ruling 2026-10-07 ("no, we do what we want"): Jupiter ANSWERING that it has no
+// route for the pool's pairing coin does not switch adding off. The token has a price, so
+// every word here names the COIN and none says "this token".
+describe.each([
+  ['USDC', USDC_QUOTE],
+  ['BAYLA', BAYLA_QUOTE],
+] as const)('a %s pool, when Jupiter has no price for the coin itself', (symbol, coin) => {
+  const COIN_NO_ROUTE: OutsidePrice = { kind: 'no-route', detail: 'Jupiter has no route for this token' };
+  const NO_COIN_PRICE = `Jupiter has no price for ${symbol} right now, so this pool’s price in ${symbol} was not checked against anything. If it is off, a deposit here hands the difference to whoever trades it back.`;
+
+  it('is open with a warning that names the coin: on the card, above Review on the form, and Review is on', async () => {
+    const api = mount(readers(view(coin), { coin: COIN_NO_ROUTE }));
+    const c = await cardWith('offer');
+    expect(c).toHaveAttribute('data-deposits', 'allowed');
+    expect(c).toHaveAttribute('data-price', 'no-market');
+    expect(within(c).getByText('Deposits: the checks pass, with warnings')).toHaveClass('text-amber-300/90');
+    expect(within(c).getByTestId('lp-pool-warnings')).toHaveTextContent(NO_COIN_PRICE);
+    expect(cardRow(c, 'Price here')).toBe(`1 token = 0.01 ${symbol}`);
+    expect(cardRow(c, 'Checked against')).toBe(`Nothing: Jupiter has no price for ${symbol} right now`);
+    // The token HAS a price. Nothing on the card says it has none, and nothing says "not checked".
+    expect(c).not.toHaveTextContent(/no market price for this token|no route for this token/);
+    expect(c).not.toHaveTextContent('Deposits: not checked');
+    expect(c).not.toHaveTextContent('could not be run');
+
+    const { panel, type, review, said } = await openAdd(c, coin);
+    type('100');
+    // Nothing to compare with, so no cost can be estimated: only the warning is said.
+    expect(said()).toEqual([NO_COIN_PRICE]);
+    expect(panel).not.toHaveTextContent('a move back to');
+    expect(panel).not.toHaveTextContent(/for this token/);
+    expect(review()).toBeEnabled();
+    await act(async () => {
+      fireEvent.click(review());
+    });
+    expect(api.prepareLpDeposit).toHaveBeenCalledTimes(1);
+  }, 20_000);
+
+  // UNREAD IS STILL REFUSED: a read of the coin's price that FAILED is not an answer.
+  it('is NOT open when the read of the coin’s price failed: not checked, no warning in its place, and no Add button', async () => {
+    mount(readers(view(coin), { coin: { kind: 'unread', detail: 'Jupiter did not give a price (HTTP 502)' } }));
+    const c = await cardWith('checks');
+    expect(c).toHaveAttribute('data-deposits', 'unchecked');
+    expect(c).toHaveAttribute('data-price', 'unread');
+    expect(within(c).getByText('Deposits: not checked')).toBeInTheDocument();
+    expect(within(c).queryByTestId('lp-pool-warnings')).toBeNull();
+    expect(within(c).queryByRole('button', { name: 'Add liquidity' })).toBeNull();
+    expect(c).toHaveTextContent(`the price of ${symbol} could not be read (Jupiter did not give a price (HTTP 502))`);
+  });
+});
+
+// Owner ruling 2026-10-07: a brand-new launch pool takes deposits. Jupiter has no route for
+// its token, and its own price record is under 10 minutes long, so its price was checked
+// against nothing: a warning on the card, on the form, and Review is on. It was "not
+// checked" with no Add button before.
+describe('a launch pool Jupiter has no route for, with under 10 minutes of trading', () => {
+  const TOO_NEW =
+    'This pool has traded for under 10 minutes and Jupiter has no price for this token, so its price was checked against nothing. If someone has just pushed it, a deposit now pays for that.';
+  /** A price record whose first trade was `age` seconds before the search's clock (1,000). */
+  const record = (v: PoolView, age: bigint): PoolView['history'] => ({
+    kind: 'ok',
+    obs: decodeObservationState(observationBytes({ pool: new PublicKey(v.address), index: 1, lastUpdate: 990n, obs: [[0, 1_000n - age, 0n, 0n], [1, 990n, 1n, 1n]] }))!,
+  });
+  const launch = (age: bigint): PoolView => {
+    const v = view(SOL_QUOTE, { origin: 'launch-pool' });
+    return { ...v, history: record(v, age) };
+  };
+
+  it('is open with a warning: its price is shown, what it was not checked against, and the form says the warning above Review', async () => {
+    const api = mount(readers(launch(100n), { token: NO_ROUTE }));
+    const c = await cardWith('offer');
+    expect(c).toHaveAttribute('data-origin', 'launch-pool');
+    expect(c).toHaveAttribute('data-deposits', 'allowed');
+    expect(c).toHaveAttribute('data-price', 'too-new');
+    expect(within(c).getByText('Deposits: the checks pass, with warnings')).toHaveClass('text-amber-300/90');
+    expect(within(c).queryByText('Deposits: the checks pass')).toBeNull();
+    expect(within(c).getByTestId('lp-pool-warnings')).toHaveTextContent(TOO_NEW);
+    expect(cardRow(c, 'Price here')).toBe('1 token = 0.01 SOL');
+    expect(cardRow(c, 'Checked against')).toBe('Nothing: this pool has traded for under 10 minutes and Jupiter has no price for this token');
+    expect(c).not.toHaveTextContent('Deposits: not checked');
+    expect(c).not.toHaveTextContent('could not be run');
+    // A SOL pool says what it is paired with, like every other pool (owner ruling 2026-10-07).
+    expect(cardRow(c, 'Paired with')).toBe('SOL');
+
+    const { panel, type, review, said } = await openAdd(c, SOL_QUOTE);
+    type('1');
+    expect(said()).toEqual([TOO_NEW]);
+    expect(panel).not.toHaveTextContent('a move back to');
+    expect(review()).toBeEnabled();
+    await act(async () => {
+      fireEvent.click(review());
+    });
+    expect(api.prepareLpDeposit).toHaveBeenCalledTimes(1);
+  }, 20_000);
+
+  // UNREAD IS STILL REFUSED: the same pool with its record not read, or Jupiter not answering.
+  it.each([
+    ['its price record could not be read', (): PoolView => ({ ...view(SOL_QUOTE, { origin: 'launch-pool' }), history: { kind: 'unread', detail: 'its price record account is missing' } }), NO_ROUTE],
+    ['Jupiter failed to answer', () => launch(100n), { kind: 'unread', detail: 'Jupiter did not give a price (HTTP 502)' } as OutsidePrice],
+  ] as const)('is NOT open when %s: not checked, and no Add button', async (_n, pool, token) => {
+    mount(readers(pool(), { token }));
+    const c = await cardWith('checks');
+    expect(c).toHaveAttribute('data-deposits', 'unchecked');
+    expect(c).toHaveAttribute('data-price', 'unread');
+    expect(within(c).queryByTestId('lp-pool-warnings')).toBeNull();
+    expect(within(c).queryByRole('button', { name: 'Add liquidity' })).toBeNull();
   });
 });
 
@@ -372,7 +484,7 @@ describe('a USDC pool 10% off the market whose token is a freezable copy', () =>
     expect(onCard).toEqual([copy, freeze, gap]);
     expect(cardRow(c, 'Paired with')).toBe('USDC');
     expect(cardRow(c, 'Outside price (Jupiter)')).toBe('1 token = 0.009091 USDC');
-    expect(c).not.toHaveTextContent(/does not take deposits|blocked on this site|refused/);
+    expect(c).not.toHaveTextContent(/does not take deposits|blocked on this site|does not add to pools|refused/);
 
     // The form: the token's own two sentences at the top, then the pool's three and the cost, above Review.
     const { panel, type, review, said } = await openAdd(c, USDC_QUOTE);

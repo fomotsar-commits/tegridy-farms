@@ -1,8 +1,8 @@
 // @vitest-environment node
 import { describe, it, expect } from 'vitest';
-import { assessPool, assessPools, comparePrice, launchReference, poolPricePerToken, PRICE_TOLERANCE, FAR_FUTURE_SECS, tokenReasons } from './poolHealth';
+import { assessPool, assessPools, comparePrice, launchReference, poolPricePerToken, PRICE_TOLERANCE, FAR_FUTURE_SECS, TOO_NEW_WARNING, tokenReasons } from './poolHealth';
 import { USDC_QUOTE } from './quotes';
-import { decodeObservationState } from './ownPrice';
+import { MIN_HISTORY_SECS, decodeObservationState } from './ownPrice';
 import { POOL_STATUS_DISABLE_DEPOSIT, POOL_STATUS_DISABLE_SWAP, POOL_STATUS_DISABLE_WITHDRAW } from '../cpswap/program';
 import type { PoolView } from './poolFinder';
 import { TOKEN_2022_NATIVE_MINT, type SafetyReason, type TokenSafety } from './tokenSafety';
@@ -139,7 +139,7 @@ describe('assessPool', () => {
   // with no route it has no reference at all: allowed, and never without saying so.
   it('Jupiter ANSWERS "no route" for a pool anyone could open: allowed, as "no market", with the warning', () => {
     const h = assessPool({ ...base, view: view(), outside: noOutside });
-    expect(h.price).toEqual({ state: 'no-market', pool: expect.closeTo(0.01, 12), detail: 'Jupiter has no route for this token' });
+    expect(h.price).toEqual({ state: 'no-market', of: 'token', pool: expect.closeTo(0.01, 12), detail: 'Jupiter has no route for this token' });
     expect(h.deposits).toEqual({
       verdict: 'allowed',
       reasons: [],
@@ -157,11 +157,14 @@ describe('assessPool', () => {
     expect(assessPool({ ...base, view: view({ config: null }), outside: noOutside }).deposits.verdict).toBe('unchecked');
   });
 
-  it('a blocked token refuses deposits even into a perfect pool', () => {
+  // Owner ruling 2026-10-07: the reason says what THIS SITE does not do. It never calls
+  // the token "blocked": the token is not accused of anything, and the lines above say why.
+  it('a blocked token refuses deposits even into a perfect pool, in words about what this site does not do', () => {
     const blocked: TokenSafety = { ...OK_TOKEN, verdict: 'blocked', blocks: [{ code: 'transfer-fee', text: 'x' }] } as TokenSafety;
     const h = assessPool({ ...base, safety: blocked, view: view(), outside: outside(0.01) });
     expect(h.deposits.verdict).toBe('refused');
-    expect(h.deposits.reasons).toEqual(['This token is blocked on this site (see why above).']);
+    expect(h.deposits.reasons).toEqual(['This site does not add to pools for this token (see why above).']);
+    expect(h.deposits.reasons.join(' ')).not.toMatch(/blocked/i);
   });
 
   it('a token that does not exist refuses deposits', () => {
@@ -175,6 +178,8 @@ describe('assessPool', () => {
     const h = assessPool({ ...base, safety: blocked, view: view(), outside: null });
     expect(h.price.state).toBe('skipped');
     expect(h.deposits.reasons.join(' ')).not.toMatch(/could not check its price/);
+    // Why it was not compared, in the same words as the refusal: never "the token is blocked".
+    expect(h.price).toMatchObject({ detail: 'not compared, because this site does not add to pools for this token' });
   });
 
   it('an empty pool has no price and takes no deposit', () => {
@@ -236,6 +241,7 @@ describe('assessPool: a launch pool is checked against its own recent average', 
       assessPool({ ...now, view: launch(history(5n * Q32)), outside: noOutside }),
       assessPool({ ...now, view: launch(history(10n * Q32, { initialized: false })), outside: noOutside }),
       assessPool({ ...now, view: launch({ kind: 'not-read' }), outside: noOutside }),
+      assessPool({ ...now, view: launch(history(10n * Q32, { firstAt: 4_500n })), outside: noOutside }),
     ]) {
       expect(h.price.state).not.toBe('no-market');
       expect(h.deposits.warnings.join(' ')).not.toMatch(/no market price/);
@@ -248,9 +254,66 @@ describe('assessPool: a launch pool is checked against its own recent average', 
     expect(h.deposits.verdict).toBe('allowed');
   });
 
-  it('too little history since the first trade proves nothing: unchecked', () => {
-    const h = assessPool({ ...now, view: launch(history(10n * Q32, { firstAt: 4_500n })), outside: noOutside });
-    expect(h.deposits.verdict).toBe('unchecked');
+  // Owner ruling 2026-10-07: a brand-new launch pool takes deposits. Its record was READ
+  // and is too short for an average to prove anything, so its price was checked against
+  // nothing. That is an answer: a warning, never a refusal. It was `unchecked` before,
+  // which switched Add off on every launch pool for its first ten minutes of trading.
+  const TOO_NEW =
+    'This pool has traded for under 10 minutes and Jupiter has no price for this token, so its price was checked against nothing. If someone has just pushed it, a deposit now pays for that.';
+  /** A record whose first trade was 110 seconds before `now` (4,610). */
+  const brandNew = () => launch(history(10n * Q32, { firstAt: 4_500n }));
+
+  it('no route and under 10 minutes of trading: allowed, as "too new", with the warning and the length of its record', () => {
+    const h = assessPool({ ...now, view: brandNew(), outside: noOutside });
+    expect(h.price).toEqual({ state: 'too-new', pool: expect.closeTo(0.01, 12), historySecs: 110n });
+    expect(h.deposits).toEqual({ verdict: 'allowed', reasons: [], warnings: [TOO_NEW] });
+    // The words: the builder's constant, with the minutes taken from the number itself.
+    expect(TOO_NEW_WARNING).toBe(TOO_NEW);
+    expect(TOO_NEW).toContain(`under ${(MIN_HISTORY_SECS / 60n).toString()} minutes`);
+    // It is not said to have passed anything, and not said to be unread.
+    expect(TOO_NEW).not.toMatch(/passes|could not/);
+  });
+
+  it('one second short of 10 minutes is "too new"; exactly 10 minutes is checked against its own average', () => {
+    const at = (age: bigint) => assessPool({ ...now, view: launch(history(10n * Q32, { firstAt: 4_610n - age })), outside: noOutside }).price;
+    expect(at(MIN_HISTORY_SECS - 1n)).toMatchObject({ state: 'too-new', historySecs: MIN_HISTORY_SECS - 1n });
+    expect(at(MIN_HISTORY_SECS)).toMatchObject({ state: 'agrees', against: 'own-average' });
+  });
+
+  it('"too new" lifts nothing else: withdrawals off or a frozen vault still refuse it, unread fee settings still leave it unchecked, and the warning is still said', () => {
+    const b2 = buildPool({ mint, quoteReserve: SOL, tokenReserve: TOK, openTime: 100n, status: POOL_STATUS_DISABLE_WITHDRAW });
+    const short = history(10n * Q32, { firstAt: 4_500n });
+    const off = assessPool({ ...now, view: viewOf(b2, { sol: SOL, tok: TOK, origin: 'launch-pool', history: short }), outside: noOutside });
+    expect(off.deposits.verdict).toBe('refused');
+    expect(off.deposits.warnings).toEqual([TOO_NEW]);
+    expect(assessPool({ ...now, view: viewOf(b, { sol: SOL, tok: TOK, origin: 'launch-pool', history: short, frozen: true }), outside: noOutside }).deposits.verdict).toBe('refused');
+    const noFees = assessPool({ ...now, view: viewOf(b, { sol: SOL, tok: TOK, origin: 'launch-pool', history: short, config: null }), outside: noOutside });
+    expect(noFees.deposits.verdict).toBe('unchecked');
+    expect(noFees.deposits.warnings).toEqual([TOO_NEW]);
+  });
+
+  // UNREAD IS STILL REFUSED. Only the answer "this record is short" became a warning.
+  // Each of these is something that was NOT read, on the same brand-new pool.
+  it('a brand-new launch pool is still unchecked when anything was not read: its record, the clock, Jupiter', () => {
+    const unread: Array<[string, ReturnType<typeof assessPool>]> = [
+      ['its price record was not read', assessPool({ ...now, view: launch({ kind: 'not-read' }), outside: noOutside })],
+      ['its price record could not be read', assessPool({ ...now, view: launch({ kind: 'unread', detail: 'its price record account is missing' }), outside: noOutside })],
+      ['the clock was not read', assessPool({ ...now, chainNow: null, view: brandNew(), outside: noOutside })],
+      ['its record is later than the clock', assessPool({ ...now, chainNow: 4_550n, view: brandNew(), outside: noOutside })],
+      ['Jupiter failed to answer', assessPool({ ...now, view: brandNew(), outside: { kind: 'unread', detail: 'Jupiter did not give a price (HTTP 502)' } })],
+      ['Jupiter was not asked', assessPool({ ...now, view: brandNew(), outside: null })],
+    ];
+    for (const [name, h] of unread) {
+      expect(h.price.state, name).toBe('unread');
+      expect(h.deposits.verdict, name).toBe('unchecked');
+      expect(h.deposits.warnings, name).toEqual([]);
+    }
+  });
+
+  it('a short record is only looked at for a launch pool: a pool anyone could open with the same record is "no market"', () => {
+    const r = assessPool({ ...now, view: viewOf(b, { sol: SOL, tok: TOK, origin: 'standard', history: history(10n * Q32, { firstAt: 4_500n }) }), outside: noOutside });
+    expect(r.price.state).toBe('no-market');
+    expect(r.deposits.warnings.join(' ')).not.toMatch(/traded for under/);
   });
 
   // A failed Jupiter read is not "no outside market": the token may trade elsewhere at
@@ -331,7 +394,10 @@ describe('assessPool: a launch pool is checked against its own recent average', 
         ['too little history since its first trade', launchPrice(history(10n * Q32, { firstAt: 4_500n }))],
         ['pushed to double its own average', launchPrice(history(5n * Q32))],
       ];
-      expect(none.map(([, p]) => p?.state)).toEqual([undefined, undefined, 'unread', 'unread', 'disagrees']);
+      // A record too short to prove anything is `too-new` since the owner's ruling of
+      // 2026-10-07 (the launch pool itself takes deposits, with a warning). Its price was
+      // still checked against nothing, so it is no reference for another pool.
+      expect(none.map(([, p]) => p?.state)).toEqual([undefined, undefined, 'unread', 'too-new', 'disagrees']);
       for (const [name, p] of none) {
         expect(launchReference(p), name).toBeNull();
         const h = assessPool({ ...now, view: TEN_TIMES, outside: noOutside, launchPrice: p });
@@ -349,7 +415,10 @@ describe('assessPool: a launch pool is checked against its own recent average', 
       expect(launchReference({ state: 'agrees', pool: 0.01, reference: 0.01, against: 'outside', diff: 0 })).toBeNull();
       expect(launchReference({ state: 'agrees', pool: 0.01, reference: 0.01, against: 'launch-pool', diff: 0 })).toBeNull();
       expect(launchReference({ state: 'disagrees', pool: 0.02, reference: 0.01, against: 'own-average', diff: 1 })).toBeNull();
-      expect(launchReference({ state: 'no-market', pool: 0.01, detail: 'x' })).toBeNull();
+      expect(launchReference({ state: 'no-market', of: 'token', pool: 0.01, detail: 'x' })).toBeNull();
+      expect(launchReference({ state: 'no-market', of: 'coin', pool: 0.01, detail: 'x' })).toBeNull();
+      // Read, and too short to prove anything (owner ruling 2026-10-07): checked against nothing.
+      expect(launchReference({ state: 'too-new', pool: 0.01, historySecs: 100n })).toBeNull();
       expect(launchReference({ state: 'skipped', pool: 0.01, detail: 'x' })).toBeNull();
       expect(launchReference({ state: 'unread', pool: 0.01, detail: 'x' })).toBeNull();
       expect(launchReference({ state: 'empty-pool' })).toBeNull();
@@ -411,6 +480,27 @@ describe('assessPool: a launch pool is checked against its own recent average', 
         }
         // With no launch reference the coin's price is not needed, as before: "no market".
         expect(assessPool({ ...now, view: usdc(20_000n), outside: noOutside }).price.state).toBe('no-market');
+      });
+
+      // Where this rule meets the owner's ruling of 2026-10-07: Jupiter ANSWERS that it has
+      // no route for the pool's coin. The launch pool's SOL price cannot be said in that
+      // coin, so nothing is compared. That is an answer, not a failed read: a warning that
+      // names the coin, and adding stays on, at any price. A coin price that was not READ is
+      // the test above, and stays unchecked.
+      it('with USDC answered "no route" it is "no market" of the COIN: a warning that names USDC, and deposits stay on', () => {
+        const noRouteCoin = { kind: 'no-route' as const, detail: 'Jupiter has no route for this token' };
+        for (const coins of [2_000n, 20_000n]) {
+          const h = assessPool({ ...now, view: usdc(coins), outside: noOutside, coinOutside: noRouteCoin, launchPrice: launchPrice(history(10n * Q32)) });
+          expect(h.price).toMatchObject({ state: 'no-market', of: 'coin', detail: 'Jupiter has no route for USDC' });
+          expect(h.deposits).toEqual({
+            verdict: 'allowed',
+            reasons: [],
+            warnings: ['Jupiter has no price for USDC right now, so this pool’s price in USDC was not checked against anything. If it is off, a deposit here hands the difference to whoever trades it back.'],
+          });
+        }
+        // Nothing is lifted beside it: the same pool with withdrawals off is still refused.
+        const shut = viewOf(buildPool({ mint, quote: USDC_QUOTE, quoteReserve: 2_000n * 10n ** 6n, tokenReserve: TOK, openTime: 100n, status: POOL_STATUS_DISABLE_WITHDRAW }), { sol: 2_000n * 10n ** 6n, tok: TOK });
+        expect(assessPool({ ...now, view: shut, outside: noOutside, coinOutside: noRouteCoin, launchPrice: launchPrice(history(10n * Q32)) }).deposits.verdict).toBe('refused');
       });
     });
 
@@ -575,7 +665,16 @@ describe('tokenReasons', () => {
       warned: [],
     });
     expect(tokenReasons(null, 'deposits').unchecked).toHaveLength(1);
-    expect(tokenReasons(blockedCopy, 'deposits').refused).toEqual(['This token is blocked on this site (see why above).']);
+    expect(tokenReasons(blockedCopy, 'deposits').refused).toEqual(['This site does not add to pools for this token (see why above).']);
+  });
+
+  // Owner ruling 2026-10-07: "blocked" is this code's own name for the verdict. No
+  // sentence a visitor reads says it of a token.
+  it('no sentence about a token calls it "blocked"', () => {
+    for (const action of ['deposits', 'pools'] as const) {
+      const t = tokenReasons(blockedCopy, action);
+      expect([...t.refused, ...t.unchecked, ...t.warned].join(' '), action).not.toMatch(/blocked/i);
+    }
   });
 
   it('no warning sentence says this site refuses what it now does', () => {

@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { Card, Row } from './ui';
+import { Card, ExplorerLink, Row } from './ui';
 import type { PendingTrade } from './pendingTrade';
 import type { PendingTradesState } from './usePendingTrades';
 
@@ -36,14 +36,7 @@ export function PendingTradeCard({
         <div key={n.signature} className="space-y-1">
           {describe?.(n)}
           <Row label="Transaction signature" value={n.signature} />
-          <a
-            href={explorerUrl(n.signature)}
-            target="_blank"
-            rel="noopener noreferrer nofollow"
-            className="underline text-white/80"
-          >
-            View on the explorer
-          </a>
+          <ExplorerLink href={explorerUrl(n.signature)} />
         </div>
       ))}
       {/* aria-disabled, not disabled: a button switched off under the keyboard drops focus to the page. */}

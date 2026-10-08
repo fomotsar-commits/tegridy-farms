@@ -616,19 +616,40 @@ describe('prepareLpCreate with USDC or BAYLA: what refuses it, each in its own w
     }
   });
 
-  it.each(COIN_ROWS)('%s: the coin’s own price unread, without a route, or a read that throws: nothing is built, and it is said as the coin’s price', async (_n, quote) => {
+  // UNREAD IS STILL REFUSED (owner: "every unread state is still refused"). A read of the
+  // coin's price that FAILED builds nothing, in the coin's own words. The mutation "treat
+  // every coin that is not ok as no-route" fails here: it would build these.
+  it.each(COIN_ROWS)('%s: the coin’s own price unread, or a read that throws: nothing is built, and it is said as the coin’s price', async (_n, quote) => {
     const w = world(quote);
     const unread: OutsidePrice = { kind: 'unread', detail: 'Jupiter did not give a price (HTTP 502)' };
-    expect(refused(await create(w, {}, priced(quote, { coin: unread })))).toBe(CREATE_COPY.coinPriceUnread(quote.symbol, 'Jupiter did not give a price (HTTP 502)'));
-    const noRoute: OutsidePrice = { kind: 'no-route', detail: 'Jupiter has no route for this token' };
-    const msg = refused(await create(w, {}, priced(quote, { coin: noRoute })));
-    // Jupiter's own sentence says "this token"; said of the coin it names the coin. A token
-    // with no route is allowed now, so "this token" here read as refusing a lifted case.
-    expect(msg).toBe(`We could not get the price of ${quote.symbol} from Jupiter just now (Jupiter has no route for ${quote.symbol}), so we could not check the opening price. Try again in a moment.`);
-    expect(msg).not.toMatch(/this token/);
+    const msg = refused(await create(w, {}, priced(quote, { coin: unread })));
+    expect(msg).toBe(CREATE_COPY.coinPriceUnread(quote.symbol, 'Jupiter did not give a price (HTTP 502)'));
+    expect(msg).toBe(`We could not get the price of ${quote.symbol} from Jupiter just now (Jupiter did not give a price (HTTP 502)), so we could not check the opening price. Try again in a moment.`);
     expect(refused(await create(w, {}, priced(quote, { coin: new Error('offline') })))).toBe(CREATE_COPY.coinPriceUnread(quote.symbol, 'offline'));
     // A price that is a number but prices nothing is not a pass either.
     expect(refused(await create(w, {}, priced(quote, { coin: price(0) })))).toMatch(/^We did not build this opening: We could not get a market price from Jupiter/);
+  });
+
+  // Owner ruling 2026-10-07 ("no, we do what we want"): Jupiter ANSWERING that it has no
+  // route for the pairing coin does not stop an opening priced in that coin. It builds,
+  // the warning names the coin, and there is no price gap figure. Before, this returned
+  // `coinPriceUnread` and nothing was built.
+  it.each(COIN_ROWS)('%s: Jupiter ANSWERS "no route" for the coin: it builds, with a warning that names the coin and no price gap', async (_n, quote) => {
+    const w = world(quote);
+    const noRoute: OutsidePrice = { kind: 'no-route', detail: 'Jupiter has no route for this token' };
+    const p = ok(await create(w, {}, priced(quote, { coin: noRoute })));
+    const s = summaryOf(p);
+    expect(s.price).toEqual({ state: 'no-market', of: 'coin', pool: 2, detail: `Jupiter has no route for ${quote.symbol}` });
+    expect(s.priceGap).toBeNull();
+    expect(s.warnings).toEqual([
+      `Jupiter has no price for ${quote.symbol} right now, so there is nothing to compare your opening price in ${quote.symbol} with. You are setting the price yourself: if it is off, the first trades take the difference out of what you put in.`,
+    ]);
+    // Jupiter's own sentence says "this token". Said of the coin, the warning names the coin:
+    // the token HAS a price, and nothing on the review may say it has none.
+    expect(s.warnings.join(' ')).not.toMatch(/this token/);
+    // The warning decides nothing: the same amounts go in as with the coin priced.
+    const priced2 = summaryOf(ok(await create(world(quote))));
+    expect([s.put, s.lpAmount]).toEqual([priced2.put, priced2.lpAmount]);
   });
 
   it('the token’s price NOT read: nothing is built, and it is never a warning', async () => {
@@ -649,7 +670,7 @@ describe('prepareLpCreate with USDC or BAYLA: what refuses it, each in its own w
     for (const [, quote] of COIN_ROWS) {
       const w = world(quote);
       const s = summaryOf(ok(await create(w, {}, priced(quote, { token: { kind: 'no-route', detail: 'Jupiter has no route for this token' }, coin }))));
-      expect(s.price).toEqual({ state: 'no-market', pool: 2, detail: 'Jupiter has no route for this token' });
+      expect(s.price).toEqual({ state: 'no-market', of: 'token', pool: 2, detail: 'Jupiter has no route for this token' });
       expect(s.priceGap).toBeNull();
       expect(s.warnings).toEqual([
         'Jupiter has no market price for this token, so there is nothing to compare your opening price with. You are setting the price yourself: if it is off, the first trades take the difference out of what you put in.',
@@ -1258,24 +1279,30 @@ describe('assessOpening: the price is checked in the pool’s own coin', () => {
     expect(at(BAYLA_QUOTE, { coins: 193_800_000n }).warnings[0]).toMatch(/3\.1% below the market price/);
   });
 
-  it.each(COIN_ROWS)('%s: the coin’s own price not read, not asked for, without a route, or not a usable number: unchecked, never allowed', (_n, quote) => {
+  it.each(COIN_ROWS)('%s: the coin’s own price not read, not asked for, or not a usable number: unchecked, never allowed and never a warning', (_n, quote) => {
     const unread = at(quote, { coin: { kind: 'unread', detail: 'HTTP 502' } });
-    expect(unread).toMatchObject({ verdict: 'unchecked', price: { state: 'unread' } });
+    expect(unread).toMatchObject({ verdict: 'unchecked', warnings: [], price: { state: 'unread' } });
     expect(unread.reasons).toEqual([`We could not get a market price from Jupiter (the price of ${quote.symbol} could not be read (HTTP 502)).`]);
     const notAsked = at(quote, { coin: null });
-    expect(notAsked.verdict).toBe('unchecked');
+    expect(notAsked).toMatchObject({ verdict: 'unchecked', warnings: [] });
     expect(notAsked.reasons).toEqual([`We could not get a market price from Jupiter (the price of ${quote.symbol} was not read).`]);
-    // "No route" for the COIN is a failed read, never "this token has no market".
+    expect(at(quote, { coin: price(0) })).toMatchObject({ verdict: 'unchecked', warnings: [] });
+  });
+
+  // Owner ruling 2026-10-07: "no route" for the COIN is Jupiter's answer, so it is a
+  // warning that names the coin. It is never said as "this token has no market": it has one.
+  it.each(COIN_ROWS)('%s: Jupiter ANSWERS "no route" for the coin: allowed, as "no market" of the coin, and never said of the token', (_n, quote) => {
     const noRoute = at(quote, { coin: { kind: 'no-route', detail: 'no route' } });
-    expect(noRoute.verdict).toBe('unchecked');
-    expect(noRoute.reasons.join(' ')).not.toMatch(/no market price for this token/);
-    expect(at(quote, { coin: price(0) }).verdict).toBe('unchecked');
+    expect(noRoute).toMatchObject({ verdict: 'allowed', reasons: [], price: { state: 'no-market', of: 'coin', pool: 2 } });
+    expect(noRoute.warnings).toHaveLength(1);
+    expect(noRoute.warnings[0]).toMatch(new RegExp(`^Jupiter has no price for ${quote.symbol} right now, so there is nothing to compare your opening price in ${quote.symbol} with\\.`));
+    expect(noRoute.warnings.join(' ')).not.toMatch(/this token/);
   });
 
   it('the token without a route is allowed as "no market" whatever the coin’s price says, and the token unread is unchecked, as for SOL', () => {
     for (const coin of [price(0.005), { kind: 'unread', detail: 'HTTP 502' } as OutsidePrice, null]) {
       const c = at(USDC_QUOTE, { token: { kind: 'no-route', detail: 'no route' }, coin });
-      expect(c).toMatchObject({ verdict: 'allowed', reasons: [], price: { state: 'no-market', pool: 2 } });
+      expect(c).toMatchObject({ verdict: 'allowed', reasons: [], price: { state: 'no-market', of: 'token', pool: 2 } });
       expect(c.warnings).toHaveLength(1);
       expect(c.warnings[0]).toMatch(/^Jupiter has no market price for this token, so there is nothing to compare your opening price with\./);
     }

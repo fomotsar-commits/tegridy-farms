@@ -491,7 +491,7 @@ function announce(s: Extract<SearchState, { status: 'done' }>): string {
   if (index.kind === 'unread') parts.push('Our pool index could not be read, so there may be other pools.');
   else if (index.truncated) parts.push('Our pool index returned its maximum, so there may be more pools.');
   if (s.safety.kind !== 'read') parts.push('The token could not be read.');
-  else if (s.safety.verdict === 'blocked') parts.push('This token is blocked on this site.');
+  else if (s.safety.verdict === 'blocked') parts.push('This site does not open or add to pools for this token.');
   return parts.join(' ');
 }
 

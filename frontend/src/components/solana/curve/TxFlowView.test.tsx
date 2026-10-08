@@ -8,7 +8,8 @@ import { CREATOR, KEY, PLANT_SUMMARY, SIG, buySummary, fakeApi, prepared } from 
 import { lpCreateSummary, lpDepositSummary, lpWithdrawSummary } from '../lp/fakeLpWriteApi.fixture';
 import type { Prepared, PreparedTx, TxOutcome, TxSigner, TxSummary, WriteApi, WriteRpc } from './ports';
 import { SOL_QUOTE } from '../../../lib/solana/lp/quotes';
-import { PRICE_TOLERANCE } from '../../../lib/solana/lp/poolHealth';
+import { PRICE_TOLERANCE, TOO_NEW_WARNING, noPriceClause } from '../../../lib/solana/lp/poolHealth';
+import { TOO_NEW_WHY } from '../../../lib/solana/lp/ownPrice';
 
 const SOL_1 = 1_000_000_000n;
 const MINT_X = KEY(15);
@@ -1353,6 +1354,23 @@ describe('liquidity reviews', () => {
     expect(value('Price check')).toBe('nobody has traded since the launch program opened it');
   });
 
+  // Owner ruling 2026-10-07: a brand-new launch pool (no route, under 10 minutes of trading)
+  // takes a deposit, with a warning. The review says the warning first, and its price row
+  // says the price was checked against nothing and why. It never reads as a check that passed.
+  it('adding to a launch pool that has traded for under 10 minutes: the warning first, and the row says it was checked against nothing', async () => {
+    await review(deposit({ origin: 'launch-pool', price: { state: 'too-new', pool: 1, historySecs: 120n }, warnings: [TOO_NEW_WARNING] }));
+    expect(value('Price check')).toBe('not checked against anything: this pool has traded for under 10 minutes and Jupiter has no price for this token');
+    expect(value('Price check')).toBe(`not checked against anything: ${TOO_NEW_WHY}`);
+    const box = screen.getByTestId('tx-review-warnings');
+    expect(Array.from(box.querySelectorAll('li')).map((li) => li.textContent)).toEqual([
+      'This pool has traded for under 10 minutes and Jupiter has no price for this token, so its price was checked against nothing. If someone has just pushed it, a deposit now pays for that.',
+    ]);
+    expect(screen.getByRole('heading', { name: 'Review: add liquidity' })).toHaveAttribute('aria-describedby', box.id);
+    // Nothing to compare with, so no gap and no cost row. A warning is not a stop: Sign is on.
+    expect(screen.queryByText('Estimated cost of that gap')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Sign in wallet' })).toBeEnabled();
+  });
+
   // Owner ruling 2026-10-04 ("any token"): a deposit is built for a pool whose price is off,
   // or has no market price, or whose token copies a name or can be frozen. The builder puts
   // what must be read on the summary (`warnings`), and the review says every sentence of it
@@ -1414,8 +1432,10 @@ describe('liquidity reviews', () => {
 
   it('adding to a pool with no market price: the row says it was checked against nothing', async () => {
     const NONE = 'Jupiter has no market price for this token, so this pool’s price was not checked against anything.';
-    await review(deposit({ price: { state: 'no-market', pool: 1, detail: 'Jupiter has no route for this token' }, warnings: [NONE] }));
+    await review(deposit({ price: { state: 'no-market', of: 'token', pool: 1, detail: 'Jupiter has no route for this token' }, warnings: [NONE] }));
     expect(value('Price check')).toBe('not checked against anything: Jupiter has no market price for this token');
+    // The same words as every other screen (poolHealth.ts `noPriceClause`).
+    expect(value('Price check')).toBe(`not checked against anything: ${noPriceClause('token', SOL_QUOTE)}`);
     expect(within(screen.getByTestId('tx-review-warnings')).getByText(NONE)).toBeInTheDocument();
     // Nothing to compare with, so no gap and no cost row.
     expect(screen.queryByText('Estimated cost of that gap')).not.toBeInTheDocument();
@@ -1563,7 +1583,7 @@ describe('opening a pool: the review', () => {
     expect(value('Your share of the pool')).toBe('100.00%');
     expect(screen.getByText('Read these about this token first:')).toBeInTheDocument();
     expect(screen.getByText('Its creator can still mint more.')).toBeInTheDocument();
-    expect(screen.getByText('Whoever holds it can make new tokens at any time and sell them into your pool for its SOL.')).toBeInTheDocument();
+    expect(screen.getByText('Whoever holds that mint authority can make new tokens at any time and sell them into your pool for its SOL.')).toBeInTheDocument();
     expect(screen.getByText('A spender is approved on your token account.')).toBeInTheDocument();
     expect(screen.getByText(/wrapped into a token account for the opening, and that account is closed in the same transaction/)).toBeInTheDocument();
     expect(screen.queryByText(/needs a second signature/)).not.toBeInTheDocument();
@@ -1627,7 +1647,7 @@ describe('opening a pool: the review', () => {
 
   it('an opening with no market price: the opening price is still said, and that nothing checks it', async () => {
     const ALONE = 'Jupiter has no market price for this token, so there is nothing to compare your opening price with.';
-    await review(create({ price: { state: 'no-market', pool: 0.2, detail: 'Jupiter has no route for this token' }, warnings: [ALONE] }));
+    await review(create({ price: { state: 'no-market', of: 'token', pool: 0.2, detail: 'Jupiter has no route for this token' }, warnings: [ALONE] }));
     expect(value('Opening price')).toBe(
       '1 token = 0.2 SOL. Jupiter has no market price for this token, so there is nothing to compare it with: you are setting the price yourself',
     );

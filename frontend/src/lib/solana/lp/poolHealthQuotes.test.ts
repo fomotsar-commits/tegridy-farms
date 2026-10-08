@@ -6,7 +6,7 @@
 import { describe, it, expect } from 'vitest';
 import { PublicKey } from '@solana/web3.js';
 import { coinPriceDetail, priceInQuote, type OutsidePrice } from './outsidePrice';
-import { PRICE_TOLERANCE, assessPool, poolPricePerToken, vaultFreezer } from './poolHealth';
+import { PRICE_TOLERANCE, assessPool, noPriceClause, poolPricePerToken, vaultFreezer } from './poolHealth';
 import type { PoolView } from './poolFinder';
 import { BAYLA_QUOTE, QUOTE_COINS, SOL_QUOTE, USDC_QUOTE, type QuoteCoin } from './quotes';
 import type { TokenSafety } from './tokenSafety';
@@ -60,29 +60,53 @@ describe('priceInQuote', () => {
     expect(b.kind === 'ok' && b.perToken).toBeCloseTo(200, 9);
   });
 
-  it('the token’s own answer comes first: no route and unread pass straight through', () => {
+  it('the token’s own answer comes first: no route (said as the TOKEN’s) and unread pass straight through', () => {
     for (const quote of [SOL_QUOTE, USDC_QUOTE, BAYLA_QUOTE]) {
-      expect(priceInQuote(NO_ROUTE, quote, ok(0.005))).toBe(NO_ROUTE);
-      expect(priceInQuote(DOWN, quote, ok(0.005))).toBe(DOWN);
+      // Whatever the coin's own price says, even "no route": the token's answer is the answer.
+      for (const coin of [ok(0.005), NO_ROUTE, DOWN, null]) {
+        expect(priceInQuote(NO_ROUTE, quote, coin)).toEqual({ kind: 'no-route', of: 'token', detail: 'Jupiter has no route for this token' });
+        expect(priceInQuote(DOWN, quote, coin)).toBe(DOWN);
+      }
     }
   });
 
-  it('a coin that could not be priced is unread, never "no route" and never a price', () => {
+  // UNREAD IS NEVER A PASS, and that did not change (owner: "every unread state is still
+  // refused"). A coin whose price was NOT ASKED FOR, or whose read FAILED, is `unread`,
+  // word for word as before. The mutation "treat every coin that is not ok as no-route"
+  // fails here.
+  it('a coin whose price was not asked for, or whose read FAILED, is unread: never "no route" and never a price', () => {
     expect(priceInQuote(ok(0.004), USDC_QUOTE, null)).toEqual({ kind: 'unread', detail: 'the price of USDC was not read' });
     expect(priceInQuote(ok(0.004), USDC_QUOTE, DOWN)).toEqual({ kind: 'unread', detail: 'the price of USDC could not be read (HTTP 502)' });
-    // Jupiter's own words for "no route" say "this token". Here they are about the COIN,
-    // and beside a pool "this token" means the token on the other side, which is allowed
-    // to have no route. So the detail names the coin (whole-change review, 2026-10-04).
-    for (const quote of [USDC_QUOTE, BAYLA_QUOTE]) {
-      const r = priceInQuote(ok(0.004), quote, NO_ROUTE);
-      expect(r).toEqual({ kind: 'unread', detail: `the price of ${quote.symbol} could not be read (Jupiter has no route for ${quote.symbol})` });
-      expect(r.kind === 'unread' && r.detail).not.toMatch(/this token/);
-    }
+    expect(priceInQuote(ok(0.004), BAYLA_QUOTE, null)).toEqual({ kind: 'unread', detail: 'the price of BAYLA was not read' });
+    expect(priceInQuote(ok(0.004), BAYLA_QUOTE, DOWN)).toEqual({ kind: 'unread', detail: 'the price of BAYLA could not be read (HTTP 502)' });
     // A failed read keeps its own detail, word for word.
     expect(coinPriceDetail(USDC_QUOTE, DOWN)).toBe('HTTP 502');
-    expect(coinPriceDetail(USDC_QUOTE, NO_ROUTE)).toBe('Jupiter has no route for USDC');
     for (const bad of [0, -1, Number.NaN, Number.POSITIVE_INFINITY]) {
       expect(priceInQuote(ok(0.004), USDC_QUOTE, ok(bad)).kind, String(bad)).toBe('unread');
+    }
+  });
+
+  // Owner ruling 2026-10-07 ("no, we do what we want"). Jupiter ANSWERING that it has no
+  // route for the pairing coin is an answer: `no-route`, said as the COIN's. It was
+  // `unread`, which switched opening and adding off for every pool priced in that coin.
+  it('Jupiter ANSWERS "no route" for the COIN: no-route of the coin, in words that name the coin', () => {
+    for (const quote of [USDC_QUOTE, BAYLA_QUOTE]) {
+      const r = priceInQuote(ok(0.004), quote, NO_ROUTE);
+      expect(r).toEqual({ kind: 'no-route', of: 'coin', detail: `Jupiter has no route for ${quote.symbol}` });
+      // Jupiter's own words for "no route" say "this token". Here they are about the COIN,
+      // and beside a pool "this token" means the token on the other side, which has a price.
+      expect(r.kind === 'no-route' && r.detail).not.toMatch(/this token/);
+    }
+    expect(coinPriceDetail(USDC_QUOTE, NO_ROUTE)).toBe('Jupiter has no route for USDC');
+    // SOL never looks at a coin's price: a "no route" beside it changes nothing.
+    expect(priceInQuote(ok(0.004), SOL_QUOTE, NO_ROUTE)).toEqual({ kind: 'ok', perToken: 0.004, source: 'Jupiter' });
+  });
+
+  it('who has no price, as the screens say it: the token’s words as they were, the coin’s by name', () => {
+    expect(noPriceClause('token', USDC_QUOTE)).toBe('Jupiter has no market price for this token');
+    for (const quote of QUOTE_COINS) {
+      expect(noPriceClause('coin', quote)).toBe(`Jupiter has no price for ${quote.symbol} right now`);
+      expect(noPriceClause('coin', quote)).not.toMatch(/this token/);
     }
   });
 });
@@ -126,11 +150,12 @@ describe('assessPool: a pool paired with USDC or BAYLA', () => {
     expect(h.deposits.warnings).toEqual(['Its price is 99.5% below the outside price. A deposit here would hand that gap to the first arbitrage trade.']);
   });
 
+  // UNREAD IS STILL REFUSED. A coin price that was not asked for, or whose read FAILED, is
+  // not an answer. The mutation "treat every coin that is not ok as no-route" fails here.
   it.each([
     ['not read at all', undefined],
     ['null', null],
     ['a failed read', DOWN],
-    ['"no route" for the coin', NO_ROUTE],
   ] as const)('the coin’s price %s, with a token price to compare: unchecked, never allowed and never a warning', (_n, coinOutside) => {
     const h = assessPool({ ...base, view: usdcPool(), outside: ok(FAIR), coinOutside });
     expect(h.price.state).toBe('unread');
@@ -139,6 +164,42 @@ describe('assessPool: a pool paired with USDC or BAYLA', () => {
     // What the card says of this pool never says "this token" of the coin.
     expect(h.deposits.reasons.join(' ')).not.toMatch(/this token/);
     expect(h.deposits.warnings).toEqual([]);
+  });
+
+  // Owner ruling 2026-10-07: Jupiter ANSWERING that it has no route for the pool's coin
+  // does not switch adding off. The pool's price in that coin was checked against nothing,
+  // and the warning says so, naming the coin. It was `unchecked` before.
+  it.each([
+    ['USDC', USDC_QUOTE],
+    ['BAYLA', BAYLA_QUOTE],
+  ] as const)('Jupiter ANSWERS "no route" for %s, with a token price: allowed, as "no market" of the COIN, with a warning that names the coin', (symbol, quote) => {
+    const h = assessPool({ ...base, view: view(quote, 50, 2_000), outside: ok(FAIR), coinOutside: NO_ROUTE });
+    expect(h.price).toEqual({ state: 'no-market', of: 'coin', pool: expect.closeTo(0.025, 12), detail: `Jupiter has no route for ${symbol}` });
+    expect(h.deposits).toEqual({
+      verdict: 'allowed',
+      reasons: [],
+      warnings: [
+        `Jupiter has no price for ${symbol} right now, so this pool’s price in ${symbol} was not checked against anything. If it is off, a deposit here hands the difference to whoever trades it back.`,
+      ],
+    });
+    // The token HAS a price: nothing here may say it has none.
+    expect(h.deposits.warnings.join(' ')).not.toMatch(/this token/);
+  });
+
+  it('"no route" for the coin lifts nothing else: a frozen vault still refuses the pool, and an unread token still leaves it unchecked', () => {
+    const frozen = assessPool({ ...base, view: { ...usdcPool(), vaultsFrozen: true }, outside: ok(FAIR), coinOutside: NO_ROUTE });
+    expect(frozen.deposits.verdict).toBe('refused');
+    const unreadToken = assessPool({ ...base, safety: null, view: usdcPool(), outside: ok(FAIR), coinOutside: NO_ROUTE });
+    expect(unreadToken.deposits.verdict).toBe('unchecked');
+  });
+
+  // A launch pool pairs with SOL, so this cannot happen on a real pool (poolFinder.ts). The
+  // rule is still one rule: any "no route" answer sends a launch pool to its own record,
+  // never to "no market", and a record that was not read is still unchecked.
+  it('a launch pool with "no route" of the coin goes to its own price record, as with "no route" of the token', () => {
+    const h = assessPool({ ...base, view: view(USDC_QUOTE, 50, 2_000, { origin: 'launch-pool' }), outside: ok(FAIR), coinOutside: NO_ROUTE });
+    expect(h.price.state).toBe('unread');
+    expect(h.deposits.verdict).toBe('unchecked');
   });
 
   it('the token’s price unread or not asked for: unchecked, never a warning', () => {
@@ -160,7 +221,8 @@ describe('assessPool: a pool paired with USDC or BAYLA', () => {
     ['"no route" for the coin', NO_ROUTE],
   ] as const)('no route for the token, the coin’s price %s: allowed as "no market", with the warning', (_n, coinOutside) => {
     const h = assessPool({ ...base, view: usdcPool(), outside: NO_ROUTE, coinOutside });
-    expect(h.price).toMatchObject({ state: 'no-market' });
+    // Of the TOKEN, whatever the coin's own price says.
+    expect(h.price).toMatchObject({ state: 'no-market', of: 'token' });
     expect(h.price.state === 'no-market' && h.price.pool).toBeCloseTo(0.025, 12);
     expect(h.deposits.verdict).toBe('allowed');
     expect(h.deposits.reasons).toEqual([]);

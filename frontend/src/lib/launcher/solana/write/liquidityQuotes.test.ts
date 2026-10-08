@@ -336,16 +336,33 @@ describe('prepareLpDeposit: a pool paired with USDC or BAYLA', () => {
     expect((await deposit(world(USDC_QUOTE, { wallet: need }))).ok).toBe(true);
   });
 
-  it.each([
-    ['could not be read', { kind: 'unread', detail: 'HTTP 502' } as OutsidePrice],
-    ['has no route', { kind: 'no-route', detail: 'Jupiter has no route for this token' } as OutsidePrice],
-  ])('the coin’s own price %s, with a token price to compare: the deposit check is unchecked, so nothing is built', async (_n, coin) => {
-    const w = world(USDC_QUOTE);
-    const msg = refused(await deposit(w, {}, priced(USDC_QUOTE, { coin })));
-    expect(msg).toMatch(/^We did not build this deposit: /);
-    expect(msg).toMatch(/the price of USDC/);
-    // Jupiter's "no route" words say "this token"; of the coin, the refusal names the coin.
+  // UNREAD IS STILL REFUSED (owner: "every unread state is still refused"). A read of the
+  // coin's own price that FAILED builds nothing. The mutation "treat every coin that is
+  // not ok as no-route" fails here: it would build this deposit.
+  it.each(COINS)('%s: the coin’s own price could not be read, with a token price to compare: the deposit check is unchecked, so nothing is built', async (_n, quote) => {
+    const w = world(quote);
+    const msg = refused(await deposit(w, {}, priced(quote, { coin: { kind: 'unread', detail: 'HTTP 502' } })));
+    expect(msg).toBe(`We did not build this deposit: We could not check its price against an outside price (the price of ${quote.symbol} could not be read (HTTP 502)).`);
     expect(msg).not.toMatch(/this token/);
+  });
+
+  // Owner ruling 2026-10-07: Jupiter ANSWERING that it has no route for the pool's coin
+  // does not stop a deposit. It builds through the `allowed` verdict, and the warning,
+  // naming the coin, is on the summary the review reads. Before, nothing was built.
+  it.each(COINS)('%s: Jupiter ANSWERS "no route" for the coin: it builds, with a warning that names the coin and no price gap', async (_n, quote) => {
+    const noRoute: OutsidePrice = { kind: 'no-route', detail: 'Jupiter has no route for this token' };
+    const built = prepared(await deposit(world(quote), {}, priced(quote, { coin: noRoute })));
+    const s = built.summary as LpDepositSummary;
+    expect(s.price).toEqual({ state: 'no-market', of: 'coin', pool: expect.closeTo(2, 9), detail: `Jupiter has no route for ${quote.symbol}` });
+    expect(s.priceGap).toBeNull();
+    expect(s.warnings).toEqual([
+      `Jupiter has no price for ${quote.symbol} right now, so this pool’s price in ${quote.symbol} was not checked against anything. If it is off, a deposit here hands the difference to whoever trades it back.`,
+    ]);
+    // The token HAS a price: Jupiter's own "this token" never reaches the review.
+    expect(s.warnings.join(' ')).not.toMatch(/this token/);
+    // The warning decides nothing: the same amounts as with the coin priced.
+    const fair = prepared(await deposit(world(quote))).summary as LpDepositSummary;
+    expect([s.lpAmount, s.max, s.quoted]).toEqual([fair.lpAmount, fair.max, fair.quoted]);
   });
 
   // With no route for the TOKEN nothing is compared, so the coin's own price is not needed.

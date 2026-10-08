@@ -11,7 +11,7 @@ import { TOKEN_2022_NATIVE_MINT, arbitrageLoss, assessOpening, estimatedLoss, ma
 import type { OutsidePrice } from './outsidePrice';
 import type { TokenSafety } from './tokenSafety';
 import { key } from './testkit.fixture';
-import { SOL_QUOTE, USDC_QUOTE } from './quotes';
+import { BAYLA_QUOTE, SOL_QUOTE, USDC_QUOTE, type QuoteCoin } from './quotes';
 
 const NO_MARKET =
   'Jupiter has no market price for this token, so there is nothing to compare your opening price with. You are setting the price yourself: if it is off, the first trades take the difference out of what you put in.';
@@ -56,7 +56,7 @@ describe('assessOpening: the price', () => {
       verdict: 'allowed',
       reasons: [],
       warnings: [NO_MARKET],
-      price: { state: 'no-market', pool: 0.2, detail: 'Jupiter has no route for this token' },
+      price: { state: 'no-market', of: 'token', pool: 0.2, detail: 'Jupiter has no route for this token' },
     });
   });
 
@@ -65,8 +65,64 @@ describe('assessOpening: the price', () => {
     const noRoute: OutsidePrice = { kind: 'no-route', detail: 'Jupiter has no route for this token' };
     for (const coinOutside of [undefined, null, { kind: 'unread', detail: 'HTTP 502' }, noRoute, jupiter(0.005)] as const) {
       const c = assessOpening({ tokenMint: mint, quote: USDC_QUOTE, quoteAmount: 200_000_000n, token: 100_000_000n, tokenDecimals: 6, outside: noRoute, coinOutside, safety: OK });
-      expect(c).toMatchObject({ verdict: 'allowed', reasons: [], warnings: [NO_MARKET], price: { state: 'no-market', pool: 2 } });
+      // Said of the TOKEN, in the token's words, whatever the coin's own price says.
+      expect(c).toMatchObject({ verdict: 'allowed', reasons: [], warnings: [NO_MARKET], price: { state: 'no-market', of: 'token', pool: 2 } });
     }
+  });
+
+  // Owner ruling 2026-10-07 ("no, we do what we want"): Jupiter ANSWERING that it has no
+  // route for the PAIRING COIN does not switch opening off. There is no market price in
+  // that coin, so the opener sets the price, and the warning names the coin. It was
+  // `unchecked` before, and no pool priced in that coin could be opened.
+  describe('a pairing coin Jupiter has no price for', () => {
+    const noRoute: OutsidePrice = { kind: 'no-route', detail: 'Jupiter has no route for this token' };
+    /** 200 of the coin against 100 tokens (6 decimals each): 2 of the coin a token. The token itself has a price. */
+    const inCoin = (quote: QuoteCoin, coinOutside: OutsidePrice | null | undefined) =>
+      assessOpening({ tokenMint: mint, quote, quoteAmount: 200_000_000n, token: 100_000_000n, tokenDecimals: 6, outside: jupiter(0.01), coinOutside, safety: OK });
+
+    it.each([
+      ['USDC', USDC_QUOTE],
+      ['BAYLA', BAYLA_QUOTE],
+    ] as const)('"no route" for %s: allowed, as "no market" of the COIN, with a warning that names the coin and ends as the token’s does', (symbol, quote) => {
+      const c = inCoin(quote, noRoute);
+      expect(c).toEqual({
+        verdict: 'allowed',
+        reasons: [],
+        warnings: [
+          `Jupiter has no price for ${symbol} right now, so there is nothing to compare your opening price in ${symbol} with. You are setting the price yourself: if it is off, the first trades take the difference out of what you put in.`,
+        ],
+        price: { state: 'no-market', of: 'coin', pool: 2, detail: `Jupiter has no route for ${symbol}` },
+      });
+      // The token HAS a price: nothing may say it has none.
+      expect(c.warnings.join(' ')).not.toMatch(/this token/);
+      // The same ending as the sentence for a token with no market.
+      const ending = NO_MARKET.slice(NO_MARKET.indexOf('You are setting'));
+      expect(c.warnings[0]!.endsWith(ending)).toBe(true);
+    });
+
+    // UNREAD IS STILL REFUSED. The mutation "treat every coin that is not ok as no-route"
+    // fails here: a read of the coin's price that FAILED, or was never made, opens nothing.
+    it.each([
+      ['a failed read', { kind: 'unread', detail: 'HTTP 502' } as OutsidePrice, 'We could not get a market price from Jupiter (the price of USDC could not be read (HTTP 502)).'],
+      ['not asked for', null, 'We could not get a market price from Jupiter (the price of USDC was not read).'],
+      ['left out', undefined, 'We could not get a market price from Jupiter (the price of USDC was not read).'],
+    ] as const)('the coin’s price %s: unchecked, never allowed and never a warning', (_n, coinOutside, reason) => {
+      const c = inCoin(USDC_QUOTE, coinOutside);
+      expect(c).toMatchObject({ verdict: 'unchecked', reasons: [reason], warnings: [], price: { state: 'unread' } });
+    });
+
+    it('a SOL opening never looks at a coin price: "no route" beside it changes nothing', () => {
+      expect(assessOpening({ tokenMint: mint, quote: SOL_QUOTE, quoteAmount: 1_000_000_000n, token: 5_000_000n, tokenDecimals: 6, outside: jupiter(0.2), coinOutside: noRoute, safety: OK })).toMatchObject({
+        verdict: 'allowed',
+        warnings: [],
+        price: { state: 'agrees' },
+      });
+    });
+
+    it('it lifts nothing else: a token this site does not open pools for is still refused', () => {
+      const blocked = { ...OK, verdict: 'blocked', blocks: [{ code: 'transfer-fee', text: 'x' }] } as TokenSafety;
+      expect(assessOpening({ tokenMint: mint, quote: USDC_QUOTE, quoteAmount: 200_000_000n, token: 100_000_000n, tokenDecimals: 6, outside: jupiter(0.01), coinOutside: noRoute, safety: blocked }).verdict).toBe('refused');
+    });
   });
 
   it('Jupiter could not be read, or was not asked: unchecked, never allowed and never a warning', () => {
@@ -93,7 +149,8 @@ describe('assessOpening: the price', () => {
 describe('assessOpening: the token', () => {
   it('blocked or absent: refused', () => {
     const blocked = { ...OK, verdict: 'blocked', blocks: [{ code: 'transfer-fee', text: 'x' }] } as TokenSafety;
-    expect(at({ safety: blocked })).toMatchObject({ verdict: 'refused', reasons: ['This token is blocked on this site (see why above).'] });
+    // In words about what this site does not do: the token is never called "blocked" (owner ruling 2026-10-07).
+    expect(at({ safety: blocked })).toMatchObject({ verdict: 'refused', reasons: ['This site does not add to pools for this token (see why above).'] });
     expect(at({ safety: { kind: 'absent', mint } })).toMatchObject({ verdict: 'refused', reasons: ['The token does not exist.'] });
   });
 

@@ -9,14 +9,24 @@ export function VenueProgramCard() {
   return (
     <section className="rounded-2xl p-6 mt-6" style={CARD} aria-label="The program">
       <p className="text-[10px] uppercase tracking-wider mb-2" style={{ color: 'var(--color-kyle)' }}>The program</p>
-      <h2 className="heading-luxury text-lg text-white mb-3">Raydium&rsquo;s CPMM, unmodified</h2>
+      <h2 className="heading-luxury text-lg text-white mb-3">Raydium&rsquo;s CPMM, with one addition</h2>
       <p className="text-white/80 text-[13px] leading-relaxed mb-3">
-        The AMM is a verbatim fork of <strong>raydium-cp-swap</strong>. CI clones the pinned
+        The AMM is a fork of <strong>raydium-cp-swap</strong>. CI clones the pinned
         upstream commit, refuses any differing file outside two, and sha256-hashes the
-        remaining delta against a pinned value: currently 86 lines across three files,
-        all of it authority constants and comments. The curve, the swap, the deposit and
-        withdraw paths and the fee maths are Raydium&rsquo;s, not ours, and the quotes on
-        the swap page run that same maths client-side.
+        remaining delta against a pinned value. That delta is four authority constants,
+        the program&rsquo;s own name and contact text, comments and one added instruction,
+        which lets a pool&rsquo;s share token carry a name and a picture in wallets. Its
+        caller chooses nothing: the name and the link are fixed in the program. It cannot
+        move pool funds. Whoever calls it pays a small one-time fee for the record.
+        The curve, the swap, the deposit and withdraw paths and the fee maths are
+        Raydium&rsquo;s, not ours, and the quotes on the swap page run that same maths
+        client-side.
+      </p>
+      {/* True until the pool program is upgraded on mainnet. Delete this paragraph in the same
+          release as that upgrade: src/test/poolProgramCopy.test.ts fails that release until you do. */}
+      <p className="text-white/50 text-[12px] leading-relaxed mb-3">
+        The program on Solana today was built before that instruction was added. It gets it
+        only through a program upgrade.
       </p>
       <p className="text-white/50 text-[12px] leading-relaxed">
         A browser cannot list pools itself: <code className="font-mono">getProgramAccounts</code> stays

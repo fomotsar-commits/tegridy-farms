@@ -62,7 +62,8 @@ function usePositions(readers: LpReaders, owner: PublicKey | null, nonce: number
   return answer && answer.owner === ownerKey ? { ...answer.value, refreshing: true } : { status: 'loading' };
 }
 
-const VERDICT_WORD = { blocked: 'blocked on this site', warn: 'allowed, with warnings', ok: 'no problems found' } as const;
+// After "Token check:". The first says what this site does not do, never that the token is "blocked" (owner ruling 2026-10-07).
+const VERDICT_WORD = { blocked: 'this site does not open or add to pools for it', warn: 'allowed, with warnings', ok: 'no problems found' } as const;
 const withdrawalsWord = (view: PoolView): string => {
   const state = withdrawalsState(view);
   return state === 'open' ? 'open' : state === 'switched-off' ? 'switched off' : `blocked: a pool vault is frozen by ${vaultFreezer(view.quote)}`;
@@ -74,7 +75,7 @@ const withdrawalsWord = (view: PoolView): string => {
  * token's name is whatever its maker typed.
  */
 function setAsideReason(p: Position, safety: TokenSafety | null): string | null {
-  if (p.pool?.kind === 'pool' && safety?.kind === 'read' && safety.verdict === 'blocked') return 'its token is blocked on this site';
+  if (p.pool?.kind === 'pool' && safety?.kind === 'read' && safety.verdict === 'blocked') return 'this site does not open or add to pools for its token';
   if (p.pool?.kind === 'other-pair') return `its pool is not paired with ${QUOTE_COINS_OR}`;
   if (p.pool?.kind === 'absent' || p.pool?.kind === 'not-a-pool') return 'its pool could not be confirmed on chain';
   return null;
@@ -216,8 +217,8 @@ function PositionsList({
       {aside.length > 0 && (
         <details data-testid="lp-positions-set-aside" className="rounded-lg" style={{ border: '1px solid rgba(255,255,255,0.08)' }}>
           <summary className="min-h-[44px] flex items-center px-3 cursor-pointer text-white/75">
-            {plural(aside.length, 'other pool share', 'other pool shares')}, set aside without their names: blocked tokens, pools that are
-            not paired with {QUOTE_COINS_OR}, or pools we could not confirm
+            {plural(aside.length, 'other pool share', 'other pool shares')}, set aside without their names: tokens this site does not open or
+            add to pools for, pools that are not paired with {QUOTE_COINS_OR}, or pools we could not confirm
           </summary>
           <ul className="space-y-3 p-3">
             {aside.map((p) => (
