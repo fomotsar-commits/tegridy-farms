@@ -32,7 +32,7 @@ stop and say so — a surprise is information.
 ## 🔴 2026-10-07: token names and pictures (`/mint/`): files first, then the chain
 
 The site serves a name and a picture for the BAYLA/SOL and BAYLA/USDC pool shares and for the
-Staked BAYLA receipt at `https://memetics.finance/mint/<mint address>.json`. A wallet shows them
+Bayla Staking receipt at `https://memetics.finance/mint/<mint address>.json`. A wallet shows them
 only once that link is written on each token. **The files must be live before any link is
 written.** A wallet that follows a link before its file exists gets the app page, and may keep
 that answer.

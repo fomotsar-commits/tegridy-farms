@@ -28,7 +28,7 @@ export const MINT_TOKENS = [
     mint: 'BQZth5DhHZT9H1AxZonoLAwGHknWo4LebQBxjKWtzY8e',
     kind: 'pool-share',
     pool: 'ErvzV1NMZmcfAqZtGH4AQhYAjn77nJEworKK1mYPz5w4',
-    name: 'BAYLA/SOL Pool Share',
+    name: 'Bayla LP SOL',
     symbol: 'BAYLA-SOL',
     description: share('BAYLA/SOL', 'BAYLA', 'SOL'),
     picture: 'bayla-sol',
@@ -38,7 +38,7 @@ export const MINT_TOKENS = [
     mint: '3D3EKJxfePDQ1N8YtNwg8W6eSL4mjVpbYf57pnqgcAQx',
     kind: 'pool-share',
     pool: 'J35mQ6UF9PpB6bQMes2TRVUMbJVPwMYjcfapbkdm8mYm',
-    name: 'BAYLA/USDC Pool Share',
+    name: 'Bayla LP USDC',
     symbol: 'BAYLA-USDC',
     description: share('BAYLA/USDC', 'BAYLA', 'USDC'),
     picture: 'bayla-usdc',
@@ -48,7 +48,7 @@ export const MINT_TOKENS = [
     mint: 'g8W2HWmS1dKJwHHKDkR1k7SmtTTx7ic97z1ssAZ8NwN',
     kind: 'staking-receipt',
     stakePool: 'EFWpSpH9rU6jGqpMPpo9VavMdBd64CdodakaJtCXEZ9f',
-    name: 'Staked BAYLA',
+    name: 'Bayla Staking',
     symbol: 'sBAYLA',
     // The receipt count is the stake times its lock boost (about 3.1 receipts per BAYLA
     // staked on 2026-10-07), so the number a wallet shows is not a count of BAYLA.

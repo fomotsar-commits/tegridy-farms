@@ -715,9 +715,12 @@ security scope, which is the last. At the cold run the pack's paper had no step 
   cost. A confirmation that cannot be read is not a failure: the pack's script says "SENT,
   NOT CONFIRMED", and run again it finds the record and sends nothing.
 - **The rename is built and rehearsed.** It is one step on the page: ONE proposal carrying
-  two Metaplex updates (`UpdateMetadataAccountV2`). They set "BAYLA/SOL Pool Share"
-  (`BAYLA-SOL`) and "BAYLA/USDC Pool Share" (`BAYLA-USDC`) and leave the link, the editor,
-  "primary sale" and "mutable" alone. Those two instructions were proposed, approved and
+  two Metaplex updates (`UpdateMetadataAccountV2`). They set "Bayla LP SOL" (`BAYLA-SOL`)
+  and "Bayla LP USDC" (`BAYLA-USDC`) and leave the link, the editor, "primary sale" and
+  "mutable" alone. Those names are the owner's rule of 2026-10-08: the bungalow's name, then
+  what the token does. The three runs below set the earlier words, "BAYLA/SOL Pool Share" and
+  "BAYLA/USDC Pool Share", with the same instruction and the same symbols; the pack's step
+  must be run again with the new words before it is used. Those two instructions were proposed, approved and
   executed in all three runs: built with the SDK in stage 1, through the page's step in
   stage 2 and in the cold run. The cold run decoded the stored proposal with separate code:
   every field as ruled, no byte left over. Mainnet's Metaplex, under 4.3.0, accepted an
