@@ -3,8 +3,11 @@ import type { TokenSafety } from '../../../lib/solana/lp/tokenSafety';
 import { CopyButton } from '../../ui/CopyButton';
 import { Card, Notice, Row } from '../curve/ui';
 
+// A token this site will not open or add to a pool for is not accused of anything: the
+// title says what THIS SITE does not do, and the reason lines under it say why (owner
+// ruling 2026-10-07). The internal name stays `blocked`.
 const VERDICT_TITLE: Record<'blocked' | 'warn' | 'ok', string> = {
-  blocked: 'Blocked on this site',
+  blocked: 'This site does not open or add to pools for this token',
   warn: 'Allowed, with warnings',
   ok: 'No problems found',
 };

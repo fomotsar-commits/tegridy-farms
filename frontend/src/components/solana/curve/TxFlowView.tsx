@@ -4,6 +4,7 @@ import { ImpactRows, Notice, Row } from './ui';
 import { DIVIDER, bpsPercent, fractionToBps, sharePercent } from './uiFormat';
 import { CREATOR_FEE_SWITCH, feeSplit } from '../../../lib/solana/cpswap/venue';
 import { feeRateText, formatSolPrice, tradeCostText } from '../../../lib/solana/lp/format';
+import { TOO_NEW_WHY } from '../../../lib/solana/lp/ownPrice';
 import { edgePercent } from '../../../lib/solana/route';
 import type { FeeSplitView, NotSent, PreparedTx, SolanaCluster, TokenRole, TxKind, TxOutcome, TxSigner, TxSummary, TxViewApi } from './ports';
 import { reviewLines } from './reviewLines';
@@ -309,14 +310,32 @@ function priceText(p: Extract<TxSummary, { kind: 'lp-deposit' }>['price']): stri
     }
     case 'no-trades-yet':
       return 'nobody has traded since the launch program opened it';
+    case 'too-new':
+      // A launch pool with no route and too short a record: built for, with a warning.
+      return `not checked against anything: ${TOO_NEW_WHY}`;
     case 'empty-pool':
       return 'not checked: the pool is empty';
     case 'no-market':
+      // The token's. When it is the pairing coin Jupiter has no price for, `pricedText` says so, with the coin's name.
       return 'not checked against anything: Jupiter has no market price for this token';
     case 'skipped':
     case 'unread':
       return `not checked (${p.detail})`;
   }
+}
+
+/**
+ * Who Jupiter has no price for when it ANSWERED "no route": the token, or the pool's
+ * pairing coin (owner ruling 2026-10-07). With the coin the token HAS a price, so the row
+ * names the coin and never says "this token". The words are poolHealth.ts
+ * `noPriceClause`'s, and a test pins the two together.
+ */
+const noPriceClause = (of: 'token' | 'coin', q: QuoteCoin) =>
+  of === 'coin' ? `Jupiter has no price for ${q.symbol} right now` : 'Jupiter has no market price for this token';
+
+/** `priceText` for a pool whose pairing coin is known: the one answer that must name the coin does. */
+function pricedText(p: Extract<TxSummary, { kind: 'lp-deposit' }>['price'], q: QuoteCoin): string {
+  return p.state === 'no-market' && p.of === 'coin' ? `not checked against anything: ${noPriceClause('coin', q)}` : priceText(p);
 }
 
 type PriceGap = NonNullable<Extract<TxSummary, { kind: 'lp-deposit' }>['priceGap']>;
@@ -394,7 +413,7 @@ function LpDepositRows({ summary: s }: { summary: Extract<TxSummary, { kind: 'lp
       <Row label="At most" value={`${coinExact(s.max.quote, q)} and ${unitsExact(s.max.token, s.tokenDecimals)} tokens${limited}`} mono={false} />
       <Row label="You get" value={`${unitsExact(s.lpAmount, s.lpDecimals)} pool shares, exactly`} mono={false} />
       <Row label="Your share of the pool" value={`${shareText(s.sharePct.before)} → ${shareText(s.sharePct.after)}`} />
-      <Row label="Price check" value={priceText(s.price)} mono={false} />
+      <Row label="Price check" value={pricedText(s.price, q)} mono={false} />
       {s.priceGap && <Row label="Estimated cost of that gap" value={gapCostText(s.priceGap, q)} mono={false} />}
       <Row label="Pool fee to add" value="none" mono={false} />
       {s.tokenWarnings.length > 0 && (
@@ -485,11 +504,12 @@ function openingPriceText(p: Extract<TxSummary, { kind: 'lp-create' }>['price'],
     const line = `1 token = ${formatSolPrice(p.pool)} ${q.symbol}. Market (Jupiter, read just now): ${formatSolPrice(p.reference)} ${q.symbol}, ${d}% ${p.diff >= 0 ? 'above' : 'below'}`;
     return p.state === 'disagrees' ? `${line}. ${OFF_PRICE}` : line;
   }
-  // The opening price is still said: with no market, it is the only price there is.
+  // The opening price is still said: with no market, it is the only price there is. It
+  // names what has no price: the token, or the coin the pool is paired with.
   if (p.state === 'no-market') {
-    return `1 token = ${formatSolPrice(p.pool)} ${q.symbol}. Jupiter has no market price for this token, so there is nothing to compare it with: you are setting the price yourself`;
+    return `1 token = ${formatSolPrice(p.pool)} ${q.symbol}. ${noPriceClause(p.of, q)}, so there is nothing to compare it with: you are setting the price yourself`;
   }
-  return priceText(p);
+  return pricedText(p, q);
 }
 
 /** Opening a pool. Every value from the prepared transaction: the amounts from its bytes, the fee and rents as read while preparing. */

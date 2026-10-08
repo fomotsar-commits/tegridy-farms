@@ -5,6 +5,7 @@ import { ownAveragePrice, type OwnPrice } from './ownPrice';
 import type { PoolView } from './poolFinder';
 import { readPair, type QuoteCoin } from './quotes';
 import { TOKEN_2022_NATIVE_MINT, type SafetyReason, type TokenSafety } from './tokenSafety';
+import { MIN_HISTORY_TEXT } from './ownPrice';
 
 /**
  * Is this pool safe to deposit into right now? Pure: every input was read elsewhere.
@@ -29,14 +30,21 @@ import { TOKEN_2022_NATIVE_MINT, type SafetyReason, type TokenSafety } from './t
  *   - Jupiter ANSWERED that the token has no market, and the pool is one anyone could
  *     open: its price was checked against nothing (`no-market`);
  *   - the token copies a well-known name, can be frozen by its creator, or shows a
- *     changing amount in a wallet (`tokenReasons`).
+ *     changing amount in a wallet (`tokenReasons`);
+ *   - (owner ruling 2026-10-07) Jupiter ANSWERED that it has no route for the pool's
+ *     PAIRING COIN: there is no price in that coin, so the pool's price was checked
+ *     against nothing (`no-market`, `of: 'coin'`), and the warning names the coin;
+ *   - (owner ruling 2026-10-07) a launch pool with no route whose own price record was
+ *     READ and is shorter than `MIN_HISTORY_SECS`: its average proves nothing yet, so its
+ *     price was checked against nothing (`too-new`).
  * The warnings are sentences for the person about to sign, and `allowed` may carry them.
  *
  * EVERY PRICE HERE IS IN THE POOL'S OWN PAIRING COIN (quotes.ts): SOL per token for a
  * SOL pool, USDC per token for a USDC pool, BAYLA per token for a BAYLA pool. Jupiter is
  * only ever asked for SOL prices; a USDC or BAYLA pool's reference is the token's SOL
  * price over that coin's own SOL price (`priceInQuote`), and when the coin's price
- * could not be read the pool is unchecked.
+ * could not be read the pool is unchecked. (A coin Jupiter ANSWERED it has no route for
+ * is not that: it is the warning above.)
  *
  * THE REFERENCE PRICE. The outside price (Jupiter) when there is one. A launch pool,
  * which only the launch program can open, usually has none (it is the token's only
@@ -71,15 +79,40 @@ export type PriceCheck =
   | { state: 'disagrees'; pool: number; reference: number; against: PriceReference; diff: number }
   /** A launch pool that has never traded: its price is still the one the launch program set. */
   | { state: 'no-trades-yet'; pool: number }
+  /**
+   * A launch pool with no route whose own price record was read and spans `historySecs`,
+   * less than `MIN_HISTORY_SECS`, since its first trade: too short for its average to
+   * prove anything, so the price was compared with nothing. Read, not unread: a warning,
+   * never a refusal (owner ruling 2026-10-07).
+   */
+  | { state: 'too-new'; pool: number; historySecs: bigint }
   | { state: 'empty-pool' }
   /**
-   * Jupiter ANSWERED that the token has no market, and nothing else can stand in for one:
-   * the price was compared with nothing. Read, not unread: a warning, never a refusal.
+   * Jupiter ANSWERED that it has no route, and nothing else can stand in for a market
+   * price: the price was compared with nothing. `of` says what has no route: the TOKEN,
+   * or the pool's pairing COIN (the token has a price, but there is none in that coin).
+   * Read, not unread: a warning, never a refusal.
    */
-  | { state: 'no-market'; pool: number; detail: string }
+  | { state: 'no-market'; of: 'token' | 'coin'; pool: number; detail: string }
   /** Not compared on purpose (the token is blocked, so nothing here will be deposited). */
   | { state: 'skipped'; pool: number | null; detail: string }
   | { state: 'unread'; pool: number | null; detail: string };
+
+/**
+ * The warning a `too-new` pool carries, on its card, on the Add form and on the review.
+ * The minutes come from `MIN_HISTORY_SECS` (ownPrice.ts), never typed a second time.
+ */
+export const TOO_NEW_WARNING = `This pool has traded for under ${MIN_HISTORY_TEXT} and Jupiter has no price for this token, so its price was checked against nothing. If someone has just pushed it, a deposit now pays for that.`;
+
+/**
+ * Who Jupiter has no price for when it ANSWERED "no route" (`no-market`), as the clause
+ * the screens start that line with. The token's words are the ones they always were. The
+ * pairing coin's (owner ruling 2026-10-07) name the coin: there the token HAS a price, so
+ * nothing may say "this token".
+ */
+export function noPriceClause(of: 'token' | 'coin', quote: Pick<QuoteCoin, 'symbol'>): string {
+  return of === 'coin' ? `Jupiter has no price for ${quote.symbol} right now` : 'Jupiter has no market price for this token';
+}
 
 export type WithdrawalsState = 'open' | 'switched-off' | 'vault-frozen';
 
@@ -174,7 +207,8 @@ export function tokenReasons(safety: TokenSafety | null, action: 'deposits' | 'p
   if (!safety || safety.kind === 'unread') unchecked.push('We could not read the token, so we cannot say whether it is safe.');
   else if (safety.kind === 'absent') refused.push('The token does not exist.');
   else {
-    if (safety.verdict === 'blocked') refused.push('This token is blocked on this site (see why above).');
+    // Said as what this site does not do, never as the token being "blocked" (owner ruling 2026-10-07).
+    if (safety.verdict === 'blocked') refused.push('This site does not add to pools for this token (see why above).');
     const has = (code: SafetyReason['code']) => safety.warnings.some((w) => w.code === code);
     const pool = action === 'deposits' ? 'this pool' : 'the pool you open';
     // A name on WELL_KNOWN_NAMES (SOL, USDC, USDT, BAYLA, TOWELI and the island's Solana
@@ -260,22 +294,26 @@ export function assessPool(input: {
   } else if (reference?.kind === 'ok') {
     price = comparePrice(poolPrice, reference.perToken, 'outside');
   } else if (tokenBlocked) {
-    price = { state: 'skipped', pool: poolPrice, detail: 'not compared, because the token is blocked' };
+    price = { state: 'skipped', pool: poolPrice, detail: 'not compared, because this site does not add to pools for this token' };
   } else if (reference?.kind === 'no-route') {
     // Only when Jupiter ANSWERED "no route". A failed read is not "no outside market":
     // the token may trade elsewhere at another price, so it stays unread below.
     if (isLaunchPool) {
+      // `too-new`: its record was READ and is too short to prove anything. That is an
+      // answer, so a warning. A record that could not be read or used is `unread`.
       const own = ownPriceOf(view, tokenDecimals, chainNow);
       price =
         own.kind === 'ok'
           ? comparePrice(poolPrice, own.solPerToken, 'own-average')
           : own.kind === 'no-trades'
             ? { state: 'no-trades-yet', pool: poolPrice }
-            : { state: 'unread', pool: poolPrice, detail: `no outside price (${reference.detail}), and its own price history could not be used: ${own.detail}` };
+            : own.kind === 'too-new'
+              ? { state: 'too-new', pool: poolPrice, historySecs: own.historySecs }
+              : { state: 'unread', pool: poolPrice, detail: `no outside price (${reference.detail}), and its own price history could not be used: ${own.detail}` };
     } else {
       // A pool anyone could open has no history worth trusting, so there is no reference
       // at all. That is an answer, said as a warning, and never "the checks pass" in silence.
-      price = { state: 'no-market', pool: poolPrice, detail: reference.detail };
+      price = { state: 'no-market', of: reference.of, pool: poolPrice, detail: reference.detail };
     }
   } else {
     price = { state: 'unread', pool: poolPrice, detail: reference?.detail ?? 'not asked' };
@@ -300,9 +338,13 @@ export function assessPool(input: {
   }
   if (price.state === 'no-market') {
     warnings.push(
-      'Jupiter has no market price for this token, so this pool’s price was not checked against anything. If it is off, a deposit here hands the difference to whoever trades it back.',
+      // The coin's (owner ruling 2026-10-07) names the coin: the token has a price, so "this token" would be wrong.
+      price.of === 'coin'
+        ? `Jupiter has no price for ${view.quote.symbol} right now, so this pool’s price in ${view.quote.symbol} was not checked against anything. If it is off, a deposit here hands the difference to whoever trades it back.`
+        : 'Jupiter has no market price for this token, so this pool’s price was not checked against anything. If it is off, a deposit here hands the difference to whoever trades it back.',
     );
   }
+  if (price.state === 'too-new') warnings.push(TOO_NEW_WARNING);
 
   return {
     swaps,

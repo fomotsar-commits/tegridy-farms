@@ -597,6 +597,10 @@ describe('the market price in the coin', () => {
     );
     type(coinBox(panel, 'USDC'), '50');
     type(tokens(panel), '25');
+    // A read that FAILED is not an answer: unread, never a warning in its place, and
+    // Review stays off. (Jupiter ANSWERING "no route" for the coin is the test further down.)
+    expect(price(panel)).toHaveAttribute('data-price', 'unread');
+    expect(within(panel).queryByTestId('lp-create-warnings')).toBeNull();
     expect(reviewButton(panel)).toBeDisabled();
     expect(within(panel).getByTestId('lp-create-coin-price')).toHaveTextContent(
       'Review is off: the price of USDC could not be read, so your opening price cannot be checked in USDC. Press Read the market price again.',
@@ -893,6 +897,27 @@ describe('the pool to add to first is the chosen coin’s (advice, never a block
     type(coinBox(panel, 'USDC'), '50');
     type(tokens(panel), '25');
     expect(reviewButton(panel)).toBeEnabled();
+  });
+
+  // Owner ruling 2026-10-07: Jupiter has no price for the COIN the pool is paired with. The
+  // pool still takes deposits, with a warning, so the card still points to it and keeps its
+  // Add button. What it says of that pool names the coin: the token has a price, so nothing
+  // may say "Jupiter has no market price for this token".
+  it('a USDC pool when Jupiter has no price for USDC itself: the card points to it, names USDC, never "this token", and keeps Add', async () => {
+    const usdcPool = view({ quote: USDC_QUOTE });
+    const noRoute = { kind: 'no-route' as const, detail: 'Jupiter has no route for this token' };
+    mount(readers({ findPools: vi.fn(async () => search([usdcPool])), outsidePrice: vi.fn(async (mint: string) => (mint === USDC ? noRoute : priceOf(mint))) }));
+    const card = await offered();
+    const pool = await screen.findByTestId('lp-pool');
+    await waitFor(() => expect(pool).toHaveAttribute('data-add', 'offer'));
+    expect(pool).toHaveAttribute('data-price', 'no-market');
+    const refer = within(card).getByTestId('lp-create-refer');
+    expect((refer.textContent ?? '').replace(/\s+/g, ' ').trim()).toBe(
+      `This token already has a USDC pool on the public fee tier that takes deposits, with a warning (above). The biggest is ${usdcPool.address}, holding 2,000 USDC. Jupiter has no price for USDC right now, so that pool’s price in USDC was not checked against anything. Adding to it keeps liquidity in one place; a pool of your own starts at the price you set.`,
+    );
+    expect(card).not.toHaveTextContent(/no market price for this token|passes the checks|We suggest adding to it/);
+    expect(within(card).getByRole('button', { name: 'Add liquidity to that pool' })).toBeEnabled();
+    expect(within(card).getByRole('button', { name: 'Open a pool' })).toBeEnabled();
   });
 
   it('Create a pool on the first screen lands on the card, not in the form, when ANY coin has a pool to add to', async () => {
@@ -1268,26 +1293,66 @@ describe('a coin’s price is only ever the answer to the read that is out now',
     expect(reviewButton(panel)).toBeEnabled();
   });
 
-  // F8: Jupiter's own words for "no route" say "this token". Here the token HAS a price;
-  // it is the coin that has none, and that is a price that could not be read.
-  it('when Jupiter has no route for the COIN, the line names the coin, never "this token", and Review stays off', async () => {
+  // Owner ruling 2026-10-07 ("no, we do what we want"). Jupiter's own words for "no route"
+  // say "this token". Here the token HAS a price; it is the COIN that has none. That is an
+  // answer, so it switches nothing off: the form says there is no market price in the coin,
+  // offers nothing to match, says the check's warning above Review, and Review is on.
+  // Before, this was "could not be worked out" and Review was off with "Pair with another coin".
+  it.each([
+    ['BAYLA', BAYLA, '1000', 100],
+    ['USDC', USDC, '20', 2],
+  ] as const)('when Jupiter has no route for %s itself: the form names the coin, never "this token", warns above Review, and Review is ON', async (symbol, coinMint, amount, perToken) => {
+    const noRoute = { kind: 'no-route' as const, detail: 'Jupiter has no route for this token' };
+    const prepareLpCreate = notBuilt();
+    mount(readers({ outsidePrice: vi.fn(async (mint: string) => (mint === coinMint ? noRoute : priceOf(mint))) }), { api: { prepareLpCreate } });
+    const { panel } = await openPanel();
+    await pair(panel, symbol);
+    await waitFor(() => expect(market(panel)).toHaveTextContent(`Market price in ${symbol}: none. Jupiter has no price for ${symbol} right now.`));
+    expect(market(panel)).not.toHaveTextContent('this token');
+    expect(market(panel)).not.toHaveTextContent('could not be worked out');
+    // There is no market price to match: the button is not drawn, as for a token with none.
+    expect(within(panel).queryByTestId('lp-create-match')).toBeNull();
+    expect(within(panel).queryByRole('button', { name: 'Match the market price' })).toBeNull();
+    type(coinBox(panel, symbol), amount);
+    type(tokens(panel), '10');
+    expect(price(panel)).toHaveAttribute('data-price', 'no-market');
+    expect(price(panel)).toHaveTextContent(`Your opening price: 1 token = ${perToken} ${symbol}. There is no market price in ${symbol} to compare it with.`);
+    // The check's own sentence, above Review. USDC's own risk line is a separate notice.
+    const warnings = within(panel).getByTestId('lp-create-warnings');
+    expect(Array.from(warnings.querySelectorAll('p')).map((p) => p.textContent)).toEqual([
+      `Jupiter has no price for ${symbol} right now, so there is nothing to compare your opening price in ${symbol} with. You are setting the price yourself: if it is off, the first trades take the difference out of what you put in.`,
+    ]);
+    expect(warnings.compareDocumentPosition(reviewButton(panel)) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(reviewButton(panel).getAttribute('aria-describedby')).toContain(warnings.id);
+    // The token HAS a price: nothing on the form says it has none.
+    expect(panel).not.toHaveTextContent(/no market price for this token|no route for this token/);
+    // Nothing is switched off, and no line says it is.
+    expect(within(panel).queryByTestId('lp-create-coin-price')).toBeNull();
+    expect(panel).not.toHaveTextContent(/Review is off|Pair with another coin/);
+    expect(reviewButton(panel)).toBeEnabled();
+    await act(async () => {
+      fireEvent.click(reviewButton(panel));
+    });
+    // The builder is handed the chosen coin and its amount in the coin's own base units.
+    expect(prepareLpCreate).toHaveBeenCalledTimes(1);
+    expect(handed(prepareLpCreate)).toMatchObject({ tokenMint: MINT, quoteMint: new PublicKey(coinMint), quote: BigInt(amount) * UNIT[symbol], token: 10n * UNIT.token });
+  }, LONG);
+
+  it('what a screen reader hears once typing settles says there is no market price in the coin', async () => {
     const noRoute = { kind: 'no-route' as const, detail: 'Jupiter has no route for this token' };
     mount(readers({ outsidePrice: vi.fn(async (mint: string) => (mint === BAYLA ? noRoute : priceOf(mint))) }));
     const { panel } = await openPanel();
     await pair(panel, 'BAYLA');
-    await waitFor(() => expect(market(panel)).toHaveTextContent('Market price in BAYLA: could not be worked out (Jupiter has no route for BAYLA).'));
-    expect(market(panel)).not.toHaveTextContent('this token');
     type(coinBox(panel, 'BAYLA'), '1000');
     type(tokens(panel), '10');
-    // The token has a market, so a comparison is owed and cannot be made: unread, never a warning.
-    expect(price(panel)).toHaveAttribute('data-price', 'unread');
-    expect(within(panel).queryByTestId('lp-create-warnings')).toBeNull();
-    expect(reviewButton(panel)).toBeDisabled();
-    const why = within(panel).getByTestId('lp-create-coin-price');
-    expect(why).toHaveTextContent('Review is off: Jupiter has no market price for BAYLA right now, so your opening price cannot be checked in BAYLA. Pair with another coin, or try again later.');
-    // It was an answer, not a failed read: reading again cannot change it, so the line does not say to.
-    expect(why).not.toHaveTextContent('Read the market price again');
-  });
+    await waitFor(
+      () =>
+        expect(panel.querySelector('p.sr-only[role="status"]')).toHaveTextContent(
+          /^You would open the pool at 1 token = 100 BAYLA and get [\d.]+ pool shares\. There is no market price in BAYLA to compare it with: you are setting the price yourself\.$/,
+        ),
+      { timeout: 4_000 },
+    );
+  }, LONG);
 });
 
 describe('changing the coin is never silent', () => {
