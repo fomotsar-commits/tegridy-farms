@@ -6,6 +6,11 @@ page keeps the newest thirty days.
 
 ## [Unreleased]
 
+### 2026-10-07
+
+- Solana LP on a phone: the small links and buttons keep their finger-sized press area without stretching the page around them. The "what to do next" sentence reads as one paragraph again, the venue status card is back to the height it had, and "View on the explorer" is easier to press. With a keyboard, the focus ring goes round the words of each of them.
+- Pool shares and the lighthouse staking receipt: the site now serves a name and a picture for the BAYLA/SOL and BAYLA/USDC pool share tokens and for the Staked BAYLA receipt, at memetics.finance/mint/ followed by the token's address and .json. A wallet shows them only once that link is written on each token, which has not happened yet.
+
 ### 2026-10-06
 
 - Solana swap: a trade now goes to one of our own pools when that pool pays you at least as much as Jupiter, and to Jupiter when it does not. The line under the quote says which, and by how much. A swap in our pool opens a review with a test run before your wallet is asked, as adding liquidity does, and both prices are checked again when you press Buy. Our pools on the public fee tier are now found: the swap used to look only at the launch tier, and sent every trade to Jupiter whatever the line said.

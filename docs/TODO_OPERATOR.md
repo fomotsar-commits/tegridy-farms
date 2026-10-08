@@ -29,6 +29,61 @@ stop and say so — a surprise is information.
 
 ---
 
+## 🔴 2026-10-07: token names and pictures (`/mint/`): files first, then the chain
+
+The site serves a name and a picture for the BAYLA/SOL and BAYLA/USDC pool shares and for the
+Staked BAYLA receipt at `https://memetics.finance/mint/<mint address>.json`. A wallet shows them
+only once that link is written on each token. **The files must be live before any link is
+written.** A wallet that follows a link before its file exists gets the app page, and may keep
+that answer.
+
+1. **Merge just after a half-hour tick.** The monitor runs from trunk at :00 and :30. A run that
+   lands between the merge and the end of the deploy opens a `prod-incident` issue for the five
+   token probes. It closes by itself on the next green run.
+2. **After the deploy, check the files.** From the repo root: `node scripts/monitoring/venueHealth.mjs`.
+   **You should see** `UP` on all five `Token file` lines.
+3. **Dry run the receipt name.** In `frontend`: `node scripts/streamflow-receipt-name.mjs`.
+   **You should see** `files           live:` and `simulation      passed`. `NOT LIVE YET` means
+   stop; the lines under it say why.
+4. **Only then broadcast**, with the key of the lighthouse pool's authority,
+   `Fu7mNAv67sRbKynEp7gpPLaaEGHcE2R5Sq89AMTEtTb6` (the dry run prints it under `pool authority`):
+   `node scripts/streamflow-receipt-name.mjs --broadcast --keypair <key file> --rpc <keyed endpoint>`.
+   About 0.00024 SOL. **You should see** `confirmed. signature ...`. If it says `not confirmed`, do
+   not send again: run the dry run, which reads what the chain holds now.
+5. **The two pool-share links are written by the Squads vault**, through the pool program's new
+   instruction (a separate change). Nothing on the site side stops the vault writing them early,
+   so steps 1 and 2 come first there too.
+
+**Four things to know afterwards.**
+
+- **Never roll production back past this change once a link is on chain.** Every link would
+  answer the app page again. The monitor notices within 30 minutes, but a wallet that asked in
+  between may keep the wrong answer. Fix forward.
+- **A picture is never deleted.** If one is redesigned, the generator (in `frontend`:
+  `node scripts/generate-mint-identity.mjs`, run by hand) stops and asks for the old file name to
+  be added to `RETIRED_PICTURES` in `frontend/scripts/lib/mint-identity.mjs`. The old address has
+  to keep answering a picture for any wallet that still holds yesterday's file.
+- **After PR #754 (sharp 0.35.5) merges, run the generator once** and check `git status` shows
+  nothing. On sharp 0.35.4 it writes the committed pictures byte for byte. No test re-runs it, so a
+  new sharp could draw different bytes, and with them new picture addresses, the next time someone
+  runs it. If it stops and names a picture, that has happened: commit nothing and say so.
+- **The off-GitHub failover runner does not check the token files.** `scripts/ops/lib/synthetic.mjs`
+  is a separate copy of the probes. During a GitHub outage nobody is watching `/mint/`.
+
+**Three calls that are yours.** All three are off chain: edit `frontend/scripts/lib/mint-identity.mjs`,
+run the generator, and only the JSON files change.
+
+- **The four descriptions.** One sentence was added to the receipt's on 2026-10-07: "The amount
+  shown is your stake multiplied by your lock boost, not a count of BAYLA." A wallet shows the
+  receipt count, and on 2026-10-07 there were about 3.1 receipts for each BAYLA staked. The words
+  are yours to change.
+- **The default picture** (`frontend/public/mint/img/pool-share-93eea003.png`, a pale ring). It is
+  not one of the three you approved. It can change freely until a pool's record points at it.
+- **Optional:** end each named description with its own mint address, so a copy of the file on
+  someone else's token contradicts itself. The default file answers for any address under `/mint/`.
+
+---
+
 ## 🔴 2026-10-02: turn on error reports (PR #466), in this order
 
 Approved by the owner on 2026-10-02, with two decisions: **reports are kept 30 days, then

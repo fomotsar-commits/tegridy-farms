@@ -25,7 +25,7 @@ import {
   type Read,
   type SolanaRpc,
 } from '../lib/launcher/solana/curve';
-import { Card, Notice, Row } from '../components/solana/curve/ui';
+import { Card, ExplorerLink, Notice, Row } from '../components/solana/curve/ui';
 import { CurveStateCard } from '../components/solana/curve/CurveStateCard';
 import { WriteGateBanner } from '../components/solana/curve/WriteGateBanner';
 import { CreatorStakeFacts, LaunchIdentity } from '../components/solana/curve/LaunchIdentity';
@@ -268,14 +268,7 @@ export function SolanaLaunchView({
               : 'Not found yet. Your launch may still be landing. Do not launch it again.'}
           </Notice>
           <Row label="Transaction signature" value={pending.signature} />
-          <a
-            href={api.explorerTxUrl(pending.signature, gateState.cfg.cluster)}
-            target="_blank"
-            rel="noopener noreferrer nofollow"
-            className="underline text-white/80"
-          >
-            View on the explorer
-          </a>
+          <ExplorerLink href={api.explorerTxUrl(pending.signature, gateState.cfg.cluster)} />
           <p role="status" className="text-white/55">
             {recheckingPending ? 'Checking it on the network…' : (pendingCheckMessage ?? '')}
           </p>
