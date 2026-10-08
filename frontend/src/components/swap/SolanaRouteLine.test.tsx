@@ -56,6 +56,7 @@ interface Props {
   aggregatorPending?: boolean;
   retry?: number;
   ownUnavailable?: string | null;
+  aggregatorFail?: 'no-route' | 'unavailable' | null;
 }
 
 async function harness() {
@@ -72,7 +73,7 @@ async function harness() {
       aggregatorPending: props.aggregatorPending,
       retry: props.retry,
     });
-    return <SolanaRouteLine route={route} ownUnavailable={props.ownUnavailable} />;
+    return <SolanaRouteLine route={route} ownUnavailable={props.ownUnavailable} aggregatorFail={props.aggregatorFail} />;
   };
 }
 
@@ -333,6 +334,14 @@ describe('the words', () => {
       [{ state: 'not-searched', candidates: [] }, {}],
       [{ state: 'absent', candidates: [] }, {}],
       [quoted(ours(1_010_000n)), { aggregatorPending: true }],
+      // Nothing quoted the trade: what each side found is said.
+      ...(['error', 'unquotable', 'not-searched', 'absent'] as const).flatMap((state) =>
+        (['no-route', 'unavailable'] as const).map((fail): [{ state: string; candidates: never[] }, Props] => [
+          { state, candidates: [] },
+          { aggregatorQuote: null, aggregatorFail: fail },
+        ]),
+      ),
+      [quoted(ours(1_010_000n)), { aggregatorQuote: null, aggregatorFail: 'unavailable', ownUnavailable: 'the swap code did not load' }],
     ];
     for (const [q, props] of states) {
       quoteVenuePools.mockReturnValue(q);
