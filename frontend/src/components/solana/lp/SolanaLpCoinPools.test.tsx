@@ -24,6 +24,7 @@ import { decodeAmmConfig, decodePoolState } from '../../../lib/solana/cpswap/pro
 import type { Position } from '../../../lib/solana/lp/positions';
 import type { WalletFacts } from '../../../lib/solana/lp/walletFacts';
 import { buildPool, key, keyStartingWith } from '../../../lib/solana/lp/testkit.fixture';
+import { LP_COPY } from '../../../lib/launcher/solana/write/liquidity';
 import type { LpWriteApi } from '../curve/ports';
 import { fakeLpApi, LP_PROGRAM, unusedGateRpc } from './fakeLpWriteApi.fixture';
 
@@ -796,14 +797,18 @@ describe.each(COINS)('Remove liquidity from a pool paired with %s', (symbol, coi
     expect(review()).toBeEnabled();
   });
 
-  it('a token that is blocked on this site can still be taken out', async () => {
+  // Owner ruling 2026-10-07: the line says what this site does not do. It never says the
+  // token is "blocked". The builder's own notice says the same words (LP_COPY.tokenBlockedInform).
+  it('a token this site takes no new deposits of can still be taken out, and the line never calls it blocked', async () => {
     const v = view(coin, LOW);
     // A reason that still blocks: the pool program itself does not accept the token.
     const HOOK = 'It uses a transfer hook, a program that runs on every transfer and can refuse or redirect it. The pool program does not accept tokens with it.';
     const blocked: TokenSafety = { ...okToken(v.tokenMint), verdict: 'blocked', blocks: [{ code: 'extension', text: HOOK }] } as TokenSafety;
     const { panel, review } = await openRemove(v, { readers: { safety: vi.fn(async () => new Map([[v.tokenMint, blocked]])) } });
     fireEvent.click(within(panel).getByRole('button', { name: 'All' }));
-    expect(panel).toHaveTextContent(`This token is blocked on this site for new deposits (${HOOK}). You can still take your liquidity out.`);
+    expect(panel).toHaveTextContent(`This site does not take new deposits of this token (${HOOK}). You can still take your liquidity out.`);
+    expect(panel).toHaveTextContent(LP_COPY.tokenBlockedInform(HOOK));
+    expect(panel).not.toHaveTextContent(/blocked on this site|token is blocked/i);
     expect(review()).toBeEnabled();
   });
 
@@ -833,7 +838,7 @@ describe.each(COINS)('Remove liquidity from a pool paired with %s', (symbol, coi
     await waitFor(() => expect(within(card).getByTestId('lp-pool-warnings').querySelectorAll('p')).toHaveLength(3));
     // The Remove form carries none of them.
     fireEvent.click(within(panel).getByRole('button', { name: 'All' }));
-    expect(panel).not.toHaveTextContent(/freeze|copied|calls itself by|outside price|arbitrage|warning|blocked on this site/i);
+    expect(panel).not.toHaveTextContent(/freeze|copied|calls itself by|outside price|arbitrage|warning|blocked on this site|does not take new deposits/i);
     expect(within(panel).queryByTestId('lp-remove-may-lack-sol')).toBeNull();
     expect(review()).toBeEnabled();
     await act(async () => {

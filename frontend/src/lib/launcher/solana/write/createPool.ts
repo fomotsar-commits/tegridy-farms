@@ -23,7 +23,8 @@
 //   7. where the pool goes: the standard address only when it and its four derived
 //      accounts are all empty; otherwise the fresh key, whose own accounts must be;
 //   8-9. a fresh market price, and the opening check on it. A price more than 3% from
-//      the market, no market price at all, a copied name and a freezable token do not
+//      the market, no market price at all (for the token, or in the pairing coin because
+//      Jupiter has no route for that coin), a copied name and a freezable token do not
 //      stop the build: they go on the summary as warnings, with the estimated loss,
 //      for the review to say. A price that could not be read still stops it;
 //   10. the wallet's accounts (`accountCheck`, `wsolPlanFrom`);
@@ -518,14 +519,18 @@ export async function prepareLpCreate(rpc: WriteRpc, gate: LpOpenGate, reads: Lp
   const [outside, coinOutside] = await Promise.all([readPrice(mintText, decimals), quote.native ? null : readPrice(quote.mint, quote.decimals)]);
 
   // 9. The opening check. It builds when the price agrees with the market, and also when
-  // it is off or there is no market price at all: those two are warnings (below). Any
-  // other state is a price that was not read, and never builds.
+  // it is off or there is no market price at all: those two are warnings (below). "No
+  // market price" is Jupiter's own ANSWER that it has no route, for the token or (owner
+  // ruling 2026-10-07) for the pairing coin. Any other state is a price that was not
+  // read, and never builds.
   const opening = assessOpening({ tokenMint: mintText, quote, quoteAmount: a.quote, token: a.token, tokenDecimals: decimals, outside, coinOutside, safety });
   const price = opening.price;
   if (opening.verdict !== 'allowed' || (price.state !== 'agrees' && price.state !== 'disagrees' && price.state !== 'no-market')) {
     if (outside.kind === 'unread') return notSent('build', CREATE_COPY.priceUnread(outside.detail));
-    // The coin's own price only matters when there is a token price to compare with.
-    if (outside.kind === 'ok' && coinOutside && coinOutside.kind !== 'ok') return notSent('build', CREATE_COPY.coinPriceUnread(quote.symbol, coinPriceDetail(quote, coinOutside)));
+    // The coin's own price only matters when there is a token price to compare with. Only
+    // a read of it that FAILED is said here: "no route" for the coin is an answer, and
+    // never this refusal.
+    if (outside.kind === 'ok' && coinOutside && coinOutside.kind === 'unread') return notSent('build', CREATE_COPY.coinPriceUnread(quote.symbol, coinPriceDetail(quote, coinOutside)));
     return notSent('build', CREATE_COPY.notBuilt(opening.reasons));
   }
 

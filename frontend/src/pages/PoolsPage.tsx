@@ -100,8 +100,11 @@ export default function PoolsPage() {
             )}
           </p>
           <p className="text-[13px] mt-2">
-            <Link to={withMint('/solana-lp', params)} className="inline-block py-2 underline underline-offset-2 text-white hover:text-white/80">
-              {venueIsOpen ? SOLANA_LP_LINK[lpMode] : SOLANA_LP_LINK_NOT_OPEN}
+            {/* A finger-sized press area on a 19.5px line: 14px of padding above and below (47.5px).
+                The negative margin takes 6px of each back, so the line keeps the 8px it always had.
+                The keyboard's ring goes round the words (`ring-on-words`, index.css). */}
+            <Link to={withMint('/solana-lp', params)} className="inline-block py-3.5 -my-1.5 underline underline-offset-2 text-white hover:text-white/80 ring-on-words">
+              <span className="ring-words">{venueIsOpen ? SOLANA_LP_LINK[lpMode] : SOLANA_LP_LINK_NOT_OPEN}</span>
             </Link>
           </p>
         </m.div>

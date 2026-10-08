@@ -297,7 +297,7 @@ describe('always', () => {
     await mount();
     await settled();
     const program = screen.getByRole('region', { name: 'The program' });
-    expect(program).toHaveTextContent(/verbatim fork/i);
+    expect(program).toHaveTextContent(/one added instruction/i);
     const card = screen.getByRole('region', { name: 'Venue status' });
     expect(card.compareDocumentPosition(program) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });

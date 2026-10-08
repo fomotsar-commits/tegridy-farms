@@ -180,7 +180,7 @@ function RemoveInner({
       : null;
   const blockedLine =
     safety?.kind === 'read' && safety.verdict === 'blocked'
-      ? `This token is blocked on this site for new deposits (${safety.blocks[0]?.text ?? 'see the token check'}). You can still take your liquidity out.`
+      ? `This site does not take new deposits of this token (${safety.blocks[0]?.text ?? 'see the token check'}). You can still take your liquidity out.`
       : null;
 
   const value = position.value;

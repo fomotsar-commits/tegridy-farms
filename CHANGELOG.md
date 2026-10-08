@@ -9,9 +9,11 @@ page keeps the newest thirty days.
 ### 2026-10-08
 
 - Solana swap: fewer steps and less to read. A swap in one of our own pools now goes from Buy straight to your wallet when it pays at least the minimum the form showed and nothing needs reading first; the review screen shows only when something needs a second look. When it lands, one line says so and the form is ready again. The risk tick-box is gone for SOL, USDC and our BAYLA, and for any other unverified token it is asked once per token on your device. Slippage and speed sit on one line, the details fold away, a large price impact is still said in view, the route is one short sentence, our BAYLA is first in the token list and marked as ours, every token row shows part of its address, and the button says Sell when you are selling.
+- Solana LP: two things that used to switch Add liquidity or Open a pool off are now warnings you read before you sign. A pool priced in a coin Jupiter has no price for right now (in practice only BAYLA) can still be opened and added to, and, once launching is switched on, a launch pool Jupiter has no price for takes deposits in its first 10 minutes of trading. A price that could not be read still switches both off. A token the site will not open or add to pools for is no longer called "blocked": the page says what the site does not do, and why.
 
 ### 2026-10-07
 
+- Solana LP on a phone: the small links and buttons keep their finger-sized press area without stretching the page around them. The "what to do next" sentence reads as one paragraph again, the venue status card is back to the height it had, and "View on the explorer" is easier to press. With a keyboard, the focus ring goes round the words of each of them.
 - Pool shares and the lighthouse staking receipt: the site now serves a name and a picture for the BAYLA/SOL and BAYLA/USDC pool share tokens and for the Staked BAYLA receipt, at memetics.finance/mint/ followed by the token's address and .json. A wallet shows them only once that link is written on each token, which has not happened yet.
 
 ### 2026-10-06
