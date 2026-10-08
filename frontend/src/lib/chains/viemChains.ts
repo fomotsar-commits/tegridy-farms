@@ -9,6 +9,7 @@ import { fallback, http } from 'wagmi';
 import { mainnet, base } from 'wagmi/chains';
 import { defineChain, type Chain } from 'viem';
 import type { Transport } from 'viem';
+import { fetchWholeBody } from '../fetchWholeBody';
 import { CONFIGURED_CHAIN_IDS } from './registry';
 
 /**
@@ -56,13 +57,17 @@ const RANK_OPTIONS = {
     transport.request({ method: 'eth_blockNumber' }),
 } as const;
 
+// viem's timeout (10 s a read, 2 s a ranker ping) ends when the headers land. Every roster
+// host is built here, so that clock runs until the body has been read as well.
+const rpc = (url: string) => http(url, { fetchFn: fetchWholeBody });
+
 const TRANSPORTS: Record<number, Transport> = {
   [mainnet.id]: fallback(
     [
       // Roster re-verified live 2026-06-14 via a REAL read; see wagmi.ts history
       // for why cloudflare-eth / ankr / llamarpc are out.
-      http(MAINNET_RPC),
-      http('https://eth.drpc.org'),
+      rpc(MAINNET_RPC),
+      rpc('https://eth.drpc.org'),
       // eth.merkle.io DROPPED 2026-08-25: 429s every request — dead third slot
       // that burned a retry per rotation. Re-verify with a real read before re-adding.
     ],
@@ -70,14 +75,14 @@ const TRANSPORTS: Record<number, Transport> = {
   ),
   [base.id]: fallback(
     [
-      http('https://base-rpc.publicnode.com'),
-      http('https://base.drpc.org'),
+      rpc('https://base-rpc.publicnode.com'),
+      rpc('https://base.drpc.org'),
       // KEPT DELIBERATELY. This host answers eth_blockNumber/eth_call with HTTP
       // 200 and `access-control-allow-origin: *`; it only rejects the ranker's
       // default net_listening probe with a 403. A console full of 403s from this
       // host is RANK_OPTIONS working, not a failed read — do not drop it on that
       // evidence. Re-verified with a browser Origin header 2026-09-03.
-      http('https://mainnet.base.org'),
+      rpc('https://mainnet.base.org'),
     ],
     { rank: RANK_OPTIONS },
   ),
@@ -89,7 +94,7 @@ const TRANSPORTS: Record<number, Transport> = {
       // weakest member.
       // Also -32601s net_listening (200, not 403) — same reason RANK_OPTIONS
       // overrides the ping.
-      http('https://rpc.mainnet.chain.robinhood.com'),
+      rpc('https://rpc.mainnet.chain.robinhood.com'),
     ],
     { rank: RANK_OPTIONS },
   ),
