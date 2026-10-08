@@ -16,6 +16,7 @@ export const OWN_ROUTE_COPY = {
   poolGone: 'Our own pool could not be quoted just now, so nothing was sent. Press again.',
   ownNowWins: 'Our own pool now pays at least as much as Jupiter for this trade. Check the new route and press again.',
   notChecked: 'Our own pools did not answer in time, so nothing was sent. Press again.',
+  formChanged: 'The trade on the form changed while its route was being checked, so nothing was sent.',
 } as const;
 
 const notBuilt = (message: string): Prepared => ({ ok: false, outcome: { status: 'not-sent', stage: 'build', message } });

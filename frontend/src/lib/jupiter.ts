@@ -131,9 +131,10 @@ export async function getQuote(params: {
   slippageBps: number;
   signal?: AbortSignal;
   /**
-   * Ask for the quote with NO platform fee even on a fee-supported pair. Only
-   * the fee retry in lib/solana/swap/jupiterFeeRetry.ts sets this, and only
-   * after the fee-bearing build failed simulation with Jupiter's 6014.
+   * Ask for the quote with NO platform fee even on a fee-supported pair. Set only
+   * after a fee-bearing build of the pair failed simulation with Jupiter's 6014:
+   * by the fee retry (lib/solana/swap/jupiterFeeRetry.ts), and by the swap page's
+   * later quotes of that pair.
    */
   noPlatformFee?: boolean;
 }): Promise<JupiterQuote> {

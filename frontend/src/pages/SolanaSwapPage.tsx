@@ -1249,11 +1249,15 @@ function SolanaSwapInner() {
   });
   const [detailToken, setDetailToken] = useState<SolToken | null>(null);
   const [quote, setQuote] = useState<JupiterQuote | null>(null);
-  // The no-fee re-quote the send path took after Jupiter's 6014, if that is the
-  // quote on screen. Compared by identity below, so ANY other quote landing
-  // (a re-quote on an edit, a new pair, the clear after a buy) ends it by itself.
+  // The no-fee quote on screen, if that is the one: the send path's re-quote after
+  // Jupiter's 6014, or a quote of a pair where that was found. Compared by identity, so
+  // any other quote landing ends it by itself.
   const [waivedQuote, setWaivedQuote] = useState<JupiterQuote | null>(null);
   const feeWaived = quote !== null && quote === waivedQuote;
+  // Pairs (pay|buy) whose fee-bearing Jupiter transaction failed with its 6014, so the
+  // no-fee one is what this site sends (swap/jupiterFeeRetry.ts). Kept for the pair, not
+  // on one quote: every quote of it is the no-fee one until a fee-bearing build runs clean.
+  const noFeePairs = useRef<Set<string>>(new Set());
   const [quoteLoading, setQuoteLoading] = useState(false);
   // Why there is no quote, when one was asked for and none came back.
   // 'no-route' is ONLY the quote service's own answer (lib/jupiter.ts
@@ -1329,15 +1333,18 @@ function SolanaSwapInner() {
     // numbers to avoid blanking the panel on every keystroke.
     setQuote((q) => (q && (q.inputMint !== payToken.mint || q.outputMint !== buyToken.mint) ? null : q));
     const t = setTimeout(() => {
+      const noFee = noFeePairs.current.has(`${payToken.mint}|${buyToken.mint}`);
       getQuote({
         inputMint: payToken.mint,
         outputMint: buyToken.mint,
         amount: baseAmount,
         slippageBps,
         signal: ctrl.signal,
+        ...(noFee ? { noPlatformFee: true } : {}),
       })
         .then((q) => {
           if (ctrl.signal.aborted) return;
+          if (noFee) setWaivedQuote(q);
           setQuote(q); setQuoteFail(null); setQuoteLoading(false);
         })
         .catch((err: unknown) => {
@@ -1392,9 +1399,6 @@ function SolanaSwapInner() {
   );
   const route = useSolanaRoute({ inputMint: payToken.mint, outputMint: buyToken.mint, amountInRaw, aggregatorQuote, aggregatorPending: quoteLoading, retry: quoteAttempt });
   const forgetPools = route.forget;
-  // Set when a press on our pool's route found Jupiter's no-fee route pays more and put
-  // THAT quote on screen: asking for a quote again would bring back the fee-bearing one.
-  const keepQuote = useRef(false);
 
   // What a swap in our own pool was, kept from the press of Buy for when it settles:
   // the pair on the form can change under an open review (a pick from the rails below).
@@ -1423,10 +1427,6 @@ function SolanaSwapInner() {
       // Whatever the answer, our pools are read again before they are quoted again: the
       // pool traded, or the press found it other than the read the line was drawn from.
       forgetPools();
-      if (keepQuote.current) {
-        keepQuote.current = false;
-        return;
-      }
       // Whatever the answer, the numbers under the form are asked for again.
       setQuoteAttempt((n) => n + 1);
     },
@@ -1500,6 +1500,14 @@ function SolanaSwapInner() {
   }, [flowState, explorerOwn, ownCluster, resetOwn, buyRef]);
   // A swap sent from this browser and not confirmed yet holds every buy until it is checked.
   const pendingNote = venueSwap.pending.notes.length > 0;
+
+  // The trade on the form, for a press that answers late (ownPoolTakesIt). Updated after
+  // each render, never during one.
+  const formKey = `${payToken.mint}|${buyToken.mint}|${baseAmount ?? ''}`;
+  const formNow = useRef(formKey);
+  useEffect(() => {
+    formNow.current = formKey;
+  }, [formKey]);
 
   // Our pool takes the trade when the decision names it AND a swap in it can be
   // prepared here. When it cannot, the trade goes through Jupiter and the line says why.
@@ -1625,9 +1633,8 @@ function SolanaSwapInner() {
     const priority = speed;
     void venueSwap.flow.prepare(
       async () => {
-        // Jupiter's no-fee quote for this trade, when THAT is what its transaction would pay;
-        // its fresh quote; and whether its transaction passed its test run (null: not run yet).
-        const seen: { noFee: JupiterQuote | null; fresh: JupiterQuote | null; sends: boolean | null } = { noFee: null, fresh: null, sends: null };
+        // Jupiter's fresh quote, and whether its transaction passed its test run (null: not run).
+        const seen: { fresh: JupiterQuote | null; sends: boolean | null } = { fresh: null, sends: null };
         const jupiterTx = (fresh: JupiterQuote) =>
           prepareJupiterSwap(
             { getQuote, buildSwapTransaction, simulateSwap, swapCarriesPlatformFee },
@@ -1657,7 +1664,9 @@ function SolanaSwapInner() {
                 // A refused transaction's quote still holds our pool to it while our pool
                 // beats it; above our pool, aggregatorSends says it is no route.
                 if (j.status === 'blocked') return quotedOut;
-                if (j.status === 'moved' || j.siteFeeWaived) seen.noFee = j.quote;
+                // Kept for the pair pressed, whatever the form shows by now: its next quote is the no-fee one.
+                if (j.status === 'moved' || j.siteFeeWaived) noFeePairs.current.add(`${inputMint}|${outputMint}`);
+                else noFeePairs.current.delete(`${inputMint}|${outputMint}`);
                 return BigInt(j.quote.outAmount);
               } catch {
                 seen.sends = true;
@@ -1688,13 +1697,8 @@ function SolanaSwapInner() {
           },
           shownAggregatorOut,
         );
-        // Jupiter's no-fee route took the trade. Its quote goes on screen, marked as the
-        // no-fee one, so the line and Buy are Jupiter's when the trader starts over.
-        if (!built.ok && built.outcome.message === OWN_ROUTE_COPY.routeMoved && seen.noFee) {
-          keepQuote.current = true;
-          setWaivedQuote(seen.noFee);
-          setQuote(seen.noFee);
-        }
+        // Nothing here writes to the page: the form may hold another trade by now, and the
+        // settle's re-quote puts Jupiter's no-fee route on screen when that is what took it.
         return built;
       },
       { repeatable: true },
@@ -1709,6 +1713,7 @@ function SolanaSwapInner() {
    * on screen yet (our pools still being read), a read that does not answer sends nothing.
    */
   async function ownPoolTakesIt(q: JupiterQuote, noSiteFee: boolean): Promise<boolean> {
+    const pressedFor = formNow.current;
     // Not when our pools were found to hold nothing for this pair, and not when a swap
     // in them cannot be prepared here: the route would change to one that cannot run.
     const mayCompete = !venueSwap.unavailable && (route.own === 'quoted' || route.own === 'pending' || route.own === 'error');
@@ -1723,6 +1728,11 @@ function SolanaSwapInner() {
     // The press's render: no comparison with our pools was on screen.
     const unread = route.own === 'pending';
     const own = await within<Awaited<ReturnType<typeof route.refresh>> | null>(route.refresh(amountIn), OWN_CHECK_MS, null);
+    // The trade on the form changed while our pools were read: the one pressed is not sent.
+    if (formNow.current !== pressedFor) {
+      toast.info('Not sent', { description: OWN_ROUTE_COPY.formChanged });
+      return true;
+    }
     if (own === null && unread) {
       toast.error('Route not checked', { description: OWN_ROUTE_COPY.notChecked });
       return true;
@@ -1809,6 +1819,9 @@ function SolanaSwapInner() {
         toast.error('Swap would fail — not sending', { description: prepared.reason ?? 'Simulation reverted on-chain.' });
         return;
       }
+      // What the test run found is kept for the pair: its next quote asks for what Jupiter's transaction from this site pays.
+      if (prepared.status === 'moved' || prepared.siteFeeWaived) noFeePairs.current.add(`${payToken.mint}|${buyToken.mint}`);
+      else noFeePairs.current.delete(`${payToken.mint}|${buyToken.mint}`);
       if (prepared.status === 'moved') {
         // The no-fee re-quote is on screen now, labelled as such; nothing was sent.
         setWaivedQuote(prepared.quote);
