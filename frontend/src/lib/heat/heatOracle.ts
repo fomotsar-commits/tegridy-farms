@@ -5,6 +5,8 @@
 // a wallet is always the served `tier`; tierFor() only places a number on the ladder.
 // No curve, formula, averaging window or decay schedule lives here (islandClaims.test.ts).
 
+import { servedCount } from './roomRank';
+
 /** Tier words. Rendered VERBATIM — never restyled, never translated into yield language. */
 export type HeatTier = 'Elder' | 'Builder' | 'Resident' | 'Observer' | 'Drifter';
 
@@ -39,6 +41,11 @@ export interface HeatBreakdownRow {
   /** The island's flag for a mint it no longer scans; HeatCard greys the row. Absent or
    *  non-boolean reads false. */
   retired: boolean;
+  /** The wallet's place in this room and how many the island measures there, as served.
+   *  Null when the field did not arrive: the island sends no rank for a wallet it does
+   *  not rank. Printed by roomRankLine, never worked out here. */
+  roomRank: number | null;
+  roomHolders: number | null;
 }
 
 export interface HeatReading {
@@ -59,9 +66,18 @@ export interface HeatReading {
   /** The flame's X handle stored bare (see normalizeXHandle), or null when unnamed. One
    *  form in memory, so handles are never compared with the @ in place. */
   xHandle: string | null;
+  /** The island's own countdowns, in days: to the tier above the served one, and to the
+   *  launch floor. Null until the island serves them (it does not yet). Never computed here. */
+  daysToNextTier: number | null;
+  daysToPlant: number | null;
 }
 
 const TIER_WORDS = new Set<string>(['Elder', 'Builder', 'Resident', 'Observer', 'Drifter']);
+
+/** A served number of days: a whole number of zero or more, or null. */
+function servedDays(value: unknown): number | null {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0 ? value : null;
+}
 
 /** A real answer, or an outage wearing a 200? A reason string, or null when trustworthy.
  *  An unreachable oracle must never read as `is_cold` or as a passing score. */
@@ -113,6 +129,8 @@ export function parseHeatReading(payload: unknown): HeatReading {
     // /api/heat serves `x_handle` (the board serves `x_username`). A missing handle is
     // an unnamed flame, not an envelope failure.
     xHandle: normalizeXHandle(p.x_handle),
+    daysToNextTier: servedDays(p.days_to_next_tier),
+    daysToPlant: servedDays(p.days_to_plant),
     breakdown: rows.map((b) => ({
       tokenAddress: String(b.token_address ?? ''),
       chain: String(b.chain ?? ''),
@@ -122,6 +140,8 @@ export function parseHeatReading(payload: unknown): HeatReading {
       firstSeenAtUnix: typeof b.first_seen_at_unix === 'number' ? b.first_seen_at_unix : null,
       lastTransferAtUnix: typeof b.last_transfer_at_unix === 'number' ? b.last_transfer_at_unix : null,
       retired: b.retired === true,
+      roomRank: servedCount(b.room_rank),
+      roomHolders: servedCount(b.room_holders),
     })),
   };
 }
@@ -227,6 +247,13 @@ export function gateDecision(
 export function tierFor(degrees: number): HeatTier {
   for (const t of TIER_FLOORS) if (degrees >= t.floor) return t.tier;
   return 'Drifter';
+}
+
+/** The rung above a served tier word, or null at Elder: the tier the island's
+ *  days_to_next_tier counts toward. From the word, never from the degrees. */
+export function tierAbove(tier: HeatTier): HeatTier | null {
+  const i = TIER_FLOORS.findIndex((t) => t.tier === tier);
+  return i > 0 ? TIER_FLOORS[i - 1]!.tier : null;
 }
 
 /** The tier a floor sits exactly on, or null between rungs: the word named beside the

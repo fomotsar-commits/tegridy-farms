@@ -10,6 +10,7 @@ import {
   isStale,
   tierFor,
   tierAtFloor,
+  tierAbove,
   nextTier,
   gateDecision,
   TIER_FLOORS,
@@ -525,6 +526,94 @@ describe('tierAtFloor', () => {
     for (const t of TIER_FLOORS) {
       const named = tierAtFloor(t.floor);
       if (named !== null) expect(named).toBe(tierFor(t.floor));
+    }
+  });
+});
+
+// The island's place in a room. Real bytes from memetics.wtf/api/heat/<address>, read
+// 2026-10-08T07:33Z: the Workshop's wallet (ranked 1st of 515 in the BAYLA room) and the
+// Glasshouse's (room_rank null beside a served tier and count, since its bag was locked).
+describe("a room's served rank and count", () => {
+  const RANKED = {"address":"G2EHPseTXetHbBvvRDs27XQyXfQikXXyxP9uMbsKrbu","degrees":81.72,"tier":"Resident","is_cold":false,"held_since_unix":1786120850,"as_of_unix":1791374693,"token_count":1,"breakdown":[{"token_address":"7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump","chain":"solana","name":"Bayla","symbol":"BAYLA","heat_degrees":81.72,"first_seen_at_unix":1786120850,"last_transfer_at_unix":1786673480,"retired":false,"room_tier":"Resident","room_rank":1,"room_holders":515,"room_as_of_unix":1791374693}],"x_handle":null};
+  const UNRANKED = {"address":"8fpLEfNcE3KXDPaXnkWsHK4pxsdEmqekqyaVqDrupnjt","degrees":80.41,"tier":"Resident","is_cold":false,"held_since_unix":1786227653,"as_of_unix":1791374693,"token_count":1,"breakdown":[{"token_address":"7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump","chain":"solana","name":"Bayla","symbol":"BAYLA","heat_degrees":80.41,"first_seen_at_unix":1786227653,"last_transfer_at_unix":1786227653,"retired":false,"room_tier":"Resident","room_rank":null,"room_holders":515,"room_as_of_unix":1791374693}],"x_handle":null};
+  const withRow = (extra: Record<string, unknown>) => ({
+    ...RANKED,
+    breakdown: [{ ...RANKED.breakdown[0], ...extra }],
+  });
+
+  it('both envelopes are trustworthy', () => {
+    expect(heatEnvelopeFailure(RANKED)).toBeNull();
+    expect(heatEnvelopeFailure(UNRANKED)).toBeNull();
+  });
+
+  it('keeps the rank and the count the island served', () => {
+    const row = parseHeatReading(RANKED).breakdown[0]!;
+    expect(row.roomRank).toBe(1);
+    expect(row.roomHolders).toBe(515);
+  });
+
+  it('reads a null rank as no rank, and still keeps the count', () => {
+    const row = parseHeatReading(UNRANKED).breakdown[0]!;
+    expect(row.roomRank).toBeNull();
+    expect(row.roomHolders).toBe(515);
+  });
+
+  it('reads a row that carries neither field as no rank and no count', () => {
+    // Every envelope before the island added the fields, and any row it stops sending them on.
+    const row = parseHeatReading(WARM).breakdown[0]!;
+    expect(row.roomRank).toBeNull();
+    expect(row.roomHolders).toBeNull();
+  });
+
+  it('never coerces a value that is not a whole number of one or more', () => {
+    for (const v of ['12', 0, -1, 2.5, true]) {
+      const row = parseHeatReading(withRow({ room_rank: v, room_holders: v })).breakdown[0]!;
+      expect(row.roomRank, `rank ${String(v)}`).toBeNull();
+      expect(row.roomHolders, `count ${String(v)}`).toBeNull();
+    }
+  });
+
+  it('leaves the row’s served degrees alone', () => {
+    expect(parseHeatReading(RANKED).breakdown[0]!.degrees).toBe(81.72);
+  });
+});
+
+describe('tierAbove', () => {
+  it('names the rung above a served tier word, and nothing above Elder', () => {
+    expect(tierAbove('Drifter')).toBe('Observer');
+    expect(tierAbove('Observer')).toBe('Resident');
+    expect(tierAbove('Resident')).toBe('Builder');
+    expect(tierAbove('Builder')).toBe('Elder');
+    expect(tierAbove('Elder')).toBeNull();
+  });
+});
+
+// The island has said it will serve two countdowns in the heat answer. Neither is served
+// yet (read 2026-10-08), so today both parse to null and nothing is printed.
+describe('the days the island counts down', () => {
+  it('reads both as absent from today’s envelope', () => {
+    const r = parseHeatReading(WARM);
+    expect(r.daysToNextTier).toBeNull();
+    expect(r.daysToPlant).toBeNull();
+  });
+
+  it('keeps them once the island serves them', () => {
+    const r = parseHeatReading({ ...WARM, days_to_next_tier: 14, days_to_plant: 41 });
+    expect(r.daysToNextTier).toBe(14);
+    expect(r.daysToPlant).toBe(41);
+  });
+
+  it('keeps a served zero: the day itself', () => {
+    const r = parseHeatReading({ ...WARM, days_to_next_tier: 0, days_to_plant: 0 });
+    expect(r.daysToNextTier).toBe(0);
+    expect(r.daysToPlant).toBe(0);
+  });
+
+  it('reads anything but a whole number of days as absent', () => {
+    for (const v of [null, '14', -1, 2.5, NaN, true]) {
+      const r = parseHeatReading({ ...WARM, days_to_next_tier: v, days_to_plant: v });
+      expect(r.daysToNextTier, String(v)).toBeNull();
+      expect(r.daysToPlant, String(v)).toBeNull();
     }
   });
 });
