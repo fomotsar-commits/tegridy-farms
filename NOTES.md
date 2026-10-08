@@ -15,6 +15,29 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-10-07: a Playwright route can play any way a host goes wrong
+
+**Believed:** `page.route` covers every network failure a browser test needs: refuse the
+request, hold it, or answer it.
+
+**Measured:** a route answers with a whole body or not at all (`route.fulfill` takes the
+body in one piece), so "headers and half a body, then nothing" cannot be played through it.
+What worked, on Chromium 151 with the production build untouched: a local Node `https`
+server with a self-signed certificate that writes the headers and half the body and never
+ends the response; Chromium started with
+`--host-resolver-rules=MAP <rpc host> 127.0.0.1:<port>` for each host; and the context
+opened with `ignoreHTTPSErrors: true`. The bundle, its URLs and its CSP stay as shipped.
+The server sees when the browser hangs up (`res.on('close')`), which is the moment an
+abort landed: 10.0 s for every read, 2.0 s for every ranker ping. While any route was
+registered on the context, no CORS preflight reached the server; only the POSTs did. In two
+runs started together on a busy machine, the first round of 2 s pings never reached the
+server and the round a minute later did; in a run by itself they arrived at once. Why was
+not established.
+
+**Do:** to stall a body in a real browser, resolve the hostname to a server of your own
+instead of routing the request. Run one browser at a time when the first seconds matter,
+and log every timestamp against one start point.
+
 ## 2026-10-07: timing a body read that a library leaves untimed takes a second timer
 
 **Believed:** viem's request timeout stops at the headers, so covering the body means
