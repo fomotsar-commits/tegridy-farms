@@ -8,7 +8,7 @@ page keeps the newest thirty days.
 
 ### 2026-10-08
 
-- Solana LP: two things that used to switch Add liquidity or Open a pool off are now warnings you read before you sign. A launch pool Jupiter has no price for takes deposits in its first 10 minutes of trading, and a pool priced in a coin Jupiter has no price for right now (in practice only BAYLA) can still be opened and added to. A price that could not be read still switches both off. A token the site will not open or add to pools for is no longer called "blocked": the page says what the site does not do, and why.
+- Solana LP: two things that used to switch Add liquidity or Open a pool off are now warnings you read before you sign. A pool priced in a coin Jupiter has no price for right now (in practice only BAYLA) can still be opened and added to, and, once launching is switched on, a launch pool Jupiter has no price for takes deposits in its first 10 minutes of trading. A price that could not be read still switches both off. A token the site will not open or add to pools for is no longer called "blocked": the page says what the site does not do, and why.
 
 ### 2026-10-07
 

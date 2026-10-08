@@ -920,6 +920,24 @@ describe('the pool to add to first is the chosen coin’s (advice, never a block
     expect(within(card).getByRole('button', { name: 'Open a pool' })).toBeEnabled();
   });
 
+  // The same ruling, on the line a person lands on right after opening such a pool: it
+  // names the coin too. A review (2026-10-08) put the wrong coin's name on this line and
+  // every test passed; the line above was held, this one was not.
+  it.each([USDC_QUOTE, BAYLA_QUOTE])('a $symbol pool this tab opened when Jupiter has no price for $symbol: the "You opened" line names the coin', async (coin) => {
+    const mine = view({ quote: coin });
+    rememberCreatedPool(mine.address);
+    const noRoute = { kind: 'no-route' as const, detail: 'Jupiter has no route for this token' };
+    mount(readers({ findPools: vi.fn(async () => search([mine])), outsidePrice: vi.fn(async (mint: string) => (mint === coin.mint ? noRoute : priceOf(mint))) }));
+    const card = await offered();
+    await waitFor(() => expect(screen.getByTestId('lp-pool')).toHaveAttribute('data-price', 'no-market'));
+    await waitFor(() => expect(card).toHaveAttribute('data-advice', 'opened-here'));
+    const opened = within(card).getByTestId('lp-create-opened');
+    expect((opened.textContent ?? '').replace(/\s+/g, ' ').trim()).toBe(
+      `You opened a ${coin.symbol} pool for this token just now (${mine.address}). Your share is under 'Your positions'. Jupiter has no price for ${coin.symbol} right now, so that pool’s price in ${coin.symbol} was not checked against anything. Adding to it keeps liquidity in one place; a pool of your own starts at the price you set.`,
+    );
+    expect(card).not.toHaveTextContent(/no market price for this token/);
+  }, LONG);
+
   it('Create a pool on the first screen lands on the card, not in the form, when ANY coin has a pool to add to', async () => {
     const usdcPool = view({ quote: USDC_QUOTE });
     mount(readers({ findPools: vi.fn(async () => search([usdcPool])) }));
