@@ -92,6 +92,7 @@ const h = vi.hoisted(() => ({
   resolveMint: vi.fn(),
   getShield: vi.fn(),
   readVenue: vi.fn(),
+  recheckOutcome: vi.fn(),
   loadFails: { value: false },
   toast: { success: vi.fn(), error: vi.fn(), info: vi.fn(), warning: vi.fn() },
   /** What our pool pays for the trade on screen; a test moves it to move the pool. */
@@ -156,7 +157,7 @@ vi.mock('../components/swap/venueSwapApi', () => ({
     readSwapGate: (...a: unknown[]) => h.readSwapGate(...a),
     prepareVenueSwap: (...a: unknown[]) => h.prepareVenueSwap(...a),
     submitPrepared: (...a: unknown[]) => h.submitPrepared(...a),
-    recheckOutcome: async (_rpc: unknown, signature: string) => ({ status: 'unknown', signature, message: 'not asked' }),
+    recheckOutcome: (...a: unknown[]) => h.recheckOutcome(...a),
     explorerTxUrl: (sig: string) => `https://solscan.io/tx/${sig}`,
     meta: { displaySafe: (s: string) => s },
   }),
@@ -177,7 +178,7 @@ vi.mock('@solana/wallet-adapter-react', () => ({
 import SolanaSwapPage from './SolanaSwapPage';
 import { getActivity } from '../lib/solanaActivity';
 import { OWN_ROUTE_COPY } from '../lib/solana/swap/ownPoolRoute';
-import { SWAP_PENDING_SCOPE, savePendingTrade } from '../components/solana/curve/pendingTrade';
+import { SWAP_PENDING_SCOPE, readPendingTrades, savePendingTrade } from '../components/solana/curve/pendingTrade';
 import { DECLINED_IN_WALLET } from '../lib/solana/swap/walletCopy';
 
 // The first test here pays for the page's first render (see SolanaSwapPage.feeRetry.test.tsx).
@@ -200,6 +201,7 @@ beforeEach(() => {
   h.loadFails.value = false;
   h.prices.value = {};
   h.height.value = 10;
+  h.recheckOutcome.mockImplementation(async (_rpc: unknown, signature: string) => ({ status: 'unknown', signature, message: 'not asked' }));
   h.readVenue.mockImplementation(async () => ({ kind: 'live', programId: PROGRAM, config: TIER1_CONFIG }));
   h.getQuote.mockImplementation(async () => jupiterQuote('1000000'));
   h.buildSwapTransaction.mockImplementation(async () => JUPITER_TX);
@@ -1565,6 +1567,136 @@ describe('after a confirmed swap the pay balance is read again', () => {
 
   it('in our own pool', () => balanceAfter({ ownOut: 1_010_000n, after: 4_897_925_920, shown: 'Balance: 4.897925' }));
   it('through Jupiter', () => balanceAfter({ ownOut: 999_999n, after: 4_899_995_000, shown: 'Balance: 4.899995' }));
+});
+
+describe('what Jupiter would PAY, held at the click with Jupiter on screen: a pair that carries the site fee', () => {
+  // The same fee-pair setup as the describe block above it.
+  const JUP_6014 = { ok: false, reason: 'custom program error: 0x177e', jupiterIncorrectTokenProgram: true };
+  const OK = { ok: true, reason: null, jupiterIncorrectTokenProgram: false };
+  const feeQuote = () => ({ ...jupiterQuote('1005000'), platformFee: { amount: '5000', feeBps: 50 } });
+  const noFeeQuote = () => jupiterQuote('1012000');
+  beforeEach(() => {
+    h.carriesFee.value = true;
+    h.getQuote.mockImplementation(async (p: { noPlatformFee?: boolean }) => (p.noPlatformFee ? noFeeQuote() : feeQuote()));
+    h.buildSwapTransaction.mockImplementation(async (p: { noPlatformFee?: boolean }) => (p.noPlatformFee ? TX_NO_FEE : TX_FEE));
+  });
+  afterEach(() => {
+    Object.assign(wallet, { signTransaction: h.signTransaction });
+  });
+
+  it('Jupiter was shown, its fee-bearing transaction would run, and our pool now pays more: nothing is sent, and the page shows our pool', async () => {
+    h.simulateSwap.mockResolvedValue(OK);
+    h.ownOut.value = 990_000n;
+    const buy = await readyToBuy();
+    await waitFor(() => expect(routeLine()).toMatch(/Jupiter pays/));
+    // By the click our pool pays 1.02, more than the 1.005 Jupiter's transaction would pay.
+    h.ownOut.value = 1_020_000n;
+    fireEvent.click(buy);
+    await waitFor(() => expect(h.toast.error).toHaveBeenCalledWith('Route changed', { description: OWN_ROUTE_COPY.ownNowWins }), { timeout: 20_000 });
+    expect(h.sendTransaction).not.toHaveBeenCalled();
+    await waitFor(() => expect(routeLine()).toMatch(/Our pool pays/));
+  });
+
+  it('Jupiter was shown, only its no-fee transaction would run, and our pool now pays more than that: nothing is sent', async () => {
+    h.simulateSwap.mockImplementation(async (b64: string) => (b64 === TX_FEE ? JUP_6014 : OK));
+    h.ownOut.value = 990_000n;
+    const buy = await readyToBuy();
+    await waitFor(() => expect(routeLine()).toMatch(/Jupiter pays/));
+    // 1.02 at the click: more than the no-fee 1.012 Jupiter's transaction would really pay.
+    h.ownOut.value = 1_020_000n;
+    fireEvent.click(buy);
+    await waitFor(() => expect(h.toast.error).toHaveBeenCalledWith('Route changed', { description: OWN_ROUTE_COPY.ownNowWins }), { timeout: 20_000 });
+    expect(h.sendTransaction).not.toHaveBeenCalled();
+    await waitFor(() => expect(routeLine()).toMatch(/Our pool pays/));
+  });
+
+  it('the no-fee quote that went on screen at that click is marked as the no-fee one when Jupiter is shown with it again', async () => {
+    h.simulateSwap.mockImplementation(async (b64: string) => (b64 === TX_FEE ? JUP_6014 : OK));
+    h.ownOut.value = 990_000n;
+    // readyToBuy's steps, kept here for `rerender`.
+    const { rerender } = render(<MemoryRouter><SolanaSwapPage /></MemoryRouter>);
+    fireEvent.change(amountBox(), { target: { value: '0.1' } });
+    const buy = await screen.findByRole('button', { name: 'Buy BAYLA' }, { timeout: 20_000 });
+    await waitFor(() => expect(h.readSwapGate).toHaveBeenCalled());
+    await waitFor(() => expect(buy).toBeEnabled());
+    await waitFor(() => expect(routeLine()).toMatch(/Jupiter pays/));
+    h.ownOut.value = 1_020_000n;
+    fireEvent.click(buy);
+    await waitFor(() => expect(h.toast.error).toHaveBeenCalledWith('Route changed', { description: OWN_ROUTE_COPY.ownNowWins }), { timeout: 20_000 });
+    await waitFor(() => expect(routeLine()).toMatch(/Our pool pays/));
+    // The wallet becomes one that cannot sign for this page: the trade is Jupiter's again,
+    // on the quote now on screen, which is the no-fee one.
+    Object.assign(wallet, { signTransaction: undefined });
+    rerender(<MemoryRouter><SolanaSwapPage /></MemoryRouter>);
+    await waitFor(() => expect(routeLine()).toMatch(/this wallet cannot sign/));
+    expect(receive()).toBe('1.012');
+    expect(screen.getByTestId('site-fee-value').textContent).toBe('None on this route');
+  });
+});
+
+describe('the route is held again when Buy is pressed, after a read of our pools that failed', () => {
+  it('Jupiter was shown because our pool could not be quoted; at the click it reads fine and pays more: nothing is sent, and the page shows our pool', async () => {
+    h.ownOut.value = null; // quoteVenuePools answers { state: 'error' }
+    const buy = await readyToBuy();
+    await waitFor(() => expect(routeLine()).toMatch(/Our pool could not be quoted this time/));
+    expect(receive()).toBe('1');
+    h.ownOut.value = 1_010_000n;
+    fireEvent.click(buy);
+    await waitFor(() => expect(h.toast.error).toHaveBeenCalledWith('Route changed', { description: OWN_ROUTE_COPY.ownNowWins }));
+    expect(h.buildSwapTransaction).not.toHaveBeenCalled();
+    expect(h.sendTransaction).not.toHaveBeenCalled();
+    await waitFor(() => expect(routeLine()).toMatch(/Our pool pays/));
+  });
+});
+
+describe('a wallet that cannot sign a transaction for this page', () => {
+  afterEach(() => {
+    Object.assign(wallet, { signTransaction: h.signTransaction });
+  });
+
+  it('our pool pays more, but the line says why the trade goes through Jupiter, and Buy sends Jupiter’s', async () => {
+    Object.assign(wallet, { signTransaction: undefined });
+    const buy = await readyToBuy();
+    await waitFor(() =>
+      expect(routeLine()).toMatch(
+        /Our own pool quotes 1% more output than Jupiter, but a swap in it cannot be prepared here right now \(this wallet cannot sign a transaction for this page to send\), so this swap executes via Jupiter\./,
+      ),
+    );
+    expect(receive()).toBe('1');
+    fireEvent.click(buy);
+    await waitFor(() => expect(h.sendTransaction).toHaveBeenCalledTimes(1));
+    expect(h.prepareVenueSwap).not.toHaveBeenCalled();
+    expect(h.toast.error).not.toHaveBeenCalledWith('Route changed', expect.anything());
+    expect(screen.queryByText('Review your swap')).toBeNull();
+  });
+});
+
+describe('a note of a swap in our pool, sent and not confirmed, found on arrival', () => {
+  const landed = async (_rpc: unknown, signature: string) => ({ status: 'confirmed', signature, slot: 9 });
+
+  it('on a pair with no pool of ours, it is checked at once; when the chain says it landed the note goes and Buy is live', async () => {
+    h.recheckOutcome.mockImplementation(landed);
+    h.quoteVenuePools.mockImplementation(() => ({ state: 'absent', candidates: [] }));
+    savePendingTrade(SWAP_PENDING_SCOPE, { kind: 'venue-swap', signature: SIG, lastValidBlockHeight: 1_000 });
+    render(<MemoryRouter><SolanaSwapPage /></MemoryRouter>);
+    await waitFor(() => expect(h.recheckOutcome).toHaveBeenCalledWith(expect.anything(), SIG, { lastValidBlockHeight: 1_000 }));
+    await waitFor(() => expect(screen.queryByTestId('venue-swap-pending')).toBeNull());
+    expect(readPendingTrades(SWAP_PENDING_SCOPE)).toEqual([]);
+    fireEvent.change(amountBox(), { target: { value: '0.1' } });
+    const buy = await screen.findByRole('button', { name: 'Buy BAYLA' }, { timeout: 20_000 });
+    await waitFor(() => expect(h.quoteVenuePools).toHaveBeenCalled());
+    await waitFor(() => expect(buy).toBeEnabled());
+  });
+
+  it('with swaps in our pools switched off, the note is still checked on arrival', async () => {
+    h.on.value = false;
+    h.recheckOutcome.mockImplementation(landed);
+    savePendingTrade(SWAP_PENDING_SCOPE, { kind: 'venue-swap', signature: SIG, lastValidBlockHeight: 1_000 });
+    render(<MemoryRouter><SolanaSwapPage /></MemoryRouter>);
+    await waitFor(() => expect(h.recheckOutcome).toHaveBeenCalledWith(expect.anything(), SIG, { lastValidBlockHeight: 1_000 }));
+    await waitFor(() => expect(screen.queryByTestId('venue-swap-pending')).toBeNull());
+    expect(readPendingTrades(SWAP_PENDING_SCOPE)).toEqual([]);
+  });
 });
 
 describe('the risk tick-box: never for the venue’s own coins, once per token for the rest', () => {
