@@ -311,6 +311,24 @@ describe('when the venue could not be read', () => {
   });
 });
 
+describe('when Jupiter gave no quote and our venue is not live', () => {
+  // "Quoting Jupiter" is for a quote on its way: once Jupiter answered, what each side found is said.
+  it('the venue could not be read: ours could not be quoted, beside what Jupiter said, never "Quoting"', async () => {
+    readVenue.mockResolvedValue({ kind: 'unreadable', detail: 'HTTP 502' });
+    for (const [fail, said] of [['no-route', 'Jupiter has no route for this pair and amount'], ['unavailable', 'Jupiter could not be asked for a quote just now']] as const) {
+      const view = await mount({ aggregatorQuote: null, aggregatorFail: fail });
+      await waitFor(() => expect(screen.getByTestId('solana-route-line').textContent).toBe(`RouteOur pool could not be quoted this time, and ${said}.`));
+      view.unmount();
+    }
+  });
+
+  it('the venue is not deployed: said beside Jupiter’s no route, never "Quoting"', async () => {
+    readVenue.mockResolvedValue({ kind: 'no-program-id' });
+    await mount({ aggregatorQuote: null, aggregatorFail: 'no-route' });
+    await waitFor(() => expect(screen.getByTestId('solana-route-line').textContent).toBe('RouteOur own pools are not deployed yet, and Jupiter has no route for this pair and amount.'));
+  });
+});
+
 describe('while the aggregator has not answered', () => {
   beforeEach(() => { readVenue.mockResolvedValue({ kind: 'no-program-id' }); });
 

@@ -29,18 +29,21 @@ export function SolanaRouteLine({ route, ownUnavailable = null, aggregatorFail =
   // own subtitle says the rule; a venue that could not be read, or is not there, is said.
   if (!decision?.chosen) {
     // One standing line while the quote is on its way, so the form does not jump on every keystroke.
-    if (venue.kind === 'live') {
-      if (asking) return <RouteShell>Comparing our pools with {aggregatorLabel}…</RouteShell>;
-      // Nothing quoted the trade: say what each side found, and never a read that failed as "no route".
-      if (!aggregatorFail) return null;
+    if (venue.kind === 'live' && asking) return <RouteShell>Comparing our pools with {aggregatorLabel}…</RouteShell>;
+    // Nothing quoted the trade: say what each side found, and never a read that failed as "no route".
+    if (aggregatorFail) {
       const agg = aggregatorFail === 'no-route' ? `${aggregatorLabel} has no route for this pair and amount` : `${aggregatorLabel} could not be asked for a quote just now`;
       if (own === 'pending') return <RouteShell><span className="text-white/80">Checking our pools. {agg}.</span></RouteShell>;
+      if (own === 'absent' && venue.kind !== 'live') {
+        return <RouteShell><span className="text-white/80">Our own pools are <Link to="/pools" className={LINK}>not deployed yet</Link>, and {agg}.</span></RouteShell>;
+      }
       const ours = own === 'error' ? 'Our pool could not be quoted this time'
         : own === 'unquotable' ? 'Our pool for this pair cannot be traded right now'
         : own === 'not-searched' ? `Our pools pair a token with ${QUOTE_COINS_OR}, so there is none for this pair`
         : 'We have no pool for this pair';
       return <RouteShell><span className="text-white/80">{ours}, and {agg}.</span></RouteShell>;
     }
+    if (venue.kind === 'live') return null;
     return (
       <RouteShell>
         {venue.kind === 'unreadable'
