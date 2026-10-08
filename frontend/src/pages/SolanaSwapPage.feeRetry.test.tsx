@@ -125,7 +125,8 @@ const SIG = '5'.repeat(88);
 
 beforeEach(() => {
   atSign = null;
-  window.history.replaceState(null, '', '/solana');
+  // The page opens SOL to $BAYLA; these tests are about a SOL to USDC swap, so the link names it.
+  window.history.replaceState(null, '', `/solana?out=${USDC_MINT}`);
   localStorage.clear();
   h.sendTransaction.mockReset();
   h.getSignatureStatuses.mockReset();

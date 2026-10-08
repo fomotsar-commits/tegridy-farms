@@ -25,6 +25,7 @@ import {
   SOL,
   USDC,
   USDT,
+  BAYLA,
   LEGACY_TOKEN_PROGRAM,
   LST_TOKENS,
   findSolToken,
@@ -79,7 +80,8 @@ import { SiteFeeRow } from '../components/swap/SiteFeeRow';
 import { TokenDetail } from '../components/solana/TokenDetail';
 import { PairChart } from '../components/solana/PairChart';
 import { ClockLine } from '../components/ClockLine';
-import { bungalowByAddress } from '../lib/bungalows';
+import { bungalowByAddress, getActiveBungalow } from '../lib/bungalows';
+import { openingBuyMint } from '../lib/solanaOpeningPair';
 import { setLastBuy } from '../lib/heat/lastBuy';
 import { recordActivity, getActivity, timeAgo } from '../lib/solanaActivity';
 import { pollConfirm } from '../lib/solana/confirm';
@@ -1174,19 +1176,16 @@ function SolanaSwapInner() {
     } catch { /* URL APIs unavailable — default stands */ }
     return SOL;
   });
-  // ?out=<mint> presets the BUY side (Jungle Bay bungalow trade links:
-  // /solana?out=<BAYLA mint>). A curated mint resolves synchronously in this
-  // initializer; unknown mints resolve async below.
-  const [buyToken, setBuyToken] = useState<SolToken>(() => {
+  // The BUY side opens on openingBuyMint: a link's ?out=<mint>, else the Solana room's
+  // coin, else $BAYLA. A curated mint resolves synchronously in this initializer;
+  // any other resolves async below, with $BAYLA standing until it does.
+  const [openingBuy] = useState(() => {
     try {
-      const out = new URLSearchParams(window.location.search).get('out')?.trim();
-      if (out && looksLikeMint(out)) {
-        const known = findSolToken(out);
-        if (known) return known;
-      }
+      return openingBuyMint(window.location.search, getActiveBungalow());
     } catch { /* URL APIs unavailable — default stands */ }
-    return USDC;
+    return BAYLA.mint;
   });
+  const [buyToken, setBuyToken] = useState<SolToken>(() => findSolToken(openingBuy) ?? BAYLA);
   // ?amt=<decimal> presets the pay amount (token-denominated). Malformed
   // values fall back silently — a bad deep link must never break the page.
   const [amount, setAmount] = useState(() => {
@@ -1251,22 +1250,21 @@ function SolanaSwapInner() {
   const sameToken = payToken.mint === buyToken.mint;
   const canQuote = baseAmount !== null && !sameToken;
 
-  // ?in=/?out= continued: a NON-curated mint needs the Jupiter lookup for
-  // authoritative decimals (never invent them). Mount-once; a failed lookup
-  // leaves the honest default in place — a bad deep link must never break
+  // The opening pair, continued: a NON-curated mint (a link's, or a room's coin) needs
+  // the Jupiter lookup for authoritative decimals (never invent them). Mount-once; a
+  // failed lookup leaves the honest default in place — a bad deep link must never break
   // the page. The curated cases were already handled in the state initializers.
   useEffect(() => {
     const search = new URLSearchParams(window.location.search);
     const ctrl = new AbortController();
-    for (const [param, set] of [['out', setBuyToken], ['in', setPayToken]] as const) {
-      const mint = search.get(param)?.trim();
+    for (const [mint, set] of [[openingBuy, setBuyToken], [search.get('in')?.trim(), setPayToken]] as const) {
       if (!mint || !looksLikeMint(mint) || findSolToken(mint)) continue;
       resolveMint(mint, ctrl.signal)
         .then((t) => { if (t) set(t); })
         .catch(() => { /* honest default stands */ });
     }
     return () => ctrl.abort();
-  }, []);
+  }, [openingBuy]);
 
   // Reset the unverified-token acknowledgement whenever the pair changes.
   useEffect(() => { setAck(false); }, [payToken.mint, buyToken.mint]);

@@ -286,15 +286,8 @@ export default function HomePage() {
                 until isSolanaSubmitReady() is true, so this rail can never advertise a
                 launch surface that cannot launch. */}
             <div className="flex flex-wrap items-center gap-2 mb-5">
-              <Link
-                // Above the voice branch, so in every room: TOWELI's own room goes to
-                // its farm, and anywhere else to the list, entering no room.
-                to={isToweliArrival && !bungalowIdentity ? '/earn/toweli' : '/earn'}
-                aria-label="Live on Ethereum: farm and stake TOWELI"
-                className="badge badge-primary text-[10px] no-underline hover:brightness-110 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent focus-visible:ring-[#8b5cf6]"
-              >
-                ETHEREUM
-              </Link>
+              {/* $BAYLA first (the owner, 2026-10-03): Solana leads the row, since $BAYLA
+                  and /solana are where a visitor starts. */}
               {/* FAIL-CLOSED. The Solana swap surface is gated behind
                   VITE_SOLANA_FEE_ACCOUNT: when that is unset, SolanaSwapPage renders a
                   "Solana swap isn't live yet" wall and navConfig drops /solana from the
@@ -311,6 +304,15 @@ export default function HomePage() {
                 className="badge badge-chain-solana text-[10px] no-underline hover:brightness-110 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent focus-visible:ring-[#4CAF50]"
               >
                 SOLANA
+              </Link>
+              <Link
+                // Above the voice branch, so in every room: TOWELI's own room goes to
+                // its farm, and anywhere else to the list, entering no room.
+                to={isToweliArrival && !bungalowIdentity ? '/earn/toweli' : '/earn'}
+                aria-label="Live on Ethereum: farm and stake TOWELI"
+                className="badge badge-primary text-[10px] no-underline hover:brightness-110 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent focus-visible:ring-[#8b5cf6]"
+              >
+                ETHEREUM
               </Link>
               <Link
                 to="/eth-curve"

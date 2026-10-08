@@ -95,7 +95,8 @@ async function typeAndLetTheQuoteEnd(calls = 1) {
 }
 
 beforeEach(() => {
-  window.history.replaceState(null, '', '/solana');
+  // The page opens SOL to $BAYLA; these tests are about a SOL to USDC swap, so the link names it.
+  window.history.replaceState(null, '', `/solana?out=${USDC_MINT}`);
   localStorage.clear();
   h.getQuote.mockReset();
   h.sendTransaction.mockReset();
