@@ -1004,6 +1004,29 @@ describe('a read of our pools at the press that did not finish is never "Jupiter
     expect(builtIn()).toEqual([A, A]);
     expect(h.sendTransaction).not.toHaveBeenCalled();
   });
+
+  it('a read that could not read our pools forgets none of the pools on screen', async () => {
+    poolsAt(new Map([[A, 1_010_000n], [B, 990_000n]]));
+    const buy = await readyToBuy();
+    await waitFor(() => expect(routeLine()).toMatch(/Our pool pays 1% more than Jupiter\./));
+    // The press's read and the re-read after it cannot read our pools at all; then the index goes down.
+    const ok = h.readVenuePools.getMockImplementation()!;
+    const quoteOk = h.quoteVenuePools.getMockImplementation()!;
+    h.readVenuePools.mockImplementation(async () => ({ kind: 'unread', detail: 'HTTP 502' }));
+    h.quoteVenuePools.mockImplementation(() => ({ state: 'error', candidates: [] }));
+    fireEvent.click(buy);
+    await waitFor(() => expect(h.toast.error).toHaveBeenCalledWith('Route changed', { description: OWN_ROUTE_COPY.poolGone }), { timeout: 20_000 });
+    await waitFor(() => expect(routeLine()).toMatch(/Our pool could not be quoted this time/), { timeout: 20_000 });
+    h.readVenuePools.mockImplementation(ok);
+    h.quoteVenuePools.mockImplementation(quoteOk);
+    h.toast.error.mockClear();
+    index.up = false;
+    // Jupiter is on screen now; the press reads our pools again, and names the one that quoted.
+    fireEvent.click(await screen.findByRole('button', { name: 'Buy BAYLA' }));
+    await waitFor(() => expect(h.toast.error.mock.calls.length + h.sendTransaction.mock.calls.length).toBeGreaterThan(0), { timeout: 20_000 });
+    expect(h.sendTransaction).not.toHaveBeenCalled();
+    expect(h.toast.error).toHaveBeenCalledWith('Route changed', { description: OWN_ROUTE_COPY.ownNowWins });
+  });
 });
 
 describe('a search of our pools that did not finish is never "cannot be traded", and Buy checks again', () => {

@@ -111,8 +111,8 @@ export function useSolanaRoute({ inputMint, outputMint, amountInRaw, aggregatorQ
   const held = useRef(pools);
   const onScreen = useRef(pairKey);
   const inFlight = useRef<string | null>(null);
-  // The pools that last quoted this pair, kept while a read is dropped or in flight: every
-  // read names them by address, so a pool index that does not answer cannot hide them.
+  // Every pool that has quoted this pair: each later read names them by address, so a pool
+  // index that does not answer cannot hide them. A read or amount that finds fewer drops none.
   const shownPools = useRef<{ key: string; addresses: string[] }>({ key: '', addresses: [] });
   const shownFor = (key: string) => (shownPools.current.key === key ? shownPools.current.addresses : []);
   useEffect(() => {
@@ -150,8 +150,10 @@ export function useSolanaRoute({ inputMint, outputMint, amountInRaw, aggregatorQ
     venue === null ? 'pending' : venue.kind === 'live' ? (quoted?.state ?? 'pending') : venue.kind === 'unreadable' ? 'error' : 'absent';
   const candidates = useMemo(() => (venue?.kind === 'live' ? (quoted?.candidates ?? []) : []), [venue, quoted]);
   useEffect(() => {
-    if (read) shownPools.current = { key: pairKey, addresses: candidates.map((c) => c.poolAddress) };
-  }, [pairKey, candidates, read]);
+    const kept = shownFor(pairKey);
+    const added = candidates.map((c) => c.poolAddress).filter((a) => !kept.includes(a));
+    if (added.length > 0 || shownPools.current.key !== pairKey) shownPools.current = { key: pairKey, addresses: [...kept, ...added] };
+  }, [pairKey, candidates]);
 
   const decision: RouteDecision | null = useMemo(() => {
     if (!venue || !hasAmount || aggregatorPending) return null;
