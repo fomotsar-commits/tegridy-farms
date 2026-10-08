@@ -15,6 +15,46 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-10-08: tests for the new branches do not show that nothing else moved; the old rule run beside the new one does
+
+**Believed:** a change to a rule that decides whether money may move was safe once every
+new branch had a test and every way of breaking a new branch failed one (53 tests added,
+52 mutations, 52 caught).
+
+**Measured:** that shows the new branches are held. It says nothing about the cases the
+change was not meant to touch. A reviewer put the four rule files from the commit before
+beside the new ones and ran both over every combination of their inputs: 5,391,360 cases
+of the deposit check and 8,640 of the opening check, from throwaway tests. Outside the two
+new answers the results were identical. Inside them, each new answer came from exactly one
+old state, and the verdict moved one way only, from "not checked" to "allowed", and only
+when no other reason stood. No refusal was lifted. That is the sentence the owner needed,
+and no number of hand-picked cases could have said it.
+
+**Do:** when a rule is a pure function of a handful of inputs with a few states each, keep
+the old file (`git show <before>:path > old.ts` in a throwaway folder), list every state of
+every input, run old and new over the whole grid and print only the differences. Then say
+what the differences are, in one sentence. Here the grid was one throwaway test file.
+
+## 2026-10-08: a state the live site cannot be in can still be looked at on the live build, one changed answer at a time
+
+**Believed:** the new screen for "Jupiter has no price for this pairing coin" could not be
+checked on the live site, because Jupiter does price the coin.
+
+**Measured:** one upstream answer was replaced on its way into the page: in Playwright, a
+route on the price proxy's quote path answered the two requests for that coin (and no
+other) with the proxy's own "no route" reply, a 404 with `{"error":"No route","code":
+"NO_ROUTE"}`. Everything else was the live site's own. The live build then showed the three
+new sentences, no "Match the market price" button and no sideways scroll at 320 and 390
+wide, with no signing request and no send. Two things the run taught: the walk's own
+counter of failed API calls read 1, and that one was the replaced answer; and the Review
+button was off because no wallet was connected in that step, so "Review is on" was seen
+in unit tests only, not there.
+
+**Do:** replace the upstream's answer with the upstream's own answer for that case, never
+an invented one; replace as few requests as will do it; write in the same breath that it
+was a simulation and what was replaced; and read your own error counters knowing your
+replacement is in them.
+
 ## 2026-10-08: a screen that is taken out was doing jobs nobody listed
 
 **Believed:** the "Review your swap" screen was only a second look, so a swap whose test run
