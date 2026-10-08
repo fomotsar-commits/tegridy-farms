@@ -311,10 +311,9 @@ that much on 2026-10-08.
 notepad "C:\Users\jimbo\solana-launch-release-2026-09-26\pool-program-upgrade-2026-10\START-HERE.md"
 ```
 
-**You should see** a page whose first line is
-`# Start here: the first upgrade of the pool program`. Follow that page and nothing else.
-Never approve or execute the upgrade in the Squads app: only the pack's local page checks
-that the uploaded file is the reviewed one.
+**You should see** Notepad open a page whose first line begins `# Start here`. Follow that
+page and nothing else. Never approve or execute the upgrade in the Squads app: only the
+pack's local page checks that the uploaded file is the reviewed one.
 
 What was rehearsed and what was not, every cost, and what to do when a step does not go as
 written: `solana/tegridy-amm/MAINNET_RUNBOOK.md`, section 4b.

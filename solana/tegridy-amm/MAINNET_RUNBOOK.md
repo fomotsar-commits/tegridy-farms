@@ -377,12 +377,13 @@ instruction, before any name record is sent. None of those answers has been seen
 **The owner's command sheet is the pack**, not this file:
 `C:\Users\jimbo\solana-launch-release-2026-09-26\pool-program-upgrade-2026-10`, starting at
 `START-HERE.md`. It holds the one program file to upload, the roll-back file, the reviewed
-name files, six scripts (five only read; the sixth sends only when given `--send` and a key
-file), a copy of the local proposer page with four new steps, and the outputs of stage 1 and
-stage 2. This section is the gates and the facts behind them. It says what the pack does and
-never its step numbers: the cold run named changes the pack needs, another pass is making
-them in the pack, and its numbering moves with them. "The pack checks" below means what the
-pack was shown doing on 2026-10-08.
+name files, its scripts (most only read; one that sends is a dry run unless it is given
+`--send` and a key file), a copy of the local proposer page with four new steps, and the
+outputs of stage 1 and stage 2. This section is the gates and the facts behind them. It says
+what the pack does and never its step numbers: the cold run named changes the pack needs,
+another pass is making them in the pack, and its numbering moves with them. "The pack checks"
+below means what the pack did in those three runs. The pack on disk was already changing
+when this was written (2026-10-08, 08:02 UTC).
 
 ### A. Before the upgrade PROPOSAL is created. Every one, on the exact commit being built.
 
@@ -461,7 +462,7 @@ pack was shown doing on 2026-10-08.
      Not in the Squads app, not with a script. In the cold run a proposal for the devnet
      build's buffer, made and approved outside the page, sat at 2 of 2. The page offered no
      button for it, and its own simulation showed that the loader would have taken it.
-   - **The buffer check, as built.** It reads the buffer's bytes BACK from the chain and
+   - **The buffer check, as it ran.** It reads the buffer's bytes BACK from the chain and
      checks ten things, among them the length, the sha256 against the pinned build, the
      security text in those bytes, the buffer's authority, and that the program account is
      large enough. It does not run `verify-program-constants.mjs` on them: the pack must not
@@ -550,7 +551,9 @@ step, and the two "only if" steps when E says so.
   724,733 to 757,781 bytes in stage 1, and by another 22,808 bytes in the cold run. On
   mainnet a repeat of 33,048 bytes is another 167,883,840 lamports that nobody gets back.
   The pack's check refuses once the room is there. At the cold run the enlarge command
-  itself still ran when repeated.
+  itself still ran when repeated. The fix being made in the pack is a script that reads the
+  size, refuses when the room is there, and otherwise sends exactly the missing bytes. It
+  was on disk at 08:02 UTC on 2026-10-08 and is not part of any of the three runs.
 - **The amount comes from the size read on the day**: 724,733 less the data account's size at
   that moment. 691,685 means 33,048. 724,733 or more means do not enlarge. Never a number
   copied from a paper.
@@ -597,7 +600,9 @@ step, and the two "only if" steps when E says so.
   the cold run the page checked that it was an existing plain wallet (it refused the vault,
   the program, its data account, the buffer itself, a token account and an address that does
   not exist) and did not compare it with the wallet that paid. A wallet the owner does not
-  hold, pasted there, would keep the 3.68 SOL. Name the paying wallet and read it twice.
+  hold, pasted there, would keep the 3.68 SOL. Name the paying wallet and read it twice. The
+  fix being made in the pack is for the page to refuse any wallet but the paying one. It was
+  in the page's source at 08:02 UTC on 2026-10-08 and is not part of any of the three runs.
 - **Only on the page** (gate 6). Nothing else hashes the buffer before a signature.
 - The upload command as the pack prints it was run in the cold run against the local chain,
   then interrupted and resumed. Stages 1 and 2 had added a flag (`--use-rpc`) that the owner
@@ -725,9 +730,9 @@ security scope, which is the last. At the cold run the pack's paper had no step 
   editable, and unless a simulation as the vault ends with both renamed and everything else
   unchanged. In stage 1 five wrong versions were refused before any proposal existed:
   "mutable" turned off, a changed link, a new editor, the two names swapped, and one update
-  without the other. If one record has already been renamed some other way, the page stops
-  and the pack has no way forward. Only a vault proposal made outside the page can cause
-  that.
+  without the other. At the cold run, with one record already renamed some other way, the
+  page stopped and the pack had no way forward. Only a vault proposal made outside the page
+  can cause that.
 - **Keep the record mutable.** One update signed with "mutable" turned off freezes the words
   for good. Shown on a throwaway pool's record: once frozen, the vault's next update was
   refused by Metaplex with 59 (0x3b), "Data is immutable".
