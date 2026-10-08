@@ -83,7 +83,7 @@ export const ONBOARDING_SURFACES: readonly OnboardingSurface[] = [
     id: 'solana',
     route: '/solana',
     label: 'Solana swap',
-    blurb: 'Swap Solana tokens through Jupiter from the same venue.',
+    blurb: 'Swap Solana tokens in our own pools or through Jupiter, whichever pays you more, from the same venue.',
     isLive: () => isSolanaSwapLive(),
   },
   {

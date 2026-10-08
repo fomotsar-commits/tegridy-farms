@@ -20,7 +20,7 @@ const VAULT_LINE =
 const LAUNCH_POOL_LINE =
   "The launch program opened this pool when the token graduated and burned the launch's own pool shares, so that part can never be taken out. You get shares only for what you add, and you can take your part back out. The creator's fee and the venue's share are kept apart in the pool and are not yours.";
 const ROUTING_LINE =
-  'Jupiter does not send trades to these pools yet, so the trades that pay this pool its fees come mostly from bots that trade our pool program directly.';
+  "Jupiter does not send trades to these pools yet. This site's own swap sends a trade to one of these pools when it pays at least as much as Jupiter; the other trades that pay this pool its fees come mostly from bots that trade our pool program directly.";
 const PRICE_MOVES_LINE =
   'When the price moves, bots trade against the pool, and you can end up with less than if you had just held both tokens.';
 

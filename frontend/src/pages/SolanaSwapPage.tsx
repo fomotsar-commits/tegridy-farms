@@ -668,9 +668,11 @@ function EarnRail({ onPick }: { onPick: (t: SolToken) => void }) {
         ))}
       </div>
       <p className="text-white/55 text-[11px] mt-1.5">
-        Buy a liquid-staking token to earn ~validator APY automatically — its value grows each epoch, no lockup, sell
-        back to SOL anytime. APY is variable.{' '}
-        {isSolanaFeeConfigured() ? `A ${SOLANA_PLATFORM_FEE_BPS / 100}% fee applies on the SOL buy.` : 'No platform fee is charged on the buy.'}
+        Buy a liquid-staking token to earn about the validator APY automatically: its value grows each epoch, there is no
+        lockup, and you can sell back to SOL anytime. APY is variable.{' '}
+        {isSolanaFeeConfigured()
+          ? `A ${SOLANA_PLATFORM_FEE_BPS / 100}% fee applies when the buy goes through Jupiter; our pools add none on top.`
+          : 'No platform fee is charged on the buy.'}
       </p>
     </div>
   );
