@@ -1690,7 +1690,7 @@ function SolanaSwapInner() {
   async function ownPoolTakesIt(q: JupiterQuote, noSiteFee: boolean): Promise<boolean> {
     // Not when our pools were found to hold nothing for this pair, and not when a swap
     // in them cannot be prepared here: the route would change to one that cannot run.
-    const mayCompete = route.venue?.kind === 'live' && !venueSwap.unavailable && (route.own === 'quoted' || route.own === 'pending' || route.own === 'error');
+    const mayCompete = !venueSwap.unavailable && (route.own === 'quoted' || route.own === 'pending' || route.own === 'error');
     if (!mayCompete || !baseAmount) return false;
     let aggregatorOut: bigint;
     try {

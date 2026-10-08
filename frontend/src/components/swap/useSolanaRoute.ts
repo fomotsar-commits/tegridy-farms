@@ -20,7 +20,7 @@ function venueStatusOnce(): Promise<VenueStatus> {
   venueCache ??= readVenue(browserCurveRpc())
     .catch((): VenueStatus => ({ kind: 'unreadable', detail: 'the RPC proxy did not answer' }))
     .then((v) => {
-      // A read that failed once is not the session's truth: the next mount asks again.
+      // A read that failed is not the session's truth: the next amount, Try again or a press asks again.
       if (v.kind === 'unreadable') venueCache = null;
       return v;
     });
@@ -72,7 +72,7 @@ export interface SolanaRoute {
   decision: RouteDecision | null;
   aggregatorLabel: string;
   /** Read our pools again now and quote `amountIn` of the pay token. Never throws. */
-  /** An amount is typed and the aggregator has not answered for it yet: no decision, and one on its way. */
+  /** An amount is typed and an answer it waits on (the aggregator's or the venue's) is still on its way. */
   asking: boolean;
   refresh(amountIn: bigint): Promise<VenuePoolCandidate[]>;
   /** Drop the read in hand (a trade just changed the pool): the next amount reads again. */
@@ -90,6 +90,7 @@ export function useSolanaRoute({ inputMint, outputMint, amountInRaw, aggregatorQ
   const programId = venue?.kind === 'live' ? venue.programId : null;
 
   useEffect(() => {
+    if (venue && venue.kind !== 'unreadable') return;
     let cancelled = false;
     venueStatusOnce().then((v) => {
       if (!cancelled) setVenue(v);
@@ -97,7 +98,9 @@ export function useSolanaRoute({ inputMint, outputMint, amountInRaw, aggregatorQ
     return () => {
       cancelled = true;
     };
-  }, []);
+    // `venue` is read, not followed: a failed read is not asked again on its own answer.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [retry, amountInRaw]);
 
   // The newest read and the pair on screen, for the read below and for an answer that
   // lands late: neither makes it run again.
@@ -136,7 +139,7 @@ export function useSolanaRoute({ inputMint, outputMint, amountInRaw, aggregatorQ
   // A venue that is provably not deployed has no pools ('absent'); an UNREADABLE venue
   // proves nothing and is 'error', never 'absent'.
   const own: SolanaRoute['own'] =
-    venue?.kind === 'live' ? (quoted?.state ?? 'pending') : venue?.kind === 'unreadable' ? 'error' : 'absent';
+    venue === null ? 'pending' : venue.kind === 'live' ? (quoted?.state ?? 'pending') : venue.kind === 'unreadable' ? 'error' : 'absent';
   const candidates = useMemo(() => (venue?.kind === 'live' ? (quoted?.candidates ?? []) : []), [venue, quoted]);
 
   const decision: RouteDecision | null = useMemo(() => {
@@ -149,6 +152,8 @@ export function useSolanaRoute({ inputMint, outputMint, amountInRaw, aggregatorQ
   const refresh = useCallback(
     async (amountIn: bigint): Promise<VenuePoolCandidate[]> => {
       const v = await venueStatusOnce();
+      // What the press found is the page's venue from now on: a venue that failed at load included.
+      setVenue(v);
       if (v.kind !== 'live') return [];
       const fresh = await readPools(v.programId, inputMint, outputMint);
       if (onScreen.current === pairKey) setPools({ key: pairKey, read: fresh, at: Date.now() });
@@ -158,5 +163,5 @@ export function useSolanaRoute({ inputMint, outputMint, amountInRaw, aggregatorQ
   );
   const forget = useCallback(() => setPools(null), []);
 
-  return { venue, own, candidates, decision, aggregatorLabel, asking: hasAmount && aggregatorPending, refresh, forget };
+  return { venue, own, candidates, decision, aggregatorLabel, asking: hasAmount && (aggregatorPending || venue === null), refresh, forget };
 }

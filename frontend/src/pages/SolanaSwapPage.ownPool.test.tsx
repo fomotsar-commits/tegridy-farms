@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent, waitFor, cleanup, configure } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, cleanup, configure, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { PublicKey } from '@solana/web3.js';
 import type { ReactNode } from 'react';
@@ -91,6 +91,8 @@ const h = vi.hoisted(() => ({
   searchTokens: vi.fn(),
   resolveMint: vi.fn(),
   getShield: vi.fn(),
+  readVenue: vi.fn(),
+  loadFails: { value: false },
   toast: { success: vi.fn(), error: vi.fn(), info: vi.fn(), warning: vi.fn() },
   /** What our pool pays for the trade on screen; a test moves it to move the pool. */
   ownOut: { value: 0n as bigint | null },
@@ -131,7 +133,7 @@ vi.mock('../lib/launcher/solana/curve/rpc', () => ({ browserCurveRpc: () => ({})
 // The venue is live, and it has one pool for the pair. `readVenue` is what the fixed
 // page reads; the other two are the pre-fix route line's (see the header).
 vi.mock('../lib/solana/cpswap/read', () => ({
-  readVenue: async () => ({ kind: 'live', programId: PROGRAM, config: TIER1_CONFIG }),
+  readVenue: (...a: unknown[]) => h.readVenue(...a),
   readPoolForPair: async () => ({ kind: 'ok', value: { pool: { address: POOL } } }),
   quoteOwnPool: () => (h.ownOut.value === null ? null : { outAmount: h.ownOut.value, poolAddress: POOL, priceImpact: 0.004 }),
 }));
@@ -146,7 +148,7 @@ vi.mock('../lib/solana/swap/venuePools', () => ({
 }));
 vi.mock('../lib/solana/swap/ownPoolSwapFlag', () => ({ ownPoolSwapsOn: () => h.on.value }));
 vi.mock('../components/swap/venueSwapApi', () => ({
-  loadVenueSwapApi: async () => (h.loads.value++, {
+  loadVenueSwapApi: async () => (h.loads.value++, h.loadFails.value ? Promise.reject(new TypeError('Failed to fetch dynamically imported module: /assets/venueSwap.js')) : {
     swapWriteConfig: () => ({ programId: new PublicKey(LAUNCH), cpSwapProgram: new PublicKey(PROGRAM), cluster: 'mainnet' }),
     readSwapGate: (...a: unknown[]) => h.readSwapGate(...a),
     prepareVenueSwap: (...a: unknown[]) => h.prepareVenueSwap(...a),
@@ -172,6 +174,7 @@ vi.mock('@solana/wallet-adapter-react', () => ({
 import SolanaSwapPage from './SolanaSwapPage';
 import { getActivity } from '../lib/solanaActivity';
 import { OWN_ROUTE_COPY } from '../lib/solana/swap/ownPoolRoute';
+import { SWAP_PENDING_SCOPE, savePendingTrade } from '../components/solana/curve/pendingTrade';
 
 // The first test here pays for the page's first render (see SolanaSwapPage.feeRetry.test.tsx).
 // In a whole run on a busy machine the page took over 3 s to offer Buy: every wait is
@@ -190,6 +193,8 @@ beforeEach(() => {
   h.on.value = true;
   h.loads.value = 0;
   h.tokenHeld.value = null;
+  h.loadFails.value = false;
+  h.readVenue.mockImplementation(async () => ({ kind: 'live', programId: PROGRAM, config: TIER1_CONFIG }));
   h.getQuote.mockImplementation(async () => jupiterQuote('1000000'));
   h.buildSwapTransaction.mockImplementation(async () => JUPITER_TX);
   h.simulateSwap.mockResolvedValue({ ok: true, reason: null, jupiterIncorrectTokenProgram: false });
@@ -729,6 +734,89 @@ describe('a swap in our pool that the chain answers after the wallet changed', (
     await waitFor(() => expect(getActivity(USER.toBase58())[0]).toMatchObject({ sig: SIG }));
     await waitFor(() => expect(reads.mock.calls.length).toBeGreaterThan(before));
     reads.mockRestore();
+  });
+});
+
+describe('a venue read that failed, or has not answered yet, is not the page’s answer', () => {
+  // The venue read is cached in module scope (useSolanaRoute.ts): an earlier test's live
+  // answer would stand in for this visit's. Each case loads the page as a new visit does.
+  async function freshPageWithAmount() {
+    vi.resetModules();
+    const { default: Page } = await import('./SolanaSwapPage');
+    render(<MemoryRouter><Page /></MemoryRouter>);
+    fireEvent.change(screen.getByLabelText('Amount of SOL to pay'), { target: { value: '0.1' } });
+    const buy = await screen.findByRole('button', { name: 'Buy BAYLA' }, { timeout: 20_000 });
+    await waitFor(() => expect(buy).toBeEnabled());
+    return buy;
+  }
+  const LIVE = { kind: 'live', programId: PROGRAM, config: TIER1_CONFIG };
+  /** Settled once the press has done its one thing: changed the route, or sent Jupiter's transaction. */
+  const pressAnswered = () => expect(h.toast.error.mock.calls.length + h.sendTransaction.mock.calls.length).toBeGreaterThan(0);
+
+  it('one failed read at load: Buy reads the venue again, our pool takes the trade it wins, and Jupiter’s is never sent', async () => {
+    const down = { value: true };
+    h.readVenue.mockImplementation(async () => (down.value ? { kind: 'unreadable', detail: 'getAccountInfo: HTTP 429' } : LIVE));
+    const buy = await freshPageWithAmount();
+    await waitFor(() => expect(routeLine()).toMatch(/Our pool could not be quoted/));
+    expect(receive()).toBe('1');
+    // The proxy answers again; the trader presses Buy on the page as it stands.
+    down.value = false;
+    fireEvent.click(buy);
+    await waitFor(pressAnswered);
+    expect(h.sendTransaction.mock.calls.length, 'Jupiter transactions sent').toBe(0);
+    expect(h.toast.error).toHaveBeenCalledWith('Route changed', { description: OWN_ROUTE_COPY.ownNowWins });
+    // The venue found live at the press is the page's venue from then on: the line, the
+    // figure and the next press are our pool's, not one more round of "Route changed".
+    await waitFor(() => expect(routeLine()).toMatch(/Our pool pays 1% more than Jupiter/));
+    expect(receive()).toBe('1.01');
+    await waitFor(() => expect(h.readSwapGate).toHaveBeenCalled());
+    const again = screen.getByRole('button', { name: 'Buy BAYLA' });
+    await waitFor(() => expect(again).toBeEnabled());
+    fireEvent.click(again);
+    await waitFor(() => expect(h.submitPrepared).toHaveBeenCalledTimes(1));
+    expect(h.sendTransaction.mock.calls.length, 'Jupiter transactions sent').toBe(0);
+  });
+
+  it('one failed read at load: the next amount asks the venue again, and the line and the figure are our pool’s', async () => {
+    const down = { value: true };
+    h.readVenue.mockImplementation(async () => (down.value ? { kind: 'unreadable', detail: 'getAccountInfo: HTTP 502' } : LIVE));
+    await freshPageWithAmount();
+    await waitFor(() => expect(routeLine()).toMatch(/Our pool could not be quoted/));
+    down.value = false;
+    fireEvent.change(amountBox(), { target: { value: '0.2' } });
+    await waitFor(() => expect(routeLine()).toMatch(/Our pool pays 1% more than Jupiter/));
+    expect(receive()).toBe('1.01');
+  });
+
+  it('Buy pressed before the venue has answered: the venue and our pools are read before anything is sent', async () => {
+    let answer: (v: unknown) => void = () => {};
+    h.readVenue.mockImplementation(() => new Promise((r) => { answer = r; }));
+    const buy = await freshPageWithAmount();
+    // The page says "whichever pays more" meanwhile: the line under the quote does not go blank.
+    expect.soft(screen.queryByTestId('solana-route-line'), 'route line while the venue is being read').not.toBeNull();
+    fireEvent.click(buy);
+    // The venue answers while the press is held, well inside its 4 s bound.
+    await new Promise((r) => setTimeout(r, 300));
+    answer(LIVE);
+    await waitFor(pressAnswered);
+    expect(h.sendTransaction.mock.calls.length, 'Jupiter transactions sent').toBe(0);
+    expect(h.toast.error).toHaveBeenCalledWith('Route changed', { description: OWN_ROUTE_COPY.ownNowWins });
+    await waitFor(() => expect(routeLine()).toMatch(/Our pool pays 1% more than Jupiter/));
+  });
+});
+
+describe('a note found on arrival, with the swap code not loaded', () => {
+  it('“Check again” answers: the status line says what became of the check, and the note stays', async () => {
+    savePendingTrade(SWAP_PENDING_SCOPE, { kind: 'venue-swap', signature: SIG, lastValidBlockHeight: 1_000 }, Date.now() - 5_000);
+    h.loadFails.value = true;
+    render(<MemoryRouter><SolanaSwapPage /></MemoryRouter>);
+    const card = await screen.findByTestId('venue-swap-pending');
+    await waitFor(() => expect(h.loads.value).toBeGreaterThan(0));
+    fireEvent.click(within(card).getByRole('button', { name: 'Check again' }));
+    // Well before the 15 s retry of the load: the press itself answers.
+    await waitFor(() => expect(within(card).getByRole('status').textContent).not.toBe(''), { timeout: 3_000 });
+    expect(screen.getByTestId('venue-swap-pending')).toBeInTheDocument();
+    expect(screen.getByText(SIG)).toBeInTheDocument();
   });
 });
 

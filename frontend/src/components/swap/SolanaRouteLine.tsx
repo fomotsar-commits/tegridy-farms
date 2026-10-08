@@ -21,7 +21,7 @@ export interface SolanaRouteLineProps {
 
 export function SolanaRouteLine({ route, ownUnavailable = null }: SolanaRouteLineProps) {
   const { venue, own, decision, aggregatorLabel, asking } = route;
-  if (!venue) return null;
+  if (!venue) return asking ? <RouteShell>Comparing our pools with {aggregatorLabel}…</RouteShell> : null;
 
   // Before there is an amount there is no route to name. With the venue live the page's
   // own subtitle says the rule; a venue that could not be read, or is not there, is said.
