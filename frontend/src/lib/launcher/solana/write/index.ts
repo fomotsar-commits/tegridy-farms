@@ -13,6 +13,7 @@
 //   trade.ts     curve buy / sell
 //   graduate.ts  finish graduation
 //   poolSwap.ts  buy / sell in the graduated launch's own pool
+//   venueSwap.ts a swap in any pool of ours for a pair, from the swap page
 //   liquidity.ts add / remove liquidity in one of our pools (its own switch and gate:
 //                lpWriteFlag.ts, config.ts lpWriteConfig + readLpGate)
 //   createPool.ts open a new pool on the public fee tier (tier 1)
@@ -34,6 +35,7 @@ export * from './plant';
 export * from './trade';
 export * from './graduate';
 export * from './poolSwap';
+export * from './venueSwap';
 export * from './liquidity';
 export * from './createPool';
 export * from './lpKinds';
