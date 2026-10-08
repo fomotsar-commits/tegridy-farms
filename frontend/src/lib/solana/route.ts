@@ -108,8 +108,8 @@ export function chooseRoute(candidates: RouteCandidate[]): RouteDecision {
     return {
       chosen, candidates: live, runnerUp: null, edge: null,
       reason: chosen.venue === 'own-pool'
-        ? `Routed to the ${chosen.label}. It was the only venue that quoted this pair.`
-        : `Routed to ${chosen.label}. This venue has no pool for this pair.`,
+        ? 'Only our pool quoted this pair.'
+        : `${chosen.label}. We have no pool for this pair.`,
     };
   }
 
@@ -119,13 +119,13 @@ export function chooseRoute(candidates: RouteCandidate[]): RouteDecision {
   let reason: string;
   if (edge === 0) {
     reason = chosen.venue === 'own-pool'
-      ? `The ${chosen.label} and ${runnerUp.label} quoted the same output, so the trade stays here.`
+      ? `Our pool matches ${runnerUp.label}, so the trade stays here.`
       : `${chosen.label} and ${runnerUp.label} quoted the same output.`;
   } else if (chosen.venue === 'own-pool') {
-    reason = `Routed to the ${chosen.label}: ${pct} more output than ${runnerUp.label}.`;
+    reason = `Our pool pays ${pct} more than ${runnerUp.label}.`;
   } else {
     // The case that proves the rule is real: our own pool existed and lost.
-    reason = `Routed to ${chosen.label}: ${pct} better than our own pool, so the trade went there.`;
+    reason = `${chosen.label} pays ${pct} more than our pool.`;
   }
 
   return { chosen, candidates: live, runnerUp, edge, reason };

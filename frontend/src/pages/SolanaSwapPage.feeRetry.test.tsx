@@ -277,7 +277,9 @@ describe('SolanaSwapPage: clicking again on a waived quote compares like with li
     h.sendTransaction.mockImplementationOnce(async () => { throw new Error('User rejected the request.'); });
     h.sendTransaction.mockImplementationOnce(async () => SIG);
     await typeAmountAndBuy();
-    await waitFor(() => expect(h.toast.error).toHaveBeenCalledWith('Swap failed', { description: 'User rejected the request.' }));
+    // A decline is the trader's own "no": said as that, never as a failed swap.
+    await waitFor(() => expect(h.toast.info).toHaveBeenCalledWith('Not sent', { description: 'You cancelled in your wallet. Nothing was sent.' }));
+    expect(h.toast.error).not.toHaveBeenCalledWith('Swap failed', expect.anything());
 
     // Nothing was sent; the no-fee quote the trader was shown is still there.
     const buy = screen.getByRole('button', { name: 'Buy USDC' });
@@ -303,7 +305,9 @@ describe('SolanaSwapPage: clicking again on a waived quote compares like with li
     });
     h.sendTransaction.mockImplementationOnce(async () => { throw new Error('User rejected the request.'); });
     await typeAmountAndBuy();
-    await waitFor(() => expect(h.toast.error).toHaveBeenCalledWith('Swap failed', { description: 'User rejected the request.' }));
+    // A decline is the trader's own "no": said as that, never as a failed swap.
+    await waitFor(() => expect(h.toast.info).toHaveBeenCalledWith('Not sent', { description: 'You cancelled in your wallet. Nothing was sent.' }));
+    expect(h.toast.error).not.toHaveBeenCalledWith('Swap failed', expect.anything());
     const buy = screen.getByRole('button', { name: 'Buy USDC' });
     await waitFor(() => expect(buy).toBeEnabled());
     fireEvent.click(buy);
