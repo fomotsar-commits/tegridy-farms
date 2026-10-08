@@ -104,8 +104,10 @@ function assertBubbleIsInert(probe: Probe) {
 
 test.describe('the ambient bubbles are read, not pressed', () => {
   test('TowelieAssistant passes taps through its body and keeps its own controls', async ({ page, walletMock }) => {
-    await walletMock.connect();          // the fixture pins the toweli bungalow, so the assistant mounts
-    await page.goto('/launch');
+    // The fixture stores the toweli room, and Towelie floats only on the farm's own pages
+    // (docs/FACE_LAWS.md, law 21), so this walks one of them. It was /launch, a venue route.
+    await walletMock.connect();
+    await page.goto('/tokenomics');
 
     // Click the avatar for a bubble on demand — the event-driven and idle bubbles
     // are timing-dependent by design and would make this test a race.
