@@ -15,6 +15,62 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-10-06: a press area made of padding carries the focus ring with it
+
+**Believed:** a finger-sized press area built as padding that an equal negative margin takes
+back (`py-3 -my-3`) is invisible. Nothing around the target moves, so nothing a person sees
+changes.
+
+**Measured:** the keyboard's focus ring is drawn round the border box, and the padding is
+inside it. On a 21px line of text the ring was 53px tall (45px of area, plus a 2px offset and
+a 2px stroke on each side) and its edges ran through the words of the lines above and below,
+in all 16 states of one sentence at 320 to 768 wide (Chromium). Under one link the bottom edge
+was hidden behind the button below it, so the ring was an open box. Every measurement the
+builder had taken (boxes, line gaps, a hit test at the middle of each target) was right and
+none of them could see it. A reviewer who pressed Tab found it.
+
+The same build has a second cost that is not a bug but has to be said: plain words within
+12px of a target act as that target. A press on the line under a link opened the link.
+
+**Do:** when the press area is bigger than what is drawn, put the ring on the words (an
+inner element; here one CSS rule that takes the outline off the target and draws it on a
+child) and Tab through every target before calling it done. After: rings 20 to 27px tall,
+crossing no other word, and the press map and every box unchanged.
+
+## 2026-10-06: a wait loop whose condition was never seen true waits on a finished job
+
+**Believed:** "the live stylesheet contains the new class" is a simple, direct test that a
+deploy has landed.
+
+**Measured:** the loop searched the stylesheet for an escaped class name (`min-w-\[96px\]`)
+with a pattern full of backslashes. It matched nothing for 20 minutes and gave up. The deploy
+had finished at minute 4: the commit's own status said `Vercel=success` from then on, and a
+plainer search of the same file for the same rule (`96px`) matched once. Which layer changed
+the backslashes on the way to `grep` was not found; the loop had only ever been run against
+the old build, where "no match" was the right answer.
+
+**Do:** before waiting on a condition, run it once against something where it is already
+true (here: the local build of the same commit) and once where it is false. Wait on the
+system's own answer first (`gh api repos/<repo>/commits/<sha>/status`) and use a marker in
+the served files only to confirm it.
+
+## 2026-10-06: which of two overlapping press areas wins can hang on a class name no test reads
+
+**Believed:** a reviewer pressed every pixel row of every target in a real browser and every
+press went to the right thing, so the layout was safe to ship.
+
+**Measured:** it was right, and nothing held it there. Two targets on neighbouring lines had
+press areas that covered each other's words, and three stacking layers decided each press.
+With one class (`z-10`) taken off in the page, a press on the Copy button opened another
+page. With another (`z-20`) taken off, a press on a link copied an address. Every unit test
+and every browser test passed with either class removed: the browser tests never reach that
+state, and jsdom lays nothing out.
+
+**Do:** when behaviour hangs on stacking order and no browser test can reach the state, hold
+the order itself in a unit test (the link's words above the button, the button above the
+bare areas, all inside one isolated block) rather than the class names, and take each layer
+away to see the test fail. Here: 7 ways to break it, 7 caught.
+
 ## 2026-10-06: a token's name in a wallet is an on-chain record, and when a program's own address is the mint authority only that program can write it
 
 **Believed:** a nameless token row in Phantom can be fixed from outside the program that
