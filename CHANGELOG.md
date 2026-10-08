@@ -8,7 +8,11 @@ page keeps the newest thirty days.
 
 ### 2026-10-08
 
-- Solana swap: fewer steps and less to read. A swap in one of our own pools now goes from Buy straight to your wallet when its test run passes and nothing needs reading first; the review screen shows only when something needs a second look. When it lands, one line says so and the form is ready again. The risk tick-box is gone for SOL, USDC and our BAYLA, and for any other unverified token it is asked once per token on your device. Slippage and speed sit on one line, the details fold away, the route is one short sentence, our BAYLA is first in the token list and marked as ours, every token row shows part of its address, and the button says Sell when you are selling.
+- Solana swap: fewer steps and less to read. A swap in one of our own pools now goes from Buy straight to your wallet when it pays at least the minimum the form showed and nothing needs reading first; the review screen shows only when something needs a second look. When it lands, one line says so and the form is ready again. The risk tick-box is gone for SOL, USDC and our BAYLA, and for any other unverified token it is asked once per token on your device. Slippage and speed sit on one line, the details fold away, a large price impact is still said in view, the route is one short sentence, our BAYLA is first in the token list and marked as ours, every token row shows part of its address, and the button says Sell when you are selling.
+
+### 2026-10-07
+
+- Pool shares and the lighthouse staking receipt: the site now serves a name and a picture for the BAYLA/SOL and BAYLA/USDC pool share tokens and for the Staked BAYLA receipt, at memetics.finance/mint/ followed by the token's address and .json. A wallet shows them only once that link is written on each token, which has not happened yet.
 
 ### 2026-10-06
 
