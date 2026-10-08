@@ -1,0 +1,6 @@
+{
+  "name": "Staked BAYLA",
+  "symbol": "sBAYLA",
+  "description": "The receipt for BAYLA staked in the lighthouse pool on memetics.finance. Unstake there once your lock ends and it comes back as BAYLA. The amount shown is your stake multiplied by your lock boost, not a count of BAYLA. Do not burn it.",
+  "image": "https://memetics.finance/mint/img/staked-bayla-f0b058f8.png"
+}
