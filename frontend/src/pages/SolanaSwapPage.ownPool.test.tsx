@@ -563,6 +563,22 @@ describe('what Jupiter would PAY, not only what it quotes: the site fee it canno
   });
 });
 
+describe('Jupiter could not be asked at the press, and our pool fell under its last quote', () => {
+  it('one line says so, never "Jupiter now pays more", and the form is back with nothing sent', async () => {
+    const buy = await readyToBuy();
+    await waitFor(() => expect(routeLine()).toMatch(/Our pool pays/));
+    h.getQuote.mockImplementation(async () => { throw new Error('Quote unavailable (502)'); });
+    h.ownOut.value = 990_000n;
+    fireEvent.click(buy);
+    await waitFor(() => expect(h.toast.error).toHaveBeenCalledWith('Route changed', { description: OWN_ROUTE_COPY.underLastQuote }), { timeout: 20_000 });
+    expect(h.toast.error).not.toHaveBeenCalledWith('Route changed', { description: OWN_ROUTE_COPY.routeMoved });
+    expect(h.prepareVenueSwap).not.toHaveBeenCalled();
+    expect(h.sendTransaction).not.toHaveBeenCalled();
+    await waitFor(backOnTheForm);
+    expect(amountBox().value).toBe('0.1');
+  });
+});
+
 describe('swaps in our own pools switched off', () => {
   it('the line says our pool quoted more and that the swap goes through Jupiter; the swap code is never fetched', async () => {
     h.on.value = false;
@@ -831,10 +847,13 @@ describe('a note found on arrival, with the swap code not loaded', () => {
     h.loadFails.value = true;
     render(<MemoryRouter><SolanaSwapPage /></MemoryRouter>);
     const card = await screen.findByTestId('venue-swap-pending');
-    await waitFor(() => expect(h.loads.value).toBeGreaterThan(0));
+    // The check on arrival answers first: the swap code did not load.
+    await waitFor(() => expect(within(card).getByRole('status').textContent).toMatch(/^Could not check just now/));
+    const before = h.loads.value;
     fireEvent.click(within(card).getByRole('button', { name: 'Check again' }));
-    // Well before the 15 s retry of the load: the press itself answers.
-    await waitFor(() => expect(within(card).getByRole('status').textContent).not.toBe(''), { timeout: 3_000 });
+    // Well before the 15 s retry of the load: the press itself asks again, and answers.
+    await waitFor(() => expect(h.loads.value).toBeGreaterThan(before), { timeout: 3_000 });
+    await waitFor(() => expect(within(card).getByRole('status').textContent).toMatch(/^Could not check just now/), { timeout: 3_000 });
     expect(screen.getByTestId('venue-swap-pending')).toBeInTheDocument();
     expect(screen.getByText(SIG)).toBeInTheDocument();
   });
@@ -990,14 +1009,14 @@ describe('a read of our pools at the press that did not finish is never "Jupiter
     const buy = await readyToBuy();
     await waitFor(() => expect(routeLine()).toMatch(/Our pool pays 1% more than Jupiter\./));
     index.up = false;
+    const beforePress = h.readVenuePools.mock.calls.length;
     fireEvent.click(buy);
     await waitFor(() => expect(h.toast.info).toHaveBeenCalledWith('Not sent', { description: DECLINED_IN_WALLET }));
     await waitFor(backOnTheForm);
-    // The ending drops the held read and our pools are read again, the index still down:
-    // the pool on screen is read by its address, so the line and the next press keep it.
-    const reads = h.readVenuePools.mock.calls.length;
-    await new Promise((r) => setTimeout(r, 900));
-    expect(h.readVenuePools.mock.calls.length).toBeGreaterThanOrEqual(reads);
+    // The press reads our pools, and the ending drops the held read and reads them again, the
+    // index still down: that read names the pool on screen by its address.
+    await waitFor(() => expect(h.readVenuePools.mock.calls.length).toBeGreaterThanOrEqual(beforePress + 2));
+    expect((h.readVenuePools.mock.calls.at(-1)![3] as { also?: readonly string[] }).also).toContain(A);
     await waitFor(() => expect(routeLine()).toMatch(/Our pool pays 1% more than Jupiter\./));
     fireEvent.click(await screen.findByRole('button', { name: 'Buy BAYLA' }));
     await waitFor(() => expect(h.prepareVenueSwap).toHaveBeenCalledTimes(2), { timeout: 20_000 });
@@ -1390,6 +1409,31 @@ describe('what a press writes lands only on the trade it was pressed for', () =>
     );
   });
 
+  it('a token from the link that resolves while Jupiter’s press reads our pools: nothing is sent for the trade pressed, and the trader is told', async () => {
+    // The one change to the form the press does not hold: a ?out= token looked up on arrival.
+    const OTHER = 'Dog1111111111111111111111111111111111111111';
+    const looked = defer<unknown>();
+    h.resolveMint.mockImplementation((mint: string) => (mint === OTHER ? looked.p : Promise.resolve(null)));
+    window.history.replaceState(null, '', `/solana?out=${OTHER}`);
+    h.ownOut.value = 990_000n;
+    render(<MemoryRouter><SolanaSwapPage /></MemoryRouter>);
+    fireEvent.change(amountBox(), { target: { value: '0.1' } });
+    const buy = await screen.findByRole('button', { name: 'Buy USDC' }, { timeout: 20_000 });
+    await waitFor(() => expect(buy).toBeEnabled());
+    await waitFor(() => expect(routeLine()).toMatch(/Jupiter pays/));
+    const held = defer<unknown>();
+    h.readVenuePools.mockImplementationOnce(() => held.p);
+    const reads = h.readVenuePools.mock.calls.length;
+    fireEvent.click(buy);
+    await waitFor(() => expect(h.readVenuePools.mock.calls.length).toBeGreaterThan(reads));
+    looked.release({ mint: OTHER, symbol: 'DOGGO', name: 'Doggo', decimals: 6, verified: false });
+    await waitFor(() => expect(screen.getByTestId('solana-receive').parentElement!.querySelector('button')!.textContent).toBe('DOGGO▾'));
+    held.release({ kind: 'ok', pair: [SOL_MINT, OTHER] });
+    await waitFor(() => expect(h.toast.info).toHaveBeenCalledWith('Not sent', { description: OWN_ROUTE_COPY.formChanged }));
+    expect(h.sendTransaction).not.toHaveBeenCalled();
+    expect(h.buildSwapTransaction).not.toHaveBeenCalled();
+  });
+
   it('a rail pick under a review, then a rebuild that finds Jupiter’s no-fee route: the new pair keeps its own quote', async () => {
     h.carriesFee.value = true;
     h.prepareVenueSwap.mockImplementation(withNotice);
@@ -1437,7 +1481,7 @@ describe('what a press writes lands only on the trade it was pressed for', () =>
     expect(screen.queryByText('None on this route')).toBeNull();
   });
 
-  it('a rail pick while Jupiter’s press reads our pool again: a late read never puts the old pair’s quote, or its toast, on the new pair', async () => {
+  it('a rail pick while Jupiter’s press reads our pool again is not taken: the pressed pair stays, and its route is the one said', async () => {
     h.ownOut.value = 990_000n;
     const buy = await readyToBuy();
     await waitFor(() => expect(routeLine()).toMatch(/Jupiter pays/));
@@ -1446,19 +1490,17 @@ describe('what a press writes lands only on the trade it was pressed for', () =>
     h.readVenuePools.mockImplementationOnce(() => held.p);
     fireEvent.click(buy);
     await waitFor(() => expect(h.getQuote.mock.calls.length).toBeGreaterThan(1));
-    if (await pickJito()) await waitFor(() => expect(receive()).toBe('0.095'), { timeout: 20_000 });
+    // The rails are held while the press is on its way (the form changing under a press
+    // that resolves anyway is pinned by the link test above).
+    expect(await pickJito()).toBe(false);
 
     // By the time the read answers, our pool pays more than Jupiter did for BAYLA.
     h.ownOut.value = 1_013_000n;
     held.release({ kind: 'ok', pair: [SOL_MINT, BAYLA_MINT] });
-    await new Promise((r) => setTimeout(r, 900));
+    await waitFor(() => expect(h.toast.error).toHaveBeenCalledWith('Route changed', { description: OWN_ROUTE_COPY.ownNowWins }));
     figuresMatchTheForm();
-    if (screen.getByRole('button', { name: /^(Buy|Sell) / }).textContent === 'Buy JitoSOL') {
-      expect(h.toast.error).not.toHaveBeenCalledWith('Route changed', { description: OWN_ROUTE_COPY.ownNowWins });
-      // Nor is the old pair's trade sent under the new one, and the trader is told nothing was.
-      expect(h.sendTransaction).not.toHaveBeenCalled();
-      expect(h.toast.info).toHaveBeenCalledWith('Not sent', { description: OWN_ROUTE_COPY.formChanged });
-    }
+    expect(screen.getByRole('button', { name: /^(Buy|Sell) / }).textContent).toBe('Buy BAYLA');
+    expect(h.sendTransaction).not.toHaveBeenCalled();
   });
 });
 
