@@ -102,3 +102,54 @@ describe('FundingNextStep: a pool paired with USDC or BAYLA', () => {
     expect(mount(USDC_QUOTE, {})).toBeNull();
   });
 });
+
+// Each target's finger-sized press area reaches over the lines above and below, so on a
+// phone the Copy button's area lies over the swap link's words and the link's area over
+// the button's. Which one a press hits is decided by the layers alone. A real browser
+// (2026-10-06, 320 and 390 wide) showed what each one holds: without the Copy button's
+// layer a press on "Copy this wallet's address" opened the swap page, and without the
+// layer on a link's words a press on the link copied the address. jsdom lays nothing
+// out, so this reads the layers themselves.
+describe('FundingNextStep: overlapping press areas are layered, so a press on a target’s words is that target', () => {
+  const positioned = (el: Element) => el.classList.contains('relative');
+  /** The stacking layer a positioned element asks for: `z-N`, or 0 with none. */
+  const layer = (el: Element) => {
+    const z = Array.from(el.classList).find((c) => /^z-\d+$/.test(c));
+    return z ? Number(z.slice(2)) : 0;
+  };
+
+  it('link words over the Copy button, the Copy button over the bare areas, all inside the sentence', () => {
+    const sentence = mount(USDC_QUOTE, { sol: true, coin: true, token: true }, WALLET)!;
+    const copy = screen.getByRole('button', { name: /Copy this wallet’s address/ });
+    const swaps = screen.getAllByRole('link');
+    expect(swaps).toHaveLength(2);
+    // The layers stay inside the sentence: none of them is weighed against the page's own.
+    expect(sentence.classList.contains('isolate')).toBe(true);
+    for (const target of [copy, ...swaps]) expect(positioned(target), `${target.textContent} is not positioned`).toBe(true);
+    for (const swap of swaps) {
+      const text = swap.querySelector('span')!;
+      expect(text.textContent).toBe(swap.textContent);
+      expect(positioned(text)).toBe(true);
+      // The link's bare area is under the Copy button; its words are over it.
+      expect(layer(swap)).toBeLessThan(layer(copy));
+      expect(layer(text)).toBeGreaterThan(layer(copy));
+    }
+    // The Copy button comes before the links: among equals, the later one is on top.
+    expect(copy.compareDocumentPosition(swaps[0]!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  // Round the press area the keyboard's ring is 53px tall on a 21px line and strikes
+  // through the lines above and below. `ring-on-words` (index.css) takes it off the
+  // target and puts it on the `ring-words` inside, so each target needs exactly one.
+  it('the keyboard’s ring goes round each target’s words, not its press area', () => {
+    mount(USDC_QUOTE, { sol: true, coin: true, token: true }, WALLET);
+    const targets = [screen.getByRole('button', { name: /Copy this wallet’s address/ }), ...screen.getAllByRole('link')];
+    expect(targets).toHaveLength(3);
+    for (const target of targets) {
+      expect(target.classList.contains('ring-on-words'), `${target.textContent} keeps the ring on its area`).toBe(true);
+      const ringed = target.querySelectorAll('.ring-words');
+      expect(ringed).toHaveLength(1);
+      expect(ringed[0]!.textContent).toBe(target.textContent);
+    }
+  });
+});

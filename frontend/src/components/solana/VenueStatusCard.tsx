@@ -8,6 +8,16 @@ import type { LpWriteMode } from '../../lib/launcher/solana/lpWriteFlag';
 
 const CARD = { background: 'rgba(4,9,18,0.90)', border: '1px solid var(--color-purple-25)' } as const;
 
+// A finger-sized press area that leaves the card the height it was: padding around the
+// small text, taken back by the same negative margin. Refresh is one 16.5px line, so
+// 14px above and below makes 44.5px (and 8px each side makes it 56px wide); a copy
+// button is one 18px line, so the same 14px makes 46px. Growing the buttons themselves
+// to 44px made the card 55px taller on a phone and 41px on a desktop. The keyboard's ring
+// goes round the words (`ring-on-words`, index.css), not round that area: there it stood
+// 9px out of a chip on each side and touched the heading under Refresh.
+const REFRESH = 'px-2 -mx-2 py-3.5 -my-3.5 text-white/50 hover:text-white text-[11px] underline underline-offset-2 ring-on-words';
+const COPY_PRESS = 'py-3.5 -my-3.5 ring-on-words';
+
 // What this site can do with the pools follows LP's own switch (lpWriteFlag.ts). Whether
 // the public fee tier takes new pools is said only by the create card's live read.
 const VENUE_LP_LINE: Record<LpWriteMode, (lpSection: 'above' | 'below') => string> = {
@@ -53,7 +63,7 @@ export function VenueStatusCard({ status, onRefresh, lpMode, feeSheetBelow = tru
       <section ref={ref} className={frame} style={green} aria-label="Venue status">
         <div className="flex items-center justify-between gap-3 flex-wrap mb-2">
           <p className="text-[10px] uppercase tracking-wider" style={{ color: '#4ade80' }}>Venue · LIVE</p>
-          <button type="button" onClick={onRefresh} className="inline-flex items-center min-h-[44px] px-2 text-white/50 hover:text-white text-[11px] underline underline-offset-2">Refresh</button>
+          <button type="button" onClick={onRefresh} className={REFRESH}><span className="ring-words">Refresh</span></button>
         </div>
         <h2 className="heading-luxury text-xl text-white mb-2">Pools are open</h2>
         <p className="text-white/80 text-[13px] leading-relaxed mb-3">
@@ -119,7 +129,7 @@ export function VenueStatusCard({ status, onRefresh, lpMode, feeSheetBelow = tru
     <section ref={ref} className={frame} style={amber} aria-label="Venue status">
       <div className="flex items-center justify-between gap-3 flex-wrap mb-2">
         <p className="text-[10px] uppercase tracking-wider" style={{ color: '#e3b341' }}>Venue status · live chain read</p>
-        <button type="button" onClick={onRefresh} className="inline-flex items-center min-h-[44px] px-2 text-white/50 hover:text-white text-[11px] underline underline-offset-2">Refresh</button>
+        <button type="button" onClick={onRefresh} className={REFRESH}><span className="ring-words">Refresh</span></button>
       </div>
       <h2 className="heading-luxury text-xl text-white mb-2">{body.title}</h2>
       {body.lines.map((l) => (
@@ -144,10 +154,10 @@ export function VenueStatusCard({ status, onRefresh, lpMode, feeSheetBelow = tru
 
 function Addr({ label, value }: { label: string; value: string }) {
   return (
-    <span className="inline-flex items-center gap-2 rounded-lg px-2.5"
+    <span className="inline-flex items-center gap-2 rounded-lg px-2.5 py-1.5"
       style={{ background: 'rgba(0,0,0,0.5)', border: '1px solid var(--color-kyle-40)' }}>
       <span className="text-[10px] uppercase tracking-wider" style={{ color: 'var(--color-kyle)' }}>{label}</span>
-      <CopyButton text={value} display={`${value.slice(0, 4)}…${value.slice(-4)}`} className="font-mono text-[12px] min-h-[44px]" style={{ color: 'var(--color-kyle)' }} />
+      <CopyButton text={value} display={`${value.slice(0, 4)}…${value.slice(-4)}`} className={`font-mono text-[12px] ${COPY_PRESS}`} wordsClassName="ring-words" style={{ color: 'var(--color-kyle)' }} />
     </span>
   );
 }

@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, type ReactNode, type Ref } from 'react';
 import { describeTreasury, formatSol, formatTokenAmount } from '../../../lib/launcher/solana/curve';
-import { ImpactRows, Notice, Row } from './ui';
+import { ExplorerLink, ImpactRows, Notice, Row } from './ui';
 import { DIVIDER, bpsPercent, fractionToBps, sharePercent } from './uiFormat';
 import { CREATOR_FEE_SWITCH, feeSplit } from '../../../lib/solana/cpswap/venue';
 import { feeRateText, formatSolPrice, tradeCostText } from '../../../lib/solana/lp/format';
@@ -901,14 +901,6 @@ function signStatus(s: ReviewState): string {
     return 'This review is too old to sign as it is. Sign in wallet builds it again on fresh numbers first: your wallet opens only if every line still reads the same. If any line reads differently, you are shown which.';
   }
   return 'Your wallet will show this transaction next. Sign only if it matches what is above.';
-}
-
-function ExplorerLink({ href }: { href: string }) {
-  return (
-    <a href={href} target="_blank" rel="noopener noreferrer nofollow" className="underline text-white/80">
-      View on the explorer
-    </a>
-  );
 }
 
 function SignatureRow({ signature }: { signature: string }) {

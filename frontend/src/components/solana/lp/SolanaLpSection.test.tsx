@@ -9,7 +9,7 @@ import { SOL_QUOTE } from '../../../lib/solana/lp/quotes';
 import type { PoolSearchRead, PoolView } from '../../../lib/solana/lp/poolFinder';
 import { POOL_STATUS_DISABLE_WITHDRAW, decodeAmmConfig, decodePoolState } from '../../../lib/solana/cpswap/program';
 import type { Position } from '../../../lib/solana/lp/positions';
-import { Row } from '../curve/ui';
+import { ExplorerLink, Row } from '../curve/ui';
 import { buildPool, key } from '../../../lib/solana/lp/testkit.fixture';
 import { fakeLpApi, unusedGateRpc } from './fakeLpWriteApi.fixture';
 import { recordedFeeTiers, recordedTier } from '../../../lib/solana/cpswap/mainnetVenueReplay.fixture';
@@ -394,6 +394,24 @@ describe('Row', () => {
     expect(span.className).toMatch(/font-mono/);
     expect(span.className).toMatch(/overflow-wrap:anywhere/);
     expect(span.className).not.toMatch(/break-all/);
+  });
+});
+
+// "View on the explorer" is one small line with a finger-sized press area around it. A
+// ring round that area had its bottom edge hidden behind the button under the link and
+// its top edge through the row above (a real browser, 2026-10-06), so the ring goes
+// round the words: `ring-on-words` on the link, one `ring-words` inside it (index.css).
+describe('ExplorerLink', () => {
+  it('opens the transaction in a new tab, and the keyboard’s ring goes round its words', () => {
+    render(<ExplorerLink href="https://explorer.test/tx/abc" />);
+    const link = screen.getByRole('link', { name: 'View on the explorer' });
+    expect(link).toHaveAttribute('href', 'https://explorer.test/tx/abc');
+    expect(link).toHaveAttribute('target', '_blank');
+    expect(link.getAttribute('rel')).toBe('noopener noreferrer nofollow');
+    expect(link.classList.contains('ring-on-words')).toBe(true);
+    const ringed = link.querySelectorAll('.ring-words');
+    expect(ringed).toHaveLength(1);
+    expect(ringed[0]!.textContent).toBe('View on the explorer');
   });
 });
 
