@@ -405,9 +405,10 @@ minimum, with no spare bytes and no spare lamports.
 |---|---|
 | The build | 724,688 bytes, sha256 `99a9e73dc469755b178d8029196be0ee8f92e557bbd65e15e4511084b6a0fe25`. Built twice from clean copies, byte for byte the same. |
 | Growth of the binary | 33,048 bytes (691,640 → 724,688). The security text is 16 of them: the build with the instruction alone was 724,672. |
-| Enlarging the program account | 167,883,840 lamports (0.1679 SOL) at 5,080 lamports per byte, locked for good. The smallest step the loader accepts is 10,240 bytes, so the growth sets the price. Any wallet can pay it; it is not a vault action. It re-deploys the program at that slot, so calls fail for about one slot. |
+| Enlarging the program account | 167,883,840 lamports (0.1679 SOL) at 5,080 lamports per byte, locked for good. The smallest step the loader accepts is 10,240 bytes, so the growth sets the price. Any wallet can pay it; it is not a vault action. That holds only while the feature `enable_extend_program_checked` (`2oMRZEDWT2tqtYMofhmmfQ8SsjqUFzT6sYXppQDavxwz`) is inactive. It was inactive on 2026-10-07 (no account on mainnet). Re-read that feature on the day. If it is active, the enlarge must be signed by the vault. The enlarge re-deploys the program at that slot, so calls fail for about one slot. |
 | The upgrade buffer | 3,682,253,240 lamports (3.682 SOL) for its 724,725 bytes, returned when the upgrade executes |
 | One name record | 13,733,800 lamports from whoever calls: 3,733,800 rent plus Metaplex's flat 10,000,000 |
+| What the paying wallet needs | About 3.85 SOL on the day: 0.1679 locked for good, 3.682 returned when the upgrade executes, plus upload fees (about 0.004 SOL, an estimate, before any priority fee). Add 0.0275 SOL if the same wallet sends both name-record calls: about 3.88 SOL. **Gate: read the paying wallet's balance before the day and see that it covers this.** No wallet of ours did when read on 2026-10-07 (03:52 UTC on the 8th): the vault `GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd` held 0.0152 SOL, the first deployer `CqcVvaMvesrSKrUSbqBqr9mLjKLJuYqhaXg1gXpR41cg` 0.0324 SOL and the owner's wallet `Upmhw8i6RSLXoj4yGzq9ZYLXb4UzZMRm7BSX8BxCdEd` 0.0220 SOL. None of them could pay the enlarge alone. |
 
 ### C. What has run on the new binary, and what ships in the same release
 
@@ -447,6 +448,15 @@ In the SAME release as the upgrade (site and repo):
   values), `docs/DEPLOY_RUNBOOK.md` ("Moving the source links"), `docs/SECURITY_TOOLING.md`
   (step 3), "The on-chain security text" in `TEGRIDY_FORK.md`, `README.md` here, and
   `AUDIT_RFQ.md`.
+- The security scope, to-do `O-0929-12` in `docs/TODO_OPERATOR.md`: **decide it before the
+  upgrade puts the link on chain.** After the upgrade the program's second contact is a link
+  to `https://memetics.finance/.well-known/security.txt`. That file's "In scope" block ends
+  "Nothing else is in scope" and does not name the two Solana programs. So a researcher who
+  follows the on-chain link lands on a file that says the program they came from is out of
+  scope. Either add both programs to that block and to the root `SECURITY.md` list, or say
+  in both that they are out of scope. The file is a static page
+  (`frontend/public/.well-known/security.txt`), so the decision needs a site deploy and no
+  rebuild of the program.
 
 ### D. The name records afterwards
 
@@ -584,8 +594,8 @@ date to move it — not a default the build inherits. Moving it later is a progr
 > committed, which is exactly why reading lib.rs tells you nothing about what is live.
 
 A **separate program** from cp-swap, deliberately — folding it in would break
-`diff-guard` and turn a cheap diff-audit (four constants and one small added instruction
-that names lp tokens) into a full AMM audit.
+`diff-guard` and turn a cheap diff-audit (four constants, one small added instruction that
+names lp tokens, and the program's own name and contact text) into a full AMM audit.
 
 1. Generate its own mainnet keypair, then patch **both** `declare_id!(...)` and
    `deployer::ID` (the `#[cfg(not(feature = "devnet"))]` arm, which ships a

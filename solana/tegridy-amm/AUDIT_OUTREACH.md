@@ -41,8 +41,13 @@ To calibrate effort, these already exist and are described in the RFQ:
 - a prior internal adversarial review. Its findings are already fixed and are **listed in
   the RFQ** so you don't spend time rediscovering them.
 
-**Neither program is deployed to any cluster and neither holds any funds today.** A
-mainnet deploy is gated on this audit, so your timeline is our timeline.
+**Both programs have been live on mainnet since 2026-09-29**, at
+`EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT` (cp-swap) and
+`64WBTeNcrSHfmBpiqymyifW6FUNNLvJcuiqF9rXmz4q2` (tegridy-launch), and cp-swap holds funded
+pools. Neither has been audited. So the audit target is a live program as well as its
+source. For cp-swap the two differ by one instruction and by the on-chain security text:
+the binary on mainnet was built before `create_lp_metadata` was added. Both reach mainnet
+only through one upgrade that the Squads vault signs.
 
 Happy to grant repo read access. What would you quote, and what's your earliest start?
 

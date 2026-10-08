@@ -12,7 +12,7 @@ Legend: **FREE** · **FREE-tier** · **$ paid** · ⚠ **key-touching / scope ca
 
 | What | Where | How to use |
 |---|---|---|
-| **security.txt** (RFC 9116 disclosure channel) | `frontend/public/.well-known/security.txt` | Deploys with the frontend → served at `https://tegridyfarms.vercel.app/.well-known/security.txt`. Verify it resolves after the next deploy. Swap the email for a dedicated `security@` alias when you have one. |
+| **security.txt** (RFC 9116 disclosure channel) | `frontend/public/.well-known/security.txt` | Deploys with the frontend → served at `https://memetics.finance/.well-known/security.txt`. Verify it resolves after the next deploy. Swap the email for a dedicated `security@` alias when you have one. |
 | **`@custom:security-contact`** on flagship contracts | `Toweli.sol`, `SwapFeeRouter.sol` | Renders a contact on Etherscan's verified-source page. Add the same one-liner to other entry contracts (Router, Staking, RevenueDistributor, NFT-AMM/lending) on their next edit. |
 | **Flashbots / MEV-Blocker private send-paths** | `contracts/foundry.toml` → `[rpc_endpoints]` | `forge script … --rpc-url flashbots --broadcast --slow` for admin/deployer txs so they can't be sandwiched. Reads/nonce still use `mainnet`. |
 | **SMTChecker formal-verification profile** (opt-in) | `contracts/foundry.toml` → `[profile.smtcheck.*]` | `FOUNDRY_PROFILE=smtcheck forge build` (CI, or a machine where build completes). Free formal layer, scoped to `Toweli`; widen `contracts` as you tune. |

@@ -1,9 +1,9 @@
 name: solana-ci
 
 # Tegridy CP-AMM (solana/tegridy-amm): a fork of raydium-cp-swap that differs from
-# it by four authority constants and one added instruction (create_lp_metadata,
-# which names a pool's lp token), plus tegridy-launch, our own bonding curve that
-# graduates into it.
+# it by four authority constants, the program's own name and contact text and one
+# added instruction (create_lp_metadata, which names a pool's lp token), plus
+# tegridy-launch, our own bonding curve that graduates into it.
 # Gates:
 #   1. diff-guard  — proves the fork's delta from pinned audited upstream is
 #      EXACTLY the pinned hash. Not a file allowlist: the previous version accepted
@@ -148,9 +148,9 @@ jobs:
           # arbitrary logic could be added there and this job stayed green — while the
           # comment above it claimed the files hold "ONLY hardcoded authority constants".
           # That assumption was never enforced, and it is the exact claim we make to
-          # auditors (since 2026-10-06: "the delta is four constants and one instruction
-          # that names lp tokens"; before that, "four constants"), so it has to be
-          # mechanical.
+          # auditors (since 2026-10-06: "the delta is four constants, one instruction
+          # that names lp tokens, and the program's own name and contact text"; before
+          # that, "four constants"), so it has to be mechanical.
           #
           # Now: the delta is canonicalised and hashed. Any change to it — including
           # inside the allowed files — fails until a human deliberately re-pins

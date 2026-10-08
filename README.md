@@ -531,10 +531,10 @@ token, ever). Solana is fee-capture, staking, and a venue we intend to own.
 - **The cp-swap fork itself** remains a **fork of Raydium's audited CPMM**
   ([`raydium-cp-swap`](https://github.com/raydium-io/raydium-cp-swap), Apache-2.0) so the
   protocol can earn a config-set fee on pools it hosts. The entire code delta from upstream is
-  authority/identity constants, comments and, since 2026-10-06, one added instruction
-  (`create_lp_metadata`, which gives a pool's lp token a name record so wallets can show it),
-  CI-enforced. The program has been live on mainnet since 2026-09-29 and holds funded
-  pools. It has not been audited yet. See
+  authority/identity constants, the program's own name and contact text, comments and, since
+  2026-10-06, one added instruction (`create_lp_metadata`, which gives a pool's lp token a
+  name record so wallets can show it), CI-enforced. The program has been live on mainnet
+  since 2026-09-29 and holds funded pools. It has not been audited yet. See
   [`solana/tegridy-amm/TEGRIDY_FORK.md`](solana/tegridy-amm/TEGRIDY_FORK.md) and
   [`MAINNET_RUNBOOK.md`](solana/tegridy-amm/MAINNET_RUNBOOK.md).
 

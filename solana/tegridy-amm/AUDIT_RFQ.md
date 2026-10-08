@@ -2,10 +2,10 @@
 
 > ⚠️ **TWO PROGRAMS, TWO VERY DIFFERENT ENGAGEMENTS. Price them separately.**
 >
-> - **Scope A, `cp-swap`:** a fork of Raydium's audited CPMM, delta = four constants plus
->   one added instruction (`create_lp_metadata`, about 150 lines, added 2026-10-06). A
->   **diff-audit**, with one instruction that needs a real read. Everything below the fold
->   describes this.
+> - **Scope A, `cp-swap`:** a fork of Raydium's audited CPMM, delta = four constants, the
+>   program's own name and contact text, plus one added instruction (`create_lp_metadata`,
+>   about 150 lines, added 2026-10-06). A **diff-audit**, with one instruction that needs a
+>   real read. Everything below the fold describes this.
 > - **Scope B — `tegridy-launch`:** ~1,170 production nSLOC of **NOVEL code** with no upstream to
 >   diff against — a bonding curve plus a 20-account migration CPI that moves an entire
 >   launch's raised balance in one instruction. This is a **real audit** and is where the
@@ -15,8 +15,8 @@
 
 **Scope A one-liner:** review a **fork** of Raydium's audited CPMM
 (`raydium-cp-swap`) whose *entire* delta from upstream is **four hardcoded
-authority/identity constants** and **one added instruction, `create_lp_metadata`**. This is a
-**diff-audit**, not a from-scratch AMM audit.
+authority/identity constants**, **one added instruction, `create_lp_metadata`**, and the
+program's own name and contact text. This is a **diff-audit**, not a from-scratch AMM audit.
 
 **The added instruction, and why it needs a real read.** A pool's lp token is a classic SPL
 mint with no name record, so wallets list it as an unknown token. Metaplex only creates the
@@ -153,7 +153,9 @@ Both reach mainnet only through one upgrade that the Squads vault signs.
 
 ## Self-verification we've already done (please confirm)
 - `diff -rq` against pinned upstream shows **only those two files differ**, and only in the
-  four constants and the one added instruction (`create_lp_metadata`, whole in `lib.rs`).
+  four constants, the one added instruction (`create_lp_metadata`, whole in `lib.rs`) and
+  the program's own name and contact text (the `security_txt!` block in `lib.rs`; outside
+  `src`, one `Cargo.toml` line).
   This is **enforced on every push** by `.github/workflows/solana-ci.yml`
   (`diff-guard` job fails the build on any other divergence).
 - `create_lp_metadata` was run on a local validator against copies of the two real mainnet
@@ -166,9 +168,9 @@ Both reach mainnet only through one upgrade that the Squads vault signs.
 - After the fork, **no external (Raydium) party retains any authority** on the program.
 
 ## What we're asking you to verify
-1. The `diff-rq`/diff-guard claim holds: nothing beyond the four constants and the one
-   added instruction changed vs the audited upstream commit; the underlying upstream is at a
-   safe, audited revision.
+1. The `diff-rq`/diff-guard claim holds: nothing beyond the four constants, the one added
+   instruction and the program's own name and contact text changed vs the audited upstream
+   commit; the underlying upstream is at a safe, audited revision.
 2. The four constants are wired correctly (each authority is used where intended; no
    authority path was missed or left pointing at a foreign key).
 2a. `create_lp_metadata` can only create the Metaplex name record of a real pool's lp mint:
