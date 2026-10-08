@@ -72,7 +72,13 @@ export async function prepareOwnPoolSwap(deps: OwnPoolSwapDeps, shownAggregatorO
     // A figure from earlier is the last quote Jupiter gave, not an answer it gave now.
     return notBuilt(agg.kind === 'quoted' && agg.when === 'earlier' ? OWN_ROUTE_COPY.underLastQuote : OWN_ROUTE_COPY.routeMoved);
   }
-  return deps.prepare(chosen.poolAddress, seen);
+  const built = await deps.prepare(chosen.poolAddress, seen);
+  // The builder found our pool under the quote it was held to: a quote whose transaction is
+  // refused holds nothing, so the pool is built as it is, and its review says why.
+  if (!built.ok && built.outcome.message === OWN_ROUTE_COPY.routeMoved && seen.kind === 'quoted' && seen.when === 'now' && deps.aggregatorSends && !(await deps.aggregatorSends())) {
+    return deps.prepare(chosen.poolAddress, { kind: 'refused' });
+  }
+  return built;
 }
 
 /** With what the aggregator's transaction would pay in hand: does one of our pools, read again now, take the trade? */

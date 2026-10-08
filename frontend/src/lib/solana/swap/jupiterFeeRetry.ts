@@ -50,11 +50,15 @@ export interface FeeRetryDeps {
   swapCarriesPlatformFee(inputMint: string, outputMint: string): boolean;
 }
 
+/**
+ * `unchecked`: the test run of the transaction that would be sent could not run (a read
+ * failed). It is no verdict on that transaction, so no caller may treat it as one.
+ */
 export type PreparedJupiterSwap =
   /** Hand `swapTransaction` to the wallet. `quote` is the one it was built from: show ITS amounts. */
-  | { status: 'ready'; quote: JupiterQuote; swapTransaction: string; siteFeeWaived: boolean }
+  | { status: 'ready'; quote: JupiterQuote; swapTransaction: string; siteFeeWaived: boolean; unchecked?: true }
   /** Nothing may be signed. `reason` is the simulation's own words when it has any. */
-  | { status: 'blocked'; reason: string | null; retried: boolean }
+  | { status: 'blocked'; reason: string | null; retried: boolean; unchecked?: true }
   /** The no-fee re-quote pays less than the fee-bearing one beyond the slippage: not silently sent. */
   | { status: 'moved'; quote: JupiterQuote };
 
@@ -87,7 +91,7 @@ export async function prepareJupiterSwap(
   } catch {
     // Unchanged from before the retry existed: an unreadable FIRST simulation
     // still goes to the wallet. (SPEC_S3 S1 turns this into fail-closed.)
-    return { status: 'ready', quote: a.fresh, swapTransaction: first, siteFeeWaived: false };
+    return { status: 'ready', quote: a.fresh, swapTransaction: first, siteFeeWaived: false, unchecked: true };
   }
   if (sim.ok) return { status: 'ready', quote: a.fresh, swapTransaction: first, siteFeeWaived: false };
 
@@ -111,7 +115,7 @@ export async function prepareJupiterSwap(
       noPlatformFee: true,
     });
   } catch {
-    return blocked;
+    return { ...blocked, unchecked: true };
   }
   // The SAME trade, and really fee-free, by Jupiter's own fields.
   if (
@@ -147,14 +151,14 @@ export async function prepareJupiterSwap(
       noPlatformFee: true,
     });
   } catch {
-    return blocked;
+    return { ...blocked, unchecked: true };
   }
   let sim2: SwapSimulation;
   try {
     sim2 = await deps.simulateSwap(second);
   } catch {
     // The retry is never sent unsimulated.
-    return { status: 'blocked', reason: 'The no-fee rebuild could not be simulated.', retried: true };
+    return { status: 'blocked', reason: 'The no-fee rebuild could not be simulated.', retried: true, unchecked: true };
   }
   if (!sim2.ok) return { status: 'blocked', reason: sim2.reason ?? sim.reason, retried: true };
   return { status: 'ready', quote: retried, swapTransaction: second, siteFeeWaived: true };

@@ -77,7 +77,8 @@ describe('prepareJupiterSwap: the fee-bearing build is tried first, and usually 
   it('an unreadable FIRST simulation behaves as it did before the retry existed: no retry, the fee build goes on', async () => {
     const d = deps({ simulateSwap: vi.fn(async () => { throw new Error('Simulation failed (503)'); }) });
     const r = await prepareJupiterSwap(d, ARGS);
-    expect(r).toEqual({ status: 'ready', quote: FEE_QUOTE, swapTransaction: 'TX_FEE', siteFeeWaived: false });
+    // Marked as not checked: a test run that could not run is no verdict on the transaction.
+    expect(r).toEqual({ status: 'ready', quote: FEE_QUOTE, swapTransaction: 'TX_FEE', siteFeeWaived: false, unchecked: true });
     expect(d.getQuote).not.toHaveBeenCalled();
   });
 });
@@ -142,6 +143,7 @@ describe('prepareJupiterSwap: a failing retry is blocked, and there is never a s
     const d = deps({ simulateSwap: vi.fn(async (tx: string) => (tx === 'TX_FEE' ? JUP_6014 : SLIPPAGE)) });
     const r = await prepareJupiterSwap(d, ARGS);
     expect(r).toEqual({ status: 'blocked', reason: 'custom program error: 0x1771', retried: true });
+    expect('unchecked' in r).toBe(false);
   });
 
   it('the retry failing with 6014 AGAIN blocks: one re-quote, two builds, two simulations, then stop', async () => {
@@ -162,12 +164,14 @@ describe('prepareJupiterSwap: a failing retry is blocked, and there is never a s
     });
     const r = await prepareJupiterSwap(d, ARGS);
     expect(r.status).toBe('blocked');
+    // Blocked, and marked as not checked: the no-fee transaction was never test-run.
+    expect(r).toMatchObject({ unchecked: true });
   });
 
   it('a re-quote that cannot be fetched blocks', async () => {
     const d = deps({ getQuote: vi.fn(async () => { throw new Error('Quote unavailable (429)'); }) });
     const r = await prepareJupiterSwap(d, ARGS);
-    expect(r).toEqual({ status: 'blocked', reason: 'custom program error: 0x177e', retried: true });
+    expect(r).toEqual({ status: 'blocked', reason: 'custom program error: 0x177e', retried: true, unchecked: true });
     expect(d.buildSwapTransaction).toHaveBeenCalledTimes(1);
   });
 
@@ -179,7 +183,7 @@ describe('prepareJupiterSwap: a failing retry is blocked, and there is never a s
       }),
     });
     const r = await prepareJupiterSwap(d, ARGS);
-    expect(r.status).toBe('blocked');
+    expect(r).toMatchObject({ status: 'blocked', unchecked: true });
     expect(d.simulateSwap).toHaveBeenCalledTimes(1);
   });
 });

@@ -127,6 +127,19 @@ describe('a quote whose transaction fails its own test run is no route this site
     expect(prepare).not.toHaveBeenCalled();
   });
 
+  it('the builder finds our pool under a quote whose transaction is refused: built again, held to nothing', async () => {
+    const moved: Prepared = { ok: false, outcome: { status: 'not-sent', stage: 'build', message: OWN_ROUTE_COPY.routeMoved } };
+    const refusedTx = withSends({ agg: 1_008_000n, own: [pool('PoolA', 1_010_000n)] }, false);
+    refusedTx.prepare.mockImplementation(async (_p: string, a: AggregatorSeen) => (a.kind === 'quoted' ? moved : BUILT));
+    expect(await prepareOwnPoolSwap(refusedTx.d, null)).toBe(BUILT);
+    expect(refusedTx.prepare.mock.calls.map((c) => c[1])).toEqual([{ kind: 'quoted', out: 1_008_000n, when: 'now' }, { kind: 'refused' }]);
+    // A transaction that would run keeps the builder's answer: Jupiter does pay more now.
+    const runs = withSends({ agg: 1_008_000n, own: [pool('PoolA', 1_010_000n)] }, true);
+    runs.prepare.mockImplementation(async () => moved);
+    expect(await prepareOwnPoolSwap(runs.d, null)).toBe(moved);
+    expect(runs.prepare).toHaveBeenCalledTimes(1);
+  });
+
   it('is not asked when our pool already takes the trade, nor of a figure from earlier', async () => {
     const won = withSends({ agg: 1_000_000n, own: [pool('PoolA', 1_010_000n)] }, false);
     expect(await prepareOwnPoolSwap(won.d, null)).toBe(BUILT);

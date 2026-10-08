@@ -1699,6 +1699,107 @@ describe('a note of a swap in our pool, sent and not confirmed, found on arrival
   });
 });
 
+describe('a check that could not run at the press is no answer (law 8)', () => {
+  const OK = { ok: true, reason: null, jupiterIncorrectTokenProgram: false };
+  const JUP_6014 = { ok: false, reason: 'custom program error: 0x177e', jupiterIncorrectTokenProgram: true };
+  const REFUSED = { ok: false, reason: 'custom program error: 0x1771', jupiterIncorrectTokenProgram: false };
+  const withFee = (out: string) => ({ ...jupiterQuote(out), platformFee: { amount: '5000', feeBps: 50 } });
+  const REFUSED_LINE = 'Jupiter quoted more, but its transaction for this trade failed its test run, so it could not be sent';
+
+  it('Buy pressed while our pools are still being read, and the press’s own read does not finish: nothing is sent', async () => {
+    // The first read of our pools never answers; the press's read answers, but could not read them.
+    h.readVenuePools.mockImplementationOnce(() => new Promise(() => {}));
+    const buy = await readyToBuy({ poolsAnswer: false });
+    expect(routeLine()).toMatch(/Checking our pools/);
+    h.ownOut.value = null;
+    fireEvent.click(buy);
+    await waitFor(() => expect(h.toast.error).toHaveBeenCalledWith('Route not checked', { description: OWN_ROUTE_COPY.notChecked }));
+    expect(h.buildSwapTransaction).not.toHaveBeenCalled();
+    expect(h.sendTransaction).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['the no-fee quote could not be asked for', 'quote'],
+    ['the no-fee transaction could not be built', 'build'],
+    ['the no-fee transaction’s test run could not run', 'sim'],
+  ] as const)('the site fee on the pair, Jupiter’s fee build gets its 6014, and %s: never "failed its test run"', async (_name, broken) => {
+    h.carriesFee.value = true;
+    h.getQuote.mockImplementation(async () => withFee('1005000'));
+    h.buildSwapTransaction.mockImplementation(async (p: { noPlatformFee?: boolean }) => (p.noPlatformFee ? TX_NO_FEE : TX_FEE));
+    const buy = await readyToBuy();
+    await waitFor(() => expect(routeLine()).toMatch(/Our pool pays/));
+    // At the press Jupiter quotes 1.020 with the fee and 1.025 without it.
+    h.getQuote.mockImplementation(async (p: { noPlatformFee?: boolean }) => {
+      if (p.noPlatformFee && broken === 'quote') throw new Error('Quote unavailable (429)');
+      return p.noPlatformFee ? jupiterQuote('1025000') : withFee('1020000');
+    });
+    h.buildSwapTransaction.mockImplementation(async (p: { noPlatformFee?: boolean }) => {
+      if (p.noPlatformFee && broken === 'build') throw new Error('Could not build swap (500)');
+      return p.noPlatformFee ? TX_NO_FEE : TX_FEE;
+    });
+    h.simulateSwap.mockImplementation(async (b64: string) => {
+      if (b64 === TX_FEE) return JUP_6014;
+      if (broken === 'sim') throw new Error('simulateTransaction: HTTP 429');
+      return OK;
+    });
+    fireEvent.click(buy);
+    await waitFor(() => expect(h.toast.error.mock.calls.length + h.prepareVenueSwap.mock.calls.length).toBeGreaterThan(0), { timeout: 20_000 });
+    expect(h.prepareVenueSwap.mock.calls.map((c) => (c[2] as VenueSwapArgs).aggregator)).not.toContainEqual({ kind: 'refused' });
+    expect(screen.queryByText(REFUSED_LINE)).toBeNull();
+    expect(h.toast.error).toHaveBeenCalledWith('Route changed', { description: OWN_ROUTE_COPY.routeMoved });
+    expect(h.sendTransaction).not.toHaveBeenCalled();
+  });
+
+  it('a pair found to need Jupiter’s no-fee route keeps it when a later test run could not run', async () => {
+    const per = (amount: string | bigint, perTenth: bigint) => (BigInt(amount) * perTenth) / 100_000_000n;
+    h.carriesFee.value = true;
+    h.getQuote.mockImplementation(async (p: { amount: string; noPlatformFee?: boolean }) => ({
+      ...jupiterQuote(per(p.amount, p.noPlatformFee ? 1_012_000n : 1_005_000n).toString()),
+      inAmount: p.amount,
+      ...(p.noPlatformFee ? {} : { platformFee: { amount: '5000', feeBps: 50 } }),
+    }));
+    h.buildSwapTransaction.mockImplementation(async (p: { noPlatformFee?: boolean }) => (p.noPlatformFee ? TX_NO_FEE : TX_FEE));
+    h.simulateSwap.mockImplementation(async (b64: string) => (b64 === TX_FEE ? JUP_6014 : OK));
+    h.quoteVenuePools.mockImplementation((_read: unknown, _mint: string, amount: bigint) => ({ state: 'quoted', candidates: [ownCandidate(per(amount, 1_010_000n))] }));
+    const buy = await readyToBuy();
+    await waitFor(() => expect(routeLine()).toMatch(/Our pool pays/));
+    fireEvent.click(buy);
+    await waitFor(() => expect(h.toast.error).toHaveBeenCalledWith('Route changed', { description: OWN_ROUTE_COPY.routeMoved }), { timeout: 20_000 });
+    await waitFor(() => expect(routeLine()).toMatch(/Jupiter pays/), { timeout: 20_000 });
+    // The next press goes through Jupiter, and its first test run could not run.
+    h.toast.error.mockClear();
+    h.simulateSwap.mockImplementationOnce(async () => { throw new Error('simulateTransaction: HTTP 429'); });
+    fireEvent.click(await screen.findByRole('button', { name: 'Buy BAYLA' }));
+    await waitFor(() => expect(h.sendTransaction.mock.calls.length + h.toast.error.mock.calls.length).toBeGreaterThan(0), { timeout: 20_000 });
+    // A new amount of the same pair is still quoted as what Jupiter's transaction pays: no fee.
+    fireEvent.change(amountBox(), { target: { value: '0.2' } });
+    await waitFor(() => expect(h.getQuote.mock.calls.some(([p]) => (p as { amount: string }).amount === '200000000')).toBe(true));
+    await waitFor(() => expect(receive()).toBe('2.024'), { timeout: 20_000 });
+    expect(routeLine()).toMatch(/Jupiter pays/);
+  });
+
+  it('the builder finds our pool moved under a Jupiter quote whose transaction was refused: built with the refusal said, never "take the better route"', async () => {
+    h.carriesFee.value = true;
+    h.getQuote.mockImplementation(async () => withFee('1005000'));
+    const buy = await readyToBuy();
+    await waitFor(() => expect(routeLine()).toMatch(/Our pool pays/));
+    // At the press Jupiter quotes 1.008 with the fee and that transaction is refused; the
+    // builder reads our pool once more, at 1.007.
+    h.getQuote.mockImplementation(async () => withFee('1008000'));
+    h.simulateSwap.mockResolvedValue(REFUSED);
+    h.prepareVenueSwap.mockImplementation(async (_rpc: unknown, _gate: unknown, a: VenueSwapArgs) =>
+      a.aggregator.kind === 'quoted' && 1_007_000n < a.aggregator.out
+        ? { ok: false, outcome: { status: 'not-sent', stage: 'build', message: OWN_ROUTE_COPY.routeMoved } }
+        : { ok: true, prepared: preparedSwap(a, 1_007_000n) },
+    );
+    fireEvent.click(buy);
+    expect(await screen.findByText(REFUSED_LINE, {}, { timeout: 20_000 })).toBeInTheDocument();
+    expect(h.toast.error).not.toHaveBeenCalledWith('Route changed', expect.anything());
+    expect((h.prepareVenueSwap.mock.calls.at(-1)![2] as VenueSwapArgs).aggregator).toEqual({ kind: 'refused' });
+    expect(h.sendTransaction).not.toHaveBeenCalled();
+  });
+});
+
 describe('the risk tick-box: never for the venue’s own coins, once per token for the rest', () => {
   const OTHER = 'Dog1111111111111111111111111111111111111111';
   const other = { mint: OTHER, symbol: 'DOGGO', name: 'Doggo', decimals: 6, verified: false };

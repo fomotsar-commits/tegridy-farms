@@ -1670,13 +1670,14 @@ function SolanaSwapInner() {
               if (!swapCarriesPlatformFee(inputMint, outputMint)) return quotedOut;
               try {
                 const j = await jupiterTx(fresh);
-                seen.sends = j.status !== 'blocked';
+                // A test run that could not run is no refusal: the transaction may still send.
+                seen.sends = j.status !== 'blocked' || j.unchecked === true;
                 // A refused transaction's quote still holds our pool to it while our pool
                 // beats it; above our pool, aggregatorSends says it is no route.
                 if (j.status === 'blocked') return quotedOut;
                 // Kept for the pair pressed, whatever the form shows by now: its next quote is the no-fee one.
                 if (j.status === 'moved' || j.siteFeeWaived) noFeePairs.current.add(`${inputMint}|${outputMint}`);
-                else noFeePairs.current.delete(`${inputMint}|${outputMint}`);
+                else if (!j.unchecked) noFeePairs.current.delete(`${inputMint}|${outputMint}`);
                 return BigInt(j.quote.outAmount);
               } catch {
                 seen.sends = true;
@@ -1688,12 +1689,13 @@ function SolanaSwapInner() {
             aggregatorSends: async () => {
               if (seen.sends !== null || seen.fresh === null) return seen.sends ?? true;
               try {
-                return (await jupiterTx(seen.fresh)).status !== 'blocked';
+                const j = await jupiterTx(seen.fresh);
+                return j.status !== 'blocked' || j.unchecked === true;
               } catch {
                 return true;
               }
             },
-            ownPools: () => route.refresh(amountIn),
+            ownPools: async () => (await route.refresh(amountIn)) ?? [],
             prepare: (pool, aggregator) =>
               ready.api.prepareVenueSwap(venueSwap.rpc, ready.gate, {
                 owner,
@@ -1737,7 +1739,8 @@ function SolanaSwapInner() {
     const amountIn = BigInt(baseAmount);
     // The press's render: no comparison with our pools was on screen.
     const unread = route.own === 'pending';
-    const own = await within<Awaited<ReturnType<typeof route.refresh>> | null>(route.refresh(amountIn), OWN_CHECK_MS, null);
+    // Null: the read did not answer in time, or could not read our pools.
+    const own = await within<Awaited<ReturnType<typeof route.refresh>>>(route.refresh(amountIn), OWN_CHECK_MS, null);
     // The trade on the form changed while our pools were read: the one pressed is not sent.
     if (formNow.current !== pressedFor) {
       toast.info('Not sent', { description: OWN_ROUTE_COPY.formChanged });
@@ -1831,7 +1834,7 @@ function SolanaSwapInner() {
       }
       // What the test run found is kept for the pair: its next quote asks for what Jupiter's transaction from this site pays.
       if (prepared.status === 'moved' || prepared.siteFeeWaived) noFeePairs.current.add(`${payToken.mint}|${buyToken.mint}`);
-      else noFeePairs.current.delete(`${payToken.mint}|${buyToken.mint}`);
+      else if (!prepared.unchecked) noFeePairs.current.delete(`${payToken.mint}|${buyToken.mint}`);
       if (prepared.status === 'moved') {
         // The no-fee re-quote is on screen now, labelled as such; nothing was sent.
         setWaivedQuote(prepared.quote);

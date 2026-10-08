@@ -75,8 +75,8 @@ export interface SolanaRoute {
   aggregatorLabel: string;
   /** An amount is typed and an answer it waits on (the aggregator's or the venue's) is still on its way. */
   asking: boolean;
-  /** Read our pools again now and quote `amountIn` of the pay token. Never throws. */
-  refresh(amountIn: bigint): Promise<VenuePoolCandidate[]>;
+  /** Read our pools again now and quote `amountIn` of the pay token; null when they could not be read. Never throws. */
+  refresh(amountIn: bigint): Promise<VenuePoolCandidate[] | null>;
   /** Drop the read in hand and read again (a trade, or a press, found the pool changed). */
   forget(): void;
 }
@@ -161,14 +161,16 @@ export function useSolanaRoute({ inputMint, outputMint, amountInRaw, aggregatorQ
   }, [venue, hasAmount, aggregatorPending, aggregatorQuote, aggregatorLabel, candidates]);
 
   const refresh = useCallback(
-    async (amountIn: bigint): Promise<VenuePoolCandidate[]> => {
+    async (amountIn: bigint): Promise<VenuePoolCandidate[] | null> => {
       const v = await venueStatusOnce();
       // What the press found is the page's venue from now on: a venue that failed at load included.
       setVenue(v);
+      if (v.kind === 'unreadable') return null;
       if (v.kind !== 'live') return [];
       const fresh = await readPools(v.programId, inputMint, outputMint, shownFor(pairKey));
       if (onScreen.current === pairKey) setPools({ key: pairKey, read: fresh, at: Date.now() });
-      return quoteVenuePools(fresh, inputMint, amountIn).candidates;
+      const q = quoteVenuePools(fresh, inputMint, amountIn);
+      return q.state === 'error' ? null : q.candidates;
     },
     [inputMint, outputMint, pairKey],
   );
