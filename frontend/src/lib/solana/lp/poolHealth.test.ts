@@ -409,7 +409,8 @@ describe('assessPool: a launch pool is checked against its own recent average', 
     });
 
     it('launchReference takes a launch pool’s own passed check and nothing else', () => {
-      expect(launchReference({ state: 'agrees', pool: 0.01, reference: 0.01, against: 'own-average', diff: 0 })).toBe(0.01);
+      // Its price NOW (`pool`), never its half-hour average (`reference`): the two can be up to 3% apart.
+      expect(launchReference({ state: 'agrees', pool: 0.0102, reference: 0.01, against: 'own-average', diff: 0.02 })).toBe(0.0102);
       expect(launchReference({ state: 'no-trades-yet', pool: 0.01 })).toBe(0.01);
       // A check against Jupiter, or against another launch pool, is not a launch pool's own.
       expect(launchReference({ state: 'agrees', pool: 0.01, reference: 0.01, against: 'outside', diff: 0 })).toBeNull();

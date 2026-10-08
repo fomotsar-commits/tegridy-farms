@@ -9,7 +9,7 @@ import { PublicKey } from '@solana/web3.js';
 import { LpInner, type LpWritesOverrides } from './SolanaLpSection';
 import type { LpReaders } from './readers';
 import type { TokenSafety } from '../../../lib/solana/lp/tokenSafety';
-import { SOL_QUOTE } from '../../../lib/solana/lp/quotes';
+import { SOL_QUOTE, USDC_QUOTE } from '../../../lib/solana/lp/quotes';
 import { TOKEN_2022_NATIVE_MINT } from '../../../lib/solana/lp/opening';
 import { isCreatedPool, rememberCreatedPool, type PoolSearchRead, type PoolView } from '../../../lib/solana/lp/poolFinder';
 import { decodeAmmConfig, decodePoolState } from '../../../lib/solana/cpswap/program';
@@ -411,6 +411,42 @@ describe('each answer has its own line, and only `offer` has the button', () => 
     expect(poolCard(launch.address)).toHaveAttribute('data-price', 'no-trades-yet');
     addTask();
     expect(await addFormPool()).toBe(launch.address);
+  }, 20_000);
+
+  // "No market price" is a price warning too (offers.ts `priceWarned`): the pool's price was
+  // compared with nothing. The launch pool is now the reference for a token with no market
+  // price (the test above), so the case left is a pool paired with a coin Jupiter has no
+  // route for (owner ruling 2026-10-07). Listed first, it is still passed over. The test
+  // above held this rule until it was rewritten for the launch-pool reference; a review
+  // (2026-10-08) took the rule out of the page and every test still passed.
+  it('…a deeper pool in a coin Jupiter has no price for, listed above a pool at the market: it is passed over for the pool at the market', async () => {
+    const atMarket = view({ tier1: true });
+    // 4,000 USDC against 1,000 tokens.
+    const q = 4_000n * 10n ** 6n;
+    const t = 1_000n * 10n ** 6n;
+    const b = buildPool({ plain: true, mint: MINT, quote: USDC_QUOTE, configIndex: 1, quoteReserve: q, tokenReserve: t, openTime: 1n });
+    const pool = decodePoolState(b.address.toBase58(), b.accounts[b.address.toBase58()]!.data)!;
+    const quoteIsToken0 = pool.token0Mint === USDC_QUOTE.mint;
+    const inUsdc: PoolView = {
+      ...view({}),
+      address: b.address.toBase58(),
+      snapshot: { pool, vault0Amount: quoteIsToken0 ? q : t, vault1Amount: quoteIsToken0 ? t : q, reserve0: quoteIsToken0 ? q : t, reserve1: quoteIsToken0 ? t : q },
+      quote: USDC_QUOTE,
+      quoteIsToken0,
+      quoteReserve: q,
+      tokenReserve: t,
+    };
+    const outsidePrice = vi.fn(async (mint: string) =>
+      mint === USDC_QUOTE.mint ? { kind: 'no-route' as const, detail: 'Jupiter has no route for this token' } : { kind: 'ok' as const, solPerToken: 0.01, source: 'Jupiter' as const },
+    );
+    mount(readers({ findPools: vi.fn(async () => search([inUsdc, atMarket])), outsidePrice }));
+    await settled('offer');
+    await waitFor(() => expect(poolCard(atMarket.address)).toHaveAttribute('data-add', 'offer'));
+    expect(poolCard(inUsdc.address)).toHaveAttribute('data-add', 'offer');
+    expect(poolCard(inUsdc.address)).toHaveAttribute('data-price', 'no-market');
+    expect(poolCard(atMarket.address)).toHaveAttribute('data-price', 'agrees');
+    addTask();
+    expect(await addFormPool()).toBe(atMarket.address);
   }, 20_000);
 
   // Review 2026-10-04 (C2). What the card says of the pool it points to, by what the
