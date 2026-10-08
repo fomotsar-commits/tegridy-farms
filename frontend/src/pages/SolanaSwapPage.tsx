@@ -1359,19 +1359,14 @@ function SolanaSwapInner() {
     // quoteAttempt is here only so "Try again" re-runs this for the same form.
   }, [baseAmount, canQuote, payToken.mint, buyToken.mint, slippageBps, quoteAttempt]);
 
-  // USD prices for the pay + receive legs (one call, refreshed on pair change
-  // — and every 30s while USD-denominated input is on, so a stale price can't
-  // mis-size the trade).
+  // USD prices for the pay and receive legs, read again on a pair change. The 30 s
+  // refresh in USD mode is further down: it waits while a trade is on its way.
   useEffect(() => {
     let cancelled = false;
-    const load = () => {
-      getUsdPrices([payToken.mint, buyToken.mint])
-        .then((p) => { if (!cancelled) setPrices(p); })
-        .catch(() => { /* USD context is best-effort */ });
-    };
-    load();
-    const iv = usdMode ? setInterval(load, 30_000) : null;
-    return () => { cancelled = true; if (iv) clearInterval(iv); };
+    getUsdPrices([payToken.mint, buyToken.mint])
+      .then((p) => { if (!cancelled) setPrices(p); })
+      .catch(() => { /* USD context is best-effort */ });
+    return () => { cancelled = true; };
   }, [payToken.mint, buyToken.mint, usdMode]);
 
   // Persist the speed choice (best-effort — private windows just don't keep it).
@@ -1454,6 +1449,21 @@ function SolanaSwapInner() {
     : flowState.step === 'submitting' ? 'Confirm in your wallet…'
     : flowState.step === 'sent' ? 'Confirming…'
     : null;
+  // A trade on its way, by either route: the wallet is asked for what was pressed, so
+  // nothing on the form may change under it.
+  const held = swapping || ownBusy !== null;
+  // In USD mode the price is read every 30 s, so a stale one cannot mis-size the trade,
+  // but never under a press: it would re-size the trade the press is holding.
+  useEffect(() => {
+    if (!usdMode || held) return;
+    let cancelled = false;
+    const iv = setInterval(() => {
+      getUsdPrices([payToken.mint, buyToken.mint])
+        .then((p) => { if (!cancelled) setPrices(p); })
+        .catch(() => { /* USD context is best-effort */ });
+    }, 30_000);
+    return () => { cancelled = true; clearInterval(iv); };
+  }, [usdMode, held, payToken.mint, buyToken.mint]);
   const { target: buyRef, fallback: headingRef } = useReturnFocus(ownFlowOpen ? flowState.step : 'idle');
   // The swap at the wallet or on its way to the chain, as built.
   const inFlightTx = flowState.step === 'review' || flowState.step === 'submitting' || flowState.step === 'sent' ? flowState.prepared : null;
@@ -1978,7 +1988,7 @@ function SolanaSwapInner() {
                 type="button"
                 onClick={() => setMode(mTab)}
                 aria-pressed={mode === mTab}
-                disabled={ownBusy !== null}
+                disabled={held}
                 className="flex-1 py-2.5 rounded-lg text-[12px] font-medium text-white transition-colors disabled:opacity-60"
                 style={{
                   background: mode === mTab ? 'var(--color-stan)' : 'rgba(0,0,0,0.45)',
@@ -1997,9 +2007,8 @@ function SolanaSwapInner() {
               <VenueSwapFlow swap={venueSwap} />
             </Suspense>
           ) : mode === 'swap' ? (
-            // Held while a swap in our own pool is on its way: the wallet is asked for
-            // what was pressed, so nothing here may change under it.
-            <fieldset disabled={ownBusy !== null} className="border-0 p-0 m-0 min-w-0">
+            // Held while a trade is on its way, by either route (`held`).
+            <fieldset disabled={held} className="border-0 p-0 m-0 min-w-0">
           {/* You pay */}
           <div className="mb-1">
             <div className="flex items-center justify-between mb-2">
@@ -2395,8 +2404,8 @@ function SolanaSwapInner() {
               <PairChart key={buyToken.mint} mint={buyToken.mint} symbol={buyToken.symbol} />
             </div>
           )}
-          <EarnRail onPick={(t) => { if (ownBusy === null) { setPayToken(SOL); setBuyToken(t); } }} />
-          <TrendingRail onPick={(t) => { if (ownBusy === null) { setPayToken(SOL); setBuyToken(t); } }} />
+          <EarnRail onPick={(t) => { if (!held) { setPayToken(SOL); setBuyToken(t); } }} />
+          <TrendingRail onPick={(t) => { if (!held) { setPayToken(SOL); setBuyToken(t); } }} />
           <ActivityRail />
         </>
       )}

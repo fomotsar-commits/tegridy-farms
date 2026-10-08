@@ -1309,6 +1309,114 @@ describe('what a press writes lands only on the trade it was pressed for', () =>
   });
 });
 
+describe('the form is held while Jupiter’s swap is on its way, as it is while ours is', () => {
+  /** The pair on the receive side of the form, as its picker reads. */
+  const buyPick = () => screen.getByTestId('solana-receive').parentElement!.querySelector('button')!.textContent;
+  /**
+   * Jupiter on screen, Buy pressed, and the press caught while it reads our pools again
+   * (up to OWN_CHECK_MS): the window in which the trader can still reach the form.
+   */
+  async function pressCaughtOnItsWay() {
+    h.ownOut.value = 990_000n;
+    const buy = await readyToBuy();
+    await waitFor(() => expect(routeLine()).toMatch(/Jupiter pays/));
+    const reads = h.readVenuePools.mock.calls.length;
+    let release: () => void = () => {};
+    h.readVenuePools.mockImplementationOnce(() => new Promise((r) => { release = () => r({ kind: 'ok' }); }));
+    fireEvent.click(buy);
+    expect(await screen.findByRole('button', { name: 'Swapping…' })).toBeDisabled();
+    await waitFor(() => expect(h.readVenuePools).toHaveBeenCalledTimes(reads + 1));
+    return () => release();
+  }
+
+  it('nothing on it can be changed between the press and the wallet', async () => {
+    const release = await pressCaughtOnItsWay();
+    expect(amountBox()).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Flip pay and receive tokens' })).toBeDisabled();
+    expect(screen.getByTestId('solana-receive').parentElement!.querySelector('button')).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Limit order' })).toBeDisabled();
+    release();
+    await waitFor(() => expect(h.sendTransaction).toHaveBeenCalledTimes(1));
+    // Once it is over the form is the trader's again.
+    await waitFor(() => expect(amountBox()).toBeEnabled());
+  });
+
+  it('a pick from the rails under the form does not change the pair: the wallet is asked for the trade on screen', async () => {
+    let onScreenAtWallet: string | null = null;
+    h.sendTransaction.mockImplementation(async () => { onScreenAtWallet = buyPick(); return SIG; });
+    const release = await pressCaughtOnItsWay();
+    fireEvent.click(screen.getByText('JitoSOL').closest('button')!);
+    release();
+    await waitFor(() => expect(h.sendTransaction).toHaveBeenCalledTimes(1));
+    expect(onScreenAtWallet).toBe('BAYLA▾');
+    expect(buyPick()).toBe('BAYLA▾');
+  });
+});
+
+describe('in dollars, the 30 s price tick waits while a trade is on its way', () => {
+  it('a tick that lands while Buy checks the route does not re-size the pressed trade, and the line names the trade on screen', async () => {
+    // Only the page's 30 s tick is caught, to be fired by hand; every other interval is real.
+    const ticks = new Map<number, () => void>();
+    let nextId = 1_000_000;
+    const realSet = globalThis.setInterval;
+    const realClear = globalThis.clearInterval;
+    const setSpy = vi.spyOn(globalThis, 'setInterval').mockImplementation(((fn: () => void, ms?: number, ...rest: unknown[]) => {
+      if (ms !== 30_000) return realSet(fn, ms, ...rest);
+      ticks.set(++nextId, fn);
+      return nextId;
+    }) as unknown as typeof setInterval);
+    const clearSpy = vi.spyOn(globalThis, 'clearInterval').mockImplementation(((id?: unknown) => {
+      if (typeof id === 'number' && ticks.delete(id)) return;
+      realClear(id as Parameters<typeof clearInterval>[0]);
+    }) as unknown as typeof clearInterval);
+    const tick = () => { for (const fn of [...ticks.values()]) fn(); };
+    h.prices.value = { [SOL_MINT]: 100 };
+    // Both venues as a function of the amount: Jupiter 1 BAYLA a 0.1 SOL, our pool `ppm` of that.
+    let ppm = 990_000n;
+    h.getQuote.mockImplementation(async (a: { amount: string }) => jupiterQuote(String(BigInt(a.amount) / 100n)));
+    h.quoteVenuePools.mockImplementation((_read: unknown, _in: string, amountIn: bigint) => ({ state: 'quoted', candidates: [ownCandidate(((amountIn / 100n) * ppm) / 1_000_000n)] }));
+    try {
+      render(<MemoryRouter><SolanaSwapPage /></MemoryRouter>);
+      const usd = await screen.findByRole('button', { name: '$ USD' });
+      await waitFor(() => expect(usd).toBeEnabled());
+      fireEvent.click(usd);
+      fireEvent.change(screen.getByLabelText('US dollars of SOL to pay'), { target: { value: '10' } });
+      const buy = await screen.findByRole('button', { name: 'Buy BAYLA' });
+      await waitFor(() => expect(buy).toBeEnabled());
+      await waitFor(() => expect(routeLine()).toMatch(/Jupiter pays/));
+      expect(screen.getByText(/^≈ 0\.10* SOL$/)).toBeInTheDocument();
+
+      // The press reads our pools again and that read is held; by then our pool ties Jupiter at every amount.
+      const reads = h.readVenuePools.mock.calls.length;
+      let release: () => void = () => {};
+      h.readVenuePools.mockImplementationOnce(() => new Promise((r) => { release = () => r({ kind: 'ok' }); }));
+      ppm = 1_000_000n;
+      fireEvent.click(buy);
+      await waitFor(() => expect(h.readVenuePools).toHaveBeenCalledTimes(reads + 1));
+
+      // SOL halves on the tick: $10 would be 0.2 SOL now. Not for the trade already pressed.
+      h.prices.value = { [SOL_MINT]: 50 };
+      tick();
+      await new Promise((r) => setTimeout(r, 1_000)); // past the quote's 400 ms debounce
+      expect(screen.getByText(/^≈ 0\.10* SOL$/)).toBeInTheDocument();
+      expect(h.getQuote.mock.calls.some(([a]) => (a as { amount: string }).amount === '200000000')).toBe(false);
+
+      release();
+      await waitFor(() => expect(h.toast.error).toHaveBeenCalledWith('Route changed', { description: OWN_ROUTE_COPY.ownNowWins }));
+      // The line and the figure are the pressed trade's: a tie at 0.1 SOL, not an edge worked out on two amounts.
+      await waitFor(() => expect(routeLine()).toMatch(/Our pool matches Jupiter/));
+      expect(receive()).toBe('1');
+
+      // The tick is held, not gone: once the press is over the next one re-sizes the form.
+      tick();
+      expect(await screen.findByText(/^≈ 0\.20* SOL$/)).toBeInTheDocument();
+    } finally {
+      setSpy.mockRestore();
+      clearSpy.mockRestore();
+    }
+  });
+});
+
 describe('the risk tick-box: never for the venue’s own coins, once per token for the rest', () => {
   const OTHER = 'Dog1111111111111111111111111111111111111111';
   const other = { mint: OTHER, symbol: 'DOGGO', name: 'Doggo', decimals: 6, verified: false };
