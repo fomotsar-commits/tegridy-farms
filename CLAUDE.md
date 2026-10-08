@@ -19,11 +19,11 @@ minutes; moving it on any remote counts as a production deploy.
 cd frontend
 npm ci --ignore-scripts
 npm run lint
-npx tsc -b --noEmit      # -b is load-bearing: plain tsc checks zero files
-npm test                 # vitest run
+npx tsc -b --noEmit  # -b is load-bearing: plain tsc checks zero files
+npm test  # vitest run
 npm run build
 npx playwright install --with-deps chromium webkit
-npx playwright test      # e2e, against vite preview of the build
+npx playwright test  # e2e, on vite preview of the build
 cd ../contracts && forge build && forge test
 ```
 
@@ -44,19 +44,20 @@ unchanged: `docs/CI_ON_GITLAB.md`.
 2. The first frame is the hero (`frontend/e2e/first-frame.spec.ts`, `src/lib/firstFrame.test.ts`).
 3. The venue reads heat and never computes it: the island's oracle is the ruler, and the tier word beside a wallet is the served tier.
 4. Never `wallet_count`, `person_id` or a link to memetics.wtf/island.
-5. The venue logs what the venue did. Why the island's values are what they are is the island's to publish, never ours to narrate.
+5. The venue logs what it did. Why the island's values are what they are is the island's to publish, never ours to narrate.
 6. A line is certified from a screenshot; a timing from a production build, never a dev server.
 7. Every fix is seen red first: its test fails on the pre-fix code before it passes.
 8. A search that could not run is not a negative result. Say it did not complete.
 9. A comment states the present constraint in six lines or fewer. The story goes in the commit body. Recut a file when you touch it, never as a sweep.
-10. A note rides the PR of the work that taught it, or one `docs/notes-<date>` PR per session. Merged branches are deleted: keep GitHub's "Automatically delete head branches" setting on.
+10. A note rides the PR of the work that taught it, or one `docs/notes-<date>` PR per session. Merged branches are deleted: keep GitHub's "Automatically delete head branches" on.
 11. Docs do not run the money paths: a PR touching only `**/*.md` and `docs/**` skips the build; the Doc guards job still runs.
 12. The root is a front door (`src/test/frontDoor.test.ts` pins the list). Live docs live in `docs/`, audits in `docs/audits/`, old plans and reports in `docs/archive/`.
-13. `CHANGELOG.md` is one plain line per user-facing change, newest thirty days; the long form lives in git.
+13. `CHANGELOG.md` is one plain line per user-facing change, newest thirty days; the long form is in git.
 14. Clone outside OneDrive or any synced folder: a placeholder file reads as a symlink and scanners skip it.
 15. Read `docs/GIT_HOSTING.md` before any remote operation. Moving `mvp-launch` anywhere, or a Vercel or Railway deploy or promote, needs the owner's go each time.
 16. A launch on any rail is a venue launch unless it is born in $BAYLA.
 17. Every launch page shows the maker's create-buy and its lock before anyone else can buy.
+18 to 23. The face's laws: `docs/FACE_LAWS.md`.
 
 ## NOTES.md: headings first
 

@@ -6,6 +6,14 @@ page keeps the newest thirty days.
 
 ## [Unreleased]
 
+### 2026-10-08
+
+- Shared heat links: a memetics.finance/read link for a wallet the island reads now shows the island's painted card of that wallet when it is posted. A cold wallet, or one the island could not be asked about, keeps the venue's card.
+- Read Heat: each room shows your place in it as the island counts it, for example "12th of 498 measured", on the room's own read and under each room on the card. A wallet the island does not rank shows no place. "Post my number" now starts with the degrees and carries the place in your deepest room.
+- Solana swap: the page opens on SOL to $BAYLA, and inside a Solana bungalow on SOL to that bungalow's coin. A link that names a coin still opens on that coin. $BAYLA keeps its Unverified mark and its tick box.
+- Home: the chain pills read Solana, Ethereum, Base.
+- After a visit to the TOWELI bungalow, the venue's own pages keep the venue's footer and words, and Towelie stays on the farm's pages. The same goes for every bungalow's footer card. The art and the Swap link still follow the bungalow you opened last, and so does the dashboard.
+
 ### 2026-10-07
 
 - Solana LP on a phone: the small links and buttons keep their finger-sized press area without stretching the page around them. The "what to do next" sentence reads as one paragraph again, the venue status card is back to the height it had, and "View on the explorer" is easier to press. With a keyboard, the focus ring goes round the words of each of them.
