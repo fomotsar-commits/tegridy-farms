@@ -23,14 +23,9 @@ export function ChainSwitch() {
   // A bungalow makes the point louder: the active token lives on one of these
   // chains, so name it rather than leaving the visitor to guess.
   //
-  // BOTH HALVES READ THE BUNGALOW, 2026-09-05. The Solana half always did; the
-  // Ethereum half was the hardcoded literal `'TOWELI · Uniswap / CoW'`, which
-  // meant a PEPE or BAYLA holder — and, worse, a visitor who had chosen no
-  // bungalow at all and was being spoken to by the VENUE — read one resident's
-  // ticker as the name of the whole Ethereum rail. The venue does not have a
-  // token; its residents do. With nothing chosen the sub is now just the venues
-  // this chain routes through, which is the honest answer to "what is over
-  // there" and is what the label above it was always carrying anyway.
+  // Each half names the active bungalow's token when it lives on that chain, and
+  // otherwise only the venues the chain routes through: the venue has no token. The
+  // venues never break across lines, so a narrow phone wraps after the token.
   const bungalow = getActiveBungalow();
   const solanaToken = bungalow?.chain === 'solana' ? bungalow.symbol : null;
   const ethToken =
@@ -40,10 +35,11 @@ export function ChainSwitch() {
     {
       id: 'ethereum' as const,
       label: 'Ethereum',
-      sub: ethToken ? `${ethToken} · Uniswap / CoW` : 'Uniswap / CoW',
+      token: ethToken,
+      venues: 'Uniswap / CoW',
       to: '/swap',
     },
-    { id: 'solana' as const, label: 'Solana', sub: solanaToken ? `${solanaToken} · Our pools + Jupiter` : 'Our pools + Jupiter', to: solanaTo },
+    { id: 'solana' as const, label: 'Solana', token: solanaToken, venues: 'Our pools + Jupiter', to: solanaTo },
   ];
 
   return (
@@ -67,7 +63,10 @@ export function ChainSwitch() {
             } : { textShadow: '0 1px 4px rgba(0,0,0,0.85)' }}
           >
             <span className="block text-[13px] font-medium leading-tight">{o.label}</span>
-            <span className="block text-[10px] leading-tight opacity-70">{o.sub}</span>
+            <span className="block text-[10px] leading-tight opacity-70">
+              {o.token && `${o.token} · `}
+              <span className="whitespace-nowrap">{o.venues}</span>
+            </span>
           </Link>
         );
       })}
