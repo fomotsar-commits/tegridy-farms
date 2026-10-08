@@ -11,7 +11,7 @@ import { formatSol, formatTokenAmount } from '../src/lib/launcher/solana/curve/f
 import { ata, fundedKeypair, lamports, poolFacts, sol, tokenAmount, WSOL } from './fixtures/chain';
 import { createSolPool, createToken2022MetadataOnly, transferTokens, type CreatedPool } from './fixtures/lp';
 import { actor, press, type Actor } from './fixtures/lpPage';
-import { ui, connectWallet, signAndWait } from './fixtures/ui';
+import { ui, connectWallet } from './fixtures/ui';
 
 const UNIT = 1_000_000n;
 const POOL_SOL = sol(10);
@@ -61,6 +61,19 @@ async function trader(browser: Parameters<typeof actor>[0], kp: Keypair, jupiter
   return a;
 }
 
+/**
+ * ONE PRESS. After Buy the wallet is asked with no review screen and no second button,
+ * and one line says the swap landed: no card to close. The chain is what each test
+ * checks the amounts against.
+ */
+async function landed(a: Actor, words: string): Promise<void> {
+  await expect.poll(() => a.wallet.signed().length, { timeout: 90_000 }).toBe(1);
+  await expect(a.page.getByText(words, { exact: true })).toBeVisible({ timeout: 90_000 });
+  await expect(ui.review(a.page)).toHaveCount(0);
+  await expect(ui.outcome(a.page)).toHaveCount(0);
+  await expect(a.page.getByRole('button', { name: 'Sign in wallet' })).toHaveCount(0);
+}
+
 async function openSwap(p: Page, query: string): Promise<void> {
   await p.goto(`/solana?${query}`);
   await expect(p.getByRole('heading', { name: 'Solana Swap' })).toBeVisible({ timeout: 60_000 });
@@ -73,7 +86,7 @@ test.beforeAll(async () => {
   expect(pool.standard).toBe(true);
 });
 
-test('our pool pays more: Buy opens the review of a swap in our pool, the wallet signs it, and the chain holds the trade', async ({ browser }) => {
+test('our pool pays more: one press of Buy, the wallet signs a swap in our pool, and the chain holds the trade', async ({ browser }) => {
   test.setTimeout(5 * 60_000);
   const me = await fundedKeypair(5);
   // Jupiter prices the token 20% dearer than our pool does.
@@ -89,35 +102,26 @@ test('our pool pays more: Buy opens the review of a swap in our pool, the wallet
   await p.getByLabel('Amount of SOL to pay').fill('0.1');
 
   // The line names our pool as the route, and the figure on the page is our pool's.
-  await expect(routeLine(p)).toContainText('Routed to the venue pool:', { timeout: 60_000 });
-  await expect(routeLine(p)).toContainText('more output than Jupiter.');
-  await expect(routeLine(p)).toContainText('Checked our pool and Jupiter.');
+  await expect(routeLine(p)).toContainText('Our pool pays', { timeout: 60_000 });
+  await expect(routeLine(p)).toContainText('more than Jupiter.');
   await expect(routeLine(p)).not.toContainText('executes via Jupiter');
   await expect(p.getByTestId('own-pool-fee')).toContainText('1%');
-  await expect(p.getByTestId('swap-footer')).toContainText('This swap goes through our own pool.');
+  await expect(p.getByTestId('swap-footer')).toHaveText('No platform fee on a swap in our own pool.');
+  // A verified token paired with SOL: nothing to tick before Buy.
+  await expect(p.getByRole('checkbox')).toHaveCount(0);
   await expect(p.getByTestId('solana-receive')).toHaveText(new RegExp(`^${tokenText(expected).replace(/,/g, '').split('.')[0]}`));
 
-  // Buy: the review, never Jupiter's transaction.
+  // Buy: the wallet, never Jupiter's transaction.
   const jupiterBuilds: string[] = [];
   p.on('request', (r) => {
     if (r.url().includes('/api/jupiter/swap/v1/swap')) jupiterBuilds.push(r.url());
   });
   const solBefore = await lamports(me.publicKey);
   await press(buy(p), 'Buy ROUTE');
-  const review = ui.review(p);
-  await expect(review).toBeVisible({ timeout: 90_000 });
-  await expect(review.getByRole('heading', { name: 'Review your swap' })).toBeVisible();
-  await expect(review).toContainText(pool.address.toBase58());
-  await expect(review).toContainText('Standard address for fee tier 1');
-  await expect(review).toContainText(mint.toBase58());
-  await expect(review).toContainText(`${formatSol(amountIn, 9)} SOL`);
-  await expect(review).toContainText(`${tokenText(expected)} tokens`);
-  await expect(review).toContainText('more than Jupiter quoted just now');
-  await expect(review).toContainText('Test run passed');
+  await landed(a, 'Bought ROUTE');
   expect(jupiterBuilds).toEqual([]);
-
-  expect(await signAndWait(p)).toBe('confirmed');
-  expect(a.wallet.signed().length).toBe(1);
+  // The form is back and empty, so the same buy is not one press away.
+  await expect(p.getByLabel('Amount of SOL to pay')).toHaveValue('');
 
   // The chain: exactly what the pool's own sum pays, in the signer's own Token-2022
   // account; the pool took the SOL and gave the tokens; no wrapped-SOL account is left.
@@ -150,17 +154,14 @@ test('a sale: our pool pays more SOL than Jupiter, and the SOL arrives as plain 
   const before = await reserves();
   const expected = poolPays(amountIn, before.tokens, before.sol);
   await p.getByLabel('Amount of ROUTE to pay').fill('5000');
-  await expect(routeLine(p)).toContainText('Routed to the venue pool:', { timeout: 60_000 });
+  await expect(routeLine(p)).toContainText('Our pool pays', { timeout: 60_000 });
 
   const tokensBefore = (await tokenAmount(tokenAccount(me.publicKey)))!;
   const solBefore = await lamports(me.publicKey);
-  await press(p.getByRole('button', { name: 'Buy SOL', exact: true }), 'Buy SOL');
-  const review = ui.review(p);
-  await expect(review).toBeVisible({ timeout: 90_000 });
-  await expect(review).toContainText('5,000 tokens');
-  await expect(review).toContainText(`${formatSol(expected)} SOL`);
-  await expect(review).toContainText('that account is closed at the end, so you get plain SOL back.');
-  expect(await signAndWait(p)).toBe('confirmed');
+  // The page's figure for what the sale pays is the pool's own sum.
+  await expect(p.getByTestId('solana-receive')).toHaveText(new RegExp(`^${formatSol(expected).slice(0, 6).replace('.', '\\.')}`));
+  await press(p.getByRole('button', { name: 'Sell ROUTE', exact: true }), 'Sell ROUTE');
+  await landed(a, 'Sold ROUTE');
 
   expect(tokensBefore - (await tokenAmount(tokenAccount(me.publicKey)))!).toBe(amountIn);
   const gained = (await lamports(me.publicKey)) - solBefore;
@@ -181,8 +182,8 @@ test('Jupiter pays more: the line says so, and Buy builds Jupiter’s transactio
   await openSwap(p, `out=${mint.toBase58()}`);
   await connectWallet(p);
   await p.getByLabel('Amount of SOL to pay').fill('0.1');
-  await expect(routeLine(p)).toContainText('Routed to Jupiter:', { timeout: 60_000 });
-  await expect(routeLine(p)).toContainText('better than our own pool, so the trade went there.');
+  await expect(routeLine(p)).toContainText('Jupiter pays', { timeout: 60_000 });
+  await expect(routeLine(p)).toContainText('more than our pool.');
   await expect(p.getByTestId('own-pool-fee')).toHaveCount(0);
 
   // Jupiter's build is not stubbed on this chain (it answers 502), so the swap stops there:
@@ -197,7 +198,7 @@ test('Jupiter pays more: the line says so, and Buy builds Jupiter’s transactio
   await a.ctx.close();
 });
 
-test('the route is held when Buy is pressed: Jupiter moved past our pool since the quote, so nothing is built', async ({ browser }) => {
+test('the route is held when Buy is pressed: Jupiter moved past our pool since the quote, so nothing is built and the form shows the new route', async ({ browser }) => {
   test.setTimeout(3 * 60_000);
   const me = await fundedKeypair(2);
   const a = await trader(browser, me, POOL_PRICE * 1.2);
@@ -205,20 +206,17 @@ test('the route is held when Buy is pressed: Jupiter moved past our pool since t
   await openSwap(p, `out=${mint.toBase58()}`);
   await connectWallet(p);
   await p.getByLabel('Amount of SOL to pay').fill('0.1');
-  await expect(routeLine(p)).toContainText('Routed to the venue pool:', { timeout: 60_000 });
+  await expect(routeLine(p)).toContainText('Our pool pays', { timeout: 60_000 });
 
   // Between the quote on screen and the press, Jupiter's price drops under our pool's.
   a.jup.setPrice(mint.toBase58(), POOL_PRICE * 0.8);
   await press(buy(p), 'Buy ROUTE');
-  const outcome = ui.outcome(p);
-  await expect(outcome).toBeVisible({ timeout: 90_000 });
-  await expect(outcome).toHaveAttribute('data-status', 'not-sent');
-  await expect(outcome).toContainText('Jupiter now pays more for this trade than our own pool does, so nothing was built here.');
+  // One line says why, and the form is already on the route as it is now: nothing to close.
+  await expect(p.getByText('Jupiter now pays more for this trade than our own pool, so nothing was sent. Press again to take the better route.')).toBeVisible({ timeout: 90_000 });
+  await expect(routeLine(p)).toContainText('Jupiter pays', { timeout: 60_000 });
+  await expect(ui.outcome(p)).toHaveCount(0);
+  await expect(p.getByLabel('Amount of SOL to pay')).toHaveValue('0.1');
   expect(a.wallet.signed().length).toBe(0);
-
-  // Start over lands on the route as it is now.
-  await press(outcome.getByRole('button', { name: 'Start over' }), 'Start over');
-  await expect(routeLine(p)).toContainText('Routed to Jupiter:', { timeout: 60_000 });
   expect(await tokenAmount(tokenAccount(me.publicKey))).toBe(null);
   expect(a.rpc.violations).toEqual([]);
   await a.ctx.close();

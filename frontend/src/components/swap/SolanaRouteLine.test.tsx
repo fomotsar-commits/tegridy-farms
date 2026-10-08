@@ -99,8 +99,8 @@ describe('when the venue AMM is not deployed', () => {
 
   it('never claims we compared anything we could not', async () => {
     await mount();
-    await waitFor(() => expect(screen.getByText(/Routed to Jupiter/)).toBeInTheDocument());
-    expect(screen.queryByText(/more output than/)).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText(/Jupiter\. We have no pool for this pair\./)).toBeInTheDocument());
+    expect(screen.queryByText(/more than/)).not.toBeInTheDocument();
     expect(screen.queryByText(/Checked/)).not.toBeInTheDocument();
     // With no program id there is nothing to read a pool from.
     expect(readVenuePools).not.toHaveBeenCalled();
@@ -118,27 +118,28 @@ describe('when the venue AMM is live', () => {
   it('routes AWAY when the aggregator pays more, and says so', async () => {
     quoteVenuePools.mockReturnValue(quoted(ours(999_000n)));
     await mount({ aggregatorQuote: { outAmount: '1000000' } });
-    await waitFor(() => expect(screen.getByText(/so the trade went there/)).toBeInTheDocument());
-    expect(screen.getByText(/Checked our pool and Jupiter\./)).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText(/Jupiter pays 0\.1% more than our pool\./)).toBeInTheDocument());
+    // One sentence: it names both venues, and nothing trails it.
+    expect(screen.getByTestId('solana-route-line').textContent).toBe('RouteJupiter pays 0.1% more than our pool.');
   });
 
   it('loses by one raw unit: the line sends the trade to Jupiter', async () => {
     quoteVenuePools.mockReturnValue(quoted(ours(999_999n)));
     await mount({ aggregatorQuote: { outAmount: '1000000' } });
-    await waitFor(() => expect(screen.getByText(/Routed to Jupiter: under 0\.001% better than our own pool, so the trade went there\./)).toBeInTheDocument());
-    expect(screen.queryByText(/Routed to the venue pool/)).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText(/Jupiter pays under 0\.001% more than our pool\./)).toBeInTheDocument());
+    expect(screen.queryByText(/Our pool pays/)).not.toBeInTheDocument();
   });
 
   it('keeps a tie: the trade stays in our pool', async () => {
     quoteVenuePools.mockReturnValue(quoted(ours(1_000_000n)));
     await mount({ aggregatorQuote: { outAmount: '1000000' } });
-    await waitFor(() => expect(screen.getByText(/quoted the same output, so the trade stays here\./)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/Our pool matches Jupiter, so the trade stays here\./)).toBeInTheDocument());
   });
 
   it('says an own-pool win as the route, now that the page sends the trade there', async () => {
     quoteVenuePools.mockReturnValue(quoted(ours(1_010_000n)));
     await mount({ aggregatorQuote: { outAmount: '1000000' } });
-    await waitFor(() => expect(screen.getByText(/Routed to the venue pool: 1% more output than Jupiter\./)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/Our pool pays 1% more than Jupiter\./)).toBeInTheDocument());
     // The sentence that stood here while every swap went to Jupiter whatever this line said.
     expect(screen.queryByText(/executes via Jupiter/)).not.toBeInTheDocument();
     expect(screen.queryByText(/isn't wired/)).not.toBeInTheDocument();
@@ -153,7 +154,7 @@ describe('when the venue AMM is live', () => {
       ).toBeInTheDocument(),
     );
     // The load-bearing half: no claim of a fill the trader is not getting.
-    expect(screen.queryByText(/Routed to the venue pool/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Our pool pays/)).not.toBeInTheDocument();
   });
 
   it('says the trade cannot fill when only our pool quoted and a swap in it cannot be prepared', async () => {
@@ -162,11 +163,10 @@ describe('when the venue AMM is live', () => {
     await waitFor(() => expect(screen.getByText(/Only our own pool quoted this pair, .* so it cannot fill\./)).toBeInTheDocument());
   });
 
-  it('takes the best of several pools, and counts them', async () => {
+  it('takes the best of several pools', async () => {
     quoteVenuePools.mockReturnValue(quoted(ours(1_005_000n, 'PooLB'), ours(1_010_000n, 'PooLA')));
     await mount({ aggregatorQuote: { outAmount: '1000000' } });
-    await waitFor(() => expect(screen.getByText(/Routed to the venue pool: 1% more output than Jupiter\./)).toBeInTheDocument());
-    expect(screen.getByText(/Checked 2 of our pools and Jupiter\./)).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText(/Our pool pays 1% more than Jupiter\./)).toBeInTheDocument());
   });
 
   // The quote's cost is each pool's own (venuePools.test.ts pins that on account bytes),
@@ -195,7 +195,7 @@ describe('when the venue AMM is live', () => {
     await mount({ aggregatorQuote: { outAmount: '1000000' } });
     // (Wait on the SETTLED copy: the in-flight state also says "Routed to Jupiter".)
     await waitFor(() => expect(screen.getByText(/could not be quoted this time/i)).toBeInTheDocument());
-    expect(screen.getByText(/Routed to Jupiter/)).toBeInTheDocument();
+    expect(screen.getByText(/Jupiter\. Our pool could not be quoted this time\./)).toBeInTheDocument();
     expect(screen.queryByText(/no pool for this pair/i)).not.toBeInTheDocument();
   });
 
@@ -210,7 +210,7 @@ describe('when the venue AMM is live', () => {
     // A frozen vault, swaps switched off, a token that takes a fee on every transfer.
     quoteVenuePools.mockReturnValue({ state: 'unquotable', candidates: [] });
     await mount({ aggregatorQuote: { outAmount: '1000000' } });
-    await waitFor(() => expect(screen.getByText(/Routed to Jupiter\. Our own pool for this pair cannot be traded right now\./)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/Jupiter\. Our pool for this pair cannot be traded right now\./)).toBeInTheDocument());
     expect(screen.queryByText(/this time|no pool for this pair/i)).not.toBeInTheDocument();
   });
 
@@ -221,7 +221,7 @@ describe('when the venue AMM is live', () => {
     await waitFor(() => expect(screen.getByText(/could not be quoted this time/i)).toBeInTheDocument());
     // A failed read is not kept as the answer: the next amount asks again, and finds the pool.
     update({ amountInRaw: 2_000_000_000n });
-    await waitFor(() => expect(screen.getByText(/Routed to the venue pool/)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/Our pool pays/)).toBeInTheDocument());
     expect(readVenuePools).toHaveBeenCalledTimes(2);
 
     // And so does Try again, with the amount as it was.
@@ -229,7 +229,7 @@ describe('when the venue AMM is live', () => {
     update({ outputMint: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', amountInRaw: 2_000_000_000n, retry: 0 });
     await waitFor(() => expect(screen.getByText(/could not be quoted this time/i)).toBeInTheDocument());
     update({ outputMint: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', amountInRaw: 2_000_000_000n, retry: 1 });
-    await waitFor(() => expect(screen.getByText(/Routed to the venue pool/)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/Our pool pays/)).toBeInTheDocument());
     expect(readVenuePools).toHaveBeenCalledTimes(4);
   });
 
@@ -237,21 +237,21 @@ describe('when the venue AMM is live', () => {
     // A read that never resolves = the in-flight window of a pair's first amount.
     readVenuePools.mockReturnValue(new Promise(() => {}));
     await mount({ aggregatorQuote: { outAmount: '1000000' } });
-    await waitFor(() => expect(screen.getByText(/Checking our own pools/i)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/Checking our pools/i)).toBeInTheDocument());
     expect(screen.queryByText(/no pool for this pair/i)).not.toBeInTheDocument();
   });
 
   it('says a pair with no pairing coin was not looked for, never that it has no pool', async () => {
     quoteVenuePools.mockReturnValue({ state: 'not-searched', candidates: [] });
     await mount({ aggregatorQuote: { outAmount: '1000000' } });
-    await waitFor(() => expect(screen.getByText(/Our own pools pair a token with SOL, USDC or BAYLA, so there is none to check for this pair\./)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/Our pools pair a token with SOL, USDC or BAYLA, so there is none for this pair\./)).toBeInTheDocument());
     expect(screen.queryByText(/no pool for this pair/i)).not.toBeInTheDocument();
   });
 
   it('reads a pair’s pools once: a new amount, and a flip of the pair, quote from the same read', async () => {
     quoteVenuePools.mockReturnValue(quoted(ours(999_000n)));
     const { update } = await mount({ amountInRaw: 1_000_000_000n });
-    await waitFor(() => expect(screen.getByText(/so the trade went there/)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/Jupiter pays .* more than our pool./)).toBeInTheDocument());
     update({ amountInRaw: 2_000_000_000n });
     await waitFor(() => expect(quoteVenuePools).toHaveBeenLastCalledWith(POOLS_READ, SOL, 2_000_000_000n));
     update({ inputMint: BAYLA, outputMint: SOL, amountInRaw: 5_000_000n });
@@ -262,21 +262,21 @@ describe('when the venue AMM is live', () => {
   it('reads again for another pair, and shows nothing of the old pair’s pools meanwhile', async () => {
     quoteVenuePools.mockReturnValue(quoted(ours(1_010_000n)));
     const { update } = await mount();
-    await waitFor(() => expect(screen.getByText(/Routed to the venue pool/)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/Our pool pays/)).toBeInTheDocument());
     readVenuePools.mockReturnValue(new Promise(() => {}));
     update({ outputMint: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v' });
-    await waitFor(() => expect(screen.getByText(/Checking our own pools/i)).toBeInTheDocument());
-    expect(screen.queryByText(/Routed to the venue pool/)).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText(/Checking our pools/i)).toBeInTheDocument());
+    expect(screen.queryByText(/Our pool pays/)).not.toBeInTheDocument();
     expect(readVenuePools).toHaveBeenCalledTimes(2);
   });
 
   it('makes no decision while the aggregator’s answer for this amount is on its way', async () => {
     quoteVenuePools.mockReturnValue(quoted(ours(1_010_000n)));
     await mount({ aggregatorPending: true });
-    // The pools are read meanwhile, and the standing line stands.
+    // The pools are read meanwhile, and one standing line holds the place: no route is named yet.
     await waitFor(() => expect(readVenuePools).toHaveBeenCalled());
-    await waitFor(() => expect(screen.getByText(/our own pools and Jupiter, whichever pays more/i)).toBeInTheDocument());
-    expect(screen.queryByText(/Routed to/)).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.getByTestId('solana-route-line').textContent).toBe('RouteComparing our pools with Jupiter…'));
+    expect(screen.queryByText(/pays|matches/)).not.toBeInTheDocument();
   });
 
   it('does not cache an unreadable venue read for the rest of the session', async () => {
@@ -293,8 +293,10 @@ describe('when the venue AMM is live', () => {
     await waitFor(() => expect(screen.getByText(/could not be checked/i)).toBeInTheDocument());
     first.unmount();
     render(el);
-    await waitFor(() => expect(screen.getByText(/our own pools and Jupiter, whichever pays more/i)).toBeInTheDocument());
-    expect(readVenue).toHaveBeenCalledTimes(2);
+    // The venue reads as live now. With no amount typed there is no route to name, and the failure is not repeated.
+    await waitFor(() => expect(readVenue).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(screen.queryByText(/could not be checked/i)).not.toBeInTheDocument());
+    expect(screen.queryByTestId('solana-route-line')).toBeNull();
   });
 });
 
@@ -303,7 +305,7 @@ describe('when the venue could not be read', () => {
 
   it('says our pool could not be quoted, never that there is none, and reads no pool', async () => {
     await mount({ aggregatorQuote: { outAmount: '1000000' } });
-    await waitFor(() => expect(screen.getByText(/Routed to Jupiter\. Our own pool could not be quoted this time\./)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/Jupiter\. Our pool could not be quoted this time\./)).toBeInTheDocument());
     expect(readVenuePools).not.toHaveBeenCalled();
   });
 });
@@ -314,7 +316,7 @@ describe('while the aggregator has not answered', () => {
   it('renders the standing line rather than a decision it has not made', async () => {
     await mount({ aggregatorQuote: null });
     await waitFor(() => expect(screen.getByText(/Quoting Jupiter/)).toBeInTheDocument());
-    expect(screen.queryByText(/Routed to/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/pays|matches/)).not.toBeInTheDocument();
   });
 });
 
@@ -330,7 +332,7 @@ describe('the words', () => {
       [{ state: 'unquotable', candidates: [] }, {}],
       [{ state: 'not-searched', candidates: [] }, {}],
       [{ state: 'absent', candidates: [] }, {}],
-      [{ state: 'absent', candidates: [] }, { amountInRaw: null }],
+      [quoted(ours(1_010_000n)), { aggregatorPending: true }],
     ];
     for (const [q, props] of states) {
       quoteVenuePools.mockReturnValue(q);

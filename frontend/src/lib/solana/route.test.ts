@@ -22,7 +22,7 @@ describe('chooseRoute', () => {
     const d = chooseRoute([own(1_000_000n), agg(1_000_001n)]);
     expect(d.chosen?.venue).toBe('aggregator');
     expect(d.runnerUp?.venue).toBe('own-pool');
-    expect(d.reason).toMatch(/so the trade went there/);
+    expect(d.reason).toMatch(/^Jupiter pays .* more than our pool.$/);
   });
 
   it('has no tolerance band — one raw unit is enough to lose', () => {
@@ -38,14 +38,14 @@ describe('chooseRoute', () => {
     const d = chooseRoute([own(1_010_000n), agg(1_000_000n)]);
     expect(d.chosen?.venue).toBe('own-pool');
     expect(d.edge).toBeCloseTo(0.01, 10);
-    expect(d.reason).toMatch(/1% more output than Jupiter/);
+    expect(d.reason).toMatch(/Our pool pays 1% more than Jupiter\./);
   });
 
   it('breaks an exact tie in our favour — the one preference the rule allows', () => {
     const d = chooseRoute([agg(1_000_000n), own(1_000_000n)]);
     expect(d.chosen?.venue).toBe('own-pool');
     expect(d.edge).toBe(0);
-    expect(d.reason).toMatch(/same output, so the trade stays here/);
+    expect(d.reason).toMatch(/Our pool matches Jupiter, so the trade stays here\./);
   });
 
   it('is order-independent — the input array order cannot decide the winner', () => {
@@ -64,7 +64,7 @@ describe('chooseRoute', () => {
 
     const onlyOwn = chooseRoute([own(1_000n)]);
     expect(onlyOwn.chosen?.venue).toBe('own-pool');
-    expect(onlyOwn.reason).toMatch(/only venue that quoted/);
+    expect(onlyOwn.reason).toMatch(/^Only our pool quoted this pair\.$/);
   });
 
   it('treats a zero quote as no quote, never as a candidate', () => {
@@ -101,7 +101,7 @@ describe('chooseRoute with several of our own pools', () => {
     expect(d.chosen).toMatchObject({ venue: 'own-pool', poolAddress: 'PoolA' });
     expect(d.runnerUp?.venue).toBe('aggregator');
     expect(d.edge).toBeCloseTo(0.01, 10);
-    expect(d.reason).toMatch(/1% more output than Jupiter/);
+    expect(d.reason).toMatch(/Our pool pays 1% more than Jupiter\./);
     expect(d.candidates).toHaveLength(3);
   });
 
@@ -115,7 +115,7 @@ describe('chooseRoute with several of our own pools', () => {
     const d = chooseRoute([ownAt(999_000n, 'PoolB'), agg(1_000_000n), ownAt(1_000_000n, 'PoolA')]);
     expect(d.chosen).toMatchObject({ venue: 'own-pool', poolAddress: 'PoolA' });
     expect(d.edge).toBe(0);
-    expect(d.reason).toMatch(/same output, so the trade stays here/);
+    expect(d.reason).toMatch(/Our pool matches Jupiter, so the trade stays here\./);
   });
 
   it('says we were the only venue when only our pools quoted, however many', () => {
@@ -123,7 +123,7 @@ describe('chooseRoute with several of our own pools', () => {
     expect(d.chosen).toMatchObject({ venue: 'own-pool', poolAddress: 'PoolA' });
     expect(d.runnerUp).toBe(null);
     expect(d.edge).toBe(null);
-    expect(d.reason).toMatch(/only venue that quoted/);
+    expect(d.reason).toMatch(/^Only our pool quoted this pair\.$/);
   });
 
   it('picks between two of our pools that quote the same by address, whatever order they arrive in', () => {
@@ -140,9 +140,9 @@ describe('the reason a trader reads', () => {
     // reads as a tie on the one line that exists to say it was not.
     const lost = chooseRoute([own(1_000_000n), agg(1_000_001n)]);
     expect(lost.reason).not.toMatch(/ 0% /);
-    expect(lost.reason).toMatch(/under 0\.001% better than our own pool/);
+    expect(lost.reason).toMatch(/Jupiter pays under 0\.001% more than our pool/);
     const won = chooseRoute([own(1_000_001n), agg(1_000_000n)]);
-    expect(won.reason).toMatch(/under 0\.001% more output than Jupiter/);
+    expect(won.reason).toMatch(/Our pool pays under 0\.001% more than Jupiter/);
   });
 
   it('carries no em dash', () => {

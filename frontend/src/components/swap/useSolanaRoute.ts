@@ -72,6 +72,8 @@ export interface SolanaRoute {
   decision: RouteDecision | null;
   aggregatorLabel: string;
   /** Read our pools again now and quote `amountIn` of the pay token. Never throws. */
+  /** An amount is typed and the aggregator has not answered for it yet: no decision, and one on its way. */
+  asking: boolean;
   refresh(amountIn: bigint): Promise<VenuePoolCandidate[]>;
   /** Drop the read in hand (a trade just changed the pool): the next amount reads again. */
   forget(): void;
@@ -156,5 +158,5 @@ export function useSolanaRoute({ inputMint, outputMint, amountInRaw, aggregatorQ
   );
   const forget = useCallback(() => setPools(null), []);
 
-  return { venue, own, candidates, decision, aggregatorLabel, refresh, forget };
+  return { venue, own, candidates, decision, aggregatorLabel, asking: hasAmount && aggregatorPending, refresh, forget };
 }
