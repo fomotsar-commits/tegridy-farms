@@ -3,11 +3,12 @@ import { describeTreasury, formatSol, formatTokenAmount } from '../../../lib/lau
 import { ExplorerLink, ImpactRows, Notice, Row } from './ui';
 import { DIVIDER, bpsPercent, fractionToBps, sharePercent } from './uiFormat';
 import { CREATOR_FEE_SWITCH, feeSplit } from '../../../lib/solana/cpswap/venue';
-import { formatSolPrice, tradeCostText } from '../../../lib/solana/lp/format';
+import { feeRateText, formatSolPrice, tradeCostText } from '../../../lib/solana/lp/format';
+import { edgePercent } from '../../../lib/solana/route';
 import type { FeeSplitView, NotSent, PreparedTx, SolanaCluster, TokenRole, TxKind, TxOutcome, TxSigner, TxSummary, TxViewApi } from './ports';
 import { reviewLines } from './reviewLines';
 import type { ReviewState, TxFlow } from './useTxFlow';
-import type { QuoteCoin } from '../../../lib/solana/lp/quotes';
+import { quoteCoin, type QuoteCoin } from '../../../lib/solana/lp/quotes';
 
 // What the user sees between pressing a Review button and the chain's answer.
 // Every word here is about THIS transaction, and the numbers come from the
@@ -41,6 +42,8 @@ function tradeLamports(s: TxSummary): bigint | null {
       return s.amountIn;
     case 'pool-sell':
       return s.quote.outAmount;
+    case 'venue-swap':
+      return !s.coin.native ? null : s.paysCoin ? s.amountIn : s.quoted.outAmount;
     case 'create':
       return s.openingBuy ? s.openingBuy.quote.lamportsIn : null;
     // A pool paired with USDC or BAYLA moves none of the trade in SOL, so a fee has
@@ -184,6 +187,8 @@ export function SummaryRows({
         </>
       );
     }
+    case 'venue-swap':
+      return <VenueSwapRows summary={summary} />;
     case 'lp-deposit':
       return <LpDepositRows summary={summary} />;
     case 'lp-withdraw':
@@ -257,7 +262,7 @@ const unitsExact = (v: bigint, d: number) => tokenText(v, d, d);
 const coinAbout = (v: bigint, q: QuoteCoin) => (q.native ? SOL(v) : `${formatTokenAmount(v, q.decimals).text} ${q.symbol}`);
 const coinExact = (v: bigint, q: QuoteCoin) => (q.native ? solExact(v) : `${formatTokenAmount(v, q.decimals, q.decimals).text} ${q.symbol}`);
 
-function poolKindText(s: LpSummary): string {
+function poolKindText(s: Pick<LpSummary, 'origin' | 'config'>): string {
   switch (s.origin) {
     case 'launch-pool':
       return 'Launch pool: opened by the launch program at graduation';
@@ -568,6 +573,66 @@ function LpCreateRows({ summary: s }: { summary: Extract<TxSummary, { kind: 'lp-
 }
 
 /**
+ * How a venue swap's payout compares with what the aggregator was seen to pay while
+ * preparing. "No route" is the aggregator's own answer; an aggregator that could not be
+ * asked is said as that, never as having no route.
+ */
+function venueRouteText(s: Extract<TxSummary, { kind: 'venue-swap' }>): string {
+  const a = s.aggregator;
+  if (a.kind === 'no-route') return 'Jupiter has no route for this trade, so this pool is the only route';
+  if (a.kind === 'unreachable') return 'Jupiter could not be asked just now, so this trade was not compared with it';
+  const beside = a.when === 'now' ? 'Jupiter quoted just now' : 'the last quote Jupiter gave (it could not be asked again just now)';
+  if (s.quoted.outAmount === a.out) return `the same as ${beside}, so the trade stays here`;
+  return `${edgePercent(Number(s.quoted.outAmount - a.out) / Number(a.out))} more than ${beside}`;
+}
+
+/**
+ * A swap in one of our pools from the swap page. The amounts are decoded from the
+ * transaction; the pool, its tier and its pairing coin are from the read it was built on.
+ * A token that is itself a pairing coin (BAYLA in a BAYLA and SOL pool) is named; any
+ * other is "tokens", beside its mint.
+ */
+function VenueSwapRows({ summary: s }: { summary: Extract<TxSummary, { kind: 'venue-swap' }> }) {
+  const q = s.coin;
+  const tokenName = quoteCoin(s.tokenMint.toBase58())?.symbol ?? 'tokens';
+  const tok = (v: bigint, exact = false) => `${exact ? unitsExact(v, s.tokenDecimals) : tokenText(v, s.tokenDecimals)} ${tokenName}`;
+  const coin = (v: bigint, exact = false) => (exact ? coinExact(v, q) : coinAbout(v, q));
+  const [pay, get] = s.paysCoin ? [coin, tok] : [tok, coin];
+  return (
+    <>
+      <Row label="Pool" value={s.pool.toBase58()} />
+      <Row label="Pool kind" value={poolKindText(s)} mono={false} />
+      <Row label="Token (mint)" value={s.tokenMint.toBase58()} />
+      <Row label="Paired with" value={q.symbol} mono={false} />
+      <Row label="You pay" value={pay(s.amountIn, true)} />
+      <Row label="You receive (quoted)" value={get(s.quoted.outAmount)} />
+      <Row label="You receive at least" value={get(s.minimumAmountOut, true)} />
+      <Row label="Pool fee (inside what you pay)" value={`${pay(s.quoted.result.tradeFee)} (${feeRateText(s.config.tradeFeeRate)})`} />
+      <PoolCreatorFeeRow quote={s.quoted} buying={s.paysCoin} sol={(v) => coin(v)} tok={(v) => tok(v)} />
+      {/* Measured against the pool's price before the trade, so the pool fee is inside it. */}
+      <ImpactRows bps={fractionToBps(s.quoted.priceImpact)} label="Price impact (pool fee included)" />
+      <Row label="Compared with Jupiter" value={venueRouteText(s)} mono={false} />
+      {s.notices.map((n) => (
+        <Notice key={n} tone="warn">
+          {n}
+        </Notice>
+      ))}
+      <Notice>
+        {!q.native
+          ? s.paysCoin
+            ? `Your ${q.symbol} is spent straight from your own ${q.symbol} account. Nothing is wrapped.`
+            : `The ${q.symbol} is paid straight into your own ${q.symbol} account. Nothing is wrapped.`
+          : `${s.paysCoin ? 'Your SOL is wrapped into a token account for the swap' : 'The pool pays out wrapped SOL'}${
+              s.unwrapsWsol
+                ? ', and that account is closed at the end, so you get plain SOL back.'
+                : '. You already had a wrapped SOL account, so it is left open with its balance.'
+            }`}
+      </Notice>
+    </>
+  );
+}
+
+/**
  * The plant this create pays (island ruling 2), read back out of the transaction itself:
  * half burned, half to the island's Workshop, both from the creator's own $BAYLA account.
  */
@@ -601,7 +666,9 @@ function deltaRow(t: PreparedTx['simulated']['tokenDeltas'][number], prepared: P
   // The pool's own coin (USDC, BAYLA) is known by its mint, not by the watch list's tag, and
   // both its name and its decimals come from the summary's coin. So a wrong or missing tag
   // cannot call it wrapped SOL, and a token with 9 decimals cannot make 250 USDC read as 0.25.
-  const coin = isLpSummary(summary) && !summary.quote.native && t.mint.toBase58() === summary.quote.mint ? summary.quote : null;
+  // A swap from the swap page names its pool's coin the same way.
+  const poolCoin = isLpSummary(summary) ? summary.quote : summary.kind === 'venue-swap' ? summary.coin : null;
+  const coin = poolCoin && !poolCoin.native && t.mint.toBase58() === poolCoin.mint ? poolCoin : null;
   if (coin) return { label: `Test run: your ${coin.symbol} changes by`, value: `${sign}${tokenText(amount, coin.decimals)}` };
   return { label: testRunLabel(prepared.kind, t.role ?? 'token'), value: `${sign}${tokenText(amount, t.decimals ?? decimals)}` };
 }
@@ -661,6 +728,7 @@ const RENT_ROW_LABEL: Record<TxKind, string> = {
   migrate: 'One-time account rent',
   'pool-buy': 'One-time account rent',
   'pool-sell': 'One-time account rent',
+  'venue-swap': 'One-time deposit for your new token account (it stays in that account)',
   'lp-deposit': 'One-time deposit for your new token account (it stays in that account)',
   'lp-withdraw': 'One-time deposit for your new token account (it stays in that account)',
   'lp-create':
@@ -728,6 +796,7 @@ const TITLES: Record<PreparedTx['kind'], string> = {
   migrate: 'Review: finish graduation',
   'pool-buy': 'Review your pool buy',
   'pool-sell': 'Review your pool sell',
+  'venue-swap': 'Review your swap',
   'lp-deposit': 'Review: add liquidity',
   'lp-withdraw': 'Review: remove liquidity',
   'lp-create': 'Review: open a pool',

@@ -153,7 +153,8 @@ describe('the panel', () => {
     const before = within(panel).getByTestId('lp-before-you-open');
     expect(before).toHaveTextContent(/Our pool program is Raydium's, with only its admin keys changed\. Those changes have not had their own independent review yet\./);
     expect(before).toHaveTextContent(/change the public fee tier's rates and its fee to open a pool at once/);
-    expect(before).toHaveTextContent(/this site's swap goes through Jupiter, and Jupiter does not send trades to our pools/);
+    expect(before).toHaveTextContent("Jupiter does not send trades to our pools. This site's own swap sends a trade to your pool only when your pool pays the trader at least as much as Jupiter does.");
+    expect(before).not.toHaveTextContent(/not built yet/);
     expect(before).toHaveTextContent(/Expect little or nothing in fees at first\./);
     expect(before).toHaveTextContent('Opening costs 0.15 SOL, paid to the team\'s vault, and about 0.04 SOL in account deposits that never come back.');
     // Shares are said in 9 decimals everywhere on this page: never "100 pool shares".
@@ -753,7 +754,7 @@ describe('the review and a confirmed opening', () => {
     expect(disclosure).toHaveAttribute('data-kind', 'create');
     expect(disclosure).toHaveTextContent(/have not had their own independent review yet/);
     expect(disclosure).toHaveTextContent(/change the public fee tier's rates and its fee to open a pool at once/);
-    expect(disclosure).toHaveTextContent('Trades on this site go through Jupiter, and Jupiter does not send trades to our pools.');
+    expect(disclosure).toHaveTextContent("Jupiter does not send trades to our pools. This site's own swap sends a trade to a pool only when that pool pays the trader at least as much as Jupiter does.");
     expect(isCreatedPool(pool.toBase58())).toBe(false);
     await act(async () => {
       fireEvent.click(within(panel).getByRole('button', { name: 'Sign in wallet' }));

@@ -159,11 +159,11 @@ export function Notice({ tone = 'info', children }: { tone?: 'info' | 'warn' | '
 }
 
 /** The price impact row, and its warning when it is large or could not be computed. Form and review alike. */
-export function ImpactRows({ bps }: { bps: bigint | null }) {
+export function ImpactRows({ bps, label = 'Price impact' }: { bps: bigint | null; label?: string }) {
   const w = impactWarning(bps);
   return (
     <>
-      <Row label="Price impact" value={impactText(bps)} mono={bps !== null} />
+      <Row label={label} value={impactText(bps)} mono={bps !== null} />
       {w && <Notice tone={w.tone}>{w.text}</Notice>}
     </>
   );
