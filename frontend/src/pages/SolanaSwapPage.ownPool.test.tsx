@@ -1004,6 +1004,51 @@ describe('a read of our pools at the press that did not finish is never "Jupiter
   });
 });
 
+describe('a search of our pools that did not finish is never "cannot be traded", and Buy checks again', () => {
+  // A pool that can never trade holds the standard address (the trap in lp/poolFinder.ts),
+  // so ours sits at its own address, which only the pool index names. The real
+  // quoteVenuePools judges what was read.
+  const A = new PublicKey(new Uint8Array(32).fill(7)).toBase58();
+  const index = { up: false };
+  const view = (address: string, vaultsFrozen: boolean) => ({
+    address, origin: address === POOL ? 'standard' : 'other', config: TIER1_CONFIG, snapshot: { pool: { enableCreatorFee: false } }, vaultsFrozen, quote: SOL_QUOTE, tokenMint: BAYLA_MINT,
+  });
+  beforeEach(async () => {
+    index.up = false;
+    const real = await vi.importActual<typeof import('../lib/solana/swap/venuePools')>('../lib/solana/swap/venuePools');
+    h.quoteVenuePools.mockImplementation(real.quoteVenuePools);
+    h.readVenuePools.mockImplementation(async () => ({
+      kind: 'ok', tokenMint: BAYLA_MINT, quote: SOL_QUOTE, tokenProblem: null, chainNow: null,
+      pools: [view(POOL, true), ...(index.up ? [view(A, false)] : [])],
+      complete: index.up,
+    }));
+  });
+  const settled = () => waitFor(() => {
+    expect(routeLine()).toMatch(/^RouteJupiter\./);
+    expect(routeLine()).not.toMatch(/Checking our pools/);
+  });
+
+  it('the index did not answer and the only pool read is frozen: the line says ours could not be quoted, not that it cannot be traded', async () => {
+    await readyToBuy({ poolsAnswer: false });
+    await settled();
+    expect(routeLine()).toMatch(/Our pool could not be quoted this time\./);
+    expect(routeLine()).not.toMatch(/cannot be traded/);
+  });
+
+  it('Buy reads our pools again, and moves the trade to the pool the index names once it answers', async () => {
+    const buy = await readyToBuy({ poolsAnswer: false });
+    await settled();
+    index.up = true;
+    const reads = h.readVenuePools.mock.calls.length;
+    fireEvent.click(buy);
+    await waitFor(() => expect(h.sendTransaction.mock.calls.length + h.toast.error.mock.calls.length).toBeGreaterThan(0), { timeout: 20_000 });
+    expect(h.sendTransaction).not.toHaveBeenCalled();
+    expect(h.readVenuePools.mock.calls.length).toBeGreaterThan(reads);
+    expect(h.toast.error).toHaveBeenCalledWith('Route changed', { description: OWN_ROUTE_COPY.ownNowWins });
+    await waitFor(() => expect(routeLine()).toMatch(/Our pool pays 1% more than Jupiter\./));
+  });
+});
+
 describe('"No route" only after our pools were found to have nothing', () => {
   async function typed() {
     render(<MemoryRouter><SolanaSwapPage /></MemoryRouter>);

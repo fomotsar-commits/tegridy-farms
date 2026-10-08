@@ -383,3 +383,62 @@ describe('a pool that cannot be traded or cannot be read gives no candidate, and
     expect(q.state).toBe('error');
   });
 });
+
+describe('a search that did not finish is never "cannot be traded"', () => {
+  // The trap (lp/poolFinder.ts): a pool that can never trade takes the standard address
+  // first, so ours sits at its own address, which only the pool index names.
+  function squatted(squat: Partial<Parameters<typeof buildPool>[0]>) {
+    const mint = key();
+    const taken = buildPool({ mint, configIndex: 1, quoteReserve: 10n * SOL, tokenReserve: 1_000_000n * TOK, ...squat });
+    const ours = buildPool({ mint, configIndex: 1, address: key(), quoteReserve: 100n * SOL, tokenReserve: 1_000_000n * TOK });
+    const index = { [`mint:${mint.toBase58()}`]: [ours.address.toBase58()] };
+    return { mint, taken, ours, accounts: base(mint, { ...taken.accounts, ...ours.accounts }), index };
+  }
+  const squatters = [
+    ['opens in ten years', { openTime: NOW + 315_360_000n }],
+    ['has a frozen vault', { frozenVault: true }],
+    ['has swaps switched off', { status: POOL_STATUS_DISABLE_SWAP }],
+  ] as const;
+
+  for (const [what, spec] of squatters) {
+    it(`the index did not answer and the pool at the standard address ${what}: "could not be quoted", not "cannot be traded"`, async () => {
+      const { mint, taken, accounts, index } = squatted(spec);
+      // With the index answering, our pool is found and it trades.
+      expect(quoteVenuePools(await read(accounts, mint, { index }), WSOL_MINT, SOL).state).toBe('quoted');
+      for (const indexStatus of [429, 502]) {
+        const r = await read(accounts, mint, { index, indexStatus });
+        if (r.kind !== 'ok') throw new Error(r.kind);
+        expect(r.complete).toBe(false);
+        expect(r.pools.map((p) => p.address)).toEqual([taken.address.toBase58()]);
+        expect(quoteVenuePools(r, WSOL_MINT, SOL), `index ${indexStatus}`).toEqual({ state: 'error', candidates: [] });
+      }
+    });
+  }
+
+  it('the index listed fewer pools than it holds: the same', async () => {
+    const { mint, accounts } = squatted({ frozenVault: true });
+    const r = await read(accounts, mint, { truncated: true });
+    if (r.kind !== 'ok') throw new Error(r.kind);
+    expect(r.complete).toBe(false);
+    expect(quoteVenuePools(r, WSOL_MINT, SOL).state).toBe('error');
+  });
+
+  it('the index answered but the vaults of the pool it names could not be read: the same', async () => {
+    const { mint, accounts, index, ours } = squatted({ frozenVault: true });
+    const keep = new Set([ours.address, ours.config, ours.lpMint].map((p) => p.toBase58()));
+    for (const k of Object.keys(ours.accounts)) if (!keep.has(k)) delete accounts[k];
+    const r = await read(accounts, mint, { index });
+    if (r.kind !== 'ok') throw new Error(r.kind);
+    expect(r.complete).toBe(false);
+    expect(quoteVenuePools(r, WSOL_MINT, SOL).state).toBe('error');
+  });
+
+  it('a token no pool of which can be priced stays "cannot be traded" even when the index went unread', async () => {
+    const { mint, accounts, index } = squatted({ frozenVault: true });
+    accounts[mint.toBase58()] = { owner: TOKEN_2022_PROGRAM, data: encodeMint2022([[EXT.TransferFeeConfig, 108]]) };
+    const r = await read(accounts, mint, { index, indexStatus: 502 });
+    if (r.kind !== 'ok') throw new Error(r.kind);
+    expect(r.complete).toBe(false);
+    expect(quoteVenuePools(r, WSOL_MINT, SOL).state).toBe('unquotable');
+  });
+});
