@@ -7,9 +7,9 @@
 // the identical call derives correctly. A harness artifact, not a defect — a real
 // browser has one realm.
 import '../../../solanaPolyfill';
-import { describe, it, expect, vi } from 'vitest';
+import { afterEach, describe, it, expect, vi } from 'vitest';
 import { PublicKey } from '@solana/web3.js';
-import { browserCurveRpc, browserRpc, readMint, type SolanaRpc } from './rpc';
+import { BROWSER_RPC_TIMEOUT_MS, browserCurveRpc, browserRpc, readMint, type SolanaRpc } from './rpc';
 import {
   BONDING_CURVE_SIZE,
   GLOBAL_CONFIG_SIZE,
@@ -191,6 +191,86 @@ describe('browserRpc — a non-answer is never an answer', () => {
 
   it('throws on a non-200 rather than parsing an error page as a result', async () => {
     await expect(withBody({}, false, 429)('getAccountInfo', [])).rejects.toThrow(/429/);
+  });
+});
+
+// A request held open and never answered is a non-answer too. It has to end as a throw,
+// like any other failed read, or every caller waits for the whole visit.
+describe('browserRpc: a request that is never answered is given up', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  const gaveUp = (method: string) => `${method}: no answer after ${BROWSER_RPC_TIMEOUT_MS / 1000} s`;
+  /** Ends only by being aborted, and with the browser's own abort error. Never by itself. */
+  const untilAborted = (signal: AbortSignal | null | undefined) =>
+    new Promise<never>((_, reject) => {
+      signal?.addEventListener('abort', () => reject(new DOMException('The operation was aborted.', 'AbortError')));
+    });
+  const neverAnswered = () => vi.fn((_url: string, init?: RequestInit) => untilAborted(init?.signal)) as unknown as typeof fetch;
+  /** How a call ended, read without awaiting a promise that may never end. */
+  function watch(call: Promise<unknown>): { outcome: unknown } {
+    const seen: { outcome: unknown } = { outcome: 'pending' };
+    call.then(
+      (v) => (seen.outcome = { answered: v }),
+      (e: unknown) => (seen.outcome = e),
+    );
+    return seen;
+  }
+  const message = (seen: { outcome: unknown }) => (seen.outcome instanceof Error ? seen.outcome.message : seen.outcome);
+
+  it('throws when the wait is over and not a moment sooner, naming the method and the wait', async () => {
+    vi.useFakeTimers();
+    const seen = watch(browserRpc(neverAnswered())('getGenesisHash', []));
+    await vi.advanceTimersByTimeAsync(BROWSER_RPC_TIMEOUT_MS - 1);
+    expect(seen.outcome).toBe('pending');
+    await vi.advanceTimersByTimeAsync(1);
+    expect(message(seen)).toBe(gaveUp('getGenesisHash'));
+  });
+
+  it('gives up a body that never arrives the same way, and does not call it bad JSON', async () => {
+    vi.useFakeTimers();
+    const headersOnly = vi.fn(
+      async (_url: string, init?: RequestInit) => ({ ok: true, status: 200, json: () => untilAborted(init?.signal) }) as unknown as Response,
+    );
+    const seen = watch(browserRpc(headersOnly as unknown as typeof fetch)('getAccountInfo', ['x']));
+    await vi.advanceTimersByTimeAsync(BROWSER_RPC_TIMEOUT_MS - 1);
+    expect(seen.outcome).toBe('pending');
+    await vi.advanceTimersByTimeAsync(1);
+    expect(message(seen)).toBe(gaveUp('getAccountInfo'));
+  });
+
+  it('counts each request from its own start, so a later one is not cut short by an earlier one', async () => {
+    vi.useFakeTimers();
+    const rpc = browserRpc(neverAnswered());
+    const first = watch(rpc('getGenesisHash', []));
+    await vi.advanceTimersByTimeAsync(BROWSER_RPC_TIMEOUT_MS - 1_000);
+    const second = watch(rpc('getAccountInfo', ['x']));
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(message(first)).toBe(gaveUp('getGenesisHash'));
+    expect(second.outcome).toBe('pending');
+    await vi.advanceTimersByTimeAsync(BROWSER_RPC_TIMEOUT_MS - 1_000);
+    expect(message(second)).toBe(gaveUp('getAccountInfo'));
+  });
+
+  it('an answer stops the clock: no timer is left running and the request is never aborted', async () => {
+    vi.useFakeTimers();
+    let signal: AbortSignal | null | undefined;
+    const answered = vi.fn(async (_url: string, init?: RequestInit) => {
+      signal = init?.signal;
+      return { ok: true, status: 200, json: async () => ({ result: 'a-hash' }) } as unknown as Response;
+    });
+    await expect(browserRpc(answered as unknown as typeof fetch)('getGenesisHash', [])).resolves.toBe('a-hash');
+    expect(vi.getTimerCount()).toBe(0);
+    await vi.advanceTimersByTimeAsync(BROWSER_RPC_TIMEOUT_MS * 2);
+    expect(signal?.aborted).toBe(false);
+  });
+
+  it('a request that fails before the wait is over keeps its own error, and stops the clock too', async () => {
+    vi.useFakeTimers();
+    const refused = vi.fn(async () => Promise.reject(new TypeError('Failed to fetch')));
+    await expect(browserRpc(refused as unknown as typeof fetch)('getGenesisHash', [])).rejects.toThrow('Failed to fetch');
+    expect(vi.getTimerCount()).toBe(0);
   });
 });
 
