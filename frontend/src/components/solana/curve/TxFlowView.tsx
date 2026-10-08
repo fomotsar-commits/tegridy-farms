@@ -915,6 +915,8 @@ const NOT_SENT_COPY: Record<NotSent['stage'], string> = {
   sign: 'Not sent. Your wallet did not sign it.',
   send: 'Not sent. The network turned it away before running it.',
 };
+/** A not-sent whose check could not run (NotSent.retry): no verdict on the transaction. */
+const NOT_READ_COPY = 'Not sent. A check this transaction needs could not be run just now, so we did not ask your wallet to sign it. Asking again may work.';
 
 export function TxOutcomeCard({
   outcome,
@@ -1035,7 +1037,7 @@ export function TxOutcomeCard({
     case 'not-sent':
       return (
         <div {...a11y} data-testid="tx-outcome" data-status="not-sent">
-          <Notice tone="warn">{NOT_SENT_COPY[outcome.stage]}</Notice>
+          <Notice tone="warn">{outcome.retry ? NOT_READ_COPY : NOT_SENT_COPY[outcome.stage]}</Notice>
           {outcome.message && <Notice>{outcome.message}</Notice>}
           <Notice>Nothing was charged.</Notice>
           <button type="button" onClick={onReset} className="btn-secondary min-h-[44px] w-full py-2 text-[12px] mt-1">

@@ -707,6 +707,8 @@ export type NotSent = {
   stage: 'gate' | 'build' | 'simulate' | 'sign' | 'send';
   message: string;
   logs?: string[];
+  /** A read or a check could not run, so nothing was learned about the transaction: asking again may work. */
+  retry?: true;
 };
 
 export type TxOutcome =

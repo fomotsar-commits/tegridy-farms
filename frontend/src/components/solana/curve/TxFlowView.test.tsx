@@ -124,6 +124,13 @@ describe('outcome copy', () => {
     expect(screen.getByText(/did not ask your wallet to sign/)).toBeInTheDocument();
     expect(screen.getByText('Nothing was charged.')).toBeInTheDocument();
   });
+
+  it('a test run that could not be run is not called a refusal of the transaction', () => {
+    outcome({ status: 'not-sent', stage: 'simulate', message: 'Could not run the safety check: HTTP 502', retry: true });
+    expect(screen.queryByText(/was refused/)).toBeNull();
+    expect(screen.getByText(/could not be run just now/)).toBeInTheDocument();
+    expect(screen.getByText(/did not ask your wallet to sign/)).toBeInTheDocument();
+  });
 });
 
 // ---------------------------------------------------------------------------
