@@ -1417,6 +1417,30 @@ describe('in dollars, the 30 s price tick waits while a trade is on its way', ()
   });
 });
 
+describe('after a confirmed swap the pay balance is read again', () => {
+  /** The SOL balance the RPC answers with; `held.lamports` moves when the trade lands. */
+  async function balanceAfter(o: { ownOut: bigint; after: number; shown: string }) {
+    h.ownOut.value = o.ownOut;
+    const held = { lamports: 5_000_000_000 };
+    const reads = vi.spyOn(connection, 'getBalance').mockImplementation(async () => held.lamports);
+    try {
+      const buy = await readyToBuy();
+      const balance = () => screen.getByText(/^Balance:/).textContent?.replace('MAX', '');
+      await waitFor(() => expect(balance()).toBe('Balance: 5'));
+      held.lamports = o.after;
+      fireEvent.click(buy);
+      await waitFor(() => expect(h.toast.success).toHaveBeenCalledWith('Bought BAYLA', expect.anything()));
+      // Balance, MAX and the insufficient guard stand on what the wallet holds now, not before the trade.
+      await waitFor(() => expect(balance()).toBe(o.shown), { timeout: 3_000 });
+    } finally {
+      reads.mockRestore();
+    }
+  }
+
+  it('in our own pool', () => balanceAfter({ ownOut: 1_010_000n, after: 4_897_925_920, shown: 'Balance: 4.897925' }));
+  it('through Jupiter', () => balanceAfter({ ownOut: 999_999n, after: 4_899_995_000, shown: 'Balance: 4.899995' }));
+});
+
 describe('the risk tick-box: never for the venue’s own coins, once per token for the rest', () => {
   const OTHER = 'Dog1111111111111111111111111111111111111111';
   const other = { mint: OTHER, symbol: 'DOGGO', name: 'Doggo', decimals: 6, verified: false };

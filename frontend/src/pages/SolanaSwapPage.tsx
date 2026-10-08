@@ -1875,6 +1875,9 @@ function SolanaSwapInner() {
       const view = { label: 'View', onClick: () => window.open(`https://solscan.io/tx/${sig}`, '_blank', 'noopener,noreferrer') };
       const tradeWords = `≈${prettyAmount(fromBaseUnits(sent.outAmount, buyToken.decimals))} ${buyToken.symbol} with ${prettyAmount(tokenAmount)} ${payToken.symbol}${feeWaivedOnSend ? ' (no site fee on this route)' : ''}`;
       const { outcome } = await pollConfirm(connection, sig, SWAP_CONFIRM_TIMEOUT_MS);
+      // Whatever the chain said, the wallet spent something: Balance, MAX and the
+      // insufficient guard are read again, not left on the pre-trade figure.
+      retryPayBalance();
       if (outcome === 'reverted') {
         toast.error('Swap refused on chain', { description: `${shortSig(sig)}. Only the network fee was spent.`, action: view });
         return;
