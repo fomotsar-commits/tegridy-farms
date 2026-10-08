@@ -178,6 +178,7 @@ import SolanaSwapPage from './SolanaSwapPage';
 import { getActivity } from '../lib/solanaActivity';
 import { OWN_ROUTE_COPY } from '../lib/solana/swap/ownPoolRoute';
 import { SWAP_PENDING_SCOPE, savePendingTrade } from '../components/solana/curve/pendingTrade';
+import { DECLINED_IN_WALLET } from '../lib/solana/swap/walletCopy';
 
 // The first test here pays for the page's first render (see SolanaSwapPage.feeRetry.test.tsx).
 // In a whole run on a busy machine the page took over 3 s to offer Buy: every wait is
@@ -920,6 +921,86 @@ describe('a press reads the pool it shows straight from the chain', () => {
     await waitFor(() => expect(h.readVenuePools.mock.calls.length).toBeGreaterThan(before));
     const opts = h.readVenuePools.mock.calls.at(-1)![3] as { also?: readonly string[] };
     expect(opts.also).toContain(POOL);
+  });
+});
+
+describe('a read of our pools at the press that did not finish is never "Jupiter pays more"', () => {
+  // Our pool A sits at its own address, which only the pool index names; B is at the
+  // standard address and is read whatever the index says. Modelled as findPools reads:
+  // A is read when the index names it, or when the caller hands it in (`also`).
+  const A = new PublicKey(new Uint8Array(32).fill(7)).toBase58();
+  const B = POOL;
+  const index = { up: true };
+  function poolsAt(outBy: Map<string, bigint>) {
+    h.readVenuePools.mockImplementation(async (_rpc: unknown, _in: string, _out: string, opts?: { also?: readonly string[] }) => {
+      const read = [B, ...(index.up || opts?.also?.includes(A) ? [A] : [])];
+      return { kind: 'ok', tokenMint: BAYLA_MINT, quote: SOL_QUOTE, pools: read.map((address) => ({ address })), complete: index.up, tokenProblem: null, chainNow: null };
+    });
+    h.quoteVenuePools.mockImplementation((r: { pools?: { address: string }[]; complete?: boolean }) => {
+      const candidates = (r.pools ?? []).flatMap((v) => {
+        const out = outBy.get(v.address);
+        if (out === undefined) return [];
+        const c = ownCandidate(out);
+        return [{ ...c, poolAddress: v.address, view: { ...c.view, address: v.address } }];
+      });
+      return candidates.length ? { state: 'quoted', candidates } : { state: r.complete ? 'absent' : 'error', candidates: [] };
+    });
+    h.prepareVenueSwap.mockImplementation(async (_rpc: unknown, _gate: unknown, a: VenueSwapArgs) => ({ ok: true, prepared: preparedSwap(a, outBy.get(a.pool.toBase58()) ?? 0n) }));
+  }
+  const builtIn = () => h.prepareVenueSwap.mock.calls.map((c) => (c[2] as VenueSwapArgs).pool.toBase58());
+  beforeEach(() => {
+    index.up = true;
+  });
+
+  it('the pool on screen went unread at the press: the trader is not told Jupiter pays more, and nothing is sent through Jupiter', async () => {
+    poolsAt(new Map([[A, 1_010_000n], [B, 990_000n]]));
+    const buy = await readyToBuy();
+    await waitFor(() => expect(routeLine()).toMatch(/Our pool pays 1% more than Jupiter\./));
+    // From here the pool index answers 429 or 502.
+    index.up = false;
+    fireEvent.click(buy);
+    await waitFor(() => expect(h.toast.error.mock.calls.length + h.submitPrepared.mock.calls.length).toBeGreaterThan(0), { timeout: 20_000 });
+    expect(h.toast.error.mock.calls.map((c) => (c[1] as { description?: string } | undefined)?.description)).not.toContain(OWN_ROUTE_COPY.routeMoved);
+    expect(builtIn().every((p) => p === A)).toBe(true);
+    expect(h.sendTransaction).not.toHaveBeenCalled();
+    await waitFor(backOnTheForm);
+    // A swap that went through clears the form, and the line with it.
+    const lineNow = () => (screen.queryAllByText('Route').length ? routeLine() : '');
+    await waitFor(() => expect(lineNow()).not.toMatch(/Comparing our pools/));
+    // Nor does the line say our pool lost when the pool that won was not read.
+    expect(lineNow()).not.toMatch(/Jupiter pays .* more than our pool/);
+  });
+
+  it('a pool that pays less than the one on screen is never taken because the one on screen went unread', async () => {
+    // B beats Jupiter, A beats B: A is the route on screen.
+    poolsAt(new Map([[A, 1_010_000n], [B, 1_005_000n]]));
+    const buy = await readyToBuy();
+    await waitFor(() => expect(routeLine()).toMatch(/Our pool pays 1% more than Jupiter\./));
+    index.up = false;
+    fireEvent.click(buy);
+    await waitFor(() => expect(h.toast.error.mock.calls.length + h.prepareVenueSwap.mock.calls.length).toBeGreaterThan(0), { timeout: 20_000 });
+    expect(builtIn()).not.toContain(B);
+  });
+
+  it('after an ending (a wallet that says no), with the index down, the pool on screen is still read by its address', async () => {
+    poolsAt(new Map([[A, 1_010_000n], [B, 990_000n]]));
+    h.submitPrepared.mockImplementationOnce(async () => ({ status: 'not-sent', stage: 'sign', message: DECLINED_IN_WALLET }));
+    const buy = await readyToBuy();
+    await waitFor(() => expect(routeLine()).toMatch(/Our pool pays 1% more than Jupiter\./));
+    index.up = false;
+    fireEvent.click(buy);
+    await waitFor(() => expect(h.toast.info).toHaveBeenCalledWith('Not sent', { description: DECLINED_IN_WALLET }));
+    await waitFor(backOnTheForm);
+    // The ending drops the held read and our pools are read again, the index still down:
+    // the pool on screen is read by its address, so the line and the next press keep it.
+    const reads = h.readVenuePools.mock.calls.length;
+    await new Promise((r) => setTimeout(r, 900));
+    expect(h.readVenuePools.mock.calls.length).toBeGreaterThanOrEqual(reads);
+    await waitFor(() => expect(routeLine()).toMatch(/Our pool pays 1% more than Jupiter\./));
+    fireEvent.click(await screen.findByRole('button', { name: 'Buy BAYLA' }));
+    await waitFor(() => expect(h.prepareVenueSwap).toHaveBeenCalledTimes(2), { timeout: 20_000 });
+    expect(builtIn()).toEqual([A, A]);
+    expect(h.sendTransaction).not.toHaveBeenCalled();
   });
 });
 

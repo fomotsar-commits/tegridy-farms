@@ -111,6 +111,10 @@ export function useSolanaRoute({ inputMint, outputMint, amountInRaw, aggregatorQ
   const held = useRef(pools);
   const onScreen = useRef(pairKey);
   const inFlight = useRef<string | null>(null);
+  // The pools that last quoted this pair, kept while a read is dropped or in flight: every
+  // read names them by address, so a pool index that does not answer cannot hide them.
+  const shownPools = useRef<{ key: string; addresses: string[] }>({ key: '', addresses: [] });
+  const shownFor = (key: string) => (shownPools.current.key === key ? shownPools.current.addresses : []);
   useEffect(() => {
     held.current = pools;
     onScreen.current = pairKey;
@@ -126,7 +130,7 @@ export function useSolanaRoute({ inputMint, outputMint, amountInRaw, aggregatorQ
     if (h && h.key === pairKey && h.read.kind !== 'unread' && Date.now() - h.at < POOLS_FRESH_MS) return;
     if (inFlight.current === pairKey) return;
     inFlight.current = pairKey;
-    void readPools(programId, inputMint, outputMint).then((read) => {
+    void readPools(programId, inputMint, outputMint, shownFor(pairKey)).then((read) => {
       if (inFlight.current === pairKey) inFlight.current = null;
       if (onScreen.current === pairKey) setPools({ key: pairKey, read, at: Date.now() });
     });
@@ -145,11 +149,9 @@ export function useSolanaRoute({ inputMint, outputMint, amountInRaw, aggregatorQ
   const own: SolanaRoute['own'] =
     venue === null ? 'pending' : venue.kind === 'live' ? (quoted?.state ?? 'pending') : venue.kind === 'unreadable' ? 'error' : 'absent';
   const candidates = useMemo(() => (venue?.kind === 'live' ? (quoted?.candidates ?? []) : []), [venue, quoted]);
-  // The pools quoting this pair on screen: a press reads them again even if the index is down.
-  const shownPools = useRef<{ key: string; addresses: string[] }>({ key: '', addresses: [] });
   useEffect(() => {
-    shownPools.current = { key: pairKey, addresses: candidates.map((c) => c.poolAddress) };
-  }, [pairKey, candidates]);
+    if (read) shownPools.current = { key: pairKey, addresses: candidates.map((c) => c.poolAddress) };
+  }, [pairKey, candidates, read]);
 
   const decision: RouteDecision | null = useMemo(() => {
     if (!venue || !hasAmount || aggregatorPending) return null;
@@ -164,8 +166,7 @@ export function useSolanaRoute({ inputMint, outputMint, amountInRaw, aggregatorQ
       // What the press found is the page's venue from now on: a venue that failed at load included.
       setVenue(v);
       if (v.kind !== 'live') return [];
-      const shown = shownPools.current.key === pairKey ? shownPools.current.addresses : [];
-      const fresh = await readPools(v.programId, inputMint, outputMint, shown);
+      const fresh = await readPools(v.programId, inputMint, outputMint, shownFor(pairKey));
       if (onScreen.current === pairKey) setPools({ key: pairKey, read: fresh, at: Date.now() });
       return quoteVenuePools(fresh, inputMint, amountIn).candidates;
     },
