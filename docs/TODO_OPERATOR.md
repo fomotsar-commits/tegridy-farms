@@ -152,13 +152,11 @@ start the task again. It should pull the new run and pass. The report is in
 **If GitHub is gone again,** this is not the list to follow: OPS_SCHEDULER.md section 5 moves the
 six jobs GitHub ran onto this PC (`register-tasks.ps1 -Failover`) and takes the backup by hand.
 
-**Found while testing (2026-09-30):** the failover `npm-advisories` job found six blocking
-advisories. GitHub's `npm-advisories` workflow uses the same gate, so it should fail on them too.
-This is the set seen on 2026-09-30; the next run may add more. `frontend`: `undici`
-GHSA-rfgv-xxqx-mfg5 and GHSA-w293-vg96-wgc3, and `brace-expansion` GHSA-6j4f-fj2g-mc7p and
-GHSA-qhr7-859c-m2p7. `indexer`: the same two `brace-expansion` advisories. All have a fix
-available. An agent can bump the dependencies, or triage them into
-`.github/npm-advisory-allowlist.json` with a reason.
+**Done 2026-10-07:** the six blocking advisories the failover `npm-advisories` job found on
+2026-09-30 (`undici` and `brace-expansion`) are gone from both audits, and GitHub's
+`npm advisories` workflow is green on the trunk for all three projects (`9e1b7b5e`). The next
+date is 2026-11-16: the baseline and both accepted entries expire together (GIT_HOSTING.md,
+section 8).
 
 ---
 
@@ -1386,11 +1384,16 @@ is advisory today. Unenforced, it is a comment.
 
 ### ⬜ REMAINING — an agent can do these alone, AFTER the deploy above
 
-1. **Wire execution against our own pool.** The instruction builders exist and are source-verified
-   (`lib/solana/cpswap/ix.ts`), but nothing sends them, because the program is not deployed and an
-   unexercised money path is the ledger's most common defect class. Moot until step 4 above: with
-   no venue, the router always picks the aggregator. CI's `migration-rehearsal` job is where these
-   builders get their first real execution.
+1. ~~**Wire execution against our own pool.**~~ **Built 2026-10-06**, on branch
+   `feat/solana-swap-routes-to-own-pool`; it is live once that branch is merged. The swap page
+   finds every pool of ours for the pair (the launch pool, the standard address on fee tier 1 and
+   on tier 0, and what the pool index names), prices each with its own tier's fee, and lets
+   `lib/solana/route.ts` pick: our pool unless Jupiter pays more, a tie stays here. When our pool
+   wins, Buy opens a review of a swap in that pool (`write/venueSwap.ts`, kind `venue-swap`), with
+   the same test run and Sign in wallet as liquidity. Both venues are quoted again when Buy is
+   pressed, and a route that changed is shown, not taken. Before this the page looked only at
+   tier 0's standard address, so the owner's BAYLA/SOL pool (tier 1) was never compared, and
+   every trade was sent to Jupiter whatever the line said.
 2. **The LP forms on `/pools`** — create-pool / deposit / withdraw. Same reason, same unblock.
 3. ⚠️ **PICK ONE HOME for cp-swap client code — this is the repo's THIRD "two
    implementations of one thing".** `lib/launcher/solana/curve/program.ts` grew
