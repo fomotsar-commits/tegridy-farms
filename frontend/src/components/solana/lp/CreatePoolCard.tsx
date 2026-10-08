@@ -1,12 +1,13 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import { formatSol } from '../../../lib/launcher/solana/curve/format';
-import { tokenReasons, type PoolHealth } from '../../../lib/solana/lp/poolHealth';
+import { noPriceClause, tokenReasons, type PoolHealth } from '../../../lib/solana/lp/poolHealth';
 import { isCreatedPool, type PoolSearchRead, type PoolView } from '../../../lib/solana/lp/poolFinder';
 import type { OutsidePrice } from '../../../lib/solana/lp/outsidePrice';
+import { MIN_HISTORY_TEXT } from '../../../lib/solana/lp/ownPrice';
 import type { TokenSafety } from '../../../lib/solana/lp/tokenSafety';
 import { tradeCostText } from '../../../lib/solana/lp/format';
 import { CREATOR_FEE_SWITCH } from '../../../lib/solana/cpswap/venue';
-import { QUOTE_COINS_OR, orList, otherSideLine, quoteCoin, searchedCoinsOr } from '../../../lib/solana/lp/quotes';
+import { QUOTE_COINS_OR, orList, otherSideLine, quoteCoin, searchedCoinsOr, type QuoteCoin } from '../../../lib/solana/lp/quotes';
 import { Notice } from '../curve/ui';
 import { CARD, CARD_STYLE, SHADOW } from '../curve/uiFormat';
 import type { CreateFacts, TierState } from '../curve/ports';
@@ -162,7 +163,7 @@ function CreateCard({
   const notes = writes.pending.notes;
   const addInstead = pointers.filter(({ pool }) => {
     const health = healths.get(pool.address);
-    return !!health && adviceCaveat(health)?.add !== false && gate?.kind === 'open' && depositOffer({ mode, gate, health, held: lpHeld(notes, pool.address, 'add') }) === 'offer';
+    return !!health && adviceCaveat(health, pool.quote)?.add !== false && gate?.kind === 'open' && depositOffer({ mode, gate, health, held: lpHeld(notes, pool.address, 'add') }) === 'offer';
   });
   if (offer === 'off') return null;
 
@@ -297,16 +298,23 @@ function offMarketLine(health: PoolHealth | undefined): string | null {
  *   - no market price at all (Jupiter has no route for the token): its price was compared
  *     with nothing, so the card must not say it "passes the checks" or "we suggest". It
  *     says what was not checked and what each choice means, and keeps the button: for a
- *     token with no market, the pool that exists may well be the right place.
+ *     token with no market, the pool that exists may well be the right place;
+ *   - no price in the pool's own coin (Jupiter has no route for the pairing COIN, owner
+ *     ruling 2026-10-07): the same, and the line names the coin, never "this token";
+ *   - a launch pool with no route and under ten minutes of trading (`too-new`, the same
+ *     ruling): the same again, in that state's own words.
  */
-function adviceCaveat(health: PoolHealth | undefined): { line: string; add: boolean } | null {
+function adviceCaveat(health: PoolHealth | undefined, coin: QuoteCoin): { line: string; add: boolean } | null {
   const off = offMarketLine(health);
   if (off) return { line: off, add: false };
+  const either = 'Adding to it keeps liquidity in one place; a pool of your own starts at the price you set.';
   if (health?.price.state === 'no-market') {
-    return {
-      line: 'Jupiter has no market price for this token, so that pool’s price was not checked against anything. Adding to it keeps liquidity in one place; a pool of your own starts at the price you set.',
-      add: true,
-    };
+    const inCoin = health.price.of === 'coin' ? ` in ${coin.symbol}` : '';
+    return { line: `${noPriceClause(health.price.of, coin)}, so that pool’s price${inCoin} was not checked against anything. ${either}`, add: true };
+  }
+  if (health?.price.state === 'too-new') {
+    // The pool's own warning (poolHealth.ts `TOO_NEW_WARNING`), said of "that pool".
+    return { line: `That pool has traded for under ${MIN_HISTORY_TEXT} and Jupiter has no price for this token, so its price was checked against nothing. ${either}`, add: true };
   }
   return null;
 }
@@ -484,7 +492,7 @@ function OfferLines({
             return kind === 'opened-here' ? (
               <p key={coin.mint} data-testid="lp-create-opened" data-coin={coin.symbol}>
                 You opened {aPool} for this token just now (<span className="font-mono break-all">{pool.address}</span>). Your share is under
-                &apos;Your positions&apos;. {adviceCaveat(healths.get(pool.address))?.line ?? 'Adding to it keeps your liquidity in one place.'}
+                &apos;Your positions&apos;. {adviceCaveat(healths.get(pool.address), coin)?.line ?? 'Adding to it keeps your liquidity in one place.'}
               </p>
             ) : (
               <p key={coin.mint} data-testid="lp-create-refer" data-coin={coin.symbol}>
@@ -494,7 +502,7 @@ function OfferLines({
                 This token already has {aPool} on the public fee tier{' '}
                 {warned ? 'that takes deposits, with a warning (above)' : 'that passes the checks (above)'}. The biggest is{' '}
                 <span className="font-mono break-all">{pool.address}</span>, holding {coinAbout(pool.quoteReserve, coin)}.{' '}
-                {adviceCaveat(healths.get(pool.address))?.line ?? 'We suggest adding to it: liquidity in one place gives traders a better price.'}
+                {adviceCaveat(healths.get(pool.address), coin)?.line ?? 'We suggest adding to it: liquidity in one place gives traders a better price.'}
               </p>
             );
           })}

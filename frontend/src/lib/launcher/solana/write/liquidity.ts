@@ -88,7 +88,8 @@ export const LP_COPY = {
   noCoinAccount: (symbol: string, address: string) => `You hold no ${symbol} in your main account for it (${address}).`,
   needSol: (need: string, have: string) =>
     `Your wallet needs about ${need} for the network fee and the account deposits, and has ${have}. Nothing was built.`,
-  tokenBlocked: (reason: string) => `This token is now blocked on this site: ${reason}`,
+  // What this site does not do, and why: never that the token is "blocked" (owner ruling 2026-10-07).
+  tokenBlocked: (reason: string) => `This site does not add to pools for this token: ${reason}`,
   tokenUnread: 'We could not read the token just now, so we did not build the deposit. Try again in a moment.',
   gateSaysNo: (reasons: string[]) => `We did not build this deposit: ${reasons.join(' ')}`,
   noTokenAccount: (address: string) => `You hold none of this token in your main account for it (${address}).`,
@@ -133,7 +134,7 @@ export const LP_COPY = {
   badPercent: 'Enter a percent from 0.01 to 100.',
   swapsOff: 'Swaps on this pool are switched off. That does not stop you taking your liquidity out.',
   swapsBlocked: (when: string) => `Swaps on this pool are blocked until ${when}. That does not stop you taking your liquidity out.`,
-  tokenBlockedInform: (reason: string) => `This token is blocked on this site for new deposits (${reason}). You can still take your liquidity out.`,
+  tokenBlockedInform: (reason: string) => `This site does not take new deposits of this token (${reason}). You can still take your liquidity out.`,
   // The estimated loss when a price is off, for a deposit and for an opening. `back` is
   // what the price would move back to. It is an upper bound and an estimate, and says so.
   priceGapLoss: (loss: string | null, back: string) =>

@@ -239,6 +239,17 @@ describe('Add more liquidity is on a position', () => {
     expect(within(aside).getAllByTestId('lp-position')).toHaveLength(3);
     expect(within(aside).getByRole('button', { name: 'Remove liquidity' })).toBeInTheDocument();
     expect(within(aside).queryByRole('button', { name: ADD_MORE })).toBeNull();
+    // Owner ruling 2026-10-07: none of these lines calls the token "blocked". Each says what
+    // this site does not do, and each is still a sentence where it stands.
+    expect(aside.querySelector('summary')).toHaveTextContent(
+      '3 other pool shares, set aside without their names: tokens this site does not open or add to pools for, pools that are not paired with SOL, USDC or BAYLA, or pools we could not confirm',
+    );
+    const refusedRow = within(aside).getAllByTestId('lp-position').find((el) => el.getAttribute('data-pool') === ofBlocked.address)!;
+    expect(refusedRow).toHaveTextContent('Set aside: this site does not open or add to pools for its token.');
+    expect(within(refusedRow).getByText('Token check').nextElementSibling?.textContent).toBe('this site does not open or add to pools for it');
+    expect(aside).not.toHaveTextContent(/blocked on this site|blocked tokens|token is blocked/i);
+    // A share of a pool whose token passed keeps its own words.
+    expect(within(placed).getByText('Token check').nextElementSibling?.textContent).toBe('no problems found');
     // Reading the positions looked nothing up in the finder.
     expect(lookups(r)).toHaveLength(0);
   });

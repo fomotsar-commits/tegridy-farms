@@ -6,6 +6,10 @@ page keeps the newest thirty days.
 
 ## [Unreleased]
 
+### 2026-10-08
+
+- Solana LP: two things that used to switch Add liquidity or Open a pool off are now warnings you read before you sign. A pool priced in a coin Jupiter has no price for right now (in practice only BAYLA) can still be opened and added to, and, once launching is switched on, a launch pool Jupiter has no price for takes deposits in its first 10 minutes of trading. A price that could not be read still switches both off. A token the site will not open or add to pools for is no longer called "blocked": the page says what the site does not do, and why.
+
 ### 2026-10-07
 
 - Solana LP on a phone: the small links and buttons keep their finger-sized press area without stretching the page around them. The "what to do next" sentence reads as one paragraph again, the venue status card is back to the height it had, and "View on the explorer" is easier to press. With a keyboard, the focus ring goes round the words of each of them.
