@@ -820,6 +820,80 @@ describe('a note found on arrival, with the swap code not loaded', () => {
   });
 });
 
+describe('while Jupiter’s transaction is at the wallet, the page describes Jupiter’s trade', () => {
+  /** What the page says while the wallet holds a transaction: the figure, the fee row, the footer, any word of our pool. */
+  const atWallet = () => ({
+    receive: receive(),
+    ownFeeRow: screen.queryByTestId('own-pool-fee') !== null,
+    footer: screen.getByTestId('swap-footer').textContent,
+    saysOurPool: screen.queryAllByText(/Our pool pays|Our pool matches|via our pool/).length > 0,
+  });
+  const jupiters = (s: ReturnType<typeof atWallet>, figure: string) => {
+    expect(s).toMatchObject({ receive: figure, ownFeeRow: false, saysOurPool: false });
+    expect(s.footer).not.toBe('No platform fee on a swap in our own pool.');
+  };
+
+  it.each([
+    ['a pair that carries the site fee', true],
+    ['a pair with no site fee', false],
+  ])('%s: Jupiter’s re-quote at the press is not set against an older read of our pool', async (_name, fee) => {
+    h.carriesFee.value = fee;
+    h.ownOut.value = 997_000n;
+    const buy = await readyToBuy();
+    await waitFor(() => expect(routeLine()).toMatch(/Jupiter pays/));
+    expect(receive()).toBe('1');
+    // At the press Jupiter re-quotes 0.996 (inside the 0.5% slippage), and our pool's read hangs.
+    h.getQuote.mockImplementation(async () => jupiterQuote('996000'));
+    h.readVenuePools.mockImplementation(() => new Promise(() => {}));
+    h.buildSwapTransaction.mockImplementation(() => new Promise((r) => setTimeout(() => r(JUPITER_TX), 150)));
+    const seen: ReturnType<typeof atWallet>[] = [];
+    h.sendTransaction.mockImplementation(() => { seen.push(atWallet()); return new Promise(() => {}); });
+    fireEvent.click(buy);
+    await waitFor(() => expect(h.sendTransaction).toHaveBeenCalledTimes(1), { timeout: 30_000 });
+    expect(h.prepareVenueSwap).not.toHaveBeenCalled();
+    await new Promise((r) => setTimeout(r, 300));
+    seen.push(atWallet());
+    for (const s of seen) jupiters(s, '0.996');
+  });
+
+  it('a read of our pool that lands after the press went ahead does not change what the page says', async () => {
+    h.ownOut.value = 990_000n;
+    const buy = await readyToBuy();
+    await waitFor(() => expect(routeLine()).toMatch(/Jupiter pays/));
+    let land!: (v: unknown) => void;
+    h.readVenuePools.mockImplementation(() => new Promise((r) => { land = r; }));
+    h.sendTransaction.mockImplementation(() => new Promise(() => {}));
+    fireEvent.click(buy);
+    await waitFor(() => expect(h.sendTransaction).toHaveBeenCalledTimes(1), { timeout: 30_000 });
+    // The read the press gave up on lands now, with our pool ahead, while the wallet holds Jupiter's transaction.
+    const quotes = h.quoteVenuePools.mock.calls.length;
+    h.ownOut.value = 1_010_000n;
+    land({ kind: 'ok' });
+    await waitFor(() => expect(h.quoteVenuePools.mock.calls.length).toBeGreaterThan(quotes));
+    await new Promise((r) => setTimeout(r, 300));
+    jupiters(atWallet(), '1');
+    expect(h.prepareVenueSwap).not.toHaveBeenCalled();
+  });
+});
+
+describe('Buy pressed while our pools are still being read, on a slow network', () => {
+  it('a read that has not answered is not a comparison our pool lost: Jupiter’s transaction is not sent', async () => {
+    // Every read of our pools takes 5 s; our pool pays 1.01 against Jupiter's 1. The wallet does not answer.
+    h.readVenuePools.mockImplementation(() => new Promise((r) => setTimeout(() => r({ kind: 'ok' }), 5_000)));
+    h.sendTransaction.mockImplementation(() => new Promise(() => {}));
+    render(<MemoryRouter><SolanaSwapPage /></MemoryRouter>);
+    fireEvent.change(screen.getByLabelText('Amount of SOL to pay'), { target: { value: '0.1' } });
+    await waitFor(() => expect(routeLine()).toMatch(/Checking our pools/), { timeout: 20_000 });
+    // The swap's action button, whatever it says and whether or not it is held.
+    fireEvent.click(document.querySelector('button.btn-primary') as HTMLButtonElement);
+    // The first read lands with our pool ahead; then the press's own read has had its 5 s.
+    await waitFor(() => expect(routeLine()).toMatch(/Our pool pays/), { timeout: 20_000 });
+    await new Promise((r) => setTimeout(r, 1_500));
+    expect(h.sendTransaction).not.toHaveBeenCalled();
+    expect(h.buildSwapTransaction).not.toHaveBeenCalled();
+  });
+});
+
 describe('the risk tick-box: never for the venue’s own coins, once per token for the rest', () => {
   const OTHER = 'Dog1111111111111111111111111111111111111111';
   const other = { mint: OTHER, symbol: 'DOGGO', name: 'Doggo', decimals: 6, verified: false };

@@ -1503,7 +1503,9 @@ function SolanaSwapInner() {
   // Our pool takes the trade when the decision names it AND a swap in it can be
   // prepared here. When it cannot, the trade goes through Jupiter and the line says why.
   const ownChosen = route.decision?.chosen?.venue === 'own-pool' ? route.decision.chosen : null;
-  const ownBest = ownChosen && !venueSwap.unavailable ? (route.candidates.find((c) => c.poolAddress === ownChosen.poolAddress) ?? null) : null;
+  // While Jupiter's transaction is being prepared or is at the wallet (`swapping`), the page
+  // describes that trade: a pool read landing meanwhile does not turn the screen to our pool.
+  const ownBest = ownChosen && !venueSwap.unavailable && !swapping ? (route.candidates.find((c) => c.poolAddress === ownChosen.poolAddress) ?? null) : null;
   // The swap code or its gate is still on its way.
   const ownPreparing = ownBest !== null && venueSwap.ready === null;
 
@@ -1685,7 +1687,8 @@ function SolanaSwapInner() {
    * THE ROUTE, HELD AT THE CLICK, with Jupiter on screen. If one of our pools, read
    * again now, pays at least what the transaction about to be signed would pay (`q`),
    * `q` goes on screen so the line shows that route, and the trader presses Buy on it.
-   * A read that fails or hangs changes nothing: the trade goes on as shown.
+   * A read that fails or hangs changes nothing when a comparison was on screen; with none
+   * on screen yet (our pools still being read), a read that does not answer sends nothing.
    */
   async function ownPoolTakesIt(q: JupiterQuote, noSiteFee: boolean): Promise<boolean> {
     // Not when our pools were found to hold nothing for this pair, and not when a swap
@@ -1699,7 +1702,14 @@ function SolanaSwapInner() {
       return false;
     }
     const amountIn = BigInt(baseAmount);
-    if (!(await ownPoolNowWins(() => within(route.refresh(amountIn), OWN_CHECK_MS, []), aggregatorOut))) return false;
+    // The press's render: no comparison with our pools was on screen.
+    const unread = route.own === 'pending';
+    const own = await within<Awaited<ReturnType<typeof route.refresh>> | null>(route.refresh(amountIn), OWN_CHECK_MS, null);
+    if (own === null && unread) {
+      toast.error('Route not checked', { description: OWN_ROUTE_COPY.notChecked });
+      return true;
+    }
+    if (!(await ownPoolNowWins(async () => own ?? [], aggregatorOut))) return false;
     if (noSiteFee) setWaivedQuote(q);
     setQuote(q);
     toast.error('Route changed', { description: OWN_ROUTE_COPY.ownNowWins });
@@ -2164,6 +2174,10 @@ function SolanaSwapInner() {
               {inFlight && pressed
                 ? `At your wallet: ${pressed.amount} ${pressed.pay} for ${prettyAmount(fromBaseUnits(inFlight.quoted.outAmount.toString(), pressed.outDecimals))} ${pressed.buy}, at least ${prettyAmount(fromBaseUnits(inFlight.minimumAmountOut.toString(), pressed.outDecimals))}.`
                 : 'Checking both prices once more…'}
+            </p>
+          ) : swapping ? (
+            <p role="status" data-testid="jupiter-swap-status" className="text-[10px] leading-relaxed mt-2 rounded-lg px-2.5 py-1.5 text-white/80" style={{ background: 'rgba(0,0,0,0.35)', border: '1px solid rgba(255,255,255,0.10)' }}>
+              {`Through ${route.aggregatorLabel}: ${prettyAmount(tokenAmount)} ${payToken.symbol} for about ${outputDisplay} ${buyToken.symbol}.`}
             </p>
           ) : (
             <SolanaRouteLine route={route} ownUnavailable={venueSwap.unavailable} />
