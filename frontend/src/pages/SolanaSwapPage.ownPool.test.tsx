@@ -3,7 +3,7 @@ import { render, screen, fireEvent, waitFor, cleanup, configure, within } from '
 import { MemoryRouter } from 'react-router-dom';
 import { PublicKey } from '@solana/web3.js';
 import type { ReactNode } from 'react';
-import type { JupiterQuote } from '../lib/jupiter';
+import { NoRouteError, type JupiterQuote } from '../lib/jupiter';
 import type { PreparedTx, SubmitDeps, VenueSwapArgs } from '../components/solana/curve/ports';
 import { SOL_QUOTE } from '../lib/solana/lp/quotes';
 
@@ -903,6 +903,54 @@ describe('a press reads the pool it shows straight from the chain', () => {
     await waitFor(() => expect(h.readVenuePools.mock.calls.length).toBeGreaterThan(before));
     const opts = h.readVenuePools.mock.calls.at(-1)![3] as { also?: readonly string[] };
     expect(opts.also).toContain(POOL);
+  });
+});
+
+describe('"No route" only after our pools were found to have nothing', () => {
+  async function typed() {
+    render(<MemoryRouter><SolanaSwapPage /></MemoryRouter>);
+    fireEvent.change(amountBox(), { target: { value: '0.1' } });
+    await waitFor(() => expect(h.getQuote).toHaveBeenCalled());
+    await waitFor(() => expect(h.quoteVenuePools).toHaveBeenCalled());
+  }
+  const cta = () => (document.querySelector('button.btn-primary') as HTMLButtonElement).textContent;
+
+  it('Jupiter has no route and our pools could not be read: not "No route", the line says which, and Try again reads our pools again', async () => {
+    h.getQuote.mockImplementation(async () => { throw new NoRouteError(); });
+    h.ownOut.value = null;
+    await typed();
+    await waitFor(() => expect(routeLine()).toMatch(/Our pool could not be quoted this time, and Jupiter has no route for this pair and amount\./));
+    expect(screen.queryByText('No route for this pair / amount.')).toBeNull();
+    expect(cta()).not.toBe('No route');
+    const reads = h.readVenuePools.mock.calls.length;
+    fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
+    await waitFor(() => expect(h.readVenuePools.mock.calls.length).toBeGreaterThan(reads));
+  });
+
+  it('Jupiter has no route and our pool quoted but cannot be sent here: not "No route"', async () => {
+    h.getQuote.mockImplementation(async () => { throw new NoRouteError(); });
+    h.readSwapGate.mockImplementation(async () => ({ kind: 'blocked', reason: 'unreadable', detail: 'HTTP 502' }));
+    await typed();
+    await waitFor(() => expect(routeLine()).toMatch(/cannot be prepared here right now/));
+    expect(screen.queryByText('No route for this pair / amount.')).toBeNull();
+    expect(cta()).not.toBe('No route');
+  });
+
+  it('Jupiter has no route and we have no pool for the pair: "No route" is the finding', async () => {
+    h.getQuote.mockImplementation(async () => { throw new NoRouteError(); });
+    h.quoteVenuePools.mockImplementation(() => ({ state: 'absent', candidates: [] }));
+    await typed();
+    await waitFor(() => expect(screen.getByText('No route for this pair / amount.')).toBeInTheDocument());
+    expect(cta()).toBe('No route');
+    expect(routeLine()).toMatch(/We have no pool for this pair, and Jupiter has no route for this pair and amount\./);
+  });
+
+  it('Jupiter could not be asked and our pool quoted but cannot be sent here: not "it cannot fill"', async () => {
+    h.getQuote.mockImplementation(async () => { throw new Error('Quote unavailable (502)'); });
+    h.readSwapGate.mockImplementation(async () => ({ kind: 'blocked', reason: 'unreadable', detail: 'HTTP 502' }));
+    await typed();
+    await waitFor(() => expect(routeLine()).toMatch(/Jupiter could not be asked for a quote just now, so nothing can be sent until one of them answers\./));
+    expect(routeLine()).not.toMatch(/cannot fill/);
   });
 });
 

@@ -1892,9 +1892,11 @@ function SolanaSwapInner() {
 
   const words = sideWords(payToken, buyToken);
   const actionDisabled = (!quote && !ownBest) || quoteLoading || swapping || sameToken || (needsAck && !ack) || insufficient || ownPreparing || pendingNote || ownBusy !== null;
-  // What the buy button says. "No route" only when the quote service said it:
-  // a quote that could not be fetched, two of the same token, and the moment
-  // before the first quote is asked for each get their own words.
+  // What the buy button says. "No route" only when the quote service said it AND our pools
+  // were found to have nothing (none deployed, none for this pair, or none that can trade):
+  // a read of our pools still out or failed, a quote that could not be fetched, two of the
+  // same token, and the moment before the first quote is asked for each get their own words.
+  const ownNone = route.own === 'absent' || route.own === 'not-searched' || route.own === 'unquotable';
   const ctaLabel = swapping ? 'Swapping…'
     : ownBusy !== null ? ownBusy
     : quoteLoading ? 'Fetching quote…'
@@ -1903,7 +1905,7 @@ function SolanaSwapInner() {
     : insufficient ? `Insufficient ${payToken.symbol}`
     : ownPreparing ? 'Preparing…'
     : quote || ownBest ? `${words.verb} ${words.symbol}`
-    : quoteFail === 'no-route' ? 'No route'
+    : quoteFail === 'no-route' ? (ownNone ? 'No route' : route.own === 'pending' ? 'Checking our pools…' : 'Not available here right now')
     : quoteFail === 'unavailable' ? 'Quote unavailable'
     : 'Fetching quote…';
 
@@ -2180,7 +2182,7 @@ function SolanaSwapInner() {
               {`Through ${route.aggregatorLabel}: ${prettyAmount(tokenAmount)} ${payToken.symbol} for about ${outputDisplay} ${buyToken.symbol}.`}
             </p>
           ) : (
-            <SolanaRouteLine route={route} ownUnavailable={venueSwap.unavailable} />
+            <SolanaRouteLine route={route} ownUnavailable={venueSwap.unavailable} aggregatorFail={quoteFail} />
           )}
 
           {/* Quote details */}
@@ -2240,7 +2242,23 @@ function SolanaSwapInner() {
               <p className={impactNote.tone === 'bad' ? 'text-red-300' : 'text-amber-300'} data-testid="solana-impact-warning">{impactNote.text}</p>
             )}
             {sameToken && <p className="text-amber-300">Pick two different tokens.</p>}
-            {quoteFail === 'no-route' && !sameToken && !ownBest && <p className="text-amber-300">No route for this pair / amount.</p>}
+            {quoteFail === 'no-route' && !sameToken && ownNone && <p className="text-amber-300">No route for this pair / amount.</p>}
+            {quoteFail === 'no-route' && !sameToken && route.own === 'error' && (
+              <p className="text-amber-300">
+                Our pools could not be read just now, so this is not a statement that the pair cannot be traded.
+                <button
+                  type="button"
+                  onClick={() => {
+                    // The held read is dropped, so our pools are read again, not quoted from it.
+                    forgetPools();
+                    setQuoteAttempt((n) => n + 1);
+                  }}
+                  className="ml-1 px-2 py-2.5 -my-2 font-semibold underline underline-offset-2"
+                >
+                  Try again
+                </button>
+              </p>
+            )}
             {quoteFail === 'unavailable' && !sameToken && (
               <p className="text-amber-300" data-testid="solana-quote-unavailable">
                 {/* With our pool quoting, the trade CAN go ahead: what is missing is the comparison. */}

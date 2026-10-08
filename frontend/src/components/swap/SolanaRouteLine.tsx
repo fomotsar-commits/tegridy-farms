@@ -17,9 +17,11 @@ export interface SolanaRouteLineProps {
   route: SolanaRoute;
   /** Why a swap in our own pool cannot be prepared on this page right now; null when it can. */
   ownUnavailable?: string | null;
+  /** The aggregator's answer when it gave no quote: its own "no route", or it could not be asked. */
+  aggregatorFail?: 'no-route' | 'unavailable' | null;
 }
 
-export function SolanaRouteLine({ route, ownUnavailable = null }: SolanaRouteLineProps) {
+export function SolanaRouteLine({ route, ownUnavailable = null, aggregatorFail = null }: SolanaRouteLineProps) {
   const { venue, own, decision, aggregatorLabel, asking } = route;
   if (!venue) return asking ? <RouteShell>Comparing our pools with {aggregatorLabel}…</RouteShell> : null;
 
@@ -27,7 +29,18 @@ export function SolanaRouteLine({ route, ownUnavailable = null }: SolanaRouteLin
   // own subtitle says the rule; a venue that could not be read, or is not there, is said.
   if (!decision?.chosen) {
     // One standing line while the quote is on its way, so the form does not jump on every keystroke.
-    if (venue.kind === 'live') return asking ? <RouteShell>Comparing our pools with {aggregatorLabel}…</RouteShell> : null;
+    if (venue.kind === 'live') {
+      if (asking) return <RouteShell>Comparing our pools with {aggregatorLabel}…</RouteShell>;
+      // Nothing quoted the trade: say what each side found, and never a read that failed as "no route".
+      if (!aggregatorFail) return null;
+      const agg = aggregatorFail === 'no-route' ? `${aggregatorLabel} has no route for this pair and amount` : `${aggregatorLabel} could not be asked for a quote just now`;
+      if (own === 'pending') return <RouteShell><span className="text-white/80">Checking our pools. {agg}.</span></RouteShell>;
+      const ours = own === 'error' ? 'Our pool could not be quoted this time'
+        : own === 'unquotable' ? 'Our pool for this pair cannot be traded right now'
+        : own === 'not-searched' ? `Our pools pair a token with ${QUOTE_COINS_OR}, so there is none for this pair`
+        : 'We have no pool for this pair';
+      return <RouteShell><span className="text-white/80">{ours}, and {agg}.</span></RouteShell>;
+    }
     return (
       <RouteShell>
         {venue.kind === 'unreadable'
@@ -48,7 +61,9 @@ export function SolanaRouteLine({ route, ownUnavailable = null }: SolanaRouteLin
       decision.edge !== null && decision.edge > 0 ? `${edgePercent(decision.edge)} more output than` : 'the same output as';
     reason = decision.runnerUp
       ? `Our own pool quotes ${more} ${decision.runnerUp.label}, but a swap in it cannot be prepared here right now (${ownUnavailable}), so this swap executes via ${aggregatorLabel}.`
-      : `Only our own pool quoted this pair, and a swap in it cannot be prepared here right now (${ownUnavailable}), so it cannot fill.`;
+      : aggregatorFail === 'unavailable'
+        ? `Our pool quotes this pair, but a swap in it cannot be prepared here right now (${ownUnavailable}), and ${aggregatorLabel} could not be asked for a quote just now, so nothing can be sent until one of them answers.`
+        : `Only our own pool quoted this pair, and a swap in it cannot be prepared here right now (${ownUnavailable}), so it cannot fill.`;
   } else if (!won && !decision.runnerUp) {
     // The aggregator is the only candidate. "No pool" is said only when that was FOUND:
     // a read in flight, a read that failed, a pool that cannot be traded and a pair
