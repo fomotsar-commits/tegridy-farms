@@ -71,8 +71,8 @@ describe('the instruction, held to the IDL in @streamflow/staking', () => {
     expect(at).toBe(data.length);
   });
 
-  it('writes the words of the one list: Staked BAYLA, sBAYLA, the link on the canonical host', () => {
-    expect(target).toEqual({ name: 'Staked BAYLA', symbol: 'sBAYLA', uri: `${SITE}/mint/${receipt.mint}.json` });
+  it('writes the words of the one list: Bayla Staking, sBAYLA, the link on the canonical host', () => {
+    expect(target).toEqual({ name: 'Bayla Staking', symbol: 'sBAYLA', uri: `${SITE}/mint/${receipt.mint}.json` });
   });
 
   it('passes five accounts in the IDL order, with the IDL flags', () => {
@@ -422,7 +422,7 @@ describe('the whole run, against a node and a site that exist only in this test'
     const w = world();
     expect(await run(dry, w.io)).toBe(0);
     expect(w.lines[0]).toMatch(/^DRY RUN/);
-    expect(w.out()).toMatch(/would write {5}name "Staked BAYLA", symbol "sBAYLA", link https:\/\/memetics\.finance\/mint\//);
+    expect(w.out()).toMatch(/would write {5}name "Bayla Staking", symbol "sBAYLA", link https:\/\/memetics\.finance\/mint\//);
     expect(w.out()).toMatch(/files {11}live: /);
     expect(w.sends()).toBe(0);
     expect(w.opened).toEqual([]);
