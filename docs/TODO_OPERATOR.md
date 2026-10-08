@@ -284,6 +284,41 @@ the same upgrade carries the instruction and this text. Its gates and its order 
 `solana/tegridy-amm/MAINNET_RUNBOOK.md`, section 4b. Tick this box when the explorer shows the
 new values, not before.
 
+**Where it stands (2026-10-08).** The source is on `mvp-launch` (pull request #758, merged at
+07:40 UTC). **Nothing on chain has changed.** That day the whole upgrade was rehearsed three
+times on a private copy of mainnet on this computer: making the program account larger,
+uploading the new program, both members approving through the local page, the two name
+records, the rename, and a roll-back. It has never been run on devnet, and never with your
+real wallets.
+
+Your command sheet is a folder outside the repo, called the pack:
+`C:\Users\jimbo\solana-launch-release-2026-09-26\pool-program-upgrade-2026-10`. **Do not start
+from it yet.** A second operator walked it cold on 2026-10-08 and found things to change, and
+they are being changed in the pack. Three things have to be true first:
+
+1. You have been told the pack's fixes are in and it has been walked again.
+2. The website wording that goes false on upgrade day is ready to ship with the upgrade
+   (runbook 4b, part C).
+3. O-0929-12 below is decided.
+
+The paying wallet needs about 3.854 SOL at its peak. About 3.68 SOL of that comes back the
+moment the upgrade executes, and about 0.21 SOL is spent for good. No wallet of ours held
+that much on 2026-10-08.
+
+**Do, when all three are true:** open the pack's first page.
+
+```powershell
+notepad "C:\Users\jimbo\solana-launch-release-2026-09-26\pool-program-upgrade-2026-10\START-HERE.md"
+```
+
+**You should see** a page whose first line is
+`# Start here: the first upgrade of the pool program`. Follow that page and nothing else.
+Never approve or execute the upgrade in the Squads app: only the pack's local page checks
+that the uploaded file is the reviewed one.
+
+What was rehearsed and what was not, every cost, and what to do when a step does not go as
+written: `solana/tegridy-amm/MAINNET_RUNBOOK.md`, section 4b.
+
 **What is wrong.** cp-swap has been live on mainnet since 2026-09-29
 (`EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT`). Explorers show its on-chain security.txt,
 and no link in it does its job. Measured 2026-09-30: `policy` opens `SECURITY.md` on GitHub's
@@ -353,6 +388,11 @@ and tegridy-launch `64WBTeNcrSHfmBpiqymyifW6FUNNLvJcuiqF9rXmz4q2`. Their own pol
 `solana/tegridy-amm/SECURITY.md`, takes reports at the same email. Decide, then either add them
 to the root list and to the "In scope" block of `frontend/public/.well-known/security.txt`, or
 say in both that they are out of scope.
+
+**Read 2026-10-08: still undecided, and it now has a deadline.** The pool program's upgrade
+(O-0929-10 above) puts a link to `https://memetics.finance/.well-known/security.txt` on chain.
+That file names no Solana program today, and the root `SECURITY.md` says the decision has not
+been made. Decide before the upgrade is executed (runbook 4b, gate A10).
 
 ---
 

@@ -318,10 +318,11 @@ solana program show <PROGRAM_ID>   # verify authority == GRMtSx… + last-deploy
 
 ## 4b. The `create_lp_metadata` upgrade: the gates, the order, and what ships with it
 
-Added 2026-10-06. This would be cp-swap's FIRST upgrade on mainnet, of a program that holds
-funded pools. It has not been rehearsed: enlarging a program and then upgrading it to a
-larger file has never been run by this project on any cluster. This section is the list of
-gates. The command sheet is written after the devnet rehearsal, not before.
+Added 2026-10-06. Brought in line with three rehearsals on 2026-10-08. This would be cp-swap's
+FIRST upgrade on mainnet, of a program that holds funded pools. Nothing has been sent. Read on
+2026-10-08 (07:42 UTC): mainnet runs the old binary `88b98aa9…`, nobody has enlarged the
+program account, and neither flagship share mint has a name record. The source of the new
+build is on `mvp-launch` (pull request #758, merged that day at 07:40 UTC).
 
 **One upgrade carries two changes** (decided 2026-10-06, gate A4): the instruction
 `create_lp_metadata`, and the program's on-chain security text, which moves to an email and
@@ -330,6 +331,58 @@ links on `memetics.finance`.
 What the instruction is, and why the vaults are out of its reach: `TEGRIDY_FORK.md`, "The one
 added instruction". What the security text says and why: the same file, "The on-chain
 security text".
+
+**It has been rehearsed, on a local validator.** On 2026-10-08 the enlarge, and then the
+upgrade to the larger file, were run from start to finish three times. The chain was a
+`solana-test-validator` 3.1.11 started from a copy of mainnet's state: the real program, both
+real pools and the real multisig account. Two things were altered so that it could run: each
+program's "last deployed" slot was set to 0, and the multisig's two member keys were swapped
+for throwaway keys. (Stage 1 also gave the BAYLA and USDC mints a test mint authority, so
+that its proof script could fund a trader.) The vault's address comes from the multisig's
+ADDRESS, so the stand-in members signed as the real vault
+`GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd`. The tools were the owner's own: `solana.exe`
+4.1.1 for the enlarge, the upload and the hand-over, and the local proposer page for the
+proposals (its code in stage 1, its buttons in stage 2 and in the cold run).
+
+| run | what it was | result |
+|---|---|---|
+| Stage 1 | The sequence, with the upgrade proposal built by the page's own code and signed from key files. Then the existing proof, every instruction that needs the vault, the rename, a roll-back and forward again, and every case that must fail. | Every phase ended as expected: 34 checks on the sequence, 130 on the proof, 48 on the vault's instructions, 24 on the rename, 33 on the roll-back, 56 on what must fail. |
+| Stage 2 | The owner's pack, built, and its whole flow run in its own order. The page was driven through its buttons in a headless browser, with a test wallet standing in for each member. | 71 checks on the flow, 89 on what must be refused and on the two "only if" paths, 20 on the page reading mainnet. |
+| Cold run | An operator who did not build the pack followed its paper line by line, tried 24 ways to break it, and decoded the stored proposals with separate code. | Every "you should see" line matched and no gate let a wrong build through. Verdict: ready after named fixes, not as it stood. |
+
+**What that does not prove.**
+
+- **Mainnet runs 4.3.0.** The local validator is 3.1.11 and does not know 28 features that
+  are active on mainnet. Two of them change what was measured, the rent and the smallest
+  enlarge. Both were closed by reading mainnet and by unsigned simulations on it.
+- **Mainnet's loader has never been asked to take this file.** The Upgrade cannot be
+  simulated there until a real buffer exists. What stands behind it is a fact, not a run: the
+  deployed file came out of the same toolchain in the same format (SBPF v0), mainnet accepted
+  it at slot 451,687,458, and no feature has activated on mainnet since that slot (stage 1's
+  read, 2026-10-08).
+- **The new build has never executed under mainnet's rules**: not the new instruction, and
+  not the old instructions as rebuilt.
+- **Never on devnet.** Nothing was sent to devnet, and nothing to mainnet.
+- **Never with the real wallets.** A test wallet stood in for both members. No real wallet has
+  approved or executed through the page, and nobody has looked at these proposals in the
+  Squads app.
+- **The real upload was not done**: about 720 transactions over a public connection that
+  rate-limits. Expect it to stop and to need the same command again (E).
+
+On the day the pack asks mainnet itself before each signature. The page simulates the upgrade
+as the vault and refuses unless the program read back out of that simulation is the new
+build. After the upgrade a script simulates a trade through both pools, and the new
+instruction, before any name record is sent. None of those answers has been seen yet.
+
+**The owner's command sheet is the pack**, not this file:
+`C:\Users\jimbo\solana-launch-release-2026-09-26\pool-program-upgrade-2026-10`, starting at
+`START-HERE.md`. It holds the one program file to upload, the roll-back file, the reviewed
+name files, six scripts (five only read; the sixth sends only when given `--send` and a key
+file), a copy of the local proposer page with four new steps, and the outputs of stage 1 and
+stage 2. This section is the gates and the facts behind them. It says what the pack does and
+never its step numbers: the cold run named changes the pack needs, another pass is making
+them in the pack, and its numbering moves with them. "The pack checks" below means what the
+pack was shown doing on 2026-10-08.
 
 ### A. Before the upgrade PROPOSAL is created. Every one, on the exact commit being built.
 
@@ -342,13 +395,22 @@ security text".
    from the first slot after the upgrade lands, for the flagship pools and for every other
    pool. Wallets and indexers fetch the link at once and keep what they get. The first
    on-chain write is not ours to schedule.
+   The pack checks this by itself. Its first script, and the page, compare the live files
+   with the reviewed copies in the pack byte for byte: both flagship files, the default, and
+   the three pictures. The page asks again before it offers to propose, to approve or to
+   execute the upgrade. Read 2026-10-08: live and correct. The files reached production with
+   pull request #757, merged that day at 04:19 UTC.
 2. **CI on the exact commit.** Read the `solana-ci` run job by job: `scope`, `diff-guard`,
    `build`, `launch-curve`, `bayla-ladder`, `ladder-constraints`, `launch-constraints`,
-   `migration-rehearsal`, then `all-checks-pass`, and `mergeStateStatus == CLEAN`. Never a
-   count of green checks. (A branch that is not on the remote has run none of them.)
+   `migration-rehearsal`, then `all-checks-pass`. For a pull request, also
+   `mergeStateStatus == CLEAN`. Never a count of green checks. (A branch that is not on the
+   remote has run none of them.) Read 2026-10-08: every one of those jobs passed on pull
+   request #758 at `338969f4`, which then merged into `mvp-launch` as `f0fec8a7`, and all
+   nine passed again in the run on that merge commit. The gate is the run on the commit
+   that is built: if trunk's `programs/` moves before the build, read it again there.
 3. **Every instruction has run on the new binary.** An upgrade replaces the whole program,
-   so the old instructions are new bytes too. See the table in C for what has run and what
-   has not. Nothing in "not yet" may still be there when the proposal is created.
+   so the old instructions are new bytes too. The tables in C say what has run. Since
+   2026-10-08 nothing there reads "not yet", on a local validator only.
 4. **Decided: one upgrade, both changes.** The owner was asked "one upgrade or two" and
    delegated the call on 2026-10-06. The answer is one. So this upgrade also carries the
    on-chain security text of to-do `O-0929-10` (`docs/TODO_OPERATOR.md`): four values of the
@@ -362,7 +424,8 @@ security text".
      `curl -sI https://memetics.finance/source/solana/tegridy-amm` each answer `307`, and
      each `location` opens the real file and the real folder: not a `404` page and not the
      repo root. `https://memetics.finance/.well-known/security.txt` is the text file, and its
-     `Contact:` email is the one in the macro. Read 2026-10-06: all three did.
+     `Contact:` email is the one in the macro. Read 2026-10-06: all three did. Read again
+     2026-10-08: all three did.
    - **The binary says what the source says.** In the built file, and again in the bytes
      read back from the buffer (gate 6): `grep -a -c -F 'github.com' <file>` and
      `grep -a -c -F 'memetic.fun' <file>` both print `0`, and
@@ -376,54 +439,230 @@ security text".
    `node scripts/verify-program-constants.mjs --so <file> --roster cp-swap` on it. Run
    `frontend/scripts/solana-localnet/prove-lp-metadata.mjs` against it on a local validator
    seeded from a fresh read of both pools.
-6. **The file in the buffer is the file that was built.** The mainnet build and the devnet
-   build are the SAME size (724,688 bytes on 2026-10-06), and a devnet build at the mainnet
-   id fails every instruction with `DeclaredProgramIdMismatch`: deposits, swaps and
-   withdrawals would stop until a second upgrade. The build made before the security text
-   changed (`7648994d…`, 724,672 bytes) is only 16 bytes smaller and passes the constants
-   check, so size and that check alone do not tell it apart: the sha256 and the three `grep`
-   lines of gate 4 do. So, before either member signs: read the buffer account's bytes BACK
-   from chain, sha256 them, compare with the build from step 5, and run
-   `verify-program-constants.mjs` and gate 4's `grep` lines on those same bytes. Prepare the
-   upgrade from a folder that holds that one `.so` and nothing else: no devnet build, no
-   test build, no earlier build.
-7. **Ready to send the moment the upgrade lands:** the two `create_lp_metadata` calls (anyone
-   can send them; whoever does pays about 0.014 SOL each), and the vault's rename proposal
-   (D below).
+   Read 2026-10-08: on `mvp-launch` at `f0fec8a7`, `programs/` and `Cargo.lock` are byte for
+   byte what they were at `b80a6152`, the commit the rehearsal checked its inputs against.
+   The file in the pack is the 2026-10-06 build, compared byte for byte with it by the cold
+   run. **No build from the merged commit is recorded yet. This gate is open.**
+6. **The file in the buffer is the file that was built, and only the pack's checks stand
+   between a wrong file and the pools.** The mainnet build and the devnet build are the SAME
+   size (724,688 bytes), so size does not catch the devnet build. The build made before the
+   security text changed (`7648994d…`, 724,672 bytes) is only 16 bytes smaller and passes
+   the constants check, so that check does not catch it. The sha256 catches both.
+   - **The chain would install any of them.** The loader takes whatever a vault-held buffer
+     holds. Simulated as the vault, it accepted the devnet build, the superseded build, and
+     the new build with one letter changed. Nothing on chain compares a buffer with a
+     reviewed build. That comparison lives in the pack's buffer check and in the page, and
+     both were shown refusing all three.
+   - **What a wrong file does**, done on purpose on the throwaway chain: the devnet build
+     was deployed at the mainnet id and the loader did not object. Then every swap, deposit
+     AND withdrawal failed with `DeclaredProgramIdMismatch` (4100). Nobody could trade or
+     take liquidity out until a second upgrade.
+   - **So an upgrade proposal is never approved and never executed anywhere but the page.**
+     Not in the Squads app, not with a script. In the cold run a proposal for the devnet
+     build's buffer, made and approved outside the page, sat at 2 of 2. The page offered no
+     button for it, and its own simulation showed that the loader would have taken it.
+   - **The buffer check, as built.** It reads the buffer's bytes BACK from the chain and
+     checks ten things, among them the length, the sha256 against the pinned build, the
+     security text in those bytes, the buffer's authority, and that the program account is
+     large enough. It does not run `verify-program-constants.mjs` on them: the pack must not
+     depend on a worktree, and a file with that sha256 is the file that passed that script
+     in stage 1. Run the script from a worktree as well if a second opinion is wanted.
+   - Upload from a folder that holds that one program file and no other: no devnet build, no
+     test build, no earlier build. The pack's folder for it holds that file and its
+     interface file. The roll-back file sits in a folder of its own, and the upgrade's
+     checks refuse it.
+7. **Ready to send the moment the upgrade lands.** Both now exist. The two
+   `create_lp_metadata` calls are one of the pack's scripts: a dry run unless told to send.
+   It refuses unless the upgrade is live and that mint's file is live, and it answers
+   "ALREADY THERE" for a record someone else created first. Anyone can send them; whoever
+   does pays 13,733,800 lamports each. The vault's rename is a step on the page (D below).
+8. **Re-read on the day.** The pack's first script reads the first five.
+   - **SIMD-0500**, feature `B8JJXCy5amZyWG9r7EnUYLwzXSXTxG7GZ1qZ1qggo83g`: no more
+     deployments of SBPF v0 programs. Both our files are v0, the new build AND the roll-back
+     build. It had no account on mainnet on 2026-10-08. If it is queued or active, STOP:
+     neither file could be deployed. If it activates after the upgrade, the roll-back is
+     gone.
+   - **The rent** is still 5,080 lamports per byte. Every cost in B assumes it. The next cut
+     (2,575, feature `Ftxb3ZKq7aNqgxDBbP7EonvR2RszZk9ctjdsTX38kQaz`) had no account on
+     2026-10-08. At 2,575 the enlarge would cost nothing and the buffer 1.87 SOL.
+   - **The program** is still what the rehearsal started from: data account
+     `F475omgJMd5mnDXJFyjHTkg9zs7WSb6ek9dFoUmUvi5V` of 691,685 bytes, last deployed in slot
+     451,687,458, authority the vault, program sha256 `88b98aa9…`.
+   - **The enlarge is still open to an ordinary wallet**: simulate it unsigned from the
+     paying wallet (B, "The enlarge").
+   - **The multisig** is still 2 of 2 with no upgrade or rename proposal already open. It
+     stood at 11 transactions with no time lock on 2026-10-08, so the upgrade would be #12.
+   - **Any feature activated since 2026-10-08.** The pack knows the features named here and
+     no others. Mainnet held 312 feature accounts that day, 309 of them active, none
+     activated after slot 451,687,458 (stage 1's read). A newer activation is a reason to
+     stop and read what it changes.
+   - The name files (gate 1), the three security links (gate 4) and the paying wallet's
+     balance (B).
+9. **The pack in hand is the pack after the cold run's fixes, walked again.** The cold run's
+   verdict on 2026-10-08 was "ready after named fixes", not ready as it stood. The findings
+   that touch money or the pools are told in B and E as facts: the enlarge can be run twice,
+   the wallet the parked SOL returns to is typed by hand, and the pack's paper did not yet
+   say "only on this page".
+10. **The two same-release items in C are closed**: the website wording is ready to ship with
+    the execute, and the security scope (to-do `O-0929-12`) is decided. Both were open on
+    2026-10-08.
 
 ### B. Order on the day
 
-Files live and checked (A1) → enlarge the program account by the growth of the binary → in a
-LATER slot, the upgrade → the two `create_lp_metadata` calls → the rename proposal.
+What the pack does, in its order. The commands are in the pack.
 
-Numbers measured 2026-10-06 for the build that carries both changes (re-read every one on
-the day; all of them change if `lib.rs` changes). The rent was read on chain that day
-(05:04 UTC on the 7th): 5,080 lamports per byte, and the program account holds exactly its
+1. **Fund and check.** The paying wallet is funded, and its key file is confirmed by printing
+   its address. A read-only script then checks the first five items of gate 8, the name
+   files and every cost at the day's rent against each wallet's balance, and writes both
+   pools down for later.
+2. **Enlarge.** A read-only check says how many bytes. The paying wallet enlarges by that
+   number, once. The same check then refuses, which is how it says the room is there.
+3. **Upload, read back, hand over.** A one-time key file for the buffer. The upload. The
+   buffer's bytes read back from the chain and hashed. Only then is the buffer handed to the
+   vault, and the full buffer check is run on it.
+4. **The upgrade, on the local page.** Member A proposes and approves in one signature.
+   Member B approves. Member B executes, in a LATER slot than the enlarge. Before each of the
+   three signatures the page reads the buffer back, hashes it, checks the name files and
+   simulates the upgrade as the vault.
+5. **The check after.** The program's hash, the new security text read out of the chain, both
+   pools against what was written down, and an unsigned simulation of a trade through both
+   pools and of the new instruction.
+6. **The two name records.** A dry run, the send from the paying wallet, a read back.
+7. **The rename, on the page** (D). Member A proposes, member B approves and executes. A last
+   read of both names.
+
+The wallets sign six times on the page in all: member A twice (each a proposal), member B
+four times (two approvals, two executes). Member B approves and executes ON THE PAGE, which is
+new. The page's seven older steps are still finished in the Squads app. On mainnet the page
+lists those seven as well, and at the cold run one of them, "Unpause the launcher", read
+"still to do". They are not part of this upgrade. Touch only the upgrade step and the rename
+step, and the two "only if" steps when E says so.
+
+**The enlarge.**
+
+- **Any wallet can do it, and the vault cannot.** `solana.exe` sent one instruction with one
+  signature, the paying wallet's. The upgrade authority is not named in it. Mainnet accepted
+  that exact instruction from a wallet that is not the authority, in an unsigned simulation
+  on 2026-10-08. A vault proposal carrying the enlarge failed at execute:
+  `Program BPFLoaderUpgradeab1e11111111111111111111111 not supported by inner instructions`.
+- **It is not idempotent.** `solana program extend` run a second time enlarges a second time
+  and locks the rent a second time. Neither the CLI nor the chain objects. Shown twice: from
+  724,733 to 757,781 bytes in stage 1, and by another 22,808 bytes in the cold run. On
+  mainnet a repeat of 33,048 bytes is another 167,883,840 lamports that nobody gets back.
+  The pack's check refuses once the room is there. At the cold run the enlarge command
+  itself still ran when repeated.
+- **The amount comes from the size read on the day**: 724,733 less the data account's size at
+  that moment. 691,685 means 33,048. 724,733 or more means do not enlarge. Never a number
+  copied from a paper.
+- **A stranger may enlarge first.** It costs them at least 10,240 bytes, 52,019,200 lamports
+  at 5,080 per byte. Fewer bytes are then missing. The loader takes no step under 10,240
+  (`ExtendProgram requires a minimum of 10240 additional bytes or to extend to maximum size`,
+  mainnet's own words in simulation), so a remainder under 10,240 is paid as 10,240: the
+  pack's check asks for the larger of the two (read in its code, not run). Shown in the cold
+  run: a stranger added 10,240, the check then said 22,808, and the upgrade worked. A
+  program account larger than needed does no harm: the upgrade ran with 22,808 spare bytes.
+- **The gate that would make it need the authority.** This section used to say: re-read
+  feature `2oMRZEDWT2tqtYMofhmmfQ8SsjqUFzT6sYXppQDavxwz`. That is the id validator 3.1.11
+  knows. CLI 4.1.1 no longer lists it, and lists the same gate ("Enable ExtendProgramChecked
+  instruction") under `ExtendProgCheckedWi11BeDe1eted11111111111111`, a placeholder nobody
+  holds a key for. Neither id had an account on mainnet on 2026-10-08, and mainnet's loader
+  refused the checked form of the instruction outright (`invalid instruction data`). An id is
+  the wrong thing to watch. The direct check is to simulate the exact enlarge, unsigned, from
+  the paying wallet on the day, which the pack's check does. If mainnet refuses it, stop.
+- **Two traps after the enlarge, and again after a roll-back.** `solana program show` prints
+  `Data Length: 724688 (0xb0ed0) bytes` while the program is still the old one: that number
+  is the room, not the program. And `solana program dump` writes 724,688 bytes, the old
+  program followed by 33,048 zeros, whose sha256 is
+  `395940f3ea7ee70ea7a519490e0639a6ec746f506890fe867527a4f349da1f9f`, not `88b98aa9…`. A
+  check that pins `88b98aa9…` on a whole dump goes red although nothing is wrong. Hash the
+  first 691,640 bytes. Do not trim trailing zeros instead: the deployed file itself ends in
+  15 zero bytes.
+- **The one-slot gap.** The enlarge re-deploys the program in its slot. A call to the program
+  in that slot fails: `Program is not deployed`, then `Unsupported program id`. One slot was
+  about 0.27 seconds on mainnet on 2026-10-08. The upgrade must land in a LATER slot. In the
+  same slot the loader says `Program was deployed in this block already` (`InvalidArgument`),
+  and for two enlarges in one slot `Program was extended in this block already`, which
+  mainnet also said in simulation. By the same rule a stranger's enlarge in the slot of our
+  execute would refuse that execute. That case is reasoned from the rule and was not run. A
+  failed execute does not spend the proposal (E): execute again.
+
+**The buffer.**
+
+- **Read back and hashed BEFORE it is handed to the vault. The hand-over comes last.** Until
+  the hand-over the uploading wallet can resume the upload, or close the buffer and take the
+  SOL back, alone. After it, only a vault proposal returns the SOL (E).
+- **Where the parked SOL returns.** The buffer's full rent leaves the paying wallet with the
+  first upload transaction. The execute returns it, to the lamport, to the wallet the
+  proposal names, whoever that is. On the page that wallet is an address typed by hand. At
+  the cold run the page checked that it was an existing plain wallet (it refused the vault,
+  the program, its data account, the buffer itself, a token account and an address that does
+  not exist) and did not compare it with the wallet that paid. A wallet the owner does not
+  hold, pasted there, would keep the 3.68 SOL. Name the paying wallet and read it twice.
+- **Only on the page** (gate 6). Nothing else hashes the buffer before a signature.
+- The upload command as the pack prints it was run in the cold run against the local chain,
+  then interrupted and resumed. Stages 1 and 2 had added a flag (`--use-rpc`) that the owner
+  does not use.
+
+**What it costs.** For the build that carries both changes, at mainnet's rent of 5,080
+lamports per byte, read on chain 2026-10-08 (07:42 UTC). Re-read every one on the day: all of
+them change if `lib.rs` changes or the rent does. The program account holds exactly its
 minimum, with no spare bytes and no spare lamports.
 
 | | |
 |---|---|
 | The build | 724,688 bytes, sha256 `99a9e73dc469755b178d8029196be0ee8f92e557bbd65e15e4511084b6a0fe25`. Built twice from clean copies, byte for byte the same. |
-| Growth of the binary | 33,048 bytes (691,640 → 724,688). The security text is 16 of them: the build with the instruction alone was 724,672. |
-| Enlarging the program account | 167,883,840 lamports (0.1679 SOL) at 5,080 lamports per byte, locked for good. The smallest step the loader accepts is 10,240 bytes, so the growth sets the price. Any wallet can pay it; it is not a vault action. That holds only while the feature `enable_extend_program_checked` (`2oMRZEDWT2tqtYMofhmmfQ8SsjqUFzT6sYXppQDavxwz`) is inactive. It was inactive on 2026-10-07 (no account on mainnet). Re-read that feature on the day. If it is active, the enlarge must be signed by the vault. The enlarge re-deploys the program at that slot, so calls fail for about one slot. |
-| The upgrade buffer | 3,682,253,240 lamports (3.682 SOL) for its 724,725 bytes, returned when the upgrade executes |
-| One name record | 13,733,800 lamports from whoever calls: 3,733,800 rent plus Metaplex's flat 10,000,000 |
-| What the paying wallet needs | About 3.85 SOL on the day: 0.1679 locked for good, 3.682 returned when the upgrade executes, plus upload fees (about 0.004 SOL, an estimate, before any priority fee). Add 0.0275 SOL if the same wallet sends both name-record calls: about 3.88 SOL. **Gate: read the paying wallet's balance before the day and see that it covers this.** No wallet of ours did when read on 2026-10-07 (03:52 UTC on the 8th): the vault `GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd` held 0.0152 SOL, the first deployer `CqcVvaMvesrSKrUSbqBqr9mLjKLJuYqhaXg1gXpR41cg` 0.0324 SOL and the owner's wallet `Upmhw8i6RSLXoj4yGzq9ZYLXb4UzZMRm7BSX8BxCdEd` 0.0220 SOL. None of them could pay the enlarge alone. |
+| Growth of the binary | 33,048 bytes (691,640 to 724,688). The security text is 16 of them: the build with the instruction alone was 724,672. |
+| The enlarge | 167,883,840 lamports (0.1679 SOL), locked for good: the minimum for 724,733 bytes (3,682,293,880) less what the account holds (3,514,410,040). Mainnet's own loader took exactly that from the payer in an unsigned simulation on 2026-10-08. Every repeat pays it again. A roll-back does not give it back. |
+| The upgrade buffer | 3,682,253,240 lamports (3.682 SOL) for its 724,725 bytes. Parked by the first upload transaction, returned by the execute to the wallet the proposal names. |
+| The paying wallet's fees | Measured: 721 transactions (the enlarge, 719 for the upload, the hand-over) at 5,000 lamports each, 3,605,000. With the priority fee the pack sets on the upload, the upload alone cost 3,805,414 (210,414 of it priority), so about 3,815,000 in all. |
+| **The paying wallet's peak** | **3,853,742,080 lamports (3.854 SOL)** before any priority fee, about 3,853,950,000 with the pack's. The two name records are paid after the buffer's SOL is back, so they do not raise the peak. (This row used to add them and say 3.88.) **Gate: read the paying wallet's balance before the day and see that it covers this.** No wallet of ours did on 2026-10-08 (07:42 UTC): the first deployer `CqcVvaMvesrSKrUSbqBqr9mLjKLJuYqhaXg1gXpR41cg` held 0.0324 SOL, the owner's wallet `Upmhw8i6RSLXoj4yGzq9ZYLXb4UzZMRm7BSX8BxCdEd` 0.0220, the vault `GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd` 0.0152, member A `5QHzAqbGk3W8qGRBHCMyWjhLXf8YJcs3yPEh14Ymcwgz` 0.1465 and member B `6VHowW4pnD4WTGsXhqBp6yxGgC3EExVmYgebSrRNu2tY` 0.0311. The pack pays from the first deployer and asks for 3.90 SOL to be sent to it first, which leaves 0.079 SOL above the peak. |
+| One name record | 13,733,800 lamports from whoever calls, plus a 5,000 fee: 3,733,800 rent and Metaplex's flat 10,000,000. Two cost 27,477,600. |
+| The proposals | Paid by the member who proposes, as rent for two Squads records, and not refunded (no rent collector is set): the upgrade 4,556,680 lamports (records of 378 and 262 bytes), the rename 5,247,560, "return a buffer's SOL" 3,886,120. An approval is 5,000 and an execute 5,000. The executes used 34,628 compute units (the upgrade) and 69,485 (the rename), so no compute-budget instruction is needed. On 2026-10-08 member A and member B each held enough for their part. |
+| Spent for good | About 0.21 SOL in all: 0.168 locked in the program account, 0.004 of fees, 0.0275 for two name records, 0.0098 for member A's two proposals. The 3.68 SOL of the buffer is parked and comes back. |
 
 ### C. What has run on the new binary, and what ships in the same release
 
-Run on `99a9e73d…`, the build that carries both changes, on a local validator with mainnet's
-feature set and Metaplex cloned. (Both runs had passed earlier that day on `7648994d…`, the
-build with the instruction alone. They were run again because that is a different file.)
+Run on `99a9e73d…`, the build that carries both changes. On 2026-10-06, on a local validator
+with mainnet's feature set and Metaplex cloned. (Both runs had passed earlier that day on
+`7648994d…`, the build with the instruction alone. They were run again because that is a
+different file.) On 2026-10-08, on the rehearsal's chain, after the real enlarge and the real
+Upgrade instruction had installed it. Every run is local, on 3.1.11. None is on devnet or on a
+4.x validator.
 
 | instruction | run? |
 |---|---|
-| `create_lp_metadata` | Yes: `prove-lp-metadata.mjs`, four pools, twenty-five refusals |
-| `initialize`, `deposit`, `withdraw`, `swap_base_input`, `swap_base_output` | Yes: the same script opens two pools, and on both real pools the deposit, the withdraw and both swaps move the exact amounts, the same amounts as under the deployed binary |
-| `initialize_with_permission` (graduation, called by the launch program) | Yes, once: `frontend/e2e-solana/launch-flow.spec.ts` in chromium on 2026-10-06. A launch was bought to its target, graduated into a pool through the launch program's call, and then traded in that pool. CI's `migration-rehearsal` has NOT run on it (A2). |
-| `collect_protocol_fee`, `collect_fund_fee`, `collect_creator_fee`, `update_pool_status`, `create_amm_config`, `update_amm_config`, `create_permission_pda`, `close_permission_pda`, `create_support_mint_associated`, `close_support_mint_associated` | NOT YET. All but the creator's fee need the admin's signature, which only the vault has. They belong in the devnet rehearsal, where the stand-in vault can sign. Their source is byte-identical to upstream and the build log shows no stack warning for any function, which is a reason to expect a pass and not a run. |
+| `create_lp_metadata` | Yes: `prove-lp-metadata.mjs`, four pools, twenty-five refusals. Again on 2026-10-08 on the upgraded program: 130 checks passed. The control, the same script against the deployed binary, failed every check of the new instruction with 101 (`InstructionFallbackNotFound`) and wrote no record, so the proof tells the two binaries apart. |
+| `initialize`, `deposit`, `withdraw`, `swap_base_input`, `swap_base_output` | Yes: the same script opens two pools, and on both real pools the deposit, the withdraw and both swaps move the exact amounts, the same amounts and the same compute units as under the deployed binary. On 2026-10-08 again after the roll-back and after going forward again. |
+| `initialize_with_permission` (graduation, called by the launch program) | Yes, once through the launch program: `frontend/e2e-solana/launch-flow.spec.ts` in chromium on 2026-10-06. A launch was bought to its target, graduated into a pool through the launch program's call, and then traded in that pool. On 2026-10-08 it also ran called directly by an address the vault had permitted, and was refused once the vault closed that permission (3012 `AccountNotInitialized`). CI's `migration-rehearsal` passed on this source (pull request #758 at `338969f4`). That job builds its own devnet-shape file with CI's keys, so it is a run of the source and not of this file. |
+| `collect_protocol_fee`, `collect_fund_fee`, `collect_creator_fee`, `update_pool_status`, `create_amm_config`, `update_amm_config`, `create_permission_pda`, `close_permission_pda`, `create_support_mint_associated`, `close_support_mint_associated` | Yes, all ten, on 2026-10-08: the next table. Nine went through vault proposals that the stand-in members signed as the real vault address. `collect_creator_fee` was sent by a pool's creator. Until then this row read "not yet" and said they belonged in a devnet rehearsal. A stand-in multisig on a local chain signs as the vault too. |
 
-In the SAME release as the upgrade (site and repo):
+The instructions that need the vault, as run on the new build on 2026-10-08. Each one the
+vault signs went through its own vault proposal: proposed with the page's code by one
+stand-in member, approved and executed by the other.
+
+| instruction | what happened | what the vault must have |
+|---|---|---|
+| `update_pool_status` to 4 and back to 0, on BAYLA/SOL | At 4 a swap was refused (6000 `NotApproved`) while deposits and withdrawals stayed on. Back at 0 a swap landed at the exact quote. | nothing |
+| `update_amm_config`: the fund fee from 0 to 40,000 and back, on the fee config both pools use | Only that field changed. Swaps landed at the exact quote: the fund fee comes out of the trade fee, so a trader's amounts do not change. Set back, the fee config was byte for byte mainnet's. | nothing |
+| `collect_protocol_fee`, both pools | The vault's token accounts received exactly what was owed, the pool vaults paid exactly that, and the counters read 0. Nothing else moved. | its token accounts for wrapped SOL, BAYLA and USDC. All three exist on mainnet. |
+| `collect_fund_fee`, both pools | The same, for the fund fee taken while it was 40,000. | a fund fee above zero, and swaps after it |
+| `create_permission_pda`, then `close_permission_pda` | The account was created for a throwaway address, and the launcher's own permission account was untouched. Closed, the account was gone and its rent was back in the vault. | rent from its own SOL, returned on close: 2,072,640 lamports on mainnet for 280 bytes |
+| `create_amm_config` (index 7) | The fee config exists with the values asked for. It can never be closed. | rent from its own SOL, for good: 1,849,120 lamports on mainnet |
+| `create_support_mint_associated`, then `close_support_mint_associated`, for the BAYLA mint | Created, then gone. | rent for 105 bytes from its own SOL, returned on close |
+| `collect_creator_fee` (the pool's creator signs, not the vault) | In a pool opened with creator fees on, the creator received exactly what a swap had left owed. A stranger was refused (2015 `ConstraintTokenOwner`). | nothing |
+
+Strangers were tried first on four of them and refused: `update_pool_status` with 2012
+`ConstraintAddress`; `update_amm_config`, `collect_protocol_fee` and `create_permission_pda`
+with 6001 `InvalidOwner`. The executes used between 21,841 and 51,504 compute units. After all
+of it both real pools traded a full round to the exact amounts. The vault held 15,229,120
+lamports on 2026-10-08, more than any one of those rents. What each proposal costs the member
+who proposes it, at mainnet's rent: a status change 3,743,880 lamports, a fee config change
+3,784,520, a permission or a support mint 4,074,080, a new fee config 4,119,800, a fee
+collection 5,496,480.
+
+In the SAME release as the upgrade (site and repo). Two of these wait on the owner and were
+open on 2026-10-08 (gate A10): the website wording, which is the first two bullets, and the
+security scope, which is the last. At the cold run the pack's paper had no step for either.
 
 - `frontend/src/components/solana/lp/LpDisclosures.tsx` (`FORK_LINE`) and
   `frontend/src/components/solana/lp/SolanaLpSection.tsx` ("we changed only its admin keys"):
@@ -431,6 +670,9 @@ In the SAME release as the upgrade (site and repo):
   Upgrade-day wording: "Our pool program is Raydium's, with its admin keys changed and one
   added instruction that names pool share tokens. Those changes have not had their own
   independent review yet." Their tests: `CreatePoolPanel.test.tsx`, `SolanaLpWrites.test.tsx`.
+  Not shipped on 2026-10-08, and no open pull request was titled for it that day. It goes
+  out with the execute and not before: the test below holds today's wording in place for as
+  long as the harness pins the old binary.
 - `frontend/src/components/solana/VenueProgramCard.tsx`: delete the paragraph that says the
   program on Solana was built before the instruction was added.
 - The pins of the deployed binary: `PIN_CPSWAP` in
@@ -456,19 +698,116 @@ In the SAME release as the upgrade (site and repo):
   scope. Either add both programs to that block and to the root `SECURITY.md` list, or say
   in both that they are out of scope. The file is a static page
   (`frontend/public/.well-known/security.txt`), so the decision needs a site deploy and no
-  rebuild of the program.
+  rebuild of the program. Read 2026-10-08: still undecided. The served file names no Solana
+  program, and the root `SECURITY.md` says the decision has not been made.
 
 ### D. The name records afterwards
 
-- The vault renames the two flagship pools with a plain Metaplex update: "BAYLA/SOL Pool
-  Share" (`BAYLA-SOL`) and "BAYLA/USDC Pool Share" (`BAYLA-USDC`). That proposal has not been
-  built or rehearsed. **Simulate every rename first, and keep the record mutable**: one update
-  signed with "mutable" turned off freezes the words for good.
+- **Creating them.** Anyone may, from the first slot after the upgrade (gate 1). Each record
+  is born with the program's own words, "Memetics Pool Share" / "MEM-LP", the link, the
+  vault as editor, and editable. The new instruction used 53,348 compute units on BAYLA/SOL
+  and 50,786 on BAYLA/USDC. A stranger who creates one first does no harm and saves us its
+  cost. A confirmation that cannot be read is not a failure: the pack's script says "SENT,
+  NOT CONFIRMED", and run again it finds the record and sends nothing.
+- **The rename is built and rehearsed.** It is one step on the page: ONE proposal carrying
+  two Metaplex updates (`UpdateMetadataAccountV2`). They set "BAYLA/SOL Pool Share"
+  (`BAYLA-SOL`) and "BAYLA/USDC Pool Share" (`BAYLA-USDC`) and leave the link, the editor,
+  "primary sale" and "mutable" alone. Those two instructions were proposed, approved and
+  executed in all three runs: built with the SDK in stage 1, through the page's step in
+  stage 2 and in the cold run. The cold run decoded the stored proposal with separate code:
+  every field as ruled, no byte left over. Mainnet's Metaplex, under 4.3.0, accepted an
+  update of the same shape in an unsigned simulation against a record that exists there
+  (cold run, 2026-10-08).
+- **What it costs.** The member who proposes pays 5,247,560 lamports for the proposal. The
+  update itself is free: no Metaplex fee and no rent, and each record stays 607 bytes.
+- **When it refuses.** The page offers no button unless both records exist, belong to
+  Metaplex, hold the default words and the pinned link, name the vault as editor and are
+  editable, and unless a simulation as the vault ends with both renamed and everything else
+  unchanged. In stage 1 five wrong versions were refused before any proposal existed:
+  "mutable" turned off, a changed link, a new editor, the two names swapped, and one update
+  without the other. If one record has already been renamed some other way, the page stops
+  and the pack has no way forward. Only a vault proposal made outside the page can cause
+  that.
+- **Keep the record mutable.** One update signed with "mutable" turned off freezes the words
+  for good. Shown on a throwaway pool's record: once frozen, the vault's next update was
+  refused by Metaplex with 59 (0x3b), "Data is immutable".
+- `BAYLA-USDC` is 10 bytes, exactly Metaplex's limit for a symbol. A stranger who signs the
+  same update is refused by Metaplex (7, "Update Authority given does not match").
+- **A roll-back does not undo name records.** Metaplex owns them. Every record written under
+  the new binary, renamed or not, was still there byte for byte after the roll-back.
 - The editor is copied into each record when it is created. If `admin::ID` is ever moved by
   an upgrade, or a vault is retired, every existing record keeps the old vault as its editor.
   **Hand the records over with a Metaplex update BEFORE retiring a vault.**
 - Any pool anyone opens can get the house name through this instruction. The default file for
   an unknown mint must not read as us vouching for that pool.
+
+### E. When it does not go as written
+
+- **An execute fails.** A failed execute does not spend the proposal. In stage 1 one proposal
+  was executed and refused five times, for four different reasons, and still read
+  "Approved". Fix the cause and execute again.
+- **The page cannot read what happened after a signature.** That is not a failure. In the
+  cold run the connection was cut the moment member B's execute was forwarded. The page said
+  UNKNOWN. On the chain the upgrade had landed and the buffer's SOL was back. Do not sign
+  again. The pack's check after the upgrade says whether it happened.
+- **The upload stops half way.** The buffer already exists at full size and holds its full
+  rent. The same command with the same buffer key file carries on, and the rent is not paid
+  twice. In fees the resumed upload cost the same as a clean one in the cold run, and
+  150,000 lamports more in stage 1. A half-written buffer fails the hash check. That is an
+  unfinished upload, not a wrong build: finish the upload and check again before taking
+  anything back.
+- **The upgrade is abandoned before the hand-over.** The uploading wallet closes the buffer
+  alone and the rent comes back to it. Never give that command the program's address:
+  closing a program cannot be undone. (Tried in the cold run. Aimed at the program, and at a
+  buffer the vault already held, the command was refused because the authority did not
+  match, and the program stayed as it was.)
+- **The upgrade is abandoned after the hand-over.** Only the vault can return the SOL: a
+  proposal carrying the loader's Close instruction (data `05000000`; the buffer, the
+  recipient, the vault as signer). It is a step on the page, "return a buffer's SOL". It
+  refuses a program, a program's data account and a buffer the vault does not hold. That
+  instruction was run in all three runs (built with the SDK in stage 1, through the page's
+  step after that) and returned the buffer's rent in full each time. It costs the proposing
+  member 3,886,120 lamports.
+- **Proposals: what goes stale and what does not.**
+  - A change to the multisig between member A's approval and member B's kills the proposal.
+    Shown with a member being added: member B's approval was refused with `StaleProposal`
+    (6007, "Proposal is stale") and an execute with `InvalidProposalStatus` (6008). Make a
+    new proposal. (Stage 1 names a change of threshold or time lock as the same case. Only
+    the member change was run.)
+  - A proposal BOTH members approved before the change survives it, and it never expires.
+  - So an abandoned upgrade proposal that both approved can still be executed for as long as
+    its buffer exists. Return its buffer's SOL through the vault. After that the proposal
+    can do nothing (`InvalidAccountData`). It stays open in Squads for good, and the page
+    shows it as a note. Cancelling it in the Squads app is tidy, not necessary.
+  - One approval is never enough: an execute with one approval is refused with 6008.
+  - No new upgrade while an older upgrade or rename proposal is open: the pack's first
+    script refuses.
+- **The roll-back.** It is a step on the page with its own pinned build, the deployed file
+  `88b98aa9…`. The pack carries that file, and it was compared with the program read from
+  mainnet on 2026-10-08. A roll-back is one more upload, one more hand-over and one more
+  proposal. One was run in all three runs (through the page's step in stage 2 and in the
+  cold run). In stage 1 both real pools then traded a full round to the exact amounts.
+  - Its float: 3,514,369,400 lamports for the buffer, returned on the execute, about 0.0034
+    SOL of fees, and 4,556,680 lamports from the proposing member.
+  - The data account does not shrink. It stays 724,733 bytes and the enlarge's rent stays
+    locked.
+  - The program is then the old file followed by 33,048 zeros, so both traps of B apply:
+    hash the first 691,640 bytes.
+  - `create_lp_metadata` answers 101 again. Name records stay (D).
+  - Going forward again was run too, in stage 1: the new build went in a second time, and
+    the flagship records were unchanged through both.
+  - SIMD-0500 (gate 8) would block a roll-back as it would block the upgrade.
+  - The pack estimates fifteen minutes, most of it the upload, and a broken program stays
+    broken that long. Uploading the roll-back buffer BEFORE the upgrade executes would make
+    it about a minute, at the price of a second 3.51 SOL parked and a peak near 7.37 SOL in
+    the paying wallet (this file's arithmetic, not a measured figure). The pack does not do
+    that. Its buffer check would show one expected refusal until the upgrade has landed.
+    **The owner's call.**
+- **A frightening line that is not an error.** On Windows a script that stops right after a
+  network read can print
+  `Assertion failed: !(handle->flags & UV_HANDLE_CLOSING), file src\win\async.c, line 76`.
+  That is Node closing down. It was seen in stage 1 and in the cold run. It is not a chain
+  error, and nothing was sent.
 
 ## 5. 🔑 Create the AmmConfig (this is where Tegridy's fee is set)
 
