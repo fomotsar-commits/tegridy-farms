@@ -1011,7 +1011,9 @@ test.describe('group B (chromium only)', () => {
     const card = poolCard(p, B.pfee.address);
     await expect(card).toHaveAttribute('data-deposits', 'refused', { timeout: 60_000 });
     await expect(card).toHaveAttribute('data-add', 'checks');
-    await expect(card).toContainText('This token is blocked on this site (see why above).');
+    // Owner ruling 2026-10-07: the words say what this site does not do. The token is never called "blocked".
+    await expect(ui.lp.safety(p)).toContainText('This site does not open or add to pools for this token');
+    await expect(card).toContainText('This site does not add to pools for this token (see why above).');
     await expect(ui.lp.addButton(card)).toHaveCount(0);
     const create = ui.lp.create.card(p);
     await expect(create).toHaveAttribute('data-create', 'token-refused', { timeout: 60_000 });
@@ -1027,8 +1029,10 @@ test.describe('group B (chromium only)', () => {
     await expect(aside).toBeVisible({ timeout: 60_000 });
     if (!(await aside.evaluate((el) => (el as HTMLDetailsElement).open))) await press(aside.locator('summary'), 'set-aside list');
     const row = positionRow(p, B.pfee.address);
-    await expect(row).toContainText('Set aside: its token is blocked on this site.');
-    await expect(row).toContainText('blocked on this site');
+    await expect(row).toContainText('Set aside: this site does not open or add to pools for its token.');
+    // The row's "Token check" value.
+    await expect(row).toContainText('this site does not open or add to pools for it');
+    await expect(row).not.toContainText('blocked on this site');
     await expect(ui.lp.addMore(row)).toHaveCount(0);
     // Taking it out: the site says it cannot build this withdrawal, before the wallet is asked.
     const rpanel = await openRemove(row);

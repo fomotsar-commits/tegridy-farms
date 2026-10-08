@@ -506,7 +506,7 @@ describe('prepareLpCreate: what refuses it, each in its own words', () => {
 
   it('the price, Jupiter ANSWERS "no route": it builds as "no market", and the opener is told they set the price themselves', async () => {
     const s = summaryOf(ok(await create(world(), {}, answering(NO_ROUTE))));
-    expect(s.price).toEqual({ state: 'no-market', pool: 0.01, detail: 'Jupiter has no route for this token' });
+    expect(s.price).toEqual({ state: 'no-market', of: 'token', pool: 0.01, detail: 'Jupiter has no route for this token' });
     expect(s.warnings).toEqual([NO_MARKET_OPENING]);
     expect(s.priceGap).toBeNull();
   });

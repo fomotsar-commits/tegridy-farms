@@ -124,7 +124,12 @@ describe('the LP section', () => {
     expect(screen.getByTestId('token-safety')).toHaveAttribute('data-verdict', 'blocked');
     expect(screen.getByText('Its creator can still freeze token accounts.')).toBeInTheDocument();
     expect(r.outsidePrice).not.toHaveBeenCalled();
-    expect(screen.getByTestId('lp-status')).toHaveTextContent(/blocked on this site/);
+    // What a screen reader is read, and what the pool's card gives as its reason: what this
+    // site does not do. Never that the token is "blocked" (owner ruling 2026-10-07).
+    expect(screen.getByTestId('lp-status')).toHaveTextContent('This site does not open or add to pools for this token.');
+    expect(within(card).getByTestId('lp-pool-deposits')).toHaveTextContent('This site does not add to pools for this token (see why above).');
+    expect(card).toHaveTextContent('Not compared: because this site does not add to pools for this token');
+    expect(document.body).not.toHaveTextContent(/blocked on this site|token is blocked/i);
   });
 
   it('a squatted standard address: swaps blocked, deposits refused, and never presented as the pool', async () => {
