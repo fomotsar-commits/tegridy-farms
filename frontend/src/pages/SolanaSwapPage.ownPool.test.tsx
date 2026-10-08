@@ -681,6 +681,57 @@ describe('a swap in our pool that was sent and not confirmed', () => {
   });
 });
 
+describe('a swap in our pool that the chain answers after the wallet changed', () => {
+  const OTHER = new PublicKey(new Uint8Array(32).fill(9));
+  const live = wallet as unknown as { publicKey: PublicKey | null };
+  afterEach(() => { live.publicKey = USER; });
+
+  /** Press Buy, let the swap be sent, and hold the chain's answer until `finish`. */
+  async function sentAndHeld() {
+    let finish: (o: { status: 'confirmed'; signature: string; slot: number }) => void = () => {};
+    h.submitPrepared.mockImplementation(async (_rpc: unknown, _signer: unknown, p: PreparedTx, deps?: SubmitDeps) => {
+      deps?.onSent?.(SIG, p.lastValidBlockHeight);
+      return new Promise((res) => { finish = res; });
+    });
+    const r = render(<MemoryRouter><SolanaSwapPage /></MemoryRouter>);
+    fireEvent.change(amountBox(), { target: { value: '0.1' } });
+    const buy = await screen.findByRole('button', { name: 'Buy BAYLA' });
+    await waitFor(() => expect(h.readSwapGate).toHaveBeenCalled());
+    await waitFor(() => expect(buy).toBeEnabled());
+    fireEvent.click(buy);
+    await waitFor(() => expect(h.submitPrepared).toHaveBeenCalledTimes(1));
+    return { r, finish: () => finish({ status: 'confirmed', signature: SIG, slot: 7 }) };
+  }
+
+  it('is recorded for the wallet that signed it, not the one connected when it lands', async () => {
+    const { r, finish } = await sentAndHeld();
+    live.publicKey = OTHER;
+    r.rerender(<MemoryRouter><SolanaSwapPage /></MemoryRouter>);
+    finish();
+    await waitFor(() => expect(getActivity(USER.toBase58())[0]).toMatchObject({ sig: SIG, summary: 'Bought ≈1.01 BAYLA with 0.1 SOL, in our own pool' }));
+    expect(getActivity(OTHER.toBase58())).toEqual([]);
+  });
+
+  it('with the wallet gone, it is still recorded and the form is still cleared', async () => {
+    const { r, finish } = await sentAndHeld();
+    live.publicKey = null;
+    r.rerender(<MemoryRouter><SolanaSwapPage /></MemoryRouter>);
+    finish();
+    await waitFor(() => expect(getActivity(USER.toBase58())[0]).toMatchObject({ sig: SIG }));
+    await waitFor(() => expect(amountBox().value).toBe(''));
+  });
+
+  it('the balance it was paid from is read again once it lands', async () => {
+    const reads = vi.spyOn(connection, 'getBalance');
+    const { finish } = await sentAndHeld();
+    const before = reads.mock.calls.length;
+    finish();
+    await waitFor(() => expect(getActivity(USER.toBase58())[0]).toMatchObject({ sig: SIG }));
+    await waitFor(() => expect(reads.mock.calls.length).toBeGreaterThan(before));
+    reads.mockRestore();
+  });
+});
+
 describe('the risk tick-box: never for the venue’s own coins, once per token for the rest', () => {
   const OTHER = 'Dog1111111111111111111111111111111111111111';
   const other = { mint: OTHER, symbol: 'DOGGO', name: 'Doggo', decimals: 6, verified: false };

@@ -1269,6 +1269,7 @@ function SolanaSwapInner() {
   const [prices, setPrices] = useState<Record<string, number>>({});
   const [shield, setShield] = useState<Record<string, ShieldWarning[]>>({});
   const payBalance = useTokenBalance(payToken);
+  const retryPayBalance = payBalance.retry;
 
   const payPrice = prices[payToken.mint];
   // In USD mode the input holds dollars; derive the token amount through the
@@ -1395,14 +1396,16 @@ function SolanaSwapInner() {
 
   // What a swap in our own pool was, kept from the press of Buy for when it settles:
   // the pair on the form can change under an open review (a pick from the rails below).
-  const ownTrade = useRef<{ pay: string; buy: string; buyMint: string; amount: string; outDecimals: number; done: 'Bought' | 'Sold'; symbol: string } | null>(null);
+  // `owner` is the wallet it was built for: the only one that can sign it (submitPrepared).
+  const ownTrade = useRef<{ owner: string; pay: string; buy: string; buyMint: string; amount: string; outDecimals: number; done: 'Bought' | 'Sold'; symbol: string } | null>(null);
   // The same, for the page to draw: the words of the trade and the minimum the form showed at the press.
   const [pressed, setPressed] = useState<{ pay: string; buy: string; amount: string; outDecimals: number; floor: bigint | null } | null>(null);
   const onOwnSettled = useCallback<OnSettled>(
     (outcome, prepared) => {
       const t = ownTrade.current;
-      const wallet = publicKey?.toBase58();
       const sent = outcome.status === 'confirmed' || (outcome.status === 'unknown' && outcome.signature !== '');
+      // Recorded for the wallet that signed it, whichever is connected when the chain answers.
+      const wallet = t?.owner;
       if (prepared?.summary.kind === 'venue-swap' && t && wallet && sent) {
         const got = prettyAmount(fromBaseUnits(prepared.summary.quoted.outAmount.toString(), t.outDecimals));
         const words = `≈${got} ${t.buy} with ${t.amount} ${t.pay}, in our own pool`;
@@ -1415,6 +1418,7 @@ function SolanaSwapInner() {
         setAmount('');
         setQuote(null);
         forgetPools();
+        retryPayBalance();
       }
       if (keepQuote.current) {
         keepQuote.current = false;
@@ -1423,7 +1427,7 @@ function SolanaSwapInner() {
       // Whatever the answer, the numbers under the form are asked for again.
       setQuoteAttempt((n) => n + 1);
     },
-    [publicKey, forgetPools],
+    [forgetPools, retryPayBalance],
   );
   const requote = useCallback(() => setQuoteAttempt((n) => n + 1), []);
   const venueSwap = useVenueSwap({
@@ -1611,8 +1615,8 @@ function SolanaSwapInner() {
     // anything is signed, so it is never first fetched for a swap that was already sent.
     void loadVenueSwapFlow().catch(() => {});
     setPressed({ pay: payToken.symbol, buy: buyToken.symbol, amount: prettyAmount(tokenAmount), outDecimals: buyToken.decimals, floor: applySlippage(ownBest.outAmount, BigInt(bps)) });
-    ownTrade.current = { pay: payToken.symbol, buy: buyToken.symbol, buyMint: outputMint, amount: prettyAmount(tokenAmount), outDecimals: buyToken.decimals, done: said.done, symbol: said.symbol };
     const user = owner.toBase58();
+    ownTrade.current = { owner: user, pay: payToken.symbol, buy: buyToken.symbol, buyMint: outputMint, amount: prettyAmount(tokenAmount), outDecimals: buyToken.decimals, done: said.done, symbol: said.symbol };
     const priority = speed;
     void venueSwap.flow.prepare(
       async () => {
