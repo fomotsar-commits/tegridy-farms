@@ -108,6 +108,70 @@ describe('the card carries the number', () => {
   });
 });
 
+// The picture. A wallet the island reads unfurls with the island's own painted card; a
+// cold or unread wallet keeps the venue's card, because the island's cold card prints
+// "DAY 0" and the venue never posts a zero.
+describe('the picture is the island’s painted card, for a wallet it reads', () => {
+  const VENUE_CARD = `${ORIGIN}/og.png`;
+  const painted = (address) => `https://memetics.wtf/api/card?w=${address}`;
+  const images = (html) =>
+    [...html.matchAll(/<meta (?:property|name)="(og:image|twitter:image)" content="([^"]*)">/g)].map((m) => [m[1], m[2]]);
+
+  it('carries the painted card on both image tags of a warm read', async () => {
+    const html = await (await middleware(req(`/read/${ADDR}`))).text();
+    expect(images(html)).toEqual([
+      ['og:image', painted(ADDR)],
+      ['twitter:image', painted(ADDR)],
+    ]);
+  });
+
+  it('asks the card for the wallet in the link, a Solana one with its capitals kept', async () => {
+    const html = await (await middleware(req(`/read/${SOL}`))).text();
+    expect(images(html)).toEqual([
+      ['og:image', painted(SOL)],
+      ['twitter:image', painted(SOL)],
+    ]);
+  });
+
+  it('leaves the title of a warm read exactly as it was', async () => {
+    const html = await (await middleware(req(`/read/${ADDR}`))).text();
+    expect(html).toContain('<title>Elder · 1,694 days held · 1785.1° on Jungle Bay Island</title>');
+  });
+
+  it('keeps the venue’s card for a COLD wallet', async () => {
+    vi.stubGlobal('fetch', upstream({ ...WARM, is_cold: true, degrees: 0, tier: 'Drifter', held_since_unix: null, as_of_unix: null }));
+    const html = await (await middleware(req(`/read/${ADDR}`))).text();
+    expect(images(html)).toEqual([['og:image', VENUE_CARD], ['twitter:image', VENUE_CARD]]);
+  });
+
+  it('keeps the venue’s card when the island could not be read', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => { throw new Error('offline'); }));
+    const html = await (await middleware(req(`/read/${ADDR}`))).text();
+    expect(images(html)).toEqual([['og:image', VENUE_CARD], ['twitter:image', VENUE_CARD]]);
+  });
+
+  it('keeps the venue’s card on an upstream error', async () => {
+    vi.stubGlobal('fetch', upstream(null, false));
+    const html = await (await middleware(req(`/read/${ADDR}`))).text();
+    expect(images(html)).toEqual([['og:image', VENUE_CARD], ['twitter:image', VENUE_CARD]]);
+  });
+
+  it.each(['/read/not-an-address', '/read/', '/read'])('keeps the venue’s card for %s', async (path) => {
+    const html = await (await middleware(req(path))).text();
+    expect(images(html)).toEqual([['og:image', VENUE_CARD], ['twitter:image', VENUE_CARD]]);
+  });
+
+  it('reads the island once, for the heat, and never fetches the picture itself', async () => {
+    await middleware(req(`/read/${ADDR}`));
+    expect(fetchMock.mock.calls.map((c) => c[0])).toEqual([`https://memetics.wtf/api/heat/${ADDR}`]);
+  });
+
+  it('leaves the scan card on the venue’s own picture', async () => {
+    const html = await (await middleware(req('/scan'))).text();
+    expect(images(html)).toEqual([['og:image', VENUE_CARD], ['twitter:image', VENUE_CARD]]);
+  });
+});
+
 describe('a zero is never printed', () => {
   const generic = 'Read any wallet on Jungle Bay Island';
 
