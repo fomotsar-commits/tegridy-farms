@@ -15,6 +15,35 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-10-07: timing a body read that a library leaves untimed takes a second timer
+
+**Believed:** viem's request timeout stops at the headers, so covering the body means
+wrapping `fetch` with our own `AbortController`, our own timer and our own timeout figure.
+
+**Measured:** viem 2.56.8, on Node 24.13.0 and in Chromium 151 (a production build, the
+RPC hostnames resolved to a local TLS server). viem clears its timer when the `fetchFn` it
+was handed returns, and the signal that timer aborts is the one it hands that function. So
+a `fetchFn` that reads the body before it returns puts the body on viem's own clock. With
+every host sending headers and half a body, a read through the Ethereum roster ended as
+viem's `TimeoutError` after 81.05 s of fake clock, the same instant as with silent hosts
+(Base, three hosts: 121.05 s); before, it was still pending after 300 s. In Chromium the
+burn card said "Reading" for the 150 s watched before, and gave up 81.5 s in after. Three
+things came with it:
+
+- Reading the body yourself steps around viem's 10 MiB limit on an answer, which it
+  applies while it streams. The wrapper has to stop at the same limit.
+- viem's ranker waits for every ping of a round. One ping whose body stalled ended ranking
+  for the visit: one round in 70 s where there should be two.
+- Given a caller's signal, viem's `http` transport hands `fetch` that signal instead of its
+  timer's, and then nothing times the request at all. `fallback` drops a caller's signal
+  today, which is the only reason this does not bite.
+
+**Do:** before putting a timer beside a library's, read when the library clears its own and
+what it passes to the function you are allowed to replace. Pin the result on the real
+config: a fake clock, a body that only ends by being aborted, and the assertion that the
+read ends exactly when a silent host's does. When you buffer a body a library would have
+streamed, keep its size limit.
+
 ## 2026-10-06: an override that forces the patched major is a safe way to clear a transitive advisory
 
 **Believed:** when the fix for an advisory in a transitive package is a newer major, an
