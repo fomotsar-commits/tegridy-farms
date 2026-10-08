@@ -7,8 +7,11 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest
 import { HttpRequestError, TimeoutError, type Chain } from 'viem';
 import { WAGMI_CHAINS, WAGMI_TRANSPORTS } from './viemChains';
 
-/** How a roster host behaves. `half-body` sends a 200, its headers and half an answer, then nothing. */
-type Host = 'silent' | 'half-body' | 'answers' | 'rate-limited';
+/**
+ * How a roster host behaves. `half-body` sends a 200, its headers and half an answer, then
+ * nothing. `drips` never stops sending: one byte of its answer a second, with no end.
+ */
+type Host = 'silent' | 'half-body' | 'drips' | 'answers' | 'rate-limited';
 type Asked = { host: string; method: string };
 
 const HALF_ANSWER = '{"jsonrpc":"2.0","id":1,';
@@ -24,6 +27,20 @@ function halfBody(signal: AbortSignal | null | undefined): ReadableStream<Uint8A
   });
 }
 
+/** A body that keeps arriving, a byte a second, and ends only by being aborted. */
+function drippingBody(signal: AbortSignal | null | undefined): ReadableStream<Uint8Array> {
+  return new ReadableStream<Uint8Array>({
+    start(stream) {
+      stream.enqueue(new TextEncoder().encode(HALF_ANSWER));
+      const drip = setInterval(() => stream.enqueue(new TextEncoder().encode(' ')), 1_000);
+      signal?.addEventListener('abort', () => {
+        clearInterval(drip);
+        stream.error(abortError());
+      });
+    },
+  });
+}
+
 /** Every roster host behaves as `host` does. Nothing here ends a request except its own abort. */
 function fakeFetch(host: Host, asked: Asked[]): typeof fetch {
   return ((input: RequestInfo | URL, init?: RequestInit) => {
@@ -35,6 +52,7 @@ function fakeFetch(host: Host, asked: Asked[]): typeof fetch {
       return new Promise<Response>((_, reject) => signal?.addEventListener('abort', () => reject(abortError())));
     }
     if (host === 'half-body') return Promise.resolve(new Response(halfBody(signal), { status: 200, headers: json }));
+    if (host === 'drips') return Promise.resolve(new Response(drippingBody(signal), { status: 200, headers: json }));
     if (host === 'rate-limited') {
       return Promise.resolve(new Response('slow down', { status: 429, headers: { 'content-type': 'text/plain' } }));
     }
@@ -103,6 +121,19 @@ describe('a chain read is given up on one clock, whether a host is silent or sto
       expect(stalled.ended, `still pending after ${WATCH_MS / 1000} s`).not.toBeNull();
       expect(stalled.ended?.error).toBeInstanceOf(TimeoutError);
       expect(stalled.ended?.afterMs).toBe(silent.ended?.afterMs);      expect(hostsAsked(stalled.asked, 'eth_call')).toEqual([...stalled.roster].sort());
+    },
+  );
+
+  // The clock counts from the start of the request, not from the last byte: a host cannot
+  // hold a read open by sending a little now and then.
+  it.each(WAGMI_CHAINS.map((chain) => [chain.name, chain] as const))(
+    '%s: hosts that drip their answer a byte a second are given up exactly when silent hosts are',
+    async (_name, chain) => {
+      const silent = await readOnFakeClock(chain, 'silent', WATCH_MS);
+      const dripping = await readOnFakeClock(chain, 'drips', WATCH_MS);
+      expect(dripping.ended, `still pending after ${WATCH_MS / 1000} s`).not.toBeNull();
+      expect(dripping.ended?.error).toBeInstanceOf(TimeoutError);
+      expect(dripping.ended?.afterMs).toBe(silent.ended?.afterMs);
     },
   );
 
