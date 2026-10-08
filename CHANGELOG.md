@@ -9,6 +9,7 @@ page keeps the newest thirty days.
 ### 2026-10-07
 
 - Ethereum, Base and Robinhood Chain reads: a network host that starts its answer and then stops is given up after 10 seconds, the same as a host that never answers, and the next host is asked. Such a read used to be waited on for the whole visit: the burn card of an Ethereum or Base bungalow could say "Reading" for good, with Refresh greyed out. It now says it could not read, with Refresh ready again, as soon as every host has been tried (about 80 seconds on Ethereum, two minutes on Base). The check our server runs when an NFT is listed leaves such a host the same way.
+- Pool shares and the lighthouse staking receipt: the site now serves a name and a picture for the BAYLA/SOL and BAYLA/USDC pool share tokens and for the Staked BAYLA receipt, at memetics.finance/mint/ followed by the token's address and .json. A wallet shows them only once that link is written on each token, which has not happened yet.
 
 ### 2026-10-06
 
