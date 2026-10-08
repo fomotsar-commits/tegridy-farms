@@ -9,6 +9,10 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
+import { ownPoolSwapsOn } from '../lib/solana/swap/ownPoolSwapFlag';
+import { TOWELI_FAQ_DATA, venueFaq } from '../lib/faqData';
+import { KNOWLEDGE_BASE, answerQuestion } from '../lib/towelieKnowledge';
+import { ONBOARDING_SURFACES } from '../components/onboarding/onboardingSteps';
 
 const FRONTEND = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 /** Source text with every run of whitespace as one space, so a re-wrapped line still matches. */
@@ -47,5 +51,67 @@ describe('no line outside the swap says every Solana swap goes through Jupiter',
     const text = read(file);
     for (const g of gone) expect(text.includes(g), `still says: ${g}`).toBe(false);
     expect(text.includes(says), `does not say: ${says}`).toBe(true);
+  });
+});
+
+// Sentence by sentence, comments taken out: a new line anywhere in these surfaces is held too.
+/** A file's text with its comments taken out and every run of whitespace as one space. */
+const shown = (p: string) =>
+  readFileSync(join(FRONTEND, p), 'utf-8')
+    .replace(/\/\*[\s\S]*?\*\//g, ' ')
+    .replace(/^\s*\/\/.*$/gm, ' ')
+    .replace(/\s+/g, ' ');
+
+const SAYS_JUPITER = /\b(?:swaps?|routes?|routed|trades?)\b[^.]*\b(?:through|via) Jupiter\b|Jupiter is the router\b/i;
+const SAYS_OURS = /\bour (?:own )?pools?\b|\bown swap\b/i;
+/** Each sentence that sends Solana swaps through Jupiter and never names our pools. */
+const jupiterOnly = (text: string) =>
+  text.split(/(?<=[.;!?])\s+/).filter((s) => SAYS_JUPITER.test(s) && !SAYS_OURS.test(s));
+
+const SHOWN_FILES = ['src/components/layout/Footer.tsx', 'src/components/ui/OnboardingModal.tsx', 'src/pages/HomePage.tsx'] as const;
+
+describe('the site says where a Solana swap goes', () => {
+  it('a trade may go to our own pool in this build', () => {
+    expect(ownPoolSwapsOn()).toBe(true);
+  });
+
+  it('the FAQ, Towelie and onboarding never say Jupiter alone', () => {
+    const faq = [...venueFaq(80), ...TOWELI_FAQ_DATA].flatMap((s) => s.items).map((i) => i.a);
+    const towelie = KNOWLEDGE_BASE.map((e) => e.answer);
+    const onboarding = ONBOARDING_SURFACES.map((s) => s.blurb);
+    expect([...faq, ...towelie, ...onboarding].flatMap(jupiterOnly)).toEqual([]);
+  });
+
+  it('Towelie says our pools add no platform fee, and adds no em dash', () => {
+    for (const q of ['jupiter', 'solana swap', 'swap solana']) {
+      const a = answerQuestion(q);
+      expect(a, q).toMatch(SAYS_OURS);
+      expect(a, q).toMatch(/no (?:platform |site )?fee|add(?:s)? no/i);
+      expect(a, q).not.toContain('—');
+    }
+  });
+
+  it('the home page, the footer and the welcome never say Jupiter alone', () => {
+    const found = SHOWN_FILES.flatMap((f) => jupiterOnly(shown(f)).map((s) => `${f}: ${s.slice(0, 90)}`));
+    expect(found).toEqual([]);
+  });
+
+  it('the earn rail says the fee is on Jupiter’s route, not on every SOL buy', () => {
+    const page = shown('src/pages/SolanaSwapPage.tsx');
+    const rail = page.slice(page.indexOf('function EarnRail('), page.indexOf('function ActivityRail('));
+    const feeLines = rail.split(/(?<=[.;!?])\s+/).filter((x) => /fee applies/.test(x));
+    expect(feeLines.length).toBeGreaterThan(0);
+    for (const line of feeLines) expect(line.slice(Math.max(0, line.indexOf('fee applies') - 60))).toMatch(/Jupiter/);
+  });
+
+  it('the pool lines say the site’s own swap sends trades to a pool that pays as much as Jupiter', () => {
+    const silent = ['src/components/solana/lp/LpDisclosures.tsx', 'src/components/solana/lp/SolanaLpSection.tsx'].flatMap((f) => {
+      const text = shown(f);
+      return [...text.matchAll(/do(?:es)? not send trades to these pools/g)]
+        .map((m) => text.slice(m.index, m.index + 300))
+        .filter((after) => !/\bown swap\b/i.test(after))
+        .map((after) => `${f}: ${after.slice(0, 110)}`);
+    });
+    expect(silent).toEqual([]);
   });
 });
