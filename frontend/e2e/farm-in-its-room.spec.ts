@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { gotoRoute } from './fixtures/routes';
+import { gotoRoute, waitForQuiescence } from './fixtures/routes';
 
 // THE FARM SPEAKS ONLY IN ITS ROOM (docs/FACE_LAWS.md, law 21; the island's venue
 // review, item 13).
@@ -40,7 +40,7 @@ async function visitTheFarm(page: Page) {
 
 test.describe('after one visit to /toweli', () => {
   for (const route of VENUE_ROUTES) {
-    test(`${route} keeps the venue's footer and shows no Towelie`, async ({ page }) => {
+    test(`${route} keeps the venue's footer`, async ({ page }) => {
       await visitTheFarm(page);
       await gotoRoute(page, route);
 
@@ -51,7 +51,15 @@ test.describe('after one visit to /toweli', () => {
       await expect(footer).not.toContainText('Trade on Uniswap');
       // The room is still stored: its art and its trade route follow it. Only its voice stays home.
       expect(await stored(page)).toBe('toweli');
-      // Checked last, after the footer has been waited for, so the corner has had time to fill.
+    });
+
+    // /nb1 is a control here: an open lot's door never showed him. The other three did.
+    test(`${route} shows no Towelie`, async ({ page }) => {
+      await visitTheFarm(page);
+      await gotoRoute(page, route);
+      // An absence has no event to wait for, so wait until the page has stopped changing:
+      // Towelie arrives in a chunk of his own, after the page.
+      await waitForQuiescence(page);
       await expect(towelie(page)).toHaveCount(0);
     });
   }
@@ -72,6 +80,7 @@ test.describe('after one visit to /toweli', () => {
     const footer = page.locator('footer');
     await expect(footer).toContainText(VENUE_SENTENCE);
     await expect(footer).not.toContainText('TOWELI contract');
+    await waitForQuiescence(page);
     await expect(towelie(page)).toHaveCount(0);
   });
 });
