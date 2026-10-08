@@ -6,6 +6,10 @@ page keeps the newest thirty days.
 
 ## [Unreleased]
 
+### 2026-10-08
+
+- Solana swap: fewer steps and less to read. A swap in one of our own pools now goes from Buy straight to your wallet when its test run passes and nothing needs reading first; the review screen shows only when something needs a second look. When it lands, one line says so and the form is ready again. The risk tick-box is gone for SOL, USDC and our BAYLA, and for any other unverified token it is asked once per token on your device. Slippage and speed sit on one line, the details fold away, the route is one short sentence, our BAYLA is first in the token list and marked as ours, every token row shows part of its address, and the button says Sell when you are selling.
+
 ### 2026-10-06
 
 - Solana swap: a trade now goes to one of our own pools when that pool pays you at least as much as Jupiter, and to Jupiter when it does not. The line under the quote says which, and by how much. A swap in our pool opens a review with a test run before your wallet is asked, as adding liquidity does, and both prices are checked again when you press Buy. Our pools on the public fee tier are now found: the swap used to look only at the launch tier, and sent every trade to Jupiter whatever the line said.

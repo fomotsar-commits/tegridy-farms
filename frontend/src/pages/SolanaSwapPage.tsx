@@ -29,6 +29,12 @@ import {
   LST_TOKENS,
   findSolToken,
   isUnverified,
+  isVenueCoin,
+  needsRiskAck,
+  withVenueCoinsFirst,
+  isRiskAcked,
+  rememberRiskAck,
+  forgetRiskAck,
   searchTokens,
   looksLikeMint,
   resolveMint,
@@ -75,6 +81,9 @@ import { prepareJupiterSwap, NO_SITE_FEE_ROUTE_COPY } from '../lib/solana/swap/j
 import { OWN_ROUTE_COPY, ownPoolNowWins, prepareOwnPoolSwap, within } from '../lib/solana/swap/ownPoolRoute';
 import { applySlippage } from '../lib/launcher/solana/curve/math';
 import { tradeCostText } from '../lib/solana/lp/format';
+import { needsNoReview, quietEnding } from '../components/swap/quietSwap';
+import { DECLINED_IN_WALLET } from '../lib/solana/swap/walletCopy';
+import { fractionToBps, impactWarning } from '../components/solana/curve/uiFormat';
 import { SiteFeeRow } from '../components/swap/SiteFeeRow';
 import { TokenDetail } from '../components/solana/TokenDetail';
 import { PairChart } from '../components/solana/PairChart';
@@ -87,7 +96,8 @@ import { surfaceUnconfirmedTx } from '../lib/txErrors';
 
 // The review of a swap in our own pool, and the note of one not confirmed yet: its own
 // chunk, asked for only when one of them is on screen.
-const VenueSwapFlow = lazy(() => import('../components/swap/VenueSwapFlow'));
+const loadVenueSwapFlow = () => import('../components/swap/VenueSwapFlow');
+const VenueSwapFlow = lazy(loadVenueSwapFlow);
 
 /** How long Buy waits for our pools to be read again before it goes on with the route on screen. */
 const OWN_CHECK_MS = 4_000;
@@ -169,9 +179,29 @@ interface TokenPickerProps {
   onClose: () => void;
 }
 
-function riskBadges(t: SolToken): { label: string; tone: 'amber' | 'red' }[] {
-  const out: { label: string; tone: 'amber' | 'red' }[] = [];
-  if (isUnverified(t)) out.push({ label: 'Unverified', tone: 'amber' });
+/** The trader said no in their wallet. Only the wallet's own words for that: a refusal by the network is a failure. */
+const walletDeclined = (err: unknown) => /user rejected|user denied|rejected the request|user cancel/i.test(err instanceof Error ? err.message : String(err));
+
+/** SOL and the dollar coins: what a trader cashes a token out into. */
+const CASH_MINTS: ReadonlySet<string> = new Set([SOL.mint, USDC.mint, USDT.mint]);
+
+/** A token paid for cash is a sale of that token. Everything else is a buy of what is received. */
+function sideWords(pay: SolToken, buy: SolToken): { verb: 'Buy' | 'Sell'; done: 'Bought' | 'Sold'; symbol: string } {
+  const selling = CASH_MINTS.has(buy.mint) && !CASH_MINTS.has(pay.mint);
+  return selling ? { verb: 'Sell', done: 'Sold', symbol: pay.symbol } : { verb: 'Buy', done: 'Bought', symbol: buy.symbol };
+}
+
+type RowBadge = { label: string; tone: 'amber' | 'red' | 'green' };
+
+/** The head and the tail of a mint. Copies of a name differ at the head: every pump.fun mint ends alike. */
+const shortMint = (mint: string) => `${mint.slice(0, 6)}…${mint.slice(-4)}`;
+
+function riskBadges(t: SolToken): RowBadge[] {
+  const out: RowBadge[] = [];
+  // The venue's own coin is known by its mint, so it says that and not "Unverified".
+  // Only a coin Jupiter verifies gets no mark at all: SOL and USDC need none.
+  if (isVenueCoin(t.mint) && isUnverified(t)) out.push({ label: `This venue’s ${t.symbol}`, tone: 'green' });
+  else if (isUnverified(t)) out.push({ label: 'Unverified', tone: 'amber' });
   if (t.tokenProgram && t.tokenProgram !== LEGACY_TOKEN_PROGRAM) out.push({ label: 'Token-2022', tone: 'amber' });
   // Amber rather than red on a curated mint: USDC really can freeze, and saying
   // so is right — but it is a known property of the asset, not a warning sign.
@@ -267,7 +297,7 @@ function TokenRow({ t, onSelect }: { t: SolToken; onSelect: (t: SolToken) => voi
   // toggles the localStorage favorite.
   const [fav, setFav] = useState(() => isFavoriteToken(t.mint));
   return (
-    <div className="w-full flex items-center rounded-lg hover:bg-white/5 transition-colors">
+    <div className="w-full flex items-center rounded-lg hover:bg-white/5 transition-colors" data-token-row={t.mint}>
       <button
         type="button"
         onClick={() => onSelect(t)}
@@ -280,12 +310,13 @@ function TokenRow({ t, onSelect }: { t: SolToken; onSelect: (t: SolToken) => voi
             {t.verified === true && <span className="text-success text-[10px]" title="Verified on Jupiter" aria-label="Verified">✓</span>}
           </div>
           <div className="text-white/50 text-[11px] truncate">{t.name}</div>
+          <div className="text-white/45 text-[10px] font-mono">{shortMint(t.mint)}</div>
           {badges.length > 0 && (
             <div className="flex gap-1 flex-wrap mt-0.5">
               {badges.map((b) => (
                 <span
                   key={b.label}
-                  className={`px-1.5 py-0.5 rounded text-[9px] font-semibold ${b.tone === 'red' ? 'bg-red-500/20 text-red-300' : 'bg-amber-500/20 text-amber-300'}`}
+                  className={`px-1.5 py-0.5 rounded text-[9px] font-semibold ${b.tone === 'red' ? 'bg-red-500/20 text-red-300' : b.tone === 'green' ? 'bg-emerald-500/20 text-emerald-300' : 'bg-amber-500/20 text-amber-300'}`}
                 >
                   {b.label}
                 </span>
@@ -373,12 +404,14 @@ function TokenPicker({ title, featured, onSelect, onClose }: TokenPickerProps) {
       searchTokens(q, ctrl.signal)
         .then((r) => {
           if (ctrl.signal.aborted) return;
-          setResults(r); setLoading(false);
-          setError(r.length === 0 ? (looksLikeMint(q) ? 'Mint not found / not listed on Jupiter.' : 'No tokens found.') : null);
+          const rows = withVenueCoinsFirst(r, q);
+          setResults(rows); setLoading(false);
+          setError(rows.length === 0 ? (looksLikeMint(q) ? 'Mint not found / not listed on Jupiter.' : 'No tokens found.') : null);
         })
         .catch((err: unknown) => {
           if (ctrl.signal.aborted || (err instanceof DOMException && err.name === 'AbortError')) return;
-          setResults([]); setLoading(false); setError('Search unavailable — try again.');
+          // The venue's own coins need no search to be found.
+          setResults(withVenueCoinsFirst([], q)); setLoading(false); setError('Search is unavailable just now. Try again.');
         });
     }, q ? 350 : 0);
     return () => { clearTimeout(t); ctrl.abort(); };
@@ -1268,8 +1301,12 @@ function SolanaSwapInner() {
     return () => ctrl.abort();
   }, []);
 
+  // Tokens ticked while this pair is on screen: their box stays, so the tick can be taken back.
+  const [tickedNow, setTickedNow] = useState<ReadonlySet<string>>(() => new Set());
   // Reset the unverified-token acknowledgement whenever the pair changes.
-  useEffect(() => { setAck(false); }, [payToken.mint, buyToken.mint]);
+  useEffect(() => { setAck(false); setTickedNow(new Set()); }, [payToken.mint, buyToken.mint]);
+  // The pair Jupiter Shield last ANSWERED for. A read in flight or one that failed is not an answer.
+  const [shieldReadFor, setShieldReadFor] = useState<string | null>(null);
 
   // Debounced quote fetch.
   useEffect(() => {
@@ -1335,9 +1372,10 @@ function SolanaSwapInner() {
   // Jupiter Shield risk warnings for the pair (once per pair). Fail OPEN.
   useEffect(() => {
     let cancelled = false;
+    const pair = `${payToken.mint}|${buyToken.mint}`;
     getShield([payToken.mint, buyToken.mint])
-      .then((s) => { if (!cancelled) setShield(s); })
-      .catch(() => { if (!cancelled) setShield({}); });
+      .then((s) => { if (!cancelled) { setShield(s); setShieldReadFor(pair); } })
+      .catch(() => { if (!cancelled) { setShield({}); setShieldReadFor(null); } });
     return () => { cancelled = true; };
   }, [payToken.mint, buyToken.mint]);
 
@@ -1357,7 +1395,9 @@ function SolanaSwapInner() {
 
   // What a swap in our own pool was, kept from the press of Buy for when it settles:
   // the pair on the form can change under an open review (a pick from the rails below).
-  const ownTrade = useRef<{ pay: string; buy: string; buyMint: string; amount: string; outDecimals: number } | null>(null);
+  const ownTrade = useRef<{ pay: string; buy: string; buyMint: string; amount: string; outDecimals: number; done: 'Bought' | 'Sold'; symbol: string } | null>(null);
+  // The same, for the page to draw: the words of the trade and the minimum the form showed at the press.
+  const [pressed, setPressed] = useState<{ pay: string; buy: string; amount: string; outDecimals: number; floor: bigint | null } | null>(null);
   const onOwnSettled = useCallback<OnSettled>(
     (outcome, prepared) => {
       const t = ownTrade.current;
@@ -1366,7 +1406,7 @@ function SolanaSwapInner() {
       if (prepared?.summary.kind === 'venue-swap' && t && wallet && sent) {
         const got = prettyAmount(fromBaseUnits(prepared.summary.quoted.outAmount.toString(), t.outDecimals));
         const words = `≈${got} ${t.buy} with ${t.amount} ${t.pay}, in our own pool`;
-        // Kept in "Your recent activity", as a Jupiter swap is, so the signature outlives the review.
+        // Kept in "Your recent activity", as a Jupiter swap is, so the signature outlives the page.
         recordActivity(wallet, { sig: outcome.signature, ts: Date.now(), kind: 'swap', summary: outcome.status === 'confirmed' ? `Bought ${words}` : `Sent, not confirmed: ${words}` });
         const room = outcome.status === 'confirmed' ? bungalowByAddress('solana', t.buyMint) : null;
         if (room) setLastBuy({ hash: outcome.signature, symbol: room.symbol, tokenAddress: t.buyMint, chain: room.chain, buyer: wallet, atUnix: Math.floor(Date.now() / 1000) });
@@ -1392,8 +1432,65 @@ function SolanaSwapInner() {
     onSettled: onOwnSettled,
     onResolved: requote,
   });
-  const ownFlowOpen = venueSwap.flow.state.step !== 'idle';
-  const { target: buyRef, fallback: headingRef } = useReturnFocus(venueSwap.flow.state.step);
+  const flowState = venueSwap.flow.state;
+  const ownSigner = venueSwap.signerState.kind === 'ready' ? venueSwap.signerState.signer : null;
+  // ONE PRESS (components/swap/quietSwap.ts): a swap with nothing to read goes from Buy
+  // to the wallet, and an ending one line can say returns to the form by itself.
+  const goesStraight =
+    flowState.step === 'review' && !flowState.expired && !flowState.replaced && ownSigner !== null && needsNoReview(flowState.prepared, pressed?.floor ?? null);
+  const quiet = flowState.step === 'outcome' ? quietEnding(flowState.outcome) : null;
+  // Only a review that has to be read, or an ending with something to say, takes the form's place.
+  const ownFlowOpen = (flowState.step === 'review' && !goesStraight) || (flowState.step === 'outcome' && quiet === null);
+  const ownBusy =
+    flowState.step === 'preparing' ? 'Preparing…'
+    : goesStraight ? 'Opening your wallet…'
+    : flowState.step === 'submitting' ? 'Confirm in your wallet…'
+    : flowState.step === 'sent' ? 'Confirming…'
+    : null;
+  const { target: buyRef, fallback: headingRef } = useReturnFocus(ownFlowOpen ? flowState.step : 'idle');
+  // The swap at the wallet or on its way to the chain, as built.
+  const inFlightTx = flowState.step === 'review' || flowState.step === 'submitting' || flowState.step === 'sent' ? flowState.prepared : null;
+  const inFlight = inFlightTx?.summary.kind === 'venue-swap' ? inFlightTx.summary : null;
+
+  // Once per prepared swap: nothing here may ask the wallet twice for one press of Buy.
+  const sentStraight = useRef<unknown>(null);
+  const { confirm: confirmOwn, reset: resetOwn } = venueSwap.flow;
+  useEffect(() => {
+    if (!goesStraight || flowState.step !== 'review' || !ownSigner) return;
+    if (sentStraight.current === flowState.prepared) return;
+    sentStraight.current = flowState.prepared;
+    // The one cost the form does not show: a first buy of a token opens an account for it.
+    const deposit = flowState.prepared.fees.newAccountRentLamports;
+    if (deposit > 0n) {
+      toast.info(`One-time deposit: ${prettyAmount(fromBaseUnits(deposit.toString(), 9))} SOL`, { description: 'It opens your account for what you receive, and it stays in that account.' });
+    }
+    void confirmOwn(ownSigner);
+  }, [goesStraight, flowState, ownSigner, confirmOwn]);
+
+  const explorerOwn = venueSwap.api?.explorerTxUrl;
+  const ownCluster = venueSwap.cfg?.cluster ?? 'mainnet';
+  useEffect(() => {
+    if (flowState.step !== 'outcome') return;
+    const ending = quietEnding(flowState.outcome);
+    if (!ending) return;
+    const t = ownTrade.current;
+    if (ending.kind === 'confirmed') {
+      const s = flowState.prepared?.summary;
+      const got = s?.kind === 'venue-swap' && t ? `≈${prettyAmount(fromBaseUnits(s.quoted.outAmount.toString(), t.outDecimals))} ${t.buy} for ${t.amount} ${t.pay}` : shortSig(ending.signature);
+      const url = explorerOwn ? explorerOwn(ending.signature, ownCluster) : `https://solscan.io/tx/${ending.signature}`;
+      toast.success(t ? `${t.done} ${t.symbol}` : 'Swap confirmed', { description: got, action: { label: 'View', onClick: () => window.open(url, '_blank', 'noopener,noreferrer') } });
+    } else if (ending.kind === 'not-signed') {
+      toast.info('Not sent', { description: ending.message });
+    } else {
+      toast.error('Route changed', { description: ending.message });
+    }
+    resetOwn();
+    // The button was switched off under the keyboard: hand focus back to it, without moving the page.
+    requestAnimationFrame(() => {
+      const b = buyRef.current;
+      if (b && !b.disabled) b.focus({ preventScroll: true });
+    });
+  }, [flowState, explorerOwn, ownCluster, resetOwn, buyRef]);
   // A swap sent from this browser and not confirmed yet holds every buy until it is checked.
   const pendingNote = venueSwap.pending.notes.length > 0;
 
@@ -1416,6 +1513,8 @@ function SolanaSwapInner() {
   const rawImpact = ownBest ? ownBest.quote.priceImpact : Number(quote?.priceImpactPct);
   const priceImpact = Number.isFinite(rawImpact) ? Math.abs(rawImpact * 100) : null;
   const ownFloor = ownBest ? applySlippage(ownBest.outAmount, BigInt(slippageBps)) : null;
+  // Said in view, never only inside the Details fold: a large move is not a detail.
+  const impactNote = (quote || ownBest) && priceImpact !== null ? impactWarning(fractionToBps(priceImpact / 100)) : null;
   const feePct = (SOLANA_PLATFORM_FEE_BPS / 100).toFixed(2);
   // The fee can only be collected on a pair touching SOL or USDC (pre-created
   // fee ATAs). Drive the UI off the SAME decision the quote/swap use.
@@ -1424,19 +1523,31 @@ function SolanaSwapInner() {
   // Tagged with its origin mint: flattening the two lists used to discard which
   // token each warning described, which is why the render sites could not apply
   // the same per-mint exemption the ack gate already used.
+  // Drawn on the form: every line about a token that asks for the tick, and any line
+  // that is a real warning. A verified coin's ordinary notes (USDC can be frozen) are in
+  // its About panel, and the venue's own coins are known by mint and draw none.
+  const asksForTick = (mint: string) => needsRiskAck(mint === payToken.mint ? payToken : buyToken);
   const shieldWarnings: MintedShieldWarning[] = [
     ...(shield[payToken.mint] ?? []).map((w) => ({ ...w, mint: payToken.mint })),
     ...(shield[buyToken.mint] ?? []).map((w) => ({ ...w, mint: buyToken.mint })),
-  ];
-  // Show ALL Shield warnings, but only FORCE the ack on a genuinely dangerous
-  // warning (honeypot / transfer-hook / transfer-fee / non-curated freeze) or an
-  // unverified token — see dangerousShield (curated USDC freeze authority is benign).
-  const hasBlockingShield =
-    dangerousShield(shield[payToken.mint] ?? [], payToken.mint) ||
-    dangerousShield(shield[buyToken.mint] ?? [], buyToken.mint);
-  // isUnverified matches riskBadges: an unset flag (curated BAYLA, anything
-  // not resolved through Jupiter) is unverified and must require the ack.
-  const needsAck = isUnverified(payToken) || isUnverified(buyToken) || hasBlockingShield;
+  ].filter((w) => !isVenueCoin(w.mint) && (asksForTick(w.mint) || shieldIsAlarming(w, w.mint)));
+  // A dangerous line (honeypot / transfer hook / transfer fee / a freeze authority on a
+  // mint that is not curated) forces the tick: see dangerousShield.
+  const hasBlockingShield = [payToken.mint, buyToken.mint].some((mint) => !isVenueCoin(mint) && dangerousShield(shield[mint] ?? [], mint));
+  // The tokens that ask for the tick because Jupiter has not verified them. The venue's
+  // own coins never do (needsRiskAck), and a tick is remembered per token on this device.
+  // A dangerous line is asked about every time: no remembered tick covers it, and none
+  // stands in for a Shield answer that has not come (unread is not "nothing dangerous").
+  const riskMints = [payToken, buyToken].filter(needsRiskAck).map((t) => t.mint);
+  const shieldAnswered = shieldReadFor === `${payToken.mint}|${buyToken.mint}`;
+  const tickRemembered = shieldAnswered && !hasBlockingShield && riskMints.length > 0 && riskMints.every((m) => isRiskAcked(m) && !tickedNow.has(m));
+  const needsAck = (riskMints.length > 0 || hasBlockingShield) && !tickRemembered;
+  const onAck = (checked: boolean) => {
+    setAck(checked);
+    setTickedNow((was) => new Set([...was, ...riskMints]));
+    if (checked) rememberRiskAck(riskMints);
+    else forgetRiskAck(riskMints);
+  };
   const insufficient = payBalance.raw !== null && baseAmount !== null && BigInt(baseAmount) > payBalance.raw;
 
   const payUsd = (() => {
@@ -1495,7 +1606,12 @@ function SolanaSwapInner() {
     try {
       shownAggregatorOut = quote ? BigInt(quote.outAmount) : null;
     } catch { /* unparseable: it is asked again below */ }
-    ownTrade.current = { pay: payToken.symbol, buy: buyToken.symbol, buyMint: outputMint, amount: prettyAmount(tokenAmount), outDecimals: buyToken.decimals };
+    const said = sideWords(payToken, buyToken);
+    // The card for an ending that has to be read is its own chunk: asked for now, before
+    // anything is signed, so it is never first fetched for a swap that was already sent.
+    void loadVenueSwapFlow().catch(() => {});
+    setPressed({ pay: payToken.symbol, buy: buyToken.symbol, amount: prettyAmount(tokenAmount), outDecimals: buyToken.decimals, floor: applySlippage(ownBest.outAmount, BigInt(bps)) });
+    ownTrade.current = { pay: payToken.symbol, buy: buyToken.symbol, buyMint: outputMint, amount: prettyAmount(tokenAmount), outDecimals: buyToken.decimals, done: said.done, symbol: said.symbol };
     const user = owner.toBase58();
     const priority = speed;
     void venueSwap.flow.prepare(
@@ -1722,7 +1838,7 @@ function SolanaSwapInner() {
         setQuote(null);
         return;
       }
-      toast.success(`Bought ${buyToken.symbol}`, {
+      toast.success(`${words.done} ${words.symbol}`, {
         description: feeWaivedOnSend ? `${shortSig(sig)}. ${NO_SITE_FEE_ROUTE_COPY}` : shortSig(sig),
         action: view,
       });
@@ -1749,23 +1865,27 @@ function SolanaSwapInner() {
       setAmount('');
       setQuote(null);
     } catch (err) {
-      toast.error('Swap failed', { description: (err as Error).message });
+      // The same words as a decline on our own pool's route (submit.ts): it is not a failure.
+      if (walletDeclined(err)) toast.info('Not sent', { description: DECLINED_IN_WALLET });
+      else toast.error('Swap failed', { description: (err as Error).message });
     } finally {
       setSwapping(false);
     }
   }
 
-  const actionDisabled = (!quote && !ownBest) || quoteLoading || swapping || sameToken || (needsAck && !ack) || insufficient || ownPreparing || pendingNote;
+  const words = sideWords(payToken, buyToken);
+  const actionDisabled = (!quote && !ownBest) || quoteLoading || swapping || sameToken || (needsAck && !ack) || insufficient || ownPreparing || pendingNote || ownBusy !== null;
   // What the buy button says. "No route" only when the quote service said it:
   // a quote that could not be fetched, two of the same token, and the moment
   // before the first quote is asked for each get their own words.
   const ctaLabel = swapping ? 'Swapping…'
+    : ownBusy !== null ? ownBusy
     : quoteLoading ? 'Fetching quote…'
     : !baseAmount ? 'Enter an amount'
     : sameToken ? 'Pick two different tokens'
     : insufficient ? `Insufficient ${payToken.symbol}`
-    : ownPreparing ? 'Preparing route…'
-    : quote || ownBest ? `Buy ${buyToken.symbol}`
+    : ownPreparing ? 'Preparing…'
+    : quote || ownBest ? `${words.verb} ${words.symbol}`
     : quoteFail === 'no-route' ? 'No route'
     : quoteFail === 'unavailable' ? 'Quote unavailable'
     : 'Fetching quote…';
@@ -1808,7 +1928,8 @@ function SolanaSwapInner() {
                 type="button"
                 onClick={() => setMode(mTab)}
                 aria-pressed={mode === mTab}
-                className="flex-1 py-2.5 rounded-lg text-[12px] font-medium text-white transition-colors"
+                disabled={ownBusy !== null}
+                className="flex-1 py-2.5 rounded-lg text-[12px] font-medium text-white transition-colors disabled:opacity-60"
                 style={{
                   background: mode === mTab ? 'var(--color-stan)' : 'rgba(0,0,0,0.45)',
                   border: mode === mTab ? '1px solid var(--color-stan)' : '1px solid rgba(255,255,255,0.12)',
@@ -1820,13 +1941,15 @@ function SolanaSwapInner() {
           </div>
 
           {mode === 'swap' && ownFlowOpen ? (
-            // A swap in our own pool is under way: its review, the wallet's turn, the
-            // wait and the answer take the form's place until it is closed.
-            <Suspense fallback={<p role="status" className="text-white/55 text-[11px]">Building the transaction and test-running it on the network…</p>}>
+            // A review that has to be read, or an ending with something to say, takes
+            // the form's place until it is closed. Everything else leaves the form up.
+            <Suspense fallback={<p role="status" className="text-white/55 text-[11px]">One moment…</p>}>
               <VenueSwapFlow swap={venueSwap} />
             </Suspense>
           ) : mode === 'swap' ? (
-            <>
+            // Held while a swap in our own pool is on its way: the wallet is asked for
+            // what was pressed, so nothing here may change under it.
+            <fieldset disabled={ownBusy !== null} className="border-0 p-0 m-0 min-w-0">
           {/* You pay */}
           <div className="mb-1">
             <div className="flex items-center justify-between mb-2">
@@ -1965,8 +2088,13 @@ function SolanaSwapInner() {
             {receiveUsd !== null && <div className="text-right text-white/55 text-[10px] mt-1 font-mono">{fmtUsd(receiveUsd)}</div>}
           </div>
 
-          {/* Slippage */}
-          <div className="mb-3 px-3 py-2.5 rounded-lg" style={{ background: 'rgba(0,0,0,0.60)', border: '1px solid rgba(255,255,255,0.12)' }}>
+          {/* Slippage and speed: one line that says what they are set to, until it is opened. */}
+          <details className="group mb-3 px-3 rounded-lg" style={{ background: 'rgba(0,0,0,0.60)', border: '1px solid rgba(255,255,255,0.12)' }}>
+            <summary className="flex items-center justify-between min-h-[44px] cursor-pointer list-none text-white/80 text-[11px] [&::-webkit-details-marker]:hidden">
+              <span>Slippage {(slippageBps / 100).toFixed(slippageBps % 100 === 0 ? 0 : 1)}% · Speed {SPEED_LEVELS.find((l) => l.level === speed)?.label ?? 'Fast'}</span>
+              <span aria-hidden="true" className="text-white/50 transition-transform group-open:rotate-180">▾</span>
+            </summary>
+            <div className="pb-2.5">
             <div className="flex items-center justify-between mb-1.5">
               <span className="text-white text-[11px]" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>Slippage tolerance</span>
             </div>
@@ -2013,15 +2141,26 @@ function SolanaSwapInner() {
                 );
               })}
             </div>
+            {/* Speed is Jupiter's: a swap in our own pool sets its own, smaller fee. */}
             <p className="text-white/55 text-[10px] mt-1.5">
-              Priority fee up to {(MAX_PRIORITY_LAMPORTS / 1_000_000_000).toLocaleString('en-US', { maximumFractionDigits: 3 })} SOL — helps the swap land during congestion.
+              Speed sets the priority fee on a Jupiter swap, up to {(MAX_PRIORITY_LAMPORTS / 1_000_000_000).toLocaleString('en-US', { maximumFractionDigits: 3 })} SOL. It helps a swap land when the network is busy.
             </p>
-          </div>
+            </div>
+          </details>
 
           {/* Where the trade goes, and why. Shown in EVERY state — including the
               ones where our own pool loses or does not exist — because a routing
               disclosure that only appears when the house wins is an advert. */}
-          <SolanaRouteLine route={route} ownUnavailable={venueSwap.unavailable} />
+          {ownBusy !== null ? (
+            // The transaction's own figures, not the form's: the form's quote can be older.
+            <p role="status" data-testid="own-swap-status" className="text-[10px] leading-relaxed mt-2 rounded-lg px-2.5 py-1.5 text-white/80" style={{ background: 'rgba(0,0,0,0.35)', border: '1px solid rgba(255,255,255,0.10)' }}>
+              {inFlight && pressed
+                ? `At your wallet: ${pressed.amount} ${pressed.pay} for ${prettyAmount(fromBaseUnits(inFlight.quoted.outAmount.toString(), pressed.outDecimals))} ${pressed.buy}, at least ${prettyAmount(fromBaseUnits(inFlight.minimumAmountOut.toString(), pressed.outDecimals))}.`
+                : 'Checking both prices once more…'}
+            </p>
+          ) : (
+            <SolanaRouteLine route={route} ownUnavailable={venueSwap.unavailable} />
+          )}
 
           {/* Quote details */}
           <div className="mb-4 text-[11px] space-y-1">
@@ -2034,7 +2173,14 @@ function SolanaSwapInner() {
             ) : (
               <SiteFeeRow feePct={feePct} feeMintSymbol={feeMintSymbol} waived={feeWaived} />
             )}
-            {(quote || ownBest) && priceImpact !== null && (
+            {(quote || ownBest) && (
+            <details className="group">
+              <summary className="flex items-center justify-between min-h-[44px] -my-2 cursor-pointer list-none text-white/60 [&::-webkit-details-marker]:hidden">
+                <span>Details</span>
+                <span aria-hidden="true" className="text-white/50 transition-transform group-open:rotate-180">▾</span>
+              </summary>
+              <div className="space-y-1 pt-1">
+            {priceImpact !== null && (
               <div className="flex items-center justify-between text-white/70">
                 {/* Our pool's figure is worked out from its reserves, so its fee is in it. */}
                 <span>{ownBest ? 'Price impact (pool fee included)' : 'Price impact'}</span>
@@ -2065,6 +2211,12 @@ function SolanaSwapInner() {
                 <span>Route</span>
                 <span className="font-mono truncate ml-2" title={routeLabels(quote).join(' / ')}>via {routeLabels(quote).join(' / ')}</span>
               </div>
+            )}
+              </div>
+            </details>
+            )}
+            {impactNote && (
+              <p className={impactNote.tone === 'bad' ? 'text-red-300' : 'text-amber-300'} data-testid="solana-impact-warning">{impactNote.text}</p>
             )}
             {sameToken && <p className="text-amber-300">Pick two different tokens.</p>}
             {quoteFail === 'no-route' && !sameToken && !ownBest && <p className="text-amber-300">No route for this pair / amount.</p>}
@@ -2103,7 +2255,7 @@ function SolanaSwapInner() {
               className="flex items-start gap-2 mb-3 px-3 py-2.5 rounded-lg cursor-pointer"
               style={{ background: 'rgba(150,40,40,0.20)', border: '1px solid rgba(255,90,90,0.35)' }}
             >
-              <input type="checkbox" checked={ack} onChange={(e) => setAck(e.target.checked)} className="mt-0.5 flex-shrink-0" />
+              <input type="checkbox" checked={ack} onChange={(e) => onAck(e.target.checked)} className="mt-0.5 flex-shrink-0" />
               <span className="text-[11px] text-red-200">
                 This pair carries a risk warning (an unverified token, or flagged by Jupiter Shield above).
                 It could be a scam or have transfer restrictions. I understand and want to swap anyway.
@@ -2144,24 +2296,23 @@ function SolanaSwapInner() {
 
           <p className="mt-3 text-center text-white/60 text-[10px]" data-testid="swap-footer">
             {/* On our own pool's route the fee sentences below are not this trade's. */}
-            {ownBest ? 'This swap goes through our own pool. No platform fee is added: the pool’s own fee is already inside the quote.' : (
+            {ownBest ? 'No platform fee on a swap in our own pool.' : (
               <>
-            Swaps here go through our own pools or Jupiter, whichever pays you more.{' '}
             {/* While the no-fee re-quote is on screen the standing sentence
                 would contradict the notice a few rows above it. */}
             {!isSolanaFeeConfigured()
-              ? 'No platform fee is charged here today — you get Jupiter’s route as quoted.'
+              ? 'No platform fee is charged here today.'
               : feeWaived
                 ? 'No platform fee on this route.'
                 : `A ${feePct}% platform fee applies on pairs that include SOL or USDC.`}
               </>
             )}
           </p>
-            </>
+            </fieldset>
           ) : mode === 'limit' ? (
-            <LimitTab payToken={payToken} buyToken={buyToken} shieldWarnings={shieldWarnings} needsAck={needsAck} ack={ack} setAck={setAck} onPickPay={() => setPicker('pay')} onPickBuy={() => setPicker('buy')} />
+            <LimitTab payToken={payToken} buyToken={buyToken} shieldWarnings={shieldWarnings} needsAck={needsAck} ack={ack} setAck={onAck} onPickPay={() => setPicker('pay')} onPickBuy={() => setPicker('buy')} />
           ) : (
-            <DcaTab payToken={payToken} buyToken={buyToken} shieldWarnings={shieldWarnings} needsAck={needsAck} ack={ack} setAck={setAck} onPickPay={() => setPicker('pay')} onPickBuy={() => setPicker('buy')} />
+            <DcaTab payToken={payToken} buyToken={buyToken} shieldWarnings={shieldWarnings} needsAck={needsAck} ack={ack} setAck={onAck} onPickPay={() => setPicker('pay')} onPickBuy={() => setPicker('buy')} />
           )}
         </div>
       </m.div>
@@ -2174,8 +2325,8 @@ function SolanaSwapInner() {
               <PairChart key={buyToken.mint} mint={buyToken.mint} symbol={buyToken.symbol} />
             </div>
           )}
-          <EarnRail onPick={(t) => { setPayToken(SOL); setBuyToken(t); }} />
-          <TrendingRail onPick={(t) => { setPayToken(SOL); setBuyToken(t); }} />
+          <EarnRail onPick={(t) => { if (ownBusy === null) { setPayToken(SOL); setBuyToken(t); } }} />
+          <TrendingRail onPick={(t) => { if (ownBusy === null) { setPayToken(SOL); setBuyToken(t); } }} />
           <ActivityRail />
         </>
       )}
@@ -2202,7 +2353,7 @@ function SolanaSwapInner() {
 }
 
 export default function SolanaSwapPage() {
-  usePageTitle('Solana Swap', 'Buy Solana tokens on memetics.finance via Jupiter.');
+  usePageTitle('Solana Swap', 'Swap Solana tokens on memetics.finance, through our own pools or Jupiter.');
   useEffect(() => { trackPageView('solana-swap'); }, []);
 
   // The surface is gated on the SWAP being available, not on the venue having

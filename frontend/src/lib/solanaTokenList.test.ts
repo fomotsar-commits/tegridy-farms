@@ -13,7 +13,19 @@ import {
   toggleFavoriteToken,
   isFavoriteToken,
   iconSrc,
+  BAYLA,
+  PAY_WITH_TOKENS,
+  VENUE_COINS,
+  isVenueCoin,
+  needsRiskAck,
+  withVenueCoinsFirst,
+  isRiskAcked,
+  rememberRiskAck,
+  forgetRiskAck,
+  type SolToken,
 } from './solanaTokenList';
+import { BAYLA_MINT } from './bungalows';
+import { QUOTE_COINS } from './solana/lp/quotes';
 
 describe('isUnverified — the one verified/unverified decision', () => {
   it('treats an UNSET flag as unverified (the curated BAYLA case)', () => {
@@ -45,6 +57,113 @@ describe('isUnverified — the one verified/unverified decision', () => {
       if (knownUnverified.has(t.mint)) continue;
       expect(t.verified, `${t.symbol} (${t.mint})`).toBe(true);
     }
+  });
+});
+
+describe('the venue knows its own coins by mint', () => {
+  const copy: SolToken = { mint: 'CopyCopyCopyCopyCopyCopyCopyCopyCopyCopypump', symbol: 'BAYLA', name: 'BAYLA', decimals: 6 };
+
+  it('they are the three coins our pools pair with, and BAYLA is the bungalow mint', () => {
+    expect(VENUE_COINS.map((t) => t.mint).sort()).toEqual(QUOTE_COINS.map((q) => q.mint).sort());
+    expect(BAYLA.mint).toBe(BAYLA_MINT);
+    for (const t of VENUE_COINS) expect(isVenueCoin(t.mint)).toBe(true);
+  });
+
+  it('a copy of the name is not a venue coin: the mint decides, never the symbol', () => {
+    expect(isVenueCoin(copy.mint)).toBe(false);
+    expect(isVenueCoin('BAYLA')).toBe(false);
+  });
+
+  it('the venue BAYLA asks for no acknowledgement, though Jupiter has not verified it; a copy does', () => {
+    expect(BAYLA.verified).toBeUndefined();
+    expect(needsRiskAck(BAYLA)).toBe(false);
+    expect(needsRiskAck(copy)).toBe(true);
+    expect(needsRiskAck({ ...copy, verified: false })).toBe(true);
+    expect(needsRiskAck(SOL)).toBe(false);
+    expect(needsRiskAck({ ...copy, verified: true })).toBe(false);
+  });
+
+  it('BAYLA is on both short lists, first on the buy side, so neither side needs a search', () => {
+    expect(BUY_TOKENS[0]!.mint).toBe(BAYLA_MINT);
+    expect(PAY_WITH_TOKENS.some((t) => t.mint === BAYLA_MINT)).toBe(true);
+  });
+});
+
+describe('search results put the venue coin where a trader can find it', () => {
+  const row = (mint: string, symbol = 'BAYLA'): SolToken => ({ mint, symbol, name: symbol, decimals: 6 });
+  const copies = [row('Copy1111111111111111111111111111111111111pump'), row('Copy2222222222222222222222222222222222222pump')];
+  const real: SolToken = { ...row(BAYLA_MINT), logoURI: 'https://example.test/bayla.png', tokenProgram: 'TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb' };
+
+  it('moves the real BAYLA to the front, as the row the search returned', () => {
+    const out = withVenueCoinsFirst([copies[0]!, real, copies[1]!], 'bayla');
+    expect(out.map((t) => t.mint)).toEqual([BAYLA_MINT, copies[0]!.mint, copies[1]!.mint]);
+    expect(out[0]!.logoURI).toBe(real.logoURI);
+  });
+
+  it('adds it when copies filled the results and left it out', () => {
+    const out = withVenueCoinsFirst(copies, 'BAYLA');
+    expect(out.map((t) => t.mint)).toEqual([BAYLA_MINT, copies[0]!.mint, copies[1]!.mint]);
+  });
+
+  it('adds it for its pasted mint, and for the start of its symbol', () => {
+    expect(withVenueCoinsFirst([], BAYLA_MINT).map((t) => t.mint)).toEqual([BAYLA_MINT]);
+    expect(withVenueCoinsFirst([], ' bay ').map((t) => t.mint)).toEqual([BAYLA_MINT]);
+  });
+
+  it('adds nothing for a search that is not about a venue coin, and keeps the order it was given', () => {
+    const others = [row('Other111111111111111111111111111111111111111', 'WIF'), row('Other222222222222222222222222222222222222222', 'BONK')];
+    expect(withVenueCoinsFirst(others, 'wif')).toEqual(others);
+    expect(withVenueCoinsFirst(others, 'b')).toEqual(others);
+    expect(withVenueCoinsFirst([], '')).toEqual([]);
+  });
+
+  it('never lists a venue coin twice', () => {
+    const out = withVenueCoinsFirst([real, copies[0]!, real], 'bayla');
+    expect(out.filter((t) => t.mint === BAYLA_MINT)).toHaveLength(1);
+  });
+});
+
+describe('a risk acknowledgement is remembered per token on this device', () => {
+  let store: Record<string, string>;
+  beforeEach(() => {
+    store = {};
+    vi.stubGlobal('localStorage', {
+      getItem: (k: string) => (k in store ? store[k] : null),
+      setItem: (k: string, v: string) => { store[k] = v; },
+      removeItem: (k: string) => { delete store[k]; },
+    });
+  });
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('remembers the tokens that were acknowledged, and only those', () => {
+    expect(isRiskAcked('MintA')).toBe(false);
+    rememberRiskAck(['MintA', 'MintB']);
+    expect(isRiskAcked('MintA')).toBe(true);
+    expect(isRiskAcked('MintB')).toBe(true);
+    expect(isRiskAcked('MintC')).toBe(false);
+    rememberRiskAck(['MintA']);
+    expect(JSON.parse(store['sol.acks']!)).toEqual(['MintA', 'MintB']);
+  });
+
+  it('forgets one when the trader takes the tick back', () => {
+    rememberRiskAck(['MintA', 'MintB']);
+    forgetRiskAck(['MintA']);
+    expect(isRiskAcked('MintA')).toBe(false);
+    expect(isRiskAcked('MintB')).toBe(true);
+  });
+
+  it('keeps the newest 64, and reads a damaged or missing store as nothing remembered', () => {
+    for (let i = 0; i < 70; i++) rememberRiskAck([`M${i}`]);
+    expect(JSON.parse(store['sol.acks']!)).toHaveLength(64);
+    expect(isRiskAcked('M69')).toBe(true);
+    expect(isRiskAcked('M0')).toBe(false);
+    store['sol.acks'] = '{"not":"a list"}';
+    expect(isRiskAcked('M69')).toBe(false);
+    store['sol.acks'] = 'garbage';
+    expect(isRiskAcked('M69')).toBe(false);
+    vi.stubGlobal('localStorage', { getItem: () => { throw new Error('denied'); }, setItem: () => { throw new Error('denied'); } });
+    expect(() => rememberRiskAck(['X'])).not.toThrow();
+    expect(isRiskAcked('X')).toBe(false);
   });
 });
 
@@ -82,6 +201,18 @@ describe('recents + favorites store', () => {
     const recents = getRecentTokens();
     expect(recents.length).toBe(1);
     expect(recents[0]!.decimals).toBe(9);
+  });
+
+  it('a venue coin kept from before it had its picture is shown as the venue knows it now', () => {
+    // What a browser stored when the curated BAYLA had another name and no picture.
+    store['sol.recents'] = JSON.stringify([{ mint: BAYLA_MINT, symbol: 'BAYLA', name: 'An older name', decimals: 6 }]);
+    store['sol.favs'] = store['sol.recents'];
+    expect(getRecentTokens()[0]).toEqual(BAYLA);
+    expect(getFavoriteTokens()[0]).toEqual(BAYLA);
+    // A row the search gave, with its own picture and live fields, is kept as it is.
+    const live = { ...BAYLA, name: 'BAYLA', logoURI: 'https://example.test/b.png', tokenProgram: 'TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb' };
+    store['sol.recents'] = JSON.stringify([live]);
+    expect(getRecentTokens()[0]).toEqual(live);
   });
 
   it('toggles favorites and reports state', () => {

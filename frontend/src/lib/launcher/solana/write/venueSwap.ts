@@ -13,6 +13,7 @@ import { formatTokenAmount } from '../curve/format';
 import { applySlippage } from '../curve/math';
 import { swapBaseInputIx } from '../../../solana/cpswap/ix';
 import { quoteOwnPool } from '../../../solana/cpswap/read';
+import { OWN_ROUTE_COPY } from '../../../solana/swap/ownPoolRoute';
 import type { RawAccount } from '../../../solana/lp/accounts';
 import { QUOTE_COINS_OR, readPair } from '../../../solana/lp/quotes';
 import { BUILDABLE_EXTENSIONS, decodeMintAccount, extensionPlain } from '../../../solana/lp/tokenSafety';
@@ -33,8 +34,7 @@ export const VENUE_SWAP_COPY = {
   noClock: 'Could not read the network clock to check the pool is open.',
   cannotPrice: 'The pool cannot price this trade right now.',
   tooSmall: 'That amount is too small to protect with a price limit.',
-  routeMoved:
-    'Jupiter now pays more for this trade than our pool does, so nothing was built here. Start over and press Buy again to take the better route.',
+  routeMoved: OWN_ROUTE_COPY.routeMoved,
   noSource: (what: string, address: string) => `You hold no ${what} in your main account for it (${address}).`,
   short: (need: string, have: string) => `This needs ${need} and your wallet has ${have}.`,
   cannotSize: 'This site cannot open your account for what this swap pays out, so nothing was built.',

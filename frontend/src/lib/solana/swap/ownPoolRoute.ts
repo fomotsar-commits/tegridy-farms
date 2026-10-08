@@ -11,9 +11,9 @@ import type { VenuePoolCandidate } from './venuePools';
  */
 
 export const OWN_ROUTE_COPY = {
-  routeMoved: 'Jupiter now pays more for this trade than our own pool does, so nothing was built here. Start over and press Buy again to take the better route.',
-  poolGone: 'Our own pool could not be quoted just now, so nothing was built here. Start over and press Buy again.',
-  ownNowWins: 'Our own pool now pays at least as much as Jupiter for this trade. Review the new route and press Buy again.',
+  routeMoved: 'Jupiter now pays more for this trade than our own pool, so nothing was sent. Press again to take the better route.',
+  poolGone: 'Our own pool could not be quoted just now, so nothing was sent. Press again.',
+  ownNowWins: 'Our own pool now pays at least as much as Jupiter for this trade. Check the new route and press again.',
 } as const;
 
 const notBuilt = (message: string): Prepared => ({ ok: false, outcome: { status: 'not-sent', stage: 'build', message } });
