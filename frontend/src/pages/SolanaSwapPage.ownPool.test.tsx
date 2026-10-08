@@ -894,6 +894,18 @@ describe('Buy pressed while our pools are still being read, on a slow network', 
   });
 });
 
+describe('a press reads the pool it shows straight from the chain', () => {
+  it('the press’s read of our pools names the pool on screen, so a pool index that does not answer cannot hide it', async () => {
+    const buy = await readyToBuy();
+    await waitFor(() => expect(routeLine()).toMatch(/Our pool pays/));
+    const before = h.readVenuePools.mock.calls.length;
+    fireEvent.click(buy);
+    await waitFor(() => expect(h.readVenuePools.mock.calls.length).toBeGreaterThan(before));
+    const opts = h.readVenuePools.mock.calls.at(-1)![3] as { also?: readonly string[] };
+    expect(opts.also).toContain(POOL);
+  });
+});
+
 describe('the risk tick-box: never for the venue’s own coins, once per token for the rest', () => {
   const OTHER = 'Dog1111111111111111111111111111111111111111';
   const other = { mint: OTHER, symbol: 'DOGGO', name: 'Doggo', decimals: 6, verified: false };

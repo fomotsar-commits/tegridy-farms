@@ -36,11 +36,13 @@ export const POOLS_FRESH_MS = 15_000;
 export const POOL_LIST_FRESH_MS = 5 * 60_000;
 const poolListFetch = rememberingFetch(POOL_LIST_FRESH_MS);
 
-function readPools(programId: string, inputMint: string, outputMint: string): Promise<VenuePoolsRead> {
+/** `also`: pools already on screen, read from the chain whether or not the index names them. */
+function readPools(programId: string, inputMint: string, outputMint: string, also: readonly string[] = []): Promise<VenuePoolsRead> {
   return readVenuePools(withReadCommitment(browserRpc(), 'confirmed'), inputMint, outputMint, {
     programId: new PublicKey(programId),
     launchProgramId: LAUNCH_PROGRAM_ID,
     fetchImpl: poolListFetch,
+    also,
   }).catch((e: unknown): VenuePoolsRead => ({ kind: 'unread', detail: e instanceof Error ? e.message : String(e) }));
 }
 
@@ -141,6 +143,11 @@ export function useSolanaRoute({ inputMint, outputMint, amountInRaw, aggregatorQ
   const own: SolanaRoute['own'] =
     venue === null ? 'pending' : venue.kind === 'live' ? (quoted?.state ?? 'pending') : venue.kind === 'unreadable' ? 'error' : 'absent';
   const candidates = useMemo(() => (venue?.kind === 'live' ? (quoted?.candidates ?? []) : []), [venue, quoted]);
+  // The pools quoting this pair on screen: a press reads them again even if the index is down.
+  const shownPools = useRef<{ key: string; addresses: string[] }>({ key: '', addresses: [] });
+  useEffect(() => {
+    shownPools.current = { key: pairKey, addresses: candidates.map((c) => c.poolAddress) };
+  }, [pairKey, candidates]);
 
   const decision: RouteDecision | null = useMemo(() => {
     if (!venue || !hasAmount || aggregatorPending) return null;
@@ -155,7 +162,8 @@ export function useSolanaRoute({ inputMint, outputMint, amountInRaw, aggregatorQ
       // What the press found is the page's venue from now on: a venue that failed at load included.
       setVenue(v);
       if (v.kind !== 'live') return [];
-      const fresh = await readPools(v.programId, inputMint, outputMint);
+      const shown = shownPools.current.key === pairKey ? shownPools.current.addresses : [];
+      const fresh = await readPools(v.programId, inputMint, outputMint, shown);
       if (onScreen.current === pairKey) setPools({ key: pairKey, read: fresh, at: Date.now() });
       return quoteVenuePools(fresh, inputMint, amountIn).candidates;
     },

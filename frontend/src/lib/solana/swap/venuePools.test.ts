@@ -215,6 +215,34 @@ describe('what was not found is said as what it is', () => {
   });
 });
 
+describe('a search that did not finish, with nothing that trades, is "could not be quoted", never "cannot be traded"', () => {
+  it('the index did not answer and the one pool read cannot trade, while a pool that trades sits where only the index names it', async () => {
+    const mint = key();
+    const frozen = buildPool({ mint, configIndex: 1, quoteReserve: 10n * SOL, tokenReserve: 1_000_000n * TOK, frozenVault: true });
+    const good = buildPool({ mint, configIndex: 1, address: key(), quoteReserve: 10n * SOL, tokenReserve: 1_000_000n * TOK });
+    const accounts = base(mint, { ...frozen.accounts, ...good.accounts });
+    expect(quoteVenuePools(await read(accounts, mint, { indexStatus: 502 }), WSOL_MINT, SOL).state).toBe('error');
+    // With the index answering, the pool that trades is found and quoted.
+    expect(quoteVenuePools(await read(accounts, mint, { index: { [`mint:${mint.toBase58()}`]: [good.address.toBase58()] } }), WSOL_MINT, SOL).state).toBe('quoted');
+  });
+
+  it('the chain’s clock was not read: a pool not open by the viewer’s clock could not be quoted', async () => {
+    const mint = key();
+    const later = buildPool({ mint, quoteReserve: 10n * SOL, tokenReserve: 1_000_000n * TOK, openTime: NOW + 60n });
+    const accounts = base(mint, later.accounts);
+    delete accounts[CLOCK];
+    expect(quoteVenuePools(await read(accounts, mint), WSOL_MINT, SOL, Number(NOW)).state).toBe('error');
+  });
+
+  it('a token no pool of ours can price is "cannot be traded", whether the search finished or not', async () => {
+    const mint = key();
+    const pool = buildPool({ mint, quoteReserve: 10n * SOL, tokenReserve: 1_000_000n * TOK });
+    const accounts = base(mint, pool.accounts);
+    accounts[mint.toBase58()] = { owner: TOKEN_2022_PROGRAM, data: encodeMint2022([[EXT.TransferFeeConfig, 108]]) };
+    expect(quoteVenuePools(await read(accounts, mint, { indexStatus: 502 }), WSOL_MINT, SOL).state).toBe('unquotable');
+  });
+});
+
 describe('rememberingFetch: the pool list is asked for once in a while, not on every quote', () => {
   function counting(answers: Array<{ status: number; body: string }>) {
     const calls: string[] = [];
