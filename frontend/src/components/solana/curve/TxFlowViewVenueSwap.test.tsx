@@ -123,6 +123,11 @@ describe('what Jupiter was seen to pay is said as what it was', () => {
     expect(t).toMatch(/Compared with Jupiter ?Jupiter could not be asked just now, so this trade was not compared with it/);
     expect(t).not.toMatch(/no route|only route/);
   });
+  it('quoted more, but its transaction failed its test run: said as that, never as Jupiter paying more', () => {
+    const t = line({ kind: 'refused' });
+    expect(t).toMatch(/Compared with Jupiter ?Jupiter quoted more, but its transaction for this trade failed its test run, so it could not be sent/);
+    expect(t).not.toMatch(/no route|only route|now pays more/);
+  });
 });
 
 describe('the whole review', () => {

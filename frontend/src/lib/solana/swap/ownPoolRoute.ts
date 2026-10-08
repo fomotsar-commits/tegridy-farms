@@ -12,6 +12,7 @@ import type { VenuePoolCandidate } from './venuePools';
 
 export const OWN_ROUTE_COPY = {
   routeMoved: 'Jupiter now pays more for this trade than our own pool, so nothing was sent. Press again to take the better route.',
+  underLastQuote: 'Our own pool now pays less than the last quote Jupiter gave, and Jupiter could not be asked again just now, so nothing was sent. Check the route and press again.',
   poolGone: 'Our own pool could not be quoted just now, so nothing was sent. Press again.',
   ownNowWins: 'Our own pool now pays at least as much as Jupiter for this trade. Check the new route and press again.',
   notChecked: 'Our own pools did not answer in time, so nothing was sent. Press again.',
@@ -31,6 +32,12 @@ export interface OwnPoolSwapDeps {
    * when it answers that it has no route. THROWS when it could not be asked.
    */
   aggregatorOut(): Promise<bigint | null>;
+  /**
+   * Would the transaction for the quote `aggregatorOut` just gave pass its own test run?
+   * Asked only when that quote would take the trade from our pool. False only when the
+   * test run refused it: one that could not run is true, as the Jupiter path sends it.
+   */
+  aggregatorSends?(): Promise<boolean>;
   /** Our pools for the pair, read again and quoted. Never throws; none = none could be quoted. */
   ownPools(): Promise<VenuePoolCandidate[]>;
   /** Build and test-run the swap in `pool`, refusing if it pays less than the aggregator was seen to. */
@@ -53,9 +60,18 @@ export async function prepareOwnPoolSwap(deps: OwnPoolSwapDeps, shownAggregatorO
     deps.ownPools(),
   ]);
   if (own.length === 0) return notBuilt(OWN_ROUTE_COPY.poolGone);
-  const chosen = freshDecision(own, agg.kind === 'quoted' ? agg.out : null).chosen;
-  if (chosen?.venue !== 'own-pool' || !chosen.poolAddress) return notBuilt(OWN_ROUTE_COPY.routeMoved);
-  return deps.prepare(chosen.poolAddress, agg);
+  let seen = agg;
+  let chosen = freshDecision(own, agg.kind === 'quoted' ? agg.out : null).chosen;
+  // A quote whose transaction this site would refuse to send is no better route.
+  if (chosen?.venue !== 'own-pool' && agg.kind === 'quoted' && agg.when === 'now' && deps.aggregatorSends && !(await deps.aggregatorSends())) {
+    seen = { kind: 'refused' };
+    chosen = freshDecision(own, null).chosen;
+  }
+  if (chosen?.venue !== 'own-pool' || !chosen.poolAddress) {
+    // A figure from earlier is the last quote Jupiter gave, not an answer it gave now.
+    return notBuilt(agg.kind === 'quoted' && agg.when === 'earlier' ? OWN_ROUTE_COPY.underLastQuote : OWN_ROUTE_COPY.routeMoved);
+  }
+  return deps.prepare(chosen.poolAddress, seen);
 }
 
 /** With what the aggregator's transaction would pay in hand: does one of our pools, read again now, take the trade? */

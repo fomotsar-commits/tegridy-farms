@@ -73,11 +73,11 @@ export interface SolanaRoute {
   /** The decision for this pair, amount and aggregator quote; null before there is one. */
   decision: RouteDecision | null;
   aggregatorLabel: string;
-  /** Read our pools again now and quote `amountIn` of the pay token. Never throws. */
   /** An amount is typed and an answer it waits on (the aggregator's or the venue's) is still on its way. */
   asking: boolean;
+  /** Read our pools again now and quote `amountIn` of the pay token. Never throws. */
   refresh(amountIn: bigint): Promise<VenuePoolCandidate[]>;
-  /** Drop the read in hand (a trade just changed the pool): the next amount reads again. */
+  /** Drop the read in hand and read again (a trade, or a press, found the pool changed). */
   forget(): void;
 }
 
@@ -87,6 +87,8 @@ export function useSolanaRoute({ inputMint, outputMint, amountInRaw, aggregatorQ
   // answer for a previous pair is discarded by derivation. A pair's pools are the same
   // whichever of the two is paid in.
   const [pools, setPools] = useState<{ key: string; read: VenuePoolsRead; at: number } | null>(null);
+  // Bumped by forget(): the read in hand was dropped, so the pools are read again.
+  const [forgot, setForgot] = useState(0);
   const pairKey = [inputMint, outputMint].sort().join('|');
   const hasAmount = amountInRaw !== null && amountInRaw > 0n;
   const programId = venue?.kind === 'live' ? venue.programId : null;
@@ -130,7 +132,7 @@ export function useSolanaRoute({ inputMint, outputMint, amountInRaw, aggregatorQ
     });
     // inputMint and outputMint are read through pairKey: a flip is the same pools.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [programId, pairKey, hasAmount, amountInRaw, retry]);
+  }, [programId, pairKey, hasAmount, amountInRaw, retry, forgot]);
 
   const read = pools && pools.key === pairKey ? pools.read : null;
   const quoted = useMemo(
@@ -169,7 +171,10 @@ export function useSolanaRoute({ inputMint, outputMint, amountInRaw, aggregatorQ
     },
     [inputMint, outputMint, pairKey],
   );
-  const forget = useCallback(() => setPools(null), []);
+  const forget = useCallback(() => {
+    setPools(null);
+    setForgot((n) => n + 1);
+  }, []);
 
   return { venue, own, candidates, decision, aggregatorLabel, asking: hasAmount && (aggregatorPending || venue === null), refresh, forget };
 }

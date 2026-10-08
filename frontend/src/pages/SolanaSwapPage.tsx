@@ -1415,13 +1415,14 @@ function SolanaSwapInner() {
         recordActivity(wallet, { sig: outcome.signature, ts: Date.now(), kind: 'swap', summary: outcome.status === 'confirmed' ? `Bought ${words}` : `Sent, not confirmed: ${words}` });
         const room = outcome.status === 'confirmed' ? bungalowByAddress('solana', t.buyMint) : null;
         if (room) setLastBuy({ hash: outcome.signature, symbol: room.symbol, tokenAddress: t.buyMint, chain: room.chain, buyer: wallet, atUnix: Math.floor(Date.now() / 1000) });
-        // The form is cleared so the same buy is not one click away, and the pool it
-        // traded in is read again before it is quoted again.
+        // The form is cleared so the same buy is not one click away.
         setAmount('');
         setQuote(null);
-        forgetPools();
         retryPayBalance();
       }
+      // Whatever the answer, our pools are read again before they are quoted again: the
+      // pool traded, or the press found it other than the read the line was drawn from.
+      forgetPools();
       if (keepQuote.current) {
         keepQuote.current = false;
         return;
@@ -1624,8 +1625,14 @@ function SolanaSwapInner() {
     const priority = speed;
     void venueSwap.flow.prepare(
       async () => {
-        // Jupiter's no-fee quote for this trade, when THAT is what its transaction would pay.
-        const seen: { noFee: JupiterQuote | null } = { noFee: null };
+        // Jupiter's no-fee quote for this trade, when THAT is what its transaction would pay;
+        // its fresh quote; and whether its transaction passed its test run (null: not run yet).
+        const seen: { noFee: JupiterQuote | null; fresh: JupiterQuote | null; sends: boolean | null } = { noFee: null, fresh: null, sends: null };
+        const jupiterTx = (fresh: JupiterQuote) =>
+          prepareJupiterSwap(
+            { getQuote, buildSwapTransaction, simulateSwap, swapCarriesPlatformFee },
+            { fresh, shown: fresh, inputMint, outputMint, amount: baseAmount, slippageBps: bps, user, priority },
+          );
         const built = await prepareOwnPoolSwap(
           {
             // What Jupiter's transaction FROM THIS SITE would pay. Its quote carries the
@@ -1641,19 +1648,30 @@ function SolanaSwapInner() {
                 if (e instanceof NoRouteError) return null;
                 throw e;
               }
+              seen.fresh = fresh;
               const quotedOut = BigInt(fresh.outAmount);
               if (!swapCarriesPlatformFee(inputMint, outputMint)) return quotedOut;
               try {
-                const j = await prepareJupiterSwap(
-                  { getQuote, buildSwapTransaction, simulateSwap, swapCarriesPlatformFee },
-                  { fresh, shown: fresh, inputMint, outputMint, amount: baseAmount, slippageBps: bps, user, priority },
-                );
-                // A Jupiter transaction that would fail is no better offer: its quote still stands as the bar.
+                const j = await jupiterTx(fresh);
+                seen.sends = j.status !== 'blocked';
+                // A refused transaction's quote still holds our pool to it while our pool
+                // beats it; above our pool, aggregatorSends says it is no route.
                 if (j.status === 'blocked') return quotedOut;
                 if (j.status === 'moved' || j.siteFeeWaived) seen.noFee = j.quote;
                 return BigInt(j.quote.outAmount);
               } catch {
+                seen.sends = true;
                 return quotedOut;
+              }
+            },
+            // Asked only when Jupiter's quote would take the trade. With no site fee on the
+            // pair its transaction has not been built yet: it is built and test-run now.
+            aggregatorSends: async () => {
+              if (seen.sends !== null || seen.fresh === null) return seen.sends ?? true;
+              try {
+                return (await jupiterTx(seen.fresh)).status !== 'blocked';
+              } catch {
+                return true;
               }
             },
             ownPools: () => route.refresh(amountIn),

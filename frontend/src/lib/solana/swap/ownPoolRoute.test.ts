@@ -61,7 +61,7 @@ describe('our pool was shown: it is built only while it is still the route', () 
 
   it('when the aggregator cannot be asked again, the figure that was on screen stands in', async () => {
     const lost = deps({ agg: new Error('HTTP 502'), own: [pool('PoolA', 1_000_000n)] });
-    expect(messageOf(await prepareOwnPoolSwap(lost.d, 1_000_001n))).toBe(OWN_ROUTE_COPY.routeMoved);
+    expect(messageOf(await prepareOwnPoolSwap(lost.d, 1_000_001n))).toBe(OWN_ROUTE_COPY.underLastQuote);
     expect(lost.prepare).not.toHaveBeenCalled();
     const tied = deps({ agg: new Error('HTTP 502'), own: [pool('PoolA', 1_000_000n)] });
     expect(await prepareOwnPoolSwap(tied.d, 1_000_000n)).toBe(BUILT);
@@ -86,6 +86,55 @@ describe('our pool was shown: it is built only while it is still the route', () 
     const { d } = deps({ agg: null, own: [pool('PoolA', 5n)] });
     d.prepare = async () => refused;
     expect(await prepareOwnPoolSwap(d, null)).toBe(refused);
+  });
+});
+
+describe('the aggregator could not be asked at the press, and our pool fell under the figure on screen', () => {
+  it('nothing is built, and the words never say the aggregator "now pays more" or that a better route is waiting', async () => {
+    const { d, prepare } = deps({ agg: new Error('HTTP 502'), own: [pool('PoolA', 990_000n)] });
+    const r = await prepareOwnPoolSwap(d, 1_000_000n);
+    expect(prepare).not.toHaveBeenCalled();
+    expect(r.ok ? null : r.outcome).toMatchObject({ status: 'not-sent', stage: 'build' });
+    // Jupiter did not answer: what is known is that our pool fell under its LAST quote.
+    expect(messageOf(r)).not.toBe(OWN_ROUTE_COPY.routeMoved);
+    expect(messageOf(r)).not.toMatch(/now pays more|better route/);
+    expect(messageOf(r)).toMatch(/could not be asked/);
+  });
+
+  it('a figure taken just now that beats our pool is still said as Jupiter paying more', async () => {
+    const { d } = deps({ agg: 1_000_000n, own: [pool('PoolA', 990_000n)] });
+    expect(messageOf(await prepareOwnPoolSwap(d, 1_000_000n))).toBe(OWN_ROUTE_COPY.routeMoved);
+  });
+});
+
+describe('a quote whose transaction fails its own test run is no route this site would send', () => {
+  const withSends = (o: Parameters<typeof deps>[0], sends: boolean) => {
+    const x = deps(o);
+    const asked = vi.fn(async () => sends);
+    x.d.aggregatorSends = asked;
+    return { ...x, asked };
+  };
+
+  it('the aggregator quotes more, and its transaction is refused: our pool is built, held to nothing, and says why', async () => {
+    const { d, prepare } = withSends({ agg: 1_020_000n, own: [pool('PoolA', 1_010_000n)] }, false);
+    expect(await prepareOwnPoolSwap(d, 1_000_000n)).toBe(BUILT);
+    expect(prepare).toHaveBeenCalledWith('PoolA', { kind: 'refused' });
+  });
+
+  it('the aggregator quotes more, and its transaction would run (or its test run could not run): nothing is built', async () => {
+    const { d, prepare } = withSends({ agg: 1_020_000n, own: [pool('PoolA', 1_010_000n)] }, true);
+    expect(messageOf(await prepareOwnPoolSwap(d, 1_000_000n))).toBe(OWN_ROUTE_COPY.routeMoved);
+    expect(prepare).not.toHaveBeenCalled();
+  });
+
+  it('is not asked when our pool already takes the trade, nor of a figure from earlier', async () => {
+    const won = withSends({ agg: 1_000_000n, own: [pool('PoolA', 1_010_000n)] }, false);
+    expect(await prepareOwnPoolSwap(won.d, null)).toBe(BUILT);
+    expect(won.prepare).toHaveBeenCalledWith('PoolA', { kind: 'quoted', out: 1_000_000n, when: 'now' });
+    expect(won.asked).not.toHaveBeenCalled();
+    const earlier = withSends({ agg: new Error('HTTP 502'), own: [pool('PoolA', 990_000n)] }, false);
+    expect(messageOf(await prepareOwnPoolSwap(earlier.d, 1_000_000n))).toBe(OWN_ROUTE_COPY.underLastQuote);
+    expect(earlier.asked).not.toHaveBeenCalled();
   });
 });
 
