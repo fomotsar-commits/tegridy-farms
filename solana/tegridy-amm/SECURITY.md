@@ -33,7 +33,7 @@ one.
 
 | Component | Provenance | Audited? |
 |---|---|---|
-| `programs/cp-swap/` | Verbatim fork of [raydium-cp-swap](https://github.com/raydium-io/raydium-cp-swap) @ `78f254e` (Apache-2.0); delta = four authority constants, CI-enforced | **Upstream was audited by MadShield. This fork was not.** The audit is evidence about the code we did not change. |
+| `programs/cp-swap/` | Fork of [raydium-cp-swap](https://github.com/raydium-io/raydium-cp-swap) @ `78f254e` (Apache-2.0); delta = four authority constants, the program's own name and contact text, plus one added instruction, `create_lp_metadata` (it names a pool's lp token; in source since 2026-10-06, not in the mainnet binary until the program is upgraded), CI-enforced | **Upstream was audited by MadShield. This fork was not.** The audit is evidence about the code we did not change. It says nothing about the added instruction. |
 | `programs/tegridy-launch/` | Novel — written for this repo | **No.** No upstream to compare against. `migrate_to_amm` moves an entire raised balance in one instruction; treat it as the highest-risk surface here. |
 
 Both programs have been on Solana mainnet since 2026-09-29: `cp-swap` at
@@ -42,5 +42,6 @@ Both programs have been on Solana mainnet since 2026-09-29: `cp-swap` at
 
 ## If you are an auditor
 
-`AUDIT_RFQ.md` describes both scopes. The short version: `cp-swap` is a cheap four-constant
-diff against audited upstream; `tegridy-launch` is the real review.
+`AUDIT_RFQ.md` describes both scopes. The short version: `cp-swap` is a cheap diff against
+audited upstream (four constants, one small added instruction, `create_lp_metadata`, and
+the program's own name and contact text); `tegridy-launch` is the real review.

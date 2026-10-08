@@ -320,12 +320,13 @@ describe('always', () => {
 
   // The card says what the swap DOES. While every Solana swap executed through Jupiter it
   // had to say so (review 2026-09-30); the swap now sends each trade where it pays more.
-  it('says the swap compares our pools and sends the trade where it pays more, and that the AMM is unmodified Raydium', async () => {
+  it('says the swap compares our pools and sends the trade where it pays more, and that the AMM is Raydium with one added instruction', async () => {
     await mount();
     await waitFor(() => expect(screen.getByText(/side by side with Jupiter/i)).toBeInTheDocument());
     expect(screen.getByText(SWAP_ROUTES)).toBeInTheDocument();
     expect(screen.queryByText(/still goes through\s+Jupiter|sending it to our pool/i)).toBeNull();
-    expect(screen.getByText(/verbatim fork/i)).toBeInTheDocument();
+    expect(screen.getByText(/one added instruction/i)).toBeInTheDocument();
+    expect(screen.queryByText(/verbatim fork/i)).toBeNull();
   });
 
   it('says the browser cannot list pools itself, and how the server index fills that gap', async () => {
@@ -379,7 +380,11 @@ describe('always', () => {
     await mount();
     await settled();
     const program = screen.getByRole('region', { name: 'The program' });
-    expect(program).toHaveTextContent(/verbatim fork/i);
+    expect(program).toHaveTextContent(/one added instruction/i);
+    // Calling the added instruction is not free (the record's rent and Metaplex's fee), so the
+    // card says who pays, and never that it takes nothing or moves no funds.
+    expect(program).toHaveTextContent(/It cannot move pool funds\. Whoever calls it pays a small one-time fee for the record\./);
+    expect(program).not.toHaveTextContent(/takes nothing from its caller|moves no funds/i);
     expect(program).toHaveTextContent(/A browser cannot list pools itself/i);
     const sheet = screen.getByRole('region', { name: 'Fee sheet' });
     expect(sheet.compareDocumentPosition(program) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
