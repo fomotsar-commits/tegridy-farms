@@ -50,9 +50,11 @@ that answer.
    `node scripts/streamflow-receipt-name.mjs --broadcast --keypair <key file> --rpc <keyed endpoint>`.
    About 0.00024 SOL. **You should see** `confirmed. signature ...`. If it says `not confirmed`, do
    not send again: run the dry run, which reads what the chain holds now.
-5. **The two pool-share links are written by the Squads vault**, through the pool program's new
-   instruction (a separate change). Nothing on the site side stops the vault writing them early,
-   so steps 1 and 2 come first there too.
+5. **The two pool-share links are written by the pool program's new instruction, which any
+   wallet may call** once the program is upgraded (a separate change; the owner's upgrade pack
+   has the paying wallet send both). The vault only upgrades the program and renames the two
+   records afterwards. Nothing on the site side stops anyone writing a link from the moment the
+   upgrade executes, so steps 1 and 2 come first there too.
 
 **Four things to know afterwards.**
 
