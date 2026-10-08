@@ -212,11 +212,21 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-/** Type 0.1 SOL for BAYLA and return the Buy button. No tick-box stands in the way: both are the venue's own coins. */
-async function readyToBuy() {
+/**
+ * Type 0.1 SOL for BAYLA and return the Buy button. No tick-box stands in the way: both
+ * are the venue's own coins. Buy is live on Jupiter's quote first and goes off once more
+ * while the swap code for our pool and its gate load, so this waits for the pools to have
+ * been read and, when one quotes, for the gate to have answered. `poolsAnswer: false`
+ * is for a test whose pool read never comes back.
+ */
+async function readyToBuy(o: { poolsAnswer?: boolean } = {}) {
   render(<MemoryRouter><SolanaSwapPage /></MemoryRouter>);
   fireEvent.change(screen.getByLabelText('Amount of SOL to pay'), { target: { value: '0.1' } });
   const buy = await screen.findByRole('button', { name: 'Buy BAYLA' }, { timeout: 20_000 });
+  if (o.poolsAnswer !== false) {
+    await waitFor(() => expect(h.quoteVenuePools).toHaveBeenCalled());
+    if (h.on.value && h.ownOut.value !== null) await waitFor(() => expect(h.readSwapGate).toHaveBeenCalled());
+  }
   await waitFor(() => expect(buy).toBeEnabled());
   expect(screen.queryByRole('checkbox')).toBeNull();
   return buy;
@@ -596,7 +606,7 @@ describe('the route is held again when Buy is pressed', () => {
   it('Buy pressed while our pool was still being read: it is read before anything is sent, and takes the trade it wins', async () => {
     // The first read of our pools never answers; Jupiter's quote lands and Buy is live.
     h.readVenuePools.mockImplementationOnce(() => new Promise(() => {}));
-    const buy = await readyToBuy();
+    const buy = await readyToBuy({ poolsAnswer: false });
     expect(routeLine()).toMatch(/Checking our pools/);
     fireEvent.click(buy);
     await waitFor(() => expect(h.toast.error).toHaveBeenCalledWith('Route changed', { description: OWN_ROUTE_COPY.ownNowWins }));

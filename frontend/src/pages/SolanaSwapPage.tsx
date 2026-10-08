@@ -1838,7 +1838,8 @@ function SolanaSwapInner() {
         setQuote(null);
         return;
       }
-      toast.success(`${words.done} ${words.symbol}`, {
+      const said = sideWords(payToken, buyToken);
+      toast.success(`${said.done} ${said.symbol}`, {
         description: feeWaivedOnSend ? `${shortSig(sig)}. ${NO_SITE_FEE_ROUTE_COPY}` : shortSig(sig),
         action: view,
       });
