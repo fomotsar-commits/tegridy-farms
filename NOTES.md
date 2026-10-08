@@ -15,6 +15,226 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-10-06: a token's name in a wallet is an on-chain record, and when a program's own address is the mint authority only that program can write it
+
+**Believed:** a nameless token row in Phantom can be fixed from outside the program that
+minted it: by a script, the multisig, a token list, or Metaplex, whose public source lets its
+own "seed authority" create the record for any mint that has none.
+
+**Measured:** Phantom's docs (read 2026-10-04) take a classic SPL mint's name, symbol and
+picture from its Metaplex record, and a Token-2022 mint's from the metadata held on the mint;
+with neither, the row reads "Unknown". The old Solana token list is archived. On mainnet, by
+`simulateTransaction` with `sigVerify: false` (2026-10-04, slot 453,337,242), Metaplex's
+create for our BAYLA/SOL pool-share mint succeeded with the mint authority marked as a signer
+(38,478 units, a 607-byte record) and failed without it: custom error 9, "You must be the
+mint authority and signer on this transaction". That authority is a program-derived address
+of the pool program, so no wallet and no multisig can sign as it. The seed-authority route,
+simulated the same way with `AqH29mZfQFgRpfwaPoTMWSKJ5kqauoc1FwVBRksZyQrt` as the signer, was
+refused with error 10, "Mint authority provided does not match the authority on the mint"
+(2026-10-06, slots 454,103,164 and 454,110,797). That address's 32 bytes are not in the
+deployed 793,991-byte program, though it did sign the create for Raydium's v4 SOL-USDC
+pool-share record on 2021-11-01.
+
+**Do:** before planning a name for any mint, read its mint authority. An ordinary key means
+one transaction. A program's own address means a new instruction in that program, shipped as
+an upgrade: Meteora, Kamino and Jupiter each added one for their pool shares, and Raydium's
+CPMM and PumpSwap leave theirs nameless. Test any exception found in Metaplex's source with a
+mainnet simulation first: the deployed program has no upgrade authority and is not the repo.
+
+## 2026-10-06: a Streamflow stake pool can name its own receipt token, and the key that signs is the pool's authority, not its creator
+
+**Believed:** a nameless staking receipt needs Streamflow's help, the pool's creator key is
+the one that would sign, and the metadata pointer already on the receipt mint is a naming
+step somebody left half done.
+
+**Measured (2026-10-04, mainnet, `simulateTransaction` with no signatures):** Streamflow's
+stake program (`STAKEvGqQTtzJZH6BWDcbpzXXn2BBerPAgQ3EGLN2GH`) has
+`set_token_metadata_t22(name, symbol, uri)` for Token-2022 receipts and
+`set_token_metadata_spl` for classic ones, in the npm IDL (`@streamflow/staking` 13.4.0) and
+in the IDL published on chain. Signed and paid by the pool's current `authority`, it
+succeeded on our pool (17,844 units, the mint grew from 234 to 379 bytes). Signed by the
+pool's `creator`, which had handed the pool on in September, it was refused: "Unauthorized",
+6005. With the authority signing and another wallet paying the fee it failed with "writable
+privilege escalated": the IDL marks `authority` read-only, but the program moves rent from it
+into the mint, so it must be the fee payer. Run on another project's already-named pool, the
+call updated the name, so it is not one-shot. Of 1,176 stake pools, all 192 with a Token-2022
+receipt carry the same self-pointing `metadataPointer`, and 6 of those carry a name. With the
+real link, 35 characters longer than the placeholder, the rent moved was 233,840 lamports and
+not 56,040 (dry run, 2026-10-06): every character costs 5,080.
+
+**Do:** decode the pool and read `authority` (see the 2026-09-21 entry for the offset); never
+take the creator for it. Make the authority the fee payer. Read a metadata pointer with no
+`tokenMetadata` as the normal state of every Streamflow Token-2022 receipt. Simulate with the
+final words, since the cost follows their length. Streamflow documents this only in its SDK
+README and its `staking-cli`, whose default network is devnet (read, not run).
+
+## 2026-10-06: making room in a Solana program needs no authority and at least 10,240 bytes, and an upgrade does not do it for you
+
+**Believed:** a program upgraded through a multisig simply takes the new file. If the file is
+bigger, making room is one more vault action (the go-live checklist in the release folder
+said so) of whatever size is needed.
+
+**Measured (2026-10-04, mainnet, solana-core 4.3.0):** our pool program's ProgramData account
+was 691,685 bytes for a 691,640-byte file: the 45-byte header and no spare byte. By
+`simulateTransaction` (`sigVerify: false`), `ExtendProgram` by 1 byte was refused,
+"ExtendProgram requires a minimum of 10240 additional bytes or to extend to maximum size"
+(feature `YbbRLkvenrocjGPGyoQE4wjnvYzTgfsk38NFmcYK7a5`, active since slot 432,864,000). By
+10,240 bytes, paid by an ordinary wallet with no authority signing, it succeeded: 691,685 to
+701,925 bytes for 52,019,200 lamports of rent, which never comes back. Read and not run: the
+feature that would resize the account on upgrade
+(`EhisBfVtGvEA8bVCVN5VMaYEaX6iTfoUrmcDi8LY7Kxy`) has no account on mainnet, and the loader
+(agave `57707436`, `programs/bpf_loader/src/lib.rs`) refuses a second deploy-type change to
+one program in the same slot. On 2026-10-06 one added instruction grew our build by 33,032
+bytes, so the growth and not the minimum set the price: 167,802,560 lamports (worked out
+from 5,080 a byte, not paid).
+
+**Do:** before an upgrade to a larger file, read the ProgramData length, take away 45, and
+set the new file's size against what is left; do not assume there is room. If it does not
+fit, extend first, in its own transaction and an earlier slot, from any funded wallet:
+`solana program extend <program> <bytes>`, at least 10,240 and at least the growth. Use the
+4.1.1 CLI; the 2.3.0 one in WSL has an older code path (read, not run). Then upgrade. Because
+anyone can extend, a "last deployed slot moved" alarm does not prove an upgrade (inferred from
+the loader, not run). Extend then upgrade to a larger file has not been rehearsed here on any
+cluster yet.
+
+## 2026-10-06: Metaplex's public source and a local validator each give a wrong price for a metadata record
+
+**Believed:** what a Metaplex record costs can be worked out from the program's repo, or read
+off a local validator that cloned mainnet's feature set and Metaplex itself.
+
+**Measured:** the source (`mpl-token-metadata` at `353d01be`, `state/fee.rs`) works the create
+fee out from rent: rent for 1,308 bytes plus 5,440 lamports, 7,300,320 at the rent read on
+2026-10-04. The deployed program charged a flat 10,000,000. A mainnet simulation that day left
+a new 607-byte record holding 13,733,800 lamports (3,733,800 rent plus 10,000,000), and a
+record somebody else created on mainnet at 18:44Z held the same. On a `solana-test-validator`
+3.1.11 started with `--clone-feature-set` and Metaplex cloned from mainnet (2026-10-06), the
+same record held 15,115,600: the same flat fee, but rent for 607 bytes was 5,115,600 there
+against 3,733,800 on mainnet. Mainnet rent that week was 5,080 lamports a byte over the
+account's size plus 128, so an 82-byte mint is 1,066,800 and not the 1,461,600 older notes
+carry. Also seen locally: lamports a stranger sends to the record's address first neither
+block the create nor make it cheaper.
+
+**Do:** take every lamport figure that will be quoted, budgeted or asserted for mainnet from
+a mainnet `simulateTransaction` (read the account after) or from
+`getMinimumBalanceForRentExemption` asked of mainnet that day. A local run proves the logic,
+not the price. Where a deployed program and its repo disagree, the deployed one is the fact.
+
+## 2026-10-06: a name and a picture do not bring a pool share a dollar value or a verified mark in Phantom
+
+**Believed:** once a pool-share or staking-receipt token has proper metadata, Phantom shows
+what it is worth, and "verified" is something a project applies to Phantom for.
+
+**Measured (2026-10-04):** Phantom's docs say it prices a token that is verified on
+CoinGecko and falls back to Birdeye, and that it does not run verification itself: the mark
+comes from outside sources, of which it names CoinGecko and Jupiter. CoinGecko lists only
+what trades on an exchange it tracks. CoinGecko's price API and Jupiter's
+(`lite-api.jup.ag/price/v3`) returned no price for any sampled pool share of Raydium (CPMM
+and v4, pools of about $5M and $30M), Meteora, Kamino or PumpSwap, named or nameless, and
+Jupiter tags each of them `unknown`. Both priced JLP and JitoSOL, which trade. Birdeye was
+not read (403, and its API wants a key). Phantom's own token service, `api.phantom.app`,
+answered 403 to a plain request for all 23 mints tried, so what Phantom itself says about a
+given mint was not read.
+
+**Do:** for a token that cannot trade, promise a name, a symbol and a picture, and never a
+value or a mark. Show the value on our own pages; Jupiter's docs point a protocol that wants
+its positions priced to their portfolio team. Do not get past Phantom's 403 by imitating its
+client: use Phantom's published docs, or look in a real wallet.
+
+## 2026-10-06: a file that wallets and other sites fetch from this Vercel site can be wrong three ways while answering 200
+
+**Believed:** put the JSON and the picture under `frontend/public/`, see the link answer 200,
+and a wallet can read it.
+
+**Measured on https://memetics.finance (curl, 2026-10-04; read again 2026-10-07 about 05:00Z):**
+
+- Every static answer carries `Cross-Origin-Resource-Policy: same-site`, set site-wide in
+  `frontend/vercel.json`. Only `/record/` answers `cross-origin`, from a later and narrower
+  rule. MDN: a browser blocks a cross-site `<img>` of a `same-site` resource, and a server
+  that fetches the file ignores the header. Which wallets show a picture straight from our
+  address, and which through their own proxy, was not found out.
+- A path with no file answers 200 `text/html`, the app page. Inside `/tokens/`, a folder with
+  a week-long cache rule, `/tokens/DoesNotExist111.png` came back as that page with
+  `Cache-Control: public, max-age=604800` and `X-Vercel-Cache: HIT`. `/mint/default.json`,
+  built on a branch but not deployed, answered the same page.
+- Paths are case-sensitive: `/tokens/USDC.png` is the app page and `/tokens/usdc.png` is the
+  PNG. Mint addresses are mixed-case and this machine's disk ignores case, so an `existsSync`
+  check passes here on a name that is one letter's case off. A pin test built on a directory
+  listing went red when one file was renamed from B to b.
+
+**Do:** give such a folder its own rules in `vercel.json`: a cache rule,
+`Cross-Origin-Resource-Policy: cross-origin`, and a rewrite above the app fallback so a
+missing file answers JSON and never the app page. Pin the files by exact name from
+`readdirSync`, check a picture's first bytes, and probe production for words only the real
+file holds. Put a hash of a picture's bytes in its path and keep every picture that was ever
+deployed. Deploy and see the files answer before any link to them is written on chain. Only a
+deployment can show three things, and none had happened when this was written: that a rewrite
+to a static default file works here, that the narrower header rules win, and that
+`Access-Control-Allow-Origin` arrives once and not twice.
+
+## 2026-10-06: a script that refuses a public cluster still writes to another session's local validator
+
+**Believed:** the start script refuses a busy port and the proof script refuses a public
+genesis hash, so a proof run can only ever send to the validator it has just started.
+
+**Measured (2026-10-06):** two other sessions had validators up in WSL, on RPC ports 28899
+and 38899. A second validator of ours was given 28899. Its start script refused the busy
+port, the command line carried on regardless, and the proof ran against the other session's
+chain. Before it stopped on a missing account it had airdropped SOL to three new wallets,
+created three test mints and opened one pool there, paying that chain's 0.15 SOL create fee
+into a fee account that a test of theirs was reading at the time. The public-genesis guard
+passed, and rightly: the chain was private, only not ours.
+
+**Do:** make "is this MY validator" a check inside the script, before its first send, and not
+a property of the command line. The fix here: the script reads accounts that only its own
+chain holds and stops if they are missing, and the wrapper runs it only when our own start
+printed READY; run again at the wrong port, it sent nothing. Stricter, and not what was run:
+`start-validator.sh` prints `READY genesis=<hash>` and two validators here had different
+hashes (2026-10-03 entry), so hand that hash to the script and compare it with
+`getGenesisHash`. Join the commands so that a refused start ends the run. Look before taking
+a port: validators here sat on 18899, 28899 and 38899. Never stop one you did not start.
+
+## 2026-10-06: Jupiter's free verification lane now signs in with X, and a dead picture link stops its form
+
+**Believed:** the free lane on verified.jup.ag works as our September pack described it:
+connect a wallet, fill in the form, and a metadata change is a separate request for 1,000 JUP.
+
+**Measured (2026-10-07, 01:15 to 02:02 UTC; a headless walk with no sign-in and nothing typed,
+and the form's own script):** the free lane's button reads "Sign in with X to Continue" (seen
+on screen), the last button stays disabled until that sign-in (script), and the X handle is
+kept in Jupiter's public list as the sender. The free lane now has a Metadata step (seen in
+the step bar) and its last screen says "No payment required." (script), while Jupiter's docs
+still price a metadata update at 1,000 JUP. That step shows the Logo URL as a plain image tag
+and disables Continue when the image fails to load (script). BAYLA's on-chain picture link is
+an ipfs.io address: in a real browser it failed as an image, and the same file on Pinata
+loaded at 320 by 320. Eight of Jupiter's doc pages were byte for byte what they were on
+2026-10-04, so the docs announced none of this. Not done: no request was sent, so whether a
+free metadata update is approved is unknown, and the Metadata and Review screens were read
+from the script and never seen.
+
+**Do:** walk the live form again before handing an owner a pack, however recent the last one:
+the docs can stand still while the form moves. Settle whose X account applies first, because
+it becomes public. Test the token's picture link as an image in a browser, and have a working
+address ready to paste.
+
+## 2026-10-06: a retry rule that looks for "429" anywhere in an RPC error finds it in a compute-unit count
+
+**Believed:** testing `/429|rate.?limit|too many/` against a node's whole error is a safe way
+to tell "rate limited, ask again" from "refused".
+
+**Measured (2026-10-06, the receipt-naming script run against a made-up node):** a failed
+simulation or send carries the program's logs, and logs carry numbers. A real refusal
+(Unauthorized, 6005) whose log read "consumed 17429 of 200000 compute units" matched the
+pattern, so the script sent the transaction a second time and then told the operator to go
+and look for one the node had refused. The real dry runs that week used 17,844 and 17,993
+units, so such a figure is an everyday one. The same script's send went through a helper with
+two tries: when the node took the transaction and its answer was lost, the second try came
+back "already processed", which the script printed as NOT SENT.
+
+**Do:** sort an RPC error by `error.code` and `error.message` only, never by its logs or its
+whole JSON, and anchor the digits (`\b429\b`). Send once. An answer to a send that was lost,
+or that says "already processed", is followed by a lookup of the signature: it is not a
+refusal, and it is not a reason to send again.
+
 ## 2026-10-06: an override that forces the patched major is a safe way to clear a transitive advisory
 
 **Believed:** when the fix for an advisory in a transitive package is a newer major, an
