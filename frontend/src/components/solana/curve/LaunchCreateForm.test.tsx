@@ -7,6 +7,7 @@ import { readPendingLaunch, savePendingLaunch } from './pendingLaunch';
 import type { CreateLaunchInput, OpenGate, TxOutcome, TxSummary, UploadInput, WriteApi, WriteRpc } from './ports';
 import type { CurveSignerState } from './useCurveSigner';
 import { IPFS_STEP_TIMEOUT_MS, ipfsGatewayUrls } from '../../../lib/ipfsGateways';
+import { CREATED_ON } from '../../../lib/launchMetadata/validate.js';
 import { assertMayLaunch } from '../../../lib/heat/launchGate';
 import { WORKSHOP_WALLET } from '../../../lib/launcher/solana/write/plant';
 
@@ -73,7 +74,7 @@ function createApi(over: Partial<WriteApi> = {}) {
       description: i.description,
       image: 'https://ipfs.io/ipfs/bafkreigh2akiscaildcqabsyg3dfr6chu3fgpregiymsck7e7aqa4s52zy',
       mint: i.mint,
-      createdOn: 'https://tegridyfarms.xyz',
+      createdOn: CREATED_ON,
     },
     reuseUntil: Date.now() + 60_000,
   }));
