@@ -85,6 +85,13 @@ vi.mock("@supabase/supabase-js", () => ({
   createClient: vi.fn(() => ({ from: supabaseFromMock })),
 }));
 
+// Warms the module graph at collection time. NOT dead code: the first re-import under
+// `vi.resetModules()` below is a cold load of orderbook.js's graph, inside a `beforeEach`
+// that vitest bounds at 10s, and it grows with machine load. Here no timeout runs. It
+// must be an `await import()` below the mocks: a bare import is hoisted above the consts
+// their factories read, and the file then fails at collection with no test run.
+await import("../orderbook.js");
+
 function makeReqRes(body) {
   const req = {
     method: "POST",
