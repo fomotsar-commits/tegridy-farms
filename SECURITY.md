@@ -48,6 +48,7 @@ Please do **not** open public issues for vulnerabilities, on any git host.
 - GaugeController and the governance / voting contracts (deployed, frontend-gated)
 - **`LighthouseLadder`** — the six EVM bungalow staking pools (Ethereum + Base), live since 2026-08-30
 - **The Base 8453 and Robinhood 4663 legs**, live since 2026-08-25, including `AttestedSequencerUptimeFeed`
+- **The two Solana programs**, live since 2026-09-29: cp-swap, the pool program, at `EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT`, and tegridy-launch, the bonding curve, at `64WBTeNcrSHfmBpiqymyifW6FUNNLvJcuiqF9rXmz4q2`. Neither is audited; [`solana/tegridy-amm/SECURITY.md`](./solana/tegridy-amm/SECURITY.md) says what has and has not been reviewed
 - Any address listed as live in [`frontend/scripts/addresses.json`](frontend/scripts/addresses.json), which is the registry of record
 
 Frontend code paths that directly handle user funds, signatures, or private keys are also in
@@ -58,12 +59,10 @@ programs deployed 2026-08-08 were **closed 2026-08-13**; those program ids are s
 The Meteora DBC rail was deleted 2026-08-23. Reports against either are welcome as *code*
 findings but there is nothing live to exploit at those ids.
 
-**Two new Solana programs went live on 2026-09-29:** cp-swap at
-`EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT` and tegridy-launch at
-`64WBTeNcrSHfmBpiqymyifW6FUNNLvJcuiqF9rXmz4q2`. Their policy is
-[`solana/tegridy-amm/SECURITY.md`](./solana/tegridy-amm/SECURITY.md), which takes reports at the
-same address as this file. Whether they join the in-scope list above is an owner decision that
-has not been made yet (`docs/TODO_OPERATOR.md`, O-0929-12).
+**The two Solana programs that went live on 2026-09-29 are in scope** (owner decision
+O-0929-12 in `docs/TODO_OPERATOR.md`, made 2026-10-08): they are on the list above. Their own
+policy, [`solana/tegridy-amm/SECURITY.md`](./solana/tegridy-amm/SECURITY.md), takes reports at
+the same address as this file. Test them on a local validator, never against mainnet.
 
 ## Out of Scope
 
