@@ -339,6 +339,12 @@ does not have the shape of what it names.
 | Transaction of the execute (its signature) | `UNFILLED-UNTIL-THE-UPGRADE-EXECUTES` |
 | Size of the program's data account afterwards (bytes) | `UNFILLED-UNTIL-THE-UPGRADE-EXECUTES` |
 
+The four values are printed by `frontend/scripts/solana-localnet/read-upgrade-record.mjs`. It
+reads mainnet, sends nothing, and prints the rows only when the program there hashes to the
+new build. Take them from it and never from memory. That test checks the SHAPE of a cell: it
+cannot tell a typed value from a read one. What mainnet itself has to satisfy is the address
+registry's chain check, told in part C.
+
 **From here to the end of part B, this section is the plan as it stood before the execute.**
 It is kept as written: it is the record of what was rehearsed and what was not, and the
 pattern for the next upgrade or for a roll-back. Its present tense is 2026-10-08's. Where it
@@ -805,6 +811,26 @@ the pack neither does nor checks.
   `frontend/src/test/poolProgramCopy.test.ts` holds the wording to those two harness pins in
   both directions: it failed this release until all four lines were reworded, and it fails
   a re-pin to the old build until they are put back (E, the roll-back).
+
+  **What held this release back until the upgrade had executed was the chain itself.** The
+  registry's row for the program's data account carries `expect.holdsProgram`, the new
+  build's size and sha256. `frontend/scripts/verify-addresses.mjs --onchain` (the
+  "registry vs chain" job, on every pull request that touches the registry and once a day)
+  fetches the program's bytes from mainnet and hashes them against it, and
+  `poolProgramCopy.test.ts` holds the two harness pins to that same hash. So the wording
+  could not be green while mainnet ran another build, and no edit to a paper could make it
+  so. Read 2026-10-09, before the upgrade: red, "the account is 691685 bytes, too small for
+  it". It is a hash on purpose. An enlarge alone moves the account's size and its
+  "last deployed" slot, any wallet can send one, and the old program is still what runs
+  afterwards. Two more things were true of that pull request and are worth keeping in
+  mind for the next one. Trunk had no branch protection, so a red check did not stop the
+  merge button and the draft flag was the only technical stop. And the test on the table
+  at the top of this section checks shape, so it was never the lock.
+
+  The three harness files waited outside the repository until the day, in
+  `C:\Users\jimbo\solana-launch-release-2026-09-26\upgrade-day-staged`, with a README of
+  their own that holds the copy commands. They went into the release's `artifacts` folder
+  only after the execute.
 - The docs that said the mainnet binary was built before the instruction: `README.md` and
   `SECURITY.md` here, the root `README.md` (the feature row), `idl/README.md`, the status
   notes in `TEGRIDY_FORK.md`, `AUDIT_RFQ.md`, `AUDIT_OUTREACH.md` and §2 of this file. Each
@@ -936,8 +962,11 @@ the pack neither does nor checks.
     part C describe the build mainnet runs. After a roll-back that is `88b98aa9…` again, so
     put back what the upgrade's commit changed there: the two harness pins and the address
     registry name the old build, the four lines get their old wording, and the card's
-    paragraph returns. `frontend/src/test/poolProgramCopy.test.ts` refuses a half-done change
-    in either direction. Do not revert that whole commit: the table at the top of this
+    paragraph returns. In the registry that is the status of both pool-program rows and the
+    data account row's `expect.holdsProgram`, which becomes 691,640 bytes and the old
+    build's full sha256: the chain check then goes green only once mainnet really holds
+    the old build again. `frontend/src/test/poolProgramCopy.test.ts` refuses a half-done
+    change in either direction. Do not revert that whole commit: the table at the top of this
     section stays as the record of the upgrade, with a line under it for the roll-back.
   - Going forward again was run too, in stage 1: the new build went in a second time, and
     the flagship records were unchanged through both.

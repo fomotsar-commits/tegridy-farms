@@ -10,14 +10,24 @@
 // changelog line for the release was parked behind the same word until it could be filed
 // under the day it reached trunk.
 //
-// This test is what kept that release from merging early: it fails while the marker is
-// anywhere in the tree, and while any of the four cells does not look like the thing it
-// names. After the day it stays as the guard on that record.
+// This test fails while the marker is anywhere in the tree, and while any of the four cells
+// does not look like the thing it names. After the day it stays as the guard on that record.
+//
+// WHAT IT IS NOT. It is not the lock on that release. It checks SHAPE: a date, a slot that
+// falls on that date, 64 bytes of base58, a size. It cannot tell a made-up signature from a
+// real one, and a reviewer turned it green with five typed values while mainnet still ran
+// the old program (2026-10-09). The check that mainnet itself has to satisfy is the address
+// registry's chain read: `scripts/verify-addresses.mjs --onchain` hashes the program on
+// mainnet against the build on the registry's row, and src/test/poolProgramCopy.test.ts
+// ties the site's wording and the harness pins to that row. The values for the four cells
+// come from `scripts/solana-localnet/read-upgrade-record.mjs`, which prints them only when
+// mainnet holds the new build. Never from memory.
 //
 // To try values without touching a checkout, point POOL_UPGRADE_RECORD_ROOT at a scratch
 // clone of the repository and run this file from here. CI never sets it.
 import { execFileSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { dirname, join, resolve } from 'node:path';
 import { createHash } from 'node:crypto';
@@ -28,6 +38,12 @@ const ROOT = process.env.POOL_UPGRADE_RECORD_ROOT ? resolve(process.env.POOL_UPG
 
 /** Built from its parts, so this file never holds the word it searches the tree for. */
 const MARKER = ['UNFILLED', 'UNTIL', 'THE', 'UPGRADE', 'EXECUTES'].join('-');
+/**
+ * How the editor's note beside the parked changelog line begins. The marker word can be
+ * deleted and the note left standing, and it would then ship in the changelog. Built from
+ * its parts for the same reason as the marker.
+ */
+const EDITORS_NOTE = ['(move this line', 'under the heading'].join(' ');
 
 /** The paragraph that opens the record, and the label each of its four rows starts with. */
 const RECORD_OPENS = '**The upgrade as it executed.**';
@@ -85,10 +101,16 @@ function base58Encode(bytes: Uint8Array): string {
 const wholeNumber = (text: string): number | null =>
   /^\d{1,3}(,\d{3})+$|^\d+$/.test(text) ? Number(text.replace(/,/g, '')) : null;
 
-/** The program's "last deployed" slot before the upgrade (the 2026-09-29 deploy). */
-const SLOT_OF_THE_FIRST_DEPLOY = 451_687_458;
-/** The day the runbook last read mainnet with nothing sent (07:42 UTC). */
-const NOT_BEFORE = '2026-10-08';
+/**
+ * The last finalized slot at which mainnet was read still running the OLD build, and its
+ * day: 2026-10-09, 04:07 UTC, by `scripts/solana-localnet/read-upgrade-record.mjs` (the
+ * program was `88b98aa9…`, in a 691,685-byte account last deployed in slot 451,687,458).
+ * The upgrade cannot have executed at or before that slot, or before that day. The floors
+ * used to be the first deploy's slot and 2026-10-08, which let a slot from before any
+ * upgrade through.
+ */
+const LAST_SLOT_SEEN_WITH_THE_OLD_BUILD = 454_754_407;
+const NOT_BEFORE = '2026-10-09';
 /**
  * A slot and a time read together on mainnet (frontend/scripts/addresses.json, the two
  * venue pools: "finalized slot 454,077,498 (2026-10-07T01:38Z)"). Mainnet made about 3.7
@@ -117,7 +139,7 @@ function recordProblems(rec: UpgradeRecord, now: Date): string[] {
   if (day !== null) {
     const ms = /^\d{4}-\d{2}-\d{2}$/.test(day) ? Date.parse(`${day}T00:00:00Z`) : NaN;
     if (Number.isNaN(ms) || new Date(ms).toISOString().slice(0, 10) !== day) out.push(`"${ROWS.day}" is "${day}", not a date written YYYY-MM-DD`);
-    else if (day < NOT_BEFORE) out.push(`"${ROWS.day}" is ${day}: nothing had been sent on ${NOT_BEFORE}`);
+    else if (day < NOT_BEFORE) out.push(`"${ROWS.day}" is ${day}: mainnet still ran the old build on ${NOT_BEFORE}`);
     else if (day > now.toISOString().slice(0, 10)) out.push(`"${ROWS.day}" is ${day}, which has not come yet`);
     else dayMs = ms;
   }
@@ -126,7 +148,7 @@ function recordProblems(rec: UpgradeRecord, now: Date): string[] {
   if (slotText !== null) {
     const slot = wholeNumber(slotText);
     if (slot === null) out.push(`"${ROWS.slot}" is "${slotText}", not a whole number`);
-    else if (slot <= SLOT_OF_THE_FIRST_DEPLOY) out.push(`"${ROWS.slot}" is ${slot}, not after the first deploy's slot ${SLOT_OF_THE_FIRST_DEPLOY}`);
+    else if (slot <= LAST_SLOT_SEEN_WITH_THE_OLD_BUILD) out.push(`"${ROWS.slot}" is ${slot}, not after slot ${LAST_SLOT_SEEN_WITH_THE_OLD_BUILD}, where mainnet was last read still running the old build`);
     else if (dayMs !== null) {
       const earliest = ANCHOR.slot + ((dayMs - ANCHOR.atMs) / 1000) * SLOTS_PER_SECOND.slowest;
       const latest = ANCHOR.slot + ((dayMs + 86_400_000 - ANCHOR.atMs) / 1000) * SLOTS_PER_SECOND.fastest;
@@ -151,10 +173,10 @@ function recordProblems(rec: UpgradeRecord, now: Date): string[] {
   return out;
 }
 
-/** Every tracked line that still holds the marker, as `path:line: text`. Throws if the tree cannot be searched. */
-function markerPlaces(root: string): string[] {
+/** Every tracked line that still holds `needle`, as `path:line: text`. Throws if the tree cannot be searched. */
+function placesHolding(root: string, needle: string): string[] {
   try {
-    const found = execFileSync('git', ['-c', 'core.quotepath=off', 'grep', '-n', '-I', '-F', '-e', MARKER], {
+    const found = execFileSync('git', ['-c', 'core.quotepath=off', 'grep', '-n', '-I', '-F', '-e', needle], {
       cwd: root,
       encoding: 'utf-8',
       maxBuffer: 16 * 1024 * 1024,
@@ -167,15 +189,52 @@ function markerPlaces(root: string): string[] {
   } catch (e) {
     // `git grep` exits 1 when nothing matches. Anything else means the search did not run.
     if ((e as { status?: number }).status === 1) return [];
-    throw new Error(`could not search ${root} for the unfinished marker: ${e instanceof Error ? e.message : String(e)}`, { cause: e });
+    throw new Error(`could not search ${root} for "${needle}": ${e instanceof Error ? e.message : String(e)}`, { cause: e });
   }
+}
+
+/** What is still unfinished in the tree: the marker word, and the editor's note that sat beside it. */
+function leftInTheTree(root: string): string[] {
+  return [
+    ...placesHolding(root, MARKER).map((place) => `still holds the marker ${MARKER}: ${place}`),
+    ...placesHolding(root, EDITORS_NOTE).map((place) => `still holds the editor's note "${EDITORS_NOTE} ...": ${place}`),
+  ];
 }
 
 describe('the pool program upgrade is on record', () => {
   it('all four facts are filled in from the chain, and no unfinished marker is left anywhere in the tree', () => {
-    const left = markerPlaces(ROOT).map((place) => `still holds the marker ${MARKER}: ${place}`);
+    const left = leftInTheTree(ROOT);
     const record = recordProblems(readRecord(readFileSync(join(ROOT, 'solana', 'tegridy-amm', 'MAINNET_RUNBOOK.md'), 'utf-8')), new Date());
-    expect([...left, ...record], 'fill these from mainnet after the upgrade executes (the pull request lists how)').toEqual([]);
+    expect(
+      [...left, ...record],
+      'fill these from mainnet after the upgrade executes: `node frontend/scripts/solana-localnet/read-upgrade-record.mjs` prints the four rows, and only when mainnet holds the new build',
+    ).toEqual([]);
+  });
+
+  // The tree search, on a tree made for the purpose. Once the marker is gone from the real
+  // tree the test above no longer shows that the search can find anything. This does, on
+  // every run: the marker word, the editor's note with the word deleted and the bracket left
+  // standing, and a clean tree. Only tracked files are searched, as in the real tree.
+  it('finds the marker word, and the editor’s note left behind without it, in a tree that holds them', () => {
+    const tree = mkdtempSync(join(tmpdir(), 'pool-upgrade-record-'));
+    const git = (...args: string[]) => execFileSync('git', args, { cwd: tree, stdio: ['ignore', 'pipe', 'pipe'] });
+    try {
+      git('init', '-q');
+      writeFileSync(join(tree, 'RUNBOOK.md'), `| Day of the execute (UTC) | \`${MARKER}\` |\n`);
+      writeFileSync(join(tree, 'CHANGELOG.md'), `# Changelog\n\n- ${EDITORS_NOTE} of the day it reaches trunk) Solana pools: the pool program was upgraded.\n`);
+      writeFileSync(join(tree, 'untracked.md'), `${MARKER}\n`);
+      git('add', 'RUNBOOK.md', 'CHANGELOG.md');
+      const left = leftInTheTree(tree);
+      expect(left).toHaveLength(2);
+      expect(left[0]).toContain(`still holds the marker ${MARKER}: RUNBOOK.md:1:`);
+      expect(left[1]).toContain(`still holds the editor's note "${EDITORS_NOTE} ...": CHANGELOG.md:3:`);
+
+      writeFileSync(join(tree, 'RUNBOOK.md'), '| Day of the execute (UTC) | `2026-10-09` |\n');
+      writeFileSync(join(tree, 'CHANGELOG.md'), '# Changelog\n\n- Solana pools: the pool program was upgraded.\n');
+      expect(leftInTheTree(tree)).toEqual([]);
+    } finally {
+      rmSync(tree, { recursive: true, force: true });
+    }
   });
 
   // The checker above, on records made up for the purpose. Without these it would only ever
@@ -207,16 +266,23 @@ describe('the pool program upgrade is on record', () => {
     expect(one({ ...good, signature: `${MARKER} ` })).toEqual([`"${ROWS.signature}" is not filled in yet`]);
     expect(one({ day: good.day, slot: good.slot, signature })).toEqual([`the record has no row "${ROWS.dataAccountBytes}"`]);
     expect(one({})).toHaveLength(4);
-    // The day: a real date, not before the last read with nothing sent, not in the future.
+    // The day: a real date, not before the last day the old build was read, not in the future.
     expect(one({ ...good, day: '10/09/2026' })[0]).toContain('not a date written YYYY-MM-DD');
     expect(one({ ...good, day: '2026-02-30' })[0]).toContain('not a date written YYYY-MM-DD');
-    expect(one({ ...good, day: '2026-10-07' })[0]).toContain('nothing had been sent');
+    expect(one({ ...good, day: '2026-10-07' })[0]).toContain('mainnet still ran the old build');
+    expect(one({ ...good, day: '2026-10-08' })[0]).toContain('mainnet still ran the old build');
     expect(one({ ...good, day: '2026-10-11' })[0]).toContain('has not come yet');
-    // The slot: a whole number, after the first deploy, and one that falls on the day.
+    // The slot: a whole number, after the last read of the old build, and one that falls on the day.
     expect(one({ ...good, slot: 'soon' })[0]).toContain('not a whole number');
-    expect(one({ ...good, slot: '451,687,458' })[0]).toContain('not after the first deploy');
-    expect(one({ ...good, slot: '454,123,843' })[0]).toContain('does not fall on 2026-10-09');
+    expect(one({ ...good, slot: '451,687,458' })[0]).toContain('last read still running the old build');
+    // The values a reviewer typed on 2026-10-09 with the old program still running: that day,
+    // and a slot at which the old build had just been read. They passed the floors of then.
+    expect(one({ ...good, slot: '454,744,979' })[0]).toContain('last read still running the old build');
+    expect(one({ ...good, slot: '454,754,407' })[0]).toContain('last read still running the old build');
+    expect(one({ ...good, slot: '454,754,408' })).toEqual([]);
     expect(one({ ...good, slot: '474,790,112' })[0]).toContain('does not fall on 2026-10-09');
+    // An early slot under a later day: the floor lets it through, the day does not.
+    expect(recordProblems({ ...good, day: '2026-10-13' }, new Date('2026-10-14T12:00:00Z'))[0]).toContain('does not fall on 2026-10-13');
     // The transaction: base58 for 64 bytes. An address (32 bytes) and a hex hash are not.
     expect(one({ ...good, signature: 'EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT' })[0]).toContain('not a transaction signature');
     expect(one({ ...good, signature: '99a9e73dc469755b178d8029196be0ee8f92e557bbd65e15e4511084b6a0fe25' })[0]).toContain('not a transaction signature');

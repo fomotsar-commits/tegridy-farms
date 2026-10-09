@@ -58,6 +58,19 @@ function harnessPins(): { genesis: string | undefined; validator: string | undef
   };
 }
 
+/**
+ * The build the address registry tells its chain check to look for on mainnet: the hash on
+ * the pool program's data account row. `verify-addresses.mjs --onchain` fetches the program
+ * bytes and fails unless they hash to it, so this is the one pin that mainnet itself has to
+ * satisfy. The wording and the harness pins are only as true as their tie to it.
+ */
+function registryExpects(): string | undefined {
+  const registry = JSON.parse(readFileSync(join(FRONTEND, 'scripts', 'addresses.json'), 'utf-8')) as {
+    solana?: { id?: string; expect?: { holdsProgram?: { sha256?: string } } }[];
+  };
+  return registry.solana?.find((row) => row.id === 'cp-swap-programdata-restart')?.expect?.holdsProgram?.sha256;
+}
+
 /** What is wrong with the lines, given the binary the harness says mainnet runs. */
 function problems(deployedBinary: string, source: (file: string) => string): string[] {
   const upgraded = deployedBinary !== BINARY_WITHOUT_THE_INSTRUCTION;
@@ -92,6 +105,14 @@ describe('site copy about the pool program on mainnet follows the binary the har
     const { genesis, validator } = harnessPins();
     expect(genesis, 'genesis-accounts.mjs PINNED_SHA256').toMatch(/^[0-9a-f]{64}$/);
     expect(validator, 'start-validator.sh PIN_CPSWAP').toBe(genesis);
+  });
+
+  // The harness pins are typed by hand, and so is the wording. This is what makes them answer
+  // to the chain: the registry's chain check hashes the program on mainnet against this same
+  // value. Move the wording and the pins without mainnet holding that build and "registry vs
+  // chain" is red. Take the hash off the registry row to get it green and this fails.
+  it('the address registry sends its chain check looking for that same binary', () => {
+    expect(registryExpects(), 'addresses.json, cp-swap-programdata-restart, expect.holdsProgram.sha256').toBe(harnessPins().genesis);
   });
 
   it('the four lines agree with that binary', () => {

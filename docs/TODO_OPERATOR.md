@@ -439,8 +439,9 @@ solana_security_txt::security_txt! {
   put a git-host URL in a program binary again.
 - The edit changes cp-swap's diff against upstream Raydium, so the diff-guard's
   `EXPECTED_DELTA_SHA256` moved in the same commit, from `2bbd1e55…` to `5d7baf26…`. The
-  pin's history: `5c737ac7…` is the delta of the binary on mainnet (the deployed branch,
-  `ship/solana-launch-on`). `c18d4d63…` and then `2bbd1e55…` came on 2026-10-06 with
+  pin's history: `5c737ac7…` is the delta of the binary deployed on 2026-09-29, which
+  mainnet ran until the upgrade (the deployed branch, `ship/solana-launch-on`). `c18d4d63…`
+  and then `2bbd1e55…` came on 2026-10-06 with
   `create_lp_metadata`, the instruction that names a pool's lp token. `5d7baf26…` adds this
   text: eight changed lines, four of them these values and four of them comments.
 - These strings are in the binary, so the build that carries them (`99a9e73d…`, 724,688

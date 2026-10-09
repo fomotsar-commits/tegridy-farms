@@ -55,10 +55,19 @@ die() { echo "REFUSING: $*" >&2; exit 1; }
 # ── 1. the binaries are the ones mainnet runs, byte for byte ──────────────────
 [ -f "$ART/$SO_CPSWAP" ] && [ -f "$ART/$SUMS_CPSWAP" ] \
   || die "no $SO_CPSWAP or no $SUMS_CPSWAP in $ART: the pool program's upgrade build has not been copied there (see genesis-accounts.mjs)"
-( cd "$ART" && grep -E ' \*?tegridy_launch\.mainnet\.so$' SHA256SUMS | sha256sum -c --strict - ) \
-  || die "tegridy_launch.mainnet.so in $ART does not match its SHA256SUMS"
-( cd "$ART" && grep -E " \*?${SO_CPSWAP//./\\.}\$" "$SUMS_CPSWAP" | sha256sum -c --strict - ) \
-  || die "$SO_CPSWAP in $ART does not match its $SUMS_CPSWAP"
+# A checksum list typed or saved on Windows ends its lines in CR LF. The CR is not part of a
+# file name, so it is dropped before the list is read. genesis-accounts.mjs, the same check
+# on the Windows side, already reads such a list; without this the two disagreed, and this
+# script said the FILE did not match when the list's line ends were the only difference.
+# A list that does not name the file at all gets its own message for the same reason.
+check_against_list() {
+  local list=$1 file=$2 line
+  line=$(tr -d '\r' < "$ART/$list" | grep -E " \*?${file//./\\.}\$" || true)
+  [ -n "$line" ] || die "$list in $ART has no line for $file"
+  ( cd "$ART" && printf '%s\n' "$line" | sha256sum -c --strict - ) || die "$file in $ART does not match its $list"
+}
+check_against_list SHA256SUMS tegridy_launch.mainnet.so
+check_against_list "$SUMS_CPSWAP" "$SO_CPSWAP"
 [ "$(sha256sum "$ART/tegridy_launch.mainnet.so" | cut -d' ' -f1)" = "$PIN_LAUNCH" ] || die "tegridy_launch.mainnet.so is not the pinned release build"
 [ "$(sha256sum "$ART/$SO_CPSWAP" | cut -d' ' -f1)" = "$PIN_CPSWAP" ] || die "$SO_CPSWAP is not the pinned build of the pool program's upgrade"
 

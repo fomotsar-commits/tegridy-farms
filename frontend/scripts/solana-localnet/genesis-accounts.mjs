@@ -52,6 +52,10 @@
 //   cp_swap.upgrade-99a9e73d.mainnet.so          the file that was deployed (the upgrade pack's binary-to-deploy)
 //   raydium_cp_swap.upgrade-99a9e73d.idl.json    its IDL: a copy of solana/tegridy-amm/idl/raydium_cp_swap.json
 //   SHA256SUMS.upgrade-99a9e73d                  one line for each: the sha256, two spaces, the file name
+// The three wait, already named and checked, in
+//   C:/Users/jimbo/solana-launch-release-2026-09-26/upgrade-day-staged
+// whose README holds the copy commands. Its list ends its lines in LF. A list typed on
+// Windows (CR LF) is read the same by this script and by start-validator.sh.
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';

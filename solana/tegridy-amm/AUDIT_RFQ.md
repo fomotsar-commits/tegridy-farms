@@ -207,7 +207,8 @@ the transaction are in `MAINNET_RUNBOOK.md`, section 4b.
 See `TEGRIDY_FORK.md#threat-model`. In short: inherited risk ≈ Raydium CPMM in production
 (unchanged); new surface = the admin key and the upgrade authority (both the Squads vault
 PDA) and, since 2026-10-06, the one added instruction. The program is already live and holds
-funds: this audit did not gate that deploy. The added instruction is not on mainnet yet.
+funds: this audit did not gate that deploy. The added instruction has been on mainnet since
+the program's first upgrade (`MAINNET_RUNBOOK.md`, section 4b), and it went in unaudited.
 
 ## Deliverables to you
 - Read access to `solana/tegridy-amm/` (this repo) + `TEGRIDY_FORK.md`
