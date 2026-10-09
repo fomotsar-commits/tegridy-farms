@@ -351,8 +351,10 @@ start "https://explorer.solana.com/address/EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddE
 the explorer may be showing an old copy: the pack's check after the upgrade reads the text
 out of the chain itself, and that read is the one to trust.
 
-**Everything below is the record of how it got there, kept as written. Nothing in it is
-left to do, and the pack is not to be run again.**
+**Everything below is the record of how the upgrade got there, kept as written. The upgrade
+itself is done and is not to be run again.** What the pack still has after the execute, the
+two name records and the rename (its parts 5 and 6), is finished from the pack's own pages,
+not from here.
 
 **Where it stood (2026-10-06).** The values below are in the source, on the branch that adds
 `create_lp_metadata` (PR #758), and the stale comment is gone. **Nothing on chain has
