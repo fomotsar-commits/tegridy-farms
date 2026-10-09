@@ -15,6 +15,28 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-10-09: an expected value built by the function under test cannot see a wrong constant inside it
+
+**Believed:** the address a launch's details file says it was made on (`createdOn`) was
+covered. Five test files build or fake that file, and the canonical host has its own guard
+tests.
+
+**Measured:** the address was written on 2026-09-26 as the host the venue had left on
+2026-09-20, and every test stayed green for 13 days. Three of the files build the file with
+`buildMetadataJson`, the function that writes the address: two compare its output with its
+own output, so both sides held the same wrong host, and one reads the file back through a
+parser that ignores the field. The other two typed a host into a fake upload, two different
+hosts, and asserted nothing about either. Each canonical-host guard pins a
+surface it names (index.html, the sitemap, the middleware, the bot's defaults); a surface
+written after the move was on no list. One assertion against `SITE_URL` failed on its first
+run: `expected 'https://memetic.fun' to be 'https://memetics.finance'`.
+
+**Do:** pin a constant that is written out and never read back against its source of truth,
+not against the function that writes it. A test that calls that function for its expected
+value is checking the plumbing, which is worth having, and says nothing about the value.
+After a host moves, also search shipped code for the old host as text: the listed surfaces
+are only the ones somebody thought of.
+
 ## 2026-10-08: a test rewritten for a new rule can stop holding the old rule it also held
 
 **Believed:** a pull request that changes one assertion in an existing test (a pool's price
