@@ -15,6 +15,35 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-10-08: a workflow's green runs can all have skipped the job that is broken
+
+**Believed:** a manual workflow whose last five runs are green builds what it says it builds.
+
+**Measured:** `solana-deploy-artifact.yml` has two jobs, each behind an `if:` on which
+program was asked for. All five green runs from 2026-09-09 on built bayla-ladder; the job
+that builds cp-swap and tegridy-launch read `skipped` in each (`gh run view <id> --json
+jobs`). That job's last step printed `$((SIZE * 2))` under `set -euo pipefail` with `SIZE`
+never set. Run as the runner runs it (`bash -e <script>`, a dummy `.so`, Git Bash 5.2.37) it
+exited 1 with `SIZE: unbound variable`, before the checksum file and the upload; with only
+`-u` taken off it exited 0 and printed `solana rent 0`. GitHub accepted the file throughout.
+
+**Do:** for a workflow with jobs behind `if:`, read which jobs ran, not the run's conclusion.
+To try a step without a runner, take its script out of the file, fill in its expressions, and
+run it under the same shell options beside a dummy input. An unset name is fatal only under
+`-u`, and in arithmetic it would otherwise read as 0 and print a wrong number in silence.
+
+## 2026-10-08: after fetching two refs, FETCH_HEAD is the first one
+
+**Believed:** `git fetch origin mvp-launch pull/695/head`, then
+`git merge-tree --write-tree HEAD FETCH_HEAD`, simulates a merge with the pull request.
+
+**Measured:** `FETCH_HEAD` resolved to the first ref fetched, the trunk. The simulation
+exited 0, clean, for a pull request that conflicts in two files (exit 1 once its own sha was
+passed).
+
+**Do:** fetch the one ref, put `git rev-parse FETCH_HEAD` in a variable straight away, and
+check it against `gh pr view <n> --json headRefOid` before simulating anything.
+
 ## 2026-10-08: a test rewritten for a new rule can stop holding the old rule it also held
 
 **Believed:** a pull request that changes one assertion in an existing test (a pool's price
