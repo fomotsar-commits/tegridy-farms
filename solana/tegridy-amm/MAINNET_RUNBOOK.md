@@ -350,6 +350,20 @@ proposals (its code in stage 1, its buttons in stage 2 and in the cold run).
 | Stage 2 | The owner's pack, built, and its whole flow run in its own order. The page was driven through its buttons in a headless browser, with a test wallet standing in for each member. | 71 checks on the flow, 89 on what must be refused and on the two "only if" paths, 20 on the page reading mainnet. |
 | Cold run | An operator who did not build the pack followed its paper line by line, tried 24 ways to break it, and decoded the stored proposals with separate code. | Every "you should see" line matched and no gate let a wrong build through. Verdict: ready after named fixes, not as it stood. |
 
+**The pack was finished after those three runs, the same day (2026-10-08).** Three more
+passes, each on the same kind of chain:
+
+| pass | what it was | result |
+|---|---|---|
+| The fixes | The cold run's fifteen findings, each closed in the pack. Then the whole pack run by its one command, from a new read of mainnet. | Every phase ended as expected: 108 checks on the flow, 157 on what must be refused and on the two "only if" paths, 26 on the page reading mainnet, 16 on the read-only scripts run against mainnet. |
+| The re-check | Someone who wrote none of the fixes made each of the fifteen happen again, followed the pack's paper from its first step to its last and through the roll-back on a clean local chain, and tried five new attacks and four more side paths. | All fifteen fixed, and no gate broken. Verdict: ready to hand to the owner. It named eight smaller things, wrong or missing sentences on side paths. None can cost the owner SOL or touch the pools when the paper is followed on the page. |
+| The names | The owner's names of that day put in ("Bayla LP SOL", "Bayla LP USDC"), the re-check's eight closed, and the whole pack run by its one command again, from a read of mainnet at slot 454,610,093 (17:21 UTC). | Every phase ended as expected: 115 checks on the flow, 196 on what must be refused, 26 and 16 against mainnet read-only. A reader that shares no code with the pack decoded the rename off that chain: the two new names, the links unchanged, nothing else touched. |
+
+So the pack on disk is the finished one. The fifteen and the eight are closed, it was
+re-checked as ready, and it carries the owner's names. Read 2026-10-09: its checksum list
+names 405 files and every one matches, and the marker file that said it was being fixed is
+no longer in it.
+
 **What that does not prove.**
 
 - **Mainnet runs 4.3.0.** The local validator is 3.1.11 and does not know 28 features that
@@ -377,13 +391,16 @@ instruction, before any name record is sent. None of those answers has been seen
 **The owner's command sheet is the pack**, not this file:
 `C:\Users\jimbo\solana-launch-release-2026-09-26\pool-program-upgrade-2026-10`, starting at
 `START-HERE.md`. It holds the one program file to upload, the roll-back file, the reviewed
-name files, its scripts (most only read; one that sends is a dry run unless it is given
-`--send` and a key file), a copy of the local proposer page with four new steps, and the
-outputs of stage 1 and stage 2. This section is the gates and the facts behind them. It says
-what the pack does and never its step numbers: the cold run named changes the pack needs,
-another pass is making them in the pack, and its numbering moves with them. "The pack checks"
-below means what the pack did in those three runs. The pack on disk was already changing
-when this was written (2026-10-08, 08:02 UTC).
+name files, its scripts (five only read; the two that can send, the enlarge and the name
+records, are dry runs unless given `--send` and a key file), a copy of the local proposer
+page in which only the four steps of this upgrade can be picked, and the outputs and
+reports of the runs named above. This section is the gates and the facts behind them. It
+says what the pack does and never its step numbers, so that the two cannot drift apart.
+When this was first written (2026-10-08, 08:02 UTC) the cold run had named changes the pack
+needed, another pass was making them, and the pack on disk was already changing. **That
+pass is finished (2026-10-08), and so is the pack:** the three passes in the second table
+above. "The pack checks" below still means what the pack did in the first three runs. Where
+the finished pack does something else, the line says so and gives the date.
 
 ### A. Before the upgrade PROPOSAL is created. Every one, on the exact commit being built.
 
@@ -443,7 +460,48 @@ when this was written (2026-10-08, 08:02 UTC).
    Read 2026-10-08: on `mvp-launch` at `f0fec8a7`, `programs/` and `Cargo.lock` are byte for
    byte what they were at `b80a6152`, the commit the rehearsal checked its inputs against.
    The file in the pack is the 2026-10-06 build, compared byte for byte with it by the cold
-   run. **No build from the merged commit is recorded yet. This gate is open.**
+   run. No build from the merged commit was recorded that morning, and this gate was open.
+
+   **The build half of this gate is closed.** On the evening of 2026-10-08, Mountain time
+   (about 02:15 UTC on 2026-10-09), the pool program was built twice from merged trunk
+   `7a2012c3`: two clean copies of a `git archive` of that commit, with the toolchain of
+   the 2026-10-06 build (`cargo-build-sbf` 2.3.0, platform-tools v1.48, rustc 1.84.1). Both
+   builds are 724,688 bytes, sha256
+   `99a9e73dc469755b178d8029196be0ee8f92e557bbd65e15e4511084b6a0fe25`. `cmp` finds each one
+   byte for byte the same as the other and as the file in the pack. The constants check
+   passed on both, the three `grep` lines of gate 4 printed 0, 0 and 1 on both, and
+   neither build log holds an "exceeded max offset" line.
+
+   **If trunk moves before the day, re-check three git object ids.** While all three are
+   these, the source that build read has not changed and the gate stays closed:
+
+   | path | id on `7a2012c3` |
+   |---|---|
+   | `solana/tegridy-amm/programs/cp-swap` (tree) | `b73ee18fd8e1c7edc57b615c1d0656dc3f941e44` |
+   | `solana/tegridy-amm/Cargo.toml` (blob) | `446771097aec55f5d8fbcd6631c9cc87e17afcca` |
+   | `solana/tegridy-amm/Cargo.lock` (blob) | `43e2ca2ae5d22d91a7a690e822a03b9c80120e0a` |
+
+   `git rev-parse origin/mvp-launch:<path>` prints each one. If any differs, this gate is
+   open again: build twice from the new commit and compare.
+
+   **What that build did not do.** It did not run `prove-lp-metadata.mjs`. It started no
+   validator and read neither mainnet nor devnet, so it made no fresh read of the pools. It
+   did not read CI on `7a2012c3` (gate 2 asks for that only if trunk's `programs/` moves,
+   and it has not). It did not rebuild the devnet-shape file or the IDL, or work out the
+   pinned delta hash again. What it shows is that a build of trunk IS the file that every
+   run of `99a9e73d…` in this section was made on, so those runs are runs of it.
+
+   **Where these bytes last met a fresh read of both pools.** In the pack's final rehearsal
+   on 2026-10-08 (the third pass in the second table above). It read mainnet at slot
+   454,610,093 (17:21 UTC) and loaded both pools exactly as read, with the same two
+   stand-ins as every rehearsal here (the programs' deploy slots, the multisig's members).
+   It installed these bytes with the real enlarge and the real Upgrade instruction, and ran
+   the pack's own checks on them: both pools against what had been written down, a trade
+   simulated through both, the new instruction on both share mints, and the rename. That is
+   the pack's flow and not `prove-lp-metadata.mjs`. That script itself last ran on these bytes
+   in stage 1 on 2026-10-08 (130 checks, C below), on a chain started from that day's copy
+   of both pools. Neither was run again after the build from trunk. The bytes are the
+   same, so there was nothing new to run them on.
 6. **The file in the buffer is the file that was built, and only the pack's checks stand
    between a wrong file and the pools.** The mainnet build and the devnet build are the SAME
    size (724,688 bytes), so size does not catch the devnet build. The build made before the
@@ -501,9 +559,17 @@ when this was written (2026-10-08, 08:02 UTC).
      balance (B).
 9. **The pack in hand is the pack after the cold run's fixes, walked again.** The cold run's
    verdict on 2026-10-08 was "ready after named fixes", not ready as it stood. The findings
-   that touch money or the pools are told in B and E as facts: the enlarge can be run twice,
-   the wallet the parked SOL returns to is typed by hand, and the pack's paper did not yet
-   say "only on this page".
+   that touch money or the pools are told in B and E as the cold run found them: the
+   enlarge could be run twice, the wallet the parked SOL returns to was typed by hand, and
+   the pack's paper did not yet say "only on this page".
+   **Closed 2026-10-08.** All fifteen findings were fixed in the pack that day. A re-check
+   by someone who wrote none of the fixes made each one happen again, found it fixed, and
+   gave the verdict "ready to hand to the owner". Its own eight smaller findings were
+   closed the same day, in the pass that put in the owner's names. For the three named
+   here: the pack's enlarge step refuses a second run, the page fills in the paying wallet
+   and refuses any other, and the rule "only on this page" stands at the top of the pack's
+   paper and of the page. To know the pack in hand is that pack: its checksum list names
+   405 files and every one matches (read 2026-10-09).
 10. **The two same-release items in C are closed**: the website wording is ready to ship with
     the execute, and the security scope (to-do `O-0929-12`) is decided. Both were open on
     2026-10-08.
@@ -517,7 +583,9 @@ What the pack does, in its order. The commands are in the pack.
    files and every cost at the day's rent against each wallet's balance, and writes both
    pools down for later.
 2. **Enlarge.** A read-only check says how many bytes. The paying wallet enlarges by that
-   number, once. The same check then refuses, which is how it says the room is there.
+   number, once. Since 2026-10-08 nobody types the number: the pack's enlarge step reads the
+   chain again and sends exactly what is missing. The same check then refuses, which is how
+   it says the room is there.
 3. **Upload, read back, hand over.** A one-time key file for the buffer. The upload. The
    buffer's bytes read back from the chain and hashed. Only then is the buffer handed to the
    vault, and the full buffer check is run on it.
@@ -535,8 +603,10 @@ What the pack does, in its order. The commands are in the pack.
 The wallets sign six times on the page in all: member A twice (each a proposal), member B
 four times (two approvals, two executes). Member B approves and executes ON THE PAGE, which is
 new. The page's seven older steps are still finished in the Squads app. On mainnet the page
-lists those seven as well, and at the cold run one of them, "Unpause the launcher", read
-"still to do". They are not part of this upgrade. Touch only the upgrade step and the rename
+lists those seven as well. At the cold run they could be picked like the others, and one of
+them, "Unpause the launcher", read "still to do". Since the fixes of 2026-10-08 the pack's
+page shows them greyed out and marked as not part of this upgrade, and only its four steps
+can be picked. They are not part of this upgrade. Touch only the upgrade step and the rename
 step, and the two "only if" steps when E says so.
 
 **The enlarge.**
@@ -551,9 +621,13 @@ step, and the two "only if" steps when E says so.
   724,733 to 757,781 bytes in stage 1, and by another 22,808 bytes in the cold run. On
   mainnet a repeat of 33,048 bytes is another 167,883,840 lamports that nobody gets back.
   The pack's check refuses once the room is there. At the cold run the enlarge command
-  itself still ran when repeated. The fix being made in the pack is a script that reads the
-  size, refuses when the room is there, and otherwise sends exactly the missing bytes. It
-  was on disk at 08:02 UTC on 2026-10-08 and is not part of any of the three runs.
+  itself still ran when repeated. **Fixed in the pack on 2026-10-08:** the enlarge is now a
+  script that reads the size, refuses when the room is there, and otherwise sends exactly
+  the missing bytes. It is not part of the first three runs. It ran in all three passes
+  that finished the pack. The re-check ran it a second time, in two windows at once, and
+  again after a send whose answer could not be read: never more than one enlarge was paid.
+  With its gate broken on purpose in a throwaway copy it did enlarge twice, so the gate is
+  what stops it. The bare `solana program extend` still repeats: never type it.
 - **The amount comes from the size read on the day**: 724,733 less the data account's size at
   that moment. 691,685 means 33,048. 724,733 or more means do not enlarge. Never a number
   copied from a paper.
@@ -596,13 +670,16 @@ step, and the two "only if" steps when E says so.
   SOL back, alone. After it, only a vault proposal returns the SOL (E).
 - **Where the parked SOL returns.** The buffer's full rent leaves the paying wallet with the
   first upload transaction. The execute returns it, to the lamport, to the wallet the
-  proposal names, whoever that is. On the page that wallet is an address typed by hand. At
-  the cold run the page checked that it was an existing plain wallet (it refused the vault,
+  proposal names, whoever that is. At the cold run that wallet was an address typed by hand
+  on the page. The page checked that it was an existing plain wallet (it refused the vault,
   the program, its data account, the buffer itself, a token account and an address that does
   not exist) and did not compare it with the wallet that paid. A wallet the owner does not
-  hold, pasted there, would keep the 3.68 SOL. Name the paying wallet and read it twice. The
-  fix being made in the pack is for the page to refuse any wallet but the paying one. It was
-  in the page's source at 08:02 UTC on 2026-10-08 and is not part of any of the three runs.
+  hold, pasted there, would have kept the 3.68 SOL. **Fixed in the pack on 2026-10-08:** the
+  page fills in the paying wallet and refuses any other. It is not part of the first three
+  runs. In the re-check a member's address and a funded stranger's were typed there, and a
+  proposal naming a stranger's wallet was made and approved outside the page: the page
+  offered no button for any of them. The chain itself still pays whatever wallet a
+  proposal names. Read the wallet on the page all the same: it must be the paying wallet.
 - **Only on the page** (gate 6). Nothing else hashes the buffer before a signature.
 - The upload command as the pack prints it was run in the cold run against the local chain,
   then interrupted and resumed. Stages 1 and 2 had added a flag (`--use-rpc`) that the owner
@@ -668,6 +745,8 @@ collection 5,496,480.
 In the SAME release as the upgrade (site and repo). Two of these wait on the owner and were
 open on 2026-10-08 (gate A10): the website wording, which is the first two bullets, and the
 security scope, which is the last. At the cold run the pack's paper had no step for either.
+Since 2026-10-08 it names both, ahead of its execute step, as two things the pack neither
+does nor checks.
 
 - `frontend/src/components/solana/lp/LpDisclosures.tsx` (`FORK_LINE`) and
   `frontend/src/components/solana/lp/SolanaLpSection.tsx` ("we changed only its admin keys"):
@@ -719,23 +798,32 @@ security scope, which is the last. At the cold run the pack's paper had no step 
   and "Bayla LP USDC" (`BAYLA-USDC`) and leave the link, the editor, "primary sale" and
   "mutable" alone. Those names are the owner's rule of 2026-10-08: the bungalow's name, then
   what the token does. The three runs below set the earlier words, "BAYLA/SOL Pool Share" and
-  "BAYLA/USDC Pool Share", with the same instruction and the same symbols; the pack's step
-  must be run again with the new words before it is used. Those two instructions were proposed, approved and
+  "BAYLA/USDC Pool Share", with the same instruction and the same symbols. Those two
+  instructions were proposed, approved and
   executed in all three runs: built with the SDK in stage 1, through the page's step in
   stage 2 and in the cold run. The cold run decoded the stored proposal with separate code:
   every field as ruled, no byte left over. Mainnet's Metaplex, under 4.3.0, accepted an
   update of the same shape in an unsigned simulation against a record that exists there
   (cold run, 2026-10-08).
+  **The pack's step has since been run with the new words** (2026-10-08, the pass that put
+  the names in): proposed, approved and executed on the page in both boots of the final
+  rehearsal, and decoded off that chain by a reader that shares no code with the pack. Both
+  updates carry exactly the new names and the unchanged links, with no byte left over, and
+  both records read back with the new names, still editable, the vault still the editor.
 - **What it costs.** The member who proposes pays 5,247,560 lamports for the proposal. The
   update itself is free: no Metaplex fee and no rent, and each record stays 607 bytes.
 - **When it refuses.** The page offers no button unless both records exist, belong to
-  Metaplex, hold the default words and the pinned link, name the vault as editor and are
-  editable, and unless a simulation as the vault ends with both renamed and everything else
-  unchanged. In stage 1 five wrong versions were refused before any proposal existed:
-  "mutable" turned off, a changed link, a new editor, the two names swapped, and one update
-  without the other. At the cold run, with one record already renamed some other way, the
-  page stopped and the pack had no way forward. Only a vault proposal made outside the page
-  can cause that.
+  Metaplex, hold the pinned link, name the vault as editor and are editable, unless each
+  holds the default words or (since 2026-10-08) already its new name, and unless a
+  simulation as the vault ends with both renamed and everything else unchanged. In stage 1
+  five wrong versions were refused before any proposal existed: "mutable" turned off, a
+  changed link, a new editor, the two names swapped, and one update without the other. At
+  the cold run the page asked for the default words on both, so with one record already
+  renamed some other way it stopped and the pack had no way forward. **Fixed in the pack on
+  2026-10-08:** a record that already carries its new name is accepted, and the step
+  renames the other and writes the same words again on the first. A record that holds any
+  other words is still refused, with no button, and the earlier names count as other words.
+  Only a vault proposal made outside the page can cause either.
 - **Keep the record mutable.** One update signed with "mutable" turned off freezes the words
   for good. Shown on a throwaway pool's record: once frozen, the vault's next update was
   refused by Metaplex with 59 (0x3b), "Data is immutable".
