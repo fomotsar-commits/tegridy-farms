@@ -135,6 +135,7 @@ jobs:
           src/test/botOrigins.test.ts
           src/test/frontDoor.test.ts
           src/test/mirrorToGitlab.test.ts
+          src/test/poolProgramUpgradeRecord.test.ts
 
   lint-typecheck-test:
     name: Lint, Type Check & Test

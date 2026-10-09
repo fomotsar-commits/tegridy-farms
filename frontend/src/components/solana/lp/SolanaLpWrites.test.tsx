@@ -325,7 +325,7 @@ describe('Add liquidity', () => {
     expect(heading).toHaveFocus();
     expect(panel).toHaveAccessibleName('Add liquidity to this pool');
     const before = within(panel).getByTestId('lp-before-you-add');
-    expect(before).toHaveTextContent(/Our pool program is Raydium's, with only its admin keys changed\. Those changes have not had their own independent review yet\./);
+    expect(before).toHaveTextContent(/Our pool program is Raydium's, with its admin keys changed and one added instruction that names pool share tokens\. Those changes have not had their own independent review yet\./);
     expect(before).toHaveTextContent(/change its fee rates at once/);
     expect(before).toHaveTextContent(/Jupiter does not send trades to these pools yet/);
     expect(before).toHaveTextContent(/liquidity providers keep 0\.\d{3}%, read from this pool's fee tier just now/);

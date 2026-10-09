@@ -154,8 +154,8 @@ const RISK_LINE_STYLE = { background: 'rgba(28,21,6,0.92)', border: '1px solid r
 function LpRiskLine() {
   return (
     <p data-testid="lp-risk-line" className="rounded-xl px-4 py-2.5 sm:py-3 text-amber-200 text-[13px] leading-snug sm:leading-relaxed" style={RISK_LINE_STYLE}>
-      These pools run on a pool program whose admin-key changes have not had their own independent review yet. Put in only what
-      you can afford to lose. The full notice is right under your positions.
+      These pools run on a pool program whose changes from Raydium’s have not had their own independent review yet. Put in only
+      what you can afford to lose. The full notice is right under your positions.
     </p>
   );
 }
@@ -216,11 +216,12 @@ export function LpDisclosure({ programId, mode = 'off' }: { programId: string; m
   return (
     <section data-testid="lp-disclosure" aria-label="Before you provide liquidity">
       <Card title="Before you provide liquidity">
-        {/* True of the pool program RUNNING on mainnet, built before the source gained create_lp_metadata.
-            It goes false the day that program is upgraded: reword it in the same release as the upgrade
-            (src/test/poolProgramCopy.test.ts fails that release until you do, and holds the wording). */}
+        {/* True of the pool program RUNNING on mainnet since its upgrade to the build that has
+            create_lp_metadata. Before the upgrade this named the admin keys as the only change.
+            src/test/poolProgramCopy.test.ts ties the wording to the binary the local harness pins. */}
         <p className="text-white/80">
-          Our pool program is Raydium’s constant-product pool; we changed only its admin keys (see “The program” below).{' '}
+          Our pool program is Raydium’s constant-product pool, with its admin keys changed and one added instruction that names pool
+          share tokens (see “The program” below).{' '}
           <strong>Those changes have not had their own independent review yet.</strong> Put in only what you can afford to lose.
         </p>
         <p>

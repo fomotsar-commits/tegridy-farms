@@ -47,6 +47,11 @@
 //
 // Needs the release artifacts (the .so files are not in the repo):
 //   TEGRIDY_RELEASE_ARTIFACTS (default C:/Users/jimbo/solana-launch-release-2026-09-26/artifacts)
+// Since the pool program's upgrade that folder must also hold the upgrade's build, under its
+// own names, beside the release's files (which stay as they are):
+//   cp_swap.upgrade-99a9e73d.mainnet.so          the file that was deployed (the upgrade pack's binary-to-deploy)
+//   raydium_cp_swap.upgrade-99a9e73d.idl.json    its IDL: a copy of solana/tegridy-amm/idl/raydium_cp_swap.json
+//   SHA256SUMS.upgrade-99a9e73d                  one line for each: the sha256, two spaces, the file name
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
@@ -92,22 +97,47 @@ export function baylaMintAuthority() {
   return Keypair.fromSeed(crypto.createHash('sha256').update('tegridy e2e: local stand-in $BAYLA mint authority').digest());
 }
 
-/** artifacts/SHA256SUMS of the 2026-09-26 release, pinned here so a swapped file cannot pass. */
+/**
+ * The pool program's files, as the artifacts folder names them: the build mainnet has run
+ * since the upgrade that added `create_lp_metadata` (MAINNET_RUNBOOK.md, section 4b), and
+ * the IDL emitted from the same source. They sit beside the 2026-09-26 release's own
+ * `cp_swap.mainnet.so` and `raydium_cp_swap.idl.json`, which are what mainnet ran before
+ * the upgrade. Those two stay in the folder untouched (the first is the roll-back build)
+ * and this harness no longer loads them.
+ */
+export const POOL_PROGRAM_SO = 'cp_swap.upgrade-99a9e73d.mainnet.so';
+export const POOL_PROGRAM_IDL = 'raydium_cp_swap.upgrade-99a9e73d.idl.json';
+
+/**
+ * Every file the validator and the encoder are built on, pinned here by sha256 so a swapped
+ * file cannot pass. The two launcher files are the 2026-09-26 release's. The pool program's
+ * binary is 724,688 bytes. src/test/poolProgramCopy.test.ts reads its pin from this table
+ * and from start-validator.sh, and ties the site's wording about the pool program to it.
+ *
+ * The repo's pool IDL (solana/tegridy-amm/idl/raydium_cp_swap.json) and the folder's copy
+ * are the same file again, so they share the one pin below. From 2026-10-06 until the
+ * upgrade the repo's was one instruction ahead of the binary on mainnet and had a pin of
+ * its own. src/lib/launcher/solana/write/idl.test.ts still holds that this file with
+ * `create_lp_metadata` taken out is the IDL of the build mainnet ran before.
+ */
 export const PINNED_SHA256 = Object.freeze({
-  'cp_swap.mainnet.so': '88b98aa91559824c682f6e6c31906abf222d189ce7a45f16af117368b33db882',
+  'cp_swap.upgrade-99a9e73d.mainnet.so': '99a9e73dc469755b178d8029196be0ee8f92e557bbd65e15e4511084b6a0fe25',
   'tegridy_launch.mainnet.so': 'a3c41afaf9dce3ee5dd5d30061c09d8dfb0bf581ba8f39e1d24524dbb43d3f4d',
-  'raydium_cp_swap.idl.json': '939bc040fa0f65b6639f07545be9d23fde0492e9b5fc3d90229a313b0fcf0262',
+  'raydium_cp_swap.upgrade-99a9e73d.idl.json': '1e8fd7928c0fce6788b880703a1cbfc932e808ab5acadfd5217eb637d739f736',
   'tegridy_launch.idl.json': 'cd9e173c666940f82222a2798dc1c5bc0cf30edf7b32450530e65aa523a3cb31',
 });
 
 /**
- * The COMMITTED pool IDL (solana/tegridy-amm/idl/raydium_cp_swap.json). It is one instruction
- * ahead of the release: the source has `create_lp_metadata` (it names a pool's share token),
- * and the binary on mainnet does not until the owner upgrades it. The release's own copy keeps
- * its pin above; src/lib/launcher/solana/write/idl.test.ts holds that this file with the one
- * instruction taken out is that copy, byte for byte.
+ * The checksum list in the artifacts folder that must name each pinned file. The release's
+ * own SHA256SUMS is never edited: the upgrade's two files came with a list of their own.
  */
-export const PINNED_REPO_CPSWAP_IDL_SHA256 = '1e8fd7928c0fce6788b880703a1cbfc932e808ab5acadfd5217eb637d739f736';
+export const UPGRADE_SUMS = 'SHA256SUMS.upgrade-99a9e73d';
+const SUMS_FILE = Object.freeze({
+  [POOL_PROGRAM_SO]: UPGRADE_SUMS,
+  [POOL_PROGRAM_IDL]: UPGRADE_SUMS,
+  'tegridy_launch.mainnet.so': 'SHA256SUMS',
+  'tegridy_launch.idl.json': 'SHA256SUMS',
+});
 
 export function defaultArtifactsDir() {
   return process.env.TEGRIDY_RELEASE_ARTIFACTS || 'C:/Users/jimbo/solana-launch-release-2026-09-26/artifacts';
@@ -116,49 +146,55 @@ export function defaultArtifactsDir() {
 const sha256 = (buf) => crypto.createHash('sha256').update(buf).digest('hex');
 
 /**
- * Refuse unless every pinned release file in `dir` hashes to its pin AND SHA256SUMS
- * itself lists the same hashes. start-validator.sh repeats this for the .so files in WSL.
+ * Refuse unless every pinned file in `dir` hashes to its pin AND the checksum list that
+ * came with it lists the same hash. start-validator.sh repeats this for the .so files in WSL.
  */
 export function verifyReleaseArtifacts(dir = defaultArtifactsDir()) {
-  const sums = fs.readFileSync(path.join(dir, 'SHA256SUMS'), 'utf8');
+  const lists = new Map();
   for (const [file, pin] of Object.entries(PINNED_SHA256)) {
-    const listed = new RegExp(`^${pin}\\s+\\*?${file.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'm').test(sums);
-    if (!listed) throw new Error(`SHA256SUMS in ${dir} does not list ${file} as ${pin}`);
+    const list = SUMS_FILE[file];
+    if (!lists.has(list)) {
+      const at = path.join(dir, list);
+      if (!fs.existsSync(at)) {
+        throw new Error(`no ${list} in ${dir}: the files it lists have not been copied there (see the top of this script)`);
+      }
+      lists.set(list, fs.readFileSync(at, 'utf8'));
+    }
+    const listed = new RegExp(`^${pin}\\s+\\*?${file.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'm').test(lists.get(list));
+    if (!listed) throw new Error(`${list} in ${dir} does not list ${file} as ${pin}`);
     const actual = sha256(fs.readFileSync(path.join(dir, file)));
     if (actual !== pin) throw new Error(`${file} hashes to ${actual}, pinned ${pin}: refusing`);
   }
 }
 
-/** Where the IDLs may live: the repo copy (if set T has committed it), else the release. */
+/** Where the IDLs may live: the repo copy (if set T has committed it), else the artifacts folder. */
 export function idlCandidates(artifactsDir = defaultArtifactsDir()) {
   const repoIdl = path.join(HERE, '..', '..', '..', 'solana', 'tegridy-amm', 'idl');
   return {
     launch: [path.join(repoIdl, 'tegridy_launch.json'), path.join(artifactsDir, 'tegridy_launch.idl.json')],
-    cp: [path.join(repoIdl, 'raydium_cp_swap.json'), path.join(artifactsDir, 'raydium_cp_swap.idl.json')],
+    cp: [path.join(repoIdl, 'raydium_cp_swap.json'), path.join(artifactsDir, POOL_PROGRAM_IDL)],
   };
 }
 
 /**
  * The two IDLs, from the first location that exists, each refused unless it hashes to
- * the pin for THAT location (the repo's pool IDL and the release's differ by one
- * instruction, see PINNED_REPO_CPSWAP_IDL_SHA256). Returns null when neither location has
- * them (a machine without the release and before the IDLs are committed); every caller
- * must treat that as "cannot check", never as a pass.
+ * its pin (one pin per program: the repo's copy and the folder's are the same file).
+ * Returns null when neither location has them (a machine without the artifacts and
+ * before the IDLs are committed); every caller must treat that as "cannot check", never
+ * as a pass.
  */
 export function loadVerifiedIdls(artifactsDir = defaultArtifactsDir()) {
   const c = idlCandidates(artifactsDir);
-  const pick = (list, pins) => {
-    const at = list.findIndex((f) => fs.existsSync(f));
-    if (at < 0) return null;
-    const file = list[at];
-    const pin = pins[at];
+  const pick = (list, pin) => {
+    const file = list.find((f) => fs.existsSync(f));
+    if (!file) return null;
     const raw = fs.readFileSync(file);
     const actual = sha256(raw);
     if (actual !== pin) throw new Error(`${file} hashes to ${actual}, pinned ${pin}: refusing`);
     return { file, idl: JSON.parse(raw.toString('utf8')) };
   };
-  const l = pick(c.launch, [PINNED_SHA256['tegridy_launch.idl.json'], PINNED_SHA256['tegridy_launch.idl.json']]);
-  const p = pick(c.cp, [PINNED_REPO_CPSWAP_IDL_SHA256, PINNED_SHA256['raydium_cp_swap.idl.json']]);
+  const l = pick(c.launch, PINNED_SHA256['tegridy_launch.idl.json']);
+  const p = pick(c.cp, PINNED_SHA256[POOL_PROGRAM_IDL]);
   if (!l || !p) return null;
   if (l.idl.address !== LAUNCH_PROGRAM.toBase58()) throw new Error(`launch IDL address ${l.idl.address}`);
   if (p.idl.address !== CP_SWAP_PROGRAM.toBase58()) throw new Error(`cp-swap IDL address ${p.idl.address}`);

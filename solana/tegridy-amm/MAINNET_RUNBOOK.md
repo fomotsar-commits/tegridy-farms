@@ -96,7 +96,7 @@ one. Rent assumes an exact `--max-len` (ProgramData = binary + 45 B header).
 
 | program | ProgramData account | rent at 5,080/byte |
 |---|---|---|
-| `raydium_cp_swap` | binary **691,640 B** → ProgramData **691,685 B**: `cp_swap.mainnet.so` sha256 `88b98aa9…`, the rehearsed mainnet build (the 2026-08-08 deploy put ~701,925 B on chain, but the restart deploys a fresh binary; not the 793,824 in `solana-ci.yml` either) | **~3.51 SOL** |
+| `raydium_cp_swap` | **On chain since the upgrade of section 4b:** binary **724,688 B**, sha256 `99a9e73d…` (the build with `create_lp_metadata`). Its ProgramData account was enlarged for it: 724,733 B if the enlarge was the exact 33,048 the pack asks for, which is 3,682,293,880 lamports, about 3.68 SOL (4b's table has the size read after the execute). **What the restart deployed, and what the figure beside this priced:** binary **691,640 B** → ProgramData **691,685 B**: `cp_swap.mainnet.so` sha256 `88b98aa9…`, the rehearsed mainnet build, now the roll-back build (the 2026-08-08 deploy put ~701,925 B on chain, but the restart deploys a fresh binary; not the 793,824 in `solana-ci.yml` either) | **~3.51 SOL** |
 | `tegridy_launch` | binary **470,728 B** → ProgramData **470,773 B**: `tegridy_launch.mainnet.so` sha256 `a3c41afa…`, the reserve-paid-at-create mainnet build (tag `wip/solana-reserve-at-create`), built twice byte-identical. Mainnet quoted 2,392,177,080 lamports for it on 2026-09-26. (The escrow build it replaces was 483,288 B.) | **~2.39 SOL** |
 | fee-receiver WSOL ATA | already exists (`2sa31zce…`) | 0 |
 | tx fees | | ~0.01 SOL |
@@ -269,7 +269,8 @@ The delta is about 260 lines over **three** files: `lib.rs`,
 until 2026-10-06, when `create_lp_metadata` was added to `lib.rs`: the instruction that
 gives a pool's lp token a name record (see `TEGRIDY_FORK.md`). The same day four values of
 the on-chain security text changed in `lib.rs`, which left the count at 261. The binary
-deployed on 2026-09-29 was built before both and has neither.
+deployed on 2026-09-29 was built before both and had neither. The upgrade of section 4b
+replaced it with the build that has both, and that is what mainnet runs now.
 
 The program id is **mirrored in two more places** that the guard does not cover; all three
 must agree or the client derives PDAs that do not exist under the deployed program:
@@ -318,11 +319,39 @@ solana program show <PROGRAM_ID>   # verify authority == GRMtSx… + last-deploy
 
 ## 4b. The `create_lp_metadata` upgrade: the gates, the order, and what ships with it
 
-Added 2026-10-06. Brought in line with three rehearsals on 2026-10-08. This would be cp-swap's
-FIRST upgrade on mainnet, of a program that holds funded pools. Nothing has been sent. Read on
-2026-10-08 (07:42 UTC): mainnet runs the old binary `88b98aa9…`, nobody has enlarged the
-program account, and neither flagship share mint has a name record. The source of the new
-build is on `mvp-launch` (pull request #758, merged that day at 07:40 UTC).
+Added 2026-10-06. Brought in line with three rehearsals on 2026-10-08. **Executed since.** It
+was cp-swap's FIRST upgrade on mainnet, of a program that held funded pools. Mainnet now runs
+the new build, `99a9e73d…` (724,688 bytes): the one with `create_lp_metadata` and the security
+text on `memetics.finance`. Until the execute it ran `88b98aa9…` (691,640 bytes), the build
+deployed on 2026-09-29, which is now the roll-back build (E). The source of the new build is
+on `mvp-launch` (pull request #758, merged 2026-10-08 at 07:40 UTC).
+
+**The upgrade as it executed.** Read from mainnet after the execute, by the session that
+shipped the website release of part C. This table is the only place in the repository that
+holds these four facts, and every other paper points here.
+`frontend/src/test/poolProgramUpgradeRecord.test.ts` fails while a cell is not filled in, or
+does not have the shape of what it names.
+
+| | |
+|---|---|
+| Day of the execute (UTC) | `UNFILLED-UNTIL-THE-UPGRADE-EXECUTES` |
+| Slot of the execute (the program's "Last Deployed In Slot") | `UNFILLED-UNTIL-THE-UPGRADE-EXECUTES` |
+| Transaction of the execute (its signature) | `UNFILLED-UNTIL-THE-UPGRADE-EXECUTES` |
+| Size of the program's data account afterwards (bytes) | `UNFILLED-UNTIL-THE-UPGRADE-EXECUTES` |
+
+**From here to the end of part B, this section is the plan as it stood before the execute.**
+It is kept as written: it is the record of what was rehearsed and what was not, and the
+pattern for the next upgrade or for a roll-back. Its present tense is 2026-10-08's. Where it
+says that nothing has been sent, that mainnet runs the old binary, that a gate is open or
+that something "would" happen, read it as of that day. How the day itself went (a stopped
+upload, a repeated step, a stranger's enlarge) is not written here. Part C's list of what
+ships in the same release was brought up to date by that release, and E gained one line on
+what a roll-back means for the website. D and the rest of E hold after the execute as they
+did before it.
+
+As it stood on 2026-10-08 (07:42 UTC): nothing had been sent. Mainnet ran the old binary
+`88b98aa9…`, nobody had enlarged the program account, and neither flagship share mint had a
+name record.
 
 **One upgrade carries two changes** (decided 2026-10-06, gate A4): the instruction
 `create_lp_metadata`, and the program's on-chain security text, which moves to an email and
@@ -665,46 +694,57 @@ who proposes it, at mainnet's rent: a status change 3,743,880 lamports, a fee co
 3,784,520, a permission or a support mint 4,074,080, a new fee config 4,119,800, a fee
 collection 5,496,480.
 
-In the SAME release as the upgrade (site and repo). Two of these wait on the owner and were
-open on 2026-10-08 (gate A10): the website wording, which is the first two bullets, and the
-security scope, which is the last. At the cold run the pack's paper had no step for either.
+In the SAME release as the upgrade (site and repo). **Shipped.** The first five items below
+went out in one commit after the execute, and are told as what was done. The last, the
+security scope, is the owner's decision and has its own pull request. Both the wording and
+the scope were open on 2026-10-08 (gate A10), and at the cold run the pack's paper had no
+step for either.
 
 - `frontend/src/components/solana/lp/LpDisclosures.tsx` (`FORK_LINE`) and
-  `frontend/src/components/solana/lp/SolanaLpSection.tsx` ("we changed only its admin keys"):
-  both are risk lines a depositor reads, and both go false the day the program is upgraded.
-  Upgrade-day wording: "Our pool program is Raydium's, with its admin keys changed and one
-  added instruction that names pool share tokens. Those changes have not had their own
-  independent review yet." Their tests: `CreatePoolPanel.test.tsx`, `SolanaLpWrites.test.tsx`.
-  Not shipped on 2026-10-08, and no open pull request was titled for it that day. It goes
-  out with the execute and not before: the test below holds today's wording in place for as
-  long as the harness pins the old binary.
-- `frontend/src/components/solana/VenueProgramCard.tsx`: delete the paragraph that says the
-  program on Solana was built before the instruction was added.
-- The pins of the deployed binary: `PIN_CPSWAP` in
-  `frontend/scripts/solana-localnet/start-validator.sh`, `cp_swap.mainnet.so` in
-  `genesis-accounts.mjs` (and fold the release IDL pin and the repo IDL pin back into one),
-  the expected bytecode hash in `frontend/scripts/addresses.json`, and the hashes in §0 here.
-  `frontend/src/test/poolProgramCopy.test.ts` fails as soon as those two harness pins move
-  and any of the three lines above still has its old wording. It cannot fire if the pins are
-  left alone, so move them.
-- The docs that say the mainnet binary was built before the instruction: `README.md` here,
-  the root `README.md` feature row, `idl/README.md`, the status note in `TEGRIDY_FORK.md`,
-  `AUDIT_RFQ.md` ("Corrected again 2026-10-06") and §2 of this file.
-- The docs that say the on-chain security text is waiting for the upgrade: to-do `O-0929-10`
-  in `docs/TODO_OPERATOR.md` (tick it once the explorer's security tab shows the new
-  values), `docs/DEPLOY_RUNBOOK.md` ("Moving the source links"), `docs/SECURITY_TOOLING.md`
-  (step 3), "The on-chain security text" in `TEGRIDY_FORK.md`, `README.md` here, and
-  `AUDIT_RFQ.md`.
-- The security scope, to-do `O-0929-12` in `docs/TODO_OPERATOR.md`: **decide it before the
-  upgrade puts the link on chain.** After the upgrade the program's second contact is a link
-  to `https://memetics.finance/.well-known/security.txt`. That file's "In scope" block ends
-  "Nothing else is in scope" and does not name the two Solana programs. So a researcher who
-  follows the on-chain link lands on a file that says the program they came from is out of
-  scope. Either add both programs to that block and to the root `SECURITY.md` list, or say
-  in both that they are out of scope. The file is a static page
-  (`frontend/public/.well-known/security.txt`), so the decision needs a site deploy and no
-  rebuild of the program. Read 2026-10-08: still undecided. The served file names no Solana
-  program, and the root `SECURITY.md` says the decision has not been made.
+  `frontend/src/components/solana/lp/SolanaLpSection.tsx`: both are risk lines a depositor
+  reads, and both said the admin keys were the only change, which went false when the
+  program was upgraded. They now read: "Our pool program is Raydium's, with its admin keys
+  changed and one added instruction that names pool share tokens. Those changes have not had
+  their own independent review yet." A third, shorter line above the pool finder in
+  `SolanaLpSection.tsx` had the same fault ("whose admin-key changes have not had their own
+  independent review yet") and now says "whose changes from Raydium's". Their tests:
+  `CreatePoolPanel.test.tsx`, `SolanaLpWrites.test.tsx`, `SolanaLpSection.test.tsx` and
+  `SolanaLpPage.mintLink.test.tsx`.
+- `frontend/src/components/solana/VenueProgramCard.tsx`: the paragraph that said the program
+  on Solana was built before the instruction was added is gone.
+- The pins of the deployed binary moved to `99a9e73d…`: `PIN_CPSWAP` in
+  `frontend/scripts/solana-localnet/start-validator.sh` and the pool program's line of
+  `PINNED_SHA256` in `genesis-accounts.mjs`. The harness loads the new build from the
+  artifacts folder under its own name, `cp_swap.upgrade-99a9e73d.mainnet.so`, with its IDL
+  and a checksum list of its own (`genesis-accounts.mjs` names the three files). So the
+  2026-09-26 release's files and its `SHA256SUMS` are untouched, the release's own
+  `verify-release.mjs` still passes, and `cp_swap.mainnet.so` stays there as the roll-back
+  build. The release IDL pin and the repo IDL pin are one pin again. The expected bytecode
+  hash in `frontend/scripts/addresses.json` and the cp-swap row in §0 here moved with them.
+  `frontend/src/test/poolProgramCopy.test.ts` holds the wording to those two harness pins in
+  both directions: it failed this release until all four lines were reworded, and it fails
+  a re-pin to the old build until they are put back (E, the roll-back).
+- The docs that said the mainnet binary was built before the instruction: `README.md` and
+  `SECURITY.md` here, the root `README.md` (the feature row), `idl/README.md`, the status
+  notes in `TEGRIDY_FORK.md`, `AUDIT_RFQ.md`, `AUDIT_OUTREACH.md` and §2 of this file. Each
+  now says mainnet runs the build that has it.
+- The docs that said the on-chain security text was waiting for the upgrade: to-do
+  `O-0929-10` in `docs/TODO_OPERATOR.md`, `docs/DEPLOY_RUNBOOK.md` ("Moving the source
+  links"), `docs/SECURITY_TOOLING.md` (step 3), "The on-chain security text" in
+  `TEGRIDY_FORK.md`, `README.md` here, and `AUDIT_RFQ.md`. Each now says the program on
+  mainnet carries the new text. The to-do's box is ticked only when someone has seen the
+  new values on the explorer's security tab.
+- The security scope, to-do `O-0929-12` in `docs/TODO_OPERATOR.md`. It had to be decided
+  before the upgrade put the link on chain: since the upgrade the program's second contact
+  is a link to `https://memetics.finance/.well-known/security.txt`. On 2026-10-08 that
+  file's "In scope" block ended "Nothing else is in scope" and named neither Solana program,
+  and the root `SECURITY.md` said the decision had not been made. So a researcher who
+  followed the on-chain link would have landed on a file saying the program they came from
+  was out of scope. The answer is either to add both programs to that block and to the root
+  `SECURITY.md` list, or to say in both that they are out of scope. The file is a static
+  page (`frontend/public/.well-known/security.txt`), so it needs a site deploy and no
+  rebuild of the program. Pull request #775, a draft on 2026-10-08, adds both programs and
+  merges only on the owner's yes. How it ended is in the to-do, not here.
 
 ### D. The name records afterwards
 
@@ -802,6 +842,13 @@ security scope, which is the last. At the cold run the pack's paper had no step 
   - The program is then the old file followed by 33,048 zeros, so both traps of B apply:
     hash the first 691,640 bytes.
   - `create_lp_metadata` answers 101 again. Name records stay (D).
+  - **The website goes back with it, in the same hour.** The risk lines and the pins in
+    part C describe the build mainnet runs. After a roll-back that is `88b98aa9…` again, so
+    put back what the upgrade's commit changed there: the two harness pins and the address
+    registry name the old build, the four lines get their old wording, and the card's
+    paragraph returns. `frontend/src/test/poolProgramCopy.test.ts` refuses a half-done change
+    in either direction. Do not revert that whole commit: the table at the top of this
+    section stays as the record of the upgrade, with a line under it for the roll-back.
   - Going forward again was run too, in stage 1: the new build went in a second time, and
     the flagship records were unchanged through both.
   - SIMD-0500 (gate 8) would block a roll-back as it would block the upgrade.

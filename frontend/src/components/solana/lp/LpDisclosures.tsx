@@ -9,12 +9,12 @@ import { LOCKED_SHARES_TEXT, solAbout, solExact } from './panelKit';
 // panel (always visible) and again on the review. No yield, APR or APY: none has been
 // measured, and none is ever shown.
 
-// True of the pool program RUNNING on mainnet, which was built before the source gained
-// create_lp_metadata (the instruction that names pool share tokens). It goes false the day
-// that program is upgraded, so reword it in the same release as the upgrade:
-// src/test/poolProgramCopy.test.ts fails that release until you do, and holds the wording.
+// True of the pool program RUNNING on mainnet since its upgrade: that build has
+// create_lp_metadata (the instruction that names pool share tokens). Before the upgrade this
+// said "with only its admin keys changed". src/test/poolProgramCopy.test.ts ties the wording
+// to the binary the local harness pins, so the two can only move together (a roll-back too).
 const FORK_LINE =
-  "Our pool program is Raydium's, with only its admin keys changed. Those changes have not had their own independent review yet. Put in only what you can afford to lose.";
+  "Our pool program is Raydium's, with its admin keys changed and one added instruction that names pool share tokens. Those changes have not had their own independent review yet. Put in only what you can afford to lose.";
 const VAULT_LINE =
   "The team's vault (a Squads multisig, two signatures) can switch off deposits, withdrawals or swaps on this pool, change its fee rates at once, and upgrade the program. If it switched off withdrawals, you could not take your money out until it switched them back on.";
 const LAUNCH_POOL_LINE =

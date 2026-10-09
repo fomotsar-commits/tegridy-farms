@@ -45,9 +45,8 @@ To calibrate effort, these already exist and are described in the RFQ:
 `EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT` (cp-swap) and
 `64WBTeNcrSHfmBpiqymyifW6FUNNLvJcuiqF9rXmz4q2` (tegridy-launch), and cp-swap holds funded
 pools. Neither has been audited. So the audit target is a live program as well as its
-source. For cp-swap the two differ by one instruction and by the on-chain security text:
-the binary on mainnet was built before `create_lp_metadata` was added. Both reach mainnet
-only through one upgrade that the Squads vault signs.
+source. cp-swap has been upgraded once since, to a build of this source: the live program
+has the one added instruction, `create_lp_metadata`, and it went in unaudited.
 
 Happy to grant repo read access. What would you quote, and what's your earliest start?
 

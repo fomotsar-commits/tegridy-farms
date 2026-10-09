@@ -51,10 +51,10 @@ that answer.
    About 0.00024 SOL. **You should see** `confirmed. signature ...`. If it says `not confirmed`, do
    not send again: run the dry run, which reads what the chain holds now.
 5. **The two pool-share links are written by the pool program's new instruction, which any
-   wallet may call** once the program is upgraded (a separate change; the owner's upgrade pack
-   has the paying wallet send both). The vault only upgrades the program and renames the two
-   records afterwards. Nothing on the site side stops anyone writing a link from the moment the
-   upgrade executes, so steps 1 and 2 come first there too.
+   wallet may call** now that the program is upgraded (O-0929-10 below; the owner's upgrade
+   pack has the paying wallet send both, after the execute). The vault upgraded the program
+   and renames the two records afterwards. Nothing on the site side stops anyone writing a
+   link, which is why steps 1 and 2 came first there too.
 
 **Four things to know afterwards.**
 
@@ -331,9 +331,30 @@ GIT_HOSTING.md, the runbook's four GitLab lines and `OUR_REPOS` in
 
 ## 🟡 2026-09-29: at the next cp-swap upgrade, point its on-chain security.txt at our own domain
 
-### ⬜ O-0929-10: four `security_txt!` fields. In source since 2026-10-06, waiting for the upgrade
+### ⬜ O-0929-10: four `security_txt!` fields. On chain since the upgrade; one look left
 
-**Where it stands (2026-10-06).** The values below are in the source, on the branch that adds
+**Where it stands now: the upgrade has executed.** The pool program on mainnet is the build
+that carries the four values below (sha256 `99a9e73d…`, 724,688 bytes). The day, the slot and
+the transaction are in `solana/tegridy-amm/MAINNET_RUNBOOK.md`, section 4b. The website
+wording that went false with the upgrade shipped with it (runbook 4b, part C).
+
+**One thing is left, and it is the tick.** Open the program's page and choose its security
+tab:
+
+```powershell
+start "https://explorer.solana.com/address/EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT"
+```
+
+**You should see** the project `https://memetics.finance`, a contact that begins
+`email:fomotsar@gmail.com`, and a policy link and a source link that both begin
+`https://memetics.finance/source/`. Then tick this box. If the tab still shows `memetic.fun`,
+the explorer may be showing an old copy: the pack's check after the upgrade reads the text
+out of the chain itself, and that read is the one to trust.
+
+**Everything below is the record of how it got there, kept as written. Nothing in it is
+left to do, and the pack is not to be run again.**
+
+**Where it stood (2026-10-06).** The values below are in the source, on the branch that adds
 `create_lp_metadata` (PR #758), and the stale comment is gone. **Nothing on chain has
 changed.** The program on mainnet shows the old text until the Squads vault upgrades it. The
 owner was asked "one upgrade or two" and delegated the call on 2026-10-06. The answer is ONE:
@@ -341,7 +362,7 @@ the same upgrade carries the instruction and this text. Its gates and its order 
 `solana/tegridy-amm/MAINNET_RUNBOOK.md`, section 4b. Tick this box when the explorer shows the
 new values, not before.
 
-**Where it stands (2026-10-08).** The source is on `mvp-launch` (pull request #758, merged at
+**Where it stood (2026-10-08).** The source is on `mvp-launch` (pull request #758, merged at
 07:40 UTC). **Nothing on chain has changed.** That day the whole upgrade was rehearsed three
 times on a private copy of mainnet on this computer: making the program account larger,
 uploading the new program, both members approving through the local page, the two name
@@ -362,7 +383,7 @@ The paying wallet needs about 3.854 SOL at its peak. About 3.68 SOL of that come
 moment the upgrade executes, and about 0.21 SOL is spent for good. No wallet of ours held
 that much on 2026-10-08.
 
-**Do, when all three are true:** open the pack's first page.
+**The step that was left on 2026-10-08, once all three were true:** open the pack's first page.
 
 ```powershell
 notepad "C:\Users\jimbo\solana-launch-release-2026-09-26\pool-program-upgrade-2026-10\START-HERE.md"
@@ -375,9 +396,9 @@ pack's local page checks that the uploaded file is the reviewed one.
 What was rehearsed and what was not, every cost, and what to do when a step does not go as
 written: `solana/tegridy-amm/MAINNET_RUNBOOK.md`, section 4b.
 
-**What is wrong.** cp-swap has been live on mainnet since 2026-09-29
+**What was wrong, until the upgrade.** cp-swap has been live on mainnet since 2026-09-29
 (`EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT`). Explorers show its on-chain security.txt,
-and no link in it does its job. Measured 2026-09-30: `policy` opens `SECURITY.md` on GitHub's
+and no link in the text it was deployed with did its job. Measured 2026-09-30: `policy` opens `SECURITY.md` on GitHub's
 `main`, a stale branch that lacks 1,817 of `mvp-launch`'s commits. `source_code` is a `404`,
 because `main` has no `solana/tegridy-amm`. `contacts` points at `memetic.fun/trust`, which is
 now another project's 404. And all three depend on one git host, which went dark from

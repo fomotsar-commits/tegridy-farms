@@ -22,12 +22,9 @@ export function VenueProgramCard() {
         Raydium&rsquo;s, not ours, and the quotes on the swap page run that same maths
         client-side.
       </p>
-      {/* True until the pool program is upgraded on mainnet. Delete this paragraph in the same
-          release as that upgrade: src/test/poolProgramCopy.test.ts fails that release until you do. */}
-      <p className="text-white/50 text-[12px] leading-relaxed mb-3">
-        The program on Solana today was built before that instruction was added. It gets it
-        only through a program upgrade.
-      </p>
+      {/* Until the pool program's upgrade a paragraph here said the program on Solana was built
+          before that instruction was added. It went out with the upgrade, and
+          src/test/poolProgramCopy.test.ts keeps it out for as long as the harness pins that build. */}
       <p className="text-white/50 text-[12px] leading-relaxed">
         A browser cannot list pools itself: <code className="font-mono">getProgramAccounts</code> stays
         off our RPC proxy&rsquo;s allowlist as an unbounded scan. Our server runs that one scan,
