@@ -5,6 +5,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import {
+  CREATED_ON,
   LIMITS,
   checkContentUri,
   checkDescription,
@@ -28,6 +29,7 @@ import {
 } from './validate.js';
 import { PNG_1X1, SVG, gif, jpeg, png, webpVp8, webpVp8l, webpVp8x } from './testImages.fixture';
 import { cspAllows } from '../../test/csp';
+import { SITE_URL } from '../constants';
 import { ipfsGatewayUrls } from '../ipfsGateways';
 
 const MINT = 'So11111111111111111111111111111111111111112';
@@ -441,6 +443,29 @@ describe('parseLaunchMetadataJson (a file ANY client may have written)', () => {
     expect(impersonationWarning({ name: 'Solana', symbol: 'S0L' })).toMatch(/SOL/);
     expect(impersonationWarning({ name: 'Pepe', symbol: '$SOL' })).toMatch(/SOL/);
     expect(impersonationWarning({ name: 'Pepe', symbol: 'PEPE' })).toBeNull();
+  });
+});
+
+// validate.js cannot import SITE_URL (a Vercel lambda cannot import a .ts module), so it
+// types the host out and this test holds the two equal. The file is pinned to IPFS and the
+// launch locks its link, so a wrong host here can never be corrected afterwards.
+describe('where a launch made on this site says it was made', () => {
+  const input = { name: 'Pepe', symbol: 'PEPE', description: '', imageUri: `ipfs://bafkrei${'a'.repeat(52)}`, links: {}, mint: MINT };
+
+  it('is the canonical host, SITE_URL, in the constant and in the file that gets pinned', () => {
+    expect(CREATED_ON).toBe(SITE_URL);
+    expect(buildMetadataJson(input).createdOn).toBe(SITE_URL);
+  });
+
+  it('is never checked on read, so a file stamped by any site, or by none, reads the same', () => {
+    const { createdOn: _stamp, ...unstamped } = buildMetadataJson(input);
+    const read = (file: object) => parseLaunchMetadataJson(JSON.stringify(file), MINT);
+    const ours = read({ ...unstamped, createdOn: SITE_URL });
+    expect(ours).toMatchObject({ kind: 'ok', mintMatches: true, issues: [] });
+    for (const createdOn of ['https://memetic.fun', 'https://pump.fun', 'javascript:alert(1)', 7]) {
+      expect(read({ ...unstamped, createdOn }), String(createdOn)).toEqual(ours);
+    }
+    expect(read(unstamped)).toEqual(ours);
   });
 });
 
