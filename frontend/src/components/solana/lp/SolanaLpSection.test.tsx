@@ -438,7 +438,7 @@ describe('your positions: a share too small to take out', () => {
 // comes first, under a one-line risk notice, and the full notice follows the positions.
 describe('the order of the section', () => {
   const RISK_LINE =
-    'These pools run on a pool program whose admin-key changes have not had their own independent review yet. Put in only what you can afford to lose. The full notice is right under your positions.';
+    'These pools run on a pool program whose changes from Raydium’s have not had their own independent review yet. Put in only what you can afford to lose. The full notice is right under your positions.';
   const parts = () => [...screen.getByTestId('lp-section').children].map((c) => c.getAttribute('data-testid'));
   const mountFirst = (r: LpReaders, writes: LpWritesOverrides = { mode: 'off' }) =>
     render(<MemoryRouter initialEntries={['/solana-lp']}><LpInner readers={r} writes={writes} finderFirst /></MemoryRouter>);

@@ -132,26 +132,29 @@ hash with no run behind it is decoration.
 Solana launcher restart (`tegridy_launch.mainnet.so` sha256 `a3c41afa…`, the
 reserve-at-create build), copied byte for byte from that release's `artifacts/` folder.
 `raydium_cp_swap.json` was that release's pool IDL (emitted with `cp_swap.mainnet.so`),
-byte for byte, until 2026-10-06; since then it has one more instruction (next paragraph). The
+byte for byte, until 2026-10-06; since then it has one more instruction (next paragraph), and
+since the pool program's upgrade it is again the IDL of the binary mainnet runs. The
 earlier `tegridy_launch.json` (`d987fafe…`, from the reserve-held `9b78be02…` build) is
 superseded: that program had `release_platform_reserve` and an 8-account `create_launch`. Their `address` fields are the registered restart ids
 (`64WBTeNcrSHfmBpiqymyifW6FUNNLvJcuiqF9rXmz4q2`, `EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT`).
 Both programs have been live on mainnet at those ids since 2026-09-29. No IDL has been
 written on chain.
 
-**`raydium_cp_swap.json` is one instruction ahead of the mainnet binary (2026-10-06).** It
-was re-emitted with `anchor idl build -p raydium_cp_swap` (anchor-cli 0.32.1, in WSL, no
-features) from the source that adds `create_lp_metadata`, the instruction that gives a
-pool's lp token a name record. Mainnet does not run that instruction until the owner
-upgrades the pool program. Everything else in the file is unchanged: take that one
-instruction out, write the rest back as two-space JSON, and the result hashes to the
-release's `939bc040…`. The same command run on the source before the change reproduces
-`939bc040…` exactly, which is the control for the new value.
+**`raydium_cp_swap.json` is the IDL of the pool program mainnet runs since its upgrade.** It
+was re-emitted on 2026-10-06 with `anchor idl build -p raydium_cp_swap` (anchor-cli 0.32.1,
+in WSL, no features) from the source that adds `create_lp_metadata`, the instruction that
+gives a pool's lp token a name record. From that day until the upgrade
+(`MAINNET_RUNBOOK.md`, section 4b) it was one instruction ahead of the binary on mainnet.
+The upgrade installed the build made from that same source (sha256 `99a9e73d…`), so the two
+agree again. Everything else in the file is as it was before: take that one instruction
+out, write the rest back as two-space JSON, and the result hashes to `939bc040…`, the IDL of
+the build mainnet ran until the upgrade. The same command run on the source before the
+change reproduces `939bc040…` exactly, which is the control for the new value.
 
 | file | sha256 | what it is |
 | --- | --- | --- |
 | `tegridy_launch.json` | `cd9e173c666940f82222a2798dc1c5bc0cf30edf7b32450530e65aa523a3cb31` | the release's `artifacts/SHA256SUMS` |
-| `raydium_cp_swap.json` | `1e8fd7928c0fce6788b880703a1cbfc932e808ab5acadfd5217eb637d739f736` | the release's IDL (`939bc040fa0f65b6639f07545be9d23fde0492e9b5fc3d90229a313b0fcf0262`) plus `create_lp_metadata` |
+| `raydium_cp_swap.json` | `1e8fd7928c0fce6788b880703a1cbfc932e808ab5acadfd5217eb637d739f736` | the IDL of the upgraded pool program: the 2026-09-26 release's IDL (`939bc040fa0f65b6639f07545be9d23fde0492e9b5fc3d90229a313b0fcf0262`) plus `create_lp_metadata` |
 
 **What keeps them honest:** `frontend/src/lib/launcher/solana/write/idl.test.ts` pins both
 hashes, then holds every instruction the /curve-launch write path can send
@@ -164,4 +167,5 @@ means a new IDL here, a new hash in that test, and whatever the parity check the
 For the pool IDL it also holds the two facts above: the file minus `create_lp_metadata` is
 the release's IDL byte for byte, and `create_lp_metadata` takes no argument and names nine
 accounts with only the payer signing. `frontend/scripts/solana-localnet/genesis-accounts.mjs`
-carries the same pin (`PINNED_REPO_CPSWAP_IDL_SHA256`) beside the release's.
+carries the same pin in `PINNED_SHA256`: one pin for this file and for the copy of it the
+local harness keeps beside the upgraded binary.

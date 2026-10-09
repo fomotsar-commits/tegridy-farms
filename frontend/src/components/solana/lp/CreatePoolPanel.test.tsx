@@ -151,7 +151,7 @@ describe('the panel', () => {
     expect(within(panel).getByRole('heading', { name: 'Open a pool for this token' })).toHaveFocus();
     expect(panel).toHaveAccessibleName('Open a pool for this token');
     const before = within(panel).getByTestId('lp-before-you-open');
-    expect(before).toHaveTextContent(/Our pool program is Raydium's, with only its admin keys changed\. Those changes have not had their own independent review yet\./);
+    expect(before).toHaveTextContent(/Our pool program is Raydium's, with its admin keys changed and one added instruction that names pool share tokens\. Those changes have not had their own independent review yet\./);
     expect(before).toHaveTextContent(/change the public fee tier's rates and its fee to open a pool at once/);
     expect(before).toHaveTextContent("Jupiter does not send trades to our pools. This site's own swap sends a trade to your pool only when your pool pays the trader at least as much as Jupiter does.");
     expect(before).not.toHaveTextContent(/not built yet/);
