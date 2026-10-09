@@ -10,6 +10,7 @@ import type { FeeSplitView, NotSent, PreparedTx, SolanaCluster, TokenRole, TxKin
 import { reviewLines } from './reviewLines';
 import type { ReviewState, TxFlow } from './useTxFlow';
 import { quoteCoin, type QuoteCoin } from '../../../lib/solana/lp/quotes';
+import type { PriceReference } from '../../../lib/solana/lp/poolHealth';
 
 // What the user sees between pressing a Review button and the chain's answer.
 // Every word here is about THIS transaction, and the numbers come from the
@@ -296,17 +297,22 @@ function shareText(pct: number): string {
  */
 const OFF_PRICE = 'That is off by more than 3%.';
 
+/** What a pool's price was checked against, as the review's price row says it. A Record, so a new reference must say. */
+const CHECKED_AGAINST: Readonly<Record<PriceReference, string>> = {
+  outside: 'the outside price (Jupiter), read just now',
+  'own-average': 'its own average over the last 30 minutes',
+  'launch-pool': 'the launch pool’s price, read just now',
+};
+
 function priceText(p: Extract<TxSummary, { kind: 'lp-deposit' }>['price']): string {
   switch (p.state) {
     case 'agrees': {
       const d = (Math.abs(p.diff) * 100).toFixed(1);
-      return p.against === 'outside'
-        ? `${d}% ${p.diff >= 0 ? 'above' : 'below'} the outside price (Jupiter), read just now`
-        : `${d}% from its own average over the last 30 minutes`;
+      return p.against === 'own-average' ? `${d}% from ${CHECKED_AGAINST[p.against]}` : `${d}% ${p.diff >= 0 ? 'above' : 'below'} ${CHECKED_AGAINST[p.against]}`;
     }
     case 'disagrees': {
       const gap = `${(Math.abs(p.diff) * 100).toFixed(1)}% ${p.diff >= 0 ? 'above' : 'below'}`;
-      return `${gap} ${p.against === 'outside' ? 'the outside price (Jupiter), read just now' : 'its own average over the last 30 minutes'}. ${OFF_PRICE}`;
+      return `${gap} ${CHECKED_AGAINST[p.against]}. ${OFF_PRICE}`;
     }
     case 'no-trades-yet':
       return 'nobody has traded since the launch program opened it';

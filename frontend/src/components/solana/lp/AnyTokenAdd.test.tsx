@@ -591,6 +591,87 @@ describe('a launch pool whose price is off its own average', () => {
   });
 });
 
+// With no route, a pool anyone could open is checked against the token's launch pool
+// (poolHealth.ts). The real check, handed the launch pool's own answer as the page and the
+// builder hand it on. Each place that names what a price was checked against names it.
+describe('a pool anyone could open whose price is off the launch pool’s', () => {
+  const GAP = 'Its price is 25.0% above the launch pool’s price. A deposit here would hand that gap to the first arbitrage trade.';
+  // The same amounts and the same reference as the launch pool's own case above: 0.011035165 SOL.
+  const COST = 'At these amounts, a move back to the launch pool’s price would take up to about 0.011035165 SOL of what you put in. That is an estimate.';
+
+  it('the card names the launch pool’s price, the form says the cost of a move back to it, and the review says both', async () => {
+    const v = view(SOL_QUOTE);
+    // The launch pool, never traded, at 0.008 SOL a token: this pool's 0.01 is 25% above it.
+    const health = assessPool({ view: v, tokenDecimals: 6, chainNow: 1_000n, outside: NO_ROUTE, launchPrice: { state: 'no-trades-yet', pool: 0.008 }, safety: okToken });
+    expect(health.price).toMatchObject({ state: 'disagrees', against: 'launch-pool' });
+    expect(health.deposits).toEqual({ verdict: 'allowed', reasons: [], warnings: [GAP] });
+    const summary = lpDepositSummary(new PublicKey(v.address), MINT, {
+      quoted: { quote: 990_090_000n, token: 99_009_000n },
+      price: health.price,
+      warnings: [GAP, COST],
+      priceGap: { diff: 0.25, lossQuote: 11_035_165n },
+    });
+    render(
+      <LpWritesProvider
+        readers={readers(v, { token: NO_ROUTE })}
+        mode="on"
+        load={vi.fn(async () => fakeLpApi({ prepareLpDeposit: vi.fn(async () => ({ ok: true as const, prepared: prepared(summary) })) }))}
+        gateRpc={unusedGateRpc}
+      >
+        <ul>
+          <PoolCard view={v} health={health} tokenDecimals={6} safety={okToken} />
+        </ul>
+      </LpWritesProvider>,
+    );
+    const c = await cardWith('offer');
+    expect(within(c).getByText('Deposits: the checks pass, with warnings')).toBeInTheDocument();
+    expect(cardRow(c, 'The launch pool’s price')).toBe('1 token = 0.008 SOL');
+    expect(cardRow(c, 'Difference')).toBe('25.0% above. That is more than 3% apart: see the warning above.');
+    // Not one of the other references' labels.
+    expect(c).not.toHaveTextContent(/Outside price \(Jupiter\)|Its own average/);
+
+    const { panel, type, review, said } = await openAdd(c, SOL_QUOTE);
+    type('1');
+    expect(said()).toEqual([GAP, COST]);
+    expect(COST).toBe(LP_COPY.priceGapLoss('0.011035165 SOL', 'the launch pool’s price'));
+
+    await act(async () => {
+      fireEvent.click(review());
+    });
+    await within(panel).findByRole('heading', { name: 'Review: add liquidity' });
+    expect(Array.from(within(panel).getByTestId('tx-review-warnings').querySelectorAll('li')).map((li) => li.textContent)).toEqual([GAP, COST]);
+    expect(within(panel).getByText('Price check').nextElementSibling?.textContent).toBe('25.0% above the launch pool’s price, read just now. That is off by more than 3%.');
+  }, 30_000);
+
+  it('the review of a pool that agrees with the launch pool says which price it agrees with', async () => {
+    const v = view(SOL_QUOTE);
+    const health = assessPool({ view: v, tokenDecimals: 6, chainNow: 1_000n, outside: NO_ROUTE, launchPrice: { state: 'no-trades-yet', pool: 0.0099 }, safety: okToken });
+    expect(health.deposits).toEqual({ verdict: 'allowed', reasons: [], warnings: [] });
+    const summary = lpDepositSummary(new PublicKey(v.address), MINT, { price: health.price });
+    render(
+      <LpWritesProvider
+        readers={readers(v, { token: NO_ROUTE })}
+        mode="on"
+        load={vi.fn(async () => fakeLpApi({ prepareLpDeposit: vi.fn(async () => ({ ok: true as const, prepared: prepared(summary) })) }))}
+        gateRpc={unusedGateRpc}
+      >
+        <ul>
+          <PoolCard view={v} health={health} tokenDecimals={6} safety={okToken} />
+        </ul>
+      </LpWritesProvider>,
+    );
+    const c = await cardWith('offer');
+    expect(within(c).getByText('Deposits: the checks pass')).toBeInTheDocument();
+    const { panel, type, review } = await openAdd(c, SOL_QUOTE);
+    type('1');
+    await act(async () => {
+      fireEvent.click(review());
+    });
+    await within(panel).findByRole('heading', { name: 'Review: add liquidity' });
+    expect(within(panel).getByText('Price check').nextElementSibling?.textContent).toBe('1.0% above the launch pool’s price, read just now');
+  }, 30_000);
+});
+
 // ── What the review of these forms found (2026-10-04) ───────────────────────────────────
 
 /** The finder's own Read again: the token, its pools and every price are read again. */
