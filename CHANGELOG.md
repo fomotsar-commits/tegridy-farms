@@ -39,6 +39,7 @@ page keeps the newest thirty days.
 
 ### 2026-10-03
 
+- Pools, in the top bar, the menu and the phone's bottom bar, now opens the Solana LP tab. The Ethereum form is the tab to its left, Add / Remove.
 - Solana LP on a phone: the tab now opens on three buttons, Create a pool, Add liquidity and Remove liquidity, and on the site's own Solana tokens (BAYLA, BOBO, SOY, Brainlet, RIZZ) as buttons, so nothing has to be pasted. Two presses open the form with its amount boxes on the screen. Before, the first screen was a paragraph and an empty box asking for a 44-character token address, with nothing else to press.
 - Solana LP: the open-a-pool and add-liquidity forms start with the wallet and the amount boxes. The long notes that used to fill two phone screens above them now follow the form, and the review still repeats the main ones before you sign. A wallet that cannot pay is told so first, with what to do next.
 - Solana LP: when a token already has a pool, the Open a new pool card has a button that opens that pool's Add liquidity form (the first pool on the venue, BAYLA/SOL, was opened on 2026-10-03). A greyed Review button now says why right above it.

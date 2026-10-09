@@ -83,9 +83,9 @@ describe('navConfig', () => {
   });
 
   it('points every word at one of its own section destinations', () => {
-    // `primaryTo` is an override for exactly one section (Swap, whose landing
-    // follows the active bungalow's chain). An override pointing OUTSIDE its
-    // section would open a page whose tab strip highlights nothing.
+    // `primaryTo` is an override two sections have: Swap (its landing follows the
+    // active bungalow's chain) and Pools (the Solana LP tab). An override pointing
+    // OUTSIDE its section would open a page whose tab strip highlights nothing.
     for (const sec of NAV_SECTIONS) {
       const to = sec.primaryTo ?? sec.hub;
       expect(sec.items.map((i) => i.to), sec.heading + ' points outside itself').toContain(to);
@@ -198,11 +198,14 @@ describe('navConfig', () => {
     expect(unique.size).toBe(paths.length);
   });
 
-  // Solana liquidity has its own tab, second, so the strip names it. The hub stays the
-  // Ethereum form, and the Venue AMM tab keeps its status and fee sheet.
-  it('lists the Pools strip as Add / Remove, Solana LP, Venue AMM, Zap, landing on /liquidity', () => {
+  // Solana liquidity has its own tab, second, so the strip names it. The strip's first tab
+  // stays the Ethereum form, and the Venue AMM tab keeps its status and fee sheet.
+  // Owner, 2026-10-03: "pools land on solana lp". The WORD goes to the Solana LP tab.
+  it('lists the Pools strip as Add / Remove, Solana LP, Venue AMM, Zap, and the Pools word lands on Solana LP', () => {
     const pools = NAV_SECTIONS.find((s) => s.heading === 'Pools');
     expect(pools?.hub).toBe('/liquidity');
+    expect(pools?.primaryTo).toBe('/solana-lp');
+    expect(PRIMARY_NAV.find((n) => n.label === 'Pools')?.to).toBe('/solana-lp');
     expect(pools?.items.map((i) => [i.to, i.tabLabel ?? i.label])).toEqual([
       ['/liquidity', 'Add / Remove'],
       ['/solana-lp', 'Solana LP'],
