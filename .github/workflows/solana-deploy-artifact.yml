@@ -215,6 +215,14 @@ jobs:
         run: |
           set -euo pipefail
           SO=../../target/deploy/${{ inputs.program == 'cp-swap' && 'raydium_cp_swap' || 'tegridy_launch' }}.so
+          SIZE=$(stat -c%s "$SO")
+          # The program's data account is the file plus a 45-byte header, and rent is
+          # charged on that size plus 128 bytes. 5080 lamports a byte is what mainnet
+          # and devnet served on 2026-10-09; the summary says to ask the chain again.
+          PROGRAMDATA=$((SIZE + 45))
+          RENT_PER_BYTE=5080
+          RENT_LAMPORTS=$(( (PROGRAMDATA + 128) * RENT_PER_BYTE ))
+          RENT_SOL=$(printf '%d.%09d' $((RENT_LAMPORTS / 1000000000)) $((RENT_LAMPORTS % 1000000000)))
           echo "### Deployable artifact" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "| field | value |" >> $GITHUB_STEP_SUMMARY
@@ -226,10 +234,10 @@ jobs:
           echo "| program id | \`${PROGRAM_ID:-committed in source}\` |" >> $GITHUB_STEP_SUMMARY
           echo "| deployer | \`${DEPLOYER:-}\` |" >> $GITHUB_STEP_SUMMARY
           echo "| commit | \`${{ github.sha }}\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| size | $(stat -c%s "$SO") bytes |" >> $GITHUB_STEP_SUMMARY
+          echo "| size | $SIZE bytes |" >> $GITHUB_STEP_SUMMARY
           echo "| sha256 | \`$(sha256sum "$SO" | cut -d' ' -f1)\` |" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "Deploy rent: ask the chain with \`solana rent $((SIZE * 2))\`. The \`size * 2 * 0.00000696\` rule of thumb OVERSTATES it by roughly 2 SOL at this size." >> $GITHUB_STEP_SUMMARY
+          echo "Rent: budget about one copy of this file's rent, not two. A first deploy puts it in the program's data account, which is the file plus a 45-byte header: $PROGRAMDATA bytes. An upgrade parks about the same in a buffer and gets it back when it executes; a file too large for the account on chain also pays to enlarge it first. Ask the chain on the day, on the cluster you will deploy to: \`solana rent $PROGRAMDATA\`. Mainnet and devnet charged (bytes + 128) x $RENT_PER_BYTE lamports when read on 2026-10-09, which is $RENT_SOL SOL for this file. The rate has been cut before, so trust the chain over this figure. Keep \`--max-len\` at $SIZE: a data account sized larger than the file is what costs more." >> $GITHUB_STEP_SUMMARY
           sha256sum "$SO" | tee "$SO.sha256"
 
       - uses: actions/upload-artifact@50769540e7f4bd5e21e526ee35c689e35e0d6874 # v4.4.0
@@ -452,6 +460,12 @@ jobs:
           set -euo pipefail
           SO=target/deploy/bayla_ladder.so
           SIZE=$(stat -c%s "$SO")
+          # Same rent arithmetic as the job above: file plus a 45-byte header, plus 128
+          # bytes, at the 5080 lamports a byte both clusters served on 2026-10-09.
+          PROGRAMDATA=$((SIZE + 45))
+          RENT_PER_BYTE=5080
+          RENT_LAMPORTS=$(( (PROGRAMDATA + 128) * RENT_PER_BYTE ))
+          RENT_SOL=$(printf '%d.%09d' $((RENT_LAMPORTS / 1000000000)) $((RENT_LAMPORTS % 1000000000)))
           sha256sum "$SO" | tee "$SO.sha256"
           sha256sum target/idl/bayla_ladder.json | tee target/idl/bayla_ladder.json.sha256
           {
@@ -467,7 +481,7 @@ jobs:
             echo "| .so sha256 | \`$(sha256sum "$SO" | cut -d' ' -f1)\` |"
             echo "| idl sha256 | \`$(sha256sum target/idl/bayla_ladder.json | cut -d' ' -f1)\` |"
             echo ""
-            echo "Deploy rent, quoted by the chain rather than the \`size * 2 * 0.00000696\` rule of thumb (which overstates by ~2 SOL): run \`solana rent $((SIZE * 2))\` for the default deploy (~5.2 SOL for this binary), or \`solana rent $SIZE\` with \`--max-len $SIZE\` (~2.6 SOL, no upgrade headroom)."
+            echo "Rent: budget about one copy of this file's rent, not two. A first deploy puts it in the program's data account, which is the file plus a 45-byte header: $PROGRAMDATA bytes. An upgrade parks about the same in a buffer and gets it back when it executes; a file too large for the account on chain also pays to enlarge it first. Ask the chain on the day, on the cluster you will deploy to: \`solana rent $PROGRAMDATA\`. Mainnet and devnet charged (bytes + 128) x $RENT_PER_BYTE lamports when read on 2026-10-09, which is $RENT_SOL SOL for this file. The rate has been cut before, so trust the chain over this figure. Keep \`--max-len\` at $SIZE: a data account sized larger than the file is what costs more."
             echo ""
             echo "#### Deploy"
             echo ""
