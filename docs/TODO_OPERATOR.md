@@ -373,10 +373,14 @@ real wallets.
 
 Your command sheet is a folder outside the repo, called the pack:
 `C:\Users\jimbo\solana-launch-release-2026-09-26\pool-program-upgrade-2026-10`. **Do not start
-from it yet.** A second operator walked it cold on 2026-10-08 and found things to change, and
-they are being changed in the pack. Three things have to be true first:
+from it yet.** A second operator walked it cold on 2026-10-08 and found fifteen things to
+change. All fifteen were changed in the pack the same day. Three things have to be true
+first, and the first one now is:
 
-1. You have been told the pack's fixes are in and it has been walked again.
+1. You have been told the pack's fixes are in and it has been walked again. **True since
+   2026-10-08.** Someone who wrote none of the fixes walked it again that day and found it
+   ready. The eight smaller things that walk found are fixed too, and the pack writes the
+   names you ruled that day, "Bayla LP SOL" and "Bayla LP USDC".
 2. The website wording that goes false on upgrade day is ready to ship with the upgrade
    (runbook 4b, part C).
 3. O-0929-12 below is decided.
