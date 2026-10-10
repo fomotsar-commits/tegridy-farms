@@ -1649,8 +1649,9 @@ function SolanaSwapInner() {
       shownAggregatorOut = quote ? BigInt(quote.outAmount) : null;
     } catch { /* unparseable: it is asked again below */ }
     // A refusal kept for this trade: the quote on screen is of a transaction that failed its
-    // test run. It holds our pool to nothing, and it stands until a test run passes.
-    const stands = route.aggregatorRefused;
+    // test run. It holds our pool to nothing, and it stands until a test run passes, whether
+    // or not the line is saying it (it does not while our pool quotes at least as much).
+    const stands = refusedTrade?.key === refusalKey;
     const said = sideWords(payToken, buyToken);
     // The card for an ending that has to be read is its own chunk: asked for now, before
     // anything is signed, so it is never first fetched for a swap that was already sent.
@@ -1738,9 +1739,10 @@ function SolanaSwapInner() {
           stands ? null : shownAggregatorOut,
           stands ? shownAggregatorOut : null,
         );
-        // "Jupiter now pays more", after a test run of its transaction answered and passed: a
-        // refusal kept for the trade pressed is over, and its route is on the line again.
-        if (!built.ok && built.outcome.message === OWN_ROUTE_COPY.routeMoved && seen.verdict === 'passed') setRefusedTrade((r) => (r?.key === refusalKey ? null : r));
+        // "Jupiter now pays more": with a refusal kept, that is only said once a test run of
+        // its transaction answered and passed (wouldSend). The refusal is over, and its route
+        // is on the line again.
+        if (!built.ok && built.outcome.message === OWN_ROUTE_COPY.routeMoved) setRefusedTrade((r) => (r?.key === refusalKey ? null : r));
         // Nothing else here writes to the page: the form may hold another trade by now, and the
         // settle's re-quote puts Jupiter's no-fee route on screen when that is what took it.
         return built;
@@ -1822,8 +1824,9 @@ function SolanaSwapInner() {
     const shownWaived = feeWaived;
     // THE TRADE PRESSED. The form can come to show another while the press is on its way
     // (a link's token that lands late, a price that re-sizes a dollar amount). From then
-    // on nothing is written or sent for the one pressed, whatever our pools hold: asked
-    // after each wait below, and last of all before the wallet.
+    // on nothing is written or sent for the one pressed, whatever our pools hold: this is
+    // asked after EVERY wait below (ownPoolTakesIt asks after its own), so none stands
+    // between the last answer and the wallet.
     const pressedFor = formKey;
     const formMoved = () => {
       if (formNow.current === pressedFor) return false;
@@ -1935,8 +1938,6 @@ function SolanaSwapInner() {
         toast.error('Quote changed', { description: 'The site fee can be taken on this route now, so you receive slightly less. Review the new rate and swap again.' });
         return;
       }
-      // The last look before the wallet is asked: it signs the trade on the form, or nothing.
-      if (formMoved()) return;
       if (feeWaivedOnSend) {
         // BEFORE the wallet opens: the amounts on the page become the re-quoted
         // ones, the fee row says there is none, and the trader is told why.

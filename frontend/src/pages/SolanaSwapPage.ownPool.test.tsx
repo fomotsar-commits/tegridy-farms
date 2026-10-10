@@ -1414,6 +1414,25 @@ describe('Jupiter was shown, and the transaction for its quote fails its test ru
     await waitFor(() => expect(routeLine()).toMatch(TO_OUR_POOL), { timeout: 20_000 });
   });
 
+  it('a kept refusal the line is not saying (our pool caught up on screen) is still not lifted by a test run that could not run', async () => {
+    await refusedAtThePress();
+    // Our pool now quotes 1.01 against the 1 on screen, so the line is the plain comparison.
+    h.ownOut.value = 1_010_000n;
+    fireEvent.change(amountBox(), { target: { value: '0.2' } });
+    fireEvent.change(amountBox(), { target: { value: '0.1' } });
+    await waitFor(() => expect(routeLine()).toMatch(/Our pool pays 1% more than Jupiter\./), { timeout: 20_000 });
+    // At the press Jupiter quotes 1.03, above our pool, and its test run cannot run.
+    h.getQuote.mockImplementation(async () => jupiterQuote('1030000'));
+    h.simulateSwap.mockRejectedValue(new Error('simulateTransaction: HTTP 429'));
+    h.toast.error.mockClear();
+    fireEvent.click(await buyAgain());
+    await waitFor(() => expect(h.prepareVenueSwap.mock.calls.length + h.toast.error.mock.calls.length).toBeGreaterThan(0), { timeout: 20_000 });
+    expect(h.toast.error).not.toHaveBeenCalled();
+    expect((h.prepareVenueSwap.mock.calls[0]![2] as VenueSwapArgs).aggregator).toEqual({ kind: 'refused', out: 1_030_000n, earlier: true });
+    expect(await screen.findByText('Jupiter quoted 1.98% more, but its transaction for this trade failed its test run at your last press, so it could not be sent. It could not be checked again just now')).toBeInTheDocument();
+    expect(h.sendTransaction).not.toHaveBeenCalled();
+  });
+
   it('the refusal is of that wallet too: nothing was tested for another wallet, so its route is Jupiter’s again', async () => {
     await refusedAtThePress();
     live.publicKey = OTHER_WALLET;
@@ -1710,9 +1729,16 @@ describe('what a press writes lands only on the trade it was pressed for', () =>
       expect(h.toast.info).toHaveBeenCalledTimes(1);
     };
 
-    it('a pair we have no pool for: the link’s token lands while Jupiter’s transaction is built, and the line under the form still names the trade pressed', async () => {
-      h.quoteVenuePools.mockImplementation(() => ({ state: 'absent', candidates: [] }));
-      const { buy, land } = await arrivedByLink(/Jupiter\. We have no pool for this pair\./);
+    const NO_POOL = [() => h.quoteVenuePools.mockImplementation(() => ({ state: 'absent', candidates: [] })), /Jupiter\. We have no pool for this pair\./] as const;
+    const POOL_QUOTES = [() => { h.ownOut.value = 990_000n; }, /Jupiter pays/] as const;
+
+    it.each([
+      ['would pass its test run', { ok: true, reason: null, jupiterIncorrectTokenProgram: false }],
+      ['is refused by its test run', { ok: false, reason: 'custom program error: 0x1771', jupiterIncorrectTokenProgram: false }],
+    ])('a pair we have no pool for: the link’s token lands while Jupiter’s transaction is built, and that transaction %s', async (_name, testRun) => {
+      NO_POOL[0]();
+      h.simulateSwap.mockResolvedValue(testRun);
+      const { buy, land } = await arrivedByLink(NO_POOL[1]);
       const built = defer<string>();
       h.buildSwapTransaction.mockImplementationOnce(() => built.p);
       fireEvent.click(buy);
@@ -1722,11 +1748,16 @@ describe('what a press writes lands only on the trade it was pressed for', () =>
       expect(screen.getByTestId('jupiter-swap-status').textContent).toBe('Through Jupiter: 0.1 SOL for about 1 USDC.');
       built.release(TX_FEE);
       await nothingWasSent();
+      // And nothing is said of the old pair's transaction under the new token: not even that it would fail.
+      expect(h.toast.error).not.toHaveBeenCalled();
     });
 
-    it('a pair one of our pools quotes: the link’s token lands while the press asks Jupiter again, before our pools are read', async () => {
-      h.ownOut.value = 990_000n;
-      const { buy, land } = await arrivedByLink(/Jupiter pays/);
+    it.each([
+      ['we have no pool for', NO_POOL],
+      ['one of our pools quotes', POOL_QUOTES],
+    ])('a pair %s: the link’s token lands while the press asks Jupiter again, and nothing of the old pair is built', async (_name, [pools, line]) => {
+      pools();
+      const { buy, land } = await arrivedByLink(line);
       const fresh = defer<JupiterQuote>();
       h.getQuote.mockImplementationOnce(() => fresh.p);
       const asked = h.getQuote.mock.calls.length;
@@ -1735,7 +1766,6 @@ describe('what a press writes lands only on the trade it was pressed for', () =>
       await land();
       fresh.release({ ...jupiterQuote('1000000'), outputMint: USDC_MINT });
       await nothingWasSent();
-      // Nothing of the old pair was built.
       expect(h.buildSwapTransaction).not.toHaveBeenCalled();
     });
   });
