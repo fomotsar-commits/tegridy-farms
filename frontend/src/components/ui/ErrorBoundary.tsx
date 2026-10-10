@@ -1,5 +1,7 @@
 import { Component, type ReactNode, type ErrorInfo } from 'react';
 import { reportError } from '../../lib/errorReporting';
+import { lazyLoadFailed } from '../../lib/staleBuild';
+import { StaleBuildFallback } from '../StaleBuildFallback';
 
 interface Props {
   children: ReactNode;
@@ -9,6 +11,7 @@ interface Props {
 
 interface State {
   hasError: boolean;
+  error?: unknown;
 }
 
 export class ErrorBoundary extends Component<Props, State> {
@@ -17,8 +20,8 @@ export class ErrorBoundary extends Component<Props, State> {
     this.state = { hasError: false };
   }
 
-  static getDerivedStateFromError(): State {
-    return { hasError: true };
+  static getDerivedStateFromError(error: unknown): State {
+    return { hasError: true, error };
   }
 
   componentDidUpdate(prevProps: Props) {
@@ -54,7 +57,7 @@ export class ErrorBoundary extends Component<Props, State> {
         }
         return this.props.fallback;
       }
-      return (
+      const generic = (
         <div className="min-h-[200px] flex items-center justify-center px-6">
           <div className="text-center max-w-sm">
             <h2 className="heading-luxury text-2xl text-white mb-2">Something went wrong</h2>
@@ -69,6 +72,8 @@ export class ErrorBoundary extends Component<Props, State> {
           </div>
         </div>
       );
+      // A lazy load that failed may be a deploy, not a fault: StaleBuildFallback decides.
+      return lazyLoadFailed(this.state.error) ? <StaleBuildFallback>{generic}</StaleBuildFallback> : generic;
     }
 
     return this.props.children;

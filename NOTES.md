@@ -15,6 +15,41 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-10-10: an error screen that shows 40 seconds late is not a slow host; it is a timer in a tab that runs timers late
+
+**Believed:** a tab left open across a deploy that showed "Loading..." for about 40 seconds
+before "Something went wrong" had waited that long on the network for a file that no longer
+exists.
+
+**Measured:** the host answers at once. `curl` on the live site for the previous build's
+main bundle, two made-up asset names and a made-up stylesheet: status 200,
+`Content-Type: text/html`, 0.3 to 0.5 s each, and
+`Cache-Control: public, max-age=31536000, immutable`, because vercel.json keys that header
+on the request path and the single-page fallback answers under the asset's name. In a
+browser on the live site, with the service worker in control, `import()` of a missing
+asset rejected after 0.15 to 0.5 s. With two real builds (the commit before PR 782, and
+trunk) on a local host that can switch between them, a tab on the old build that pressed
+the Solana LP tab had its six files answered as HTML within 0.1 s and showed the error
+screen at 0.3 s. The 0.2 s between is one `setTimeout` set inside React: it holds the
+change from a spinner to anything else until 300 ms after the spinner appeared. With
+every timer in the page made 5 s late, the same error screen appeared at 5.27 s, and with
+animation frames stopped instead, at 0.36 s. So the wait is that timer and nothing else. A
+hidden tab is where a browser runs timers late; the tab that was seen live could not be
+made hidden here, so "it was in the background" is the fitting explanation and not a
+measurement.
+
+**Do:** when a screen changes late, time the network and the screen separately before
+blaming either, and make the page's timers late on purpose (wrap `setTimeout` in an init
+script) to see whether the screen follows them. Do anything urgent from the event itself,
+never from the render after it: `vite:preloadError` is dispatched in the same task the
+import fails in, and a reload started there took 0.23 s with the timers still 5 s late.
+Know what the test browser will not show: Playwright starts Chromium with background
+throttling switched off, a headless page never reports `hidden` (minimising its window
+through CDP changed nothing), and `page.waitForFunction` polls on animation frames, so in
+a tab that really is hidden it never returns. A headed window opens on the desktop of
+whoever is at the machine: in the one headed run here the page was already on the new
+build before the scripted press, by nothing the script did, and the run was thrown away.
+
 ## 2026-10-08: a test rewritten for a new rule can stop holding the old rule it also held
 
 **Believed:** a pull request that changes one assertion in an existing test (a pool's price

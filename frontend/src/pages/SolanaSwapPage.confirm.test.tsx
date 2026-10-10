@@ -76,6 +76,7 @@ vi.mock('../lib/jupiter', async (importOriginal) => ({
 }));
 
 import SolanaSwapPage from './SolanaSwapPage';
+import { reloadHeld } from '../lib/reloadHold';
 
 // The first test here pays for the page's first render: 1.3 s alone, 2.1 s to 3.9 s in six
 // full runs, and 5.2 s in a seventh on a busy machine. The 5 s default timed it out there,
@@ -251,5 +252,67 @@ describe('DCA and limit orders: after the transaction is sent', () => {
     await act(async () => { await vi.advanceTimersByTimeAsync(5_000); });
     await waitFor(() => expect(toastTitles(toast.success)).toContain('Order cancelled'));
     expect(toastTitles(toast.error)).not.toContain('Could not cancel');
+  });
+});
+
+// The page reloads itself after a deploy (lib/staleBuild.ts), and never under a
+// transaction. These three panels send through the wallet adapter themselves, so each
+// holds the page from the wallet's turn until the transaction is answered.
+describe('no reload by itself while a transaction is at the wallet or on its way', () => {
+  /** A wallet prompt left open: resolves when the test signs. */
+  function walletPromptOpen() {
+    let sign: (sig: string) => void = () => undefined;
+    let decline: (e: Error) => void = () => undefined;
+    wallet.sendTransaction.mockImplementation(() => new Promise<string>((res, rej) => { sign = res; decline = rej; }));
+    return { sign: () => act(async () => { sign(SIG); }), decline: () => act(async () => { decline(new Error('User rejected the request.')); }) };
+  }
+
+  it('Instant swap: held at the wallet, held while sent, free once it confirms', async () => {
+    const prompt = walletPromptOpen();
+    connection.getSignatureStatuses.mockResolvedValueOnce(notYet).mockResolvedValue(confirmed);
+    expect(reloadHeld()).toBe(false);
+    await swap();
+    expect(reloadHeld()).toBe(true);
+    await prompt.sign();
+    expect(reloadHeld()).toBe(true);
+    await act(async () => { await vi.advanceTimersByTimeAsync(5_000); });
+    await waitFor(() => expect(toastTitles(toast.success)).toContain('Bought USDC'));
+    expect(reloadHeld()).toBe(false);
+  });
+
+  it('Instant swap: declined in the wallet, the page is free again', async () => {
+    const prompt = walletPromptOpen();
+    await swap();
+    expect(reloadHeld()).toBe(true);
+    await prompt.decline();
+    await waitFor(() => expect(reloadHeld()).toBe(false));
+  });
+
+  it('DCA: held from the wallet until the order is answered', async () => {
+    const prompt = walletPromptOpen();
+    connection.getSignatureStatuses.mockResolvedValue(confirmed);
+    render(<SolanaSwapPage />);
+    fireEvent.click(await screen.findByRole('button', { name: 'DCA' }));
+    fireEvent.change(screen.getByLabelText('Total SOL to invest'), { target: { value: '1' } });
+    fireEvent.click(await screen.findByRole('button', { name: 'Start the DCA' }));
+    await waitFor(() => expect(wallet.sendTransaction).toHaveBeenCalledTimes(1));
+    expect(reloadHeld()).toBe(true);
+    await prompt.sign();
+    await waitFor(() => expect(toastTitles(toast.success)).toContain('DCA started'));
+    expect(reloadHeld()).toBe(false);
+  });
+
+  it('Limit order cancel: held from the wallet until the cancel is answered', async () => {
+    const prompt = walletPromptOpen();
+    jup.getTriggerOrders.mockResolvedValue([{ orderKey: 'LimitOrderKey11111111111111111111111111111' }]);
+    connection.getSignatureStatuses.mockResolvedValue(confirmed);
+    render(<SolanaSwapPage />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Limit order' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Cancel' }));
+    await waitFor(() => expect(wallet.sendTransaction).toHaveBeenCalledTimes(1));
+    expect(reloadHeld()).toBe(true);
+    await prompt.sign();
+    await waitFor(() => expect(toastTitles(toast.success)).toContain('Order cancelled'));
+    expect(reloadHeld()).toBe(false);
   });
 });
