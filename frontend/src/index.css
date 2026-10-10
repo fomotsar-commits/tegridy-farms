@@ -744,6 +744,18 @@ html {
   outline-offset: 2px;
 }
 
+/* A press target whose finger-sized area is padding taken back by a negative margin
+   (py-3 -my-3 and the like): the area reaches over the lines above and below, so a ring
+   round it strikes through their words. The ring goes round the target's own words
+   (`.ring-words` inside it) instead. */
+.ring-on-words:focus-visible {
+  outline: none;
+}
+.ring-on-words:focus-visible .ring-words {
+  outline: 2px solid var(--color-purple-75);
+  outline-offset: 1px;
+}
+
 /* ─── Screen reader only (accessibility) ─── */
 .sr-only {
   position: absolute;

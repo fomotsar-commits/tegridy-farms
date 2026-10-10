@@ -336,16 +336,33 @@ describe('prepareLpDeposit: a pool paired with USDC or BAYLA', () => {
     expect((await deposit(world(USDC_QUOTE, { wallet: need }))).ok).toBe(true);
   });
 
-  it.each([
-    ['could not be read', { kind: 'unread', detail: 'HTTP 502' } as OutsidePrice],
-    ['has no route', { kind: 'no-route', detail: 'Jupiter has no route for this token' } as OutsidePrice],
-  ])('the coin’s own price %s, with a token price to compare: the deposit check is unchecked, so nothing is built', async (_n, coin) => {
-    const w = world(USDC_QUOTE);
-    const msg = refused(await deposit(w, {}, priced(USDC_QUOTE, { coin })));
-    expect(msg).toMatch(/^We did not build this deposit: /);
-    expect(msg).toMatch(/the price of USDC/);
-    // Jupiter's "no route" words say "this token"; of the coin, the refusal names the coin.
+  // UNREAD IS STILL REFUSED (owner: "every unread state is still refused"). A read of the
+  // coin's own price that FAILED builds nothing. The mutation "treat every coin that is
+  // not ok as no-route" fails here: it would build this deposit.
+  it.each(COINS)('%s: the coin’s own price could not be read, with a token price to compare: the deposit check is unchecked, so nothing is built', async (_n, quote) => {
+    const w = world(quote);
+    const msg = refused(await deposit(w, {}, priced(quote, { coin: { kind: 'unread', detail: 'HTTP 502' } })));
+    expect(msg).toBe(`We did not build this deposit: We could not check its price against an outside price (the price of ${quote.symbol} could not be read (HTTP 502)).`);
     expect(msg).not.toMatch(/this token/);
+  });
+
+  // Owner ruling 2026-10-07: Jupiter ANSWERING that it has no route for the pool's coin
+  // does not stop a deposit. It builds through the `allowed` verdict, and the warning,
+  // naming the coin, is on the summary the review reads. Before, nothing was built.
+  it.each(COINS)('%s: Jupiter ANSWERS "no route" for the coin: it builds, with a warning that names the coin and no price gap', async (_n, quote) => {
+    const noRoute: OutsidePrice = { kind: 'no-route', detail: 'Jupiter has no route for this token' };
+    const built = prepared(await deposit(world(quote), {}, priced(quote, { coin: noRoute })));
+    const s = built.summary as LpDepositSummary;
+    expect(s.price).toEqual({ state: 'no-market', of: 'coin', pool: expect.closeTo(2, 9), detail: `Jupiter has no route for ${quote.symbol}` });
+    expect(s.priceGap).toBeNull();
+    expect(s.warnings).toEqual([
+      `Jupiter has no price for ${quote.symbol} right now, so this pool’s price in ${quote.symbol} was not checked against anything. If it is off, a deposit here hands the difference to whoever trades it back.`,
+    ]);
+    // The token HAS a price: Jupiter's own "this token" never reaches the review.
+    expect(s.warnings.join(' ')).not.toMatch(/this token/);
+    // The warning decides nothing: the same amounts as with the coin priced.
+    const fair = prepared(await deposit(world(quote))).summary as LpDepositSummary;
+    expect([s.lpAmount, s.max, s.quoted]).toEqual([fair.lpAmount, fair.max, fair.quoted]);
   });
 
   // With no route for the TOKEN nothing is compared, so the coin's own price is not needed.
@@ -361,6 +378,43 @@ describe('prepareLpDeposit: a pool paired with USDC or BAYLA', () => {
     expect(s.warnings).toEqual([
       'Jupiter has no market price for this token, so this pool’s price was not checked against anything. If it is off, a deposit here hands the difference to whoever trades it back.',
     ]);
+  });
+
+  // With no route for the token AND a launch pool for it, there is something to compare
+  // with: the launch pool's SOL price, said in the pool's own coin (review, 2026-10-04).
+  describe('no route for the token, which has a launch pool', () => {
+    const NO_ROUTE: OutsidePrice = { kind: 'no-route', detail: 'Jupiter has no route for this token' };
+    /** The pool says 2 coins a token. The launch pool: `sol` SOL against 1,000 tokens, never traded. */
+    function besideLaunch(quote: QuoteCoin, sol: bigint): World {
+      const w = world(quote);
+      addPool(w.chain, w.mint, { sol: sol * 10n ** 9n, tokens: TOKEN_RESERVE, launch: true });
+      return w;
+    }
+
+    it.each(COINS)('%s: the launch pool’s SOL price is compared in the coin, and the gap and the loss are said in that coin', async (_n, quote) => {
+      // The launch pool says 0.02 SOL a token. With the coin at 0.005 SOL that is 4 coins: the pool is 50% below.
+      const s = prepared(await deposit(besideLaunch(quote, 20n), {}, priced(quote, { token: NO_ROUTE }))).summary as LpDepositSummary;
+      expect(s.price).toMatchObject({ state: 'disagrees', against: 'launch-pool' });
+      expect(s.price.state === 'disagrees' && s.price.reference).toBeCloseTo(4, 9);
+      expect(s.priceGap!.diff).toBeCloseTo(-0.5, 9);
+      expect(s.warnings).toHaveLength(2);
+      expect(s.warnings[0]).toBe('Its price is 50.0% below the launch pool’s price. A deposit here would hand that gap to the first arbitrage trade.');
+      expect(s.warnings[1]).toMatch(new RegExp(`^At these amounts, a move back to the launch pool’s price would take up to about 1[67]\\.\\d+ ${quote.symbol} of what you put in\\. That is an estimate\\.$`));
+      expect(s.warnings.join(' ')).not.toMatch(/\bSOL\b/);
+    });
+
+    it('at the launch pool’s price in the coin it agrees, with nothing to warn of', async () => {
+      // 0.01 SOL a token is 2 USDC a token: what the pool says.
+      const s = prepared(await deposit(besideLaunch(USDC_QUOTE, 10n), {}, priced(USDC_QUOTE, { token: NO_ROUTE }))).summary as LpDepositSummary;
+      expect(s.price).toMatchObject({ state: 'agrees', against: 'launch-pool' });
+      expect(s.warnings).toEqual([]);
+      expect(s.priceGap).toBeNull();
+    });
+
+    it('the coin’s own price could not be read: the comparison could not be made, so nothing is built', async () => {
+      const msg = refused(await deposit(besideLaunch(USDC_QUOTE, 20n), {}, priced(USDC_QUOTE, { token: NO_ROUTE, coin: { kind: 'unread', detail: 'HTTP 502' } })));
+      expect(msg).toBe('We did not build this deposit: We could not check its price against the launch pool’s price (the price of USDC could not be read (HTTP 502)).');
+    });
   });
 
   it.each(COINS)('%s: a pool more than 3%% off the market in the COIN builds, and the gap and the estimated loss are said in that coin, never in SOL', async (_n, quote) => {

@@ -6,8 +6,25 @@ page keeps the newest thirty days.
 
 ## [Unreleased]
 
+### 2026-10-08
+
+- Token names in wallets: the files a wallet reads now name our tokens by the bungalow and then by what the token does: Bayla Staking for the lighthouse staking receipt, Bayla LP SOL and Bayla LP USDC for the two pool shares. The short tickers are unchanged.
+- Solana swap: fewer steps and less to read. A swap in one of our own pools now goes from Buy straight to your wallet when it pays at least the minimum the form showed and nothing needs reading first; the review screen shows only when something needs a second look. When it lands, one line says so and the form is ready again. The risk tick-box is gone for SOL, USDC and our BAYLA, and for any other unverified token it is asked once per token on your device. Slippage and speed sit on one line, the details fold away, a large price impact is still said in view, the route is one short sentence, our BAYLA is first in the token list and marked as ours, every token row shows part of its address, and the button says Sell when you are selling.
+- Solana LP: two things that used to switch Add liquidity or Open a pool off are now warnings you read before you sign. A pool priced in a coin Jupiter has no price for right now (in practice only BAYLA) can still be opened and added to, and, once launching is switched on, a launch pool Jupiter has no price for takes deposits in its first 10 minutes of trading. A price that could not be read still switches both off. A token the site will not open or add to pools for is no longer called "blocked": the page says what the site does not do, and why.
+- Solana LP: when Jupiter has no price for a token that has a launch pool, the token's other pools are checked against the launch pool's price, once the launch pool has passed its own price check (it has never been traded, or it has traded for at least 10 minutes and is within 3% of its own half-hour average). A pool opened at another price then shows the gap and what it could cost you, and the Open a new pool card no longer offers Add liquidity for it. A pool paired with a coin Jupiter has no price for (in practice only BAYLA) is not compared. No token has a launch pool yet (launching is switched off), so nothing on the site reads differently today.
+
+### 2026-10-07
+
+- Solana LP on a phone: the small links and buttons keep their finger-sized press area without stretching the page around them. The "what to do next" sentence reads as one paragraph again, the venue status card is back to the height it had, and "View on the explorer" is easier to press. With a keyboard, the focus ring goes round the words of each of them.
+- Pool shares and the lighthouse staking receipt: the site now serves a name and a picture for the BAYLA/SOL and BAYLA/USDC pool share tokens and for the Staked BAYLA receipt, at memetics.finance/mint/ followed by the token's address and .json. A wallet shows them only once that link is written on each token, which has not happened yet.
+
+### 2026-10-06
+
+- Solana swap: a trade now goes to one of our own pools when that pool pays you at least as much as Jupiter, and to Jupiter when it does not. The line under the quote says which, and by how much. A swap in our pool opens a review with a test run before your wallet is asked, as adding liquidity does, and both prices are checked again when you press Buy. Our pools on the public fee tier are now found: the swap used to look only at the launch tier, and sent every trade to Jupiter whatever the line said.
+
 ### 2026-10-04
 
+- Solana LP on a small phone: a warning that names a long address no longer runs off the edge of its card, the three "Pair with" choices stay inside the form, the amounts on the add and remove reviews no longer break in the middle of a number, and the small links and buttons (the swap link in the form, Refresh and the copy buttons on the venue status card) are full-size press targets.
 - Solana LP: a pool can be paired with SOL, USDC or BAYLA. Open a pool has a "Pair with" choice, so a BAYLA/USDC pool can be opened from the site. Every amount, price and review is in the pool's own coin; the fee to open and the account deposits are still paid in SOL. Pools are listed SOL first, then USDC, then BAYLA.
 - Solana LP: any token can have a pool. Four things that used to switch Open a pool and Add liquidity off are now warnings you read before you sign: a token Jupiter has no price for, a price more than 3% from the market (with an estimate of what that gap could cost you), a token whose creator can freeze accounts, and a token that copies a well-known name. Still refused: tokens the pool program rejects, tokens with a transfer fee (this site cannot build an exact withdrawal for them yet), and anything that could not be read.
 - Your positions: each position has an Add more liquidity button beside Remove liquidity. It opens the Add form of the pool that share is in, never another pool's.

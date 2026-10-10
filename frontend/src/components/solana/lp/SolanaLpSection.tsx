@@ -216,6 +216,9 @@ export function LpDisclosure({ programId, mode = 'off' }: { programId: string; m
   return (
     <section data-testid="lp-disclosure" aria-label="Before you provide liquidity">
       <Card title="Before you provide liquidity">
+        {/* True of the pool program RUNNING on mainnet, built before the source gained create_lp_metadata.
+            It goes false the day that program is upgraded: reword it in the same release as the upgrade
+            (src/test/poolProgramCopy.test.ts fails that release until you do, and holds the wording). */}
         <p className="text-white/80">
           Our pool program is Raydium’s constant-product pool; we changed only its admin keys (see “The program” below).{' '}
           <strong>Those changes have not had their own independent review yet.</strong> Put in only what you can afford to lose.

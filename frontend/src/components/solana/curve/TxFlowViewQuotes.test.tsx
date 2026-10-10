@@ -11,7 +11,7 @@
 // pool is paired with.
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { act, cleanup, render, renderHook, screen } from '@testing-library/react';
+import { act, cleanup, render, renderHook, screen, within } from '@testing-library/react';
 import { PublicKey } from '@solana/web3.js';
 import { SummaryRows, TxFlowView } from './TxFlowView';
 import { useTxFlow } from './useTxFlow';
@@ -19,6 +19,7 @@ import { CREATOR, KEY, SIG, fakeApi, prepared } from './fakeWriteApi.fixture';
 import { COIN_ACCOUNT, lpCreateSummary, lpDepositSummary, lpWithdrawSummary } from '../lp/fakeLpWriteApi.fixture';
 import { coinAbout, coinExact } from '../lp/panelKit';
 import { BAYLA_QUOTE, SOL_QUOTE, USDC_QUOTE, type QuoteCoin } from '../../../lib/solana/lp/quotes';
+import { noPriceClause } from '../../../lib/solana/lp/poolHealth';
 import type { PreparedTx, TxOutcome, TxSigner, TxSummary, WriteRpc } from './ports';
 
 const rpc = {} as WriteRpc;
@@ -179,6 +180,29 @@ describe.each(COINS)('adding to a pool paired with $symbol: the review', (coin) 
     expect(value('Estimated cost of that gap')).toBe(`up to about 0.000001 ${C} of what you put in`);
   }, 30_000);
 
+  // Owner ruling 2026-10-07: Jupiter having no price for the pool's COIN does not stop a
+  // deposit. The token HAS a price then, so the review's price row names the coin, and
+  // nothing on it says "Jupiter has no market price for this token".
+  it('adding to a pool whose coin Jupiter has no price for: the warning first, and the row names the coin, never "this token"', async () => {
+    const WARNING = `Jupiter has no price for ${C} right now, so this pool’s price in ${C} was not checked against anything. If it is off, a deposit here hands the difference to whoever trades it back.`;
+    await review(deposit(coin, { price: { state: 'no-market', of: 'coin', pool: 2, detail: `Jupiter has no route for ${C}` }, warnings: [WARNING] }));
+    expect(value('Price check')).toBe(`not checked against anything: Jupiter has no price for ${C} right now`);
+    // The same clause as every other screen (poolHealth.ts `noPriceClause`).
+    expect(value('Price check')).toBe(`not checked against anything: ${noPriceClause('coin', coin)}`);
+    const box = screen.getByTestId('tx-review-warnings');
+    expect(Array.from(box.querySelectorAll('li')).map((li) => li.textContent)).toEqual(coin.risk ? [WARNING, coin.risk] : [WARNING]);
+    expect(reviewText()).not.toMatch(/for this token|this token has/);
+    // Nothing to compare with, so no gap and no cost row. A warning is not a stop: Sign is on.
+    expect(screen.queryByText('Estimated cost of that gap')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Sign in wallet' })).toBeEnabled();
+  });
+
+  it('adding to a pool whose TOKEN Jupiter has no price for keeps the token’s words, whatever the coin', async () => {
+    await review(deposit(coin, { price: { state: 'no-market', of: 'token', pool: 2, detail: 'Jupiter has no route for this token' } }));
+    expect(value('Price check')).toBe('not checked against anything: Jupiter has no market price for this token');
+    expect(value('Price check')).toBe(`not checked against anything: ${noPriceClause('token', coin)}`);
+  });
+
   it('the costs paid in SOL stay in SOL', async () => {
     await review(deposit(coin), { simulated: { signerLamportsDelta: -3_244_280n, tokenDeltas: [] } });
     expect(value('Network fee')).toBe('<0.0001 SOL');
@@ -301,6 +325,15 @@ describe.each(COINS)('removing from a pool paired with $symbol: the review', (co
     await review(withdraw(coin, { tokenAccountRent: TOKEN_RENT }), fees(TOKEN_RENT));
     expect(value('One-time deposit for your new token account (it stays in that account)')).toBe('0.002 SOL');
     expect(value('The tokens arrive in')).toBe(tokenRow);
+    // Both "arrives in" rows carry an address and then a sentence with a SOL amount in it: they
+    // break between words, never in the middle of that amount. A row that is only an address
+    // (the pool) still breaks anywhere.
+    const valueSpan = (label: string) => screen.getByText(label).nextElementSibling as HTMLElement;
+    for (const label of ['The tokens arrive in', `The ${C} arrives in`]) {
+      expect(valueSpan(label).className, label).toMatch(/font-mono/);
+      expect(valueSpan(label).className, label).not.toMatch(/break-all/);
+    }
+    expect(valueSpan('Pool').className).toMatch(/break-all/);
     cleanup();
 
     await review(withdraw(coin, { quoteAccount: { address: COIN_ACCOUNT, rent: COIN_RENT } }), fees(COIN_RENT));
@@ -381,12 +414,27 @@ describe.each(COINS)('opening a pool paired with $symbol: the review', (coin) =>
   });
 
   it('an opening with no market price still says its price, in the coin, written out', async () => {
-    await review(create(coin, { price: { state: 'no-market', pool: 104_000, detail: 'Jupiter has no route for this token' }, warnings: ['Jupiter has no market price for this token.'] }));
+    await review(create(coin, { price: { state: 'no-market', of: 'token', pool: 104_000, detail: 'Jupiter has no route for this token' }, warnings: ['Jupiter has no market price for this token.'] }));
     // 104,000 of the coin a token: never "1.040e+5".
     expect(value('Opening price')).toBe(
       `1 token = 104,000 ${C}. Jupiter has no market price for this token, so there is nothing to compare it with: you are setting the price yourself`,
     );
     expect(reviewText()).not.toMatch(/e\+/);
+  });
+
+  // Owner ruling 2026-10-07: Jupiter having no price for the pool's COIN does not stop an
+  // opening priced in it. The token HAS a price then, so the review names the coin and
+  // nothing on it says "Jupiter has no market price for this token".
+  it('an opening priced in a coin Jupiter has no price for: the row names the coin, never "this token"', async () => {
+    const WARNING = `Jupiter has no price for ${C} right now, so there is nothing to compare your opening price in ${C} with. You are setting the price yourself: if it is off, the first trades take the difference out of what you put in.`;
+    await review(create(coin, { price: { state: 'no-market', of: 'coin', pool: 2, detail: `Jupiter has no route for ${C}` }, warnings: [WARNING] }));
+    expect(value('Opening price')).toBe(`1 token = 2 ${C}. Jupiter has no price for ${C} right now, so there is nothing to compare it with: you are setting the price yourself`);
+    // The same clause as every other screen (poolHealth.ts `noPriceClause`).
+    expect(value('Opening price')).toContain(noPriceClause('coin', coin));
+    expect(within(screen.getByTestId('tx-review-warnings')).getByText(WARNING)).toBeInTheDocument();
+    expect(reviewText()).not.toMatch(/for this token|this token has/);
+    expect(screen.queryByText('Estimated cost of that gap')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Sign in wallet' })).toBeEnabled();
   });
 
   it('the locked shares are valued in the coin, and a real amount too small to show is not shown as nothing', async () => {
@@ -419,7 +467,7 @@ describe.each(COINS)('opening a pool paired with $symbol: the review', (coin) =>
 
   it('a token that can still be minted is sold into the pool for the coin, not for SOL', async () => {
     await review(create(coin, { tokenWarnings: [{ code: 'mint-authority', text: 'Its creator can still mint more.' }] }));
-    expect(screen.getByText(`Whoever holds it can make new tokens at any time and sell them into your pool for its ${C}.`)).toBeInTheDocument();
+    expect(screen.getByText(`Whoever holds that mint authority can make new tokens at any time and sell them into your pool for its ${C}.`)).toBeInTheDocument();
     expect(reviewText()).not.toContain('for its SOL');
   });
 
@@ -613,6 +661,26 @@ describe('the review prints a coin amount exactly as the forms do', () => {
 // ---------------------------------------------------------------------------
 
 describe('a pool paired with SOL, through the same builders', () => {
+  // Owner ruling 2026-10-07: "Paired with" stays on EVERY review, SOL pools included. It is
+  // never left out because the coin is the usual one: a person reads the same row on a SOL
+  // pool as on a USDC pool, and its absence is never how they are told it is SOL.
+  it.each([
+    ['adding', () => deposit(SOL_QUOTE)],
+    ['removing', () => withdraw(SOL_QUOTE)],
+    ['opening a pool', () => create(SOL_QUOTE)],
+  ] as const)('%s: the review of a SOL pool says "Paired with: SOL"', async (_n, summary) => {
+    await review(summary());
+    expect(value('Paired with')).toBe('SOL');
+    // Once, as a row of its own.
+    expect(screen.getAllByText('Paired with')).toHaveLength(1);
+  });
+
+  it('the summary rows alone say it too, for a SOL pool as for every other coin', () => {
+    for (const coin of [SOL_QUOTE, USDC_QUOTE, BAYLA_QUOTE]) {
+      for (const s of [deposit(coin), withdraw(coin), create(coin)]) expect(summaryText(s), `${s.kind} ${coin.symbol}`).toContain(`Paired with${coin.symbol}`);
+    }
+  });
+
   it('the same base units are 0.25 SOL: SOL keeps its 9 decimals and its wrapping words', async () => {
     await review(deposit(SOL_QUOTE, { quoted: { quote: 250_000_000n, token: 5_000_000n }, max: { quote: 252_500_000n, token: 5_050_001n }, limitedByBalance: 'quote' }));
     expect(value('Paired with')).toBe('SOL');
@@ -643,7 +711,7 @@ describe('a pool paired with SOL, through the same builders', () => {
     await review(create(SOL_QUOTE, { put: { quote: 250_000_000n, token: 10_000_000_000n }, tokenWarnings: [{ code: 'mint-authority', text: 'Its creator can still mint more.' }] }));
     expect(value('You put in')).toBe('0.25 SOL and 10,000 tokens, exactly');
     expect(value('Opening price')).toBe('1 token = 0.025 SOL. Market (Jupiter, read just now): 0.0249 SOL, 0.4% above');
-    expect(screen.getByText('Whoever holds it can make new tokens at any time and sell them into your pool for its SOL.')).toBeInTheDocument();
+    expect(screen.getByText('Whoever holds that mint authority can make new tokens at any time and sell them into your pool for its SOL.')).toBeInTheDocument();
     expect(screen.getByText(/wrapped into a token account for the opening/)).toBeInTheDocument();
     expect(value('Priority fee')).toBe('0.0012 SOL (0.48% of this trade)');
   });

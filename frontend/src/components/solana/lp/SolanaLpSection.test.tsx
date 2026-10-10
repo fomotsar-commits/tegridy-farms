@@ -9,7 +9,7 @@ import { SOL_QUOTE } from '../../../lib/solana/lp/quotes';
 import type { PoolSearchRead, PoolView } from '../../../lib/solana/lp/poolFinder';
 import { POOL_STATUS_DISABLE_WITHDRAW, decodeAmmConfig, decodePoolState } from '../../../lib/solana/cpswap/program';
 import type { Position } from '../../../lib/solana/lp/positions';
-import { Row } from '../curve/ui';
+import { ExplorerLink, Row } from '../curve/ui';
 import { buildPool, key } from '../../../lib/solana/lp/testkit.fixture';
 import { fakeLpApi, unusedGateRpc } from './fakeLpWriteApi.fixture';
 import { recordedFeeTiers, recordedTier } from '../../../lib/solana/cpswap/mainnetVenueReplay.fixture';
@@ -124,7 +124,12 @@ describe('the LP section', () => {
     expect(screen.getByTestId('token-safety')).toHaveAttribute('data-verdict', 'blocked');
     expect(screen.getByText('Its creator can still freeze token accounts.')).toBeInTheDocument();
     expect(r.outsidePrice).not.toHaveBeenCalled();
-    expect(screen.getByTestId('lp-status')).toHaveTextContent(/blocked on this site/);
+    // What a screen reader is read, and what the pool's card gives as its reason: what this
+    // site does not do. Never that the token is "blocked" (owner ruling 2026-10-07).
+    expect(screen.getByTestId('lp-status')).toHaveTextContent('This site does not open or add to pools for this token.');
+    expect(within(card).getByTestId('lp-pool-deposits')).toHaveTextContent('This site does not add to pools for this token (see why above).');
+    expect(card).toHaveTextContent('Not compared: because this site does not add to pools for this token');
+    expect(document.body).not.toHaveTextContent(/blocked on this site|token is blocked/i);
   });
 
   it('a squatted standard address: swaps blocked, deposits refused, and never presented as the pool', async () => {
@@ -378,6 +383,35 @@ describe('Row', () => {
     expect(prose!.className).not.toMatch(/break-all/);
     expect(prose!.className).toMatch(/overflow-wrap:anywhere/);
     expect(mono!.className).toMatch(/break-all/);
+  });
+
+  // An address followed by a sentence with an amount in it: `break-all` split the amount
+  // in the middle of a number on a phone. `words` keeps the mono font and breaks between
+  // words first, and inside one (the address) only when it cannot fit.
+  it('a mono value marked `words` breaks between words first, and is still mono', () => {
+    const { container } = render(<Row words label="c" value={`${M} (opened for you; its deposit of 0.00203928 SOL stays in that account)`} />);
+    const span = container.querySelector('span.text-right')!;
+    expect(span.className).toMatch(/font-mono/);
+    expect(span.className).toMatch(/overflow-wrap:anywhere/);
+    expect(span.className).not.toMatch(/break-all/);
+  });
+});
+
+// "View on the explorer" is one small line with a finger-sized press area around it. A
+// ring round that area had its bottom edge hidden behind the button under the link and
+// its top edge through the row above (a real browser, 2026-10-06), so the ring goes
+// round the words: `ring-on-words` on the link, one `ring-words` inside it (index.css).
+describe('ExplorerLink', () => {
+  it('opens the transaction in a new tab, and the keyboard’s ring goes round its words', () => {
+    render(<ExplorerLink href="https://explorer.test/tx/abc" />);
+    const link = screen.getByRole('link', { name: 'View on the explorer' });
+    expect(link).toHaveAttribute('href', 'https://explorer.test/tx/abc');
+    expect(link).toHaveAttribute('target', '_blank');
+    expect(link.getAttribute('rel')).toBe('noopener noreferrer nofollow');
+    expect(link.classList.contains('ring-on-words')).toBe(true);
+    const ringed = link.querySelectorAll('.ring-words');
+    expect(ringed).toHaveLength(1);
+    expect(ringed[0]!.textContent).toBe('View on the explorer');
   });
 });
 

@@ -42,15 +42,31 @@ export function FundingNextStep({
 }) {
   const shortCoin = !coin.native && needsCoin;
   if (!needsSol && !shortCoin && !needsToken) return null;
+  // A finger-sized press area that leaves the sentence's lines where they are: 12px of
+  // padding above and below the 21.125px line (45px in all), taken back by the same
+  // negative margin. A 44px box in the line pushed its neighbours 33 or 44px apart, and
+  // on a small phone the sentence read as separate lines. 4px each side the same way:
+  // "USDC" alone is 37px wide.
+  // The area reaches over the lines above and below, so what a press there hits is set
+  // by three layers (the sentence is `isolate`, so they stay inside it):
+  //   the press areas (`relative`), over the sentence's plain words, which are drawn
+  //     later and would take the bottom of each area;
+  //   the Copy button, whole (`z-10`: its words cannot be wrapped from here), over a
+  //     link's area on the next line;
+  //   each link's own words (`z-20`), over any other target's area.
+  // So a press on a target's words is always that target.
+  // The keyboard's ring goes round the words too (`ring-on-words`, index.css): round the
+  // area it is 53px tall on a 21px line and strikes through the lines above and below.
+  const press = 'relative px-1 -mx-1 py-3 -my-3 ring-on-words';
   const swapOn = (to: string, text: string) => (
-    <Link to={`/solana?out=${to}`} className="inline-block py-1.5 underline underline-offset-2 text-white hover:text-white/80">
-      {text}
+    <Link to={`/solana?out=${to}`} className={`inline-block ${press} underline underline-offset-2 text-white hover:text-white/80`}>
+      <span className="relative z-20 ring-words">{text}</span>
     </Link>
   );
   const copy = wallet ? (
     <>
       {' '}
-      <CopyButton text={wallet} display="Copy this wallet’s address" className="inline-block py-1.5 underline text-white/85" />
+      <CopyButton text={wallet} display="Copy this wallet’s address" className={`${press} z-10 underline text-white/85`} wordsClassName="ring-words" />
     </>
   ) : null;
   // What the swap is tried for: the words after "try".
@@ -68,7 +84,7 @@ export function FundingNextStep({
       <>{swapOn(mint, 'this site’s Solana swap')} for the token (it opens on this token, by its address)</>
     ) : null;
   return (
-    <p className="text-white/75" data-testid="lp-funding-next">
+    <p className="isolate text-white/75" data-testid="lp-funding-next">
       {needsSol && swapFor ? (
         <>
           Send SOL to this wallet first.{copy} With SOL in it, try {swapFor}, then come back to this tab.
