@@ -44,8 +44,8 @@ merged or changed by the sweep. Where an older section below disagrees, this one
   by hand in the SQL editor, in that order, in one sitting. Add 027 if you want the 90-day
   analytics limit (PR #695): its first run deletes older analytics for good, so export first if
   you want a copy. Never `supabase db push`.
-- ⬜ **O-1009-3: answer O-0929-12 (PR #775), yes or no.** Are the two Solana programs inside the
-  security policy? It has to be settled before the pool-program upgrade.
+- ✅ **O-1009-3: answered on 2026-10-10: yes.** The two Solana programs are inside the security
+  policy (O-0929-12, PR #775). It had to be settled before the pool-program upgrade, and it is.
 - ⬜ **O-1009-4: the pool-program upgrade.** The pack is ready. It needs 3.90 SOL in the deploy
   wallet `CqcVvaMvesrSKrUSbqBqr9mLjKLJuYqhaXg1gXpR41cg` (about 3.68 comes back) and both
   multisig members, on the pack's own page and never in the Squads app. Tell a session before
