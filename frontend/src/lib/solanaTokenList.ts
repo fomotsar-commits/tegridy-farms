@@ -111,22 +111,16 @@ export function needsRiskAck(t: SolToken): boolean {
   return isUnverified(t) && !isVenueCoin(t.mint);
 }
 
-export interface LstToken extends SolToken {
-  /** Approximate, variable APY — a static label (operator-refreshed). */
-  apy: number;
-  provider: string;
-}
-
-// Liquid-staking tokens. "Stake SOL" = buy one of these via the NORMAL swap: the
-// token's value accrues validator/MEV yield each epoch (no claim, no lockup), and
-// the SOL→LST buy still earns our 1% fee on the wSOL leg — so the buy IS the
-// product (no stake-pool SDK needed). Mints byte-verified via the Jupiter token
-// API (all legacy SPL Token program, decimals 9, verified). APY is approximate.
-export const LST_TOKENS: LstToken[] = [
-  { mint: 'J1toso1uCk3RLmjorhTtrVwY9HJ7X8V9yYac6Y7kGCPn', symbol: 'JitoSOL', name: 'Jito Staked SOL', decimals: 9, verified: true, apy: 7.5, provider: 'Jito' },
-  { mint: 'mSoLzYCxHdYgdzU16g5QSh3i5K3z3KZK7ytfqcJm7So', symbol: 'mSOL', name: 'Marinade Staked SOL', decimals: 9, verified: true, apy: 7.2, provider: 'Marinade' },
-  { mint: 'bSo13r4TkiE4KumL71LsHTPpL2euBYLFx6h9HP3piy1', symbol: 'bSOL', name: 'BlazeStake Staked SOL', decimals: 9, verified: true, apy: 7.0, provider: 'BlazeStake' },
-  { mint: '5oVNBeEEQvYi1cX3ir8Dx5n1P7pdxydbGF2X4TxVusJm', symbol: 'INF', name: 'Infinity (Sanctum LST basket)', decimals: 9, verified: true, apy: 8.0, provider: 'Sanctum' },
+// Liquid-staking tokens. "Stake SOL" = buy one of these through the normal swap: the
+// token is staked SOL that trades, with no claim and no lockup, and the buy carries the
+// venue's fee like any other SOL buy. Mints byte-verified via the Jupiter token API
+// (legacy SPL Token program, decimals 9, verified). No rate is held here: nothing on
+// the page reads one, so the card names the token and prints no number.
+export const LST_TOKENS: SolToken[] = [
+  { mint: 'J1toso1uCk3RLmjorhTtrVwY9HJ7X8V9yYac6Y7kGCPn', symbol: 'JitoSOL', name: 'Jito Staked SOL', decimals: 9, verified: true },
+  { mint: 'mSoLzYCxHdYgdzU16g5QSh3i5K3z3KZK7ytfqcJm7So', symbol: 'mSOL', name: 'Marinade Staked SOL', decimals: 9, verified: true },
+  { mint: 'bSo13r4TkiE4KumL71LsHTPpL2euBYLFx6h9HP3piy1', symbol: 'bSOL', name: 'BlazeStake Staked SOL', decimals: 9, verified: true },
+  { mint: '5oVNBeEEQvYi1cX3ir8Dx5n1P7pdxydbGF2X4TxVusJm', symbol: 'INF', name: 'Infinity (Sanctum basket of staked SOL)', decimals: 9, verified: true },
 ];
 
 export function findSolToken(mint: string): SolToken | undefined {

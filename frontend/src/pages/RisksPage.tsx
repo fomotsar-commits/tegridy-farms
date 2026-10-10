@@ -134,8 +134,8 @@ const PROTOCOL_LIMITS: Array<{
     feature: 'Swap',
     status: 'Live',
     items: [
-      { label: 'Protocol fee', value: `${SWAP_FEE_BPS / 100}% (1% hard cap)`, why: 'Revenue to stakers; fee routing being finalized' },
-      { label: 'Pool trading fee', value: '0.3%', why: 'Standard AMM fee, paid to liquidity providers' },
+      { label: 'Protocol fee', value: `${SWAP_FEE_BPS / 100}% (1% hard cap)`, why: 'The venue fee. A referral share comes off first; the rest is routed toward stakers' },
+      { label: 'Pool trading fee', value: '0.3%', why: 'Stays in the pool. The venue can switch on a one-sixth cut; until it does, liquidity providers keep all of it' },
       { label: 'Slippage', value: 'You choose', why: 'Caps adverse price movement / MEV' },
     ],
   },

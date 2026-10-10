@@ -107,13 +107,12 @@ export function RealYieldProof({ showWhenEmpty = false }: { showWhenEmpty?: bool
         </div>
       ) : isEmpty ? (
         <div className="rounded-xl p-4" style={{ border: '1px solid var(--color-purple-75)', background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(2px)' }}>
-          {/* 2026-08-07: dropped "100% of protocol swap fees". AUDIT R073 — swap fees
-              split 5/6 to LPs and 1/6 to the protocol, and the protocol's share then
-              splits again between stakers, liquidity and operations. Same correction
-              as ConnectPrompt.tsx:30 (F109), OnboardingModal.tsx and Footer.tsx. The
-              routing claim is true and checkable; the percentage was not. */}
+          {/* Rendered only on a successful read of zero, so "none yet" is the chain's word.
+              The fee meant here is the router's, less ReferralSplitter's share; the 1 ETH
+              floor is RevenueDistributor.MIN_DISTRIBUTE_AMOUNT. The pool is live, so this
+              must not say the ETH waits on it. */}
           <p className="text-[13px] leading-relaxed" style={{ color: '#22c55e', textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>
-            ETH distributions to stakers begin as native-pool swap volume comes online — the protocol&apos;s share of swap fees routes here on-chain. This panel fills with the live cumulative the moment the first epoch settles.
+            No ETH has been paid to stakers yet. After a referral share, the venue&apos;s swap fee is routed here on chain, and a payout round can open only after 1 ETH has arrived. This panel fills with the live total when the first round settles.
           </p>
         </div>
       ) : (
