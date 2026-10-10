@@ -101,8 +101,9 @@ merged or changed by the sweep. Where an older section below disagrees, this one
 - ⬜ **C-1009-4: open pull requests for the two cloud branches**, with the "offer our pool" fix on
   top of the first.
 - ⬜ **C-1009-5: resume the pool redesign.** Your last word on 2026-10-08 was "ok keep going".
-- ⬜ **C-1009-6: show a liquidity provider what a pool has paid them** (asked 2026-10-09): what a
-  position has earned, the pool's measured fee rate, and where each part of the fee goes.
+- 🟡 **C-1009-6: show a liquidity provider what a pool has paid them** (asked 2026-10-09): what a
+  position has earned, the pool's measured fee rate, and in a few plain words how liquidity
+  providers earn and how the venue earns. Being built on `feat/solana-lp-earnings`.
 - ⬜ **C-1009-7: small ones.** Finish the "Back to top" test flake. Correct the three BAYLA ladder
   rows in `frontend/scripts/addresses.json` (both controls are the Squads vault now). Start the
   vault upgrade pack for the ladder's 4-year change. Renew or update the advisory waivers before
@@ -110,6 +111,33 @@ merged or changed by the sweep. Where an older section below disagrees, this one
 - ⬜ **C-1009-8: housekeeping that needs a quiet moment.** Move the shared main folder onto trunk
   (it sits on a September branch and has no CLAUDE.md), after its only-copy files are saved. One
   dedicated worktree cleanup (230 exist): unlink every linked folder and prove it gone first.
+
+### Where swap fees go (read from the chain 2026-10-10), and what follows from it
+
+A swap in one of our own Solana pools costs the trader 1%: 0.84% stays in the pool for its
+liquidity providers and 0.16% is set aside for the venue. There is no claim for liquidity
+providers and there never will be one in this pool design: their part is added to the pool, and
+they receive it when they remove liquidity. A swap the site sends through Jupiter instead pays
+the site 0.5% where the route allows it. Opening a public pool costs 0.15 SOL. All three go to
+the team's two-signature vault. The BAYLA/SOL pool has had 3 swaps in its life (0.501 SOL in
+all); the BAYLA/USDC pool has had none.
+
+- ⬜ **O-1009-13: the real lever is volume.** Jupiter does not route through our pool program, so a
+  pool sees only the trades our own swap page sends it. Decide whether to ask Jupiter to list
+  our pools (parked since the pool redesign).
+- ⬜ **O-1009-14: the BAYLA/USDC pool sits about 8% above the market price** and has never traded.
+  Leave it, or bring it in line: whoever trades it first takes that gap from its liquidity
+  providers.
+- ⬜ **C-1009-9: money words on the Ethereum pages.** Three lines disagree with the chain (the
+  Liquidity page's "five sixths", the assistant's "0.5% flows to stakers", the FAQ's "starts
+  flowing when the native pool launches"), and four liquid-staking rates on the Solana swap page
+  are typed in, not read. Needs one read of the Ethereum fee settings first.
+- ⬜ **C-1009-10: two stale rows in `frontend/scripts/addresses.json`.** The swap-fee account it
+  names has never received a fee (they go to the vault's wrapped-SOL account
+  `2sa31zceMSTAAbSu5wfSnNA6sBYzS7r97nvZYaQouEXa`), and the launch tier reads 20% to the venue plus
+  a 0.05% creator fee on chain, not the 12% and none the row says.
+- 📌 The venue's cut waiting in the BAYLA/SOL pool is under 0.001 SOL. Collecting it takes a
+  two-signature proposal that costs more than it brings in. Leave it.
 
 ### Parked calls, none urgent
 
