@@ -57,14 +57,6 @@ const COMPONENTS = join(SRC, 'components');
  */
 const UNMOUNTED_BY_DESIGN: Array<{ pattern: RegExp; because: string }> = [
   {
-    pattern: /^solana\/lp\/AddressRow\.tsx$/,
-    because:
-      'Wave 1 of the Solana LP work lands in groups: AddressRow (group A, task A6) is the short ' +
-      'address with copy, Show whole and an explorer link that the pool card and the positions ' +
-      'rows (group C, tasks C1 and C2) mount. Until that group merges nothing reaches it. The ' +
-      'guard below fails this entry the moment it is reached: delete it in the same change.',
-  },
-  {
     pattern: /^positionMarket\//,
     because:
       'The staking-position market is deploy-gated: src/lib/constants.ts documents that ' +

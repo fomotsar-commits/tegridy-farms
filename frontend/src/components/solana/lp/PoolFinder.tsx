@@ -498,7 +498,7 @@ export function PoolFinder({
         </div>
       )}
       {state.status === 'done' && (
-        <SearchResults state={state} onReread={reread} onShow={showPool} wish={wish && !state.refreshing && wish.mint === state.mint ? wish : null} onActed={spent} />
+        <SearchResults state={state} readers={readers} onReread={reread} onShow={showPool} wish={wish && !state.refreshing && wish.mint === state.mint ? wish : null} onActed={spent} />
       )}
     </section>
   );
@@ -528,12 +528,15 @@ function announce(s: Extract<SearchState, { status: 'done' }>): string {
 
 function SearchResults({
   state,
+  readers,
   onReread,
   onShow,
   wish,
   onActed,
 }: {
   state: Extract<SearchState, { status: 'done' }>;
+  /** For each card's pool past, read on a press only (PoolCard). */
+  readers: LpReaders;
   onReread: () => void;
   /** The "Open a new pool" card points at a pool: show its card (`PoolFinderHandle.show`). */
   onShow: (mint: string, pool: string) => void;
@@ -646,6 +649,9 @@ function SearchResults({
                     showNow={showNow(p.view.address)}
                     shownAs={shownAs}
                     onActed={onActed}
+                    readers={readers}
+                    readAt={readAt}
+                    chainNow={pools.search.chainNow}
                   />
                 ) : (
                   <UnreadPoolCard key={p.address} entry={p} showNow={showNow(p.address)} shownAs={shownAs} onActed={onActed} />

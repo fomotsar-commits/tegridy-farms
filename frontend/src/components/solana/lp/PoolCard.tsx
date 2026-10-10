@@ -2,21 +2,34 @@ import { useEffect, useId, useRef, useState, type RefObject } from 'react';
 import { isCreatedPool, type PoolEntry, type PoolView } from '../../../lib/solana/lp/poolFinder';
 import { PRICE_TOLERANCE, formatWhen, vaultFreezer, type PoolHealth, type PriceReference, type WithdrawalsState } from '../../../lib/solana/lp/poolHealth';
 import { feeRateText, priceText, quoteText, tokenText, tradeCostText } from '../../../lib/solana/lp/format';
+import { pairAccessibleName, pairLabel, registryToken } from '../../../lib/solana/lp/identity';
+import { detailOf } from '../../../lib/solana/lp/ledger';
+import { POOL_PAST_BUTTON, lastTrade, lastTradeText, poolPastText, type PoolPastRead } from '../../../lib/solana/lp/poolPast';
 import type { QuoteCoin } from '../../../lib/solana/lp/quotes';
+import { USD_LINES, usdOfPool, usdText } from '../../../lib/solana/lp/usd';
 import { chargedCreatorFeeRate, feeSplit } from '../../../lib/solana/cpswap/venue';
 import { ratePercent } from '../../../lib/solana/cpswap/math';
 import type { TokenSafety } from '../../../lib/solana/lp/tokenSafety';
+import { ArtCard } from '../../ui/ArtCard';
 import { Notice, Row } from '../curve/ui';
-import { CARD, CARD_STYLE, SHADOW } from '../curve/uiFormat';
+import { BODY, HEAD, HINT, LP_SCRIM, SHADOW } from '../curve/uiFormat';
 import { AddLiquidityPanel } from './AddLiquidityPanel';
+import { AddressRow } from './AddressRow';
 import { depositOffer, lpHeld, type DepositOffer } from './offers';
+import { ReadAt } from './ReadAt';
+import type { LpReaders } from './readers';
 import { useLpWrites, type LpWrites } from './useLpWrites';
+import { useUsdPrices } from './useUsdPrices';
 
-const ORIGIN_LABEL: Record<PoolView['origin'], string> = {
-  'launch-pool': 'Launch pool: opened by the launch program when the token graduated',
-  standard: 'At the standard address for its fee tier (anyone could have opened it)',
-  other: 'At its own address (anyone could have opened it)',
+/** Where the pool sits, in a few words under its heading. The heading itself is the pair and the tier (identity.ts). */
+const ORIGIN_WORDS: Record<PoolView['origin'], string> = {
+  'launch-pool': 'Launch pool, opened by the launch program when the token graduated',
+  standard: 'Standard address for its tier',
+  other: 'At its own address',
 };
+
+/** The token's unit in an amount: the registry's symbol for a listed token, else "tokens" (format.ts's own word). */
+const tokenUnit = (mint: string): string => registryToken(mint)?.symbol ?? 'tokens';
 
 const withdrawalsText = (state: WithdrawalsState, quote: QuoteCoin): string =>
   state === 'open'
@@ -142,8 +155,7 @@ function useShownOnce(showNow: number, onActed: ((n: number) => void) | undefine
 /**
  * Why a wish that named this pool did not end in its Add form, in one sentence. The card
  * shows it under its heading and the heading is described by it, so the reason is what a
- * screen reader says when focus lands there: the heading alone is only the pool's kind,
- * and two cards can carry the same one (review, 2026-10-04).
+ * screen reader says when focus lands there (review, 2026-10-04).
  */
 function notOpenedWhy(offer: DepositOffer, health: PoolHealth): string {
   const reasons = health.deposits.reasons.join(' ');
@@ -177,11 +189,17 @@ function useShownFor(showNow: number, as: ShownAs): { n: number; as: ShownAs } {
 
 function WishWhy({ id, why }: { id: string; why: string }) {
   return (
-    <div id={id} data-testid="lp-wish-why" className="mb-2 text-[12px] leading-relaxed">
+    <div id={id} data-testid="lp-wish-why" className="mb-2 text-[13px] leading-relaxed">
       <Notice tone="warn">This is your position’s pool. Its Add form was not opened: {why}</Notice>
     </div>
   );
 }
+
+/** The chain's own clock when the pool was read (the Clock sysvar in the same batch), or that it was not read. Never the device's. */
+const chainClockText = (chainNow: bigint | null | undefined): string => `Chain clock at the read: ${chainNow === null || chainNow === undefined ? 'not read' : formatWhen(chainNow)}`;
+
+/** The heading's classes: the kit's size, focusable by script only (a wish lands here), no focus ring of its own. */
+const HEADING_CLS = `${HEAD} mb-1 outline-none`;
 
 export function PoolCard({
   view,
@@ -192,6 +210,9 @@ export function PoolCard({
   showNow = 0,
   shownAs = 'add',
   onActed,
+  readers,
+  readAt,
+  chainNow,
 }: {
   view: PoolView;
   health: PoolHealth;
@@ -206,6 +227,12 @@ export function PoolCard({
   shownAs?: ShownAs;
   /** Told when this card acts on a wish, so the finder spends it. */
   onActed?: (n: number) => void;
+  /** For the pool past, on a press only. Without `poolPast` (a build without it) no button is shown. */
+  readers?: Pick<LpReaders, 'poolPast'> | null;
+  /** The device's clock (ms) when this pool was read, for the stamp; left out, no stamp. */
+  readAt?: number;
+  /** The chain's clock at that read (the Clock sysvar), or null when it was not read. */
+  chainNow?: bigint | null;
 }) {
   const cardRef = useRef<HTMLLIElement | null>(null);
   const headingRef = useRef<HTMLHeadingElement | null>(null);
@@ -213,14 +240,18 @@ export function PoolCard({
   const shownFor = useShownFor(showNow, shownAs);
   const whyId = useId();
   const writes = useLpWrites();
+  const usd = useUsdPrices(0);
   const offer: DepositOffer = writes
     ? depositOffer({ mode: writes.mode, gate: writes.gate, health, held: lpHeld(writes.pending.notes, view.address, 'add') })
     : 'off';
   // Said only for a form that was asked for, and gone as soon as the pool offers adding
   // again: the button under the checks says so then.
   const why = shownFor.n && shownFor.as === 'add' && offer !== 'offer' ? notOpenedWhy(offer, health) : null;
+  // The explorer link comes with the write code (lpWriteApi.ts, the one path into write/); until it loads there is none.
+  const explorer = (address: string): string | null => (writes?.api && writes.cfg ? writes.api.explorerAddressUrl(address, writes.cfg.cluster) : null);
   const { pool } = view.snapshot;
   const swaps = swapsText(health);
+  const bothOpen = health.swaps.state === 'open' && health.withdrawals === 'open';
   const cfg = view.config;
   const split = cfg ? feeSplit(cfg) : null;
   // cp-swap adjust_creator_fee_rate: the tier's rate, only when this pool's own switch is on.
@@ -229,12 +260,15 @@ export function PoolCard({
   const tokFees = view.quoteIsToken0 ? [pool.protocolFeesToken1 + pool.fundFeesToken1, pool.creatorFeesToken1] : [pool.protocolFeesToken0 + pool.fundFeesToken0, pool.creatorFeesToken0];
   const price = health.price;
   const depositsHead = depositHeading(health.deposits);
+  const unit = tokenUnit(view.tokenMint);
+  // A dollar line only behind the committed switch (usd.ts), and only from a price that was read.
+  const usdPool = USD_LINES === 'on' ? usdText(usdOfPool(view.quoteReserve, view.quote, usd.prices)) : null;
+  const usdAge = usd.readAt === null ? null : Math.max(0, Math.floor((Date.now() - usd.readAt) / 1000));
 
   return (
     <li
       ref={cardRef}
-      className={`${CARD} scroll-mt-[4.5rem]`}
-      style={CARD_STYLE}
+      className="scroll-mt-[4.5rem]"
       data-testid="lp-pool"
       data-pool={view.address}
       data-origin={view.origin}
@@ -245,77 +279,153 @@ export function PoolCard({
       data-price={price.state}
       data-add={offer}
     >
-      <h3 ref={headingRef} tabIndex={-1} aria-describedby={why ? whyId : undefined} className="text-white font-semibold text-[13px] mb-1 outline-none" style={SHADOW}>
-        {view.origin === 'launch-pool' ? 'Launch pool' : view.origin === 'standard' ? `Standard address, fee tier ${cfg?.index ?? '?'}` : 'Pool at its own address'}
-      </h3>
-      {why && <WishWhy id={whyId} why={why} />}
-      <p className="text-white/50 text-[11px] mb-2">{ORIGIN_LABEL[view.origin]}</p>
-      {isCreatedPool(view.address) && (
-        <p className="text-emerald-300/90 text-[12px] mb-2" data-testid="lp-opened-here">
-          You opened this pool just now. Your share is under &apos;Your positions&apos;.
-        </p>
-      )}
-      <div className="text-white/60 text-[11px] leading-relaxed space-y-2">
-        <Row label="Pool address" value={view.address} />
-        <Row label="Token" value={view.tokenMint} />
-        <Row label="Paired with" value={view.quote.symbol} mono={false} />
-
-        <Row label="Swaps" value={swaps.text} mono={false} />
-        <Row label="Withdrawals" value={withdrawalsText(health.withdrawals, view.quote)} mono={false} />
-        <div data-testid="lp-pool-deposits">
-          <p className={`text-[12px] font-semibold ${depositsHead.tone}`}>{depositsHead.title}</p>
-          {health.deposits.reasons.map((r) => (
-            <Notice key={r} tone={health.deposits.verdict === 'refused' ? 'bad' : 'warn'}>{r}</Notice>
-          ))}
-          {/* Said whatever the verdict is: a pool that is refused or unchecked for another reason still has them. */}
-          {health.deposits.warnings.length > 0 && (
-            <div data-testid="lp-pool-warnings" className="space-y-1">
-              {health.deposits.verdict !== 'allowed' && <p className="text-amber-300/90 font-semibold">Warnings about this pool, apart from that:</p>}
-              {health.deposits.warnings.map((w) => (
-                <Notice key={w} tone="warn">{w}</Notice>
-              ))}
-            </div>
-          )}
-          {!writes && health.deposits.verdict === 'allowed' && (
-            <Notice>Adding liquidity from this page is not switched on yet. These checks will run again before any deposit.</Notice>
-          )}
-          {writes && <DepositOfferBlock writes={writes} offer={offer} view={view} health={health} safety={safety} tokenDecimals={tokenDecimals} openNow={openNow} onActed={onActed} />}
+      <ArtCard pageId="solana-lp" idx={3} scrim={LP_SCRIM}>
+        <h3 ref={headingRef} tabIndex={-1} aria-label={pairAccessibleName(view)} aria-describedby={why ? whyId : undefined} className={HEADING_CLS} data-text-role="head" style={SHADOW}>
+          {pairLabel(view)}
+        </h3>
+        {why && <WishWhy id={whyId} why={why} />}
+        <div className={`${HINT} mb-2 space-y-1`} data-text-role="hint">
+          <p>{ORIGIN_WORDS[view.origin]}</p>
+          <AddressRow label="Pool address" value={view.address} explorerUrl={explorer(view.address)} />
         </div>
+        {isCreatedPool(view.address) && (
+          <p className="text-emerald-300/90 text-[13px] mb-2" data-testid="lp-opened-here">
+            You opened this pool just now. Your share is under &apos;Your positions&apos;.
+          </p>
+        )}
+        <div className={`${BODY} leading-relaxed space-y-2`} data-text-role="body">
+          {bothOpen ? (
+            <p data-testid="lp-pool-status">Swaps: open · Withdrawals: open</p>
+          ) : (
+            <>
+              <Row label="Swaps" value={swaps.text} mono={false} />
+              <Row label="Withdrawals" value={withdrawalsText(health.withdrawals, view.quote)} mono={false} />
+            </>
+          )}
 
-        <Row label="In the pool" value={`${quoteText(view.quoteReserve, view.quote)} and ${tokenText(view.tokenReserve, tokenDecimals)}`} mono={false} />
-        <PriceRows price={price} quote={view.quote} />
+          <Row label="In the pool" value={`${quoteText(view.quoteReserve, view.quote)} and ${tokenText(view.tokenReserve, tokenDecimals, unit)}`} mono={false} />
+          {usdPool !== null && usdAge !== null && (
+            <p className={HINT} data-text-role="hint" data-testid="lp-pool-usd">
+              {usdPool}, both sides at this pool’s own price, at Jupiter’s {view.quote.symbol} price read {usdAge} s ago
+            </p>
+          )}
+          <PriceRows price={price} quote={view.quote} />
+          {/* The program's own record: `initialized` flips only on a swap (poolPast.ts). The time, never the word "active". */}
+          <p data-testid="lp-pool-trade">{quoteFees[0]! > 0n || tokFees[0]! > 0n ? 'Last trade: this pool has booked fees' : lastTradeText(lastTrade(view))}</p>
 
-        {cfg && split ? (
-          <>
-            {/* What a trade on THIS pool costs: its tier's trade fee, plus the creator fee when the pool's own switch is on. */}
-            <Row label={`Fee tier ${cfg.index}`} value={`Traders pay ${tradeCostText(cfg, pool.enableCreatorFee)}`} mono={false} />
-            <Row
-              label="Of that fee"
-              value={`LPs keep ${split.lpKeepsPct.toFixed(3)}% of each trade, the venue ${split.venueTakesPct.toFixed(3)}%${creatorRate > 0n ? `, the pool's creator ${ratePercent(creatorRate).toFixed(3)}%` : ''}`}
-              mono={false}
-            />
-            {creatorRate > 0n && (
+          {cfg && split ? (
+            <>
+              {/* What a trade on THIS pool costs: its tier's trade fee, plus the creator fee when the pool's own switch is on. */}
+              <Row label={`Fee tier ${cfg.index}`} value={`Traders pay ${tradeCostText(cfg, pool.enableCreatorFee)}`} mono={false} />
               <Row
-                label="Creator fee"
-                value={`${feeRateText(creatorRate)} a trade on top of the trade fee, paid to the wallet that opened this pool (Opened by, below), not to LPs`}
+                label="Of that fee"
+                value={`LPs keep ${split.lpKeepsPct.toFixed(3)}% of each trade, the venue ${split.venueTakesPct.toFixed(3)}%${creatorRate > 0n ? `, the pool's creator ${ratePercent(creatorRate).toFixed(3)}%` : ''}`}
                 mono={false}
               />
+              {creatorRate > 0n && (
+                <Row
+                  label="Creator fee"
+                  value={`${feeRateText(creatorRate)} a trade on top of the trade fee, paid to the wallet that opened this pool (Opened by, below), not to LPs`}
+                  mono={false}
+                />
+              )}
+            </>
+          ) : (
+            <Notice tone="warn">This pool’s fee settings could not be read.</Notice>
+          )}
+          {/* When these figures were read. The lookup's one Read again is in the finder's form, above the list. */}
+          {readAt !== undefined && <ReadAt at={readAt} />}
+
+          <div data-testid="lp-pool-deposits">
+            <p className={`text-[13px] font-semibold ${depositsHead.tone}`}>{depositsHead.title}</p>
+            {health.deposits.reasons.map((r) => (
+              <Notice key={r} tone={health.deposits.verdict === 'refused' ? 'bad' : 'warn'}>{r}</Notice>
+            ))}
+            {/* Said whatever the verdict is: a pool that is refused or unchecked for another reason still has them. */}
+            {health.deposits.warnings.length > 0 && (
+              <div data-testid="lp-pool-warnings" className="space-y-1">
+                {health.deposits.verdict !== 'allowed' && <p className="text-amber-300/90 font-semibold">Warnings about this pool, apart from that:</p>}
+                {health.deposits.warnings.map((w) => (
+                  <Notice key={w} tone="warn">{w}</Notice>
+                ))}
+              </div>
             )}
-          </>
-        ) : (
-          <Notice tone="warn">This pool’s fee settings could not be read.</Notice>
-        )}
-        <Row label="Fees waiting: venue’s share" value={`${quoteText(quoteFees[0]!, view.quote)} and ${tokenText(tokFees[0]!, tokenDecimals)}`} mono={false} />
-        {pool.enableCreatorFee && (
-          <Row label="Fees waiting: creator’s share" value={`${quoteText(quoteFees[1]!, view.quote)} and ${tokenText(tokFees[1]!, tokenDecimals)}`} mono={false} />
-        )}
-        <Notice>
-          LPs’ share of fees is not paid out separately: it stays in the pool, so each pool share is worth a little more after every trade.
-        </Notice>
-        <Row label="Pool shares issued" value={tokenText(pool.lpSupply, pool.lpMintDecimals, 'shares')} mono={false} />
-        <Row label="Opened by" value={pool.poolCreator} />
-      </div>
+            {!writes && health.deposits.verdict === 'allowed' && (
+              <Notice>Adding liquidity from this page is not switched on yet. These checks will run again before any deposit.</Notice>
+            )}
+            {writes && <DepositOfferBlock writes={writes} offer={offer} view={view} health={health} safety={safety} tokenDecimals={tokenDecimals} openNow={openNow} onActed={onActed} />}
+          </div>
+
+          {/* The venue's own books and the pool's accounts, out of the LP's way: nothing here is the LP's to claim. */}
+          <details data-testid="lp-pool-more" className="pt-1">
+            <summary className="cursor-pointer list-none min-h-[44px] flex items-center text-white font-semibold [overflow-wrap:anywhere]">More about this pool</summary>
+            <div className="space-y-2 pt-2">
+              <Row label="Paired with" value={view.quote.symbol} mono={false} />
+              <Row label="Venue’s share of fees waiting" value={`${quoteText(quoteFees[0]!, view.quote)} and ${tokenText(tokFees[0]!, tokenDecimals, unit)}`} mono={false} />
+              {pool.enableCreatorFee && (
+                <Row label="Creator’s share of fees waiting" value={`${quoteText(quoteFees[1]!, view.quote)} and ${tokenText(tokFees[1]!, tokenDecimals, unit)}`} mono={false} />
+              )}
+              <Notice>Fees stay in the pool, so each share is worth a little more after every trade. There is nothing to claim.</Notice>
+              <Row label="Pool shares issued" value={tokenText(pool.lpSupply, pool.lpMintDecimals, 'shares')} mono={false} />
+              <Row label="Opened by" value={pool.poolCreator} />
+              <AddressRow label="Token" value={view.tokenMint} explorerUrl={explorer(view.tokenMint)} />
+              <p>{chainClockText(chainNow)}</p>
+              {readers?.poolPast && <PoolPastBlock view={view} readers={readers} />}
+            </div>
+          </details>
+        </div>
+      </ArtCard>
     </li>
+  );
+}
+
+/**
+ * The pool's last 20 transactions, on a press (poolPast.ts: one signatures page, one batch,
+ * the budget gate). Never on page load. After a read the sentence stands with its own stamp
+ * and Read again; a press while a read runs does nothing more. The reader is called through
+ * its object, so a reader that needs `this` keeps it.
+ */
+function PoolPastBlock({ view, readers }: { view: PoolView; readers: Pick<LpReaders, 'poolPast'> }) {
+  const [last, setLast] = useState<{ read: PoolPastRead; at: number } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const live = useRef(true);
+  useEffect(() => {
+    live.current = true;
+    return () => {
+      live.current = false;
+    };
+  }, []);
+  const read = async () => {
+    if (busy || !readers.poolPast) return;
+    setBusy(true);
+    let got: PoolPastRead;
+    try {
+      got = await readers.poolPast(view);
+    } catch (e) {
+      got = { kind: 'unread', detail: detailOf(e) };
+    }
+    if (!live.current) return;
+    setLast({ read: got, at: Date.now() });
+    setBusy(false);
+  };
+  return (
+    <div data-testid="lp-pool-past" className="space-y-2">
+      {last === null ? (
+        <button type="button" className="btn-secondary min-h-[44px] px-4 text-[13px] aria-disabled:opacity-60" aria-disabled={busy} onClick={() => void read()}>
+          {POOL_PAST_BUTTON}
+        </button>
+      ) : (
+        <>
+          <p data-testid="lp-pool-past-text" data-kind={last.read.kind}>{poolPastText(last.read, view)}</p>
+          <ReadAt at={last.at} onReadAgain={() => void read()} busy={busy} />
+        </>
+      )}
+      {busy && (
+        <p role="status" className={HINT} data-text-role="hint">
+          Reading this pool’s last 20 transactions…
+        </p>
+      )}
+    </div>
   );
 }
 
@@ -425,13 +535,17 @@ export function UnreadPoolCard({
   // A form was asked for and this pool, unread, cannot open one.
   const why = shownFor.n > 0 && shownFor.as === 'add';
   return (
-    <li ref={cardRef} className={`${CARD} scroll-mt-[4.5rem]`} style={CARD_STYLE} data-testid="lp-pool" data-pool={entry.address} data-deposits="unchecked" data-swaps="unread">
-      <h3 ref={headingRef} tabIndex={-1} aria-describedby={why ? whyId : undefined} className="text-white font-semibold text-[13px] mb-1 outline-none" style={SHADOW}>Pool not read</h3>
-      {why && <WishWhy id={whyId} why="this pool could not be read just now. Press Add more liquidity on your position again in a minute." />}
-      <div className="text-white/60 text-[11px] leading-relaxed space-y-2">
-        <Row label="Pool address" value={entry.address} />
-        <Notice tone="warn">We could not read this pool ({entry.detail}). Nothing about it is checked.</Notice>
-      </div>
+    <li ref={cardRef} className="scroll-mt-[4.5rem]" data-testid="lp-pool" data-pool={entry.address} data-deposits="unchecked" data-swaps="unread">
+      <ArtCard pageId="solana-lp" idx={4} scrim={LP_SCRIM}>
+        <h3 ref={headingRef} tabIndex={-1} aria-describedby={why ? whyId : undefined} className={HEADING_CLS} data-text-role="head" style={SHADOW}>
+          Pool not read
+        </h3>
+        {why && <WishWhy id={whyId} why="this pool could not be read just now. Press Add more liquidity on your position again in a minute." />}
+        <div className={`${BODY} leading-relaxed space-y-2`} data-text-role="body">
+          <AddressRow label="Pool address" value={entry.address} />
+          <Notice tone="warn">We could not read this pool ({entry.detail}). Nothing about it is checked.</Notice>
+        </div>
+      </ArtCard>
     </li>
   );
 }
