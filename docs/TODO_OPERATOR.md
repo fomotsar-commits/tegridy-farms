@@ -139,6 +139,37 @@ all); the BAYLA/USDC pool has had none.
 - 📌 The venue's cut waiting in the BAYLA/SOL pool is under 0.001 SOL. Collecting it takes a
   two-signature proposal that costs more than it brings in. Leave it.
 
+### Ranges, one-coin adds and VWAP (researched 2026-10-10, outside facts checked at their sources)
+
+Today's pool program cannot do price ranges or true one-sided positions: it is constant product
+by design. Only one proven range program may lawfully be copied, Raydium's CLMM (Apache-2.0).
+Orca's licence forbids it since 2025-02-27, Meteora's range program is not published. All BAYLA
+markets together trade under $2,000 a day, so none of this creates volume.
+
+- ⬜ **O-1009-15: "add with one coin" on our own pools.** Website only, about a week: the site
+  swaps about half by the best-price rule, then adds both. Two calls are yours: always the
+  cheapest route for the person (recommended), and whether to waive the site's 0.5% on the
+  swapped half.
+- ⬜ **O-1009-16: a real range pool for BAYLA, yes or no.** The no-build test: open and seed one
+  BAYLA/SOL pool on Raydium's own range program and link to Raydium's screens. Raydium keeps 16%
+  of the fees and holds the keys, and that liquidity is not on our venue. A copy of that program
+  under our own name comes only after that test shows demand, with money for an outside review.
+- ⬜ **O-1009-17: which VWAP did you mean?** A number on the page (one small pull request, no
+  cost, from data the swap page already downloads), an order that spreads a trade over time
+  (only through Jupiter's newer, custodial system; our own robot or escrow program: no), or a
+  feed for others (needs our own chain indexing).
+- ⬜ **O-1009-18: a free Jupiter developer key.** The keyless Jupiter address the whole Solana side
+  uses is being retired, with no date given. A session cannot sign up for the key.
+- ⬜ **O-1009-19: one real small order from each Jupiter tab.** A $10 BAYLA limit order, watched to
+  a fill. Jupiter is winding down the older order system both tabs use.
+- ⬜ **C-1009-11: the DCA tab offers a BAYLA order that cannot work** (the program rejects
+  Token-2022 tokens, buying and selling). Say so before signing, and fix the minimum it quotes.
+- ⬜ **C-1009-12: our pool program is about three Raydium releases behind.** It still has a
+  four-token bypass list Raydium deleted in September. Assess it read-only; do not touch the
+  ready upgrade pack.
+- ⬜ **C-1009-13: small liquidity-provider tools, no program needed.** After the earnings view: a
+  "what if the price moves" preview before adding, and add by percent of wallet.
+
 ### Parked calls, none urgent
 
 Where the torches sit on rooms whose pool pays nothing (the island's fourth PR). When the card
