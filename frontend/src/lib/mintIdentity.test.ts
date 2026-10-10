@@ -70,13 +70,13 @@ describe('the one list of tokens', () => {
     }
   });
 
-  it('carries the names and symbols the owner ruled on 2026-10-06, word for word', () => {
+  it('carries the names the owner ruled on 2026-10-08 (the bungalow, then what the token does) and the symbols of 2026-10-06, word for word', () => {
     // Written out here on purpose. Every other check compares the files with the list, so
     // a name changed in the list and regenerated would pass them all.
     expect(MINT_TOKENS.map((t) => [t.mint, t.name, t.symbol])).toEqual([
-      ['BQZth5DhHZT9H1AxZonoLAwGHknWo4LebQBxjKWtzY8e', 'BAYLA/SOL Pool Share', 'BAYLA-SOL'],
-      ['3D3EKJxfePDQ1N8YtNwg8W6eSL4mjVpbYf57pnqgcAQx', 'BAYLA/USDC Pool Share', 'BAYLA-USDC'],
-      ['g8W2HWmS1dKJwHHKDkR1k7SmtTTx7ic97z1ssAZ8NwN', 'Staked BAYLA', 'sBAYLA'],
+      ['BQZth5DhHZT9H1AxZonoLAwGHknWo4LebQBxjKWtzY8e', 'Bayla LP SOL', 'BAYLA-SOL'],
+      ['3D3EKJxfePDQ1N8YtNwg8W6eSL4mjVpbYf57pnqgcAQx', 'Bayla LP USDC', 'BAYLA-USDC'],
+      ['g8W2HWmS1dKJwHHKDkR1k7SmtTTx7ic97z1ssAZ8NwN', 'Bayla Staking', 'sBAYLA'],
     ]);
     // The default is what the pool program writes on chain for every pool, so these two
     // must stay the words fixed in that program.

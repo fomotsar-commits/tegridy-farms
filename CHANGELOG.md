@@ -6,13 +6,20 @@ page keeps the newest thirty days.
 
 ## [Unreleased]
 
-### 2026-10-08
+### 2026-10-10
 
 - Shared heat links: a memetics.finance/read link for a wallet the island reads now shows the island's painted card of that wallet when it is posted. A cold wallet, or one the island could not be asked about, keeps the venue's card.
 - Read Heat: each room shows your place in it as the island counts it, for example "12th of 498 measured", on the room's own read and under each room on the card. A wallet the island does not rank shows no place. "Post my number" now starts with the degrees and carries the place in your deepest room.
-- Solana swap: the page opens on SOL to $BAYLA, and inside a Solana bungalow on SOL to that bungalow's coin. A link that names a coin still opens on that coin. $BAYLA keeps its Unverified mark and its tick box.
+- Solana swap: the page opens on SOL to $BAYLA, and inside a Solana bungalow on SOL to that bungalow's coin. A link that names a coin still opens on that coin. $BAYLA is marked as this venue's own coin and asks for no tick box, as it has since 2026-10-08.
 - Home: the chain pills read Solana, Ethereum, Base.
 - After a visit to the TOWELI bungalow, the venue's own pages keep the venue's footer and words, and Towelie stays on the farm's pages. The same goes for every bungalow's footer card. The art and the Swap link still follow the bungalow you opened last, and so does the dashboard.
+
+### 2026-10-08
+
+- Token names in wallets: the files a wallet reads now name our tokens by the bungalow and then by what the token does: Bayla Staking for the lighthouse staking receipt, Bayla LP SOL and Bayla LP USDC for the two pool shares. The short tickers are unchanged.
+- Solana swap: fewer steps and less to read. A swap in one of our own pools now goes from Buy straight to your wallet when it pays at least the minimum the form showed and nothing needs reading first; the review screen shows only when something needs a second look. When it lands, one line says so and the form is ready again. The risk tick-box is gone for SOL, USDC and our BAYLA, and for any other unverified token it is asked once per token on your device. Slippage and speed sit on one line, the details fold away, a large price impact is still said in view, the route is one short sentence, our BAYLA is first in the token list and marked as ours, every token row shows part of its address, and the button says Sell when you are selling.
+- Solana LP: two things that used to switch Add liquidity or Open a pool off are now warnings you read before you sign. A pool priced in a coin Jupiter has no price for right now (in practice only BAYLA) can still be opened and added to, and, once launching is switched on, a launch pool Jupiter has no price for takes deposits in its first 10 minutes of trading. A price that could not be read still switches both off. A token the site will not open or add to pools for is no longer called "blocked": the page says what the site does not do, and why.
+- Solana LP: when Jupiter has no price for a token that has a launch pool, the token's other pools are checked against the launch pool's price, once the launch pool has passed its own price check (it has never been traded, or it has traded for at least 10 minutes and is within 3% of its own half-hour average). A pool opened at another price then shows the gap and what it could cost you, and the Open a new pool card no longer offers Add liquidity for it. A pool paired with a coin Jupiter has no price for (in practice only BAYLA) is not compared. No token has a launch pool yet (launching is switched off), so nothing on the site reads differently today.
 
 ### 2026-10-07
 

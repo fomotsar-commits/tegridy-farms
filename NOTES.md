@@ -15,6 +15,211 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-10-08: a test rewritten for a new rule can stop holding the old rule it also held
+
+**Believed:** a pull request that changes one assertion in an existing test (a pool's price
+state from "no market" to "disagrees", because the scenario now has something to compare
+with) leaves that test proving what it proved before.
+
+**Measured:** that test was the only one holding a second rule: when Add liquidity is pressed
+without naming a pool, the page passes over a pool whose price was compared with nothing if
+another pool takes the deposit with no price warning. Once the scenario changed, no test
+reached that branch. A reviewer took the rule out of the page (one line) and 4,006 of 4,006
+tests passed on the result; the same break on trunk's code failed trunk's own copy of the
+test (1 failed, 50 passed). What found it was running trunk's copy of each changed test file
+against trunk's code, and against the result, with the rule removed.
+
+**Do:** when a change edits an existing assertion instead of adding a test, ask what else the
+old scenario was exercising. Before rewriting it, break each rule the old test touches and
+note which ones only it catches; after rewriting, break them again on the new code. A rule
+that nothing catches any more needs its own test for the case that is left.
+
+## 2026-10-08: keeping both sides of a conflict drops the closing lines the two blocks share
+
+**Believed:** when both sides add a block at the same place, the resolution is mechanical:
+ours, a blank line, theirs.
+
+**Measured:** git leaves lines that both sides share outside the markers. Two `describe`
+blocks added at the same spot both ended with the same two closing lines, so those lines sat
+after the closing marker, once. Ours-then-theirs left the first block without its closers.
+The type-check reported `'}' expected` at the last line of the file, about 600 lines below
+the join, and the test runner reported the whole file as failed, not one test. The same
+script had resolved three other keep-both conflicts that week correctly, because their
+blocks ended differently.
+
+**Do:** after any keep-both, parse the file (the test project's type-check is enough) and
+compare the number of tests per joined file with the two sides (here 309 in five files,
+against 279 on trunk and 288 on the branch). "No conflict markers left" says nothing about
+either.
+
+## 2026-10-08: tests for the new branches do not show that nothing else moved; the old rule run beside the new one does
+
+**Believed:** a change to a rule that decides whether money may move was safe once every
+new branch had a test and every way of breaking a new branch failed one (53 tests added,
+52 mutations, 52 caught).
+
+**Measured:** that shows the new branches are held. It says nothing about the cases the
+change was not meant to touch. A reviewer put the four rule files from the commit before
+beside the new ones and ran both over every combination of their inputs: 5,391,360 cases
+of the deposit check and 8,640 of the opening check, from throwaway tests. Outside the two
+new answers the results were identical. Inside them, each new answer came from exactly one
+old state, and the verdict moved one way only, from "not checked" to "allowed", and only
+when no other reason stood. No refusal was lifted. That is the sentence the owner needed,
+and no number of hand-picked cases could have said it.
+
+**Do:** when a rule is a pure function of a handful of inputs with a few states each, keep
+the old file (`git show <before>:path > old.ts` in a throwaway folder), list every state of
+every input, run old and new over the whole grid and print only the differences. Then say
+what the differences are, in one sentence. Here the grid was one throwaway test file.
+
+## 2026-10-08: a state the live site cannot be in can still be looked at on the live build, one changed answer at a time
+
+**Believed:** the new screen for "Jupiter has no price for this pairing coin" could not be
+checked on the live site, because Jupiter does price the coin.
+
+**Measured:** one upstream answer was replaced on its way into the page: in Playwright, a
+route on the price proxy's quote path answered the two requests for that coin (and no
+other) with the proxy's own "no route" reply, a 404 with `{"error":"No route","code":
+"NO_ROUTE"}`. Everything else was the live site's own. The live build then showed the three
+new sentences, no "Match the market price" button and no sideways scroll at 320 and 390
+wide, with no signing request and no send. Two things the run taught: the walk's own
+counter of failed API calls read 1, and that one was the replaced answer; and the Review
+button was off because no wallet was connected in that step, so "Review is on" was seen
+in unit tests only, not there.
+
+**Do:** replace the upstream's answer with the upstream's own answer for that case, never
+an invented one; replace as few requests as will do it; write in the same breath that it
+was a simulation and what was replaced; and read your own error counters knowing your
+replacement is in them.
+
+## 2026-10-08: a screen that is taken out was doing jobs nobody listed
+
+**Believed:** the "Review your swap" screen was only a second look, so a swap whose test run
+passed could skip it and go from Buy to the wallet with every check still made.
+
+**Measured:** an independent review of the first cut found four things only that screen did.
+It was where the trader saw the figures of the transaction itself (the form's quote can be
+minutes old, and the swap is built on a fresh one). It was the only place that said a sale
+for SOL would be paid as wrapped SOL into an account the wallet already had. It was the only
+place that showed the one-time deposit for a new token account. And its card was what held a
+refusal of what a wallet handed back on screen long enough to read. All checks still ran; the
+trader simply no longer saw their results.
+
+**Do:** before removing a screen, write down every line it can show and every state it can
+hold, and give each one a new home or a reason to stop. "The checks still run" is about the
+code. What the person was shown is a separate list.
+
+## 2026-10-08: a mutation run that is cut short leaves its mutant in the source
+
+**Believed:** a runner that mutates one line, runs the tests and restores the file in
+`finally` always leaves the tree clean.
+
+**Measured:** a run of sixteen was ended after the fourteenth. The page kept
+`if ((false as boolean) && deposit > 0n)`. `finally` does not run when the process is killed,
+and the background job still reported exit code 0, because the last command in its chain was
+a `grep`. The missing lines in its output and a search of the source were the only signs.
+
+**Do:** after every mutation run, prove the restore: every "from" string is back in its file
+and no "to" string is left. Do not build, commit or start a review while a run is going:
+each of them reads the mutant.
+
+## 2026-10-08: on localhost one swap route works and the other says "Swap failed", and neither is the site
+
+**Believed:** a wallet stand-in that works on the live site works the same on a local build.
+
+**Measured:** the wallet-standard adapter maps an RPC address that contains `localhost` to
+the localnet chain. A stand-in wallet whose account lists only mainnet is refused before it
+is asked, with an error that has no message, and the page shows "Swap failed" with nothing
+under it. The swap through our own pool signs through another call and was not affected, so
+one route worked and the other looked broken. On the live site the address maps to mainnet.
+
+**Do:** a stand-in wallet for a local walk lists `solana:localnet` beside `solana:mainnet`.
+An error with no message from a wallet call is the adapter refusing, not the wallet.
+
+## 2026-10-08: a fold keeps its words in the page and takes its warnings out of sight
+
+**Believed:** moving rows under a "Details" line only saves space.
+
+**Measured:** price impact was one of the rows. On a route with no review step it was the
+only place a 35% move was said, and folded shut it was said nowhere. The em dash guard and
+the unit tests did not notice, because a closed `details` element keeps its text in the
+page: they count and find it whether or not anyone can see it.
+
+**Do:** when rows are folded, go through each and ask whether any value of it is a warning.
+Draw that case outside the fold. A test that finds text in a closed fold proves the text
+exists, not that it is shown: assert it is not inside the `details`.
+
+## 2026-10-06: a lookup that derives one address answers about that address, not about "our pool"
+
+**Believed:** the Solana swap page compared "our pool for this pair" with Jupiter, so a line
+reading "no pool of ours" meant there was none.
+
+**Measured:** read on chain on 2026-10-06, the venue's BAYLA and SOL pool
+`ErvzV1NMZmcfAqZtGH4AQhYAjn77nJEworKK1mYPz5w4` sits at the standard address for fee tier 1
+(settings account `CapqvAA9HvERTwzmE26xrtFhMaNcaXXoQUADpBWqWjKy`, 1% a trade). The page
+derived the tier 0 address only, found no account there, and reported no pool. Every pool a
+person can open from `/pools` is on tier 1, so the lookup could not find any of them. Where
+it did find one it priced it with tier 0's fee whatever tier the pool was on.
+
+**Do:** a derived address that holds nothing proves "nothing at this address". Before a line
+says "none", list every place a real one can be (each fee tier's standard address, and the
+index of pools at their own addresses) and quote each with its own settings account.
+
+## 2026-10-06: a pool can be the better route one way and the worse route the other
+
+**Believed:** "our pool is more efficient than Jupiter" is a fact about the pool, so one
+direction is enough to check a routing change.
+
+**Measured:** on 2026-10-06 (mainnet reserves from a public RPC, Jupiter's quote API with no
+site fee) selling 1,000, 10,000 and 100,000 BAYLA for SOL paid 5.83%, 5.67% and 4.09% more in
+our pool than through Jupiter. Buying BAYLA with 0.01 to 1 SOL paid 5.5% to 8.8% more through
+Jupiter. Same pool, same minute. A walk of the buy alone shows "Routed to Jupiter" before
+and after the fix and looks like nothing changed.
+
+**Do:** test and walk a routing change in both directions, and name the direction when
+reporting which route won.
+
+## 2026-10-06: the other route's quote is not what the other route would pay
+
+**Believed:** holding our pool to Jupiter's quote holds it to what Jupiter would pay.
+
+**Measured:** the quote on screen has the site fee taken off. On a route where that fee
+cannot be taken (Jupiter's error 6014, as on BAYLA's route) the site sends Jupiter's
+transaction with no fee, which pays the fee's worth more than the quote. A pool that beat the
+quote by less than the fee would have taken a trade Jupiter was about to pay more for. An
+independent review found it; no test did, because every test used the quote as the bar.
+
+**Do:** compare against what the transaction that would really be sent pays. Where two
+builds are possible, find out which one it is the way the send path does (build it and
+test-run it) before deciding the route.
+
+## 2026-10-06: a sentence that says the site cannot do something goes false the day it can
+
+**Believed:** making the swap send trades to our pools was a change to the swap page.
+
+**Measured:** a search of the copy for "Jupiter" found the pool disclosure ("Jupiter does
+not send trades to our pools", with the swap on this site named as going through Jupiter),
+the routing card on `/pools`, five unit tests and two local-validator specs that pinned those
+sentences word for word. Left alone they stay green and the page tells a pool owner
+something that is no longer true.
+
+**Do:** when a change gives the site a new ability, search the copy and the tests for
+sentences that deny it. A test that pins a denial passes on the stale sentence.
+
+## 2026-10-06: "You cancelled in your wallet" in the local-validator suite can be the stand-in wallet refusing a shape it was never taught
+
+**Believed:** a new kind of transaction that builds, test-runs and reviews correctly will be
+signed by the suite's wallet, so "cancelled" means the app or the test pressed the wrong thing.
+
+**Measured:** the first on-chain run of a swap in a pool at its own tier ended "You
+cancelled in your wallet". The stand-in wallet (`e2e-solana/fixtures/walletGuard.ts`) decodes
+every transaction on its own and refuses any shape it does not know; the page hears that
+refusal as a person pressing Reject. It knew a swap in a launch pool only.
+
+**Do:** a new transaction kind brings its rule in the wallet guard and harness tests (one
+that signs, several that refuse) in the same change. On "cancelled", read the guard's reason
+before the app.
+
 ## 2026-10-06: a press area made of padding carries the focus ring with it
 
 **Believed:** a finger-sized press area built as padding that an equal negative margin takes

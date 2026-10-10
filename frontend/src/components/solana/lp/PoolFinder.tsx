@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, type Ref } from 'react';
 import { PublicKey } from '@solana/web3.js';
 import { parseMintInput } from '../../../lib/solana/lp/mintInput';
-import { assessPool, type PoolHealth } from '../../../lib/solana/lp/poolHealth';
+import { assessPools, type PoolHealth } from '../../../lib/solana/lp/poolHealth';
 import type { TokenSafety } from '../../../lib/solana/lp/tokenSafety';
 import type { PoolSearchRead } from '../../../lib/solana/lp/poolFinder';
 import type { OutsidePrice } from '../../../lib/solana/lp/outsidePrice';
@@ -491,7 +491,7 @@ function announce(s: Extract<SearchState, { status: 'done' }>): string {
   if (index.kind === 'unread') parts.push('Our pool index could not be read, so there may be other pools.');
   else if (index.truncated) parts.push('Our pool index returned its maximum, so there may be more pools.');
   if (s.safety.kind !== 'read') parts.push('The token could not be read.');
-  else if (s.safety.verdict === 'blocked') parts.push('This token is blocked on this site.');
+  else if (s.safety.verdict === 'blocked') parts.push('This site does not open or add to pools for this token.');
   return parts.join(' ');
 }
 
@@ -510,16 +510,13 @@ function SearchResults({
   const { safety, pools, outside, coins, outsideAt, mint } = state;
   const writes = useLpWrites();
   const decimals = safety.kind === 'read' ? safety.facts?.decimals ?? null : null;
-  // One check per pool, shared by its card and by the "Open a new pool" card.
+  // One check per pool, shared by its card and by the "Open a new pool" card. All of them
+  // together (`assessPools`): the launch pool this search read is the other pools'
+  // reference when Jupiter has no route.
   const healths = useMemo(() => {
-    const m = new Map<string, PoolHealth>();
-    if (pools.kind !== 'ok') return m;
-    for (const p of pools.search.pools) {
-      if (p.kind === 'pool') {
-        m.set(p.view.address, assessPool({ view: p.view, tokenDecimals: decimals, chainNow: pools.search.chainNow, outside, coinOutside: coins[p.view.quote.mint] ?? null, safety }));
-      }
-    }
-    return m;
+    if (pools.kind !== 'ok') return new Map<string, PoolHealth>();
+    const views = pools.search.pools.flatMap((p) => (p.kind === 'pool' ? [p.view] : []));
+    return assessPools({ views, tokenDecimals: decimals, chainNow: pools.search.chainNow, outside, coins, safety });
   }, [pools, decimals, outside, coins, safety]);
   // Where a wish ends. Adding goes to the first pool in the list (the deepest of its coin)
   // that offers it with no price warning; with none, and for creating, it goes to the

@@ -20,16 +20,17 @@ export interface SolanaRouteLineProps {
 }
 
 export function SolanaRouteLine({ route, ownUnavailable = null }: SolanaRouteLineProps) {
-  const { venue, own, decision, aggregatorLabel } = route;
+  const { venue, own, decision, aggregatorLabel, asking } = route;
   if (!venue) return null;
 
-  // Before there is an amount, still say what the router will do.
+  // Before there is an amount there is no route to name. With the venue live the page's
+  // own subtitle says the rule; a venue that could not be read, or is not there, is said.
   if (!decision?.chosen) {
+    // One standing line while the quote is on its way, so the form does not jump on every keystroke.
+    if (venue.kind === 'live') return asking ? <RouteShell>Comparing our pools with {aggregatorLabel}…</RouteShell> : null;
     return (
       <RouteShell>
-        {venue.kind === 'live'
-          ? <>Quotes are taken from our own pools and {aggregatorLabel}, whichever pays more.</>
-          : venue.kind === 'unreadable'
+        {venue.kind === 'unreadable'
             ? <>Quoting {aggregatorLabel}. Our own pools could not be checked just now.</>
             : <>
                 Quoting {aggregatorLabel}. Our own pools are{' '}
@@ -40,7 +41,6 @@ export function SolanaRouteLine({ route, ownUnavailable = null }: SolanaRouteLin
   }
 
   const won = decision.chosen.venue === 'own-pool';
-  const ours = decision.candidates.filter((c) => c.venue === 'own-pool').length;
 
   let reason: string = decision.reason;
   if (won && ownUnavailable) {
@@ -53,11 +53,11 @@ export function SolanaRouteLine({ route, ownUnavailable = null }: SolanaRouteLin
     // The aggregator is the only candidate. "No pool" is said only when that was FOUND:
     // a read in flight, a read that failed, a pool that cannot be traded and a pair
     // never looked for each say their own.
-    const to = `Routed to ${decision.chosen.label}.`;
-    if (own === 'pending') reason = `${to} Checking our own pools…`;
-    else if (own === 'error') reason = `${to} Our own pool could not be quoted this time.`;
-    else if (own === 'unquotable') reason = `${to} Our own pool for this pair cannot be traded right now.`;
-    else if (own === 'not-searched') reason = `${to} Our own pools pair a token with ${QUOTE_COINS_OR}, so there is none to check for this pair.`;
+    const to = `${decision.chosen.label}.`;
+    if (own === 'pending') reason = `${to} Checking our pools…`;
+    else if (own === 'error') reason = `${to} Our pool could not be quoted this time.`;
+    else if (own === 'unquotable') reason = `${to} Our pool for this pair cannot be traded right now.`;
+    else if (own === 'not-searched') reason = `${to} Our pools pair a token with ${QUOTE_COINS_OR}, so there is none for this pair.`;
   }
 
   return (
@@ -68,11 +68,6 @@ export function SolanaRouteLine({ route, ownUnavailable = null }: SolanaRouteLin
           {' '}
           <Link to="/pools" className={LINK}>Why?</Link>
         </>
-      )}
-      {decision.runnerUp && (
-        <span className="text-white/40">
-          {' '}Checked {ours === 1 ? 'our pool' : `${ours} of our pools`} and {aggregatorLabel}.
-        </span>
       )}
     </RouteShell>
   );

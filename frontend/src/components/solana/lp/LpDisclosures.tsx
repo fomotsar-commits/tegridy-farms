@@ -9,6 +9,10 @@ import { LOCKED_SHARES_TEXT, solAbout, solExact } from './panelKit';
 // panel (always visible) and again on the review. No yield, APR or APY: none has been
 // measured, and none is ever shown.
 
+// True of the pool program RUNNING on mainnet, which was built before the source gained
+// create_lp_metadata (the instruction that names pool share tokens). It goes false the day
+// that program is upgraded, so reword it in the same release as the upgrade:
+// src/test/poolProgramCopy.test.ts fails that release until you do, and holds the wording.
 const FORK_LINE =
   "Our pool program is Raydium's, with only its admin keys changed. Those changes have not had their own independent review yet. Put in only what you can afford to lose.";
 const VAULT_LINE =

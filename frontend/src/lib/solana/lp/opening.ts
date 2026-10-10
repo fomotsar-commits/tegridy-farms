@@ -21,11 +21,13 @@ import { TOKEN_2022_NATIVE_MINT, type TokenSafety } from './tokenSafety';
  * only priced in the coins that outrank it).
  * WARNED, and allowed: the price is more than 3% from Jupiter's; Jupiter ANSWERED that it
  * has no route for the token, so there is nothing to compare with and the opener sets the
- * price alone (the pairing coin's own price is then not needed: nothing is compared); the
+ * price alone (the pairing coin's own price is then not needed: nothing is compared);
+ * Jupiter ANSWERED that it has no route for the PAIRING COIN, so there is no market price
+ * in that coin to compare with (owner ruling 2026-10-07; the warning names the coin); the
  * token copies a well-known name, can be frozen, or shows a changing amount in a wallet.
  * UNCHECKED, which never opens and is never a warning: the token, its decimals, Jupiter's
  * price (a failed read is not "no route"), or the pairing coin's own price when a
- * comparison needs it could not be read.
+ * comparison needs it could not be read (not asked for, or a read that FAILED).
  */
 
 // SOL under the Token-2022 program: kept in tokenSafety.ts, so the deposit check refuses it too.
@@ -96,9 +98,15 @@ export function assessOpening(a: {
     } else if (market?.kind === 'no-route') {
       // Jupiter ANSWERED that the token has no market. Nothing is compared, so the pairing
       // coin's own price is not needed here either (`priceInQuote` answers before it looks).
-      price = { state: 'no-market', pool: opening, detail: market.detail };
+      // Or it ANSWERED that the pairing COIN has none (owner ruling 2026-10-07): the token
+      // has a price, but not in this coin, so the warning names the coin. The same ending.
+      price = { state: 'no-market', of: market.of, pool: opening, detail: market.detail };
       warnings.push(
-        'Jupiter has no market price for this token, so there is nothing to compare your opening price with. You are setting the price yourself: if it is off, the first trades take the difference out of what you put in.',
+        `${
+          market.of === 'coin'
+            ? `Jupiter has no price for ${a.quote.symbol} right now, so there is nothing to compare your opening price in ${a.quote.symbol} with.`
+            : 'Jupiter has no market price for this token, so there is nothing to compare your opening price with.'
+        } You are setting the price yourself: if it is off, the first trades take the difference out of what you put in.`,
       );
     } else {
       const detail = market?.detail ?? 'not asked';

@@ -32,7 +32,7 @@ stop and say so — a surprise is information.
 ## 🔴 2026-10-07: token names and pictures (`/mint/`): files first, then the chain
 
 The site serves a name and a picture for the BAYLA/SOL and BAYLA/USDC pool shares and for the
-Staked BAYLA receipt at `https://memetics.finance/mint/<mint address>.json`. A wallet shows them
+Bayla Staking receipt at `https://memetics.finance/mint/<mint address>.json`. A wallet shows them
 only once that link is written on each token. **The files must be live before any link is
 written.** A wallet that follows a link before its file exists gets the app page, and may keep
 that answer.
@@ -50,9 +50,11 @@ that answer.
    `node scripts/streamflow-receipt-name.mjs --broadcast --keypair <key file> --rpc <keyed endpoint>`.
    About 0.00024 SOL. **You should see** `confirmed. signature ...`. If it says `not confirmed`, do
    not send again: run the dry run, which reads what the chain holds now.
-5. **The two pool-share links are written by the Squads vault**, through the pool program's new
-   instruction (a separate change). Nothing on the site side stops the vault writing them early,
-   so steps 1 and 2 come first there too.
+5. **The two pool-share links are written by the pool program's new instruction, which any
+   wallet may call** once the program is upgraded (a separate change; the owner's upgrade pack
+   has the paying wallet send both). The vault only upgrades the program and renames the two
+   records afterwards. Nothing on the site side stops anyone writing a link from the moment the
+   upgrade executes, so steps 1 and 2 come first there too.
 
 **Four things to know afterwards.**
 
@@ -329,7 +331,53 @@ GIT_HOSTING.md, the runbook's four GitLab lines and `OUR_REPOS` in
 
 ## 🟡 2026-09-29: at the next cp-swap upgrade, point its on-chain security.txt at our own domain
 
-### ⬜ O-0929-10: four `security_txt!` fields, changed in the same commit as the upgrade
+### ⬜ O-0929-10: four `security_txt!` fields. In source since 2026-10-06, waiting for the upgrade
+
+**Where it stands (2026-10-06).** The values below are in the source, on the branch that adds
+`create_lp_metadata` (PR #758), and the stale comment is gone. **Nothing on chain has
+changed.** The program on mainnet shows the old text until the Squads vault upgrades it. The
+owner was asked "one upgrade or two" and delegated the call on 2026-10-06. The answer is ONE:
+the same upgrade carries the instruction and this text. Its gates and its order are in
+`solana/tegridy-amm/MAINNET_RUNBOOK.md`, section 4b. Tick this box when the explorer shows the
+new values, not before.
+
+**Where it stands (2026-10-08).** The source is on `mvp-launch` (pull request #758, merged at
+07:40 UTC). **Nothing on chain has changed.** That day the whole upgrade was rehearsed three
+times on a private copy of mainnet on this computer: making the program account larger,
+uploading the new program, both members approving through the local page, the two name
+records, the rename, and a roll-back. It has never been run on devnet, and never with your
+real wallets.
+
+Your command sheet is a folder outside the repo, called the pack:
+`C:\Users\jimbo\solana-launch-release-2026-09-26\pool-program-upgrade-2026-10`. **Do not start
+from it yet.** A second operator walked it cold on 2026-10-08 and found fifteen things to
+change. All fifteen were changed in the pack the same day. Three things have to be true
+first, and the first one now is:
+
+1. You have been told the pack's fixes are in and it has been walked again. **True since
+   2026-10-08.** Someone who wrote none of the fixes walked it again that day and found it
+   ready. The eight smaller things that walk found are fixed too, and the pack writes the
+   names you ruled that day, "Bayla LP SOL" and "Bayla LP USDC".
+2. The website wording that goes false on upgrade day is ready to ship with the upgrade
+   (runbook 4b, part C).
+3. O-0929-12 below is decided.
+
+The paying wallet needs about 3.854 SOL at its peak. About 3.68 SOL of that comes back the
+moment the upgrade executes, and about 0.21 SOL is spent for good. No wallet of ours held
+that much on 2026-10-08.
+
+**Do, when all three are true:** open the pack's first page.
+
+```powershell
+notepad "C:\Users\jimbo\solana-launch-release-2026-09-26\pool-program-upgrade-2026-10\START-HERE.md"
+```
+
+**You should see** Notepad open a page whose first line begins `# Start here`. Follow that
+page and nothing else. Never approve or execute the upgrade in the Squads app: only the
+pack's local page checks that the uploaded file is the reviewed one.
+
+What was rehearsed and what was not, every cost, and what to do when a step does not go as
+written: `solana/tegridy-amm/MAINNET_RUNBOOK.md`, section 4b.
 
 **What is wrong.** cp-swap has been live on mainnet since 2026-09-29
 (`EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT`). Explorers show its on-chain security.txt,
@@ -338,13 +386,16 @@ and no link in it does its job. Measured 2026-09-30: `policy` opens `SECURITY.md
 because `main` has no `solana/tegridy-amm`. `contacts` points at `memetic.fun/trust`, which is
 now another project's 404. And all three depend on one git host, which went dark from
 2026-09-24 to 2026-09-29. Only a program upgrade can change them. Do not upgrade for this alone.
+Read again 2026-10-06: GitHub no longer has a `main` branch, so `policy` is a `404` too. All
+three links in the live program's text now fail.
 
-**Do, in the commit that builds the next cp-swap upgrade:** in
-`solana/tegridy-amm/programs/cp-swap/src/lib.rs`, set the macro to exactly these values. The
-email is the `Contact:` in `frontend/public/.well-known/security.txt` on the day you build
-(today `fomotsar@gmail.com`; if they differ, use the file's). Then drop the stale "add a
-dedicated security disclosure email here" comment inside the macro, because the email is now
-there:
+**Done in source on 2026-10-06:** in `solana/tegridy-amm/programs/cp-swap/src/lib.rs`, the
+macro is set to exactly these values. The email is the `Contact:` in
+`frontend/public/.well-known/security.txt`, read on the day of the build
+(`fomotsar@gmail.com`). If that file's contact changes before the upgrade is built, the macro
+must follow it, and that is a new binary: rebuild, re-pin and re-run everything in runbook 4b.
+The stale "add a dedicated security disclosure email here" comment inside the macro is gone,
+because the email is now there:
 
 ```rust
 solana_security_txt::security_txt! {
@@ -363,15 +414,31 @@ solana_security_txt::security_txt! {
   that path). `/source/...` is a redirect in `frontend/vercel.json` to whichever git host holds
   the code, so a future host move is a `vercel.json` edit, never another program upgrade. Never
   put a git-host URL in a program binary again.
-- The edit changes cp-swap's diff against upstream Raydium, so move the diff-guard's
-  `EXPECTED_DELTA_SHA256` in the same commit. Start from the value on the deployed branch
-  (`ship/solana-launch-on`: `5c737ac7…`), not trunk's.
+- The edit changes cp-swap's diff against upstream Raydium, so the diff-guard's
+  `EXPECTED_DELTA_SHA256` moved in the same commit, from `2bbd1e55…` to `5d7baf26…`. The
+  pin's history: `5c737ac7…` is the delta of the binary on mainnet (the deployed branch,
+  `ship/solana-launch-on`). `c18d4d63…` and then `2bbd1e55…` came on 2026-10-06 with
+  `create_lp_metadata`, the instruction that names a pool's lp token. `5d7baf26…` adds this
+  text: eight changed lines, four of them these values and four of them comments.
+- These strings are in the binary, so the build that carries them (`99a9e73d…`, 724,688
+  bytes) is a different file from the build made earlier that day with the instruction alone
+  (`7648994d…`, 724,672 bytes). Runbook 4b has the full hash and what the upgrade costs.
+  Never deploy the earlier build: it still carries the dead links.
 
 **You should see**, before the upgrade:
 `curl -sI https://memetics.finance/source/solana/tegridy-amm/SECURITY.md` answers `307`, and
 its `location` opens that file on the git host. Check the file itself opens, not a `404` page
-or the repo root: GitLab answers a path it does not have with the repo root. After the
-upgrade, the explorer's security tab for the program shows the four new values.
+or the repo root: GitLab answers a path it does not have with the repo root. The same for
+`https://memetics.finance/source/solana/tegridy-amm`, which must open the folder. And
+`https://memetics.finance/.well-known/security.txt` must be the text file, with the same
+`Contact:` email as the macro. Read on 2026-10-06 (04:53 UTC on the 7th): all three did. Both
+`/source` links answered `307` and opened the real file and the real folder on GitHub's
+`mvp-launch`, and the text file was the committed one, byte for byte. The folder link takes
+one more hop: our redirect sends it to the host's `/blob/` address, and the host forwards a
+folder from there to `/tree/`. GitHub does, and so did the GitLab standby when read the same
+day. A third host may not, so test the folder link itself after any host move. Check again
+on the day.
+After the upgrade, the explorer's security tab for the program shows the four new values.
 
 ### ⬜ O-0929-12: decide whether the two new Solana programs are in the root security scope
 
@@ -381,6 +448,11 @@ and tegridy-launch `64WBTeNcrSHfmBpiqymyifW6FUNNLvJcuiqF9rXmz4q2`. Their own pol
 `solana/tegridy-amm/SECURITY.md`, takes reports at the same email. Decide, then either add them
 to the root list and to the "In scope" block of `frontend/public/.well-known/security.txt`, or
 say in both that they are out of scope.
+
+**Read 2026-10-08: still undecided, and it now has a deadline.** The pool program's upgrade
+(O-0929-10 above) puts a link to `https://memetics.finance/.well-known/security.txt` on chain.
+That file names no Solana program today, and the root `SECURITY.md` says the decision has not
+been made. Decide before the upgrade is executed (runbook 4b, gate A10).
 
 ---
 
@@ -1407,7 +1479,7 @@ in this order. Detail and the traps are in `SOLANA_LP_VENUE_2026_08_29.md` §3.
    BUILD time, so setting it in Vercel does nothing to the site until a new build ships.
 
 Optional but cheap, and it protects the whole thing: **arm branch protection on `mvp-launch`.**
-`diff-guard` — which proves the AMM is still verbatim Raydium — has **zero required checks**, so it
+`diff-guard`, which proves the AMM differs from Raydium only by the pinned delta, has **zero required checks**, so it
 is advisory today. Unenforced, it is a comment.
 
 ### ⬜ REMAINING — an agent can do these alone, AFTER the deploy above
