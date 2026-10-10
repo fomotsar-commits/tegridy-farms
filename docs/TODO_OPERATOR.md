@@ -85,9 +85,9 @@ merged or changed by the sweep. Where an older section below disagrees, this one
 ### One word from you, then a session does it (every merge is a production deploy)
 
 2026-10-10: M-1009-1 to M-1009-5 are built into three trains, each waiting for your word:
-#784 (housekeeping), #792 (fixes, with #784 inside it) and the repairs train (branch
-`train/2026-10-10-repairs-and-small`, with both inside it). Merging the last one alone brings
-all three. Use "Create a merge commit" each time.
+#784 (housekeeping), #792 (fixes, with #784 inside it) and #796 (repairs and small fixes, with
+both inside it). Merging the last one alone brings all three. Use "Create a merge commit" each
+time.
 
 - 🟡 **M-1009-1:** #778, #779 and #780. Small and green. #778 and #779 clash in NOTES.md only.
   Carried by train #784.
@@ -102,7 +102,7 @@ all three. Use "Create a merge commit" each time.
   #732 is carried by train #792, the notes by #784.
 - 🟡 **M-1009-5: phone and tablet fixes.** Quick after a refresh: #738, #735, #699, #740 (keep
   trunk's Copy link), #741. After their own repairs: #751, #723, #743. #746 after #738.
-  Carried by train #792: #738, #735, #699, #740, #746. By #784: #741. By the repairs train:
+  Carried by train #792: #738, #735, #699, #740, #746. By #784: #741. By train #796:
   #751, #723 and #743, each repaired.
 - ⬜ **M-1009-6: close** #721, #639 and #701. Close #737 and have its launch-pool deposit check
   rebuilt small (warn, not refuse). #660 and #658 stay parked: Streamflow pins web3.js 1.98.4.
@@ -116,13 +116,13 @@ all three. Use "Create a merge commit" each time.
   `rescue/2026-10-10/*` snapshot branch for work that was not committed. Nothing was merged.
 - ✅ **C-1009-2: repair PR #751.** The first-frame heading in `frontend/index.html` keeps the old
   size, so the heading jumps 2 to 3 pixels and three tests fail. Done 2026-10-10 in #751 itself,
-  which the repairs train carries.
+  which train #796 carries.
 - 🟡 **C-1009-3: resume the island's first PR.** It is built and tested. Merge trunk in, make it
   match PR #769 on the BAYLA tick box, finish the 390px walk, open the PR. Do not start it again.
   Built: PR #790, waiting for your go.
 - 🟡 **C-1009-4: open pull requests for the two cloud branches**, with the "offer our pool" fix on
   top of the first. Built: PR #791 (the swap fixes, with that fix on top), waiting for your go,
-  and PR #786 (the Trust "You cancelled" fix), which the repairs train carries.
+  and PR #786 (the Trust "You cancelled" fix), which train #796 carries.
 - ⬜ **C-1009-5: resume the pool redesign.** Your last word on 2026-10-08 was "ok keep going".
 - ✅ **C-1009-6: show a liquidity provider what a pool has paid them** (asked 2026-10-09): what a
   position has earned, how much a pool's shares have grown, and in a few plain words how
@@ -134,7 +134,7 @@ all three. Use "Create a merge commit" each time.
   rows in `frontend/scripts/addresses.json` (both controls are the Squads vault now). Start the
   vault upgrade pack for the ladder's 4-year change. Renew or update the advisory waivers before
   2026-11-16. Built 2026-10-10: the "Back to top" flake is PR #788 and the ladder rows are
-  PR #785, both carried by the repairs train. The upgrade pack and the waivers are still open.
+  PR #785, both carried by train #796. The upgrade pack and the waivers are still open.
 - ⬜ **C-1009-8: housekeeping that needs a quiet moment.** Move the shared main folder onto trunk
   (it sits on a September branch and has no CLAUDE.md), after its only-copy files are saved. One
   dedicated worktree cleanup (230 exist): unlink every linked folder and prove it gone first.
@@ -159,12 +159,12 @@ all); the BAYLA/USDC pool has had none.
   Liquidity page's "five sixths", the assistant's "0.5% flows to stakers", the FAQ's "starts
   flowing when the native pool launches"), and four liquid-staking rates on the Solana swap page
   are typed in, not read. Needs one read of the Ethereum fee settings first. Built: PR #789,
-  carried by the repairs train.
+  carried by train #796.
 - 🟡 **C-1009-10: two stale rows in `frontend/scripts/addresses.json`.** The swap-fee account it
   names has never received a fee (they go to the vault's wrapped-SOL account
   `2sa31zceMSTAAbSu5wfSnNA6sBYzS7r97nvZYaQouEXa`), and the launch tier reads 20% to the venue plus
   a 0.05% creator fee on chain, not the 12% and none the row says. Built: PR #785, carried by
-  the repairs train.
+  train #796.
 - 📌 The venue's cut waiting in the BAYLA/SOL pool is under 0.001 SOL. Collecting it takes a
   two-signature proposal that costs more than it brings in. Leave it.
 
@@ -201,7 +201,7 @@ markets together trade under $2,000 a day, so none of this creates volume.
   was open when this line was written.
 - 🟡 **C-1009-13: small liquidity-provider tools, no program needed.** After the earnings view: a
   "what if the price moves" preview before adding, and add by percent of wallet. Built: PR #787,
-  carried by the repairs train.
+  carried by train #796.
 
 ### Parked calls, none urgent
 
