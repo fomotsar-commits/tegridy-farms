@@ -293,15 +293,15 @@ export default function LendingPage() {
           )}
         </AnimatePresence>
 
-        {/* Section tabs. From `md` up the row is about 1,095px wide; below a
-            1,143px window `max-w-full` holds it to the page and it scrolls inside
-            itself, the selected tab kept whole in view (`tabListRef`). No scroll
-            snap: it undoes the reveal. The scrollbar is hidden, so a 2rem fade at
-            the right edge is the only sign of more tabs, and `pr-8` gives the last
-            tab room beside it; both come off at 1,143px. e2e/nft-finance-strip.spec.ts. */}
+        {/* Section tabs. Below a 1,143px window the row (about 1,095px from `md` up)
+            is held to the page by `max-w-full` and scrolls inside itself. No scroll
+            snap: it undoes the reveal. The scrollbar is hidden, so a fade at the right
+            edge is the only sign of more tabs. `--strip-fade` is the fade's width and
+            the end padding, and `tabListRef` keeps the selected tab out of the padding,
+            so never under the fade. Both come off at 1,143px. e2e/nft-finance-strip.spec.ts. */}
         <m.div
           ref={tabListRef}
-          className="flex overflow-x-auto gap-1.5 mb-10 p-1 pr-8 min-[1143px]:pr-1 rounded-2xl mx-auto w-full md:w-fit max-w-full no-scrollbar [mask-image:linear-gradient(to_right,#000_calc(100%-2rem),transparent)] min-[1143px]:[mask-image:none]"
+          className="flex overflow-x-auto gap-1.5 mb-10 p-1 [--strip-fade:2rem] pr-[var(--strip-fade)] min-[1143px]:pr-1 rounded-2xl mx-auto w-full md:w-fit max-w-full no-scrollbar [mask-image:linear-gradient(to_right,#000_calc(100%_-_var(--strip-fade)),transparent)] min-[1143px]:[mask-image:none]"
           style={{ background: 'rgba(13,21,48,0.85)', border: '1px solid rgba(255,255,255,0.20)' }}
           role="tablist"
           aria-label="NFT Finance sections"

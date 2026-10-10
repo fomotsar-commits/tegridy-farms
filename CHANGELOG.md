@@ -8,7 +8,7 @@ page keeps the newest thirty days.
 
 ### 2026-10-10
 
-- NFT Finance on a phone or an iPad: a link straight to a section, such as the Launchpad, now opens with that section's tab in view in the row of tabs. It used to sit out of sight past the right edge. Pressing a tab that is cut off at the edge of the row now brings it fully into view; it used to be selected and stay cut off.
+- NFT Finance on a phone or an iPad: a link straight to a section, such as the Launchpad, now opens with that section's tab in view in the row of tabs, clear of the fade at the row's right edge. It used to sit out of sight past the right edge. Pressing a tab that is cut off at the edge of the row now brings it fully into view; it used to be selected and stay cut off.
 - NFT Finance on an iPad held upright, or in any window from 768 to 1,118 pixels wide: the page no longer slides sideways. The row of six section tabs was wider than the screen and carried the page with it. It now scrolls inside itself, with a fade at its right edge while more tabs are out of view.
 
 ### 2026-10-08
