@@ -38,12 +38,12 @@ const PLACES: { file: string; gone: string[]; says: string }[] = [
   {
     file: 'src/components/solana/lp/LpDisclosures.tsx',
     gone: ['Jupiter does not send trades to these pools yet, so the trades'],
-    says: "This site's own swap sends a trade to one of these pools when it pays at least as much as Jupiter",
+    says: "This site's own swap sends a trade to this pool only when it pays the trader at least as much as Jupiter does",
   },
   {
     file: 'src/components/solana/lp/SolanaLpSection.tsx',
     gone: ['Aggregators such as Jupiter do not send trades to these pools yet, so most trades'],
-    says: 'own swap sends a trade to one of these pools when it pays at least as much as Jupiter',
+    says: 'a pool earns fees only from trades sent to it by this site’s own swap',
   },
 ];
 
