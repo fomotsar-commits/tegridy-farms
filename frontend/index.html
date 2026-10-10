@@ -136,13 +136,12 @@
          synchronously above and can read both conditions. That is EARLIER than
          this tag was, not later.
          Lock-step with pageArt('home', 0) is pinned by src/lib/heroPreload.test.ts. -->
-    <!-- ANSWER TEN, RULING 2: THE FIRST FRAME IS THE HERO. Critical CSS for the
-         static hero inside #root. An inline STYLE, never an inline script: the CSP
-         pins every inline script by hash, and style-src already allows inline.
-         The frame is hidden unless /theme-init.js opens it (only on `/` with no
-         other resident's skin), because the SPA fallback serves this file on every
-         route. React's first commit replaces it; FirstFrame.tsx reuses the ff-*
-         classes so the swap does not move. Pinned by src/lib/firstFrame.test.ts. -->
+    <!-- ANSWER TEN, RULING 2: THE FIRST FRAME IS THE HERO. Critical CSS for the static
+         hero inside #root. An inline STYLE, never an inline script: the CSP pins every
+         inline script by hash, and style-src allows inline. Hidden unless /theme-init.js
+         opens it (only on `/` with no other resident's skin): the SPA fallback serves this
+         file on every route. FirstFrame.tsx reuses the ff-* classes, and .ff-h1's two sizes
+         are the hero headings' two, so no swap moves. Pinned by src/lib/firstFrame.test.ts. -->
     <style>
       html{background:#060c1a}
       #first-frame{display:none}
@@ -153,7 +152,7 @@
       .ff-wrap{position:relative;z-index:10;max-width:1200px;margin:0 auto;padding:112px 16px 80px;box-sizing:border-box}
       .ff-in-layout{margin-top:-3.5rem}
       .ff-col{position:relative;max-width:36rem}
-      .ff-h1{margin:0 0 1rem;color:#fff;font-family:'Archivo','Helvetica Neue',Arial,sans-serif;font-weight:900;font-size:1.875rem;line-height:1.1;letter-spacing:-0.025em;text-shadow:0 2px 8px #000,0 0 16px rgba(0,0,0,.7)}
+      .ff-h1{margin:0 0 1rem;color:#fff;font-family:'Archivo','Helvetica Neue',Arial,sans-serif;font-weight:900;font-size:clamp(1.25rem,7.4vw,1.875rem);line-height:1.1;letter-spacing:-0.025em;text-shadow:0 2px 8px #000,0 0 16px rgba(0,0,0,.7)}
       .ff-plain,.ff-hook{margin:0 0 .75rem;max-width:28rem;font-family:'Inter',system-ui,sans-serif;font-weight:600;font-size:1rem;line-height:1.625;text-shadow:0 1px 6px rgba(0,0,0,.95)}
       .ff-plain{color:#fff}
       .ff-hook{color:#4CAF50}
