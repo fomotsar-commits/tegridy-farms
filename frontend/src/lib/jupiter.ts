@@ -348,7 +348,8 @@ function parseSimError(err: unknown, logs?: string[]): string {
 export const JUPITER_PROGRAM_ID = 'JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4';
 /** Jupiter v6 custom error 6014 (0x177e), IncorrectTokenProgramID. */
 export const JUPITER_INCORRECT_TOKEN_PROGRAM_ID = 6014;
-const JUPITER_6014_LOG = `Program ${JUPITER_PROGRAM_ID} failed: custom program error: 0x177e`;
+/** Jupiter v6 custom error 6001 (0x1771), SlippageToleranceExceeded: the route ran and paid under the minimum. */
+export const JUPITER_SLIPPAGE_EXCEEDED = 6001;
 // The runtime's own failure line. A program cannot forge it: anything a program
 // prints arrives as "Program log: ...", which this anchored pattern never matches.
 const PROGRAM_FAILED_LINE = /^Program [1-9A-HJ-NP-Za-km-z]{32,44} failed: /;
@@ -369,6 +370,11 @@ const PROGRAM_FAILED_LINE = /^Program [1-9A-HJ-NP-Za-km-z]{32,44} failed: /;
  * Anything unreadable is "no".
  */
 export function isJupiterIncorrectTokenProgram(b64Tx: string, err: unknown, logs: unknown): boolean {
+  return jupiterRaised(b64Tx, err, logs, JUPITER_INCORRECT_TOKEN_PROGRAM_ID);
+}
+
+/** The three checks above, for any one of Jupiter's own custom codes. */
+function jupiterRaised(b64Tx: string, err: unknown, logs: unknown, code: number): boolean {
   if (!err || typeof err !== 'object') return false;
   const ie = (err as { InstructionError?: unknown }).InstructionError;
   if (!Array.isArray(ie) || ie.length !== 2) return false;
@@ -378,7 +384,7 @@ export function isJupiterIncorrectTokenProgram(b64Tx: string, err: unknown, logs
   if (!detail || typeof detail !== 'object') return false;
   const keys = Object.keys(detail);
   if (keys.length !== 1 || keys[0] !== 'Custom') return false;
-  if ((detail as { Custom?: unknown }).Custom !== JUPITER_INCORRECT_TOKEN_PROGRAM_ID) return false;
+  if ((detail as { Custom?: unknown }).Custom !== code) return false;
   try {
     const message = VersionedTransaction.deserialize(Uint8Array.from(atob(b64Tx), (c) => c.charCodeAt(0))).message;
     const ix = message.compiledInstructions[index];
@@ -389,7 +395,35 @@ export function isJupiterIncorrectTokenProgram(b64Tx: string, err: unknown, logs
   }
   if (!Array.isArray(logs)) return false;
   const firstFailed: unknown = logs.find((l) => typeof l === 'string' && PROGRAM_FAILED_LINE.test(l));
-  return firstFailed === JUPITER_6014_LOG;
+  return firstFailed === `Program ${JUPITER_PROGRAM_ID} failed: custom program error: 0x${code.toString(16)}`;
+}
+
+/**
+ * Why a test run refused, for the trader, read ONLY from what the runtime wrote: its own
+ * failure line, the System Program's line for a transfer that was short, or a one-word
+ * network error. A line a program printed ("Program log: ...") is never read: a token's
+ * own code could word it. `said` names a program by the ends of its address.
+ */
+export type SwapRefusalCause =
+  | { kind: 'price-limit' }
+  | { kind: 'low-sol'; had: bigint; needed: bigint }
+  | { kind: 'runtime'; said: string };
+
+const SHORT_TRANSFER_LINE = /^Transfer: insufficient lamports (\d+), need (\d+)$/;
+const FAILED_LINE_PARTS = /^Program ([1-9A-HJ-NP-Za-km-z]{32,44}) failed: (.{1,80})$/;
+
+export function refusalCause(b64Tx: string, err: unknown, logs: unknown): SwapRefusalCause | null {
+  if (jupiterRaised(b64Tx, err, logs, JUPITER_SLIPPAGE_EXCEEDED)) return { kind: 'price-limit' };
+  const lines = Array.isArray(logs) ? logs.filter((l): l is string => typeof l === 'string') : [];
+  for (const l of lines) {
+    const short = SHORT_TRANSFER_LINE.exec(l);
+    if (short) return { kind: 'low-sol', had: BigInt(short[1]!), needed: BigInt(short[2]!) };
+  }
+  for (const l of lines) {
+    const failed = FAILED_LINE_PARTS.exec(l);
+    if (failed) return { kind: 'runtime', said: `${failed[2]} in program ${failed[1]!.slice(0, 4)}…${failed[1]!.slice(-4)}` };
+  }
+  return typeof err === 'string' && /^[A-Za-z]{1,40}$/.test(err) ? { kind: 'runtime', said: err } : null;
 }
 
 export interface SwapSimulation {
@@ -397,6 +431,8 @@ export interface SwapSimulation {
   reason: string | null;
   /** True only for Jupiter's own 6014: see isJupiterIncorrectTokenProgram. Never true when ok. */
   jupiterIncorrectTokenProgram: boolean;
+  /** Why it refused, when the runtime itself said (refusalCause). `reason` may be a program's own print. */
+  cause?: SwapRefusalCause | null;
 }
 
 /**
@@ -425,6 +461,7 @@ export async function simulateSwap(b64Tx: string, signal?: AbortSignal): Promise
     ok: false,
     reason: parseSimError(value.err, value.logs),
     jupiterIncorrectTokenProgram: isJupiterIncorrectTokenProgram(b64Tx, value.err, value.logs),
+    cause: refusalCause(b64Tx, value.err, value.logs),
   };
 }
 

@@ -608,10 +608,13 @@ function venueRouteText(s: Extract<TxSummary, { kind: 'venue-swap' }>): string {
   if (a.kind === 'no-route') return 'Jupiter has no route for this trade, so this pool is the only route';
   if (a.kind === 'unreachable') return 'Jupiter could not be asked just now, so this trade was not compared with it';
   if (a.kind === 'refused') {
-    const failed = 'its transaction for this trade failed its test run, so it could not be sent';
+    const failed = `its transaction for this trade failed its test run${a.earlier ? ' at your last press' : ''}, so it could not be sent`;
     // By how much, against what THIS swap pays. A pool that has caught up since is not "more".
-    if (a.out <= s.quoted.outAmount) return `Jupiter quoted no more than this pool pays, and ${failed}`;
-    return `Jupiter quoted ${edgePercent(Number(a.out - s.quoted.outAmount) / Number(s.quoted.outAmount))} more, but ${failed}`;
+    const quotedMore = a.out <= s.quoted.outAmount
+      ? `Jupiter quoted no more than this pool pays, and ${failed}`
+      : `Jupiter quoted ${edgePercent(Number(a.out - s.quoted.outAmount) / Number(s.quoted.outAmount))} more, but ${failed}`;
+    // A refusal this press could not test again is said as that, and its cause is said when it gave one.
+    return [quotedMore, ...(a.earlier ? ['It could not be checked again just now'] : []), ...(a.why ? [a.why] : [])].join('. ');
   }
   const beside = a.when === 'now' ? 'Jupiter quoted just now' : 'the last quote Jupiter gave (it could not be asked again just now)';
   if (s.quoted.outAmount === a.out) return `the same as ${beside}, so the trade stays here`;

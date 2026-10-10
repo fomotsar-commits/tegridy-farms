@@ -19,9 +19,11 @@ export interface SolanaRouteLineProps {
   ownUnavailable?: string | null;
   /** The aggregator's answer when it gave no quote: its own "no route", or it could not be asked. */
   aggregatorFail?: 'no-route' | 'unavailable' | null;
+  /** The cause the test run of the aggregator's refused transaction gave, as a sentence; null when it gave none. */
+  refusedWhy?: string | null;
 }
 
-export function SolanaRouteLine({ route, ownUnavailable = null, aggregatorFail = null }: SolanaRouteLineProps) {
+export function SolanaRouteLine({ route, ownUnavailable = null, aggregatorFail = null, refusedWhy = null }: SolanaRouteLineProps) {
   const { venue, own, decision, aggregatorRefused, refusedEdge, aggregatorLabel, asking } = route;
   if (!venue) return asking ? <RouteShell>Comparing our pools with {aggregatorLabel}…</RouteShell> : null;
 
@@ -67,6 +69,8 @@ export function SolanaRouteLine({ route, ownUnavailable = null, aggregatorFail =
     reason = ownUnavailable
       ? `${refused}, and a swap in our pool cannot be prepared here right now (${ownUnavailable}), so the next press tests ${aggregatorLabel}'s transaction again.`
       : `${refused}, so the trade goes to our pool.`;
+    // Why it failed, when the test run said: the trader may be able to take the better route.
+    if (refusedWhy) reason += ` ${refusedWhy}.`;
   } else if (won && ownUnavailable) {
     const more =
       decision.edge !== null && decision.edge > 0 ? `${edgePercent(decision.edge)} more output than` : 'the same output as';

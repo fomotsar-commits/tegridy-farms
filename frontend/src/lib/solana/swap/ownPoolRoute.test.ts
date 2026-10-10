@@ -141,6 +141,17 @@ describe('a quote whose transaction fails its own test run is no route this site
     expect(runs.prepare).toHaveBeenCalledTimes(1);
   });
 
+  it('the aggregator cannot be asked again, and the quote on screen was of a refused transaction: built, with that refusal said as an earlier one', async () => {
+    // Never "could not be asked, so not compared": the trader pressed on a line that named the refusal and the gap.
+    const { d, prepare, asked } = withSends({ agg: new Error('HTTP 429'), own: [pool('PoolA', 990_000n)] }, true);
+    expect(await prepareOwnPoolSwap(d, null, 1_000_000n)).toBe(BUILT);
+    expect(prepare).toHaveBeenCalledWith('PoolA', { kind: 'refused', out: 1_000_000n, earlier: true });
+    expect(asked).not.toHaveBeenCalled();
+    // When the aggregator does answer, the refusal from earlier is not what is said: the fresh answer is.
+    const fresh = withSends({ agg: 1_000_000n, own: [pool('PoolA', 990_000n)] }, true);
+    expect(messageOf(await prepareOwnPoolSwap(fresh.d, null, 1_000_000n))).toBe(OWN_ROUTE_COPY.routeMoved);
+  });
+
   it('is not asked when our pool already takes the trade, nor of a figure from earlier', async () => {
     const won = withSends({ agg: 1_000_000n, own: [pool('PoolA', 1_010_000n)] }, false);
     expect(await prepareOwnPoolSwap(won.d, null)).toBe(BUILT);

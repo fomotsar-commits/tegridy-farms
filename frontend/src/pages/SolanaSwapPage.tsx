@@ -77,7 +77,7 @@ import {
   type ShieldWarning,
   type TriggerOrder,
 } from '../lib/jupiter';
-import { prepareJupiterSwap, NO_SITE_FEE_ROUTE_COPY, NOT_TEST_RUN_COPY } from '../lib/solana/swap/jupiterFeeRetry';
+import { prepareJupiterSwap, refusalWhy, NO_SITE_FEE_ROUTE_COPY, NOT_TEST_RUN_COPY, type PreparedJupiterSwap } from '../lib/solana/swap/jupiterFeeRetry';
 import { OWN_ROUTE_COPY, ownPoolNowWins, prepareOwnPoolSwap, within } from '../lib/solana/swap/ownPoolRoute';
 import { applySlippage } from '../lib/launcher/solana/curve/math';
 import { tradeCostText } from '../lib/solana/lp/format';
@@ -671,7 +671,7 @@ function EarnRail({ onPick }: { onPick: (t: SolToken) => void }) {
         Buy a liquid-staking token to earn about the validator APY automatically: its value grows each epoch, there is no
         lockup, and you can sell back to SOL anytime. APY is variable.{' '}
         {isSolanaFeeConfigured()
-          ? `A ${SOLANA_PLATFORM_FEE_BPS / 100}% fee applies when the buy goes through Jupiter; our pools add none on top.`
+          ? `A ${SOLANA_PLATFORM_FEE_BPS / 100}% fee applies when the buy goes through Jupiter. A buy in one of our pools pays that pool's own fee inside the quote, and no platform fee on top.`
           : 'No platform fee is charged on the buy.'}
       </p>
     </div>
@@ -1258,10 +1258,14 @@ function SolanaSwapInner() {
   // no-fee one is what this site sends (swap/jupiterFeeRetry.ts). Kept for the pair, not
   // on one quote: every quote of it is the no-fee one until a fee-bearing build runs clean.
   const noFeePairs = useRef<Set<string>>(new Set());
-  // The trade (pay|buy|amount, at its slippage) whose Jupiter transaction failed its test
-  // run with one of our pools quoting it: its quote is no route for that trade
-  // (useSolanaRoute). Dropped when a later press finds the transaction would run.
-  const [refusedTrade, setRefusedTrade] = useState<string | null>(null);
+  // The trade (pay|buy|amount, at its slippage, for its wallet) whose Jupiter transaction
+  // failed its test run with one of our pools quoting it: its quote is no route for that
+  // trade (useSolanaRoute). `why`: the cause that test run gave (refusalWhy). Dropped only
+  // when a later test run of it answers and passes.
+  const [refusedTrade, setRefusedTrade] = useState<{ key: string; why: string | null } | null>(null);
+  // What a press through Jupiter is for, in words, kept from the press: the form can come to
+  // show another trade under it (formNow), and the line under it must not name that one.
+  const [throughJupiter, setThroughJupiter] = useState('');
   const [quoteLoading, setQuoteLoading] = useState(false);
   // Why there is no quote, when one was asked for and none came back.
   // 'no-route' is ONLY the quote service's own answer (lib/jupiter.ts
@@ -1398,12 +1402,12 @@ function SolanaSwapInner() {
   );
   // The trade on the form: what a press was for.
   const formKey = `${payToken.mint}|${buyToken.mint}|${baseAmount ?? ''}`;
-  // What a refusal of Jupiter's transaction is kept for: that trade at that slippage. At
-  // another slippage it is another transaction, and nothing was found about that one.
-  const refusalKey = `${formKey}|${slippageBps}`;
+  // What a refusal of Jupiter's transaction is kept for: that trade, at that slippage, for
+  // that wallet. Each is an input of the test run: with another, nothing was found.
+  const refusalKey = `${formKey}|${slippageBps}|${publicKey?.toBase58() ?? ''}`;
   const route = useSolanaRoute({
     inputMint: payToken.mint, outputMint: buyToken.mint, amountInRaw, aggregatorQuote,
-    aggregatorPending: quoteLoading, aggregatorRefused: refusedTrade === refusalKey, retry: quoteAttempt,
+    aggregatorPending: quoteLoading, aggregatorRefused: refusedTrade?.key === refusalKey, retry: quoteAttempt,
   });
   const forgetPools = route.forget;
 
@@ -1642,9 +1646,11 @@ function SolanaSwapInner() {
     const [inputMint, outputMint, bps] = [payToken.mint, buyToken.mint, slippageBps];
     let shownAggregatorOut: bigint | null = null;
     try {
-      // The quote of a transaction that failed its test run holds our pool to nothing.
-      shownAggregatorOut = quote && !route.aggregatorRefused ? BigInt(quote.outAmount) : null;
+      shownAggregatorOut = quote ? BigInt(quote.outAmount) : null;
     } catch { /* unparseable: it is asked again below */ }
+    // A refusal kept for this trade: the quote on screen is of a transaction that failed its
+    // test run. It holds our pool to nothing, and it stands until a test run passes.
+    const stands = route.aggregatorRefused;
     const said = sideWords(payToken, buyToken);
     // The card for an ending that has to be read is its own chunk: asked for now, before
     // anything is signed, so it is never first fetched for a swap that was already sent.
@@ -1655,8 +1661,21 @@ function SolanaSwapInner() {
     const priority = speed;
     void venueSwap.flow.prepare(
       async () => {
-        // Jupiter's fresh quote, and whether its transaction passed its test run (null: not run).
-        const seen: { fresh: JupiterQuote | null; sends: boolean | null } = { fresh: null, sends: null };
+        // Jupiter's fresh quote, whether this site would send its transaction (null: not asked
+        // yet), what its test run answered at this press (null: it did not answer), and the
+        // cause of a refusal: this press's, or the one kept with a refusal that stands.
+        const seen: { fresh: JupiterQuote | null; sends: boolean | null; verdict: 'passed' | 'refused' | null; why: string | null } =
+          { fresh: null, sends: null, verdict: null, why: stands ? (refusedTrade?.why ?? null) : null };
+        // A test run that could not run (law 8) found nothing: it refuses nothing, and it lifts
+        // no refusal kept for this trade. `j` null: the transaction could not be built.
+        const wouldSend = (j: PreparedJupiterSwap | null): boolean => {
+          if (j?.status === 'ready' && !j.unchecked) seen.verdict = 'passed';
+          else if (j?.status === 'blocked' && !j.unchecked) {
+            seen.verdict = 'refused';
+            seen.why = refusalWhy(j, bps);
+          } else return !stands;
+          return seen.verdict === 'passed';
+        };
         const jupiterTx = (fresh: JupiterQuote) =>
           prepareJupiterSwap(
             { getQuote, buildSwapTransaction, simulateSwap, swapCarriesPlatformFee },
@@ -1682,8 +1701,7 @@ function SolanaSwapInner() {
               if (!swapCarriesPlatformFee(inputMint, outputMint)) return quotedOut;
               try {
                 const j = await jupiterTx(fresh);
-                // A test run that could not run is no refusal: the transaction may still send.
-                seen.sends = j.status !== 'blocked' || j.unchecked === true;
+                seen.sends = wouldSend(j);
                 // A refused transaction's quote still holds our pool to it while our pool
                 // beats it; above our pool, aggregatorSends says it is no route.
                 if (j.status === 'blocked') return quotedOut;
@@ -1692,7 +1710,7 @@ function SolanaSwapInner() {
                 else if (!j.unchecked) noFeePairs.current.delete(`${inputMint}|${outputMint}`);
                 return BigInt(j.quote.outAmount);
               } catch {
-                seen.sends = true;
+                seen.sends = wouldSend(null);
                 return quotedOut;
               }
             },
@@ -1700,12 +1718,8 @@ function SolanaSwapInner() {
             // pair its transaction has not been built yet: it is built and test-run now.
             aggregatorSends: async () => {
               if (seen.sends !== null || seen.fresh === null) return seen.sends ?? true;
-              try {
-                const j = await jupiterTx(seen.fresh);
-                return j.status !== 'blocked' || j.unchecked === true;
-              } catch {
-                return true;
-              }
+              seen.sends = wouldSend(await jupiterTx(seen.fresh).catch(() => null));
+              return seen.sends;
             },
             ownPools: async () => (await route.refresh(amountIn)) ?? [],
             prepare: (pool, aggregator) =>
@@ -1716,14 +1730,17 @@ function SolanaSwapInner() {
                 outputMint: new PublicKey(outputMint),
                 amountIn,
                 slippageBps: BigInt(bps),
-                aggregator,
+                // The review says a refusal with its cause, and as an earlier press's when this press could not test again.
+                aggregator: aggregator.kind !== 'refused' ? aggregator
+                  : { ...aggregator, ...(seen.verdict === 'refused' ? {} : { earlier: true as const }), ...(seen.why ? { why: seen.why } : {}) },
               }),
           },
-          shownAggregatorOut,
+          stands ? null : shownAggregatorOut,
+          stands ? shownAggregatorOut : null,
         );
-        // "Jupiter now pays more": its transaction was not refused this time, so a refusal
-        // kept for the trade pressed is dropped and its route is on the line again.
-        if (!built.ok && built.outcome.message === OWN_ROUTE_COPY.routeMoved) setRefusedTrade((k) => (k === refusalKey ? null : k));
+        // "Jupiter now pays more", after a test run of its transaction answered and passed: a
+        // refusal kept for the trade pressed is over, and its route is on the line again.
+        if (!built.ok && built.outcome.message === OWN_ROUTE_COPY.routeMoved && seen.verdict === 'passed') setRefusedTrade((r) => (r?.key === refusalKey ? null : r));
         // Nothing else here writes to the page: the form may hold another trade by now, and the
         // settle's re-quote puts Jupiter's no-fee route on screen when that is what took it.
         return built;
@@ -1744,8 +1761,7 @@ function SolanaSwapInner() {
    * A read that fails or hangs changes nothing when a comparison was on screen; with none
    * on screen yet (our pools still being read), a read that does not answer sends nothing.
    */
-  async function ownPoolTakesIt(q: JupiterQuote, noSiteFee: boolean): Promise<boolean> {
-    const pressedFor = formNow.current;
+  async function ownPoolTakesIt(q: JupiterQuote, noSiteFee: boolean, pressedFor: string): Promise<boolean> {
     if (!ownMayCompete || !baseAmount) return false;
     let aggregatorOut: bigint;
     try {
@@ -1780,13 +1796,13 @@ function SolanaSwapInner() {
    * the line names our pool and why, and the next press builds there. A read that fails
    * or hangs, or a pool that cannot quote, leaves the press to end as it did.
    */
-  async function ownPoolInstead(): Promise<boolean> {
+  async function ownPoolInstead(why: string | null): Promise<boolean> {
     if (!ownMayCompete || !baseAmount) return false;
     const own = await within<Awaited<ReturnType<typeof route.refresh>>>(route.refresh(BigInt(baseAmount)), OWN_CHECK_MS, null);
     if (!own?.length) return false;
-    // Kept for the trade pressed, whatever the form shows by now.
-    setRefusedTrade(refusalKey);
-    toast.error('Route changed', { description: OWN_ROUTE_COPY.jupiterRefused });
+    // Kept for the trade pressed, whatever the form shows by now, with the cause the test run gave.
+    setRefusedTrade({ key: refusalKey, why });
+    toast.error('Route changed', { description: why ? `${OWN_ROUTE_COPY.jupiterRefused} ${why}.` : OWN_ROUTE_COPY.jupiterRefused });
     return true;
   }
 
@@ -1804,6 +1820,19 @@ function SolanaSwapInner() {
     // fee-bearing, is about 0.5% under it by construction and is not the trade
     // being compared: see the two guards below.
     const shownWaived = feeWaived;
+    // THE TRADE PRESSED. The form can come to show another while the press is on its way
+    // (a link's token that lands late, a price that re-sizes a dollar amount). From then
+    // on nothing is written or sent for the one pressed, whatever our pools hold: asked
+    // after each wait below, and last of all before the wallet.
+    const pressedFor = formKey;
+    const formMoved = () => {
+      if (formNow.current === pressedFor) return false;
+      toast.info('Not sent', { description: OWN_ROUTE_COPY.formChanged });
+      return true;
+    };
+    const say = (q: JupiterQuote) =>
+      setThroughJupiter(`${prettyAmount(tokenAmount)} ${payToken.symbol} for about ${prettyAmount(fromBaseUnits(q.outAmount, buyToken.decimals))} ${buyToken.symbol}`);
+    say(shown);
     setSwapping(true);
     try {
       // Re-quote right before building so the on-chain min-out + routing match
@@ -1814,11 +1843,12 @@ function SolanaSwapInner() {
         amount: baseAmount,
         slippageBps,
       });
+      if (formMoved()) return;
       // With no site fee on this pair, `fresh` is what Jupiter's transaction pays, so
       // the route is held on it before anything is built. With a fee it is held further
       // down, on the quote of the transaction that passed its test run.
       const carriesFee = swapCarriesPlatformFee(payToken.mint, buyToken.mint);
-      if (!carriesFee && (await ownPoolTakesIt(fresh, false))) return;
+      if (!carriesFee && (await ownPoolTakesIt(fresh, false, pressedFor))) return;
       // DISPLAY-VS-SUBMIT GUARD (2026-07-24): the user consented to `shown`.
       // slippageBps protects the tx on-chain, but the re-quoted BASELINE itself
       // could be materially worse than what they saw. If `fresh` dropped beyond
@@ -1833,6 +1863,7 @@ function SolanaSwapInner() {
       // in prepareJupiterSwap: the no-fee RE-quote against max(fresh, shown).
       if (!shownWaived) {
         setQuote(fresh);
+        say(fresh);
         try {
           const shownOut = BigInt(shown.outAmount);
           const floor = shownOut - (shownOut * BigInt(slippageBps)) / 10000n;
@@ -1861,6 +1892,7 @@ function SolanaSwapInner() {
           priority: speed,
         },
       );
+      if (formMoved()) return;
       if (prepared.status === 'blocked') {
         // A test run that could not run found nothing about the transaction: it was not
         // refused, so our pool is not offered for it and the press never says "would fail".
@@ -1868,13 +1900,13 @@ function SolanaSwapInner() {
           toast.error('Swap not checked', { description: NOT_TEST_RUN_COPY });
           return;
         }
-        // A refused transaction is no route, so our pool is offered.
-        if (await ownPoolInstead()) return;
+        // A refused transaction is no route, so our pool is offered, with the cause its test run gave.
+        if (await ownPoolInstead(refusalWhy(prepared, slippageBps))) return;
         toast.error('Swap would fail — not sending', { description: prepared.reason ?? 'Simulation reverted on-chain.' });
         return;
       }
       // Jupiter's transaction would run: a refusal kept for this trade is over.
-      if (prepared.status === 'ready' && !prepared.unchecked) setRefusedTrade((k) => (k === refusalKey ? null : k));
+      if (prepared.status === 'ready' && !prepared.unchecked) setRefusedTrade((r) => (r?.key === refusalKey ? null : r));
       // What the test run found is kept for the pair: its next quote asks for what Jupiter's transaction from this site pays.
       if (prepared.status === 'moved' || prepared.siteFeeWaived) noFeePairs.current.add(`${payToken.mint}|${buyToken.mint}`);
       else if (!prepared.unchecked) noFeePairs.current.delete(`${payToken.mint}|${buyToken.mint}`);
@@ -1894,7 +1926,7 @@ function SolanaSwapInner() {
         toast.error('Swap not checked', { description: NOT_TEST_RUN_COPY });
         return;
       }
-      if (carriesFee && (await ownPoolTakesIt(sent, feeWaivedOnSend))) return;
+      if (carriesFee && (await ownPoolTakesIt(sent, feeWaivedOnSend, pressedFor))) return;
       if (shownWaived && !feeWaivedOnSend) {
         // The trader clicked a quote that said "no site fee", and this time the
         // fee-bearing build simulates clean. That swap pays them less than the
@@ -1903,6 +1935,8 @@ function SolanaSwapInner() {
         toast.error('Quote changed', { description: 'The site fee can be taken on this route now, so you receive slightly less. Review the new rate and swap again.' });
         return;
       }
+      // The last look before the wallet is asked: it signs the trade on the form, or nothing.
+      if (formMoved()) return;
       if (feeWaivedOnSend) {
         // BEFORE the wallet opens: the amounts on the page become the re-quoted
         // ones, the fee row says there is none, and the trader is told why.
@@ -1910,6 +1944,7 @@ function SolanaSwapInner() {
         flushSync(() => {
           setWaivedQuote(sent);
           setQuote(sent);
+          say(sent);
         });
         toast.info(NO_SITE_FEE_ROUTE_COPY, {
           description: `You receive about ${prettyAmount(fromBaseUnits(sent.outAmount, buyToken.decimals))} ${buyToken.symbol}.`,
@@ -2275,10 +2310,10 @@ function SolanaSwapInner() {
             </p>
           ) : swapping ? (
             <p role="status" data-testid="jupiter-swap-status" className="text-[10px] leading-relaxed mt-2 rounded-lg px-2.5 py-1.5 text-white/80" style={{ background: 'rgba(0,0,0,0.35)', border: '1px solid rgba(255,255,255,0.10)' }}>
-              {`Through ${route.aggregatorLabel}: ${prettyAmount(tokenAmount)} ${payToken.symbol} for about ${outputDisplay} ${buyToken.symbol}.`}
+              {`Through ${route.aggregatorLabel}: ${throughJupiter}.`}
             </p>
           ) : (
-            <SolanaRouteLine route={route} ownUnavailable={venueSwap.unavailable} aggregatorFail={quoteFail} />
+            <SolanaRouteLine route={route} ownUnavailable={venueSwap.unavailable} aggregatorFail={quoteFail} refusedWhy={route.aggregatorRefused ? (refusedTrade?.why ?? null) : null} />
           )}
 
           {/* Quote details */}

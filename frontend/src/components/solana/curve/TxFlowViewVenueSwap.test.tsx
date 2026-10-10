@@ -138,6 +138,19 @@ describe('what Jupiter was seen to pay is said as what it was', () => {
       expect(t).not.toMatch(/% more|quoted more/);
     }
   });
+  it('a refusal from the last press that could not be checked again says both, and keeps the figure', () => {
+    const t = line({ kind: 'refused', out: 9_999_019_704n, earlier: true });
+    expect(t).toMatch(/Compared with Jupiter ?Jupiter quoted 2% more, but its transaction for this trade failed its test run at your last press, so it could not be sent\. It could not be checked again just now/);
+    expect(t).not.toMatch(/not compared|could not be asked just now/);
+    expect(line({ kind: 'refused', out: 9_000_000_000n, earlier: true })).toMatch(/Jupiter quoted no more than this pool pays, and its transaction for this trade failed its test run at your last press, so it could not be sent\. It could not be checked again just now/);
+  });
+  it('a refusal with a cause says the cause after it, in the same row', () => {
+    const why = "The test run paid less than your 0.5% slippage allows. A wider slippage may let Jupiter's transaction run";
+    expect(line({ kind: 'refused', out: 9_999_019_704n, why })).toMatch(
+      /Jupiter quoted 2% more, but its transaction for this trade failed its test run, so it could not be sent\. The test run paid less than your 0\.5% slippage allows\. A wider slippage may let Jupiter's transaction run/,
+    );
+    expect(line({ kind: 'refused', out: 9_999_019_704n, earlier: true, why })).toMatch(/It could not be checked again just now\. The test run paid less than your 0\.5% slippage allows\./);
+  });
 });
 
 describe('the whole review', () => {

@@ -170,6 +170,9 @@ const connection = {
   getBlockHeight: async () => h.height.value,
 };
 const wallet = { publicKey: USER, sendTransaction: h.sendTransaction, signTransaction: h.signTransaction, connecting: false, wallet: null };
+/** The connected wallet, for a test to switch or disconnect; put back after each test. */
+const live = wallet as unknown as { publicKey: PublicKey | null };
+const OTHER_WALLET = new PublicKey(new Uint8Array(32).fill(9));
 vi.mock('@solana/wallet-adapter-react', () => ({
   useConnection: () => ({ connection }),
   useWallet: () => wallet,
@@ -224,7 +227,11 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
+  live.publicKey = USER;
 });
+/** The page as `readyToBuy` last rendered it, for a test that renders it again (a wallet that changed). */
+let page: ReturnType<typeof render>;
+const again = () => page.rerender(<MemoryRouter><SolanaSwapPage /></MemoryRouter>);
 
 /**
  * Type 0.1 SOL for BAYLA and return the Buy button. No tick-box stands in the way: both
@@ -234,7 +241,7 @@ afterEach(() => {
  * is for a test whose pool read never comes back.
  */
 async function readyToBuy(o: { poolsAnswer?: boolean } = {}) {
-  render(<MemoryRouter><SolanaSwapPage /></MemoryRouter>);
+  page = render(<MemoryRouter><SolanaSwapPage /></MemoryRouter>);
   fireEvent.change(screen.getByLabelText('Amount of SOL to pay'), { target: { value: '0.1' } });
   const buy = await screen.findByRole('button', { name: 'Buy BAYLA' }, { timeout: 20_000 });
   if (o.poolsAnswer !== false) {
@@ -724,9 +731,7 @@ describe('a swap in our pool that was sent and not confirmed', () => {
 });
 
 describe('a swap in our pool that the chain answers after the wallet changed', () => {
-  const OTHER = new PublicKey(new Uint8Array(32).fill(9));
-  const live = wallet as unknown as { publicKey: PublicKey | null };
-  afterEach(() => { live.publicKey = USER; });
+  const OTHER = OTHER_WALLET;
 
   /** Press Buy, let the swap be sent, and hold the chain's answer until `finish`. */
   async function sentAndHeld() {
@@ -750,6 +755,24 @@ describe('a swap in our pool that the chain answers after the wallet changed', (
     live.publicKey = OTHER;
     r.rerender(<MemoryRouter><SolanaSwapPage /></MemoryRouter>);
     finish();
+    await waitFor(() => expect(getActivity(USER.toBase58())[0]).toMatchObject({ sig: SIG, summary: 'Bought ≈1.01 BAYLA with 0.1 SOL, in our own pool' }));
+    expect(getActivity(OTHER.toBase58())).toEqual([]);
+  });
+
+  it('a wallet that connects after the page first drew: its swap is recorded for it, not for the wallet the page first saw', async () => {
+    // The page draws for one wallet, and the signer connects afterwards. A record read from
+    // the wallet of the first draw (a callback that never follows the wallet) lands on the wrong one.
+    live.publicKey = OTHER;
+    const r = render(<MemoryRouter><SolanaSwapPage /></MemoryRouter>);
+    await screen.findByLabelText('Amount of SOL to pay');
+    live.publicKey = USER;
+    r.rerender(<MemoryRouter><SolanaSwapPage /></MemoryRouter>);
+    fireEvent.change(amountBox(), { target: { value: '0.1' } });
+    const buy = await screen.findByRole('button', { name: 'Buy BAYLA' });
+    await waitFor(() => expect(h.readSwapGate).toHaveBeenCalled());
+    await waitFor(() => expect(buy).toBeEnabled());
+    fireEvent.click(buy);
+    await waitFor(() => expect(h.submitPrepared).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(getActivity(USER.toBase58())[0]).toMatchObject({ sig: SIG, summary: 'Bought ≈1.01 BAYLA with 0.1 SOL, in our own pool' }));
     expect(getActivity(OTHER.toBase58())).toEqual([]);
   });
@@ -1352,15 +1375,85 @@ describe('Jupiter was shown, and the transaction for its quote fails its test ru
     expect(h.prepareVenueSwap).not.toHaveBeenCalled();
   });
 
-  it('Jupiter cannot be asked at the next press: the quote of its refused transaction does not hold our pool back', async () => {
+  /** The review of a refusal this press could not check again: the last press's finding, with its figure. */
+  const FROM_LAST_PRESS = 'Jupiter quoted 1.01% more, but its transaction for this trade failed its test run at your last press, so it could not be sent. It could not be checked again just now';
+
+  it('Jupiter cannot be asked at the next press: the quote of its refused transaction does not hold our pool back, and the review still says the refusal and the gap', async () => {
     const buy = await refusedAtThePress();
     h.getQuote.mockImplementation(async () => { throw new Error('Quote unavailable (429)'); });
     h.toast.error.mockClear();
     fireEvent.click(buy);
     await waitFor(() => expect(h.prepareVenueSwap.mock.calls.length + h.toast.error.mock.calls.length).toBeGreaterThan(0), { timeout: 20_000 });
     expect(h.toast.error).not.toHaveBeenCalled();
-    expect((h.prepareVenueSwap.mock.calls[0]![2] as VenueSwapArgs).aggregator).toEqual({ kind: 'unreachable' });
+    // The quote the line named is carried, as a refusal from earlier: never "could not be asked, so not compared".
+    expect((h.prepareVenueSwap.mock.calls[0]![2] as VenueSwapArgs).aggregator).toEqual({ kind: 'refused', out: 1_000_000n, earlier: true });
+    expect(await screen.findByText(FROM_LAST_PRESS)).toBeInTheDocument();
+    expect(screen.queryByText(/was not compared with it/)).toBeNull();
     expect(h.sendTransaction).not.toHaveBeenCalled();
+    expect(h.submitPrepared).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['no site fee on the pair', false],
+    ['the site fee on the pair', true],
+  ])('%s: the next press cannot test Jupiter’s transaction again (law 8): the refusal is not lifted, and nothing says "Jupiter now pays more"', async (_name, fee) => {
+    h.carriesFee.value = fee;
+    const buy = await refusedAtThePress();
+    h.simulateSwap.mockRejectedValue(new Error('simulateTransaction: HTTP 429'));
+    h.toast.error.mockClear();
+    fireEvent.click(buy);
+    await waitFor(() => expect(h.prepareVenueSwap.mock.calls.length + h.toast.error.mock.calls.length).toBeGreaterThan(0), { timeout: 20_000 });
+    // Nothing was found about the transaction this time: its last real test run still refused it.
+    expect(h.toast.error).not.toHaveBeenCalled();
+    expect((h.prepareVenueSwap.mock.calls[0]![2] as VenueSwapArgs).aggregator).toEqual({ kind: 'refused', out: 1_000_000n, earlier: true });
+    expect(await screen.findByText(FROM_LAST_PRESS)).toBeInTheDocument();
+    expect(h.sendTransaction).not.toHaveBeenCalled();
+    expect(h.submitPrepared).not.toHaveBeenCalled();
+    // Back on the form the refusal still stands: Jupiter's untested transaction is not one press away.
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    await waitFor(() => expect(routeLine()).toMatch(TO_OUR_POOL), { timeout: 20_000 });
+  });
+
+  it('the refusal is of that wallet too: nothing was tested for another wallet, so its route is Jupiter’s again', async () => {
+    await refusedAtThePress();
+    live.publicKey = OTHER_WALLET;
+    again();
+    await waitFor(() => expect(routeLine()).toMatch(/Jupiter pays 1\.01% more than our pool\./), { timeout: 20_000 });
+    expect(routeLine()).not.toMatch(/failed its test run/);
+    await waitFor(() => expect(receive()).toBe('1'));
+    // Back on the wallet it was found for, the refusal still stands.
+    live.publicKey = USER;
+    again();
+    await waitFor(() => expect(routeLine()).toMatch(TO_OUR_POOL), { timeout: 20_000 });
+  });
+
+  it.each([
+    ['its price limit', { kind: 'price-limit' }, "The test run paid less than your 0.5% slippage allows. A wider slippage may let Jupiter's transaction run"],
+    ['a transfer short of SOL', { kind: 'low-sol', had: 1_200_000n, needed: 2_039_280n }, "The test run was short of SOL: one transfer in it needed 0.00203928 SOL and had 0.0012"],
+  ] as const)('why the test run refused (%s) is said in the notice, on the line and on the review, so the trader can act on it', async (_name, cause, why) => {
+    const buy = await jupiterShown();
+    h.simulateSwap.mockResolvedValue({ ...REFUSED, cause });
+    fireEvent.click(buy);
+    await waitFor(() => expect(routeLine()).toBe(`RouteJupiter quoted 1.01% more, but its transaction for this trade failed its test run, so the trade goes to our pool. ${why}.`), { timeout: 20_000 });
+    expect(h.toast.error).toHaveBeenCalledWith('Route changed', { description: `${OWN_ROUTE_COPY.jupiterRefused} ${why}.` });
+    fireEvent.click(await buyAgain());
+    await waitFor(() => expect(h.prepareVenueSwap).toHaveBeenCalledTimes(1), { timeout: 20_000 });
+    expect((h.prepareVenueSwap.mock.calls[0]![2] as VenueSwapArgs).aggregator).toEqual({ kind: 'refused', out: 1_000_000n, why });
+    expect(await screen.findByText(`Jupiter quoted 1.01% more, but its transaction for this trade failed its test run, so it could not be sent. ${why}`)).toBeInTheDocument();
+    expect(h.submitPrepared).not.toHaveBeenCalled();
+  });
+
+  it('the cause is kept with the refusal: a press that cannot test again still says it on the review', async () => {
+    const why = "The test run paid less than your 0.5% slippage allows. A wider slippage may let Jupiter's transaction run";
+    const buy = await jupiterShown();
+    h.simulateSwap.mockResolvedValue({ ...REFUSED, cause: { kind: 'price-limit' } });
+    fireEvent.click(buy);
+    await waitFor(() => expect(routeLine()).toMatch(/so the trade goes to our pool\. The test run paid less/), { timeout: 20_000 });
+    h.getQuote.mockImplementation(async () => { throw new Error('Quote unavailable (429)'); });
+    fireEvent.click(await buyAgain());
+    await waitFor(() => expect(h.prepareVenueSwap).toHaveBeenCalledTimes(1), { timeout: 20_000 });
+    expect((h.prepareVenueSwap.mock.calls[0]![2] as VenueSwapArgs).aggregator).toEqual({ kind: 'refused', out: 1_000_000n, earlier: true, why });
+    expect(await screen.findByText(`${FROM_LAST_PRESS}. ${why}`)).toBeInTheDocument();
   });
 });
 
@@ -1587,6 +1680,64 @@ describe('what a press writes lands only on the trade it was pressed for', () =>
     await waitFor(() => expect(h.toast.info).toHaveBeenCalledWith('Not sent', { description: OWN_ROUTE_COPY.formChanged }));
     expect(h.sendTransaction).not.toHaveBeenCalled();
     expect(h.buildSwapTransaction).not.toHaveBeenCalled();
+  });
+
+  describe('whatever our pools hold, the wallet is never asked for a pair the form no longer shows', () => {
+    const OTHER = 'Dog1111111111111111111111111111111111111111';
+    const USDC_MINT = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
+    const buyPick = () => screen.getByTestId('solana-receive').parentElement!.querySelector('button')!.textContent;
+    /** Arrive by a link whose token is still being looked up, type 0.1 SOL, and have Buy USDC live on `line`. */
+    async function arrivedByLink(line: RegExp) {
+      const looked = defer<unknown>();
+      h.resolveMint.mockImplementation((mint: string) => (mint === OTHER ? looked.p : Promise.resolve(null)));
+      window.history.replaceState(null, '', `/solana?out=${OTHER}`);
+      render(<MemoryRouter><SolanaSwapPage /></MemoryRouter>);
+      fireEvent.change(amountBox(), { target: { value: '0.1' } });
+      const buy = await screen.findByRole('button', { name: 'Buy USDC' }, { timeout: 20_000 });
+      await waitFor(() => expect(buy).toBeEnabled());
+      await waitFor(() => expect(routeLine()).toMatch(line));
+      /** The lookup answers, and the form shows the link's token. */
+      const land = async () => {
+        looked.release({ mint: OTHER, symbol: 'DOGGO', name: 'Doggo', decimals: 6, verified: false });
+        await waitFor(() => expect(buyPick()).toBe('DOGGO▾'));
+      };
+      return { buy, land };
+    }
+    const nothingWasSent = async () => {
+      await waitFor(() => expect(h.toast.info).toHaveBeenCalledWith('Not sent', { description: OWN_ROUTE_COPY.formChanged }), { timeout: 20_000 });
+      await waitFor(() => expect(screen.queryByRole('button', { name: 'Swapping…' })).toBeNull());
+      expect(h.sendTransaction).not.toHaveBeenCalled();
+      expect(h.toast.info).toHaveBeenCalledTimes(1);
+    };
+
+    it('a pair we have no pool for: the link’s token lands while Jupiter’s transaction is built, and the line under the form still names the trade pressed', async () => {
+      h.quoteVenuePools.mockImplementation(() => ({ state: 'absent', candidates: [] }));
+      const { buy, land } = await arrivedByLink(/Jupiter\. We have no pool for this pair\./);
+      const built = defer<string>();
+      h.buildSwapTransaction.mockImplementationOnce(() => built.p);
+      fireEvent.click(buy);
+      await waitFor(() => expect(h.buildSwapTransaction).toHaveBeenCalledTimes(1));
+      await land();
+      // The press is for SOL to USDC, whatever the form shows by now: its line never names the new token.
+      expect(screen.getByTestId('jupiter-swap-status').textContent).toBe('Through Jupiter: 0.1 SOL for about 1 USDC.');
+      built.release(TX_FEE);
+      await nothingWasSent();
+    });
+
+    it('a pair one of our pools quotes: the link’s token lands while the press asks Jupiter again, before our pools are read', async () => {
+      h.ownOut.value = 990_000n;
+      const { buy, land } = await arrivedByLink(/Jupiter pays/);
+      const fresh = defer<JupiterQuote>();
+      h.getQuote.mockImplementationOnce(() => fresh.p);
+      const asked = h.getQuote.mock.calls.length;
+      fireEvent.click(buy);
+      await waitFor(() => expect(h.getQuote.mock.calls.length).toBeGreaterThan(asked));
+      await land();
+      fresh.release({ ...jupiterQuote('1000000'), outputMint: USDC_MINT });
+      await nothingWasSent();
+      // Nothing of the old pair was built.
+      expect(h.buildSwapTransaction).not.toHaveBeenCalled();
+    });
   });
 
   it('a rail pick under a review, then a rebuild that finds Jupiter’s no-fee route: the new pair keeps its own quote', async () => {

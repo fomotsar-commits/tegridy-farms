@@ -58,6 +58,7 @@ interface Props {
   retry?: number;
   ownUnavailable?: string | null;
   aggregatorFail?: 'no-route' | 'unavailable' | null;
+  refusedWhy?: string | null;
 }
 
 async function harness() {
@@ -75,7 +76,7 @@ async function harness() {
       aggregatorRefused: props.aggregatorRefused,
       retry: props.retry,
     });
-    return <SolanaRouteLine route={route} ownUnavailable={props.ownUnavailable} aggregatorFail={props.aggregatorFail} />;
+    return <SolanaRouteLine route={route} ownUnavailable={props.ownUnavailable} aggregatorFail={props.aggregatorFail} refusedWhy={props.refusedWhy} />;
   };
 }
 
@@ -198,6 +199,18 @@ describe('when the venue AMM is live', () => {
       await mount({ aggregatorQuote: { outAmount: '1000000' }, aggregatorRefused: true });
       await waitFor(() => expect(line()).toBe('RouteOur pool pays 1% more than Jupiter.'));
       expect(isGreen()).toBe(true);
+    });
+
+    it('the cause the test run gave is said after it, so the trader can act on it; with no refusal on the line it is never said', async () => {
+      const WHY = "The test run paid less than your 0.5% slippage allows. A wider slippage may let Jupiter's transaction run";
+      quoteVenuePools.mockReturnValue(quoted(ours(990_000n)));
+      const { update } = await mount({ aggregatorQuote: { outAmount: '1000000' }, aggregatorRefused: true, refusedWhy: WHY });
+      await waitFor(() => expect(line()).toBe(`Route${REFUSED}, so the trade goes to our pool. ${WHY}.`));
+      update({ aggregatorQuote: { outAmount: '1000000' }, aggregatorRefused: true, refusedWhy: WHY, ownUnavailable: 'the swap code did not load' });
+      await waitFor(() => expect(line()).toMatch(/so the next press tests Jupiter's transaction again\. The test run paid less than your 0\.5% slippage allows\./));
+      // The refusal is over (the plain comparison is back): its cause goes with it.
+      update({ aggregatorQuote: { outAmount: '1000000' }, aggregatorRefused: false, refusedWhy: WHY });
+      await waitFor(() => expect(line()).toBe('RouteJupiter pays 1.01% more than our pool.'));
     });
 
     it('when a swap in our pool cannot be prepared here, neither is called the route', async () => {

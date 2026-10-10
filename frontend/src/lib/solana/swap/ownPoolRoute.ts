@@ -52,13 +52,17 @@ export interface OwnPoolSwapDeps {
  * the aggregator cannot be asked again, so a pool is never taken at less than the last
  * figure the trader saw beside it. With neither, the swap is built and its review says
  * the aggregator could not be asked: an unanswered question is never "no route".
+ * `refusedShownOut`: the quote on screen is of a transaction that failed its test run. It
+ * holds the pool to nothing, and when the aggregator cannot be asked again the review still
+ * says that refusal and its figure, as an earlier press's.
  */
-export async function prepareOwnPoolSwap(deps: OwnPoolSwapDeps, shownAggregatorOut: bigint | null): Promise<Prepared> {
+export async function prepareOwnPoolSwap(deps: OwnPoolSwapDeps, shownAggregatorOut: bigint | null, refusedShownOut: bigint | null = null): Promise<Prepared> {
+  const lastSeen = (): AggregatorSeen => {
+    if (refusedShownOut !== null) return { kind: 'refused', out: refusedShownOut, earlier: true };
+    return shownAggregatorOut === null ? { kind: 'unreachable' } : { kind: 'quoted', out: shownAggregatorOut, when: 'earlier' };
+  };
   const [agg, own] = await Promise.all([
-    deps.aggregatorOut().then(
-      (out): AggregatorSeen => (out === null ? { kind: 'no-route' } : { kind: 'quoted', out, when: 'now' }),
-      (): AggregatorSeen => (shownAggregatorOut === null ? { kind: 'unreachable' } : { kind: 'quoted', out: shownAggregatorOut, when: 'earlier' }),
-    ),
+    deps.aggregatorOut().then((out): AggregatorSeen => (out === null ? { kind: 'no-route' } : { kind: 'quoted', out, when: 'now' }), lastSeen),
     deps.ownPools(),
   ]);
   if (own.length === 0) return notBuilt(OWN_ROUTE_COPY.poolGone);

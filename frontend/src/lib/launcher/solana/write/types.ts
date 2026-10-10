@@ -316,12 +316,14 @@ export type TxSummary =
  * or `earlier` when the figure on screen stood in), it has no route, it could not be
  * asked at all, and `refused`: it quoted `out`, more than our pool, but the transaction this
  * site would send for that quote failed its own test run, so it was never a route to take.
+ * `earlier`: that test run was an earlier press's, and this one could not check it again.
+ * `why`: the cause that test run gave, as a sentence for the trader (jupiterFeeRetry.ts).
  */
 export type AggregatorSeen =
   | { kind: 'quoted'; out: bigint; when: 'now' | 'earlier' }
   | { kind: 'no-route' }
   | { kind: 'unreachable' }
-  | { kind: 'refused'; out: bigint };
+  | { kind: 'refused'; out: bigint; earlier?: true; why?: string };
 
 /**
  * A swap in one of our pools, as the review shows it. The amounts are decoded from the

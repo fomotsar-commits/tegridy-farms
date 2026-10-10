@@ -247,7 +247,7 @@ export const KNOWLEDGE_BASE: KnowledgeEntry[] = [
   // coins are priced in SOL: never call them island coins or "born in $BAYLA".
   {
     keywords: ['network', 'chain', 'switch', 'mainnet', 'chains'],
-    answer: "Four chains. TOWELI staking, farming and the launchers run on Ethereum mainnet; the Memetics Curve also launches on Base and Robinhood Chain — wrong chain and your wallet shows a 'Switch' button, hit it. On Solana, /solana sends an SPL trade to one of our own pools when it pays you at least as much as Jupiter, and through Jupiter otherwise, and /curve-launch is our own Solana curve: anyone can trade there, and a maker at Resident or better can launch through the memetics.finance gate. The token scanner reads EVM and Solana both.",
+    answer: "Four chains. TOWELI staking, farming and the launchers run on Ethereum mainnet; the Memetics Curve also launches on Base and Robinhood Chain — wrong chain and your wallet shows a 'Switch' button, hit it. On Solana, /solana sends an SPL trade to one of our own pools when it pays you at least as much as Jupiter, and through Jupiter otherwise. If Jupiter's transaction would fail its test run, the page offers the trade in our pool and says how much less it pays. /curve-launch is our own Solana curve: anyone can trade there, and a maker at Resident or better can launch through the memetics.finance gate. The token scanner reads EVM and Solana both.",
   },
   {
     // The bump wins "launch a token on solana" from the EVM launch entry; the phrases win
@@ -258,7 +258,7 @@ export const KNOWLEDGE_BASE: KnowledgeEntry[] = [
   },
   {
     keywords: ['jupiter', 'jup', 'swap solana', 'solana swap'],
-    answer: "Jupiter is one of the two routes behind /solana: it shops your trade across Solana's DEXes. When one of our own pools pays you at least as much, the trade goes to that pool instead. A Jupiter trade's platform fee is shown before you sign, every time; our pools add none on top.",
+    answer: "Jupiter is one of the two routes behind /solana: it shops your trade across Solana's DEXes. When one of our own pools pays you at least as much, the trade goes to that pool instead. A Jupiter trade's platform fee is shown before you sign, every time. A swap in one of our pools pays that pool's own fee inside the quote: 1% of the trade on a public pool, with 0.16% of the trade going to the venue. No platform fee is added on top.",
   },
   {
     // The Meteora rail was retired 2026-08-23; anyone asking about it gets that answer.

@@ -13,6 +13,8 @@ import { ownPoolSwapsOn } from '../lib/solana/swap/ownPoolSwapFlag';
 import { TOWELI_FAQ_DATA, venueFaq } from '../lib/faqData';
 import { KNOWLEDGE_BASE, answerQuestion } from '../lib/towelieKnowledge';
 import { ONBOARDING_SURFACES } from '../components/onboarding/onboardingSteps';
+import { feeSplit } from '../lib/solana/cpswap/venue';
+import { pctText } from '../lib/solana/lp/format';
 
 const FRONTEND = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 /** Source text with every run of whitespace as one space, so a re-wrapped line still matches. */
@@ -34,7 +36,7 @@ const PLACES: { file: string; gone: string[]; says: string }[] = [
     gone: ['Swap Solana tokens via Jupiter', 'On Solana we swap through Jupiter', 'routed through Jupiter', "stat: 'Jupiter'", 'Jupiter-routed swap'],
     says: 'our own pools or through Jupiter',
   },
-  { file: 'src/pages/SolanaSwapPage.tsx', gone: ['fee applies on the SOL buy'], says: 'when the buy goes through Jupiter; our pools add none on top' },
+  { file: 'src/pages/SolanaSwapPage.tsx', gone: ['fee applies on the SOL buy', 'our pools add none on top'], says: 'fee applies when the buy goes through Jupiter. A buy in one of our pools pays that pool' },
   {
     file: 'src/components/solana/lp/LpDisclosures.tsx',
     gone: ['Jupiter does not send trades to these pools yet, so the trades'],
@@ -90,6 +92,26 @@ describe('the site says where a Solana swap goes', () => {
       expect(a, q).toMatch(/no (?:platform |site )?fee|add(?:s)? no/i);
       expect(a, q).not.toContain('—');
     }
+  });
+
+  // "Our pools add none on top" is true of a platform fee and reads as "our pools charge
+  // nothing". A swap in our pool pays the pool's own fee, and the venue keeps part of it.
+  it('where our pools are said to add no platform fee, the pool’s own fee is said too, and what the venue keeps of it', () => {
+    // The public fee tier as mainnet holds it (the tier every pool of ours is on today).
+    const tier = feeSplit({ tradeFeeRate: 10_000n, protocolFeeRate: 160_000n, fundFeeRate: 0n });
+    const a = answerQuestion('jupiter');
+    expect(a).toContain(`pays that pool's own fee inside the quote: ${pctText(tier.tradeFeePct)} of the trade on a public pool, with ${pctText(tier.venueTakesPct)} of the trade going to the venue.`);
+    expect(a).toContain('No platform fee is added on top.');
+    const page = shown('src/pages/SolanaSwapPage.tsx');
+    const rail = page.slice(page.indexOf('function EarnRail('), page.indexOf('function ActivityRail('));
+    expect(rail).toContain("A buy in one of our pools pays that pool's own fee inside the quote, and no platform fee on top.");
+    for (const text of [a, rail]) expect(text).not.toMatch(/add none on top/);
+  });
+
+  it('the assistant’s rule for where a swap goes names the one case where our pool is offered at less', () => {
+    const rule = KNOWLEDGE_BASE.map((e) => e.answer).filter((x) => x.includes('at least as much as Jupiter, and through Jupiter otherwise'));
+    expect(rule).toHaveLength(1);
+    expect(rule[0]).toContain("and through Jupiter otherwise. If Jupiter's transaction would fail its test run, the page offers the trade in our pool and says how much less it pays. /curve-launch is");
   });
 
   it('the home page, the footer and the welcome never say Jupiter alone', () => {
