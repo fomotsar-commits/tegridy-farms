@@ -50,8 +50,8 @@ const stripComments = (s: string) => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(
 const SHAPES: { id: string; re: RegExp }[] = [
   // "activates once the native pool is live", "opens with the native pool", "kicks in when…"
   { id: 'WAITS_ON_THE_POOL', re: /\b(?:activate|start|begin|open|kick|switch|turn)\w*\b[^.;]{0,60}\bnative[- ]pool\b/i },
-  // "…route to stakers once the native pool is live"
-  { id: 'WAITS_ON_THE_POOL_STATE', re: /\bnative[- ]pool (?:launches|goes live|is live|is trading|opens|comes online)\b/i },
+  // "…route to stakers once the native pool is live", "first at native-pool launch"
+  { id: 'WAITS_ON_THE_POOL_STATE', re: /\bnative[- ]pool (?:launch(?:es)?|goes live|is live|is trading|opens|comes online)\b/i },
   // "five sixths of it accrues into the reserves", "swap fees split 5/6 to LPs"
   { id: 'LPS_ON_FIVE_SIXTHS', re: /\bfive[- ]sixths\b|\b5\/6 (?:to|goes to|stays? with|for) (?:the )?(?:LPs?|liquidity|pool)/i },
   // "a 0.5% protocol fee that flows to TOWELI stakers"
