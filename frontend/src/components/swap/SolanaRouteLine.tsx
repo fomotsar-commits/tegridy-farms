@@ -22,7 +22,7 @@ export interface SolanaRouteLineProps {
 }
 
 export function SolanaRouteLine({ route, ownUnavailable = null, aggregatorFail = null }: SolanaRouteLineProps) {
-  const { venue, own, decision, aggregatorLabel, asking } = route;
+  const { venue, own, decision, aggregatorRefused, aggregatorLabel, asking } = route;
   if (!venue) return asking ? <RouteShell>Comparing our pools with {aggregatorLabel}…</RouteShell> : null;
 
   // Before there is an amount there is no route to name. With the venue live the page's
@@ -59,7 +59,13 @@ export function SolanaRouteLine({ route, ownUnavailable = null, aggregatorFail =
   const won = decision.chosen.venue === 'own-pool';
 
   let reason: string = decision.reason;
-  if (won && ownUnavailable) {
+  if (won && aggregatorRefused) {
+    // The aggregator did quote, and more: never "only our pool quoted this pair".
+    const refused = `${aggregatorLabel} quoted more, but its transaction for this trade failed its test run`;
+    reason = ownUnavailable
+      ? `${refused}, and a swap in our pool cannot be prepared here right now (${ownUnavailable}), so the next press tests ${aggregatorLabel}'s transaction again.`
+      : `${refused}, so the trade goes to our pool.`;
+  } else if (won && ownUnavailable) {
     const more =
       decision.edge !== null && decision.edge > 0 ? `${edgePercent(decision.edge)} more output than` : 'the same output as';
     reason = decision.runnerUp

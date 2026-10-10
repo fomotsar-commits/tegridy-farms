@@ -58,6 +58,11 @@ export interface SolanaRouteInput {
    * until it lands: the quote in hand is for another amount. Our pools are read meanwhile.
    */
   aggregatorPending?: boolean;
+  /**
+   * The aggregator's transaction for THIS pair and amount failed its test run, so this site
+   * would not send it. While one of our pools quotes, that quote takes no trade from it.
+   */
+  aggregatorRefused?: boolean;
   /** Bumped by the page's "Try again": a pools read that failed is made again with it. */
   retry?: number;
   aggregatorLabel?: string;
@@ -72,6 +77,8 @@ export interface SolanaRoute {
   candidates: VenuePoolCandidate[];
   /** The decision for this pair, amount and aggregator quote; null before there is one. */
   decision: RouteDecision | null;
+  /** The aggregator quoted more and is left out of the decision: its transaction failed its test run. */
+  aggregatorRefused: boolean;
   aggregatorLabel: string;
   /** An amount is typed and an answer it waits on (the aggregator's or the venue's) is still on its way. */
   asking: boolean;
@@ -81,7 +88,7 @@ export interface SolanaRoute {
   forget(): void;
 }
 
-export function useSolanaRoute({ inputMint, outputMint, amountInRaw, aggregatorQuote, aggregatorPending = false, retry = 0, aggregatorLabel = 'Jupiter' }: SolanaRouteInput): SolanaRoute {
+export function useSolanaRoute({ inputMint, outputMint, amountInRaw, aggregatorQuote, aggregatorPending = false, aggregatorRefused = false, retry = 0, aggregatorLabel = 'Jupiter' }: SolanaRouteInput): SolanaRoute {
   const [venue, setVenue] = useState<VenueStatus | null>(null);
   // The pools read is the only asynchronous input, and it is KEYED by the pair, so an
   // answer for a previous pair is discarded by derivation. A pair's pools are the same
@@ -155,12 +162,16 @@ export function useSolanaRoute({ inputMint, outputMint, amountInRaw, aggregatorQ
     if (added.length > 0 || shownPools.current.key !== pairKey) shownPools.current = { key: pairKey, addresses: [...kept, ...added] };
   }, [pairKey, candidates]);
 
-  const decision: RouteDecision | null = useMemo(() => {
+  const quotedRoute: RouteDecision | null = useMemo(() => {
     if (!venue || !hasAmount || aggregatorPending) return null;
     const agg = aggregatorCandidate(aggregatorQuote, aggregatorLabel);
     const all = [...candidates, agg].filter((c): c is RouteCandidate => c !== null);
     return all.length ? chooseRoute(all) : null;
   }, [venue, hasAmount, aggregatorPending, aggregatorQuote, aggregatorLabel, candidates]);
+  // A quote whose transaction this site would not send is no better route than a pool
+  // that quotes: swap/ownPoolRoute.ts holds the same when Buy is pressed.
+  const refusedAway = aggregatorRefused && candidates.length > 0 && quotedRoute?.chosen?.venue === 'aggregator';
+  const decision = useMemo(() => (refusedAway ? chooseRoute(candidates) : quotedRoute), [refusedAway, candidates, quotedRoute]);
 
   const refresh = useCallback(
     async (amountIn: bigint): Promise<VenuePoolCandidate[] | null> => {
@@ -181,5 +192,5 @@ export function useSolanaRoute({ inputMint, outputMint, amountInRaw, aggregatorQ
     setForgot((n) => n + 1);
   }, []);
 
-  return { venue, own, candidates, decision, aggregatorLabel, asking: hasAmount && (aggregatorPending || venue === null), refresh, forget };
+  return { venue, own, candidates, decision, aggregatorRefused: refusedAway, aggregatorLabel, asking: hasAmount && (aggregatorPending || venue === null), refresh, forget };
 }

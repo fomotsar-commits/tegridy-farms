@@ -8,6 +8,7 @@ page keeps the newest thirty days.
 
 ### 2026-10-08
 
+- Solana swap: when Jupiter quotes more but its transaction for your trade fails its test run, and one of our pools quotes the trade, the page now moves the trade to our pool and says why. Before, every press of Buy ended on "Swap would fail" and our pool was never offered.
 - Solana swap: a read that fails or is slow no longer decides where your trade goes. When our pools or Jupiter could not be read, the page says so instead of "No route" or "cannot be traded", and Buy reads our pools again before anything is sent; when a press could not read them at all, nothing is sent. A Jupiter transaction that would fail its own test run no longer turns the trade away from our pool, and on a pair where Jupiter's real transaction carries no site fee, every later quote of that pair is compared on that figure.
 - Solana swap: while a swap through Jupiter is on its way to your wallet, the form, the tabs and the token rails are held and the page describes that trade, not our pool's. A swap is kept in your activity under the wallet that signed it, even if you switch accounts before it lands, and your balance is read again after any swap.
 - Token names in wallets: the files a wallet reads now name our tokens by the bungalow and then by what the token does: Bayla Staking for the lighthouse staking receipt, Bayla LP SOL and Bayla LP USDC for the two pool shares. The short tickers are unchanged.

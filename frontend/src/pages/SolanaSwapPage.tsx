@@ -1258,6 +1258,10 @@ function SolanaSwapInner() {
   // no-fee one is what this site sends (swap/jupiterFeeRetry.ts). Kept for the pair, not
   // on one quote: every quote of it is the no-fee one until a fee-bearing build runs clean.
   const noFeePairs = useRef<Set<string>>(new Set());
+  // The trade (pay|buy|amount) whose Jupiter transaction failed its test run with one of
+  // our pools quoting it: its quote is no route for that trade (useSolanaRoute). Dropped
+  // when a later press finds the transaction would run.
+  const [refusedTrade, setRefusedTrade] = useState<string | null>(null);
   const [quoteLoading, setQuoteLoading] = useState(false);
   // Why there is no quote, when one was asked for and none came back.
   // 'no-route' is ONLY the quote service's own answer (lib/jupiter.ts
@@ -1392,7 +1396,12 @@ function SolanaSwapInner() {
     () => (quote ? { outAmount: quote.outAmount, priceImpactPct: quote.priceImpactPct } : null),
     [quote],
   );
-  const route = useSolanaRoute({ inputMint: payToken.mint, outputMint: buyToken.mint, amountInRaw, aggregatorQuote, aggregatorPending: quoteLoading, retry: quoteAttempt });
+  // The trade on the form: what a press was for, and what a refusal of Jupiter's transaction is kept for.
+  const formKey = `${payToken.mint}|${buyToken.mint}|${baseAmount ?? ''}`;
+  const route = useSolanaRoute({
+    inputMint: payToken.mint, outputMint: buyToken.mint, amountInRaw, aggregatorQuote,
+    aggregatorPending: quoteLoading, aggregatorRefused: refusedTrade === formKey, retry: quoteAttempt,
+  });
   const forgetPools = route.forget;
 
   // What a swap in our own pool was, kept from the press of Buy for when it settles:
@@ -1513,7 +1522,6 @@ function SolanaSwapInner() {
 
   // The trade on the form, for a press that answers late (ownPoolTakesIt). Updated after
   // each render, never during one.
-  const formKey = `${payToken.mint}|${buyToken.mint}|${baseAmount ?? ''}`;
   const formNow = useRef(formKey);
   useEffect(() => {
     formNow.current = formKey;
@@ -1631,7 +1639,8 @@ function SolanaSwapInner() {
     const [inputMint, outputMint, bps] = [payToken.mint, buyToken.mint, slippageBps];
     let shownAggregatorOut: bigint | null = null;
     try {
-      shownAggregatorOut = quote ? BigInt(quote.outAmount) : null;
+      // The quote of a transaction that failed its test run holds our pool to nothing.
+      shownAggregatorOut = quote && !route.aggregatorRefused ? BigInt(quote.outAmount) : null;
     } catch { /* unparseable: it is asked again below */ }
     const said = sideWords(payToken, buyToken);
     // The card for an ending that has to be read is its own chunk: asked for now, before
@@ -1709,13 +1718,21 @@ function SolanaSwapInner() {
           },
           shownAggregatorOut,
         );
-        // Nothing here writes to the page: the form may hold another trade by now, and the
+        // "Jupiter now pays more": its transaction was not refused this time, so a refusal
+        // kept for the trade pressed is dropped and its route is on the line again.
+        if (!built.ok && built.outcome.message === OWN_ROUTE_COPY.routeMoved) setRefusedTrade((k) => (k === formKey ? null : k));
+        // Nothing else here writes to the page: the form may hold another trade by now, and the
         // settle's re-quote puts Jupiter's no-fee route on screen when that is what took it.
         return built;
       },
       { repeatable: true },
     );
   }
+
+  // Whether a press on Jupiter's route may end on our pool. Not when our pools were found
+  // to hold nothing for this pair, and not when a swap in them cannot be prepared here:
+  // the route would change to one that cannot run.
+  const ownMayCompete = !venueSwap.unavailable && (route.own === 'quoted' || route.own === 'pending' || route.own === 'error');
 
   /**
    * THE ROUTE, HELD AT THE CLICK, with Jupiter on screen. If one of our pools, read
@@ -1726,10 +1743,7 @@ function SolanaSwapInner() {
    */
   async function ownPoolTakesIt(q: JupiterQuote, noSiteFee: boolean): Promise<boolean> {
     const pressedFor = formNow.current;
-    // Not when our pools were found to hold nothing for this pair, and not when a swap
-    // in them cannot be prepared here: the route would change to one that cannot run.
-    const mayCompete = !venueSwap.unavailable && (route.own === 'quoted' || route.own === 'pending' || route.own === 'error');
-    if (!mayCompete || !baseAmount) return false;
+    if (!ownMayCompete || !baseAmount) return false;
     let aggregatorOut: bigint;
     try {
       aggregatorOut = BigInt(q.outAmount);
@@ -1754,6 +1768,22 @@ function SolanaSwapInner() {
     if (noSiteFee) setWaivedQuote(q);
     setQuote(q);
     toast.error('Route changed', { description: OWN_ROUTE_COPY.ownNowWins });
+    return true;
+  }
+
+  /**
+   * Jupiter's transaction for the trade pressed failed its test run, so it is not sent.
+   * If one of our pools, read again now, quotes that trade, the refusal is kept for it:
+   * the line names our pool and why, and the next press builds there. A read that fails
+   * or hangs, or a pool that cannot quote, leaves the press to end as it did.
+   */
+  async function ownPoolInstead(): Promise<boolean> {
+    if (!ownMayCompete || !baseAmount) return false;
+    const own = await within<Awaited<ReturnType<typeof route.refresh>>>(route.refresh(BigInt(baseAmount)), OWN_CHECK_MS, null);
+    if (!own?.length) return false;
+    // Kept for the trade pressed, whatever the form shows by now.
+    setRefusedTrade(formKey);
+    toast.error('Route changed', { description: OWN_ROUTE_COPY.jupiterRefused });
     return true;
   }
 
@@ -1829,6 +1859,9 @@ function SolanaSwapInner() {
         },
       );
       if (prepared.status === 'blocked') {
+        // A refused transaction is no route, so our pool is offered. One whose test run
+        // could not run was not refused: nothing was found about it.
+        if (!prepared.unchecked && (await ownPoolInstead())) return;
         toast.error('Swap would fail — not sending', { description: prepared.reason ?? 'Simulation reverted on-chain.' });
         return;
       }

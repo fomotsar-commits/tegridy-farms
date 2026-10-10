@@ -15,6 +15,7 @@ export const OWN_ROUTE_COPY = {
   underLastQuote: 'Our own pool now pays less than the last quote Jupiter gave, and Jupiter could not be asked again just now, so nothing was sent. Check the route and press again.',
   poolGone: 'Our own pool could not be quoted just now, so nothing was sent. Press again.',
   ownNowWins: 'Our own pool now pays at least as much as Jupiter for this trade. Check the new route and press again.',
+  jupiterRefused: 'Jupiter quoted more, but its transaction for this trade failed its test run, so nothing was sent. Our own pool quotes this trade. Check the new route and press again.',
   notChecked: 'Our own pools did not answer in time, so nothing was sent. Press again.',
   formChanged: 'The trade on the form changed while its route was being checked, so nothing was sent.',
 } as const;
