@@ -154,6 +154,6 @@ describe('the tab bar leaves room for the band', () => {
     );
     const fixed = container.querySelector<HTMLElement>('div.fixed');
     expect(fixed).not.toBeNull();
-    expect(fixed!.style.top).toBe('calc(56px + var(--room-band-h, 0px))');
+    expect(fixed!.style.top).toBe('calc(56px + env(safe-area-inset-top, 0px) + var(--room-band-h, 0px))');
   });
 });

@@ -147,11 +147,6 @@
   box-sizing: border-box;
 }
 
-/* iOS safe area support for bottom nav */
-.safe-area-bottom {
-  padding-bottom: env(safe-area-inset-bottom, 0px);
-}
-
 /* iPhone 14 Pro notch-safe padding for fixed bottom elements.
    Use this on BottomNav and any fixed CTA that must clear the home indicator.
    TODO: verify <meta name="viewport" content="... viewport-fit=cover"> in index.html
