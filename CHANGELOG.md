@@ -13,6 +13,8 @@ page keeps the newest thirty days.
 - Solana LP: two short cards under your positions say how you earn and how the venue earns, with the rates read from the chain and the team's shared wallet as an address you can check.
 - Solana LP: a position and a pool card also say the pace so far and how long it covers, when the pool's own fee record shows that trades paid for it. It is measured from the chain and is never a forecast.
 - Solana LP: a read that never answers now ends after 20 seconds and says so.
+- Solana LP, Add liquidity: each amount box has 25%, 50% and 75% buttons beside Max. For SOL the percent is of what can go in after fees and account deposits, not of your whole balance, and the other amount follows the pool as before.
+- Solana LP, Add liquidity: a short "What if the price moves" table under Review says how a position compares with just holding both tokens: the same if the price ends where it was, about 5.7% less if it doubles or halves, 20% less at 4 times or a quarter. Fees are not counted in it, and it is arithmetic, not a forecast.
 
 ### 2026-10-08
 
