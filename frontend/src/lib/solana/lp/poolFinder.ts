@@ -39,8 +39,9 @@ import { QUOTE_COINS, quotesFor, readPair, type QuoteCoin } from './quotes';
  * pool, and trade THIS token against one of those coins (`readPair`: every pool has one
  * reading, so a BAYLA/SOL pool is BAYLA's and never SOL's); its vaults must be initialized accounts of the
  * token programs it names (and a frozen vault is said); its fee settings are read from
- * its own config account; a launch pool's own price record is read too. Reads cost three
- * RPC calls in all, however many pools there are (up to 100 per call).
+ * its own config account; its own price record is read too (every pool's: it says when
+ * the pool last traded, poolPast.ts). Reads cost two RPC rounds in all, however many
+ * pools there are (100 accounts a call: 25 pools a call in the second round).
  */
 
 export type PoolOrigin = 'launch-pool' | 'standard' | 'other';
@@ -70,7 +71,7 @@ export interface PoolView {
    * pools are in scope and this can happen.
    */
   vaultsFrozen: boolean;
-  /** The pool's own price record: read for a launch pool only (see ownPrice.ts). */
+  /** The pool's own price record, read for every pool (ownPrice.ts decodes it; poolPast.ts reads its last trade). */
   history: PoolHistory;
 }
 
@@ -139,8 +140,8 @@ function firstLook(address: string, a: RawAccount | null, opts: ReadPoolsOptions
 }
 
 /**
- * The second look: the pool's vaults, its fee settings and (a launch pool only) its
- * price record, all read already. `observation` is ignored for any other pool.
+ * The second look: the pool's vaults, its fee settings and its price record, all read
+ * already. The record must name this pool, or it is unread.
  */
 function secondLook(
   address: string,
@@ -171,18 +172,15 @@ function secondLook(
   if (launchPool) origin = 'launch-pool';
   else if (address === derivePool(a.opts.programId, new PublicKey(pool.ammConfig), token0, token1).toBase58()) origin = 'standard';
 
-  let history: PoolHistory = { kind: 'not-read' };
-  if (launchPool) {
-    const acc = a.observation;
-    const obs = acc && acc.owner === program ? decodeObservationState(acc.data) : null;
-    history = !acc
-      ? { kind: 'unread', detail: 'its price record account is missing' }
-      : !obs
-        ? { kind: 'unread', detail: 'its price record is not one the pool program wrote' }
-        : new PublicKey(obs.poolId).toBase58() !== address
-          ? { kind: 'unread', detail: 'its price record belongs to another pool' }
-          : { kind: 'ok', obs };
-  }
+  const acc = a.observation;
+  const obs = acc && acc.owner === program ? decodeObservationState(acc.data) : null;
+  const history: PoolHistory = !acc
+    ? { kind: 'unread', detail: 'its price record account is missing' }
+    : !obs
+      ? { kind: 'unread', detail: 'its price record is not one the pool program wrote' }
+      : new PublicKey(obs.poolId).toBase58() !== address
+        ? { kind: 'unread', detail: 'its price record belongs to another pool' }
+        : { kind: 'ok', obs };
 
   return {
     kind: 'pool',
@@ -204,9 +202,9 @@ function secondLook(
 
 /**
  * One pool's entry from accounts already read: the pool, its two vaults, its fee
- * settings and its price record (read for every pool, used for a launch pool only).
- * Pure. `readPools` builds every entry with it, and the liquidity builders build the
- * pool they write to with it from their own single read, so both judge a pool alike.
+ * settings and its price record. Pure. `readPools` builds every entry with it, and the
+ * liquidity builders build the pool they write to with it from their own single read,
+ * so both judge a pool alike.
  */
 export function poolViewFrom(a: {
   address: string;
@@ -224,8 +222,8 @@ export function poolViewFrom(a: {
 
 /**
  * Read the pools at `addresses` (in that order, one entry each) plus the chain clock.
- * Two getMultipleAccounts rounds: the pools and the clock, then every vault and config
- * (and a launch pool's price record).
+ * Two getMultipleAccounts rounds: the pools and the clock, then every pool's two vaults,
+ * config and price record.
  */
 export async function readPools(rpc: SolanaRpc, addresses: string[], opts: ReadPoolsOptions): Promise<PoolsRead> {
   let first: (RawAccount | null)[];
@@ -246,15 +244,9 @@ export async function readPools(rpc: SolanaRpc, addresses: string[], opts: ReadP
   });
   if (!candidates.length) return { kind: 'ok', entries, chainNow };
 
-  // Every vault and config, then each launch pool's price record (at most one per token:
-  // only the launch program can open one, and only its deposit check leans on it).
-  const second = candidates.flatMap(({ pool }) => [pool.token0Vault, pool.token1Vault, pool.ammConfig]);
-  const historyAt = new Map<number, number>();
-  candidates.forEach(({ pool, launchPool }, k) => {
-    if (!launchPool) return;
-    historyAt.set(k, second.length);
-    second.push(pool.observationKey);
-  });
+  // Four accounts a pool: both vaults, its config and its price record (the record says
+  // when the pool last traded, so every pool's is read, not only the launch pool's).
+  const second = candidates.flatMap(({ pool }) => [pool.token0Vault, pool.token1Vault, pool.ammConfig, pool.observationKey]);
   let vaults: (RawAccount | null)[];
   try {
     vaults = await getMultipleAccounts(rpc, second);
@@ -265,12 +257,11 @@ export async function readPools(rpc: SolanaRpc, addresses: string[], opts: ReadP
   }
 
   candidates.forEach(({ i, pool, launchPool }, k) => {
-    const h = historyAt.get(k);
     entries[i] = secondLook(addresses[i]!, pool, launchPool, {
-      vault0: vaults[3 * k] ?? null,
-      vault1: vaults[3 * k + 1] ?? null,
-      config: vaults[3 * k + 2] ?? null,
-      observation: h === undefined ? null : vaults[h] ?? null,
+      vault0: vaults[4 * k] ?? null,
+      vault1: vaults[4 * k + 1] ?? null,
+      config: vaults[4 * k + 2] ?? null,
+      observation: vaults[4 * k + 3] ?? null,
       opts,
     });
   });

@@ -29,6 +29,160 @@ stop and say so — a surprise is information.
 
 ---
 
+## 🔴 2026-10-09: one list of everything open, from every session
+
+Written after a read-only sweep of all 43 open pull requests, every recent session and the
+pending-work notes. Each area was read by one agent and re-checked by a second. Nothing was
+merged or changed by the sweep. Where an older section below disagrees, this one is newer.
+
+### Only you can do these, soonest first
+
+- ⬜ **O-1009-1: send the TOWELI staking top-up** you decided on 2026-09-17. It had not been sent
+  when read on 2026-10-09. Say which wallet it comes from; a session re-reads the numbers after.
+- ⬜ **O-1009-2: database migrations, before 2026-10-16.** 026 is not applied (the hourly retention
+  job says so), and the Privacy page says error reports start on the 16th. Paste 024, 025 and 026
+  by hand in the SQL editor, in that order, in one sitting. Add 027 if you want the 90-day
+  analytics limit (PR #695): its first run deletes older analytics for good, so export first if
+  you want a copy. Never `supabase db push`.
+- ⬜ **O-1009-3: answer O-0929-12 (PR #775), yes or no.** Are the two Solana programs inside the
+  security policy? It has to be settled before the pool-program upgrade.
+- ⬜ **O-1009-4: the pool-program upgrade.** The pack is ready. It needs 3.90 SOL in the deploy
+  wallet `CqcVvaMvesrSKrUSbqBqr9mLjKLJuYqhaXg1gXpR41cg` (about 3.68 comes back) and both
+  multisig members, on the pack's own page and never in the Squads app. Tell a session before
+  you start: draft PR #776 has to go out in the same hour, and not before.
+- ⬜ **O-1009-5: name the staking receipt.** Steps 3 and 4 of the 2026-10-07 section below. Not run
+  as of 2026-10-09.
+- ⬜ **O-1009-6: two forms.** Jupiter verification for BAYLA (its pack is in the release folder),
+  and Phantom's review form for the "could be malicious" warning. If Phantom's is already filed,
+  say so and this closes.
+- ⬜ **O-1009-7: turn on branch protection for `mvp-launch`.** Pick the required checks knowing
+  that draft #776 keeps three checks red on purpose until upgrade day.
+- ⬜ **O-1009-8: one sitting with real phones.** A Galaxy inside Phantom (after PR #751 is
+  repaired), adding liquidity from Trust on Android, the Solana wallet list on Android (PR #722),
+  the room doors and `/nb1` on an iPhone.
+- ⬜ **O-1009-9: send the island its reply** (the answer-seventeen block), if it has not gone. The
+  next block must also say the BAYLA tick box went on 2026-10-08 (PR #769).
+- ⬜ **O-1009-10: BAYLA ladder rewards stop 2026-12-23T15:32Z.** Decide the amount and where the
+  BAYLA comes from by mid-November. The reload is signed by both multisig members from the
+  multisig's own BAYLA account, which has to be funded first.
+- ⬜ **O-1009-11: look at two cloud sessions on claude.ai/code.** They wrote
+  `claude/intelligent-edison-s91nxi` (27 swap fixes, plus wording on the home page, FAQ and
+  footer) and `claude/zealous-heisenberg-yc9dbp` (adding liquidity from Trust on a phone is
+  reported as "You cancelled"). Neither branch has a pull request.
+- ⬜ **O-1009-12: small, whenever.** Delete the stale Vercel project `tegridyfarms-three`. Check why
+  Dependabot has not run since 2026-09-21. Confirm the offline key backup is finished. Check
+  auto-renew on memetics.finance (registered 2026-08-02 for one year). Look at Railway once
+  after PR #768 merges. GitLab's secret stays parked, as you asked on 2026-10-02.
+
+### One word from you, then a session does it (every merge is a production deploy)
+
+- ⬜ **M-1009-1:** #778, #779 and #780. Small and green. #778 and #779 clash in NOTES.md only.
+- ⬜ **M-1009-2: the reads train**, in this order: #768, #761, #763 (with its owed test), #766,
+  #767, then the notes #762 and #764. Each is refreshed right before its turn and its changelog
+  line moves under the merge day. About five hours of check time in all.
+- ⬜ **M-1009-3: the housekeeping train**, one merge: #712, #711, #707, #708 (without its Pools
+  page change, trunk has its own), #736, the notes #710 #739 #744 #747, then #608 and #620.
+- ⬜ **M-1009-4:** #732 (Pools opens the Solana LP tab) after a refresh, and the notes #731.
+- ⬜ **M-1009-5: phone and tablet fixes.** Quick after a refresh: #738, #735, #699, #740 (keep
+  trunk's Copy link), #741. After their own repairs: #751, #723, #743. #746 after #738.
+- ⬜ **M-1009-6: close** #721, #639 and #701. Close #737 and have its launch-pool deposit check
+  rebuilt small (warn, not refuse). #660 and #658 stay parked: Streamflow pins web3.js 1.98.4.
+
+### A session can start these on your go-ahead
+
+- ⬜ **C-1009-1: save the work that exists only on this PC.** Commit and push, no merges: the
+  island's first PR (`feat/island-review-pr1`), the pool redesign (`feat/solana-lp-5d` and its
+  task branches), the "offer our pool" fix, the opening-price check, the NFT Finance mouse
+  arrows, the card art.
+- ⬜ **C-1009-2: repair PR #751.** The first-frame heading in `frontend/index.html` keeps the old
+  size, so the heading jumps 2 to 3 pixels and three tests fail.
+- ⬜ **C-1009-3: resume the island's first PR.** It is built and tested. Merge trunk in, make it
+  match PR #769 on the BAYLA tick box, finish the 390px walk, open the PR. Do not start it again.
+- ⬜ **C-1009-4: open pull requests for the two cloud branches**, with the "offer our pool" fix on
+  top of the first.
+- ⬜ **C-1009-5: resume the pool redesign.** Your last word on 2026-10-08 was "ok keep going".
+- 🟡 **C-1009-6: show a liquidity provider what a pool has paid them** (asked 2026-10-09): what a
+  position has earned, how much a pool's shares have grown, and in a few plain words how
+  liquidity providers earn and how the venue earns. Built: PR #782, waiting for your go. Three
+  calls in it are yours: the "at that pace, about X% a year" sentence, the pool card's heading,
+  and the label "Fees earned". On upgrade day #776 conflicts with it on one sentence; the
+  resolved sentence is written in #782.
+- ⬜ **C-1009-7: small ones.** Finish the "Back to top" test flake. Correct the three BAYLA ladder
+  rows in `frontend/scripts/addresses.json` (both controls are the Squads vault now). Start the
+  vault upgrade pack for the ladder's 4-year change. Renew or update the advisory waivers before
+  2026-11-16.
+- ⬜ **C-1009-8: housekeeping that needs a quiet moment.** Move the shared main folder onto trunk
+  (it sits on a September branch and has no CLAUDE.md), after its only-copy files are saved. One
+  dedicated worktree cleanup (230 exist): unlink every linked folder and prove it gone first.
+
+### Where swap fees go (read from the chain 2026-10-10), and what follows from it
+
+A swap in one of our own Solana pools costs the trader 1%: 0.84% stays in the pool for its
+liquidity providers and 0.16% is set aside for the venue. There is no claim for liquidity
+providers and there never will be one in this pool design: their part is added to the pool, and
+they receive it when they remove liquidity. A swap the site sends through Jupiter instead pays
+the site 0.5% where the route allows it. Opening a public pool costs 0.15 SOL. All three go to
+the team's two-signature vault. The BAYLA/SOL pool has had 3 swaps in its life (0.501 SOL in
+all); the BAYLA/USDC pool has had none.
+
+- ⬜ **O-1009-13: the real lever is volume.** Jupiter does not route through our pool program, so a
+  pool sees only the trades our own swap page sends it. Decide whether to ask Jupiter to list
+  our pools (parked since the pool redesign).
+- ⬜ **O-1009-14: the BAYLA/USDC pool sits about 8% above the market price** and has never traded.
+  Leave it, or bring it in line: whoever trades it first takes that gap from its liquidity
+  providers.
+- ⬜ **C-1009-9: money words on the Ethereum pages.** Three lines disagree with the chain (the
+  Liquidity page's "five sixths", the assistant's "0.5% flows to stakers", the FAQ's "starts
+  flowing when the native pool launches"), and four liquid-staking rates on the Solana swap page
+  are typed in, not read. Needs one read of the Ethereum fee settings first.
+- ⬜ **C-1009-10: two stale rows in `frontend/scripts/addresses.json`.** The swap-fee account it
+  names has never received a fee (they go to the vault's wrapped-SOL account
+  `2sa31zceMSTAAbSu5wfSnNA6sBYzS7r97nvZYaQouEXa`), and the launch tier reads 20% to the venue plus
+  a 0.05% creator fee on chain, not the 12% and none the row says.
+- 📌 The venue's cut waiting in the BAYLA/SOL pool is under 0.001 SOL. Collecting it takes a
+  two-signature proposal that costs more than it brings in. Leave it.
+
+### Ranges, one-coin adds and VWAP (researched 2026-10-10, outside facts checked at their sources)
+
+Today's pool program cannot do price ranges or true one-sided positions: it is constant product
+by design. Only one proven range program may lawfully be copied, Raydium's CLMM (Apache-2.0).
+Orca's licence forbids it since 2025-02-27, Meteora's range program is not published. All BAYLA
+markets together trade under $2,000 a day, so none of this creates volume.
+
+- ⬜ **O-1009-15: "add with one coin" on our own pools.** Website only, about a week: the site
+  swaps about half by the best-price rule, then adds both. Two calls are yours: always the
+  cheapest route for the person (recommended), and whether to waive the site's 0.5% on the
+  swapped half.
+- ⬜ **O-1009-16: a real range pool for BAYLA, yes or no.** The no-build test: open and seed one
+  BAYLA/SOL pool on Raydium's own range program and link to Raydium's screens. Raydium keeps 16%
+  of the fees and holds the keys, and that liquidity is not on our venue. A copy of that program
+  under our own name comes only after that test shows demand, with money for an outside review.
+- ⬜ **O-1009-17: which VWAP did you mean?** A number on the page (one small pull request, no
+  cost, from data the swap page already downloads), an order that spreads a trade over time
+  (only through Jupiter's newer, custodial system; our own robot or escrow program: no), or a
+  feed for others (needs our own chain indexing).
+- ⬜ **O-1009-18: a free Jupiter developer key.** The keyless Jupiter address the whole Solana side
+  uses is being retired, with no date given. A session cannot sign up for the key.
+- ⬜ **O-1009-19: one real small order from each Jupiter tab.** A $10 BAYLA limit order, watched to
+  a fill. Jupiter is winding down the older order system both tabs use.
+- ⬜ **C-1009-11: the DCA tab offers a BAYLA order that cannot work** (the program rejects
+  Token-2022 tokens, buying and selling). Say so before signing, and fix the minimum it quotes.
+- ⬜ **C-1009-12: our pool program is about three Raydium releases behind.** It still has a
+  four-token bypass list Raydium deleted in September. Assess it read-only; do not touch the
+  ready upgrade pack.
+- ⬜ **C-1009-13: small liquidity-provider tools, no program needed.** After the earnings view: a
+  "what if the price moves" preview before adding, and add by percent of wallet.
+
+### Parked calls, none urgent
+
+Where the torches sit on rooms whose pool pays nothing (the island's fourth PR). When the card
+art becomes a pull request. Launch-pool calls 1 and 3, and a lawyer's read, before launching is
+ever switched on. The two Ethereum / Solana switchers on the swap page. Finish the EVM
+hand-overs or write down that the EVM side is shelved. The 2026-09-17 audit-ledger rulings. Fix
+the weekly Contracts Coverage job or switch it off.
+
+---
+
 ## 🔴 2026-10-07: token names and pictures (`/mint/`): files first, then the chain
 
 The site serves a name and a picture for the BAYLA/SOL and BAYLA/USDC pool shares and for the

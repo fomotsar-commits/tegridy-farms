@@ -54,7 +54,10 @@ export async function readPoolIndex(query: PoolIndexQuery, expectedProgram: stri
   try {
     res = await fetchImpl(`${POOL_INDEX_PATH}?${key}=${encodeURIComponent(value)}`, { headers: { Accept: 'application/json' } });
   } catch (e) {
-    return { kind: 'unread', detail: `the pool index did not answer (${e instanceof Error ? e.message : String(e)})` };
+    // A 20-second timeout (readFetch.ts) already names the index; wrapping it again
+    // would print the sentence twice inside one bracket.
+    const cause = e instanceof Error ? e.message : String(e);
+    return { kind: 'unread', detail: cause.startsWith('the pool index') ? cause : `the pool index did not answer (${cause})` };
   }
   if (!res.ok) {
     return {

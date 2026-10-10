@@ -66,7 +66,7 @@ describe('poolViewFrom', () => {
     expect(kinds).toEqual(['pool:other:config', 'pool:standard:config', 'pool:launch-pool:config', 'unread', 'not-a-pool', 'absent', 'pool:other:no-config']);
   });
 
-  it('reads a launch pool’s price record, and ignores one handed in for any other pool', () => {
+  it('reads a price record handed in for the launch pool and for any other pool alike', () => {
     const mint = key();
     const launch = buildPool({ mint, configIndex: 0, address: poolStatePda(mint, LAUNCH), quoteReserve: 10n ** 9n, tokenReserve: 10n ** 12n });
     const other = buildPool({ mint, configIndex: 1, quoteReserve: 10n ** 9n, tokenReserve: 10n ** 12n });
@@ -90,6 +90,6 @@ describe('poolViewFrom', () => {
     const l = entryFor(launch);
     const o = entryFor(other);
     expect(l.kind === 'pool' && l.view.history.kind).toBe('ok');
-    expect(o.kind === 'pool' && o.view.history.kind).toBe('not-read');
+    expect(o.kind === 'pool' && o.view.history.kind).toBe('ok');
   });
 });
