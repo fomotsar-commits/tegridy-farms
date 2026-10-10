@@ -39,6 +39,24 @@ Assert `scrollY > 0`, not the number you set: when content above the fold grows,
 moves the window to keep the visitor's place (250 became 359 in Chromium, 1022 on the iPhone
 build).
 
+## 2026-10-10: one walk of the old build and one of the new cannot tell a race from a regression
+
+**Believed:** walking a flow once on the build before a change and once on the build after,
+and comparing the numbers, shows what the change did. "The same on both" means unchanged and
+working.
+
+**Measured:** a link to a section of a lazily loaded page (`/island` to `/#hall`) landed on
+its section on both builds in the first walk, in 3 of 3 browsers, and was written down as
+working. In a second walk the new build missed it in one browser, which read as a regression.
+Ten runs a browser on each build: 19 of 30 on the old, 18 of 30 on the new. It was a coin
+flip in code the change does not touch (two tries 120 ms apart against a lazy chunk). The
+same second walk put Back 736 px lower on the new build; three more runs on each showed
+both positions on both builds, because that page is 736 px taller once a live read answers.
+
+**Do:** repeat a step ten times on each build before reading a difference, or a sameness,
+and compare counts. Compare what the code decides (was a jump made: the same in every run
+here) before what the browser and the network decide (the final pixel).
+
 ## 2026-10-10: a worktree named after its spec makes the spec's name match every test file
 
 **Believed:** `npx playwright test opens-at-the-top` runs `e2e/opens-at-the-top.spec.ts`.
