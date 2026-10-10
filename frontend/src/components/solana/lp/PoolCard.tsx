@@ -1,8 +1,10 @@
 import { useEffect, useId, useRef, useState, type RefObject } from 'react';
 import { isCreatedPool, type PoolEntry, type PoolView } from '../../../lib/solana/lp/poolFinder';
-import { PRICE_TOLERANCE, formatWhen, vaultFreezer, type PoolHealth, type WithdrawalsState } from '../../../lib/solana/lp/poolHealth';
+import { PRICE_TOLERANCE, formatWhen, vaultFreezer, type PoolHealth, type PriceReference, type WithdrawalsState } from '../../../lib/solana/lp/poolHealth';
 import { feeRateText, priceText, quoteText, tokenText, tradeCostText } from '../../../lib/solana/lp/format';
 import type { QuoteCoin } from '../../../lib/solana/lp/quotes';
+import { noPriceClause } from '../../../lib/solana/lp/poolHealth';
+import { TOO_NEW_WHY } from '../../../lib/solana/lp/ownPrice';
 import { chargedCreatorFeeRate, feeSplit } from '../../../lib/solana/cpswap/venue';
 import { ratePercent } from '../../../lib/solana/cpswap/math';
 import type { TokenSafety } from '../../../lib/solana/lp/tokenSafety';
@@ -57,6 +59,13 @@ function depositHeading(d: PoolHealth['deposits']): { title: string; tone: strin
 /** How far a price is from what it was checked against, said once: "2.6% above", "1.2% below" (never "-1.2% below"). */
 const differenceText = (diff: number) => `${(Math.abs(diff) * 100).toFixed(1)}% ${diff >= 0 ? 'above' : 'below'}`;
 
+/** The row label for what a price was checked against. A Record, so a new reference must say. */
+const REFERENCE_LABEL: Readonly<Record<PriceReference, string>> = {
+  outside: 'Outside price (Jupiter)',
+  'own-average': 'Its own average, last 30 minutes',
+  'launch-pool': 'The launch pool’s price',
+};
+
 /** The pool's price and what it was checked against, both in the pool's own pairing coin. */
 function PriceRows({ price, quote }: { price: PoolHealth['price']; quote: QuoteCoin }) {
   switch (price.state) {
@@ -65,10 +74,21 @@ function PriceRows({ price, quote }: { price: PoolHealth['price']; quote: QuoteC
     case 'no-market':
       // Jupiter ANSWERED that it has no market for the token. That is not a failed read,
       // so it is not "unread": the price is shown, and what it was not checked against.
+      // When it is the pairing COIN Jupiter has no price for, the row names the coin:
+      // the token has a price then, and "this token" would be wrong.
       return (
         <>
           <Row label="Price here" value={priceText(price.pool, quote)} mono={false} />
-          <Row label="Checked against" value="Nothing: Jupiter has no market price for this token" mono={false} />
+          <Row label="Checked against" value={`Nothing: ${noPriceClause(price.of, quote)}`} mono={false} />
+        </>
+      );
+    case 'too-new':
+      // A launch pool with no route and under ten minutes of trading. Read, not unread:
+      // the price is shown, and why it was compared with nothing.
+      return (
+        <>
+          <Row label="Price here" value={priceText(price.pool, quote)} mono={false} />
+          <Row label="Checked against" value={`Nothing: ${TOO_NEW_WHY}`} mono={false} />
         </>
       );
     case 'no-trades-yet':
@@ -92,7 +112,7 @@ function PriceRows({ price, quote }: { price: PoolHealth['price']; quote: QuoteC
         <>
           <Row label="Price here" value={priceText(price.pool, quote)} mono={false} />
           <Row
-            label={price.against === 'outside' ? 'Outside price (Jupiter)' : 'Its own average, last 30 minutes'}
+            label={REFERENCE_LABEL[price.against]}
             value={priceText(price.reference, quote)}
             mono={false}
           />

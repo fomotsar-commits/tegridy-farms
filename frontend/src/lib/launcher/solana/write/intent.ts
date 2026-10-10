@@ -22,6 +22,11 @@
 // derived here from the constant. The launch-program kinds (`CurveIntent`) are judged
 // exactly as before; their branches below did not change.
 //
+// A swap from the swap page (`SwapIntent`, kind `venue-swap`) is judged against the same
+// `PoolPins`: its one swap's 13 accounts each equal a pin or the signer's own account,
+// it wraps SOL only when SOL is what is paid in, and the only accounts it opens are the
+// signer's wrapped-SOL account and the signer's account for what is paid out.
+//
 // This runs twice: on the transaction before any wallet sees it, and again on
 // whatever the wallet hands back. The review screen is built from the steps it
 // returns, so what a person reads is what the bytes say.
@@ -80,7 +85,7 @@ import {
   WORKSHOP_BAYLA_ACCOUNT,
   baylaAccountOf,
 } from './plant';
-import type { CurveIntent, IntentContext, IntentStep, LpKind, PoolIntent, TxKind } from './types';
+import type { CurveIntent, IntentContext, IntentStep, LpKind, PoolIntent, PoolPins, SwapIntent, TxKind } from './types';
 import { canPair, quoteCoin, type QuoteCoin } from '../../../solana/lp/quotes';
 
 /** Phantom's Lighthouse guard program: assertion-only instructions a wallet may append. */
@@ -102,12 +107,24 @@ export function isPoolIntent(c: IntentContext): c is PoolIntent {
   return isLpKind(c.kind);
 }
 
+/** A swap in one of our pools from the swap page, as opposed to a launch pool's swap (a `CurveIntent`). */
+export function isSwapIntent(c: IntentContext): c is SwapIntent {
+  return c.kind === 'venue-swap';
+}
+
 /**
  * The launch-program families take a `CurveIntent` only. `PROGRAMS_BY_KIND` already
- * keeps them out of a liquidity transaction; this makes it a type, too.
+ * keeps them out of a liquidity transaction and a swap; this makes it a type, too.
  */
 function asCurve(c: IntentContext): CurveIntent {
-  return isPoolIntent(c) ? refuse('a liquidity transaction reaches a program it never uses') : c;
+  if (isPoolIntent(c)) return refuse('a liquidity transaction reaches a program it never uses');
+  if (isSwapIntent(c)) return refuse('a pool swap reaches a program it never uses');
+  return c;
+}
+
+/** Does this swap pay in SOL? Only then may it move SOL into the signer's wrapped-SOL account. */
+function swapPaysSol(ctx: SwapIntent): boolean {
+  return pinnedQuote(ctx).native && ctx.inputMint.equals(WSOL_MINT);
 }
 
 function u32(d: Uint8Array, o: number): number {
@@ -165,7 +182,7 @@ function system(ix: TransactionInstruction, ctx: IntentContext): IntentStep {
   const d = ix.data;
   const tag = u32(d, 0);
   if (tag === 0) {
-    if (isPoolIntent(ctx)) return refuse('this kind of transaction never creates an account');
+    if (isPoolIntent(ctx) || isSwapIntent(ctx)) return refuse('this kind of transaction never creates an account');
     // CreateAccount { lamports u64, space u64, owner Pubkey }
     if (d.length !== 4 + 8 + 8 + 32) refuse('a create-account instruction of the wrong size');
     expectKeyCount(ix, 2, 'create-account');
@@ -181,6 +198,7 @@ function system(ix: TransactionInstruction, ctx: IntentContext): IntentStep {
     // Transfer { lamports u64 }: ONLY the signer wrapping SOL into their own WSOL account.
     // A pool paired with USDC or BAYLA takes no SOL, so its transactions wrap none.
     if (isPoolIntent(ctx) && !pinnedQuote(ctx).native) refuse('it wraps SOL, and this pool is not paired with SOL');
+    if (isSwapIntent(ctx) && !swapPaysSol(ctx)) refuse('it wraps SOL, and this swap does not pay in SOL');
     if (d.length !== 12) refuse('a SOL transfer of the wrong size');
     expectKeyCount(ix, 2, 'SOL transfer');
     if (!key(ix, 0).equals(ctx.signer)) refuse('a SOL transfer from someone other than you');
@@ -197,7 +215,7 @@ function token(ix: TransactionInstruction, ctx: IntentContext): IntentStep {
   const wsolAta = associatedTokenAddress(WSOL_MINT, ctx.signer);
   switch (d[0]) {
     case 20: {
-      if (isPoolIntent(ctx)) return refuse('this kind of transaction never creates a token');
+      if (isPoolIntent(ctx) || isSwapIntent(ctx)) return refuse('this kind of transaction never creates a token');
       // InitializeMint2 { decimals u8, mint_authority Pubkey, freeze_authority COption<Pubkey> }
       expectKeyCount(ix, 1, 'initialize-mint');
       if (!key(ix, 0).equals(ctx.mint)) refuse('a different token is initialized');
@@ -210,13 +228,14 @@ function token(ix: TransactionInstruction, ctx: IntentContext): IntentStep {
     case 17:
       // SyncNative
       if (isPoolIntent(ctx) && !pinnedQuote(ctx).native) refuse('it wraps SOL, and this pool is not paired with SOL');
+      if (isSwapIntent(ctx) && !swapPaysSol(ctx)) refuse('it wraps SOL, and this swap does not pay in SOL');
       expectKeyCount(ix, 1, 'sync wrapped SOL');
       if (d.length !== 1) refuse('sync wrapped SOL of the wrong size');
       if (!key(ix, 0).equals(wsolAta)) refuse('syncs an account that is not your wrapped-SOL account');
       return { kind: 'sync-wsol' };
     case 9:
       // CloseAccount: only the signer's own WSOL account, paid back to the signer.
-      if (isPoolIntent(ctx) && !pinnedQuote(ctx).native) refuse('it unwraps SOL, and this pool is not paired with SOL');
+      if ((isPoolIntent(ctx) || isSwapIntent(ctx)) && !pinnedQuote(ctx).native) refuse('it unwraps SOL, and this pool is not paired with SOL');
       expectKeyCount(ix, 3, 'close account');
       if (d.length !== 1) refuse('close-account of the wrong size');
       if (!key(ix, 0).equals(wsolAta)) refuse('closes an account that is not your wrapped-SOL account');
@@ -240,6 +259,7 @@ function ata(ix: TransactionInstruction, ctx: IntentContext): IntentStep {
     if (ctx.kind === 'lp-create') openingAtaRule(ctx, mint);
     return poolAta(ctx, { address, owner, mint, sys, tok });
   }
+  if (isSwapIntent(ctx)) return swapAta(ctx, { address, owner, mint, sys, tok });
   if (!(mint.equals(ctx.mint) || mint.equals(WSOL_MINT))) refuse('creates a token account for an unrelated token');
   if (!sys.equals(SYSTEM_PROGRAM_ID) || !tok.equals(TOKEN_PROGRAM_ID)) refuse('creates a token account under the wrong programs');
   if (!address.equals(associatedTokenAddress(mint, owner))) refuse('creates a token account at the wrong address');
@@ -252,7 +272,7 @@ function ata(ix: TransactionInstruction, ctx: IntentContext): IntentStep {
  * must sit on the side the pins say, under the program the pins say. So a pin can never
  * name a coin of its own, and nothing below trusts `pins.quote` for a program or a flag.
  */
-function pinnedQuote(ctx: PoolIntent): QuoteCoin {
+function pinnedQuote(ctx: { pins: PoolPins }): QuoteCoin {
   const p = ctx.pins;
   const q = quoteCoin(p.quote.mint);
   if (!q || q.program !== p.quote.program || q.native !== p.quote.native || q.decimals !== p.quote.decimals) {
@@ -304,6 +324,75 @@ function poolAta(
   if (!a.sys.equals(SYSTEM_PROGRAM_ID) || !a.tok.equals(program)) refuse('creates a token account under the wrong programs');
   if (!a.address.equals(associatedTokenAddress(a.mint, a.owner, program))) refuse('creates a token account at the wrong address');
   return { kind: 'create-token-account', owner: a.owner, mint: a.mint, address: a.address };
+}
+
+/** The two sides of a swap, read off the pins by the mint paid in. Refuses a mint the pool does not hold. */
+function swapSides(ctx: SwapIntent) {
+  const p = ctx.pins;
+  const in0 = ctx.inputMint.equals(p.token0Mint);
+  if (!in0 && !ctx.inputMint.equals(p.token1Mint)) refuse('the swap pays in a token this pool does not hold');
+  const side0 = { mint: p.token0Mint, program: p.token0Program, vault: p.vault0 };
+  const side1 = { mint: p.token1Mint, program: p.token1Program, vault: p.vault1 };
+  return in0 ? { input: side0, output: side1 } : { input: side1, output: side0 };
+}
+
+/**
+ * A swap opens the signer's wrapped-SOL account (a SOL pool, either direction) and the
+ * signer's account for what is paid OUT, under that mint's own program, and nothing else.
+ * Never the account it spends from, which must already hold what goes in, and never a
+ * pool-share account.
+ */
+function swapAta(
+  ctx: SwapIntent,
+  a: { address: PublicKey; owner: PublicKey; mint: PublicKey; sys: PublicKey; tok: PublicKey },
+): IntentStep {
+  const quote = pinnedQuote(ctx);
+  const { output } = swapSides(ctx);
+  const program =
+    quote.native && a.mint.equals(WSOL_MINT)
+      ? TOKEN_PROGRAM_ID
+      : a.mint.equals(output.mint)
+        ? output.program
+        : refuse('creates a token account for a token this swap does not pay out');
+  if (!a.sys.equals(SYSTEM_PROGRAM_ID) || !a.tok.equals(program)) refuse('creates a token account under the wrong programs');
+  if (!a.address.equals(associatedTokenAddress(a.mint, a.owner, program))) refuse('creates a token account at the wrong address');
+  return { kind: 'create-token-account', owner: a.owner, mint: a.mint, address: a.address };
+}
+
+/**
+ * cp-swap `swap_base_input` from the swap page: `IX_SWAP_BASE_INPUT ‖ amount_in u64 ‖
+ * minimum_amount_out u64`, 13 accounts. The fee settings are the pool's own (the one
+ * account cp-swap accepts for it); both of the signer's accounts are derived here under
+ * each mint's program, because swap_base_input.rs checks neither's owner.
+ */
+function venueSwap(ix: TransactionInstruction, ctx: SwapIntent): IntentStep {
+  const d = ix.data;
+  if (!startsWith(d, IX_SWAP_BASE_INPUT) || d.length !== 24) refuse('a pool instruction other than a swap');
+  expectKeyCount(ix, 13, 'pool swap');
+  const p = ctx.pins;
+  pinnedQuote(ctx);
+  const { input, output } = swapSides(ctx);
+  const checks: Array<[number, PublicKey, string]> = [
+    [0, ctx.signer, 'the swap is paid by someone else'],
+    [1, deriveAuthority(ctx.cfg.cpSwapProgram), 'the swap names the wrong pool authority'],
+    [2, p.ammConfig, 'the swap names the wrong fee settings'],
+    [3, p.address, 'the swap is against a different pool than the one checked'],
+    [4, associatedTokenAddress(input.mint, ctx.signer, input.program), 'the swap spends from an account that is not yours'],
+    [5, associatedTokenAddress(output.mint, ctx.signer, output.program), 'the swap pays out to an account that is not yours'],
+    [6, input.vault, 'the swap names the wrong pool vault'],
+    [7, output.vault, 'the swap names the wrong pool vault'],
+    [8, input.program, 'the swap names the wrong token program'],
+    [9, output.program, 'the swap names the wrong token program'],
+    [10, input.mint, 'the swap names the wrong token'],
+    [11, output.mint, 'the swap names the wrong token'],
+    [12, p.observation, 'the swap names the wrong price record'],
+  ];
+  for (const [i, want, why] of checks) if (!key(ix, i).equals(want)) refuse(why);
+  const amountIn = u64(d, 8);
+  const minimumAmountOut = u64(d, 16);
+  if (amountIn === 0n) refuse('the swap amount is zero');
+  if (minimumAmountOut === 0n) refuse('the swap accepts any price (no minimum)');
+  return { kind: 'pool-swap', pool: p.address, inputMint: input.mint, outputMint: output.mint, amountIn, minimumAmountOut };
 }
 
 /**
@@ -436,6 +525,7 @@ function cpswap(ix: TransactionInstruction, ctx: IntentContext): IntentStep {
         return noPoolInstructionFor(ctx);
     }
   }
+  if (isSwapIntent(ctx)) return venueSwap(ix, ctx);
   const d = ix.data;
   if (!startsWith(d, IX_SWAP_BASE_INPUT) || d.length !== 24) refuse('a pool instruction other than a swap');
   expectKeyCount(ix, 13, 'pool swap');
@@ -626,6 +716,8 @@ export const PROGRAMS_BY_KIND: Readonly<Record<TxKind, ReadonlySet<ProgramFamily
   migrate: new Set<ProgramFamily>(['compute', 'launch']),
   'pool-buy': new Set<ProgramFamily>(['compute', 'system', 'token', 'ata', 'pool']),
   'pool-sell': new Set<ProgramFamily>(['compute', 'system', 'token', 'ata', 'pool']),
+  // The swap page's swap: wraps SOL when SOL is paid in, unwraps when SOL is paid out.
+  'venue-swap': new Set<ProgramFamily>(['compute', 'system', 'token', 'ata', 'pool']),
   // Adding liquidity wraps SOL (System transfer, Token sync and close); taking it out
   // only unwraps, so it never reaches the System program.
   'lp-deposit': new Set<ProgramFamily>(['compute', 'system', 'token', 'ata', 'pool']),
@@ -651,8 +743,8 @@ function familyOf(p: PublicKey, ctx: IntentContext): ProgramFamily | null {
   if (p.equals(TOKEN_PROGRAM_ID)) return 'token';
   // Token-2022 is a family only for the launch-program kinds (it is the create's plant,
   // and PROGRAMS_BY_KIND refuses it in every other curve kind). A liquidity transaction
-  // never calls it at the top level, so to one it is a program this page never uses.
-  if (p.equals(TOKEN_2022_PROGRAM_ID)) return isPoolIntent(ctx) ? null : 't22';
+  // and a swap never call it at the top level, so to them it is a program this page never uses.
+  if (p.equals(TOKEN_2022_PROGRAM_ID)) return isPoolIntent(ctx) || isSwapIntent(ctx) ? null : 't22';
   if (p.equals(ASSOCIATED_TOKEN_PROGRAM_ID)) return 'ata';
   if (p.equals(METAPLEX_TOKEN_METADATA_ID)) return 'metadata';
   if (p.equals(ctx.cfg.programId)) return 'launch';
@@ -705,6 +797,8 @@ export function decodeIntent(
       const own = OWN_STEP[ctx.kind];
       if (steps.filter((s) => s.kind === own.step).length !== 1) refuse(own.refuse);
     }
+    // One swap per transaction, for the same reasons.
+    if (isSwapIntent(ctx) && steps.filter((s) => s.kind === 'pool-swap').length !== 1) refuse('it does not hold exactly one swap in the pool');
     const limits = steps.filter((s) => s.kind === 'compute-limit');
     const prices = steps.filter((s) => s.kind === 'compute-price');
     if (limits.length > 1 || prices.length > 1) refuse('it sets the network fee more than once');

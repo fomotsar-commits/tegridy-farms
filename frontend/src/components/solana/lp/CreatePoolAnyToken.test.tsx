@@ -185,12 +185,20 @@ describe('the token’s own card', () => {
     expect(sentence).not.toHaveClass('text-rose-300/90');
   });
 
-  it('a token that charges a transfer fee is still "Blocked on this site", and its sentence is a block', async () => {
+  // Owner ruling 2026-10-07: "Blocked on this site" was the wrong wording. The token is not
+  // accused of anything: the title says what THIS SITE does not do, and the line under it
+  // says why. `blocked` stays this code's own name for the verdict (`data-verdict`).
+  it('a token that charges a transfer fee is still refused: the title says what this site does not do, never "blocked", and its sentence is a block', async () => {
     mount(readers(feeToken));
     const card = await screen.findByTestId('token-safety');
     expect(card).toHaveAttribute('data-verdict', 'blocked');
-    expect(within(card).getByTestId('token-safety-verdict')).toHaveTextContent(/^Blocked on this site$/);
+    expect(within(card).getByTestId('token-safety-verdict')).toHaveTextContent(/^This site does not open or add to pools for this token$/);
     expect(within(card).getByText(reasonText(feeToken, 'transfer-fee'))).toHaveClass('text-rose-300/90');
+    // No sentence a visitor reads on the page calls the token blocked: the card, the
+    // Open-a-pool card under it, and the line a screen reader is read.
+    expect(card).not.toHaveTextContent(/blocked/i);
+    expect(screen.getByTestId('lp-status')).toHaveTextContent('This site does not open or add to pools for this token.');
+    expect(document.body).not.toHaveTextContent(/blocked on this site|token is blocked/i);
   });
 });
 

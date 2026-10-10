@@ -6,7 +6,8 @@ import { sortMints, type AmmConfigView } from '../../../lib/solana/cpswap/progra
 import { CREATOR_FEE_SWITCH, feeSplit } from '../../../lib/solana/cpswap/venue';
 import { LOCKED_LP, feeReserveFor, planCreate, solSetAside, spendableSol, type CreatePlan, type CreateProblem } from '../../../lib/solana/lp/liquidityMath';
 import { assessOpening, estimatedLoss, matchMarket, mostBothAtMarket, openingPricePerToken } from '../../../lib/solana/lp/opening';
-import { coinPriceDetail, priceInQuote, type OutsidePrice } from '../../../lib/solana/lp/outsidePrice';
+import { priceInQuote, type OutsidePrice } from '../../../lib/solana/lp/outsidePrice';
+import { noPriceClause } from '../../../lib/solana/lp/poolHealth';
 import { SOL_QUOTE, lowerCoins, quoteCoin, type QuoteCoin } from '../../../lib/solana/lp/quotes';
 import { TOKEN_2022_PROGRAM, TOKEN_PROGRAM, type TokenSafety } from '../../../lib/solana/lp/tokenSafety';
 import { formatSolPrice, tradeCostText } from '../../../lib/solana/lp/format';
@@ -154,7 +155,8 @@ const priceKey = (p: OutsidePrice | null) => (p === null ? 'none' : p.kind === '
  * The fee to open, the account deposits and the network fee are SOL whatever the coin.
  *
  * WARNINGS NEVER SWITCH REVIEW OFF (owner ruling 2026-10-04: any token may have a pool).
- * A price more than 3% from the market, a token with no market price at all, a token its
+ * A price more than 3% from the market, a token with no market price at all, a pairing
+ * coin Jupiter has no price for (owner ruling 2026-10-07), a token its
  * creator can freeze and a copy of a well-known name are each said above Review, in the
  * check's own words (opening.ts `assessOpening`), and the review says them again from its
  * own fresh reads. What still switches Review off is what stops an opening (an amount the
@@ -362,6 +364,11 @@ function CreateInner({
   // over the coin's own SOL price for any other coin. Null while either is not read.
   const quoted = outside ? priceInQuote(outside, coin, coinOutside) : null;
   const market = quoted?.kind === 'ok' ? quoted.perToken : null;
+  // Jupiter ANSWERED that it has no route for the chosen COIN (owner ruling 2026-10-07):
+  // the token has a price, but there is no market price in this coin. An answer, like
+  // `noMarket` above: the form says so, there is nothing to match, the check's warning is
+  // above Review, and Review stays on. A read of the coin's price that FAILED is not this.
+  const noCoinMarket = quoted?.kind === 'no-route' && quoted.of === 'coin';
 
   const both = quoteRaw !== null && tokRaw !== null && quoteRaw > 0n && tokRaw > 0n;
   const free = both ? planCreate({ quoteIsToken0, quote: quoteRaw, token: tokRaw, availableQuote: null, availableToken: null }) : null;
@@ -475,7 +482,7 @@ function CreateInner({
     check.price.state === 'disagrees'
       ? ` That price is ${gapText(check.price.diff)} the market price: the warning above Review says what that may cost.`
       : check.price.state === 'no-market'
-        ? ' There is no market price to compare it with: you are setting the price yourself.'
+        ? ` There is no market price${check.price.of === 'coin' ? ` in ${coin.symbol}` : ''} to compare it with: you are setting the price yourself.`
         : '';
   const status = ofCoin(
     coin,
@@ -529,13 +536,14 @@ function CreateInner({
   const reviewWhy = reviewOffWhy({ hasWallet: !!signer, cannot: cannotOpen !== null, hasAmounts: both || bad('quote') || bad('token'), amountsWord: 'both amounts' });
   // A coin whose own price is missing: which price it is, said beside the Review it
   // switches off. Never said when the coin's price is not needed (nothing is compared).
+  // Only while it is being read, or when its read FAILED. A coin Jupiter ANSWERED it has
+  // no route for switches nothing off (owner ruling 2026-10-07): that is a warning above
+  // Review, and no line here.
   const coinPriceWhy = !wantsCoinPrice
     ? null
     : coinOutside === null
       ? `Review is off while the price of ${coin.symbol} is read: your opening price is checked in ${coin.symbol}.`
-      : coinOutside.kind === 'no-route'
-        ? `Review is off: Jupiter has no market price for ${coin.symbol} right now, so your opening price cannot be checked in ${coin.symbol}. Pair with another coin, or try again later.`
-        : coinOutside.kind !== 'ok'
+      : coinOutside.kind === 'unread'
         ? `Review is off: the price of ${coin.symbol} could not be read, so your opening price cannot be checked in ${coin.symbol}. Press Read the market price again.`
         : null;
   const callsItself =
@@ -603,8 +611,9 @@ function CreateInner({
           : coinOutside === null
             ? `Market price in ${coin.symbol}: reading the price of ${coin.symbol} from Jupiter…`
             : coinOutside.kind === 'no-route'
-              ? // The reason is about the COIN: Jupiter's own words say "this token", which here would mean the wrong one.
-                `Market price in ${coin.symbol}: could not be worked out (${coinPriceDetail(coin, coinOutside)}).`
+              ? // An answer about the COIN, said as one: there is no market price in it. It names
+                // the coin: Jupiter's own words say "this token", which here would mean the wrong one.
+                `Market price in ${coin.symbol}: none. ${noPriceClause('coin', coin)}.`
               : `Market price in ${coin.symbol}: could not be worked out (${quoted && quoted.kind !== 'ok' ? quoted.detail : 'not read'}).`;
   // A pairing coin looked up as the token (USDC) is paired only with the coins that outrank
   // it. Its pool with a lower coin (USDC with BAYLA) is the same pool read from the other
@@ -759,8 +768,9 @@ function CreateInner({
             </p>
           )}
           <div className="space-y-2">
-            {/* With no market price there is nothing to match: the button is not drawn. */}
-            {!noMarket && (
+            {/* With no market price there is nothing to match: the button is not drawn. The same
+                when the token has a price but Jupiter has none for the chosen coin. */}
+            {!noMarket && !noCoinMarket && (
               <button
                 type="button"
                 className="btn-secondary w-full min-h-[44px] text-[13px] disabled:opacity-60"
@@ -802,7 +812,7 @@ function CreateInner({
               ? `Your opening price: 1 token = ${formatSolPrice(opening)} ${coin.symbol}. Market: ${formatSolPrice(market)} ${coin.symbol}. Yours is ${gapText(check.price.diff)} the market.${check.price.state === 'agrees' ? ' Close enough to the market.' : ''}`
               : opening !== null
                 ? check.price.state === 'no-market'
-                  ? `Your opening price: 1 token = ${formatSolPrice(opening)} ${coin.symbol}. There is no market price to compare it with.`
+                  ? `Your opening price: 1 token = ${formatSolPrice(opening)} ${coin.symbol}. There is no market price${check.price.of === 'coin' ? ` in ${coin.symbol}` : ''} to compare it with.`
                   : // Not read is not "none": the two are never said in the same words.
                     `Your opening price: 1 token = ${formatSolPrice(opening)} ${coin.symbol}. It is not checked: the market price has not been read.`
                 : 'Type both amounts to see your opening price.'}

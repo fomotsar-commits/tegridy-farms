@@ -36,6 +36,7 @@
 // signer set, or any of our instructions) is refused and nothing is sent. A changed
 // message is also simulated again and its balance effect re-checked.
 
+import { DECLINED_IN_WALLET } from '../../../solana/swap/walletCopy';
 import { base58 } from '@scure/base';
 import { Transaction } from '@solana/web3.js';
 import { clipDetail } from '../curve/read';
@@ -269,7 +270,7 @@ export async function submitPrepared(
     return notSent(
       'sign',
       isDecline(e)
-        ? 'You cancelled in your wallet. Nothing was sent.'
+        ? DECLINED_IN_WALLET
         : `Your wallet did not sign this (${walletReason(e)}). Nothing was sent.`,
     );
   }

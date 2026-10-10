@@ -88,6 +88,15 @@ export type LpGate =
 
 export type LpOpenGate = Extract<LpGate, { kind: 'open' }>;
 
+/**
+ * Whether the swap page may trade in one of our pools. The same two reads as `LpGate`
+ * (the cluster and the pool program) and nothing else: no switch of LP's or the launch
+ * program's decides it.
+ */
+export type SwapGate = { kind: 'off' } | { kind: 'blocked'; reason: GateBlock; detail: string } | { kind: 'open'; cfg: CurveWriteConfig };
+
+export type SwapOpenGate = Extract<SwapGate, { kind: 'open' }>;
+
 /** The public fee tier's terms a person is shown before opening a pool, and that prepare re-checks. */
 export type TierTerms = Pick<AmmConfigView, 'createPoolFee' | 'tradeFeeRate' | 'protocolFeeRate' | 'fundFeeRate' | 'creatorFeeRate'>;
 
@@ -130,7 +139,11 @@ export interface ActionAvailability {
 /** Adding and removing liquidity in one of our cp-swap pools, and opening a new one. */
 export type LpKind = 'lp-deposit' | 'lp-withdraw' | 'lp-create';
 
-export type TxKind = 'create' | 'buy' | 'sell' | 'migrate' | 'pool-buy' | 'pool-sell' | LpKind;
+/**
+ * `pool-buy` / `pool-sell`: a graduated launch's own pool, from its launch page.
+ * `venue-swap`: any pool of ours for the pair, found by address, from the swap page.
+ */
+export type TxKind = 'create' | 'buy' | 'sell' | 'migrate' | 'pool-buy' | 'pool-sell' | 'venue-swap' | LpKind;
 
 /**
  * What a watched token account is, so the review can name it and print it in its
@@ -292,9 +305,48 @@ export type TxSummary =
       /** True when the transaction closes the wrapped-SOL account, so SOL comes back as plain SOL. */
       unwrapsWsol: boolean;
     }
+  | VenueSwapSummary
   | LpDepositSummary
   | LpWithdrawSummary
   | LpCreateSummary;
+
+/**
+ * What the aggregator answered for the trade a swap in our own pool was compared with.
+ * Three answers a review must not blur: it quoted (`out`, in the output's base units,
+ * `now` or `earlier` when it could not be asked again and the figure on screen stood
+ * in), it has no route, and it could not be asked at all.
+ */
+export type AggregatorSeen =
+  | { kind: 'quoted'; out: bigint; when: 'now' | 'earlier' }
+  | { kind: 'no-route' }
+  | { kind: 'unreachable' };
+
+/**
+ * A swap in one of our pools, as the review shows it. The amounts are decoded from the
+ * prepared transaction's bytes; the quote is from the fresh read it was built on.
+ */
+export interface VenueSwapSummary {
+  kind: 'venue-swap';
+  pool: PublicKey;
+  origin: PoolPins['origin'];
+  /** The pool's own fee tier, read while preparing. Never null: prepare refuses without it. */
+  config: AmmConfigView;
+  tokenMint: PublicKey;
+  tokenDecimals: number;
+  /** The pool's pairing coin. The other side of the trade is the token. */
+  coin: QuoteCoin;
+  /** True when the coin is paid in and the token comes out; false the other way round. */
+  paysCoin: boolean;
+  amountIn: bigint;
+  minimumAmountOut: bigint;
+  quoted: OwnPoolQuote;
+  /** What the aggregator was seen to pay for the same trade: the swap was held to it. */
+  aggregator: AggregatorSeen;
+  /** True when the wrapped-SOL account is closed at the end. Always false when the coin is not SOL. */
+  unwrapsWsol: boolean;
+  wsolHeldBefore: bigint;
+  notices: string[];
+}
 
 /**
  * A price more than 3% from what it was checked against, from the builder's fresh reads.
@@ -545,7 +597,7 @@ export interface PreToken {
  * What `intent.ts` needs to judge a transaction for one signer: a launch-program
  * transaction (`CurveIntent`), or adding or removing liquidity (`PoolIntent`).
  */
-export type IntentContext = CurveIntent | PoolIntent;
+export type IntentContext = CurveIntent | PoolIntent | SwapIntent;
 
 /** A launch, a curve trade, a graduation or a launch pool's swap. Every field it had before liquidity stays required. */
 export interface CurveIntent {
@@ -553,7 +605,7 @@ export interface CurveIntent {
    * What this transaction is for. Each kind may call only its own programs: a create
    * never reaches the pool program, a curve trade never reaches Token Metadata.
    */
-  kind: Exclude<TxKind, LpKind>;
+  kind: Exclude<TxKind, LpKind | 'venue-swap'>;
   signer: PublicKey;
   cfg: CurveWriteConfig;
   /** Read off the decoded global, never guessed. */
@@ -608,6 +660,22 @@ export interface PoolIntent {
   /** The most priority fee this transaction may carry, in lamports. */
   maxPriorityLamports: bigint;
   pins: PoolPins;
+}
+
+/**
+ * A swap in one pool of ours: every account its one swap names is pinned by `pins`, as
+ * for liquidity. What is paid out goes to the signer's own account for the other mint.
+ */
+export interface SwapIntent {
+  kind: 'venue-swap';
+  signer: PublicKey;
+  cfg: CurveWriteConfig;
+  /** The most priority fee this transaction may carry, in lamports. */
+  maxPriorityLamports: bigint;
+  /** The pool as read and checked while preparing. A swap never uses `lpAccount`. */
+  pins: PoolPins;
+  /** The mint paid in: one of the pool's two. */
+  inputMint: PublicKey;
 }
 
 /**
