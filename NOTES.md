@@ -15,6 +15,229 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-10-10: `origin/<trunk>` moves under a long job, and without your fetch
+
+**Believed:** the trunk commit named at the start of a job holds for the job, and
+`origin/mvp-launch` in my own worktree moves only when I fetch.
+
+**Measured:** thirteen jobs worked from one clone that day. Two merges 29 seconds apart moved
+trunk 21 commits and 76 files under them, a third followed about 100 minutes later, and nine
+of the thirteen reports listed it as a surprise. Worktrees of one clone share their remote
+refs, so another session's fetch moved mine: `git diff origin/mvp-launch --numstat` went from
+7 files to about 80 with no command of my own in between. A merge simulation of one change
+against a draft exited 0 from the old trunk and 1 from the new, because the new trunk alone
+conflicted with that draft in three files. And where trunk had only gained what a branch
+already held, `git merge-tree --write-tree` of trunk into the branch printed the branch's own
+tree id.
+
+**Do:** read `git rev-parse origin/<trunk>` again before the last diff, before the push and
+before the report. Same tree id: record the merge and keep every gate result. An unpushed
+commit can be replayed on the new trunk with no force push. When a simulation turns red after
+a move, simulate trunk alone too and report only the files that differ. Merging a newer trunk
+into an old branch can also move the lockfile under an install already made (here sharp
+0.35.4 to 0.35.5): compare its hash before the last gates.
+
+## 2026-10-10: a pull request page counts what the branch holds and prints more than the body says
+
+**Believed:** a pull request's page describes that pull request: its own commits, its own
+checks, and the body as it was written.
+
+**Measured:** three readings in one day. A notes pull request of one commit, opened on top of
+an open train, read 75 commits and 111 changed files: the train's 74 and 111, which in turn
+held the 45 commits of the train under it. A branch push had already run a workflow, so at
+the moment another pull request opened, `gh pr checks` listed 10 finished rows from the push
+beside the pending rows of its own run. And GitHub unfurls every `#N` inside a list item into
+that pull request's full title with a state icon: 19 lines of `- #778 <title>` each showed
+their title twice.
+
+**Do:** say in the body what the branch sits on and which commits are its own. Do not read
+"the listed rows are green" just after opening as the pull request's own run. Write
+`#N <title>` lines as plain lines in a paragraph (a body keeps single newlines as line
+breaks) and "pull request N" inside bullets, then read the rendered page before calling the
+body done.
+
+## 2026-10-10: the end of the day's block is where every same-day changelog line collides
+
+**Believed:** two pull requests that each add a line under today's heading in `CHANGELOG.md`
+must conflict, and a line git merges with no conflict has landed in the right place.
+
+**Measured:** with a train open whose line sat at the end of the `### 2026-10-10` block, the
+same new line conflicted at the end and merged cleanly in the middle, one unchanged line away
+from both the top and the end (`git merge-tree --write-tree` exit 0, both lines present).
+Against six open pull requests the end collided with three, the top with one, after the
+second entry with one, and after the first, third or fourth entry with none. The other way
+round, git merged two carried lines with no conflict under 2026-10-03 and 2026-10-04, where
+their old bases had them, and one head's two notes after the file's last entry, out of date
+order.
+
+**Do:** while other pull requests are open, place the line mid-block and prove the spot
+against each open head with plumbing only (`hash-object`, a temporary index, `commit-tree`,
+then `merge-tree --write-tree`, exit 0 required). After every merge of a dated file, conflict
+or not, check that each added line is under today's heading and that the dates never rise
+reading down. Two notes of one date go to the same spot and collide (one did): send notes
+through one pull request.
+
+## 2026-10-10: two timeouts in two layers passed every test of both and gave the wrong one
+
+**Believed:** two pull requests that each make "a read ends after N seconds" can be stacked
+once both test sets pass on the result.
+
+**Measured:** one put a 10 second clock in the transport, the other a 20 second clock in the
+fetch handed to that transport. Git merged them with no conflict and every existing test of
+either passed, because each set times its own layer alone. The composed read ended at 10
+seconds with the transport's sentence, on a page whose words and tests say 20. Only a test of
+the wiring failed: the transport built the way the page builds it, held, still pending just
+past 10 seconds and ended at 20. While writing it, a fake fetch that ignored its abort signal
+left a correct test hanging: the transport aborted and nothing rejected.
+
+**Do:** when stacking timeout work, grep for a fetch wrapper passed into a transport and test
+the composed read at both limits. Let the layer that owns the clock say so on the thing it
+hands over, so a wrapper that drops the note leaves the shorter clock running: the failure is
+a read that ends early, never one that does not end. Make every never-answering fake reject
+on abort, as a browser's fetch does.
+
+## 2026-10-10: a test that opens a page with no parameter is testing the page's default
+
+**Believed:** after merging trunk into a branch that changes what a page opens on, fixing the
+tests that fail is the whole job.
+
+**Measured:** the branch made a swap page open on another coin. Three of trunk's newest tests
+failed. A fourth, about the first coin's notes, kept passing, and still passed with its guard
+line deleted, because that coin was no longer on the form: it was testing nothing.
+
+**Do:** when a change alters a page's default, grep every test that opens that page with no
+parameter, make each one name its subject in the link, and assert the subject is on screen
+before anything else.
+
+## 2026-10-10: a scroll worked out from rendered boxes lands short while an ancestor is scaled
+
+**Believed:** a Safari-only miss of 2 to 5px in "bring the selected tab into view" is font
+metrics, and a looser threshold is the fix.
+
+**Measured:** every page arrives drawn at 99.4% (an entrance pose, `scale: 0.994`), held a
+few frames even with reduced motion on. `getBoundingClientRect` carries an ancestor's
+transform; `clientWidth`, `scrollLeft` and `offsetLeft` do not. A scroll computed from both
+while the page was still scaled landed short, and a transform ending fires no
+`ResizeObserver`, so it stayed short. The signature: the miss was the same for every tab at
+one width and different between widths. For a room R asked for and a scale s, the room left
+settles at `R - (clientWidth - R) x (1/s - 1)`: 22.0px at a 390px window and 19.5px at 820,
+where CI had logged 22, 22, 21 and 19, 19, 19. One machine passed 18 of 18 while CI failed,
+because the lazy page chunk raced the end of the pose.
+
+**Do:** compute scroll positions from `offsetLeft`, `offsetWidth` and `clientWidth`, never
+from rendered boxes (a transformed element is the offset parent of its children). To pin it,
+hold the pose: an init script that scales the page container before the app mounts, at a
+rough 0.9, because at 0.994 a 2px rounding allowance hides the miss at phone width. Assert
+the hold applied (rendered width over `offsetWidth`), or the test proves nothing. When a miss
+is constant at one width, look for a scale before touching a threshold.
+
+## 2026-10-10: a view is on screen before its mount effects have run
+
+**Believed:** once a page's header is visible the page has finished opening, so a test may
+act; and a scroll-to-top on open is something no visitor can see.
+
+**Measured:** over 82 loads, React 19 ran a view's mount effects in a later task than the
+commit that showed it: 70 to 148 ms later on Chromium, 407 to 953 ms with the CPU slowed four
+times, 91 to 1,031 ms on WebKit. A test that scrolled straight after "header visible" had its
+scroll undone by the page's own `scrollTo(0)`: 5 first-try failures in 4 of the 6 newest
+trunk runs, all on iPhone Safari. A simulated wheel turned as the page appeared lost its
+first 120px in 9 of 16 loads on WebKit and 0 of 10 on Chromium. CPU throttling never
+reproduced the order on Chromium (0 of 6). Holding back the scheduler's `MessageChannel` tick
+did, 26 of 26, but only when held at delivery (wrapping `port1.onmessage`): React posts the
+tick inside the commit, so a hold at `postMessage` delayed nothing.
+
+**Do:** before a one-shot action in a test, wait for something the same effect sets (here the
+tab's title, set one line above the jump). Count a flake without re-running CI: `gh run view
+<run> --job <job> --log` and a grep for the "N flaky" block read six runs in under two
+minutes.
+
+## 2026-10-10: reverting the whole fix can pass where one line reverted fails
+
+**Believed:** the strongest break-it check reverts every line of a fix, each added guard can
+be seen red by itself, and a browser test's mutant costs a second full build.
+
+**Measured:** with both lines of an inset fix reverted (the code before the fix) one of its
+tests passed, because the old second line had already counted the inset; only that line
+reverted alone turned it red (48px). Two waits added to a flaky test masked each other:
+either one removed passed 6 of 6, both removed failed 6 of 6. And a mutant bundle from
+`npx vite build --outDir <a folder outside the worktree>` took 5.6 and 8 seconds in two jobs
+and about 2 minutes in a third, against 53 seconds to 5 minutes for `npm run build`;
+`vite preview --outDir` served it on a second port, and a `dist` kept from before a change
+turned a reworked test red in 19 seconds.
+
+**Do:** where lines of a fix can cancel, break them one at a time as well as together. Where
+two guards imply each other, report the pair as the proven unit and name the single removals
+that survive. Build mutants outside the worktree, so `dist` stays the fixed build and no
+mutant is left in it. That covers specs that need only the app bundle: the 2026-10-03 entry
+on a plain `vite build` names the ones that need more.
+
+## 2026-10-10: a port that answers 200 is not your server
+
+**Believed:** I started a preview on a port I had checked was free and the port answers 200,
+so the browser run is against my build; and a port I stopped my server on is still mine.
+
+**Measured:** port 4391 answered 200 from another session's build while my own server had
+exited with "Port 4391 is already in use". In another job a preview was stopped by PID and
+the port was still listening: another session's server had taken it within the same second.
+Stopping a backgrounded `npx vite preview` leaves two node processes, npx and vite, on
+Windows.
+
+**Do:** start with `--strictPort`, read the server's own log for "already in use", and
+byte-compare the served `index.html` with your own build folder before every browser run.
+Stop a server by PID only after its command line (`Get-CimInstance Win32_Process`) names your
+own worktree or output folder, and read the listener's command line again afterwards.
+
+## 2026-10-10: three totals that were not what ran or what was seen
+
+**Believed:** `vitest list` gives the number of tests to reconcile a partial run against,
+chunked browser runs add up to "the whole folder", and after reading 50 screenshots I have
+looked at each.
+
+**Measured:** `vitest list` prints one line per `it.each` template, not per case: 894 lines
+against 1,141 tests run for the same 67 files, and 36 listed for a file that runs 54. A tally
+kept across chunked Playwright runs said 601 tests had run; ticking each spec file off
+against `--list` gave 494. And the image reader dropped older pictures from context past a
+per-request limit ("media removed"), 11 of 27 in one set.
+
+**Do:** reconcile a partial vitest run by file count, and take test counts from the run's own
+"Tests N passed" line. For chunked runs write the per-file counts from `--list` first and
+tick each file off per chunk. Read screenshots three or four at a time and write one line per
+picture before loading more; re-read any that were dropped before saying it was looked at.
+
+## 2026-10-10: a remembered verdict holds only for every input of the check that made it
+
+**Believed:** a verdict kept in page state ("this route's transaction failed its test run")
+is safe when keyed on the trade: the pair and the amount.
+
+**Measured:** the test run that produced it also depended on the slippage and on the wallet.
+After the trader widened the slippage the page still said the transaction had failed its test
+run, for a transaction nobody had tested; a test with only the slippage changed failed on the
+old key. The fix added slippage to the key and missed the wallet, which a reviewer found. The
+verdict was also ended by a check that could not run, and "is it kept" was being read from a
+flag derived for display, which is false whenever the other route has caught up on screen.
+
+**Do:** list every input of the check and key the verdict on all of them. Give it an ending
+for each way it can stop being true, and end it only on a check that ran and passed. Decide
+"a verdict is kept" from the kept state, never from a flag made for display.
+
+## 2026-10-10: the reason a failed simulation gives can be written by the token's own program
+
+**Believed:** the reason string parsed from a failed simulation's logs is the network's
+account of the failure, so it can be shown to the person about to sign.
+
+**Measured:** the parser returned the first log line matching failed, insufficient, slippage
+or 0x, with `Program log: ` stripped. A `Program log:` line is whatever a program in the
+transaction chose to print, so a token's own program could word the cause on the page. After
+the fix, a walk on the built site whose only log was a forged `Program log:` line showed no
+cause.
+
+**Do:** derive anything shown on a standing line or a consent screen only from lines the
+runtime writes: `Program <id> failed: ...` (anchored), a native program's line with no
+`Program log:` prefix, such as the System Program's "Transfer: insufficient lamports X, need
+Y", or a one-word RPC error. Pin it with a test that feeds the forged `Program log:` twin of
+each line. Give advice only where the cause is attributed for certain: the short-transfer
+line names two amounts and not whose account it was.
+
 ## 2026-10-10: what a constant-product pool has earned its shares can be read with no history
 
 **Believed:** to say what a pool has paid its liquidity providers you must add up its swaps,
@@ -288,6 +511,27 @@ page: they count and find it whether or not anyone can see it.
 **Do:** when rows are folded, go through each and ask whether any value of it is a warning.
 Draw that case outside the fold. A test that finds text in a closed fold proves the text
 exists, not that it is shown: assert it is not inside the `details`.
+
+## 2026-10-07: a `WalletSignTransactionError` means the person declined
+
+**Believed:** the Solana write path's decline test could match the adapter's error class
+name, because a sign that throws is a prompt the person said no to.
+
+**Read, in `@solana/wallet-adapter-base` and every adapter in `lib/solanaWallets.ts` and
+`lib/solanaWalletConnect.ts`:** each one rethrows ANY failure inside `signTransaction` as
+`new WalletSignTransactionError(inner.message, inner)`: a wallet that broke before its prompt
+opened, a WalletConnect session that never granted signing, and a real "no" all wear the same
+class. A Trust Wallet LP add that failed with no prompt read "You cancelled in your wallet".
+And Trust's real "no" is not words at all: `trust-web3-provider`'s `CallbackAdapter` turns the
+app's numeric answer into `RPCError(4001, '4001')`, and an older build rejects with a bare
+string, so `inner.message` can be `"4001"` or `undefined`. And the library adapter throws
+three errors unwrapped, with a name and no words, before the wallet is asked at all
+(`WalletNotConnectedError`, `WalletConfigError`, `WalletAccountError`).
+
+**Do:** decide a decline from the wallet's own error under the wrapper (`.error`, then
+`.cause`): code 4001, or reject/declin/denied/cancel in its words. Anything else says what
+the wallet said, so the next report carries the real reason. Where there are no words, say
+the code or what the error's name tells before settling for "it gave no reason".
 
 ## 2026-10-07: a request timeout covers the whole request
 
