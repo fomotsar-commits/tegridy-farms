@@ -13,6 +13,9 @@ Canonical: https://memetics.finance/.well-known/security.txt
 #   - TOWELI token: 0x420698CFdEDdEa6bc78D59bC17798113ad278F9D (Ethereum mainnet)
 #   - memetics.finance smart contracts (the source verified on the block explorer is authoritative)
 #   - The dapp at https://memetics.finance and its serverless API.
+#   - Two Solana mainnet programs: cp-swap, the pool program,
+#     EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT, and tegridy-launch, the bonding curve,
+#     64WBTeNcrSHfmBpiqymyifW6FUNNLvJcuiqF9rXmz4q2. Neither is audited.
 # Nothing else is in scope. memetic.fun and www.memetic.fun serve the Island Lab, a
 # separate application, not this venue. The tegridyfarms.vercel.app deploy alias is
 # not in scope either: this document cannot promise safe harbour on a hostname under
