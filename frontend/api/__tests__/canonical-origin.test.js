@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, vi, afterAll } from "vitest";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join, relative, sep } from "node:path";
 
@@ -169,6 +169,35 @@ describe("no origin-gated surface admits a domain we do not own", () => {
   });
 });
 
+// Behavioural, not textual: a real preflight against every directly routed handler, as
+// the browser on memetic.fun would send it. A source scan cannot see an origin arriving
+// through a fallback, a derived set or an env default; the response headers can.
+const HANDLER_PATHS = [
+  "../alchemy.js",
+  "../analytics.js",
+  "../auth/me.js",
+  "../auth/siwe.js",
+  "../etherscan.js",
+  "../opensea.js",
+  "../orderbook.js",
+  "../solrpc.js",
+  "../supabase-proxy.js",
+  "../v1/index.js",
+];
+
+// Production shape: no dev localhost widening, the same gate the live site runs. Set
+// before the handlers load, because some of them read NODE_ENV at module scope.
+vi.stubEnv("NODE_ENV", "production");
+vi.stubEnv("VERCEL_ENV", "production");
+afterAll(() => {
+  vi.unstubAllEnvs();
+});
+
+// Loaded here, at collection, where no timeout runs. Inside a test body the first load of
+// a handler's graph is on the 5s clock, and it grows with machine load.
+const HANDLERS = [];
+for (const rel of HANDLER_PATHS) HANDLERS.push([rel, (await import(rel)).default]);
+
 describe("no api surface admits a host that is not this venue (memetic.fun, 2026-09-20)", () => {
   const API_DIR = join(process.cwd(), "api");
 
@@ -188,22 +217,6 @@ describe("no api surface admits a host that is not this venue (memetic.fun, 2026
     expect(offenders).toEqual([]);
   });
 
-  // Behavioural, not textual: a real preflight against every directly routed handler, as
-  // the browser on memetic.fun would send it. A source scan cannot see an origin arriving
-  // through a fallback, a derived set or an env default; the response headers can.
-  const HANDLERS = [
-    "../alchemy.js",
-    "../analytics.js",
-    "../auth/me.js",
-    "../auth/siwe.js",
-    "../etherscan.js",
-    "../opensea.js",
-    "../orderbook.js",
-    "../solrpc.js",
-    "../supabase-proxy.js",
-    "../v1/index.js",
-  ];
-
   function preflight(origin) {
     const headers = {};
     const res = {
@@ -222,19 +235,8 @@ describe("no api surface admits a host that is not this venue (memetic.fun, 2026
     return { req, res, headers };
   }
 
-  beforeAll(() => {
-    // Production shape: no dev localhost widening, the same gate the live site runs.
-    vi.stubEnv("NODE_ENV", "production");
-    vi.stubEnv("VERCEL_ENV", "production");
-  });
-  afterAll(() => {
-    vi.unstubAllEnvs();
-  });
-
-  for (const rel of HANDLERS) {
+  for (const [rel, handler] of HANDLERS) {
     it(`${rel.slice(3)} grants memetic.fun nothing on a preflight`, async () => {
-      const handler = (await import(rel)).default;
-
       // Control first: the canonical origin IS granted, so this harness demonstrably
       // reaches the CORS code. Without it a handler that set no headers at all would pass.
       const ok = preflight(CANONICAL);

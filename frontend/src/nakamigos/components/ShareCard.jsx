@@ -3,13 +3,14 @@ import { useActiveCollection } from "../contexts/CollectionContext";
 import { lockScroll, unlockScroll } from "../lib/scrollLock";
 import { trapFocus } from "../lib/trapFocus";
 import { rankTier } from "../constants";
+import { SITE_HOST } from "../../lib/constants";
 
 const W = 1200, H = 630;
 const GOLD = "#c8a850";
 const BG_START = "#0a0014";
 const BG_END = "#0f1923";
 
-function drawCard(ctx, img, nft, collection) {
+export function drawCard(ctx, img, nft, collection) {
   // Background gradient
   const grad = ctx.createLinearGradient(0, 0, W, H);
   grad.addColorStop(0, BG_START);
@@ -108,10 +109,9 @@ function drawCard(ctx, img, nft, collection) {
   ctx.font = "13px 'Inter', Arial, sans-serif";
   ctx.fillStyle = "rgba(200,168,80,0.7)";
   ctx.textAlign = "center";
-  // Print the real share host (e.g. memetic.fun) rather than a pseudo-domain like
-  // "nakamigos.gallery" the project doesn't own. The fallback only applies off-window
-  // (SSR/tests); in a browser this is whatever host actually served the page.
-  const host = (typeof window !== "undefined" && window.location?.host) || "memetic.fun";
+  // The host that served the page, never a domain the project does not own. With no
+  // window (tests) it is the canonical host.
+  const host = (typeof window !== "undefined" && window.location?.host) || SITE_HOST;
   ctx.fillText(host, W / 2, H - 12);
   ctx.textAlign = "left";
 }

@@ -156,6 +156,10 @@ describe('lpFetch: every read ends', () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 
+  it('says how long it waits, so the chain’s transport starts no second clock on the same read', () => {
+    for (const what of ['the chain', 'the pool index', 'Jupiter'] as const) expect(lpFetch({ what }).endsAfterMs).toBe(READ_TIMEOUT_MS);
+  });
+
   it('the figures and the three sentences, verbatim, with no em dash', () => {
     expect(READ_TIMEOUT_MS).toBe(20_000);
     expect(OPTIONAL_READ_FLOOR).toBe(60);

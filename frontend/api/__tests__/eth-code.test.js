@@ -7,8 +7,9 @@
 // person". So this module rejects a batch it cannot fully account for rather than
 // trusting the part that arrived.
 
-import { describe, it, expect, afterEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { fetchContractFlags, rpcUrlChain } from "../_lib/eth-code.js";
+import { stalledBody, watch } from "../../src/test/quietHost";
 
 const A = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 const B = "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
@@ -117,5 +118,57 @@ describe("fetchContractFlags", () => {
     process.env.ALCHEMY_API_KEY = "demo";
     expect(rpcUrlChain()).toHaveLength(2);
     delete process.env.ALCHEMY_API_KEY;
+  });
+});
+
+// A host's 6 s cover its whole answer. One that sends a 200, its headers and half a
+// batch is left like one that never answers, so the scan is not held open on it.
+describe("fetchContractFlags: a host that stops part-way through its answer is given up", () => {
+  const PUBLICNODE = "ethereum-rpc.publicnode.com";
+  const DRPC = "eth.drpc.org";
+  let keys;
+
+  /** The hosts in `stalled` send half a body; every other host answers that A has code. */
+  function network(stalled) {
+    const asked = [];
+    vi.stubGlobal("fetch", (url, init) => {
+      const host = new URL(String(url)).host;
+      asked.push(host);
+      if (stalled.includes(host)) return Promise.resolve(stalledBody(init.signal));
+      return Promise.resolve(new Response(JSON.stringify([{ jsonrpc: "2.0", id: 0, result: CODE }]), { status: 200 }));
+    });
+    return asked;
+  }
+
+  beforeEach(() => {
+    keys = [process.env.ALCHEMY_API_KEY, process.env.ALCHEMY_API_KEY_FALLBACK];
+    delete process.env.ALCHEMY_API_KEY;
+    delete process.env.ALCHEMY_API_KEY_FALLBACK;
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    if (keys[0] !== undefined) process.env.ALCHEMY_API_KEY = keys[0];
+    if (keys[1] !== undefined) process.env.ALCHEMY_API_KEY_FALLBACK = keys[1];
+  });
+
+  it("leaves a half-answered host after 6 s and takes the next host's answer", async () => {
+    const asked = network([PUBLICNODE]);
+    const ended = await watch(() => fetchContractFlags([A]), 60_000);
+    expect(ended, "still pending after 60 s").not.toBeNull();
+    expect(ended.afterMs).toBe(6_000);
+    expect(ended.value.get(A)).toBe(true);
+    expect(asked).toEqual([PUBLICNODE, DRPC]);
+  });
+
+  it("throws once every host has had its 6 s, never an all-EOA answer", async () => {
+    const asked = network([PUBLICNODE, DRPC]);
+    const ended = await watch(() => fetchContractFlags([A]), 60_000);
+    expect(ended, "still pending after 60 s").not.toBeNull();
+    expect(ended.afterMs).toBe(12_000);
+    expect(ended.error).toBeInstanceOf(Error);
+    expect(ended.value).toBeUndefined();
+    expect(asked).toEqual([PUBLICNODE, DRPC]);
   });
 });

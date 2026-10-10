@@ -9,7 +9,7 @@
 import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest';
 import { PublicKey } from '@solana/web3.js';
 import { associatedTokenAddress } from '../../../lib/launcher/solana/curve/ix';
-import { browserRpc } from '../../../lib/launcher/solana/curve/rpc';
+import { BROWSER_RPC_TIMEOUT_MS, browserRpc, type SolanaRpc } from '../../../lib/launcher/solana/curve/rpc';
 import { findPools } from '../../../lib/solana/lp/poolFinder';
 import { readOutsidePrice } from '../../../lib/solana/lp/outsidePrice';
 import { readPositions } from '../../../lib/solana/lp/positions';
@@ -102,6 +102,28 @@ describe('browserLpReaders: every read goes through a fetch that ends, named for
     expect(remaining()).toBeNull();
     await chainFetch!('/api/solrpc', { method: 'POST' });
     expect(remaining()).toBe(7);
+  });
+
+  // The transport has a 10 s clock of its own for a fetch that has none (curve/rpc.ts).
+  // On this read it must not run: the read would end at 10 s under the 20 s sentence's name.
+  it('the chain’s transport does not time the read a second time: a held read ends at 20 s, not at 10 s', async () => {
+    browserLpReaders();
+    const rpc = vi.mocked(browserRpc).mock.results.at(-1)?.value as SolanaRpc;
+    let settled: string | null = null;
+    void rpc('getMultipleAccounts', [[]]).then(
+      () => {
+        settled = 'answered';
+      },
+      (e: unknown) => {
+        settled = e instanceof Error ? e.message : String(e);
+      },
+    );
+    await vi.advanceTimersByTimeAsync(BROWSER_RPC_TIMEOUT_MS + 1);
+    expect(settled).toBeNull();
+    await vi.advanceTimersByTimeAsync(READ_TIMEOUT_MS - BROWSER_RPC_TIMEOUT_MS - 2);
+    expect(settled).toBeNull();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(settled).toBe('the chain did not answer in 20 seconds');
   });
 });
 
