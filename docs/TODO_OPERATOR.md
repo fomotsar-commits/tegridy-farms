@@ -102,8 +102,11 @@ merged or changed by the sweep. Where an older section below disagrees, this one
   top of the first.
 - ⬜ **C-1009-5: resume the pool redesign.** Your last word on 2026-10-08 was "ok keep going".
 - 🟡 **C-1009-6: show a liquidity provider what a pool has paid them** (asked 2026-10-09): what a
-  position has earned, the pool's measured fee rate, and in a few plain words how liquidity
-  providers earn and how the venue earns. Being built on `feat/solana-lp-earnings`.
+  position has earned, how much a pool's shares have grown, and in a few plain words how
+  liquidity providers earn and how the venue earns. Built: PR #782, waiting for your go. Three
+  calls in it are yours: the "at that pace, about X% a year" sentence, the pool card's heading,
+  and the label "Fees earned". On upgrade day #776 conflicts with it on one sentence; the
+  resolved sentence is written in #782.
 - ⬜ **C-1009-7: small ones.** Finish the "Back to top" test flake. Correct the three BAYLA ladder
   rows in `frontend/scripts/addresses.json` (both controls are the Squads vault now). Start the
   vault upgrade pack for the ladder's 4-year change. Renew or update the advisory waivers before
