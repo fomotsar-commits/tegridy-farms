@@ -16,23 +16,26 @@ import type { GateRpc, LpKind, LpWriteApi } from '../curve/ports';
 import { PoolFinder, type PoolFinderHandle } from './PoolFinder';
 import { parseMintInput } from '../../../lib/solana/lp/mintInput';
 import { YourPositions } from './YourPositions';
+import { HowItPays } from './HowItPays';
 import { LpGateBanner } from './LpGateBanner';
 import { LpWritesProvider, useLpWrites } from './useLpWrites';
 import { browserLpReaders, type LpReaders } from './readers';
 
 /**
- * The Solana LP section on /pools and /solana-lp: a plain disclosure, the fee tiers read
- * from the chain, the pool finder and the wallet's own positions. Adding, removing and
- * opening pools follow LP's own switch (lpWriteFlag.ts): with it 'off' no write code is
- * fetched and nothing here can sign; otherwise LpWritesProvider loads it and offers.ts
- * decides each button. `?mint=<address>` opens the finder on a token; nothing else is
- * ever read from the URL (no amount, side, percent, slippage or open panel).
+ * The Solana LP section on /pools and /solana-lp: a plain disclosure, how a provider and
+ * the venue earn, the fee tiers read from the chain, the pool finder and the wallet's own
+ * positions. Adding, removing and opening pools follow LP's own switch (lpWriteFlag.ts):
+ * with it 'off' no write code is fetched and nothing here can sign; otherwise
+ * LpWritesProvider loads it and offers.ts decides each button. `?mint=<address>` opens the
+ * finder on a token; nothing else is ever read from the URL (no amount, side, percent,
+ * slippage or open panel).
  */
 export default function SolanaLpSection({ readers: given, finderFirst = false }: {
   readers?: LpReaders;
   /**
    * /solana-lp: the finder comes first, under a one-line risk notice, then the positions,
-   * the full disclosure and the fee tiers. Without it the order is /pools' own.
+   * the two earning cards, the full disclosure and the fee tiers. Without it the order is
+   * /pools' own.
    */
   finderFirst?: boolean;
 }) {
@@ -89,7 +92,10 @@ function LpBody({ readers, mode, reloadKey, finderFirst }: { readers: LpReaders;
 
   const disclosure = <LpDisclosure programId={readers.programId} mode={mode} />;
   const writesTop = mode !== 'off' && <LpWritesTop />;
-  const tiers = <FeeTiers readers={readers} />;
+  const tierRead = useFeeTiers(readers);
+  const tiers = <FeeTiers read={tierRead} />;
+  // How a provider earns and how the venue does, beside the tiers their numbers come from.
+  const howItPays = <HowItPays read={tierRead} />;
   // Remove liquidity (the finder's third button) brings the positions onto the screen:
   // that is where every Remove button is. The section takes focus, so a keyboard and a
   // screen reader land there too.
@@ -120,14 +126,18 @@ function LpBody({ readers, mode, reloadKey, finderFirst }: { readers: LpReaders;
   );
   const positions = <YourPositions readers={readers} owner={publicKey ?? null} reloadKey={reloadKey} sectionRef={positionsRef} onAddMore={addMore} />;
 
-  // Finder first sits right under the page's hero, which already leaves the gap above it.
+  // Finder first sits right under the page's hero, which already leaves the gap above it:
+  // only the risk line and the one line on earning stand before it.
+  // The earning cards come straight after the positions, before the long notice.
   if (finderFirst) {
     return (
-      <div className="space-y-4" data-testid="lp-section" data-lp-mode={mode}>
+      <div className="flex flex-col gap-4" data-testid="lp-section" data-lp-mode={mode}>
         <LpRiskLine />
+        <LpEarnLine />
         {writesTop}
         {finder}
         {positions}
+        {howItPays}
         {disclosure}
         {tiers}
       </div>
@@ -137,6 +147,7 @@ function LpBody({ readers, mode, reloadKey, finderFirst }: { readers: LpReaders;
     <div className="space-y-4 mt-6" data-testid="lp-section" data-lp-mode={mode}>
       {disclosure}
       {writesTop}
+      {howItPays}
       {tiers}
       {finder}
       {positions}
@@ -148,14 +159,29 @@ const RISK_LINE_STYLE = { background: 'rgba(28,21,6,0.92)', border: '1px solid r
 
 /**
  * The short form of LpDisclosure, above the finder on a tab that opens on it. It may be
- * short only because the full card is on the same page, right under the positions.
+ * short only because the full card is on the same page, below the positions.
  * Set tighter on a phone, where each of its lines pushes the finder's field down.
  */
 function LpRiskLine() {
   return (
     <p data-testid="lp-risk-line" className="rounded-xl px-4 py-2.5 sm:py-3 text-amber-200 text-[13px] leading-snug sm:leading-relaxed" style={RISK_LINE_STYLE}>
       These pools run on a pool program whose admin-key changes have not had their own independent review yet. Put in only what
-      you can afford to lose. The full notice is right under your positions.
+      you can afford to lose. The full notice is below your positions.
+    </p>
+  );
+}
+
+/**
+ * One line saying fees need no claim, and where the earning cards are. It stands above the
+ * finder at every size, in the page as it is drawn, so it is on the first screen and a
+ * screen reader hears it first. The finder's three buttons still fit under it on the
+ * shortest phone (e2e/tab-target-size.spec.ts pins both).
+ */
+function LpEarnLine() {
+  return (
+    <p data-testid="lp-earn-line" className="px-1 text-white/85 text-[13px] leading-snug">
+      Trading fees are added to your pool shares as trades happen, so there is nothing to claim. How you earn, and how the venue
+      earns, is under your positions.
     </p>
   );
 }
@@ -206,7 +232,7 @@ const NOTE_WHAT: Record<LpKind, string> = {
 /** The section's one sentence about what it can do, by LP's mode (spec 4.3). */
 const DISCLOSURE_NOTICE: Record<LpWriteMode, string> = {
   off: 'This section only reads. Adding and removing liquidity here is not switched on yet.',
-  on: 'Opening a pool, adding and removing liquidity here send real transactions. Each one is read again, checked and test-run on the network before your wallet is asked to sign. This page shows no yield, because none has been measured.',
+  on: 'Opening a pool, adding and removing liquidity here send real transactions. Each one is read again, checked and test-run on the network before your wallet is asked to sign. What this page says a pool or a position earned is measured from the chain, and is never a forecast.',
   'withdraw-only':
     'Adding liquidity from this site is paused right now. Removing it still works, and each removal is checked and test-run before your wallet is asked to sign.',
 };
@@ -228,8 +254,9 @@ export function LpDisclosure({ programId, mode = 'off' }: { programId: string; m
           withdrawals or swaps on any pool, change the fee rates of a fee tier, and upgrade the program.
         </p>
         <p>
-          Anyone can open a pool for any token, at any price. Aggregators such as Jupiter do not send trades to these pools yet, so
-          most trades against a pool will be arbitrage bots, which can cost liquidity providers money when the price moves.
+          Anyone can open a pool for any token, at any price. Jupiter does not send trades to these pools yet, so a pool earns fees
+          only from trades sent to it by this site’s own swap, or by someone using the pool program directly. When the price moves,
+          liquidity providers can end up with less than if they had just held both tokens.
         </p>
         <Row label="Pool program" value={programId} />
         <Notice>{DISCLOSURE_NOTICE[mode]}</Notice>
@@ -261,7 +288,8 @@ function tierCostText(config: AmmConfigView): string {
   return `${feeRateText(launch.totalRate)} a trade in launch pools (${feeRateText(launch.tradeFeeRate)} trade fee, ${feeRateText(launch.creatorFeeRate)} creator fee); ${feeRateText(config.tradeFeeRate)} in a pool anyone opens`;
 }
 
-function FeeTiers({ readers }: { readers: LpReaders }) {
+/** The section's one read of the fee tiers: the Fee tiers card and the two earning cards print the same answer. */
+function useFeeTiers(readers: LpReaders): FeeTierRead | null {
   const [read, setRead] = useState<FeeTierRead | null>(null);
   useEffect(() => {
     let live = true;
@@ -277,6 +305,10 @@ function FeeTiers({ readers }: { readers: LpReaders }) {
       live = false;
     };
   }, [readers]);
+  return read;
+}
+
+function FeeTiers({ read }: { read: FeeTierRead | null }) {
   return (
     <section data-testid="fee-tiers" aria-label="Fee tiers">
       <Card title="Fee tiers, read from the chain">

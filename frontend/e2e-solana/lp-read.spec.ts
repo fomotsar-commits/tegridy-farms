@@ -224,7 +224,9 @@ test('your positions: the wallet’s own pool share, read from its token account
   const pct = ((Number(lpHeld) / Number(pool.lpSupply)) * 100).toFixed(4);
   await expect(row).toContainText(`${pct}%`);
   await expect(row).toContainText('no problems found');
-  await expect(row).toContainText(clean.toBase58());
+  // The row prints addresses short, with the whole one a press away: a token the site has no room for heads it by its short address.
+  const mint = clean.toBase58();
+  await expect(row).toContainText(`${mint.slice(0, 4)}…${mint.slice(-4)} / SOL`);
   expect(a.wallet!.records, 'reading positions put nothing in front of the wallet').toEqual([]);
   expect(a.rpc.violations).toEqual([]);
   await a.ctx.close();

@@ -10,6 +10,7 @@ import { LpInner, type LpWritesOverrides } from './SolanaLpSection';
 import type { LpReaders } from './readers';
 import type { TokenSafety } from '../../../lib/solana/lp/tokenSafety';
 import { SOL_QUOTE, USDC_QUOTE } from '../../../lib/solana/lp/quotes';
+import { FORECAST_WORDS } from '../../../lib/solana/lp/format';
 import { TOKEN_2022_NATIVE_MINT } from '../../../lib/solana/lp/opening';
 import { isCreatedPool, rememberCreatedPool, type PoolSearchRead, type PoolView } from '../../../lib/solana/lp/poolFinder';
 import { decodeAmmConfig, decodePoolState } from '../../../lib/solana/cpswap/program';
@@ -162,11 +163,14 @@ describe('each answer has its own line, and only `offer` has the button', () => 
     const c = await settled('offer');
     expect(c).toHaveTextContent('No pool for this token yet. You can open the first one on the public fee tier: 1% a trade, 0.15 SOL to open (read just now).');
     expect(c).toHaveTextContent("Jupiter does not send trades to our pools. This site's own swap sends a trade to a pool only when that pool pays the trader at least as much as Jupiter does.");
-    expect(c).toHaveTextContent(/a new pool earns fees only when bots trade our pool program directly, mostly arbitrage/);
+    // The routes that exist, and no word on who will trade or how often: every fee-paying
+    // trade so far came through this site's own swap, so "mostly bots" was a guess.
+    expect(c).toHaveTextContent('Any other trade has to come from someone using our pool program directly.');
+    expect(c).not.toHaveTextContent(/\bbots?\b|arbitrage|mostly/i);
     // The swap has sent trades to our pools since it began executing its own route.
     expect(c).not.toHaveTextContent(/not built yet|Trades on this site go through Jupiter/);
     expect(within(c).getByRole('button', { name: 'Open a pool' })).toBeEnabled();
-    expect(c).not.toHaveTextContent(/\bAPR\b|\bAPY\b|yield of|earn fees on every trade/i);
+    expect(c).not.toHaveTextContent(FORECAST_WORDS);
     // N20: Jupiter is asked even with no pool, once, so an opening price can be checked.
     expect(r.outsidePrice).toHaveBeenCalledTimes(1);
   });

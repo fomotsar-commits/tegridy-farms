@@ -129,8 +129,8 @@ describe('findPools: what a pool read must not hide', () => {
     expect(r2.kind === 'ok' && r2.search.pools.map((x) => x.kind)).toEqual(['unread']);
   });
 
-  // F5: the launch pool's own price record is read with it (and only for the launch pool).
-  it('reads the launch pool’s price record, checks it is that pool’s, and leaves other pools’ unread', async () => {
+  // F5: every pool's own price record is read with it, and must be that pool's.
+  it('reads every pool’s price record, the launch pool’s and the standard address’s alike, and checks it is that pool’s', async () => {
     const mint = key();
     const lp = buildPool({ mint, configIndex: 0, address: poolStatePda(mint, LAUNCH), quoteReserve: 10n ** 9n, tokenReserve: 10n ** 12n });
     const other = buildPool({ mint, configIndex: 1, quoteReserve: 10n ** 9n, tokenReserve: 10n ** 12n });
@@ -141,7 +141,7 @@ describe('findPools: what a pool read must not hide', () => {
     };
     const r = await findPools(fakeRpc(accounts), mint, opts(fakeIndex({})));
     const byOrigin = Object.fromEntries((r.kind === 'ok' ? r.search.pools : []).map((e) => (e.kind === 'pool' ? [e.view.origin, e.view.history.kind] : ['x', 'x'])));
-    expect(byOrigin).toEqual({ 'launch-pool': 'ok', standard: 'not-read' });
+    expect(byOrigin).toEqual({ 'launch-pool': 'ok', standard: 'ok' });
 
     // A record that names another pool is not this pool's record.
     accounts[lp.observation.toBase58()] = { owner: PROGRAM.toBase58(), data: observationBytes({ pool: other.address }) };
@@ -286,9 +286,14 @@ describe('findPools: pools paired with USDC and BAYLA', () => {
     const mint = key();
     const launchAddress = poolStatePda(mint, LAUNCH);
     const usdcThere = buildPool({ mint, quote: USDC_QUOTE, configIndex: 0, address: launchAddress, quoteReserve: 5n, tokenReserve: 5n });
-    const r = await findPools(fakeRpc({ ...usdcThere.accounts, [CLOCK]: clockAccount(5n) }), mint, opts(fakeIndex({})));
+    const accounts: Record<string, FakeAccount> = {
+      ...usdcThere.accounts, [CLOCK]: clockAccount(5n),
+      [usdcThere.observation.toBase58()]: { owner: PROGRAM.toBase58(), data: observationBytes({ pool: usdcThere.address, initialized: false }) },
+    };
+    const r = await findPools(fakeRpc(accounts), mint, opts(fakeIndex({})));
     const e = r.kind === 'ok' ? r.search.pools[0] : undefined;
-    expect(e?.kind === 'pool' && [e.view.quote.symbol, e.view.origin, e.view.history.kind]).toEqual(['USDC', 'other', 'not-read']);
+    // Not the launch pool, so its origin is 'other'; its price record is read all the same.
+    expect(e?.kind === 'pool' && [e.view.quote.symbol, e.view.origin, e.view.history.kind]).toEqual(['USDC', 'other', 'ok']);
   });
 });
 
