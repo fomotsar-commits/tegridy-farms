@@ -8,7 +8,7 @@ page keeps the newest thirty days.
 
 ### 2026-10-10
 
-- Solana LP and launch trades: when a wallet fails to sign without ever showing its prompt, the card now says what the wallet said, instead of "You cancelled in your wallet".
+- Solana LP, swaps in our own pools and launch trades: when a wallet fails to sign without ever opening its prompt, the card now says what the wallet said, or that this page is no longer connected to it, instead of "You cancelled in your wallet". A real cancel still reads as a cancel.
 
 ### 2026-10-08
 

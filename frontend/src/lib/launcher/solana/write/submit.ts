@@ -85,13 +85,43 @@ function isDecline(e: unknown): boolean {
   });
 }
 
-/** The wallet's own words for a failed sign, never "the RPC call failed". */
+// The adapter's own refusals: thrown BEFORE the wallet is asked, with a name and no
+// words (wallet-adapter-base errors.js, StandardWalletAdapter's signTransaction).
+const NEVER_ASKED = new Map([
+  ['WalletNotConnectedError', 'this page is no longer connected to it, so it was never asked'],
+  ['WalletConfigError', 'it does not offer transaction signing to this page, so it was never asked'],
+  ['WalletAccountError', 'the account it shared does not allow transaction signing, so it was never asked'],
+]);
+/** Names that say nothing about why: a bare Error, and the wrapper every failure wears. */
+const PLAIN_NAMES = new Set(['Error', 'WalletSignTransactionError']);
+
+/**
+ * Why a sign failed, for inside "Your wallet did not sign this (...)": the wallet's
+ * own words, else its error code, else what the error's name tells. Only a string or
+ * a number is ever printed, never an object, and never "the RPC call failed".
+ */
 function walletReason(e: unknown): string {
-  for (const x of walletErrors(e)) {
+  const chain = walletErrors(e);
+  for (const x of chain) {
     const s = typeof x === 'object' ? (x as { message?: unknown }).message : x;
-    if ((typeof s === 'string' || typeof s === 'number') && String(s).trim()) return clipDetail(String(s));
+    if ((typeof s !== 'string' && typeof s !== 'number') || !String(s).trim()) continue;
+    // One line, cut short. The sentence around it already ends "Nothing was sent."
+    const words = clipDetail(String(s)).replace(/[.\s]*Nothing was sent\.?$/i, '');
+    // An adapter that wrapped an object as its message made it "[object Object]".
+    if (!words || /^\[object \w+\]$/.test(words)) continue;
+    return /^-?\d+$/.test(words) ? `error code ${words}` : words;
   }
-  return 'it gave no reason';
+  const fields = chain.filter((x): x is { name?: unknown; code?: unknown } => typeof x === 'object');
+  for (const { code } of fields) {
+    if (Number.isInteger(code) || (typeof code === 'string' && /^-?\d+$/.test(code))) return `error code ${String(code)}`;
+  }
+  const names = fields.map((x) => x.name).filter((n): n is string => typeof n === 'string');
+  for (const n of names) {
+    const said = NEVER_ASKED.get(n);
+    if (said) return said;
+  }
+  const name = names.find((n) => /^[A-Za-z]\w{2,60}$/.test(n) && !PLAIN_NAMES.has(n));
+  return name ? `it gave no reason, only the name ${name}` : 'it gave no reason';
 }
 
 /**

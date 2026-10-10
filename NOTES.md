@@ -161,11 +161,14 @@ opened, a WalletConnect session that never granted signing, and a real "no" all 
 class. A Trust Wallet LP add that failed with no prompt read "You cancelled in your wallet".
 And Trust's real "no" is not words at all: `trust-web3-provider`'s `CallbackAdapter` turns the
 app's numeric answer into `RPCError(4001, '4001')`, and an older build rejects with a bare
-string, so `inner.message` can be `"4001"` or `undefined`.
+string, so `inner.message` can be `"4001"` or `undefined`. And the library adapter throws
+three errors unwrapped, with a name and no words, before the wallet is asked at all
+(`WalletNotConnectedError`, `WalletConfigError`, `WalletAccountError`).
 
 **Do:** decide a decline from the wallet's own error under the wrapper (`.error`, then
 `.cause`): code 4001, or reject/declin/denied/cancel in its words. Anything else says what
-the wallet said, so the next report carries the real reason.
+the wallet said, so the next report carries the real reason. Where there are no words, say
+the code or what the error's name tells before settling for "it gave no reason".
 
 ## 2026-10-06: a lookup that derives one address answers about that address, not about "our pool"
 
