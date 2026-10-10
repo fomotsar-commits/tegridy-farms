@@ -1303,6 +1303,67 @@ turns.
 
 ---
 
+## 2026-10-03: a slow `waitFor` can be a cold import inside the code under test
+
+**Believed:** a test body with no `await import()` in it, in a file that loads its component at
+collection, has no cold load left, so a 5000ms timeout there is real work.
+
+**Measured** (vitest 4.1.11, trunk `288a7948`, `LighthousePoolLive.readOrder.test.tsx`, the body
+split with `performance.now()`): 1299 to 1342ms at 57 to 66% CPU load and 3420ms at 89%, with 829
+to 2392ms of it inside one `waitFor`. Which `waitFor` changed between runs. The card calls
+`readConfirmedSlot` after a confirmed write. The test mocked four functions of
+`lib/bungalowStaking` and not that one, so the real one ran `import('@streamflow/staking')` cold:
+948 to 2691ms, then null, because no RPC answers a test. Module evaluation blocks the event loop,
+so the open wait took the time, and a 1542ms timeout was reported as 2732 to 3341ms. With the one
+line mocked: 339 to 560ms at about 50% load, 744 to 2821ms at 89%.
+
+**Do:** when a split shows one wait holding the time, time the functions the mock left real
+before blaming the render. A `vi.mock(path, importOriginal)` spread keeps every function you did
+not name.
+
+---
+
+## 2026-10-03: moving an import to collection also moves when the module reads its env
+
+**Believed:** the fix for a cold `await import()` in a test body is always a static import, or a
+bare warming import, at the top of the file.
+
+**Measured:** `api/__tests__/canonical-origin.test.js` stubbed NODE_ENV to production in a
+`beforeAll`, then imported ten handlers inside test bodies (`orderbook.js`: 1117 to 4199ms of a
+5000ms bound; the rest of that body 3 to 6ms). `api/etherscan.js` builds its CORS allowlist at
+module scope from NODE_ENV. An import at the top of the file is evaluated before any hook, and
+with no `vi.resetModules()` the body gets that same instance: the handlers would have been tested
+in test shape, every assertion still green. The check that sees it: mutate `etherscan.js` to
+widen its list whenever NODE_ENV is not "production". The old file passes, the new file passes,
+and the new file with its two `vi.stubEnv` lines deleted fails.
+
+**Do:** before hoisting, grep the imported modules for `process.env` at module scope. If any
+reads it there, stub the env at the top level of the test file, ahead of a top-level
+`await import()`, and run a mutation that only the right env hides.
+
+---
+
+## 2026-10-03: a timeout gate sized at one load is wrong five minutes later
+
+**Believed** (the 2026-09-11 entry "a per-test timeout is a third clock"): a threshold between
+the pre-fix and post-fix durations, with the runs interleaved, separates the two.
+
+**Measured:** other sessions ran suites on the same machine, and load moved between 33% and 89%
+within minutes. One test, fixed: 339 to 2821ms. The same test before the fix: 956 to 5031ms, the
+last a real `Test timed out in 5000ms`. A 1100ms gate sized near 80% load failed the fixed file 2
+of 5 once load rose. A 3230ms gate sized at 89% passed the pre-fix file 5 of 5 once load fell.
+Sizing and gating in the same minutes held: three pairs at the default timeout, the log midpoint
+of the slowest fixed and the fastest pre-fix run, refuse if they overlap, gate at once. Pre-fix
+timed out 5 of 5 and fixed passed 5 of 5.
+
+**Do:** size the gate in the run that uses it, and check the load meter against the system's
+own: an `os.cpus()` idle-time meter read 89% here, its ceiling, while Windows reported 100%, so
+every 89% in these three entries means saturated. When a script reads vitest's JSON report: a
+timeout is written `Error: STACK_TRACE_ERROR` (the words "timed out" are only in the default
+reporter), and `numTotalTestSuites` counts describe blocks, not files.
+
+---
+
 ## 2026-10-02: `import.meta.env.DEV` is true in a `vite build` run with NODE_ENV=development
 
 **Believed:** a dial honoured only when `import.meta.env.DEV` is true can count on a dev server
