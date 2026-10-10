@@ -1,27 +1,12 @@
 /**
- * THE WALLET'S CHAIN DOES NOT DECIDE WHAT A MAINNET READ REPORTS -- two more
- * display hooks, after walletChainReads.test.ts.
- *
- * Each pins its reads to mainnet (`chainId: CHAIN_ID`) and ALSO gated `enabled`
- * on `useChainId() === CHAIN_ID`, which follows the wallet since 2443b584. So
- * for a wallet on Base or Robinhood Chain nothing was asked:
- *   - useLpPosition: the Dashboard dropped a real LP position, and its unread
- *     flags were scoped by the same term, so nothing said a read was missing;
- *   - useWalletExposure: "No tracked ERC-20 balances in this wallet", printed
- *     under the page's own "switch to read your holdings" notice.
- * Neither feeds a write, so both gates are gone. Per hook: on Base and on
- * Robinhood Chain it reports what it reports on mainnet, after checking that one
- * stubbed figure landed (two unread renders would be equal too), and a read that
- * fails there is reported as a failed read.
- *
- * Pinned elsewhere: usePortfolioSources and useShieldPositions in their own
- * suites, whose local mocks model what the shared one does not; the gates that
- * stay in positionMarketWalletChain.test.tsx and swapWalletChainGates.test.ts.
- *
+ * The wallet's chain does not decide what a mainnet read reports. On Base and on
+ * Robinhood Chain, useLpPosition and useWalletExposure report what they report
+ * on mainnet, and a read that fails there is reported as a failed read. Each case
+ * first checks that one stubbed figure landed: two unread renders are equal too.
  * MUTATION CHECK: put the chain term back in either hook's `enabled`, or in
  * useLpPosition's `readsEnabled`, and that hook's cases here fail.
  */
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { renderHook } from '@testing-library/react';
 import { wagmiMock } from '../test-utils/wagmi-mocks';
 import { useLpPosition } from './useLpPosition';
@@ -29,6 +14,7 @@ import { useWalletExposure } from './useWalletExposure';
 import { CHAIN_ID, LP_FARMING_ADDRESS, TEGRIDY_LP_ADDRESS, TOWELI_ADDRESS } from '../lib/constants';
 
 const E18 = 10n ** 18n;
+const NOW = new Date('2026-10-03T12:00:00Z');
 const USER = '0xcccccccccccccccccccccccccccccccccccccccc' as `0x${string}`;
 /** A pasted token, so the case does not lean on the curated list. */
 const TOKEN = '0x00000000000000000000000000000000000000aa';
@@ -52,9 +38,14 @@ function figures(report: object) {
 
 describe.each(OFF_MAINNET)('a wallet CONNECTED on %s', (_label, chainId) => {
   beforeEach(() => {
+    // The clock stands still: useWalletExposure stamps `observedAt` on every
+    // render, and two renders either side of a second boundary are not equal.
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(NOW);
     wagmiMock.reset();
     wagmiMock.setAccount({ address: USER, isConnected: true });
   });
+  afterEach(() => vi.useRealTimers());
 
   describe('useLpPosition', () => {
     beforeEach(() => {
@@ -102,6 +93,8 @@ describe.each(OFF_MAINNET)('a wallet CONNECTED on %s', (_label, chainId) => {
       const useExposure = () => useWalletExposure({ extraTokens: EXTRA });
       const off = reportOn(useExposure, chainId);
       expect(off.holdings.map((h) => [h.address, h.balance])).toEqual([[TOKEN, 5n * E18]]);
+      // The stamp is the frozen clock's: take the freeze away and this fails every run.
+      expect(off.exposures[TOKEN]?.observedAt).toBe(NOW.getTime() / 1000);
       expect(figures(off)).toEqual(figures(reportOn(useExposure, CHAIN_ID)));
     });
 
