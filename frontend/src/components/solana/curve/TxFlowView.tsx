@@ -9,6 +9,7 @@ import { reviewLines } from './reviewLines';
 import type { ReviewState, TxFlow } from './useTxFlow';
 import type { QuoteCoin } from '../../../lib/solana/lp/quotes';
 import type { PriceReference } from '../../../lib/solana/lp/poolHealth';
+import type { OpeningReference } from '../../../lib/solana/lp/opening';
 
 // What the user sees between pressing a Review button and the chain's answer.
 // Every word here is about THIS transaction, and the numbers come from the
@@ -465,16 +466,22 @@ function LpWithdrawRows({ summary: s }: { summary: Extract<TxSummary, { kind: 'l
 /** What a live mint authority allows, said once more where a pool is about to be opened. */
 const mintAuthorityLine = (q: QuoteCoin) => `Whoever holds it can make new tokens at any time and sell them into your pool for its ${q.symbol}.`;
 
+/** What an opening price was compared with, as its row names it before that price. A Record, so a new reference must say. */
+const OPENING_AGAINST: Readonly<Record<OpeningReference, string>> = {
+  outside: 'Market (Jupiter, read just now)',
+  'launch-pool': 'Jupiter has no market price for this token. The launch pool’s price (read just now)',
+};
+
 /**
- * The opening price against the market, from the fresh check made while preparing. An
- * opening is built when that check agrees, and also when the price is off or there is no
- * market price at all (owner ruling 2026-10-04). Neither of those two is a check that
- * passed, and the row says which it is.
+ * The opening price against what it was compared with, from the fresh check made while
+ * preparing. An opening is built when that check agrees, and also when the price is off
+ * or there is nothing to compare it with (owner ruling 2026-10-04). Neither of those two
+ * is a check that passed, and the row says which it is.
  */
 function openingPriceText(p: Extract<TxSummary, { kind: 'lp-create' }>['price'], q: QuoteCoin): string {
-  if ((p.state === 'agrees' || p.state === 'disagrees') && p.against === 'outside') {
+  if ((p.state === 'agrees' || p.state === 'disagrees') && p.against !== 'own-average') {
     const d = (Math.abs(p.diff) * 100).toFixed(1);
-    const line = `1 token = ${formatSolPrice(p.pool)} ${q.symbol}. Market (Jupiter, read just now): ${formatSolPrice(p.reference)} ${q.symbol}, ${d}% ${p.diff >= 0 ? 'above' : 'below'}`;
+    const line = `1 token = ${formatSolPrice(p.pool)} ${q.symbol}. ${OPENING_AGAINST[p.against]}: ${formatSolPrice(p.reference)} ${q.symbol}, ${d}% ${p.diff >= 0 ? 'above' : 'below'}`;
     return p.state === 'disagrees' ? `${line}. ${OFF_PRICE}` : line;
   }
   // The opening price is still said: with no market, it is the only price there is.

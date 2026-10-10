@@ -16,7 +16,7 @@ import type { LpWriteMode } from '../../../lib/launcher/solana/lpWriteFlag';
 import { minLpForBothSides } from '../../../lib/solana/lp/liquidityMath';
 import { TOKEN_2022_NATIVE_MINT } from '../../../lib/solana/lp/opening';
 import type { OutsidePrice } from '../../../lib/solana/lp/outsidePrice';
-import { tokenReasons, type PoolHealth } from '../../../lib/solana/lp/poolHealth';
+import { launchReference, tokenReasons, type PoolHealth, type PriceCheck } from '../../../lib/solana/lp/poolHealth';
 import type { PoolSearchRead, PoolView } from '../../../lib/solana/lp/poolFinder';
 import type { Position } from '../../../lib/solana/lp/positions';
 import { SOL_QUOTE, quotesFor, type QuoteCoin } from '../../../lib/solana/lp/quotes';
@@ -234,17 +234,33 @@ export const POOL_RISK_CODES: ReadonlySet<SafetyReason['code']> = new Set<Safety
 
 const NO_MARKET_CAUTION =
   'Jupiter has no market price for this token, so there is nothing to compare an opening price with. If you open a pool, you set its first price yourself.';
+const LAUNCH_POOL_CAUTION =
+  'Jupiter has no market price for this token, so an opening price is compared with its launch pool’s price instead (the launch pool’s card above shows it).';
+
+/**
+ * The price check of `mint`'s own launch pool, as the page judged it for this search
+ * (`assessPools`), or null when the search read none. What an opening price is compared
+ * with when Jupiter has no route (opening.ts `openingReference`). A launch pool of
+ * another token is never one.
+ */
+export function launchPoolCheck(mint: string, search: PoolSearchRead, healths: ReadonlyMap<string, PoolHealth>): PriceCheck | null {
+  if (search.kind !== 'ok') return null;
+  const launch = search.search.pools.find((e) => e.kind === 'pool' && e.view.origin === 'launch-pool' && e.view.tokenMint === mint);
+  return launch?.kind === 'pool' ? (healths.get(launch.view.address)?.price ?? null) : null;
+}
 
 /**
  * What the Open-a-pool card says, before its button, about a token it offers a pool for:
  * each `POOL_RISK_CODES` warning in the token's own words (the copy warning names the real
- * token's mint), and that there is no market price when Jupiter ANSWERED it has none.
- * These are warnings: none of them takes the button away. A price that was not read is
- * not one of them (`createOffer` stops on it).
+ * token's mint), and, when Jupiter ANSWERED it has no market price, what an opening price
+ * is compared with instead: the launch pool's price (`launchPrice`, when it gives a
+ * reference), or nothing. Warnings: none of them takes the button away. A price that was
+ * not read is not one of them (`createOffer` stops on it).
  */
-export function openingCautions(safety: TokenSafety, outside: OutsidePrice | null): string[] {
+export function openingCautions(safety: TokenSafety, outside: OutsidePrice | null, launchPrice: PriceCheck | null): string[] {
   const token = safety.kind === 'read' ? safety.warnings.filter((w) => POOL_RISK_CODES.has(w.code)).map((w) => w.text) : [];
-  return outside?.kind === 'no-route' ? [...token, NO_MARKET_CAUTION] : token;
+  if (outside?.kind !== 'no-route') return token;
+  return [...token, launchReference(launchPrice) === null ? NO_MARKET_CAUTION : LAUNCH_POOL_CAUTION];
 }
 
 /**

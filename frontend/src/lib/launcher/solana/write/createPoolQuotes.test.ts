@@ -31,6 +31,7 @@ import { arbitrageLoss, assessOpening, estimatedLoss, matchMarket, mostBothAtMar
 import type { OutsidePrice } from '../../../solana/lp/outsidePrice';
 import { BAYLA_QUOTE, SOL_QUOTE, USDC_QUOTE, type QuoteCoin } from '../../../solana/lp/quotes';
 import { USDT_MINT, type TokenSafety } from '../../../solana/lp/tokenSafety';
+import { observationBytes } from '../../../solana/lp/testkit.fixture';
 import { CP_CREATE_POOL_FEE_RECEIVER } from './config';
 import { CREATE_COPY, createPins, createStepsProblem, prepareLpCreate, readCreateSnapshot, type CreateSnapshot, type LpCreateArgs } from './createPool';
 import { decodeIntent } from './intent';
@@ -47,6 +48,7 @@ import {
   cfgLocal,
   createSimulator,
   rent,
+  setClock,
   skewTestRun,
   type AmmConfigOverrides,
   type FeeReceiverOptions,
@@ -651,6 +653,53 @@ describe('prepareLpCreate with USDC or BAYLA: what refuses it, each in its own w
       expect(s.warnings).toEqual([
         'Jupiter has no market price for this token, so there is nothing to compare your opening price with. You are setting the price yourself: if it is off, the first trades take the difference out of what you put in.',
       ]);
+    }
+  });
+
+  // With a launch pool there IS something to compare with again, in the coin: the launch
+  // pool's SOL price over the coin's own. So the coin's own price is needed again.
+  it.each(COIN_ROWS)('%s: the token has no route but has a launch pool: the opening is compared with that pool’s price said in the coin, which needs the coin’s own price', async (_n, quote) => {
+    const noRoute: OutsidePrice = { kind: 'no-route', detail: 'Jupiter has no route for this token' };
+    /** The launch pool: 10 SOL and 1,000 tokens, 0.01 SOL a token, never traded. */
+    const NOW = 2_000_000_000n;
+    const beside = (o: { pushed?: boolean } = {}) => {
+      const w = world(quote);
+      setClock(w.chain, NOW);
+      const launch = addPool(w.chain, w.mint, { sol: 10n * SOL, tokens: 1_000n * U6, launch: true });
+      if (o.pushed) {
+        // An hour at 5 lamports a token base unit, half the pool's price now, last written ten seconds ago.
+        const Q32 = 1n << 32n;
+        const [first, last] = [NOW - 3_610n, NOW - 10n];
+        const own = 5n * Q32 * (last - first);
+        const other = ((Q32 * Q32) / (5n * Q32)) * (last - first);
+        const [c0, c1] = launch.quoteIsToken0 ? [other, own] : [own, other];
+        w.chain.set(launch.observation, { lamports: rent(4075), owner: CPSWAP, data: observationBytes({ pool: launch.address, index: 1, lastUpdate: last, obs: [[0, first, 0n, 0n], [1, last, c0, c1]] }) });
+      }
+      return w;
+    };
+    // The coin at 0.005 SOL: the launch pool's price is 2 coins a token, the opening's own.
+    const fair = summaryOf(ok(await create(beside(), {}, priced(quote, { token: noRoute }))));
+    expect(fair.price).toMatchObject({ state: 'agrees', against: 'launch-pool', pool: 2 });
+    expect([fair.warnings, fair.priceGap]).toEqual([[], null]);
+    // The coin dearer in SOL: the launch pool's price is 1.92 coins a token, the opening 4.2% above it.
+    const off = summaryOf(ok(await create(beside(), {}, priced(quote, { token: noRoute, coin: price(0.0052083333) }))));
+    expect(off.price).toMatchObject({ state: 'disagrees', against: 'launch-pool', pool: 2 });
+    expect(off.warnings[0]).toBe('Your opening price is 4.2% above the launch pool’s price. The first trades would move it to the launch pool’s price, at your cost.');
+    expect(off.warnings[1]).toMatch(new RegExp(`^At these amounts, a move back to the launch pool’s price would take up to about 0\\.0816\\d* ${quote.symbol} of what you put in\\. That is an estimate\\.$`));
+    expect(off.warnings).toHaveLength(2);
+    expect(off.warnings.join(' ')).not.toMatch(/\bSOL\b|market price/);
+    // The coin's own price not read: nothing is built, and it is said as the coin's price.
+    const unread: OutsidePrice = { kind: 'unread', detail: 'Jupiter did not give a price (HTTP 502)' };
+    expect(refused(await create(beside(), {}, priced(quote, { token: noRoute, coin: unread })))).toBe(CREATE_COPY.coinPriceUnread(quote.symbol, 'Jupiter did not give a price (HTTP 502)'));
+    expect(refused(await create(beside(), {}, priced(quote, { token: noRoute, coin: new Error('offline') })))).toBe(CREATE_COPY.coinPriceUnread(quote.symbol, 'offline'));
+    // A launch pool that gives NO reference (pushed off its own average) is as if there were
+    // none: nothing is compared, so the coin's own price is not needed, read or not.
+    for (const coin of [price(0.005), unread]) {
+      const s = summaryOf(ok(await create(beside({ pushed: true }), {}, priced(quote, { token: noRoute, coin }))));
+      expect(s.price).toEqual({ state: 'no-market', pool: 2, detail: 'Jupiter has no route for this token' });
+      expect(s.priceGap).toBeNull();
+      expect(s.warnings).toHaveLength(1);
+      expect(s.warnings[0]).toMatch(/^Jupiter has no market price for this token, so there is nothing to compare your opening price with\./);
     }
   });
 

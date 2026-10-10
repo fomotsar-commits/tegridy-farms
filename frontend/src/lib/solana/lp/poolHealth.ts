@@ -177,7 +177,8 @@ function ownPriceOf(view: PoolView, tokenDecimals: number, chainNow: bigint | nu
 }
 
 /**
- * The launch pool's price, in SOL a token, as the reference for the token's OTHER pools.
+ * The launch pool's price, in SOL a token, as the reference for the token's OTHER pools,
+ * and for the opening price of a new one (opening.ts `openingReference`).
  * Only when that pool's own check passed: it agrees with its own half-hour average, or
  * nobody has traded it since the launch program set its price. A launch pool that was not
  * read, could not be checked, or is off its own average gives none: unread is never a

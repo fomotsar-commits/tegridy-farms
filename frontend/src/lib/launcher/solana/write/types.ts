@@ -426,9 +426,10 @@ export interface LpCreateSummary {
   /** Read while preparing: the pool's own accounts (never returned), the opener's pool-share account (refundable). */
   rents: { neverRefunded: bigint; lpAccount: bigint };
   /**
-   * The fresh opening check, against 'outside'. An opening is built when it agrees, and
-   * also when it disagrees or has nothing to be compared with (`no-market`): those two
-   * are said in `warnings`.
+   * The fresh opening check: against 'outside', or against 'launch-pool' when Jupiter has
+   * no route and the token's launch pool gives a reference. An opening is built when it
+   * agrees, and also when it disagrees or has nothing to be compared with (`no-market`):
+   * those two are said in `warnings`.
    */
   price: PriceCheck;
   tokenWarnings: SafetyReason[];

@@ -12,7 +12,7 @@ import { CARD, CARD_STYLE, SHADOW } from '../curve/uiFormat';
 import type { CreateFacts, TierState } from '../curve/ports';
 import { CreatePoolPanel } from './CreatePoolPanel';
 import { MONEY_NOTE } from './LpDisclosures';
-import { createOffer, depositOffer, lpHeld, openingCautions, pairFacts, poolListCut, type CreateOffer, type PairFacts } from './offers';
+import { createOffer, depositOffer, launchPoolCheck, lpHeld, openingCautions, pairFacts, poolListCut, type CreateOffer, type PairFacts } from './offers';
 import { coinAbout } from './panelKit';
 import { useLpWrites, type LpWrites } from './useLpWrites';
 
@@ -112,7 +112,9 @@ function CreateCard({
   const pointers = pairs.flatMap((x) => (x.advice.kind === 'none' ? [] : [{ coin: x.coin, kind: x.advice.kind, pool: x.advice.pool }]));
   const answer = answerKey(offer, pairs, facts, outside, search, healths);
   // What the opener is warned about before any button. Only beside an offer: a stopped card has no button.
-  const cautions = offer === 'offer' ? openingCautions(safety, outside) : [];
+  // With no route, an opening price is compared with the launch pool this search read (opening.ts).
+  const launchPrice = launchPoolCheck(mint, search, healths);
+  const cautions = offer === 'offer' ? openingCautions(safety, outside, launchPrice) : [];
   // A pressed Read again: what the card said before, until the new answer is in.
   const [asked, setAsked] = useState<string | null>(null);
   const [said, setSaid] = useState<'same' | 'changed' | null>(null);
@@ -260,6 +262,7 @@ function CreateCard({
             decimals={decimals}
             outside={outside}
             outsideAt={outsideAt}
+            launchPrice={launchPrice}
             tier={tier}
             pairs={pairs}
             cut={poolListCut(search)}

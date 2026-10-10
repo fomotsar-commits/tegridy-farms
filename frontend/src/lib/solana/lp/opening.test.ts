@@ -7,8 +7,9 @@
 // would take from a mispriced opening or deposit.
 import { describe, it, expect } from 'vitest';
 import { NATIVE_MINT_2022 } from '@solana/spl-token';
-import { TOKEN_2022_NATIVE_MINT, arbitrageLoss, assessOpening, estimatedLoss, matchMarket, mostBothAtMarket, openingSolPerToken } from './opening';
+import { OPENING_REFERENCE_NAME, TOKEN_2022_NATIVE_MINT, arbitrageLoss, assessOpening, estimatedLoss, matchMarket, mostBothAtMarket, openingSolPerToken } from './opening';
 import type { OutsidePrice } from './outsidePrice';
+import type { PriceCheck } from './poolHealth';
 import type { TokenSafety } from './tokenSafety';
 import { key } from './testkit.fixture';
 import { SOL_QUOTE, USDC_QUOTE } from './quotes';
@@ -87,6 +88,127 @@ describe('assessOpening: the price', () => {
   it('nothing typed on one side: no price yet, and no reason given', () => {
     expect(at({ token: 0n })).toMatchObject({ price: { state: 'empty' }, reasons: [] });
     expect(at({ sol: 0n }).price).toEqual({ state: 'empty' });
+  });
+});
+
+// A token Jupiter has no route for, that has a launch pool: an opening at ten times that
+// pool's price was told only "you set the price yourself". The launch pool's price is
+// what the opening is compared with, by the rules its other pools' deposits follow.
+describe('assessOpening: with no route, the token’s launch pool is what the price is compared with', () => {
+  const NO_ROUTE: OutsidePrice = { kind: 'no-route', detail: 'Jupiter has no route for this token' };
+  /** A launch pool at 0.2 SOL a token that passed its own check: never traded, or at its own half-hour average. */
+  const neverTraded: PriceCheck = { state: 'no-trades-yet', pool: 0.2 };
+  const steady: PriceCheck = { state: 'agrees', pool: 0.2, reference: 0.199, against: 'own-average', diff: 0.2 / 0.199 - 1 };
+  /** 1 SOL against 5 tokens (0.2 SOL a token) beside that launch pool, unless said otherwise. */
+  const beside = (launchPrice: PriceCheck | null | undefined, o: { sol?: bigint; outside?: OutsidePrice | null } = {}) =>
+    assessOpening({
+      tokenMint: mint,
+      quote: SOL_QUOTE,
+      quoteAmount: o.sol ?? 1_000_000_000n,
+      token: 5_000_000n,
+      tokenDecimals: 6,
+      outside: o.outside === undefined ? NO_ROUTE : o.outside,
+      launchPrice,
+      safety: OK,
+    });
+  /** The same beside a USDC opening: `usdc` whole USDC against 5 tokens. */
+  const inUsdc = (usdc: bigint, coinOutside: OutsidePrice | null | undefined, launchPrice: PriceCheck | null = neverTraded) =>
+    assessOpening({ tokenMint: mint, quote: USDC_QUOTE, quoteAmount: usdc * 1_000_000n, token: 5_000_000n, tokenDecimals: 6, outside: NO_ROUTE, coinOutside, launchPrice, safety: OK });
+
+  it('at the launch pool’s price: allowed, compared with the launch pool, and nothing to warn of', () => {
+    for (const launch of [neverTraded, steady]) {
+      expect(beside(launch)).toEqual({ verdict: 'allowed', reasons: [], warnings: [], price: { state: 'agrees', against: 'launch-pool', pool: 0.2, reference: 0.2, diff: 0 } });
+    }
+  });
+
+  it('more than 3% off: a warning in the opener’s words that names the launch pool, and never a refusal', () => {
+    expect(beside(neverTraded, { sol: 1_029_000_000n })).toMatchObject({ verdict: 'allowed', warnings: [], price: { state: 'agrees', against: 'launch-pool' } });
+    const above = beside(neverTraded, { sol: 1_031_000_000n });
+    expect(above).toMatchObject({ verdict: 'allowed', reasons: [], price: { state: 'disagrees', against: 'launch-pool', reference: 0.2 } });
+    expect(above.warnings).toEqual(['Your opening price is 3.1% above the launch pool’s price. The first trades would move it to the launch pool’s price, at your cost.']);
+    expect(beside(steady, { sol: 969_000_000n }).warnings).toEqual([
+      'Your opening price is 3.1% below the launch pool’s price. The first trades would move it to the launch pool’s price, at your cost.',
+    ]);
+    // The case the gap was found with: ten times the launch pool's price.
+    const tenTimes = beside(neverTraded, { sol: 10_000_000_000n });
+    expect(tenTimes.verdict).toBe('allowed');
+    expect(tenTimes.warnings).toEqual(['Your opening price is 900.0% above the launch pool’s price. The first trades would move it to the launch pool’s price, at your cost.']);
+    // Nothing says the price was compared with nothing, or names a market price Jupiter does not have.
+    expect([...above.warnings, ...tenTimes.warnings].join(' ')).not.toMatch(/nothing to compare|setting the price yourself|market price/);
+  });
+
+  it('in the pool’s own coin: a USDC opening is compared with the launch pool’s SOL price over USDC’s own', () => {
+    // 0.2 SOL a token with USDC at 0.005 SOL: 40 USDC a token.
+    const fair = inUsdc(200n, jupiter(0.005));
+    expect(fair).toMatchObject({ verdict: 'allowed', warnings: [], price: { state: 'agrees', against: 'launch-pool', pool: 40 } });
+    if (fair.price.state !== 'agrees') throw new Error('unreachable');
+    expect(fair.price.reference).toBeCloseTo(40, 9);
+    const off = inUsdc(400n, jupiter(0.005));
+    expect(off).toMatchObject({ verdict: 'allowed', price: { state: 'disagrees', against: 'launch-pool', pool: 80 } });
+    expect(off.warnings).toEqual(['Your opening price is 100.0% above the launch pool’s price. The first trades would move it to the launch pool’s price, at your cost.']);
+  });
+
+  it('the coin’s own price unread: unchecked, never allowed and never a warning, and it says which comparison could not be made', () => {
+    const cases: Array<[OutsidePrice | null | undefined, string]> = [
+      [undefined, 'the price of USDC was not read'],
+      [null, 'the price of USDC was not read'],
+      [{ kind: 'unread', detail: 'HTTP 502' }, 'the price of USDC could not be read (HTTP 502)'],
+      [NO_ROUTE, 'the price of USDC could not be read (Jupiter has no route for this token)'],
+      [jupiter(0), 'the price of USDC did not give a usable price'],
+    ];
+    for (const [coinOutside, detail] of cases) {
+      expect(inUsdc(200n, coinOutside), detail).toEqual({
+        verdict: 'unchecked',
+        reasons: [`We could not compare your opening price with the launch pool’s price (${detail}).`],
+        warnings: [],
+        price: { state: 'unread', pool: 40, detail },
+      });
+    }
+  });
+
+  // Unread stays unread: a launch pool that gives no reference leaves the opening where it was.
+  it('no reference stays "no market": no launch pool was read, or it did not pass its own check', () => {
+    const none: Array<[string, PriceCheck | null | undefined]> = [
+      ['left out', undefined],
+      ['not read', null],
+      ['off its own average', { state: 'disagrees', pool: 0.2, reference: 0.1, against: 'own-average', diff: 1 }],
+      ['its price record unread', { state: 'unread', pool: 0.2, detail: 'its price record was not read' }],
+      ['not compared', { state: 'skipped', pool: 0.2, detail: 'not compared, because the token is blocked' }],
+      ['empty', { state: 'empty-pool' }],
+      ['itself compared with nothing', { state: 'no-market', pool: 0.2, detail: 'Jupiter has no route for this token' }],
+      // Agreeing with JUPITER is not the launch pool's own check: with no route it cannot have been made.
+      ['checked against Jupiter', { state: 'agrees', pool: 0.2, reference: 0.2, against: 'outside', diff: 0 }],
+    ];
+    for (const [name, launch] of none) {
+      // Ten times the price the launch pool shows: still not compared with it.
+      expect(beside(launch, { sol: 10_000_000_000n }), name).toEqual({
+        verdict: 'allowed',
+        reasons: [],
+        warnings: [NO_MARKET],
+        price: { state: 'no-market', pool: 2, detail: 'Jupiter has no route for this token' },
+      });
+    }
+    // With nothing to compare with, the coin's own price is still not needed.
+    expect(inUsdc(200n, null, null)).toMatchObject({ verdict: 'allowed', warnings: [NO_MARKET], price: { state: 'no-market' } });
+  });
+
+  it('only when Jupiter ANSWERED "no route": its own price is the reference when it has one, and a failed read stays unread', () => {
+    // Jupiter prices the token at half the launch pool's price: the opening is checked against Jupiter.
+    expect(beside(neverTraded, { outside: jupiter(0.1) })).toMatchObject({ verdict: 'allowed', price: { state: 'disagrees', against: 'outside', reference: 0.1 } });
+    expect(beside(neverTraded, { outside: jupiter(0.2) }).price).toMatchObject({ state: 'agrees', against: 'outside' });
+    // Jupiter down, or not asked: the launch pool does not stand in.
+    const down = beside(neverTraded, { outside: { kind: 'unread', detail: 'Jupiter did not give a price (HTTP 502)' } });
+    expect(down).toEqual({
+      verdict: 'unchecked',
+      reasons: ['We could not get a market price from Jupiter (Jupiter did not give a price (HTTP 502)).'],
+      warnings: [],
+      price: { state: 'unread', pool: 0.2, detail: 'Jupiter did not give a price (HTTP 502)' },
+    });
+    expect(beside(neverTraded, { outside: null })).toMatchObject({ verdict: 'unchecked', warnings: [], price: { state: 'unread', detail: 'not asked' } });
+  });
+
+  it('what a price was compared with has a name for the loss line: the opener’s words for Jupiter’s, the deposit’s for the rest', () => {
+    expect(OPENING_REFERENCE_NAME).toEqual({ outside: 'the market price', 'own-average': 'its own average', 'launch-pool': 'the launch pool’s price' });
   });
 });
 

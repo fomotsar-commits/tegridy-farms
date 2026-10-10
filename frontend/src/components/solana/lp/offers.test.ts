@@ -5,7 +5,7 @@
 import { describe, it, expect, expectTypeOf } from 'vitest';
 import { Keypair, type PublicKey } from '@solana/web3.js';
 import { POOL_STATUS_DISABLE_DEPOSIT, POOL_STATUS_DISABLE_SWAP, POOL_STATUS_DISABLE_WITHDRAW, publicTierConfig } from '../../../lib/solana/cpswap/program';
-import { assessPool, FAR_FUTURE_SECS, tokenReasons, type PoolHealth } from '../../../lib/solana/lp/poolHealth';
+import { assessPool, FAR_FUTURE_SECS, tokenReasons, type PoolHealth, type PriceCheck } from '../../../lib/solana/lp/poolHealth';
 import type { PoolSearch, PoolSearchRead, PoolView } from '../../../lib/solana/lp/poolFinder';
 import type { Position } from '../../../lib/solana/lp/positions';
 import type { SafetyReason, TokenSafety } from '../../../lib/solana/lp/tokenSafety';
@@ -15,7 +15,7 @@ import type { CreateFacts } from '../../../lib/launcher/solana/write/types';
 import type { PendingTrade } from '../curve/pendingTrade';
 import type { CurveWriteConfig, LpGate } from '../curve/ports';
 import { BAYLA_QUOTE, SOL_QUOTE, USDC_QUOTE, type QuoteCoin } from '../../../lib/solana/lp/quotes';
-import { POOL_RISK_CODES, createAdvice, createHeld, createOffer, depositOffer, lpHeld, openingCautions, pairFacts, poolListCut, standardState, withdrawOffer, type CreateOffer } from './offers';
+import { POOL_RISK_CODES, createAdvice, createHeld, createOffer, depositOffer, launchPoolCheck, lpHeld, openingCautions, pairFacts, poolListCut, standardState, withdrawOffer, type CreateOffer } from './offers';
 
 const mint = key();
 const SOL = 10n * 10n ** 9n;
@@ -744,7 +744,7 @@ describe('createOffer', () => {
 
   describe('openingCautions: what the card says before its button', () => {
     it('a clean token at a market price: nothing', () => {
-      expect(openingCautions(okToken, outside(0.01))).toEqual([]);
+      expect(openingCautions(okToken, outside(0.01), null)).toEqual([]);
     });
 
     it('each warning that changes what a pool risks, in the token’s own words and in its order', () => {
@@ -759,21 +759,82 @@ describe('createOffer', () => {
         ],
       } as TokenSafety;
       // The others stay on the token card and in the form's own list: they were never a refusal.
-      expect(openingCautions(t, outside(0.01))).toEqual(['freeze sentence', 'copy sentence, naming the real mint']);
+      expect(openingCautions(t, outside(0.01), null)).toEqual(['freeze sentence', 'copy sentence, naming the real mint']);
     });
 
     it('no market price: said last, and only when Jupiter ANSWERED that there is none', () => {
       const noMarket = 'Jupiter has no market price for this token, so there is nothing to compare an opening price with. If you open a pool, you set its first price yourself.';
-      expect(openingCautions(okToken, NO_ROUTE)).toEqual([noMarket]);
-      expect(openingCautions(warnedWith('freeze-authority', 'freeze sentence'), NO_ROUTE)).toEqual(['freeze sentence', noMarket]);
+      expect(openingCautions(okToken, NO_ROUTE, null)).toEqual([noMarket]);
+      expect(openingCautions(warnedWith('freeze-authority', 'freeze sentence'), NO_ROUTE, null)).toEqual(['freeze sentence', noMarket]);
       // Not read is never a warning.
-      expect(openingCautions(okToken, { kind: 'unread', detail: 'HTTP 502' })).toEqual([]);
-      expect(openingCautions(okToken, null)).toEqual([]);
+      expect(openingCautions(okToken, { kind: 'unread', detail: 'HTTP 502' }, null)).toEqual([]);
+      expect(openingCautions(okToken, null, null)).toEqual([]);
+    });
+
+    // With no route, an opening price is compared with the launch pool's (opening.ts). The
+    // card must not say "nothing to compare with" of a token whose form compares.
+    describe('no market price, and a launch pool', () => {
+      const noMarket = 'Jupiter has no market price for this token, so there is nothing to compare an opening price with. If you open a pool, you set its first price yourself.';
+      const launchLine = 'Jupiter has no market price for this token, so an opening price is compared with its launch pool’s price instead (the launch pool’s card above shows it).';
+      const neverTraded: PriceCheck = { state: 'no-trades-yet', pool: 0.01 };
+      const steady: PriceCheck = { state: 'agrees', pool: 0.01, reference: 0.01, against: 'own-average', diff: 0 };
+
+      it('a launch pool that passed its own check: the card says what an opening price is compared with instead', () => {
+        for (const launch of [neverTraded, steady]) {
+          expect(openingCautions(okToken, NO_ROUTE, launch)).toEqual([launchLine]);
+          expect(openingCautions(warnedWith('freeze-authority', 'freeze sentence'), NO_ROUTE, launch)).toEqual(['freeze sentence', launchLine]);
+        }
+      });
+
+      it('a launch pool that gives no reference: "nothing to compare with", as with none at all', () => {
+        const none: PriceCheck[] = [
+          { state: 'disagrees', pool: 0.02, reference: 0.01, against: 'own-average', diff: 1 },
+          { state: 'unread', pool: 0.01, detail: 'its price record was not read' },
+          { state: 'agrees', pool: 0.01, reference: 0.01, against: 'outside', diff: 0 },
+        ];
+        for (const launch of none) expect(openingCautions(okToken, NO_ROUTE, launch), launch.state).toEqual([noMarket]);
+      });
+
+      it('only when Jupiter ANSWERED "no route": with a price, or with none read, the launch pool is not named', () => {
+        expect(openingCautions(okToken, outside(0.01), neverTraded)).toEqual([]);
+        expect(openingCautions(okToken, { kind: 'unread', detail: 'HTTP 502' }, neverTraded)).toEqual([]);
+        expect(openingCautions(okToken, null, neverTraded)).toEqual([]);
+      });
+    });
+
+    // The form's reference comes from the checks the page already made for this search.
+    describe('launchPoolCheck: the launch pool’s own check, from the search on screen', () => {
+      /** A launch pool for `m`, on the launch tier (tier 0): not at the address `poolOn(1)` uses. */
+      const launchView = (m: PublicKey = mint): PoolView =>
+        viewOf(buildPool({ mint: m, quoteReserve: SOL, tokenReserve: TOK, configIndex: 0 }), { sol: SOL, tok: TOK, origin: 'launch-pool' });
+      const withPrice = (price: PriceCheck): PoolHealth => ({ ...healthOf('allowed'), price });
+      const neverTraded: PriceCheck = { state: 'no-trades-yet', pool: 0.01 };
+
+      it('is the price check of the token’s launch pool, wherever it sits in the list', () => {
+        const launch = launchView();
+        const stranger = poolOn(1);
+        const healths = new Map([[launch.address, withPrice(neverTraded)], [stranger.view.address, withPrice({ state: 'no-market', pool: 0.1, detail: 'x' })]]);
+        for (const pools of [[{ kind: 'pool' as const, view: launch }, stranger], [stranger, { kind: 'pool' as const, view: launch }]]) {
+          expect(launchPoolCheck(mint.toBase58(), searchOf(pools), healths)).toBe(neverTraded);
+        }
+      });
+
+      it('is null with no launch pool, a launch pool that was not checked, another token’s launch pool, or a search that was not read', () => {
+        const stranger = poolOn(1);
+        const launch = launchView();
+        const all = new Map([[stranger.view.address, withPrice(neverTraded)], [launch.address, withPrice(neverTraded)]]);
+        // A pool anyone could open is never the launch pool, whatever its check says.
+        expect(launchPoolCheck(mint.toBase58(), searchOf([stranger]), all)).toBeNull();
+        expect(launchPoolCheck(mint.toBase58(), searchOf([{ kind: 'pool', view: launch }]), new Map())).toBeNull();
+        const other = launchView(key());
+        expect(launchPoolCheck(mint.toBase58(), searchOf([{ kind: 'pool', view: other }]), new Map([[other.address, withPrice(neverTraded)]]))).toBeNull();
+        expect(launchPoolCheck(mint.toBase58(), { kind: 'unread', detail: 'x', index: { kind: 'unread', detail: 'x' } }, all)).toBeNull();
+      });
     });
 
     it('a token that was not read, or does not exist, has no warnings to give', () => {
-      expect(openingCautions({ kind: 'unread', mint: mint.toBase58(), detail: 'x' }, outside(0.01))).toEqual([]);
-      expect(openingCautions({ kind: 'absent', mint: mint.toBase58() }, outside(0.01))).toEqual([]);
+      expect(openingCautions({ kind: 'unread', mint: mint.toBase58(), detail: 'x' }, outside(0.01), null)).toEqual([]);
+      expect(openingCautions({ kind: 'absent', mint: mint.toBase58() }, outside(0.01), null)).toEqual([]);
     });
 
     // The form leaves these codes out of the list above its amount boxes because the

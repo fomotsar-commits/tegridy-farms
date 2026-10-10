@@ -22,10 +22,12 @@
 //   6. the token, judged again (the deposit gate's token rules, plus create's own);
 //   7. where the pool goes: the standard address only when it and its four derived
 //      accounts are all empty; otherwise the fresh key, whose own accounts must be;
-//   8-9. a fresh market price, and the opening check on it. A price more than 3% from
-//      the market, no market price at all, a copied name and a freezable token do not
-//      stop the build: they go on the summary as warnings, with the estimated loss,
-//      for the review to say. A price that could not be read still stops it;
+//   8-9. a fresh market price, and the opening check on it. When Jupiter has no route,
+//      the token's launch pool is read fresh too: its price is then what the opening is
+//      compared with. A price more than 3% off, nothing to compare with, a copied name
+//      and a freezable token do not stop the build: they go on the summary as warnings,
+//      with the estimated loss, for the review to say. A price that could not be read
+//      still stops it;
 //   10. the wallet's accounts (`accountCheck`, `wsolPlanFrom`);
 //   11-12. the rents, read live, and what this wallet can put in (the rent band);
 //   13-15. the pins, the body, and the shared simulate-and-compare path, whose balance
@@ -70,13 +72,13 @@ import { initializeIx } from '../../../solana/cpswap/ix';
 import { ratePercent } from '../../../solana/cpswap/math';
 import type { RawAccount } from '../../../solana/lp/accounts';
 import { LOCKED_LP, LOCKED_SHARES_TEXT, U64_MAX, feeReserveFor, isqrt, planCreate, solSetAside, spendableSol, type CreateProblem } from '../../../solana/lp/liquidityMath';
-import { TOKEN_2022_NATIVE_MINT, assessOpening, estimatedLoss } from '../../../solana/lp/opening';
+import { OPENING_REFERENCE_NAME, TOKEN_2022_NATIVE_MINT, assessOpening, estimatedLoss } from '../../../solana/lp/opening';
 import type { OutsidePrice } from '../../../solana/lp/outsidePrice';
 import { QUOTE_COINS_OR, canPair, quoteCoin, type QuoteCoin } from '../../../solana/lp/quotes';
 import { BUILDABLE_EXTENSIONS, classifyToken, decodeMintAccount, extensionPlain } from '../../../solana/lp/tokenSafety';
 import { MAX_OWN_PRIORITY_LAMPORTS } from './budget';
 import { CP_CREATE_POOL_FEE_RECEIVER, MAX_CREATE_FEE_LAMPORTS, feeAccountStateOf, tierStateOf } from './config';
-import { LP_COPY, accountCheck, rentOf, toRaw, type LpPrepareReads } from './liquidity';
+import { LP_COPY, accountCheck, readLaunchPoolPrice, rentOf, toRaw, type LpPrepareReads } from './liquidity';
 import { metadataPda } from './metaplex';
 import { bodySteps, buildAndSimulate, notSent } from './prepare';
 import type { CurveWriteConfig, IntentStep, LpCreateSummary, LpOpenGate, PoolPins, Prepared, PriceGap, TierTerms, TxSummary, WriteRpc } from './types';
@@ -511,15 +513,22 @@ export async function prepareLpCreate(rpc: WriteRpc, gate: LpOpenGate, reads: Lp
   };
   const [outside, coinOutside] = await Promise.all([readPrice(mintText, decimals), quote.native ? null : readPrice(quote.mint, quote.decimals)]);
 
-  // 9. The opening check. It builds when the price agrees with the market, and also when
-  // it is off or there is no market price at all: those two are warnings (below). Any
-  // other state is a price that was not read, and never builds.
-  const opening = assessOpening({ tokenMint: mintText, quote, quoteAmount: a.quote, token: a.token, tokenDecimals: decimals, outside, coinOutside, safety });
+  // 8b. With no route, the opening price is compared with the token's launch pool
+  // (opening.ts `openingReference`). That pool is read here too, so the review's gap
+  // comes from fresh reads. Only then: a failed Jupiter read is never "no route". Null
+  // is "no reference" (no launch pool, or a read that failed), and never a refusal.
+  const launchPrice = outside.kind === 'no-route' ? await readLaunchPoolPrice(rpc, cfg, { tokenMint: a.tokenMint, decimals, outside, safety }) : null;
+
+  // 9. The opening check. It builds when the price agrees with what it is compared with,
+  // and also when it is off or there is nothing to compare it with: those two are
+  // warnings (below). Any other state is a price that was not read, and never builds.
+  const opening = assessOpening({ tokenMint: mintText, quote, quoteAmount: a.quote, token: a.token, tokenDecimals: decimals, outside, coinOutside, launchPrice, safety });
   const price = opening.price;
   if (opening.verdict !== 'allowed' || (price.state !== 'agrees' && price.state !== 'disagrees' && price.state !== 'no-market')) {
     if (outside.kind === 'unread') return notSent('build', CREATE_COPY.priceUnread(outside.detail));
-    // The coin's own price only matters when there is a token price to compare with.
-    if (outside.kind === 'ok' && coinOutside && coinOutside.kind !== 'ok') return notSent('build', CREATE_COPY.coinPriceUnread(quote.symbol, coinOutside.detail));
+    // The coin's own price only matters when there is a price to say in that coin: the
+    // token's, or its launch pool's. With neither, nothing is compared and this is not reached.
+    if (coinOutside && coinOutside.kind !== 'ok') return notSent('build', CREATE_COPY.coinPriceUnread(quote.symbol, coinOutside.detail));
     return notSent('build', CREATE_COPY.notBuilt(opening.reasons));
   }
 
@@ -530,7 +539,9 @@ export async function prepareLpCreate(rpc: WriteRpc, gate: LpOpenGate, reads: Lp
       ? { diff: price.diff, lossQuote: estimatedLoss({ quoteAmount: a.quote, token: a.token, tokenDecimals: decimals, marketPricePerToken: price.reference, quote }) }
       : null;
   const warnings = [...opening.warnings];
-  if (priceGap) warnings.push(LP_COPY.priceGapLoss(priceGap.lossQuote === null ? null : coinText(priceGap.lossQuote, quote), 'the market price'));
+  if (priceGap && price.state === 'disagrees') {
+    warnings.push(LP_COPY.priceGapLoss(priceGap.lossQuote === null ? null : coinText(priceGap.lossQuote, quote), OPENING_REFERENCE_NAME[price.against]));
+  }
 
   // 10. The wallet's accounts. The tokens leave by CPI inside `initialize`, so CPI Guard
   // on the source refuses (accountCheck). A source's notices are not shown.

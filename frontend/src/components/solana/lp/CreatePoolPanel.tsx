@@ -5,8 +5,18 @@ import { displaySafe } from '../../../lib/launchMetadata/validate';
 import { sortMints, type AmmConfigView } from '../../../lib/solana/cpswap/program';
 import { CREATOR_FEE_SWITCH, feeSplit } from '../../../lib/solana/cpswap/venue';
 import { LOCKED_LP, feeReserveFor, planCreate, solSetAside, spendableSol, type CreatePlan, type CreateProblem } from '../../../lib/solana/lp/liquidityMath';
-import { assessOpening, estimatedLoss, matchMarket, mostBothAtMarket, openingPricePerToken } from '../../../lib/solana/lp/opening';
-import { priceInQuote, type OutsidePrice } from '../../../lib/solana/lp/outsidePrice';
+import {
+  OPENING_REFERENCE_NAME,
+  assessOpening,
+  estimatedLoss,
+  matchMarket,
+  mostBothAtMarket,
+  openingPricePerToken,
+  openingReference,
+  type OpeningReference,
+} from '../../../lib/solana/lp/opening';
+import type { OutsidePrice } from '../../../lib/solana/lp/outsidePrice';
+import { launchReference, type PriceCheck } from '../../../lib/solana/lp/poolHealth';
 import { QUOTE_COINS, SOL_QUOTE, quoteCoin, type QuoteCoin } from '../../../lib/solana/lp/quotes';
 import { TOKEN_2022_PROGRAM, TOKEN_PROGRAM, type TokenSafety } from '../../../lib/solana/lp/tokenSafety';
 import { formatSolPrice, tradeCostText } from '../../../lib/solana/lp/format';
@@ -20,7 +30,7 @@ import { FundingNextStep } from './FundingNextStep';
 import { LpAmountPair, type LpSide } from './LpAmountPair';
 import { CoinRiskNotice, LpBeforeYouOpen, LpReviewDisclosure } from './LpDisclosures';
 import { PanelFrame } from './PanelFrame';
-import { LOCKED_SHARES_TEXT, NOTES_BELOW, cannotFundText, coinExact, reviewOffWhy, sharePct, solAbout, solExact, tokensAbout, unitsExact, useDebounced, useFlowReports, useSettledAlert, useWalletFacts } from './panelKit';
+import { LOCKED_SHARES_TEXT, NOTES_BELOW, cannotFundText, coinExact, priceGapLossText, reviewOffWhy, sharePct, solAbout, solExact, tokensAbout, unitsExact, useDebounced, useFlowReports, useSettledAlert, useWalletFacts } from './panelKit';
 import { POOL_RISK_CODES, createHeld, type CreateOffer, type PairFacts } from './offers';
 import { useLpWrites, type LpWrites } from './useLpWrites';
 
@@ -29,14 +39,37 @@ const LP_DECIMALS = 9;
 const mintAuthorityLine = (coin: QuoteCoin) => `Whoever holds it can make new tokens at any time and sell them into your pool for its ${coin.symbol}.`;
 
 /**
- * What an opening off the market is estimated to cost, in the words the review says again
- * (write/liquidity.ts `LP_COPY.priceGapLoss`, pinned to these by a test). `loss` is in the
- * chosen coin. Null is a loss that could not be worked out: it is said as that, never as 0.
+ * What an opening price is compared with, in this form's words. A Record, so a new
+ * reference must say. `line` is the market line once that price is read (`price` is
+ * "0.01 SOL"); `inCoin` leads the line when the chosen coin's own price is what is missing.
+ * MATCH FILLS FROM EITHER: with no route the launch pool is the token's only market, so
+ * its price is the one an opening would be moved back to, and the button says whose it is.
  */
-const lossLine = (loss: string | null) =>
-  loss === null
-    ? 'What a move back to the market price would cost you at these amounts could not be worked out.'
-    : `At these amounts, a move back to the market price would take up to about ${loss} of what you put in. That is an estimate.`;
+const REFERENCE_WORDS: Readonly<
+  Record<OpeningReference, { match: string; line: (readAt: string, price: string) => string; inCoin: string; label: string; gapTo: string; close: string; notRead: string; again: string }>
+> = {
+  outside: {
+    match: 'Match the market price',
+    line: (readAt, price) => `Market price (Jupiter${readAt}): 1 token = ${price}.`,
+    inCoin: 'Market price',
+    label: 'Market',
+    gapTo: 'the market',
+    close: 'Close enough to the market.',
+    notRead: 'the market price has not been read',
+    again: 'the market price above is new',
+  },
+  'launch-pool': {
+    match: 'Match the launch pool’s price',
+    line: (readAt, price) =>
+      `Market price (Jupiter${readAt}): there is none for this token. Your opening price is compared with the launch pool’s price instead: 1 token = ${price}.`,
+    inCoin: 'The launch pool’s price',
+    label: 'The launch pool’s price',
+    gapTo: 'the launch pool’s price',
+    close: 'Close enough to it.',
+    notRead: 'the launch pool’s price has not been worked out in this coin',
+    again: 'the launch pool’s price above is new',
+  },
+};
 
 // The same words as the builder's refusals (write/createPool.ts CREATE_COPY), said here
 // before Review. The builder is not imported: this file is in the page's own bundle, and
@@ -148,6 +181,10 @@ const priceKey = (p: OutsidePrice | null) => (p === null ? 'none' : p.kind === '
  * form's status line says the coin changed.
  * The fee to open, the account deposits and the network fee are SOL whatever the coin.
  *
+ * WHAT THE OPENING PRICE IS COMPARED WITH (opening.ts `openingReference`): Jupiter's
+ * price, or, when Jupiter has no route, the price of the token's launch pool as this
+ * search judged it (`launchPrice`). The form names whichever it is (`REFERENCE_WORDS`).
+ *
  * WARNINGS NEVER SWITCH REVIEW OFF (owner ruling 2026-10-04: any token may have a pool).
  * A price more than 3% from the market, a token with no market price at all, a token its
  * creator can freeze and a copy of a well-known name are each said above Review, in the
@@ -163,6 +200,8 @@ export function CreatePoolPanel(p: {
   /** The TOKEN's market price, in SOL. A coin that is not SOL has its own price read here. */
   outside: OutsidePrice | null;
   outsideAt: number | null;
+  /** The price check of the token's launch pool, from the same search as `outside` (offers.ts `launchPoolCheck`); null when it read none. */
+  launchPrice: PriceCheck | null;
   tier: TierState | null;
   /**
    * One entry per coin this token can be paired with, SOL first (offers.ts `pairFacts`):
@@ -192,6 +231,7 @@ function CreateInner({
   decimals,
   outside,
   outsideAt,
+  launchPrice,
   tier,
   pairs,
   cut,
@@ -228,13 +268,13 @@ function CreateInner({
   const [driving, setDriving] = useState<LpSide | null>(null);
 
   // ── the coin's own market price ──
-  // The page has the TOKEN's price in SOL. A pool paired with USDC or BAYLA is priced in
-  // that coin, which takes the coin's own price in SOL too: read here, when the coin is
-  // chosen, and again whenever the card reads its own inputs again (so the two prices are
-  // of one moment). SOL needs none. Nor does a token Jupiter ANSWERED it has no market
-  // price for: nothing is compared then, so the coin's price is not asked for and never
-  // holds Review off.
-  const noMarket = outside?.kind === 'no-route';
+  // A pool paired with USDC or BAYLA is priced in that coin, which takes the coin's own
+  // SOL price too: read here when the coin is chosen, and again whenever the card reads
+  // its inputs again (so the prices are of one moment). SOL needs none. Nor does an
+  // opening with nothing to compare with (Jupiter ANSWERED "no route", and no launch pool
+  // stands in): the coin's price is then not asked for, and never holds Review off.
+  const launchSol = outside?.kind === 'no-route' ? launchReference(launchPrice) : null;
+  const noMarket = outside?.kind === 'no-route' && launchSol === null;
   const wantsCoinPrice = !coin.native && !noMarket;
   const [coinAsk, setCoinAsk] = useState(0);
   const [seenReading, setSeenReading] = useState(reading);
@@ -346,17 +386,20 @@ function CreateInner({
     availableQuote,
     availableToken,
   });
-  // The token's market price in the chosen coin: Jupiter's SOL price for SOL, and that
-  // over the coin's own SOL price for any other coin. Null while either is not read.
-  const quoted = outside ? priceInQuote(outside, coin, coinOutside) : null;
-  const market = quoted?.kind === 'ok' ? quoted.perToken : null;
+  // What the opening price is compared with, in the chosen coin, by the check's own rule:
+  // Jupiter's price, or the launch pool's when Jupiter has no route. A SOL price is said
+  // in any other coin over that coin's own SOL price. `market` is null while it is not read.
+  const reference = openingReference({ quote: coin, outside, coinOutside, launchPrice });
+  const market = reference.kind === 'ok' ? reference.perToken : null;
+  // With nothing to compare with, no line that uses these words is drawn.
+  const words = REFERENCE_WORDS[reference.kind === 'none' ? 'outside' : reference.against];
 
   const both = quoteRaw !== null && tokRaw !== null && quoteRaw > 0n && tokRaw > 0n;
   const free = both ? planCreate({ quoteIsToken0, quote: quoteRaw, token: tokRaw, availableQuote: null, availableToken: null }) : null;
   const preview: CreatePlan | null = free && !('problem' in free) ? free : null;
   const planned = both ? planCreate({ quoteIsToken0, quote: quoteRaw, token: tokRaw, availableQuote, availableToken }) : null;
   const problem: CreateProblem | null = planned && 'problem' in planned ? planned : null;
-  const check = assessOpening({ tokenMint: mint, quote: coin, quoteAmount: quoteRaw ?? 0n, token: tokRaw ?? 0n, tokenDecimals: decimals, outside, coinOutside, safety });
+  const check = assessOpening({ tokenMint: mint, quote: coin, quoteAmount: quoteRaw ?? 0n, token: tokRaw ?? 0n, tokenDecimals: decimals, outside, coinOutside, launchPrice, safety });
   const opening = both && decimals !== null ? openingPricePerToken(quoteRaw, tokRaw, decimals, coin) : null;
 
   const setSide = (side: LpSide, v: bigint) => setBoxes((b) => ({ ...b, [side]: baseUnitsToInput(v, sideDecimals(side)) }));
@@ -450,7 +493,8 @@ function CreateInner({
   const warned = [...check.warnings];
   if (both && decimals !== null && check.price.state === 'disagrees') {
     const loss = estimatedLoss({ quoteAmount: quoteRaw, token: tokRaw, tokenDecimals: decimals, marketPricePerToken: check.price.reference, quote: coin });
-    warned.push(lossLine(loss === null ? null : coinExact(loss, coin)));
+    // The words the review says again (write/liquidity.ts `LP_COPY.priceGapLoss`, pinned by a test).
+    warned.push(priceGapLossText(loss === null ? null : coinExact(loss, coin), OPENING_REFERENCE_NAME[check.price.against]));
   }
 
   // ── the preview ──
@@ -458,7 +502,7 @@ function CreateInner({
   // What a screen reader hears once typing settles: the price, and that it carries a warning.
   const statusPrice =
     check.price.state === 'disagrees'
-      ? ` That price is ${gapText(check.price.diff)} the market price: the warning above Review says what that may cost.`
+      ? ` That price is ${gapText(check.price.diff)} ${OPENING_REFERENCE_NAME[check.price.against]}: the warning above Review says what that may cost.`
       : check.price.state === 'no-market'
         ? ' There is no market price to compare it with: you are setting the price yourself.'
         : '';
@@ -533,8 +577,9 @@ function CreateInner({
       ? flow.state.prepared.summary.pool.toBase58()
       : null;
   // A pressed Read again for the market price: what the line said before, until the new
-  // answer is in. For a coin that is not SOL the answer is both prices.
-  const marketKey = coin.native ? priceKey(outside) : `${priceKey(outside)}|${coin.mint}:${priceKey(coinOutside)}`;
+  // answer is in. For a coin that is not SOL the answer is both prices, and with no route
+  // it is the launch pool's price too.
+  const marketKey = `${coin.native ? priceKey(outside) : `${priceKey(outside)}|${coin.mint}:${priceKey(coinOutside)}`}|launch:${launchSol ?? 'none'}`;
   const priceReading = reading || coinReading;
   const [askedMarket, setAskedMarket] = useState<string | null>(null);
   const [saidMarket, setSaidMarket] = useState<'same' | 'changed' | null>(null);
@@ -574,21 +619,32 @@ function CreateInner({
   const priceState =
     check.price.state === 'agrees' || check.price.state === 'disagrees' || check.price.state === 'empty' || check.price.state === 'no-market' ? check.price.state : 'unread';
   const readAt = outsideAt === null ? '' : `, read ${new Date(outsideAt).toLocaleTimeString('en-GB', { hour12: false })}`;
-  // No market price is an answer, not a failed read: the opener sets the price, and is told so.
-  // Else, with the token's price read, what is missing for a market price in this coin is the coin's own.
+  // No market price is an answer, not a failed read: said first, then what the opening is
+  // compared with instead (the launch pool's price), or that the opener sets the price.
+  const noneLine = `Market price (Jupiter${readAt}): there is none for this token.`;
+  // With a SOL price read (the token's, or its launch pool's), what is missing for that
+  // price in this coin is the coin's own. `what` names the price that could not be said in it.
+  const coinMissing = (what: string) =>
+    coinOutside === null
+      ? `${what} in ${coin.symbol}: reading the price of ${coin.symbol} from Jupiter…`
+      : coinOutside.kind === 'no-route'
+        ? // The reason is about the COIN: Jupiter's own words say "this token", which here would mean the wrong one.
+          `${what} in ${coin.symbol}: could not be worked out (Jupiter has no route for ${coin.symbol}).`
+        : `${what} in ${coin.symbol}: could not be worked out (${reference.kind === 'unread' ? reference.detail : 'not read'}).`;
+  // The line while the price is not read, by what it would have been. A Record, so a new reference must say.
+  const unreadLine: Readonly<Record<OpeningReference, () => string>> = {
+    outside: () =>
+      coin.native || outside?.kind !== 'ok'
+        ? `Market price (Jupiter): could not be read (${outside && outside.kind !== 'ok' ? outside.detail : 'not read'}).`
+        : coinMissing(REFERENCE_WORDS.outside.inCoin),
+    'launch-pool': () => `${noneLine} ${coinMissing(REFERENCE_WORDS['launch-pool'].inCoin)}`,
+  };
   const marketLine =
-    market !== null
-      ? `Market price (Jupiter${readAt}): 1 token = ${formatSolPrice(market)} ${coin.symbol}.`
-      : noMarket
-        ? `Market price (Jupiter${readAt}): there is none for this token. You are setting this pool’s first price yourself.`
-        : coin.native || outside?.kind !== 'ok'
-          ? `Market price (Jupiter): could not be read (${outside && outside.kind !== 'ok' ? outside.detail : 'not read'}).`
-          : coinOutside === null
-            ? `Market price in ${coin.symbol}: reading the price of ${coin.symbol} from Jupiter…`
-            : coinOutside.kind === 'no-route'
-              ? // The reason is about the COIN: Jupiter's own words say "this token", which here would mean the wrong one.
-                `Market price in ${coin.symbol}: could not be worked out (Jupiter has no route for ${coin.symbol}).`
-              : `Market price in ${coin.symbol}: could not be worked out (${quoted && quoted.kind !== 'ok' ? quoted.detail : 'not read'}).`;
+    reference.kind === 'ok'
+      ? words.line(readAt, `${formatSolPrice(reference.perToken)} ${coin.symbol}`)
+      : reference.kind === 'none'
+        ? `${noneLine} You are setting this pool’s first price yourself.`
+        : unreadLine[reference.against]();
   // A pairing coin looked up as the token (USDC) is paired only with the coins that outrank
   // it. Its pool with a lower coin (USDC with BAYLA) is the same pool read from the other
   // side, and a visitor who started from USDC was left at a dead end (phone walk, 2026-10-03).
@@ -733,7 +789,7 @@ function CreateInner({
             </p>
           )}
           <div className="space-y-2">
-            {/* With no market price there is nothing to match: the button is not drawn. */}
+            {/* With nothing to compare with there is nothing to match: the button is not drawn. */}
             {!noMarket && (
               <button
                 type="button"
@@ -742,7 +798,7 @@ function CreateInner({
                 disabled={!canMatch}
                 onClick={() => matchTo(keep)}
               >
-                Match the market price
+                {words.match}
               </button>
             )}
             {mostBoth && (
@@ -766,19 +822,19 @@ function CreateInner({
                   : saidMarket === 'same'
                     ? 'Read again just now: the same answer.'
                     : saidMarket === 'changed'
-                      ? 'Read again just now: the market price above is new.'
+                      ? `Read again just now: ${words.again}.`
                       : ''}
               </p>
             </div>
           </div>
           <p data-testid="lp-create-price" data-price={priceState}>
             {opening !== null && market !== null && (check.price.state === 'agrees' || check.price.state === 'disagrees')
-              ? `Your opening price: 1 token = ${formatSolPrice(opening)} ${coin.symbol}. Market: ${formatSolPrice(market)} ${coin.symbol}. Yours is ${gapText(check.price.diff)} the market.${check.price.state === 'agrees' ? ' Close enough to the market.' : ''}`
+              ? `Your opening price: 1 token = ${formatSolPrice(opening)} ${coin.symbol}. ${words.label}: ${formatSolPrice(market)} ${coin.symbol}. Yours is ${gapText(check.price.diff)} ${words.gapTo}.${check.price.state === 'agrees' ? ` ${words.close}` : ''}`
               : opening !== null
                 ? check.price.state === 'no-market'
                   ? `Your opening price: 1 token = ${formatSolPrice(opening)} ${coin.symbol}. There is no market price to compare it with.`
                   : // Not read is not "none": the two are never said in the same words.
-                    `Your opening price: 1 token = ${formatSolPrice(opening)} ${coin.symbol}. It is not checked: the market price has not been read.`
+                    `Your opening price: 1 token = ${formatSolPrice(opening)} ${coin.symbol}. It is not checked: ${words.notRead}.`
                 : 'Type both amounts to see your opening price.'}
           </p>
           {preview && config && (
@@ -847,9 +903,9 @@ function CreateInner({
               ))}
               {offMarket && (
                 <>
-                  <p>Match the market price to avoid that, or go on at your own price.</p>
+                  <p>{words.match} to avoid that, or go on at your own price.</p>
                   <button type="button" className="btn-secondary w-full min-h-[44px] text-[12px] disabled:opacity-60" disabled={!canMatch} onClick={() => matchTo(keep)}>
-                    Match the market price
+                    {words.match}
                   </button>
                 </>
               )}

@@ -1,5 +1,5 @@
-import { comparePrice, tokenReasons, type PriceCheck } from './poolHealth';
-import { priceInQuote, type OutsidePrice } from './outsidePrice';
+import { REFERENCE_NAME, comparePrice, launchReference, tokenReasons, type PriceCheck, type PriceReference } from './poolHealth';
+import { priceInQuote, solPriceIn, type OutsidePrice } from './outsidePrice';
 import { QUOTE_COINS_OR, SOL_QUOTE, canPair, type QuoteCoin } from './quotes';
 import { TOKEN_2022_NATIVE_MINT, type TokenSafety } from './tokenSafety';
 
@@ -19,9 +19,9 @@ import { TOKEN_2022_NATIVE_MINT, type TokenSafety } from './tokenSafety';
  * REFUSED: the token is absent or blocked (the same `tokenReasons` deposits use); it is
  * SOL under the newer token program; the token cannot be paired with that coin (a coin is
  * only priced in the coins that outrank it).
- * WARNED, and allowed: the price is more than 3% from Jupiter's; Jupiter ANSWERED that it
- * has no route for the token, so there is nothing to compare with and the opener sets the
- * price alone (the pairing coin's own price is then not needed: nothing is compared); the
+ * WARNED, and allowed: the price is more than 3% from what it is compared with
+ * (`openingReference`); there is nothing to compare it with, so the opener sets the price
+ * alone (the pairing coin's own price is then not needed: nothing is compared); the
  * token copies a well-known name, can be frozen, or shows a changing amount in a wallet.
  * UNCHECKED, which never opens and is never a warning: the token, its decimals, Jupiter's
  * price (a failed read is not "no route"), or the pairing coin's own price when a
@@ -41,6 +41,57 @@ export function openingPricePerToken(quoteAmount: bigint, token: bigint, tokenDe
 /** SOL per whole token at these opening amounts, or null: `openingPricePerToken` for a SOL pool. */
 export function openingSolPerToken(sol: bigint, token: bigint, decimals: number): number | null {
   return openingPricePerToken(sol, token, decimals, SOL_QUOTE);
+}
+
+/** What an opening price can be compared with. Never an average of its own: a pool that is not open has no history. */
+export type OpeningReference = Exclude<PriceReference, 'own-average'>;
+
+/**
+ * What an opening price was compared with, as the words after "a move back to" in the
+ * estimated loss line (the form's and the review's). The deposit's own names, but for
+ * Jupiter's price, which an opener is told of as the market price.
+ */
+export const OPENING_REFERENCE_NAME: Readonly<Record<PriceReference, string>> = { ...REFERENCE_NAME, outside: 'the market price' };
+
+/** The warning for an opening price more than 3% off, by what it was compared with. `gap` is "4.0% above". */
+const GAP_WARNING: Readonly<Record<OpeningReference, (gap: string) => string>> = {
+  outside: (gap) => `Your opening price is ${gap} the market price (Jupiter). The first trades would move it to the market price, at your cost.`,
+  'launch-pool': (gap) => `Your opening price is ${gap} the launch pool’s price. The first trades would move it to the launch pool’s price, at your cost.`,
+};
+
+/** Why an opening price could not be compared, by what it would have been compared with. */
+const NOT_COMPARED: Readonly<Record<OpeningReference, (detail: string) => string>> = {
+  outside: (detail) => `We could not get a market price from Jupiter (${detail}).`,
+  'launch-pool': (detail) => `We could not compare your opening price with the launch pool’s price (${detail}).`,
+};
+
+export type OpeningReferencePrice =
+  | { kind: 'ok'; against: OpeningReference; perToken: number }
+  /** Jupiter ANSWERED that the token has no market, and no launch pool stands in for one. */
+  | { kind: 'none'; detail: string }
+  | { kind: 'unread'; against: OpeningReference; detail: string };
+
+/**
+ * What an opening price is compared with, in the pool's own coin. Jupiter's price when it
+ * has one. When Jupiter ANSWERS "no route", the token's launch pool's price, if that pool
+ * passed its own check (`launchReference`): it is then the token's only market. With
+ * neither there is nothing, and that is an answer. A failed read is unread, never "none".
+ */
+export function openingReference(a: {
+  quote: QuoteCoin;
+  outside: OutsidePrice | null;
+  coinOutside?: OutsidePrice | null;
+  launchPrice?: PriceCheck | null;
+}): OpeningReferencePrice {
+  if (!a.outside) return { kind: 'unread', against: 'outside', detail: 'not asked' };
+  const coin = a.coinOutside ?? null;
+  const market = priceInQuote(a.outside, a.quote, coin);
+  if (market.kind === 'ok') return { kind: 'ok', against: 'outside', perToken: market.perToken };
+  if (market.kind === 'unread') return { kind: 'unread', against: 'outside', detail: market.detail };
+  const launchSol = launchReference(a.launchPrice);
+  if (launchSol === null) return { kind: 'none', detail: market.detail };
+  const launch = solPriceIn(a.quote, launchSol, coin);
+  return launch.kind === 'ok' ? { kind: 'ok', against: 'launch-pool', perToken: launch.perToken } : { kind: 'unread', against: 'launch-pool', detail: launch.detail };
 }
 
 export interface OpeningCheck {
@@ -63,6 +114,12 @@ export function assessOpening(a: {
   outside: OutsidePrice | null;
   /** The pairing coin's own outside price in SOL. A SOL opening never looks at it. */
   coinOutside?: OutsidePrice | null;
+  /**
+   * The price check of the TOKEN's launch pool, when there is one and it was read
+   * (`launchReference`). Looked at only when Jupiter answered "no route". Left out, such
+   * an opening has nothing to be compared with.
+   */
+  launchPrice?: PriceCheck | null;
   safety: TokenSafety | null;
 }): OpeningCheck {
   const t = tokenReasons(a.safety, 'pools');
@@ -71,8 +128,7 @@ export function assessOpening(a: {
   const warnings = [...t.warned];
   if (a.tokenMint === TOKEN_2022_NATIVE_MINT) refused.push(`This is SOL under the newer token program. Pools here pair a token with ${QUOTE_COINS_OR}.`);
   else if (!canPair(a.tokenMint, a.quote)) refused.push(`This site does not open a pool that prices this token in ${a.quote.symbol}.`);
-  // The token's market price in the pool's own coin; null when Jupiter was not asked.
-  const market = a.outside ? priceInQuote(a.outside, a.quote, a.coinOutside ?? null) : null;
+  const reference = openingReference(a);
 
   let price: OpeningCheck['price'];
   if (a.tokenDecimals === null) {
@@ -86,24 +142,19 @@ export function assessOpening(a: {
     if (opening === null) {
       price = { state: 'unread', pool: null, detail: 'the opening price could not be worked out' };
       unchecked.push('We could not work out the opening price from these amounts.');
-    } else if (market?.kind === 'ok') {
-      price = comparePrice(opening, market.perToken, 'outside');
-      if (price.state === 'disagrees') {
-        warnings.push(
-          `Your opening price is ${gapText(price.diff)} the market price (Jupiter). The first trades would move it to the market price, at your cost.`,
-        );
-      }
-    } else if (market?.kind === 'no-route') {
-      // Jupiter ANSWERED that the token has no market. Nothing is compared, so the pairing
-      // coin's own price is not needed here either (`priceInQuote` answers before it looks).
-      price = { state: 'no-market', pool: opening, detail: market.detail };
+    } else if (reference.kind === 'ok') {
+      price = comparePrice(opening, reference.perToken, reference.against);
+      if (price.state === 'disagrees') warnings.push(GAP_WARNING[reference.against](gapText(price.diff)));
+    } else if (reference.kind === 'none') {
+      // Jupiter ANSWERED that the token has no market, and no launch pool stands in for
+      // one. Nothing is compared, so the pairing coin's own price is not needed here either.
+      price = { state: 'no-market', pool: opening, detail: reference.detail };
       warnings.push(
         'Jupiter has no market price for this token, so there is nothing to compare your opening price with. You are setting the price yourself: if it is off, the first trades take the difference out of what you put in.',
       );
     } else {
-      const detail = market?.detail ?? 'not asked';
-      price = { state: 'unread', pool: opening, detail };
-      unchecked.push(`We could not get a market price from Jupiter (${detail}).`);
+      price = { state: 'unread', pool: opening, detail: reference.detail };
+      unchecked.push(NOT_COMPARED[reference.against](reference.detail));
     }
   }
 

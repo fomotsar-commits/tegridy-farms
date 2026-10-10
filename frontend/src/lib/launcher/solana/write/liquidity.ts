@@ -354,12 +354,13 @@ export async function readPoolForWrite(
 
 /**
  * The price check of `tokenMint`'s launch pool, from ONE fresh read of the pool, its two
- * vaults, its price record and the clock: what a deposit into the token's OTHER pools is
- * compared with when Jupiter has no route (poolHealth.ts `launchReference`). Null is "no
- * reference": no launch pool, a failed read, or accounts that are not the ones its
- * address gives. Never a guess, and never a refusal: the deposit is then "no market".
+ * vaults, its price record and the clock: what a deposit into the token's OTHER pools, and
+ * the opening price of a new one (createPool.ts), is compared with when Jupiter has no
+ * route (poolHealth.ts `launchReference`). Null is "no reference": no launch pool, a
+ * failed read, or accounts that are not the ones its address gives. Never a guess, and
+ * never a refusal: the deposit or the opening is then "no market".
  */
-async function readLaunchPoolPrice(
+export async function readLaunchPoolPrice(
   rpc: WriteRpc,
   cfg: CurveWriteConfig,
   a: { tokenMint: PublicKey; decimals: number; outside: OutsidePrice; safety: TokenSafety },

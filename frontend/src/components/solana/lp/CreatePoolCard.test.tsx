@@ -9,17 +9,20 @@ import { PublicKey } from '@solana/web3.js';
 import { LpInner, type LpWritesOverrides } from './SolanaLpSection';
 import type { LpReaders } from './readers';
 import type { TokenSafety } from '../../../lib/solana/lp/tokenSafety';
-import { SOL_QUOTE } from '../../../lib/solana/lp/quotes';
-import { TOKEN_2022_NATIVE_MINT } from '../../../lib/solana/lp/opening';
+import { SOL_QUOTE, USDC_QUOTE } from '../../../lib/solana/lp/quotes';
+import { TOKEN_2022_NATIVE_MINT, estimatedLoss } from '../../../lib/solana/lp/opening';
+import type { OutsidePrice } from '../../../lib/solana/lp/outsidePrice';
 import { isCreatedPool, rememberCreatedPool, type PoolSearchRead, type PoolView } from '../../../lib/solana/lp/poolFinder';
 import { decodeAmmConfig, decodePoolState } from '../../../lib/solana/cpswap/program';
 import type { WalletFacts } from '../../../lib/solana/lp/walletFacts';
 import { decodeObservationState } from '../../../lib/solana/lp/ownPrice';
 import { buildPool, key, observationBytes } from '../../../lib/solana/lp/testkit.fixture';
 import { LP_PENDING_SCOPE, readPendingTrades, savePendingTrade } from '../curve/pendingTrade';
-import type { CreateFacts, LpWriteApi } from '../curve/ports';
+import type { CreateFacts, LpWriteApi, Prepared } from '../curve/ports';
 import { TIER1_ADDRESS, fakeLpApi, lpOpenGate, LP_PROGRAM, notOpenFacts, readyFacts, tier1Config, unusedGateRpc } from './fakeLpWriteApi.fixture';
 import { realToken, reasonText } from './anyToken.fixture';
+import { solExact } from './panelKit';
+import { LP_COPY } from '../../../lib/launcher/solana/write/liquidity';
 
 // web3's address derivation cannot run under jsdom (a cross-realm Uint8Array check): the
 // public tier's address is the fixture's fixed key, as `readyFacts()` reports it.
@@ -450,6 +453,233 @@ describe('each answer has its own line, and only `offer` has the button', () => 
       fireEvent.click(add);
       expect(card).toContainElement(await screen.findByTestId('lp-add-panel'));
     }, 20_000);
+  });
+
+  // The same gap on the opening side. A token with a launch pool and no Jupiter route: the
+  // form compared an opening price with nothing, so a pool could open at ten times the
+  // launch pool's price on "you set the price yourself". The launch pool this search
+  // read is what the opening price is compared with, on the card, the form and Match.
+  describe('a token with a launch pool and no route: opening a pool of your own', () => {
+    const NOW = 2_000_000_000n;
+    const LAUNCH = key();
+    /** The launch pool: `sol` (10 SOL unless said) and 1,000 tokens, on the launch tier, never traded. */
+    const launchPool = (sol?: bigint): PoolView => ({
+      ...view({ address: LAUNCH, sol }),
+      origin: 'launch-pool',
+      history: { kind: 'ok', obs: decodeObservationState(observationBytes({ pool: LAUNCH, initialized: false }))! },
+    });
+    /** The same pool after an hour of trading at `perBase` lamports a token base unit, last written ten seconds ago. */
+    const traded = (v: PoolView, perBase: bigint): PoolView => {
+      const Q32 = 1n << 32n;
+      const [first, last] = [NOW - 3_610n, NOW - 10n];
+      const own = perBase * Q32 * (last - first);
+      const other = ((Q32 * Q32) / (perBase * Q32)) * (last - first);
+      const [c0, c1] = v.quoteIsToken0 ? [other, own] : [own, other];
+      return { ...v, history: { kind: 'ok', obs: decodeObservationState(observationBytes({ pool: LAUNCH, index: 1, lastUpdate: last, obs: [[0, first, 0n, 0n], [1, last, c0, c1]] }))! } };
+    };
+    const notBuilt = () => vi.fn(async (): Promise<Prepared> => ({ ok: false, outcome: { status: 'not-sent', stage: 'build', message: 'x' } }));
+    const openForm = async (coin = 'SOL') => {
+      const c = await settled('offer');
+      fireEvent.click(within(c).getByRole('button', { name: 'Open a pool' }));
+      const panel = await screen.findByTestId('lp-create-panel');
+      if (coin !== 'SOL') fireEvent.click(within(panel).getByRole('radio', { name: coin }));
+      await within(panel).findByRole('button', { name: `Max ${coin}` });
+      return { c, panel };
+    };
+    const typeIn = (panel: HTMLElement, label: string, value: string) => fireEvent.change(within(panel).getByLabelText(label), { target: { value } });
+    const market = (p: HTMLElement) => said(within(p).getByTestId('lp-create-market'));
+    const price = (p: HTMLElement) => within(p).getByTestId('lp-create-price');
+    const reviewButton = (p: HTMLElement) => within(p).getByRole('button', { name: 'Review: open the pool' });
+    /** The wallet as read for the chosen coin: 250 USDC in its own account. */
+    const withCoin = () =>
+      vi.fn<LpReaders['wallet']>(async (_o, _m, _p, _l, opts) => {
+        const base = facts();
+        if (base.kind !== 'ok' || !opts?.quote || opts.quote.native) return base;
+        return { ...base, coin: { address: key().toBase58(), exists: true, amount: 250_000_000n }, rents: { ...base.rents, coinAccount: 2_039_280n } };
+      });
+    const readMarketAgain = (panel: HTMLElement) =>
+      fireEvent.click(within(within(panel).getByTestId('lp-create-market-again')).getByRole('button', { name: 'Read the market price again' }));
+    const NOTHING = 'Jupiter has no market price for this token, so there is nothing to compare an opening price with. If you open a pool, you set its first price yourself.';
+    const COMPARED = 'Jupiter has no market price for this token, so an opening price is compared with its launch pool’s price instead (the launch pool’s card above shows it).';
+
+    it('at ten times the launch price: the card and the form say what it is compared with, the gap and its cost, and Match fills from the launch pool', async () => {
+      const prepareLpCreate = notBuilt();
+      mount(readers({ findPools: vi.fn(async () => search([launchPool()])), outsidePrice: vi.fn(async () => NO_ROUTE) }), {
+        api: fakeLpApi({ readCreateFacts: vi.fn(async () => readyFacts()), prepareLpCreate }),
+      });
+      const { c, panel } = await openForm();
+
+      // The card, before its button: what an opening price is compared with, never "nothing".
+      const cautions = within(c).getByTestId('lp-create-cautions');
+      expect(cautions).toHaveTextContent(COMPARED);
+      expect(cautions).not.toHaveTextContent('nothing to compare');
+
+      // The form names the launch pool's price as what the opening is compared with.
+      expect(market(panel)).toMatch(
+        /^Market price \(Jupiter, read \d\d:\d\d:\d\d\): there is none for this token\. Your opening price is compared with the launch pool’s price instead: 1 token = 0\.01 SOL\.$/,
+      );
+      expect(within(panel).getByTestId('lp-create-match')).toHaveTextContent(/^Match the launch pool’s price$/);
+      expect(within(panel).queryByRole('button', { name: 'Match the market price' })).toBeNull();
+
+      // 1 SOL against 10 tokens: 0.1 SOL a token, ten times the launch pool's 0.01.
+      typeIn(panel, 'SOL to put in', '1');
+      typeIn(panel, 'Tokens to put in', '10');
+      expect(price(panel)).toHaveAttribute('data-price', 'disagrees');
+      expect(said(price(panel))).toBe('Your opening price: 1 token = 0.1 SOL. The launch pool’s price: 0.01 SOL. Yours is 900.0% above the launch pool’s price.');
+      const warnings = within(panel).getByTestId('lp-create-warnings');
+      expect(warnings).toHaveTextContent('Your opening price is 900.0% above the launch pool’s price. The first trades would move it to the launch pool’s price, at your cost.');
+      // (√1 − √(10 × 0.01))² SOL, rounded up to the lamport, in the review's own sentence.
+      const loss = estimatedLoss({ quoteAmount: 10n ** 9n, token: 10n * 10n ** 6n, tokenDecimals: 6, marketPricePerToken: 0.01, quote: SOL_QUOTE })!;
+      expect(Number(loss) / 1e9).toBeCloseTo((1 - Math.sqrt(0.1)) ** 2, 8);
+      expect(warnings).toHaveTextContent(LP_COPY.priceGapLoss(solExact(loss), 'the launch pool’s price'));
+      expect(warnings).toHaveTextContent('Match the launch pool’s price to avoid that, or go on at your own price.');
+      // Nothing says the price was compared with nothing, or names a market price there is none of.
+      expect(warnings).not.toHaveTextContent(/nothing to compare|setting the price yourself|market price/);
+      // A warning, never a stop.
+      expect(reviewButton(panel)).toBeEnabled();
+      // What a screen reader hears once typing settles names the same price.
+      await waitFor(() =>
+        expect(panel.querySelector('p.sr-only[role="status"]')).toHaveTextContent(
+          /^You would open the pool at 1 token = 0\.1 SOL and get \d\.\d+ pool shares\. That price is 900\.0% above the launch pool’s price: the warning above Review says what that may cost\.$/,
+        ),
+      );
+
+      // Match keeps the side typed last (10 tokens) and sets the SOL at the launch pool's price.
+      fireEvent.click(within(warnings).getByRole('button', { name: 'Match the launch pool’s price' }));
+      expect(within(panel).getByLabelText('SOL to put in')).toHaveValue('0.1');
+      expect(price(panel)).toHaveAttribute('data-price', 'agrees');
+      expect(said(price(panel))).toBe('Your opening price: 1 token = 0.01 SOL. The launch pool’s price: 0.01 SOL. Yours is 0.0% above the launch pool’s price. Close enough to it.');
+      expect(within(panel).queryByTestId('lp-create-warnings')).toBeNull();
+      await act(async () => {
+        fireEvent.click(reviewButton(panel));
+      });
+      expect(prepareLpCreate).toHaveBeenCalledTimes(1);
+      expect((prepareLpCreate.mock.calls[0] as unknown[])[3]).toMatchObject({ quote: 100_000_000n, token: 10_000_000n });
+    }, 30_000);
+
+    // Unread stays unread. A launch pool someone has just pushed is off its own half-hour
+    // average: it gives no reference, so Match must not fill from the pushed price.
+    it('a launch pool pushed off its own average gives no reference: nothing to compare with, and no Match', async () => {
+      // An hour at half today's price: the pool now sits about 100% above its own average.
+      const pushed = traded(launchPool(), 5n);
+      mount(readers({ findPools: vi.fn(async () => search([pushed], { chainNow: NOW })), outsidePrice: vi.fn(async () => NO_ROUTE) }));
+      const { c, panel } = await openForm();
+      expect(poolCard(pushed.address)).toHaveAttribute('data-price', 'disagrees');
+      expect(within(c).getByTestId('lp-create-cautions')).toHaveTextContent(NOTHING);
+      expect(c).not.toHaveTextContent('compared with its launch pool');
+      expect(market(panel)).toMatch(/there is none for this token\. You are setting this pool’s first price yourself\.$/);
+      expect(within(panel).queryByTestId('lp-create-match')).toBeNull();
+      typeIn(panel, 'SOL to put in', '1');
+      typeIn(panel, 'Tokens to put in', '10');
+      expect(price(panel)).toHaveAttribute('data-price', 'no-market');
+      expect(said(price(panel))).toBe('Your opening price: 1 token = 0.1 SOL. There is no market price to compare it with.');
+      expect(within(panel).getByTestId('lp-create-warnings')).toHaveTextContent('there is nothing to compare your opening price with');
+      expect(panel).not.toHaveTextContent('launch pool’s price');
+      expect(reviewButton(panel)).toBeEnabled();
+    }, 30_000);
+
+    it('the same pool traded at its own price for an hour is a reference, like one never traded', async () => {
+      mount(readers({ findPools: vi.fn(async () => search([traded(launchPool(), 10n)], { chainNow: NOW })), outsidePrice: vi.fn(async () => NO_ROUTE) }));
+      const { c, panel } = await openForm();
+      expect(poolCard(LAUNCH.toBase58())).toHaveAttribute('data-price', 'agrees');
+      expect(within(c).getByTestId('lp-create-cautions')).toHaveTextContent(COMPARED);
+      expect(market(panel)).toMatch(/compared with the launch pool’s price instead: 1 token = 0\.01 SOL\.$/);
+    }, 30_000);
+
+    // Jupiter failing to answer is unread, never "no route": the launch pool does not stand in.
+    it('Jupiter fails to answer on a re-read with the form open: the price is unread, and the launch pool does not stand in for it', async () => {
+      let answer: OutsidePrice = NO_ROUTE;
+      mount(readers({ findPools: vi.fn(async () => search([launchPool()])), outsidePrice: vi.fn(async () => answer) }));
+      const { c, panel } = await openForm();
+      typeIn(panel, 'SOL to put in', '1');
+      typeIn(panel, 'Tokens to put in', '10');
+      expect(price(panel)).toHaveAttribute('data-price', 'disagrees');
+      answer = { kind: 'unread', detail: 'Jupiter did not give a price (HTTP 502)' };
+      readMarketAgain(panel);
+      await waitFor(() => expect(c).toHaveAttribute('data-create', 'price-unread'));
+      await waitFor(() => expect(market(panel)).toBe('Market price (Jupiter): could not be read (Jupiter did not give a price (HTTP 502)).'));
+      // Not read is said as not read. The gap against the launch pool is gone with it, and so is its Match.
+      expect(price(panel)).toHaveAttribute('data-price', 'unread');
+      expect(said(price(panel))).toBe('Your opening price: 1 token = 0.1 SOL. It is not checked: the market price has not been read.');
+      expect(within(panel).queryByTestId('lp-create-warnings')).toBeNull();
+      expect(panel).not.toHaveTextContent('launch pool’s price');
+      expect(within(panel).getByTestId('lp-create-match')).toBeDisabled();
+      expect(reviewButton(panel)).toBeDisabled();
+    }, 30_000);
+
+    // The coin's price is not asked for while nothing is compared. When a re-read finds a
+    // reference, it is asked for then, and Review waits for it.
+    it('USDC chosen while the launch pool gives no reference; a re-read finds it steady: USDC’s price is asked for then, and the opening is compared in USDC', async () => {
+      // Pushed: about 100% above its own half-hour average.
+      let pool = traded(launchPool(), 5n);
+      const outsidePrice = vi.fn(async (mint: string): Promise<OutsidePrice> => (mint === M ? NO_ROUTE : { kind: 'ok', solPerToken: 0.005, source: 'Jupiter' }));
+      mount(readers({ findPools: vi.fn(async () => search([pool], { chainNow: NOW })), outsidePrice, wallet: withCoin() }));
+      const { panel } = await openForm('USDC');
+      expect(outsidePrice).not.toHaveBeenCalledWith(USDC_QUOTE.mint, expect.anything());
+      expect(market(panel)).toMatch(/there is none for this token\. You are setting this pool’s first price yourself\.$/);
+      typeIn(panel, 'USDC to put in', '50');
+      typeIn(panel, 'Tokens to put in', '25');
+      expect(price(panel)).toHaveAttribute('data-price', 'no-market');
+      expect(reviewButton(panel)).toBeEnabled();
+
+      // The same pool, an hour at its own price: it is a reference now.
+      pool = traded(launchPool(), 10n);
+      readMarketAgain(panel);
+      await waitFor(() => expect(outsidePrice).toHaveBeenCalledWith(USDC_QUOTE.mint, USDC_QUOTE.decimals));
+      await waitFor(() => expect(market(panel)).toMatch(/compared with the launch pool’s price instead: 1 token = 2 USDC\.$/));
+      expect(price(panel)).toHaveAttribute('data-price', 'agrees');
+      expect(said(price(panel))).toBe('Your opening price: 1 token = 2 USDC. The launch pool’s price: 2 USDC. Yours is 0.0% above the launch pool’s price. Close enough to it.');
+      expect(within(panel).getByTestId('lp-create-match')).toHaveTextContent(/^Match the launch pool’s price$/);
+      expect(reviewButton(panel)).toBeEnabled();
+    }, 30_000);
+
+    it('paired with USDC: the launch pool’s price is said in USDC, which needs USDC’s own price; until it is read Review waits and says why', async () => {
+      let answerUsdc: (p: OutsidePrice) => void = () => {};
+      const outsidePrice = vi.fn((mint: string) => (mint === M ? Promise.resolve<OutsidePrice>(NO_ROUTE) : new Promise<OutsidePrice>((res) => (answerUsdc = res))));
+      mount(readers({ findPools: vi.fn(async () => search([launchPool()])), outsidePrice, wallet: withCoin() }));
+      const { panel } = await openForm('USDC');
+
+      // The coin's price IS asked for: there is something to say in USDC.
+      expect(outsidePrice).toHaveBeenCalledWith(USDC_QUOTE.mint, USDC_QUOTE.decimals);
+      expect(market(panel)).toMatch(
+        /^Market price \(Jupiter, read \d\d:\d\d:\d\d\): there is none for this token\. The launch pool’s price in USDC: reading the price of USDC from Jupiter…$/,
+      );
+      expect(within(panel).getByTestId('lp-create-coin-price')).toHaveTextContent('Review is off while the price of USDC is read: your opening price is checked in USDC.');
+      expect(within(panel).getByTestId('lp-create-match')).toBeDisabled();
+      typeIn(panel, 'USDC to put in', '50');
+      typeIn(panel, 'Tokens to put in', '25');
+      // Not read is not "none", and never "close enough".
+      expect(price(panel)).toHaveAttribute('data-price', 'unread');
+      expect(said(price(panel))).toBe('Your opening price: 1 token = 2 USDC. It is not checked: the launch pool’s price has not been worked out in this coin.');
+      expect(reviewButton(panel)).toBeDisabled();
+
+      // USDC at 0.005 SOL: the launch pool's 0.01 SOL a token is 2 USDC a token.
+      await act(async () => {
+        answerUsdc({ kind: 'ok', solPerToken: 0.005, source: 'Jupiter' });
+      });
+      expect(market(panel)).toMatch(/compared with the launch pool’s price instead: 1 token = 2 USDC\.$/);
+      expect(price(panel)).toHaveAttribute('data-price', 'agrees');
+      expect(said(price(panel))).toBe('Your opening price: 1 token = 2 USDC. The launch pool’s price: 2 USDC. Yours is 0.0% above the launch pool’s price. Close enough to it.');
+      expect(within(panel).queryByTestId('lp-create-coin-price')).toBeNull();
+      expect(within(panel).getByTestId('lp-create-match')).toBeEnabled();
+      expect(reviewButton(panel)).toBeEnabled();
+    }, 30_000);
+
+    it('Read the market price again: a launch pool price that moved is a new answer, never "the same answer"', async () => {
+      let sol = 10n * 10n ** 9n;
+      mount(readers({ findPools: vi.fn(async () => search([launchPool(sol)])), outsidePrice: vi.fn(async () => NO_ROUTE) }));
+      const { panel } = await openForm();
+      const status = within(within(panel).getByTestId('lp-create-market-again')).getByRole('status');
+      // Nothing moved: the same answer.
+      readMarketAgain(panel);
+      await waitFor(() => expect(status).toHaveTextContent('Read again just now: the same answer.'));
+      // The launch pool now holds 20 SOL against the same tokens: 0.02 SOL a token.
+      sol = 20n * 10n ** 9n;
+      readMarketAgain(panel);
+      // It names the price that is new: Jupiter's answer ("there is none") did not change.
+      await waitFor(() => expect(status).toHaveTextContent(/^Read again just now: the launch pool’s price above is new\.$/));
+      expect(market(panel)).toMatch(/compared with the launch pool’s price instead: 1 token = 0\.02 SOL\.$/);
+    }, 30_000);
   });
 
   it('pools-unread: an index outage; Read again searches again', async () => {

@@ -1635,6 +1635,28 @@ describe('opening a pool: the review', () => {
     expect(screen.queryByText('Estimated cost of that gap')).not.toBeInTheDocument();
   });
 
+  // With no route, an opening is compared with the token's launch pool. The row must name
+  // that price as what it is: it used to fall to the deposit's words, with no opening price.
+  it('an opening compared with the launch pool: the row says both prices, whose the second is, and that it is off', async () => {
+    await review(
+      create({
+        price: { state: 'disagrees', pool: 0.1, reference: 0.01, against: 'launch-pool', diff: 9 },
+        warnings: ['x'],
+        priceGap: { diff: 9, lossQuote: 467_544_468n },
+      }),
+    );
+    expect(value('Opening price')).toBe(
+      '1 token = 0.1 SOL. Jupiter has no market price for this token. The launch pool’s price (read just now): 0.01 SOL, 900.0% above. That is off by more than 3%.',
+    );
+    expect(value('Opening price')).not.toMatch(/Market \(Jupiter/);
+    expect(value('Estimated cost of that gap')).toBe('up to about 0.467544468 SOL of what you put in');
+  });
+
+  it('an opening that agrees with the launch pool says so in the same words, with nothing about being off', async () => {
+    await review(create({ price: { state: 'agrees', pool: 0.0099, reference: 0.01, against: 'launch-pool', diff: -0.01 } }));
+    expect(value('Opening price')).toBe('1 token = 0.0099 SOL. Jupiter has no market price for this token. The launch pool’s price (read just now): 0.01 SOL, 1.0% below');
+  });
+
   it('an opening cost that could not be worked out is said as that, never as 0', async () => {
     await review(create({ price: { state: 'disagrees', pool: 0.3, reference: 0.2, against: 'outside', diff: 0.5 }, warnings: ['x'], priceGap: { diff: 0.5, lossQuote: null } }));
     expect(value('Estimated cost of that gap')).toBe('could not be worked out');
