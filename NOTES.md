@@ -15,6 +15,95 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-10-10: what a constant-product pool has earned its shares can be read with no history
+
+**Believed:** to say what a pool has paid its liquidity providers you must add up its swaps,
+which means reading its transactions or running an indexer.
+
+**Measured:** in a pool that mints its first shares as the square root of the two deposits
+(Raydium's cp-swap, Uniswap v2), `isqrt(reserve0 * reserve1) / share supply` is exactly 1 at
+opening and can only rise. Read from the BAYLA/SOL pool's current state alone on 2026-10-10:
+372,663,147,122 over 372,631,821,673, so 0.0084065% growth per share, which matched the fees
+of its three swaps counted one by one (4,208,400 lamports to providers). Two things it is not.
+It is not exactly zero before the first trade: every deposit rounds in the pool's favour, and
+29 deposits had already made it 234 units (0.0000000641%). And it is not only fees: 1 SOL sent
+straight into the vault, with no trade, read as 1.9%.
+
+**Do:** use the ratio for "how much each share has grown", free, on every read. Take "has it
+traded at all" from the pool's own trade record, never from the ratio being zero. Before
+stretching it into a rate, ask a second witness that only trades move: here the venue's
+uncollected fee counter, which explained 30,575,562 of the 31,325,449 units of growth.
+
+## 2026-10-10: a public RPC host can answer 200 with a history it does not have
+
+**Believed:** `getSignaturesForAddress` returns an account's transactions on any mainnet host,
+and a missing transaction comes back as an error.
+
+**Measured:** for a pool with 34 transactions over six days, `solana-rpc.publicnode.com`
+returned 1 signature, and `null` with HTTP 200 for transactions one to four days old.
+`api.mainnet-beta.solana.com` returned all 34 and every transaction. Current state (balances,
+accounts) agreed on both hosts, so nothing looked wrong until the counts were compared.
+
+**Do:** before trusting a count or a "first deposit" read from history, ask the host for one
+transaction you know is old. Treat a `null` transaction as "this host has no record", a state
+of its own, never as "it did not happen".
+
+## 2026-10-10: one refused call out of twenty threw the whole page away, every time
+
+**Believed:** reading a page of 20 transactions with `Promise.all` and pressing again on a
+failure gets there in the end.
+
+**Measured:** against a keyless public host, 10 of the 20 calls were turned away with HTTP 429
+on the first press of every walk. `Promise.all` rejected on the first refusal and the code kept
+transactions only after all 20 had answered, so the next press sent all 20 again and half were
+refused again: the page never finished. Waiting for every call to settle and keeping each
+finalized answer that did arrive made the second press ask for 10 and the third for 8.
+
+**Do:** when a batch is retried by a person pressing a button, keep what answered. Count the
+calls on the wire for the second press: if it equals the first, nothing was kept.
+
+## 2026-10-10: a value handed up through an effect is on screen one render late
+
+**Believed:** once a test has waited for a block to leave its "reading" state, everything that
+block derives is on the page.
+
+**Measured:** a row moved into a fold was told its text by the block through an effect, so it
+arrived one render after the figures. Two tests read it straight after the wait. The file
+passed 12 of 13 runs alone and failed in 3 of 4 runs of the wider set on a busy machine, always
+the same two tests, always "unable to find an element". The page itself was right every time.
+
+**Do:** when a fix moves where something is drawn, re-read how it gets there. Wait for the
+thing you assert, not for a neighbour. Then run the wider set several times in a row before
+calling it fixed: five runs of 1,548 tests passed after the two waits were added.
+
+## 2026-10-10: a wallet can grow a transaction you built at 763 bytes to exactly the limit
+
+**Believed:** a transaction's size is what the site built, so one that is 763 bytes has 469
+bytes to spare under the 1,232-byte limit.
+
+**Measured:** on mainnet, 3 of a pool's 30 deposits were signed with 10 extra guard
+instructions the wallet added (about 469 bytes) and each landed at exactly 1,232 bytes. The
+three swaps carried 8 such instructions (427 bytes) and the pool's opening 12. The other 27
+deposits carried none.
+
+**Do:** when sizing a new transaction, leave room for what the wallet adds, and take that
+figure from real signed transactions, not from the docs. Before building two steps into one
+transaction, sign one of that shape in a real wallet.
+
+## 2026-10-10: a price feed's candles are for the pool's first-named token, and a builder's 200 is not the program's yes
+
+**Believed:** asking a candle feed for a token's top pool gives that token's price, and an
+order API that returns a transaction has accepted the order.
+
+**Measured:** GeckoTerminal's candles describe the first-named token of the pool. For USDC
+the top pool that day was another coin paired with USDC, so the same lookup that is right for
+BAYLA would have printed the other coin's price as USDC's. Separately, Jupiter's recurring
+order API built a transaction for a Token-2022 token in both directions, and the program
+rejected it when simulated (error 3007).
+
+**Do:** check that the feed's base token is the one you asked about and say "unread" when it
+is not. Simulate what a builder hands back before offering it to someone to sign.
+
 ## 2026-10-09: an expected value built by the function under test cannot see a wrong constant inside it
 
 **Believed:** the address a launch's details file says it was made on (`createdOn`) was
