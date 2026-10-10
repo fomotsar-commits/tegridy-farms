@@ -916,6 +916,67 @@ spare) refuses from 125 blocks, about 33 seconds after the blockhash is read.
 pin the clock to that number in a test. Let a block-height read decide, and treat any
 wall-clock limit as the fallback for when the height cannot be read.
 
+## 2026-10-03 — Phantom's "This dApp could be malicious" is a review note, not a blocklist, and no code change clears it
+
+**Believed:** a red "Request blocked / This dApp could be malicious" in Phantom on a plain
+Add liquidity deposit means the domain sits on a blocklist (as MetaMask's did on 09-25),
+or that the transaction is doing something a wallet dislikes, so the code must change.
+
+**Measured** (10-03, memetics.finance, the owner's own deposit
+`4Jg1XVqkF1gr4h74FaPqeocqD5mGUtBibP8RHQTLBp1cYfpCJrc2mykXxkCM5zbcvS2JGy21zDD82vfiYn7fAUz9`):
+
+| source | answer |
+|---|---|
+| Phantom's open blocklist (`github.com/phantom/blocklist`, 2321 lines) | no memetics entry |
+| MetaMask/Blockaid `dapp-scanning.api.cx.metamask.io/v2/scan?url=memetics.finance` | `NONE` (was `BLOCK` on 09-25) |
+| the warned transaction, read back | legacy, 1 signature, 8 instructions, no lookup table, standard programs only, confirmed |
+| Phantom's developer docs ("Domain and transaction warnings") | the red note = "Phantom could not simulate the transaction"; the yellow "domain is new" = their age check, clears after their review; over a week → their Google Form |
+
+Phantom's own developer checklist is: one signer (wallet signs FIRST if more), simulate
+with `sigVerify:false` before asking the wallet, stay under the size limit. Our write path
+already does all three (`write/liquidity.ts` `extraSigners: []`, `write/prepare.ts simulate()`,
+`write/submit.ts` signs with `signTransaction` and broadcasts itself). So the only lever is
+Phantom's review form, which must come from the team (name, email, a Solscan link of the
+warned transaction): `phantom-flag-dispute.md` at the repo root is the paste-ready pack.
+
+**One real code-side cause remains:** a review window that outlives the blockhash
+(`REVIEW_TTL_MS` 45 s vs about 40 s of blockhash life now). A visitor who reads slowly signs
+a dead transaction, which Phantom cannot simulate, and that is this exact note. PR #728
+rebuilds on fresh numbers at Sign.
+
+**Do:** when a wallet shows a "malicious" note, check the public lists with `curl` and read
+the warned transaction back BEFORE touching code; then compare the write path with the
+wallet vendor's own developer checklist. Never tell users to press "Proceed anyway": it
+reads as drainer behaviour and counts against the domain.
+
+## 2026-10-03 — the Chrome extension refuses `*.vercel.app` previews; walk a branch build against mainnet instead
+
+**Believed:** a PR's Vercel preview is the place to walk a change live, and the Chrome
+extension (which holds the Vercel session) can open it.
+
+**Measured:** `navigate` to
+`tegridy-farms-git-<branch>-fomotsar-3237s-projects.vercel.app` answers
+`Cannot access this page. Claude cannot assist with the content on this page.` (a
+browsing-policy refusal of the host, not a load error); `curl` gets the deployment
+protection redirect.
+
+**What worked, in about ten minutes:** `vite build` the branch, `vite preview --port 4199
+--strictPort` (never :4173, a stale server may hold it), and a Playwright script that
+routes `**/api/**`:
+
+- `/api/pools*` → **the branch's own handler**, imported into the script
+  (`pathToFileURL(...)` on Windows, `NODE_ENV=test`, `SOLANA_RPC_URL` = the public RPC),
+  called with a fake `req`/`res`: real chain, this PR's code;
+- `/api/solrpc` → forwarded to `api.mainnet-beta.solana.com` with the page's own body;
+- Jupiter `price/v3` → forwarded to `lite-api.jup.ag`;
+- everything else aborted and LISTED, so the walk names what the page still wanted.
+
+Resolve `playwright` with `createRequire('<main checkout>/frontend/package.json')`; set
+the init-script keys (`tf_loaded`, onboarding seen, consent `denied`, bungalow `venue`).
+Screenshots at 1280x900 and 390x664, then LOOK at them: the phone shot showed the
+tab strip covering the card's heading after `scrollIntoView` (the #723 defect), which no
+DOM assertion would have said.
+
 ## 2026-10-03: a flag carried through a wallet's "Open app" link is an input anyone can write
 
 **Believed:** after a phone visitor presses a wallet's "Open app" row and the page reopens
