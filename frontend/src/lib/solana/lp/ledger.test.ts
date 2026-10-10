@@ -245,6 +245,12 @@ describe('ledgerFigures: the figures, worked by hand', () => {
     expect(ledgerFigures([deposit({ ...DEPOSIT_81, lpBefore: 1_000_000_000n }), plain('other')], view, 11_000_000_000n, true)).toMatchObject({ kind: 'worth-only', why: 'run-start-not-read' });
   });
 
+  it('shares that only ever arrived by transfer, with the whole history read: worth only, no deposit read (never zero figures)', () => {
+    const view = poolAt(AFTER_SWAP);
+    const r = ledgerFigures([plain('other'), plain('other')], view, 2_000_000_000n, false);
+    expect(r).toMatchObject({ kind: 'worth-only', why: 'no-deposit-read' });
+  });
+
   it('8.8: a mixed transaction in the run leaves worth only, saying which', () => {
     const view = poolAt(AFTER_SWAP);
     const r = ledgerFigures([plain('mixed'), deposit(DEPOSIT_81)], view, 10_000_000_000n);
