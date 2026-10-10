@@ -839,6 +839,32 @@ height). Centred before every press, all of them landed, in four browser project
 **Do:** to test what a press does to a scroll position, press by coordinates. A locator
 click proves only that the control works once something has scrolled it into view.
 
+## 2026-10-04: `overflow-x: hidden` on `body` makes `scrollWidth` lie, so push the page and read `scrollX`
+
+**Believed:** two e2e helpers said it in their comments: `body` is `overflow-x: hidden`, so
+`scrollWidth` and `clientWidth` can disagree on a page that does not move, and the honest
+check is to push the page (`scrollTo(500, 0)`) and read `scrollX`. A second belief rode
+with it: every phone project (`isMobile`) hides a page that is too wide from that push.
+
+**Measured:** production build of trunk bcafb7b3, all 68 auditable routes, the width set by
+the test. On `chromium` and `mobile-chrome` at 390, 768, 820 and 1024px, and on
+`ipad-safari` at 390, 820 and 1024px, `documentElement.scrollWidth` equalled
+`documentElement.clientWidth` on every page that did not move, and `clientWidth` equalled
+the width set on every reading. On desktop Chromium `scrollX` after the push equalled
+`scrollWidth - clientWidth` on 269 of 269 readings: the push measures nothing the two
+widths do not. One page was too wide, /nft-finance at 820px. With `body` at
+`overflow-x: hidden` its `scrollWidth` read the full 1,119px, and the push moved it 299px
+on `chromium`, `iphone-safari` and `ipad-safari`. On `mobile-chrome` the push moved it 0
+and `innerWidth` read 1119. So the rule on `body` changed neither width and did not stop
+the page moving, and only Chromium's phone emulation widened the window: WebKit's two phone
+projects did not.
+
+**Do:** compare `documentElement.scrollWidth` with `documentElement.clientWidth`. Before
+trusting a width check in a project, see it fail there: append a 1,100px `<div>` to `body`
+in an 820px window and require a reading 280px over. With `scrollX` as the ruler, or with
+`innerWidth` as the window, that test passed on three projects and failed on
+`mobile-chrome`.
+
 ## 2026-10-04: a new card that passes on a phone means the change passes on a phone
 
 **Believed:** the burn tracker was checked on phones: every new card at 320, 393, 810 and
