@@ -8,9 +8,10 @@ import type { SolToken } from '../lib/solanaTokenList';
  * $BAYLA FIRST (the owner, 2026-10-03; the island's venue review, item 8).
  *
  * /solana used to open SOL to USDC. It opens SOL to $BAYLA now, and in a Solana room,
- * SOL to that room's coin. A link's own ?out= still wins. $BAYLA keeps what an
- * unverified coin gets here: the tick box before a swap. lib/solanaOpeningPair.test.ts
- * pins the choice; this file pins that the page makes it.
+ * SOL to that room's coin. A link's own ?out= still wins. $BAYLA asks for no tick box
+ * (the owner, 2026-10-08: none for the venue's own coins); a room's coin that is not
+ * the venue's still gets one. lib/solanaOpeningPair.test.ts pins the choice; this file
+ * pins that the page makes it.
  */
 
 vi.setConfig({ testTimeout: 30_000 });
@@ -88,13 +89,11 @@ describe('/solana opens SOL to $BAYLA', () => {
     expect(paying()).toBe('SOL');
   });
 
-  it('keeps the tick box an unverified coin gets, unticked, and asks no lookup for it', async () => {
+  it('asks for no tick box on the pair it opens on, and asks no lookup for it', async () => {
     open('/solana');
     await waitFor(() => expect(buying()).toBe('BAYLA'));
-    const box = tickBox();
-    expect(box, 'the risk tick box is on the form').not.toBeNull();
-    expect(box!.checked).toBe(false);
-    expect(box!.closest('label')?.textContent).toContain('an unverified token');
+    expect(tickBox(), 'the venue’s own coins ask for no tick').toBeNull();
+    expect(document.body.textContent).not.toContain('an unverified token');
     expect(h.resolveMint).not.toHaveBeenCalled();
   });
 
@@ -120,6 +119,16 @@ describe('/solana in a room', () => {
     await waitFor(() => expect(buying()).toBe('BOBO'));
     expect(h.resolveMint.mock.calls.map((c) => c[0])).toEqual([BOBO_MINT]);
     expect(paying()).toBe('SOL');
+  });
+
+  it('keeps the tick box, unticked, for a room’s coin that is not the venue’s own', async () => {
+    h.resolveMint.mockResolvedValue(BOBO);
+    open('/solana', 'bobo');
+    await waitFor(() => expect(buying()).toBe('BOBO'));
+    const box = tickBox();
+    expect(box, 'the risk tick box is on the form').not.toBeNull();
+    expect(box!.checked).toBe(false);
+    expect(box!.closest('label')?.textContent).toContain('an unverified token');
   });
 
   it('stays on $BAYLA when the room’s coin could not be looked up', async () => {

@@ -3,7 +3,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { openingBuyMint } from './solanaOpeningPair';
-import { BAYLA, USDC, SOL, BUY_TOKENS, isUnverified } from './solanaTokenList';
+import { BAYLA, USDC, SOL, BUY_TOKENS, findSolToken, isUnverified, isVenueCoin, needsRiskAck } from './solanaTokenList';
 import { BAYLA_MINT, BUNGALOWS } from './bungalows';
 
 const room = (id: string) => BUNGALOWS.find((b) => b.id === id)!;
@@ -50,8 +50,19 @@ describe('the $BAYLA the page opens on', () => {
     expect(BUY_TOKENS).toContain(BAYLA);
   });
 
-  it('keeps its Unverified chip and its tick box: no verified flag is claimed', () => {
+  // The owner, 2026-10-08 (pull request 769): no tick box for the venue's own coins.
+  it('claims no verified flag, and asks for no tick box: the venue knows it by its mint', () => {
     expect(BAYLA.verified).toBeUndefined();
     expect(isUnverified(BAYLA)).toBe(true);
+    expect(isVenueCoin(BAYLA.mint)).toBe(true);
+    expect(needsRiskAck(BAYLA)).toBe(false);
+  });
+
+  it('makes the opening pair one that asks for no tick box, while a Solana room’s coin still asks', () => {
+    const opensOn = findSolToken(openingBuyMint('', null));
+    expect(opensOn).toBe(BAYLA);
+    expect([SOL, opensOn!].filter(needsRiskAck)).toEqual([]);
+    // The control: another room's coin is not the venue's own, so its tick box stays.
+    expect(needsRiskAck({ mint: openingBuyMint('', room('bobo')), symbol: 'BOBO', name: 'BOBO', decimals: 6 })).toBe(true);
   });
 });
