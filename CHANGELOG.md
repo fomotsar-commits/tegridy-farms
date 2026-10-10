@@ -6,6 +6,10 @@ page keeps the newest thirty days.
 
 ## [Unreleased]
 
+### 2026-10-10
+
+- Phones whose browser draws the page under the status bar (seen on a Galaxy S25 inside the Phantom app): the row of tabs no longer hides under the header, and the icons in the bottom bar stay inside the bar. On a phone narrower than about 405px, the big headline on the home page and on each bungalow's front page is a little smaller, so MEMETICS.FINANCE no longer runs to the edge of the screen.
+
 ### 2026-10-08
 
 - Token names in wallets: the files a wallet reads now name our tokens by the bungalow and then by what the token does: Bayla Staking for the lighthouse staking receipt, Bayla LP SOL and Bayla LP USDC for the two pool shares. The short tickers are unchanged.
