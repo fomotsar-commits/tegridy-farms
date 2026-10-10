@@ -11,6 +11,7 @@ import { LpInner, type LpWritesOverrides } from './SolanaLpSection';
 import type { LpReaders } from './readers';
 import type { TokenSafety } from '../../../lib/solana/lp/tokenSafety';
 import { SOL_QUOTE } from '../../../lib/solana/lp/quotes';
+import { FORECAST_WORDS } from '../../../lib/solana/lp/format';
 import type { PoolSearchRead, PoolView } from '../../../lib/solana/lp/poolFinder';
 import { POOL_STATUS_DISABLE_WITHDRAW, decodeAmmConfig, decodePoolState } from '../../../lib/solana/cpswap/program';
 import type { Position } from '../../../lib/solana/lp/positions';
@@ -327,10 +328,13 @@ describe('Add liquidity', () => {
     const before = within(panel).getByTestId('lp-before-you-add');
     expect(before).toHaveTextContent(/Our pool program is Raydium's, with only its admin keys changed\. Those changes have not had their own independent review yet\./);
     expect(before).toHaveTextContent(/change its fee rates at once/);
-    expect(before).toHaveTextContent(/Jupiter does not send trades to these pools yet/);
+    expect(before).toHaveTextContent("Jupiter does not send trades to these pools yet. This site's own swap sends a trade to this pool only when it pays the trader at least as much as Jupiter does, so fees can be small.");
+    expect(before).toHaveTextContent('When the price moves, you can end up with less than if you had just held both tokens.');
+    // No word on who trades a pool: "mostly bots" was a guess the chain has not borne out.
+    expect(before).not.toHaveTextContent(/\bbots?\b|arbitrage|mostly/i);
     expect(before).toHaveTextContent(/liquidity providers keep 0\.\d{3}%, read from this pool's fee tier just now/);
     expect(before).not.toHaveTextContent(/burned the launch's own pool shares/); // not a launch pool
-    expect(panel).not.toHaveTextContent(/\bAPR\b|\bAPY\b|yield of/i);
+    expect(panel).not.toHaveTextContent(FORECAST_WORDS);
     fireEvent.click(within(panel).getByRole('button', { name: 'Close' }));
     await waitFor(() => expect(screen.queryByTestId('lp-add-panel')).toBeNull());
     expect(add).toHaveFocus();

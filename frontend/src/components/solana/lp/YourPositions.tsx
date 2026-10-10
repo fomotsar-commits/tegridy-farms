@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type ReactNode, type Ref } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type Ref } from 'react';
 import type { PublicKey } from '@solana/web3.js';
 import { displaySafe } from '../../../lib/launchMetadata/validate';
 import { MAX_POSITIONS, type PositionsRead, type Position } from '../../../lib/solana/lp/positions';
@@ -6,15 +6,23 @@ import type { PoolView } from '../../../lib/solana/lp/poolFinder';
 import type { TokenSafety } from '../../../lib/solana/lp/tokenSafety';
 import { formatWhen, vaultFreezer, withdrawalsState } from '../../../lib/solana/lp/poolHealth';
 import { swapEnabled } from '../../../lib/solana/cpswap/program';
-import { quoteText, tokenText } from '../../../lib/solana/lp/format';
+import { tokenText } from '../../../lib/solana/lp/format';
+import { pairLabel } from '../../../lib/solana/lp/identity';
+import { LEDGER_COPY, LEDGER_LABELS, ledgerFigures, ledgerText, ledgerUnits, type LedgerEntry, type LedgerLine, type LedgerRead } from '../../../lib/solana/lp/ledger';
+import { tradesExplain } from '../../../lib/solana/lp/poolGrowth';
+import { lastTrade } from '../../../lib/solana/lp/poolPast';
 import { QUOTE_COINS_OR } from '../../../lib/solana/lp/quotes';
+import { HISTORY_PAGES_MAX } from '../../../lib/solana/lp/txHistory';
 import { SolanaConnectButton } from '../SolanaConnectButton';
 import { WalletAppHint } from '../curve/WalletNeeded';
 import { Card, Notice, Row } from '../curve/ui';
+import { AddressRow } from './AddressRow';
 import { LeaveWithoutThisSite } from './LpDisclosures';
 import { lpHeld, withdrawOffer, type WithdrawOffer } from './offers';
+import { explorerOf } from './panelKit';
 import { RemoveLiquidityPanel } from './RemoveLiquidityPanel';
 import { useLpWrites, type LpWrites } from './useLpWrites';
+import { WholeDates } from './WholeDates';
 import type { LpReaders } from './readers';
 
 type State =
@@ -104,6 +112,17 @@ function addingOpen(writes: LpWrites | null): boolean {
   return writes !== null && writes.mode === 'on' && writes.gate?.kind === 'open' && writes.gate.mode === 'on';
 }
 
+/**
+ * How many rows work out what they earned by themselves, so a holder sees it with no
+ * press: the first two shares in the main list whose pool was read. Each is one read of
+ * at most 21 calls behind the budget gate (rpcBudget.ts). Every other share keeps the
+ * press, and a set-aside or unplaced share has no earnings block at all.
+ */
+const AUTO_LEDGER_ROWS = 2;
+
+const HEAD = 'text-white font-semibold text-[12px]';
+const HINT = 'text-white/70';
+
 export function YourPositions({
   readers,
   owner,
@@ -166,6 +185,7 @@ export function YourPositions({
           <PositionsList
             read={state.read}
             safety={state.safety}
+            owner={owner}
             onMore={() => setLimit((l) => l + MAX_POSITIONS)}
             onReadAgain={readAgain}
             readers={readers}
@@ -180,6 +200,7 @@ export function YourPositions({
 function PositionsList({
   read,
   safety,
+  owner,
   onMore,
   onReadAgain,
   readers,
@@ -187,6 +208,7 @@ function PositionsList({
 }: {
   read: Extract<PositionsRead, { kind: 'ok' }>;
   safety: Map<string, TokenSafety>;
+  owner: PublicKey;
   onMore: () => void;
   onReadAgain: () => void;
   readers: LpReaders;
@@ -195,6 +217,7 @@ function PositionsList({
   const safetyOf = (p: Position) => (p.pool?.kind === 'pool' ? safety.get(p.pool.view.tokenMint) ?? null : null);
   const main = read.positions.filter((p) => setAsideReason(p, safetyOf(p)) === null);
   const aside = read.positions.filter((p) => setAsideReason(p, safetyOf(p)) !== null);
+  const autoLedger = new Set(main.filter((p) => p.pool?.kind === 'pool').slice(0, AUTO_LEDGER_ROWS).map((p) => p.lpAccount));
   const more = read.totalShares - read.positions.length;
   if (read.totalShares === 0) {
     return (
@@ -210,7 +233,17 @@ function PositionsList({
       {main.length > 0 && (
         <ul className="space-y-3" aria-label="Your pool shares, most valuable first">
           {main.map((p) => (
-            <PositionRow key={p.lpAccount} p={p} safety={safetyOf(p)} chainNow={read.chainNow} readers={readers} onReadAgain={onReadAgain} onAddMore={onAddMore} />
+            <PositionRow
+              key={p.lpAccount}
+              p={p}
+              owner={owner}
+              safety={safetyOf(p)}
+              chainNow={read.chainNow}
+              autoLedger={autoLedger.has(p.lpAccount)}
+              readers={readers}
+              onReadAgain={onReadAgain}
+              onAddMore={onAddMore}
+            />
           ))}
         </ul>
       )}
@@ -225,6 +258,7 @@ function PositionsList({
               <PositionRow
                 key={p.lpAccount}
                 p={p}
+                owner={owner}
                 safety={safetyOf(p)}
                 chainNow={read.chainNow}
                 setAside={setAsideReason(p, safetyOf(p))}
@@ -260,19 +294,30 @@ function ReadAgain({ onClick }: { onClick: () => void }) {
   );
 }
 
+/**
+ * One share. With its pool read: headed by the pair and tier, the pool's address short,
+ * the sentence that fees are already in the shares, what it is worth and what it earned,
+ * the pool's two switches, the buttons; the rest behind one fold. Without a pool: the
+ * share's own token, what it holds and why it could not be placed.
+ */
 function PositionRow({
   p,
+  owner,
   safety,
   chainNow,
   setAside = null,
+  autoLedger = false,
   readers,
   onReadAgain,
   onAddMore,
 }: {
   p: Position;
+  owner: PublicKey;
   safety: TokenSafety | null;
   chainNow: bigint | null;
   setAside?: string | null;
+  /** Set by the list on its first rows: the earnings block reads by itself. */
+  autoLedger?: boolean;
   readers: LpReaders;
   onReadAgain: () => void;
   onAddMore?: AddMore;
@@ -281,6 +326,7 @@ function PositionRow({
   const decimals = safety?.kind === 'read' ? safety.facts?.decimals ?? null : null;
   const pool = p.pool;
   const writes = useLpWrites();
+  const explorer = explorerOf(writes);
   // The pool a pending withdrawal would name: the read pool, or the address the share was placed at.
   const poolAddress = view?.address ?? (pool && pool.kind !== 'pool' ? pool.address : null);
   const offer = withdrawOffer({
@@ -289,18 +335,49 @@ function PositionRow({
     position: p,
     held: writes !== null && poolAddress !== null && lpHeld(writes.pending.notes, poolAddress, 'remove'),
   });
+  const units = view ? ledgerUnits(view) : null;
+  // What the opener's 100 locked share units are worth, once the ledger has read the opening: shown in the fold.
+  const [locked, setLocked] = useState<string | null>(null);
+  // Needs no history: the share of the pool's two reserves, to the unit, under the token's registry name.
+  const worth: ReactNode =
+    view && units && p.value ? (
+      <Row
+        label={LEDGER_LABELS.worthNow}
+        value={view.quoteIsToken0 ? `${units.coin(p.value.token0)} and ${units.token(p.value.token1)}` : `${units.coin(p.value.token1)} and ${units.token(p.value.token0)}`}
+        mono={false}
+      />
+    ) : p.tooSmall ? (
+      <Notice tone="warn">Too small to take out at the pool&apos;s current size: one side would round to zero.</Notice>
+    ) : (
+      <Notice tone="warn">Its value could not be worked out.</Notice>
+    );
+  const tokenCheck = (
+    <Row
+      label="Token check"
+      value={!safety ? 'not read' : safety.kind === 'read' ? VERDICT_WORD[safety.verdict] : safety.kind === 'absent' ? 'not a token' : 'not read'}
+      mono={false}
+    />
+  );
+  // A token with nothing against it keeps its check in the fold; anything else is said on the row.
+  const checkedClean = safety?.kind === 'read' && safety.verdict === 'ok';
+  const shareRows = (
+    <>
+      <AddressRow label="Pool share token" value={p.lpMint} explorerUrl={explorer(p.lpMint)} />
+      <Row label="You hold" value={tokenText(p.lpAmount, view ? view.snapshot.pool.lpMintDecimals : null, 'shares')} mono={false} />
+    </>
+  );
   return (
     <li
       className="rounded-lg p-3 space-y-1.5"
       style={{ background: 'rgba(0,0,0,0.35)', border: '1px solid rgba(255,255,255,0.08)' }}
       data-testid="lp-position"
       data-pool={view?.address ?? ''}
+      data-lp-mint={p.lpMint}
       data-placement={p.placement}
       data-pool-kind={pool?.kind ?? 'none'}
       data-remove={offer}
     >
-      <Row label="Pool share token" value={p.lpMint} />
-      <Row label="You hold" value={tokenText(p.lpAmount, view ? view.snapshot.pool.lpMintDecimals : null, 'shares')} mono={false} />
+      {view ? <h3 className={HEAD}>{pairLabel(view)}</h3> : shareRows}
       {setAside && <Notice tone="warn">Set aside: {setAside}.</Notice>}
       {p.placement === 'index-unread' && (
         <Notice tone="warn">
@@ -330,33 +407,14 @@ function PositionRow({
       )}
       {view && (
         <>
-          <Row label="Pool" value={view.address} />
-          <Row label="Token" value={view.tokenMint} />
-          {!setAside && safety?.kind === 'read' && (safety.name || safety.symbol) && (
-            <Row label="Calls itself" value={`${displaySafe(safety.name ?? '', 32)} (${displaySafe(safety.symbol ?? '', 12)})`} mono={false} />
-          )}
-          <Row
-            label="Token check"
-            value={!safety ? 'not read' : safety.kind === 'read' ? VERDICT_WORD[safety.verdict] : safety.kind === 'absent' ? 'not a token' : 'not read'}
-            mono={false}
-          />
-          {p.value ? (
-            <>
-              <Row label="Your share of the pool" value={`${p.value.sharePct.toFixed(4)}%`} mono={false} />
-              <Row
-                label="Worth if withdrawn now"
-                value={
-                  view.quoteIsToken0
-                    ? `${quoteText(p.value.token0, view.quote)} and ${tokenText(p.value.token1, decimals)}`
-                    : `${quoteText(p.value.token1, view.quote)} and ${tokenText(p.value.token0, decimals)}`
-                }
-                mono={false}
-              />
-            </>
-          ) : p.tooSmall ? (
-            <Notice tone="warn">Too small to take out at the pool&apos;s current size: one side would round to zero.</Notice>
+          {p.value && <p className={HINT}>Your share: {p.value.sharePct.toFixed(4)}% of the pool</p>}
+          <AddressRow label="Pool" value={view.address} explorerUrl={explorer(view.address)} />
+          {!checkedClean && tokenCheck}
+          <p data-testid="lp-fees-in-shares">{LEDGER_COPY.feesInShares}</p>
+          {!setAside && readers.ledger ? (
+            <LedgerBlock p={p} owner={owner} view={view} readers={readers} auto={autoLedger} chainNow={chainNow} worth={worth} onLocked={setLocked} />
           ) : (
-            <Notice tone="warn">Its value could not be worked out.</Notice>
+            worth
           )}
           <Row
             label="Pool swaps"
@@ -387,7 +445,225 @@ function PositionRow({
         onReadAgain={onReadAgain}
         onAddMore={onAddMore}
       />
+      <details className="rounded-lg" style={{ border: '1px solid rgba(255,255,255,0.08)' }}>
+        <summary className="min-h-[44px] flex items-center px-3 cursor-pointer text-white/75">More about this share</summary>
+        <div className="space-y-1.5 px-3 pb-3">
+          {view && shareRows}
+          {locked && <Row label={LEDGER_LABELS.locked} value={locked} mono={false} />}
+          <AddressRow label="Share account" value={p.lpAccount} explorerUrl={explorer(p.lpAccount)} />
+          {view && (
+            <>
+              <AddressRow label="Token" value={view.tokenMint} explorerUrl={explorer(view.tokenMint)} />
+              {!setAside && safety?.kind === 'read' && (safety.name || safety.symbol) && (
+                <Row label="Calls itself" value={`${displaySafe(safety.name ?? '', 32)} (${displaySafe(safety.symbol ?? '', 12)})`} mono={false} />
+              )}
+              {checkedClean && tokenCheck}
+            </>
+          )}
+        </div>
+      </details>
     </li>
+  );
+}
+
+/** One earnings line: the figure beside its label, then its sentence (and the pace) under it, read as prose. */
+function LedgerLineRow({ label, line, pace = null }: { label: string; line: LedgerLine; pace?: string | null }) {
+  return (
+    <div className="space-y-0.5">
+      <Row label={label} value={line.figure} mono={false} />
+      {line.note && (
+        <p className={HINT}>
+          <WholeDates text={line.note} />
+        </p>
+      )}
+      {pace && (
+        <p className={HINT} data-testid="lp-pace">
+          {pace}
+        </p>
+      )}
+    </div>
+  );
+}
+
+interface LedgerAnswer {
+  read: LedgerRead;
+  /** Every entry read so far, newest first (`unread` and `paused` carry none). */
+  entries: LedgerEntry[];
+  pages: number;
+  /** The shares held and the pool as read when it was worked out. */
+  forAmount: bigint;
+  forView: PoolView;
+}
+
+const LEDGER_BUTTON = 'btn-secondary w-full sm:w-auto min-h-[44px] px-4 text-[13px] aria-disabled:opacity-60';
+
+/**
+ * What a share earned, from its share account's own transactions (ledger.ts): by itself
+ * when `auto`, on a press otherwise. The answer belongs to the shares it was worked out
+ * for; while they are unchanged a re-read of the wallet asks for no history again and the
+ * kept transactions are valued at the pool as just read. Read 20 more joins older pages,
+ * up to HISTORY_PAGES_MAX. `worth` needs no history: always printed. The button and the
+ * status line stay mounted, so a press keeps focus and each answer is read out.
+ */
+function LedgerBlock({
+  p,
+  owner,
+  view,
+  readers,
+  auto,
+  chainNow,
+  worth,
+  onLocked,
+}: {
+  p: Position;
+  owner: PublicKey;
+  view: PoolView;
+  readers: LpReaders;
+  auto: boolean;
+  chainNow: bigint | null;
+  worth: ReactNode;
+  /** Told what the opener's locked share units are worth, or null: the row prints it in its fold. */
+  onLocked: (text: string | null) => void;
+}) {
+  const [answer, setAnswer] = useState<LedgerAnswer | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [moreProblem, setMoreProblem] = useState<string | null>(null);
+  const shown = answer && answer.forAmount === p.lpAmount ? answer : null;
+  const share = { lpAccount: p.lpAccount, lpMint: p.lpMint, owner, lpAmount: p.lpAmount };
+  const ask = async (opts?: { before: string }): Promise<LedgerRead> => {
+    try {
+      return opts ? await readers.ledger!(share, view, opts) : await readers.ledger!(share, view);
+    } catch (e) {
+      return { kind: 'unread', detail: e instanceof Error ? e.message : String(e) };
+    }
+  };
+  const entriesOf = (r: LedgerRead): LedgerEntry[] => (r.kind === 'ok' || r.kind === 'worth-only' ? r.entries : []);
+  // Only the newest question's answer is kept: one for shares that have since changed is dropped.
+  const asked = useRef(0);
+  const readFirstPage = async () => {
+    const mine = ++asked.current;
+    const r = await ask();
+    if (asked.current !== mine) return;
+    setAnswer({ read: r, entries: entriesOf(r), pages: 1, forAmount: share.lpAmount, forView: view });
+    setBusy(false);
+  };
+  const read = () => {
+    setBusy(true);
+    setMoreProblem(null);
+    void readFirstPage();
+  };
+  const againButton = useRef<HTMLButtonElement | null>(null);
+  const moreButton = useRef<HTMLButtonElement | null>(null);
+  const more = async () => {
+    const oldest = shown?.entries[shown.entries.length - 1];
+    if (!shown || !oldest) return;
+    setBusy(true);
+    setMoreProblem(null);
+    const mine = ++asked.current;
+    const older = await ask({ before: oldest.signature });
+    if (asked.current !== mine) return;
+    if (older.kind === 'unread') setMoreProblem(ledgerText.unread(older.detail));
+    else if (older.kind === 'paused') setMoreProblem(ledgerText.paused());
+    else {
+      const entries = [...shown.entries, ...older.entries];
+      // Read 20 more leaves the page when nothing older is offered: focus goes to the button that stays.
+      const offeredAgain = older.window.more && shown.pages + 1 < HISTORY_PAGES_MAX;
+      if (!offeredAgain && document.activeElement === moreButton.current) againButton.current?.focus();
+      setAnswer({ read: ledgerFigures(entries, view, share.lpAmount, older.window.more), entries, pages: shown.pages + 1, forAmount: share.lpAmount, forView: view });
+    }
+    setBusy(false);
+  };
+  // The automatic read: once for the shares held, never again while an answer for them is
+  // kept, and again when they change. A row the list did not mark never reads by itself.
+  const startedFor = useRef<bigint | null>(null);
+  useEffect(() => {
+    if (!auto || startedFor.current === p.lpAmount || answer?.forAmount === p.lpAmount) return;
+    startedFor.current = p.lpAmount;
+    void readFirstPage();
+    // The shares and the mark decide; the reader and the pool are read when it runs.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [auto, p.lpAmount]);
+  // The figures follow the pool as last read: the kept transactions at the new reserves, no history call.
+  const r = useMemo((): LedgerRead | null => {
+    if (!shown) return null;
+    const kept = shown.read;
+    if (shown.forView === view || (kept.kind !== 'ok' && kept.kind !== 'worth-only')) return kept;
+    return ledgerFigures(shown.entries, view, p.lpAmount, kept.window.more);
+  }, [shown, view, p.lpAmount]);
+  const u = ledgerUnits(view);
+  const locked = r?.kind === 'ok' ? ledgerText.locked(r.figures, u) : null;
+  useEffect(() => {
+    onLocked(locked);
+    return () => onLocked(null);
+  }, [onLocked, locked]);
+
+  const working = busy || (auto && !shown);
+  const trade = lastTrade(view);
+  // A deposit or withdrawal the chain has not finalized yet is said so on its own line.
+  const notFinal = (line: LedgerLine, kinds: LedgerEntry['kind'][]): LedgerLine =>
+    shown?.entries.some((e) => kinds.includes(e.kind) && 'final' in e && !e.final) ? { ...line, note: `${line.note} ${LEDGER_COPY.notFinal}` } : line;
+  const takenOut = r?.kind === 'ok' ? ledgerText.takenOut(r.figures, u) : null;
+  const canPage = r !== null && (r.kind === 'ok' || r.kind === 'worth-only') && r.window.more;
+  // What a screen reader hears when the read ends: that it is worked out, or why it is not.
+  const said = !r ? '' : moreProblem ?? (r.kind === 'ok' ? LEDGER_COPY.workedOut : r.kind === 'worth-only' ? ledgerText.worthOnly(r) : r.kind === 'unread' ? ledgerText.unread(r.detail) : ledgerText.paused());
+  return (
+    <div className="relative space-y-1.5" data-testid="lp-ledger" data-ledger={r ? r.kind : working ? 'reading' : 'idle'}>
+      {r?.kind === 'ok' ? (
+        <>
+          <LedgerLineRow label={LEDGER_LABELS.putIn} line={notFinal(ledgerText.putIn(r.figures, u), ['deposit', 'opening'])} />
+          {takenOut && <LedgerLineRow label={LEDGER_LABELS.takenOut} line={notFinal(takenOut, ['withdrawal'])} />}
+          {worth}
+          <LedgerLineRow label={LEDGER_LABELS.growth} line={ledgerText.growth(r.figures, u, trade)} pace={ledgerText.pace(r.figures, trade, chainNow, tradesExplain(view))} />
+          <LedgerLineRow label={LEDGER_LABELS.versusHolding} line={ledgerText.versusHolding(r.figures, u)} />
+          <LedgerLineRow label={LEDGER_LABELS.priceEffect} line={ledgerText.priceEffect(r.figures, u)} />
+          {r.figures.otherShares && <Notice>{ledgerText.otherShares(r.figures, u)}</Notice>}
+        </>
+      ) : (
+        <>
+          {worth}
+          {/* No figure for a read that returned none: the reason, never a zero. */}
+          {r?.kind === 'worth-only' && <Notice tone="warn">{ledgerText.worthOnly(r)}</Notice>}
+          {r?.kind === 'unread' && <Notice tone="warn">{ledgerText.unread(r.detail)}</Notice>}
+          {r?.kind === 'paused' && <Notice>{ledgerText.paused()}</Notice>}
+        </>
+      )}
+      {r && (r.kind === 'ok' || r.kind === 'worth-only') && (
+        <p className={HINT}>
+          <WholeDates text={ledgerText.window(r)} />
+        </p>
+      )}
+      {canPage && shown && shown.pages < HISTORY_PAGES_MAX && (
+        <button
+          ref={moreButton}
+          type="button"
+          className={LEDGER_BUTTON}
+          aria-disabled={busy}
+          onClick={() => {
+            if (!busy) void more();
+          }}
+        >
+          {LEDGER_COPY.readMore}
+        </button>
+      )}
+      {canPage && shown && shown.pages >= HISTORY_PAGES_MAX && <p className={HINT}>{LEDGER_COPY.olderNotRead}</p>}
+      {moreProblem && <Notice tone="warn">{moreProblem}</Notice>}
+      {/* One button, always here: pressing it never takes it off the page, so focus stays on it. */}
+      <button
+        ref={againButton}
+        type="button"
+        className={LEDGER_BUTTON}
+        aria-disabled={working}
+        onClick={() => {
+          if (!working) read();
+        }}
+      >
+        {shown ? LEDGER_COPY.again : LEDGER_COPY.button}
+      </button>
+      {/* Always there, so the reading line and each answer are read out when they arrive. */}
+      <p role="status" className={working ? HINT : 'sr-only'}>
+        {working ? LEDGER_COPY.reading : said}
+      </p>
+    </div>
   );
 }
 
