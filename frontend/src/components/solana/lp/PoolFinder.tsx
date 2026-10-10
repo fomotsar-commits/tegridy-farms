@@ -467,7 +467,7 @@ export function PoolFinder({
         </div>
       )}
       {state.status === 'done' && (
-        <SearchResults state={state} onReread={reread} wish={wish && !state.refreshing && wish.mint === state.mint ? wish : null} onActed={spent} />
+        <SearchResults state={state} readers={readers} onReread={reread} wish={wish && !state.refreshing && wish.mint === state.mint ? wish : null} onActed={spent} />
       )}
     </section>
   );
@@ -497,11 +497,14 @@ function announce(s: Extract<SearchState, { status: 'done' }>): string {
 
 function SearchResults({
   state,
+  readers,
   onReread,
   wish,
   onActed,
 }: {
   state: Extract<SearchState, { status: 'done' }>;
+  /** For each pool card's own past, read on a press. */
+  readers: LpReaders;
   onReread: () => void;
   wish: LpWish | null;
   /** A card acted on wish number `n`: it is spent. */
@@ -596,6 +599,8 @@ function SearchResults({
                     view={p.view}
                     tokenDecimals={decimals}
                     safety={safety}
+                    chainNow={pools.search.chainNow}
+                    readers={readers}
                     health={healths.get(p.view.address)!}
                     openNow={wish && addTo === p.view.address ? wish.n : 0}
                     showNow={named === p.view.address ? showNamed : 0}
