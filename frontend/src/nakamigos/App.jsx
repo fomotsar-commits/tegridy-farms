@@ -2,6 +2,7 @@ import { useState, useCallback, useEffect, useMemo, useRef, lazy, Suspense } fro
 import { useLocation, useNavigate } from "react-router-dom";
 import { MotionConfig } from "framer-motion";
 import { fetchTokensByIds } from "./api";
+import { holdReload } from "../lib/reloadHold";
 // CSS imported eagerly in main.tsx to avoid Vite CSS preload errors on lazy chunks
 import { ThemeProvider, useTheme } from "./contexts/ThemeContext";
 import { TradingModeProvider, useTradingMode, LITE_HIDDEN_ALL } from "./contexts/TradingModeContext";
@@ -1184,6 +1185,10 @@ function CollectionView({ tab, deepLinkTokenId, collectionSlug, themeName, cycle
 // App.css — do not reintroduce an external stylesheet.
 
 export default function App() {
+  // The marketplace signs through its own wallet code, which the site's records of an
+  // open transaction do not see. While it is on screen the page never reloads itself
+  // (lib/staleBuild.ts); its boundary offers the reload as a button.
+  useEffect(() => holdReload(), []);
   return (
     <ErrorBoundary title="App initialization error" onReset={() => window.location.href = '/nakamigos'}>
       <WalletProvider>

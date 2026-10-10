@@ -8,6 +8,7 @@ page keeps the newest thirty days.
 
 ### 2026-10-10
 
+- A tab left open while the site is updated now refreshes itself once, to the same address, the next time you open a page it has not loaded yet. It used to show "Something went wrong". It never refreshes while a transaction is at your wallet or on its way: it says the site was updated and gives you a Refresh button.
 - Solana LP: each position now shows what you put in, what it is worth, the fees it earned and how that compares with just holding both tokens. Fees are already inside your pool shares, so there is nothing to claim.
 - Solana LP: each pool card shows its last trade and how much each share has grown since the pool opened, and one press reads its last 20 transactions. The row that read "Fees waiting: venue's share" is now "Venue's cut, not collected yet".
 - Solana LP: two short cards under your positions say how you earn and how the venue earns, with the rates read from the chain and the team's shared wallet as an address you can check.

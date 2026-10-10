@@ -21,8 +21,11 @@ import App from './App';
 import { ErrorBoundary } from './components/ui/ErrorBoundary';
 import { installGlobalHandlers } from './lib/errorReporting';
 import { captureStaticFirstFrameDraft } from './lib/firstFrameDraft';
+import { installStaleBuildReload } from './lib/staleBuild';
 
 installGlobalHandlers();
+// Before the first render: a tab open across a deploy fails its next lazy load.
+installStaleBuildReload();
 
 // Import Nakamigos CSS eagerly to prevent Vite CSS preload errors.
 // When CSS is imported inside a lazy() chunk, Vite's __vitePreload tries to
