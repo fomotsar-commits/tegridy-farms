@@ -452,7 +452,8 @@ describe('the earnings block, answered', () => {
     // The 13 lamports every new pool keeps are behind the fold, not a line of the block.
     expect(within(blk).queryByText('Locked at opening')).toBeNull();
     const fold = within(li).getByText('More about this share').closest('details')!;
-    expect(value(fold, 'Locked at opening')).toBe('0.000000013 SOL: the 0.0000001 pool shares (100 of the smallest unit) every new pool keeps.');
+    // The row hears of it from the block one render after the figures land: wait for it.
+    await waitFor(() => expect(value(fold, 'Locked at opening')).toBe('0.000000013 SOL: the 0.0000001 pool shares (100 of the smallest unit) every new pool keeps.'));
     expect(sentences(blk)).toContain('From the 4 transactions on your shares in this pool since 2026-10-03 19:18 UTC.');
     // Short: the owner asked for "no need to be too wordy". The block was 201 words; it stays under 120.
     expect((blk.textContent ?? '').split(/\s+/).filter(Boolean).length).toBeLessThan(120);
@@ -550,7 +551,8 @@ describe('the earnings block, answered', () => {
     expect(value(b, 'Taken out')).toBe(`0.1 SOL and 10 ${SHORT}`);
     expect(note(b, 'Taken out')).toBe('In 1 withdrawal.');
     expect(within(b).queryByText('Locked at opening')).toBeNull();
-    expect(value(within(li).getByText('More about this share').closest('details')!, 'Locked at opening')).toBe('0.00000002 SOL: the 0.0000001 pool shares (100 of the smallest unit) every new pool keeps.');
+    const fold = within(li).getByText('More about this share').closest('details')!;
+    await waitFor(() => expect(value(fold, 'Locked at opening')).toBe('0.00000002 SOL: the 0.0000001 pool shares (100 of the smallest unit) every new pool keeps.'));
   });
 
   it('worth-only says why and prints no earnings figure; the worth stays', async () => {

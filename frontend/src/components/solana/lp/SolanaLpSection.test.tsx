@@ -460,9 +460,9 @@ describe('the order of the section', () => {
     expect(screen.queryByTestId('lp-risk-line')).toBeNull();
   });
 
-  it('finderFirst: the risk line, the finder, the earn line, the positions, how it pays, the full disclosure, the fee tiers', () => {
+  it('finderFirst: the risk line, the earn line, the finder, the positions, how it pays, the full disclosure, the fee tiers', () => {
     mountFirst(readers());
-    expect(parts()).toEqual(['lp-risk-line', 'lp-finder', 'lp-earn-line', 'lp-positions', 'lp-how-it-pays', 'lp-disclosure', 'fee-tiers']);
+    expect(parts()).toEqual(['lp-risk-line', 'lp-earn-line', 'lp-finder', 'lp-positions', 'lp-how-it-pays', 'lp-disclosure', 'fee-tiers']);
   });
 
   it('how you earn comes straight after the positions, before the long notice, and one line says so before them', () => {
@@ -475,12 +475,11 @@ describe('the order of the section', () => {
     expect(line.textContent).toBe('Trading fees are added to your pool shares as trades happen, so there is nothing to claim. How you earn, and how the venue earns, is under your positions.');
     // Where it points is true: it stands before the positions, and the cards are under them.
     expect(order.indexOf('lp-earn-line')).toBeLessThan(order.indexOf('lp-positions'));
-    // From a tablet up it is drawn above the finder, on the first screen; on a phone it stays under the finder,
-    // so the finder's three buttons keep the first screen (e2e/tab-target-size.spec.ts).
-    expect(line.className).toMatch(/\bsm:-order-1\b/);
-    expect(screen.getByTestId('lp-risk-line').className).toMatch(/\bsm:-order-2\b/);
-    expect(screen.getByTestId('lp-section').className).toMatch(/\bflex flex-col gap-4\b/);
-    expect(order.indexOf('lp-finder')).toBeLessThan(order.indexOf('lp-earn-line'));
+    // It stands above the finder in the page itself, at every size: what is drawn first is what a screen reader
+    // hears first, and no CSS order moves either line (e2e/tab-target-size.spec.ts holds the first screen).
+    expect(screen.getByTestId('lp-risk-line').nextElementSibling).toBe(line);
+    expect(order.indexOf('lp-earn-line')).toBeLessThan(order.indexOf('lp-finder'));
+    for (const el of [line, screen.getByTestId('lp-risk-line')]) expect(el.className).not.toMatch(/\border-/);
     expect(line.textContent).not.toMatch(FORECAST_WORDS);
     expect(line.textContent).not.toContain('—');
   });
@@ -514,7 +513,7 @@ describe('the order of the section', () => {
     first.unmount();
     mountFirst(readers(), unreadGate());
     await screen.findByTestId('lp-gate-banner');
-    expect(parts()).toEqual(['lp-risk-line', 'lp-gate-banner', 'lp-finder', 'lp-earn-line', 'lp-positions', 'lp-how-it-pays', 'lp-disclosure', 'fee-tiers']);
+    expect(parts()).toEqual(['lp-risk-line', 'lp-earn-line', 'lp-gate-banner', 'lp-finder', 'lp-positions', 'lp-how-it-pays', 'lp-disclosure', 'fee-tiers']);
   });
 });
 

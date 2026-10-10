@@ -122,11 +122,12 @@ describe('/solana-lp opens on the pool finder', () => {
       ['"The program"', screen.getByRole('region', { name: 'The program' })],
     ]);
     expect(screen.getByRole('region', { name: 'Venue status' })).toHaveTextContent(/Pools are open/);
-    // Between the hero's words and the finder there is the risk line and nothing else. (The one line on earning
-    // comes after the finder in the page; from a tablet up it is drawn above it, where there is room.)
+    // Between the hero's words and the finder there are two short lines and nothing else: the risk line, then
+    // the one line on earning (fees need no claim). e2e/tab-target-size.spec.ts holds the finder on the first screen.
     expect(h1.parentElement!.nextElementSibling!.firstElementChild).toBe(screen.getByTestId('lp-section'));
     expect(screen.getByTestId('lp-section').firstElementChild).toBe(screen.getByTestId('lp-risk-line'));
-    expect(screen.getByTestId('lp-risk-line').nextElementSibling).toBe(screen.getByTestId('lp-finder'));
+    expect(screen.getByTestId('lp-risk-line').nextElementSibling).toBe(screen.getByTestId('lp-earn-line'));
+    expect(screen.getByTestId('lp-earn-line').nextElementSibling).toBe(screen.getByTestId('lp-finder'));
     expect(within(h1.parentElement!).queryByRole('link')).toBeNull();
   });
 
