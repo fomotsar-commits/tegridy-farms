@@ -314,14 +314,14 @@ export type TxSummary =
  * What the aggregator answered for the trade a swap in our own pool was compared with.
  * Four answers a review must not blur: it quoted (`out` in the output's base units, `now`,
  * or `earlier` when the figure on screen stood in), it has no route, it could not be
- * asked at all, and `refused`: it quoted more, but the transaction this site would send
- * for that quote failed its own test run, so it was never a route this site would take.
+ * asked at all, and `refused`: it quoted `out`, more than our pool, but the transaction this
+ * site would send for that quote failed its own test run, so it was never a route to take.
  */
 export type AggregatorSeen =
   | { kind: 'quoted'; out: bigint; when: 'now' | 'earlier' }
   | { kind: 'no-route' }
   | { kind: 'unreachable' }
-  | { kind: 'refused' };
+  | { kind: 'refused'; out: bigint };
 
 /**
  * A swap in one of our pools, as the review shows it. The amounts are decoded from the

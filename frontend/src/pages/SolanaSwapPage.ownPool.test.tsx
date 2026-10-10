@@ -178,6 +178,7 @@ vi.mock('@solana/wallet-adapter-react', () => ({
 import SolanaSwapPage from './SolanaSwapPage';
 import { getActivity } from '../lib/solanaActivity';
 import { OWN_ROUTE_COPY } from '../lib/solana/swap/ownPoolRoute';
+import { NOT_TEST_RUN_COPY } from '../lib/solana/swap/jupiterFeeRetry';
 import { SWAP_PENDING_SCOPE, readPendingTrades, savePendingTrade } from '../components/solana/curve/pendingTrade';
 import { DECLINED_IN_WALLET } from '../lib/solana/swap/walletCopy';
 
@@ -1157,11 +1158,12 @@ describe('a Jupiter transaction refused by its own test run pays nothing: our po
     expect(h.prepareVenueSwap).toHaveBeenCalledTimes(1);
     const a = h.prepareVenueSwap.mock.calls[0]![2] as VenueSwapArgs;
     expect(a.pool.toBase58()).toBe(POOL);
-    // Jupiter did answer: what failed was its transaction, never "no route".
-    expect(a.aggregator).toEqual({ kind: 'refused' });
+    // Jupiter did answer: what failed was its transaction, never "no route". Its quote
+    // (1.02 here, each time) is carried, so the review can say how much more it was.
+    expect(a.aggregator).toEqual({ kind: 'refused', out: 1_020_000n });
     expect(h.sendTransaction).not.toHaveBeenCalled();
-    // The review says so before anything is signed.
-    expect(await screen.findByText('Jupiter quoted more, but its transaction for this trade failed its test run, so it could not be sent')).toBeInTheDocument();
+    // The review says so before anything is signed: 1.02 against our pool's 1.01.
+    expect(await screen.findByText('Jupiter quoted 0.99% more, but its transaction for this trade failed its test run, so it could not be sent')).toBeInTheDocument();
     expect(h.submitPrepared).not.toHaveBeenCalled();
   };
 
@@ -1217,7 +1219,8 @@ describe('Jupiter was shown, and the transaction for its quote fails its test ru
   const REFUSED = { ok: false, reason: 'custom program error: 0x1771', jupiterIncorrectTokenProgram: false };
   const JUP_6014 = { ok: false, reason: 'custom program error: 0x177e', jupiterIncorrectTokenProgram: true };
   const WOULD_FAIL = 'Swap would fail — not sending';
-  const TO_OUR_POOL = /Jupiter quoted more, but its transaction for this trade failed its test run, so the trade goes to our pool\.$/;
+  // Jupiter quotes 1 and our pool 0.99: 1.01% more, as a share of what our pool pays.
+  const TO_OUR_POOL = /Jupiter quoted 1\.01% more, but its transaction for this trade failed its test run, so the trade goes to our pool\.$/;
   const jupiterShown = async () => {
     h.ownOut.value = 990_000n;
     const buy = await readyToBuy();
@@ -1250,9 +1253,9 @@ describe('Jupiter was shown, and the transaction for its quote fails its test ru
     await waitFor(() => expect(h.prepareVenueSwap).toHaveBeenCalledTimes(1), { timeout: 20_000 });
     const a = h.prepareVenueSwap.mock.calls[0]![2] as VenueSwapArgs;
     expect(a.pool.toBase58()).toBe(POOL);
-    expect(a.aggregator).toEqual({ kind: 'refused' });
-    // Its review says the same before anything is signed.
-    expect(await screen.findByText('Jupiter quoted more, but its transaction for this trade failed its test run, so it could not be sent')).toBeInTheDocument();
+    expect(a.aggregator).toEqual({ kind: 'refused', out: 1_000_000n });
+    // Its review says the same, with the same figure, before anything is signed.
+    expect(await screen.findByText('Jupiter quoted 1.01% more, but its transaction for this trade failed its test run, so it could not be sent')).toBeInTheDocument();
     expect(h.sendTransaction).not.toHaveBeenCalled();
     expect(h.submitPrepared).not.toHaveBeenCalled();
   });
@@ -1285,7 +1288,11 @@ describe('Jupiter was shown, and the transaction for its quote fails its test ru
       throw new Error('simulateTransaction: HTTP 429');
     });
     fireEvent.click(buy);
-    await waitFor(() => expect(h.toast.error).toHaveBeenCalledWith(WOULD_FAIL, expect.anything()), { timeout: 20_000 });
+    // Said as a check that could not run, with what to do: never as "Swap would fail".
+    await waitFor(() => expect(h.toast.error).toHaveBeenCalledWith('Swap not checked', { description: NOT_TEST_RUN_COPY }), { timeout: 20_000 });
+    expect(h.toast.error).not.toHaveBeenCalledWith(WOULD_FAIL, expect.anything());
+    expect(NOT_TEST_RUN_COPY).toMatch(/could not run just now, so nothing was sent\. Press again\.$/);
+    expect(NOT_TEST_RUN_COPY).not.toMatch(/fail|—/);
     expect(h.simulateSwap).toHaveBeenCalledTimes(2);
     expect(h.toast.error).not.toHaveBeenCalledWith('Route changed', expect.anything());
     await buyAgain();
@@ -1298,6 +1305,38 @@ describe('Jupiter was shown, and the transaction for its quote fails its test ru
     fireEvent.change(amountBox(), { target: { value: '0.2' } });
     await waitFor(() => expect(routeLine()).toMatch(/Jupiter pays/), { timeout: 20_000 });
     expect(receive()).toBe('1');
+  });
+
+  it('the refusal is of that slippage too: at another slippage it is another transaction, and the route is Jupiter’s again', async () => {
+    // A test run most often refuses a swap for its price limit. Nothing was found about
+    // the same trade with a wider one, so its quote is not turned away for it.
+    await refusedAtThePress();
+    fireEvent.click(screen.getByRole('button', { name: '1%' }));
+    await waitFor(() => expect(routeLine()).toMatch(/Jupiter pays 1\.01% more than our pool\./), { timeout: 20_000 });
+    expect(routeLine()).not.toMatch(/failed its test run/);
+    expect(receive()).toBe('1');
+    // Back at the slippage it was refused at, the refusal still stands.
+    fireEvent.click(screen.getByRole('button', { name: '0.5%' }));
+    await waitFor(() => expect(routeLine()).toMatch(TO_OUR_POOL), { timeout: 20_000 });
+  });
+
+  it('a later press through Jupiter finds its transaction would run: the refusal is over, and is not said of the same trade again', async () => {
+    await refusedAtThePress();
+    // Our pool cannot be read at the next press: nothing is sent, and the route is Jupiter's.
+    h.ownOut.value = null;
+    fireEvent.click(await buyAgain());
+    await waitFor(() => expect(h.toast.error).toHaveBeenCalledWith('Route changed', { description: OWN_ROUTE_COPY.poolGone }), { timeout: 20_000 });
+    await waitFor(() => expect(routeLine()).toMatch(/Jupiter\. Our pool could not be quoted this time\./), { timeout: 20_000 });
+    // This time Jupiter's transaction passes its test run, and it is sent.
+    h.simulateSwap.mockResolvedValue(OK);
+    fireEvent.click(await buyAgain());
+    await waitFor(() => expect(h.sendTransaction).toHaveBeenCalledTimes(1), { timeout: 20_000 });
+    await waitFor(() => expect(amountBox().value).toBe(''), { timeout: 20_000 });
+    // The same trade typed again, with our pool readable again: the plain comparison.
+    h.ownOut.value = 990_000n;
+    fireEvent.change(amountBox(), { target: { value: '0.1' } });
+    await waitFor(() => expect(routeLine()).toMatch(/Jupiter pays 1\.01% more than our pool\./), { timeout: 20_000 });
+    expect(routeLine()).not.toMatch(/failed its test run/);
   });
 
   it('the next press finds Jupiter’s transaction would run after all: the route is Jupiter’s again, and the press after sends it', async () => {
@@ -1887,7 +1926,8 @@ describe('a check that could not run at the press is no answer (law 8)', () => {
   const JUP_6014 = { ok: false, reason: 'custom program error: 0x177e', jupiterIncorrectTokenProgram: true };
   const REFUSED = { ok: false, reason: 'custom program error: 0x1771', jupiterIncorrectTokenProgram: false };
   const withFee = (out: string) => ({ ...jupiterQuote(out), platformFee: { amount: '5000', feeBps: 50 } });
-  const REFUSED_LINE = 'Jupiter quoted more, but its transaction for this trade failed its test run, so it could not be sent';
+  /** The review's line for a refused Jupiter transaction, whatever the gap it names. */
+  const REFUSED_LINE = /its transaction for this trade failed its test run, so it could not be sent/;
 
   it('Buy pressed while our pools are still being read, and the press’s own read does not finish: nothing is sent', async () => {
     // The first read of our pools never answers; the press's read answers, but could not read them.
@@ -1927,7 +1967,7 @@ describe('a check that could not run at the press is no answer (law 8)', () => {
     });
     fireEvent.click(buy);
     await waitFor(() => expect(h.toast.error.mock.calls.length + h.prepareVenueSwap.mock.calls.length).toBeGreaterThan(0), { timeout: 20_000 });
-    expect(h.prepareVenueSwap.mock.calls.map((c) => (c[2] as VenueSwapArgs).aggregator)).not.toContainEqual({ kind: 'refused' });
+    expect(h.prepareVenueSwap.mock.calls.map((c) => (c[2] as VenueSwapArgs).aggregator.kind)).not.toContain('refused');
     expect(screen.queryByText(REFUSED_LINE)).toBeNull();
     expect(h.toast.error).toHaveBeenCalledWith('Route changed', { description: OWN_ROUTE_COPY.routeMoved });
     expect(h.sendTransaction).not.toHaveBeenCalled();
@@ -1954,6 +1994,13 @@ describe('a check that could not run at the press is no answer (law 8)', () => {
     h.simulateSwap.mockImplementationOnce(async () => { throw new Error('simulateTransaction: HTTP 429'); });
     fireEvent.click(await screen.findByRole('button', { name: 'Buy BAYLA' }));
     await waitFor(() => expect(h.sendTransaction.mock.calls.length + h.toast.error.mock.calls.length).toBeGreaterThan(0), { timeout: 20_000 });
+    // Nothing was found about the fee-bearing transaction, so it is said as that: not as
+    // "the fee can be taken now", and our pool is not called the better route against a
+    // quote (1.005) that is not what Jupiter's transaction from this site pays (1.012).
+    expect(h.toast.error.mock.calls).toEqual([['Swap not checked', { description: NOT_TEST_RUN_COPY }]]);
+    expect(h.sendTransaction).not.toHaveBeenCalled();
+    expect(receive()).toBe('1.012');
+    expect(routeLine()).toMatch(/Jupiter pays/);
     // A new amount of the same pair is still quoted as what Jupiter's transaction pays: no fee.
     fireEvent.change(amountBox(), { target: { value: '0.2' } });
     await waitFor(() => expect(h.getQuote.mock.calls.some(([p]) => (p as { amount: string }).amount === '200000000')).toBe(true));
@@ -1976,9 +2023,10 @@ describe('a check that could not run at the press is no answer (law 8)', () => {
         : { ok: true, prepared: preparedSwap(a, 1_007_000n) },
     );
     fireEvent.click(buy);
-    expect(await screen.findByText(REFUSED_LINE, {}, { timeout: 20_000 })).toBeInTheDocument();
+    // 1.008 against the 1.007 the swap was built at: the gap is said, small as it is.
+    expect(await screen.findByText('Jupiter quoted 0.099% more, but its transaction for this trade failed its test run, so it could not be sent', {}, { timeout: 20_000 })).toBeInTheDocument();
     expect(h.toast.error).not.toHaveBeenCalledWith('Route changed', expect.anything());
-    expect((h.prepareVenueSwap.mock.calls.at(-1)![2] as VenueSwapArgs).aggregator).toEqual({ kind: 'refused' });
+    expect((h.prepareVenueSwap.mock.calls.at(-1)![2] as VenueSwapArgs).aggregator).toEqual({ kind: 'refused', out: 1_008_000n });
     expect(h.sendTransaction).not.toHaveBeenCalled();
   });
 });

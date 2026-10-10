@@ -118,7 +118,8 @@ describe('a quote whose transaction fails its own test run is no route this site
   it('the aggregator quotes more, and its transaction is refused: our pool is built, held to nothing, and says why', async () => {
     const { d, prepare } = withSends({ agg: 1_020_000n, own: [pool('PoolA', 1_010_000n)] }, false);
     expect(await prepareOwnPoolSwap(d, 1_000_000n)).toBe(BUILT);
-    expect(prepare).toHaveBeenCalledWith('PoolA', { kind: 'refused' });
+    // The refused quote is carried, so the review can say how much more it was.
+    expect(prepare).toHaveBeenCalledWith('PoolA', { kind: 'refused', out: 1_020_000n });
   });
 
   it('the aggregator quotes more, and its transaction would run (or its test run could not run): nothing is built', async () => {
@@ -132,7 +133,7 @@ describe('a quote whose transaction fails its own test run is no route this site
     const refusedTx = withSends({ agg: 1_008_000n, own: [pool('PoolA', 1_010_000n)] }, false);
     refusedTx.prepare.mockImplementation(async (_p: string, a: AggregatorSeen) => (a.kind === 'quoted' ? moved : BUILT));
     expect(await prepareOwnPoolSwap(refusedTx.d, null)).toBe(BUILT);
-    expect(refusedTx.prepare.mock.calls.map((c) => c[1])).toEqual([{ kind: 'quoted', out: 1_008_000n, when: 'now' }, { kind: 'refused' }]);
+    expect(refusedTx.prepare.mock.calls.map((c) => c[1])).toEqual([{ kind: 'quoted', out: 1_008_000n, when: 'now' }, { kind: 'refused', out: 1_008_000n }]);
     // A transaction that would run keeps the builder's answer: Jupiter does pay more now.
     const runs = withSends({ agg: 1_008_000n, own: [pool('PoolA', 1_010_000n)] }, true);
     runs.prepare.mockImplementation(async () => moved);

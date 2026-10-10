@@ -167,13 +167,24 @@ describe('when the venue AMM is live', () => {
   });
 
   describe('the page found the transaction for Jupiter’s quote refused by its test run', () => {
-    const REFUSED = 'Jupiter quoted more, but its transaction for this trade failed its test run';
+    // Jupiter quoted 1,000,000 and our pool 990,000: 1.01% more, as a share of what our pool pays.
+    const REFUSED = 'Jupiter quoted 1.01% more, but its transaction for this trade failed its test run';
     const line = () => screen.getByTestId('solana-route-line').textContent;
+    /** The line's box is the green one (RouteShell `tone="good"`). */
+    const isGreen = () => /34,\s*197,\s*94/.test(screen.getByTestId('solana-route-line').style.background);
 
-    it('that quote takes no trade from a pool that quotes, and the line says why, never "Only our pool quoted"', async () => {
+    it('that quote takes no trade from a pool that quotes, and the line says why and by how much, never "Only our pool quoted"', async () => {
       quoteVenuePools.mockReturnValue(quoted(ours(990_000n)));
       await mount({ aggregatorQuote: { outAmount: '1000000' }, aggregatorRefused: true });
       await waitFor(() => expect(line()).toBe(`Route${REFUSED}, so the trade goes to our pool.`));
+      // Not drawn in the green of a route that pays at least as much: this one pays less than a quote.
+      expect(isGreen()).toBe(false);
+    });
+
+    it('the gap is measured against the best of our pools, and a small one is never printed as 0%', async () => {
+      quoteVenuePools.mockReturnValue(quoted(ours(500_000n, 'PooLB'), ours(999_999n, 'PooLA')));
+      await mount({ aggregatorQuote: { outAmount: '1000000' }, aggregatorRefused: true });
+      await waitFor(() => expect(line()).toBe('RouteJupiter quoted under 0.001% more, but its transaction for this trade failed its test run, so the trade goes to our pool.'));
     });
 
     it('with no pool of ours quoting, Jupiter is still the route the line names', async () => {
@@ -186,6 +197,7 @@ describe('when the venue AMM is live', () => {
       quoteVenuePools.mockReturnValue(quoted(ours(1_010_000n)));
       await mount({ aggregatorQuote: { outAmount: '1000000' }, aggregatorRefused: true });
       await waitFor(() => expect(line()).toBe('RouteOur pool pays 1% more than Jupiter.'));
+      expect(isGreen()).toBe(true);
     });
 
     it('when a swap in our pool cannot be prepared here, neither is called the route', async () => {

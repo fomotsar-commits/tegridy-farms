@@ -123,10 +123,20 @@ describe('what Jupiter was seen to pay is said as what it was', () => {
     expect(t).toMatch(/Compared with Jupiter ?Jupiter could not be asked just now, so this trade was not compared with it/);
     expect(t).not.toMatch(/no route|only route/);
   });
-  it('quoted more, but its transaction failed its test run: said as that, never as Jupiter paying more', () => {
-    const t = line({ kind: 'refused' });
-    expect(t).toMatch(/Compared with Jupiter ?Jupiter quoted more, but its transaction for this trade failed its test run, so it could not be sent/);
-    expect(t).not.toMatch(/no route|only route|now pays more/);
+  it('quoted more, but its transaction failed its test run: said as that, with how much more, never as Jupiter paying more', () => {
+    // The pool pays 9,802.960494; the refused quote was 2% above it.
+    const t = line({ kind: 'refused', out: 9_999_019_704n });
+    expect(t).toMatch(/Compared with Jupiter ?Jupiter quoted 2% more, but its transaction for this trade failed its test run, so it could not be sent/);
+    expect(t).not.toMatch(/no route|only route|now pays more|quoted more/);
+    // One raw unit more is a real gap, never printed as 0%.
+    expect(line({ kind: 'refused', out: 9_802_960_495n })).toMatch(/Jupiter quoted under 0\.001% more, but its transaction/);
+  });
+  it('a refused quote the pool has caught up with by the time the swap is built is not called "more"', () => {
+    for (const out of [9_802_960_494n, 9_000_000_000n]) {
+      const t = line({ kind: 'refused', out });
+      expect(t).toMatch(/Compared with Jupiter ?Jupiter quoted no more than this pool pays, and its transaction for this trade failed its test run, so it could not be sent/);
+      expect(t).not.toMatch(/% more|quoted more/);
+    }
   });
 });
 

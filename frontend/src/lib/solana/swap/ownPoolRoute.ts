@@ -66,7 +66,7 @@ export async function prepareOwnPoolSwap(deps: OwnPoolSwapDeps, shownAggregatorO
   let chosen = freshDecision(own, agg.kind === 'quoted' ? agg.out : null).chosen;
   // A quote whose transaction this site would refuse to send is no better route.
   if (chosen?.venue !== 'own-pool' && agg.kind === 'quoted' && agg.when === 'now' && deps.aggregatorSends && !(await deps.aggregatorSends())) {
-    seen = { kind: 'refused' };
+    seen = { kind: 'refused', out: agg.out };
     chosen = freshDecision(own, null).chosen;
   }
   if (chosen?.venue !== 'own-pool' || !chosen.poolAddress) {
@@ -77,7 +77,7 @@ export async function prepareOwnPoolSwap(deps: OwnPoolSwapDeps, shownAggregatorO
   // The builder found our pool under the quote it was held to: a quote whose transaction is
   // refused holds nothing, so the pool is built as it is, and its review says why.
   if (!built.ok && built.outcome.message === OWN_ROUTE_COPY.routeMoved && seen.kind === 'quoted' && seen.when === 'now' && deps.aggregatorSends && !(await deps.aggregatorSends())) {
-    return deps.prepare(chosen.poolAddress, { kind: 'refused' });
+    return deps.prepare(chosen.poolAddress, { kind: 'refused', out: seen.out });
   }
   return built;
 }

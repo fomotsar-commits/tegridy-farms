@@ -31,6 +31,9 @@ import {
 /** Said before signing and in the result whenever the retry is the trade that goes out. */
 export const NO_SITE_FEE_ROUTE_COPY = 'No site fee on this route: the fee cannot be taken on it yet.';
 
+/** Said when the transaction that would be sent could not be test-run (`unchecked`): never "would fail". */
+export const NOT_TEST_RUN_COPY = "The test run of Jupiter's transaction for this trade could not run just now, so nothing was sent. Press again.";
+
 export interface FeeRetryDeps {
   getQuote(params: {
     inputMint: string;

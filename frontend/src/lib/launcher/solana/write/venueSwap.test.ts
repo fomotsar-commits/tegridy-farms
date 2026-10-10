@@ -334,7 +334,8 @@ describe('the routing rule is held again where the swap is built', () => {
 
   it('an aggregator whose transaction was refused by its test run holds the swap to nothing, and is carried to the review as that', async () => {
     const w = world();
-    const refused: AggregatorSeen = { kind: 'refused' };
+    // A quote far above anything the pool pays: held to it, the swap could never be built.
+    const refused: AggregatorSeen = { kind: 'refused', out: 2n ** 62n };
     expect(summaryOf(ok(await prepareVenueSwap(W(w.chain), OPEN, buy(w, { aggregator: refused })))).aggregator).toEqual(refused);
   });
 });

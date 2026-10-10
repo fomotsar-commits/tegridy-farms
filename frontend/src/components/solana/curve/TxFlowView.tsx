@@ -607,7 +607,12 @@ function venueRouteText(s: Extract<TxSummary, { kind: 'venue-swap' }>): string {
   const a = s.aggregator;
   if (a.kind === 'no-route') return 'Jupiter has no route for this trade, so this pool is the only route';
   if (a.kind === 'unreachable') return 'Jupiter could not be asked just now, so this trade was not compared with it';
-  if (a.kind === 'refused') return 'Jupiter quoted more, but its transaction for this trade failed its test run, so it could not be sent';
+  if (a.kind === 'refused') {
+    const failed = 'its transaction for this trade failed its test run, so it could not be sent';
+    // By how much, against what THIS swap pays. A pool that has caught up since is not "more".
+    if (a.out <= s.quoted.outAmount) return `Jupiter quoted no more than this pool pays, and ${failed}`;
+    return `Jupiter quoted ${edgePercent(Number(a.out - s.quoted.outAmount) / Number(s.quoted.outAmount))} more, but ${failed}`;
+  }
   const beside = a.when === 'now' ? 'Jupiter quoted just now' : 'the last quote Jupiter gave (it could not be asked again just now)';
   if (s.quoted.outAmount === a.out) return `the same as ${beside}, so the trade stays here`;
   return `${edgePercent(Number(s.quoted.outAmount - a.out) / Number(a.out))} more than ${beside}`;

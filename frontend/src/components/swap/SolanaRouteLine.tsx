@@ -22,7 +22,7 @@ export interface SolanaRouteLineProps {
 }
 
 export function SolanaRouteLine({ route, ownUnavailable = null, aggregatorFail = null }: SolanaRouteLineProps) {
-  const { venue, own, decision, aggregatorRefused, aggregatorLabel, asking } = route;
+  const { venue, own, decision, aggregatorRefused, refusedEdge, aggregatorLabel, asking } = route;
   if (!venue) return asking ? <RouteShell>Comparing our pools with {aggregatorLabel}…</RouteShell> : null;
 
   // Before there is an amount there is no route to name. With the venue live the page's
@@ -60,8 +60,10 @@ export function SolanaRouteLine({ route, ownUnavailable = null, aggregatorFail =
 
   let reason: string = decision.reason;
   if (won && aggregatorRefused) {
-    // The aggregator did quote, and more: never "only our pool quoted this pair".
-    const refused = `${aggregatorLabel} quoted more, but its transaction for this trade failed its test run`;
+    // The aggregator did quote, and more: never "only our pool quoted this pair". By how
+    // much is said, because the trade is about to go where it pays that much less.
+    const by = refusedEdge !== null && refusedEdge > 0 ? `${edgePercent(refusedEdge)} more` : 'more';
+    const refused = `${aggregatorLabel} quoted ${by}, but its transaction for this trade failed its test run`;
     reason = ownUnavailable
       ? `${refused}, and a swap in our pool cannot be prepared here right now (${ownUnavailable}), so the next press tests ${aggregatorLabel}'s transaction again.`
       : `${refused}, so the trade goes to our pool.`;
@@ -85,7 +87,8 @@ export function SolanaRouteLine({ route, ownUnavailable = null, aggregatorFail =
   }
 
   return (
-    <RouteShell tone={won && !ownUnavailable ? 'good' : undefined}>
+    // Green is for a route that pays at least as much: not for the one left when Jupiter's is refused.
+    <RouteShell tone={won && !ownUnavailable && !aggregatorRefused ? 'good' : undefined}>
       <span className="text-white/80">{reason}</span>
       {venue.kind !== 'live' && (
         <>

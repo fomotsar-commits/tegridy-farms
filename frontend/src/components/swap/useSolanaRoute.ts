@@ -79,6 +79,8 @@ export interface SolanaRoute {
   decision: RouteDecision | null;
   /** The aggregator quoted more and is left out of the decision: its transaction failed its test run. */
   aggregatorRefused: boolean;
+  /** How much more that quote was than our best pool's, as a fraction of ours; null when none is left out. */
+  refusedEdge: number | null;
   aggregatorLabel: string;
   /** An amount is typed and an answer it waits on (the aggregator's or the venue's) is still on its way. */
   asking: boolean;
@@ -192,5 +194,7 @@ export function useSolanaRoute({ inputMint, outputMint, amountInRaw, aggregatorQ
     setForgot((n) => n + 1);
   }, []);
 
-  return { venue, own, candidates, decision, aggregatorRefused: refusedAway, aggregatorLabel, asking: hasAmount && (aggregatorPending || venue === null), refresh, forget };
+  const refusedEdge = refusedAway ? (quotedRoute?.edge ?? null) : null;
+
+  return { venue, own, candidates, decision, aggregatorRefused: refusedAway, refusedEdge, aggregatorLabel, asking: hasAmount && (aggregatorPending || venue === null), refresh, forget };
 }
