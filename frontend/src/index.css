@@ -614,21 +614,21 @@ body,
 
 /* ─── Accessibility: fixed chrome never covers what the browser scrolls to ───
  * The 56px top bar and, below 800px, the 65px BottomNav lie over the scrollport, so it
- * reserves their room for every focus, anchor and scrollIntoView (WCAG 2.4.11). While
- * RouteTabs is mounted it reserves the tab strip too: the strip ends at 122px, and
- * Safari lands a focused text field up to 15px above its line of text. The TOWELI room
- * band adds nothing: while it shows, the strip is inside room the page already left. */
+ * reserves their room for every focus, anchor and scrollIntoView (WCAG 2.4.11), plus the
+ * safe-area inset each bar grows by. While RouteTabs is mounted it reserves the strip
+ * too: it ends at 122px, and Safari lands a focused text field up to 15px above its line
+ * of text. The TOWELI room band adds nothing: the strip is then inside room already left. */
 html {
-  scroll-padding-top: 64px;
+  scroll-padding-top: calc(64px + env(safe-area-inset-top, 0px));
 }
 html.has-route-tabs {
-  scroll-padding-top: 140px;
+  scroll-padding-top: calc(140px + env(safe-area-inset-top, 0px));
 }
 /* Tracks the BottomNav's own breakpoint (min-[800px]:hidden) — see index.css's
    safe-area-content-bottom note and TopNav.tsx. */
 @media (max-width: 799px) {
   html {
-    scroll-padding-bottom: 80px;
+    scroll-padding-bottom: calc(80px + env(safe-area-inset-bottom, 0px));
   }
 }
 
