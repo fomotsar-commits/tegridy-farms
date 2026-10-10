@@ -42,7 +42,7 @@ import {
   isDeployed,
 } from '../lib/constants';
 import { useTabListKeys } from '../hooks/useTabListKeys';
-import { useRevealSelectedTab } from '../components/layout/tabStripScroll';
+import { useRevealSelectedTab, useStripArrows } from '../components/layout/tabStripScroll';
 import { isPooledLendingLive, isBnplLive } from '../hooks/usePooledLendingConfig';
 import { artImgProps } from '../lib/artSrcSet';
 
@@ -173,6 +173,40 @@ function sectionFromQuery(v: string | null): Section | null {
   return (VALID_SECTIONS as string[]).includes(v) ? (v as Section) : null;
 }
 
+/** Room the section strip keeps clear at each end: an arrow reaches 36px in, and 8px stays between it and the selected tab. */
+const STRIP_ARROW_ROOM_PX = 44;
+
+/**
+ * An arrow over one end of the section strip, laid over the tabs it sits on.
+ * The left one is solid to the strip's edge, so no sliver of a tab shows beside
+ * it; at the right the strip's fade does that. For a mouse or a finger only: the
+ * keyboard walks the tabs themselves, so it takes no tab stop.
+ */
+function StripArrow({ dir, onPress }: { dir: 'prev' | 'next'; onPress: () => void }) {
+  return (
+    <button
+      type="button"
+      tabIndex={-1}
+      data-strip-arrow={dir}
+      aria-label={dir === 'prev' ? 'Earlier sections' : 'More sections'}
+      onClick={onPress}
+      className={`group absolute inset-y-px w-9 flex ${
+        dir === 'prev' ? 'left-px pl-1 rounded-l-[15px] bg-[#0d1530]' : 'right-px pr-1 justify-end rounded-r-[15px]'
+      }`}
+    >
+      <span className="w-8 my-1 rounded-xl flex items-center justify-center bg-[#0d1530] border border-white/25 text-white/80 group-hover:text-white group-hover:border-white/50 transition-colors">
+        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden="true">
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            d={dir === 'prev' ? 'M15.75 19.5L8.25 12l7.5-7.5' : 'M8.25 4.5l7.5 7.5-7.5 7.5'}
+          />
+        </svg>
+      </span>
+    </button>
+  );
+}
+
 export default function LendingPage() {
   usePageTitle('NFT Finance', 'NFT-backed lending, fractional AMM, and launchpad.');
   const { isConnected, address } = useAccount();
@@ -192,7 +226,8 @@ export default function LendingPage() {
   };
   // T10 (F303): WAI-ARIA tabs roving-focus + arrow-key navigation.
   const tabKeys = useTabListKeys(VALID_SECTIONS, section, handleSectionChange);
-  const tabListRef = useRevealSelectedTab(section);
+  const tabListRef = useRevealSelectedTab(section, '', STRIP_ARROW_ROOM_PX);
+  const stripArrows = useStripArrows(tabListRef, STRIP_ARROW_ROOM_PX);
   const [introDismissed, setIntroDismissed] = useState(() => {
     try { return localStorage.getItem(INTRO_DISMISSED_KEY) === '1'; } catch { return false; }
   });
@@ -295,20 +330,23 @@ export default function LendingPage() {
 
         {/* Section tabs. From `md` up the row is about 1,095px wide; below a
             1,143px window `max-w-full` holds it to the page and it scrolls inside
-            itself, the selected tab kept whole in view (`tabListRef`). No scroll
-            snap: it undoes the reveal. The scrollbar is hidden, so a 2rem fade at
-            the right edge is the only sign of more tabs, and `pr-8` gives the last
-            tab room beside it; both come off at 1,143px. e2e/nft-finance-strip.spec.ts. */}
+            itself, scrollbar hidden, the selected tab kept whole in view
+            (`tabListRef`). No scroll snap: it undoes the reveal. An arrow over each
+            end with tabs past it is the way along with a mouse. The 2rem fade and
+            `pr-8` at the right come off at 1,143px. e2e/nft-finance-strip.spec.ts. */}
         <m.div
+          className="relative mb-10 mx-auto w-full md:w-fit max-w-full"
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.05, duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
+        >
+        <div
           ref={tabListRef}
-          className="flex overflow-x-auto gap-1.5 mb-10 p-1 pr-8 min-[1143px]:pr-1 rounded-2xl mx-auto w-full md:w-fit max-w-full no-scrollbar [mask-image:linear-gradient(to_right,#000_calc(100%-2rem),transparent)] min-[1143px]:[mask-image:none]"
+          className="flex overflow-x-auto gap-1.5 p-1 pr-8 min-[1143px]:pr-1 rounded-2xl no-scrollbar [mask-image:linear-gradient(to_right,#000_calc(100%-2rem),transparent)] min-[1143px]:[mask-image:none]"
           style={{ background: 'rgba(13,21,48,0.85)', border: '1px solid rgba(255,255,255,0.20)' }}
           role="tablist"
           aria-label="NFT Finance sections"
           onKeyDown={tabKeys.onKeyDown}
-          initial={{ opacity: 0, y: 8 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.05, duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
         >
           {SECTIONS.map(({ key, label, subtitle }) => (
             <button
@@ -357,6 +395,9 @@ export default function LendingPage() {
               </span>
             </button>
           ))}
+        </div>
+        {stripArrows.more.prev && <StripArrow dir="prev" onPress={() => stripArrows.step('prev')} />}
+        {stripArrows.more.next && <StripArrow dir="next" onPress={() => stripArrows.step('next')} />}
         </m.div>
 
         {/* F299 / F300 / F313 (T7): the tabpanel always renders. Every section
