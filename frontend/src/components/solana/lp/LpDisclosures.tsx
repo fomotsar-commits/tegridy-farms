@@ -6,8 +6,10 @@ import { Notice, Row } from '../curve/ui';
 import { LOCKED_SHARES_TEXT, solAbout, solExact } from './panelKit';
 
 // What a person must know before putting money into one of these pools, said in the
-// panel (always visible) and again on the review. No yield, APR or APY: none has been
-// measured, and none is ever shown.
+// panel (always visible) and again on the review. No forecast of a return is made here:
+// what a pool or a position earned is measured elsewhere, and the one sentence that
+// stretches a measure over time is pace.ts's, with its basis (format.ts FORECAST_WORDS).
+// Where a pool's trades come from is said as the routes that exist, never as a volume.
 
 // True of the pool program RUNNING on mainnet, which was built before the source gained
 // create_lp_metadata (the instruction that names pool share tokens). It goes false the day
@@ -20,9 +22,8 @@ const VAULT_LINE =
 const LAUNCH_POOL_LINE =
   "The launch program opened this pool when the token graduated and burned the launch's own pool shares, so that part can never be taken out. You get shares only for what you add, and you can take your part back out. The creator's fee and the venue's share are kept apart in the pool and are not yours.";
 const ROUTING_LINE =
-  'Jupiter does not send trades to these pools yet, so the trades that pay this pool its fees come mostly from bots that trade our pool program directly.';
-const PRICE_MOVES_LINE =
-  'When the price moves, bots trade against the pool, and you can end up with less than if you had just held both tokens.';
+  "Jupiter does not send trades to these pools yet. This site's own swap sends a trade to this pool only when it pays the trader at least as much as Jupiter does, so fees can be small.";
+const PRICE_MOVES_LINE = 'When the price moves, you can end up with less than if you had just held both tokens.';
 
 // ── opening a pool ──
 
@@ -33,14 +34,14 @@ const CREATE_VAULT_LINE =
 /**
  * How a new pool earns, honestly, in short: on the card and the review. Jupiter does not
  * send trades to our pools. This site's own swap does, but only a trade the pool pays at
- * least as much for as Jupiter would (lib/solana/route.ts), so a new pool mostly sees
- * bots that trade our program directly.
+ * least as much for as Jupiter would (lib/solana/route.ts). Any other trade has to be
+ * sent to the pool program by its sender. Who that will be, or how often, is not said.
  */
 export const MONEY_NOTE =
-  "Jupiter does not send trades to our pools. This site's own swap sends a trade to a pool only when that pool pays the trader at least as much as Jupiter does. The rest of the time a new pool earns fees only when bots trade our pool program directly, mostly arbitrage.";
+  "Jupiter does not send trades to our pools. This site's own swap sends a trade to a pool only when that pool pays the trader at least as much as Jupiter does. Any other trade has to come from someone using our pool program directly.";
 
 const MONEY_LINE =
-  "How a new pool earns, honestly: Jupiter does not send trades to our pools. This site's own swap sends a trade to your pool only when your pool pays the trader at least as much as Jupiter does. Every other trade against your pool comes from bots and tools that use our pool program directly, mostly arbitrage, which trades only when your pool's price drifts from the market. Expect little or nothing in fees at first. When the price moves, you can also end up with less than if you had just held both tokens.";
+  "How a new pool earns, honestly: Jupiter does not send trades to our pools. This site's own swap sends a trade to your pool only when your pool pays the trader at least as much as Jupiter does. Any other trade has to come from someone using our pool program directly. Expect little or nothing in fees at first. When the price moves, you can also end up with less than if you had just held both tokens.";
 
 const NOT_THE_POOL_LINE = "Anyone can open other pools for this token, at any price. Yours will not be 'the' pool.";
 

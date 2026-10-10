@@ -44,7 +44,7 @@ export const lastTradeText = (t: LastTrade): string => {
 
 // ── the pool's last 20 transactions, on a press ──────────────────────────────────────
 //
-// Bounded to one page (txHistory.ts), behind the budget gate, classified by the cp-swap
+// Bounded to one page a press (txHistory.ts), behind the budget gate, classified by the cp-swap
 // discriminators. Fees traders paid are NOT summed: every swap reads the rate live and the
 // vault can change it, so a sum at today's rate is an estimate under a measured label.
 
@@ -129,22 +129,52 @@ export function poolPastTotals(items: PoolTx[], more: boolean): PoolPastRead {
   };
 }
 
-/** One press: the budget gate, one signatures page of the pool, the transactions not in memory, the totals. */
-export async function readPoolPast(rpc: SolanaRpc, view: PoolView, programId: string, opts: { before?: string } = {}): Promise<PoolPastRead> {
+/** One page as read: its entries, newest first, and whether the server had more. */
+export type PoolPastPage = { kind: 'page'; items: PoolTx[]; more: boolean } | { kind: 'unread'; detail: string } | { kind: 'paused' };
+
+/**
+ * One press: the budget gate, one signatures page of the pool, the transactions not in
+ * memory. The entries come back, not their totals: two pages' totals cannot be added (a
+ * wallet on both would count twice), so "Read 20 more" joins entries and totals them again.
+ */
+export async function readPoolPastPage(rpc: SolanaRpc, view: PoolView, programId: string, opts: { before?: string } = {}): Promise<PoolPastPage> {
   if (!optionalReadAllowed()) return { kind: 'paused' };
   try {
     const page = await readSignatures(rpc, view.address, opts);
     const txs = await transactionsOf(rpc, page.entries);
-    return poolPastTotals(page.entries.map((e) => classifyPoolTx(e, txs.get(e.signature) ?? null, view, programId)), page.more);
+    return { kind: 'page', items: page.entries.map((e) => classifyPoolTx(e, txs.get(e.signature) ?? null, view, programId)), more: page.more };
   } catch (e) {
     return { kind: 'unread', detail: detailOf(e) };
   }
 }
 
+/** The totals of what was read: one page, or several pages' entries joined, newest first. */
+export function pagePast(page: PoolPastPage): PoolPastRead {
+  return page.kind === 'page' ? poolPastTotals(page.items, page.more) : page;
+}
+
+/** One page and its totals. */
+export async function readPoolPast(rpc: SolanaRpc, view: PoolView, programId: string, opts: { before?: string } = {}): Promise<PoolPastRead> {
+  return pagePast(await readPoolPastPage(rpc, view, programId, opts));
+}
+
 export const POOL_PAST_BUTTON = 'Read this pool’s last 20 transactions';
+export const POOL_PAST_READING = 'Reading this pool’s transactions…';
 export const POOL_PAST_READ_MORE = 'Read 20 more';
 export const POOL_PAST_FEE_LINE = 'Fees are this tier’s rate on that volume; the rate can change, so no total is shown.';
 export const POOL_PAST_OLDER_NOT_READ = 'Older transactions were not read.';
+
+/**
+ * Why an older page was not joined to what is shown, or null when it can be. A page with
+ * an entry that could not be read is left out whole: totals over part of a page would be
+ * wrong, and what was read before it stays as it is.
+ */
+export function olderPageProblem(page: PoolPastPage): string | null {
+  if (page.kind === 'paused') return pausedText();
+  if (page.kind === 'unread') return `The older transactions could not be read (${page.detail}).`;
+  const unread = page.items.filter((t) => t.kind === 'unread').length;
+  return unread > 0 ? `${unread} of the older transactions could not be read, so none of that page is counted. Press Read 20 more again.` : null;
+}
 
 const plural = (n: number, one: string): string => `${n} ${n === 1 ? one : `${one}s`}`;
 

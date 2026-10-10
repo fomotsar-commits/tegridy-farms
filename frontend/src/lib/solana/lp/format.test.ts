@@ -1,7 +1,9 @@
 // @vitest-environment node
 import { describe, it, expect } from 'vitest';
-import { FORECAST_WORDS, formatSolPrice, minuteText, priceText } from './format';
+import * as earnCopy from './earnCopy';
+import { FORECAST_WORDS, feeRateText, formatSolPrice, minuteText, pctText, priceText } from './format';
 import * as ledger from './ledger';
+import * as poolGrowth from './poolGrowth';
 import * as poolPast from './poolPast';
 import { BAYLA_QUOTE, SOL_QUOTE, USDC_QUOTE } from './quotes';
 
@@ -19,13 +21,26 @@ describe('FORECAST_WORDS: the one regex every LP pin uses', () => {
     for (const s of ['Fees stay in the pool; there is nothing to claim.', 'measured over the last 20 transactions', 'aprons', 'yearly', 'no total is shown']) expect(s).not.toMatch(FORECAST_WORDS);
   });
 
-  it('no exported string of ledger.ts or poolPast.ts carries one, nor an em dash', () => {
-    const strings = [...exportedStrings(ledger), ...exportedStrings(poolPast)];
-    expect(strings.length).toBeGreaterThanOrEqual(12);
+  it('no exported string of ledger.ts, poolPast.ts, poolGrowth.ts or earnCopy.ts carries one, nor an em dash', () => {
+    const strings = [...exportedStrings(ledger), ...exportedStrings(poolPast), ...exportedStrings(poolGrowth), ...exportedStrings(earnCopy)];
+    expect(strings.length).toBeGreaterThanOrEqual(16);
+    for (const mod of [poolGrowth, earnCopy]) expect(exportedStrings(mod).length).toBeGreaterThan(0);
     for (const s of strings) {
       expect(s).not.toMatch(FORECAST_WORDS);
       expect(s).not.toContain('—');
     }
+  });
+});
+
+describe('pctText and feeRateText: a percent as a sentence prints it', () => {
+  it('four decimals at most, no padding; a fee rate is the same form', () => {
+    expect(pctText(0.84)).toBe('0.84%');
+    expect(pctText(0.16)).toBe('0.16%');
+    expect(pctText(1)).toBe('1%');
+    expect(pctText(0.2)).toBe('0.2%');
+    expect(pctText(0.12345678)).toBe('0.1235%');
+    expect(feeRateText(10_000n)).toBe('1%');
+    expect(feeRateText(2_500n)).toBe('0.25%');
   });
 });
 

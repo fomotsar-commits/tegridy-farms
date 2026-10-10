@@ -9,62 +9,29 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { PublicKey } from '@solana/web3.js';
-import { decodePoolState } from '../cpswap/program';
 import { isqrt } from './liquidityMath';
-import { poolViewFrom, type PoolView } from './poolFinder';
-import { lastTrade, poolPastText, readPoolPast } from './poolPast';
-import { BAYLA_MINT } from './tokenSafety';
+import { OPEN_TIME, POOL, Rc, Rt, S, SOL_VAULT, THIRD_SWAP, VENUE_CUT, livePool } from './mainnetPool.fixture';
+import { lastTrade, olderPageProblem, pagePast, poolPastText, readPoolPast, readPoolPastPage } from './poolPast';
 import { parseTx, tokenDelta, type ParsedTx, type SigEntry } from './txHistory';
-import { LAUNCH, PROGRAM, buildPool, fakeRpcWithHistory, observationBytes } from './testkit.fixture';
+import { PROGRAM, fakeRpcWithHistory } from './testkit.fixture';
 import { ledgerText, ledgerUnits, readLedger, type LedgerRead } from './ledger';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const fixture = (name: string): unknown => JSON.parse(readFileSync(join(HERE, '__fixtures__', 'mainnet-history', name), 'utf8'));
 interface Row { signature: string; tx: unknown }
 
-const POOL = 'ErvzV1NMZmcfAqZtGH4AQhYAjn77nJEworKK1mYPz5w4';
 const LP_MINT = 'BQZth5DhHZT9H1AxZonoLAwGHknWo4LebQBxjKWtzY8e';
 const WSOL_VAULT = '4HjxickXVJ98vdosH9idfKfsombYrk2nNbWZETS8PjVN';
 const BAYLA_VAULT = '8YBj4RCdDKKs4MG6Ck9A3TSciRRocASr12ie7EsxLTe';
 const OPENER_SHARE = 'DKxZsjMKVtoRedcHuPRsjnso9Ezj6jVHwSmqnQwU3RJm';
 const PROG = PROGRAM.toBase58();
 
-// The pool at slot 455093758 (unchanged at 455105163, when the files were read): the SOL
-// vault's balance, the venue's uncollected cut inside it, and what the shares are valued
-// against. Rc = 25,648,407,921 - 801,600.
-const SOL_VAULT = 25_648_407_921n;
-const VENUE_CUT = 801_600n;
-const Rc = 25_647_606_321n;
-const Rt = 5_414_845_326_496n;
-const S = 372_631_821_673n;
-const OPEN_TIME = 1_791_055_084n;
-const THIRD_SWAP = 1_791_514_249;
-
+// The pool's balances at slot 455093758, and the pool itself through the finder's own
+// read, are mainnetPool.fixture.ts (the pool card's growth test reads the same pool).
 const SIGS = fixture('pool.baylaSol.2026-10-10.signatures.json') as SigEntry[];
 const ROWS = fixture('pool.baylaSol.2026-10-10.transactions.json') as Row[];
 const SHARE_SIGS = fixture('opener.lp.DKxZsj.2026-10-10.signatures.json') as SigEntry[];
 const rpc = () => fakeRpcWithHistory({}, { [POOL]: SIGS, [OPENER_SHARE]: SHARE_SIGS }, Object.fromEntries(ROWS.map((r) => [r.signature, r.tx])));
-
-/** The real pool at those balances, judged by the finder's own `poolViewFrom` (the reserve is the vault less the fees owed). */
-function livePool(): PoolView {
-  const b = buildPool({ mint: new PublicKey(BAYLA_MINT), configIndex: 1, quoteReserve: Rc, tokenReserve: Rt, lpSupply: S, protocolFeesSol: VENUE_CUT, openTime: OPEN_TIME });
-  const address = b.address.toBase58();
-  const acc = (a: string) => ({ address: a, owner: b.accounts[a]!.owner, data: b.accounts[a]!.data, lamports: 1 });
-  const pool = decodePoolState(address, b.accounts[address]!.data)!;
-  const entry = poolViewFrom({
-    address,
-    pool: acc(address),
-    vault0: acc(pool.token0Vault),
-    vault1: acc(pool.token1Vault),
-    config: acc(pool.ammConfig),
-    // The record as the chain holds it: written by a swap, newest slot 2, last update the third swap.
-    observation: { address: b.observation.toBase58(), owner: PROG, data: observationBytes({ pool: b.address, index: 2, lastUpdate: BigInt(THIRD_SWAP) }), lamports: 1 },
-    opts: { programId: PROGRAM, launchProgramId: LAUNCH },
-  });
-  if (entry.kind !== 'pool') throw new Error(`the finder did not read the pool: ${entry.kind}`);
-  return entry.view;
-}
 
 const okRead = (r: LedgerRead) => {
   if (r.kind !== 'ok') throw new Error(`expected ok, got ${JSON.stringify(r, (_, v: unknown) => (typeof v === 'bigint' ? v.toString() : v))}`);
@@ -216,5 +183,24 @@ describe('the pool past over the same history, a page at a time', () => {
     // The whole history's wallets, straight from the rows: every deposit's first signer.
     const depositors = new Set(ROWS.map((row) => parseTx(row.signature, row.tx)).filter((t) => tokenDelta(t, WSOL_VAULT) > 0n && tokenDelta(t, BAYLA_VAULT) > 0n && t.slot !== 453025316).map((t) => t.signers[0]));
     expect(depositors.size).toBe(19);
+  });
+
+  it('Read 20 more: the two pages’ entries joined and totalled again are the whole history, 30 deposits from 19 wallets, and say so', async () => {
+    // What the pool card does: it keeps the first page's entries, reads the page before the oldest of them, and totals both.
+    const view = livePool();
+    const first = await readPoolPastPage(rpc(), view, PROG, {});
+    if (first.kind !== 'page') throw new Error(first.kind);
+    expect([first.items.length, first.more]).toEqual([20, true]);
+    const older = await readPoolPastPage(rpc(), view, PROG, { before: first.items[19]!.signature });
+    if (older.kind !== 'page') throw new Error(older.kind);
+    expect([older.items.length, older.more]).toEqual([14, false]);
+    expect(olderPageProblem(older)).toBeNull();
+    const all = pagePast({ kind: 'page', items: [...first.items, ...older.items], more: older.more });
+    // 1 opening, 30 deposits, 3 swaps, 0 withdrawals: the investigation's own count of the 34.
+    expect(all).toEqual({
+      kind: 'ok', count: 34, swaps: 3, deposits: 30, withdrawals: 0, openings: 1, wallets: 19, other: 0,
+      volumeIn: { token: 0n, coin: 501_000_000n }, from: 1791055083, to: 1791579804, complete: true, reachedOpening: true,
+    });
+    expect(poolPastText(all, view)).toBe('All 34 transactions since this pool opened on 2026-10-03 19:18 UTC: 3 swaps, 30 deposits from 19 wallets, 0 withdrawals, 1 opening, 0 other. Traded in: 0.501 SOL and 0 BAYLA. Fees are this tier’s rate on that volume; the rate can change, so no total is shown.');
   });
 });

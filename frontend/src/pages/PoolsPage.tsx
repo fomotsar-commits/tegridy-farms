@@ -127,8 +127,10 @@ export default function PoolsPage() {
             </p>
           </div>
           <h2 className="heading-luxury text-xl text-white mb-4">
+            {/* Names the pools it is about and whose part it is: this tier is the launch pools', and a pool
+                opened from this site (the public tier, listed in the pools section) charges its own rate. */}
             {split && cost
-              ? `${feeRateText(cost.totalRate)} a trade, ${split.lpKeepsPct.toFixed(2)}% of it to you`
+              ? `A launch pool charges ${feeRateText(cost.totalRate)} a trade; its liquidity providers keep ${split.lpKeepsPct.toFixed(2)}% of each trade`
               : feesNotRead(status).title}
           </h2>
 
@@ -165,7 +167,7 @@ export default function PoolsPage() {
                   </>
                 )}
                 Pools opened from this site use the public fee tier instead; the fee tiers in the
-                pools section below are read live for both.
+                pools section above are read live for both.
               </>
             ) : (
               feesNotRead(status).line

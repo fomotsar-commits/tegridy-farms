@@ -18,6 +18,7 @@ import { Card, Notice, Row } from '../curve/ui';
 import { AddressRow } from './AddressRow';
 import { LeaveWithoutThisSite } from './LpDisclosures';
 import { lpHeld, withdrawOffer, type WithdrawOffer } from './offers';
+import { explorerOf } from './panelKit';
 import { RemoveLiquidityPanel } from './RemoveLiquidityPanel';
 import { useLpWrites, type LpWrites } from './useLpWrites';
 import type { LpReaders } from './readers';
@@ -108,10 +109,6 @@ export type AddMore = (tokenMint: string, pool: string) => void;
 function addingOpen(writes: LpWrites | null): boolean {
   return writes !== null && writes.mode === 'on' && writes.gate?.kind === 'open' && writes.gate.mode === 'on';
 }
-
-/** An address's explorer link, once the write code (which knows the cluster) has loaded; null until then. */
-const explorerOf = (writes: LpWrites | null) => (address: string): string | null =>
-  writes?.api && writes.cfg ? writes.api.explorerAddressUrl(address, writes.cfg.cluster) : null;
 
 /**
  * How many rows work out what they earned by themselves, so a holder sees it with no

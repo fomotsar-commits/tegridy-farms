@@ -39,9 +39,14 @@ export function formatSolPrice(v: number): string {
   return s.includes('.') ? s.replace(/\.?0+$/, '') : s;
 }
 
+/** A percent as a sentence prints it, four decimals at most and no padding: 0.84 → "0.84%", 1 → "1%". */
+export function pctText(pct: number): string {
+  return `${Number(pct.toFixed(4))}%`;
+}
+
 /** A fee rate (hundredths of a bip) as a percentage: 2500 → "0.25%". */
 export function feeRateText(rate: bigint): string {
-  return `${Number(ratePercent(rate).toFixed(4))}%`;
+  return pctText(ratePercent(rate));
 }
 
 /**

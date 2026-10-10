@@ -209,7 +209,13 @@ describe('on tier 0 as mainnet holds it (recorded)', () => {
     const sheet = screen.getByRole('region', { name: 'Fee sheet' });
     const stat = (label: string) => within(sheet).getByText(label).nextElementSibling?.textContent;
     expect(stat('Trader pays')).toBe('0.3%');
-    expect(within(sheet).getByRole('heading', { level: 2 })).toHaveTextContent('0.3% a trade, 0.20% of it to you');
+    // The heading names the pools it is about (this tier is the launch pools'; a pool opened
+    // from the site is on the public tier, at another rate) and says the providers' part as a
+    // part of the TRADE: "0.20% of it" read as a fifth of a percent of the fee, and "to you"
+    // as the reader's own pool.
+    const heading = within(sheet).getByRole('heading', { level: 2 });
+    expect(heading).toHaveTextContent('A launch pool charges 0.3% a trade; its liquidity providers keep 0.20% of each trade');
+    expect(heading).not.toHaveTextContent(/of it\b|to you\b/);
     expect(sheet).toHaveTextContent('0.25% trade fee + 0.05% creator fee');
     expect(sheet).not.toHaveTextContent(/0\.25% a trade/);
   });

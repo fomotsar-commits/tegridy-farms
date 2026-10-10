@@ -6,6 +6,10 @@ page keeps the newest thirty days.
 
 ## [Unreleased]
 
+### 2026-10-10
+
+- Solana LP: the page now says how you earn and how the venue earns. Your fees are already inside your pool shares, so there is nothing to claim: each position shows what you put in, what it is worth now, the fees it has earned, how that compares with just holding the two tokens, and the pace so far, measured from the chain and never a forecast. Each pool card shows its last trade and how much each share has grown since the pool opened, and one press reads its last 20 transactions. Two short cards give the rates as read from the chain: what a trade pays, what stays in the pool, what the venue takes, and the team's shared wallet as an address you can check. The row that read "Fees waiting: venue's share" is now "Venue's cut, not collected yet". A read that never answers now ends after 20 seconds and says so.
+
 ### 2026-10-08
 
 - Token names in wallets: the files a wallet reads now name our tokens by the bungalow and then by what the token does: Bayla Staking for the lighthouse staking receipt, Bayla LP SOL and Bayla LP USDC for the two pool shares. The short tickers are unchanged.

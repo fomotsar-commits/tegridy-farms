@@ -16,23 +16,26 @@ import type { GateRpc, LpKind, LpWriteApi } from '../curve/ports';
 import { PoolFinder, type PoolFinderHandle } from './PoolFinder';
 import { parseMintInput } from '../../../lib/solana/lp/mintInput';
 import { YourPositions } from './YourPositions';
+import { HowItPays } from './HowItPays';
 import { LpGateBanner } from './LpGateBanner';
 import { LpWritesProvider, useLpWrites } from './useLpWrites';
 import { browserLpReaders, type LpReaders } from './readers';
 
 /**
- * The Solana LP section on /pools and /solana-lp: a plain disclosure, the fee tiers read
- * from the chain, the pool finder and the wallet's own positions. Adding, removing and
- * opening pools follow LP's own switch (lpWriteFlag.ts): with it 'off' no write code is
- * fetched and nothing here can sign; otherwise LpWritesProvider loads it and offers.ts
- * decides each button. `?mint=<address>` opens the finder on a token; nothing else is
- * ever read from the URL (no amount, side, percent, slippage or open panel).
+ * The Solana LP section on /pools and /solana-lp: a plain disclosure, how a provider and
+ * the venue earn, the fee tiers read from the chain, the pool finder and the wallet's own
+ * positions. Adding, removing and opening pools follow LP's own switch (lpWriteFlag.ts):
+ * with it 'off' no write code is fetched and nothing here can sign; otherwise
+ * LpWritesProvider loads it and offers.ts decides each button. `?mint=<address>` opens the
+ * finder on a token; nothing else is ever read from the URL (no amount, side, percent,
+ * slippage or open panel).
  */
 export default function SolanaLpSection({ readers: given, finderFirst = false }: {
   readers?: LpReaders;
   /**
    * /solana-lp: the finder comes first, under a one-line risk notice, then the positions,
-   * the full disclosure and the fee tiers. Without it the order is /pools' own.
+   * the full disclosure, the two earning cards and the fee tiers. Without it the order is
+   * /pools' own.
    */
   finderFirst?: boolean;
 }) {
@@ -89,7 +92,10 @@ function LpBody({ readers, mode, reloadKey, finderFirst }: { readers: LpReaders;
 
   const disclosure = <LpDisclosure programId={readers.programId} mode={mode} />;
   const writesTop = mode !== 'off' && <LpWritesTop />;
-  const tiers = <FeeTiers readers={readers} />;
+  const tierRead = useFeeTiers(readers);
+  const tiers = <FeeTiers read={tierRead} />;
+  // How a provider earns and how the venue does, beside the tiers their numbers come from.
+  const howItPays = <HowItPays read={tierRead} />;
   // Remove liquidity (the finder's third button) brings the positions onto the screen:
   // that is where every Remove button is. The section takes focus, so a keyboard and a
   // screen reader land there too.
@@ -129,6 +135,7 @@ function LpBody({ readers, mode, reloadKey, finderFirst }: { readers: LpReaders;
         {finder}
         {positions}
         {disclosure}
+        {howItPays}
         {tiers}
       </div>
     );
@@ -137,6 +144,7 @@ function LpBody({ readers, mode, reloadKey, finderFirst }: { readers: LpReaders;
     <div className="space-y-4 mt-6" data-testid="lp-section" data-lp-mode={mode}>
       {disclosure}
       {writesTop}
+      {howItPays}
       {tiers}
       {finder}
       {positions}
@@ -206,7 +214,7 @@ const NOTE_WHAT: Record<LpKind, string> = {
 /** The section's one sentence about what it can do, by LP's mode (spec 4.3). */
 const DISCLOSURE_NOTICE: Record<LpWriteMode, string> = {
   off: 'This section only reads. Adding and removing liquidity here is not switched on yet.',
-  on: 'Opening a pool, adding and removing liquidity here send real transactions. Each one is read again, checked and test-run on the network before your wallet is asked to sign. This page shows no yield, because none has been measured.',
+  on: 'Opening a pool, adding and removing liquidity here send real transactions. Each one is read again, checked and test-run on the network before your wallet is asked to sign. What this page says a pool or a position earned is measured from the chain, and is never a forecast.',
   'withdraw-only':
     'Adding liquidity from this site is paused right now. Removing it still works, and each removal is checked and test-run before your wallet is asked to sign.',
 };
@@ -228,8 +236,9 @@ export function LpDisclosure({ programId, mode = 'off' }: { programId: string; m
           withdrawals or swaps on any pool, change the fee rates of a fee tier, and upgrade the program.
         </p>
         <p>
-          Anyone can open a pool for any token, at any price. Aggregators such as Jupiter do not send trades to these pools yet, so
-          most trades against a pool will be arbitrage bots, which can cost liquidity providers money when the price moves.
+          Anyone can open a pool for any token, at any price. Jupiter does not send trades to these pools yet, so a pool earns fees
+          only from trades sent to it by this site’s own swap, or by someone using the pool program directly. When the price moves,
+          liquidity providers can end up with less than if they had just held both tokens.
         </p>
         <Row label="Pool program" value={programId} />
         <Notice>{DISCLOSURE_NOTICE[mode]}</Notice>
@@ -261,7 +270,8 @@ function tierCostText(config: AmmConfigView): string {
   return `${feeRateText(launch.totalRate)} a trade in launch pools (${feeRateText(launch.tradeFeeRate)} trade fee, ${feeRateText(launch.creatorFeeRate)} creator fee); ${feeRateText(config.tradeFeeRate)} in a pool anyone opens`;
 }
 
-function FeeTiers({ readers }: { readers: LpReaders }) {
+/** The section's one read of the fee tiers: the Fee tiers card and the two earning cards print the same answer. */
+function useFeeTiers(readers: LpReaders): FeeTierRead | null {
   const [read, setRead] = useState<FeeTierRead | null>(null);
   useEffect(() => {
     let live = true;
@@ -277,6 +287,10 @@ function FeeTiers({ readers }: { readers: LpReaders }) {
       live = false;
     };
   }, [readers]);
+  return read;
+}
+
+function FeeTiers({ read }: { read: FeeTierRead | null }) {
   return (
     <section data-testid="fee-tiers" aria-label="Fee tiers">
       <Card title="Fee tiers, read from the chain">

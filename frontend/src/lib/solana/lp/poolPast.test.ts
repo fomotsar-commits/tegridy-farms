@@ -17,7 +17,8 @@ import { noteResponse } from './rpcBudget';
 import { BAYLA_MINT } from './tokenSafety';
 import { parseTx, type ParsedTx, type SigEntry } from './txHistory';
 import {
-  NO_TRADE_YET, POOL_PAST_BUTTON, POOL_PAST_READ_MORE, classifyPoolTx, lastTrade, lastTradeText, poolPastText, poolPastTotals, readPoolPast, type PoolTx,
+  NO_TRADE_YET, POOL_PAST_BUTTON, POOL_PAST_READ_MORE, classifyPoolTx, lastTrade, lastTradeText, olderPageProblem, pagePast, poolPastText, poolPastTotals, readPoolPast, readPoolPastPage,
+  type PoolTx,
 } from './poolPast';
 import { LAUNCH, PROGRAM, buildPool, fakeRpcWithHistory, key, observationBytes, txJson, viewOf, type TxIxSpec } from './testkit.fixture';
 
@@ -305,6 +306,30 @@ describe('poolPastTotals and poolPastText', () => {
     expect(poolPastText({ kind: 'unread', detail: 'the chain did not answer in 20 seconds' }, view)).toBe('This pool’s history could not be read (the chain did not answer in 20 seconds).');
     expect(poolPastText({ kind: 'paused' }, view)).toMatch(/paused/);
     expect(POOL_PAST_READ_MORE).toBe('Read 20 more');
+  });
+
+  // "Read 20 more": the card joins an older page's ENTRIES to those it holds and totals them
+  // again. Two pages' totals cannot be added: a wallet on both would be counted twice.
+  it('two pages joined count a wallet on both once; an older page that was not read whole is left out, with its reason', async () => {
+    const [a, b, c] = [k(), k(), k()];
+    const dep = (signer: string, i: number): PoolTx => ({ kind: 'deposit', signature: sig(`j${i}`), slot: i, blockTime: 1_791_000_000 + i, final: true, signer });
+    const newer: PoolTx[] = [dep(a, 6), dep(b, 5), swapAt(4)];
+    const older: PoolTx[] = [dep(a, 3), dep(c, 2), { kind: 'opening', signature: sig('jo'), slot: 0, blockTime: 1_791_000_000, final: true, signer: c }];
+    const each = [pagePast({ kind: 'page', items: newer, more: true }), pagePast({ kind: 'page', items: older, more: false })];
+    expect(each.map((r) => (r.kind === 'ok' ? r.wallets : null))).toEqual([2, 2]);
+    const joined = pagePast({ kind: 'page', items: [...newer, ...older], more: false });
+    expect(joined).toMatchObject({ kind: 'ok', count: 6, deposits: 4, wallets: 3, swaps: 1, openings: 1, complete: true, reachedOpening: true });
+    expect(olderPageProblem({ kind: 'page', items: older, more: false })).toBeNull();
+    expect(olderPageProblem({ kind: 'page', items: [...older, { kind: 'unread', signature: sig('ju'), blockTime: null, detail: 'x' }], more: false })).toBe(
+      '1 of the older transactions could not be read, so none of that page is counted. Press Read 20 more again.',
+    );
+    expect(olderPageProblem({ kind: 'unread', detail: 'the chain did not answer in 20 seconds' })).toBe('The older transactions could not be read (the chain did not answer in 20 seconds).');
+    expect(olderPageProblem({ kind: 'paused' })).toMatch(/paused/);
+    // A page is its entries and whether the server had more; a failed or paused read carries neither.
+    noteResponse(new Response(null, { headers: { 'X-RateLimit-Remaining': '300' } }));
+    const none = await readPoolPastPage(fakeRpcWithHistory({}, { [view.address]: [] }, {}), view, PROG, {});
+    expect(none).toEqual({ kind: 'page', items: [], more: false });
+    expect(pagePast({ kind: 'paused' })).toEqual({ kind: 'paused' });
   });
 
   it('readPoolPast: the budget gate first, before any call; a transport failure is unread with the reason', async () => {

@@ -152,8 +152,10 @@ describe('the yearly figure never appears without its basis (the one door in the
   it('no other LP source says a yearly, daily or weekly rate: pace.ts is the only door, format.ts holds the ban', () => {
     const here = dirname(fileURLToPath(import.meta.url));
     const dirs = [here, join(here, '..', '..', '..', 'components', 'solana', 'lp')];
-    const files = dirs.flatMap((d) => readdirSync(d).filter((f) => /\.tsx?$/.test(f) && !/\.(test|fixture)\./.test(f)).map((f) => join(d, f)));
-    expect(files.length).toBeGreaterThan(30);
+    // And the two pages that mount the LP section, whose own cards speak of fees.
+    const pages = ['PoolsPage.tsx', 'SolanaLpPage.tsx'].map((f) => join(here, '..', '..', '..', 'pages', f));
+    const files = [...dirs.flatMap((d) => readdirSync(d).filter((f) => /\.tsx?$/.test(f) && !/\.(test|fixture)\./.test(f)).map((f) => join(d, f))), ...pages];
+    expect(files.length).toBeGreaterThan(32);
     const saying = files.filter((f) => /a year|annual|per day|per week|rate of return/i.test(readFileSync(f, 'utf8'))).map((f) => f.replace(/^.*[\\/]/, ''));
     expect(saying.sort()).toEqual(['format.ts', 'pace.ts']);
   });

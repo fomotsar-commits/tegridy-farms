@@ -7,7 +7,7 @@ import { readTokenSafety, type TokenSafety } from '../../../lib/solana/lp/tokenS
 import { findPools, readFeeTiers, type FeeTierRead, type PoolSearchRead, type PoolView } from '../../../lib/solana/lp/poolFinder';
 import { readLedger, type LedgerRead } from '../../../lib/solana/lp/ledger';
 import { readOutsidePrice, type OutsidePrice } from '../../../lib/solana/lp/outsidePrice';
-import { readPoolPast, type PoolPastRead } from '../../../lib/solana/lp/poolPast';
+import { readPoolPastPage, type PoolPastPage } from '../../../lib/solana/lp/poolPast';
 import { placeShareOnChain, readPositions, type ChainPlacement, type PositionsRead } from '../../../lib/solana/lp/positions';
 import type { QuoteCoin } from '../../../lib/solana/lp/quotes';
 import { lpFetch } from '../../../lib/solana/lp/readFetch';
@@ -45,13 +45,13 @@ export interface LpReaders {
   placeShareOnChain(share: { lpMint: string; lpAccount: string }): Promise<ChainPlacement>;
   /**
    * History, behind the budget gate (ledger.ts, poolPast.ts): a position's ledger from its
-   * share account's last 20 transactions, and a pool's last 20 classified. The ledger is
-   * read by itself for the first two positions and on a press for the rest
-   * (YourPositions.tsx); the pool's past on a press only. Optional: a reader without them
-   * shows no history block, and every existing fake still fits.
+   * share account's last 20 transactions, and one page of a pool's transactions, classified.
+   * The ledger is read by itself for the first two positions and on a press for the rest
+   * (YourPositions.tsx); the pool's past on a press only (PoolCard.tsx). Optional: a reader
+   * without them shows no history block, and every existing fake still fits.
    */
   ledger?(share: { lpAccount: string; lpMint: string; owner: PublicKey; lpAmount: bigint }, view: PoolView, opts?: { before?: string }): Promise<LedgerRead>;
-  poolPast?(view: PoolView, opts?: { before?: string }): Promise<PoolPastRead>;
+  poolPast?(view: PoolView, opts?: { before?: string }): Promise<PoolPastPage>;
 }
 
 /**
@@ -87,6 +87,6 @@ export function browserLpReaders(): LpReaders | null {
     wallet: (owner, tokenMint, tokenProgram, lpMint, o) => readWalletFacts(rpc, walletArgs(owner, tokenMint, tokenProgram, lpMint, o)),
     placeShareOnChain: (share) => placeShareOnChain(rpc, opts, share),
     ledger: (share, view, o) => readLedger(rpc, { ...share, owner: share.owner.toBase58() }, view, programId.toBase58(), o ?? {}),
-    poolPast: (view, o) => readPoolPast(rpc, view, programId.toBase58(), o ?? {}),
+    poolPast: (view, o) => readPoolPastPage(rpc, view, programId.toBase58(), o ?? {}),
   };
 }

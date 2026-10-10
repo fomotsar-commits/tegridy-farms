@@ -156,6 +156,8 @@ describe('the panel', () => {
     expect(before).toHaveTextContent(/change the public fee tier's rates and its fee to open a pool at once/);
     expect(before).toHaveTextContent("Jupiter does not send trades to our pools. This site's own swap sends a trade to your pool only when your pool pays the trader at least as much as Jupiter does.");
     expect(before).not.toHaveTextContent(/not built yet/);
+    expect(before).toHaveTextContent('Any other trade has to come from someone using our pool program directly.');
+    expect(before).not.toHaveTextContent(/\bbots?\b|arbitrage|mostly/i);
     expect(before).toHaveTextContent(/Expect little or nothing in fees at first\./);
     expect(before).toHaveTextContent('Opening costs 0.15 SOL, paid to the team\'s vault, and about 0.04 SOL in account deposits that never come back.');
     // Shares are said in 9 decimals everywhere on this page: never "100 pool shares".
