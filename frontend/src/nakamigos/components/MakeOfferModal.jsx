@@ -6,6 +6,7 @@ import { useActiveCollection } from "../contexts/CollectionContext";
 import { useWalletState, useWalletActions } from "../contexts/WalletContext";
 import { lockScroll, unlockScroll } from "../lib/scrollLock";
 import { getFriendlyError } from "../lib/errorMessages";
+import { toastTxNotice } from "../lib/txOutcome";
 import { sanitizeDecimalInput } from "../../lib/formatting";
 import { pageArt } from "../../lib/artConfig";
 
@@ -144,6 +145,9 @@ export default function MakeOfferModal({ nft, trait, collection, onClose, wallet
     } else if (result.error === "rejected") {
       setStep("input");
       addToast?.("Offer cancelled", "info");
+    } else if (toastTxNotice(addToast, result)) {
+      // The wrap or the approval is unconfirmed or replaced: told as it is.
+      setStep("input");
     } else if (result.error === "insufficient") {
       setStep("input");
       addToast?.("Insufficient ETH + WETH balance. You may need to wrap more ETH.", "error");

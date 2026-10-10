@@ -18,9 +18,11 @@ import { FundingNextStep } from './FundingNextStep';
 import { LpAmountPair, type LpSide } from './LpAmountPair';
 import { LpBeforeYouAdd, LpReviewDisclosure } from './LpDisclosures';
 import { PanelFrame } from './PanelFrame';
+import { ALL_BPS, PercentPicker } from './PercentPicker';
 import { NOTES_BELOW, cannotFundText, coinAbout, coinExact, priceGapLossText, reviewOffWhy, sharePct, solExact, tokensAbout, unitsExact, useDebounced, useFlowReports, useSettledAlert, useWalletFacts } from './panelKit';
 import { lpHeld } from './offers';
 import { useLpWrites, type LpWrites } from './useLpWrites';
+import { WhatIfPriceMoves } from './WhatIfPriceMoves';
 
 const ADD_HINT = 'If the pool’s price moves more than this before your deposit runs, it is refused and only the network fees are spent.';
 
@@ -148,6 +150,28 @@ function AddInner({
 
   const onType = (side: LpSide, text: string) => setTyped(text.trim() === '' ? null : { side, text });
   const setDriving = (side: LpSide, v: bigint) => setTyped({ side, text: baseUnitsToInput(v, sideDecimals(side)) });
+
+  // A part (25%, 50%, 75%) of what a side can put in: the very figure its Max uses. For
+  // SOL that is what is left after fees and account deposits, never the wallet's balance.
+  // Offered only when that figure was read and a quarter of it is a whole smallest unit.
+  const canPutIn = { quote: availableQuote, token: availableToken };
+  const [part, setPart] = useState<{ side: LpSide; bps: bigint } | null>(null);
+  const partOf = (side: LpSide, bps: bigint) => ((canPutIn[side] ?? 0n) * bps) / ALL_BPS;
+  // It reads as pressed only while the box still holds exactly that part of what was read.
+  const pressedPart = (side: LpSide) => (part?.side === side && typed?.side === side && maxIn === partOf(side, part.bps) ? part.bps : null);
+  const partsFor = (side: LpSide, legend: string) =>
+    (canPutIn[side] ?? 0n) < 4n ? undefined : (
+      <PercentPicker
+        partsOnly
+        legend={legend}
+        valueBps={pressedPart(side)}
+        onChange={(v) => {
+          if (v.bps === null) return;
+          setPart({ side, bps: v.bps });
+          setDriving(side, partOf(side, v.bps));
+        }}
+      />
+    );
 
   // ── hints ──
   const balanceHint = (side: LpSide): string => {
@@ -355,6 +379,10 @@ function AddInner({
             canMax={{ quote: availableQuote !== null, token: availableToken !== null }}
             hints={{ quote: hintFor('quote'), token: hintFor('token') }}
             errors={{ quote: parseError('quote'), token: parseError('token') }}
+            extra={{
+              quote: partsFor('quote', coin.native ? 'Part of the SOL that can go in' : `Part of your ${coin.symbol}`),
+              token: partsFor('token', 'Part of your tokens'),
+            }}
           />
           <SlippagePicker valueBps={slippageBps} onChange={setSlippageBps} hint={ADD_HINT} />
           {plan && (
@@ -426,6 +454,8 @@ function AddInner({
                 ? `You already hold ${unitsExact(facts.wsol.amount, 9)} wrapped SOL. None of it is spent. Up to ${plan ? solExact(coinOf(plan).max - coinOf(plan).cost) : 'the unused part'} of this deposit that the pool does not use stays in that account as wrapped SOL; your wallet app can unwrap it.`
                 : 'Your SOL is wrapped into a token account for the deposit, and the account is closed at the end, so anything not used comes back as plain SOL.'}
           </p>
+          {/* Under Review, so it never pushes the button down; first of the notes the line above Review points to. */}
+          <WhatIfPriceMoves view={view} />
         </>
       )}
       <LpBeforeYouAdd launchPool={view.origin === 'launch-pool'} config={view.config} enableCreatorFee={pool.enableCreatorFee} />

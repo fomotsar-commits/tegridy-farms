@@ -14,6 +14,7 @@ import {
   BoardUnavailableError,
   type Flame,
 } from './flamesClient';
+import { neverAnswered, stalledBody, watch } from '../../test/quietHost';
 
 const BODY = {
   flames: [
@@ -123,6 +124,62 @@ describe('the three outcomes', () => {
   it('returns a genuinely empty board as empty, when the island says so', async () => {
     fetchMock.mockResolvedValue(res({ body: { flames: [], as_of_unix: 1 } }));
     await expect(fetchFlames({ limit: 5 })).resolves.toEqual({ flames: [], asOfUnix: 1 });
+  });
+});
+
+// The 6 s cover the whole answer. Headers and half a body is a board we could not reach,
+// and "unreadable" would be a statement about what the island sent.
+describe('a board that starts its answer and then stops was not read', () => {
+  const UNREACHABLE = 'The board is unreachable.';
+  const stalls = (_url: string, init: RequestInit) => Promise.resolve(stalledBody(init.signal));
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('gives up after 6 s and says unreachable, not unreadable', async () => {
+    fetchMock.mockImplementation(stalls);
+    const ended = await watch(() => fetchFlames({ limit: 5 }), 30_000);
+    expect(ended, 'still pending after 30 s').not.toBeNull();
+    expect(ended?.afterMs).toBe(6_000);
+    expect(ended?.error).toBeInstanceOf(BoardUnavailableError);
+    expect((ended?.error as Error).message).toBe(UNREACHABLE);
+  });
+
+  it('ends at the same moment, with the same words, as a board that never answers', async () => {
+    fetchMock.mockImplementation((_url: string, init: RequestInit) => neverAnswered(init.signal));
+    const ended = await watch(() => fetchFlames({ limit: 5 }), 30_000);
+    expect(ended?.afterMs).toBe(6_000);
+    expect((ended?.error as Error).message).toBe(UNREACHABLE);
+  });
+
+  it('a caller that stops waiting while the body arrives ends the read then', async () => {
+    fetchMock.mockImplementation(stalls);
+    const caller = new AbortController();
+    setTimeout(() => caller.abort(), 1_000);
+    const ended = await watch(() => fetchFlames({ limit: 5, signal: caller.signal }), 30_000);
+    expect(ended?.afterMs).toBe(1_000);
+    expect((ended?.error as Error).message).toBe(UNREACHABLE);
+  });
+
+  it('caches nothing from it: the next read asks again', async () => {
+    fetchMock.mockImplementationOnce(stalls);
+    await watch(() => fetchFlames({ limit: 5 }), 30_000);
+    await expect(fetchFlames({ limit: 5 })).resolves.not.toBeNull();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('still calls a whole answer that is not JSON unreadable', async () => {
+    fetchMock.mockResolvedValue(new Response('<!doctype html>', { status: 200 }));
+    await expect(fetchFlames({ limit: 5 })).rejects.toThrow('The board returned something unreadable.');
+  });
+
+  it('still reads a real 204, which has no body to parse, as the board being off', async () => {
+    fetchMock.mockResolvedValue(new Response(null, { status: 204 }));
+    await expect(fetchFlames({ limit: 5 })).resolves.toBeNull();
   });
 });
 

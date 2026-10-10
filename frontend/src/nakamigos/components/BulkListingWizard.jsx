@@ -7,6 +7,7 @@ import {
 import { useActiveCollection } from "../contexts/CollectionContext";
 import { useWalletState, useWalletActions } from "../contexts/WalletContext";
 import { createNativeListing } from "../lib/orderbook";
+import { toastTxNotice } from "../lib/txOutcome";
 import { formatPrice } from "../lib/formatPrice";
 
 // ═══ CONSTANTS ═══
@@ -615,6 +616,11 @@ export default function BulkListingWizard({ tokens, wallet, onClose, onListingCr
             successCount++;
           } else if (result.error === "rejected") {
             addToast?.(`Listing for #${nft.id} cancelled by user`, "info");
+            failCount++;
+            break;
+          } else if (toastTxNotice(addToast, result)) {
+            // The collection approval is unconfirmed or replaced. Stop: the next
+            // NFT would send the same approval again.
             failCount++;
             break;
           } else {

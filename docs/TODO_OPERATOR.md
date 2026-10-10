@@ -45,7 +45,8 @@ merged or changed by the sweep. Where an older section below disagrees, this one
   analytics limit (PR #695): its first run deletes older analytics for good, so export first if
   you want a copy. Never `supabase db push`.
 - ✅ **O-1009-3: answered on 2026-10-10: yes.** The two Solana programs are inside the security
-  policy (O-0929-12, PR #775). It had to be settled before the pool-program upgrade, and it is.
+  policy (O-0929-12, PR #775, which you merged that day). It had to be settled before the
+  pool-program upgrade, and it is.
 - ⬜ **O-1009-4: the pool-program upgrade.** The pack is ready. It needs 3.90 SOL in the deploy
   wallet `CqcVvaMvesrSKrUSbqBqr9mLjKLJuYqhaXg1gXpR41cg` (about 3.68 comes back) and both
   multisig members, on the pack's own page and never in the Squads app. Tell a session before
@@ -68,49 +69,72 @@ merged or changed by the sweep. Where an older section below disagrees, this one
 - ⬜ **O-1009-11: look at two cloud sessions on claude.ai/code.** They wrote
   `claude/intelligent-edison-s91nxi` (27 swap fixes, plus wording on the home page, FAQ and
   footer) and `claude/zealous-heisenberg-yc9dbp` (adding liquidity from Trust on a phone is
-  reported as "You cancelled"). Neither branch has a pull request.
+  reported as "You cancelled"). Neither branch has a pull request. 2026-10-10: both have one
+  now, PR #791 and PR #786 (C-1009-4).
 - ⬜ **O-1009-12: small, whenever.** Delete the stale Vercel project `tegridyfarms-three`. Check why
   Dependabot has not run since 2026-09-21. Confirm the offline key backup is finished. Check
   auto-renew on memetics.finance (registered 2026-08-02 for one year). Look at Railway once
   after PR #768 merges. GitLab's secret stays parked, as you asked on 2026-10-02.
+- ⬜ **O-1009-20: switch the Dependency graph back on.** Found 2026-10-10: Dependabot stopped
+  because the repository's Dependency graph is off (Settings, Advanced Security). Its last pull
+  requests are from 2026-09-21. The same page shows secret scanning and push protection off too.
+- ⬜ **O-1009-21: the stale Vercel site is almost certainly the project named `tegridyfarms`.**
+  Found 2026-10-10: that project has no Git repository connected. Confirm on its Domains tab
+  that it is the one behind `tegridyfarms-three` before you delete it.
 
 ### One word from you, then a session does it (every merge is a production deploy)
 
-- ⬜ **M-1009-1:** #778, #779 and #780. Small and green. #778 and #779 clash in NOTES.md only.
-- ⬜ **M-1009-2: the reads train**, in this order: #768, #761, #763 (with its owed test), #766,
+2026-10-10: M-1009-1 to M-1009-5 are built into three trains, each waiting for your word:
+#784 (housekeeping), #792 (fixes, with #784 inside it) and #796 (repairs and small fixes, with
+both inside it). Merging the last one alone brings all three. Use "Create a merge commit" each
+time.
+
+- 🟡 **M-1009-1:** #778, #779 and #780. Small and green. #778 and #779 clash in NOTES.md only.
+  Carried by train #784.
+- 🟡 **M-1009-2: the reads train**, in this order: #768, #761, #763 (with its owed test), #766,
   #767, then the notes #762 and #764. Each is refreshed right before its turn and its changelog
-  line moves under the merge day. About five hours of check time in all.
-- ⬜ **M-1009-3: the housekeeping train**, one merge: #712, #711, #707, #708 (without its Pools
+  line moves under the merge day. About five hours of check time in all. Carried by train #792,
+  the two notes by #784.
+- 🟡 **M-1009-3: the housekeeping train**, one merge: #712, #711, #707, #708 (without its Pools
   page change, trunk has its own), #736, the notes #710 #739 #744 #747, then #608 and #620.
-- ⬜ **M-1009-4:** #732 (Pools opens the Solana LP tab) after a refresh, and the notes #731.
-- ⬜ **M-1009-5: phone and tablet fixes.** Quick after a refresh: #738, #735, #699, #740 (keep
+  This is train #784.
+- 🟡 **M-1009-4:** #732 (Pools opens the Solana LP tab) after a refresh, and the notes #731.
+  #732 is carried by train #792, the notes by #784.
+- 🟡 **M-1009-5: phone and tablet fixes.** Quick after a refresh: #738, #735, #699, #740 (keep
   trunk's Copy link), #741. After their own repairs: #751, #723, #743. #746 after #738.
+  Carried by train #792: #738, #735, #699, #740, #746. By #784: #741. By train #796:
+  #751, #723 and #743, each repaired.
 - ⬜ **M-1009-6: close** #721, #639 and #701. Close #737 and have its launch-pool deposit check
   rebuilt small (warn, not refuse). #660 and #658 stay parked: Streamflow pins web3.js 1.98.4.
 
 ### A session can start these on your go-ahead
 
-- ⬜ **C-1009-1: save the work that exists only on this PC.** Commit and push, no merges: the
+- ✅ **C-1009-1: save the work that exists only on this PC.** Commit and push, no merges: the
   island's first PR (`feat/island-review-pr1`), the pool redesign (`feat/solana-lp-5d` and its
   task branches), the "offer our pool" fix, the opening-price check, the NFT Finance mouse
-  arrows, the card art.
-- ⬜ **C-1009-2: repair PR #751.** The first-frame heading in `frontend/index.html` keeps the old
-  size, so the heading jumps 2 to 3 pixels and three tests fail.
-- ⬜ **C-1009-3: resume the island's first PR.** It is built and tested. Merge trunk in, make it
+  arrows, the card art. Done 2026-10-10: each is on GitHub, as its own branch or as a
+  `rescue/2026-10-10/*` snapshot branch for work that was not committed. Nothing was merged.
+- ✅ **C-1009-2: repair PR #751.** The first-frame heading in `frontend/index.html` keeps the old
+  size, so the heading jumps 2 to 3 pixels and three tests fail. Done 2026-10-10 in #751 itself,
+  which train #796 carries.
+- 🟡 **C-1009-3: resume the island's first PR.** It is built and tested. Merge trunk in, make it
   match PR #769 on the BAYLA tick box, finish the 390px walk, open the PR. Do not start it again.
-- ⬜ **C-1009-4: open pull requests for the two cloud branches**, with the "offer our pool" fix on
-  top of the first.
+  Built: PR #790, waiting for your go.
+- 🟡 **C-1009-4: open pull requests for the two cloud branches**, with the "offer our pool" fix on
+  top of the first. Built: PR #791 (the swap fixes, with that fix on top), waiting for your go,
+  and PR #786 (the Trust "You cancelled" fix), which train #796 carries.
 - ⬜ **C-1009-5: resume the pool redesign.** Your last word on 2026-10-08 was "ok keep going".
-- 🟡 **C-1009-6: show a liquidity provider what a pool has paid them** (asked 2026-10-09): what a
+- ✅ **C-1009-6: show a liquidity provider what a pool has paid them** (asked 2026-10-09): what a
   position has earned, how much a pool's shares have grown, and in a few plain words how
-  liquidity providers earn and how the venue earns. Built: PR #782, waiting for your go. Three
+  liquidity providers earn and how the venue earns. Merged 2026-10-10 as PR #782. Three
   calls in it are yours: the "at that pace, about X% a year" sentence, the pool card's heading,
   and the label "Fees earned". On upgrade day #776 conflicts with it on one sentence; the
   resolved sentence is written in #782.
 - ⬜ **C-1009-7: small ones.** Finish the "Back to top" test flake. Correct the three BAYLA ladder
   rows in `frontend/scripts/addresses.json` (both controls are the Squads vault now). Start the
   vault upgrade pack for the ladder's 4-year change. Renew or update the advisory waivers before
-  2026-11-16.
+  2026-11-16. Built 2026-10-10: the "Back to top" flake is PR #788 and the ladder rows are
+  PR #785, both carried by train #796. The upgrade pack and the waivers are still open.
 - ⬜ **C-1009-8: housekeeping that needs a quiet moment.** Move the shared main folder onto trunk
   (it sits on a September branch and has no CLAUDE.md), after its only-copy files are saved. One
   dedicated worktree cleanup (230 exist): unlink every linked folder and prove it gone first.
@@ -131,14 +155,16 @@ all); the BAYLA/USDC pool has had none.
 - ⬜ **O-1009-14: the BAYLA/USDC pool sits about 8% above the market price** and has never traded.
   Leave it, or bring it in line: whoever trades it first takes that gap from its liquidity
   providers.
-- ⬜ **C-1009-9: money words on the Ethereum pages.** Three lines disagree with the chain (the
+- 🟡 **C-1009-9: money words on the Ethereum pages.** Three lines disagree with the chain (the
   Liquidity page's "five sixths", the assistant's "0.5% flows to stakers", the FAQ's "starts
   flowing when the native pool launches"), and four liquid-staking rates on the Solana swap page
-  are typed in, not read. Needs one read of the Ethereum fee settings first.
-- ⬜ **C-1009-10: two stale rows in `frontend/scripts/addresses.json`.** The swap-fee account it
+  are typed in, not read. Needs one read of the Ethereum fee settings first. Built: PR #789,
+  carried by train #796.
+- 🟡 **C-1009-10: two stale rows in `frontend/scripts/addresses.json`.** The swap-fee account it
   names has never received a fee (they go to the vault's wrapped-SOL account
   `2sa31zceMSTAAbSu5wfSnNA6sBYzS7r97nvZYaQouEXa`), and the launch tier reads 20% to the venue plus
-  a 0.05% creator fee on chain, not the 12% and none the row says.
+  a 0.05% creator fee on chain, not the 12% and none the row says. Built: PR #785, carried by
+  train #796.
 - 📌 The venue's cut waiting in the BAYLA/SOL pool is under 0.001 SOL. Collecting it takes a
   two-signature proposal that costs more than it brings in. Leave it.
 
@@ -167,11 +193,15 @@ markets together trade under $2,000 a day, so none of this creates volume.
   a fill. Jupiter is winding down the older order system both tabs use.
 - ⬜ **C-1009-11: the DCA tab offers a BAYLA order that cannot work** (the program rejects
   Token-2022 tokens, buying and selling). Say so before signing, and fix the minimum it quotes.
+  You started this as its own session on 2026-10-10. No pull request for it was open when this
+  line was written.
 - ⬜ **C-1009-12: our pool program is about three Raydium releases behind.** It still has a
   four-token bypass list Raydium deleted in September. Assess it read-only; do not touch the
-  ready upgrade pack.
-- ⬜ **C-1009-13: small liquidity-provider tools, no program needed.** After the earnings view: a
-  "what if the price moves" preview before adding, and add by percent of wallet.
+  ready upgrade pack. You started this as its own session on 2026-10-10. No pull request for it
+  was open when this line was written.
+- 🟡 **C-1009-13: small liquidity-provider tools, no program needed.** After the earnings view: a
+  "what if the price moves" preview before adding, and add by percent of wallet. Built: PR #787,
+  carried by train #796.
 
 ### Parked calls, none urgent
 

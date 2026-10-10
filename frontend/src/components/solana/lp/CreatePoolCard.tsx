@@ -174,7 +174,7 @@ function CreateCard({
   return (
     <section
       ref={sectionRef}
-      className={`${CARD} scroll-mt-[4.5rem]`}
+      className={CARD}
       style={CARD_STYLE}
       data-testid="lp-create"
       data-create={offer}

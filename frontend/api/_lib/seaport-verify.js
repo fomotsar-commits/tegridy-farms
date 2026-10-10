@@ -36,6 +36,7 @@
 
 import { verifyTypedData, createPublicClient, http, fallback } from "viem";
 import { mainnet, sepolia } from "viem/chains";
+import { fetchWholeBody } from "../../src/lib/fetchWholeBody.js";
 
 // AUDIT FIX H-1-FINDING-2: chainId was hardcoded to `1` in SEAPORT_DOMAIN, so
 // any future deploy targeting a testnet (or an L2 Seaport instance) would
@@ -77,12 +78,13 @@ function getPublicClient() {
   if (_publicClient) return _publicClient;
   const url = alchemyUrl();
   if (!url) return null;
-  // RESIL-1: viem's canonical `fallback` transport — the EIP-1271 staticcall
-  // (and ERC-6492 deployless validation) survives a lapsed Alchemy key by
-  // demoting to the fallback key, then the public RPC list.
+  // The EIP-1271 and ERC-6492 calls walk the same hosts as ethCall: the Alchemy key, the
+  // fallback key, then the public list. viem's 10 s timeout ends at the headers;
+  // fetchWholeBody keeps it running until the body is read, so a host that stops
+  // part-way is left for the next one.
   _publicClient = createPublicClient({
     chain: SEAPORT_VIEM_CHAIN,
-    transport: fallback(rpcUrlChain().map((u) => http(u))),
+    transport: fallback(rpcUrlChain().map((u) => http(u, { fetchFn: fetchWholeBody }))),
   });
   return _publicClient;
 }
@@ -198,16 +200,15 @@ function padAddr(addr) {
 }
 
 async function ethCallOnce(url, to, data) {
-  // PERF/RESIL: bound each attempt so a hung node (no response, not a fast
-  // error) is abandoned in ~2.5s and ethCall() advances to the next URL,
-  // instead of consuming the whole request budget on Node's default timeout.
-  // AbortError has no .rpcError, so ethCall treats it as a transport failure
-  // and falls through (deterministic execution-reverts still short-circuit).
+  // One attempt gets 2.5 s for its headers and its body together, so a host that never
+  // answers, or stops part-way, is left and ethCall() moves to the next URL. However the
+  // abort comes back, it carries no .rpcError, which is what ethCall reads as "this host
+  // failed" (a revert still stops the walk).
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 2500);
-  let res;
+  let json;
   try {
-    res = await fetch(url, {
+    const res = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -218,11 +219,11 @@ async function ethCallOnce(url, to, data) {
       }),
       signal: ctrl.signal,
     });
+    if (!res.ok) throw new Error(`RPC HTTP ${res.status}`);
+    json = await res.json();
   } finally {
     clearTimeout(timer);
   }
-  if (!res.ok) throw new Error(`RPC HTTP ${res.status}`);
-  const json = await res.json();
   if (json.error) {
     const msg = json.error.message || "rpc error";
     const err = new Error(msg);

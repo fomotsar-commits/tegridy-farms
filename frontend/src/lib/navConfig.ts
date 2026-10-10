@@ -91,7 +91,11 @@ export interface NavSection {
   /** The section's destinations in tab order, the hub first. PRIMARY_NAV derives from these. */
   items: NavItem[];
 
-  /** Override for the top-bar word. Only Swap has one (tradeRoute); it must be one of `items`. */
+  /**
+   * Override for where the section's word goes, in the top bar, the drawer and the phone
+   * bar. It must be one of `items`. Swap has one (tradeRoute, by the room's chain) and
+   * Pools has one (the Solana LP tab).
+   */
   primaryTo?: string;
 }
 
@@ -118,6 +122,11 @@ export const NAV_SECTIONS: NavSection[] = [
     // Providing liquidity: add/remove, Solana LP, the venue's own Solana AMM, and zap in.
     heading: 'Pools',
     hub: '/liquidity',
+    // Owner, 2026-10-03: "pools land on solana lp". The word opens the Solana LP tab in
+    // both bars and the drawer. The strip keeps its order, so the Ethereum form is the tab
+    // to its left. Every phone walk that day found the Ethereum landing a dead end for a
+    // visitor who came for a Solana pool.
+    primaryTo: '/solana-lp',
     items: [
       { to: '/liquidity', label: 'Liquidity', tabLabel: 'Add / Remove' },
       // Ungated, like /pools: the page mounts its LP section only once the venue reads live.

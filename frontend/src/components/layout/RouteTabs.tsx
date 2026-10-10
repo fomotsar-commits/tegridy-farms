@@ -1,8 +1,8 @@
-import { useLayoutEffect, useRef } from 'react';
+import { useLayoutEffect } from 'react';
 import { useTabListKeys } from '../../hooks/useTabListKeys';
 import type { NavItem } from '../../lib/navConfig';
 import { tabDomId } from './routeTabId';
-import { revealScrollLeft } from './tabStripScroll';
+import { useRevealSelectedTab } from './tabStripScroll';
 
 /**
  * The sticky pill tab strip shared by every route-navigating tabbed host.
@@ -74,38 +74,34 @@ function TabLabel({ item }: { item: NavItem }) {
   );
 }
 
+/* While a strip is mounted <html> carries this class, and index.css keeps whatever the
+   browser scrolls to below the strip. Counted, because a route change can mount two. */
+const SCROLLPORT_CLASS = 'has-route-tabs';
+let mountedStrips = 0;
+
 export function RouteTabs({ idPrefix, ariaLabel, items, active, onSelect }: RouteTabsProps) {
   const keys = items.map((i) => i.to);
   const tabKeys = useTabListKeys(keys, active, onSelect);
-  const listRef = useRef<HTMLDivElement>(null);
-  const keyList = keys.join(' ');
 
-  /* A strip that scrolls shows the selected tab whole: on landing, on a new
-     selection, and when the strip or a tab resizes (web fonts, rotation). It
-     moves only the strip's own scrollLeft, before paint, never the page. */
+  // Before paint and before any effect that scrolls, so the first scroll already clears it.
   useLayoutEffect(() => {
-    const list = listRef.current;
-    if (!list) return;
-    const reveal = () => {
-      const tab = list.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]');
-      if (!tab) return;
-      const box = tab.getBoundingClientRect();
-      const start = box.left - list.getBoundingClientRect().left - list.clientLeft + list.scrollLeft;
-      const next = revealScrollLeft({ start, end: start + box.width }, list);
-      if (Math.abs(next - list.scrollLeft) > 0.5) list.scrollLeft = next;
+    mountedStrips += 1;
+    document.documentElement.classList.add(SCROLLPORT_CLASS);
+    return () => {
+      mountedStrips -= 1;
+      if (mountedStrips === 0) document.documentElement.classList.remove(SCROLLPORT_CLASS);
     };
-    reveal();
-    if (typeof ResizeObserver === 'undefined') return;
-    const ro = new ResizeObserver(reveal);
-    ro.observe(list);
-    for (const tab of list.children) ro.observe(tab);
-    return () => ro.disconnect();
-  }, [active, keyList]);
+  }, []);
+
+  const listRef = useRevealSelectedTab(active, keys.join(' '));
 
   return (
     <div
       className="fixed left-0 right-0 z-30 px-4 md:px-6 pointer-events-none"
-      style={{ top: 'calc(56px + var(--room-band-h, 0px))' }}
+      /* The header is 3.5rem PLUS the top safe-area inset (TopNav.tsx). Without the
+         inset here the strip sat under the header wherever the inset is not zero:
+         an Android 15 in-app browser drawn edge to edge (seen on a Galaxy S25). */
+      style={{ top: 'calc(56px + env(safe-area-inset-top, 0px) + var(--room-band-h, 0px))' }}
     >
       <div className="max-w-[900px] mx-auto pt-3 pointer-events-auto">
         <div

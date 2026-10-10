@@ -20,7 +20,7 @@ export function BungalowHero({ bungalow }: { bungalow: Bungalow & { identity: Bu
   const tradeStyle = { background: 'linear-gradient(135deg, #d4a843 0%, #b8892e 100%)', color: '#0a0a0f' } as const;
   return (
     <>
-      <h1 className="heading-luxury text-3xl md:text-6xl text-white leading-[1.1] tracking-tight mb-4">
+      <h1 className="heading-luxury text-[clamp(1.25rem,7.4vw,1.875rem)] md:text-6xl text-white leading-[1.1] tracking-tight mb-4">
         {/* A real space before the break, as on the venue hero (answer ten, ruling 3):
             a <br> is not text, so without it the heading read "BAYLA.The muse". */}
         {id.heroTitle}{' '}<br /><span className="text-white">{id.heroLine}</span>

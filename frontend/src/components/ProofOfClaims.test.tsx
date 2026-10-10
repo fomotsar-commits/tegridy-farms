@@ -65,6 +65,16 @@ describe('ProofOfClaims, the burn row', () => {
     }
   });
 
+  it('lets a value that does not fit beside its label drop under it, at the right', () => {
+    // "1,000,000,000" cannot break. Held on one line with its label at 320px it ran 21px past
+    // its box and under the tick. The layout itself is measured in e2e/bungalow-burn.spec.ts.
+    seed();
+    render(<ProofOfClaims />);
+    const row = screen.getByText('Fixed supply (no mint function)').closest('a')!;
+    expect(row.className).toContain('flex-wrap');
+    expect(screen.getByText(/1,000,000,000 TOWELI/).parentElement!.className).toContain('ml-auto');
+  });
+
   it('still agrees with the card after TOWELI is destroyed with burn()', () => {
     // 10,000,000 burnt outright: the supply falls and the old row (burn address over supply) parted from the card.
     const supply = 990_000_000n * E18;

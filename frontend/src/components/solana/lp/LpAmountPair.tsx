@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import { decimalCommaToPoint } from '../../../lib/launcher/solana/curve/format';
 import type { QuoteCoin } from '../../../lib/solana/lp/quotes';
 import { Field } from '../curve/ui';
@@ -36,6 +37,7 @@ export function LpAmountPair({
   errors,
   canMax,
   labels = { quote: `${coin.symbol} to add`, token: 'Tokens to add' },
+  extra,
 }: {
   /** The pool's pairing coin: it names the coin's box and its Max button. */
   coin: QuoteCoin;
@@ -54,6 +56,8 @@ export function LpAmountPair({
   canMax: { quote: boolean; token: boolean };
   /** The visible labels (and so the boxes' names). Opening a pool says "to put in". */
   labels?: { quote: string; token: string };
+  /** What goes with a box, outside its label: under it on a phone, beside it on a wider screen (Add: the parts of what that side can put in). */
+  extra?: { quote?: ReactNode; token?: ReactNode };
 }) {
   const box = (side: LpSide) => {
     const label = side === 'quote' ? labels.quote : tokenDecimals === null ? `${labels.token} (base units)` : labels.token;
@@ -92,10 +96,22 @@ export function LpAmountPair({
       </Field>
     );
   };
+  // Beside its box where there is room, so it adds no height there; under it on a phone.
+  // In the row the box's bottom margin is taken back and given to the row itself: kept
+  // inside, it could not fold into the gap below and the form grew 12px (measured).
+  const row = (side: LpSide) =>
+    extra?.[side] ? (
+      <div key={side} className="sm:flex sm:items-start sm:gap-3 sm:mb-3">
+        <div className="sm:flex-1 sm:min-w-0 sm:-mb-3">{box(side)}</div>
+        {extra[side]}
+      </div>
+    ) : (
+      box(side)
+    );
   return (
     <div data-testid="lp-amount-pair">
-      {box('quote')}
-      {box('token')}
+      {row('quote')}
+      {row('token')}
     </div>
   );
 }
