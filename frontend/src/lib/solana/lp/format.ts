@@ -1,14 +1,24 @@
 import { formatSol, formatTokenAmount } from '../../launcher/solana/curve/format';
 import { ratePercent } from '../cpswap/math';
 import { chargedCreatorFeeRate, tradeCost } from '../cpswap/venue';
+import type { QuoteCoin } from './quotes';
 
 /** Display helpers for the LP pages. Numbers that ride a transaction never pass through here. */
 
-/** A SOL-per-token price written out (never scientific notation), four significant digits. */
+/**
+ * A price written out (never scientific notation), four significant digits. The unit is
+ * the caller's: SOL per token for a SOL pool, the pool's own pairing coin otherwise
+ * (`priceText` adds it).
+ *
+ * From 10,000 up it is a whole number with its thousands grouped: "104,000". Four
+ * significant digits there would be "1.040e+5", which nobody reads as a price. No token
+ * costs 10,000 SOL, but one worth 10,000 USDC or 10,000 BAYLA is ordinary. The line is at
+ * 9,999.5, the first value that rounds to five digits.
+ */
 export function formatSolPrice(v: number): string {
   if (!Number.isFinite(v) || v < 0) return 'unreadable';
   if (v === 0) return '0';
-  if (v >= 1e9) return Math.round(v).toString();
+  if (v >= 9999.5) return Math.round(v).toLocaleString('en-US');
   if (v < 0.000001) {
     const digits = Math.min(100, 3 - Math.floor(Math.log10(v)));
     return v.toFixed(digits).replace(/0+$/, '');
@@ -40,6 +50,19 @@ export function tradeCostText(config: { tradeFeeRate: bigint; creatorFeeRate: bi
 
 export function solText(lamports: bigint): string {
   return `${formatSol(lamports, 4)} SOL`;
+}
+
+/**
+ * An amount of a pool's pairing coin, in that coin's own decimals: "1.5 SOL",
+ * "250 USDC". SOL is `solText`, to the character.
+ */
+export function quoteText(raw: bigint, quote: QuoteCoin): string {
+  return quote.native ? solText(raw) : `${formatTokenAmount(raw, quote.decimals, 4).text} ${quote.symbol}`;
+}
+
+/** "1 token = 0.025 USDC": a pool's price, or its reference, in the pool's own coin. */
+export function priceText(perToken: number, quote: QuoteCoin): string {
+  return `1 token = ${formatSolPrice(perToken)} ${quote.symbol}`;
 }
 
 /** Token amount with its decimals, or raw base units said as such. */

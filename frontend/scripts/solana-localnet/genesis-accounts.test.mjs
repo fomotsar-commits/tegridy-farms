@@ -15,7 +15,7 @@ import { describe, it, expect } from 'vitest';
 import {
   loadVerifiedIdls, goldenMismatches, encodeIdlAccount, buildGenesisAccounts, rentExempt,
   rehearsalGlobalValues, e2eGlobalValues, ammConfigValues, ammConfig1Values, e2eAmmConfigValues, mainnetConfigMismatches, derived, readGolden,
-  baylaMintStandIn, baylaMintAuthority,
+  baylaMintStandIn, baylaMintAuthority, usdcMintStandIn, usdcMintAuthority, USDC_MINT, TOKEN_PROGRAM,
   LAUNCH_PROGRAM, CP_SWAP_PROGRAM, VAULT, DEPLOYER, BAYLA_MINT, TOKEN_2022_PROGRAM,
 } from './genesis-accounts.mjs';
 
@@ -23,6 +23,55 @@ const idls = loadVerifiedIdls();
 if (!idls) console.warn('[genesis-accounts.test] no pinned IDL found: this suite is NOT checked on this machine');
 
 const clone = (x) => JSON.parse(JSON.stringify(x));
+
+describe('the stand-in USDC mint', () => {
+  const golden = readGolden('usdc-mint.mainnet.json');
+  const g = Buffer.from(golden.account.data[0], 'base64');
+
+  it('is the mainnet USDC mint: its real address, the classic token program, 82 bytes, 6 decimals, a mint and a freeze authority', () => {
+    expect(golden.pubkey).toBe('EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v');
+    expect(USDC_MINT.toBase58()).toBe(golden.pubkey);
+    expect(golden.account.owner).toBe('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA');
+    expect(TOKEN_PROGRAM.toBase58()).toBe(golden.account.owner);
+    expect(g.length).toBe(82);
+    expect(g[44]).toBe(6);
+    expect(g.readUInt32LE(0)).toBe(1);
+    expect(g.readUInt32LE(46)).toBe(1);
+  });
+
+  it('differs from mainnet ONLY in its mint authority, which is the harness test key', () => {
+    const s = usdcMintStandIn();
+    const b = Buffer.from(s.account.data[0], 'base64');
+    expect(b.length).toBe(g.length);
+    const differing = [];
+    for (let i = 0; i < b.length; i++) if (b[i] !== g[i]) differing.push(i);
+    expect(differing.length).toBeGreaterThan(0);
+    // Only the 32 key bytes of the mint authority: its tag, the supply, the decimals and the freeze authority are mainnet's.
+    expect(differing.filter((i) => i < 4 || i >= 36)).toEqual([]);
+    expect(b.subarray(4, 36).equals(usdcMintAuthority().publicKey.toBuffer())).toBe(true);
+    // A different key from $BAYLA's: one phrase must not mint both.
+    expect(usdcMintAuthority().publicKey.equals(baylaMintAuthority().publicKey)).toBe(false);
+    expect(s.pubkey).toBe(golden.pubkey);
+    expect(s.account.owner).toBe(golden.account.owner);
+    expect(s.account.lamports).toBe(golden.account.lamports);
+    expect(s.account.space).toBe(golden.account.space);
+  });
+
+  it('refuses a dump that is not that mint', () => {
+    const noAuthority = clone(golden);
+    const d = Buffer.from(noAuthority.account.data[0], 'base64');
+    d.writeUInt32LE(0, 0);
+    noAuthority.account.data[0] = d.toString('base64');
+    expect(() => usdcMintStandIn(noAuthority)).toThrow(/not the USDC mint/);
+    expect(() => usdcMintStandIn({ ...golden, account: { ...golden.account, owner: 'TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb' } })).toThrow(/not the USDC mint/);
+    expect(() => usdcMintStandIn({ ...golden, pubkey: VAULT.toBase58() })).toThrow(/not the USDC mint/);
+    const nineDecimals = clone(golden);
+    const e = Buffer.from(nineDecimals.account.data[0], 'base64');
+    e[44] = 9;
+    nineDecimals.account.data[0] = e.toString('base64');
+    expect(() => usdcMintStandIn(nineDecimals)).toThrow(/not the USDC mint/);
+  });
+});
 
 // No IDL needed: the stand-in is a mainnet read with one field changed.
 describe('the stand-in $BAYLA mint', () => {
@@ -129,6 +178,8 @@ describe.skipIf(!idls)('e2e genesis accounts', () => {
     expect(accts['vault.json'].account.lamports).toBeGreaterThanOrEqual(rentExempt(0));
     // The plant needs $BAYLA on the chain: the stand-in mint is seeded at its real address.
     expect(accts['bayla-mint.json']).toEqual(baylaMintStandIn());
+    // A pool may pair a token with USDC: its stand-in mint is seeded at its real address too.
+    expect(accts['usdc-mint.json']).toEqual(usdcMintStandIn());
   });
 it('config 1 (the public tier) is config 0 with ONLY its bump, index and fee fields changed', () => {
     const c0 = encodeIdlAccount(idls.cpIdl, 'AmmConfig', ammConfigValues());

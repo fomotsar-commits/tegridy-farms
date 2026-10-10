@@ -31,6 +31,8 @@ export const ui = {
   makerCreateBuy: (p: Page) => p.getByTestId('maker-create-buy'),
   publicForever: (p: Page) => p.getByTestId('public-forever'),
   review: (p: Page) => p.getByTestId('tx-review'),
+  /** The warnings at the top of a review: said again from the builder's own fresh reads. */
+  reviewWarnings: (p: Page) => p.getByTestId('tx-review').getByTestId('tx-review-warnings'),
   outcome: (p: Page) => p.getByTestId('tx-outcome'),
   /** Signed and on its way: the wait for the network, with the signature. */
   sent: (p: Page) => p.getByTestId('tx-sent'),
@@ -93,9 +95,18 @@ export const ui = {
     addButton: (s: Page | Locator) => s.getByRole('button', { name: 'Add liquidity', exact: true }),
     addPanel: (s: Page | Locator) => s.getByTestId('lp-add-panel'),
     solToAdd: (s: Page | Locator) => s.getByLabel('SOL to add', { exact: true }),
+    /** The coin's box on an Add form, named after the pool's own coin: "SOL to add", "USDC to add", "BAYLA to add". */
+    coinToAdd: (s: Page | Locator, symbol: string) => s.getByLabel(`${symbol} to add`, { exact: true }),
     /** "Tokens to add", or "Tokens to add (base units)" when the token's decimals are unread. */
     tokensToAdd: (s: Page | Locator) => s.getByLabel(/^Tokens to add( \(base units\))?$/),
     maxSol: (s: Page | Locator) => s.getByRole('button', { name: 'Max SOL', exact: true }),
+    /** The coin's Max button: "Max SOL", "Max USDC", "Max BAYLA". */
+    maxCoin: (s: Page | Locator, symbol: string) => s.getByRole('button', { name: `Max ${symbol}`, exact: true }),
+    /** "Add more liquidity" on a position row: it ends in that pool's own Add form. */
+    addMore: (s: Page | Locator) => s.getByRole('button', { name: 'Add more liquidity', exact: true }),
+    /** What a pool's checks warn of: on its card, and above Review on its Add form. */
+    poolWarnings: (s: Page | Locator) => s.getByTestId('lp-pool-warnings'),
+    addWarnings: (s: Page | Locator) => s.getByTestId('lp-add-warnings'),
     maxTokens: (s: Page | Locator) => s.getByRole('button', { name: 'Max tokens', exact: true }),
     reviewAdd: (s: Page | Locator) => s.getByRole('button', { name: 'Review: add liquidity', exact: true }),
     removeButton: (s: Page | Locator) => s.getByRole('button', { name: 'Remove liquidity', exact: true }),
@@ -114,8 +125,17 @@ export const ui = {
       openButton: (p: Page) => p.getByTestId('lp-create').getByRole('button', { name: 'Open a pool', exact: true }),
       panel: (p: Page) => p.getByTestId('lp-create-panel'),
       solToPut: (p: Page) => p.getByTestId('lp-create-panel').getByLabel('SOL to put in', { exact: true }),
+      /** The coin's box, named after the coin chosen under "Pair with": "USDC to put in", "BAYLA to put in". */
+      coinToPut: (p: Page, symbol: string) => p.getByTestId('lp-create-panel').getByLabel(`${symbol} to put in`, { exact: true }),
       tokensToPut: (p: Page) => p.getByTestId('lp-create-panel').getByLabel(/^Tokens to put in( \(base units\))?$/),
       maxSol: (p: Page) => p.getByTestId('lp-create-panel').getByRole('button', { name: 'Max SOL', exact: true }),
+      maxCoin: (p: Page, symbol: string) => p.getByTestId('lp-create-panel').getByRole('button', { name: `Max ${symbol}`, exact: true }),
+      /** The "Pair with" choice: a radio group, drawn only when the token can be paired with more than one coin. */
+      pair: (p: Page) => p.getByTestId('lp-create-panel').getByTestId('lp-create-pair'),
+      pairWith: (p: Page, symbol: string) => p.getByTestId('lp-create-panel').getByTestId('lp-create-pair').getByRole('radio', { name: symbol, exact: true }),
+      /** The warnings before the card's buttons, and the ones above Review in the form. Neither takes a button away. */
+      cautions: (p: Page) => p.getByTestId('lp-create').getByTestId('lp-create-cautions'),
+      warnings: (p: Page) => p.getByTestId('lp-create-panel').getByTestId('lp-create-warnings'),
       maxTokens: (p: Page) => p.getByTestId('lp-create-panel').getByRole('button', { name: 'Max tokens', exact: true }),
       match: (p: Page) => p.getByTestId('lp-create-panel').getByTestId('lp-create-match'),
       /** The button under Match (the problems line can carry a second one with the same words, later in the panel). */
@@ -134,21 +154,38 @@ export const ui = {
  * naming what covers it.
  */
 export async function expectClickable(loc: Locator, what = 'element'): Promise<void> {
-  // Visible first (bounded by the expect timeout): scrollIntoViewIfNeeded on a missing
-  // element would wait out the whole test.
+  // Visible first (bounded by the expect timeout): a read of a missing element would wait
+  // out the whole test.
   await expect(loc, `${what} should be visible`).toBeVisible();
-  await loc.scrollIntoViewIfNeeded();
-  const hit = await loc.evaluate((el) => {
-    const r = el.getBoundingClientRect();
-    const x = r.left + r.width / 2;
-    const y = r.top + r.height / 2;
-    const top = document.elementFromPoint(x, y);
-    if (!top) return `nothing at (${x.toFixed(0)}, ${y.toFixed(0)})`;
-    if (top === el || el.contains(top)) return null;
-    const d = top as HTMLElement;
-    return `<${d.tagName.toLowerCase()} class="${d.className}"> "${(d.textContent ?? '').trim().slice(0, 60)}" covers it at (${x.toFixed(0)}, ${y.toFixed(0)})`;
-  });
-  expect(hit, `${what} is visible but not clickable`).toBeNull();
+  // Scrolled into view, then asked what is on top at its centre, and asked AGAIN until it
+  // holds. Those are two moments: a page that is still loading (a card landing above this
+  // one after a reload) moves the control off the screen in between, and the answer was
+  // "nothing at (640, 1798)" for a button that was never covered (outcomes.spec.ts, 1 run
+  // in 3). So one look is not the answer: the next one scrolls again. A control that IS
+  // covered stays covered, and this still fails for it, naming what covers it.
+  //
+  // The scroll stays the browser's own scroll-if-needed. It knows the page's scroll
+  // padding (the fixed bar at the top, the tab bar at the foot of a phone), so a control
+  // that sits under one of those is moved out from under it, as a person would move it.
+  const hit = async () => {
+    // Both bounded: a read with no timeout of its own waits out the whole test when the element goes.
+    await loc.scrollIntoViewIfNeeded({ timeout: 5_000 });
+    return loc.evaluate(
+      (el) => {
+        const r = el.getBoundingClientRect();
+        const x = r.left + r.width / 2;
+        const y = r.top + r.height / 2;
+        const top = document.elementFromPoint(x, y);
+        if (!top) return `nothing at (${x.toFixed(0)}, ${y.toFixed(0)})`;
+        if (top === el || el.contains(top)) return null;
+        const d = top as HTMLElement;
+        return `<${d.tagName.toLowerCase()} class="${d.className}"> "${(d.textContent ?? '').trim().slice(0, 60)}" covers it at (${x.toFixed(0)}, ${y.toFixed(0)})`;
+      },
+      undefined,
+      { timeout: 5_000 },
+    );
+  };
+  await expect.poll(hit, { message: `${what} is visible but not clickable`, timeout: 10_000 }).toBeNull();
 }
 
 export async function clickReal(loc: Locator, what: string): Promise<void> {
@@ -188,12 +225,16 @@ export async function checkAtSizes(p: Page, label: string, pressable: Array<[Loc
   if (original) await p.setViewportSize(original);
 }
 
+/** Inputs a person types into: every input but a radio button or a checkbox. */
+const TYPED_INPUTS = 'input:not([type="radio"]):not([type="checkbox"])';
+
 /**
  * The LP section's layout rule, at a phone (390), an iPad (820) and a desktop (1280):
  * no sideways page scroll; each of `controls` scrolled to the middle of the screen (as a
  * thumb scrolls, so nothing sticky sits over it) and then on top at its own centre
- * (elementFromPoint); every input in the LP section at least 16px (no zoom on focus);
- * every visible button in it at least 44px tall. Puts the viewport back afterwards.
+ * (elementFromPoint); every box a person types in, in the LP section, at least 16px (no
+ * zoom on focus); every visible button in it, and every radio button's label, at least
+ * 44px tall. Puts the viewport back afterwards.
  */
 export async function expectPressableAtSizes(p: Page, label: string, controls: Array<[Locator, string]>): Promise<void> {
   const original = p.viewportSize();
@@ -207,8 +248,13 @@ export async function expectPressableAtSizes(p: Page, label: string, controls: A
       await loc.evaluate((el) => el.scrollIntoView({ block: 'center' }));
       await expectClickable(loc, `${what} (${label}, ${width}px)`);
     }
-    const fields = await section.locator('input').evaluateAll((els) => els.map((e) => ({ n: e.getAttribute('aria-label') ?? e.id, px: parseFloat(getComputedStyle(e).fontSize) })));
+    // The 16px rule is about boxes a person TYPES in: a phone zooms the page when a smaller
+    // one takes focus. A radio button is not typed in (the "Pair with" choice): its rule is
+    // the 44px target, which is its whole label.
+    const fields = await section.locator(TYPED_INPUTS).evaluateAll((els) => els.map((e) => ({ n: e.getAttribute('aria-label') ?? e.id, px: parseFloat(getComputedStyle(e).fontSize) })));
     for (const f of fields) expect(f.px, `input "${f.n}" font (${label}, ${width}px)`).toBeGreaterThanOrEqual(16);
+    const radios = await section.locator('input[type="radio"]').evaluateAll((els) => els.map((e) => ({ v: (e as HTMLInputElement).value, h: e.closest('label')?.getBoundingClientRect().height ?? 0 })));
+    for (const r of radios) expect(r.h, `the label of the "${r.v}" choice (${label}, ${width}px)`).toBeGreaterThanOrEqual(44);
     const buttons = await section.locator('button:visible').evaluateAll((els) => els.map((e) => ({ t: (e.textContent ?? '').trim().slice(0, 30), h: e.getBoundingClientRect().height })));
     for (const b of buttons) expect(b.h, `button "${b.t}" height (${label}, ${width}px)`).toBeGreaterThanOrEqual(44);
   }

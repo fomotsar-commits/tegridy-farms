@@ -9,6 +9,11 @@
 // elementFromPoint (expectClickable), never only toBeVisible, and every scenario ends with
 // the RPC guard's violations empty (no getProgramAccounts, nothing production refuses).
 //
+// Owner ruling 2026-10-04 (any token may have a pool): a pool price more than 3% off, a
+// pool with no market price and a token its creator can freeze were refusals, and are
+// warnings now. E7, E9 and E18 hold the page to the new rule, each to a deposit that lands
+// with its warning said first; E20 holds it to a refusal that stays (a transfer fee).
+//
 // Group A runs on chromium AND mobile-chrome against one chain, so each project makes its
 // own token and pools in its own beforeAll, and every expectation is computed from the
 // chain at the time. Group B is chromium only: it is chain-heavy, and group A covers its
@@ -17,17 +22,20 @@ import { test, expect, type Locator } from '@playwright/test';
 import { Keypair, PublicKey, Transaction, VersionedTransaction } from '@solana/web3.js';
 import { ASSOCIATED_TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID, createAssociatedTokenAccountIdempotentInstruction } from '@solana/spl-token';
 import {
-  WSOL, accountDataLength, accountOwner, ata, chain, fundedKeypair, graduateDirect, lamportDelta, lamports, landedTx, mintFacts, poolFacts,
+  WSOL, accountDataLength, accountOwner, ata, chain, fundedKeypair, graduateDirect, lamportDelta, lamports, mintFacts, poolFacts,
   reassignAtaOwner, sol, swapDirect, tokenAmount, wrapSol, CP_SWAP_PROGRAM, LAUNCH_PROGRAM, type PoolFacts,
 } from './fixtures/chain';
 import {
-  closeTokenAccount, createClassicToken, createSolPool, createToken2022MetadataOnly, freezeVault,
+  closeTokenAccount, createClassicToken, createSolPool, createToken2022MetadataOnly, createTransferFeeToken, freezeVault,
   squatStandard, transferLp, transferTokens, type CreatedPool,
 } from './fixtures/lp';
+import { SOL_COIN } from './fixtures/coins';
 import {
-  actor, addAndReview, closeAll, connect, ensureConnected, esc, openAdd, openPools, openRemove, pct, pendingNotes, poolCard, positionRow, press, pressable,
+  actor, addAndReview, closeAll, connect, depositPlan, ensureConnected, esc, openAdd, openPools, openRemove, pct, pendingNotes, poolCard, positionRow, press, pressable,
   reviewDeposit, reviewRows, shareText, sidesOf, signConfirmed, signedSol, signedTok, solExact, tok, units, withdrawPlan, type Prices,
 } from './fixtures/lpPage';
+// The market sums, worked out by hand (never the page's own): see fixtures/market.ts.
+import { gapOf, lossAtMarketUp, priceOf, stubMid } from './fixtures/market';
 import { ui, expectPressableAtSizes } from './fixtures/ui';
 import { formatSol, parseDecimalToBaseUnits } from '../src/lib/launcher/solana/curve/format';
 import { poolStatePda } from '../src/lib/launcher/solana/curve/program';
@@ -104,6 +112,7 @@ test.describe('group A (chromium and mobile-chrome)', () => {
       lpTokenAmount: String(plan.lp),
       maximumToken0Amount: String(s.solIs0 ? plan.maxSol : plan.maxTok),
       maximumToken1Amount: String(s.solIs0 ? plan.maxTok : plan.maxSol),
+      pairedWith: 'SOL',
     });
     // What moved, read from the chain.
     const after = await books(A.walletB.publicKey, f);
@@ -163,6 +172,7 @@ test.describe('group A (chromium and mobile-chrome)', () => {
         lpTokenAmount: String(plan.lp),
         minimumToken0Amount: String(s.solIs0 ? plan.minSol : plan.minTok),
         minimumToken1Amount: String(s.solIs0 ? plan.minTok : plan.minSol),
+        pairedWith: 'SOL',
       });
       const after = await books(A.walletB.publicKey, f);
       expect(before.lp - after.lp, 'the shares burned are exactly the plan').toBe(plan.lp);
@@ -201,9 +211,11 @@ test.describe('group A (chromium and mobile-chrome)', () => {
     await expect(out).toContainText('Sent, not confirmed yet');
     await expect(out).not.toContainText(/fail/i);
     expect(a.rpc.failedCount('getSignatureStatuses')).toBeGreaterThan(0);
-    // It did land: the chain says so.
-    expect((await landedTx(signature)).meta?.err ?? null).toBeNull();
-    expect((await books(A.creator.publicKey, f)).lp - before.lp).toBe(plan.lp);
+    // It did land: the chain holds the shares. Asked of the share account, not of the
+    // signature. By now the deposit is over a minute old, and under a full run's load the
+    // local validator keeps only a few hundred slots of transaction history (chain.ts
+    // landedTx): looked up by signature, a deposit that landed read "did not land".
+    await expect.poll(async () => (await books(A.creator.publicKey, f)).lp - before.lp, { message: 'the deposit landed: its shares are on chain', timeout: 30_000 }).toBe(plan.lp);
 
     await p.reload();
     const pending = ui.lp.pending(p);
@@ -282,6 +294,8 @@ const B = {} as {
   creator15: Keypair; t15: PublicKey; p15: CreatedPool; b15: Keypair;
   // E18: an unpriced token's pool, and a priced one Jupiter routes through our own pool.
   creator18: Keypair; tu: PublicKey; pu: CreatedPool; tr: PublicKey; pr: CreatedPool;
+  // E20: a token that takes a fee out of every transfer, and its pool.
+  creator20: Keypair; tfee: PublicKey; pfee: CreatedPool;
 };
 
 /** Wallet R's lamports: exactly 0.2 SOL above what the panel and prepare hold back. */
@@ -377,6 +391,13 @@ test.describe('group B (chromium only)', () => {
         B.pu = await pool(B.creator18, B.tu, 1, 1, 1_000_000n);
         B.tr = await classic(B.creator18, 'E2E Write Routed', 'EWRTD');
         B.pr = await pool(B.creator18, B.tr, 1, 1, 1_000_000n);
+      })(),
+      (async () => {
+        B.creator20 = await fundedKeypair(5);
+        // 1% of every transfer. The pool program takes this extension, so the pool opens (from
+        // Node, straight against the program); the site blocks the token all the same.
+        B.tfee = await createTransferFeeToken(B.creator20, { supply: 10_000_000n * UNIT, feeBps: 100 });
+        B.pfee = await pool(B.creator20, B.tfee, 1, 1, 1_000_000n, 'standard', TOKEN_2022_PROGRAM_ID);
       })(),
     ]);
     // The launch mint and the unpriced token are NOT priced: the stub says "no route".
@@ -553,35 +574,84 @@ test.describe('group B (chromium only)', () => {
     await a.ctx.close();
   });
 
-  test('E7: a price pushed more than 3% before Review is refused at build, signs nothing, and the card then says refused; the creator still leaves', async ({ browser }) => {
-    test.setTimeout(6 * 60_000);
+  // Owner ruling 2026-10-04: a pool whose price is more than 3% from the outside price
+  // refused a deposit at build. It is a warning now: the review says the gap and what it is
+  // estimated to cost, first, and the deposit lands. The pool's card and its Add form then
+  // say the same before Review.
+  test('E7: a price pushed more than 3% before Review is a warning with its estimated loss, the deposit lands, and the card and the form then say so; the creator still leaves', async ({ browser }) => {
+    test.setTimeout(8 * 60_000);
     const a = await actor(browser, B.creator7, { prices: B.prices });
     const p = a.page;
+    const owner = B.creator7.publicKey;
+    // The outside price the page reads for this token, worked out from the stub's own numbers.
+    const market = stubMid(FAIR, DEC);
+    const offLine = (gap: string) => `Its price is ${gap} the outside price. A deposit here would hand that gap to the first arbitrage trade.`;
+    const lossLine = (lamports: bigint) => `At these amounts, a move back to the outside price would take up to about ${solExact(lamports)} of what you put in. That is an estimate.`;
+    /** How far the pool's price is from that outside price, from a read of its reserves in Node. */
+    const gapOfPool = (f: PoolFacts) => {
+      const s = sidesOf(f);
+      return gapOf(priceOf(s.coinIs0 ? f.snapshot.reserve0 : f.snapshot.reserve1, s.coinIs0 ? f.snapshot.reserve1 : f.snapshot.reserve0, DEC, SOL_COIN), market);
+    };
+    const lossOf = (plan: { costSol: bigint; costTok: bigint }) =>
+      lossAtMarketUp({ coinAmount: plan.costSol, tokenAmount: plan.costTok, tokenDecimals: DEC, marketPricePerToken: market, coin: SOL_COIN });
+
     await openPools(p, B.t7);
     await connect(p);
     const card = poolCard(p, B.p7.address);
     await expect(card).toHaveAttribute('data-deposits', 'allowed', { timeout: 60_000 });
+    await expect(card).toHaveAttribute('data-price', 'agrees');
     const { panel } = await addAndReview(a, B.p7.address, '0.1');
+    await expect(ui.lp.addWarnings(panel), 'no warning while the price agrees').toHaveCount(0);
     // In Node: about 5% of the pool's SOL bought in, so its price rises about 10%.
-    const f = await poolFacts(B.p7.address);
-    const solReserve = sidesOf(f).solIs0 ? f.snapshot.reserve0 : f.snapshot.reserve1;
+    const f0 = await poolFacts(B.p7.address);
+    const solReserve = sidesOf(f0).solIs0 ? f0.snapshot.reserve0 : f0.snapshot.reserve1;
     await swapDirect(B.pusher, B.p7.address, WSOL, solReserve / 20n);
-    await press(ui.lp.reviewAdd(panel), 'Review: add liquidity');
-    const out = ui.outcome(p);
-    await expect(out).toHaveAttribute('data-status', 'not-sent', { timeout: 60_000 });
-    await expect(out).toContainText('Not sent. We could not build this transaction.');
-    await expect(out).toContainText(/Its price is \d+\.\d% above the outside price/);
-    expect(a.wallet.records).toEqual([]);
-    await press(out.getByRole('button', { name: 'Start over' }), 'Start over');
-    await expect(card).toHaveAttribute('data-deposits', 'refused', { timeout: 60_000 });
-    await press(panel.getByRole('button', { name: 'Close', exact: true }), 'close the panel');
 
+    // Review reads the pool and the price again. It is built, with the gap and its cost said first.
+    const { rows, f, plan, s } = await reviewDeposit(a, panel, B.p7.address, 'sol', sol(0.1));
+    const gap = gapOfPool(f);
+    expect(gap, 'about 10% above the outside price').toMatch(/^(9|10)\.\d% above$/);
+    const loss = lossOf(plan);
+    expect(loss > 0n).toBe(true);
+    expect(rows['Price check']).toBe(`${gap} the outside price (Jupiter), read just now. That is off by more than 3%.`);
+    expect(rows['Estimated cost of that gap']).toBe(`up to about ${solExact(loss)} of what you put in`);
+    await expect(ui.reviewWarnings(p)).toContainText('Read these warnings first. Nothing here stops you signing, and each one is a risk to what you put in:');
+    await expect(ui.reviewWarnings(p)).toContainText(offLine(gap));
+    await expect(ui.reviewWarnings(p)).toContainText(lossLine(loss));
+    const lpAcc = ata(s.lpMint, owner);
+    const heldBefore = (await tokenAmount(lpAcc))!;
+    await signConfirmed(a);
+    expect(a.wallet.lastIx('deposit').args.lpTokenAmount).toBe(String(plan.lp));
+    expect((await tokenAmount(lpAcc))! - heldBefore, 'the deposit landed, at the pool\'s own price').toBe(plan.lp);
+
+    // The card, read again: deposits still pass, now with the gap as a warning.
+    await closeAll(p, panel);
+    await expect(card).toHaveAttribute('data-price', 'disagrees', { timeout: 60_000 });
+    await expect(card).toHaveAttribute('data-deposits', 'allowed');
+    await expect(card).toHaveAttribute('data-add', 'offer');
+    await expect(card).toContainText('Deposits: the checks pass, with warnings');
+    const f2 = await poolFacts(B.p7.address);
+    await expect(ui.lp.poolWarnings(card)).toContainText(offLine(gapOfPool(f2)));
+    // And its Add form says the warning before anything is typed, then what the typed amount may lose. Review stays on.
+    const again = await openAdd(p, B.p7.address);
+    await expect(ui.lp.addWarnings(again.panel)).toContainText('Read these before you review. You can still add, and each one is a risk to what you put in:');
+    await expect(ui.lp.addWarnings(again.panel)).toContainText(offLine(gapOfPool(f2)));
+    await expect(ui.lp.addWarnings(again.panel)).toContainText('Type an amount to see about how much that could cost you.');
+    await ui.lp.solToAdd(again.panel).fill('0.05');
+    await expect(ui.lp.addWarnings(again.panel)).toContainText(lossLine(lossOf(depositPlan(f2, 'sol', sol(0.05)))));
+    await expect(ui.lp.reviewAdd(again.panel)).toBeEnabled({ timeout: 30_000 });
+    await press(again.panel.getByRole('button', { name: 'Close', exact: true }), 'close the panel');
+
+    // The creator still leaves.
     const rpanel = await openRemove(positionRow(p, B.p7.address));
     await press(ui.lp.percent(rpanel, '25%'), '25%');
     await press(ui.lp.reviewRemove(rpanel), 'Review: remove liquidity');
     await reviewRows(p);
+    // A removal carries no warning: nothing may give someone a reason to wait before taking their money out.
+    await expect(ui.reviewWarnings(p)).toHaveCount(0);
     await signConfirmed(a);
     expect(a.wallet.lastIx('withdraw').accounts.pool_state).toBe(B.p7.address.toBase58());
+    expect(a.wallet.signed()).toHaveLength(2);
     expect(a.rpc.violations).toEqual([]);
     await a.ctx.close();
   });
@@ -612,30 +682,57 @@ test.describe('group B (chromium only)', () => {
     await a.ctx.close();
   });
 
-  test('E9: leaving with deposits refused: a squat pool opening in ten years, and a blocked token\'s share set aside; no Add, and both Removes land', async ({ browser }) => {
-    test.setTimeout(6 * 60_000);
+  // Owner ruling 2026-10-04: a token its creator can freeze was blocked, so its pool refused
+  // deposits and its share was set aside. It is allowed now, with a warning: its pool takes
+  // a deposit and its share sits with the rest. The squat pool is still refused (it opens
+  // for trading in ten years), and leaving works from both.
+  test('E9: a squat pool opening in ten years still refuses deposits; a freezable token\'s pool takes one with a warning and its share is not set aside; both Removes land', async ({ browser }) => {
+    test.setTimeout(8 * 60_000);
     const a = await actor(browser, B.stranger, { prices: B.prices });
     const p = a.page;
+    const owner = B.stranger.publicKey;
+    const freezeOnPool =
+      'Its creator can freeze the vault of this pool, and while it is frozen nobody can take liquidity out, you included. They can also freeze your own account for the token.';
+    // Still refused: the squat pool.
     await openPools(p, B.ts);
     const squat = poolCard(p, B.squat.address);
     await expect(squat).toHaveAttribute('data-deposits', 'refused', { timeout: 60_000 });
     await expect(squat).toHaveAttribute('data-add', 'checks');
     await expect(ui.lp.addButton(squat)).toHaveCount(0);
+    // Allowed now, with the warning: the freezable token's pool.
     await openPools(p, B.tf);
-    const frozenish = poolCard(p, B.pf.address);
-    await expect(frozenish).toHaveAttribute('data-deposits', 'refused', { timeout: 60_000 });
-    await expect(ui.lp.addButton(frozenish)).toHaveCount(0);
+    await expect(ui.lp.safety(p)).toHaveAttribute('data-verdict', 'warn');
+    await expect(ui.lp.safety(p)).toContainText(`Its creator can freeze any account that holds it (freeze authority ${owner.toBase58()})`);
+    const freezable = poolCard(p, B.pf.address);
+    await expect(freezable).toHaveAttribute('data-deposits', 'allowed', { timeout: 60_000 });
+    await expect(freezable).toHaveAttribute('data-add', 'offer');
+    await expect(freezable).toContainText('Deposits: the checks pass, with warnings');
+    await expect(ui.lp.poolWarnings(freezable)).toContainText(freezeOnPool);
     await connect(p);
+    // Its share is with the rest, under its own name. Nothing is set aside for a token that is only warned about.
+    const frow = positionRow(p, B.pf.address);
+    await expect(frow).toContainText('allowed, with warnings', { timeout: 60_000 });
+    await expect(frow).toContainText('E2E Write Freeze (EWFZ)');
+    await expect(frow).not.toContainText('Set aside');
+    await expect(p.getByTestId('lp-positions-set-aside')).toHaveCount(0);
 
+    // A deposit into it lands, with the warning above Review and first on the review.
+    const { panel } = await addAndReview(a, B.pf.address, '0.05');
+    await expect(ui.lp.addWarnings(panel)).toContainText(freezeOnPool);
+    const { plan, s } = await reviewDeposit(a, panel, B.pf.address, 'sol', sol(0.05));
+    await expect(ui.reviewWarnings(p)).toContainText('Read these warnings first. Nothing here stops you signing, and each one is a risk to what you put in:');
+    await expect(ui.reviewWarnings(p)).toContainText(freezeOnPool);
+    const lpF = ata(s.lpMint, owner);
+    const heldF = (await tokenAmount(lpF))!;
+    await signConfirmed(a);
+    expect(a.wallet.lastIx('deposit').accounts.pool_state).toBe(B.pf.address.toBase58());
+    expect((await tokenAmount(lpF))! - heldF, 'the deposit landed').toBe(plan.lp);
+    await closeAll(p, panel);
+
+    // Leaving: both Removes land, from the pool that refuses deposits and from the one that takes them.
     for (const pool of [B.squat, B.pf]) {
       const row = positionRow(p, pool.address);
-      if (pool === B.pf) {
-        const aside = p.getByTestId('lp-positions-set-aside');
-        await expect(aside).toBeVisible({ timeout: 60_000 });
-        if (!(await aside.evaluate((el) => (el as HTMLDetailsElement).open))) await press(aside.locator('summary'), 'set-aside list');
-        await expect(row).toContainText('Set aside: its token is blocked on this site.');
-      }
-      const lpAcc = ata(pool.lpMint, B.stranger.publicKey);
+      const lpAcc = ata(pool.lpMint, owner);
       const held = (await tokenAmount(lpAcc))!;
       const rpanel = await openRemove(row);
       await press(ui.lp.percent(rpanel, '50%'), '50%');
@@ -802,31 +899,61 @@ test.describe('group B (chromium only)', () => {
     await a.ctx.close();
   });
 
-  test('E18: pools whose price cannot be checked offer no Add (no route; a route through our own pool); the creator\'s Remove stays', async ({ browser }) => {
+  // Owner ruling 2026-10-04: when Jupiter ANSWERED that it has no route, a pool anyone could
+  // open was "not checked" and offered no Add. That is a warning now: the pool takes a
+  // deposit, and says its price was checked against nothing. A price that came through one
+  // of our own pools is a different thing, and has not changed: it is a read that failed,
+  // so that pool is still not checked and still offers no Add.
+  test('E18: a pool with no market price takes a deposit with a warning; a price through our own pool is still not checked and offers no Add; the creator\'s Remove stays', async ({ browser }) => {
+    test.setTimeout(6 * 60_000);
     const a = await actor(browser, B.creator18, { prices: B.prices, routeThrough: B.pr.address });
     const p = a.page;
+    const owner = B.creator18.publicKey;
+    const noMarket =
+      'Jupiter has no market price for this token, so this pool’s price was not checked against anything. If it is off, a deposit here hands the difference to whoever trades it back.';
+    // No route: allowed, with the warning on the card.
     await openPools(p, B.tu);
     const unpriced = poolCard(p, B.pu.address);
-    await expect(unpriced).toHaveAttribute('data-deposits', 'unchecked', { timeout: 60_000 });
-    await expect(unpriced).toHaveAttribute('data-add', 'checks');
-    await expect(unpriced).toContainText('Jupiter has no route for this token');
-    await expect(unpriced).toContainText("We offer adding liquidity only after checking the pool's price against a price from outside it, and we could not get one.");
-    await expect(ui.lp.addButton(unpriced)).toHaveCount(0);
+    await expect(unpriced).toHaveAttribute('data-price', 'no-market', { timeout: 60_000 });
+    await expect(unpriced).toHaveAttribute('data-deposits', 'allowed');
+    await expect(unpriced).toHaveAttribute('data-add', 'offer');
+    await expect(unpriced).toContainText('Deposits: the checks pass, with warnings');
+    await expect(unpriced).toContainText('Nothing: Jupiter has no market price for this token');
+    await expect(ui.lp.poolWarnings(unpriced)).toContainText(noMarket);
+    await connect(p);
+    // In the form above Review, first on the review, and the deposit lands.
+    const { panel } = await addAndReview(a, B.pu.address, '0.05');
+    await expect(ui.lp.addWarnings(panel)).toContainText(noMarket);
+    const { rows, plan, s } = await reviewDeposit(a, panel, B.pu.address, 'sol', sol(0.05));
+    expect(rows['Price check']).toBe('not checked against anything: Jupiter has no market price for this token');
+    expect(rows['Estimated cost of that gap'], 'nothing to compare with, so no estimated cost').toBeUndefined();
+    await expect(ui.reviewWarnings(p)).toContainText('Read these warnings first. Nothing here stops you signing, and each one is a risk to what you put in:');
+    await expect(ui.reviewWarnings(p)).toContainText(noMarket);
+    const lpAcc = ata(s.lpMint, owner);
+    const held = (await tokenAmount(lpAcc))!;
+    await signConfirmed(a);
+    expect(a.wallet.lastIx('deposit').accounts.pool_state).toBe(B.pu.address.toBase58());
+    expect((await tokenAmount(lpAcc))! - held, 'the deposit landed').toBe(plan.lp);
+    await closeAll(p, panel);
 
+    // A price through our own pool: still not checked, no warning in place of the check, and no Add.
     await openPools(p, B.tr);
     const routed = poolCard(p, B.pr.address);
     await expect(routed).toHaveAttribute('data-deposits', 'unchecked', { timeout: 60_000 });
+    await expect(routed).toHaveAttribute('data-price', 'unread');
     await expect(routed).toHaveAttribute('data-add', 'checks');
     await expect(routed).toContainText('came through our own pools');
+    await expect(routed).toContainText('We offer adding liquidity only when every check above could be run, and one of them could not be run just now.');
+    await expect(ui.lp.poolWarnings(routed)).toHaveCount(0);
     await expect(ui.lp.addButton(routed)).toHaveCount(0);
 
-    await connect(p);
+    await ensureConnected(p);
     for (const pool of [B.pu, B.pr]) {
       const row = positionRow(p, pool.address);
       await expect(row).toHaveAttribute('data-remove', 'offer', { timeout: 60_000 });
       await pressable(ui.lp.removeButton(row), 'Remove liquidity');
     }
-    expect(a.wallet.records).toEqual([]);
+    expect(a.wallet.signed()).toHaveLength(1);
     expect(a.rpc.violations).toEqual([]);
     await a.ctx.close();
   });
@@ -840,7 +967,8 @@ test.describe('group B (chromium only)', () => {
     await expect(poolCard(p, B.a1.address)).toHaveAttribute('data-add', 'offer', { timeout: 60_000 });
     const page = (await p.locator('body').innerText()).replace(/\s+/g, ' ');
     for (const bad of [/takes (whichever|the one)/i, /unless elsewhere is better/i, /whichever is better/i]) expect(page).not.toMatch(bad);
-    expect(page).toContain('still goes through Jupiter');
+    expect(page).toContain('to our pool when ours pays at least as much as Jupiter, and through Jupiter when it does not.');
+    expect(page).not.toContain('still goes through Jupiter');
     expect(page).not.toContain('adding and removing liquidity from here is not switched on yet');
 
     const tierText = (f: PoolFacts) =>
@@ -858,6 +986,64 @@ test.describe('group B (chromium only)', () => {
     }
     expect(seen[0]).not.toBe(seen[1]);
     expect(await ui.lp.section(p).innerText()).not.toMatch(/APR|APY|yield of/i);
+    expect(a.wallet.records).toEqual([]);
+    expect(a.rpc.violations).toEqual([]);
+    await a.ctx.close();
+  });
+
+  // What STAYS refused. The owner's ruling of 2026-10-04 lifted four refusals; a transfer fee
+  // is not one of them. The pool program accepts such a token, so a pool for it can exist,
+  // but this site cannot build an exact deposit or withdrawal for it, and nobody is let in
+  // who cannot be let out. Since a freezable token is no longer blocked (E9), this is the
+  // token whose share is still set aside.
+  test('E20: a token with a transfer fee stays blocked: no Add, no Open a pool, never priced, its share set aside, and the site says it cannot build its withdrawal', async ({ browser }) => {
+    test.setTimeout(5 * 60_000);
+    const a = await actor(browser, B.creator20, { prices: B.prices });
+    const p = a.page;
+    const block =
+      'It uses a transfer-fee setting, which lets the token take a fee out of every transfer. This site cannot build exact deposits and withdrawals for a token with one, so it does not open or add to pools for it.';
+    // The pool is real: the chain holds it, with the token under the newer token program.
+    const f = await poolFacts(B.pfee.address);
+    expect(sidesOf(f).tokenMint.equals(B.tfee) && sidesOf(f).tokenProgram.equals(TOKEN_2022_PROGRAM_ID)).toBe(true);
+    await openPools(p, B.tfee);
+    await expect(ui.lp.safety(p)).toHaveAttribute('data-verdict', 'blocked');
+    await expect(ui.lp.safety(p)).toContainText(block);
+    const card = poolCard(p, B.pfee.address);
+    await expect(card).toHaveAttribute('data-deposits', 'refused', { timeout: 60_000 });
+    await expect(card).toHaveAttribute('data-add', 'checks');
+    // Owner ruling 2026-10-07: the words say what this site does not do. The token is never called "blocked".
+    await expect(ui.lp.safety(p)).toContainText('This site does not open or add to pools for this token');
+    await expect(card).toContainText('This site does not add to pools for this token (see why above).');
+    await expect(ui.lp.addButton(card)).toHaveCount(0);
+    const create = ui.lp.create.card(p);
+    await expect(create).toHaveAttribute('data-create', 'token-refused', { timeout: 60_000 });
+    await expect(create).toContainText(`This site does not open pools for this token: ${block}`);
+    await expect(ui.lp.create.openButton(p)).toHaveCount(0);
+    await expect(ui.lp.create.cautions(p)).toHaveCount(0);
+    // A blocked token is never priced: there is no deposit to check a price for.
+    expect(a.jup.asked).not.toContain(B.tfee.toBase58());
+
+    // Its share is set aside, without the token's name, and offers no way to add.
+    await connect(p);
+    const aside = p.getByTestId('lp-positions-set-aside');
+    await expect(aside).toBeVisible({ timeout: 60_000 });
+    if (!(await aside.evaluate((el) => (el as HTMLDetailsElement).open))) await press(aside.locator('summary'), 'set-aside list');
+    const row = positionRow(p, B.pfee.address);
+    await expect(row).toContainText('Set aside: this site does not open or add to pools for its token.');
+    // The row's "Token check" value.
+    await expect(row).toContainText('this site does not open or add to pools for it');
+    await expect(row).not.toContainText('blocked on this site');
+    await expect(ui.lp.addMore(row)).toHaveCount(0);
+    // Taking it out: the site says it cannot build this withdrawal, before the wallet is asked.
+    const rpanel = await openRemove(row);
+    await press(ui.lp.percent(rpanel, '50%'), '50%');
+    await press(ui.lp.reviewRemove(rpanel), 'Review: remove liquidity');
+    const out = ui.outcome(p);
+    await expect(out).toHaveAttribute('data-status', 'not-sent', { timeout: 60_000 });
+    await expect(out).toContainText('Not sent. We could not build this transaction.');
+    await expect(out).toContainText(
+      'This site cannot build a withdrawal for this token yet (it uses a transfer-fee setting, which lets the token take a fee out of every transfer). The pool program still lets you withdraw with any other tool that can build its withdrawals. Your pool shares stay in your wallet.',
+    );
     expect(a.wallet.records).toEqual([]);
     expect(a.rpc.violations).toEqual([]);
     await a.ctx.close();

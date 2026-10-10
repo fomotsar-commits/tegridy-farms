@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { PublicKey } from '@solana/web3.js';
 import { formatSol, formatTokenAmount } from '../../../lib/launcher/solana/curve/format';
 import { LOCKED_SHARES_TEXT } from '../../../lib/solana/lp/liquidityMath';
+import { SOL_QUOTE, type QuoteCoin } from '../../../lib/solana/lp/quotes';
 import type { WalletFacts } from '../../../lib/solana/lp/walletFacts';
 import type { TxFlowState } from '../curve/useTxFlow';
 import type { LpWrites } from './useLpWrites';
@@ -15,30 +16,84 @@ export const solExact = (lamports: bigint) => `${formatSol(lamports, 9)} SOL`;
 export const unitsExact = (raw: bigint, decimals: number) => formatTokenAmount(raw, decimals, decimals).text;
 /** An amount said "about": four decimals is plenty for a preview the review restates exactly. */
 export const solAbout = (lamports: bigint) => `${formatSol(lamports, 4)} SOL`;
+/**
+ * An amount of SOL that something NEEDS, to four decimals, rounded UP. Cut down, a need
+ * of 0.00393516 SOL read "about 0.0039 SOL" beside a wallet that "has 0.00392 SOL": it
+ * looked like enough and was not (review, 2026-10-04). A figure that is needed never
+ * reads as less than it is. What a wallet HAS stays exact.
+ */
+export const solAboutUp = (lamports: bigint) => solAbout(((lamports + 99_999n) / 100_000n) * 100_000n);
 export const tokensAbout = (raw: bigint, decimals: number) => `${formatTokenAmount(raw, decimals, 4).text} tokens`;
+/**
+ * An amount of the pool's pairing coin (quotes.ts), in that coin's own decimals and with
+ * its symbol: "250 USDC". SOL is `solExact` / `solAbout`, to the character, so a SOL
+ * pool's words never change. The same forms as the review screen's (TxFlowView.tsx).
+ */
+export const coinExact = (raw: bigint, quote: QuoteCoin) => (quote.native ? solExact(raw) : `${formatTokenAmount(raw, quote.decimals, quote.decimals).text} ${quote.symbol}`);
+export const coinAbout = (raw: bigint, quote: QuoteCoin) => (quote.native ? solAbout(raw) : `${formatTokenAmount(raw, quote.decimals, 4).text} ${quote.symbol}`);
 
 /**
  * A wallet that cannot fund the action at all is told so before it types anything
  * (owner, 2026-10-03: the open-a-pool form only greyed out Review, and the reason was
  * two small hints). `null` whenever a balance is unread or something can go in: nothing
  * is claimed from a read that did not happen. `setAside` is `solSetAside`'s figure.
+ *
+ * `availableQuote` is what the wallet can put in on the pairing coin's side: for SOL,
+ * `spendableSol`; for USDC or BAYLA, the wallet's balance of that coin.
+ *
+ * A pool paired with USDC or BAYLA puts no SOL in, but the wallet still pays the network
+ * fee and the account deposits in SOL. So for those coins three things are checked, and
+ * said in this order: the SOL for those costs (short when the wallet holds less than
+ * `setAside`, the write layer's own rule), then the coin, then the token. The notice
+ * leads with the first one the wallet is short of and names the rest after it, so nobody
+ * fixes one thing and comes back to be told about the next.
  */
 export function cannotFundText(a: {
   /** "open a pool", "add to this pool". */
   doing: string;
   /** What `setAside` pays for, in the hint's own words. */
   forWhat: string;
+  /** The pool's pairing coin. */
+  quote: QuoteCoin;
   lamports: bigint | null;
   setAside: bigint | null;
-  availableSol: bigint | null;
+  availableQuote: bigint | null;
   availableToken: bigint | null;
 }): string | null {
   const noToken = a.availableToken === 0n;
-  if (a.availableSol === 0n && a.setAside !== null && a.lamports !== null) {
-    return `This wallet cannot ${a.doing} yet. That needs about ${solAbout(a.setAside)} for ${a.forWhat} before any SOL goes into the pool, and this wallet has ${solExact(a.lamports)}.${noToken ? ' It also holds none of this token, and a pool needs both.' : ''}`;
+  if (a.quote.native) {
+    if (a.availableQuote === 0n && a.setAside !== null && a.lamports !== null) {
+      return `This wallet cannot ${a.doing} yet. That needs about ${solAboutUp(a.setAside)} for ${a.forWhat} before any SOL goes into the pool, and this wallet has ${solExact(a.lamports)}.${noToken ? ' It also holds none of this token, and a pool needs both.' : ''}`;
+    }
+    if (noToken) return `This wallet holds none of this token, so it cannot ${a.doing} yet. A pool needs both SOL and the token.`;
+    return null;
   }
-  if (noToken) return `This wallet holds none of this token, so it cannot ${a.doing} yet. A pool needs both SOL and the token.`;
+  const coin = a.quote.symbol;
+  const noCoin = a.availableQuote === 0n;
+  const needsBoth = `A pool needs both ${coin} and the token.`;
+  if (a.setAside !== null && a.lamports !== null && a.lamports < a.setAside) {
+    const also = noCoin && noToken ? ` It also holds no ${coin} and none of this token. ${needsBoth}` : noCoin ? ` It also holds no ${coin}. ${needsBoth}` : noToken ? ` It also holds none of this token. ${needsBoth}` : '';
+    return `This wallet cannot ${a.doing} yet. That needs about ${solAboutUp(a.setAside)} for ${a.forWhat}, and this wallet has ${solExact(a.lamports)}. No SOL goes into the pool, but those costs are paid in SOL.${also}`;
+  }
+  if (noCoin) return `This wallet holds no ${coin}${noToken ? ' and none of this token' : ''}, so it cannot ${a.doing} yet. ${needsBoth}`;
+  if (noToken) return `This wallet holds none of this token, so it cannot ${a.doing} yet. ${needsBoth}`;
   return null;
+}
+
+/**
+ * What a pool price that is off is estimated to cost at the amounts typed: the Add form's
+ * line. These are the review's own words for it (write/liquidity.ts `LP_COPY.priceGapLoss`),
+ * so the form and the review say one thing; a test pins that the two are the same. They are
+ * written out here because the write layer is only loaded when a form is used.
+ *
+ * `loss` is the estimate, already printed in the pool's own coin. Null means it could not
+ * be worked out: that is said, never shown as 0. `back` is what the price would move back
+ * to, in the words of what it was checked against (poolHealth.ts `REFERENCE_NAME`).
+ */
+export function priceGapLossText(loss: string | null, back: string): string {
+  return loss === null
+    ? `What a move back to ${back} would cost you at these amounts could not be worked out.`
+    : `At these amounts, a move back to ${back} would take up to about ${loss} of what you put in. That is an estimate.`;
 }
 
 /**
@@ -79,22 +134,27 @@ export function sharePct(part: bigint, whole: bigint): string {
 /**
  * The wallet as the panel's hints see it: `null` while reading or with no wallet. Read
  * again whenever `nonce` changes (after each finished flow). An answer is kept only
- * for the question it answers.
+ * for the question it answers, and the pairing coin (`a.quote`, default SOL) is part of
+ * the question: switching coin shows "reading" until the new coin's balance is in, never
+ * the other coin's.
  */
 export function useWalletFacts(
   writes: LpWrites,
   owner: PublicKey | null,
-  a: { tokenMint: string; tokenProgram: string; lpMint: string | null; opening?: true },
+  a: { tokenMint: string; tokenProgram: string; lpMint: string | null; opening?: true; quote?: QuoteCoin },
   nonce: number,
 ): WalletFacts | null {
   const ownerKey = owner?.toBase58() ?? null;
-  const key = ownerKey ? `${ownerKey}#${a.tokenMint}#${a.tokenProgram}#${a.lpMint ?? ''}#${a.opening ? 'open' : ''}#${nonce}` : null;
+  const quote = a.quote ?? SOL_QUOTE;
+  const key = ownerKey ? `${ownerKey}#${a.tokenMint}#${a.tokenProgram}#${a.lpMint ?? ''}#${a.opening ? 'open' : ''}#${quote.mint}#${nonce}` : null;
   const [answer, setAnswer] = useState<{ key: string; facts: WalletFacts } | null>(null);
   const { readers } = writes;
   useEffect(() => {
     if (!owner || !key) return;
     let live = true;
-    (a.opening ? readers.wallet(owner, a.tokenMint, a.tokenProgram, a.lpMint, { opening: true }) : readers.wallet(owner, a.tokenMint, a.tokenProgram, a.lpMint)).then(
+    // A SOL pool asks exactly as it always has: no options, or `opening` alone.
+    const opts = quote.native ? (a.opening ? { opening: true as const } : undefined) : a.opening ? { opening: true as const, quote } : { quote };
+    (opts ? readers.wallet(owner, a.tokenMint, a.tokenProgram, a.lpMint, opts) : readers.wallet(owner, a.tokenMint, a.tokenProgram, a.lpMint)).then(
       (facts) => live && setAnswer({ key, facts }),
       (e: unknown) => live && setAnswer({ key, facts: { kind: 'unread', detail: e instanceof Error ? e.message : String(e) } }),
     );

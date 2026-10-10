@@ -54,7 +54,7 @@ die() { echo "REFUSING: $*" >&2; exit 1; }
 # ── 2. the genesis accounts exist and are the ones the manifest describes ─────
 [ -f "$ACC/manifest.json" ] || die "no $ACC/manifest.json: run 'node scripts/solana-localnet/genesis-accounts.mjs' on Windows first"
 ACCOUNT_ARGS=()
-for f in global amm-config amm-config-1 permission vault fee-ata bayla-mint; do
+for f in global amm-config amm-config-1 permission vault fee-ata bayla-mint usdc-mint; do
   [ -f "$ACC/$f.json" ] || die "missing $ACC/$f.json"
   ACCOUNT_ARGS+=(--account - "$ACC/$f.json")
 done

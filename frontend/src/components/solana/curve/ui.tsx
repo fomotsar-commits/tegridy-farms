@@ -55,11 +55,17 @@ export function Card({
  * characters. Words in a sentence break only at spaces, or mid-word only when
  * one word alone is wider than the card, so a phone never reads "Blocked unt/il".
  */
-export function Row({ label, value, mono = true }: { label: string; value: string; mono?: boolean }) {
+/**
+ * `words`: a mono value that is an address FOLLOWED BY a sentence ("<address> (opened for
+ * you; its deposit of 0.00203928 SOL stays in that account)"). It breaks between words
+ * first and inside one only when it cannot fit, so the address still wraps and the amount
+ * is never split in the middle of a number (review of the phone fixes, 2026-10-04).
+ */
+export function Row({ label, value, mono = true, words = false }: { label: string; value: string; mono?: boolean; words?: boolean }) {
   return (
     <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5 text-white/75">
       <span className="break-words">{label}</span>
-      <span className={`text-right min-w-0 ${mono ? 'font-mono break-all' : '[overflow-wrap:anywhere]'}`}>{value}</span>
+      <span className={`text-right min-w-0 ${mono ? (words ? 'font-mono [overflow-wrap:anywhere]' : 'font-mono break-all') : '[overflow-wrap:anywhere]'}`}>{value}</span>
     </div>
   );
 }
@@ -121,6 +127,22 @@ export function Field({
   );
 }
 
+/**
+ * The link to a transaction on the explorer, under its signature. It is one 17.875px line
+ * of small text with a finger-sized press area around it: 14px of padding above and below
+ * (46px in all), taken back by the same negative margin, so nothing around it moves. The
+ * button under it is drawn later, so where the two overlap a press is the button's.
+ * The keyboard's ring goes round the words (`ring-on-words`, index.css): round the area
+ * its bottom edge was hidden behind that button and its top edge struck through the row above.
+ */
+export function ExplorerLink({ href }: { href: string }) {
+  return (
+    <a href={href} target="_blank" rel="noopener noreferrer nofollow" className="inline-block py-3.5 -my-3.5 underline text-white/80 ring-on-words">
+      <span className="ring-words">View on the explorer</span>
+    </a>
+  );
+}
+
 /** A plain notice line. `tone` picks the colour only; the words carry the meaning. */
 export function Notice({ tone = 'info', children }: { tone?: 'info' | 'warn' | 'bad' | 'good'; children: ReactNode }) {
   const cls =
@@ -131,15 +153,17 @@ export function Notice({ tone = 'info', children }: { tone?: 'info' | 'warn' | '
         : tone === 'good'
           ? 'text-emerald-300/90'
           : 'text-white/55';
-  return <p className={cls}>{children}</p>;
+  // A 44-character address has no place to break: without this it ran off the right edge
+  // of a phone and lost its last characters (phone walk, 2026-10-03).
+  return <p className={`${cls} [overflow-wrap:anywhere]`}>{children}</p>;
 }
 
 /** The price impact row, and its warning when it is large or could not be computed. Form and review alike. */
-export function ImpactRows({ bps }: { bps: bigint | null }) {
+export function ImpactRows({ bps, label = 'Price impact' }: { bps: bigint | null; label?: string }) {
   const w = impactWarning(bps);
   return (
     <>
-      <Row label="Price impact" value={impactText(bps)} mono={bps !== null} />
+      <Row label={label} value={impactText(bps)} mono={bps !== null} />
       {w && <Notice tone={w.tone}>{w.text}</Notice>}
     </>
   );
@@ -199,7 +223,7 @@ export function SlippagePicker({
           </button>
         ))}
         <input
-          className={`${inputCls} flex-1 min-w-[72px] !w-auto disabled:opacity-50`}
+          className={`${inputCls} flex-1 min-w-[96px] !w-auto disabled:opacity-50`}
           style={inputStyle}
           inputMode="decimal"
           placeholder="Other %"

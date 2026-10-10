@@ -13,7 +13,7 @@ import { isLpKind } from '../../../lib/launcher/solana/write/lpKinds';
 import { Card, Notice, Row } from '../curve/ui';
 import { PendingTradeCard } from '../curve/PendingTradeCard';
 import type { GateRpc, LpKind, LpWriteApi } from '../curve/ports';
-import { PoolFinder } from './PoolFinder';
+import { PoolFinder, type PoolFinderHandle } from './PoolFinder';
 import { parseMintInput } from '../../../lib/solana/lp/mintInput';
 import { YourPositions } from './YourPositions';
 import { LpGateBanner } from './LpGateBanner';
@@ -100,8 +100,15 @@ function LpBody({ readers, mode, reloadKey, finderFirst }: { readers: LpReaders;
     el.focus({ preventScroll: true });
     el.scrollIntoView?.({ block: 'start' });
   }, []);
+  // The other way round: Add more liquidity on a position goes to the finder. The
+  // positions list does not look pools up or open Add forms; the finder does both, so the
+  // press is handed to it with the token and the pool that share is in. The finder then
+  // brings its answer onto the screen, as for any lookup the visitor asked for.
+  const finderRef = useRef<PoolFinderHandle | null>(null);
+  const addMore = useCallback((tokenMint: string, pool: string) => finderRef.current?.addTo(tokenMint, pool), []);
   const finder = (
     <PoolFinder
+      ref={finderRef}
       readers={readers}
       mint={mint}
       onMint={onMint}
@@ -111,7 +118,7 @@ function LpBody({ readers, mode, reloadKey, finderFirst }: { readers: LpReaders;
       onRemove={toPositions}
     />
   );
-  const positions = <YourPositions readers={readers} owner={publicKey ?? null} reloadKey={reloadKey} sectionRef={positionsRef} />;
+  const positions = <YourPositions readers={readers} owner={publicKey ?? null} reloadKey={reloadKey} sectionRef={positionsRef} onAddMore={addMore} />;
 
   // Finder first sits right under the page's hero, which already leaves the gap above it.
   if (finderFirst) {
@@ -209,6 +216,9 @@ export function LpDisclosure({ programId, mode = 'off' }: { programId: string; m
   return (
     <section data-testid="lp-disclosure" aria-label="Before you provide liquidity">
       <Card title="Before you provide liquidity">
+        {/* True of the pool program RUNNING on mainnet, built before the source gained create_lp_metadata.
+            It goes false the day that program is upgraded: reword it in the same release as the upgrade
+            (src/test/poolProgramCopy.test.ts fails that release until you do, and holds the wording). */}
         <p className="text-white/80">
           Our pool program is Raydium’s constant-product pool; we changed only its admin keys (see “The program” below).{' '}
           <strong>Those changes have not had their own independent review yet.</strong> Put in only what you can afford to lose.

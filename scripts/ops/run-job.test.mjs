@@ -534,11 +534,14 @@ describe('npm-advisories', () => {
     assert.match(shapeless.summary, /frontend: the audit cannot be trusted/);
   });
 
-  test('the allowlist still decides what blocks', async () => {
-    const accepted = { accepted: [{ ghsa: A, reason: 'reviewed: not reachable from our code', expires: '2099-01-01' }], baseline: { expires: '2099-01-01', projects: {} } };
+  test('the allowlist still decides what blocks, project by project', async () => {
+    const accepted = { accepted: [{ ghsa: A, reason: 'reviewed: not reachable from our code', expires: '2099-01-01', projects: ['frontend'] }], baseline: { expires: '2099-01-01', projects: {} } };
     const r = await npmRun({ frontend: [A] }, tmp('npmst'), accepted);
     assert.equal(r.ok, true, r.report);
     assert.match(r.summary, /no unforgiven high\/critical advisories/);
+    const elsewhere = await npmRun({ indexer: [A] }, tmp('npmst'), accepted);
+    assert.equal(elsewhere.ok, false, elsewhere.report);
+    assert.match(elsewhere.summary, new RegExp(`NEW blocking advisories: indexer ${A}`));
   });
 });
 

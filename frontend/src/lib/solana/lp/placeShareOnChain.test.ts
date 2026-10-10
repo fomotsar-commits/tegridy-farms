@@ -40,7 +40,7 @@ function chainWith(accounts: Record<string, FakeAccount>, history: Record<string
 
 function share(o: { lpMintRecord?: string } = {}) {
   const wallet = key();
-  const p = buildPool({ mint: key(), address: key(), solReserve: 10n ** 9n, tokenReserve: 10n ** 9n, lpSupply: 1_000n });
+  const p = buildPool({ mint: key(), address: key(), quoteReserve: 10n ** 9n, tokenReserve: 10n ** 9n, lpSupply: 1_000n });
   if (o.lpMintRecord) p.accounts[p.address.toBase58()]!.data.set(new PublicKey(o.lpMintRecord).toBytes(), POOL_STATE_OFFSETS.lpMint);
   const lpAccount = key().toBase58();
   const accounts: Record<string, FakeAccount> = { ...p.accounts, [CLOCK]: clockAccount(5n), [lpAccount]: { owner: TOKEN_PROGRAM, data: tokenAccountBytes(p.lpMint, wallet, 100n) } };
@@ -67,7 +67,7 @@ describe('placeShareOnChain', () => {
 
   it('a junk transaction naming random keys, and another real pool, never misplace a share', async () => {
     const s = share();
-    const other = buildPool({ mint: key(), address: key(), solReserve: 10n, tokenReserve: 10n });
+    const other = buildPool({ mint: key(), address: key(), quoteReserve: 10n, tokenReserve: 10n });
     const rpc = chainWith({ ...s.accounts, ...other.accounts }, { [s.lpAccount]: [{ keys: [...noise(), other.address.toBase58()] }, { keys: noise() }] });
     expect(await placeShareOnChain(rpc, opts, { lpMint: s.lpMint, lpAccount: s.lpAccount })).toEqual({ kind: 'not-found' });
   });

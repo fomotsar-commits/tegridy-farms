@@ -4,9 +4,10 @@ import { displaySafe } from '../../../lib/launchMetadata/validate';
 import { MAX_POSITIONS, type PositionsRead, type Position } from '../../../lib/solana/lp/positions';
 import type { PoolView } from '../../../lib/solana/lp/poolFinder';
 import type { TokenSafety } from '../../../lib/solana/lp/tokenSafety';
-import { formatWhen, withdrawalsState } from '../../../lib/solana/lp/poolHealth';
+import { formatWhen, vaultFreezer, withdrawalsState } from '../../../lib/solana/lp/poolHealth';
 import { swapEnabled } from '../../../lib/solana/cpswap/program';
-import { solText, tokenText } from '../../../lib/solana/lp/format';
+import { quoteText, tokenText } from '../../../lib/solana/lp/format';
+import { QUOTE_COINS_OR } from '../../../lib/solana/lp/quotes';
 import { SolanaConnectButton } from '../SolanaConnectButton';
 import { WalletAppHint } from '../curve/WalletNeeded';
 import { Card, Notice, Row } from '../curve/ui';
@@ -61,8 +62,12 @@ function usePositions(readers: LpReaders, owner: PublicKey | null, nonce: number
   return answer && answer.owner === ownerKey ? { ...answer.value, refreshing: true } : { status: 'loading' };
 }
 
-const VERDICT_WORD = { blocked: 'blocked on this site', warn: 'allowed, with warnings', ok: 'no problems found' } as const;
-const WITHDRAWALS_WORD = { open: 'open', 'switched-off': 'switched off', 'vault-frozen': 'blocked: a pool vault is frozen by the token’s issuer' } as const;
+// After "Token check:". The first says what this site does not do, never that the token is "blocked" (owner ruling 2026-10-07).
+const VERDICT_WORD = { blocked: 'this site does not open or add to pools for it', warn: 'allowed, with warnings', ok: 'no problems found' } as const;
+const withdrawalsWord = (view: PoolView): string => {
+  const state = withdrawalsState(view);
+  return state === 'open' ? 'open' : state === 'switched-off' ? 'switched off' : `blocked: a pool vault is frozen by ${vaultFreezer(view.quote)}`;
+};
 
 /**
  * Shares that are set aside, below the rest and without the names their tokens give
@@ -70,8 +75,8 @@ const WITHDRAWALS_WORD = { open: 'open', 'switched-off': 'switched off', 'vault-
  * token's name is whatever its maker typed.
  */
 function setAsideReason(p: Position, safety: TokenSafety | null): string | null {
-  if (p.pool?.kind === 'pool' && safety?.kind === 'read' && safety.verdict === 'blocked') return 'its token is blocked on this site';
-  if (p.pool?.kind === 'other-pair') return 'its pool is not a TOKEN/SOL pool';
+  if (p.pool?.kind === 'pool' && safety?.kind === 'read' && safety.verdict === 'blocked') return 'this site does not open or add to pools for its token';
+  if (p.pool?.kind === 'other-pair') return `its pool is not paired with ${QUOTE_COINS_OR}`;
   if (p.pool?.kind === 'absent' || p.pool?.kind === 'not-a-pool') return 'its pool could not be confirmed on chain';
   return null;
 }
@@ -88,17 +93,31 @@ function statusText(owner: PublicKey | null, state: State | null): string {
   return `This wallet holds ${plural(totalShares, 'pool share', 'pool shares')}.${more > 0 ? ` ${positions.length} are shown; ${more} more are not looked up yet.` : ''}`;
 }
 
+/**
+ * "Add more liquidity" on a position: the token to look up and the pool the share is in.
+ * The section hands it to the finder, which owns the lookup, the checks and the form.
+ */
+export type AddMore = (tokenMint: string, pool: string) => void;
+
+/** Can this section add at all right now? `depositOffer`'s first three stops, without a pool. */
+function addingOpen(writes: LpWrites | null): boolean {
+  return writes !== null && writes.mode === 'on' && writes.gate?.kind === 'open' && writes.gate.mode === 'on';
+}
+
 export function YourPositions({
   readers,
   owner,
   reloadKey = 0,
   sectionRef,
+  onAddMore,
 }: {
   readers: LpReaders;
   owner: PublicKey | null;
   reloadKey?: number;
   /** Set by the section: "Remove liquidity" scrolls here and sends focus here. */
   sectionRef?: Ref<HTMLElement>;
+  /** Set by the section: without it no position offers "Add more liquidity". */
+  onAddMore?: AddMore;
 }) {
   const [nonce, setNonce] = useState(0);
   const [limit, setLimit] = useState(MAX_POSITIONS);
@@ -150,6 +169,7 @@ export function YourPositions({
             onMore={() => setLimit((l) => l + MAX_POSITIONS)}
             onReadAgain={readAgain}
             readers={readers}
+            onAddMore={onAddMore}
           />
         )}
       </Card>
@@ -163,12 +183,14 @@ function PositionsList({
   onMore,
   onReadAgain,
   readers,
+  onAddMore,
 }: {
   read: Extract<PositionsRead, { kind: 'ok' }>;
   safety: Map<string, TokenSafety>;
   onMore: () => void;
   onReadAgain: () => void;
   readers: LpReaders;
+  onAddMore?: AddMore;
 }) {
   const safetyOf = (p: Position) => (p.pool?.kind === 'pool' ? safety.get(p.pool.view.tokenMint) ?? null : null);
   const main = read.positions.filter((p) => setAsideReason(p, safetyOf(p)) === null);
@@ -188,15 +210,15 @@ function PositionsList({
       {main.length > 0 && (
         <ul className="space-y-3" aria-label="Your pool shares, most valuable first">
           {main.map((p) => (
-            <PositionRow key={p.lpAccount} p={p} safety={safetyOf(p)} chainNow={read.chainNow} readers={readers} onReadAgain={onReadAgain} />
+            <PositionRow key={p.lpAccount} p={p} safety={safetyOf(p)} chainNow={read.chainNow} readers={readers} onReadAgain={onReadAgain} onAddMore={onAddMore} />
           ))}
         </ul>
       )}
       {aside.length > 0 && (
         <details data-testid="lp-positions-set-aside" className="rounded-lg" style={{ border: '1px solid rgba(255,255,255,0.08)' }}>
           <summary className="min-h-[44px] flex items-center px-3 cursor-pointer text-white/75">
-            {plural(aside.length, 'other pool share', 'other pool shares')}, set aside without their names: blocked tokens, pools that are
-            not TOKEN/SOL, or pools we could not confirm
+            {plural(aside.length, 'other pool share', 'other pool shares')}, set aside without their names: tokens this site does not open or
+            add to pools for, pools that are not paired with {QUOTE_COINS_OR}, or pools we could not confirm
           </summary>
           <ul className="space-y-3 p-3">
             {aside.map((p) => (
@@ -208,6 +230,7 @@ function PositionsList({
                 setAside={setAsideReason(p, safetyOf(p))}
                 readers={readers}
                 onReadAgain={onReadAgain}
+                onAddMore={onAddMore}
               />
             ))}
           </ul>
@@ -244,6 +267,7 @@ function PositionRow({
   setAside = null,
   readers,
   onReadAgain,
+  onAddMore,
 }: {
   p: Position;
   safety: TokenSafety | null;
@@ -251,6 +275,7 @@ function PositionRow({
   setAside?: string | null;
   readers: LpReaders;
   onReadAgain: () => void;
+  onAddMore?: AddMore;
 }) {
   const view = p.pool?.kind === 'pool' ? p.pool.view : null;
   const decimals = safety?.kind === 'read' ? safety.facts?.decimals ?? null : null;
@@ -288,7 +313,7 @@ function PositionRow({
         <>
           <Row label="Pool" value={pool.address} />
           <Row label="Its two tokens" value={`${pool.token0Mint} and ${pool.token1Mint}`} />
-          <Notice>Neither side of this pool is SOL. This site does not show those pools yet, so nothing about it is checked here.</Notice>
+          <Notice>Neither side of this pool is {QUOTE_COINS_OR}. This site does not show those pools, so nothing about it is checked here.</Notice>
         </>
       )}
       {pool?.kind === 'absent' && (
@@ -321,9 +346,9 @@ function PositionRow({
               <Row
                 label="Worth if withdrawn now"
                 value={
-                  view.solIsToken0
-                    ? `${solText(p.value.token0)} and ${tokenText(p.value.token1, decimals)}`
-                    : `${solText(p.value.token1)} and ${tokenText(p.value.token0, decimals)}`
+                  view.quoteIsToken0
+                    ? `${quoteText(p.value.token0, view.quote)} and ${tokenText(p.value.token1, decimals)}`
+                    : `${quoteText(p.value.token1, view.quote)} and ${tokenText(p.value.token0, decimals)}`
                 }
                 mono={false}
               />
@@ -346,7 +371,7 @@ function PositionRow({
             }
             mono={false}
           />
-          <Row label="Withdrawals" value={WITHDRAWALS_WORD[withdrawalsState(view)]} mono={false} />
+          <Row label="Withdrawals" value={withdrawalsWord(view)} mono={false} />
         </>
       )}
       <RemoveBlock
@@ -360,6 +385,7 @@ function PositionRow({
         setAside={setAside !== null}
         readers={readers}
         onReadAgain={onReadAgain}
+        onAddMore={onAddMore}
       />
     </li>
   );
@@ -370,6 +396,13 @@ function PositionRow({
  * the Remove button and its panel, the "find this share's pool on the chain" search
  * when our index could not place it, or one line saying why not. A placed share that
  * this site cannot take out right now also shows how to leave without it.
+ *
+ * And, beside Remove, **Add more liquidity** (owner, 2026-10-03): a holder who wanted to
+ * add to the pool they were already in had to know to look the token up in the finder and
+ * pick the right card. The button does that for them and nothing more. It opens no form
+ * of its own: the finder runs its whole lookup and opens the Add form on this pool's own
+ * card, or shows that card's reason. So a deposit is checked in one place, however it
+ * was asked for.
  */
 function RemoveBlock({
   offer,
@@ -382,6 +415,7 @@ function RemoveBlock({
   setAside,
   readers,
   onReadAgain,
+  onAddMore,
 }: {
   offer: WithdrawOffer;
   writes: LpWrites | null;
@@ -393,10 +427,32 @@ function RemoveBlock({
   setAside: boolean;
   readers: LpReaders;
   onReadAgain: () => void;
+  onAddMore?: AddMore;
 }) {
   const key = `remove:${p.lpAccount}`;
   const open = writes?.active?.key === key;
   const blockedByOther = !!writes?.busy && !open;
+  // Any form mid-flow, this row's own Remove included: a lookup started now would pull
+  // the page away from it, and could not open a form over it anyway.
+  const flowRunning = !!writes?.busy;
+  // Add more liquidity: on a share that is not set aside, whose pool this site read as one
+  // of its own and which names this share, while the section can add at all. Whether THIS
+  // pool takes a deposit right now is not decided here: the finder says so, on the pool's
+  // card, after its checks. Nor does it wait on Remove: a share too small to take out is
+  // one a holder may well want to add to. The one thing the row does know: a pool whose
+  // withdrawals are off or whose vault is frozen takes no deposit from this site (nobody
+  // is let in who cannot be let out), so the row that says so does not offer to add.
+  const addMore =
+    onAddMore && !setAside && view && view.snapshot.pool.lpMint === p.lpMint && withdrawalsState(view) === 'open' && addingOpen(writes) ? (
+      <button
+        type="button"
+        className="btn-secondary w-full sm:w-auto min-h-[44px] px-4 text-[13px] disabled:opacity-60"
+        disabled={flowRunning}
+        onClick={() => onAddMore(view.tokenMint, view.address)}
+      >
+        Add more liquidity
+      </button>
+    ) : null;
   const pool = p.pool;
   // A share whose pool is known: the accounts the pool program's own withdraw takes.
   const placedAt = view?.address ?? (pool?.kind === 'other-pair' ? pool.address : null);
@@ -417,23 +473,33 @@ function RemoveBlock({
       <RemoveLiquidityPanel position={p} view={view} safety={safety} tokenDecimals={decimals} chainNow={chainNow} setAside={setAside} onClose={writes.close} />
     ) : null;
 
+  const removeButton =
+    offer === 'offer' ? (
+      <button
+        type="button"
+        className="btn-primary w-full sm:w-auto min-h-[44px] px-4 text-[13px] disabled:opacity-60"
+        disabled={blockedByOther}
+        aria-expanded={open}
+        onClick={(e) => writes?.open('remove', key, e.currentTarget)}
+      >
+        Remove liquidity
+      </button>
+    ) : null;
+  // One row for both: stacked and full width on a phone, side by side from `sm:` up.
+  const buttons =
+    removeButton || addMore ? (
+      <div className="flex flex-col sm:flex-row gap-2">
+        {removeButton}
+        {addMore}
+      </div>
+    ) : null;
+  // Said once under the row, for whichever button a running flow has switched off.
+  const wait = (removeButton && blockedByOther) || (addMore && flowRunning) ? <Notice>Finish or close the open liquidity panel first.</Notice> : null;
+
+  // Why the share cannot be taken out here, or the other thing to press. Above the buttons.
   let line: ReactNode = null;
   switch (offer) {
     case 'offer':
-      line = (
-        <>
-          <button
-            type="button"
-            className="btn-primary w-full sm:w-auto min-h-[44px] px-4 text-[13px] disabled:opacity-60"
-            disabled={blockedByOther}
-            aria-expanded={open}
-            onClick={(e) => writes?.open('remove', key, e.currentTarget)}
-          >
-            Remove liquidity
-          </button>
-          {blockedByOther && <Notice>Finish or close the open liquidity panel first.</Notice>}
-        </>
-      );
       break;
     case 'switched-off':
       line = (
@@ -443,14 +509,21 @@ function RemoveBlock({
         </Notice>
       );
       break;
-    case 'vault-frozen':
+    case 'vault-frozen': {
+      // Who can have frozen it is the Withdrawals row's own answer (`vaultFreezer`): the
+      // read does not say which vault is frozen, and on a pool paired with USDC it may be
+      // USDC's. This notice blamed the token's issuer on every pool, one line under a row
+      // that said otherwise. Written with the sentence's own apostrophes, so on a pool
+      // whose coin nobody can freeze it reads to the letter as it always did.
+      const who = view ? vaultFreezer(view.quote).replace(/’/g, "'") : 'an issuer';
       line = (
         <Notice tone="warn">
-          The token&apos;s issuer has frozen one of this pool&apos;s vaults, so nothing can move in or out, for anyone. That is the
+          {who.charAt(0).toUpperCase() + who.slice(1)} has frozen one of this pool&apos;s vaults, so nothing can move in or out, for anyone. That is the
           issuer&apos;s doing, not the pool program&apos;s. Your pool shares stay in your wallet.
         </Notice>
       );
       break;
+    }
     case 'dust':
       line = (
         <Notice tone="warn">
@@ -460,7 +533,7 @@ function RemoveBlock({
       );
       break;
     case 'other-pair':
-      line = <Notice>Neither side of this pool is SOL. This site cannot build a withdrawal for it yet. The pool program still lets you withdraw.</Notice>;
+      line = <Notice>Neither side of this pool is {QUOTE_COINS_OR}. This site cannot build a withdrawal for it. The pool program still lets you withdraw.</Notice>;
       break;
     case 'unplaced':
       line = <FindOnChain readers={readers} p={p} disabled={blockedByOther} onPlaced={onReadAgain} />;
@@ -493,10 +566,12 @@ function RemoveBlock({
         ) : null;
       break;
   }
-  if (!line && !leaving && !panel) return null;
+  if (!line && !buttons && !leaving && !panel) return null;
   return (
     <div className="space-y-2 pt-1">
       {line}
+      {buttons}
+      {wait}
       {leaving}
       {panel}
     </div>

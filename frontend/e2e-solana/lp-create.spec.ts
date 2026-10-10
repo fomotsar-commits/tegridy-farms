@@ -9,13 +9,17 @@
 // from the chain afterwards. Every button pressed is checked with elementFromPoint, and
 // every scenario ends with the RPC guard's violations empty.
 //
+// Every pool here is paired with SOL. Pools paired with USDC or BAYLA are in
+// lp-coins.spec.ts. Owner ruling 2026-10-04 (any token may have a pool): P10 and P11 hold
+// the page to warnings where it used to refuse, each to an opening that lands.
+//
 // Group A runs on chromium AND mobile-chrome against one chain, so each project makes its
 // own tokens in its own beforeAll. Group B is chromium only.
 import { test, expect, type Locator, type Page } from '@playwright/test';
-import { Keypair, LAMPORTS_PER_SOL, PublicKey, SystemProgram, Transaction, VersionedTransaction } from '@solana/web3.js';
+import { Keypair, PublicKey, SystemProgram, Transaction, VersionedTransaction } from '@solana/web3.js';
 import { TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID, createAssociatedTokenAccountIdempotentInstruction, createSyncNativeInstruction } from '@solana/spl-token';
 import {
-  WSOL, accountDataLength, accountOwner, ata, chain, fundedKeypair, lamportDelta, lamports, landedTx, poolFacts, poolsFor, sol, tokenAmount, txAccountKeys,
+  WSOL, accountDataLength, accountOwner, ata, chain, fundedKeypair, lamportDelta, lamports, landedTx, mintFacts, poolFacts, poolsFor, sol, tokenAmount, txAccountKeys,
   wrapSol, CP_SWAP_PROGRAM,
 } from './fixtures/chain';
 import {
@@ -28,14 +32,17 @@ import {
 } from './fixtures/lpPage';
 import { ui, expectPressableAtSizes, tokensToInput } from './fixtures/ui';
 import { formatSol, parseDecimalToBaseUnits } from '../src/lib/launcher/solana/curve/format';
-import { initializeIx } from '../src/lib/solana/cpswap/ix';
+import { initializeIx, withdrawIx } from '../src/lib/solana/cpswap/ix';
 import {
   AMM_CONFIG_OFFSETS, decodeAmmConfig, deriveAmmConfig, deriveLpMint, derivePool, deriveVault, publicTierConfig, sortMints, type AmmConfigView,
 } from '../src/lib/solana/cpswap/program';
 import { CREATOR_FEE_SWITCH, feeSplit } from '../src/lib/solana/cpswap/venue';
 import { formatSolPrice, tradeCostText } from '../src/lib/solana/lp/format';
 import { feeReserveFor, isqrt, planCreate, spendableSol } from '../src/lib/solana/lp/liquidityMath';
-import { arbitrageLoss, matchMarket, openingSolPerToken } from '../src/lib/solana/lp/opening';
+import { SOL_COIN } from './fixtures/coins';
+// The market sums are worked out by hand in fixtures/market.ts, never imported from
+// src/lib/solana/lp/opening.ts: that file does not load in Node (see market.ts).
+import { gapOf, lossAtMarketUp, matchAtMarket, priceOf, stubMid } from './fixtures/market';
 
 const DEC = 6;
 const UNIT = 10n ** BigInt(DEC);
@@ -54,21 +61,14 @@ const bookOf = (prices: Prices): Pick<JupiterStub, 'setPrice'> => ({
 
 // ── what the page works out, worked out here ───────────────────────────────────
 
-const PROBE_LAMPORTS = 50_000_000;
 /**
- * The market price the page reads from the Jupiter stub: the stub's two quotes
- * (fixtures/lp.ts installJupiterStub: a buy of 0.05 SOL, then the sale back, each less
- * 0.5%), turned into a price the way lib/solana/lp/outsidePrice.ts readOutsidePrice does.
+ * The market price the page reads from the Jupiter stub, in SOL per token: the stub's two
+ * quotes turned into a price the way the page does it (fixtures/market.ts `stubMid`).
  */
-function stubMarket(solPerToken: number, decimals = DEC): number {
-  const fee = 0.995;
-  const tokensOut = Math.floor((PROBE_LAMPORTS / 1e9 / solPerToken) * 10 ** decimals * fee);
-  const lamportsBack = Math.floor((tokensOut / 10 ** decimals) * solPerToken * 1e9 * fee);
-  const tokens = tokensOut / 10 ** decimals;
-  const buy = PROBE_LAMPORTS / LAMPORTS_PER_SOL / tokens;
-  const sell = lamportsBack / LAMPORTS_PER_SOL / tokens;
-  return Math.sqrt(buy * sell);
-}
+const stubMarket = (solPerToken: number, decimals = DEC): number => stubMid(solPerToken, decimals);
+/** The other side of a SOL opening at `market`: keep the SOL typed and work out the tokens, or the other way round. */
+const matchSol = (keep: 'coin' | 'token', amount: bigint, market: number, decimals = DEC): bigint =>
+  matchAtMarket({ keep, amount, pricePerToken: market, tokenDecimals: decimals, coin: SOL_COIN });
 
 async function tierView(index: 0 | 1): Promise<AmmConfigView> {
   const address = deriveAmmConfig(CP_SWAP_PROGRAM, index);
@@ -96,18 +96,23 @@ const standardOf = (mint: PublicKey) => {
 /** The opening the review should show, from the typed amounts and fresh reads. */
 async function expectedOpening(mint: PublicKey, solIn: bigint, tokenIn: bigint, decimals = DEC) {
   const { token0 } = sortMints(WSOL, mint);
-  const plan = planCreate({ solIsToken0: token0.equals(WSOL), sol: solIn, token: tokenIn, availableSol: null, availableToken: null });
+  const plan = planCreate({ quoteIsToken0: token0.equals(WSOL), quote: solIn, token: tokenIn, availableQuote: null, availableToken: null });
   if ('problem' in plan) throw new Error(`opening plan: ${plan.problem}`);
   expect(plan.supply).toBe(isqrt(solIn * tokenIn));
   expect(plan.lp).toBe(plan.supply - 100n);
   return { plan, tier: await tierView(1), rents: await liveRents(), decimals };
 }
 
-/** Every 4.4 row, checked against Node's numbers. Returns the pool address the review names. */
+/**
+ * Every 4.4 row, checked against Node's numbers. Returns the pool address the review names.
+ * `market`: the market price the review should compare with, or null when Jupiter has no
+ * route for the token. `gap`: how far off the opening is ("4.8% below") when it is more
+ * than 3% from the market; left out, the opening is at the market.
+ */
 async function checkCreateReview(
   p: Page,
   rows: Record<string, string>,
-  o: { mint: PublicKey; sol: bigint; token: bigint; origin: 'standard' | 'other'; market: number; decimals?: number },
+  o: { mint: PublicKey; sol: bigint; token: bigint; origin: 'standard' | 'other'; market: number | null; decimals?: number; gap?: string },
 ): Promise<PublicKey> {
   const d = o.decimals ?? DEC;
   const { plan, tier, rents } = await expectedOpening(o.mint, o.sol, o.token, d);
@@ -121,17 +126,29 @@ async function checkCreateReview(
     await expect(ui.review(p)).toContainText("Your wallet will show that this transaction needs a second signature. That is the new pool's own address: this page signs it after you, then forgets the key.");
   }
   expect(rows['Token (mint)']).toBe(o.mint.toBase58());
+  expect(rows['Paired with']).toBe('SOL');
   expect(rows['Fee tier']).toBe(tierText(tier));
   expect(rows['You put in']).toBe(`${solExact(o.sol)} and ${units(o.token, d)} tokens, exactly`);
-  expect(rows['Opening price']).toMatch(
-    new RegExp(`^${esc(`1 token = ${formatSolPrice(openingSolPerToken(o.sol, o.token, d)!)} SOL. Market (Jupiter, read just now): ${formatSolPrice(o.market)} SOL, `)}\\d+\\.\\d% (above|below)$`),
-  );
+  const opening = `1 token = ${formatSolPrice(priceOf(o.sol, o.token, d, SOL_COIN))} SOL.`;
+  if (o.market === null) {
+    // Jupiter ANSWERED that it has no route: the opener sets the price, and the row says so.
+    expect(rows['Opening price']).toBe(`${opening} Jupiter has no market price for this token, so there is nothing to compare it with: you are setting the price yourself`);
+    expect(rows['Estimated cost of that gap'], 'no estimated loss with nothing to compare with').toBeUndefined();
+  } else if (o.gap) {
+    // More than 3% from the market: built anyway, said in the row, and its estimated cost has a row of its own.
+    expect(rows['Opening price']).toBe(`${opening} Market (Jupiter, read just now): ${formatSolPrice(o.market)} SOL, ${o.gap}. That is off by more than 3%.`);
+    const loss = lossAtMarketUp({ coinAmount: o.sol, tokenAmount: o.token, tokenDecimals: d, marketPricePerToken: o.market, coin: SOL_COIN });
+    expect(rows['Estimated cost of that gap']).toBe(`up to about ${solExact(loss)} of what you put in`);
+  } else {
+    expect(rows['Opening price']).toMatch(new RegExp(`^${esc(`${opening} Market (Jupiter, read just now): ${formatSolPrice(o.market)} SOL, `)}\\d+\\.\\d% (above|below)$`));
+    expect(rows['Estimated cost of that gap'], 'no estimated loss on an opening at the market').toBeUndefined();
+  }
   expect(rows['Opens for trading']).toBe('At once (one second after it lands)');
   expect(rows['Fee to open the pool']).toBe(`${solExact(tier.createPoolFee)}, paid to the team's vault (into ${CREATE_POOL_FEE_RECEIVER.toBase58()}, the account the pool program fixes); not refundable`);
   expect(rows['Account deposits that never come back']).toBe(`${solExact(rents.neverRefunded)} (the pool, its price record, its share token and its two vaults; none can be closed)`);
   expect(rows['Your pool-share account']).toBe(`${solExact(rents.r165)} (it comes back if you close that account later)`);
   expect(rows['You get']).toBe(`${units(plan.lp, 9)} pool shares, exactly`);
-  expect(rows['Locked in the pool forever']).toBe(`${LOCKED_SHARES}, worth about ${SOL(plan.locked.sol)} and ${tok(plan.locked.token, d)} tokens at these amounts`);
+  expect(rows['Locked in the pool forever']).toBe(`${LOCKED_SHARES}, worth about ${SOL(plan.locked.quote)} and ${tok(plan.locked.token, d)} tokens at these amounts`);
   const share = Number((plan.lp * 1_000_000n) / plan.supply) / 10_000;
   expect(rows['Your share of the pool']).toBe(share < 0.01 ? '<0.01%' : `${share.toFixed(2)}%`);
   expect(rows["Test run: the team's vault account gains, in SOL (the fee, plus any SOL that account was already holding)"]).toBe(`+${tok(tier.createPoolFee, 9)}`);
@@ -314,7 +331,7 @@ test.describe('group A (chromium and mobile-chrome)', () => {
     await openCreate(p);
     const market = stubMarket(FAIR);
     const { sol: solIn, token } = await solThenMatch(p, '1');
-    expect(token, 'the token box is matchMarket at the page\'s market price').toBe(matchMarket({ keep: 'sol', amount: solIn, solPerToken: market, tokenDecimals: DEC }));
+    expect(token, 'the token box is the SOL typed, at the page\'s market price').toBe(matchSol('coin', solIn, market));
     await expect(ui.lp.create.panel(p)).toContainText(LOCKED_SHARES);
     await expect(ui.lp.create.panel(p)).toContainText(MONEY);
     await expectPressableAtSizes(p, 'P1 panel', [
@@ -383,8 +400,11 @@ test.describe('group A (chromium and mobile-chrome)', () => {
     await expect(out).toContainText(signature);
     await expect(out).toContainText('It may still land. Opening a pool again now could open a second pool and pay the fee to open twice.');
     await expect(out).not.toContainText(/fail/i);
-    // It did land: the chain says so.
-    expect((await landedTx(signature)).meta?.err ?? null).toBeNull();
+    // It did land: the chain holds the pool. Asked of the pool itself, not of the
+    // signature. By now the opening is over a minute old, and under a full run's load the
+    // local validator keeps only a few hundred slots of transaction history (chain.ts
+    // landedTx): looked up by signature, an opening that landed read "did not land".
+    await expect.poll(async () => (await accountOwner(pool))?.toBase58() ?? null, { message: 'the opening landed: its pool is on chain', timeout: 30_000 }).toBe(CP_SWAP_PROGRAM.toBase58());
 
     await p.reload();
     const pending = ui.lp.pending(p);
@@ -459,7 +479,7 @@ const B = {} as {
   c6: Keypair; t6: PublicKey; p6: CreatedPool;
   c8: Keypair; t8: PublicKey;
   c9: Keypair; t9: PublicKey;
-  freezable: PublicKey; hooked: PublicKey; usdcCopy: PublicKey; boboCopy: PublicKey;
+  c10: Keypair; freezable: PublicKey; hooked: PublicKey; usdcCopy: PublicKey; boboCopy: PublicKey;
   c11: Keypair; t11: PublicKey; t11u: PublicKey; t11d: PublicKey;
   c12: Keypair; t12: PublicKey; b12: Keypair;
   c13: Keypair; t13: PublicKey; r13: Keypair; r13Spendable: bigint;
@@ -510,11 +530,14 @@ test.describe('group B (chromium only)', () => {
         book.setPrice(B.t9.toBase58(), FAIR, DEC);
       })(),
       (async () => {
-        const s = await fundedKeypair(2);
-        B.freezable = await createClassicToken(s, { supply: 1_000_000n * UNIT, name: { name: 'E2E Create Freeze', symbol: 'ECFZ' }, freezable: true });
-        B.hooked = await createTransferHookToken(s);
-        B.usdcCopy = await createClassicToken(s, { supply: 1_000_000n * UNIT, name: { name: 'USD Coin', symbol: 'USDC' } });
-        B.boboCopy = await createClassicToken(s, { supply: 1_000_000n * UNIT, name: { name: 'BOBO', symbol: 'BOBO' } });
+        // One wallet holds all four, so it can open a pool for any of them. The three the
+        // site now allows are priced, so each shows its own warning and no other.
+        B.c10 = await fundedKeypair(3);
+        B.freezable = await createClassicToken(B.c10, { supply: 1_000_000n * UNIT, name: { name: 'E2E Create Freeze', symbol: 'ECFZ' }, freezable: true });
+        B.hooked = await createTransferHookToken(B.c10);
+        B.usdcCopy = await createClassicToken(B.c10, { supply: 1_000_000n * UNIT, name: { name: 'USD Coin', symbol: 'USDC' } });
+        B.boboCopy = await createClassicToken(B.c10, { supply: 1_000_000n * UNIT, name: { name: 'BOBO', symbol: 'BOBO' } });
+        for (const m of [B.freezable, B.usdcCopy, B.boboCopy]) book.setPrice(m.toBase58(), FAIR, DEC);
       })(),
       (async () => {
         B.c11 = await fundedKeypair(5);
@@ -775,7 +798,7 @@ test.describe('group B (chromium only)', () => {
     // Match kept the token box (typed last, by Max) and set the SOL box.
     expect(parseDecimalToBaseUnits(await ui.lp.create.tokensToPut(p).inputValue(), DEC)).toBe(balance);
     const solIn = parseDecimalToBaseUnits(await ui.lp.create.solToPut(p).inputValue(), 9)!;
-    expect(solIn).toBe(matchMarket({ keep: 'token', amount: balance, solPerToken: stubMarket(FAIR), tokenDecimals: DEC }));
+    expect(solIn).toBe(matchSol('token', balance, stubMarket(FAIR)));
     await expect(ui.lp.create.price(p)).toHaveAttribute('data-price', 'agrees');
     const rows = await reviewCreate(p);
     const pool = await checkCreateReview(p, rows, { mint: B.t9, sol: solIn, token: balance, origin: 'standard', market: stubMarket(FAIR) });
@@ -788,74 +811,185 @@ test.describe('group B (chromium only)', () => {
     await a.ctx.close();
   });
 
-  test('P10: blocked tokens and copies of well-known names get no button: a freezable token, a transfer hook, a "USDC" and a "BOBO" from other mints', async ({ browser }) => {
-    test.setTimeout(5 * 60_000);
-    const a = await actor(browser, B.stranger, { prices: B.prices });
+  // Owner ruling 2026-10-04: any token may have a pool. A token its creator can freeze and
+  // a copy of a well-known name were refused here; each is now offered with its warning,
+  // on the card, in the form and on the review. A transfer hook is still refused: the pool
+  // program itself rejects it, so an opening would fail on chain.
+  test('P10: a freezable token and copies of well-known names get the button with their warnings, and a "USDC" copy opens on chain; a transfer hook still gets no button', async ({ browser }) => {
+    test.setTimeout(8 * 60_000);
+    const a = await actor(browser, B.c10, { prices: B.prices });
     const p = a.page;
-    const blocked = 'This site does not open pools for this token: This token is blocked on this site (see why above).';
-    const copy = 'This site does not open pools for this token: It calls itself by a well-known token’s name but has a different mint. This site does not open pools for copies.';
-    for (const [mint, line, why] of [
-      [B.freezable, blocked, 'Its creator can still freeze token accounts'],
-      [B.hooked, blocked, 'This site only accepts tokens whose only extras are their name and picture.'],
-      [B.usdcCopy, copy, null],
-      [B.boboCopy, copy, null],
-    ] as const) {
+    const owner = B.c10.publicKey;
+    const copyOf = (label: string, real: string) => `It calls itself ${label}, but it is NOT the real ${label} (whose mint is ${real}). It is a different token that copied the name.`;
+    const usdcCopyLine = copyOf('USDC', 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v');
+    // What each warning means for the pool being opened: said above Review, and again on the review.
+    const copyOnOpening = 'It calls itself by a well-known token’s name but has a different mint, so it is not that token. If the copy turns out to be worth nothing, so is your share of the pool you open.';
+    const freezeOnOpening = 'Its creator can freeze the vault of the pool you open, and while it is frozen nobody can take liquidity out, you included. They can also freeze your own account for the token.';
+    const allowed: [PublicKey, string, string][] = [
+      [
+        B.freezable,
+        `Its creator can freeze any account that holds it (freeze authority ${owner.toBase58()}), a pool’s own vault and your own account included. While a pool’s vault is frozen, nobody can take liquidity out of that pool.`,
+        freezeOnOpening,
+      ],
+      [B.usdcCopy, usdcCopyLine, copyOnOpening],
+      [B.boboCopy, copyOf('BOBO', '4nV5gNwwP68zUDat26ySChREqVaQaLudfJBkSgEzpump'), copyOnOpening],
+    ];
+    for (const [mint, onToken, onOpening] of allowed) {
       await openPools(p, mint);
-      await expect(createCard(p)).toHaveAttribute('data-create', 'token-refused', { timeout: 60_000 });
-      await expect(createCard(p)).toContainText(line);
-      if (why) await expect(ui.lp.safety(p)).toContainText(why);
-      await expect(ui.lp.create.openButton(p)).toHaveCount(0);
+      if (mint === B.freezable) await connect(p);
+      else await ensureConnected(p);
+      // Allowed, with warnings: on the token, and on the card before its button.
+      await expect(ui.lp.safety(p)).toHaveAttribute('data-verdict', 'warn');
+      await expect(ui.lp.safety(p)).toContainText(onToken);
+      await expect(createCard(p)).toHaveAttribute('data-create', 'offer', { timeout: 60_000 });
+      await expect(createCard(p)).not.toContainText('This site does not open pools for this token');
+      await expect(ui.lp.create.cautions(p)).toContainText('Read these about this token first:');
+      await expect(ui.lp.create.cautions(p)).toContainText(onToken);
+      // In the form, above Review. The only thing Review waits for is the amounts.
+      const panel = await openCreate(p);
+      await expect(ui.lp.create.warnings(p)).toContainText(onOpening);
+      await expect(panel.getByTestId('lp-review-why')).toHaveText('Type both amounts to review.');
+      await press(panel.getByRole('button', { name: 'Close', exact: true }), 'close the panel');
+      await expect(panel).toHaveCount(0);
     }
+
+    // The transfer hook is still refused, in the words of the check that blocks it: no button, and no warning in its place.
+    await openPools(p, B.hooked);
+    await expect(ui.lp.safety(p)).toHaveAttribute('data-verdict', 'blocked');
+    await expect(createCard(p)).toHaveAttribute('data-create', 'token-refused', { timeout: 60_000 });
+    await expect(createCard(p)).toContainText(
+      'This site does not open pools for this token: It uses a transfer hook, a program that runs on every transfer and can refuse or redirect it. The pool program does not accept tokens with it.',
+    );
+    await expect(ui.lp.create.openButton(p)).toHaveCount(0);
+    await expect(ui.lp.create.cautions(p)).toHaveCount(0);
     expect(a.wallet.records).toEqual([]);
+
+    // The "USDC" copy, all the way to the chain: the warning is first on the review, and the pool opens.
+    await openPools(p, B.usdcCopy);
+    await ensureConnected(p);
+    await openCreate(p);
+    const { sol: solIn, token } = await solThenMatch(p, '0.2');
+    await expect(ui.lp.create.warnings(p)).toContainText(copyOnOpening);
+    const rows = await reviewCreate(p);
+    const pool = await checkCreateReview(p, rows, { mint: B.usdcCopy, sol: solIn, token, origin: 'standard', market: stubMarket(FAIR) });
+    await expect(ui.reviewWarnings(p)).toContainText('Read these warnings first. Nothing here stops you signing, and each one is a risk to what you put in:');
+    await expect(ui.reviewWarnings(p)).toContainText(copyOnOpening);
+    await expect(ui.review(p)).toContainText(usdcCopyLine);
+    const feeBefore = (await tokenAmount(CREATE_POOL_FEE_RECEIVER))!;
+    const tokenBefore = (await tokenAmount(ata(B.usdcCopy, owner)))!;
+    const { signature, t } = await signConfirmed(a);
+    checkSignedOpening(a, pool, 'standard');
+    await checkOpenedPool({ pool, mint: B.usdcCopy, owner, sol: solIn, token, signature, feeBefore, tokenBefore, fee: (await tierView(1)).createPoolFee });
+    await checkOpenerSol(t, owner, solIn);
+    expect(await poolsFor(B.usdcCopy, owner), 'the copy has its pool').toEqual([pool]);
+    expect(await poolsFor(B.hooked), 'the transfer-hook token has none').toEqual([]);
+    expect(a.wallet.signed()).toHaveLength(1);
     expect(a.rpc.violations).toEqual([]);
     await a.ctx.close();
   });
 
-  test('P11: an opening price far from Jupiter\'s: refused on screen, fixed by Match, refused at build after the market moves; no route, and Jupiter down', async ({ browser }) => {
-    test.setTimeout(6 * 60_000);
+  // Owner ruling 2026-10-04: an opening price more than 3% from the market, and a token
+  // Jupiter has no route for, were refusals. Each is now a warning (with the estimated loss
+  // for a price that is off), said in the form and again on the review, and the pool opens.
+  // Jupiter FAILING to answer is still not "no route": that stays off.
+  test('P11: an opening price far from Jupiter\'s is a warning with its estimated loss, on screen and after the market moves, and it lands; no route opens with a warning; Jupiter down stays off', async ({ browser }) => {
+    test.setTimeout(10 * 60_000);
     const a = await actor(browser, B.c11, { prices: B.prices });
     const p = a.page;
+    const owner = B.c11.publicKey;
+    const offMarket = (gap: string) => `Your opening price is ${gap} the market price (Jupiter). The first trades would move it to the market price, at your cost.`;
+    const lossLine = (lamports: bigint) => `At these amounts, a move back to the market price would take up to about ${solExact(lamports)} of what you put in. That is an estimate.`;
+    const reviewLead = 'Read these warnings first. Nothing here stops you signing, and each one is a risk to what you put in:';
     await openPools(p, B.t11);
     await connect(p);
-    await openCreate(p);
+    const panel = await openCreate(p);
     const market = stubMarket(FAIR);
-    // (a) 1.5x the market: 1 SOL against the tokens 1 SOL buys at 1.5x the price.
-    const solIn = sol(1);
-    const high = matchMarket({ keep: 'sol', amount: solIn, solPerToken: market * 1.5, tokenDecimals: DEC })!;
+    const warnings = ui.lp.create.warnings(p);
+
+    // (a) 1.5x the market: 1 SOL against the tokens 1 SOL buys at 1.5x the price. A warning
+    // with what it may cost, and nothing that stops it: Review stays on.
+    const high = matchSol('coin', sol(1), market * 1.5);
     await ui.lp.create.solToPut(p).fill('1');
     await ui.lp.create.tokensToPut(p).fill(tokensToInput(high));
     await expect(ui.lp.create.price(p)).toHaveAttribute('data-price', 'disagrees');
-    const loss = BigInt(Math.round(arbitrageLoss({ sol: solIn, token: high, tokenDecimals: DEC, marketSolPerToken: market })));
-    await expect(ui.lp.create.panel(p).getByRole('alert')).toContainText(
-      new RegExp(`^Your opening price is \\d+\\.\\d% above the market price\\. Bots would trade against your pool as soon as it opens, taking about ${esc(`${formatSol(loss, 4)} SOL`)} of what you put in\\. Pools opened from this site must start within 3% of the market\\.`),
-    );
-    await expect(ui.lp.create.review(p)).toBeDisabled();
-    // (b) Match: agrees, and Review is offered.
+    const highGap = gapOf(priceOf(sol(1), high, DEC, SOL_COIN), market);
+    expect(highGap).toBe('50.0% above');
+    await expect(warnings).toContainText(offMarket(highGap));
+    await expect(warnings).toContainText(lossLine(lossAtMarketUp({ coinAmount: sol(1), tokenAmount: high, tokenDecimals: DEC, marketPricePerToken: market, coin: SOL_COIN })));
+    await expect(panel.getByRole('alert')).toHaveText('');
+    await expect(ui.lp.create.review(p)).toBeEnabled({ timeout: 30_000 });
+
+    // (b) Match: the tokens were typed last, so they stay and the SOL is set. It agrees, and the warning goes.
     await press(ui.lp.create.match(p), 'Match the market price');
     await expect(ui.lp.create.price(p)).toHaveAttribute('data-price', 'agrees');
+    await expect(warnings).toHaveCount(0);
+    const solIn = parseDecimalToBaseUnits(await ui.lp.create.solToPut(p).inputValue(), 9)!;
+    expect(solIn).toBe(matchSol('token', high, market));
     await expect(ui.lp.create.review(p)).toBeEnabled({ timeout: 30_000 });
-    // (c) The market moves up 5% before Review: refused at build, with the gap.
+
+    // (c) The market moves up 5% before Review. The form still says "agrees"; the review
+    // reads the price again, says the opening is now off, what that may cost, and is still
+    // offered to sign. It lands at the price typed.
     a.jup.setPrice(B.t11.toBase58(), FAIR * 1.05);
+    const moved = stubMarket(FAIR * 1.05);
+    const gap = gapOf(priceOf(solIn, high, DEC, SOL_COIN), moved);
+    expect(gap).toBe('4.8% below');
     await press(ui.lp.create.review(p), 'Review: open the pool');
-    const out = ui.outcome(p);
-    await expect(out).toHaveAttribute('data-status', 'not-sent', { timeout: 120_000 });
-    await expect(out).toContainText('Not sent. We could not build this transaction.');
-    const gap = (await out.innerText()).match(/Your opening price is now (\d+\.\d)% below the market price \(Jupiter, read just now\)\. Pools opened from this site must start within 3% of it\. Press Match the market price, then Review again\./);
-    expect(gap, await out.innerText()).not.toBeNull();
-    expect(Math.abs(Number(gap![1]) - 4.8) <= 0.3, `the gap ${gap![1]}% is about 5%`).toBe(true);
-    // (d) A token Jupiter has no route for.
+    const rows = await reviewRows(p);
+    const pool = await checkCreateReview(p, rows, { mint: B.t11, sol: solIn, token: high, origin: 'standard', market: moved, gap });
+    await expect(ui.reviewWarnings(p)).toContainText(reviewLead);
+    await expect(ui.reviewWarnings(p)).toContainText(offMarket(gap));
+    await expect(ui.reviewWarnings(p)).toContainText(lossLine(lossAtMarketUp({ coinAmount: solIn, tokenAmount: high, tokenDecimals: DEC, marketPricePerToken: moved, coin: SOL_COIN })));
+    let feeBefore = (await tokenAmount(CREATE_POOL_FEE_RECEIVER))!;
+    let tokenBefore = (await tokenAmount(ata(B.t11, owner)))!;
+    const first = await signConfirmed(a);
+    checkSignedOpening(a, pool, 'standard');
+    await checkOpenedPool({ pool, mint: B.t11, owner, sol: solIn, token: high, signature: first.signature, feeBefore, tokenBefore, fee: (await tierView(1)).createPoolFee });
+    await checkOpenerSol(first.t, owner, solIn);
+
+    // (d) A token Jupiter has no route for: offered, with the warning that there is no
+    // market price. There is nothing to match, the opener types both sides, and it opens.
+    const noMarket =
+      'Jupiter has no market price for this token, so there is nothing to compare your opening price with. You are setting the price yourself: if it is off, the first trades take the difference out of what you put in.';
     await openPools(p, B.t11u);
-    await expect(createCard(p)).toHaveAttribute('data-create', 'no-route', { timeout: 60_000 });
-    await expect(createCard(p)).toContainText('Jupiter has no market price for this token.');
-    await expect(ui.lp.create.openButton(p)).toHaveCount(0);
-    // (e) Jupiter down for a priced token.
+    await ensureConnected(p);
+    await expect(createCard(p)).toHaveAttribute('data-create', 'offer', { timeout: 60_000 });
+    await expect(ui.lp.create.cautions(p)).toContainText(
+      'Jupiter has no market price for this token, so there is nothing to compare an opening price with. If you open a pool, you set its first price yourself.',
+    );
+    await openCreate(p);
+    await expect(ui.lp.create.market(p)).toContainText('there is none for this token. You are setting this pool’s first price yourself.');
+    await expect(ui.lp.create.match(p)).toHaveCount(0);
+    const ownSol = sol(0.2);
+    const ownTokens = 150_000n * UNIT;
+    await ui.lp.create.solToPut(p).fill('0.2');
+    await ui.lp.create.tokensToPut(p).fill(tokensToInput(ownTokens));
+    await expect(ui.lp.create.price(p)).toHaveAttribute('data-price', 'no-market');
+    await expect(ui.lp.create.price(p)).toHaveText(`Your opening price: 1 token = ${formatSolPrice(priceOf(ownSol, ownTokens, DEC, SOL_COIN))} SOL. There is no market price to compare it with.`);
+    await expect(ui.lp.create.warnings(p)).toContainText(noMarket);
+    const rows2 = await reviewCreate(p);
+    const pool2 = await checkCreateReview(p, rows2, { mint: B.t11u, sol: ownSol, token: ownTokens, origin: 'standard', market: null });
+    await expect(ui.reviewWarnings(p)).toContainText(reviewLead);
+    await expect(ui.reviewWarnings(p)).toContainText(noMarket);
+    feeBefore = (await tokenAmount(CREATE_POOL_FEE_RECEIVER))!;
+    tokenBefore = (await tokenAmount(ata(B.t11u, owner)))!;
+    const second = await signConfirmed(a);
+    checkSignedOpening(a, pool2, 'standard');
+    await checkOpenedPool({ pool: pool2, mint: B.t11u, owner, sol: ownSol, token: ownTokens, signature: second.signature, feeBefore, tokenBefore, fee: (await tierView(1)).createPoolFee });
+    await checkOpenerSol(second.t, owner, ownSol);
+
+    // (e) Jupiter down for a priced token is NOT "no route": it could not be read, so there is no button and no warning in its place.
     a.jup.setDown(B.t11d.toBase58(), true);
     await openPools(p, B.t11d);
     await expect(createCard(p)).toHaveAttribute('data-create', 'price-unread', { timeout: 60_000 });
     await expect(createCard(p)).toContainText('HTTP 502');
     await expect(ui.lp.create.openButton(p)).toHaveCount(0);
-    expect(a.wallet.records).toEqual([]);
-    expect(await poolsFor(B.t11)).toEqual([]);
+    await expect(ui.lp.create.cautions(p)).toHaveCount(0);
+
+    expect(a.wallet.signed()).toHaveLength(2);
+    expect(await poolsFor(B.t11, owner)).toEqual([pool]);
+    expect(await poolsFor(B.t11u, owner)).toEqual([pool2]);
+    expect(await poolsFor(B.t11d)).toEqual([]);
     expect(a.rpc.violations).toEqual([]);
     await a.ctx.close();
   });
@@ -1152,7 +1286,8 @@ test.describe('group B (chromium only)', () => {
     expect(body).toContain('This site can add and remove liquidity, and open new pools on the public fee tier (the pools section below says whether it can right now).');
     // Whether tier 1 exists is said only by the create card's live read, never by fixed page copy.
     expect(body).not.toMatch(/once (the public fee tier|that tier) exists/);
-    expect(body).toContain('still goes through Jupiter');
+    expect(body).toContain('to our pool when ours pays at least as much as Jupiter, and through Jupiter when it does not.');
+    expect(body).not.toContain('still goes through Jupiter');
     const panel = await openCreate(p);
     await expect(panel.getByTestId('lp-before-you-open')).toContainText(MONEY);
     await solThenMatch(p, '0.1');
@@ -1171,5 +1306,140 @@ test.describe('group B (chromium only)', () => {
     expect(a.wallet.records).toEqual([]);
     expect(a.rpc.violations).toEqual([]);
     await a.ctx.close();
+  });
+
+  // The leave rule (whole-change review, 2026-10-04): nobody is let in who cannot be let out.
+  // The pool program refuses a withdrawal that pays 0 on a side, so an opening whose own
+  // shares, taken out whole, would pay 0 on a side is refused on screen. That is an opening
+  // with ONE smallest unit on a side: here 1 token of a token with no decimals. With 2 it
+  // opens, and the opener's whole share then leaves through the site's own Remove.
+  // The token and its wallet are made here, not in beforeAll: nothing else uses them.
+  test('P20: the leave rule: 1 token with no decimals against 10 SOL is refused on screen, because its own share could never be taken out; 2 tokens open, and Remove All of that share lands; in Node, the program takes the 1-token opening and then refuses its withdrawal (6006)', async ({ browser }) => {
+    test.setTimeout(8 * 60_000);
+    const opener = await fundedKeypair(25);
+    const owner = opener.publicKey;
+    // No decimals: one token is one smallest unit. Not priced: the stub says "no route", so
+    // the opener sets the price and there is no market price to be off.
+    const mint = await createClassicToken(opener, { decimals: 0, supply: 1_000n, name: { name: 'E2E Whole Units', symbol: 'EWHOLE' } });
+    expect((await mintFacts(mint)).decimals).toBe(0);
+    const tenSol = sol(10);
+    // The sums, by hand. 1 token: 100,000 shares, so the locked 100 are exactly 0.1% and the
+    // older rule lets it through; the opener's 99,900 would pay floor(99,900 x 1 / 100,000) = 0 tokens.
+    expect(isqrt(tenSol * 1n)).toBe(100_000n);
+    expect((99_900n * 1n) / 100_000n).toBe(0n);
+    // 2 tokens: 141,421 shares; the opener's 141,321 pay floor(141,321 x 2 / 141,421) = 1 token.
+    const supply = isqrt(tenSol * 2n);
+    expect(supply).toBe(141_421n);
+    expect(((supply - 100n) * 2n) / supply).toBe(1n);
+    // What stays behind for good on each side, by hand: what went in, less what the opener's
+    // own shares pay out, rounded down the pool program's way. So it rounds UP: 1 of the 2
+    // tokens stays, and 7,071,086 lamports. The older figure, floor(100 x put / supply),
+    // said 0 tokens and 7,071,085 lamports. Worked out here, never by the page's own function.
+    const staysTok = 2n - ((supply - 100n) * 2n) / supply;
+    const staysSol = tenSol - ((supply - 100n) * tenSol) / supply;
+    expect(staysTok).toBe(1n);
+    expect(staysSol).toBe(7_071_086n);
+    expect([(100n * 2n) / supply, (100n * tenSol) / supply], 'the older figure, for the record').toEqual([0n, 7_071_085n]);
+
+    const a = await actor(browser, opener, { prices: B.prices });
+    const p = a.page;
+    await openPools(p, mint);
+    await connect(p);
+    const panel = await openCreate(p);
+    await expect(ui.lp.create.match(p), 'no market price, so nothing to match').toHaveCount(0);
+    await expect(panel).toContainText('You have 1,000 tokens.', { timeout: 30_000 });
+    const alert = panel.getByRole('alert');
+
+    // 1 token against 10 SOL: refused on screen, in the rule's own words, and Review is off.
+    await ui.lp.create.solToPut(p).fill('10');
+    await ui.lp.create.tokensToPut(p).fill('1');
+    await expect(alert).toHaveText('Too small: your own share of this pool could never be taken out, because it would pay out less than one unit of the token. Put in more of it.');
+    await expect(ui.lp.create.review(p)).toBeDisabled();
+    expect(a.wallet.records).toEqual([]);
+
+    // 2 tokens: the line goes, Review comes on, and the opening lands with exactly these amounts.
+    await ui.lp.create.tokensToPut(p).fill('2');
+    await expect(alert).toHaveText('');
+    await expect(ui.lp.create.price(p)).toHaveAttribute('data-price', 'no-market');
+    // The form says what stays behind, to the lamport and to the token: 1 token, never "0 tokens".
+    const preview = panel.getByTestId('lp-create-preview');
+    await expect(preview).toContainText(`${LOCKED_SHARES}, worth about ${solExact(staysSol)} and ${units(staysTok, 0)} tokens`);
+    // And what leaves the wallet in all names the tokens too, not the SOL alone.
+    const [tier, rents] = await Promise.all([tierView(1), liveRents()]);
+    await expect(preview).toContainText(`about ${formatSol(tenSol + tier.createPoolFee + rents.neverRefunded + rents.r165, 4)} SOL and 2 tokens, plus the network fee`);
+    const rows = await reviewCreate(p);
+    const pool = await checkCreateReview(p, rows, { mint, sol: tenSol, token: 2n, origin: 'standard', market: null, decimals: 0 });
+    expect(rows['You get']).toBe(`${units(supply - 100n, 9)} pool shares, exactly`);
+    // The review says the same, "about": the hand-worked figure, not the page's own plan.
+    expect(rows['Locked in the pool forever']).toBe(`${LOCKED_SHARES}, worth about ${SOL(staysSol)} and ${tok(staysTok, 0)} tokens at these amounts`);
+    const feeBefore = (await tokenAmount(CREATE_POOL_FEE_RECEIVER))!;
+    const tokenBefore = (await tokenAmount(ata(mint, owner)))!;
+    expect(tokenBefore).toBe(1_000n);
+    const opened = await signConfirmed(a);
+    checkSignedOpening(a, pool, 'standard');
+    await checkOpenedPool({ pool, mint, owner, sol: tenSol, token: 2n, signature: opened.signature, feeBefore, tokenBefore, fee: (await tierView(1)).createPoolFee });
+    await checkOpenerSol(opened.t, owner, tenSol);
+
+    // Remove All: the whole share the opening gave, through the site's own form.
+    await closeAll(p, ui.lp.create.panel(p));
+    const lpAcc = ata(deriveLpMint(CP_SWAP_PROGRAM, pool), owner);
+    const held = (await tokenAmount(lpAcc))!;
+    expect(held).toBe(supply - 100n);
+    const rpanel = await openRemove(positionRow(p, pool));
+    await press(ui.lp.percent(rpanel, 'All'), 'All');
+    await expect(ui.lp.reviewRemove(rpanel)).toBeEnabled({ timeout: 30_000 });
+    await press(ui.lp.reviewRemove(rpanel), 'Review: remove liquidity');
+    const rrows = await reviewRows(p);
+    const wplan = withdrawPlan(await poolFacts(pool), held, 10_000n);
+    // By hand: every share it holds, paying 1 token and the same part of the SOL, rounded down.
+    expect(wplan.lp).toBe(held);
+    expect(wplan.outTok).toBe(1n);
+    expect(wplan.outSol).toBe((held * tenSol) / supply);
+    expect(wplan.minTok, 'the minimum is never below 1').toBe(1n);
+    expect(rrows['Pool']).toBe(pool.toBase58());
+    expect(rrows['You get at least']).toBe(`${solExact(wplan.minSol)} and ${units(wplan.minTok, 0)} tokens`);
+    expect(rrows['You keep']).toBe('none in this pool');
+    await expect(ui.review(p)).toContainText('This is all of your share in this pool.');
+    const solVault = deriveVault(CP_SWAP_PROGRAM, pool, WSOL);
+    const tokenVault = deriveVault(CP_SWAP_PROGRAM, pool, mint);
+    const tokenHeld = (await tokenAmount(ata(mint, owner)))!;
+    await signConfirmed(a);
+    const w = a.wallet.lastIx('withdraw');
+    expect(w.accounts.pool_state).toBe(pool.toBase58());
+    expect(w.args.lpTokenAmount).toBe(String(held));
+    // What moved, read from the chain: every share burned, 1 token and the SOL paid out.
+    expect((await tokenAmount(lpAcc)) ?? 0n, 'no share left').toBe(0n);
+    expect((await tokenAmount(ata(mint, owner)))! - tokenHeld, 'the token side paid exactly 1 token').toBe(1n);
+    expect(await tokenAmount(tokenVault), 'the other token stays with the locked shares').toBe(1n);
+    expect(await tokenAmount(solVault), 'the SOL the locked shares keep').toBe(tenSol - wplan.outSol);
+    // What the chain keeps is what the form and the review said stays behind: 1 token, and the SOL to the lamport.
+    expect([await tokenAmount(tokenVault), await tokenAmount(solVault)], 'the chain keeps exactly the "Locked in the pool forever" figure').toEqual([staysTok, staysSol]);
+    expect((await poolFacts(pool)).pool.lpSupply, 'only the locked shares are left').toBe(100n);
+    expect(a.wallet.signed()).toHaveLength(2);
+    expect(a.rpc.violations).toEqual([]);
+    await a.ctx.close();
+
+    // The pool program itself, in Node: it TAKES the 1-token opening the site refuses…
+    const trap = await createSolPool(opener, mint, { configIndex: 1, sol: tenSol, tokens: 1n, at: 'fresh' });
+    const tf = await poolFacts(trap.address);
+    expect(tf.pool.lpSupply).toBe(100_000n);
+    const stuck = (await tokenAmount(ata(trap.lpMint, owner)))!;
+    expect(stuck, 'the opener holds every share but the locked 100').toBe(99_900n);
+    // …and then refuses to pay its opener's whole share back out: ZeroTradingTokens (6006).
+    const m0 = new PublicKey(tf.pool.token0Mint);
+    const m1 = new PublicKey(tf.pool.token1Mint);
+    const tx = new Transaction().add(
+      withdrawIx({
+        programId: CP_SWAP_PROGRAM, owner, poolState: trap.address, ownerLpToken: ata(trap.lpMint, owner),
+        token0Account: ata(m0, owner), token1Account: ata(m1, owner),
+        token0Vault: new PublicKey(tf.pool.token0Vault), token1Vault: new PublicKey(tf.pool.token1Vault),
+        vault0Mint: m0, vault1Mint: m1, lpMint: trap.lpMint,
+        lpTokenAmount: stuck, minimumToken0Amount: 0n, minimumToken1Amount: 0n,
+      }),
+    );
+    tx.feePayer = owner;
+    tx.recentBlockhash = (await chain().getLatestBlockhash('confirmed')).blockhash;
+    const sim = await chain().simulateTransaction(new VersionedTransaction(tx.compileMessage()), { sigVerify: false, commitment: 'confirmed' });
+    expect(sim.value.err, (sim.value.logs ?? []).join('\n')).toEqual({ InstructionError: [0, { Custom: 6006 }] });
   });
 });

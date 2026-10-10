@@ -21,6 +21,17 @@
 // address or a co-signing fresh key, open at once, every account derived here, and the
 // only account the transaction may open itself is the wallet's wrapped-SOL account.
 //
+// A swap in one of our pools from the swap page (any pool but a launch's own): checked
+// against the pool as the chain records it, like liquidity. Its fee settings, vaults,
+// token programs and price record must be the pool's own, both of its token accounts the
+// wallet's own under each side's program, and it wraps SOL only when SOL is paid in.
+//
+// Pairing coins (owner ruling 2026-10-03): a pool pairs a token with SOL, USDC or BAYLA
+// (coins.ts, written out by hand). Only SOL is ever wrapped. So a transaction that opens,
+// adds to or takes from a pool paired with USDC or BAYLA may not wrap SOL, sync or close a
+// wrapped-SOL account, or open one. An opening paired with one of them therefore opens no
+// account at all: the coin is spent from the wallet's own account for it.
+//
 // Account POSITIONS come from the release IDLs (pinned by sha256 in genesis-accounts.mjs),
 // never from the frontend's ix.ts, so a builder bug cannot pass its own check here.
 import { PublicKey, VersionedTransaction, type MessageCompiledInstruction } from '@solana/web3.js';
@@ -29,6 +40,7 @@ import { loadVerifiedIdls } from '../../scripts/solana-localnet/genesis-accounts
 import { chain, LAUNCH_PROGRAM, CP_SWAP_PROGRAM, METAPLEX, WSOL, ata, curve, globalConfig, tokenAmount } from './chain';
 import { poolStatePda, TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID, SYSTEM_PROGRAM_ID } from '../../src/lib/launcher/solana/curve/program';
 import { BAYLA_DECIMALS, BAYLA_MINT, PLANT_HALF, TOKEN_2022, WORKSHOP_BAYLA_ACCOUNT, baylaAccount } from './bayla';
+import { coinOfPool } from './coins';
 
 export const COMPUTE_BUDGET = new PublicKey('ComputeBudget111111111111111111111111111111');
 /** Critic A6: our own transactions pay at most 0.001 SOL of priority fee. */
@@ -371,16 +383,42 @@ export async function checkTransaction(bytes: Uint8Array, wallet: PublicKey): Pr
       const amountIn = u64(d, 8); const minOut = u64(d, 16);
       if (!m.payer.equals(wallet)) refuse('swap: the payer is not you');
       if (minOut === 0n) refuse('swap: minimum_amount_out is 0, which accepts any price');
+      // A launch's own pool (its launch page): classic accounts, at the address only the
+      // launch program can open. Any other pool is the swap page's route to one of our
+      // pools, and is checked against that pool as the chain records it (checkVenueSwap).
+      const mint = m.input_token_mint.equals(WSOL) ? m.output_token_mint : m.input_token_mint;
+      if (!m.pool_state.equals(poolStatePda(mint, LAUNCH_PROGRAM))) {
+        out.push(await checkVenueSwap(ix, acc, d, wallet, cpIdl));
+        continue;
+      }
       if (!m.input_token_account.equals(ata(m.input_token_mint, wallet))) refuse('swap: the input account is not your own');
       if (!m.output_token_account.equals(ata(m.output_token_mint, wallet))) refuse('swap: the OUTPUT account is not your own (cp-swap does not check its owner)');
-      const mint = m.input_token_mint.equals(WSOL) ? m.output_token_mint : m.input_token_mint;
-      if (!m.pool_state.equals(poolStatePda(mint, LAUNCH_PROGRAM))) refuse('swap: not the pool the launch recorded');
       out.push({ program: 'cp-swap', name: ix.name, args: { amountIn: String(amountIn), minimumAmountOut: String(minOut) }, accounts: show(m) });
       continue;
     }
 
     refuse(`program ${program.toBase58()} is not one this site calls`);
   }
+
+  // Only SOL is wrapped. A pool paired with USDC or BAYLA takes its coin from, and pays it
+  // into, the wallet's own account for that coin, so nothing in its transaction may touch
+  // wrapped SOL. (An opening may open no other account either: the rule above, in the
+  // associated-token branch, already refuses any account but the wrapped-SOL one.)
+  const notSol = out.find((i) => i.program === 'cp-swap' && i.args.pairedWith !== undefined && i.args.pairedWith !== 'SOL');
+  if (notSol) {
+    const touches = out.find((i) => i.name === 'wrap-sol' || i.name === 'sync-native' || i.name === 'close-wsol' || (i.program === 'ata' && i.accounts.mint === WSOL.toBase58()));
+    if (touches) refuse(`${notSol.name}: the pool is paired with ${notSol.args.pairedWith}, not SOL, and the transaction still carries ${touches.name} on wrapped SOL`);
+  }
+
+  // A swap in one of our pools wraps SOL only when SOL is what it pays in. A sale that
+  // also moved SOL into the wrapped-SOL account would have it paid out with the proceeds
+  // or left there: either way SOL the review never named.
+  const venueSwap = out.find((i) => i.program === 'cp-swap' && i.name === 'swap_base_input' && i.args.paysIn !== undefined);
+  if (venueSwap && venueSwap.args.paysIn !== WSOL.toBase58()) {
+    const wraps = out.find((i) => i.name === 'wrap-sol' || i.name === 'sync-native');
+    if (wraps) refuse(`swap: it does not pay in SOL, and the transaction still carries ${wraps.name}`);
+  }
+  if (out.filter((i) => i.program === 'cp-swap').length > 1 && venueSwap) refuse('swap: more than one pool instruction in a swap');
 
   // The plant rides only in a launch, and whole: its burn and its transfer together.
   if (plant.burns + plant.gives > 0) {
@@ -449,10 +487,58 @@ async function checkLiquidity(ix: IdlIx, acc: PublicKey[], d: Uint8Array, wallet
   } else {
     for (const [side, v] of [['0', a0], ['1', a1]] as const) if (v === 0n) refuse(`withdraw: minimum_token_${side}_amount is 0, which accepts any payout`);
   }
+  // The pool's coin, from the pool as the chain records it: 'other' when neither side is
+  // SOL, USDC or BAYLA (the site builds nothing for such a pool; the rules above still hold).
+  const pairedWith = coinOfPool(pool.token0Mint.toBase58(), pool.token1Mint.toBase58())?.coin.symbol ?? 'other';
   const args: Record<string, string> = what === 'deposit'
-    ? { lpTokenAmount: String(lp), maximumToken0Amount: String(a0), maximumToken1Amount: String(a1) }
-    : { lpTokenAmount: String(lp), minimumToken0Amount: String(a0), minimumToken1Amount: String(a1) };
+    ? { lpTokenAmount: String(lp), maximumToken0Amount: String(a0), maximumToken1Amount: String(a1), pairedWith }
+    : { lpTokenAmount: String(lp), minimumToken0Amount: String(a0), minimumToken1Amount: String(a1), pairedWith };
   return { program: 'cp-swap', name: what, args, accounts: Object.fromEntries(Object.entries(m).map(([k, v]) => [k, v.toBase58()])) };
+}
+
+/**
+ * cp-swap `swap_base_input` in a pool that is not a launch's own (the swap page trading
+ * in one of our pools). The pool is read from the chain HERE: fee settings, mints,
+ * vaults, token programs and price record must be the pool's own recorded fields, and
+ * both token accounts the wallet's own ATAs. cp-swap checks the owner of neither, so a
+ * payout account that is not the wallet's would hand the proceeds to a stranger.
+ */
+async function checkVenueSwap(ix: IdlIx, acc: PublicKey[], d: Uint8Array, wallet: PublicKey, cpIdl: CpIdl): Promise<SignedIx> {
+  if (acc.length !== ix.accounts.length) refuse(`swap: ${acc.length} accounts, the pinned IDL has ${ix.accounts.length}`);
+  if (d.length !== 24) refuse(`swap: ${d.length} bytes of data, expected 24`);
+  const m: Record<string, PublicKey> = {};
+  ix.accounts.forEach((a, i) => { m[a.name] = acc[i]; });
+  for (const a of ix.accounts) {
+    if (a.address && !m[a.name].equals(new PublicKey(a.address))) refuse(`swap: ${a.name} is ${m[a.name].toBase58()}, not ${a.address}`);
+  }
+  if (!m.payer.equals(wallet)) refuse('swap: the payer is not you');
+  if (!m.authority.equals(CP_AUTHORITY)) refuse('swap: the authority is not the pool program\'s own');
+  const pool = await readPool(m.pool_state, cpIdl);
+  if (!m.amm_config.equals(pool.ammConfig)) refuse(`swap: amm_config is not the pool's own fee settings (${pool.ammConfig.toBase58()})`);
+  const side0 = { mint: pool.token0Mint, program: pool.token0Program, vault: pool.token0Vault };
+  const side1 = { mint: pool.token1Mint, program: pool.token1Program, vault: pool.token1Vault };
+  const in0 = m.input_token_mint.equals(side0.mint);
+  if (!in0 && !m.input_token_mint.equals(side1.mint)) refuse('swap: it pays in a token this pool does not hold');
+  const [input, output] = in0 ? [side0, side1] : [side1, side0];
+  const own: [string, PublicKey][] = [
+    ['output_token_mint', output.mint],
+    ['input_vault', input.vault], ['output_vault', output.vault],
+    ['input_token_program', input.program], ['output_token_program', output.program],
+    ['observation_state', pool.observationKey],
+  ];
+  for (const [name, want] of own) if (!m[name].equals(want)) refuse(`swap: ${name} is not the pool's own (${want.toBase58()})`);
+  if (!m.input_token_account.equals(ata(input.mint, wallet, input.program))) refuse('swap: the input account is not your own');
+  if (!m.output_token_account.equals(ata(output.mint, wallet, output.program))) refuse('swap: the OUTPUT account is not your own (cp-swap does not check its owner)');
+  const amountIn = u64(d, 8); const minOut = u64(d, 16);
+  if (amountIn === 0n) refuse('swap: amount_in is 0');
+  if (minOut === 0n) refuse('swap: minimum_amount_out is 0, which accepts any price');
+  const pairedWith = coinOfPool(pool.token0Mint.toBase58(), pool.token1Mint.toBase58())?.coin.symbol ?? 'other';
+  return {
+    program: 'cp-swap',
+    name: 'swap_base_input',
+    args: { amountIn: String(amountIn), minimumAmountOut: String(minOut), pairedWith, paysIn: input.mint.toBase58() },
+    accounts: Object.fromEntries(Object.entries(m).map(([k, v]) => [k, v.toBase58()])),
+  };
 }
 
 /** cp-swap PDAs, from the program's own seed strings (never the frontend's derive helpers). */
@@ -466,7 +552,7 @@ const tierConfig = (index: number) => cpPda(Buffer.from('amm_config'), Buffer.fr
  *  - exactly 20 accounts (a 21st would be read as a support-mint record) and 32 bytes;
  *  - creator = the wallet; the authority and every PDA by the program's own seeds;
  *  - amm_config = fee tier 1 by derivation; tier 0 (the launch tier) is refused by name;
- *  - the two mints byte-sorted, one of them wrapped SOL;
+ *  - the two mints byte-sorted, one of them a pairing coin (SOL, USDC or BAYLA: coins.ts);
  *  - pool_state = the standard address for tier 1 and the pair, or a CO-SIGNER of this
  *    message (the fresh key the page signs with after the wallet);
  *  - create_pool_fee = the program's fixed fee account (the IDL's address, 2sa31zce…);
@@ -497,7 +583,7 @@ async function checkInitialize(
   const t0 = m.token_0_mint;
   const t1 = m.token_1_mint;
   if (Buffer.compare(t0.toBuffer(), t1.toBuffer()) >= 0) refuse('initialize: the two mints are not in the program\'s order');
-  if (!t0.equals(WSOL) && !t1.equals(WSOL)) refuse('initialize: the pool does not pair a token with SOL');
+  const pair = coinOfPool(t0.toBase58(), t1.toBase58()) ?? refuse('initialize: the pool does not pair a token with SOL, USDC or BAYLA');
   const standard = cpPda(Buffer.from('pool'), m.amm_config.toBuffer(), t0.toBuffer(), t1.toBuffer());
   const pool = m.pool_state;
   if (!pool.equals(standard) && !coSigners.some((k) => k.equals(pool))) refuse('initialize: the pool is neither the standard address nor a fresh key that signs this transaction');
@@ -523,7 +609,7 @@ async function checkInitialize(
   return {
     program: 'cp-swap',
     name: 'initialize',
-    args: { initAmount0: String(a0), initAmount1: String(a1), openTime: String(openTime), origin: pool.equals(standard) ? 'standard' : 'co-signer' },
+    args: { initAmount0: String(a0), initAmount1: String(a1), openTime: String(openTime), origin: pool.equals(standard) ? 'standard' : 'co-signer', pairedWith: pair.coin.symbol },
     accounts: Object.fromEntries(Object.entries(m).map(([k, v]) => [k, v.toBase58()])),
   };
 }

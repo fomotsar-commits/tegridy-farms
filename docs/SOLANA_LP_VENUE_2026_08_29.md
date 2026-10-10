@@ -1,5 +1,10 @@
 # Hosting liquidity pools on Solana — the client, the router, the surface (2026-08-29)
 
+> 2026-10-06: this is a dated record. Since it was written the fork's source gained one
+> instruction (`create_lp_metadata`, which names a pool's share token), so the fork is no longer
+> Raydium's code with only constants changed, and its delta is about 260 lines. See
+> `solana/tegridy-amm/TEGRIDY_FORK.md`.
+
 Operator ask, verbatim: *"we should showcase the fact that we can host liquidity
 pools on solana so people can provide lp and we can get fees. the swap should
 also route to our lps unless it is more efficient somewhere else… it shouldnt be
