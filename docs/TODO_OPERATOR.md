@@ -436,7 +436,7 @@ day. A third host may not, so test the folder link itself after any host move. C
 on the day.
 After the upgrade, the explorer's security tab for the program shows the four new values.
 
-### ✅ O-0929-12: the two Solana programs are in the root security scope (decided 2026-10-08)
+### ✅ O-0929-12: the two Solana programs are in the root security scope (decided 2026-10-10)
 
 Root `SECURITY.md` lists what is in scope, and scope decides safe harbour. The two programs that
 went live on 2026-09-29, cp-swap `EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT` and

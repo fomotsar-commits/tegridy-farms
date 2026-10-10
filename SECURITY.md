@@ -60,7 +60,7 @@ The Meteora DBC rail was deleted 2026-08-23. Reports against either are welcome 
 findings but there is nothing live to exploit at those ids.
 
 **The two Solana programs that went live on 2026-09-29 are in scope** (owner decision
-O-0929-12 in `docs/TODO_OPERATOR.md`, made 2026-10-08): they are on the list above. Their own
+O-0929-12 in `docs/TODO_OPERATOR.md`, made 2026-10-10): they are on the list above. Their own
 policy, [`solana/tegridy-amm/SECURITY.md`](./solana/tegridy-amm/SECURITY.md), takes reports at
 the same address as this file. Test them on a local validator, never against mainnet.
 
