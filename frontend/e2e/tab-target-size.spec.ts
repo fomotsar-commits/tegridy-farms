@@ -245,6 +245,10 @@ for (const vp of FIRST_SCREENS) {
     const risk = (await page.getByTestId('lp-risk-line').boundingBox())!;
     expect(risk.y, 'the risk line starts above the top of the screen').toBeGreaterThanOrEqual(0);
     expect(risk.y + risk.height, 'the risk line is not above the three buttons').toBeLessThanOrEqual(firstButtonTop);
+    // So is the one line on earning (fees need no claim): under the risk line, above the buttons.
+    const earn = (await page.getByTestId('lp-earn-line').boundingBox())!;
+    expect(earn.y, 'the earn line is not under the risk line').toBeGreaterThanOrEqual(risk.y + risk.height);
+    expect(earn.y + earn.height, 'the earn line is not above the three buttons').toBeLessThanOrEqual(firstButtonTop);
 
     // One press, and what comes next is on the screen: a site token to press, and the
     // address field for any other token. Polled: the page scrolls them up under the buttons.
