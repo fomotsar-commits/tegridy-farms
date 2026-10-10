@@ -93,7 +93,7 @@ const howItWorksSteps = (toweli: boolean) => toweli ? [
   {
     step: '3',
     title: 'Harvest the Yield',
-    desc: 'Emissions pay you in TOWELI today. The ETH fee-share is wired on-chain and pays in rounds that need 1 ETH of fees first. Claim whenever the crop looks ripe.',
+    desc: 'Emissions pay you in TOWELI today. The ETH fee-share is wired on-chain, and a payout round needs 1 ETH of fees first. Claim whenever the crop looks ripe.',
     to: '/dashboard',
   },
 ] : [
@@ -112,7 +112,7 @@ const howItWorksSteps = (toweli: boolean) => toweli ? [
   {
     step: '3',
     title: 'Harvest, verified',
-    desc: 'Emissions pay in TOWELI today. The ETH fee-share is wired on-chain and pays in rounds that need 1 ETH of fees first. Claim any time.',
+    desc: 'Emissions pay in TOWELI today. The ETH fee-share is wired on-chain, and a payout round needs 1 ETH of fees first. Claim any time.',
     to: '/dashboard',
   },
 ];

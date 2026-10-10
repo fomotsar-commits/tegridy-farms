@@ -1,27 +1,9 @@
-// THE ETHEREUM-SIDE MONEY SENTENCES, PINNED AS CLAIM SHAPES.
-//
-// Three lines of site copy disagreed with the chain, and each had siblings. Read on
-// mainnet 2026-10-10 with `cast` against eth.drpc.org, blocks 26,163,075 to 26,163,112:
-//
-//   TegridyPair        0x5587…a481  kLast() = 0. harvest() simulated from a stranger reverts
-//                                   HARVEST_BOOTSTRAP_GATED; from the factory's feeToSetter
-//                                   (the owner wallet) it succeeds. So the venue's one-sixth
-//                                   LP mint has never started, and one key can start it.
-//   TegridyFactory     0xa24C…7a52  feeTo() = the treasury Safe, which holds 0 LP.
-//   SwapFeeRouter      0x6d57…956E  feeBps() = 50, MAX_FEE_BPS = 100, totalETHFees() = 3e12 wei,
-//                                   lastCallerCreditAt() = 0 (recoverCallerCredit never called).
-//   ReferralSplitter   0x6B34…7e4c  referralFeeBps() = 2000; it holds the whole 3e12 wei.
-//   RevenueDistributor 0xF993…3E17  totalETHReceived() = 0, totalDistributed() = 0,
-//                                   MIN_DISTRIBUTE_AMOUNT() = 1e18.
-//
-// The shapes, each a family of wordings for one false claim:
-//   1. The staker ETH does not wait on the pool. The pool is live and the rail has taken
-//      fees; what a payout round waits on is a full ether in the distributor.
-//   2. Liquidity providers are not on five sixths. They keep the whole 0.3% until the
-//      owner wallet starts the venue's cut, so copy may describe the cut only as a switch.
-//   3. The router fee does not all reach stakers. A referral share comes off first.
-//   4. A static answer cannot read the chain, so a figure that can move carries the date
-//      it was read, or the answer points at the page that reads it live.
+// The Ethereum-side money sentences, pinned as claim shapes (the reads are in the commit).
+// 1. Staker ETH does not wait on the pool: the pool is live, a payout round waits on 1 ETH.
+// 2. Liquidity providers keep the whole 0.3% until the owner wallet starts the venue's
+//    one-sixth cut, so copy describes that cut only as a switch.
+// 3. The router fee does not all reach stakers: a referral share comes off first.
+// 4. A static answer cannot read the chain: a figure that can move is dated or points live.
 
 import { describe, it, expect, afterEach } from 'vitest';
 import { render, screen, cleanup } from '@testing-library/react';

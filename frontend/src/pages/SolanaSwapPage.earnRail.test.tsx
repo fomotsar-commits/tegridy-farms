@@ -4,16 +4,10 @@ import { PublicKey } from '@solana/web3.js';
 import type { ReactNode } from 'react';
 
 /**
- * THE EARN RAIL PRINTS NO RATE THAT NO READ RETURNED.
- *
- * Each liquid-staking card used to read "~7.5% APY · Jito", and three more like it. The
- * four figures were typed into lib/solanaTokenList.ts; nothing on the page reads a
- * staking rate. The rule is the page's own: a number is shown only when a read returned
- * it. So a card names its token and what it is, and the note under the rail says the
- * page reads no rate and where one is published.
- *
- * The harness is SolanaSwapPage.quoteUnavailable.test.tsx's. Nothing here reaches the
- * wallet or asks for a quote.
+ * The Earn rail prints no rate that no read returned. Nothing on the page reads a
+ * staking rate, so a card names its token and what it is, and the note under the rail
+ * says so and where a rate is published. The harness is the one in
+ * SolanaSwapPage.quoteUnavailable.test.tsx; nothing here reaches the wallet or a quote.
  */
 
 vi.setConfig({ testTimeout: 30_000 });
