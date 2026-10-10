@@ -34,10 +34,16 @@ export function PercentPicker({
   valueBps,
   onChange,
   disabled,
+  legend = 'How much to take out',
+  partsOnly = false,
 }: {
   valueBps: bigint | null;
   onChange: (v: { bps: bigint | null; bad: boolean }) => void;
   disabled?: boolean;
+  /** What the percent is a share of. Left out, it is the Remove form's own words. */
+  legend?: string;
+  /** 25%, 50% and 75% only, for a box that has its own Max and takes a typed amount (Add): no All, no typed percent. */
+  partsOnly?: boolean;
 }) {
   const [other, setOther] = useState('');
   const id = useId();
@@ -51,10 +57,10 @@ export function PercentPicker({
   return (
     <fieldset className="block mb-3 min-w-0">
       <legend className="text-white text-[11px] block mb-1.5" style={SHADOW}>
-        How much to take out
+        {legend}
       </legend>
       <div className="flex flex-wrap gap-1.5">
-        {PERCENT_PRESETS.map((p) => {
+        {PERCENT_PRESETS.filter((p) => !partsOnly || p.bps !== ALL_BPS).map((p) => {
           const on = other === '' && valueBps === p.bps;
           return (
             <button
@@ -77,32 +83,34 @@ export function PercentPicker({
           );
         })}
       </div>
-      <label className="block mt-2">
-        <span id={otherLabel} className="text-white text-[11px] block mb-1.5" style={SHADOW}>
-          Other percent
-        </span>
-        <input
-          aria-labelledby={otherLabel}
-          className={`${inputCls} disabled:opacity-50`}
-          style={inputStyle}
-          inputMode="decimal"
-          placeholder="0.01 to 100"
-          spellCheck={false}
-          autoComplete="off"
-          disabled={disabled}
-          value={other}
-          onChange={(e) => {
-            // A comma typed on a phone keypad with no "." is the decimal point.
-            const v = decimalCommaToPoint(e.target.value, other);
-            setOther(v);
-            if (v.trim() === '') onChange({ bps: null, bad: false });
-            else {
-              const bps = parsePercentBps(v);
-              onChange({ bps, bad: bps === null });
-            }
-          }}
-        />
-      </label>
+      {!partsOnly && (
+        <label className="block mt-2">
+          <span id={otherLabel} className="text-white text-[11px] block mb-1.5" style={SHADOW}>
+            Other percent
+          </span>
+          <input
+            aria-labelledby={otherLabel}
+            className={`${inputCls} disabled:opacity-50`}
+            style={inputStyle}
+            inputMode="decimal"
+            placeholder="0.01 to 100"
+            spellCheck={false}
+            autoComplete="off"
+            disabled={disabled}
+            value={other}
+            onChange={(e) => {
+              // A comma typed on a phone keypad with no "." is the decimal point.
+              const v = decimalCommaToPoint(e.target.value, other);
+              setOther(v);
+              if (v.trim() === '') onChange({ bps: null, bad: false });
+              else {
+                const bps = parsePercentBps(v);
+                onChange({ bps, bad: bps === null });
+              }
+            }}
+          />
+        </label>
+      )}
     </fieldset>
   );
 }

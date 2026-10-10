@@ -42,7 +42,7 @@ const CREATOR = base58.encode(ed25519.getPublicKey(creatorKey));
 const MINT = base58.encode(ed25519.getPublicKey(ed25519.utils.randomPrivateKey()));
 
 function makeReq({ method = "POST", body = null, headers = {}, query = {} } = {}) {
-  return { method, body, query, headers: { origin: "https://memetic.fun", ...headers } };
+  return { method, body, query, headers: { origin: "https://memetics.finance", ...headers } };
 }
 function makeRes() {
   const out = { status: null, body: undefined, headers: {} };

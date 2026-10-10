@@ -48,6 +48,16 @@ describe('BottomNav: a tab is lit on every page of its section', () => {
     for (const item of section.items) expect(lit(item.to), item.to).toEqual([label]);
   });
 
+  // Owner, 2026-10-03: "pools land on solana lp".
+  it('the Pools tab opens the Solana LP tab', () => {
+    render(
+      <MemoryRouter initialEntries={['/']}>
+        <BottomNav />
+      </MemoryRouter>,
+    );
+    expect(screen.getByRole('link', { name: 'Pools' })).toHaveAttribute('href', '/solana-lp');
+  });
+
   it('nothing is lit on a page that belongs to no tab', () => {
     expect(lit('/changelog')).toEqual([]);
   });

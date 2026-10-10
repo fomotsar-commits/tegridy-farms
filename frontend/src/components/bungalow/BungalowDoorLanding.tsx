@@ -92,7 +92,7 @@ export function BungalowDoorLanding({ bungalow }: { bungalow: Bungalow }) {
           <p className="text-white/70 text-[11px] uppercase tracking-[0.2em] mb-2">
             Jungle Bay Island · {bungalow.status}
           </p>
-          <h1 className="heading-luxury text-3xl md:text-6xl text-white leading-[1.1] tracking-tight mb-3">
+          <h1 className="heading-luxury text-[clamp(1.25rem,7.4vw,1.875rem)] md:text-6xl text-white leading-[1.1] tracking-tight mb-3">
             {hasToken ? `${bungalow.symbol}.` : OPEN_LOT_HERO.heroTitle}{' '}
             <br />
             <span className="text-white">{hasToken ? 'This bungalow is settled.' : lot}</span>

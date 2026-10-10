@@ -49,3 +49,19 @@ describe('RouteTabs compact labels', () => {
     expect(tabs[1].querySelectorAll('[aria-hidden="true"]')).toHaveLength(1);
   });
 });
+
+describe('RouteTabs reserves its room in the scrollport', () => {
+  // index.css raises the page's scroll-padding under this class; a browser measures the
+  // result in e2e/tab-strip-clears-focus.spec.ts.
+  it('marks <html> for as long as any strip is mounted, through a route change that mounts two', () => {
+    const root = document.documentElement;
+    expect(root).not.toHaveClass('has-route-tabs');
+    const leaving = strip([{ to: '/a', label: 'Alpha' }]);
+    expect(root).toHaveClass('has-route-tabs');
+    const arriving = strip([{ to: '/b', label: 'Bravo' }]);
+    leaving.unmount();
+    expect(root).toHaveClass('has-route-tabs');
+    arriving.unmount();
+    expect(root).not.toHaveClass('has-route-tabs');
+  });
+});

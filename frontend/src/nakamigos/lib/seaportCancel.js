@@ -62,7 +62,7 @@ export function buildOrderComponents(params, counter) {
 /**
  * Hard-cancel a signed Seaport order on-chain. Reads the offerer's live counter,
  * rebuilds the correct OrderComponents, and submits cancel(). Returns the ethers
- * transaction (the caller awaits `.wait()`). Throws on wallet rejection / RPC
+ * transaction (the caller waits with waitForTxOutcome). Throws on wallet rejection / RPC
  * error (callers already map err.code 4001 → "rejected").
  */
 export async function cancelSeaportOrder({ ethers, signer, params, seaportAddress }) {
