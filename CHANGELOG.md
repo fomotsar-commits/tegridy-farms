@@ -8,6 +8,7 @@ page keeps the newest thirty days.
 
 ### 2026-10-10
 
+- Every page now opens at the top before it is drawn, in the marketplace and across the venue. Before, a page you moved to could show part-way down for a moment and then jump to the top, and on Safari a collection page could pull you back to the top if you began scrolling in its first half second.
 - Solana LP: each position now shows what you put in, what it is worth, the fees it earned and how that compares with just holding both tokens. Fees are already inside your pool shares, so there is nothing to claim.
 - Solana LP: each pool card shows its last trade and how much each share has grown since the pool opened, and one press reads its last 20 transactions. The row that read "Fees waiting: venue's share" is now "Venue's cut, not collected yet".
 - Solana LP: two short cards under your positions say how you earn and how the venue earns, with the rates read from the chain and the team's shared wallet as an address you can check.

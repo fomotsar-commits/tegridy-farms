@@ -14,6 +14,7 @@ import { SwapSkeleton, FarmSkeleton, DashboardSkeleton } from './components/Page
 import { safeSetItem, safeGetItem } from './lib/storage';
 import { ThemeProvider, useTheme } from './contexts/ThemeContext';
 import { usePageTitle } from './hooks/usePageTitle';
+import { useOpensAtTheTop } from './hooks/useOpensAtTheTop';
 import { PwaRuntime } from './components/pwa/PwaRuntime';
 import { BUNGALOWS, getActiveBungalow } from './lib/bungalows';
 import { BungalowDoor, VENUE_ID } from './components/bungalow/BungalowDoor';
@@ -162,6 +163,7 @@ function NotFoundPage() {
 function ScrollToTop() {
   const { pathname, hash } = useLocation();
   const navType = useNavigationType();
+  useOpensAtTheTop(navType === 'POP' || hash ? null : `${navType} ${pathname}`);
   useEffect(() => {
     if (navType === 'POP') return;
     // A #section deep link: the native hash-scroll fires before the target mounts, so
@@ -180,7 +182,6 @@ function ScrollToTop() {
         if (raf2) clearTimeout(raf2);
       };
     }
-    window.scrollTo(0, 0);
   }, [pathname, hash, navType]);
   return null;
 }

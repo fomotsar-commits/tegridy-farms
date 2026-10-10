@@ -15,6 +15,44 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-10-10: a scroll reset in `useEffect` lands after the page is drawn, on every page change, and a test can see it without losing a race
+
+**Believed:** scrolling to the top in `useEffect` on a route change is the standard pattern
+and lands with the new page; where it is late that is a WebKit race, so a test for it can
+only fail now and then.
+
+**Measured** on production builds (Chromium, mobile Chrome, iPhone, iPad and desktop WebKit
+from Playwright 1.62, React 19.3, react-router 7.18). The router commits every navigation
+inside `startTransition`, so the new page and the effect that resets the scroll are one
+commit, and a passive effect of that commit runs in a later task. When the new page's DOM
+landed the window was still where the old page had been scrolled to (600 px), and the jump
+came 3 to 56 ms later; on a page with its own mount jump a second one came at 32 to 355 ms.
+A `MutationObserver` callback runs after the commit's layout effects and before its passive
+ones. A test that scrolls the window inside that callback and then asks whether anything
+jumped to the top afterwards failed 30 of 30 on the old code, in every engine, and passed
+150 of 150 on the new.
+
+**Do:** make the jump in `useLayoutEffect`. React re-runs layout effects (not passive ones)
+when a Suspense boundary hides and re-shows a subtree, so keep the key last handled in a ref
+and do nothing for the same key twice. Test with the observer, not with a wheel and a timer.
+Assert `scrollY > 0`, not the number you set: when content above the fold grows, the browser
+moves the window to keep the visitor's place (250 became 359 in Chromium, 1022 on the iPhone
+build).
+
+## 2026-10-10: a worktree named after its spec makes the spec's name match every test file
+
+**Believed:** `npx playwright test opens-at-the-top` runs `e2e/opens-at-the-top.spec.ts`.
+
+**Measured:** the filter is matched against the whole path. In a worktree at
+`...\wt\opens-at-the-top\frontend` it matched all 39 spec files (591 tests a project), and
+the run looked like a hang for thirteen minutes. `"opens-at-the-top\.spec"` ran the 6. The
+same folder taught a second thing: `npx eslint .` does not read `.gitignore`. A scratch
+folder ignored by git as `*.local`, holding copies of `dist`, turned a clean lint into
+15,835 errors, 126 files from each copy.
+
+**Do:** filter by `name\.spec`, never by a bare name a branch or folder may share. Keep
+scratch builds outside `frontend/`, or move the scratch folder out before the lint gate.
+
 ## 2026-10-08: a test rewritten for a new rule can stop holding the old rule it also held
 
 **Believed:** a pull request that changes one assertion in an existing test (a pool's price
