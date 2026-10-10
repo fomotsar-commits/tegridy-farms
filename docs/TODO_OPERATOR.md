@@ -44,8 +44,8 @@ merged or changed by the sweep. Where an older section below disagrees, this one
   by hand in the SQL editor, in that order, in one sitting. Add 027 if you want the 90-day
   analytics limit (PR #695): its first run deletes older analytics for good, so export first if
   you want a copy. Never `supabase db push`.
-- ⬜ **O-1009-3: answer O-0929-12 (PR #775), yes or no.** Are the two Solana programs inside the
-  security policy? It has to be settled before the pool-program upgrade.
+- ✅ **O-1009-3: answered on 2026-10-10: yes.** The two Solana programs are inside the security
+  policy (O-0929-12, PR #775). It had to be settled before the pool-program upgrade, and it is.
 - ⬜ **O-1009-4: the pool-program upgrade.** The pack is ready. It needs 3.90 SOL in the deploy
   wallet `CqcVvaMvesrSKrUSbqBqr9mLjKLJuYqhaXg1gXpR41cg` (about 3.68 comes back) and both
   multisig members, on the pack's own page and never in the Squads app. Tell a session before
@@ -594,19 +594,18 @@ day. A third host may not, so test the folder link itself after any host move. C
 on the day.
 After the upgrade, the explorer's security tab for the program shows the four new values.
 
-### ⬜ O-0929-12: decide whether the two new Solana programs are in the root security scope
+### ✅ O-0929-12: the two Solana programs are in the root security scope (decided 2026-10-10)
 
 Root `SECURITY.md` lists what is in scope, and scope decides safe harbour. The two programs that
-went live on 2026-09-29 are not on that list: cp-swap `EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT`
-and tegridy-launch `64WBTeNcrSHfmBpiqymyifW6FUNNLvJcuiqF9rXmz4q2`. Their own policy,
-`solana/tegridy-amm/SECURITY.md`, takes reports at the same email. Decide, then either add them
-to the root list and to the "In scope" block of `frontend/public/.well-known/security.txt`, or
-say in both that they are out of scope.
+went live on 2026-09-29, cp-swap `EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT` and
+tegridy-launch `64WBTeNcrSHfmBpiqymyifW6FUNNLvJcuiqF9rXmz4q2`, are now on that list and in the
+"In scope" block of `frontend/public/.well-known/security.txt`. Both places say neither program
+is audited. Their own policy, `solana/tegridy-amm/SECURITY.md`, takes reports at the same email.
 
-**Read 2026-10-08: still undecided, and it now has a deadline.** The pool program's upgrade
-(O-0929-10 above) puts a link to `https://memetics.finance/.well-known/security.txt` on chain.
-That file names no Solana program today, and the root `SECURITY.md` says the decision has not
-been made. Decide before the upgrade is executed (runbook 4b, gate A10).
+**Why it had a deadline.** The pool program's upgrade (O-0929-10 above) puts a link to
+`https://memetics.finance/.well-known/security.txt` on chain. Until this change that file named
+no Solana program, so a researcher who followed the link from the program would have been told
+it was out of scope. This closes runbook 4b, gate A10, once the change is live on the site.
 
 ---
 
