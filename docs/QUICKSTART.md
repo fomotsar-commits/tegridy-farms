@@ -9,8 +9,7 @@
 > promised one that never loads costs their trust twice. Three dead destinations went with
 > them: `/docs`, `/drop/<address>` and a community Discord, none of which exist.
 
-The app is live at **[memetics.finance](https://memetics.finance)** (also
-**memetic.fun**). Pick a path.
+The app is live at **[memetics.finance](https://memetics.finance)**. Pick a path.
 
 - [Path 1 — Stake TOWELI](#path-1--stake-toweli)
 - [Path 2 — Stake a bungalow token](#path-2--stake-a-bungalow-token)
