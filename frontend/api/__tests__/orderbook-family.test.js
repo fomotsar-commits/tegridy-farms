@@ -7,6 +7,12 @@
 // without a real signature.
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
+// Warms the module graph at collection time. NOT dead code: the first re-import under
+// `vi.resetModules()` below is a cold load of orderbook.js's graph, inside a `beforeEach`
+// that vitest bounds at 10s, and it grows with machine load. Paid here, where no timeout
+// runs, every re-import is a few ms. The resets stay: this instance is built before
+// SUPABASE_* are set, so its client is null and only a re-import gets a live one.
+import "../orderbook.js";
 
 vi.mock("../_lib/ratelimit.js", () => ({
   checkRateLimit: vi.fn(async () => true),
@@ -55,13 +61,13 @@ vi.mock("@supabase/supabase-js", () => ({
 }));
 
 function makeReq({ method = "POST", body = {}, query = {}, headers = {} } = {}) {
-  return { method, body, query, headers: { origin: "https://memetic.fun", ...headers } };
+  return { method, body, query, headers: { origin: "https://memetics.finance", ...headers } };
 }
 
 function makeRes() {
-  const out = { status: null, json: null };
+  const out = { status: null, json: null, headers: {} };
   const res = {
-    setHeader: () => res,
+    setHeader: (name, value) => { out.headers[name.toLowerCase()] = value; return res; },
     status: (c) => { out.status = c; return res; },
     json: (p) => { out.json = p; return res; },
     end: vi.fn(),
@@ -93,6 +99,16 @@ beforeEach(async () => {
   process.env.NODE_ENV = "test";
   recoverImpl = vi.fn(async () => ATTACKER);
   handler = (await import("../orderbook.js")).default;
+});
+
+describe("the request these tests send", () => {
+  it("comes from an origin the order book grants", async () => {
+    // An origin the handler does not grant is answered with the canonical one, not its own.
+    const req = makeReq({ method: "GET", query: { action: "query", contract: GOLD } });
+    const { res, out } = makeRes();
+    await handler(req, res);
+    expect(out.headers["access-control-allow-origin"]).toBe(req.headers.origin);
+  });
 });
 
 describe("the listings feed", () => {

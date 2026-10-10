@@ -63,6 +63,10 @@ vi.mock('../../lib/bungalowStaking', async (importOriginal) => ({
   readEntries: vi.fn(async () => ({ ok: true as const, entries: [ENTRY] })),
   readWalletBalance: vi.fn(async () => ({ ok: true as const, raw: 5_000_000n })),
   claimRewards: vi.fn(async () => ({ ok: true as const, txId: 'TX' })),
+  // The real one loads the Streamflow SDK when the first claim confirms: a cold import
+  // inside the test body, on the 5s clock, that grows with machine load. Null is what it
+  // returns here anyway (no RPC answers a test), so the card sees the same slot.
+  readConfirmedSlot: vi.fn(async () => null),
 }));
 
 const { LighthousePoolLive } = await import('./LighthousePoolLive');
@@ -96,5 +100,8 @@ describe('lighthouse reads land in order', () => {
     const text = document.body.textContent ?? '';
     expect(text).toContain('7,777');
     expect(text).not.toContain('1,234');
-  });
+    // 15s, not the default 5s: what is left of this body is real work (renders of the
+    // full card and role queries over it), and it grows with machine load. A bound
+    // written here is its own clock: --testTimeout does not override it.
+  }, 15_000);
 });

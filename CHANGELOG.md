@@ -13,6 +13,7 @@ page keeps the newest thirty days.
 - Solana LP: two short cards under your positions say how you earn and how the venue earns, with the rates read from the chain and the team's shared wallet as an address you can check.
 - Solana LP: a position and a pool card also say the pace so far and how long it covers, when the pool's own fee record shows that trades paid for it. It is measured from the chain and is never a forecast.
 - Solana LP: a read that never answers now ends after 20 seconds and says so.
+- Once launching is switched on, the details file the site writes for a new Solana token says it was made on memetics.finance. It was set to say memetic.fun, which is another project's site. No token has been launched yet, so no launch carries the old address.
 
 ### 2026-10-08
 

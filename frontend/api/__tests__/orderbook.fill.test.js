@@ -45,6 +45,12 @@ import {
   toBytes,
 } from "viem";
 import { computeSeaportOrderHash, isValidSeaportOrderHash } from "../_lib/seaportHash.js";
+// Warms the module graph at collection time. NOT dead code: the first re-import under
+// `vi.resetModules()` below is a cold load of orderbook.js's graph, inside a `beforeEach`
+// that vitest bounds at 10s, and it grows with machine load. Paid here, where no timeout
+// runs, every re-import is a few ms. The resets stay: this instance is built before
+// SUPABASE_* are set, so its client is null and only a re-import gets a live one.
+import "../orderbook.js";
 
 // ── Constants ──
 const NAKAMIGOS = "0xd774557b647330c91bf44cfeab205095f7e6c367";
