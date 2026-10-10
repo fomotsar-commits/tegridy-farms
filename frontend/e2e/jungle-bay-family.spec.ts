@@ -1,6 +1,7 @@
 import { test, expect, type Page, type Route, type Locator } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { expectNoSidewaysScroll } from './fixtures/pageWidth';
 
 // THE SIX JUNGLE BAY FAMILY COLLECTIONS, OPENED IN A REAL BROWSER.
 //
@@ -126,11 +127,6 @@ async function openCollection(page: Page, path: string): Promise<string[]> {
   const asked = await stubFamilyReads(page);
   await page.goto(path);
   return asked;
-}
-
-async function expectNoSidewaysScroll(page: Page) {
-  const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
-  expect(overflow, `the page is ${overflow}px wider than the viewport`).toBeLessThanOrEqual(0);
 }
 
 const marketButton = (page: Page, market: string) =>
