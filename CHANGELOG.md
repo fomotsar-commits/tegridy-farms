@@ -8,7 +8,11 @@ page keeps the newest thirty days.
 
 ### 2026-10-10
 
-- Solana LP: the page now says how you earn and how the venue earns. Your fees are already inside your pool shares, so there is nothing to claim: each position shows what you put in, what it is worth now, the fees it has earned, how that compares with just holding the two tokens, and the pace so far, measured from the chain and never a forecast. Each pool card shows its last trade and how much each share has grown since the pool opened, and one press reads its last 20 transactions. Two short cards give the rates as read from the chain: what a trade pays, what stays in the pool, what the venue takes, and the team's shared wallet as an address you can check. The row that read "Fees waiting: venue's share" is now "Venue's cut, not collected yet". A read that never answers now ends after 20 seconds and says so.
+- Solana LP: each position now shows what you put in, what it is worth, the fees it earned and how that compares with just holding both tokens. Fees are already inside your pool shares, so there is nothing to claim.
+- Solana LP: each pool card shows its last trade and how much each share has grown since the pool opened, and one press reads its last 20 transactions. The row that read "Fees waiting: venue's share" is now "Venue's cut, not collected yet".
+- Solana LP: two short cards under your positions say how you earn and how the venue earns, with the rates read from the chain and the team's shared wallet as an address you can check.
+- Solana LP: a position and a pool card also say the pace so far and how long it covers, when the pool's own fee record shows that trades paid for it. It is measured from the chain and is never a forecast.
+- Solana LP: a read that never answers now ends after 20 seconds and says so.
 
 ### 2026-10-08
 

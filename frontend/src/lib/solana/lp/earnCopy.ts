@@ -32,6 +32,7 @@ export interface VenueEarns {
 }
 
 const VAULT_CAN = 'which needs two signatures and can change the pool rates';
+const VAULT_LABEL = 'Team’s shared wallet';
 
 export function howVenueEarns(tier: AmmConfigView | null, jupiter: JupiterFee | null): VenueEarns {
   const swap = jupiter
@@ -42,22 +43,38 @@ export function howVenueEarns(tier: AmmConfigView | null, jupiter: JupiterFee | 
   const opening = tier.createPoolFee > 0n ? `${solOf(tier.createPoolFee)} SOL when a public pool is opened.` : 'No fee when a public pool is opened.';
   const sources = [`${pctText(feeSplit(tier).venueTakesPct)} of each trade in a public pool.`, opening, swap];
   const vault = PLATFORM_TREASURY_VAULT.toBase58();
-  // The cut is collected by the tier's protocol owner, and its fund part by the fund owner.
-  const shared = tier.protocolOwner === vault && (tier.fundFeeRate === 0n || tier.fundOwner === vault);
-  const swapElsewhere = jupiter !== null && jupiter.wallet !== tier.protocolOwner;
-  const swapWallet = swapElsewhere ? [{ label: 'Swap fee wallet', address: jupiter.wallet }] : [];
-  if (!shared) {
+  // The cut is collected by the tier's protocol owner, and its fund part (when there is one) by the fund owner.
+  const takers = [...new Set(tier.fundFeeRate > 0n ? [tier.protocolOwner, tier.fundOwner] : [tier.protocolOwner])];
+  // Every wallet a sentence speaks of, once; the vault is named as the vault wherever it appears.
+  const wallets: VenueEarns['wallets'] = [];
+  const show = (label: string, address: string) => {
+    if (!wallets.some((w) => w.address === address)) wallets.push({ label: address === vault ? VAULT_LABEL : label, address });
+  };
+  if (takers.every((a) => a === vault)) {
+    show(VAULT_LABEL, vault);
+    if (jupiter) show('Swap fee wallet', jupiter.wallet);
+    const swapElsewhere = jupiter !== null && jupiter.wallet !== vault;
     return {
       sources,
-      where: `The cut of each trade goes to the wallet this fee tier names. The team’s shared wallet, ${VAULT_CAN}, is the program’s admin.`,
-      wallets: [{ label: 'Wallet this fee tier names', address: tier.protocolOwner }, ...swapWallet],
+      where: swapElsewhere
+        ? `The pool fees go to the team’s shared wallet, ${VAULT_CAN}. The swap fee goes to its own wallet.`
+        : `It goes to the team’s shared wallet, ${VAULT_CAN}.`,
+      wallets,
     };
   }
-  return {
-    sources,
-    where: swapElsewhere
-      ? `The pool fees go to the team’s shared wallet, ${VAULT_CAN}. The swap fee goes to its own wallet.`
-      : `It goes to the team’s shared wallet, ${VAULT_CAN}.`,
-    wallets: [{ label: 'Team’s shared wallet', address: tier.protocolOwner }, ...swapWallet],
-  };
+  show('Wallet this fee tier names', tier.protocolOwner);
+  if (tier.fundFeeRate > 0n) show('Fund wallet this fee tier names', tier.fundOwner);
+  show(VAULT_LABEL, vault);
+  let swapTo = '';
+  if (jupiter) {
+    const paid = wallets.find((w) => w.address === jupiter.wallet);
+    if (jupiter.wallet === vault) swapTo = ' The swap fee goes to the team’s shared wallet.';
+    else if (paid) paid.label = `${paid.label}, and swap fee wallet`;
+    else {
+      show('Swap fee wallet', jupiter.wallet);
+      swapTo = ' The swap fee goes to its own wallet.';
+    }
+  }
+  const named = takers.length === 1 ? 'the wallet this fee tier names' : 'the two wallets this fee tier names';
+  return { sources, where: `The cut of each trade goes to ${named}. The team’s shared wallet, ${VAULT_CAN}, is the program’s admin.${swapTo}`, wallets };
 }

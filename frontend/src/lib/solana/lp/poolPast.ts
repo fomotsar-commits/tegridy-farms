@@ -6,7 +6,7 @@ import { detailOf, discriminatorIs, stepsNaming, transactionsOf, vaultMoves } fr
 import type { PoolView } from './poolFinder';
 import { formatWhen } from './poolHealth';
 import { optionalReadAllowed, pausedText } from './rpcBudget';
-import { HISTORY_PAGE, readSignatures, type ParsedTx, type SigEntry } from './txHistory';
+import { readSignatures, type ParsedTx, type SigEntry } from './txHistory';
 
 /**
  * A pool's past, from what the finder already read for free: the price record the
@@ -34,13 +34,9 @@ export function lastTrade(view: PoolView): LastTrade {
   return { kind: 'at', time };
 }
 
-export const NO_TRADE_YET = 'No trade has reached this pool yet.';
-
-export const lastTradeText = (t: LastTrade): string => {
-  if (t.kind === 'none') return NO_TRADE_YET;
-  if (t.kind === 'at') return `Last trade: ${formatWhen(t.time)}`;
-  return `Its trade record could not be read (${t.detail}).`;
-};
+/** A pool no trade has reached is the caller's own sentence (poolGrowth.ts): it has no last trade to print. */
+export const lastTradeText = (t: Exclude<LastTrade, { kind: 'none' }>): string =>
+  t.kind === 'at' ? `Last trade: ${formatWhen(t.time)}` : `Its trade record could not be read (${t.detail}).`;
 
 // ── the pool's last 20 transactions, on a press ──────────────────────────────────────
 //
@@ -74,7 +70,8 @@ export type PoolPastRead =
       complete: boolean;
       reachedOpening: boolean;
     }
-  | { kind: 'partial'; unreadCount: number }
+  /** `count`: the entries the read held, of which `unreadCount` could not be read. */
+  | { kind: 'partial'; unreadCount: number; count: number }
   | { kind: 'unread'; detail: string }
   | { kind: 'paused' };
 
@@ -107,7 +104,7 @@ export function classifyPoolTx(sig: SigEntry, tx: ParsedTx | null, view: PoolVie
 /** The totals over one page (newest first). Any unread entry makes the page partial: nothing is summed from a partial list. */
 export function poolPastTotals(items: PoolTx[], more: boolean): PoolPastRead {
   const unreadCount = items.filter((t) => t.kind === 'unread').length;
-  if (unreadCount > 0) return { kind: 'partial', unreadCount };
+  if (unreadCount > 0) return { kind: 'partial', unreadCount, count: items.length };
   const count = (k: PoolTx['kind']) => items.filter((t) => t.kind === k).length;
   const volumeIn = { token: 0n, coin: 0n };
   for (const t of items) if (t.kind === 'swap') volumeIn[t.inSide] += t.inAmount;
@@ -153,15 +150,12 @@ export function pagePast(page: PoolPastPage): PoolPastRead {
   return page.kind === 'page' ? poolPastTotals(page.items, page.more) : page;
 }
 
-/** One page and its totals. */
-export async function readPoolPast(rpc: SolanaRpc, view: PoolView, programId: string, opts: { before?: string } = {}): Promise<PoolPastRead> {
-  return pagePast(await readPoolPastPage(rpc, view, programId, opts));
-}
-
 export const POOL_PAST_BUTTON = 'Read this pool’s last 20 transactions';
 export const POOL_PAST_READING = 'Reading this pool’s transactions…';
+export const POOL_PAST_AGAIN = 'Read its transactions again';
 export const POOL_PAST_READ_MORE = 'Read 20 more';
-export const POOL_PAST_FEE_LINE = 'Fees are this tier’s rate on that volume; the rate can change, so no total is shown.';
+/** No fee total is summed: every swap reads the rate live, and the vault can change it. */
+export const POOL_PAST_FEE_LINE = 'Each trade paid this tier’s fee at the time.';
 export const POOL_PAST_OLDER_NOT_READ = 'Older transactions were not read.';
 
 /**
@@ -178,19 +172,36 @@ export function olderPageProblem(page: PoolPastPage): string | null {
 
 const plural = (n: number, one: string): string => `${n} ${n === 1 ? one : `${one}s`}`;
 
-/** The pool past in one sentence, verbatim (DESIGN 2.B1). */
+/**
+ * The pool past in words. A count of zero is left out, except the swaps: they are what
+ * pays a fee. One transaction is never "All 1 transactions", and a partly read page names
+ * how many it held, never the page size.
+ */
 export function poolPastText(read: PoolPastRead, view: PoolView): string {
   if (read.kind === 'paused') return pausedText();
   if (read.kind === 'unread') return `This pool’s history could not be read (${read.detail}).`;
-  if (read.kind === 'partial') return `${read.unreadCount} of the ${HISTORY_PAGE} could not be read, so no totals are shown. Read again.`;
+  if (read.kind === 'partial') return `${read.unreadCount} of the ${plural(read.count, 'transaction')} could not be read, so no totals are shown. Try again.`;
+  if (read.count === 0) return 'This read found no transactions for this pool.';
   const p = view.snapshot.pool;
   const tokenDecimals = view.quoteIsToken0 ? p.mint1Decimals : p.mint0Decimals;
+  const one = read.count === 1;
   const head = read.reachedOpening
-    ? `All ${read.count} transactions since this pool opened on ${minuteText(read.from)}`
-    : `Last ${read.count} transactions on this pool, ${minuteText(read.from)} to ${minuteText(read.to)}`;
-  const openings = read.openings ? `, ${plural(read.openings, 'opening')}` : '';
-  const counts = `${plural(read.swaps, 'swap')}, ${plural(read.deposits, 'deposit')} from ${plural(read.wallets, 'wallet')}, ${plural(read.withdrawals, 'withdrawal')}${openings}, ${read.other} other`;
-  const traded = `Traded in: ${quoteText(read.volumeIn.coin, view.quote)} and ${tokenText(read.volumeIn.token, tokenDecimals, tokenSymbol(view.tokenMint))}.`;
-  const body = `${head}: ${counts}. ${traded} ${POOL_PAST_FEE_LINE}`;
+    ? `${one ? 'The only transaction' : `All ${read.count} transactions`} since this pool opened on ${minuteText(read.from)}`
+    : one
+      ? `The last transaction on this pool, ${minuteText(read.to)}`
+      : `Last ${read.count} transactions on this pool, ${minuteText(read.from)} to ${minuteText(read.to)}`;
+  const counts = [
+    plural(read.swaps, 'swap'),
+    read.deposits ? `${plural(read.deposits, 'deposit')} from ${plural(read.wallets, 'wallet')}` : null,
+    read.withdrawals ? plural(read.withdrawals, 'withdrawal') : null,
+    read.openings ? plural(read.openings, 'opening') : null,
+    read.other ? `${read.other} other` : null,
+  ].filter((part) => part !== null);
+  const sides = [
+    read.volumeIn.coin > 0n ? quoteText(read.volumeIn.coin, view.quote) : null,
+    read.volumeIn.token > 0n ? tokenText(read.volumeIn.token, tokenDecimals, tokenSymbol(view.tokenMint)) : null,
+  ].filter((side) => side !== null);
+  const traded = sides.length ? ` Traded in: ${sides.join(' and ')}. ${POOL_PAST_FEE_LINE}` : '';
+  const body = `${head}: ${counts.join(', ')}.${traded}`;
   return read.complete ? body : `${body} ${POOL_PAST_OLDER_NOT_READ}`;
 }

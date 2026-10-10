@@ -17,7 +17,7 @@ import { noteResponse } from './rpcBudget';
 import { BAYLA_MINT } from './tokenSafety';
 import { parseTx, type ParsedTx, type SigEntry } from './txHistory';
 import {
-  NO_TRADE_YET, POOL_PAST_BUTTON, POOL_PAST_READ_MORE, classifyPoolTx, lastTrade, lastTradeText, olderPageProblem, pagePast, poolPastText, poolPastTotals, readPoolPast, readPoolPastPage,
+  POOL_PAST_AGAIN, POOL_PAST_BUTTON, POOL_PAST_READ_MORE, classifyPoolTx, lastTrade, lastTradeText, olderPageProblem, pagePast, poolPastText, poolPastTotals, readPoolPastPage,
   type PoolTx,
 } from './poolPast';
 import { LAUNCH, PROGRAM, buildPool, fakeRpcWithHistory, key, observationBytes, txJson, viewOf, type TxIxSpec } from './testkit.fixture';
@@ -54,7 +54,7 @@ describe('lastTrade', () => {
   it('an initialized ring with no time anywhere is unread, not a 1970 date', () => {
     const t = lastTrade(viewWith(observationBytes({ pool, initialized: true, index: 0, lastUpdate: 0n })));
     expect(t).toEqual({ kind: 'unread', detail: 'its price record carries no time' });
-    expect(lastTradeText(t)).not.toMatch(/1970/);
+    expect(t.kind === 'unread' && lastTradeText(t)).toBe('Its trade record could not be read (its price record carries no time).');
   });
 
   it('a record the finder could not read is unread with the finder’s reason, and one never read says so', () => {
@@ -98,19 +98,17 @@ describe('lastTrade', () => {
 });
 
 describe('lastTradeText', () => {
+  // A pool no trade has reached has no last trade to print: that sentence is the pool card's own (poolGrowth.ts).
   const lines = [
-    lastTradeText({ kind: 'none' }),
     lastTradeText({ kind: 'at', time: 1_791_055_083n }),
     lastTradeText({ kind: 'unread', detail: 'its price record account is missing' }),
   ];
 
-  it('says the three things, verbatim, with the time in UTC', () => {
+  it('says the two things, verbatim, with the time in UTC', () => {
     expect(lines).toEqual([
-      'No trade has reached this pool yet.',
       'Last trade: 2026-10-03 19:18:03 UTC',
       'Its trade record could not be read (its price record account is missing).',
     ]);
-    expect(NO_TRADE_YET).toBe('No trade has reached this pool yet.');
   });
 
   // A dust swap for 0.005 SOL makes a dead pool's record read "minutes ago"; the time is
@@ -235,7 +233,7 @@ describe('classifyPoolTx: a pool’s transactions by what they did', () => {
   });
 });
 
-describe('readPoolPast on the venue’s eight mainnet transactions (fixtures)', () => {
+describe('one page of the venue’s eight mainnet transactions, totalled (fixtures)', () => {
   const POOL = 'ErvzV1NMZmcfAqZtGH4AQhYAjn77nJEworKK1mYPz5w4';
   interface Row { signature: string; tx: unknown }
   /** The real pool at the reserves after the eight transactions; its price record never initialized. */
@@ -253,16 +251,16 @@ describe('readPoolPast on the venue’s eight mainnet transactions (fixtures)', 
   it('0 swaps, 7 deposits from 6 wallets, 0 withdrawals, 1 opening, 0 other; nothing traded in; complete, back to the opening', async () => {
     const view = livePool();
     expect(view.address).toBe(POOL);
-    expect(await readPoolPast(rpc(), view, PROG, {})).toEqual({
+    expect(pagePast(await readPoolPastPage(rpc(), view, PROG, {}))).toEqual({
       kind: 'ok', count: 8, swaps: 0, deposits: 7, withdrawals: 0, openings: 1, wallets: 6, other: 0,
       volumeIn: { token: 0n, coin: 0n }, from: 1791055083, to: 1791137472, complete: true, reachedOpening: true,
     });
   });
 
-  it('the sentence, verbatim: the opening counted apart, no fee total, no forecast word, no em dash', async () => {
+  it('the sentence, verbatim: no swap is said as 0 swaps, the opening counted apart, nothing traded in so nothing about fees', async () => {
     const view = livePool();
-    const text = poolPastText(await readPoolPast(rpc(), view, PROG, {}), view);
-    expect(text).toBe('All 8 transactions since this pool opened on 2026-10-03 19:18 UTC: 0 swaps, 7 deposits from 6 wallets, 0 withdrawals, 1 opening, 0 other. Traded in: 0 SOL and 0 BAYLA. Fees are this tier’s rate on that volume; the rate can change, so no total is shown.');
+    const text = poolPastText(pagePast(await readPoolPastPage(rpc(), view, PROG, {})), view);
+    expect(text).toBe('All 8 transactions since this pool opened on 2026-10-03 19:18 UTC: 0 swaps, 7 deposits from 6 wallets, 1 opening.');
     // No sum of fees at today's rate: the word never stands beside a number.
     expect(text).not.toMatch(/\bfees?\b[^.]*\d/i);
     expect(text).not.toMatch(FORECAST_WORDS);
@@ -280,7 +278,10 @@ describe('poolPastTotals and poolPastText', () => {
     const items = Array.from({ length: 20 }, (_, i) => swapAt(19 - i));
     const r = poolPastTotals(items, true);
     expect(r).toEqual({ kind: 'ok', count: 20, swaps: 20, deposits: 0, withdrawals: 0, openings: 0, wallets: 0, other: 0, volumeIn: { token: 10_000_000_000n, coin: 10_000_000_000n }, from: 1_791_000_000, to: 1_791_057_000, complete: false, reachedOpening: false });
-    expect(poolPastText(r, view)).toBe(`Last 20 transactions on this pool, 2026-10-03 04:00 UTC to 2026-10-03 19:50 UTC: 20 swaps, 0 deposits from 0 wallets, 0 withdrawals, 0 other. Traded in: 10 SOL and 10,000 ${sym}. Fees are this tier’s rate on that volume; the rate can change, so no total is shown. Older transactions were not read.`);
+    expect(poolPastText(r, view)).toBe(`Last 20 transactions on this pool, 2026-10-03 04:00 UTC to 2026-10-03 19:50 UTC: 20 swaps. Traded in: 10 SOL and 10,000 ${sym}. Each trade paid this tier’s fee at the time. Older transactions were not read.`);
+    // One side only: the side nothing was traded into is left out, never printed as 0.
+    const oneSide = poolPastTotals(items.filter((t) => t.kind === 'swap' && t.inSide === 'coin'), true);
+    expect(poolPastText(oneSide, view)).toMatch(/: 10 swaps\. Traded in: 10 SOL\. Each trade paid this tier’s fee at the time\. /);
   });
 
   it('deposits count each wallet once; mixed and failed fold into other; an opening is counted apart and reaches the opening', () => {
@@ -296,16 +297,36 @@ describe('poolPastTotals and poolPastText', () => {
     ];
     const r = poolPastTotals(items, false);
     expect(r).toMatchObject({ kind: 'ok', count: 6, swaps: 0, deposits: 3, wallets: 2, withdrawals: 0, openings: 1, other: 2, reachedOpening: true, complete: true, from: 1_791_000_000, to: 1_791_000_005 });
-    expect(poolPastText(r, view)).toMatch(/^All 6 transactions since this pool opened on 2026-10-03 04:00 UTC: 0 swaps, 3 deposits from 2 wallets, 0 withdrawals, 1 opening, 2 other\. /);
+    expect(poolPastText(r, view)).toBe('All 6 transactions since this pool opened on 2026-10-03 04:00 UTC: 0 swaps, 3 deposits from 2 wallets, 1 opening, 2 other.');
+    // A withdrawal is said when there is one.
+    const out: PoolTx = { kind: 'withdrawal', signature: sig('w'), slot: 6, blockTime: 1_791_000_006, final: true, signer: b };
+    expect(poolPastText(poolPastTotals([out, ...items], false), view)).toMatch(/: 0 swaps, 3 deposits from 2 wallets, 1 withdrawal, 1 opening, 2 other\.$/);
+  });
+
+  it('one transaction is never "All 1 transactions": a pool that has only its opening, and a page of one', () => {
+    const open: PoolTx = { kind: 'opening', signature: sig('only'), slot: 0, blockTime: 1_791_055_083, final: true, signer: k() };
+    // Every pool right after it is opened from this site.
+    expect(poolPastText(poolPastTotals([open], false), view)).toBe('The only transaction since this pool opened on 2026-10-03 19:18 UTC: 0 swaps, 1 opening.');
+    // A page of one that is not the opening (a launch pool's opening is another instruction).
+    const other: PoolTx = { kind: 'other', signature: sig('only2'), slot: 0, blockTime: 1_791_055_083, final: true };
+    expect(poolPastText(poolPastTotals([other], false), view)).toBe('The last transaction on this pool, 2026-10-03 19:18 UTC: 0 swaps, 1 other.');
+    for (const t of [open, other]) expect(poolPastText(poolPastTotals([t], false), view)).not.toMatch(/\b1 transactions\b/);
+    // A read that found nothing says so, and prints no date nobody recorded.
+    expect(poolPastText(poolPastTotals([], false), view)).toBe('This read found no transactions for this pool.');
   });
 
   it('an unread entry makes the page partial, with no totals; unread and paused have their sentences', () => {
     const r = poolPastTotals([swapAt(1), { kind: 'unread', signature: sig('u'), blockTime: null, detail: 'x' }], false);
-    expect(r).toEqual({ kind: 'partial', unreadCount: 1 });
-    expect(poolPastText(r, view)).toBe('1 of the 20 could not be read, so no totals are shown. Read again.');
+    // The sentence names how many the read held, never the page size: 1 of the 2, not "1 of the 20".
+    expect(r).toEqual({ kind: 'partial', unreadCount: 1, count: 2 });
+    expect(poolPastText(r, view)).toBe('1 of the 2 transactions could not be read, so no totals are shown. Try again.');
+    const five = poolPastTotals([swapAt(5), swapAt(4), { kind: 'unread', signature: sig('u5'), blockTime: null, detail: 'x' }, swapAt(2), swapAt(1)], false);
+    expect(poolPastText(five, view)).toBe('1 of the 5 transactions could not be read, so no totals are shown. Try again.');
+    expect(poolPastText({ kind: 'partial', unreadCount: 1, count: 1 }, view)).toMatch(/^1 of the 1 transaction could not be read/);
     expect(poolPastText({ kind: 'unread', detail: 'the chain did not answer in 20 seconds' }, view)).toBe('This pool’s history could not be read (the chain did not answer in 20 seconds).');
     expect(poolPastText({ kind: 'paused' }, view)).toMatch(/paused/);
     expect(POOL_PAST_READ_MORE).toBe('Read 20 more');
+    expect(POOL_PAST_AGAIN).toBe('Read its transactions again');
   });
 
   // "Read 20 more": the card joins an older page's ENTRIES to those it holds and totals them
@@ -332,14 +353,20 @@ describe('poolPastTotals and poolPastText', () => {
     expect(pagePast({ kind: 'paused' })).toEqual({ kind: 'paused' });
   });
 
-  it('readPoolPast: the budget gate first, before any call; a transport failure is unread with the reason', async () => {
+  it('readPoolPastPage: the budget gate first, before any call; a transport failure is unread with the reason', async () => {
     const budget = (remaining: string) => noteResponse(new Response(null, { headers: { 'X-RateLimit-Remaining': remaining } }));
     budget('59');
     const calls: [string, unknown[]][] = [];
-    expect(await readPoolPast(fakeRpcWithHistory({}, { [view.address]: [] }, {}, { calls }), view, PROG, {})).toEqual({ kind: 'paused' });
+    expect(await readPoolPastPage(fakeRpcWithHistory({}, { [view.address]: [] }, {}, { calls }), view, PROG, {})).toEqual({ kind: 'paused' });
     expect(calls).toEqual([]);
     budget('300');
-    expect(await readPoolPast(fakeRpcWithHistory({}, { [view.address]: [] }, {}, { fail: new Set(['getSignaturesForAddress']) }), view, PROG, {})).toEqual({ kind: 'unread', detail: 'getSignaturesForAddress: HTTP 502' });
-    expect(await readPoolPast(fakeRpcWithHistory({}, { [view.address]: [] }, {}), view, PROG, {})).toMatchObject({ kind: 'ok', count: 0, complete: true, from: null, to: null });
+    expect(await readPoolPastPage(fakeRpcWithHistory({}, { [view.address]: [] }, {}, { fail: new Set(['getSignaturesForAddress']) }), view, PROG, {})).toEqual({ kind: 'unread', detail: 'getSignaturesForAddress: HTTP 502' });
+    expect(pagePast(await readPoolPastPage(fakeRpcWithHistory({}, { [view.address]: [] }, {}), view, PROG, {}))).toMatchObject({ kind: 'ok', count: 0, complete: true, from: null, to: null });
+    // The proxy turning a call away is said in words, never as a method name and a status code.
+    const busy = await readPoolPastPage(async () => {
+      throw new Error('getSignaturesForAddress: HTTP 429');
+    }, view, PROG, {});
+    expect(busy).toEqual({ kind: 'unread', detail: 'the network is busy; try again in a minute' });
+    expect(poolPastText(pagePast(busy), view)).toBe('This pool’s history could not be read (the network is busy; try again in a minute).');
   });
 });

@@ -5,11 +5,14 @@ import type { QuoteCoin } from './quotes';
 
 /** Display helpers for the LP pages. Numbers that ride a transaction never pass through here. */
 
+/** A rate over a span of time, caught by its shape ("a year", "per month", "each week", "daily"), not word by word. */
+export const RATE_WORDS = /annual|\b(?:a|per|each|every)\s+(?:year|month|week|day)\b|\b(?:yearly|monthly|weekly|daily)\b|rate of return/i;
+
 /**
  * Words that promise a return. No LP copy carries one; every pin uses this regex and no
  * other, so a word added here is caught everywhere at once.
  */
-export const FORECAST_WORDS = /\bAPR\b|\bAPY\b|yield of|a year|annual|per day|per week|rate of return|earn fees on every trade/i;
+export const FORECAST_WORDS = new RegExp(`\\bAPR\\b|\\bAPY\\b|yield of|earn fees on every trade|${RATE_WORDS.source}`, 'i');
 
 /** A chain time to the minute, in UTC ("2026-10-03 22:30 UTC"); a time the node did not record says so. */
 export function minuteText(unixSecs: number | null): string {

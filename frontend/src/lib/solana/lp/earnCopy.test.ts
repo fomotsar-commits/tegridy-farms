@@ -85,13 +85,39 @@ describe('How the venue earns', () => {
     expect(v.wallets).toEqual([{ label: 'Team’s shared wallet', address: VAULT }, { label: 'Swap fee wallet', address: OTHER }]);
   });
 
-  it('a tier that names another wallet: that wallet is shown as read and is never called the shared one', () => {
-    for (const t of [{ ...tier1(), protocolOwner: OTHER }, { ...tier1(), fundFeeRate: 10_000n, fundOwner: OTHER }]) {
-      const v = howVenueEarns(t, null);
-      expect(v.where).toBe('The cut of each trade goes to the wallet this fee tier names. The team’s shared wallet, which needs two signatures and can change the pool rates, is the program’s admin.');
-      expect(v.wallets).toEqual([{ label: 'Wallet this fee tier names', address: t.protocolOwner }]);
-      expect(v.where).not.toMatch(/goes to the team/);
-    }
+  it('a tier that names another wallet for its cut: shown as read, never called the shared one, and the admin vault is shown beside it', () => {
+    const v = howVenueEarns({ ...tier1(), protocolOwner: OTHER }, null);
+    expect(v.where).toBe('The cut of each trade goes to the wallet this fee tier names. The team’s shared wallet, which needs two signatures and can change the pool rates, is the program’s admin.');
+    expect(v.wallets).toEqual([{ label: 'Wallet this fee tier names', address: OTHER }, { label: 'Team’s shared wallet', address: VAULT }]);
+    expect(v.where).not.toMatch(/goes to the team/);
+  });
+
+  it('a fund part paid to another wallet: both takers are shown, the vault as the vault and the fund wallet as its own', () => {
+    // The vault keeps the protocol part; the tier pays its fund part (4% of the fee) elsewhere.
+    const v = howVenueEarns({ ...tier1(), fundFeeRate: 40_000n, fundOwner: OTHER }, jupiter);
+    expect(v.where).toBe(
+      'The cut of each trade goes to the two wallets this fee tier names. The team’s shared wallet, which needs two signatures and can change the pool rates, is the program’s admin. The swap fee goes to the team’s shared wallet.',
+    );
+    expect(v.wallets).toEqual([{ label: 'Team’s shared wallet', address: VAULT }, { label: 'Fund wallet this fee tier names', address: OTHER }]);
+    // The wallet that differs is on the page, and the vault is never under a label that hides it.
+    expect(v.wallets.map((w) => w.address)).toContain(OTHER);
+    expect(v.wallets.find((w) => w.address === VAULT)?.label).toBe('Team’s shared wallet');
+  });
+
+  it('every wallet a sentence speaks of is shown once: no address twice, and a fund owner the tier does not pay is not shown', () => {
+    const third = 'DKxZsjMKVtoRedcHuPRsjnso9Ezj6jVHwSmqnQwU3RJm';
+    const all = howVenueEarns({ ...tier1(), protocolOwner: OTHER, fundFeeRate: 40_000n, fundOwner: third }, { bps: 50, wallet: OTHER });
+    expect(all.wallets).toEqual([
+      { label: 'Wallet this fee tier names, and swap fee wallet', address: OTHER },
+      { label: 'Fund wallet this fee tier names', address: third },
+      { label: 'Team’s shared wallet', address: VAULT },
+    ]);
+    // A swap fee paid to a wallet of its own gets its own row and its own sentence.
+    const apart = howVenueEarns({ ...tier1(), protocolOwner: OTHER }, { bps: 50, wallet: third });
+    expect(apart.wallets.map((w) => w.label)).toEqual(['Wallet this fee tier names', 'Team’s shared wallet', 'Swap fee wallet']);
+    expect(apart.where).toMatch(/ The swap fee goes to its own wallet\.$/);
+    // Fund fee 0: the fund owner takes nothing, so the tier still pays the vault alone.
+    expect(howVenueEarns({ ...tier1(), fundFeeRate: 0n, fundOwner: OTHER }, jupiter).wallets).toEqual([{ label: 'Team’s shared wallet', address: VAULT }]);
   });
 
   it('with no tier read: no pool number, no wallet and no claim about where it goes', () => {
@@ -120,7 +146,10 @@ describe('short, and promising nothing', () => {
   });
 
   it('no line forecasts a return or carries an em dash, in any of its forms', () => {
-    const forms = [all(tier1(), jupiter), all(tier1(), null), all(tier1(), { bps: 50, wallet: OTHER }), all({ ...tier1(), protocolOwner: OTHER }, jupiter), all(null, null)];
+    const forms = [
+      all(tier1(), jupiter), all(tier1(), null), all(tier1(), { bps: 50, wallet: OTHER }), all({ ...tier1(), protocolOwner: OTHER }, jupiter),
+      all({ ...tier1(), fundFeeRate: 40_000n, fundOwner: OTHER }, jupiter), all({ ...tier1(), protocolOwner: OTHER }, { bps: 50, wallet: OTHER }), all(null, null),
+    ];
     for (const line of forms.flat()) {
       expect(line).not.toMatch(FORECAST_WORDS);
       expect(line).not.toMatch(/guarantee|\bearn up to\b|yield/i);

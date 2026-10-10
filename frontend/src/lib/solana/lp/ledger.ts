@@ -9,14 +9,14 @@ import { clipDetail } from '../../launcher/solana/curve/read';
 import type { SolanaRpc } from '../../launcher/solana/curve/rpc';
 import { IX_DEPOSIT, IX_INITIALIZE, IX_WITHDRAW } from '../cpswap/program';
 import { lpWithdrawValue } from '../cpswap/read';
-import { minuteText, quoteText, tokenText } from './format';
+import { minuteText } from './format';
 import { tokenSymbol } from './identity';
 import { LOCKED_LP, LOCKED_SHARES_TEXT, isqrt } from './liquidityMath';
 import { paceText } from './pace';
 import type { PoolView } from './poolFinder';
 import type { LastTrade } from './poolPast';
 import { optionalReadAllowed, pausedText } from './rpcBudget';
-import { cached, readSignatures, readTransactions, remember, tokenDelta, type Ix, type ParsedTx, type SigEntry } from './txHistory';
+import { cached, readSignatures, readTransactions, tokenDelta, type Ix, type ParsedTx, type SigEntry } from './txHistory';
 
 /** The share whose history is read: its account and mint, the wallet, and what it holds now (`Position.lpAmount`). */
 export interface Share { lpAccount: string; lpMint: string; owner: string; lpAmount: bigint }
@@ -78,11 +78,16 @@ export function vaultMoves(tx: ParsedTx, view: PoolView): { token: bigint; coin:
   return view.quoteIsToken0 ? { coin: d0, token: d1 } : { coin: d1, token: d0 };
 }
 
-export const detailOf = (e: unknown): string => clipDetail(e);
+/** Why a history read failed, for the sentence's brackets. The proxy's "too many requests" is said in words. */
+export function detailOf(e: unknown): string {
+  const detail = clipDetail(e);
+  return /\bHTTP 429\b/.test(detail) ? 'the network is busy; try again in a minute' : detail;
+}
 
 /**
  * The page's transactions: finalized ones from memory, the rest in one round of
- * getTransaction. The PARSED transaction is what is kept, never a classification: one
+ * getTransaction (txHistory.ts keeps each finalized one that answered, even when the
+ * round fails). The PARSED transaction is what is kept, never a classification: one
  * signature is read for a pool and for a share alike, and the two read it differently.
  */
 export async function transactionsOf(rpc: SolanaRpc, entries: SigEntry[]): Promise<Map<string, ParsedTx | null>> {
@@ -93,12 +98,7 @@ export async function transactionsOf(rpc: SolanaRpc, entries: SigEntry[]): Promi
     if (kept !== undefined) out.set(e.signature, kept);
     else toRead.push(e);
   }
-  const read = await readTransactions(rpc, toRead);
-  for (const e of toRead) {
-    const tx = read.get(e.signature) ?? null;
-    out.set(e.signature, tx);
-    if (tx) remember(e, tx);
-  }
+  for (const [signature, tx] of await readTransactions(rpc, toRead)) out.set(signature, tx);
   return out;
 }
 
@@ -301,21 +301,22 @@ export const LEDGER_COPY = {
   feesInShares: 'Fees you earn are already inside your shares: there is nothing to claim, and you receive them when you remove liquidity.',
   button: 'Work out what this position earned',
   reading: 'Working out what this position earned…',
-  readAgain: 'Read again',
+  /** The same button once an answer is shown, and what a screen reader hears when one arrives. */
+  again: 'Work it out again',
+  workedOut: 'Worked out.',
   noneYet: 'none yet',
   readMore: 'Read 20 more',
   olderNotRead: 'Older history is not read by this page.',
   notFinal: '(not final yet)',
-  exactTo: 'Exact to a few of the smallest units, which rounding cannot tell from zero.',
   /** Under Fees earned. The second sentence stays: the program cannot tell a token sent to a vault from a fee. */
-  feesNote: 'Your part of this pool’s trading fees, already inside your shares. Anything sent straight into the pool counts here too, because the pool cannot tell it from a fee.',
+  feesNote: 'Your part of this pool’s trading fees. Tokens sent straight into the pool count too.',
   noTradeYet: 'No trade has reached this pool yet, so there are no fees yet.',
   noTradeButGrowth: 'Not from fees: no trade has reached this pool, so this came from tokens sent straight into it.',
   belowRounding: 'No fees to show yet. The pool rounds each deposit a few of the smallest units in its own favour, and that is most likely all this is.',
-  versusNote: 'Compared with keeping the two tokens in your wallet, at this pool’s price now.',
-  priceCostMore: 'The price moved after you put in, and so far that has cost more than the fees have earned. It is not a fee and not a fault.',
-  priceEffectNote: 'What the price moving after you put in did to this position, compared with keeping the two tokens.',
-  priceEffectLoss: 'It is often called impermanent loss.',
+  versusNote: 'Compared with keeping both tokens in your wallet.',
+  priceCostMore: 'So far the price move has cost more than the fees earned.',
+  priceEffectNote: 'What the price move alone did.',
+  priceEffectLoss: 'Often called impermanent loss.',
   otherSharesWhere: 'They are part of Worth now and of no other figure here.',
   sharesLeft: 'Some shares left this account without a withdrawal this pool recorded (sent out, or burned), so what they cost is not known. Earned and versus holding cannot be worked out for this position.',
   withdrawalUnbalanced: 'A withdrawal here took out shares whose deposits were not read, so the figures cannot be worked out.',
@@ -324,27 +325,19 @@ export const LEDGER_COPY = {
 export interface LedgerUnits {
   coin(raw: bigint): string;
   token(raw: bigint): string;
-  /** A signed coin amount; in the `about` form, one under the fourth decimal is said in words with its direction. */
+  /** A coin amount with its sign in front. */
   signed(x: bigint): string;
 }
 
-/** How the ledger prints amounts: `about` is four decimals, cut; `exact` is every unit, which is what a position row prints. */
-export function ledgerUnits(view: PoolView, form: 'about' | 'exact'): LedgerUnits {
+/** How the ledger prints amounts: every unit, in the coin's and the token's own decimals. */
+export function ledgerUnits(view: PoolView): LedgerUnits {
   const q = view.quote;
   const p = view.snapshot.pool;
   const decimals = view.quoteIsToken0 ? p.mint1Decimals : p.mint0Decimals;
   const symbol = tokenSymbol(view.tokenMint);
-  const coin = (raw: bigint): string => {
-    if (form === 'about') return quoteText(raw, q);
-    return q.native ? `${formatSol(raw, 9)} SOL` : `${formatTokenAmount(raw, q.decimals, q.decimals).text} ${q.symbol}`;
-  };
-  const token = (raw: bigint): string => (form === 'about' ? tokenText(raw, decimals, symbol) : `${formatTokenAmount(raw, decimals, decimals).text} ${symbol}`);
-  const fourth = 10n ** BigInt(Math.max(0, q.decimals - 4));
-  const signed = (x: bigint): string => {
-    const abs = x < 0n ? -x : x;
-    if (form === 'about' && abs < fourth) return `under 0.0001 ${q.symbol} ${x < 0n ? 'less' : 'more'}`;
-    return `${x < 0n ? '-' : '+'}${coin(abs)}`;
-  };
+  const coin = (raw: bigint): string => (q.native ? `${formatSol(raw, 9)} SOL` : `${formatTokenAmount(raw, q.decimals, q.decimals).text} ${q.symbol}`);
+  const token = (raw: bigint): string => `${formatTokenAmount(raw, decimals, decimals).text} ${symbol}`;
+  const signed = (x: bigint): string => `${x < 0n ? '-' : '+'}${coin(x < 0n ? -x : x)}`;
   return { coin, token, signed };
 }
 
@@ -366,16 +359,13 @@ export interface LedgerLine { figure: string; note: string | null }
 
 /** The ledger's sentences. The components print these and nothing of their own. */
 export const ledgerText = {
-  putIn(f: LedgerFigures, u: LedgerUnits): string {
+  putIn(f: LedgerFigures, u: LedgerUnits): LedgerLine {
     const deposits = plural(f.putIn.count, 'deposit');
     const inWhat = f.locked === null ? deposits : f.putIn.count === 0 ? '1 opening' : `1 opening and ${deposits}`;
-    return `${u.coin(f.putIn.coin)} and ${u.token(f.putIn.token)}, in ${inWhat}, since ${minuteText(f.since)}`;
+    return { figure: `${u.coin(f.putIn.coin)} and ${u.token(f.putIn.token)}`, note: `In ${inWhat}, since ${minuteText(f.since)}.` };
   },
-  takenOut(f: LedgerFigures, u: LedgerUnits): string | null {
-    return f.takenOut ? `${u.coin(f.takenOut.coin)} and ${u.token(f.takenOut.token)}, in ${plural(f.takenOut.count, 'withdrawal')}` : null;
-  },
-  worthNow(f: LedgerFigures, u: LedgerUnits): string {
-    return `${u.coin(f.worthNow.coin)} and ${u.token(f.worthNow.token)}`;
+  takenOut(f: LedgerFigures, u: LedgerUnits): LedgerLine | null {
+    return f.takenOut ? { figure: `${u.coin(f.takenOut.coin)} and ${u.token(f.takenOut.token)}`, note: `In ${plural(f.takenOut.count, 'withdrawal')}.` } : null;
   },
   /**
    * Fees earned: the growth figure. It says "trading fees" only when the pool's own record
@@ -390,10 +380,12 @@ export const ledgerText = {
   },
   /**
    * Under Fees earned: the pace since the first deposit read, by the chain's clock (pace.ts).
-   * Null without a positive figure, a trade on the pool's record, or either time.
+   * Null without a positive figure, a trade on the pool's record, or either time; and null
+   * unless trades account for the pool's growth (`byTrades`: poolGrowth.ts `tradesExplain`),
+   * so tokens sent into the pool are never given a pace as "Past trades".
    */
-  pace(f: LedgerFigures, trade: LastTrade, chainNow: bigint | null): string | null {
-    if (f.growth.kind !== 'amount' || trade.kind === 'none' || f.since === null || chainNow === null) return null;
+  pace(f: LedgerFigures, trade: LastTrade, chainNow: bigint | null, byTrades: boolean): string | null {
+    if (!byTrades || f.growth.kind !== 'amount' || trade.kind === 'none' || f.since === null || chainNow === null) return null;
     return paceText({ growth: f.growth.coin, against: f.nowAndOutWorth, seconds: Number(chainNow) - f.since, of: 'position' });
   },
   /**
@@ -417,10 +409,10 @@ export const ledgerText = {
   locked(f: LedgerFigures, u: LedgerUnits): string | null {
     return f.locked === null ? null : `${u.coin(f.locked)}: the ${LOCKED_SHARES_TEXT} every new pool keeps.`;
   },
-  window(r: { window: LedgerWindow }, readAgoSec: number): string {
+  window(r: { window: LedgerWindow }): string {
     const w = r.window;
-    const head = `From ${plural(w.count, 'transaction')} of your share account, back to ${minuteText(w.oldest)}, read ${readAgoSec} s ago. ${LEDGER_COPY.exactTo}`;
-    return w.more ? `${head} The last ${w.count} transactions on this share account were read; older ones were not.` : head;
+    const what = `${plural(w.count, 'transaction')} on your shares in this pool`;
+    return w.more ? `From the last ${what}, back to ${minuteText(w.oldest)}. Older ones were not read.` : `From the ${what} since ${minuteText(w.oldest)}.`;
   },
   otherShares(f: LedgerFigures, u: LedgerUnits): string | null {
     if (!f.otherShares) return null;
@@ -435,11 +427,11 @@ export const ledgerText = {
       case 'run-start-not-read': return `Your history in this pool goes back further than the ${plural(r.window.count, 'transaction')} this page reads (the oldest read is from ${minuteText(r.window.oldest)}), so what you put in could not be fully read.`;
       case 'unread-entry': return `One of your transactions in this pool (${when('unread')}) could not be read.`;
       case 'mixed-entry': return `A transaction on ${when('mixed')} changed this pool in more than one way at once, which this page cannot read as one deposit or withdrawal.`;
-      case 'no-deposit-read': return `None of the ${plural(r.window.count, 'transaction')} read on this share account is a deposit by this wallet into this pool, so these shares arrived another way (sent to this account) and what they cost is not known.`;
+      case 'no-deposit-read': return `None of the ${plural(r.window.count, 'transaction')} read on your shares is a deposit by this wallet into this pool, so these shares arrived another way (sent to this wallet) and what they cost is not known.`;
     }
   },
   unread(detail: string): string {
-    return `Your share account’s history could not be read (${detail}).`;
+    return `Your history in this pool could not be read (${detail}).`;
   },
   paused(): string {
     return pausedText();

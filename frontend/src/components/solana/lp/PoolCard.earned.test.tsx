@@ -16,7 +16,7 @@ import { decodeObservationState } from '../../../lib/solana/lp/ownPrice';
 import { PACE_SENTENCE } from '../../../lib/solana/lp/pace';
 import type { PoolView } from '../../../lib/solana/lp/poolFinder';
 import { assessPool } from '../../../lib/solana/lp/poolHealth';
-import { POOL_PAST_BUTTON, type PoolPastPage, type PoolTx } from '../../../lib/solana/lp/poolPast';
+import { POOL_PAST_AGAIN, POOL_PAST_BUTTON, POOL_PAST_READING, type PoolPastPage, type PoolTx } from '../../../lib/solana/lp/poolPast';
 import { pausedText } from '../../../lib/solana/lp/rpcBudget';
 import { BAYLA_MINT, type TokenSafety } from '../../../lib/solana/lp/tokenSafety';
 import { HISTORY_PAGES_MAX } from '../../../lib/solana/lp/txHistory';
@@ -43,9 +43,11 @@ function record(o: { initialized?: boolean; lastUpdate?: bigint } = {}): History
   if (!obs) throw new Error('the test bytes do not decode as a price record');
   return { kind: 'ok', obs };
 }
-function view(history: History = record(), creatorFee = false): PoolView {
-  const b = buildPool({ plain: true, mint: new PublicKey(BAYLA_MINT), configIndex: 1, quoteReserve: Rc, tokenReserve: Rt, lpSupply: S, protocolFeesSol: VENUE_CUT, openTime: OPEN_TIME });
-  const v = viewOf(b, { sol: Rc, tok: Rt, origin: 'standard', history, config: recordedTier(1) });
+/** `sentIn`: lamports sent straight to the SOL vault, with no trade. `venueCut`: the venue's uncollected cut, 0 once it is collected. */
+function view(history: History = record(), creatorFee = false, o: { sentIn?: bigint; venueCut?: bigint } = {}): PoolView {
+  const sol = Rc + (o.sentIn ?? 0n);
+  const b = buildPool({ plain: true, mint: new PublicKey(BAYLA_MINT), configIndex: 1, quoteReserve: sol, tokenReserve: Rt, lpSupply: S, protocolFeesSol: o.venueCut ?? VENUE_CUT, openTime: OPEN_TIME });
+  const v = viewOf(b, { sol, tok: Rt, origin: 'standard', history, config: recordedTier(1) });
   return creatorFee ? { ...v, snapshot: { ...v.snapshot, pool: { ...v.snapshot.pool, enableCreatorFee: true } } } : v;
 }
 const token = (mint: string): TokenSafety => ({
@@ -88,6 +90,29 @@ describe('what the shares have earned, with no press and no read of its own', ()
     expect(text).toMatch(FORECAST_WORDS);
     expect(text.replace(PACE_SENTENCE, '')).not.toMatch(FORECAST_WORDS);
     expect(text).not.toContain('—');
+  });
+
+  it('tokens sent straight into the pool are never stretched to a year as "Past trades": the growth is said, and no pace', () => {
+    // 1 SOL sent to the SOL vault, no trade. isqrt(26,647,606,321 x Rt) is 379,858,745,522: 7,226,923,849 over
+    // the shares, 1.9%. The venue's cut still shows trades paid the LPs 4,208,400 lamports, which accounts for
+    // 29,996,328 of that growth: far under half, so "Past trades" could not be shown to be true.
+    const card = mount(view(record(), false, { sentIn: 1_000_000_000n }));
+    expect(within(card).getByTestId('lp-pool-growth').textContent).toBe('Since this pool opened on 2026-10-03 19:18 UTC, each share has grown 1.9% from trading fees and anything else sent into the pool.');
+    expect(within(card).queryByTestId('lp-pace')).toBeNull();
+    expect(card.textContent).not.toMatch(FORECAST_WORDS);
+    expect(card.textContent).not.toMatch(/Past trades/);
+    cleanup();
+    // Once the venue has collected its cut the pool state shows no trace of the fees: no pace either, never a wrong one.
+    const collected = mount(view(record(), false, { venueCut: 0n }));
+    expect(within(collected).getByTestId('lp-pool-growth').textContent).toMatch(/each share has grown 0\.0084% from/);
+    expect(within(collected).queryByTestId('lp-pace')).toBeNull();
+  });
+
+  it('a chain time is never split across two lines: each one is its own no-wrap element', () => {
+    const card = mount(view());
+    const earned = within(card).getByTestId('lp-pool-earned');
+    const dates = Array.from(earned.querySelectorAll('span.whitespace-nowrap')).map((el) => el.textContent);
+    expect(dates).toEqual(['2026-10-09 02:50:49 UTC', '2026-10-03 19:18 UTC']);
   });
 
   it('the pace is measured to the chain’s clock: with none read, the growth is said and no pace', () => {
@@ -172,8 +197,8 @@ function oldest(): PoolTx[] {
   const deposits = Array.from({ length: 13 }, (_, i) => deposit(13 - i, W[signers[i % 8]!]!));
   return [...deposits, { kind: 'opening', ...at(0), signer: W[13]! }];
 }
-const FIRST_PAGE = /^Last 20 transactions on this pool, 2026-10-03 23:11 UTC to 2026-10-04 04:28 UTC: 3 swaps, 17 deposits from 13 wallets, 0 withdrawals, 0 other\. Traded in: 0\.501 SOL and 0 BAYLA\. Fees are this tier’s rate on that volume; the rate can change, so no total is shown\. Older transactions were not read\.$/;
-const WHOLE = 'All 34 transactions since this pool opened on 2026-10-03 19:18 UTC: 3 swaps, 30 deposits from 19 wallets, 0 withdrawals, 1 opening, 0 other. Traded in: 0.501 SOL and 0 BAYLA. Fees are this tier’s rate on that volume; the rate can change, so no total is shown.';
+const FIRST_PAGE = /^Last 20 transactions on this pool, 2026-10-03 23:11 UTC to 2026-10-04 04:28 UTC: 3 swaps, 17 deposits from 13 wallets\. Traded in: 0\.501 SOL\. Each trade paid this tier’s fee at the time\. Older transactions were not read\.$/;
+const WHOLE = 'All 34 transactions since this pool opened on 2026-10-03 19:18 UTC: 3 swaps, 30 deposits from 19 wallets, 1 opening. Traded in: 0.501 SOL. Each trade paid this tier’s fee at the time.';
 
 const pastButton = (card: HTMLElement) => within(card).getByRole('button', { name: POOL_PAST_BUTTON });
 const more = (card: HTMLElement) => within(card).queryByRole('button', { name: 'Read 20 more' });
@@ -202,7 +227,9 @@ describe('the pool’s last 20 transactions, on a press', () => {
     expect(poolPast).toHaveBeenCalledTimes(1);
     expect(poolPast).toHaveBeenCalledWith(v);
     expect(more(card)!.className).toMatch(/min-h-\[44px\]/);
-    expect(within(card).getByRole('button', { name: 'Read again' }).className).toMatch(/min-h-\[44px\]/);
+    // Named for what it does: the finder and the earnings block have their own buttons.
+    expect(within(card).queryByRole('button', { name: 'Read again' })).toBeNull();
+    expect(within(card).getByRole('button', { name: POOL_PAST_AGAIN }).className).toMatch(/min-h-\[44px\]/);
     expect(within(card).getByTestId('lp-pool-past')).toHaveAttribute('data-past', 'ok');
   });
 
@@ -240,7 +267,7 @@ describe('the pool’s last 20 transactions, on a press', () => {
     const cases: [PoolPastPage, string][] = [
       [{ kind: 'paused' }, pausedText()],
       [{ kind: 'unread', detail: 'the chain did not answer in 20 seconds' }, 'This pool’s history could not be read (the chain did not answer in 20 seconds).'],
-      [partial, '1 of the 20 could not be read, so no totals are shown. Read again.'],
+      [partial, '1 of the 20 transactions could not be read, so no totals are shown. Try again.'],
     ];
     for (const [answer, said] of cases) {
       const card = mount(view(), { poolPast: pages(answer) });
@@ -285,12 +312,77 @@ describe('the pool’s last 20 transactions, on a press', () => {
     const poolPast = vi.fn<NonNullable<LpReaders['poolPast']>>(() => new Promise<PoolPastPage>((resolve) => { answer = resolve; }));
     const card = mount(view(), { poolPast });
     fireEvent.click(pastButton(card));
-    expect(within(card).getByRole('status')).toHaveTextContent('Reading this pool’s transactions…');
+    expect(within(card).getByRole('status')).toHaveTextContent(POOL_PAST_READING);
     fireEvent.click(pastButton(card));
     fireEvent.click(pastButton(card));
     expect(poolPast).toHaveBeenCalledTimes(1);
     await act(async () => { answer({ kind: 'page', items: newest(), more: true }); });
     expect((await pastText(card)).textContent).toMatch(FIRST_PAGE);
-    expect(within(card).queryByRole('status')).toBeNull();
+    expect(within(card).getByRole('status')).not.toHaveTextContent(POOL_PAST_READING);
+  });
+});
+
+// The press and the answer, for a keyboard and a screen reader. "Read 20 more" used to leave
+// the page while it held focus, and the reading line was put on the page already holding its
+// text, so nothing read the answer out.
+describe('pressing a history button never loses the keyboard, and each answer is read out', () => {
+  const status = (card: HTMLElement) => within(within(card).getByTestId('lp-pool-past')).getByRole('status');
+
+  it('the first press keeps focus on its button, and the one status line goes from silent to reading to the answer', async () => {
+    let answer: (p: PoolPastPage) => void = () => {};
+    const poolPast = vi.fn<NonNullable<LpReaders['poolPast']>>(() => new Promise<PoolPastPage>((resolve) => { answer = resolve; }));
+    const card = mount(view(), { poolPast });
+    const press = pastButton(card);
+    // On the page before any press, and silent.
+    const line = status(card);
+    expect(line).toBeEmptyDOMElement();
+    press.focus();
+    fireEvent.click(press);
+    expect(line).toHaveTextContent(POOL_PAST_READING);
+    expect(press).toHaveAttribute('aria-disabled', 'true');
+    await act(async () => { answer({ kind: 'page', items: newest(), more: true }); });
+    await pastText(card);
+    expect(document.activeElement).toBe(press);
+    expect(press).toHaveAccessibleName(POOL_PAST_AGAIN);
+    // The same element, now holding the answer itself.
+    expect(status(card)).toBe(line);
+    expect(line.textContent).toMatch(FIRST_PAGE);
+  });
+
+  it('Read 20 more that reads the last page hands focus to the button that stays', async () => {
+    const card = mount(view(), { poolPast: pages({ kind: 'page', items: newest(), more: true }, { kind: 'page', items: oldest(), more: false }) });
+    fireEvent.click(pastButton(card));
+    await pastText(card);
+    const button = more(card)!;
+    button.focus();
+    fireEvent.click(button);
+    await waitFor(() => expect(within(card).getByTestId('lp-pool-past-text').textContent).toBe(WHOLE));
+    expect(more(card)).toBeNull();
+    expect(document.activeElement).toBe(within(card).getByRole('button', { name: POOL_PAST_AGAIN }));
+    expect(document.activeElement).not.toBe(document.body);
+    expect(status(card).textContent).toBe(WHOLE);
+  });
+
+  it('Read 20 more that is still offered keeps its own focus, and a failed older page is read out', async () => {
+    const card = mount(view(), { poolPast: pages({ kind: 'page', items: newest(), more: true }, { kind: 'unread', detail: 'HTTP 502' }) });
+    fireEvent.click(pastButton(card));
+    await pastText(card);
+    const button = more(card)!;
+    button.focus();
+    fireEvent.click(button);
+    await waitFor(() => expect(status(card)).toHaveTextContent('The older transactions could not be read (HTTP 502).'));
+    expect(document.activeElement).toBe(button);
+  });
+
+  it('a card that leaves the page while its read runs stays quiet when the answer lands', async () => {
+    let answer: (p: PoolPastPage) => void = () => {};
+    const poolPast = vi.fn<NonNullable<LpReaders['poolPast']>>(() => new Promise<PoolPastPage>((resolve) => { answer = resolve; }));
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const card = mount(view(), { poolPast });
+    fireEvent.click(pastButton(card));
+    cleanup();
+    await act(async () => { answer({ kind: 'page', items: newest(), more: true }); });
+    expect(errors).not.toHaveBeenCalled();
+    errors.mockRestore();
   });
 });

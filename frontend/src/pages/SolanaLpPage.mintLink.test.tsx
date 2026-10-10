@@ -82,7 +82,7 @@ function expectTopToBottom(named: [string, HTMLElement][]) {
 }
 
 const RISK_LINE =
-  'These pools run on a pool program whose admin-key changes have not had their own independent review yet. Put in only what you can afford to lose. The full notice is right under your positions.';
+  'These pools run on a pool program whose admin-key changes have not had their own independent review yet. Put in only what you can afford to lose. The full notice is below your positions.';
 const LP_PARTS = ['lp-risk-line', 'lp-finder', 'lp-positions', 'lp-disclosure', 'fee-tiers'];
 
 beforeEach(() => { vi.clearAllMocks(); readVenue.mockResolvedValue(LIVE); });
@@ -122,7 +122,8 @@ describe('/solana-lp opens on the pool finder', () => {
       ['"The program"', screen.getByRole('region', { name: 'The program' })],
     ]);
     expect(screen.getByRole('region', { name: 'Venue status' })).toHaveTextContent(/Pools are open/);
-    // Between the hero's words and the finder there is the risk line and nothing else.
+    // Between the hero's words and the finder there is the risk line and nothing else. (The one line on earning
+    // comes after the finder in the page; from a tablet up it is drawn above it, where there is room.)
     expect(h1.parentElement!.nextElementSibling!.firstElementChild).toBe(screen.getByTestId('lp-section'));
     expect(screen.getByTestId('lp-section').firstElementChild).toBe(screen.getByTestId('lp-risk-line'));
     expect(screen.getByTestId('lp-risk-line').nextElementSibling).toBe(screen.getByTestId('lp-finder'));
@@ -130,13 +131,15 @@ describe('/solana-lp opens on the pool finder', () => {
   });
 
   // The line may be short only because the whole notice is on the same page, where it says.
-  it('the risk line says exactly this, and the full notice is right under the positions', async () => {
+  it('the risk line says exactly this, and the full notice is below the positions, after the two earning cards', async () => {
     fakeReaders();
     await mount('/solana-lp');
     const line = await screen.findByTestId('lp-risk-line');
     expect(line.textContent).toBe(RISK_LINE);
     const full = screen.getByTestId('lp-disclosure');
-    expect(screen.getByTestId('lp-positions').nextElementSibling).toBe(full);
+    // How you earn is the positions' next neighbour; the long notice follows it.
+    expect(screen.getByTestId('lp-positions').nextElementSibling).toBe(screen.getByTestId('lp-how-it-pays'));
+    expect(screen.getByTestId('lp-how-it-pays').nextElementSibling).toBe(full);
     expect(full).toHaveTextContent(/have not had their own independent review yet/);
     expect(full).toHaveTextContent(/It can switch off deposits,\s+withdrawals or swaps on any pool/);
     expect(full).toHaveTextContent(PROGRAM);
@@ -168,7 +171,7 @@ describe('/pools keeps the order it had', () => {
       ['"The program"', screen.getByRole('region', { name: 'The program' })],
     ]);
     expect(screen.queryByTestId('lp-risk-line')).toBeNull();
-    expect(document.body.textContent).not.toContain('The full notice is right under your positions.');
+    expect(document.body.textContent).not.toContain('The full notice is below your positions.');
   });
 });
 

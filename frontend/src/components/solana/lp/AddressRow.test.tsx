@@ -66,6 +66,35 @@ describe('AddressRow', () => {
     expect(screen.queryByRole('link')).toBeNull();
   });
 
+  it('the press that opens the whole value stays on the page and keeps keyboard focus, both ways', () => {
+    render(<AddressRow label="Pool address" value={POOL} explorerUrl={URL} />);
+    const toggle = screen.getByRole('button', { name: `${SHORT} Show whole` });
+    toggle.focus();
+    fireEvent.click(toggle);
+    expect(toggle).toBeInTheDocument();
+    expect(document.activeElement).toBe(toggle);
+    expect(toggle).toHaveAccessibleName('Show less');
+    fireEvent.click(toggle);
+    expect(document.activeElement).toBe(toggle);
+    expect(toggle).toHaveAccessibleName(`${SHORT} Show whole`);
+  });
+
+  // At 360px the row took three lines, the last one "Explorer" alone at the right edge.
+  it('closed: the label sits with the short address, Copy and Explorer are a group of their own, and nothing is pushed to the right on a phone', () => {
+    render(<AddressRow label="Pool address" value={POOL} explorerUrl={URL} />);
+    const group = screen.getByRole('group', { name: 'Pool address' });
+    const toggle = within(group).getByRole('button', { name: `${SHORT} Show whole` });
+    const copy = within(group).getByRole('button', { name: 'Copy' });
+    const link = within(group).getByRole('link', { name: 'Explorer' });
+    expect(within(group).getByText('Pool address').parentElement).toBe(toggle.parentElement);
+    expect(copy.parentElement).toBe(link.parentElement);
+    expect(copy.parentElement).not.toBe(toggle.parentElement);
+    // The two groups wrap as wholes, from the left; only from `sm:` up is the address pushed to the right.
+    expect(group.innerHTML).not.toMatch(/justify-end|justify-between/);
+    expect(toggle.className).toMatch(/\bsm:ml-auto\b/);
+    expect(toggle.className).not.toMatch(/(^|\s)ml-auto\b/);
+  });
+
   it('no em dash anywhere in the row, collapsed or expanded', () => {
     const { container } = render(<AddressRow label="Pool address" value={POOL} explorerUrl={URL} />);
     expect(container.textContent).not.toMatch(/—/);

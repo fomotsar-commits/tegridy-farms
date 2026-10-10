@@ -107,15 +107,14 @@ describe('the owner’s position (row 3): 14,677,170 shares for 990,099 lamports
   it('prints put in and worth now exactly, none yet on all three lines, and the no-trade sentence', async () => {
     const view = livePool();
     const r = okRead(await read());
-    const u = ledgerUnits(view, 'exact');
-    expect(ledgerText.putIn(r.figures, u)).toBe('0.000990099 SOL and 217.573519 BAYLA, in 1 deposit, since 2026-10-03 22:30 UTC');
-    expect(ledgerText.worthNow(r.figures, u)).toBe('0.000990098 SOL and 217.573518 BAYLA');
+    const u = ledgerUnits(view);
+    expect(ledgerText.putIn(r.figures, u)).toEqual({ figure: '0.000990099 SOL and 217.573519 BAYLA', note: 'In 1 deposit, since 2026-10-03 22:30 UTC.' });
     expect(ledgerText.versusHolding(r.figures, u)).toEqual({ figure: 'none yet', note: null });
     expect(ledgerText.growth(r.figures, u, lastTrade(view))).toEqual({ figure: 'none yet', note: NO_TRADE_YET });
     expect(ledgerText.priceEffect(r.figures, u)).toEqual({ figure: 'none yet', note: null });
-    expect(ledgerText.pace(r.figures, lastTrade(view), 1_791_600_000n)).toBeNull();
+    expect(ledgerText.pace(r.figures, lastTrade(view), 1_791_600_000n, true)).toBeNull();
     expect(ledgerText.locked(r.figures, u)).toBeNull();
-    expect(ledgerText.window(r, 5)).toBe('From 1 transaction of your share account, back to 2026-10-03 22:30 UTC, read 5 s ago. Exact to a few of the smallest units, which rounding cannot tell from zero.');
+    expect(ledgerText.window(r)).toBe('From the 1 transaction on your shares in this pool since 2026-10-03 22:30 UTC.');
     // Never a signed figure under the bound: no "-0.0000 SOL" for N = -1.
     for (const line of [ledgerText.versusHolding(r.figures, u), ledgerText.growth(r.figures, u, lastTrade(view)), ledgerText.priceEffect(r.figures, u)]) expect(line.figure).not.toMatch(/[-+\d]/);
   });
@@ -154,13 +153,12 @@ describe('the opener (rows 1 and 8): the opening and one deposit, 29,501,112,363
   it('prints the opening apart, the lock on its own line, the no-trade sentence, and no gain', async () => {
     const view = livePool();
     const r = okRead(await read());
-    const u = ledgerUnits(view, 'exact');
-    expect(ledgerText.putIn(r.figures, u)).toBe('1.99009901 SOL and 437,322.782703 BAYLA, in 1 opening and 1 deposit, since 2026-10-03 19:18 UTC');
-    expect(ledgerText.worthNow(r.figures, u)).toBe('1.990099003 SOL and 437,322.781222 BAYLA');
+    const u = ledgerUnits(view);
+    expect(ledgerText.putIn(r.figures, u)).toEqual({ figure: '1.99009901 SOL and 437,322.782703 BAYLA', note: 'In 1 opening and 1 deposit, since 2026-10-03 19:18 UTC.' });
     expect(ledgerText.growth(r.figures, u, lastTrade(view))).toEqual({ figure: 'none yet', note: NO_TRADE_YET });
     expect(ledgerText.priceEffect(r.figures, u)).toEqual({ figure: 'none yet', note: null });
     expect(ledgerText.locked(r.figures, u)).toBe('0.000000013 SOL: the 0.0000001 pool shares (100 of the smallest unit) every new pool keeps.');
     // 14 behind holding with no trade and no price move: the line says what is compared and blames nothing.
-    expect(ledgerText.versusHolding(r.figures, u)).toEqual({ figure: '-0.000000014 SOL', note: 'Compared with keeping the two tokens in your wallet, at this pool’s price now.' });
+    expect(ledgerText.versusHolding(r.figures, u)).toEqual({ figure: '-0.000000014 SOL', note: 'Compared with keeping both tokens in your wallet.' });
   });
 });

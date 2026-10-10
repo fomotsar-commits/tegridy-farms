@@ -9,6 +9,7 @@ import { swapEnabled } from '../../../lib/solana/cpswap/program';
 import { tokenText } from '../../../lib/solana/lp/format';
 import { pairLabel } from '../../../lib/solana/lp/identity';
 import { LEDGER_COPY, LEDGER_LABELS, ledgerFigures, ledgerText, ledgerUnits, type LedgerEntry, type LedgerLine, type LedgerRead } from '../../../lib/solana/lp/ledger';
+import { tradesExplain } from '../../../lib/solana/lp/poolGrowth';
 import { lastTrade } from '../../../lib/solana/lp/poolPast';
 import { QUOTE_COINS_OR } from '../../../lib/solana/lp/quotes';
 import { HISTORY_PAGES_MAX } from '../../../lib/solana/lp/txHistory';
@@ -21,6 +22,7 @@ import { lpHeld, withdrawOffer, type WithdrawOffer } from './offers';
 import { explorerOf } from './panelKit';
 import { RemoveLiquidityPanel } from './RemoveLiquidityPanel';
 import { useLpWrites, type LpWrites } from './useLpWrites';
+import { WholeDates } from './WholeDates';
 import type { LpReaders } from './readers';
 
 type State =
@@ -333,7 +335,9 @@ function PositionRow({
     position: p,
     held: writes !== null && poolAddress !== null && lpHeld(writes.pending.notes, poolAddress, 'remove'),
   });
-  const units = view ? ledgerUnits(view, 'exact') : null;
+  const units = view ? ledgerUnits(view) : null;
+  // What the opener's 100 locked share units are worth, once the ledger has read the opening: shown in the fold.
+  const [locked, setLocked] = useState<string | null>(null);
   // Needs no history: the share of the pool's two reserves, to the unit, under the token's registry name.
   const worth: ReactNode =
     view && units && p.value ? (
@@ -408,7 +412,7 @@ function PositionRow({
           {!checkedClean && tokenCheck}
           <p data-testid="lp-fees-in-shares">{LEDGER_COPY.feesInShares}</p>
           {!setAside && readers.ledger ? (
-            <LedgerBlock p={p} owner={owner} view={view} readers={readers} auto={autoLedger} chainNow={chainNow} worth={worth} />
+            <LedgerBlock p={p} owner={owner} view={view} readers={readers} auto={autoLedger} chainNow={chainNow} worth={worth} onLocked={setLocked} />
           ) : (
             worth
           )}
@@ -445,6 +449,7 @@ function PositionRow({
         <summary className="min-h-[44px] flex items-center px-3 cursor-pointer text-white/75">More about this share</summary>
         <div className="space-y-1.5 px-3 pb-3">
           {view && shareRows}
+          {locked && <Row label={LEDGER_LABELS.locked} value={locked} mono={false} />}
           <AddressRow label="Share account" value={p.lpAccount} explorerUrl={explorer(p.lpAccount)} />
           {view && (
             <>
@@ -466,7 +471,11 @@ function LedgerLineRow({ label, line, pace = null }: { label: string; line: Ledg
   return (
     <div className="space-y-0.5">
       <Row label={label} value={line.figure} mono={false} />
-      {line.note && <p className={HINT}>{line.note}</p>}
+      {line.note && (
+        <p className={HINT}>
+          <WholeDates text={line.note} />
+        </p>
+      )}
       {pace && (
         <p className={HINT} data-testid="lp-pace">
           {pace}
@@ -476,15 +485,11 @@ function LedgerLineRow({ label, line, pace = null }: { label: string; line: Ledg
   );
 }
 
-/** The window sentence's "read {s} s ago" moves on this tick. */
-const LEDGER_TICK_MS = 5_000;
-
 interface LedgerAnswer {
   read: LedgerRead;
   /** Every entry read so far, newest first (`unread` and `paused` carry none). */
   entries: LedgerEntry[];
   pages: number;
-  readAt: number;
   /** The shares held and the pool as read when it was worked out. */
   forAmount: bigint;
   forView: PoolView;
@@ -496,8 +501,9 @@ const LEDGER_BUTTON = 'btn-secondary w-full sm:w-auto min-h-[44px] px-4 text-[13
  * What a share earned, from its share account's own transactions (ledger.ts): by itself
  * when `auto`, on a press otherwise. The answer belongs to the shares it was worked out
  * for; while they are unchanged a re-read of the wallet asks for no history again and the
- * kept transactions are valued at the pool as just read. Read 20 more joins the older page
- * to what is held, up to HISTORY_PAGES_MAX pages. `worth` needs no history: always printed.
+ * kept transactions are valued at the pool as just read. Read 20 more joins older pages,
+ * up to HISTORY_PAGES_MAX. `worth` needs no history: always printed. The button and the
+ * status line stay mounted, so a press keeps focus and each answer is read out.
  */
 function LedgerBlock({
   p,
@@ -507,6 +513,7 @@ function LedgerBlock({
   auto,
   chainNow,
   worth,
+  onLocked,
 }: {
   p: Position;
   owner: PublicKey;
@@ -515,17 +522,13 @@ function LedgerBlock({
   auto: boolean;
   chainNow: bigint | null;
   worth: ReactNode;
+  /** Told what the opener's locked share units are worth, or null: the row prints it in its fold. */
+  onLocked: (text: string | null) => void;
 }) {
   const [answer, setAnswer] = useState<LedgerAnswer | null>(null);
   const [busy, setBusy] = useState(false);
   const [moreProblem, setMoreProblem] = useState<string | null>(null);
-  const [now, setNow] = useState(() => Date.now());
   const shown = answer && answer.forAmount === p.lpAmount ? answer : null;
-  useEffect(() => {
-    if (!shown) return;
-    const id = setInterval(() => setNow(Date.now()), LEDGER_TICK_MS);
-    return () => clearInterval(id);
-  }, [shown]);
   const share = { lpAccount: p.lpAccount, lpMint: p.lpMint, owner, lpAmount: p.lpAmount };
   const ask = async (opts?: { before: string }): Promise<LedgerRead> => {
     try {
@@ -541,8 +544,7 @@ function LedgerBlock({
     const mine = ++asked.current;
     const r = await ask();
     if (asked.current !== mine) return;
-    setAnswer({ read: r, entries: entriesOf(r), pages: 1, readAt: Date.now(), forAmount: share.lpAmount, forView: view });
-    setNow(Date.now());
+    setAnswer({ read: r, entries: entriesOf(r), pages: 1, forAmount: share.lpAmount, forView: view });
     setBusy(false);
   };
   const read = () => {
@@ -550,6 +552,8 @@ function LedgerBlock({
     setMoreProblem(null);
     void readFirstPage();
   };
+  const againButton = useRef<HTMLButtonElement | null>(null);
+  const moreButton = useRef<HTMLButtonElement | null>(null);
   const more = async () => {
     const oldest = shown?.entries[shown.entries.length - 1];
     if (!shown || !oldest) return;
@@ -562,8 +566,10 @@ function LedgerBlock({
     else if (older.kind === 'paused') setMoreProblem(ledgerText.paused());
     else {
       const entries = [...shown.entries, ...older.entries];
-      setAnswer({ read: ledgerFigures(entries, view, share.lpAmount, older.window.more), entries, pages: shown.pages + 1, readAt: Date.now(), forAmount: share.lpAmount, forView: view });
-      setNow(Date.now());
+      // Read 20 more leaves the page when nothing older is offered: focus goes to the button that stays.
+      const offeredAgain = older.window.more && shown.pages + 1 < HISTORY_PAGES_MAX;
+      if (!offeredAgain && document.activeElement === moreButton.current) againButton.current?.focus();
+      setAnswer({ read: ledgerFigures(entries, view, share.lpAmount, older.window.more), entries, pages: shown.pages + 1, forAmount: share.lpAmount, forView: view });
     }
     setBusy(false);
   };
@@ -584,55 +590,51 @@ function LedgerBlock({
     if (shown.forView === view || (kept.kind !== 'ok' && kept.kind !== 'worth-only')) return kept;
     return ledgerFigures(shown.entries, view, p.lpAmount, kept.window.more);
   }, [shown, view, p.lpAmount]);
+  const u = ledgerUnits(view);
+  const locked = r?.kind === 'ok' ? ledgerText.locked(r.figures, u) : null;
+  useEffect(() => {
+    onLocked(locked);
+    return () => onLocked(null);
+  }, [onLocked, locked]);
 
-  if (!shown || !r) {
-    const reading = busy || auto;
-    return (
-      <div className="space-y-1.5" data-testid="lp-ledger" data-ledger={reading ? 'reading' : 'idle'}>
-        {worth}
-        {reading ? (
-          <p role="status" className={HINT}>
-            {LEDGER_COPY.reading}
-          </p>
-        ) : (
-          <button type="button" className={LEDGER_BUTTON} onClick={read}>
-            {LEDGER_COPY.button}
-          </button>
-        )}
-      </div>
-    );
-  }
-  const u = ledgerUnits(view, 'exact');
+  const working = busy || (auto && !shown);
   const trade = lastTrade(view);
-  const readAgoSec = Math.max(0, Math.floor((now - shown.readAt) / 1000));
   // A deposit or withdrawal the chain has not finalized yet is said so on its own line.
-  const notFinal = (kinds: LedgerEntry['kind'][]) => (shown.entries.some((e) => kinds.includes(e.kind) && 'final' in e && !e.final) ? ` ${LEDGER_COPY.notFinal}` : '');
-  const canPage = (r.kind === 'ok' || r.kind === 'worth-only') && r.window.more;
+  const notFinal = (line: LedgerLine, kinds: LedgerEntry['kind'][]): LedgerLine =>
+    shown?.entries.some((e) => kinds.includes(e.kind) && 'final' in e && !e.final) ? { ...line, note: `${line.note} ${LEDGER_COPY.notFinal}` } : line;
+  const takenOut = r?.kind === 'ok' ? ledgerText.takenOut(r.figures, u) : null;
+  const canPage = r !== null && (r.kind === 'ok' || r.kind === 'worth-only') && r.window.more;
+  // What a screen reader hears when the read ends: that it is worked out, or why it is not.
+  const said = !r ? '' : moreProblem ?? (r.kind === 'ok' ? LEDGER_COPY.workedOut : r.kind === 'worth-only' ? ledgerText.worthOnly(r) : r.kind === 'unread' ? ledgerText.unread(r.detail) : ledgerText.paused());
   return (
-    <div className="space-y-1.5" data-testid="lp-ledger" data-ledger={r.kind}>
-      {r.kind === 'ok' ? (
+    <div className="relative space-y-1.5" data-testid="lp-ledger" data-ledger={r ? r.kind : working ? 'reading' : 'idle'}>
+      {r?.kind === 'ok' ? (
         <>
-          <Row label={LEDGER_LABELS.putIn} value={`${ledgerText.putIn(r.figures, u)}${notFinal(['deposit', 'opening'])}`} mono={false} />
-          {r.figures.takenOut && <Row label={LEDGER_LABELS.takenOut} value={`${ledgerText.takenOut(r.figures, u)}${notFinal(['withdrawal'])}`} mono={false} />}
+          <LedgerLineRow label={LEDGER_LABELS.putIn} line={notFinal(ledgerText.putIn(r.figures, u), ['deposit', 'opening'])} />
+          {takenOut && <LedgerLineRow label={LEDGER_LABELS.takenOut} line={notFinal(takenOut, ['withdrawal'])} />}
           {worth}
-          <LedgerLineRow label={LEDGER_LABELS.growth} line={ledgerText.growth(r.figures, u, trade)} pace={ledgerText.pace(r.figures, trade, chainNow)} />
+          <LedgerLineRow label={LEDGER_LABELS.growth} line={ledgerText.growth(r.figures, u, trade)} pace={ledgerText.pace(r.figures, trade, chainNow, tradesExplain(view))} />
           <LedgerLineRow label={LEDGER_LABELS.versusHolding} line={ledgerText.versusHolding(r.figures, u)} />
           <LedgerLineRow label={LEDGER_LABELS.priceEffect} line={ledgerText.priceEffect(r.figures, u)} />
-          {r.figures.locked !== null && <Row label={LEDGER_LABELS.locked} value={ledgerText.locked(r.figures, u) ?? ''} mono={false} />}
           {r.figures.otherShares && <Notice>{ledgerText.otherShares(r.figures, u)}</Notice>}
         </>
       ) : (
         <>
           {worth}
           {/* No figure for a read that returned none: the reason, never a zero. */}
-          {r.kind === 'worth-only' && <Notice tone="warn">{ledgerText.worthOnly(r)}</Notice>}
-          {r.kind === 'unread' && <Notice tone="warn">{ledgerText.unread(r.detail)}</Notice>}
-          {r.kind === 'paused' && <Notice>{ledgerText.paused()}</Notice>}
+          {r?.kind === 'worth-only' && <Notice tone="warn">{ledgerText.worthOnly(r)}</Notice>}
+          {r?.kind === 'unread' && <Notice tone="warn">{ledgerText.unread(r.detail)}</Notice>}
+          {r?.kind === 'paused' && <Notice>{ledgerText.paused()}</Notice>}
         </>
       )}
-      {(r.kind === 'ok' || r.kind === 'worth-only') && <p className={HINT}>{ledgerText.window(r, readAgoSec)}</p>}
-      {canPage && shown.pages < HISTORY_PAGES_MAX && (
+      {r && (r.kind === 'ok' || r.kind === 'worth-only') && (
+        <p className={HINT}>
+          <WholeDates text={ledgerText.window(r)} />
+        </p>
+      )}
+      {canPage && shown && shown.pages < HISTORY_PAGES_MAX && (
         <button
+          ref={moreButton}
           type="button"
           className={LEDGER_BUTTON}
           aria-disabled={busy}
@@ -643,18 +645,24 @@ function LedgerBlock({
           {LEDGER_COPY.readMore}
         </button>
       )}
-      {canPage && shown.pages >= HISTORY_PAGES_MAX && <p className={HINT}>{LEDGER_COPY.olderNotRead}</p>}
+      {canPage && shown && shown.pages >= HISTORY_PAGES_MAX && <p className={HINT}>{LEDGER_COPY.olderNotRead}</p>}
       {moreProblem && <Notice tone="warn">{moreProblem}</Notice>}
+      {/* One button, always here: pressing it never takes it off the page, so focus stays on it. */}
       <button
+        ref={againButton}
         type="button"
         className={LEDGER_BUTTON}
-        aria-disabled={busy}
+        aria-disabled={working}
         onClick={() => {
-          if (!busy) read();
+          if (!working) read();
         }}
       >
-        {LEDGER_COPY.readAgain}
+        {shown ? LEDGER_COPY.again : LEDGER_COPY.button}
       </button>
+      {/* Always there, so the reading line and each answer are read out when they arrive. */}
+      <p role="status" className={working ? HINT : 'sr-only'}>
+        {working ? LEDGER_COPY.reading : said}
+      </p>
     </div>
   );
 }

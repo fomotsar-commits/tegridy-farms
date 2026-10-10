@@ -7,7 +7,7 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { FORECAST_WORDS } from './format';
+import { FORECAST_WORDS, RATE_WORDS } from './format';
 import { PACE_SENTENCE, paceText, percentText } from './pace';
 
 const DAY = 86_400;
@@ -156,7 +156,9 @@ describe('the yearly figure never appears without its basis (the one door in the
     const pages = ['PoolsPage.tsx', 'SolanaLpPage.tsx'].map((f) => join(here, '..', '..', '..', 'pages', f));
     const files = [...dirs.flatMap((d) => readdirSync(d).filter((f) => /\.tsx?$/.test(f) && !/\.(test|fixture)\./.test(f)).map((f) => join(d, f))), ...pages];
     expect(files.length).toBeGreaterThan(32);
-    const saying = files.filter((f) => /a year|annual|per day|per week|rate of return/i.test(readFileSync(f, 'utf8'))).map((f) => f.replace(/^.*[\\/]/, ''));
-    expect(saying.sort()).toEqual(['format.ts', 'pace.ts']);
+    const saying = (re: RegExp, among: string[]) => among.filter((f) => re.test(readFileSync(f, 'utf8'))).map((f) => f.replace(/^.*[\\/]/, '')).sort();
+    // The ban's own regexes, never a second list: a rate word anywhere, and any forecast word in the LP folders.
+    expect(saying(RATE_WORDS, files)).toEqual(['format.ts', 'pace.ts']);
+    expect(saying(FORECAST_WORDS, files.filter((f) => !pages.includes(f)))).toEqual(['format.ts', 'pace.ts']);
   });
 });

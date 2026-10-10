@@ -438,10 +438,12 @@ describe('your positions: a share too small to take out', () => {
 });
 
 // /pools keeps the order it has always had. /solana-lp passes `finderFirst`: the finder
-// comes first, under a one-line risk notice, and the full notice follows the positions.
+// comes first, under a one-line risk notice; then one line on earning, the positions, the
+// two earning cards, and the full notice. The owner looked for how he earns and found it
+// three screens down, under the long notice (walk of 2026-10-10).
 describe('the order of the section', () => {
   const RISK_LINE =
-    'These pools run on a pool program whose admin-key changes have not had their own independent review yet. Put in only what you can afford to lose. The full notice is right under your positions.';
+    'These pools run on a pool program whose admin-key changes have not had their own independent review yet. Put in only what you can afford to lose. The full notice is below your positions.';
   const parts = () => [...screen.getByTestId('lp-section').children].map((c) => c.getAttribute('data-testid'));
   const mountFirst = (r: LpReaders, writes: LpWritesOverrides = { mode: 'off' }) =>
     render(<MemoryRouter initialEntries={['/solana-lp']}><LpInner readers={r} writes={writes} finderFirst /></MemoryRouter>);
@@ -458,16 +460,36 @@ describe('the order of the section', () => {
     expect(screen.queryByTestId('lp-risk-line')).toBeNull();
   });
 
-  it('finderFirst: the risk line, the finder, the positions, the full disclosure, how it pays, the fee tiers', () => {
+  it('finderFirst: the risk line, the finder, the earn line, the positions, how it pays, the full disclosure, the fee tiers', () => {
     mountFirst(readers());
-    expect(parts()).toEqual(['lp-risk-line', 'lp-finder', 'lp-positions', 'lp-disclosure', 'lp-how-it-pays', 'fee-tiers']);
+    expect(parts()).toEqual(['lp-risk-line', 'lp-finder', 'lp-earn-line', 'lp-positions', 'lp-how-it-pays', 'lp-disclosure', 'fee-tiers']);
   });
 
-  it('the risk line says exactly this, and the full notice it points at is right under the positions', () => {
+  it('how you earn comes straight after the positions, before the long notice, and one line says so before them', () => {
+    mountFirst(readers());
+    const order = parts();
+    // The invariant, whatever else joins the section: the earning cards are the positions' next neighbour, above the notice.
+    expect(screen.getByTestId('lp-positions').nextElementSibling).toBe(screen.getByTestId('lp-how-it-pays'));
+    expect(order.indexOf('lp-how-it-pays')).toBeLessThan(order.indexOf('lp-disclosure'));
+    const line = screen.getByTestId('lp-earn-line');
+    expect(line.textContent).toBe('Trading fees are added to your pool shares as trades happen, so there is nothing to claim. How you earn, and how the venue earns, is under your positions.');
+    // Where it points is true: it stands before the positions, and the cards are under them.
+    expect(order.indexOf('lp-earn-line')).toBeLessThan(order.indexOf('lp-positions'));
+    // From a tablet up it is drawn above the finder, on the first screen; on a phone it stays under the finder,
+    // so the finder's three buttons keep the first screen (e2e/tab-target-size.spec.ts).
+    expect(line.className).toMatch(/\bsm:-order-1\b/);
+    expect(screen.getByTestId('lp-risk-line').className).toMatch(/\bsm:-order-2\b/);
+    expect(screen.getByTestId('lp-section').className).toMatch(/\bflex flex-col gap-4\b/);
+    expect(order.indexOf('lp-finder')).toBeLessThan(order.indexOf('lp-earn-line'));
+    expect(line.textContent).not.toMatch(FORECAST_WORDS);
+    expect(line.textContent).not.toContain('—');
+  });
+
+  it('the risk line says exactly this, and the full notice it points at is below the positions', () => {
     mountFirst(readers());
     expect(screen.getByTestId('lp-risk-line').textContent).toBe(RISK_LINE);
     const full = screen.getByTestId('lp-disclosure');
-    expect(screen.getByTestId('lp-positions').nextElementSibling).toBe(full);
+    expect(screen.getByTestId('lp-positions').compareDocumentPosition(full) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(full).toHaveTextContent(/have not had their own independent review yet/);
     expect(full).toHaveTextContent(/switch off deposits, withdrawals or swaps on any pool/);
   });
@@ -492,7 +514,7 @@ describe('the order of the section', () => {
     first.unmount();
     mountFirst(readers(), unreadGate());
     await screen.findByTestId('lp-gate-banner');
-    expect(parts()).toEqual(['lp-risk-line', 'lp-gate-banner', 'lp-finder', 'lp-positions', 'lp-disclosure', 'lp-how-it-pays', 'fee-tiers']);
+    expect(parts()).toEqual(['lp-risk-line', 'lp-gate-banner', 'lp-finder', 'lp-earn-line', 'lp-positions', 'lp-how-it-pays', 'lp-disclosure', 'fee-tiers']);
   });
 });
 

@@ -5,10 +5,10 @@
 // words, on the venue's own BAYLA/SOL pool as mainnet held it (mainnetPool.fixture.ts).
 import { describe, it, expect } from 'vitest';
 import { FORECAST_WORDS } from './format';
-import { OPEN_TIME, Rc, S, SOL_VAULT, THIRD_SWAP, VENUE_CUT, livePool } from './mainnetPool.fixture';
+import { OPEN_TIME, Rc, Rt, S, SOL_VAULT, THIRD_SWAP, VENUE_CUT, livePool } from './mainnetPool.fixture';
 import { PACE_SENTENCE } from './pace';
 import type { PoolView } from './poolFinder';
-import { POOL_FEES_TOO_SMALL, poolEarned, shareGrowth } from './poolGrowth';
+import { POOL_FEES_TOO_SMALL, poolEarned, shareGrowth, tradesExplain } from './poolGrowth';
 
 /** The live pool with other balances, or another price record. */
 function pool(o: { coin?: bigint; token?: bigint; supply?: bigint; history?: PoolView['history'] } = {}): PoolView {
@@ -71,7 +71,64 @@ describe('shareGrowth: isqrt(coin reserve x token reserve) less the shares, over
   });
 });
 
+describe('tradesExplain: can the fees the pool still shows account for its growth?', () => {
+  // The venue's uncollected cut is 801,600 lamports, 16% of the trade fees. The LPs' 84% of the same trades:
+  // 801,600 x 840,000 / 160,000 = 4,208,400 lamports, the investigation's own figure for the three swaps.
+  it('the venue’s pool: taking the LPs’ 4,208,400 lamports back out undoes 30,575,562 of the 31,325,449 growth', () => {
+    const view = livePool();
+    expect(view.config?.protocolFeeRate).toBe(160_000n);
+    expect(view.snapshot.pool.protocolFeesToken0).toBe(VENUE_CUT);
+    // isqrt((25,647,606,321 - 4,208,400) x Rt) = 372,632,571,560, which is 30,575,562 under the root.
+    expect(tradesExplain(view)).toBe(true);
+  });
+
+  it('tokens sent straight to a vault are not trades: 1 SOL sent in leaves the fees explaining 29,996,328 of 7,226,923,849', () => {
+    // The reserve grows by what was sent; the venue's counter does not move, because no trade paid a fee.
+    expect(shareGrowth(pool({ coin: Rc + 1_000_000_000n }))!.growth).toBe(7_226_923_849n);
+    expect(tradesExplain(pool({ coin: Rc + 1_000_000_000n }))).toBe(false);
+    expect(tradesExplain(pool({ coin: Rc + 10_000_000_000n }))).toBe(false);
+    // The line is at half: on this pool, up to 4,104,845 lamports sent in (about what the fees themselves were) still passes.
+    expect(tradesExplain(pool({ coin: Rc + 4_104_845n }))).toBe(true);
+    expect(tradesExplain(pool({ coin: Rc + 4_104_846n }))).toBe(false);
+    // The token side is no different: BAYLA sent in is not a trade either.
+    expect(tradesExplain(pool({ token: Rt + Rt / 25n }))).toBe(false);
+  });
+
+  it('with nothing to measure by, it is false: a collected cut, a tier with no venue cut, or fee settings that were not read', () => {
+    const view = livePool();
+    const noCut: PoolView = { ...view, snapshot: { ...view.snapshot, pool: { ...view.snapshot.pool, protocolFeesToken0: 0n, protocolFeesToken1: 0n } } };
+    expect(tradesExplain(noCut)).toBe(false);
+    expect(tradesExplain({ ...view, config: { ...view.config!, protocolFeeRate: 0n } })).toBe(false);
+    expect(tradesExplain({ ...view, config: { ...view.config!, protocolFeeRate: 500_000n, fundFeeRate: 500_000n } })).toBe(false);
+    expect(tradesExplain({ ...view, config: null })).toBe(false);
+    // No growth at all, or no figure: nothing to explain.
+    expect(tradesExplain(pool({ coin: 1_000_000_000n, token: 219_749_259_037n, supply: 14_823_942_088n }))).toBe(false);
+    expect(tradesExplain(pool({ supply: 0n }))).toBe(false);
+  });
+
+  it('fees paid on the token side count the same: the cut is read from the side it was paid in', () => {
+    const view = livePool();
+    // The same share of the token reserve as 801,600 lamports is of the SOL reserve (about 169 million units).
+    const cut = (VENUE_CUT * Rt) / Rc;
+    const tokenSide: PoolView = { ...view, snapshot: { ...view.snapshot, pool: { ...view.snapshot.pool, protocolFeesToken0: 0n, protocolFeesToken1: cut } } };
+    expect(view.quoteIsToken0).toBe(true);
+    expect(tradesExplain(tokenSide)).toBe(true);
+  });
+});
+
 describe('poolEarned: what the pool card says, with no history read', () => {
+  it('tokens sent straight in: the growth is said for what it is, and there is no pace to call "Past trades"', () => {
+    const e = poolEarned(pool({ coin: Rc + 1_000_000_000n }), NOW)!;
+    expect(e.trade).toBe(TRADE);
+    expect(e.growth).toBe('Since this pool opened on 2026-10-03 19:18 UTC, each share has grown 1.9% from trading fees and anything else sent into the pool.');
+    expect(e.pace).toBeNull();
+    // The reviewer's second case: one dust trade to flip the record, then half the pool's SOL sent in.
+    const dust = poolEarned(pool({ coin: Rc + Rc / 2n }), NOW)!;
+    expect(dust.growth).toMatch(/each share has grown 22% from/);
+    expect(dust.pace).toBeNull();
+    expect(JSON.stringify([e, dust])).not.toMatch(FORECAST_WORDS);
+  });
+
   it('the venue’s pool, 6.3 days after it opened: the last trade, the growth since it opened, and the pace', () => {
     // 544,376 s is 6.3006 days. 0.0084065% x 31,536,000 / 544,376 = 0.48699%, cut to 0.48%.
     expect(poolEarned(livePool(), NOW)).toEqual({

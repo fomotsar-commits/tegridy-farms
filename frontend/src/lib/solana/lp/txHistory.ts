@@ -179,16 +179,25 @@ export function parseTx(signature: string, raw: unknown): ParsedTx {
 
 /**
  * The transactions of one page, at most 20 getTransaction calls at confirmed, version 0
- * allowed. `null` is "no record", a real answer, kept apart from a throw. One malformed
- * answer fails the whole page.
+ * allowed. `null` is "no record", a real answer, kept apart from a throw. One refused or
+ * malformed answer fails the whole page, but only after every call has settled and each
+ * finalized transaction that did answer is remembered: the next press asks only for the rest.
  */
 export async function readTransactions(rpc: SolanaRpc, entries: SigEntry[]): Promise<Map<string, ParsedTx | null>> {
   if (entries.length > HISTORY_PAGE) throw new Error(`readTransactions: ${entries.length} entries is more than a page of ${HISTORY_PAGE}`);
-  const answers = await Promise.all(
-    entries.map((e) => rpc('getTransaction', [e.signature, { encoding: 'json', maxSupportedTransactionVersion: 0, commitment: 'confirmed' }])),
+  const answers = await Promise.allSettled(
+    entries.map(async (e) => {
+      const raw = await rpc('getTransaction', [e.signature, { encoding: 'json', maxSupportedTransactionVersion: 0, commitment: 'confirmed' }]);
+      const tx = raw === null ? null : parseTx(e.signature, raw);
+      if (tx) remember(e, tx);
+      return tx;
+    }),
   );
   const out = new Map<string, ParsedTx | null>();
-  entries.forEach((e, i) => out.set(e.signature, answers[i] === null ? null : parseTx(e.signature, answers[i])));
+  for (const [i, a] of answers.entries()) {
+    if (a.status === 'rejected') throw a.reason;
+    out.set(entries[i]!.signature, a.value);
+  }
   return out;
 }
 

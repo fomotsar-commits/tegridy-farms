@@ -48,7 +48,7 @@ export function HowItPays({ read, jupiterFee = BUILD_JUPITER_FEE }: { read: FeeT
         </ul>
         {venue.where && <p className={LINE}>{venue.where}</p>}
         {venue.wallets.map((w) => (
-          <AddressRow key={w.label} label={w.label} value={w.address} explorerUrl={explorer(w.address)} />
+          <AddressRow key={w.address} label={w.label} value={w.address} explorerUrl={explorer(w.address)} />
         ))}
       </Card>
       {/* Said once, for both cards. */}

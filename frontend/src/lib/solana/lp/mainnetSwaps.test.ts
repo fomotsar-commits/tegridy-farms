@@ -11,7 +11,9 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { isqrt } from './liquidityMath';
 import { OPEN_TIME, POOL, Rc, Rt, S, SOL_VAULT, THIRD_SWAP, VENUE_CUT, livePool } from './mainnetPool.fixture';
-import { lastTrade, olderPageProblem, pagePast, poolPastText, readPoolPast, readPoolPastPage } from './poolPast';
+import type { PoolView } from './poolFinder';
+import { tradesExplain } from './poolGrowth';
+import { lastTrade, olderPageProblem, pagePast, poolPastText, readPoolPastPage } from './poolPast';
 import { parseTx, tokenDelta, type ParsedTx, type SigEntry } from './txHistory';
 import { PROGRAM, fakeRpcWithHistory } from './testkit.fixture';
 import { ledgerText, ledgerUnits, readLedger, type LedgerRead } from './ledger';
@@ -123,34 +125,24 @@ describe('the opener after three swaps: 83,072,784,230 shares, 22.29% of the poo
     expect(r.window).toEqual({ count: 4, oldest: 1791055083, more: false });
   });
 
-  it('prints every unit on expand, and four decimals cut (never rounded up) on the card', async () => {
+  it('prints every unit: the figure beside its label, one short sentence under it', async () => {
     const view = livePool();
     const r = okRead(await read());
-    const exact = ledgerUnits(view, 'exact');
-    expect(ledgerText.putIn(r.figures, exact)).toBe('5.603960397 SOL and 1,231,466.144058 BAYLA, in 1 opening and 3 deposits, since 2026-10-03 19:18 UTC');
-    expect(ledgerText.worthNow(r.figures, exact)).toBe('5.717756621 SOL and 1,207,160.127729 BAYLA');
+    const exact = ledgerUnits(view);
+    expect(ledgerText.putIn(r.figures, exact)).toEqual({ figure: '5.603960397 SOL and 1,231,466.144058 BAYLA', note: 'In 1 opening and 3 deposits, since 2026-10-03 19:18 UTC.' });
     // A trade has reached the pool: the growth is the opener's part of the fees, said with what else would count.
     expect(ledgerText.growth(r.figures, exact, lastTrade(view))).toEqual({
       figure: '+0.000961245 SOL',
-      note: 'Your part of this pool’s trading fees, already inside your shares. Anything sent straight into the pool counts here too, because the pool cannot tell it from a fee.',
+      note: 'Your part of this pool’s trading fees. Tokens sent straight into the pool count too.',
     });
-    // Behind holding by more than the fees earned: the price moved. Said as that, and as neither a fee nor a fault.
+    // Behind holding by more than the fees earned: the price moved, and the line says that is what cost it.
     expect(ledgerText.versusHolding(r.figures, exact)).toEqual({
       figure: '-0.001330082 SOL',
-      note: 'Compared with keeping the two tokens in your wallet, at this pool’s price now. The price moved after you put in, and so far that has cost more than the fees have earned. It is not a fee and not a fault.',
+      note: 'Compared with keeping both tokens in your wallet. So far the price move has cost more than the fees earned.',
     });
-    expect(ledgerText.priceEffect(r.figures, exact)).toEqual({
-      figure: '-0.002291314 SOL',
-      note: 'What the price moving after you put in did to this position, compared with keeping the two tokens. It is often called impermanent loss.',
-    });
+    expect(ledgerText.priceEffect(r.figures, exact)).toEqual({ figure: '-0.002291314 SOL', note: 'What the price move alone did. Often called impermanent loss.' });
     expect(ledgerText.locked(r.figures, exact)).toBe('0.000000013 SOL: the 0.0000001 pool shares (100 of the smallest unit) every new pool keeps.');
-    expect(ledgerText.window(r, 5)).toBe('From 4 transactions of your share account, back to 2026-10-03 19:18 UTC, read 5 s ago. Exact to a few of the smallest units, which rounding cannot tell from zero.');
-    const about = ledgerUnits(view, 'about');
-    expect(ledgerText.putIn(r.figures, about)).toBe('5.6039 SOL and 1,231,466.144 BAYLA, in 1 opening and 3 deposits, since 2026-10-03 19:18 UTC');
-    expect(ledgerText.worthNow(r.figures, about)).toBe('5.7177 SOL and 1,207,160.1277 BAYLA');
-    expect(ledgerText.growth(r.figures, about, lastTrade(view)).figure).toBe('+0.0009 SOL');
-    expect(ledgerText.versusHolding(r.figures, about).figure).toBe('-0.0013 SOL');
-    expect(ledgerText.priceEffect(r.figures, about).figure).toBe('-0.0022 SOL');
+    expect(ledgerText.window(r)).toBe('From the 4 transactions on your shares in this pool since 2026-10-03 19:18 UTC.');
   });
 
   it('the pace under Fees earned, at the chain time of the read: 0.0084% of the position in 6.3 days', async () => {
@@ -158,7 +150,24 @@ describe('the opener after three swaps: 83,072,784,230 shares, 22.29% of the poo
     // 2026-10-10 02:31:00 UTC (1791599460) is 544,377 s = 6.3006 days. x 31,536,000 / 544,377 = 0.48695%, cut to 0.48%.
     const view = livePool();
     const r = okRead(await read());
-    expect(ledgerText.pace(r.figures, lastTrade(view), 1_791_599_460n)).toBe('0.0084% of this position in 6.3 days. At that pace, about 0.48% a year. Past trades, not a forecast.');
+    // The venue's uncollected 801,600 lamports show trades paid the LPs 4,208,400: that accounts for the pool's growth.
+    expect(tradesExplain(view)).toBe(true);
+    expect(ledgerText.pace(r.figures, lastTrade(view), 1_791_599_460n, tradesExplain(view))).toBe('0.0084% of this position in 6.3 days. At that pace, about 0.48% a year. Past trades, not a forecast.');
+  });
+
+  it('1 SOL sent straight to the pool’s vault, no trade: the row’s figure rises and says tokens sent in count, and there is no pace at all', async () => {
+    // The reviewer's case. The vault and the reserve are 1 SOL larger; the fee counter, the record and the history are as they were.
+    const live = livePool();
+    const sent = 1_000_000_000n;
+    expect(live.quoteIsToken0).toBe(true);
+    const view: PoolView = { ...live, quoteReserve: live.quoteReserve + sent, snapshot: { ...live.snapshot, vault0Amount: live.snapshot.vault0Amount + sent, reserve0: live.snapshot.reserve0 + sent } };
+    const r = okRead(await readLedger(rpc(), share, view, PROG, {}));
+    const growth = ledgerText.growth(r.figures, ledgerUnits(view), lastTrade(view));
+    // Nearly a quarter of the SOL sent in belongs to the 22.29% the opener holds: far more than the 961,245 lamports of fees.
+    expect(r.figures.growth.kind === 'amount' && r.figures.growth.coin > 200_000_000n).toBe(true);
+    expect(growth.note).toBe('Your part of this pool’s trading fees. Tokens sent straight into the pool count too.');
+    expect(tradesExplain(view)).toBe(false);
+    expect(ledgerText.pace(r.figures, lastTrade(view), 1_791_599_460n, tradesExplain(view))).toBeNull();
   });
 });
 
@@ -166,16 +175,17 @@ describe('the pool past over the same history, a page at a time', () => {
   // Counted from the investigation's own record of the 34 (another script, another encoding), newest first.
   it('the newest 20: 3 swaps, 17 deposits from 13 wallets, 0.501 SOL traded in; a full page, so older ones are said not read', async () => {
     const view = livePool();
-    const r = await readPoolPast(rpc(), view, PROG, {});
+    const r = pagePast(await readPoolPastPage(rpc(), view, PROG, {}));
     expect(r).toEqual({
       kind: 'ok', count: 20, swaps: 3, deposits: 17, withdrawals: 0, openings: 0, wallets: 13, other: 0,
       volumeIn: { token: 0n, coin: 501_000_000n }, from: 1791232139, to: 1791579804, complete: false, reachedOpening: false,
     });
-    expect(poolPastText(r, view)).toBe('Last 20 transactions on this pool, 2026-10-05 20:28 UTC to 2026-10-09 21:03 UTC: 3 swaps, 17 deposits from 13 wallets, 0 withdrawals, 0 other. Traded in: 0.501 SOL and 0 BAYLA. Fees are this tier’s rate on that volume; the rate can change, so no total is shown. Older transactions were not read.');
+    // A count of zero is left out, and so is the side nothing was traded into.
+    expect(poolPastText(r, view)).toBe('Last 20 transactions on this pool, 2026-10-05 20:28 UTC to 2026-10-09 21:03 UTC: 3 swaps, 17 deposits from 13 wallets. Traded in: 0.501 SOL. Each trade paid this tier’s fee at the time. Older transactions were not read.');
   });
 
   it('the 14 before them reach the opening: 13 deposits from 8 wallets and no swap. Two wallets are on both pages, so the pages’ wallet counts do not add to the 19', async () => {
-    const r = await readPoolPast(rpc(), livePool(), PROG, { before: SIGS[19]!.signature });
+    const r = pagePast(await readPoolPastPage(rpc(), livePool(), PROG, { before: SIGS[19]!.signature }));
     expect(r).toEqual({
       kind: 'ok', count: 14, swaps: 0, deposits: 13, withdrawals: 0, openings: 1, wallets: 8, other: 0,
       volumeIn: { token: 0n, coin: 0n }, from: 1791055083, to: 1791228705, complete: true, reachedOpening: true,
@@ -201,6 +211,6 @@ describe('the pool past over the same history, a page at a time', () => {
       kind: 'ok', count: 34, swaps: 3, deposits: 30, withdrawals: 0, openings: 1, wallets: 19, other: 0,
       volumeIn: { token: 0n, coin: 501_000_000n }, from: 1791055083, to: 1791579804, complete: true, reachedOpening: true,
     });
-    expect(poolPastText(all, view)).toBe('All 34 transactions since this pool opened on 2026-10-03 19:18 UTC: 3 swaps, 30 deposits from 19 wallets, 0 withdrawals, 1 opening, 0 other. Traded in: 0.501 SOL and 0 BAYLA. Fees are this tier’s rate on that volume; the rate can change, so no total is shown.');
+    expect(poolPastText(all, view)).toBe('All 34 transactions since this pool opened on 2026-10-03 19:18 UTC: 3 swaps, 30 deposits from 19 wallets, 1 opening. Traded in: 0.501 SOL. Each trade paid this tier’s fee at the time.');
   });
 });

@@ -71,6 +71,56 @@ describe('lpFetch: every read ends', () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 
+  it('headers, then a body that never ends: the same 20 seconds and the same sentence', async () => {
+    // A phone losing signal mid-answer: fetch() has resolved, and the body never closes.
+    const res = new Response(new ReadableStream<Uint8Array>({ start() {} }), { status: 200 });
+    vi.stubGlobal('fetch', vi.fn(async () => res));
+    const onResponse = vi.fn();
+    let settled: string | null = null;
+    const p = lpFetch({ what: 'the chain', onResponse })('/api/solrpc').then(
+      () => {
+        settled = 'answered';
+      },
+      (e: unknown) => {
+        settled = e instanceof Error ? e.message : String(e);
+      },
+    );
+    await vi.advanceTimersByTimeAsync(READ_TIMEOUT_MS - 1);
+    expect(settled).toBeNull();
+    // The headers did arrive, so the budget heard them.
+    expect(onResponse).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(settled).toBe('the chain did not answer in 20 seconds');
+    await p;
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('a body that finishes at 19.9 s passes, and the caller reads it whole', async () => {
+    const body = new ReadableStream<Uint8Array>({
+      start(c) {
+        c.enqueue(new TextEncoder().encode('{"ok":'));
+        setTimeout(() => {
+          c.enqueue(new TextEncoder().encode('true}'));
+          c.close();
+        }, READ_TIMEOUT_MS - 100);
+      },
+    });
+    const res = new Response(body, { status: 200 });
+    vi.stubGlobal('fetch', vi.fn(async () => res));
+    let got: Response | null = null;
+    const p = lpFetch({ what: 'the chain' })('/api/solrpc').then((r) => {
+      got = r;
+    });
+    await vi.advanceTimersByTimeAsync(READ_TIMEOUT_MS - 101);
+    // Not handed back on its headers alone.
+    expect(got).toBeNull();
+    await vi.advanceTimersByTimeAsync(1);
+    await p;
+    expect(got).toBe(res);
+    expect(await res.json()).toEqual({ ok: true });
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
   it('onResponse is called once, with the Response the caller gets, before its body is read', async () => {
     const res = new Response('{"ok":true}', { status: 200, headers: { 'X-RateLimit-Remaining': '123' } });
     vi.stubGlobal('fetch', vi.fn(async () => res));

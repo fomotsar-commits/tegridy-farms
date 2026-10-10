@@ -1,3 +1,4 @@
+import { FEE_RATE_DENOMINATOR } from '../cpswap/math';
 import { minuteText } from './format';
 import { LEDGER_COPY } from './ledger';
 import { isqrt } from './liquidityMath';
@@ -21,6 +22,28 @@ export function shareGrowth(view: PoolView): { growth: bigint; supply: bigint } 
   return growth < 0n ? null : { growth, supply };
 }
 
+/**
+ * Can trades account for the pool's growth? The one trace of fees its state keeps is the
+ * venue's uncollected cut on each side (calculator.rs: the trade fee x the protocol rate);
+ * the LPs' part of those trades is that cut x (1 - venue and fund share) / venue share.
+ * True when taking that part back out of the reserves undoes at least half the growth.
+ * Tokens sent to a vault, a collected cut or a tier with no cut leave it false: no pace
+ * is said then, because "Past trades" could not be shown to be true.
+ */
+export function tradesExplain(view: PoolView): boolean {
+  const g = shareGrowth(view);
+  const cfg = view.config;
+  if (!g || g.growth === 0n || !cfg || cfg.protocolFeeRate <= 0n) return false;
+  const lpShare = FEE_RATE_DENOMINATOR - cfg.protocolFeeRate - cfg.fundFeeRate;
+  if (lpShare <= 0n) return false;
+  const p = view.snapshot.pool;
+  const lpPart = (cut: bigint): bigint => (cut * lpShare) / cfg.protocolFeeRate;
+  const [coinCut, tokenCut] = view.quoteIsToken0 ? [p.protocolFeesToken0, p.protocolFeesToken1] : [p.protocolFeesToken1, p.protocolFeesToken0];
+  const left = (reserve: bigint, fees: bigint): bigint => (fees >= reserve ? 0n : reserve - fees);
+  const without = isqrt(left(view.quoteReserve, lpPart(coinCut)) * left(view.tokenReserve, lpPart(tokenCut)));
+  return (isqrt(view.quoteReserve * view.tokenReserve) - without) * 2n >= g.growth;
+}
+
 /** What the pool card says its shares have earned. The card prints these and nothing of its own. */
 export interface PoolEarned {
   /** When the pool last traded, that no trade has reached it, or that its record could not be read. */
@@ -38,7 +61,8 @@ export const POOL_FEES_TOO_SMALL = 'The fees so far are too small to show.';
  * every pool (poolFinder.ts). Growth is called fees only when the record shows a trade
  * (`lastTrade`): before the first swap the ratio is already a hair over zero from deposit
  * rounding, so "no fees yet" is the record's answer, never a test for zero. An unread record
- * gets no figure. `open_time` is when the pool's swaps opened, at or after its creation.
+ * gets no figure, and a growth trades cannot account for gets no pace (`tradesExplain`).
+ * `open_time` is when the pool's swaps opened, at or after its creation.
  */
 export function poolEarned(view: PoolView, chainNow: bigint | null): PoolEarned | null {
   if (view.history.kind === 'not-read') return null;
@@ -55,6 +79,6 @@ export function poolEarned(view: PoolView, chainNow: bigint | null): PoolEarned 
   return {
     trade: said.trade,
     growth: `Since this pool opened on ${minuteText(opened)}, each share has grown ${percent} from trading fees and anything else sent into the pool.`,
-    pace: chainNow === null ? null : paceText({ growth: g.growth, against: g.supply, seconds: Number(chainNow) - opened }),
+    pace: chainNow === null || !tradesExplain(view) ? null : paceText({ growth: g.growth, against: g.supply, seconds: Number(chainNow) - opened }),
   };
 }

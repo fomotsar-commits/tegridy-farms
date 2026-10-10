@@ -4,6 +4,7 @@
 // here was worked by hand from the rule in words (DESIGN 2.B1; economics 8.1 to 8.9),
 // never from ledger.ts: the steps stand in the comments beside each number.
 import { describe, it, expect } from 'vitest';
+import type { SolanaRpc } from '../../launcher/solana/curve/rpc';
 import { IX_DEPOSIT, IX_INITIALIZE, IX_SWAP_BASE_INPUT, IX_WITHDRAW } from '../cpswap/program';
 import { FORECAST_WORDS } from './format';
 import { isqrt } from './liquidityMath';
@@ -400,41 +401,66 @@ describe('readLedger', () => {
     const rpc = fakeRpcWithHistory({}, { [lpAccount]: [] }, {}, { fail: new Set(['getSignaturesForAddress']) });
     expect(await readLedger(rpc, share, view, PROG, {})).toEqual({ kind: 'unread', detail: 'getSignaturesForAddress: HTTP 502' });
   });
+
+  it('one refused call fails the page, but each finalized transaction that answered is kept: the next press asks only for the one that failed', async () => {
+    budget('300');
+    const [kept, refused] = [sig('busykept'), sig('busyrefused')];
+    const older = cpRaw(view, { kind: 'deposit', owner, lpAccount, move: { ...DEPOSIT_81, lpBefore: 0n } });
+    const newer = cpRaw(view, { kind: 'deposit', owner, lpAccount, move: { lp: 1n, token: 11n, coin: 1n, lpBefore: 10_000_000_000n }, slot: 101, blockTime: 1_791_066_700 });
+    const calls: [string, unknown[]][] = [];
+    const answers = fakeRpcWithHistory({}, { [lpAccount]: [entryOf(refused, { slot: 101 }), entryOf(kept)] }, { [refused]: newer, [kept]: older }, { calls });
+    let busy = true;
+    // The proxy's limiter turns one of the two calls away, as it did for 1 to 4 of every 20 on the public RPC.
+    const rpc: SolanaRpc = async (method, params) => {
+      if (busy && method === 'getTransaction' && (params as [string])[0] === refused) {
+        calls.push([method, params]);
+        throw new Error('getTransaction: HTTP 429');
+      }
+      return answers(method, params);
+    };
+    const held = { ...share, lpAmount: 10_000_000_001n };
+    // Said in words, never as a method name and a status code.
+    expect(await readLedger(rpc, held, view, PROG, {})).toEqual({ kind: 'unread', detail: 'the network is busy; try again in a minute' });
+    expect(calls.filter(([m]) => m === 'getTransaction')).toHaveLength(2);
+    calls.length = 0;
+    busy = false;
+    const again = okRead(await readLedger(rpc, held, view, PROG, {}));
+    expect(again.entries.map((e) => e.kind)).toEqual(['deposit', 'deposit']);
+    expect(calls.map(([m, p]) => [m, m === 'getTransaction' ? (p as [string])[0] : ''])).toEqual([['getSignaturesForAddress', ''], ['getTransaction', refused]]);
+  });
 });
 
 describe('ledgerText: the sentences, verbatim', () => {
   const view = poolAt(AFTER_SWAP);
-  const about = ledgerUnits(view, 'about');
-  const exact = ledgerUnits(view, 'exact');
+  const exact = ledgerUnits(view);
   const r81 = okRead(ledgerFigures([deposit(DEPOSIT_81)], view, 10_000_000_000n));
-  const sym = about.token(0n).replace(/^0 /, '');
+  const sym = exact.token(0n).replace(/^0 /, '');
 
   /** The pool's own record: a trade has reached it, none ever has, or the record was not read. */
   const TRADED = { kind: 'at', time: 1_791_066_700n } as const;
   const NEVER = { kind: 'none' } as const;
-  const VERSUS = 'Compared with keeping the two tokens in your wallet, at this pool’s price now.';
-  const PRICE_DID_IT = 'The price moved after you put in, and so far that has cost more than the fees have earned. It is not a fee and not a fault.';
-  const PRICE_EFFECT = 'What the price moving after you put in did to this position, compared with keeping the two tokens.';
+  const VERSUS = 'Compared with keeping both tokens in your wallet.';
+  const PRICE_DID_IT = 'So far the price move has cost more than the fees earned.';
+  const PRICE_EFFECT = 'What the price move alone did.';
+  const FEES_NOTE = 'Your part of this pool’s trading fees. Tokens sent straight into the pool count too.';
   const amount = (coin: bigint) => ({ kind: 'amount' as const, coin });
 
-  it('8.1’s lines in the pool’s coin, four decimals, signed: the figure beside its label, the sentence under it', () => {
-    expect(ledgerText.putIn(r81.figures, about)).toBe(`1 SOL and 100,000 ${sym}, in 1 deposit, since 2026-10-03 22:30 UTC`);
-    expect(ledgerText.worthNow(r81.figures, about)).toBe(`1.0907 SOL and 91,743.1192 ${sym}`);
-    expect(ledgerText.growth(r81.figures, about, TRADED)).toEqual({
-      figure: '+0.0007 SOL',
-      note: 'Your part of this pool’s trading fees, already inside your shares. Anything sent straight into the pool counts here too, because the pool cannot tell it from a fee.',
-    });
-    expect(ledgerText.versusHolding(r81.figures, about)).toEqual({ figure: '-0.0074 SOL', note: `${VERSUS} ${PRICE_DID_IT}` });
-    expect(ledgerText.priceEffect(r81.figures, about)).toEqual({ figure: '-0.0081 SOL', note: `${PRICE_EFFECT} It is often called impermanent loss.` });
+  it('8.1’s lines in the pool’s coin, every unit, signed: the figure beside its label, the sentence under it', () => {
+    // The figure stands alone beside "Put in"; how it was put in, and since when, is the sentence under it.
+    expect(ledgerText.putIn(r81.figures, exact)).toEqual({ figure: `1 SOL and 100,000 ${sym}`, note: 'In 1 deposit, since 2026-10-03 22:30 UTC.' });
+    // Growth 763,770 lamports; behind holding by 7,405,091; so the price alone did -8,168,861.
+    expect(ledgerText.growth(r81.figures, exact, TRADED)).toEqual({ figure: '+0.00076377 SOL', note: FEES_NOTE });
+    expect(ledgerText.versusHolding(r81.figures, exact)).toEqual({ figure: '-0.007405091 SOL', note: `${VERSUS} ${PRICE_DID_IT}` });
+    expect(ledgerText.priceEffect(r81.figures, exact)).toEqual({ figure: '-0.008168861 SOL', note: `${PRICE_EFFECT} Often called impermanent loss.` });
     expect(LEDGER_LABELS).toEqual({ putIn: 'Put in', takenOut: 'Taken out', worthNow: 'Worth now', growth: 'Fees earned', versusHolding: 'Versus just holding', priceEffect: 'Price effect', locked: 'Locked at opening' });
   });
 
   it('the growth is called trading fees only when the pool’s record shows a trade, and then never without what else counts', () => {
-    expect(ledgerText.growth(r81.figures, about, TRADED).note).toMatch(/trading fees.*Anything sent straight into the pool counts here too/);
+    expect(ledgerText.growth(r81.figures, exact, TRADED).note).toMatch(/trading fees\. Tokens sent straight into the pool count too\.$/);
     // The record could not be read: a trade is not ruled out, so the same line with the same qualifier.
-    expect(ledgerText.growth(r81.figures, about, { kind: 'unread', detail: 'x' })).toEqual(ledgerText.growth(r81.figures, about, TRADED));
+    expect(ledgerText.growth(r81.figures, exact, { kind: 'unread', detail: 'x' })).toEqual(ledgerText.growth(r81.figures, exact, TRADED));
     // No trade ever, and still a growth: tokens were sent in. The line says so and never says fees were earned.
-    expect(ledgerText.growth(r81.figures, about, NEVER)).toEqual({ figure: '+0.0007 SOL', note: 'Not from fees: no trade has reached this pool, so this came from tokens sent straight into it.' });
+    expect(ledgerText.growth(r81.figures, exact, NEVER)).toEqual({ figure: '+0.00076377 SOL', note: 'Not from fees: no trade has reached this pool, so this came from tokens sent straight into it.' });
     // Below zero past the bound: many deposits, each rounded in the pool's favour. Not a fee paid.
     const below = { ...r81.figures, growth: amount(-30n) };
     for (const trade of [TRADED, NEVER]) {
@@ -461,49 +487,58 @@ describe('ledgerText: the sentences, verbatim', () => {
   it('the pace under Fees earned: since the first deposit read, by the chain’s clock, and only for a positive figure on a pool that has traded', () => {
     // 763,770 over 2,181,527,272 is 0.0350107%, cut to 0.035%. Seven days: x 365 / 7 = 1.8255%, cut to 1.8%.
     const now = BigInt(1_791_066_624 + 7 * 86_400);
-    expect(ledgerText.pace(r81.figures, TRADED, now)).toBe('0.035% of this position in 7 days. At that pace, about 1.8% a year. Past trades, not a forecast.');
-    expect(ledgerText.pace(r81.figures, { kind: 'unread', detail: 'x' }, now)).toBe(ledgerText.pace(r81.figures, TRADED, now));
-    expect(ledgerText.pace(r81.figures, NEVER, now)).toBeNull();
-    expect(ledgerText.pace(r81.figures, TRADED, null)).toBeNull();
-    expect(ledgerText.pace({ ...r81.figures, since: null }, TRADED, now)).toBeNull();
-    expect(ledgerText.pace(r81.figures, TRADED, 1_791_066_624n)).toBeNull();
-    expect(ledgerText.pace({ ...r81.figures, growth: { kind: 'none-yet' } }, TRADED, now)).toBeNull();
-    expect(ledgerText.pace({ ...r81.figures, growth: amount(-30n) }, TRADED, now)).toBeNull();
+    expect(ledgerText.pace(r81.figures, TRADED, now, true)).toBe('0.035% of this position in 7 days. At that pace, about 1.8% a year. Past trades, not a forecast.');
+    expect(ledgerText.pace(r81.figures, { kind: 'unread', detail: 'x' }, now, true)).toBe(ledgerText.pace(r81.figures, TRADED, now, true));
+    expect(ledgerText.pace(r81.figures, NEVER, now, true)).toBeNull();
+    expect(ledgerText.pace(r81.figures, TRADED, null, true)).toBeNull();
+    expect(ledgerText.pace({ ...r81.figures, since: null }, TRADED, now, true)).toBeNull();
+    expect(ledgerText.pace(r81.figures, TRADED, 1_791_066_624n, true)).toBeNull();
+    expect(ledgerText.pace({ ...r81.figures, growth: { kind: 'none-yet' } }, TRADED, now, true)).toBeNull();
+    expect(ledgerText.pace({ ...r81.figures, growth: amount(-30n) }, TRADED, now, true)).toBeNull();
   });
 
-  it('a line under the bound reads none yet and never a sign; above it but under 0.0001 of the coin, the direction in words', () => {
+  it('no pace when trades cannot account for the pool’s growth: tokens sent in are never called "Past trades"', () => {
+    const now = BigInt(1_791_066_624 + 7 * 86_400);
+    // The same figures, the same traded pool, the same clock: only what the pool's own fee counters can explain differs.
+    expect(ledgerText.pace(r81.figures, TRADED, now, true)).not.toBeNull();
+    expect(ledgerText.pace(r81.figures, TRADED, now, false)).toBeNull();
+    expect(ledgerText.pace(r81.figures, { kind: 'unread', detail: 'x' }, now, false)).toBeNull();
+  });
+
+  it('a line under the bound reads none yet and never a sign; above it, every unit with its sign', () => {
     const none = { ...r81.figures, growth: { kind: 'none-yet' as const }, versusHolding: { kind: 'none-yet' as const }, priceEffect: { kind: 'none-yet' as const } };
     const NONE = { figure: 'none yet', note: null };
-    expect([ledgerText.growth(none, about, TRADED), ledgerText.versusHolding(none, about), ledgerText.priceEffect(none, about)]).toEqual([NONE, NONE, NONE]);
-    expect(ledgerText.growth(none, about, NEVER)).toEqual({ figure: 'none yet', note: 'No trade has reached this pool yet, so there are no fees yet.' });
-    expect(about.signed(9n)).toBe('under 0.0001 SOL more');
-    expect(about.signed(-9n)).toBe('under 0.0001 SOL less');
+    expect([ledgerText.growth(none, exact, TRADED), ledgerText.versusHolding(none, exact), ledgerText.priceEffect(none, exact)]).toEqual([NONE, NONE, NONE]);
+    expect(ledgerText.growth(none, exact, NEVER)).toEqual({ figure: 'none yet', note: 'No trade has reached this pool yet, so there are no fees yet.' });
     expect(exact.signed(9n)).toBe('+0.000000009 SOL');
     expect(exact.signed(-9n)).toBe('-0.000000009 SOL');
-    expect(about.signed(-7_405_091n)).toBe('-0.0074 SOL');
+    expect(exact.signed(-7_405_091n)).toBe('-0.007405091 SOL');
   });
 
   it('the opener’s put-in line counts the opening apart, and the lock has its own line', () => {
     const L0 = 2_236_067_877n;
     const v = poolAt({ Rc: 1_000_000_000n, Rt: 5_000_000_000n, S: 2_236_067_977n });
-    const u = ledgerUnits(v, 'exact');
+    const u = ledgerUnits(v);
     const r = okRead(ledgerFigures([deposit({ lp: 1n, token: 3n, coin: 1n, lpBefore: L0 }), opening({ lp: L0, token: 5_000_000_000n, coin: 1_000_000_000n })], v, L0 + 1n));
-    expect(ledgerText.putIn(r.figures, u)).toMatch(/^1\.000000001 SOL and 5,000\.000003 \S+, in 1 opening and 1 deposit, since 2026-10-03 22:30 UTC$/);
+    expect(ledgerText.putIn(r.figures, u).figure).toMatch(/^1\.000000001 SOL and 5,000\.000003 \S+$/);
+    expect(ledgerText.putIn(r.figures, u).note).toBe('In 1 opening and 1 deposit, since 2026-10-03 22:30 UTC.');
     expect(ledgerText.locked(r.figures, u)).toBe('0.000000089 SOL: the 0.0000001 pool shares (100 of the smallest unit) every new pool keeps.');
     const alone = okRead(ledgerFigures([opening({ lp: L0, token: 5_000_000_000n, coin: 1_000_000_000n })], v, L0));
-    expect(ledgerText.putIn(alone.figures, u)).toMatch(/, in 1 opening, since /);
+    expect(ledgerText.putIn(alone.figures, u).note).toBe('In 1 opening, since 2026-10-03 22:30 UTC.');
     expect(ledgerText.locked(r81.figures, u)).toBeNull();
   });
 
   it('taken out, the window, Case B and each Case C sentence', () => {
     const w = okRead(ledgerFigures([withdrawal({ lp: 5_000_000_000n, token: 45_871_559_633n, coin: 545_381_818n, lpBefore: 10_000_000_000n }), deposit(DEPOSIT_81)], poolAt({ Rc: 11_453_018_182n, Rt: 963_302_752_294n, S: 105_000_000_000n }), 5_000_000_000n));
-    expect(ledgerText.takenOut(w.figures, about)).toBe(`0.5453 SOL and 45,871.5596 ${sym}, in 1 withdrawal`);
-    expect(ledgerText.takenOut(r81.figures, about)).toBeNull();
-    expect(ledgerText.window(r81, 12)).toBe('From 1 transaction of your share account, back to 2026-10-03 22:30 UTC, read 12 s ago. Exact to a few of the smallest units, which rounding cannot tell from zero.');
-    expect(ledgerText.window({ ...r81, window: { count: 20, oldest: 1_791_000_000, more: true } }, 3)).toBe('From 20 transactions of your share account, back to 2026-10-03 04:00 UTC, read 3 s ago. Exact to a few of the smallest units, which rounding cannot tell from zero. The last 20 transactions on this share account were read; older ones were not.');
+    expect(ledgerText.takenOut(w.figures, exact)).toEqual({ figure: `0.545381818 SOL and 45,871.559633 ${sym}`, note: 'In 1 withdrawal.' });
+    expect(ledgerText.takenOut(r81.figures, exact)).toBeNull();
+    // The window: how many transactions, and since when. No "share account", and no number nothing measured.
+    expect(ledgerText.window(r81)).toBe('From the 1 transaction on your shares in this pool since 2026-10-03 22:30 UTC.');
+    expect(ledgerText.window({ ...r81, window: { count: 20, oldest: 1_791_000_000, more: true } })).toBe('From the last 20 transactions on your shares in this pool, back to 2026-10-03 04:00 UTC. Older ones were not read.');
     const b = okRead(ledgerFigures([plain('other'), deposit(DEPOSIT_81)], view, 11_000_000_000n));
-    expect(ledgerText.otherShares(b.figures, about)).toBe(`1 share arrived another way (sent to this account, or older than the transactions read): worth 0.109 SOL and 9,174.3119 ${sym} now. They are part of Worth now and of no other figure here.`);
-    expect(ledgerText.otherShares(r81.figures, about)).toBeNull();
+    // 1 of 110 shares: 11,998,400,000 / 110 = 109,076,363 lamports; 1,009,174,311,927 / 110 = 9,174,311,926 units.
+    expect(ledgerText.otherShares(b.figures, exact)).toBe(`1 share arrived another way (sent to this account, or older than the transactions read): worth 0.109076363 SOL and 9,174.311926 ${sym} now. They are part of Worth now and of no other figure here.`);
+    expect(ledgerText.otherShares(r81.figures, exact)).toBeNull();
     type WorthOnly = Extract<LedgerRead, { kind: 'worth-only' }>;
     const worthOnly = (why: WorthOnly['why'], entries: LedgerEntry[]): WorthOnly => ({ kind: 'worth-only', why, entries, window: { count: entries.length, oldest: 1_791_000_000, more: true } });
     expect(ledgerText.worthOnly(worthOnly('shares-left', []))).toBe(LEDGER_COPY.sharesLeft);
@@ -511,16 +546,17 @@ describe('ledgerText: the sentences, verbatim', () => {
     expect(ledgerText.worthOnly(worthOnly('run-start-not-read', [deposit(DEPOSIT_81)]))).toBe('Your history in this pool goes back further than the 1 transaction this page reads (the oldest read is from 2026-10-03 04:00 UTC), so what you put in could not be fully read.');
     expect(ledgerText.worthOnly(worthOnly('unread-entry', [{ kind: 'unread', signature: sig('u'), blockTime: 1_791_066_624, detail: 'x' }, deposit(DEPOSIT_81)]))).toBe('One of your transactions in this pool (2026-10-03 22:30 UTC) could not be read.');
     expect(ledgerText.worthOnly(worthOnly('mixed-entry', [plain('mixed', 1_791_066_624), deposit(DEPOSIT_81)]))).toBe('A transaction on 2026-10-03 22:30 UTC changed this pool in more than one way at once, which this page cannot read as one deposit or withdrawal.');
-    expect(ledgerText.unread('the chain did not answer in 20 seconds')).toBe('Your share account’s history could not be read (the chain did not answer in 20 seconds).');
+    expect(ledgerText.worthOnly(worthOnly('no-deposit-read', [plain('other')]))).toBe('None of the 1 transaction read on your shares is a deposit by this wallet into this pool, so these shares arrived another way (sent to this wallet) and what they cost is not known.');
+    expect(ledgerText.unread('the chain did not answer in 20 seconds')).toBe('Your history in this pool could not be read (the chain did not answer in 20 seconds).');
     expect(ledgerText.paused()).toMatch(/paused/);
   });
 
   it('no sentence carries a forecast word or an em dash; the pace line is the one door, and it is pace.ts’s sentence whole', () => {
     const both = (l: { figure: string; note: string | null }) => [l.figure, l.note ?? ''];
     const lines = [
-      ledgerText.putIn(r81.figures, about), ledgerText.worthNow(r81.figures, about), ledgerText.window(r81, 1), ledgerText.unread('x'), ledgerText.paused(),
-      ...both(ledgerText.versusHolding(r81.figures, about)), ...both(ledgerText.priceEffect(r81.figures, about)),
-      ...[TRADED, NEVER].flatMap((t) => both(ledgerText.growth(r81.figures, about, t))),
+      ...both(ledgerText.putIn(r81.figures, exact)), ledgerText.window(r81), ledgerText.unread('x'), ledgerText.paused(),
+      ...both(ledgerText.versusHolding(r81.figures, exact)), ...both(ledgerText.priceEffect(r81.figures, exact)),
+      ...[TRADED, NEVER].flatMap((t) => both(ledgerText.growth(r81.figures, exact, t))),
       ...Object.values(LEDGER_COPY), ...Object.values(LEDGER_LABELS),
     ];
     expect(lines.length).toBeGreaterThan(30);
@@ -528,10 +564,13 @@ describe('ledgerText: the sentences, verbatim', () => {
       expect(line).not.toMatch(FORECAST_WORDS);
       expect(line).not.toContain('—');
     }
-    const pace = ledgerText.pace(r81.figures, TRADED, BigInt(1_791_066_624 + 7 * 86_400))!;
+    const pace = ledgerText.pace(r81.figures, TRADED, BigInt(1_791_066_624 + 7 * 86_400), true)!;
     expect(pace).toMatch(FORECAST_WORDS);
     expect(pace.replace(PACE_SENTENCE, '')).toBe('');
     expect(LEDGER_COPY.button).toBe('Work out what this position earned');
+    // The button is named for what it does, never "Read again" (the finder and the pool history have their own).
+    expect(LEDGER_COPY.again).toBe('Work it out again');
+    for (const line of lines) expect(line).not.toMatch(/share account/);
     // Said with no press on every placed share: one sentence, with the claim step named as absent and when the fees are received.
     expect(LEDGER_COPY.feesInShares).toBe('Fees you earn are already inside your shares: there is nothing to claim, and you receive them when you remove liquidity.');
   });

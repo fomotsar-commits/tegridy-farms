@@ -2,9 +2,7 @@
 // A pool's heading comes from the site's own registry, by mint address, never from what
 // the token's metadata says it is called.
 import { describe, it, expect } from 'vitest';
-import { PublicKey } from '@solana/web3.js';
-import { pairAccessibleName, pairLabel, registryToken, tierLabel, tokenSymbol } from './identity';
-import { buildPool, viewOf } from './testkit.fixture';
+import { pairLabel, registryToken, tierLabel, tokenSymbol } from './identity';
 import { BAYLA_MINT, USDC_MINT, WSOL_MINT, type TokenSafety } from './tokenSafety';
 import { SOL_QUOTE, USDC_QUOTE } from './quotes';
 import type { PoolView } from './poolFinder';
@@ -104,16 +102,5 @@ describe('pairLabel: the heading is built from the registry and the pool, never 
     for (const s of [pairLabel({ tokenMint: FAKE_BAYLA, quote: SOL_QUOTE, config: null }), tierLabel(null), tierLabel(tier1())]) {
       expect(s).not.toMatch(/—/);
     }
-  });
-});
-
-describe('pairAccessibleName: the heading and where the pool sits', () => {
-  it('reads the pair label, then "pool at" and the short pool address', () => {
-    const b = buildPool({ mint: new PublicKey(BAYLA_MINT), quoteReserve: 10n ** 9n, tokenReserve: 10n ** 6n });
-    const view = viewOf(b, { sol: 10n ** 9n, tok: 10n ** 6n, origin: 'standard' });
-    const address = b.address.toBase58();
-    expect(view.config?.tradeFeeRate).toBe(10_000n);
-    expect(pairAccessibleName(view)).toBe(`BAYLA / SOL · 1% tier pool at ${address.slice(0, 4)}…${address.slice(-4)}`);
-    expect(pairAccessibleName(view)).not.toContain(address);
   });
 });

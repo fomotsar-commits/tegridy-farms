@@ -32,8 +32,3 @@ export function tierLabel(config: AmmConfigView | null): string {
 export function pairLabel(view: Pick<PoolView, 'tokenMint' | 'quote' | 'config'>): string {
   return `${tokenSymbol(view.tokenMint)} / ${view.quote.symbol} · ${tierLabel(view.config)}`;
 }
-
-/** What a screen reader hears for the card: the heading, then where the pool sits. */
-export function pairAccessibleName(view: PoolView): string {
-  return `${pairLabel(view)} pool at ${shortAddress(view.address)}`;
-}

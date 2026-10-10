@@ -34,7 +34,7 @@ export default function SolanaLpSection({ readers: given, finderFirst = false }:
   readers?: LpReaders;
   /**
    * /solana-lp: the finder comes first, under a one-line risk notice, then the positions,
-   * the full disclosure, the two earning cards and the fee tiers. Without it the order is
+   * the two earning cards, the full disclosure and the fee tiers. Without it the order is
    * /pools' own.
    */
   finderFirst?: boolean;
@@ -127,15 +127,17 @@ function LpBody({ readers, mode, reloadKey, finderFirst }: { readers: LpReaders;
   const positions = <YourPositions readers={readers} owner={publicKey ?? null} reloadKey={reloadKey} sectionRef={positionsRef} onAddMore={addMore} />;
 
   // Finder first sits right under the page's hero, which already leaves the gap above it.
+  // The earning cards come straight after the positions, before the long notice.
   if (finderFirst) {
     return (
-      <div className="space-y-4" data-testid="lp-section" data-lp-mode={mode}>
+      <div className="flex flex-col gap-4" data-testid="lp-section" data-lp-mode={mode}>
         <LpRiskLine />
         {writesTop}
         {finder}
+        <LpEarnLine />
         {positions}
-        {disclosure}
         {howItPays}
+        {disclosure}
         {tiers}
       </div>
     );
@@ -156,14 +158,29 @@ const RISK_LINE_STYLE = { background: 'rgba(28,21,6,0.92)', border: '1px solid r
 
 /**
  * The short form of LpDisclosure, above the finder on a tab that opens on it. It may be
- * short only because the full card is on the same page, right under the positions.
+ * short only because the full card is on the same page, below the positions.
  * Set tighter on a phone, where each of its lines pushes the finder's field down.
  */
 function LpRiskLine() {
   return (
-    <p data-testid="lp-risk-line" className="rounded-xl px-4 py-2.5 sm:py-3 text-amber-200 text-[13px] leading-snug sm:leading-relaxed" style={RISK_LINE_STYLE}>
+    <p data-testid="lp-risk-line" className="sm:-order-2 rounded-xl px-4 py-2.5 sm:py-3 text-amber-200 text-[13px] leading-snug sm:leading-relaxed" style={RISK_LINE_STYLE}>
       These pools run on a pool program whose admin-key changes have not had their own independent review yet. Put in only what
-      you can afford to lose. The full notice is right under your positions.
+      you can afford to lose. The full notice is below your positions.
+    </p>
+  );
+}
+
+/**
+ * One line saying fees need no claim, and where the earning cards are. From `sm:` up it is
+ * drawn above the finder, on the first screen. On a phone it stays under the finder: there
+ * the first screen is the finder's three buttons (e2e/tab-target-size.spec.ts pins them),
+ * and a line above them would push them under the bottom bar.
+ */
+function LpEarnLine() {
+  return (
+    <p data-testid="lp-earn-line" className="sm:-order-1 px-1 text-white/85 text-[13px] leading-snug">
+      Trading fees are added to your pool shares as trades happen, so there is nothing to claim. How you earn, and how the venue
+      earns, is under your positions.
     </p>
   );
 }

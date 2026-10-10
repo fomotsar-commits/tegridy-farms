@@ -153,6 +153,34 @@ describe('readTransactions', () => {
     const rpc = fakeRpcWithHistory({}, {}, { [good]: raw, [junk]: { transaction: { message: { accountKeys: 'not a list' } } } }, {});
     await expect(readTransactions(rpc, [entry(good), entry(junk)])).rejects.toThrow();
   });
+
+  // A page is 20 calls at once. When the proxy turned one away, nothing that did answer was kept,
+  // so the next press sent all 20 again and could fail the same way for ever.
+  it('a refused call fails the page only after every call has settled, and each finalized answer is kept for the next read', async () => {
+    const { raw } = simple();
+    const [first, refused, slow, notFinal] = [sig('keep', 0), sig('keep', 1), sig('keep', 2), sig('keep', 3)];
+    let release: () => void = () => {};
+    const waited = new Promise<void>((resolve) => { release = resolve; });
+    const rpc: SolanaRpc = async (_method, params) => {
+      const [signature] = params as [string];
+      if (signature === refused) throw new Error('getTransaction: HTTP 429');
+      // Answers AFTER the refusal: a reader that gave up at the first failure would never keep it.
+      if (signature === slow) await waited;
+      return raw;
+    };
+    const page = readTransactions(rpc, [entry(first), entry(refused), entry(slow), entry(notFinal, { confirmationStatus: 'confirmed' })]);
+    let settled = false;
+    void page.catch(() => { settled = true; });
+    await new Promise((r) => setTimeout(r, 10));
+    expect(settled).toBe(false);
+    release();
+    await expect(page).rejects.toThrow('getTransaction: HTTP 429');
+    expect(cached<ParsedTx>(first)?.slot).toBe(7);
+    expect(cached<ParsedTx>(slow)?.slot).toBe(7);
+    // Never the refused one, and never one the chain has not finalized.
+    expect(cached(refused)).toBeUndefined();
+    expect(cached(notFinal)).toBeUndefined();
+  });
 });
 
 describe('parseTx', () => {

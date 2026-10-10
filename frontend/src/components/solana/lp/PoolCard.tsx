@@ -8,9 +8,9 @@ import { TOO_NEW_WHY } from '../../../lib/solana/lp/ownPrice';
 import { chargedCreatorFeeRate, feeSplit } from '../../../lib/solana/cpswap/venue';
 import { ratePercent } from '../../../lib/solana/cpswap/math';
 import type { TokenSafety } from '../../../lib/solana/lp/tokenSafety';
-import { LEDGER_COPY } from '../../../lib/solana/lp/ledger';
 import { poolEarned } from '../../../lib/solana/lp/poolGrowth';
 import {
+  POOL_PAST_AGAIN,
   POOL_PAST_BUTTON,
   POOL_PAST_READING,
   POOL_PAST_READ_MORE,
@@ -27,6 +27,7 @@ import { AddLiquidityPanel } from './AddLiquidityPanel';
 import { depositOffer, lpHeld, type DepositOffer } from './offers';
 import type { LpReaders } from './readers';
 import { useLpWrites, type LpWrites } from './useLpWrites';
+import { WholeDates } from './WholeDates';
 
 const ORIGIN_LABEL: Record<PoolView['origin'], string> = {
   'launch-pool': 'Launch pool: opened by the launch program when the token graduated',
@@ -335,8 +336,14 @@ export function PoolCard({
         </Notice>
         {earned && (
           <div data-testid="lp-pool-earned" className="space-y-1 text-white/75">
-            <p data-testid="lp-pool-trade">{earned.trade}</p>
-            {earned.growth && <p data-testid="lp-pool-growth">{earned.growth}</p>}
+            <p data-testid="lp-pool-trade">
+              <WholeDates text={earned.trade} />
+            </p>
+            {earned.growth && (
+              <p data-testid="lp-pool-growth">
+                <WholeDates text={earned.growth} />
+              </p>
+            )}
             {earned.pace && <p data-testid="lp-pace">{earned.pace}</p>}
           </div>
         )}
@@ -360,23 +367,16 @@ const PAST_BUTTON = 'btn-secondary w-full sm:w-auto min-h-[44px] px-4 text-[13px
 /**
  * The pool's last transactions, on a press only: one signatures page and at most 20
  * transaction reads a press, behind the budget gate (poolPast.ts). A search can list 103
- * pools, so nothing here reads by itself. Read 20 more joins the older page's entries to
- * those held and totals them again, up to HISTORY_PAGES_MAX pages. A read that failed
- * prints its reason and no count.
+ * pools, so nothing here reads by itself. Read 20 more joins the older page's entries and
+ * totals them again, up to HISTORY_PAGES_MAX pages. A failed read prints its reason and no
+ * count. The first button and the status line stay mounted: focus stays, answers are read out.
  */
 function PoolPastBlock({ view, readers }: { view: PoolView; readers: Pick<LpReaders, 'poolPast'> }) {
   const [answer, setAnswer] = useState<PastAnswer | null>(null);
   const [problem, setProblem] = useState<{ text: string; tone: 'info' | 'warn' } | null>(null);
   const [busy, setBusy] = useState(false);
-  // Only the newest press's answer is kept, and none once the card has gone.
-  const asked = useRef(0);
-  const live = useRef(true);
-  useEffect(() => {
-    live.current = true;
-    return () => {
-      live.current = false;
-    };
-  }, []);
+  const againButton = useRef<HTMLButtonElement | null>(null);
+  const moreButton = useRef<HTMLButtonElement | null>(null);
   const ask = async (before?: string): Promise<PoolPastPage> => {
     try {
       // Called through its object, so a reader that needs `this` keeps it.
@@ -393,14 +393,16 @@ function PoolPastBlock({ view, readers }: { view: PoolView; readers: Pick<LpRead
     if (older && (!held || !oldest)) return;
     setBusy(true);
     setProblem(null);
-    const mine = ++asked.current;
     const page = await ask(oldest?.signature);
-    if (!live.current || asked.current !== mine) return;
     if (held) {
       // What was read stays; an older page joins it only when every entry of it was read.
       const why = olderPageProblem(page);
-      if (page.kind === 'page' && why === null) setAnswer({ items: [...held.items, ...page.items], more: page.more, pages: held.pages + 1 });
-      else if (why !== null) said(page, why);
+      if (page.kind === 'page' && why === null) {
+        // Read 20 more leaves the page when nothing older is offered: focus goes to the button that stays.
+        const offeredAgain = page.more && held.pages + 1 < HISTORY_PAGES_MAX;
+        if (!offeredAgain && document.activeElement === moreButton.current) againButton.current?.focus();
+        setAnswer({ items: [...held.items, ...page.items], more: page.more, pages: held.pages + 1 });
+      } else if (why !== null) said(page, why);
     } else if (page.kind === 'page') setAnswer({ items: page.items, more: page.more, pages: 1 });
     else {
       setAnswer(null);
@@ -410,26 +412,33 @@ function PoolPastBlock({ view, readers }: { view: PoolView; readers: Pick<LpRead
   };
   const past = answer ? pagePast({ kind: 'page', items: answer.items, more: answer.more }) : null;
   const canPage = past?.kind === 'ok' && answer !== null && answer.more && answer.pages < HISTORY_PAGES_MAX;
+  const pastText = past ? poolPastText(past, view) : null;
   return (
-    <div data-testid="lp-pool-past" data-past={past?.kind ?? 'idle'} className="space-y-2 text-white/75">
-      {past &&
+    <div data-testid="lp-pool-past" data-past={past?.kind ?? 'idle'} className="relative space-y-2 text-white/75">
+      {past && pastText !== null &&
         (past.kind === 'ok' ? (
-          <p data-testid="lp-pool-past-text">{poolPastText(past, view)}</p>
+          <p data-testid="lp-pool-past-text">
+            <WholeDates text={pastText} />
+          </p>
         ) : (
-          <Notice tone="warn">{poolPastText(past, view)}</Notice>
+          <Notice tone="warn">{pastText}</Notice>
         ))}
       {problem && <Notice tone={problem.tone}>{problem.text}</Notice>}
-      {busy && <p role="status">{POOL_PAST_READING}</p>}
       <div className="flex flex-col sm:flex-row gap-2">
         {canPage && (
-          <button type="button" className={PAST_BUTTON} aria-disabled={busy} onClick={() => void read(true)}>
+          <button ref={moreButton} type="button" className={PAST_BUTTON} aria-disabled={busy} onClick={() => void read(true)}>
             {POOL_PAST_READ_MORE}
           </button>
         )}
-        <button type="button" className={PAST_BUTTON} aria-disabled={busy} onClick={() => void read(false)}>
-          {past ? LEDGER_COPY.readAgain : POOL_PAST_BUTTON}
+        {/* Always here: pressing it never takes it off the page, so focus stays on it. */}
+        <button ref={againButton} type="button" className={PAST_BUTTON} aria-disabled={busy} onClick={() => void read(false)}>
+          {past ? POOL_PAST_AGAIN : POOL_PAST_BUTTON}
         </button>
       </div>
+      {/* Always there, so the reading line and each answer are read out when they arrive. */}
+      <p role="status" className={busy ? undefined : 'sr-only'}>
+        {busy ? POOL_PAST_READING : problem?.text ?? pastText ?? ''}
+      </p>
     </div>
   );
 }

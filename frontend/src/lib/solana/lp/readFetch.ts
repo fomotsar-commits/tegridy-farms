@@ -23,6 +23,8 @@ export function timeoutDetail(what: ReadWhat): string {
  * A fetch that ends: `signal` is the caller's merged with the timeout. A timeout throws
  * `new Error(timeoutDetail(what))`; every other error passes through. `onResponse` sees
  * every Response that arrives, before the caller does and before its body is read.
+ * The time covers the body too: headers alone are not an answer, so a copy of the body is
+ * read to its end under the same timer, and the caller's own Response keeps its body.
  */
 export function lpFetch(opts: { what: ReadWhat; onResponse?: (res: Response) => void }): typeof fetch {
   const { what, onResponse } = opts;
@@ -33,6 +35,11 @@ export function lpFetch(opts: { what: ReadWhat; onResponse?: (res: Response) => 
       timedOut = true;
       ctrl.abort(new Error(timeoutDetail(what)));
     }, READ_TIMEOUT_MS);
+    // Rejects when the read is given up, whether or not the transport ends the body then.
+    const gaveUp = new Promise<never>((_resolve, reject) => {
+      ctrl.signal.addEventListener('abort', () => reject(ctrl.signal.reason), { once: true });
+    });
+    gaveUp.catch(() => undefined);
     const outer = init?.signal ?? null;
     const forward = () => ctrl.abort(outer?.reason);
     if (outer?.aborted) forward();
@@ -40,6 +47,7 @@ export function lpFetch(opts: { what: ReadWhat; onResponse?: (res: Response) => 
     try {
       const res = await fetch(input, { ...init, signal: ctrl.signal });
       onResponse?.(res);
+      await Promise.race([res.clone().arrayBuffer(), gaveUp]);
       return res;
     } catch (e) {
       if (timedOut) throw new Error(timeoutDetail(what), { cause: e });

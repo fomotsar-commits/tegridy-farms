@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { describe, it, expect } from 'vitest';
 import * as earnCopy from './earnCopy';
-import { FORECAST_WORDS, feeRateText, formatSolPrice, minuteText, pctText, priceText } from './format';
+import { FORECAST_WORDS, RATE_WORDS, feeRateText, formatSolPrice, minuteText, pctText, priceText } from './format';
 import * as ledger from './ledger';
 import * as poolGrowth from './poolGrowth';
 import * as poolPast from './poolPast';
@@ -18,7 +18,21 @@ const exportedStrings = (m: object): string[] =>
 describe('FORECAST_WORDS: the one regex every LP pin uses', () => {
   it('catches each forecast word, and lets a measured sentence through', () => {
     for (const s of ['an APR of 12%', 'APY', 'a yield of 3%', 'twice a year', 'annualised', '0.1% per day', 'per week', 'the rate of return', 'you earn fees on every trade']) expect(s).toMatch(FORECAST_WORDS);
-    for (const s of ['Fees stay in the pool; there is nothing to claim.', 'measured over the last 20 transactions', 'aprons', 'yearly', 'no total is shown']) expect(s).not.toMatch(FORECAST_WORDS);
+    for (const s of ['Fees stay in the pool; there is nothing to claim.', 'measured over the last 20 transactions', 'aprons', 'no total is shown']) expect(s).not.toMatch(FORECAST_WORDS);
+  });
+
+  it('catches a rate over any span of time by its shape, and lets a measured span through', () => {
+    const rates = ['about 5% per year', 'about 5% yearly', '5% each year', '5% every year', '0.4% a month', '0.4% per month', '0.4% monthly', '0.01% a day', '0.01% daily', '0.1% a week', '0.1% weekly', 'a  year'];
+    for (const s of rates) {
+      expect(s).toMatch(RATE_WORDS);
+      expect(s).toMatch(FORECAST_WORDS);
+    }
+    // How long something took, or when, is not a rate.
+    for (const s of ['0.0084% in 6.3 days', 'in 1 day', 'in 23 hours', 'Try again in about a minute.', 'since the day it opened', 'the last 30 minutes', 'yesterday', 'weekday']) {
+      expect(s).not.toMatch(FORECAST_WORDS);
+    }
+    // FORECAST_WORDS holds every rate word: one list, never two.
+    expect(FORECAST_WORDS.source).toContain(RATE_WORDS.source);
   });
 
   it('no exported string of ledger.ts, poolPast.ts, poolGrowth.ts or earnCopy.ts carries one, nor an em dash', () => {
