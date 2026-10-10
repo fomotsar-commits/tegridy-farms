@@ -16,6 +16,7 @@ page keeps the newest thirty days.
 - Once launching is switched on, the details file the site writes for a new Solana token says it was made on memetics.finance. It was set to say memetic.fun, which is another project's site. No token has been launched yet, so no launch carries the old address.
 - Solana LP: when the page could not check the network as it loaded, it now checks again by itself every 15 seconds. Add liquidity, Remove liquidity and Open a pool come back without pressing Read again or reloading the page.
 - Solana swap and launch pages: a read the network never answers is given up after 10 seconds and shown as a read that failed. It used to be waited on for the whole visit. The Solana LP page keeps its own 20 seconds, so each read is timed once and the message names the wait that applied.
+- Ethereum, Base and Robinhood Chain reads: a network host that starts its answer and then stops is given up after 10 seconds, the same as a host that never answers, and the next host is asked. Such a read used to be waited on for the whole visit: the burn card of an Ethereum or Base bungalow could say "Reading" for good, with Refresh greyed out. It now says it could not read, with Refresh ready again, as soon as every host has been tried (about 80 seconds on Ethereum, two minutes on Base). The check our server runs when an NFT is listed leaves such a host the same way.
 
 ### 2026-10-08
 
