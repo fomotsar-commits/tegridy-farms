@@ -323,6 +323,17 @@ test.describe('the item panel on a tablet', () => {
 const overlaps = (a: { x: number; y: number; width: number; height: number }, b: typeof a) =>
   a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
 
+// The trading view jumps to the top once when it opens, in the effect that
+// also sets the tab's title, and that effect runs after the header is already
+// on screen: a scroll made before it is undone. The title says it has run.
+// The first card says the page is its full height: with only the skeleton up,
+// the 1440 by 900 case can scroll 603 px in Chromium, and Back to top needs
+// more than 600.
+async function expectOpenedAtTheTopAndFilled(page: Page) {
+  await expect(page).toHaveTitle('Jungle Bay Gold Cards | Tradermigos', { timeout: 20_000 });
+  await expect(page.locator('.nft-card').first()).toBeVisible({ timeout: 20_000 });
+}
+
 for (const viewport of [{ width: 820, height: 1180 }, { width: 1440, height: 900 }]) {
   test.describe(`the corner buttons at ${viewport.width} px`, () => {
     test.use({ viewport });
@@ -330,6 +341,7 @@ for (const viewport of [{ width: 820, height: 1180 }, { width: 1440, height: 900
     test('Back to top sits clear of Mute sounds and Keys once the page is scrolled', async ({ page }) => {
       await openCollection(page, '/nakamigos/junglebaygoldcards');
       await expect(page.getByText('JUNGLE BAY GOLD CARDS', { exact: true }).first()).toBeVisible({ timeout: 20_000 });
+      await expectOpenedAtTheTopAndFilled(page);
       await page.evaluate(() => window.scrollTo(0, 1600));
       const top = page.getByRole('button', { name: 'Back to top' });
       await expect(top).toHaveClass(/visible/, { timeout: 10_000 });
