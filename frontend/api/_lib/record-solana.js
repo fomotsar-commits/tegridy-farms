@@ -39,6 +39,7 @@ function isToken2022MintWithExtensions(owner, buf) {
   );
 }
 
+/** One call's bound, headers and body together: a host that stops part-way is a failed read. */
 const RPC_TIMEOUT_MS = 6000;
 
 function rpcUrl() {
@@ -48,19 +49,19 @@ function rpcUrl() {
 async function solRpc(method, params) {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), RPC_TIMEOUT_MS);
-  let res;
+  let json;
   try {
-    res = await fetch(rpcUrl(), {
+    const res = await fetch(rpcUrl(), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
       signal: ctrl.signal,
     });
+    if (!res.ok) throw new Error(`solana rpc ${res.status}`);
+    json = await res.json();
   } finally {
     clearTimeout(timer);
   }
-  if (!res.ok) throw new Error(`solana rpc ${res.status}`);
-  const json = await res.json();
   if (json.error) throw new Error(json.error.message || "solana rpc error");
   return json.result;
 }

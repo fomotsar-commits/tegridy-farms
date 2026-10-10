@@ -83,7 +83,7 @@ export const TOWELI_FAQ_DATA: FAQSection[] = [
   {
     category: 'Staking',
     items: [
-      { q: 'How does staking work?', a: 'Deposit TOWELI tokens into the staking contract to earn rewards. Choose a lock duration to receive a boost multiplier — longer locks earn higher yields. Rewards are currently paid in TOWELI emissions; ETH fee-share rewards activate once the native pool is live.' },
+      { q: 'How does staking work?', a: 'Deposit TOWELI tokens into the staking contract to earn rewards. Choose a lock duration to receive a boost multiplier: longer locks earn higher yields. Rewards are paid in TOWELI emissions today. An ETH share of swap fees is wired on chain, and a payout round needs 1 ETH of fees first; the Premium page shows what has been paid.' },
       { q: 'What is the lock duration?', a: 'You can lock your TOWELI from 7 days up to 4 years. Contract bounds are MIN_LOCK_DURATION = 7 days and MAX_LOCK_DURATION = 4 years. Longer lock durations give you a higher boost multiplier, which means more rewards.' },
       { q: 'Can I withdraw early?', a: 'Yes, but with a 25% early withdrawal penalty. The penalty is sent to the protocol treasury — it is not redistributed to other stakers.' },
       { q: 'What is a boost multiplier?', a: 'Your lock duration determines your yield boost on a linear scale: 0.4x at 7 days up to 4.0x at the full 4-year lock. With the JBAC NFT bonus stacked on top, the contract enforces a 4.5x ceiling (MAX_BOOST_BPS_CEILING = 45000). Higher multipliers mean a larger share of the reward pool.' },
@@ -94,7 +94,7 @@ export const TOWELI_FAQ_DATA: FAQSection[] = [
   {
     category: 'Rewards',
     items: [
-      { q: 'Where do rewards come from?', a: 'Right now, from a one-time 6.4M TOWELI emissions seed funded at launch — no new tokens are ever minted, supply is fixed. The next stage is already on-chain: protocol swap fees route through the SwapFeeRouter to the RevenueDistributor and out to stakers as ETH. That ETH stream starts flowing when the native pool launches; both contracts are verifiable on Etherscan today.' },
+      { q: 'Where do rewards come from?', a: "Right now, from a one-time 6.4M TOWELI emissions seed funded at launch. No new tokens are ever minted; supply is fixed. The ETH side is on chain. A swap through the venue's own router pays a venue fee. On 10 October 2026 that fee was 0.5%: 20% of it was the referral share, which goes to the trader's referrer if they stake enough TOWELI and to the treasury otherwise, and the other 80% was routed toward stakers. The owner wallet can change those figures through a timelock, and the contract caps the fee at 1%. Stakers are paid in rounds by the RevenueDistributor, and a round can open only after 1 ETH has arrived. By that date the router had taken 0.000003 ETH in fees in all, and stakers had been paid none. The Premium page shows the live total, and both contracts are verifiable on Etherscan." },
       { q: 'How often can I claim rewards?', a: 'Anytime. Rewards accrue continuously in real-time and can be claimed whenever you want with no minimum threshold.' },
       { q: 'What is the Venue Score?', a: 'A points system based on your on-chain activity — staking, swapping, and referrals all earn points (voting joins once gauge voting goes live). Higher scores unlock tier benefits and leaderboard rankings.' },
     ],

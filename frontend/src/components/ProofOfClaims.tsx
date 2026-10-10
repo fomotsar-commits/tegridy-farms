@@ -23,10 +23,12 @@ function Row({ label, value, verified, href }: { label: string; value: string; v
       href={href}
       target="_blank"
       rel="noopener noreferrer"
-      className="flex items-center justify-between gap-3 px-3 py-2.5 rounded-lg transition-colors hover:bg-white/5"
+      // flex-wrap + ml-auto: a value too wide to sit beside its label drops under it, still at
+      // the right. A number cannot break, so squeezed into the same line it ran under the tick.
+      className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 px-3 py-2.5 rounded-lg transition-colors hover:bg-white/5"
     >
       <span className="text-[13px] text-text-secondary">{label}</span>
-      <span className="flex items-center gap-2 min-w-0">
+      <span className="ml-auto flex items-center gap-2 min-w-0">
         {/* Wraps, never truncates: on a phone an ellipsis cut the figure or its words off. */}
         <span className="stat-value text-[13px] text-white text-right min-w-0">{value}</span>
         {verified && (

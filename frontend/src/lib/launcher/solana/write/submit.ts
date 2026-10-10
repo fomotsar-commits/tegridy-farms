@@ -64,9 +64,64 @@ function sameBytes(a: Uint8Array, b: Uint8Array): boolean {
   return true;
 }
 
+// An adapter rethrows ANY sign failure as WalletSignTransactionError(inner.message,
+// inner), a wallet that broke before its prompt opened included, so the wrapper's
+// name is never a decline. Read the wallet's own error under it (`.error`): Trust
+// declines with code 4001 and the message "4001", or with a bare string.
+function walletErrors(e: unknown): unknown[] {
+  const chain: unknown[] = [];
+  for (let cur = e, i = 0; cur != null && i < 4; i++) {
+    chain.push(cur);
+    cur = typeof cur === 'object' ? ((cur as { error?: unknown; cause?: unknown }).error ?? (cur as { cause?: unknown }).cause) : null;
+  }
+  return chain;
+}
+
 function isDecline(e: unknown): boolean {
-  const msg = e instanceof Error ? `${e.name} ${e.message}` : String(e ?? '');
-  return /reject|declin|denied|cancel|WalletSignTransactionError|User rejected/i.test(msg);
+  return walletErrors(e).some((x) => {
+    const o = (typeof x === 'object' ? x : { code: x, message: x }) as { name?: unknown; message?: unknown; code?: unknown };
+    if (o.code === 4001 || o.code === '4001') return true;
+    return /reject|declin|denied|cancel/i.test(`${String(o.name ?? '')} ${String(o.message ?? '')}`);
+  });
+}
+
+// The adapter's own refusals: thrown BEFORE the wallet is asked, with a name and no
+// words (wallet-adapter-base errors.js, StandardWalletAdapter's signTransaction).
+const NEVER_ASKED = new Map([
+  ['WalletNotConnectedError', 'this page is no longer connected to it, so it was never asked'],
+  ['WalletConfigError', 'it does not offer transaction signing to this page, so it was never asked'],
+  ['WalletAccountError', 'the account it shared does not allow transaction signing, so it was never asked'],
+]);
+/** Names that say nothing about why: a bare Error, and the wrapper every failure wears. */
+const PLAIN_NAMES = new Set(['Error', 'WalletSignTransactionError']);
+
+/**
+ * Why a sign failed, for inside "Your wallet did not sign this (...)": the wallet's
+ * own words, else its error code, else what the error's name tells. Only a string or
+ * a number is ever printed, never an object, and never "the RPC call failed".
+ */
+function walletReason(e: unknown): string {
+  const chain = walletErrors(e);
+  for (const x of chain) {
+    const s = typeof x === 'object' ? (x as { message?: unknown }).message : x;
+    if ((typeof s !== 'string' && typeof s !== 'number') || !String(s).trim()) continue;
+    // One line, cut short. The sentence around it already ends "Nothing was sent."
+    const words = clipDetail(String(s)).replace(/[.\s]*Nothing was sent\.?$/i, '');
+    // An adapter that wrapped an object as its message made it "[object Object]".
+    if (!words || /^\[object \w+\]$/.test(words)) continue;
+    return /^-?\d+$/.test(words) ? `error code ${words}` : words;
+  }
+  const fields = chain.filter((x): x is { name?: unknown; code?: unknown } => typeof x === 'object');
+  for (const { code } of fields) {
+    if (Number.isInteger(code) || (typeof code === 'string' && /^-?\d+$/.test(code))) return `error code ${String(code)}`;
+  }
+  const names = fields.map((x) => x.name).filter((n): n is string => typeof n === 'string');
+  for (const n of names) {
+    const said = NEVER_ASKED.get(n);
+    if (said) return said;
+  }
+  const name = names.find((n) => /^[A-Za-z]\w{2,60}$/.test(n) && !PLAIN_NAMES.has(n));
+  return name ? `it gave no reason, only the name ${name}` : 'it gave no reason';
 }
 
 /**
@@ -246,7 +301,7 @@ export async function submitPrepared(
       'sign',
       isDecline(e)
         ? DECLINED_IN_WALLET
-        : `Your wallet did not sign this (${clipDetail(e)}). Nothing was sent.`,
+        : `Your wallet did not sign this (${walletReason(e)}). Nothing was sent.`,
     );
   }
   if (!(signed instanceof Transaction)) {

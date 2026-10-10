@@ -6,6 +6,7 @@ import { fulfillSeaportOrder, fulfillSeaportOrdersBatch, getProvider } from "../
 import { fulfillNativeOrder } from "../lib/orderbook";
 import { recordTransaction } from "../lib/transactions";
 import { getFriendlyError } from "../lib/errorMessages";
+import { toastTxNotice } from "../lib/txOutcome";
 import { validateOrderQuick } from "../lib/orderValidator";
 import { useActiveCollection } from "../contexts/CollectionContext";
 import { useWallet } from "../contexts/WalletContext";
@@ -326,6 +327,10 @@ export default function ShoppingCart({
         addToast?.(`${item.name} is no longer available — removed from cart`, "warning");
         onRemove(item.id);
         continue;
+      } else if (toastTxNotice(addToast, result)) {
+        // Unconfirmed or replaced: stop here rather than send more blind. The
+        // item stays in the cart and the notice says to check before resending.
+        break;
       } else {
         const friendly = getFriendlyError(result.message || result.error || "Transaction failed");
         addToast?.(`Failed to buy ${item.name} — ${friendly}`, "error");

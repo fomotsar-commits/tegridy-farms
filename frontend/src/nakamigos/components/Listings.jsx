@@ -14,6 +14,7 @@ import { fetchTokensByIds, fulfillSeaportOrder } from "../api";
 import { fulfillNativeOrder } from "../lib/orderbook";
 import { recordTransaction } from "../lib/transactions";
 import { getFriendlyError } from "../lib/errorMessages";
+import { toastTxNotice } from "../lib/txOutcome";
 import { fetchCollectionOffers, fetchBestOffer } from "../api-offers";
 
 /* ── Sort helpers ── */
@@ -558,6 +559,8 @@ export default function Listings({ tokens, stats, listings, listingsLoading, lis
       // The next listings poll/refetch removes it from the feed for good.
       addToast?.(`#${nft.id} is no longer available — it was just sold or cancelled`, "warning");
       setPurchasedIds(prev => new Set([...prev, String(nft.id)]));
+    } else if (toastTxNotice(addToast, result)) {
+      // Unconfirmed or replaced: told as it is, never mapped to "failed".
     } else {
       // Plain-language mapping (mirrors the cart) for any other failure.
       addToast?.(`#${nft.id}: ${getFriendlyError(result.message || "Unknown error")}`, "error");

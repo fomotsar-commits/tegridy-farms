@@ -31,6 +31,31 @@ const type = (el: HTMLInputElement, keys: string) => {
   for (const k of keys) fireEvent.change(el, { target: { value: el.value + k } });
 };
 
+describe('PercentPicker: one picker for Remove and for Add', () => {
+  const names = () => screen.getAllByRole('button').map((b) => b.textContent);
+
+  it('Remove, with nothing passed: its own words, 25%, 50%, 75%, All and a typed percent', () => {
+    const { told } = setup();
+    expect(screen.getByRole('group', { name: 'How much to take out' })).toBeInTheDocument();
+    expect(names()).toEqual(['25%', '50%', '75%', 'All']);
+    fireEvent.click(screen.getByRole('button', { name: 'All' }));
+    expect(told).toHaveBeenLastCalledWith({ bps: 10_000n, bad: false });
+  });
+
+  it('Add (`partsOnly`, its own legend): 25%, 50% and 75%, and nothing else to press or type', () => {
+    const told = vi.fn<(v: Picked) => void>();
+    render(<PercentPicker partsOnly legend="Part of your tokens" valueBps={5_000n} onChange={told} />);
+    expect(screen.getByRole('group', { name: 'Part of your tokens' })).toBeInTheDocument();
+    expect(names()).toEqual(['25%', '50%', '75%']);
+    expect(screen.queryByLabelText('Other percent')).toBeNull();
+    expect(screen.queryByRole('textbox')).toBeNull();
+    expect(screen.getByRole('button', { name: '50%' })).toHaveAttribute('aria-pressed', 'true');
+    fireEvent.click(screen.getByRole('button', { name: '75%' }));
+    expect(told).toHaveBeenCalledTimes(1);
+    expect(told).toHaveBeenLastCalledWith({ bps: 7_500n, bad: false });
+  });
+});
+
 describe('PercentPicker: a comma in "Other percent"', () => {
   it('reads a typed comma as the decimal point', () => {
     // A phone set to a comma-decimal region has "," and no "." on this keypad.

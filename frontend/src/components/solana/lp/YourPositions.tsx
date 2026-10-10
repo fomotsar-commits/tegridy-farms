@@ -160,7 +160,7 @@ export function YourPositions({
   }, [report, owner]);
   const readAgain = useCallback(() => setNonce((n) => n + 1), []);
   return (
-    <section ref={sectionRef} tabIndex={sectionRef ? -1 : undefined} className="scroll-mt-[4.5rem] outline-none" data-testid="lp-positions" aria-label="Your positions">
+    <section ref={sectionRef} tabIndex={sectionRef ? -1 : undefined} className="outline-none" data-testid="lp-positions" aria-label="Your positions">
       <Card title="Your positions">
         {/* One live region for the whole section, always mounted: only its text changes. */}
         <p role="status" aria-live="polite" className="sr-only" data-testid="lp-positions-status">

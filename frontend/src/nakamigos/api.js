@@ -2,6 +2,7 @@ import { CONTRACT, COLLECTION_SLUG, METADATA_BASE, FALLBACK_NFTS, FALLBACK_STATS
 import { liveIpfsUrl } from "../lib/ipfsGateways";
 import { venueCollectionByContract, venueRefusalForAll } from "./lib/venue";
 import { seaportCallNftTokens } from "./lib/seaportCalldata";
+import { waitForTxOutcome, txOutcomeResult } from "./lib/txOutcome";
 import { alchemyGet as proxyAlchemyGet, alchemyPost as proxyAlchemyPost, openseaGet as rawOpenseaGet, openseaPost as rawOpenseaPost, ApiError } from "./lib/proxy";
 
 // Seaport fulfillment entrypoints that OpenSea's fulfillment_data API
@@ -487,14 +488,20 @@ async function fetchNativeOrderbookActivity({ contract = CONTRACT, daysBack = 30
       sort: "created_at",
       limit: "50",
     });
+    // 10 s for the headers and the body together: fetchActivity waits on this read, so
+    // an orderbook that stops part-way must not hold the whole feed.
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 10000);
     // Forward caller's abort signal
     if (signal) signal.addEventListener("abort", () => controller.abort());
-    const res = await fetch(`/api/orderbook?${params}`, { signal: controller.signal });
-    clearTimeout(timeout);
-    if (!res.ok) return [];
-    const data = await res.json();
+    let data;
+    try {
+      const res = await fetch(`/api/orderbook?${params}`, { signal: controller.signal });
+      if (!res.ok) return [];
+      data = await res.json();
+    } finally {
+      clearTimeout(timeout);
+    }
     const orders = data.orders || [];
     const cutoff = Date.now() - daysBack * 86400 * 1000;
     return orders
@@ -1472,13 +1479,18 @@ export async function fulfillSeaportOrder(listing, opts = {}) {
       data: call.data,
     });
 
-    // Wait for on-chain confirmation before reporting success
-    const receipt = await tx.wait();
-    if (!receipt || receipt.status === 0) {
-      return { error: "failed", message: "Transaction reverted on-chain" };
+    // Wait for on-chain confirmation before reporting success. A speed-up mines
+    // under another hash and still counts; a receipt nobody could read is not a
+    // failure (lib/txOutcome.js).
+    const done = await waitForTxOutcome(tx);
+    if (done.kind !== "success") {
+      return txOutcomeResult(done, {
+        reverted: { error: "failed", message: "Transaction reverted on-chain" },
+        ifLanded: "the NFT is already yours and buying it again will not go through.",
+      });
     }
 
-    return { success: true, hash: tx.hash, tx };
+    return { success: true, hash: done.hash, tx };
   } catch (err) {
     if (err.code === 4001 || err.code === "ACTION_REJECTED") {
       return { error: "rejected", message: "Transaction rejected by user" };

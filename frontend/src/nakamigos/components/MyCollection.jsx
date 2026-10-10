@@ -4,6 +4,7 @@ import { loanDeskAccepts } from "../constants";
 import { fetchWalletNfts, shortenAddress } from "../api";
 import { fetchMyListings, cancelOrder } from "../api-offers";
 import { formatPrice } from "../lib/formatPrice";
+import { toastTxNotice } from "../lib/txOutcome";
 import { exportCSV } from "../lib/csv";
 import { Eth } from "./Icons";
 import AnimatedCard from "./AnimatedCard";
@@ -218,8 +219,8 @@ export default function MyCollection({ wallet, onPick, onConnect, addToast, stat
         setListings((prev) => prev.filter((l) => l.orderHash !== listing.orderHash));
       } else if (result.error === "rejected") {
         addToast?.("Listing cancellation was declined in your wallet.", "info");
-      } else {
-        addToast?.("Failed to cancel listing. Please try again.", "error");
+      } else if (!toastTxNotice(addToast, result)) {
+        addToast?.(result.error === "reverted" ? result.message : "Failed to cancel listing. Please try again.", "error");
       }
     } catch (err) {
       console.error("Cancel listing error:", err);
