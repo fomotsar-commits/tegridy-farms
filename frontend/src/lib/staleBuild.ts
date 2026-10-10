@@ -36,14 +36,15 @@ const INDEX_READ_TIMEOUT_MS = 5_000;
 /** A reload that has not replaced the page by now was stopped: the notice takes over. */
 export const RELOAD_GIVE_UP_MS = 10_000;
 
-/** The entry script an index.html names, or null when it is not this app's page. */
+/** How a build's index.html names its entry script: the same question for both documents. */
+const ENTRY_SCRIPT = 'script[type="module"][src^="/assets/"][src$=".js"]';
+
+/**
+ * The entry script an index.html names, or null when it is not this app's page. Parsed as
+ * a document, never matched as text: a parsed document runs nothing and loads nothing.
+ */
 export function entryOf(html: string): string | null {
-  for (const [tag] of html.matchAll(/<script\b[^>]*>/g)) {
-    if (!/\btype="module"/.test(tag)) continue;
-    const src = /\bsrc="(\/assets\/[^"]+\.js)"/.exec(tag)?.[1];
-    if (src) return src;
-  }
-  return null;
+  return new DOMParser().parseFromString(html, 'text/html').querySelector(ENTRY_SCRIPT)?.getAttribute('src') ?? null;
 }
 
 async function readServedEntry(): Promise<string | null> {
@@ -60,7 +61,7 @@ async function readServedEntry(): Promise<string | null> {
 }
 
 const browserEnv: StaleBuildEnv = {
-  runningEntry: () => document.querySelector('script[type="module"][src^="/assets/"]')?.getAttribute('src') ?? null,
+  runningEntry: () => document.querySelector(ENTRY_SCRIPT)?.getAttribute('src') ?? null,
   servedEntry: readServedEntry,
   held: reloadHeld,
   storage: () => {

@@ -255,6 +255,20 @@ describe('entryOf', () => {
       <script type="module" crossorigin src="${A}"></script></head><body></body></html>`;
     expect(mod.entryOf(html)).toBe(A);
     expect(mod.entryOf(`<script src="${A}" crossorigin type="module"></script>`)).toBe(A);
+    // Read as a browser reads it, whatever the case or the quotes.
+    expect(mod.entryOf(`<SCRIPT TYPE="module" SRC='${A}'></SCRIPT>`)).toBe(A);
+  });
+
+  it('reads the same script the running page is asked for: one rule for both documents', () => {
+    document.head.innerHTML = `<script type="module" crossorigin src="${A}"></script>`;
+    const running = document.querySelector('script[type="module"][src^="/assets/"]')?.getAttribute('src');
+    expect(mod.entryOf(document.documentElement.outerHTML)).toBe(running);
+    document.head.innerHTML = '';
+  });
+
+  it('a script only written about, inside a comment or as text, is not the entry', () => {
+    expect(mod.entryOf(`<!-- <script type="module" src="${A}"></script> -->`)).toBeNull();
+    expect(mod.entryOf(`<pre>&lt;script type="module" src="${A}"&gt;&lt;/script&gt;</pre>`)).toBeNull();
   });
 
   it("is null for a page that is not this app's: no reload is ever based on it", () => {
