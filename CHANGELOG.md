@@ -13,6 +13,7 @@ page keeps the newest thirty days.
 - Solana LP: two short cards under your positions say how you earn and how the venue earns, with the rates read from the chain and the team's shared wallet as an address you can check.
 - Solana LP: a position and a pool card also say the pace so far and how long it covers, when the pool's own fee record shows that trades paid for it. It is measured from the chain and is never a forecast.
 - Solana LP: a read that never answers now ends after 20 seconds and says so.
+- On every page with a row of section tabs under the top bar (Pools, Earn, Launch, Stats, Trust & Safety and the rest), a button or field you move to with the keyboard, and a section a link jumps to, now stops below the tabs. It used to stop behind them, where it could not be seen or pressed.
 
 ### 2026-10-08
 

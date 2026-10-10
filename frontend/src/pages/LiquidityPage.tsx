@@ -89,7 +89,7 @@ export default function LiquidityPage() {
       {/* The form. `id` so the table's "Provide liquidity" buttons can jump to
           it without a route change — the pool is already the venue's only pair,
           so a navigation would land the visitor back on this same page. */}
-      <section id="provide" className="mt-8 scroll-mt-24">
+      <section id="provide" className="mt-8 scroll-mt-5">
         <h2 className="text-white text-lg font-semibold mb-1">Add or remove liquidity</h2>
         <p className="text-white/60 text-[12.5px] mb-4">
           Both sides, priced off the pool&apos;s current reserves. You keep full control of the
