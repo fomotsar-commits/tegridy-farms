@@ -641,11 +641,12 @@ function TrendingRail({ onPick }: { onPick: (t: SolToken) => void }) {
   );
 }
 
-// "Earn" — buy a liquid-staking token to earn SOL staking yield. The buy IS the
-// product (value accrues each epoch, no lockup) and it's fee-bearing (SOL → LST).
+// "Earn": buy a liquid-staking token, which is staked SOL that trades. The buy is the
+// product and carries the venue's fee (SOL in). Nothing here reads a staking rate, so
+// no rate is printed: a card names its token, and the note says where the rate lives.
 function EarnRail({ onPick }: { onPick: (t: SolToken) => void }) {
   return (
-    <div className="mt-6">
+    <div className="mt-6" data-testid="solana-earn-rail">
       <div className="flex items-baseline justify-between mb-2">
         <h2 className="text-white text-[13px] font-semibold">Earn SOL staking yield</h2>
         <span className="text-white/60 text-[10px]">liquid staking · no lockup</span>
@@ -662,15 +663,16 @@ function EarnRail({ onPick }: { onPick: (t: SolToken) => void }) {
             <TokenAvatar token={t} size={26} />
             <div className="min-w-0 flex-1">
               <div className="text-white text-[12px] font-medium truncate">{t.symbol}</div>
-              <div className="text-success text-[10px] font-mono">~{t.apy.toFixed(1)}% APY · {t.provider}</div>
+              <div className="text-white/70 text-[10px]">{t.name}</div>
             </div>
           </button>
         ))}
       </div>
       <p className="text-white/55 text-[11px] mt-1.5">
-        Buy a liquid-staking token to earn ~validator APY automatically — its value grows each epoch, no lockup, sell
-        back to SOL anytime. APY is variable.{' '}
-        {isSolanaFeeConfigured() ? `A ${SOLANA_PLATFORM_FEE_BPS / 100}% fee applies on the SOL buy.` : 'No platform fee is charged on the buy.'}
+        A liquid-staking token is staked SOL you can trade. Its value in SOL is built to rise as staking rewards
+        are added. There is no lockup, and you can sell back to SOL at any time. This page reads no staking rate,
+        so it shows none: each provider publishes its own.{' '}
+        {isSolanaFeeConfigured() ? `The venue takes a ${SOLANA_PLATFORM_FEE_BPS / 100}% fee on the buy.` : 'The venue takes no fee on the buy.'}
       </p>
     </div>
   );

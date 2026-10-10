@@ -13,19 +13,18 @@ export interface KnowledgeEntry {
 export const KNOWLEDGE_BASE: KnowledgeEntry[] = [
   // ── Core protocol ────────────────────────────────────────────
   {
-    // AUDIT R073: prior copy said "100% of swap fees flow to stakers" — wrong.
-    // TegridyPair splits the 0.3% swap fee into 6 LP shares: 5/6 stay with LPs
-    // (rebasing K-invariant earnings) and 1/6 mints protocol-owned LP that gets
-    // routed to the RevenueDistributor for staker ETH yield.
+    // The ETH that stakers are in line for is the ROUTER's fee, less the referral share.
+    // The pair's own 0.3% never reaches them: its one-sixth venue cut is off (kLast 0,
+    // read 2026-10-10) and would mint LP to the treasury Safe, not to stakers.
     keywords: ['toweli', 'token'],
-    answer: "TOWELI is the farm's token. 1B fixed supply, no mint function. Swap fees split 5/6 to LPs, 1/6 to the protocol → stakers as ETH — that pipeline is on-chain and turns on with the native pool. That's the whole pitch.",
+    answer: "TOWELI is the farm's token. 1B fixed supply, no mint function. Stake it and you earn TOWELI today. After a referral share, the venue's swap fee is routed toward stakers as ETH, in payout rounds that need 1 ETH of fees first. /premium shows what has been paid. That's the whole pitch.",
   },
   {
-    // HONESTY PASS 2026-06-11: rewards today are TOWELI emissions from a fixed
-    // launch seed; the ETH swap-fee share is deployed but has distributed 0 ETH
-    // until the native pool is seeded. Don't claim "real yield" in present tense.
+    // Rewards today are TOWELI emissions from a fixed launch seed. The pool is live and
+    // the fee rail has taken fees, so the ETH share waits on volume (1 ETH a round), not
+    // on a launch. Never "real yield" in the present tense.
     keywords: ['tegridy', 'farms', 'protocol', 'project'],
-    answer: "memetics.finance is a yield farm where you stake TOWELI. Rewards today are TOWELI emissions from a fixed launch seed; the ETH swap-fee share is deployed on-chain and kicks in when the native pool goes live. Supply's fixed — no printer.",
+    answer: "memetics.finance is a yield farm where you stake TOWELI. Rewards today are TOWELI emissions from a fixed launch seed. The ETH swap-fee share is wired on-chain, and a payout round needs 1 ETH of fees first; /premium shows what has been paid. Supply's fixed, no printer.",
   },
   {
     keywords: ['supply', 'total', 'circulating', 'mint'],
@@ -36,10 +35,10 @@ export const KNOWLEDGE_BASE: KnowledgeEntry[] = [
     answer: "FDV = price × 1B supply. Live number on /tokenomics. Market cap is similar since most supply is circulating.",
   },
   {
-    // HONESTY PASS 2026-06-11: supply is fixed (true), but current rewards ARE
-    // emissions from a one-time 6.4M seed — ETH fee rewards start with the pool.
+    // Supply is fixed, and today's rewards are emissions from a one-time 6.4M seed. The
+    // ETH side waits on a full ether of fees per round, not on the pool going live.
     keywords: ['emission', 'inflation', 'distribution'],
-    answer: "Supply is fixed — no new TOWELI, ever. Staking rewards today come from a one-time 6.4M emissions seed funded at launch; ETH swap-fee rewards switch on when the native pool goes live. /tokenomics shows the breakdown.",
+    answer: "Supply is fixed: no new TOWELI, ever. Staking rewards today come from a one-time 6.4M emissions seed funded at launch. ETH swap-fee rewards are wired on-chain, and a payout round needs 1 ETH of fees first. /tokenomics shows the breakdown.",
   },
   {
     // HONESTY PASS 2026-06-11: treasury Safe is freshly rebuilt post-relaunch and
@@ -129,14 +128,13 @@ export const KNOWLEDGE_BASE: KnowledgeEntry[] = [
     answer: "First swap of a token needs an approval tx (lets the contract pull tokens from your wallet). One-time per token. Then swap.",
   },
   {
-    // F200/T3 (2026-06-13): reconcile with the swap UI's "(incl. 0.5% fee)"
-    // disclosure. Two distinct fees: the SwapFeeRouter PROTOCOL fee (0.5% on the
-    // native front-door route, routed to TOWELI stakers as ETH) and the standard
-    // 0.3% AMM pair fee that LPs earn via K-growth. Earlier copy named only the
-    // 0.3% and called it "the swap fee", which understated what a native-route
-    // trader actually pays and contradicted the swap screen.
+    // Two fees, read 2026-10-10. SwapFeeRouter.feeBps is 50, ReferralSplitter takes
+    // referralFeeBps (2000) first, and stakerShareBps sends all of the rest toward stakers;
+    // the owner can move all three through timelocks. The distributor has received 0.
+    // The pair's 0.3% stays in the pool. A static answer cannot read the chain, so each
+    // figure that can move carries its date or points at the page that reads it.
     keywords: ['fee', 'swap', 'cost', 'percent'],
-    answer: "Two fees. Swapping through our native front-door adds a 0.5% protocol fee that flows to TOWELI stakers as ETH (it kicks in once the native pool is trading). Underneath that, the AMM pair charges the standard 0.3% that LPs earn via K-growth. The swap screen always shows the protocol fee on the route it picks.",
+    answer: "Two fees. A swap through our own router pays a venue fee. On 10 October 2026 it was 0.5%: 20% of that was the referral share, which goes to your referrer if they stake enough TOWELI and to the treasury otherwise, and the other 80% was routed toward TOWELI stakers as ETH. By that date the router had taken 0.000003 ETH in all and stakers had been paid none. The swap screen shows the live rate before you sign, and /premium shows the live total paid. Underneath, the pool itself charges 0.3%, which stays in the pool for liquidity providers.",
   },
 
   // ── Liquidity ───────────────────────────────────────────────
