@@ -44,9 +44,11 @@ export interface LpReaders {
   /** Find a share's pool from its own chain history, when our pool index cannot answer (D12). */
   placeShareOnChain(share: { lpMint: string; lpAccount: string }): Promise<ChainPlacement>;
   /**
-   * On a press only, never on page load (ledger.ts, poolPast.ts): a position's ledger from
-   * its share account's last 20 transactions, and a pool's last 20 classified. Optional:
-   * a reader without them shows no history block, and every existing fake still fits.
+   * History, behind the budget gate (ledger.ts, poolPast.ts): a position's ledger from its
+   * share account's last 20 transactions, and a pool's last 20 classified. The ledger is
+   * read by itself for the first two positions and on a press for the rest
+   * (YourPositions.tsx); the pool's past on a press only. Optional: a reader without them
+   * shows no history block, and every existing fake still fits.
    */
   ledger?(share: { lpAccount: string; lpMint: string; owner: PublicKey; lpAmount: bigint }, view: PoolView, opts?: { before?: string }): Promise<LedgerRead>;
   poolPast?(view: PoolView, opts?: { before?: string }): Promise<PoolPastRead>;

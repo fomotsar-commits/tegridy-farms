@@ -311,7 +311,9 @@ describe('your positions', () => {
     mount(r, '/pools');
     const row = await screen.findByTestId('lp-position');
     expect(row).toHaveAttribute('data-pool', v.address);
-    expect(within(row).getByText('25.0000%')).toBeInTheDocument();
+    expect(within(row).getByText('Your share: 25.0000% of the pool')).toBeInTheDocument();
+    // To the unit, whichever side of the pool SOL sorts to: one lamport and two token units, or two and one.
+    expect(within(row).getByText('Worth now').nextElementSibling?.textContent).toMatch(/^0\.00000000[12] SOL and 0\.00000[12] \S+$/);
     expect(within(row).getByText('no problems found')).toBeInTheDocument();
     expect(r.positions).toHaveBeenCalledWith(owner, 20);
   });
@@ -429,7 +431,7 @@ describe('your positions: a share too small to take out', () => {
     }), '/pools');
     const row = await screen.findByTestId('lp-position');
     expect(row).toHaveTextContent("Too small to take out at the pool's current size: one side would round to zero.");
-    expect(row).not.toHaveTextContent(/Worth if withdrawn now/);
+    expect(row).not.toHaveTextContent(/Worth now/);
     expect(row).not.toHaveTextContent(/could not be worked out/);
   });
 });

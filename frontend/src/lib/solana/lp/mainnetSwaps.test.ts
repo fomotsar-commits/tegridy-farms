@@ -162,19 +162,36 @@ describe('the opener after three swaps: 83,072,784,230 shares, 22.29% of the poo
     const exact = ledgerUnits(view, 'exact');
     expect(ledgerText.putIn(r.figures, exact)).toBe('5.603960397 SOL and 1,231,466.144058 BAYLA, in 1 opening and 3 deposits, since 2026-10-03 19:18 UTC');
     expect(ledgerText.worthNow(r.figures, exact)).toBe('5.717756621 SOL and 1,207,160.127729 BAYLA');
-    expect(ledgerText.growth(r.figures, exact)).toBe('+0.000961245 SOL: how much more your shares are worth than a fee-free pool would have made them, from trades and anything else sent to this pool. Fees stay in the pool; there is nothing to claim.');
-    expect(ledgerText.versusHolding(r.figures, exact)).toBe('-0.001330082 SOL at this pool’s price now. Holding what you put in would be worth 11.436843324 SOL; what you hold now plus what you took out is worth 11.435513242 SOL.');
-    expect(ledgerText.priceEffect(r.figures, exact)).toBe('-0.002291314 SOL: what the price moving since you put in did to a pool position compared with holding (what people call impermanent loss).');
+    // A trade has reached the pool: the growth is the opener's part of the fees, said with what else would count.
+    expect(ledgerText.growth(r.figures, exact, lastTrade(view))).toEqual({
+      figure: '+0.000961245 SOL',
+      note: 'Your part of this pool’s trading fees, already inside your shares. Anything sent straight into the pool counts here too, because the pool cannot tell it from a fee.',
+    });
+    // Behind holding by more than the fees earned: the price moved. Said as that, and as neither a fee nor a fault.
+    expect(ledgerText.versusHolding(r.figures, exact)).toEqual({
+      figure: '-0.001330082 SOL',
+      note: 'Compared with keeping the two tokens in your wallet, at this pool’s price now. The price moved after you put in, and so far that has cost more than the fees have earned. It is not a fee and not a fault.',
+    });
+    expect(ledgerText.priceEffect(r.figures, exact)).toEqual({
+      figure: '-0.002291314 SOL',
+      note: 'What the price moving after you put in did to this position, compared with keeping the two tokens. It is often called impermanent loss.',
+    });
     expect(ledgerText.locked(r.figures, exact)).toBe('0.000000013 SOL: the 0.0000001 pool shares (100 of the smallest unit) every new pool keeps.');
-    // A trade has reached the pool, so the growth line needs no note about where it came from.
-    expect(ledgerText.growthNote(r.figures, lastTrade(view))).toBeNull();
     expect(ledgerText.window(r, 5)).toBe('From 4 transactions of your share account, back to 2026-10-03 19:18 UTC, read 5 s ago. Exact to a few of the smallest units, which rounding cannot tell from zero.');
     const about = ledgerUnits(view, 'about');
     expect(ledgerText.putIn(r.figures, about)).toBe('5.6039 SOL and 1,231,466.144 BAYLA, in 1 opening and 3 deposits, since 2026-10-03 19:18 UTC');
     expect(ledgerText.worthNow(r.figures, about)).toBe('5.7177 SOL and 1,207,160.1277 BAYLA');
-    expect(ledgerText.growth(r.figures, about)).toMatch(/^\+0\.0009 SOL: /);
-    expect(ledgerText.versusHolding(r.figures, about)).toMatch(/^-0\.0013 SOL at this pool’s price now\. Holding what you put in would be worth 11\.4368 SOL; what you hold now plus what you took out is worth 11\.4355 SOL\.$/);
-    expect(ledgerText.priceEffect(r.figures, about)).toMatch(/^-0\.0022 SOL: /);
+    expect(ledgerText.growth(r.figures, about, lastTrade(view)).figure).toBe('+0.0009 SOL');
+    expect(ledgerText.versusHolding(r.figures, about).figure).toBe('-0.0013 SOL');
+    expect(ledgerText.priceEffect(r.figures, about).figure).toBe('-0.0022 SOL');
+  });
+
+  it('the pace under Fees earned, at the chain time of the read: 0.0084% of the position in 6.3 days', async () => {
+    // 961,245 over 11,435,513,242 (V_pos) is 0.00840579%, cut to 0.0084%. From the opening (1791055083) to
+    // 2026-10-10 02:31:00 UTC (1791599460) is 544,377 s = 6.3006 days. x 31,536,000 / 544,377 = 0.48695%, cut to 0.48%.
+    const view = livePool();
+    const r = okRead(await read());
+    expect(ledgerText.pace(r.figures, lastTrade(view), 1_791_599_460n)).toBe('0.0084% of this position in 6.3 days. At that pace, about 0.48% a year. Past trades, not a forecast.');
   });
 });
 

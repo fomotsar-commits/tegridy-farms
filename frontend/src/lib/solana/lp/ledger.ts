@@ -2,8 +2,8 @@
 // taken out, what it is worth, and the three differences, exact to a stated bound. An
 // entry is proven by discriminator, slots, signer and the two-way share proof; the
 // amounts are the vaults' deltas. Figures appear only when the books balance over proven
-// entries. No fee is ever summed, and per-share growth is never called fees: a token
-// sent into a vault raises it exactly like a fee. On a press only, one page, budget first.
+// entries. No fee is ever summed: the growth figure reads "Fees earned" and always says
+// that a token sent into a vault raises it exactly like a fee. One page, budget first.
 import { formatSol, formatTokenAmount } from '../../launcher/solana/curve/format';
 import { clipDetail } from '../../launcher/solana/curve/read';
 import type { SolanaRpc } from '../../launcher/solana/curve/rpc';
@@ -12,6 +12,7 @@ import { lpWithdrawValue } from '../cpswap/read';
 import { minuteText, quoteText, tokenText } from './format';
 import { tokenSymbol } from './identity';
 import { LOCKED_LP, LOCKED_SHARES_TEXT, isqrt } from './liquidityMath';
+import { paceText } from './pace';
 import type { PoolView } from './poolFinder';
 import type { LastTrade } from './poolPast';
 import { optionalReadAllowed, pausedText } from './rpcBudget';
@@ -277,8 +278,9 @@ export function ledgerFigures(entries: LedgerEntry[], view: PoolView, lpAmount: 
 }
 
 /**
- * One press: the budget gate, one signatures page of the share account, the transactions
- * not already in memory (at most 20 getTransaction), then the figures. Nothing on page load.
+ * One read: the budget gate, one signatures page of the share account, the transactions
+ * not already in memory (at most 20 getTransaction), then the figures. Who starts it, a
+ * press or the positions list for its first rows, is YourPositions.tsx's rule.
  */
 export async function readLedger(rpc: SolanaRpc, share: Share, view: PoolView, programId: string, opts: { before?: string } = {}): Promise<LedgerRead> {
   if (!optionalReadAllowed()) return { kind: 'paused' };
@@ -295,14 +297,26 @@ export async function readLedger(rpc: SolanaRpc, share: Share, view: PoolView, p
 // ── the words ────────────────────────────────────────────────────────────────────────
 
 export const LEDGER_COPY = {
+  /** On every placed share, with no press: the pool program has no claim step for a liquidity provider. */
+  feesInShares: 'Fees you earn are already inside your shares: there is nothing to claim, and you receive them when you remove liquidity.',
   button: 'Work out what this position earned',
+  reading: 'Working out what this position earned…',
+  readAgain: 'Read again',
   noneYet: 'none yet',
   readMore: 'Read 20 more',
   olderNotRead: 'Older history is not read by this page.',
   notFinal: '(not final yet)',
   exactTo: 'Exact to a few of the smallest units, which rounding cannot tell from zero.',
-  noTradeSinceEntry: 'No trade has reached this pool since you entered, so there is nothing from trades yet.',
-  noTradeButGrowth: 'No trade has reached this pool, so this growth came from tokens sent to the pool outside a trade.',
+  /** Under Fees earned. The second sentence stays: the program cannot tell a token sent to a vault from a fee. */
+  feesNote: 'Your part of this pool’s trading fees, already inside your shares. Anything sent straight into the pool counts here too, because the pool cannot tell it from a fee.',
+  noTradeYet: 'No trade has reached this pool yet, so there are no fees yet.',
+  noTradeButGrowth: 'Not from fees: no trade has reached this pool, so this came from tokens sent straight into it.',
+  belowRounding: 'No fees to show yet. The pool rounds each deposit a few of the smallest units in its own favour, and that is most likely all this is.',
+  versusNote: 'Compared with keeping the two tokens in your wallet, at this pool’s price now.',
+  priceCostMore: 'The price moved after you put in, and so far that has cost more than the fees have earned. It is not a fee and not a fault.',
+  priceEffectNote: 'What the price moving after you put in did to this position, compared with keeping the two tokens.',
+  priceEffectLoss: 'It is often called impermanent loss.',
+  otherSharesWhere: 'They are part of Worth now and of no other figure here.',
   sharesLeft: 'Some shares left this account without a withdrawal this pool recorded (sent out, or burned), so what they cost is not known. Earned and versus holding cannot be worked out for this position.',
   withdrawalUnbalanced: 'A withdrawal here took out shares whose deposits were not read, so the figures cannot be worked out.',
 } as const;
@@ -314,7 +328,7 @@ export interface LedgerUnits {
   signed(x: bigint): string;
 }
 
-/** How the ledger prints amounts: `about` is four decimals (the card), `exact` every unit (on expand). */
+/** How the ledger prints amounts: `about` is four decimals, cut; `exact` is every unit, which is what a position row prints. */
 export function ledgerUnits(view: PoolView, form: 'about' | 'exact'): LedgerUnits {
   const q = view.quote;
   const p = view.snapshot.pool;
@@ -336,7 +350,21 @@ export function ledgerUnits(view: PoolView, form: 'about' | 'exact'): LedgerUnit
 
 const plural = (n: number, one: string): string => `${n} ${n === 1 ? one : `${one}s`}`;
 
-/** The ledger's sentences, verbatim (DESIGN 2.B1). The components print these and nothing of their own. */
+/** The labels of the earnings block, in the order a position row prints them. */
+export const LEDGER_LABELS = {
+  putIn: 'Put in',
+  takenOut: 'Taken out',
+  worthNow: 'Worth now',
+  growth: 'Fees earned',
+  versusHolding: 'Versus just holding',
+  priceEffect: 'Price effect',
+  locked: 'Locked at opening',
+} as const;
+
+/** One line of the earnings block: the figure beside its label, and the sentence under it. */
+export interface LedgerLine { figure: string; note: string | null }
+
+/** The ledger's sentences. The components print these and nothing of their own. */
 export const ledgerText = {
   putIn(f: LedgerFigures, u: LedgerUnits): string {
     const deposits = plural(f.putIn.count, 'deposit');
@@ -349,22 +377,42 @@ export const ledgerText = {
   worthNow(f: LedgerFigures, u: LedgerUnits): string {
     return `${u.coin(f.worthNow.coin)} and ${u.token(f.worthNow.token)}`;
   },
-  versusHolding(f: LedgerFigures, u: LedgerUnits): string {
-    if (f.versusHolding.kind === 'none-yet') return LEDGER_COPY.noneYet;
-    return `${u.signed(f.versusHolding.coin)} at this pool’s price now. Holding what you put in would be worth ${u.coin(f.holdWorth)}; what you hold now plus what you took out is worth ${u.coin(f.nowAndOutWorth)}.`;
+  /**
+   * Fees earned: the growth figure. It says "trading fees" only when the pool's own record
+   * shows a trade (poolPast.ts `lastTrade`); with none ever, a growth came from tokens sent
+   * in. A figure below zero is deposits rounded in the pool's favour, never a fee paid.
+   */
+  growth(f: LedgerFigures, u: LedgerUnits, trade: LastTrade): LedgerLine {
+    const never = trade.kind === 'none';
+    if (f.growth.kind === 'none-yet') return { figure: LEDGER_COPY.noneYet, note: never ? LEDGER_COPY.noTradeYet : null };
+    const x = f.growth.coin;
+    return { figure: u.signed(x), note: x < 0n ? LEDGER_COPY.belowRounding : never ? LEDGER_COPY.noTradeButGrowth : LEDGER_COPY.feesNote };
   },
-  growth(f: LedgerFigures, u: LedgerUnits): string {
-    if (f.growth.kind === 'none-yet') return LEDGER_COPY.noneYet;
-    return `${u.signed(f.growth.coin)}: how much more your shares are worth than a fee-free pool would have made them, from trades and anything else sent to this pool. Fees stay in the pool; there is nothing to claim.`;
+  /**
+   * Under Fees earned: the pace since the first deposit read, by the chain's clock (pace.ts).
+   * Null without a positive figure, a trade on the pool's record, or either time.
+   */
+  pace(f: LedgerFigures, trade: LastTrade, chainNow: bigint | null): string | null {
+    if (f.growth.kind !== 'amount' || trade.kind === 'none' || f.since === null || chainNow === null) return null;
+    return paceText({ growth: f.growth.coin, against: f.nowAndOutWorth, seconds: Number(chainNow) - f.since, of: 'position' });
   },
-  /** Beside the growth line when the pool's own record says no trade has ever reached it (poolPast.ts `lastTrade`). */
-  growthNote(f: LedgerFigures, trade: LastTrade): string | null {
-    if (trade.kind !== 'none') return null;
-    return f.growth.kind === 'none-yet' ? LEDGER_COPY.noTradeSinceEntry : LEDGER_COPY.noTradeButGrowth;
+  /**
+   * Versus just holding. The price is named as the cause only when the figures show it:
+   * a price effect below zero that outweighs the fees. An opener's 100 locked units alone
+   * can put this line a few units under zero with no price move at all.
+   */
+  versusHolding(f: LedgerFigures, u: LedgerUnits): LedgerLine {
+    if (f.versusHolding.kind === 'none-yet') return { figure: LEDGER_COPY.noneYet, note: null };
+    const n = f.versusHolding.coin;
+    const g = f.growth.kind === 'amount' ? f.growth.coin : 0n;
+    const i = f.priceEffect.kind === 'amount' ? f.priceEffect.coin : 0n;
+    const priceDidIt = n < 0n && i < 0n && g + i < 0n;
+    return { figure: u.signed(n), note: priceDidIt ? `${LEDGER_COPY.versusNote} ${LEDGER_COPY.priceCostMore}` : LEDGER_COPY.versusNote };
   },
-  priceEffect(f: LedgerFigures, u: LedgerUnits): string {
-    if (f.priceEffect.kind === 'none-yet') return LEDGER_COPY.noneYet;
-    return `${u.signed(f.priceEffect.coin)}: what the price moving since you put in did to a pool position compared with holding (what people call impermanent loss).`;
+  priceEffect(f: LedgerFigures, u: LedgerUnits): LedgerLine {
+    if (f.priceEffect.kind === 'none-yet') return { figure: LEDGER_COPY.noneYet, note: null };
+    const x = f.priceEffect.coin;
+    return { figure: u.signed(x), note: x < 0n ? `${LEDGER_COPY.priceEffectNote} ${LEDGER_COPY.priceEffectLoss}` : LEDGER_COPY.priceEffectNote };
   },
   locked(f: LedgerFigures, u: LedgerUnits): string | null {
     return f.locked === null ? null : `${u.coin(f.locked)}: the ${LOCKED_SHARES_TEXT} every new pool keeps.`;
@@ -377,7 +425,7 @@ export const ledgerText = {
   otherShares(f: LedgerFigures, u: LedgerUnits): string | null {
     if (!f.otherShares) return null;
     const n = formatTokenAmount(f.otherShares.lp, 9, 9).text;
-    return `${n} ${n === '1' ? 'share' : 'shares'} arrived another way (sent to this account, or older than the transactions read): worth ${u.coin(f.otherShares.worth.coin)} and ${u.token(f.otherShares.worth.token)} now, not counted above.`;
+    return `${n} ${n === '1' ? 'share' : 'shares'} arrived another way (sent to this account, or older than the transactions read): worth ${u.coin(f.otherShares.worth.coin)} and ${u.token(f.otherShares.worth.token)} now. ${LEDGER_COPY.otherSharesWhere}`;
   },
   worthOnly(r: Extract<LedgerRead, { kind: 'worth-only' }>): string {
     const when = (kind: 'unread' | 'mixed') => minuteText(r.entries.find((e) => e.kind === kind)?.blockTime ?? null);

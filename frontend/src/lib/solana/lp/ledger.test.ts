@@ -12,9 +12,10 @@ import { noteResponse } from './rpcBudget';
 import { parseTx, type ParsedTx, type SigEntry } from './txHistory';
 import { PROGRAM, buildPool, fakeRpcWithHistory, key, txJson, viewOf, type TxIxSpec } from './testkit.fixture';
 import {
-  LEDGER_COPY, classifyLedgerTx, eps, figure, ledgerFigures, ledgerText, ledgerUnits, readLedger,
+  LEDGER_COPY, LEDGER_LABELS, classifyLedgerTx, eps, figure, ledgerFigures, ledgerText, ledgerUnits, readLedger,
   type LedgerEntry, type LedgerRead, type Share,
 } from './ledger';
+import { PACE_SENTENCE } from './pace';
 
 const PROG = PROGRAM.toBase58();
 const TOKEN = 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA';
@@ -408,21 +409,73 @@ describe('ledgerText: the sentences, verbatim', () => {
   const r81 = okRead(ledgerFigures([deposit(DEPOSIT_81)], view, 10_000_000_000n));
   const sym = about.token(0n).replace(/^0 /, '');
 
-  it('8.1’s three lines in the pool’s coin, four decimals, signed', () => {
+  /** The pool's own record: a trade has reached it, none ever has, or the record was not read. */
+  const TRADED = { kind: 'at', time: 1_791_066_700n } as const;
+  const NEVER = { kind: 'none' } as const;
+  const VERSUS = 'Compared with keeping the two tokens in your wallet, at this pool’s price now.';
+  const PRICE_DID_IT = 'The price moved after you put in, and so far that has cost more than the fees have earned. It is not a fee and not a fault.';
+  const PRICE_EFFECT = 'What the price moving after you put in did to this position, compared with keeping the two tokens.';
+  const amount = (coin: bigint) => ({ kind: 'amount' as const, coin });
+
+  it('8.1’s lines in the pool’s coin, four decimals, signed: the figure beside its label, the sentence under it', () => {
     expect(ledgerText.putIn(r81.figures, about)).toBe(`1 SOL and 100,000 ${sym}, in 1 deposit, since 2026-10-03 22:30 UTC`);
     expect(ledgerText.worthNow(r81.figures, about)).toBe(`1.0907 SOL and 91,743.1192 ${sym}`);
-    expect(ledgerText.versusHolding(r81.figures, about)).toBe('-0.0074 SOL at this pool’s price now. Holding what you put in would be worth 2.1889 SOL; what you hold now plus what you took out is worth 2.1815 SOL.');
-    expect(ledgerText.growth(r81.figures, about)).toBe('+0.0007 SOL: how much more your shares are worth than a fee-free pool would have made them, from trades and anything else sent to this pool. Fees stay in the pool; there is nothing to claim.');
-    expect(ledgerText.priceEffect(r81.figures, about)).toBe('-0.0081 SOL: what the price moving since you put in did to a pool position compared with holding (what people call impermanent loss).');
-    expect(ledgerText.growthNote(r81.figures, { kind: 'at', time: 1_791_066_700n })).toBeNull();
-    expect(ledgerText.growthNote(r81.figures, { kind: 'none' })).toBe('No trade has reached this pool, so this growth came from tokens sent to the pool outside a trade.');
+    expect(ledgerText.growth(r81.figures, about, TRADED)).toEqual({
+      figure: '+0.0007 SOL',
+      note: 'Your part of this pool’s trading fees, already inside your shares. Anything sent straight into the pool counts here too, because the pool cannot tell it from a fee.',
+    });
+    expect(ledgerText.versusHolding(r81.figures, about)).toEqual({ figure: '-0.0074 SOL', note: `${VERSUS} ${PRICE_DID_IT}` });
+    expect(ledgerText.priceEffect(r81.figures, about)).toEqual({ figure: '-0.0081 SOL', note: `${PRICE_EFFECT} It is often called impermanent loss.` });
+    expect(LEDGER_LABELS).toEqual({ putIn: 'Put in', takenOut: 'Taken out', worthNow: 'Worth now', growth: 'Fees earned', versusHolding: 'Versus just holding', priceEffect: 'Price effect', locked: 'Locked at opening' });
+  });
+
+  it('the growth is called trading fees only when the pool’s record shows a trade, and then never without what else counts', () => {
+    expect(ledgerText.growth(r81.figures, about, TRADED).note).toMatch(/trading fees.*Anything sent straight into the pool counts here too/);
+    // The record could not be read: a trade is not ruled out, so the same line with the same qualifier.
+    expect(ledgerText.growth(r81.figures, about, { kind: 'unread', detail: 'x' })).toEqual(ledgerText.growth(r81.figures, about, TRADED));
+    // No trade ever, and still a growth: tokens were sent in. The line says so and never says fees were earned.
+    expect(ledgerText.growth(r81.figures, about, NEVER)).toEqual({ figure: '+0.0007 SOL', note: 'Not from fees: no trade has reached this pool, so this came from tokens sent straight into it.' });
+    // Below zero past the bound: many deposits, each rounded in the pool's favour. Not a fee paid.
+    const below = { ...r81.figures, growth: amount(-30n) };
+    for (const trade of [TRADED, NEVER]) {
+      expect(ledgerText.growth(below, exact, trade)).toEqual({ figure: '-0.00000003 SOL', note: 'No fees to show yet. The pool rounds each deposit a few of the smallest units in its own favour, and that is most likely all this is.' });
+    }
+  });
+
+  it('versus just holding blames the price only when the figures show it', () => {
+    const f = (versus: bigint, growth: bigint | null, effect: bigint | null) =>
+      ({ ...r81.figures, versusHolding: amount(versus), growth: growth === null ? { kind: 'none-yet' as const } : amount(growth), priceEffect: effect === null ? { kind: 'none-yet' as const } : amount(effect) });
+    // The opener before any trade (ledger.mainnet.test.ts): 14 behind, all of it the lock and rounding. The price did nothing.
+    expect(ledgerText.versusHolding(f(-14n, null, null), exact)).toEqual({ figure: '-0.000000014 SOL', note: VERSUS });
+    // Behind, the price effect below zero and larger than the fees: the price did it, with or without fees.
+    expect(ledgerText.versusHolding(f(-1_330_082n, 961_245n, -2_291_314n), exact)).toEqual({ figure: '-0.001330082 SOL', note: `${VERSUS} ${PRICE_DID_IT}` });
+    expect(ledgerText.versusHolding(f(-500n, null, -500n), exact).note).toBe(`${VERSUS} ${PRICE_DID_IT}`);
+    // Fees 100, price effect -95, the opener's lock 13: behind by 8, but the fees did cover the price.
+    expect(ledgerText.versusHolding(f(-8n, 100n, -95n), exact).note).toBe(VERSUS);
+    // Ahead: no cause is claimed.
+    expect(ledgerText.versusHolding(f(5_000n, 9_000n, -4_000n), exact)).toEqual({ figure: '+0.000005 SOL', note: VERSUS });
+    // A price effect above zero (possible after a withdrawal) is not called a loss.
+    expect(ledgerText.priceEffect(f(5_000n, 1_000n, 4_000n), exact)).toEqual({ figure: '+0.000004 SOL', note: PRICE_EFFECT });
+  });
+
+  it('the pace under Fees earned: since the first deposit read, by the chain’s clock, and only for a positive figure on a pool that has traded', () => {
+    // 763,770 over 2,181,527,272 is 0.0350107%, cut to 0.035%. Seven days: x 365 / 7 = 1.8255%, cut to 1.8%.
+    const now = BigInt(1_791_066_624 + 7 * 86_400);
+    expect(ledgerText.pace(r81.figures, TRADED, now)).toBe('0.035% of this position in 7 days. At that pace, about 1.8% a year. Past trades, not a forecast.');
+    expect(ledgerText.pace(r81.figures, { kind: 'unread', detail: 'x' }, now)).toBe(ledgerText.pace(r81.figures, TRADED, now));
+    expect(ledgerText.pace(r81.figures, NEVER, now)).toBeNull();
+    expect(ledgerText.pace(r81.figures, TRADED, null)).toBeNull();
+    expect(ledgerText.pace({ ...r81.figures, since: null }, TRADED, now)).toBeNull();
+    expect(ledgerText.pace(r81.figures, TRADED, 1_791_066_624n)).toBeNull();
+    expect(ledgerText.pace({ ...r81.figures, growth: { kind: 'none-yet' } }, TRADED, now)).toBeNull();
+    expect(ledgerText.pace({ ...r81.figures, growth: amount(-30n) }, TRADED, now)).toBeNull();
   });
 
   it('a line under the bound reads none yet and never a sign; above it but under 0.0001 of the coin, the direction in words', () => {
     const none = { ...r81.figures, growth: { kind: 'none-yet' as const }, versusHolding: { kind: 'none-yet' as const }, priceEffect: { kind: 'none-yet' as const } };
-    expect([ledgerText.growth(none, about), ledgerText.versusHolding(none, about), ledgerText.priceEffect(none, about)]).toEqual(['none yet', 'none yet', 'none yet']);
-    expect(ledgerText.growthNote(none, { kind: 'none' })).toBe('No trade has reached this pool since you entered, so there is nothing from trades yet.');
-    expect(ledgerText.growthNote(none, { kind: 'at', time: 1n })).toBeNull();
+    const NONE = { figure: 'none yet', note: null };
+    expect([ledgerText.growth(none, about, TRADED), ledgerText.versusHolding(none, about), ledgerText.priceEffect(none, about)]).toEqual([NONE, NONE, NONE]);
+    expect(ledgerText.growth(none, about, NEVER)).toEqual({ figure: 'none yet', note: 'No trade has reached this pool yet, so there are no fees yet.' });
     expect(about.signed(9n)).toBe('under 0.0001 SOL more');
     expect(about.signed(-9n)).toBe('under 0.0001 SOL less');
     expect(exact.signed(9n)).toBe('+0.000000009 SOL');
@@ -449,7 +502,7 @@ describe('ledgerText: the sentences, verbatim', () => {
     expect(ledgerText.window(r81, 12)).toBe('From 1 transaction of your share account, back to 2026-10-03 22:30 UTC, read 12 s ago. Exact to a few of the smallest units, which rounding cannot tell from zero.');
     expect(ledgerText.window({ ...r81, window: { count: 20, oldest: 1_791_000_000, more: true } }, 3)).toBe('From 20 transactions of your share account, back to 2026-10-03 04:00 UTC, read 3 s ago. Exact to a few of the smallest units, which rounding cannot tell from zero. The last 20 transactions on this share account were read; older ones were not.');
     const b = okRead(ledgerFigures([plain('other'), deposit(DEPOSIT_81)], view, 11_000_000_000n));
-    expect(ledgerText.otherShares(b.figures, about)).toBe(`1 share arrived another way (sent to this account, or older than the transactions read): worth 0.109 SOL and 9,174.3119 ${sym} now, not counted above.`);
+    expect(ledgerText.otherShares(b.figures, about)).toBe(`1 share arrived another way (sent to this account, or older than the transactions read): worth 0.109 SOL and 9,174.3119 ${sym} now. They are part of Worth now and of no other figure here.`);
     expect(ledgerText.otherShares(r81.figures, about)).toBeNull();
     type WorthOnly = Extract<LedgerRead, { kind: 'worth-only' }>;
     const worthOnly = (why: WorthOnly['why'], entries: LedgerEntry[]): WorthOnly => ({ kind: 'worth-only', why, entries, window: { count: entries.length, oldest: 1_791_000_000, more: true } });
@@ -462,17 +515,24 @@ describe('ledgerText: the sentences, verbatim', () => {
     expect(ledgerText.paused()).toMatch(/paused/);
   });
 
-  it('no sentence carries a forecast word, an em dash, or the word fees as a label for growth', () => {
+  it('no sentence carries a forecast word or an em dash; the pace line is the one door, and it is pace.ts’s sentence whole', () => {
+    const both = (l: { figure: string; note: string | null }) => [l.figure, l.note ?? ''];
     const lines = [
-      ledgerText.putIn(r81.figures, about), ledgerText.worthNow(r81.figures, about), ledgerText.versusHolding(r81.figures, about), ledgerText.growth(r81.figures, about), ledgerText.priceEffect(r81.figures, about),
-      ledgerText.window(r81, 1), ledgerText.unread('x'), ledgerText.paused(), LEDGER_COPY.button, LEDGER_COPY.readMore, LEDGER_COPY.olderNotRead, LEDGER_COPY.notFinal, LEDGER_COPY.sharesLeft, LEDGER_COPY.withdrawalUnbalanced,
-      ledgerText.growthNote({ ...r81.figures, growth: { kind: 'none-yet' } }, { kind: 'none' }) ?? '', ledgerText.growthNote(r81.figures, { kind: 'none' }) ?? '',
+      ledgerText.putIn(r81.figures, about), ledgerText.worthNow(r81.figures, about), ledgerText.window(r81, 1), ledgerText.unread('x'), ledgerText.paused(),
+      ...both(ledgerText.versusHolding(r81.figures, about)), ...both(ledgerText.priceEffect(r81.figures, about)),
+      ...[TRADED, NEVER].flatMap((t) => both(ledgerText.growth(r81.figures, about, t))),
+      ...Object.values(LEDGER_COPY), ...Object.values(LEDGER_LABELS),
     ];
+    expect(lines.length).toBeGreaterThan(30);
     for (const line of lines) {
       expect(line).not.toMatch(FORECAST_WORDS);
       expect(line).not.toContain('—');
-      expect(line).not.toMatch(/fees (earned|so far)/i);
     }
+    const pace = ledgerText.pace(r81.figures, TRADED, BigInt(1_791_066_624 + 7 * 86_400))!;
+    expect(pace).toMatch(FORECAST_WORDS);
+    expect(pace.replace(PACE_SENTENCE, '')).toBe('');
     expect(LEDGER_COPY.button).toBe('Work out what this position earned');
+    // Said with no press on every placed share: one sentence, with the claim step named as absent and when the fees are received.
+    expect(LEDGER_COPY.feesInShares).toBe('Fees you earn are already inside your shares: there is nothing to claim, and you receive them when you remove liquidity.');
   });
 });

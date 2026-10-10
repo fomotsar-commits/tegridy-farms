@@ -28,7 +28,7 @@ import {
 } from './fixtures/lp';
 import {
   actor, closeAll, connect, ensureConnected, openPools, openRemove, pendingNotes, poolCard, positionRow, press, pressable, reviewDeposit, reviewRows,
-  signConfirmed, signedSol, solExact, SOL, tok, units, withdrawPlan, openAdd, type Actor, type Prices,
+  shareRow, signConfirmed, signedSol, solExact, SOL, tok, units, withdrawPlan, openAdd, type Actor, type Prices,
 } from './fixtures/lpPage';
 import { ui, expectPressableAtSizes, tokensToInput } from './fixtures/ui';
 import { formatSol, parseDecimalToBaseUnits } from '../src/lib/launcher/solana/curve/format';
@@ -1231,7 +1231,7 @@ test.describe('group B (chromium only)', () => {
     await expect(ui.lp.create.openButton(p)).toHaveCount(0);
     await connect(p);
     // A share cannot be placed from the index while it is down (lp-write E11): placed from the chain here.
-    const row = ui.lp.position(p).filter({ hasText: pool.lpMint.toBase58() });
+    const row = shareRow(p, pool.lpMint);
     await expect(row).toHaveAttribute('data-placement', 'index-unread', { timeout: 60_000 });
     await press(ui.lp.findOnChain(row), "Find this share's pool on the chain");
     await expect(row).toHaveAttribute('data-placement', 'chain', { timeout: 60_000 });
