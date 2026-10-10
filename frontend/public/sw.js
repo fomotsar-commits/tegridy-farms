@@ -100,16 +100,30 @@ async function navigateOrExplainOffline(request) {
   }
 }
 
+/* The host answers a name it does not have with the app's page: status 200, type
+ * `basic`, and the year-long header, which vercel.json keys on the path. No build
+ * asset is HTML, so a page under an asset's name is never stored and never served
+ * from this cache. */
+function isPage(response) {
+  return /^\s*text\/html/i.test(response.headers.get('content-type') || '');
+}
+
 async function immutableAsset(request) {
   const cache = await caches.open(ASSET_CACHE);
   const hit = await cache.match(request);
-  if (hit) return hit;
+  if (hit && !isPage(hit)) return hit;
+  // A page an earlier worker stored here: dropped, and the name is asked for again.
+  if (hit) await cache.delete(request);
 
-  const response = await fetch(request);
+  let response = await fetch(request);
+  // The browser's own cache keeps such a page for the same year. `reload` asks the
+  // host and replaces what the browser holds, so a name the host has again loads.
+  if (isPage(response)) response = await fetch(request, { cache: 'reload' });
+
   // `basic` excludes opaque and CORS responses; 200 excludes partials and
   // redirects. Storing either would put something in the cache whose freshness
   // and completeness this worker cannot reason about.
-  if (response && response.status === 200 && response.type === 'basic') {
+  if (response && response.status === 200 && response.type === 'basic' && !isPage(response)) {
     cache.put(request, response.clone());
   }
   return response;
