@@ -53,49 +53,76 @@ interface RpcAccount {
   lamports?: number;
 }
 
+/** How long one request may go unanswered. viem's transport gives up after the same wait. */
+export const BROWSER_RPC_TIMEOUT_MS = 10_000;
+
 /**
- * JSON-RPC over our own origin. Never a Solana host — see the header.
- *
- * Throws on: a non-2xx status, a body that is not an object, an `error` member,
- * and — the fix — a body carrying neither `result` nor `error`. A `result` of
- * `null` is a REAL answer ("no account there") and passes through untouched; the
- * distinction is between a null answer and no answer at all.
+ * A fetch that ends every request by itself, body included, and says after how long
+ * (`lpFetch` in solana/lp/readFetch.ts). `browserRpc` starts no clock of its own for
+ * one: a read is timed once, and the sentence a visitor reads names the wait that applied.
+ */
+export type SelfEndingFetch = typeof fetch & { readonly endsAfterMs: number };
+
+/** Only a real wait counts: anything else leaves the transport's own clock running. */
+function endsItself(f: typeof fetch): f is SelfEndingFetch {
+  const ms = (f as Partial<SelfEndingFetch>).endsAfterMs;
+  return typeof ms === 'number' && Number.isFinite(ms) && ms > 0;
+}
+
+/**
+ * JSON-RPC over our own origin, never a Solana host. It throws on every non-answer: a
+ * non-2xx status, a body that is not a JSON-RPC object, an `error` member, a body with
+ * neither `result` nor `error`, and a request or body still unanswered after
+ * BROWSER_RPC_TIMEOUT_MS. A `result` of `null` is a real answer ("no account there")
+ * and passes through.
  */
 export function browserRpc(fetchImpl: typeof fetch = fetch): SolanaRpc {
   const endpoint = solanaRpcEndpoint();
+  // One clock per read. A fetch that ends itself is that clock; every other gets ours.
+  const ownClock = !endsItself(fetchImpl);
   let id = 0;
   return async (method, params) => {
-    const res = await fetchImpl(endpoint, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ jsonrpc: '2.0', id: ++id, method, params }),
-    });
-    if (!res.ok) throw new Error(`${method}: HTTP ${res.status}`);
-
-    let body: unknown;
+    // Ours runs until the body is read. Nothing else aborts the request.
+    const controller = ownClock ? new AbortController() : null;
+    const giveUp = controller ? setTimeout(() => controller.abort(), BROWSER_RPC_TIMEOUT_MS) : undefined;
     try {
-      body = await res.json();
-    } catch (e) {
-      // `cause` keeps the parser's own error reachable — the clipped detail in the
-      // message is for humans, not for whoever has to debug a malformed proxy response.
-      throw new Error(`${method}: the response was not JSON (${clipDetail(e)})`, { cause: e });
-    }
-    if (typeof body !== 'object' || body === null) {
-      throw new Error(`${method}: the response was not a JSON-RPC object`);
-    }
+      const res = await fetchImpl(endpoint, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ jsonrpc: '2.0', id: ++id, method, params }),
+        signal: controller?.signal ?? null,
+      });
+      if (!res.ok) throw new Error(`${method}: HTTP ${res.status}`);
 
-    const b = body as { result?: unknown; error?: { message?: string } };
-    if (b.error) throw new Error(`${method}: ${b.error.message ?? 'unknown RPC error'}`);
-    // `'result' in b` rather than `b.result !== undefined`: an explicit
-    // `"result": null` is a real answer and must survive, while a body with no
-    // `result` member at all is a non-answer and must not be mistaken for one.
-    // `'result' in b` rather than `b.result !== undefined`: an explicit
-    // `"result": null` is a real answer and must survive, while a body with no
-    // `result` member at all is a non-answer and must not be mistaken for one.
-    if (!('result' in b)) {
-      throw new Error(`${method}: the response carried neither a result nor an error`);
+      let body: unknown;
+      try {
+        body = await res.json();
+      } catch (e) {
+        // `cause` keeps the parser's own error reachable; the message is for people.
+        throw new Error(`${method}: the response was not JSON (${clipDetail(e)})`, { cause: e });
+      }
+      if (typeof body !== 'object' || body === null) {
+        throw new Error(`${method}: the response was not a JSON-RPC object`);
+      }
+
+      const b = body as { result?: unknown; error?: { message?: string } };
+      if (b.error) throw new Error(`${method}: ${b.error.message ?? 'unknown RPC error'}`);
+      // `'result' in b`, not `b.result !== undefined`: an explicit `"result": null` is a
+      // real answer, and a body with no `result` member at all is not one.
+      if (!('result' in b)) {
+        throw new Error(`${method}: the response carried neither a result nor an error`);
+      }
+      return b.result;
+    } catch (e) {
+      // However the abort surfaced (the browser's AbortError, or "not JSON" from a body
+      // cut off part-way), what happened is that no answer came.
+      if (controller?.signal.aborted) {
+        throw new Error(`${method}: no answer after ${BROWSER_RPC_TIMEOUT_MS / 1000} s`, { cause: e });
+      }
+      throw e;
+    } finally {
+      clearTimeout(giveUp);
     }
-    return b.result;
   };
 }
 

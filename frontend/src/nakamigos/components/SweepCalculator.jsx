@@ -4,6 +4,7 @@ import { fulfillSeaportOrder, fulfillSeaportOrdersBatch, getProvider } from "../
 import { fulfillNativeOrder } from "../lib/orderbook";
 import { recordTransaction } from "../lib/transactions";
 import { getFriendlyError } from "../lib/errorMessages";
+import { toastTxNotice } from "../lib/txOutcome";
 import { preflightOrders } from "../lib/orderValidator";
 import { useActiveCollection } from "../contexts/CollectionContext";
 import { useWallet } from "../contexts/WalletContext";
@@ -363,6 +364,9 @@ export default function SweepCalculator({ stats, listings, listingsSource, walle
     addToast?.(`Sweeping ${sweepList.length} ${collection.name}...`, "info");
 
     let bought = 0;
+    // Set when a buy came back unconfirmed or replaced: the sweep stops, and
+    // "nothing swept" is not a thing we can say.
+    let stoppedOnNotice = false;
 
     // EIP-5792 fast path: buy every OpenSea listing in ONE wallet confirmation
     // when the wallet supports atomic batching and the sweep is all-Seaport with
@@ -409,6 +413,9 @@ export default function SweepCalculator({ stats, listings, listingsSource, walle
         } else if (result.error === "insufficient") {
           addToast?.(`Insufficient ETH — bought ${bought}/${sweepList.length}`, "error");
           break;
+        } else if (toastTxNotice(addToast, result)) {
+          stoppedOnNotice = true;
+          break;
         } else {
           // A stale/sniped or otherwise-failed item must NOT kill the rest of the
           // sweep — the cheapest N are the most contested, so skip it and keep
@@ -430,7 +437,7 @@ export default function SweepCalculator({ stats, listings, listingsSource, walle
     if (bought > 0) {
       const tail = skipped.length > 0 ? ` (${skipped.length} skipped as stale)` : "";
       addToast?.(`Swept ${bought} of ${sweepList.length} ${collection.name}!${tail}`, "success");
-    } else {
+    } else if (!stoppedOnNotice) {
       addToast?.("Nothing swept — those listings may already be gone. Try refreshing.", "error");
     }
     setSweeping(false);

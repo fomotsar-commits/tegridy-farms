@@ -13,6 +13,18 @@ page keeps the newest thirty days.
 - Solana LP: two short cards under your positions say how you earn and how the venue earns, with the rates read from the chain and the team's shared wallet as an address you can check.
 - Solana LP: a position and a pool card also say the pace so far and how long it covers, when the pool's own fee record shows that trades paid for it. It is measured from the chain and is never a forecast.
 - Solana LP: a read that never answers now ends after 20 seconds and says so.
+- Once launching is switched on, the details file the site writes for a new Solana token says it was made on memetics.finance. It was set to say memetic.fun, which is another project's site. No token has been launched yet, so no launch carries the old address.
+- Solana LP: when the page could not check the network as it loaded, it now checks again by itself every 15 seconds. Add liquidity, Remove liquidity and Open a pool come back without pressing Read again or reloading the page.
+- Solana swap and launch pages: a read the network never answers is given up after 10 seconds and shown as a read that failed. It used to be waited on for the whole visit. The Solana LP page keeps its own 20 seconds, so each read is timed once and the message names the wait that applied.
+- Ethereum, Base and Robinhood Chain reads: a network host that starts its answer and then stops is given up after 10 seconds, the same as a host that never answers, and the next host is asked. Such a read used to be waited on for the whole visit: the burn card of an Ethereum or Base bungalow could say "Reading" for good, with Refresh greyed out. It now says it could not read, with Refresh ready again, as soon as every host has been tried (about 80 seconds on Ethereum, two minutes on Base). The check our server runs when an NFT is listed leaves such a host the same way.
+- An answer that starts and then stops is now given up at its time limit, the same as an answer that never comes. This covers a payment link's invoice, a wallet's heat reading, the island's board, a launch's picture upload, the sales feed of an NFT collection, an NFT listing or bundle being submitted, the token scanner's check of which holders are contracts, and a Solana token's birth record. Each used to be waited on with no limit once the first part of the answer had arrived. A listing whose submit runs out of time is reported as timed out after 30 seconds, with no further attempts.
+- Pools, in the top bar, the menu and the phone's bottom bar, now opens the Solana LP tab. The Ethereum form is the tab to its left, Add / Remove.
+- NFT Finance on an iPad held upright, or in any window from 768 to 1,118 pixels wide: the page no longer slides sideways. The row of six section tabs was wider than the screen and carried the page with it. It now scrolls inside itself, with a fade at its right edge while more tabs are out of view.
+- TOWELI: on the narrowest phones (320 to 360 wide) the "Fixed supply" figure no longer runs under the green tick. A value too wide to sit beside its label drops onto the line below it.
+- In the marketplace, a purchase, accepted offer, trade, cancel or approval you sped up in your wallet counts as done, under the transaction that confirmed, instead of being called failed or waiting forever.
+- In the marketplace, when a transaction's result cannot be read, the site says it cannot tell and links to Etherscan, instead of saying it failed and offering Retry.
+- In the marketplace, a transaction you cancelled or replaced in your wallet says it did not happen, and one that reverted says it reverted.
+- The marketplace's Speed Up button follows the faster transaction it sent, and sends nothing for a purchase that already confirmed.
 
 ### 2026-10-08
 

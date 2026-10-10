@@ -17,6 +17,7 @@ import type { CreateLaunchInput, TxSummary, UploadInput, WriteApi, WriteRpc } fr
 import type { CurveSignerState } from './useCurveSigner';
 import { clearGateAudit, readGateAudit } from '../../../lib/heat/gateAudit';
 import { clearHeatCache } from '../../../lib/heat/heatClient';
+import { CREATED_ON } from '../../../lib/launchMetadata/validate.js';
 import { notifyBirth } from '../../../lib/launcher/notifyBirth';
 import { enqueueBirth, flushBirthQueue, readBirthQueue } from '../../../lib/launcher/birthNotify';
 
@@ -101,7 +102,7 @@ function createApi(over: Partial<WriteApi> = {}) {
       ok: true,
       metadataUri: IPFS,
       imageUri: IPFS,
-      metadata: { name: i.name, symbol: i.symbol, description: i.description, image: IPFS, mint: i.mint, createdOn: 'https://memetics.finance' },
+      metadata: { name: i.name, symbol: i.symbol, description: i.description, image: IPFS, mint: i.mint, createdOn: CREATED_ON },
       reuseUntil: Date.now() + 60_000,
     };
   });

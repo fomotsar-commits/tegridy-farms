@@ -105,6 +105,18 @@ export default function Toast({ toasts, onRemove }) {
           className={`toast toast-${t.type}${dismissing.has(t.id) ? " toast-dismissing" : ""}`}
         >
           <span style={{ flex: 1 }}>{t.message}</span>
+          {t.link && (
+            <a
+              href={t.link.href}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="toast-undo-btn"
+              // Centred: on a phone every link here is a 44px tap target.
+              style={{ textDecoration: "none", display: "inline-flex", alignItems: "center", justifyContent: "center" }}
+            >
+              {t.link.label}
+            </a>
+          )}
           {t.undoAction && (
             <button
               onClick={() => {

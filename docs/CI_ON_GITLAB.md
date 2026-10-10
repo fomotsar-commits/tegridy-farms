@@ -104,7 +104,7 @@ Not run on GitLab:
 | `codeql.yml` | GitHub only. Its results go to GitHub code scanning, and the CodeQL licence covers CI only for code hosted on GitHub.com. It never blocked a merge. |
 | `gitleaks.yml` | Replaced by the `gitleaks` job. Its action needs GitHub's API. |
 | `release.yml` | Publishes a GitHub Release through GitHub's API. No `v*` tag has ever been cut. |
-| `solana-deploy-artifact.yml` | Manual mainnet builds. Its inputs are pasted into scripts, so it needs an input allowlist before act may run it, and its program build has a known bug (an unset `SIZE`). Build mainnet binaries in WSL for now (`ci-solana-release` audit, section 11). |
+| `solana-deploy-artifact.yml` | Manual mainnet builds. Its inputs are pasted into scripts, so it needs an input allowlist before act may run it. Build mainnet binaries in WSL for now (`ci-solana-release` audit, section 11). |
 | `arb-linkage-monitor.yml`, `revenue-watch.yml`, `synthetic-monitor.yml`, `supabase-backup.yml` | Schedules. GitLab CI runs merge requests and trunk pushes only. Off GitHub, the ops scheduler runs them (`docs/OPS_SCHEDULER.md`). The backup also holds secrets, which this runner never gets. |
 | `contracts-coverage.yml` | A weekly schedule and a manual run. Not run off GitHub, by decision. |
 
