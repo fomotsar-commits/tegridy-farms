@@ -32,7 +32,7 @@ import {
 import { SOL_COIN } from './fixtures/coins';
 import {
   actor, addAndReview, closeAll, connect, depositPlan, ensureConnected, esc, openAdd, openPools, openRemove, pct, pendingNotes, poolCard, positionRow, press, pressable,
-  reviewDeposit, reviewRows, shareText, sidesOf, signConfirmed, signedSol, signedTok, solExact, tok, units, withdrawPlan, type Prices,
+  reviewDeposit, reviewRows, shareRow, shareText, sidesOf, signConfirmed, signedSol, signedTok, solExact, tok, units, withdrawPlan, type Prices,
 } from './fixtures/lpPage';
 // The market sums, worked out by hand (never the page's own): see fixtures/market.ts.
 import { gapOf, lossAtMarketUp, priceOf, stubMid } from './fixtures/market';
@@ -774,7 +774,7 @@ test.describe('group B (chromium only)', () => {
     await openPools(p);
     await connect(p);
     const lpMint = B.p11.lpMint.toBase58();
-    const row = ui.lp.position(p).filter({ hasText: lpMint });
+    const row = shareRow(p, lpMint);
     await expect(row).toHaveAttribute('data-placement', 'index-unread', { timeout: 60_000 });
     await expect(row).toHaveAttribute('data-remove', 'unplaced');
     // The fixture, not the page: the share's opening must still be in the local ledger's window.

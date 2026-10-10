@@ -380,6 +380,43 @@ describe('prepareLpDeposit: a pool paired with USDC or BAYLA', () => {
     ]);
   });
 
+  // With no route for the token AND a launch pool for it, there is something to compare
+  // with: the launch pool's SOL price, said in the pool's own coin (review, 2026-10-04).
+  describe('no route for the token, which has a launch pool', () => {
+    const NO_ROUTE: OutsidePrice = { kind: 'no-route', detail: 'Jupiter has no route for this token' };
+    /** The pool says 2 coins a token. The launch pool: `sol` SOL against 1,000 tokens, never traded. */
+    function besideLaunch(quote: QuoteCoin, sol: bigint): World {
+      const w = world(quote);
+      addPool(w.chain, w.mint, { sol: sol * 10n ** 9n, tokens: TOKEN_RESERVE, launch: true });
+      return w;
+    }
+
+    it.each(COINS)('%s: the launch pool’s SOL price is compared in the coin, and the gap and the loss are said in that coin', async (_n, quote) => {
+      // The launch pool says 0.02 SOL a token. With the coin at 0.005 SOL that is 4 coins: the pool is 50% below.
+      const s = prepared(await deposit(besideLaunch(quote, 20n), {}, priced(quote, { token: NO_ROUTE }))).summary as LpDepositSummary;
+      expect(s.price).toMatchObject({ state: 'disagrees', against: 'launch-pool' });
+      expect(s.price.state === 'disagrees' && s.price.reference).toBeCloseTo(4, 9);
+      expect(s.priceGap!.diff).toBeCloseTo(-0.5, 9);
+      expect(s.warnings).toHaveLength(2);
+      expect(s.warnings[0]).toBe('Its price is 50.0% below the launch pool’s price. A deposit here would hand that gap to the first arbitrage trade.');
+      expect(s.warnings[1]).toMatch(new RegExp(`^At these amounts, a move back to the launch pool’s price would take up to about 1[67]\\.\\d+ ${quote.symbol} of what you put in\\. That is an estimate\\.$`));
+      expect(s.warnings.join(' ')).not.toMatch(/\bSOL\b/);
+    });
+
+    it('at the launch pool’s price in the coin it agrees, with nothing to warn of', async () => {
+      // 0.01 SOL a token is 2 USDC a token: what the pool says.
+      const s = prepared(await deposit(besideLaunch(USDC_QUOTE, 10n), {}, priced(USDC_QUOTE, { token: NO_ROUTE }))).summary as LpDepositSummary;
+      expect(s.price).toMatchObject({ state: 'agrees', against: 'launch-pool' });
+      expect(s.warnings).toEqual([]);
+      expect(s.priceGap).toBeNull();
+    });
+
+    it('the coin’s own price could not be read: the comparison could not be made, so nothing is built', async () => {
+      const msg = refused(await deposit(besideLaunch(USDC_QUOTE, 20n), {}, priced(USDC_QUOTE, { token: NO_ROUTE, coin: { kind: 'unread', detail: 'HTTP 502' } })));
+      expect(msg).toBe('We did not build this deposit: We could not check its price against the launch pool’s price (the price of USDC could not be read (HTTP 502)).');
+    });
+  });
+
   it.each(COINS)('%s: a pool more than 3%% off the market in the COIN builds, and the gap and the estimated loss are said in that coin, never in SOL', async (_n, quote) => {
     const w = world(quote);
     // The pool says 2 coins a token. With the coin at 0.005 SOL the market says 4: 50% off.

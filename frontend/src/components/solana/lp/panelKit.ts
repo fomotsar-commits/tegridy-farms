@@ -11,6 +11,10 @@ import type { LpWrites } from './useLpWrites';
 // buttons, the debounced status line, how they report "busy" and "finished" to the
 // section. The panel's frame is PanelFrame.tsx.
 
+/** An address's explorer link, once the write code (which knows the cluster) has loaded; null until then. */
+export const explorerOf = (writes: LpWrites | null) => (address: string): string | null =>
+  writes?.api && writes.cfg ? writes.api.explorerAddressUrl(address, writes.cfg.cluster) : null;
+
 /** A bound or a share count, to its last digit: rounding "at most" or "you get" would misstate it. */
 export const solExact = (lamports: bigint) => `${formatSol(lamports, 9)} SOL`;
 export const unitsExact = (raw: bigint, decimals: number) => formatTokenAmount(raw, decimals, decimals).text;
@@ -88,7 +92,7 @@ export function cannotFundText(a: {
  *
  * `loss` is the estimate, already printed in the pool's own coin. Null means it could not
  * be worked out: that is said, never shown as 0. `back` is what the price would move back
- * to ("the outside price", "its own average").
+ * to, in the words of what it was checked against (poolHealth.ts `REFERENCE_NAME`).
  */
 export function priceGapLossText(loss: string | null, back: string): string {
   return loss === null

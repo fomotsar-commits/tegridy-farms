@@ -14,7 +14,8 @@
 //      each vault, the LP mint and the price record equal to BOTH the derivation from
 //      its address and its own record (`poolPins`);
 //   3. a deposit runs stage 1's own deposit check again (`assessPool`, with a fresh
-//      outside price) and must hear 'allowed'. 'allowed' may carry warnings (a price
+//      outside price and, when Jupiter has no route, a fresh read of the token's launch
+//      pool) and must hear 'allowed'. 'allowed' may carry warnings (a price
 //      off the market, no market price at all, a token that copies a name or can be
 //      frozen): they go on the summary, with the estimated loss, for the review to
 //      say. A withdrawal never runs that check (the leave rule, spec 3.7: only the
@@ -39,7 +40,7 @@
 import { Buffer } from 'buffer';
 import { createAssociatedTokenAccountIdempotentInstruction, getCpiGuard, getMemoTransfer, unpackAccount } from '@solana/spl-token';
 import { PublicKey, type TransactionInstruction } from '@solana/web3.js';
-import { TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID, WSOL_MINT } from '../curve/program';
+import { TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID, WSOL_MINT, poolStatePda } from '../curve/program';
 import { associatedTokenAddress } from '../curve/ix';
 import { formatSol, formatTokenAmount } from '../curve/format';
 import {
@@ -58,10 +59,10 @@ import { isPlanProblem, planDeposit, planWithdraw, solSetAside, spendableSol, ty
 import { estimatedLoss } from '../../../solana/lp/opening';
 import type { OutsidePrice } from '../../../solana/lp/outsidePrice';
 import { CLOCK_SYSVAR, chainTimeOf, poolViewFrom, type PoolView } from '../../../solana/lp/poolFinder';
-import { assessPool, formatWhen } from '../../../solana/lp/poolHealth';
+import { REFERENCE_NAME, assessPool, formatWhen, type PriceCheck } from '../../../solana/lp/poolHealth';
 import { QUOTE_COINS_OR, canPair, quoteCoin, type QuoteCoin } from '../../../solana/lp/quotes';
 import { tokenAccountSize } from '../../../solana/lp/tokenAccountSize';
-import { BUILDABLE_EXTENSIONS, classifyToken, decodeMintAccount, extensionPlain } from '../../../solana/lp/tokenSafety';
+import { BUILDABLE_EXTENSIONS, classifyToken, decodeMintAccount, extensionPlain, type TokenSafety } from '../../../solana/lp/tokenSafety';
 import { MAX_OWN_PRIORITY_LAMPORTS } from './budget';
 import { metadataPda } from './metaplex';
 import { bodySteps, buildAndSimulate, notSent } from './prepare';
@@ -366,6 +367,46 @@ export async function readPoolForWrite(
 }
 
 /**
+ * The price check of `tokenMint`'s launch pool, from ONE fresh read of the pool, its two
+ * vaults, its price record and the clock: what a deposit into the token's OTHER pools is
+ * compared with when Jupiter has no route (poolHealth.ts `launchReference`). Null is "no
+ * reference": no launch pool, a failed read, or accounts that are not the ones its
+ * address gives. Never a guess, and never a refusal: the deposit is then "no market".
+ */
+async function readLaunchPoolPrice(
+  rpc: WriteRpc,
+  cfg: CurveWriteConfig,
+  a: { tokenMint: PublicKey; decimals: number; outside: OutsidePrice; safety: TokenSafety },
+): Promise<PriceCheck | null> {
+  const cp = cfg.cpSwapProgram;
+  const address = poolStatePda(a.tokenMint, cfg.programId);
+  // A launch pool pairs its token with SOL: the launch program opens no other kind.
+  const { token0, token1 } = sortMints(WSOL_MINT, a.tokenMint);
+  const keys = [address, deriveVault(cp, address, token0), deriveVault(cp, address, token1), deriveObservation(cp, address), new PublicKey(CLOCK_SYSVAR)];
+  let accs: (RawAccount | null)[];
+  try {
+    accs = toRaw(keys, await rpc.getMultipleAccountsInfo(keys, 'confirmed'));
+  } catch {
+    return null;
+  }
+  const [pool, vault0, vault1, observation, clock] = accs;
+  // Its fee settings are not read: they decide nothing about its price.
+  const entry = poolViewFrom({
+    address: address.toBase58(),
+    pool: pool ?? null,
+    vault0: vault0 ?? null,
+    vault1: vault1 ?? null,
+    config: null,
+    observation: observation ?? null,
+    opts: { programId: cp, launchProgramId: cfg.programId },
+  });
+  if (entry.kind !== 'pool' || entry.view.origin !== 'launch-pool' || entry.view.tokenMint !== a.tokenMint.toBase58()) return null;
+  // The vaults and the record read above are the ones the pool itself names.
+  if (poolProblem(cp, address, entry.view.snapshot.pool, a.tokenMint, entry.view.quote) !== null) return null;
+  return assessPool({ view: entry.view, tokenDecimals: a.decimals, chainNow: chainTimeOf(clock ?? null), outside: a.outside, safety: a.safety }).price;
+}
+
+/**
  * The pool, pinned. Built ONLY from a prepare-time read: each vault, the LP mint and
  * the price record must equal both the derivation from the pool address and the
  * pool's own record. A string = the pool is not one this site writes to.
@@ -639,10 +680,16 @@ export async function prepareLpDeposit(rpc: WriteRpc, gate: LpOpenGate, reads: L
   };
   const [outside, coinOutside] = await Promise.all([readPrice(a.tokenMint.toBase58(), decimals), quote.native ? null : readPrice(quote.mint, quote.decimals)]);
 
+  // 6b. With no route, a pool anyone could open is checked against the token's launch
+  // pool (poolHealth.ts). That pool is read here too, so the review's gap comes from
+  // fresh reads like every other number on it. Only then: no other deposit needs it.
+  const launchPrice =
+    outside.kind === 'no-route' && view.origin !== 'launch-pool' ? await readLaunchPoolPrice(rpc, cfg, { tokenMint: a.tokenMint, decimals, outside, safety }) : null;
+
   // 7. The gate: stage 1's own check, on reads seconds old. 'allowed' may carry warnings
   // (a price that is off, no market price, a copied name, a freezable token): they do not
   // stop the build, and go on the summary below for the review to say.
-  const health = assessPool({ view, tokenDecimals: decimals, chainNow: snap.chainNow, outside, coinOutside, safety });
+  const health = assessPool({ view, tokenDecimals: decimals, chainNow: snap.chainNow, outside, coinOutside, launchPrice, safety });
   if (health.deposits.verdict !== 'allowed') return notSent('build', LP_COPY.gateSaysNo(health.deposits.reasons));
 
   // 8. The wallet's accounts.
@@ -700,7 +747,7 @@ export async function prepareLpDeposit(rpc: WriteRpc, gate: LpOpenGate, reads: L
   };
   const warnings = [...health.deposits.warnings];
   if (off && priceGap) {
-    warnings.push(LP_COPY.priceGapLoss(priceGap.lossQuote === null ? null : coin(priceGap.lossQuote, quote), off.against === 'outside' ? 'the outside price' : 'its own average'));
+    warnings.push(LP_COPY.priceGapLoss(priceGap.lossQuote === null ? null : coin(priceGap.lossQuote, quote), REFERENCE_NAME[off.against]));
   }
 
   // 12. Moved since shown.

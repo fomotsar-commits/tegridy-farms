@@ -6,6 +6,14 @@ page keeps the newest thirty days.
 
 ## [Unreleased]
 
+### 2026-10-10
+
+- Solana LP: each position now shows what you put in, what it is worth, the fees it earned and how that compares with just holding both tokens. Fees are already inside your pool shares, so there is nothing to claim.
+- Solana LP: each pool card shows its last trade and how much each share has grown since the pool opened, and one press reads its last 20 transactions. The row that read "Fees waiting: venue's share" is now "Venue's cut, not collected yet".
+- Solana LP: two short cards under your positions say how you earn and how the venue earns, with the rates read from the chain and the team's shared wallet as an address you can check.
+- Solana LP: a position and a pool card also say the pace so far and how long it covers, when the pool's own fee record shows that trades paid for it. It is measured from the chain and is never a forecast.
+- Solana LP: a read that never answers now ends after 20 seconds and says so.
+
 ### 2026-10-08
 
 - Solana swap: when Jupiter quotes more but its transaction for your trade fails its test run, and one of our pools quotes the trade, the page now moves the trade to our pool and says why. Before, every press of Buy ended on "Swap would fail" and our pool was never offered.
@@ -14,6 +22,7 @@ page keeps the newest thirty days.
 - Token names in wallets: the files a wallet reads now name our tokens by the bungalow and then by what the token does: Bayla Staking for the lighthouse staking receipt, Bayla LP SOL and Bayla LP USDC for the two pool shares. The short tickers are unchanged.
 - Solana swap: fewer steps and less to read. A swap in one of our own pools now goes from Buy straight to your wallet when it pays at least the minimum the form showed and nothing needs reading first; the review screen shows only when something needs a second look. When it lands, one line says so and the form is ready again. The risk tick-box is gone for SOL, USDC and our BAYLA, and for any other unverified token it is asked once per token on your device. Slippage and speed sit on one line, the details fold away, a large price impact is still said in view, the route is one short sentence, our BAYLA is first in the token list and marked as ours, every token row shows part of its address, and the button says Sell when you are selling.
 - Solana LP: two things that used to switch Add liquidity or Open a pool off are now warnings you read before you sign. A pool priced in a coin Jupiter has no price for right now (in practice only BAYLA) can still be opened and added to, and, once launching is switched on, a launch pool Jupiter has no price for takes deposits in its first 10 minutes of trading. A price that could not be read still switches both off. A token the site will not open or add to pools for is no longer called "blocked": the page says what the site does not do, and why.
+- Solana LP: when Jupiter has no price for a token that has a launch pool, the token's other pools are checked against the launch pool's price, once the launch pool has passed its own price check (it has never been traded, or it has traded for at least 10 minutes and is within 3% of its own half-hour average). A pool opened at another price then shows the gap and what it could cost you, and the Open a new pool card no longer offers Add liquidity for it. A pool paired with a coin Jupiter has no price for (in practice only BAYLA) is not compared. No token has a launch pool yet (launching is switched off), so nothing on the site reads differently today.
 
 ### 2026-10-07
 

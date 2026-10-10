@@ -28,7 +28,7 @@ import {
 } from './fixtures/lp';
 import {
   actor, closeAll, connect, ensureConnected, openPools, openRemove, pendingNotes, poolCard, positionRow, press, pressable, reviewDeposit, reviewRows,
-  signConfirmed, signedSol, solExact, SOL, tok, units, withdrawPlan, openAdd, type Actor, type Prices,
+  shareRow, signConfirmed, signedSol, solExact, SOL, tok, units, withdrawPlan, openAdd, type Actor, type Prices,
 } from './fixtures/lpPage';
 import { ui, expectPressableAtSizes, tokensToInput } from './fixtures/ui';
 import { formatSol, parseDecimalToBaseUnits } from '../src/lib/launcher/solana/curve/format';
@@ -1231,7 +1231,7 @@ test.describe('group B (chromium only)', () => {
     await expect(ui.lp.create.openButton(p)).toHaveCount(0);
     await connect(p);
     // A share cannot be placed from the index while it is down (lp-write E11): placed from the chain here.
-    const row = ui.lp.position(p).filter({ hasText: pool.lpMint.toBase58() });
+    const row = shareRow(p, pool.lpMint);
     await expect(row).toHaveAttribute('data-placement', 'index-unread', { timeout: 60_000 });
     await press(ui.lp.findOnChain(row), "Find this share's pool on the chain");
     await expect(row).toHaveAttribute('data-placement', 'chain', { timeout: 60_000 });
@@ -1297,10 +1297,11 @@ test.describe('group B (chromium only)', () => {
     expect(rows['Fee tier']).toBe(tierText(t1));
     expect(tierText(t1)).not.toBe(tierText(t0));
     await expect(ui.review(p).getByTestId('lp-review-disclosure')).toContainText(MONEY);
-    // The only "yield" in the section is the sentence that says none is shown.
+    // No "yield" anywhere in the section: what a pool or a position earned is said as a
+    // measure from the chain (the section's own sentence says so), never as a forecast.
     const section = (await ui.lp.section(p).innerText()).replace(/\s+/g, ' ');
-    expect(section).not.toMatch(/APR|APY|yield of/i);
-    expect(section.replace('This page shows no yield, because none has been measured.', '')).not.toMatch(/yield/i);
+    expect(section).not.toMatch(/APR|APY|yield/i);
+    expect(section).toContain('What this page says a pool or a position earned is measured from the chain, and is never a forecast.');
     expect(section).not.toMatch(/earn fees on every trade/i);
     await press(p.getByRole('button', { name: 'Cancel', exact: true }), 'Cancel');
     expect(a.wallet.records).toEqual([]);

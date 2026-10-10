@@ -219,12 +219,30 @@ export function coinPriceDetail(quote: QuoteCoin, coin: Exclude<OutsidePrice, { 
 export function priceInQuote(token: OutsidePrice, quote: QuoteCoin, coin: OutsidePrice | null): QuotePrice {
   if (token.kind === 'no-route') return { kind: 'no-route', of: 'token', detail: token.detail };
   if (token.kind !== 'ok') return token;
-  if (quote.native) return { kind: 'ok', perToken: token.solPerToken, source: 'Jupiter' };
+  const priced = solPriceIn(quote, token.solPerToken, coin);
+  return priced.kind === 'ok' ? { ...priced, source: 'Jupiter' } : priced;
+}
+
+/**
+ * A price in SOL a token, said in `quote` instead: over that coin's own SOL price. For
+ * SOL it is the price itself, and `coin` is not looked at. The one division for every
+ * reference a pool is checked against: the outside price, and a launch pool's
+ * (poolHealth.ts). Three answers. `ok`. `no-route` of the coin: Jupiter ANSWERED that it
+ * has no route for the pairing coin, so there is no price in that coin (owner ruling
+ * 2026-10-07: a warning, it switches nothing off). `unread`: the coin's price was not
+ * asked for or its read failed, which is never a pass.
+ */
+export function solPriceIn(
+  quote: QuoteCoin,
+  solPerToken: number,
+  coin: OutsidePrice | null,
+): { kind: 'ok'; perToken: number } | { kind: 'no-route'; of: 'coin'; detail: string } | { kind: 'unread'; detail: string } {
+  if (quote.native) return { kind: 'ok', perToken: solPerToken };
   if (!coin) return { kind: 'unread', detail: `the price of ${quote.symbol} was not read` };
   // Only the ANSWER "no route". A failed read of the coin's price falls to `unread` below.
   if (coin.kind === 'no-route') return { kind: 'no-route', of: 'coin', detail: coinPriceDetail(quote, coin) };
   if (coin.kind !== 'ok') return { kind: 'unread', detail: `the price of ${quote.symbol} could not be read (${coinPriceDetail(quote, coin)})` };
-  const perToken = token.solPerToken / coin.solPerToken;
+  const perToken = solPerToken / coin.solPerToken;
   if (!Number.isFinite(perToken) || perToken <= 0) return { kind: 'unread', detail: `the price of ${quote.symbol} did not give a usable price` };
-  return { kind: 'ok', perToken, source: 'Jupiter' };
+  return { kind: 'ok', perToken };
 }

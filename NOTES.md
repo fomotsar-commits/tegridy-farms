@@ -45,6 +45,43 @@ in the main checkout could have been an answer about the worktree's sources.
 worktree its own `node_modules/.tmp`. Re-run with `--force` before trusting a clean `tsc -b`
 after any worktree run.
 
+## 2026-10-08: a test rewritten for a new rule can stop holding the old rule it also held
+
+**Believed:** a pull request that changes one assertion in an existing test (a pool's price
+state from "no market" to "disagrees", because the scenario now has something to compare
+with) leaves that test proving what it proved before.
+
+**Measured:** that test was the only one holding a second rule: when Add liquidity is pressed
+without naming a pool, the page passes over a pool whose price was compared with nothing if
+another pool takes the deposit with no price warning. Once the scenario changed, no test
+reached that branch. A reviewer took the rule out of the page (one line) and 4,006 of 4,006
+tests passed on the result; the same break on trunk's code failed trunk's own copy of the
+test (1 failed, 50 passed). What found it was running trunk's copy of each changed test file
+against trunk's code, and against the result, with the rule removed.
+
+**Do:** when a change edits an existing assertion instead of adding a test, ask what else the
+old scenario was exercising. Before rewriting it, break each rule the old test touches and
+note which ones only it catches; after rewriting, break them again on the new code. A rule
+that nothing catches any more needs its own test for the case that is left.
+
+## 2026-10-08: keeping both sides of a conflict drops the closing lines the two blocks share
+
+**Believed:** when both sides add a block at the same place, the resolution is mechanical:
+ours, a blank line, theirs.
+
+**Measured:** git leaves lines that both sides share outside the markers. Two `describe`
+blocks added at the same spot both ended with the same two closing lines, so those lines sat
+after the closing marker, once. Ours-then-theirs left the first block without its closers.
+The type-check reported `'}' expected` at the last line of the file, about 600 lines below
+the join, and the test runner reported the whole file as failed, not one test. The same
+script had resolved three other keep-both conflicts that week correctly, because their
+blocks ended differently.
+
+**Do:** after any keep-both, parse the file (the test project's type-check is enough) and
+compare the number of tests per joined file with the two sides (here 309 in five files,
+against 279 on trunk and 288 on the branch). "No conflict markers left" says nothing about
+either.
+
 ## 2026-10-08: tests for the new branches do not show that nothing else moved; the old rule run beside the new one does
 
 **Believed:** a change to a rule that decides whether money may move was safe once every
