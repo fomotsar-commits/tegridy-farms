@@ -26,6 +26,7 @@ import { SEAPORT_ADDRESS, SEAPORT_DOMAIN, SEAPORT_ORDER_TYPES, CONDUIT_KEY, COND
 import { getProvider } from "../api";
 import { cancelRefusal, venueRefusalForAll } from "./venue";
 import { getWethBalance, getWethAllowance, approveWeth, wrapEth } from "./weth";
+import { waitForTxOutcome, txOutcomeResult, txOutcomeError } from "./txOutcome";
 
 const ORDERBOOK_API = "/api/orderbook";
 const ZERO = "0x0000000000000000000000000000000000000000";
@@ -81,6 +82,12 @@ function tradeRefusal(trade) {
   return tokens.length ? venueRefusalForAll(tokens) : null;
 }
 
+// What a trade's own fill says when it did not simply confirm (txOutcomeResult).
+const TRADE_WORDS = {
+  reverted: { error: "reverted", message: "Trade transaction reverted on-chain" },
+  ifLanded: "the trade is already done and sending it again will not go through.",
+};
+
 async function getMainnetSigner() {
   const ethProvider = getProvider();
   if (!ethProvider) return { error: "no-wallet", message: "No wallet found" };
@@ -106,9 +113,14 @@ async function ensureCollectionApprovals(ethers, signer, owner, items) {
     const approved = await nft.isApprovedForAll(owner, CONDUIT_ADDRESS);
     if (approved) continue;
     const tx = await nft.setApprovalForAll(CONDUIT_ADDRESS, true);
-    const receipt = await tx.wait();
-    if (!receipt || receipt.status === 0) {
-      throw Object.assign(new Error("Collection approval reverted"), { code: "approval-failed" });
+    // Throws unless the approval confirmed. An unconfirmed or replaced one
+    // carries `.notice`, which callers return as-is instead of calling it failed.
+    const done = await waitForTxOutcome(tx);
+    if (done.kind !== "success") {
+      throw txOutcomeError(done, {
+        reverted: { error: "approval-failed", message: "Collection approval reverted" },
+        ifLanded: "the approval is already in place and a second one only costs gas.",
+      });
     }
     const stillApproved = await nft.isApprovedForAll(owner, CONDUIT_ADDRESS);
     if (!stillApproved) {
@@ -317,6 +329,7 @@ export async function createTradeOffer({ give, get, taker, wethTopupEth = "0", e
           await wrapEth(needed);
         } catch (err) {
           if (err.code === 4001 || err.code === "ACTION_REJECTED") return { error: "rejected", message: "ETH wrap cancelled" };
+          if (err.notice) return err.notice;
           return { error: "wrap-failed", message: `Wrapping ETH for the sweetener failed: ${err.shortMessage || err.message}` };
         }
       }
@@ -326,6 +339,7 @@ export async function createTradeOffer({ give, get, taker, wethTopupEth = "0", e
           await approveWeth(wethMaxWei);
         } catch (err) {
           if (err.code === 4001 || err.code === "ACTION_REJECTED") return { error: "rejected", message: "WETH approval cancelled" };
+          if (err.notice) return err.notice;
           return { error: "approve-failed", message: `WETH approval failed: ${err.shortMessage || err.message}` };
         }
       }
@@ -335,6 +349,7 @@ export async function createTradeOffer({ give, get, taker, wethTopupEth = "0", e
       await ensureCollectionApprovals(ethers, signer, maker, give);
     } catch (err) {
       if (err.code === 4001 || err.code === "ACTION_REJECTED") return { error: "rejected", message: "Approval cancelled" };
+      if (err.notice) return err.notice;
       return { error: "approval-failed", message: err.message };
     }
 
@@ -640,6 +655,7 @@ export async function acceptTrade(trade) {
         await ensureCollectionApprovals(ethers, signer, takerAddress, takerItems);
       } catch (err) {
         if (err.code === 4001 || err.code === "ACTION_REJECTED") return { error: "rejected", message: "Approval cancelled" };
+        if (err.notice) return err.notice;
         return { error: "approval-failed", message: err.message };
       }
       // The taker fulfills WITH the conduit key so their NFT transfers route
@@ -649,11 +665,9 @@ export async function acceptTrade(trade) {
         CONDUIT_KEY,
         { value: totalWei }
       );
-      const receipt = await tx.wait();
-      if (!receipt || receipt.status === 0) {
-        return { error: "reverted", message: "Trade transaction reverted on-chain" };
-      }
-      txHash = tx.hash;
+      const done = await waitForTxOutcome(tx);
+      if (done.kind !== "success") return txOutcomeResult(done, TRADE_WORDS);
+      txHash = done.hash;
     }
 
     // Notify backend. The on-chain trade is ALREADY confirmed above, so this
@@ -946,14 +960,13 @@ export async function acceptOpenTrade(trade, selections) {
         await ensureCollectionApprovals(ethers, signer, acceptor, givingItems);
       } catch (err) {
         if (err.code === 4001 || err.code === "ACTION_REJECTED") return { error: "rejected", message: "Approval cancelled" };
+        if (err.notice) return err.notice;
         return { error: "approval-failed", message: err.message };
       }
       const tx = await seaport.fulfillAdvancedOrder(...fulfillArgs, { value: totalWei });
-      const receipt = await tx.wait();
-      if (!receipt || receipt.status === 0) {
-        return { error: "reverted", message: "Trade transaction reverted on-chain" };
-      }
-      txHash = tx.hash;
+      const done = await waitForTxOutcome(tx);
+      if (done.kind !== "success") return txOutcomeResult(done, TRADE_WORDS);
+      txHash = done.hash;
     }
 
     // F631 (T5): best-effort off-chain notify. The on-chain trade is already
@@ -1055,9 +1068,14 @@ export async function cancelTradeOnChain(trade) {
       counter,
     };
     const tx = await seaport.cancel([components]);
-    const receipt = await tx.wait();
-    if (!receipt || receipt.status === 0) return { error: "reverted", message: "On-chain cancel reverted" };
-    return { success: true, hash: tx.hash };
+    const done = await waitForTxOutcome(tx);
+    if (done.kind !== "success") {
+      return txOutcomeResult(done, {
+        reverted: { error: "reverted", message: "On-chain cancel reverted" },
+        ifLanded: "the order is already cancelled and a second cancel only costs gas.",
+      });
+    }
+    return { success: true, hash: done.hash };
   } catch (err) {
     if (err.code === 4001 || err.code === "ACTION_REJECTED") return { error: "rejected", message: "Cancel cancelled by user" };
     return { error: "failed", message: err.shortMessage || err.message || "On-chain cancel failed" };

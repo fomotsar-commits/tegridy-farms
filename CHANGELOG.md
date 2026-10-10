@@ -21,6 +21,10 @@ page keeps the newest thirty days.
 - Pools, in the top bar, the menu and the phone's bottom bar, now opens the Solana LP tab. The Ethereum form is the tab to its left, Add / Remove.
 - NFT Finance on an iPad held upright, or in any window from 768 to 1,118 pixels wide: the page no longer slides sideways. The row of six section tabs was wider than the screen and carried the page with it. It now scrolls inside itself, with a fade at its right edge while more tabs are out of view.
 - TOWELI: on the narrowest phones (320 to 360 wide) the "Fixed supply" figure no longer runs under the green tick. A value too wide to sit beside its label drops onto the line below it.
+- In the marketplace, a purchase, accepted offer, trade, cancel or approval you sped up in your wallet counts as done, under the transaction that confirmed, instead of being called failed or waiting forever.
+- In the marketplace, when a transaction's result cannot be read, the site says it cannot tell and links to Etherscan, instead of saying it failed and offering Retry.
+- In the marketplace, a transaction you cancelled or replaced in your wallet says it did not happen, and one that reverted says it reverted.
+- The marketplace's Speed Up button follows the faster transaction it sent, and sends nothing for a purchase that already confirmed.
 
 ### 2026-10-08
 

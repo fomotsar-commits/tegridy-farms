@@ -1,5 +1,6 @@
 import { WETH, CONDUIT_ADDRESS } from "../constants";
 import { getProvider } from "../api";
+import { waitForTxOutcome, txOutcomeError } from "./txOutcome";
 
 const WETH_ABI = [
   "function deposit() payable",
@@ -71,7 +72,15 @@ export async function wrapEth(amountWei) {
   }
   const weth = new ethers.Contract(WETH, WETH_ABI, signer);
   const tx = await weth.deposit({ value: amount });
-  await tx.wait();
+  // Throws unless the wrap confirmed. An unconfirmed or replaced wrap carries
+  // `.notice`, which callers return as-is instead of calling it failed.
+  const done = await waitForTxOutcome(tx);
+  if (done.kind !== "success") {
+    throw txOutcomeError(done, {
+      reverted: { error: "reverted", message: "The ETH wrap reverted on-chain." },
+      ifLanded: "your ETH is already wrapped and sending it again wraps the same amount a second time.",
+    });
+  }
   return tx;
 }
 
@@ -96,7 +105,13 @@ export async function approveWeth(amount) {
   // Approve the conduit (not Seaport directly). When orders use a
   // non-zero conduitKey, Seaport pulls tokens through the conduit.
   const tx = await weth.approve(CONDUIT_ADDRESS, approvalAmount);
-  await tx.wait();
+  const done = await waitForTxOutcome(tx);
+  if (done.kind !== "success") {
+    throw txOutcomeError(done, {
+      reverted: { error: "reverted", message: "The WETH approval reverted on-chain." },
+      ifLanded: "the approval is already in place and a second one only costs gas.",
+    });
+  }
   return tx;
 }
 
