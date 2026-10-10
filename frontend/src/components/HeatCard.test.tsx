@@ -367,12 +367,12 @@ describe('where this number would sit', () => {
 });
 
 describe('the share', () => {
-  it('builds the post from served numbers, ending in the read link', async () => {
+  it('leads the post with the number, builds it from served numbers, and ends in the read link', async () => {
     mount();
     const post = await screen.findByRole('link', { name: 'Post my number' });
     const text = new URL(post.getAttribute('href') ?? '').searchParams.get('text');
     expect(text).toBe(
-      `Elder. 1694 days held. 1785.1° on Jungle Bay Island's instrument. ` +
+      `1785.1° on Jungle Bay Island's instrument. Elder. 1694 days held. ` +
         `Held time counts here. https://memetics.finance/read/${ADDR}`,
     );
   });
@@ -384,7 +384,7 @@ describe('the share', () => {
     const post = await screen.findByRole('link', { name: 'Post my number' });
     const text = new URL(post.getAttribute('href') ?? '').searchParams.get('text');
     expect(text).toBe(
-      `Observer. 1694 days held. 95.0° on Jungle Bay Island's instrument. ` +
+      `95.0° on Jungle Bay Island's instrument. Observer. 1694 days held. ` +
         `Held time counts here. https://memetics.finance/read/${ADDR}`,
     );
   });
@@ -1285,5 +1285,176 @@ describe('the panel opens on the island sentences', () => {
         'instrument, read live. Price never enters it, a fresh bag starts near zero however big it is, ' +
         'and trading in and out earns nothing.',
     );
+  });
+});
+
+// The island's place in a room, "12th of 498 measured", from its served room_rank and
+// room_holders. Three print sites: a room's own read, the card's room rows and the post.
+describe('the rank in the room, as the island served it', () => {
+  const ranked = (over: Record<string, unknown> = {}) =>
+    row({ room_tier: 'Builder', room_rank: 12, room_holders: 498, room_as_of_unix: AS_OF, ...over });
+
+  it('prints it on the room’s own read, under the days', async () => {
+    h.fetchHeat.mockResolvedValue(wireReading({ breakdown: [ranked()] }));
+    const { container } = mountScoped({ address: PEPE, symbol: 'PEPE' });
+    const line = await screen.findByText('12th of 498 measured');
+    const text = container.textContent ?? '';
+    expect(text.indexOf('400 days held')).toBeLessThan(text.indexOf(line.textContent!));
+    expect(text.indexOf(line.textContent!)).toBeLessThan(text.indexOf('your whole flame reads'));
+  });
+
+  it('prints nothing on the room’s read for a wallet the island does not rank', async () => {
+    // The Glasshouse, 2026-10-08: room_rank null beside a served tier and count.
+    h.fetchHeat.mockResolvedValue(wireReading({ breakdown: [ranked({ room_rank: null })] }));
+    const { container } = mountScoped({ address: PEPE, symbol: 'PEPE' });
+    await screen.findByText(/your whole flame reads/i);
+    expect(container.textContent).not.toContain('measured');
+    expect(container.textContent).not.toContain(' of 498');
+  });
+
+  it('prints it under each room row of the card, and only where a rank arrived', async () => {
+    h.fetchHeat.mockResolvedValue(
+      wireReading({
+        breakdown: [
+          ranked(),
+          row({ token_address: '0xbbb', symbol: 'BNKR', heat_degrees: 20.5, room_rank: null, room_holders: 3616 }),
+          row({ token_address: '0xccc', symbol: 'OLD', heat_degrees: 5 }),
+        ],
+      }),
+    );
+    const { container } = mount();
+    await awaitRead();
+    const rows = [...container.querySelectorAll('li')].filter((li) => /PEPE|BNKR|OLD/.test(li.textContent ?? ''));
+    expect(rows.map((li) => li.textContent)).toEqual([
+      'PEPEethereum338.21°12th of 498 measured',
+      'BNKRethereum20.50°',
+      'OLDethereum5.00°',
+    ]);
+  });
+
+  it('carries the deepest room’s rank in the post, named by its room', async () => {
+    h.fetchHeat.mockResolvedValue(
+      wireReading({
+        breakdown: [
+          row({ token_address: '0xbbb', symbol: 'BNKR', heat_degrees: 20.5, room_rank: 3, room_holders: 3616 }),
+          ranked(),
+        ],
+      }),
+    );
+    mount();
+    const post = await screen.findByRole('link', { name: 'Post my number' });
+    const text = new URL(post.getAttribute('href') ?? '').searchParams.get('text');
+    expect(text).toBe(
+      `1785.1° on Jungle Bay Island's instrument. Elder. 1694 days held. ` +
+        `12th of 498 measured in the PEPE room. ` +
+        `Held time counts here. https://memetics.finance/read/${ADDR}`,
+    );
+  });
+
+  it('leaves the rank out of the post when the deepest room has none', async () => {
+    h.fetchHeat.mockResolvedValue(
+      wireReading({
+        breakdown: [
+          ranked({ room_rank: null }),
+          row({ token_address: '0xbbb', symbol: 'BNKR', heat_degrees: 20.5, room_rank: 3, room_holders: 3616 }),
+        ],
+      }),
+    );
+    mount();
+    const post = await screen.findByRole('link', { name: 'Post my number' });
+    const text = new URL(post.getAttribute('href') ?? '').searchParams.get('text');
+    expect(text).not.toContain('measured');
+    expect(text).not.toContain('room');
+  });
+
+  it('never ranks a wallet by a retired room in the post', async () => {
+    h.fetchHeat.mockResolvedValue(
+      wireReading({
+        breakdown: [
+          ranked({ retired: true }),
+          row({ token_address: '0xbbb', symbol: 'BNKR', heat_degrees: 20.5, room_rank: 3, room_holders: 3616 }),
+        ],
+      }),
+    );
+    mount();
+    const post = await screen.findByRole('link', { name: 'Post my number' });
+    const text = new URL(post.getAttribute('href') ?? '').searchParams.get('text');
+    expect(text).toContain('3rd of 3,616 measured in the BNKR room. ');
+  });
+
+  it('posts no rank when every room is retired', async () => {
+    h.fetchHeat.mockResolvedValue(wireReading({ breakdown: [ranked({ retired: true })] }));
+    mount();
+    const post = await screen.findByRole('link', { name: 'Post my number' });
+    const text = new URL(post.getAttribute('href') ?? '').searchParams.get('text');
+    expect(text).not.toContain('measured');
+  });
+});
+
+// The island's two countdowns. It serves neither yet (read 2026-10-08), so the card
+// prints nothing; when they arrive it prints them, and it never works them out.
+describe('the days the island counts down', () => {
+  it('prints no countdown from today’s answer, which carries neither field', async () => {
+    h.fetchHeat.mockResolvedValue(wireReading({ degrees: 73.89, tier: 'Observer' }));
+    const { container } = mount();
+    await awaitRead('Observer');
+    expect(container.textContent).not.toMatch(/ in \d[\d,]* days?\./);
+    expect(container.textContent).not.toContain('You may plant in');
+  });
+
+  it('names the tier above the served one, with the served days, under the degrees', async () => {
+    h.fetchHeat.mockResolvedValue(wireReading({ degrees: 73.89, tier: 'Observer', days_to_next_tier: 14 }));
+    const { container } = mount();
+    const line = await screen.findByText('Resident in 14 days.');
+    const text = container.textContent ?? '';
+    expect(text.indexOf('73.89')).toBeLessThan(text.indexOf(line.textContent!));
+    expect(text.indexOf(line.textContent!)).toBeLessThan(text.indexOf('on the island since'));
+  });
+
+  it('counts from the SERVED tier word, not from where the degrees sit on the ladder', async () => {
+    // 95 degrees sits in the Resident band; the island served Observer, so its next tier is Resident.
+    h.fetchHeat.mockResolvedValue(wireReading({ degrees: 95, tier: 'Observer', days_to_next_tier: 1 }));
+    mount();
+    expect(await screen.findByText('Resident in 1 day.')).toBeTruthy();
+  });
+
+  it('prints no next tier for an Elder, whatever arrives', async () => {
+    h.fetchHeat.mockResolvedValue(wireReading({ days_to_next_tier: 9 }));
+    const { container } = mount();
+    await awaitRead();
+    expect(container.textContent).not.toMatch(/ in 9 days\./);
+  });
+
+  it('says when a wallet under the floor may plant, at the door', async () => {
+    h.fetchHeat.mockResolvedValue(wireReading({ degrees: 73.89, tier: 'Observer', days_to_plant: 41 }));
+    mount();
+    const line = await screen.findByText('You may plant in 41 days.');
+    // Inside the launch-door panel, beside the verdict it qualifies.
+    expect(line.parentElement?.textContent).toContain('Cannot launch a token yet');
+  });
+
+  it('prints no plant countdown for a wallet the door already passes', async () => {
+    h.fetchHeat.mockResolvedValue(wireReading({ days_to_plant: 41 }));
+    const { container } = mount();
+    await awaitRead();
+    expect(container.textContent).toContain('Can launch a token here');
+    expect(container.textContent).not.toContain('You may plant in');
+  });
+
+  it('prints no plant countdown on a stale reading, which decides nothing', async () => {
+    h.fetchHeat.mockResolvedValue(
+      wireReading({ degrees: 73.89, tier: 'Observer', days_to_plant: 41, as_of_unix: NOW - 8 * 86_400 }),
+    );
+    const { container } = mount();
+    await screen.findByText(/^Stale/);
+    expect(container.textContent).not.toContain('You may plant in');
+  });
+
+  it('prints the next tier under a room’s whole-flame line too', async () => {
+    h.fetchHeat.mockResolvedValue(
+      wireReading({ degrees: 73.89, tier: 'Observer', days_to_next_tier: 14, breakdown: [row()] }),
+    );
+    mountScoped({ address: PEPE, symbol: 'PEPE' });
+    expect(await screen.findByText('Resident in 14 days.')).toBeTruthy();
   });
 });

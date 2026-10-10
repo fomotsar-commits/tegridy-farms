@@ -107,7 +107,8 @@ const toastTitles = (fn: { mock: { calls: unknown[][] } }) => fn.mock.calls.map(
 beforeEach(() => {
   vi.useFakeTimers({ shouldAdvanceTime: true });
   localStorage.clear();
-  window.history.replaceState(null, '', '/solana?amt=0.5');
+  // The page opens SOL to $BAYLA; these tests are about a SOL to USDC swap, so the link names it.
+  window.history.replaceState(null, '', `/solana?amt=0.5&out=${USDC_MINT}`);
   Object.values(toast).forEach((fn) => fn.mockReset());
   connection.getBalance.mockReset().mockResolvedValue(10_000_000_000);
   connection.getParsedTokenAccountsByOwner.mockReset().mockResolvedValue({ value: [] });

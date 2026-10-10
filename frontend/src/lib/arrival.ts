@@ -1,11 +1,13 @@
 import { getActiveBungalow, BAYLA_ART } from './bungalows';
+import { roomSpeaksOn } from './routeVoice';
 // Type only, so this eagerly loaded module never pulls the heat oracle into the entry chunk.
 import type { HeatTier } from './heat/heatOracle';
 
-/** Who the venue speaks as on arrival: 'venue' (nothing chosen), 'toweli' (the TOWELI
- *  bungalow, the classic Tegridy experience whole and untouched) or 'bungalow' (a room
- *  with its own identity). Synchronous and module-scope safe: pathname and localStorage
- *  only. The path is read first so /toweli speaks Tegridy on its very first visit. */
+/** Who the venue speaks as here: 'venue', 'toweli' (the TOWELI bungalow, the classic
+ *  Tegridy experience whole and untouched) or 'bungalow' (a room with its own identity).
+ *  Synchronous and module-scope safe: pathname and localStorage only. The path is read
+ *  first so /toweli speaks Tegridy on its very first visit. The room opened last speaks
+ *  as the farm only on the farm's own pages (roomSpeaksOn): never on a venue route. */
 export type ArrivalVoice = 'venue' | 'toweli' | 'bungalow';
 
 /** Door paths that mean "the TOWELI bungalow", mirroring App.tsx's alias. */
@@ -13,15 +15,22 @@ const TOWELI_PATHS = new Set(['toweli', 'towelie']);
 
 export function arrivalVoice(): ArrivalVoice {
   if (typeof window === 'undefined') return 'venue';
+  return voiceAt(window.location.pathname, window.location.search);
+}
+
+/** arrivalVoice for a given path: what a component that already holds the router's
+ *  location asks, so its answer never trails the address bar. */
+export function voiceAt(pathname: string, search: string): ArrivalVoice {
+  if (typeof window === 'undefined') return 'venue';
   try {
-    const seg = window.location.pathname.split('/')[1]?.toLowerCase() ?? '';
+    const seg = pathname.split('/')[1]?.toLowerCase() ?? '';
     if (TOWELI_PATHS.has(seg)) return 'toweli';
-    const q = new URLSearchParams(window.location.search).get('bungalow');
+    const q = new URLSearchParams(search).get('bungalow');
     if (q === 'toweli') return 'toweli';
   } catch { /* fall through to the stored choice */ }
   const active = getActiveBungalow();
   if (!active) return 'venue';
-  if (active.id === 'toweli') return 'toweli';
+  if (active.id === 'toweli') return roomSpeaksOn(pathname, 'toweli') ? 'toweli' : 'venue';
   return active.identity ? 'bungalow' : 'venue';
 }
 

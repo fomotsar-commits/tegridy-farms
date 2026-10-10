@@ -8,6 +8,11 @@ page keeps the newest thirty days.
 
 ### 2026-10-10
 
+- Shared heat links: a memetics.finance/read link for a wallet the island reads now shows the island's painted card of that wallet when it is posted. A cold wallet, or one the island could not be asked about, keeps the venue's card.
+- Read Heat: each room shows your place in it as the island counts it, for example "12th of 498 measured", on the room's own read and under each room on the card. A wallet the island does not rank shows no place. "Post my number" now starts with the degrees and carries the place in your deepest room.
+- Solana swap: the page opens on SOL to $BAYLA, and inside a Solana bungalow on SOL to that bungalow's coin. A link that names a coin still opens on that coin. $BAYLA is marked as this venue's own coin and asks for no tick box, as it has since 2026-10-08.
+- Home: the chain pills read Solana, Ethereum, Base.
+- After a visit to the TOWELI bungalow, the venue's own pages keep the venue's footer and words, and Towelie stays on the farm's pages. The same goes for every bungalow's footer card. The art and the Swap link still follow the bungalow you opened last, and so does the dashboard.
 - Solana LP: each position now shows what you put in, what it is worth, the fees it earned and how that compares with just holding both tokens. Fees are already inside your pool shares, so there is nothing to claim.
 - Solana LP: each pool card shows its last trade and how much each share has grown since the pool opened, and one press reads its last 20 transactions. The row that read "Fees waiting: venue's share" is now "Venue's cut, not collected yet".
 - Solana LP: two short cards under your positions say how you earn and how the venue earns, with the rates read from the chain and the team's shared wallet as an address you can check.

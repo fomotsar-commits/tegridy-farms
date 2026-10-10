@@ -18,6 +18,7 @@ import { SOL_QUOTE } from '../lib/solana/lp/quotes';
 const USER = new PublicKey('5tzFkiKscXHK5ZXCGbXZxdw7gTjjD1mBwuoFbhUvuAi9');
 const SOL_MINT = 'So11111111111111111111111111111111111111112';
 const BAYLA_MINT = '7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump';
+const USDC_MINT = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
 const PROGRAM = 'EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT';
 const LAUNCH = '64WBTeNcrSHfmBpiqymyifW6FUNNLvJcuiqF9rXmz4q2';
 /** The venue's BAYLA and SOL pool, fee tier 1. */
@@ -770,16 +771,17 @@ describe('the risk tick-box: never for the venue’s own coins, once per token f
   });
 
   it('a verified coin’s ordinary notes are not drawn on the form: only a line that is a real warning', async () => {
-    const USDC_MINT = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
     h.getShield.mockImplementation(async () => ({
       [USDC_MINT]: [
         { type: 'HAS_FREEZE_AUTHORITY', message: 'The authority’s owner has the ability to freeze your token account', severity: 'warning' },
         { type: 'HAS_MINT_AUTHORITY', message: 'The authority’s owner has the ability to mint more tokens', severity: 'info' },
       ],
     }));
-    window.history.replaceState(null, '', '/solana');
+    // The page opens SOL to $BAYLA; this test is about USDC's notes, so the link names it.
+    window.history.replaceState(null, '', `/solana?out=${USDC_MINT}`);
     render(<MemoryRouter><SolanaSwapPage /></MemoryRouter>);
     await screen.findByRole('button', { name: 'Enter an amount' });
+    expect(screen.getByRole('button', { name: /^USDC/ })).toBeInTheDocument();
     await waitFor(() => expect(h.getShield).toHaveBeenCalled());
     await new Promise((r) => setTimeout(r, 50));
     expect(screen.queryByText(/freeze your token account/)).toBeNull();
@@ -865,7 +867,8 @@ describe('a large price impact is said in view, fold or no fold', () => {
 describe('the token picker tells the venue’s BAYLA from its copies', () => {
   const copy = (n: number) => ({ mint: `Copy${String(n).repeat(39)}`.slice(0, 40) + 'pump', symbol: 'BAYLA', name: 'BAYLA', decimals: 6, verified: false, tokenProgram: 'TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb' });
   const openPicker = async () => {
-    window.history.replaceState(null, '', '/solana');
+    // The page opens SOL to $BAYLA; these tests open the Buy list from USDC, so the link names it.
+    window.history.replaceState(null, '', `/solana?out=${USDC_MINT}`);
     render(<MemoryRouter><SolanaSwapPage /></MemoryRouter>);
     fireEvent.click(await screen.findByRole('button', { name: /^USDC/ }));
     return screen.findByRole('dialog', { name: 'Buy' });

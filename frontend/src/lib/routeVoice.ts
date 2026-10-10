@@ -65,6 +65,22 @@ export function routeVoice(pathname: string): RouteVoice {
   return 'venue';
 }
 
+/** The room whose own page this is, by the path alone: its door (/bayla), its lock page
+ *  (/earn/bayla), and for TOWELI its protocol pages. Null on every venue route. */
+export function routeRoomId(pathname: string): string | null {
+  const path = normalize(pathname);
+  if (TOWELI_DOORS.has(path) || TOWELI_ROOM_PATHS.has(path)) return 'toweli';
+  const id = /^\/(?:earn\/)?([^/]+)$/.exec(path)?.[1];
+  return id !== undefined && BUNGALOWS.some((b) => b.id === id) ? id : null;
+}
+
+/** May the room opened last speak here (its words, its footer, Towelie)? Only on its own
+ *  pages (docs/FACE_LAWS.md, law 21). /dashboard is the one route left: it draws that
+ *  room's positions, which have no address of their own yet. */
+export function roomSpeaksOn(pathname: string, roomId: string): boolean {
+  return routeRoomId(pathname) === roomId || normalize(pathname).toLowerCase() === '/dashboard';
+}
+
 /** A TOWELI protocol page (not the room's own doors, which ARE the room). */
 export function isToweliRoomPage(pathname: string): boolean {
   return TOWELI_ROOM_PATHS.has(normalize(pathname));

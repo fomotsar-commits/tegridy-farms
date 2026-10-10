@@ -117,6 +117,66 @@ describe("the footer's chrome follows the route", () => {
   });
 });
 
+/**
+ * THE FARM SPEAKS ONLY IN ITS ROOM (docs/FACE_LAWS.md, law 21). The same rule as above,
+ * carried to the venue's own routes: a room opened last never dresses their footer.
+ * Each case is paired with its counter-test, for the reason given at the top.
+ */
+describe("the footer on a venue route is the venue's, whatever door was opened last", () => {
+  const VENUE_ROUTES = ['/start', '/leaderboard', '/launch', '/nb1', '/swap', '/earn'];
+  const VENUE_SENTENCE = 'Memetic Finance on Jungle Bay Island. Bungalows for meme communities';
+  const FARM_SENTENCE = 'Stake TOWELI & LP tokens to earn rewards';
+  const FARM_MARKET_LINKS = ['Trade on Uniswap', 'Etherscan', 'GeckoTerminal'];
+  const footerText = (path: string) => at(path, <Footer />).container.textContent ?? '';
+
+  it.each(VENUE_ROUTES)('reads the venue sentence on %s after a visit to /toweli', (path) => {
+    walkedThrough('toweli');
+    const text = footerText(path);
+    expect(text).toContain(VENUE_SENTENCE);
+    expect(text).not.toContain(FARM_SENTENCE);
+    expect(text).not.toContain('TOWELI contract');
+  });
+
+  it.each(VENUE_ROUTES)('links to no market of one resident on %s after a visit to /toweli', (path) => {
+    walkedThrough('toweli');
+    const text = footerText(path);
+    for (const label of FARM_MARKET_LINKS) expect(text, label).not.toContain(label);
+  });
+
+  it.each(['/toweli', '/towelie', '/tokenomics', '/earn/toweli'])('KEEPS the farm footer on %s, same storage', (path) => {
+    walkedThrough('toweli');
+    const text = footerText(path);
+    expect(text).toContain(FARM_SENTENCE);
+    expect(text).toContain('TOWELI contract');
+    for (const label of FARM_MARKET_LINKS) expect(text, label).toContain(label);
+  });
+
+  it.each(VENUE_ROUTES)('reads the venue sentence on %s after a visit to /bayla', (path) => {
+    walkedThrough('bayla');
+    const text = footerText(path);
+    expect(text).toContain(VENUE_SENTENCE);
+    expect(text).not.toContain('Bayla bungalow');
+    expect(text).not.toContain('BAYLA contract');
+  });
+
+  it.each(['/bayla', '/earn/bayla'])('KEEPS the resident card on %s, same storage', (path) => {
+    walkedThrough('bayla');
+    const text = footerText(path);
+    expect(text).toContain('Bayla bungalow, Jungle Bay Island.');
+    expect(text).toContain('BAYLA contract');
+  });
+
+  it('follows the room last opened on /dashboard, which draws that room’s positions', () => {
+    walkedThrough('toweli');
+    expect(footerText('/dashboard')).toContain('TOWELI contract');
+    localStorage.clear();
+    walkedThrough('bayla');
+    expect(footerText('/dashboard')).toContain('BAYLA contract');
+    localStorage.clear();
+    expect(footerText('/dashboard')).toContain(VENUE_SENTENCE);
+  });
+});
+
 describe("the nav chip's chrome follows the route", () => {
   const chip = () => screen.getByRole('button', { name: 'Choose your bungalow' });
 

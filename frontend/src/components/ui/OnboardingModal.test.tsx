@@ -31,6 +31,7 @@ function renderWithRouter() {
 describe('OnboardingModal', () => {
   beforeEach(() => {
     localStorage.clear();
+    window.history.replaceState({}, '', '/');
   });
 
   it('renders when localStorage has no onboarding-seen key', () => {
@@ -174,7 +175,9 @@ describe('OnboardingModal', () => {
     // The steps array resolves at module scope (voice is stable per document,
     // switching bungalows reloads), so the toweli variant needs a fresh
     // module graph with the choice already stored — same contract as prod.
+    // Inside the bungalow means on its own page: the stored room speaks nowhere else.
     localStorage.setItem('tegridy-bungalow', 'toweli');
+    window.history.replaceState({}, '', '/toweli');
     vi.resetModules();
     // Import the render helper from the SAME fresh module graph — the reset
     // recreates ThemeContext, and mixing old provider with new consumer
