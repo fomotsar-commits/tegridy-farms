@@ -10,7 +10,7 @@ import type { LpReaders } from '../components/solana/lp/readers';
 // Only the reads, the wallet stack and LP's mode (reads-only, so no write code) are faked.
 const readVenue = vi.fn();
 vi.mock('../lib/solana/cpswap/read', () => ({ readVenue: (...a: unknown[]) => readVenue(...a) }));
-vi.mock('../lib/launcher/solana/curve/rpc', () => ({ browserCurveRpc: () => ({}) }));
+vi.mock('../lib/launcher/solana/curve/rpc', () => ({ browserCurveRpc: () => ({}), browserRpc: () => ({}) }));
 vi.mock('../lib/analytics', () => ({ trackPageView: vi.fn() }));
 vi.mock('../components/solana/SolanaProviders', () => ({ SolanaProviders: ({ children }: { children: ReactNode }) => <>{children}</> }));
 vi.mock('@solana/wallet-adapter-react', () => ({ useWallet: () => ({ publicKey: null }) }));
