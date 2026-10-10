@@ -805,6 +805,40 @@ reading "expired" or "did not land" in a long run as load, ask `getFirstAvailabl
 anything but 0 means the chain forgot. A probe for this has to run past the first drop,
 1,100 slots or more.
 
+## 2026-10-04: a script that sets `scrollLeft` puts the strip where it set it
+
+**Believed:** scroll snap shapes where a finger's flick comes to rest. A script that sets
+`scrollLeft` to show the selected tab is obeyed.
+
+**Measured:** production build, Chromium, the NFT Finance tab strip with `snap-x
+snap-mandatory` and `snap-start` tabs. The browser snaps a scripted scroll too, to the tab
+start nearest the value asked for. At 820px the strip rests at 4 with the fourth tab ending
+flush at its edge. Pressing that tab asked for 28, to leave 24px of room and bring the next
+tab within reach; the strip went back to 4 (the next tab start is 196), and the last tab
+stayed cut 315px. The same code's landings passed at 390 and 820, and a press at 390 asked
+for 138 and got 166, a tab start that happened to leave the tab whole. A test of landings
+alone is green with the snap on.
+
+**Do:** on a strip that code scrolls to a computed offset, drop mandatory snap, or compute
+the offset as one of its snap points. Test it by walking: press, check, press the next.
+
+## 2026-10-04: a test that clicks a tab shows what a visitor's press does
+
+**Believed:** `locator.click()` on a tab cut by its scrolling strip tests the press.
+
+**Measured:** Playwright scrolls its target into view before it clicks. On the pre-fix
+build, where a real press on a cut tab selects it and leaves it cut 110px,
+`tabs.last().click()` took the strip's `scrollLeft` from 4 to 562 by itself and the tab was
+whole. A bare `page.mouse.click(x, y)` inside the part of the tab that shows left the strip
+at 4. Two more things the bare press needs: `elementFromPoint(x, y)` read in the same
+`evaluate` as the point, to prove the press lands on the tab; and the strip brought back to
+the middle of the window before every press. Centred once at the start, the second press
+no longer hit a tab (the hit came back null: each press swaps in a section of another
+height). Centred before every press, all of them landed, in four browser projects.
+
+**Do:** to test what a press does to a scroll position, press by coordinates. A locator
+click proves only that the control works once something has scrolled it into view.
+
 ## 2026-10-04: a new card that passes on a phone means the change passes on a phone
 
 **Believed:** the burn tracker was checked on phones: every new card at 320, 393, 810 and
