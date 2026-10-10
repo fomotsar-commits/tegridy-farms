@@ -364,6 +364,38 @@ config: a fake clock, a body that only ends by being aborted, and the assertion 
 read ends exactly when a silent host's does. When you buffer a body a library would have
 streamed, keep its size limit.
 
+## 2026-10-07: moving the body read under the timer is the whole fix, and an AbortError fake proves it
+
+**Believed:** a hand-written `fetch` whose timer is cleared at the headers needs one line
+moved, and a test fake whose body rejects with an `AbortError` when the request is aborted
+shows the fix works.
+
+**Measured:** vitest 5.0.3 on Node 24.13.0, ten sites fixed in one round.
+
+- The fake decides what the test can see. Each fix was mutated to ask the error's name
+  (`e.name === 'AbortError'`) where it asks the controller's signal. With a body that
+  errors as an `AbortError`, 4 of 5 mutations passed every test. With a body that errors as
+  a `SyntaxError`, which is what half a JSON body is to a parser, 5 of 5 failed.
+- In three sites the `finally` that stopped the timer at the headers also removed the
+  caller's abort listener. A caller that cancelled 1 s into the body read was ignored: the
+  call was still pending after the 30 s watched.
+- In two sites one timer was shared by a three-attempt retry loop and cleared at the first
+  headers. After a 500 the second attempt had no timer: still pending after the 120 s
+  watched. A request that was never answered ended after 33 s and 3 requests where 30 s and
+  1 were meant, because the loop slept and retried twice on a signal already aborted.
+- The scan for the shape had been run over `frontend/`. Run over the repo (1,125 files) it
+  found a tenth site, in the Solana indexer, a process with nothing else to end the wait.
+- The code under test loaded a mocked library with `await import()` on first use. On the
+  fake clock the first test gave up before that load ended, and its call ran on into the
+  next two tests, which reached the real class: 3 of 16 failed until the test file
+  imported the library statically. Why the real class was reached was not established.
+
+**Do:** make the fake body fail as a parse error, and mutation-check the fix by making it
+ask the error's name. Before moving a body read under its timer, list what else the same
+`finally` undoes and what else shares the timer, and test each. Run a shape scan over the
+repo, not the folder the first hit was in. Import statically, in the test file, whatever
+the code under test imports lazily.
+
 ## 2026-10-06: a lookup that derives one address answers about that address, not about "our pool"
 
 **Believed:** the Solana swap page compared "our pool for this pair" with Jupiter, so a line

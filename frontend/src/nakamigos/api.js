@@ -487,14 +487,20 @@ async function fetchNativeOrderbookActivity({ contract = CONTRACT, daysBack = 30
       sort: "created_at",
       limit: "50",
     });
+    // 10 s for the headers and the body together: fetchActivity waits on this read, so
+    // an orderbook that stops part-way must not hold the whole feed.
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 10000);
     // Forward caller's abort signal
     if (signal) signal.addEventListener("abort", () => controller.abort());
-    const res = await fetch(`/api/orderbook?${params}`, { signal: controller.signal });
-    clearTimeout(timeout);
-    if (!res.ok) return [];
-    const data = await res.json();
+    let data;
+    try {
+      const res = await fetch(`/api/orderbook?${params}`, { signal: controller.signal });
+      if (!res.ok) return [];
+      data = await res.json();
+    } finally {
+      clearTimeout(timeout);
+    }
     const orders = data.orders || [];
     const cutoff = Date.now() - daysBack * 86400 * 1000;
     return orders

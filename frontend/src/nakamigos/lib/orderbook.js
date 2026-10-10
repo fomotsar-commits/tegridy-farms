@@ -40,12 +40,13 @@ async function throwHttpError(r, fallback) {
   throw err;
 }
 
-async function withRetry(fn, retries = 2) {
+async function withRetry(fn, retries = 2, signal) {
   for (let i = 0; i <= retries; i++) {
     try { return await fn(); } catch (e) {
       // Callers tag deterministic rejections (4xx) with noRetry: the answer will not
       // change, and retrying re-runs the server's expensive per-item on-chain checks.
-      if (e?.noRetry || i === retries) throw e;
+      // A `signal` that has aborted has spent its time: a retry on it can only fail.
+      if (e?.noRetry || i === retries || signal?.aborted) throw e;
       await new Promise(r => setTimeout(r, 1000 * (i + 1)));
     }
   }
@@ -482,12 +483,14 @@ export async function createNativeListing({ contract, tokenId, priceEth, expirat
     const authMessage = `Create order for ${sellerAddress.toLowerCase()} | Contract: ${contract.toLowerCase()} | Price: ${sellerReceives.toString()} | StartTime: ${now} | EndTime: ${endTime}`;
     const authSignature = await signer.signMessage(authMessage);
 
-    // Submit to our orderbook
+    // Submit to our orderbook. One 30 s budget covers every attempt and the reading of
+    // each answer. An abort during a read can come back as a parse error, so the
+    // controller's signal, not the error's name, says whether the time ran out.
     const createController = new AbortController();
     const createTimeout = setTimeout(() => createController.abort(), 30000);
-    let res;
+    let result;
     try {
-      res = await withRetry(async () => {
+      const res = await withRetry(async () => {
         const r = await fetch(ORDERBOOK_API, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -507,13 +510,17 @@ export async function createNativeListing({ contract, tokenId, priceEth, expirat
             },
           }),
         });
-        clearTimeout(createTimeout);
         if (!r.ok) await throwHttpError(r, "Failed to submit order");
         return r;
-      });
+      }, 2, createController.signal);
+      try {
+        result = await res.json();
+      } catch (parseErr) {
+        if (createController.signal.aborted) throw parseErr;
+        return { error: "post-failed", message: "Invalid response from orderbook" };
+      }
     } catch (fetchErr) {
-      clearTimeout(createTimeout);
-      if (fetchErr.name === "AbortError") return { error: "timeout", message: "Order submission timed out" };
+      if (createController.signal.aborted) return { error: "timeout", message: "Order submission timed out" };
       // The server refuses (409) when this NFT is already inside a live bundle. Pass the
       // structured body through so the caller can tell the seller what to cancel.
       if (fetchErr.status === 409) {
@@ -524,10 +531,9 @@ export async function createNativeListing({ contract, tokenId, priceEth, expirat
         };
       }
       throw fetchErr;
+    } finally {
+      clearTimeout(createTimeout);
     }
-
-    let result;
-    try { result = await res.json(); } catch { return { error: "post-failed", message: "Invalid response from orderbook" }; }
     return { success: true, orderHash: result.orderHash };
   } catch (err) {
     if (err.code === 4001 || err.code === "ACTION_REJECTED") {
@@ -689,11 +695,13 @@ export async function createNativeBundleListing({ items, priceEth, expirationHou
     const authMessage = `Create bundle for ${sellerAddress.toLowerCase()} | Items: ${itemsStr} | Count: ${items.length} | Price: ${sellerReceives.toString()} | StartTime: ${now} | EndTime: ${endTime}`;
     const authSignature = await signer.signMessage(authMessage);
 
+    // One 30 s budget for every attempt and each answer's body, as in createNativeListing:
+    // the controller's signal, not the error's name, says whether the time ran out.
     const createController = new AbortController();
     const createTimeout = setTimeout(() => createController.abort(), 30000);
-    let res;
+    let result;
     try {
-      res = await withRetry(async () => {
+      const res = await withRetry(async () => {
         const r = await fetch(ORDERBOOK_API, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -710,13 +718,17 @@ export async function createNativeBundleListing({ items, priceEth, expirationHou
             },
           }),
         });
-        clearTimeout(createTimeout);
         if (!r.ok) await throwHttpError(r, "Failed to submit bundle");
         return r;
-      });
+      }, 2, createController.signal);
+      try {
+        result = await res.json();
+      } catch (parseErr) {
+        if (createController.signal.aborted) throw parseErr;
+        return { error: "post-failed", message: "Invalid response from orderbook" };
+      }
     } catch (fetchErr) {
-      clearTimeout(createTimeout);
-      if (fetchErr.name === "AbortError") return { error: "timeout", message: "Bundle submission timed out" };
+      if (createController.signal.aborted) return { error: "timeout", message: "Bundle submission timed out" };
       // Surface the server's structured conflict so the UI can tell the seller WHICH
       // bundle blocks them instead of an opaque failure they cannot act on.
       if (fetchErr.status === 409) {
@@ -727,10 +739,9 @@ export async function createNativeBundleListing({ items, priceEth, expirationHou
         };
       }
       throw fetchErr;
+    } finally {
+      clearTimeout(createTimeout);
     }
-
-    let result;
-    try { result = await res.json(); } catch { return { error: "post-failed", message: "Invalid response from orderbook" }; }
     return { success: true, orderHash: result.orderHash };
   } catch (err) {
     if (err.code === 4001 || err.code === "ACTION_REJECTED") {
