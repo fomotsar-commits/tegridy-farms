@@ -1,39 +1,13 @@
-/* Tegridy Farms app-shell service worker.
- *
- * THE ONE RULE: this worker may never answer a question about the chain.
- *
- * A cache that serves a stale read as a fresh one is worse than no cache at
- * all, because the staleness is invisible — a balance, a price, a pool reserve
- * or an allowance handed back from disk looks exactly like one read a moment
- * ago, and every honesty gate in the app above it is bypassed by the time the
- * value reaches a component. So this worker caches EXACTLY two things: the
- * offline notice, and build assets that are content-addressed and therefore
- * cannot go stale. Nothing else is cached, ever, under any storage pressure.
- *
- * The corollary is the shape of the fetch handler: it calls respondWith() only
- * for the requests it actually owns and RETURNS for everything else, leaving the
- * browser's own networking untouched. That is deliberate twice over. It keeps
- * API and RPC traffic out of any cache by construction rather than by an
- * exclusion list somebody has to maintain, and it keeps third-party requests out
- * of the worker entirely — a worker that re-issued them with its own fetch()
- * would be subject to the worker's connect-src, and vercel.json's CSP would
- * start refusing aggregator and RPC calls that work fine today.
- *
- * SCOPE. Registered at "/" from src/lib/pwa/serviceWorker.ts, which refuses to
- * register when the nakamigos push worker already owns that scope — read the
- * comment there before changing either side.
- *
- * NO BACKGROUND WORK. No periodic sync, no background fetch, no push handling
- * (that is /push-sw.js's job and its alone). This venue runs no keeper and this
- * file must not imply otherwise.
- */
+/* The app-shell service worker, registered at "/" by src/lib/pwa/serviceWorker.ts,
+ * which yields the scope to the notification worker (/push-sw.js).
+ * THE ONE RULE: this worker never answers a question about the chain. A balance or
+ * a price served from disk looks like one read a moment ago. So it caches two things
+ * only, under any storage pressure: the offline notice, and build assets.
+ * No push, no sync, no background fetch: this venue runs no keeper. */
 
-// BUMP THIS WHENEVER offline.html CHANGES. `install` is the only thing that
-// populates SHELL_CACHE, and it re-runs only when THIS file changes byte-wise —
-// so editing the offline page alone leaves every returning visitor on the copy
-// their worker cached, indefinitely. v1 -> v2 on 2026-09-03, when the offline
-// page dropped the retired brand and stopped claiming an indexer that is hosted
-// nowhere. The cache NAMES keep their `tegridy-` prefix on purpose: they are
+// BUMP THIS WHENEVER offline.html CHANGES. Only `install` fills SHELL_CACHE, and it
+// runs again only when THIS file changes byte-wise. A bump also empties every
+// visitor's asset cache. The cache NAMES keep their `tegridy-` prefix: they are
 // storage keys, and `activate` deletes anything not in KEEP.
 const VERSION = 'v2';
 const SHELL_CACHE = `tegridy-shell-${VERSION}`;
@@ -42,14 +16,11 @@ const KEEP = [SHELL_CACHE, ASSET_CACHE];
 
 const OFFLINE_URL = '/offline.html';
 
-/* Prefixes whose contents are immutable for the life of a deployment —
- * vercel.json serves both with `max-age=31536000, immutable`, because the
- * filenames carry a content hash (/assets) or never change (/fonts). Cache-first
- * is safe ONLY because of that: a hit is byte-identical to what the network
- * would return, so there is no such thing as a stale answer here.
- *
- * /art is deliberately absent despite being static-ish: it is served with a
- * 7-day max-age, the art-studio rewrites it, and it is large. */
+/* Paths vercel.json serves with `max-age=31536000, immutable`: a name carries a
+ * content hash (/assets) or never changes (/fonts). Cache-first is safe ONLY because
+ * of that: a stored file is the file the host would send. The one exception is a
+ * name the host does not have: see isPage().
+ * /art is deliberately absent: a 7-day max-age, rewritten by the art studio, large. */
 const IMMUTABLE_PREFIXES = ['/assets/', '/fonts/'];
 
 function isImmutableAsset(pathname) {
@@ -59,14 +30,13 @@ function isImmutableAsset(pathname) {
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(SHELL_CACHE).then((cache) =>
-      // `reload` so an install never adopts whatever the HTTP cache happens to
-      // be holding for the offline page.
+      // `reload`: an install never adopts what the browser's cache holds for this page.
       cache.add(new Request(OFFLINE_URL, { cache: 'reload' })),
     ),
   );
-  // skipWaiting() is NOT called. A worker that takes over mid-session can start
-  // serving a new deployment's asset cache to a page built against the old one.
-  // The update lands on the next navigation instead.
+  // skipWaiting() is NOT called. A worker that takes over mid-session can serve a
+  // new deployment's asset cache to a page built against the old one. The update
+  // lands on the next navigation.
 });
 
 self.addEventListener('activate', (event) => {
@@ -78,15 +48,10 @@ self.addEventListener('activate', (event) => {
   );
 });
 
-/* Network first, and the offline notice ONLY as a last resort.
- *
- * Note what is not here: the cached document is never index.html. Booting the
- * app from cache with no network would render every panel's own "unavailable"
- * state, which is honest — but it would also render the app's chrome, its
- * headline numbers' placeholders and its persisted local state, and a reader
- * arriving at a full-looking app has to work out for themselves that none of it
- * was read. A page that says "you are offline" and shows nothing else cannot be
- * misread. */
+/* Network first, and the offline notice ONLY when the network fails. The cached
+ * document is never index.html: an app booted from disk shows its chrome and its
+ * stored local state, and the reader has to work out that none of it was read. A
+ * page that says "you are offline" and shows nothing else cannot be misread. */
 async function navigateOrExplainOffline(request) {
   try {
     return await fetch(request);
@@ -121,8 +86,7 @@ async function immutableAsset(request) {
   if (isPage(response)) response = await fetch(request, { cache: 'reload' });
 
   // `basic` excludes opaque and CORS responses; 200 excludes partials and
-  // redirects. Storing either would put something in the cache whose freshness
-  // and completeness this worker cannot reason about.
+  // redirects. This worker cannot tell whether either is fresh or whole.
   if (response && response.status === 200 && response.type === 'basic' && !isPage(response)) {
     cache.put(request, response.clone());
   }
@@ -132,8 +96,11 @@ async function immutableAsset(request) {
 self.addEventListener('fetch', (event) => {
   const request = event.request;
 
-  // Anything that is not a plain same-origin GET is left entirely alone: the
-  // browser performs it exactly as it would with no worker installed.
+  // respondWith() is called only for the requests this worker owns. Every `return`
+  // below leaves the request to the browser, as with no worker installed. So API
+  // and RPC traffic meets no cache, with no exclusion list to maintain, and no
+  // third-party request is re-issued by the worker, where its connect-src (the CSP
+  // in vercel.json) would refuse aggregator and RPC calls that work today.
   if (request.method !== 'GET') return;
   if (request.headers && request.headers.has('range')) return;
 
@@ -145,9 +112,9 @@ self.addEventListener('fetch', (event) => {
   }
   if (url.origin !== self.location.origin) return;
 
-  // Same-origin API traffic. Already excluded by the allowlist below — repeated
-  // as an explicit early return because this is the one path where a future
-  // "just cache the GETs" change would silently start serving stale chain reads.
+  // Same-origin API traffic. The two branches below already leave it out. It has
+  // its own return because this is the one path where a "just cache the GETs"
+  // change would start serving stale chain reads.
   if (url.pathname === '/api' || url.pathname.startsWith('/api/')) return;
 
   if (request.mode === 'navigate') {
@@ -159,6 +126,6 @@ self.addEventListener('fetch', (event) => {
     event.respondWith(immutableAsset(request));
   }
 
-  // Everything else — HTML fragments, /art, the manifests, anything new someone
-  // adds under public/ — falls through uncached and unintercepted.
+  // Everything else (HTML fragments, /art, the manifests, anything new under
+  // public/) falls through, uncached and unintercepted.
 });

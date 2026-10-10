@@ -1,15 +1,8 @@
-// public/sw.js, executed.
-//
-// The worker ships as a static file, so no import can reach it and no type
-// checker looks at it — it is the one piece of this slice that could rot in
-// silence while every other test stayed green. It is therefore loaded from disk
-// and run against a stubbed service-worker global here, and the assertions are
-// about the property that makes it safe to ship at all: it must never be able to
+// public/sw.js, executed. The worker ships as a static file: no import reaches it and
+// no type checker reads it. So it is loaded from disk and run against a stubbed
+// service-worker global. The assertions are about behaviour: which requests it takes
+// over, what it stores, and what it returns when the network is gone. It must never
 // hand back a cached answer to a question about the chain.
-//
-// A source-text grep would have been cheaper and would prove nothing. What
-// matters is behaviour: which requests it takes over, what it stores, and what
-// it returns when the network is gone.
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
