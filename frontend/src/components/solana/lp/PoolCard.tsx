@@ -254,7 +254,7 @@ export function PoolCard({
   return (
     <li
       ref={cardRef}
-      className={`${CARD} scroll-mt-[4.5rem]`}
+      className={CARD}
       style={CARD_STYLE}
       data-testid="lp-pool"
       data-pool={view.address}
@@ -492,7 +492,7 @@ function DepositOfferBlock({
           <button
             ref={addButton}
             type="button"
-            className="btn-primary w-full sm:w-auto min-h-[44px] px-4 text-[13px] disabled:opacity-60 scroll-mt-[4.5rem]"
+            className="btn-primary w-full sm:w-auto min-h-[44px] px-4 text-[13px] disabled:opacity-60"
             disabled={blockedByOther}
             aria-expanded={open}
             onClick={(e) => writes.open('add', key, e.currentTarget)}
@@ -544,7 +544,7 @@ export function UnreadPoolCard({
   const shownFor = useShownFor(showNow);
   const whyId = useId();
   return (
-    <li ref={cardRef} className={`${CARD} scroll-mt-[4.5rem]`} style={CARD_STYLE} data-testid="lp-pool" data-pool={entry.address} data-deposits="unchecked" data-swaps="unread">
+    <li ref={cardRef} className={CARD} style={CARD_STYLE} data-testid="lp-pool" data-pool={entry.address} data-deposits="unchecked" data-swaps="unread">
       <h3 ref={headingRef} tabIndex={-1} aria-describedby={shownFor ? whyId : undefined} className="text-white font-semibold text-[13px] mb-1 outline-none" style={SHADOW}>Pool not read</h3>
       {shownFor > 0 && <WishWhy id={whyId} why="this pool could not be read just now. Press Add more liquidity on your position again in a minute." />}
       <div className="text-white/60 text-[11px] leading-relaxed space-y-2">

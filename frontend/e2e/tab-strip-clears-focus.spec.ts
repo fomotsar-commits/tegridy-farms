@@ -126,7 +126,9 @@ for (const path of PAGES) {
  * still lands just under the strip: the margin is air, the scrollport clears the strip.
  */
 const MOST_AIR_PX = 80;
-const SCROLL_TARGETS: Record<string, number> = { '/solana-lp': 2, '/liquidity': 1, '/privacy': 1 };
+// /solana-lp: the status card. The LP section's own scroll targets carry no margin
+// (src/components/solana/lp/scrollTargets.test.ts), so they land 18px under the strip.
+const SCROLL_TARGETS: Record<string, number> = { '/solana-lp': 1, '/liquidity': 1, '/privacy': 1 };
 
 for (const [path, atLeast] of Object.entries(SCROLL_TARGETS)) {
   test(`${path}: a section that is scrolled to lands within ${MOST_AIR_PX}px under the tab strip`, async ({ page, walletMock: _w }) => {

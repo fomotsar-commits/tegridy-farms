@@ -364,7 +364,7 @@ export function PoolFinder({
     <section data-testid="lp-finder" aria-label="Find pools for a token" className="space-y-4">
       <Card title={tasks.length > 0 ? 'Create a pool, add or remove liquidity' : 'Find pools for a token'}>
         {tasks.length > 0 && (
-          <div ref={tasksRef} data-testid="lp-tasks" className="space-y-2 scroll-mt-[4.5rem]">
+          <div ref={tasksRef} data-testid="lp-tasks" className="space-y-2">
             <div className="flex gap-2" role="group" aria-label="What do you want to do?">
               {tasks.map((t) => (
                 <button
@@ -451,8 +451,9 @@ export function PoolFinder({
         </form>
       </Card>
 
-      {/* Where a lookup the visitor asked for scrolls to: clear of the fixed bar and tabs. */}
-      <div ref={answerRef} data-testid="lp-answer" className="scroll-mt-[4.5rem]" />
+      {/* Where a lookup the visitor asked for scrolls to. The page's scroll-padding
+          (index.css) keeps it clear of the fixed bar and the tabs. */}
+      <div ref={answerRef} data-testid="lp-answer" />
 
       <p role="status" aria-live="polite" className="sr-only" data-testid="lp-status">
         {state.status === 'loading' ? 'Reading the token and its pools.' : state.status === 'done' ? `${announce(state)}${unfoundLine ? ` ${unfoundLine}` : ''}` : ''}
