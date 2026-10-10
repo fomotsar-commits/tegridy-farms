@@ -612,30 +612,17 @@ body,
   transition: background-color 0.3s ease, color 0.3s ease, border-color 0.3s ease;
 }
 
-/* ─── Accessibility: keep fixed chrome from swallowing whatever we scroll to ───
- *
- * Found while diagnosing an E2E click timeout; it is an app defect, not a test
- * one, and it is the reason the launch door's audit toggle was unclickable.
- *
- * Two bars overlay the scrollport and neither is in flow:
- *   header  .fixed top-0 … z-50            56px tall, every width
- *   nav[aria-label="Main navigation"]      65px tall, below 800px only
- *                                          (BottomNav, min-[800px]:hidden — was
- *                                          sm:hidden until 2026-09-03)
- *
- * Nothing reserved room for them on the scroll container, so every scroll-into-view
- * the browser performs — an in-page anchor, a `:target` jump, focus moving to an
- * off-screen control, find-in-page, `element.scrollIntoView()` — aligns the element
- * flush to a viewport edge and parks it UNDERNEATH one of the bars. Measured on a
- * 412×763 viewport: the launch door's audit toggle sits at document y=945; top
- * alignment puts it at y=36 (under the 0–56 header) and bottom alignment at y=709
- * (under the 698–763 nav). It is only reachable by the one alignment nothing picks.
- *
- * WCAG 2.4.11 Focus Not Obscured (Minimum) is the standard this violates.
- * `scroll-padding` is the scrollport's own answer and costs no layout.
- */
+/* ─── Accessibility: fixed chrome never covers what the browser scrolls to ───
+ * The 56px top bar and, below 800px, the 65px BottomNav lie over the scrollport, so it
+ * reserves their room for every focus, anchor and scrollIntoView (WCAG 2.4.11). While
+ * RouteTabs is mounted it reserves the tab strip too: the strip ends at 122px, and
+ * Safari lands a focused text field up to 15px above its line of text. The TOWELI room
+ * band adds nothing: while it shows, the strip is inside room the page already left. */
 html {
   scroll-padding-top: 64px;
+}
+html.has-route-tabs {
+  scroll-padding-top: 140px;
 }
 /* Tracks the BottomNav's own breakpoint (min-[800px]:hidden) — see index.css's
    safe-area-content-bottom note and TopNav.tsx. */

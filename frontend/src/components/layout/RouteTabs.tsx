@@ -74,11 +74,26 @@ function TabLabel({ item }: { item: NavItem }) {
   );
 }
 
+/* While a strip is mounted <html> carries this class, and index.css keeps whatever the
+   browser scrolls to below the strip. Counted, because a route change can mount two. */
+const SCROLLPORT_CLASS = 'has-route-tabs';
+let mountedStrips = 0;
+
 export function RouteTabs({ idPrefix, ariaLabel, items, active, onSelect }: RouteTabsProps) {
   const keys = items.map((i) => i.to);
   const tabKeys = useTabListKeys(keys, active, onSelect);
   const listRef = useRef<HTMLDivElement>(null);
   const keyList = keys.join(' ');
+
+  // Before paint and before any effect that scrolls, so the first scroll already clears it.
+  useLayoutEffect(() => {
+    mountedStrips += 1;
+    document.documentElement.classList.add(SCROLLPORT_CLASS);
+    return () => {
+      mountedStrips -= 1;
+      if (mountedStrips === 0) document.documentElement.classList.remove(SCROLLPORT_CLASS);
+    };
+  }, []);
 
   /* A strip that scrolls shows the selected tab whole: on landing, on a new
      selection, and when the strip or a tab resizes (web fonts, rotation). It

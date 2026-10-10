@@ -26,6 +26,7 @@ page keeps the newest thirty days.
 - In the marketplace, when a transaction's result cannot be read, the site says it cannot tell and links to Etherscan, instead of saying it failed and offering Retry.
 - In the marketplace, a transaction you cancelled or replaced in your wallet says it did not happen, and one that reverted says it reverted.
 - The marketplace's Speed Up button follows the faster transaction it sent, and sends nothing for a purchase that already confirmed.
+- On every page with a row of section tabs under the top bar (Pools, Earn, Launch, Stats, Trust & Safety and the rest), a button or field you move to with the keyboard, and a section a link jumps to, now stops below the tabs. It used to stop behind them, where it could not be seen or pressed.
 
 ### 2026-10-08
 
