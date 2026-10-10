@@ -200,6 +200,29 @@ page: they count and find it whether or not anyone can see it.
 Draw that case outside the fold. A test that finds text in a closed fold proves the text
 exists, not that it is shown: assert it is not inside the `details`.
 
+## 2026-10-07: a request timeout covers the whole request
+
+**Believed:** a transport's timeout ends any request that is not answered in time. So
+"viem gives up after 10 s per endpoint" means an Ethereum or Base read is never waited on
+for longer than that, and a hand-written timer copied from it bounds the read the same way.
+
+**Measured:** viem 2.56.8 on Node 24.13.0, its `http` transport with no retries, against two
+local servers. One never answers: the request threw `TimeoutError` after 10.1 s. One sends
+a 200, its headers and half a JSON body, then nothing: the request was still pending after
+the 30 s watched. viem's timer wraps only the `fetch` call and is cleared when the headers
+land; the body is read after it, with no clock. The same shape written by hand for the
+Solana transport (`browserRpc`), with the clock stopped at the headers, passed 39 of its 40
+tests. The one that failed used a response whose `json()` never ends. A second trap sat
+beside it: an abort that lands during the body read does not come back as an abort. With a
+fake whose `json()` rejects as a browser's does, the call reported "the response was not
+JSON (The operation was aborted.)", because the wrapper around the parse caught it first.
+
+**Do:** keep the timer running until the body has been read, and clear it in a `finally`.
+Decide "timed out" from the controller (`signal.aborted`), never from the error's name or
+message. Test with two fakes: a fetch that only ends by being aborted, and a response whose
+`json()` only ends by being aborted. Before leaning on a library's timeout, run it against
+a server that sends headers and half a body.
+
 ## 2026-10-06: a lookup that derives one address answers about that address, not about "our pool"
 
 **Believed:** the Solana swap page compared "our pool for this pair" with Jupiter, so a line
