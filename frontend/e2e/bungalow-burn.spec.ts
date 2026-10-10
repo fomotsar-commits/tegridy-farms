@@ -401,6 +401,24 @@ test.describe('the burn card, read and fitted', () => {
       };
     });
     expect(clipped).toEqual({ ellipsis: false, overflowX: 0, pastRow: 0 });
+
+    // Every other row of that panel too. "1,000,000,000" cannot break, so on the narrowest
+    // phones it ran past its own box and under the tick beside it; a value that does not fit
+    // beside its label must drop under it instead.
+    const panelMisfits = await rowLink.evaluate((a) => {
+      const bad: string[] = [];
+      for (const row of a.parentElement!.querySelectorAll('a')) {
+        const value = [...row.querySelectorAll('span')].find((el) => el.classList.contains('stat-value'))!;
+        const tick = row.querySelector('[aria-label="verified"]');
+        const over = value.scrollWidth - value.clientWidth;
+        const v = value.getBoundingClientRect();
+        const t = tick?.getBoundingClientRect();
+        const underTick = t ? Math.round(v.left + value.scrollWidth - t.left) : 0;
+        if (over > 0 || underTick > 0) bad.push(`"${value.textContent}" overflows its box by ${over}px, reaches ${underTick}px into the tick`);
+      }
+      return bad;
+    });
+    expect(panelMisfits).toEqual([]);
     expect(await slidSideways(page), 'the page slid sideways').toBe(0);
   });
 });
