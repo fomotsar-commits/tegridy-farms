@@ -130,7 +130,7 @@ describe('minLpForBothSides: the program’s 6006 boundary, both directions', ()
 });
 
 describe('planDeposit', () => {
-  const base = { solIsToken0: true, bps: 100n, availableSol: null, availableToken: null } as const;
+  const base = { quoteIsToken0: true, bps: 100n, availableQuote: null, availableToken: null } as const;
 
   it('refuses a deposit with a zero side (r1: S=1000, R0=5 and one share costs {0, 5})', () => {
     const s = snap(1_000n, 5n, 5_000n);
@@ -140,29 +140,29 @@ describe('planDeposit', () => {
   });
 
   it('refuses a typed amount too small to buy one share', () => {
-    expect(planDeposit(snap(1_000n, 5_000n, 5_000n), { ...base, driving: 'sol', maxIn: 1n })).toMatchObject({ problem: 'too-small' });
+    expect(planDeposit(snap(1_000n, 5_000n, 5_000n), { ...base, driving: 'quote', maxIn: 1n })).toMatchObject({ problem: 'too-small' });
   });
 
   it('refuses past u64: a value, a maximum of u64::MAX, and a supply after the deposit', () => {
     // A value past u64: the share count itself.
-    expect(planDeposit(snap(U64_MAX, 1n, 1n), { ...base, driving: 'sol', maxIn: 1n << 70n })).toEqual({ problem: 'overflow' });
+    expect(planDeposit(snap(U64_MAX, 1n, 1n), { ...base, driving: 'quote', maxIn: 1n << 70n })).toEqual({ problem: 'overflow' });
     // A maximum of u64::MAX means "no limit"; it is never carried.
-    expect(planDeposit(snap(1_000n, 10n ** 18n, 10n ** 18n), { ...base, driving: 'sol', maxIn: U64_MAX })).toEqual({ problem: 'overflow' });
+    expect(planDeposit(snap(1_000n, 10n ** 18n, 10n ** 18n), { ...base, driving: 'quote', maxIn: U64_MAX })).toEqual({ problem: 'overflow' });
     // The pool's supply after the deposit must still fit a u64.
     const nearFull = snap(U64_MAX - 10n, 10n ** 9n, 10n ** 9n);
-    expect(planDeposit(nearFull, { ...base, driving: 'sol', maxIn: 10n ** 9n })).toEqual({ problem: 'overflow' });
+    expect(planDeposit(nearFull, { ...base, driving: 'quote', maxIn: 10n ** 9n })).toEqual({ problem: 'overflow' });
   });
 
   it('refuses a pool with no price', () => {
-    expect(planDeposit(snap(0n, 5n, 5n), { ...base, driving: 'sol', maxIn: 100n })).toEqual({ problem: 'no-price' });
-    expect(planDeposit(snap(10n, 0n, 5n), { ...base, driving: 'sol', maxIn: 100n })).toEqual({ problem: 'no-price' });
+    expect(planDeposit(snap(0n, 5n, 5n), { ...base, driving: 'quote', maxIn: 100n })).toEqual({ problem: 'no-price' });
+    expect(planDeposit(snap(10n, 0n, 5n), { ...base, driving: 'quote', maxIn: 100n })).toEqual({ problem: 'no-price' });
     // The empty side is not the one typed in: still no price, never "too small".
     expect(planDeposit(snap(10n, 0n, 5n), { ...base, driving: 'token', maxIn: 100n })).toEqual({ problem: 'no-price' });
   });
 
   it('the driving side’s maximum is exactly the typed number; the other side’s is the cost plus the tolerance, rounded up', () => {
     const s = snap(1_000_000n, 10n ** 9n, 10n ** 12n); // SOL = token0
-    const p = ok(planDeposit(s, { ...base, driving: 'sol', maxIn: 1_000_000n }));
+    const p = ok(planDeposit(s, { ...base, driving: 'quote', maxIn: 1_000_000n }));
     expect(p.max0).toBe(1_000_000n);
     expect(p.cost0 <= p.max0).toBe(true);
     expect(p.max1).toBe(maxInFor(p.cost1, 100n));
@@ -177,33 +177,33 @@ describe('planDeposit', () => {
     // lp_supply 10^12 while the mint might hold only a sliver of that: the share is S-based.
     const S = 10n ** 12n;
     const s = snap(S, 10n ** 9n, 10n ** 15n);
-    const p = ok(planDeposit(s, { ...base, driving: 'sol', maxIn: 10n ** 7n }));
+    const p = ok(planDeposit(s, { ...base, driving: 'quote', maxIn: 10n ** 7n }));
     expect(p.lp).toBe((10n ** 7n * S * 10_000n) / (10n ** 9n * 10_100n));
     expect(p.lp).toBeGreaterThan(9_000_000_000n);
   });
 
   it('lowers the other side’s maximum to the balance when the cost still fits, and refuses when it does not', () => {
     const s = snap(1_000_000n, 10n ** 9n, 10n ** 12n); // SOL = token0, 1,000 tokens per lamport
-    const want = ok(planDeposit(s, { ...base, driving: 'sol', maxIn: 1_000_000n }));
+    const want = ok(planDeposit(s, { ...base, driving: 'quote', maxIn: 1_000_000n }));
     // A token balance between the cost and the maximum: the maximum becomes the balance.
     const between = want.cost1 + (want.max1 - want.cost1) / 2n;
-    const limited = ok(planDeposit(s, { ...base, driving: 'sol', maxIn: 1_000_000n, availableToken: between }));
+    const limited = ok(planDeposit(s, { ...base, driving: 'quote', maxIn: 1_000_000n, availableToken: between }));
     expect(limited.max1).toBe(between);
     expect(limited.limitedByBalance).toBe('token');
     // A balance below the cost: refused, with the most both balances allow.
-    const short = planDeposit(s, { ...base, driving: 'sol', maxIn: 1_000_000n, availableToken: want.cost1 - 1n, availableSol: 5_000_000n });
+    const short = planDeposit(s, { ...base, driving: 'quote', maxIn: 1_000_000n, availableToken: want.cost1 - 1n, availableQuote: 5_000_000n });
     expect(short).toMatchObject({ problem: 'over-balance', side: 'token', need: want.cost1, have: want.cost1 - 1n });
     if (!isPlanProblem(short) || short.problem !== 'over-balance') throw new Error('expected over-balance');
     // That most-both amount plans without a problem.
     expect(short.mostBoth).not.toBeNull();
-    const again = planDeposit(s, { ...base, driving: 'sol', maxIn: short.mostBoth!, availableToken: want.cost1 - 1n, availableSol: 5_000_000n });
+    const again = planDeposit(s, { ...base, driving: 'quote', maxIn: short.mostBoth!, availableToken: want.cost1 - 1n, availableQuote: 5_000_000n });
     expect(isPlanProblem(again)).toBe(false);
   });
 
   it('refuses a typed amount above the driving side’s own balance', () => {
     const s = snap(1_000_000n, 10n ** 9n, 10n ** 12n);
-    expect(planDeposit(s, { ...base, driving: 'sol', maxIn: 2_000_000n, availableSol: 1_999_999n })).toMatchObject({
-      problem: 'over-balance', side: 'sol', need: 2_000_000n, have: 1_999_999n,
+    expect(planDeposit(s, { ...base, driving: 'quote', maxIn: 2_000_000n, availableQuote: 1_999_999n })).toMatchObject({
+      problem: 'over-balance', side: 'quote', need: 2_000_000n, have: 1_999_999n,
     });
   });
 });
@@ -332,10 +332,122 @@ describe('openingProblem: the site’s share rule for a new pool', () => {
   });
 });
 
-describe('planCreate: an opening of exactly what was typed', () => {
-  const base = { solIsToken0: true, sol: 1_000_000_000n, token: 5_000_000n, availableSol: 2_000_000_000n, availableToken: 9_000_000n };
+// THE LEAVE RULE for an opening: nobody is let in who cannot be let out. The pool program
+// refuses a withdrawal that pays 0 on a side (withdraw.rs 116-126), and it works the
+// payout out as floor(shares · reserve / supply). An opening with ONE base unit on a side
+// (1 of a token with no decimals, against 10,000 BAYLA) passed every other rule, and the
+// opener's 99.9% of the shares then paid floor(0.999) = 0 of that side: locked for good.
+describe('openingProblem: the opener’s own shares must be able to leave', () => {
+  /** What the pool program pays for `lp` shares of a pool of `S` shares holding `r`: floor, as withdraw.rs. */
+  const pays = (lp: bigint, S: bigint, r: bigint) => (lp * r) / S;
+  const BIG = 10_000_000_000n; // 10,000 USDC or BAYLA, or 10 SOL, in base units
 
-  it('puts SOL on the SOL side, the shares are isqrt, the opener gets supply − 100, and the locked part floors', () => {
+  it('one unit on a side against 10,000 coins: refused, naming which amount is short', () => {
+    // isqrt(1e10) = 100,000 shares: the lock is exactly 0.1%, so no other rule stops it.
+    expect(isqrt(BIG)).toBe(100_000n);
+    expect(openingProblem(BIG, 1n)).toEqual({ problem: 'cannot-leave', supply: 100_000n, short: 1 });
+    expect(openingProblem(1n, BIG)).toEqual({ problem: 'cannot-leave', supply: 100_000n, short: 0 });
+    // And however much is on the other side.
+    expect(openingProblem(U64_MAX, 1n)).toMatchObject({ problem: 'cannot-leave', short: 1 });
+  });
+
+  it('two units on that side can leave (one of the two comes back), so it is not refused', () => {
+    expect(openingProblem(BIG, 2n)).toBeNull();
+    expect(openingProblem(2n, BIG)).toBeNull();
+    const S = isqrt(BIG * 2n);
+    expect(pays(S - LOCKED_LP, S, 2n)).toBe(1n);
+  });
+
+  it('planCreate names the side: the coin’s or the token’s', () => {
+    const a = { quoteIsToken0: true, availableQuote: null, availableToken: null };
+    expect(planCreate({ ...a, quote: BIG, token: 1n })).toEqual({ problem: 'cannot-leave', supply: 100_000n, side: 'token' });
+    expect(planCreate({ ...a, quote: 1n, token: BIG })).toEqual({ problem: 'cannot-leave', supply: 100_000n, side: 'quote' });
+    // Whichever side of the pool the coin sits on: the name follows the coin, not the slot.
+    expect(planCreate({ ...a, quoteIsToken0: false, quote: BIG, token: 1n })).toMatchObject({ problem: 'cannot-leave', side: 'token' });
+    expect(planCreate({ ...a, quoteIsToken0: false, quote: 1n, token: BIG })).toMatchObject({ problem: 'cannot-leave', side: 'quote' });
+  });
+
+  it('every small opening the rule lets through can be taken out whole, and every one it refuses for this could not', () => {
+    let through = 0;
+    let stopped = 0;
+    for (const big of [BIG, 10n ** 12n, 10n ** 15n, U64_MAX]) {
+      for (let small = 1n; small <= 50n; small++) {
+        for (const [a0, a1] of [[small, big], [big, small]] as const) {
+          const p = openingProblem(a0, a1);
+          const S = isqrt(a0 * a1);
+          const mine = S - LOCKED_LP;
+          const fresh = snap(S, a0, a1);
+          if (p === null) {
+            through++;
+            // The pool exactly as the opening leaves it, and the opener's whole share.
+            const w = planWithdraw(fresh, { held: mine, pctBps: 10_000n, bps: 0n });
+            expect(isPlanProblem(w), `${a0} x ${a1}`).toBe(false);
+            expect(pays(mine, S, a0) >= 1n && pays(mine, S, a1) >= 1n, `${a0} x ${a1}`).toBe(true);
+          } else if (p.problem === 'cannot-leave') {
+            stopped++;
+            // Not a refusal of something that could have left: no share of it ever could.
+            for (const pct of [10_000n, 5_000n, 1n]) expect(planWithdraw(fresh, { held: mine, pctBps: pct, bps: 0n })).toMatchObject({ problem: 'too-small' });
+            expect(pays(mine, S, p.short === 0 ? a0 : a1)).toBe(0n);
+          }
+        }
+      }
+    }
+    // Not a vacuous pass: both happen, and only a side of exactly one unit is stopped.
+    expect(stopped).toBe(8);
+    expect(through).toBeGreaterThan(300);
+  });
+
+  it('for 3,000 random openings: let through means the whole share pays at least 1 on each side', () => {
+    const r = rng(23);
+    let through = 0;
+    for (let i = 0; i < 3_000; i++) {
+      // Up to 19 digits: every size a side can have (u64 holds 1.8 × 10^19).
+      const a0 = r.big(19);
+      const a1 = r.big(19);
+      const p = openingProblem(a0, a1);
+      const S = isqrt(a0 * a1);
+      if (p === null) {
+        through++;
+        expect(pays(S - LOCKED_LP, S, a0) >= 1n && pays(S - LOCKED_LP, S, a1) >= 1n, `${a0} x ${a1}`).toBe(true);
+      } else if (p.problem === 'cannot-leave') {
+        expect(pays(S - LOCKED_LP, S, a0) === 0n || pays(S - LOCKED_LP, S, a1) === 0n, `${a0} x ${a1}`).toBe(true);
+      }
+    }
+    expect(through).toBeGreaterThan(1_000);
+  });
+});
+
+// The same question for ADDING: can a deposit be built whose shares could never be taken
+// out? No. The pool program refuses a deposit whose cost floors to 0 on a side
+// (deposit.rs 103-112; `planDeposit` step 3), so a deposit that is built has
+// floor(lp·R/S) ≥ 1 on both sides. It then pays in ceil(lp·R/S) ≥ lp·R/S on each side, so
+// in the pool as the deposit leaves it those same shares pay floor(lp·R'/S') ≥ floor(lp·R/S) ≥ 1.
+describe('planDeposit: the shares a deposit buys can always be taken out again', () => {
+  it('for 4,000 random pools and deposits, tiny reserves included: the new shares leave whole from the pool the deposit leaves', () => {
+    const r = rng(31);
+    let built = 0;
+    for (let i = 0; i < 4_000; i++) {
+      // Reserves from 1 base unit up: a side of 1 is where an opening got stuck.
+      const R0 = i % 4 === 0 ? BigInt(1 + Math.floor(r.next() * 5)) : r.big(15);
+      const R1 = i % 4 === 1 ? BigInt(1 + Math.floor(r.next() * 5)) : r.big(15);
+      const S = r.big(15);
+      const quoteIsToken0 = r.next() < 0.5;
+      const driving = r.next() < 0.5 ? ('quote' as const) : ('token' as const);
+      const p = planDeposit(snap(S, R0, R1), { quoteIsToken0, driving, maxIn: r.big(16), bps: BigInt(Math.floor(r.next() * 500)), availableQuote: null, availableToken: null });
+      if (isPlanProblem(p)) continue;
+      built++;
+      const after = snap(S + p.lp, R0 + p.cost0, R1 + p.cost1);
+      const w = planWithdraw(after, { held: p.lp, pctBps: 10_000n, bps: 0n });
+      expect(isPlanProblem(w), `S=${S} R0=${R0} R1=${R1} lp=${p.lp}`).toBe(false);
+    }
+    expect(built).toBeGreaterThan(1_000);
+  });
+});
+
+describe('planCreate: an opening of exactly what was typed', () => {
+  const base = { quoteIsToken0: true, quote: 1_000_000_000n, token: 5_000_000n, availableQuote: 2_000_000_000n, availableToken: 9_000_000n };
+
+  it('puts SOL on the SOL side, the shares are isqrt, the opener gets supply − 100, and the locked part is what stays behind, rounded up', () => {
     const p = planCreate(base);
     if ('problem' in p) throw new Error(p.problem);
     const supply = isqrt(1_000_000_000n * 5_000_000n);
@@ -344,32 +456,47 @@ describe('planCreate: an opening of exactly what was typed', () => {
       init1: 5_000_000n,
       supply,
       lp: supply - 100n,
-      locked: { sol: (100n * 1_000_000_000n) / supply, token: (100n * 5_000_000n) / supply },
+      locked: { quote: 1_415n, token: 8n },
     });
-    // 100·5,000,000 / 70,710,678 = 7.07…: floored, never rounded up.
-    expect(p.locked.token).toBe(7n);
+    // 100·5,000,000 / 70,710,678 = 7.07…: the opener's own shares pay out 4,999,992 (floor), so 8 stay
+    // behind. What can never come back is rounded UP, never down.
+    expect(p.locked.token).toBe(5_000_000n - ((supply - 100n) * 5_000_000n) / supply);
+  });
+
+  // The old figure, floor(100 x put / supply), said "0 tokens" here while a whole token stayed
+  // behind for good. Any token may have a pool now, so whole-unit tokens are in reach (review, 2026-10-04).
+  it('a whole-unit token: the locked part is never said as 0 when a whole unit can never come back', () => {
+    for (const tokens of [2n, 3n, 10n, 1_000n]) {
+      const p = planCreate({ ...base, quote: 10_000_000_000n, token: tokens, availableQuote: null, availableToken: null });
+      if ('problem' in p) throw new Error(p.problem);
+      // The pool program's own sum for the opener's whole share, done by hand.
+      const out = { quote: (p.lp * 10_000_000_000n) / p.supply, token: (p.lp * tokens) / p.supply };
+      expect(p.locked, `${tokens} tokens`).toEqual({ quote: 10_000_000_000n - out.quote, token: tokens - out.token });
+      expect(p.locked.token, `${tokens} tokens`).toBeGreaterThanOrEqual(1n);
+      expect((100n * tokens) / p.supply, 'the old figure').toBe(0n);
+    }
   });
 
   it('with SOL as token1 the sides swap, and only then', () => {
-    const p = planCreate({ ...base, solIsToken0: false });
+    const p = planCreate({ ...base, quoteIsToken0: false });
     if ('problem' in p) throw new Error(p.problem);
     expect([p.init0, p.init1]).toEqual([5_000_000n, 1_000_000_000n]);
   });
 
   it('each side over what the wallet can put in, naming it', () => {
-    expect(planCreate({ ...base, availableSol: 999_999_999n })).toEqual({ problem: 'over-balance', side: 'sol', need: 1_000_000_000n, have: 999_999_999n });
+    expect(planCreate({ ...base, availableQuote: 999_999_999n })).toEqual({ problem: 'over-balance', side: 'quote', need: 1_000_000_000n, have: 999_999_999n });
     expect(planCreate({ ...base, availableToken: 4_999_999n })).toEqual({ problem: 'over-balance', side: 'token', need: 5_000_000n, have: 4_999_999n });
     // Exactly the balance is fine.
-    expect('problem' in planCreate({ ...base, availableSol: 1_000_000_000n, availableToken: 5_000_000n })).toBe(false);
+    expect('problem' in planCreate({ ...base, availableQuote: 1_000_000_000n, availableToken: 5_000_000n })).toBe(false);
   });
 
   it('a balance that was not read runs no rule, and is never taken as 0', () => {
-    expect('problem' in planCreate({ ...base, availableSol: null, availableToken: null })).toBe(false);
+    expect('problem' in planCreate({ ...base, availableQuote: null, availableToken: null })).toBe(false);
   });
 
   it('the share rule comes first', () => {
-    expect(planCreate({ ...base, sol: 100n, token: 100n, availableSol: 1n })).toEqual({ problem: 'too-small', supply: 100n });
-    expect(planCreate({ ...base, sol: 0n })).toEqual({ problem: 'empty-side' });
+    expect(planCreate({ ...base, quote: 100n, token: 100n, availableQuote: 1n })).toEqual({ problem: 'too-small', supply: 100n });
+    expect(planCreate({ ...base, quote: 0n })).toEqual({ problem: 'empty-side' });
   });
 });
 

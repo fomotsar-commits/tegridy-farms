@@ -205,6 +205,18 @@ export function poolFlavorLabel(poolId: string, fallback: string): string {
 }
 
 /**
+ * The words on a Connect button that opens the ETHEREUM wallet list, wherever
+ * a visitor who came for Solana may be standing: the Ethereum swap form and
+ * its order tabs, the Ethereum liquidity form, the TOWELI room's hero, the
+ * wallet prompt. Each read "Connect Wallet", and a Trust wallet picked from
+ * that list is offered Ethereum, Robinhood Chain and Base and nothing else
+ * (owner, 2026-10-02 and again 10-03). A tester who had just connected Solana
+ * from the top bar met the Swap page's "Connect Wallet" and read it as "not
+ * connected" (2026-10-03). The button says which wallet it means.
+ */
+export const CONNECT_ETHEREUM_WALLET = 'Connect Ethereum wallet';
+
+/**
  * THE HOME /swap CARD'S COPY. It lives here, and not beside the grid that
  * renders it, for the reason `react-refresh/only-export-components` gives: a
  * page module may export components and nothing else. Same move `farmCardDesc`/`farmCardStat` made for the card

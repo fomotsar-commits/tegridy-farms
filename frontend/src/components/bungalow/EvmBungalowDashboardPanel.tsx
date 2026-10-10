@@ -9,6 +9,7 @@ import { CopyButton } from '../ui/CopyButton';
 import { shortenAddress } from '../../lib/formatting';
 import { BungalowMarket } from './BungalowMarket';
 import { BungalowHolders } from './BungalowHolders';
+import { BungalowBurn } from './BungalowBurn';
 import { LIGHTHOUSE_LADDER_ABI } from '../../lib/contracts';
 
 /**
@@ -52,7 +53,8 @@ export function EvmBungalowDashboardPanel({ bungalow }: { bungalow: Bungalow }) 
   const scanRoute = bungalowScanRoute(bungalow);
 
   return (
-    <div className="space-y-4">
+    // The same page column as the Solana sibling: without it every card ran edge to edge.
+    <div className="relative z-10 max-w-[1200px] mx-auto px-4 md:px-6 pt-8 pb-16 space-y-4">
       {/* Header card: who this is + wallet position + the standing CTAs. */}
       <section
         className="rounded-2xl p-6"
@@ -114,6 +116,9 @@ export function EvmBungalowDashboardPanel({ bungalow }: { bungalow: Bungalow }) 
 
       {/* Live market — self-hides when the registry has no indexed pool. */}
       <BungalowMarket bungalow={bungalow} />
+
+      {/* The burn follows the market wherever a live bungalow shows its market. */}
+      <BungalowBurn bungalow={bungalow} />
 
       {/* THE LIGHTHOUSE: READ-ONLY HERE, MANAGED AT /earn/<id>.
           2026-08-31 BUG, caught by the TOWELI-parity study: this mounted the

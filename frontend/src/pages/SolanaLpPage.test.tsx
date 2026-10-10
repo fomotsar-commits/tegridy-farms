@@ -7,7 +7,7 @@ import { MemoryRouter } from 'react-router-dom';
 // SolanaLpPage.mintLink.test.tsx mounts the real one.
 const readVenue = vi.fn();
 vi.mock('../lib/solana/cpswap/read', () => ({ readVenue: (...a: unknown[]) => readVenue(...a) }));
-vi.mock('../lib/launcher/solana/curve/rpc', () => ({ browserCurveRpc: () => ({}) }));
+vi.mock('../lib/launcher/solana/curve/rpc', () => ({ browserCurveRpc: () => ({}), browserRpc: () => ({}) }));
 vi.mock('../lib/analytics', () => ({ trackPageView: vi.fn() }));
 vi.mock('../components/solana/lp/SolanaLpSection', () => ({
   default: ({ finderFirst = false }: { finderFirst?: boolean }) => <div data-testid="lp-section" data-finder-first={String(finderFirst)} />,
@@ -80,7 +80,7 @@ describe('when the venue reads live', () => {
     const card = screen.getByRole('region', { name: 'Venue status' });
     expect(card).toHaveTextContent(/Pools are open/);
     const { hero, after } = column();
-    expect(hero).toHaveTextContent(/The pools section below says/);
+    expect(hero).toHaveTextContent(/Create a pool, add liquidity or take it out/);
     expect(after).toHaveLength(3);
     expect(after[0]!.firstElementChild).toBe(section);
     expect(after[1]).toBe(card);
@@ -93,7 +93,7 @@ describe('when the venue reads live', () => {
     const section = await screen.findByTestId('lp-section');
     const { hero, after } = column();
     expect(within(hero).queryByRole('link')).toBeNull();
-    expect(hero.lastElementChild).toHaveTextContent(/^Find a pool/);
+    expect(hero.lastElementChild).toHaveTextContent(/^Create a pool, add liquidity or take it out/);
     const link = venueAmmLink();
     expect(link).toHaveAttribute('href', `/pools?mint=${M}`);
     expect(after[0]).toContainElement(link);
@@ -117,7 +117,7 @@ describe('when the venue reads live', () => {
     expect(document.title).toMatch(/^Solana liquidity/);
     // The venue read alone does not say each can be done right now: the section's own reads do.
     expect(
-      screen.getByText(/^Find a pool, add or remove liquidity, or open a new pool on the venue.s own Solana AMM\. The pools section below says whether each can be done right now\.$/),
+      screen.getByText(/^Create a pool, add liquidity or take it out on the venue.s own Solana AMM\.$/),
     ).toBeInTheDocument();
   });
 
@@ -297,7 +297,7 @@ describe('always', () => {
     await mount();
     await settled();
     const program = screen.getByRole('region', { name: 'The program' });
-    expect(program).toHaveTextContent(/verbatim fork/i);
+    expect(program).toHaveTextContent(/one added instruction/i);
     const card = screen.getByRole('region', { name: 'Venue status' });
     expect(card.compareDocumentPosition(program) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });

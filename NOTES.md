@@ -15,6 +15,916 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-10-08: a test rewritten for a new rule can stop holding the old rule it also held
+
+**Believed:** a pull request that changes one assertion in an existing test (a pool's price
+state from "no market" to "disagrees", because the scenario now has something to compare
+with) leaves that test proving what it proved before.
+
+**Measured:** that test was the only one holding a second rule: when Add liquidity is pressed
+without naming a pool, the page passes over a pool whose price was compared with nothing if
+another pool takes the deposit with no price warning. Once the scenario changed, no test
+reached that branch. A reviewer took the rule out of the page (one line) and 4,006 of 4,006
+tests passed on the result; the same break on trunk's code failed trunk's own copy of the
+test (1 failed, 50 passed). What found it was running trunk's copy of each changed test file
+against trunk's code, and against the result, with the rule removed.
+
+**Do:** when a change edits an existing assertion instead of adding a test, ask what else the
+old scenario was exercising. Before rewriting it, break each rule the old test touches and
+note which ones only it catches; after rewriting, break them again on the new code. A rule
+that nothing catches any more needs its own test for the case that is left.
+
+## 2026-10-08: keeping both sides of a conflict drops the closing lines the two blocks share
+
+**Believed:** when both sides add a block at the same place, the resolution is mechanical:
+ours, a blank line, theirs.
+
+**Measured:** git leaves lines that both sides share outside the markers. Two `describe`
+blocks added at the same spot both ended with the same two closing lines, so those lines sat
+after the closing marker, once. Ours-then-theirs left the first block without its closers.
+The type-check reported `'}' expected` at the last line of the file, about 600 lines below
+the join, and the test runner reported the whole file as failed, not one test. The same
+script had resolved three other keep-both conflicts that week correctly, because their
+blocks ended differently.
+
+**Do:** after any keep-both, parse the file (the test project's type-check is enough) and
+compare the number of tests per joined file with the two sides (here 309 in five files,
+against 279 on trunk and 288 on the branch). "No conflict markers left" says nothing about
+either.
+
+## 2026-10-08: tests for the new branches do not show that nothing else moved; the old rule run beside the new one does
+
+**Believed:** a change to a rule that decides whether money may move was safe once every
+new branch had a test and every way of breaking a new branch failed one (53 tests added,
+52 mutations, 52 caught).
+
+**Measured:** that shows the new branches are held. It says nothing about the cases the
+change was not meant to touch. A reviewer put the four rule files from the commit before
+beside the new ones and ran both over every combination of their inputs: 5,391,360 cases
+of the deposit check and 8,640 of the opening check, from throwaway tests. Outside the two
+new answers the results were identical. Inside them, each new answer came from exactly one
+old state, and the verdict moved one way only, from "not checked" to "allowed", and only
+when no other reason stood. No refusal was lifted. That is the sentence the owner needed,
+and no number of hand-picked cases could have said it.
+
+**Do:** when a rule is a pure function of a handful of inputs with a few states each, keep
+the old file (`git show <before>:path > old.ts` in a throwaway folder), list every state of
+every input, run old and new over the whole grid and print only the differences. Then say
+what the differences are, in one sentence. Here the grid was one throwaway test file.
+
+## 2026-10-08: a state the live site cannot be in can still be looked at on the live build, one changed answer at a time
+
+**Believed:** the new screen for "Jupiter has no price for this pairing coin" could not be
+checked on the live site, because Jupiter does price the coin.
+
+**Measured:** one upstream answer was replaced on its way into the page: in Playwright, a
+route on the price proxy's quote path answered the two requests for that coin (and no
+other) with the proxy's own "no route" reply, a 404 with `{"error":"No route","code":
+"NO_ROUTE"}`. Everything else was the live site's own. The live build then showed the three
+new sentences, no "Match the market price" button and no sideways scroll at 320 and 390
+wide, with no signing request and no send. Two things the run taught: the walk's own
+counter of failed API calls read 1, and that one was the replaced answer; and the Review
+button was off because no wallet was connected in that step, so "Review is on" was seen
+in unit tests only, not there.
+
+**Do:** replace the upstream's answer with the upstream's own answer for that case, never
+an invented one; replace as few requests as will do it; write in the same breath that it
+was a simulation and what was replaced; and read your own error counters knowing your
+replacement is in them.
+
+## 2026-10-08: a screen that is taken out was doing jobs nobody listed
+
+**Believed:** the "Review your swap" screen was only a second look, so a swap whose test run
+passed could skip it and go from Buy to the wallet with every check still made.
+
+**Measured:** an independent review of the first cut found four things only that screen did.
+It was where the trader saw the figures of the transaction itself (the form's quote can be
+minutes old, and the swap is built on a fresh one). It was the only place that said a sale
+for SOL would be paid as wrapped SOL into an account the wallet already had. It was the only
+place that showed the one-time deposit for a new token account. And its card was what held a
+refusal of what a wallet handed back on screen long enough to read. All checks still ran; the
+trader simply no longer saw their results.
+
+**Do:** before removing a screen, write down every line it can show and every state it can
+hold, and give each one a new home or a reason to stop. "The checks still run" is about the
+code. What the person was shown is a separate list.
+
+## 2026-10-08: a mutation run that is cut short leaves its mutant in the source
+
+**Believed:** a runner that mutates one line, runs the tests and restores the file in
+`finally` always leaves the tree clean.
+
+**Measured:** a run of sixteen was ended after the fourteenth. The page kept
+`if ((false as boolean) && deposit > 0n)`. `finally` does not run when the process is killed,
+and the background job still reported exit code 0, because the last command in its chain was
+a `grep`. The missing lines in its output and a search of the source were the only signs.
+
+**Do:** after every mutation run, prove the restore: every "from" string is back in its file
+and no "to" string is left. Do not build, commit or start a review while a run is going:
+each of them reads the mutant.
+
+## 2026-10-08: on localhost one swap route works and the other says "Swap failed", and neither is the site
+
+**Believed:** a wallet stand-in that works on the live site works the same on a local build.
+
+**Measured:** the wallet-standard adapter maps an RPC address that contains `localhost` to
+the localnet chain. A stand-in wallet whose account lists only mainnet is refused before it
+is asked, with an error that has no message, and the page shows "Swap failed" with nothing
+under it. The swap through our own pool signs through another call and was not affected, so
+one route worked and the other looked broken. On the live site the address maps to mainnet.
+
+**Do:** a stand-in wallet for a local walk lists `solana:localnet` beside `solana:mainnet`.
+An error with no message from a wallet call is the adapter refusing, not the wallet.
+
+## 2026-10-08: a fold keeps its words in the page and takes its warnings out of sight
+
+**Believed:** moving rows under a "Details" line only saves space.
+
+**Measured:** price impact was one of the rows. On a route with no review step it was the
+only place a 35% move was said, and folded shut it was said nowhere. The em dash guard and
+the unit tests did not notice, because a closed `details` element keeps its text in the
+page: they count and find it whether or not anyone can see it.
+
+**Do:** when rows are folded, go through each and ask whether any value of it is a warning.
+Draw that case outside the fold. A test that finds text in a closed fold proves the text
+exists, not that it is shown: assert it is not inside the `details`.
+
+## 2026-10-06: a lookup that derives one address answers about that address, not about "our pool"
+
+**Believed:** the Solana swap page compared "our pool for this pair" with Jupiter, so a line
+reading "no pool of ours" meant there was none.
+
+**Measured:** read on chain on 2026-10-06, the venue's BAYLA and SOL pool
+`ErvzV1NMZmcfAqZtGH4AQhYAjn77nJEworKK1mYPz5w4` sits at the standard address for fee tier 1
+(settings account `CapqvAA9HvERTwzmE26xrtFhMaNcaXXoQUADpBWqWjKy`, 1% a trade). The page
+derived the tier 0 address only, found no account there, and reported no pool. Every pool a
+person can open from `/pools` is on tier 1, so the lookup could not find any of them. Where
+it did find one it priced it with tier 0's fee whatever tier the pool was on.
+
+**Do:** a derived address that holds nothing proves "nothing at this address". Before a line
+says "none", list every place a real one can be (each fee tier's standard address, and the
+index of pools at their own addresses) and quote each with its own settings account.
+
+## 2026-10-06: a pool can be the better route one way and the worse route the other
+
+**Believed:** "our pool is more efficient than Jupiter" is a fact about the pool, so one
+direction is enough to check a routing change.
+
+**Measured:** on 2026-10-06 (mainnet reserves from a public RPC, Jupiter's quote API with no
+site fee) selling 1,000, 10,000 and 100,000 BAYLA for SOL paid 5.83%, 5.67% and 4.09% more in
+our pool than through Jupiter. Buying BAYLA with 0.01 to 1 SOL paid 5.5% to 8.8% more through
+Jupiter. Same pool, same minute. A walk of the buy alone shows "Routed to Jupiter" before
+and after the fix and looks like nothing changed.
+
+**Do:** test and walk a routing change in both directions, and name the direction when
+reporting which route won.
+
+## 2026-10-06: the other route's quote is not what the other route would pay
+
+**Believed:** holding our pool to Jupiter's quote holds it to what Jupiter would pay.
+
+**Measured:** the quote on screen has the site fee taken off. On a route where that fee
+cannot be taken (Jupiter's error 6014, as on BAYLA's route) the site sends Jupiter's
+transaction with no fee, which pays the fee's worth more than the quote. A pool that beat the
+quote by less than the fee would have taken a trade Jupiter was about to pay more for. An
+independent review found it; no test did, because every test used the quote as the bar.
+
+**Do:** compare against what the transaction that would really be sent pays. Where two
+builds are possible, find out which one it is the way the send path does (build it and
+test-run it) before deciding the route.
+
+## 2026-10-06: a sentence that says the site cannot do something goes false the day it can
+
+**Believed:** making the swap send trades to our pools was a change to the swap page.
+
+**Measured:** a search of the copy for "Jupiter" found the pool disclosure ("Jupiter does
+not send trades to our pools", with the swap on this site named as going through Jupiter),
+the routing card on `/pools`, five unit tests and two local-validator specs that pinned those
+sentences word for word. Left alone they stay green and the page tells a pool owner
+something that is no longer true.
+
+**Do:** when a change gives the site a new ability, search the copy and the tests for
+sentences that deny it. A test that pins a denial passes on the stale sentence.
+
+## 2026-10-06: "You cancelled in your wallet" in the local-validator suite can be the stand-in wallet refusing a shape it was never taught
+
+**Believed:** a new kind of transaction that builds, test-runs and reviews correctly will be
+signed by the suite's wallet, so "cancelled" means the app or the test pressed the wrong thing.
+
+**Measured:** the first on-chain run of a swap in a pool at its own tier ended "You
+cancelled in your wallet". The stand-in wallet (`e2e-solana/fixtures/walletGuard.ts`) decodes
+every transaction on its own and refuses any shape it does not know; the page hears that
+refusal as a person pressing Reject. It knew a swap in a launch pool only.
+
+**Do:** a new transaction kind brings its rule in the wallet guard and harness tests (one
+that signs, several that refuse) in the same change. On "cancelled", read the guard's reason
+before the app.
+
+## 2026-10-06: a press area made of padding carries the focus ring with it
+
+**Believed:** a finger-sized press area built as padding that an equal negative margin takes
+back (`py-3 -my-3`) is invisible. Nothing around the target moves, so nothing a person sees
+changes.
+
+**Measured:** the keyboard's focus ring is drawn round the border box, and the padding is
+inside it. On a 21px line of text the ring was 53px tall (45px of area, plus a 2px offset and
+a 2px stroke on each side) and its edges ran through the words of the lines above and below,
+in all 16 states of one sentence at 320 to 768 wide (Chromium). Under one link the bottom edge
+was hidden behind the button below it, so the ring was an open box. Every measurement the
+builder had taken (boxes, line gaps, a hit test at the middle of each target) was right and
+none of them could see it. A reviewer who pressed Tab found it.
+
+The same build has a second cost that is not a bug but has to be said: plain words within
+12px of a target act as that target. A press on the line under a link opened the link.
+
+**Do:** when the press area is bigger than what is drawn, put the ring on the words (an
+inner element; here one CSS rule that takes the outline off the target and draws it on a
+child) and Tab through every target before calling it done. After: rings 20 to 27px tall,
+crossing no other word, and the press map and every box unchanged.
+
+## 2026-10-06: a wait loop whose condition was never seen true waits on a finished job
+
+**Believed:** "the live stylesheet contains the new class" is a simple, direct test that a
+deploy has landed.
+
+**Measured:** the loop searched the stylesheet for an escaped class name (`min-w-\[96px\]`)
+with a pattern full of backslashes. It matched nothing for 20 minutes and gave up. The deploy
+had finished at minute 4: the commit's own status said `Vercel=success` from then on, and a
+plainer search of the same file for the same rule (`96px`) matched once. Which layer changed
+the backslashes on the way to `grep` was not found; the loop had only ever been run against
+the old build, where "no match" was the right answer.
+
+**Do:** before waiting on a condition, run it once against something where it is already
+true (here: the local build of the same commit) and once where it is false. Wait on the
+system's own answer first (`gh api repos/<repo>/commits/<sha>/status`) and use a marker in
+the served files only to confirm it.
+
+## 2026-10-06: which of two overlapping press areas wins can hang on a class name no test reads
+
+**Believed:** a reviewer pressed every pixel row of every target in a real browser and every
+press went to the right thing, so the layout was safe to ship.
+
+**Measured:** it was right, and nothing held it there. Two targets on neighbouring lines had
+press areas that covered each other's words, and three stacking layers decided each press.
+With one class (`z-10`) taken off in the page, a press on the Copy button opened another
+page. With another (`z-20`) taken off, a press on a link copied an address. Every unit test
+and every browser test passed with either class removed: the browser tests never reach that
+state, and jsdom lays nothing out.
+
+**Do:** when behaviour hangs on stacking order and no browser test can reach the state, hold
+the order itself in a unit test (the link's words above the button, the button above the
+bare areas, all inside one isolated block) rather than the class names, and take each layer
+away to see the test fail. Here: 7 ways to break it, 7 caught.
+
+## 2026-10-06: a token's name in a wallet is an on-chain record, and when a program's own address is the mint authority only that program can write it
+
+**Believed:** a nameless token row in Phantom can be fixed from outside the program that
+minted it: by a script, the multisig, a token list, or Metaplex, whose public source lets its
+own "seed authority" create the record for any mint that has none.
+
+**Measured:** Phantom's docs (read 2026-10-04) take a classic SPL mint's name, symbol and
+picture from its Metaplex record, and a Token-2022 mint's from the metadata held on the mint;
+with neither, the row reads "Unknown". The old Solana token list is archived. On mainnet, by
+`simulateTransaction` with `sigVerify: false` (2026-10-04, slot 453,337,242), Metaplex's
+create for our BAYLA/SOL pool-share mint succeeded with the mint authority marked as a signer
+(38,478 units, a 607-byte record) and failed without it: custom error 9, "You must be the
+mint authority and signer on this transaction". That authority is a program-derived address
+of the pool program, so no wallet and no multisig can sign as it. The seed-authority route,
+simulated the same way with `AqH29mZfQFgRpfwaPoTMWSKJ5kqauoc1FwVBRksZyQrt` as the signer, was
+refused with error 10, "Mint authority provided does not match the authority on the mint"
+(2026-10-06, slots 454,103,164 and 454,110,797). That address's 32 bytes are not in the
+deployed 793,991-byte program, though it did sign the create for Raydium's v4 SOL-USDC
+pool-share record on 2021-11-01.
+
+**Do:** before planning a name for any mint, read its mint authority. An ordinary key means
+one transaction. A program's own address means a new instruction in that program, shipped as
+an upgrade: Meteora, Kamino and Jupiter each added one for their pool shares, and Raydium's
+CPMM and PumpSwap leave theirs nameless. Test any exception found in Metaplex's source with a
+mainnet simulation first: the deployed program has no upgrade authority and is not the repo.
+
+## 2026-10-06: a Streamflow stake pool can name its own receipt token, and the key that signs is the pool's authority, not its creator
+
+**Believed:** a nameless staking receipt needs Streamflow's help, the pool's creator key is
+the one that would sign, and the metadata pointer already on the receipt mint is a naming
+step somebody left half done.
+
+**Measured (2026-10-04, mainnet, `simulateTransaction` with no signatures):** Streamflow's
+stake program (`STAKEvGqQTtzJZH6BWDcbpzXXn2BBerPAgQ3EGLN2GH`) has
+`set_token_metadata_t22(name, symbol, uri)` for Token-2022 receipts and
+`set_token_metadata_spl` for classic ones, in the npm IDL (`@streamflow/staking` 13.4.0) and
+in the IDL published on chain. Signed and paid by the pool's current `authority`, it
+succeeded on our pool (17,844 units, the mint grew from 234 to 379 bytes). Signed by the
+pool's `creator`, which had handed the pool on in September, it was refused: "Unauthorized",
+6005. With the authority signing and another wallet paying the fee it failed with "writable
+privilege escalated": the IDL marks `authority` read-only, but the program moves rent from it
+into the mint, so it must be the fee payer. Run on another project's already-named pool, the
+call updated the name, so it is not one-shot. Of 1,176 stake pools, all 192 with a Token-2022
+receipt carry the same self-pointing `metadataPointer`, and 6 of those carry a name. With the
+real link, 35 characters longer than the placeholder, the rent moved was 233,840 lamports and
+not 56,040 (dry run, 2026-10-06): every character costs 5,080.
+
+**Do:** decode the pool and read `authority` (see the 2026-09-21 entry for the offset); never
+take the creator for it. Make the authority the fee payer. Read a metadata pointer with no
+`tokenMetadata` as the normal state of every Streamflow Token-2022 receipt. Simulate with the
+final words, since the cost follows their length. Streamflow documents this only in its SDK
+README and its `staking-cli`, whose default network is devnet (read, not run).
+
+## 2026-10-06: making room in a Solana program needs no authority and at least 10,240 bytes, and an upgrade does not do it for you
+
+**Believed:** a program upgraded through a multisig simply takes the new file. If the file is
+bigger, making room is one more vault action (the go-live checklist in the release folder
+said so) of whatever size is needed.
+
+**Measured (2026-10-04, mainnet, solana-core 4.3.0):** our pool program's ProgramData account
+was 691,685 bytes for a 691,640-byte file: the 45-byte header and no spare byte. By
+`simulateTransaction` (`sigVerify: false`), `ExtendProgram` by 1 byte was refused,
+"ExtendProgram requires a minimum of 10240 additional bytes or to extend to maximum size"
+(feature `YbbRLkvenrocjGPGyoQE4wjnvYzTgfsk38NFmcYK7a5`, active since slot 432,864,000). By
+10,240 bytes, paid by an ordinary wallet with no authority signing, it succeeded: 691,685 to
+701,925 bytes for 52,019,200 lamports of rent, which never comes back. Read and not run: the
+feature that would resize the account on upgrade
+(`EhisBfVtGvEA8bVCVN5VMaYEaX6iTfoUrmcDi8LY7Kxy`) has no account on mainnet, and the loader
+(agave `57707436`, `programs/bpf_loader/src/lib.rs`) refuses a second deploy-type change to
+one program in the same slot. On 2026-10-06 one added instruction grew our build by 33,032
+bytes, so the growth and not the minimum set the price: 167,802,560 lamports (worked out
+from 5,080 a byte, not paid).
+
+**Do:** before an upgrade to a larger file, read the ProgramData length, take away 45, and
+set the new file's size against what is left; do not assume there is room. If it does not
+fit, extend first, in its own transaction and an earlier slot, from any funded wallet:
+`solana program extend <program> <bytes>`, at least 10,240 and at least the growth. Use the
+4.1.1 CLI; the 2.3.0 one in WSL has an older code path (read, not run). Then upgrade. Because
+anyone can extend, a "last deployed slot moved" alarm does not prove an upgrade (inferred from
+the loader, not run). Extend then upgrade to a larger file has not been rehearsed here on any
+cluster yet.
+
+## 2026-10-06: Metaplex's public source and a local validator each give a wrong price for a metadata record
+
+**Believed:** what a Metaplex record costs can be worked out from the program's repo, or read
+off a local validator that cloned mainnet's feature set and Metaplex itself.
+
+**Measured:** the source (`mpl-token-metadata` at `353d01be`, `state/fee.rs`) works the create
+fee out from rent: rent for 1,308 bytes plus 5,440 lamports, 7,300,320 at the rent read on
+2026-10-04. The deployed program charged a flat 10,000,000. A mainnet simulation that day left
+a new 607-byte record holding 13,733,800 lamports (3,733,800 rent plus 10,000,000), and a
+record somebody else created on mainnet at 18:44Z held the same. On a `solana-test-validator`
+3.1.11 started with `--clone-feature-set` and Metaplex cloned from mainnet (2026-10-06), the
+same record held 15,115,600: the same flat fee, but rent for 607 bytes was 5,115,600 there
+against 3,733,800 on mainnet. Mainnet rent that week was 5,080 lamports a byte over the
+account's size plus 128, so an 82-byte mint is 1,066,800 and not the 1,461,600 older notes
+carry. Also seen locally: lamports a stranger sends to the record's address first neither
+block the create nor make it cheaper.
+
+**Do:** take every lamport figure that will be quoted, budgeted or asserted for mainnet from
+a mainnet `simulateTransaction` (read the account after) or from
+`getMinimumBalanceForRentExemption` asked of mainnet that day. A local run proves the logic,
+not the price. Where a deployed program and its repo disagree, the deployed one is the fact.
+
+## 2026-10-06: a name and a picture do not bring a pool share a dollar value or a verified mark in Phantom
+
+**Believed:** once a pool-share or staking-receipt token has proper metadata, Phantom shows
+what it is worth, and "verified" is something a project applies to Phantom for.
+
+**Measured (2026-10-04):** Phantom's docs say it prices a token that is verified on
+CoinGecko and falls back to Birdeye, and that it does not run verification itself: the mark
+comes from outside sources, of which it names CoinGecko and Jupiter. CoinGecko lists only
+what trades on an exchange it tracks. CoinGecko's price API and Jupiter's
+(`lite-api.jup.ag/price/v3`) returned no price for any sampled pool share of Raydium (CPMM
+and v4, pools of about $5M and $30M), Meteora, Kamino or PumpSwap, named or nameless, and
+Jupiter tags each of them `unknown`. Both priced JLP and JitoSOL, which trade. Birdeye was
+not read (403, and its API wants a key). Phantom's own token service, `api.phantom.app`,
+answered 403 to a plain request for all 23 mints tried, so what Phantom itself says about a
+given mint was not read.
+
+**Do:** for a token that cannot trade, promise a name, a symbol and a picture, and never a
+value or a mark. Show the value on our own pages; Jupiter's docs point a protocol that wants
+its positions priced to their portfolio team. Do not get past Phantom's 403 by imitating its
+client: use Phantom's published docs, or look in a real wallet.
+
+## 2026-10-06: a file that wallets and other sites fetch from this Vercel site can be wrong three ways while answering 200
+
+**Believed:** put the JSON and the picture under `frontend/public/`, see the link answer 200,
+and a wallet can read it.
+
+**Measured on https://memetics.finance (curl, 2026-10-04; read again 2026-10-07 about 05:00Z):**
+
+- Every static answer carries `Cross-Origin-Resource-Policy: same-site`, set site-wide in
+  `frontend/vercel.json`. Only `/record/` answers `cross-origin`, from a later and narrower
+  rule. MDN: a browser blocks a cross-site `<img>` of a `same-site` resource, and a server
+  that fetches the file ignores the header. Which wallets show a picture straight from our
+  address, and which through their own proxy, was not found out.
+- A path with no file answers 200 `text/html`, the app page. Inside `/tokens/`, a folder with
+  a week-long cache rule, `/tokens/DoesNotExist111.png` came back as that page with
+  `Cache-Control: public, max-age=604800` and `X-Vercel-Cache: HIT`. `/mint/default.json`,
+  built on a branch but not deployed, answered the same page.
+- Paths are case-sensitive: `/tokens/USDC.png` is the app page and `/tokens/usdc.png` is the
+  PNG. Mint addresses are mixed-case and this machine's disk ignores case, so an `existsSync`
+  check passes here on a name that is one letter's case off. A pin test built on a directory
+  listing went red when one file was renamed from B to b.
+
+**Do:** give such a folder its own rules in `vercel.json`: a cache rule,
+`Cross-Origin-Resource-Policy: cross-origin`, and a rewrite above the app fallback so a
+missing file answers JSON and never the app page. Pin the files by exact name from
+`readdirSync`, check a picture's first bytes, and probe production for words only the real
+file holds. Put a hash of a picture's bytes in its path and keep every picture that was ever
+deployed. Deploy and see the files answer before any link to them is written on chain. Only a
+deployment can show three things, and none had happened when this was written: that a rewrite
+to a static default file works here, that the narrower header rules win, and that
+`Access-Control-Allow-Origin` arrives once and not twice.
+
+## 2026-10-06: a script that refuses a public cluster still writes to another session's local validator
+
+**Believed:** the start script refuses a busy port and the proof script refuses a public
+genesis hash, so a proof run can only ever send to the validator it has just started.
+
+**Measured (2026-10-06):** two other sessions had validators up in WSL, on RPC ports 28899
+and 38899. A second validator of ours was given 28899. Its start script refused the busy
+port, the command line carried on regardless, and the proof ran against the other session's
+chain. Before it stopped on a missing account it had airdropped SOL to three new wallets,
+created three test mints and opened one pool there, paying that chain's 0.15 SOL create fee
+into a fee account that a test of theirs was reading at the time. The public-genesis guard
+passed, and rightly: the chain was private, only not ours.
+
+**Do:** make "is this MY validator" a check inside the script, before its first send, and not
+a property of the command line. The fix here: the script reads accounts that only its own
+chain holds and stops if they are missing, and the wrapper runs it only when our own start
+printed READY; run again at the wrong port, it sent nothing. Stricter, and not what was run:
+`start-validator.sh` prints `READY genesis=<hash>` and two validators here had different
+hashes (2026-10-03 entry), so hand that hash to the script and compare it with
+`getGenesisHash`. Join the commands so that a refused start ends the run. Look before taking
+a port: validators here sat on 18899, 28899 and 38899. Never stop one you did not start.
+
+## 2026-10-06: Jupiter's free verification lane now signs in with X, and a dead picture link stops its form
+
+**Believed:** the free lane on verified.jup.ag works as our September pack described it:
+connect a wallet, fill in the form, and a metadata change is a separate request for 1,000 JUP.
+
+**Measured (2026-10-07, 01:15 to 02:02 UTC; a headless walk with no sign-in and nothing typed,
+and the form's own script):** the free lane's button reads "Sign in with X to Continue" (seen
+on screen), the last button stays disabled until that sign-in (script), and the X handle is
+kept in Jupiter's public list as the sender. The free lane now has a Metadata step (seen in
+the step bar) and its last screen says "No payment required." (script), while Jupiter's docs
+still price a metadata update at 1,000 JUP. That step shows the Logo URL as a plain image tag
+and disables Continue when the image fails to load (script). BAYLA's on-chain picture link is
+an ipfs.io address: in a real browser it failed as an image, and the same file on Pinata
+loaded at 320 by 320. Eight of Jupiter's doc pages were byte for byte what they were on
+2026-10-04, so the docs announced none of this. Not done: no request was sent, so whether a
+free metadata update is approved is unknown, and the Metadata and Review screens were read
+from the script and never seen.
+
+**Do:** walk the live form again before handing an owner a pack, however recent the last one:
+the docs can stand still while the form moves. Settle whose X account applies first, because
+it becomes public. Test the token's picture link as an image in a browser, and have a working
+address ready to paste.
+
+## 2026-10-06: a retry rule that looks for "429" anywhere in an RPC error finds it in a compute-unit count
+
+**Believed:** testing `/429|rate.?limit|too many/` against a node's whole error is a safe way
+to tell "rate limited, ask again" from "refused".
+
+**Measured (2026-10-06, the receipt-naming script run against a made-up node):** a failed
+simulation or send carries the program's logs, and logs carry numbers. A real refusal
+(Unauthorized, 6005) whose log read "consumed 17429 of 200000 compute units" matched the
+pattern, so the script sent the transaction a second time and then told the operator to go
+and look for one the node had refused. The real dry runs that week used 17,844 and 17,993
+units, so such a figure is an everyday one. The same script's send went through a helper with
+two tries: when the node took the transaction and its answer was lost, the second try came
+back "already processed", which the script printed as NOT SENT.
+
+**Do:** sort an RPC error by `error.code` and `error.message` only, never by its logs or its
+whole JSON, and anchor the digits (`\b429\b`). Send once. An answer to a send that was lost,
+or that says "already processed", is followed by a lookup of the signature: it is not a
+refusal, and it is not a reason to send again.
+
+## 2026-10-06: an override that forces the patched major is a safe way to clear a transitive advisory
+
+**Believed:** when the fix for an advisory in a transitive package is a newer major, an
+`overrides` entry that forces it is a lockfile-level change. It installs, so it works.
+
+**Measured:** GHSA-7mx3-vvmw-hjmv is fixed in `@graphql-tools/utils` 12.0.1. The indexer has
+10.x and 11.x under `graphql-yoga` 5.21.0 and `@graphql-tools/executor` 1.5.2. A scratch
+install with utils forced to 12.0.3 installed cleanly and answered a plain query. Then every
+query with `@include` or `@skip` on a variable came back as an error: 4 wrong answers out of 7
+probe queries, and all 7 right without the override. utils 12.0.0 had changed what
+`collectFields` takes, and executor 1.x still passes the old shape. `npm audit` was no guide:
+npm 11.6.2 called the fix "available", npm 11.21.0 called it semver-major, and the fix it
+named was `ponder` 0.0.1.
+
+**Do:** before forcing a major with an override, read the BREAKING notes of each major
+crossed, find which installed package calls what changed, and run that package's real path
+against the forced version. For a server that means queries with variables, not one plain
+query. A clean install and one answered query prove nothing.
+
+## 2026-10-06: two npm 11 releases write the same lockfile
+
+**Believed:** a one-package lockfile bump comes out the same from any npm 11, so the npm
+that happens to be installed is fine.
+
+**Measured:** `npm update source-map-js --package-lock-only`, on the same two lockfiles, with
+two npm versions.
+
+- npm 11.6.2 on `frontend/package-lock.json` also deleted the `libc` field from six
+  `@rolldown/binding-linux-*` entries it had no reason to touch. A newer npm had written them.
+- npm 11.21.0 on the same file kept those six.
+- npm 11.21.0 on `indexer/package-lock.json`, which 11.6.2 had written, also deleted
+  `"peer": true` from eleven entries. npm 11.6.2 there gave a three-line diff.
+
+The default `git diff` shows none of this. `.gitattributes` marks lockfiles binary, so it
+prints one "Bin" line.
+
+**Do:** after any lockfile edit, read `git diff --text -U0 -- <lockfile>` and look at every
+line that is not a `version`, `resolved` or `integrity` of a package you meant to move. If
+untouched entries changed, run the same edit with the other npm (`npx -y npm@<version> ...`)
+and keep the one that leaves them alone. Say in the commit which npm wrote each file.
+
+## 2026-10-06: an id on the advisory gate's "prune them" line is dead
+
+**Believed:** when the npm advisory gate prints "Suppressions no longer matching any advisory
+(prune them)", every id on that line can be deleted from
+`.github/npm-advisory-allowlist.json`.
+
+**Measured:** the gate runs once per project (`.`, `frontend`, `indexer`) and each run prints
+its own line. A `baseline` id belongs to one project, so its line was right. An `accepted`
+entry belonged to no project: it applied to all three, and each run called it dead when that
+project's audit did not contain it. On 2026-10-06 the root run and the `frontend` run both
+said to prune GHSA-vfj7-8cjw-p6xm (braces) while the `indexer` run was using it. Deleting it
+would have turned the indexer red.
+
+**Fixed 2026-10-07:** an accepted entry now names its `projects`. It counts in those projects
+only, and a run reports it stale only for a project it names. An entry with no `projects`
+counts nowhere. The line now says which project it is about.
+
+**Do:** when one check runs once per project over a shared list, a "nothing uses this" line
+from one run is a claim about that project and no other. Give each entry the projects it
+belongs to, or collect every run before deleting anything.
+
+## 2026-10-04: a test that asks the app's own planner what a row should read agrees with the app whatever it does
+
+**Believed:** the end-to-end check of the "Locked in the pool forever" row was independent of
+the app: the spec worked out the expected figure and compared it with the screen.
+
+**Measured:** the spec imported the app's own `planCreate` to get that figure. When the
+formula changed (from `floor(100 x put / supply)` to what really stays behind, rounded up), the
+spec and the page changed together and the test stayed green without anyone deciding the new
+figure was right. A second check, done by hand, went through an "about" row printed to four
+decimals, where a one-unit change cannot show. Only a test with whole-unit amounts (2 tokens
+of a token with no decimals: 1 stays behind, the old figure said 0) could tell the two apart.
+
+**Do:** where a test pins a money figure, work the figure out in the test from the rule in
+words, not by calling the code under test. Pin it on a row printed to the last digit, or with
+amounts where one unit is visible. A helper imported from `src/` into a spec is the app
+checking itself.
+
+## 2026-10-04: a "sent" card is drawn before the first byte leaves
+
+**Believed:** once the page shows "sent", a reload tests "a reload while the transaction is
+in the air".
+
+**Measured:** the page writes its note and draws the card BEFORE the first broadcast, on
+purpose (the note must exist before the first send). In a whole run of the local-validator
+suite a reload came 87 ms after the broadcast began: the browser stopped the request, the
+transaction never reached the chain, and the test that then asked the chain for it failed.
+It had passed for weeks because the reload was usually slower than the request.
+
+**Do:** in a test, "in the air" is "the network answered the broadcast with this signature
+and the transaction is not yet confirmed". Wait for the response to the `sendTransaction`
+request (ask for it before pressing Sign), not for a card on the page.
+
+## 2026-10-04: when a verdict gains a middle state, every reader of the old top state was reading two things
+
+**Believed:** turning four refusals into warnings (pull request 742: a token with no market
+price, a price more than 3% off, a freezable token, a copied name) was a change to the check,
+the builders and the forms that show the warnings. Each of those was built, tested and
+reviewed on its own, and each review passed.
+
+**Measured:** `allowed` had been standing in for "nothing to say" in places nobody listed. A
+whole-change review of the merged branch, five readers and then a second reader told to refute
+each finding, confirmed twelve and refuted none. The pattern in most of them: a consumer that
+took "the biggest allowed pool" or "the first pool that offers" now picked a pool the page
+itself warned about, and three sentences still said "passes the checks" of a pool whose own
+card was headed "with warnings". One consumer had been fixed for exactly this an hour earlier;
+its sibling, forty lines of another file away, was found by three reviewers independently.
+
+**Do:** when a verdict gains a state between yes and no, grep every reader of the old yes and
+decide for each one which question it was asking: "may this go ahead" or "is there nothing to
+warn of". They were the same question until the change. Review the pieces, then review the
+whole: the defects were all between the pieces.
+
+## 2026-10-04: an entry rule is only checked when the exit's own sum is run on what it lets in
+
+**Believed:** an opening that passes the pool program's minimum, and this site's stricter one
+(the locked 100 shares at most 0.1% of the pool), can always be taken out again.
+
+**Measured:** 1 token of a token with no decimals against 10 SOL gives `isqrt(1e10 x 1)` =
+100,000 shares: exactly 0.1%, so both rules pass and the real builder built it. The opener's
+99,900 shares then pay `floor(99,900 x 1 / 100,000)` = 0 tokens, and the pool program refuses a
+withdrawal that pays 0 on a side: at 100%, at 50% and at 0.01%. The share could never leave.
+With 2 tokens it leaves. The same floor was in the "locked forever" figure,
+`floor(100 x put / supply)`, which said "0 tokens" while one whole token stayed behind.
+
+**Do:** for any rule that lets money in, take what it lets through and run the EXIT's own
+arithmetic on it, rounding the way the program rounds, before calling the rule safe. A figure
+that tells someone what they can never get back is rounded up, not down. Whole-unit tokens
+(0 decimals) are the case that finds these: one base unit is the whole thing.
+
+## 2026-10-04: a mutation no test catches is sometimes a line that does nothing
+
+**Believed:** when breaking a line leaves the suite green, a test is missing.
+
+**Measured:** twice in one change it was the line. A guard that stopped a late lookup answer
+from scrolling the page off an open form survived its mutation because the page scrolls when
+the lookup STARTS, not when it lands: the guard could never fire. And one half of a two-part
+condition on a button could never be true while the thing it guarded was on screen. Both were
+written with a reason in a comment, and both were deleted. Of 18 mutations in that round, 16
+were caught and these 2 were dead code.
+
+**Do:** when a mutation survives, first ask whether the line can ever change an outcome, and
+find the moment it would. Write the test only if that moment exists. Otherwise delete the line
+and its comment: a guard that cannot fire reads as protection that is not there.
+
+## 2026-10-04: a rule over a list passes with one item whatever it does
+
+**Believed:** "the fallback opens the first warned pool" and "a rejected token extension is
+refused" were pinned: each had a test, and each test failed when the rule was removed.
+
+**Measured:** changing "first" to "last" left 669 tests green, because the only fallback test
+had one pool. Making each guard look at the FIRST extension only left 453 tests green in five
+places, because every test minted a token with one extension: a transfer hook behind a name
+and a picture would have been let in and then let out by three builders that all agreed.
+
+**Do:** a test of a rule over a list needs at least two items, with the one that matters not
+in the first place, and where order matters, first and last being different items.
+
+## 2026-10-04: a new card that passes on a phone means the change passes on a phone
+
+**Believed:** the burn tracker was checked on phones: every new card at 320, 393, 810 and
+1280px, measured and looked at. So the change was phone-safe.
+
+**Measured:** the same change also made one EXISTING value longer. TOWELI's older "Burned
+forever" row went from "25.8% of supply" to "25.76% of everything minted", inside a span
+with `truncate`, 2,700px down a page nobody re-opened. Live, an independent phone walk found
+"25.76% of everythi…" at 360px: the text needs 219px and the box is 134 to 214px on every
+phone width. The percent was intact, so no test on the figure could see it. The same box had
+been cutting "1,000,000,000 TOWELI" to "1,000,000,0…" all along.
+
+**Do:** when a change alters the TEXT of a component it did not create, open that component
+at 320 and 393 as well. A truncating box is a length limit nobody wrote down: grep the
+component for `truncate` and `whitespace-nowrap` before making its text longer.
+
+## 2026-10-04: pressing Refresh always does something
+
+**Believed:** a Refresh button wired to a query's `refetch()` either shows a new figure or
+shows the failure.
+
+**Measured:** on the live site, with the device offline, Refresh on an Ethereum or Base card
+did nothing for the 30 s watched: no request, the button never said "Reading", the old figure
+stayed up. TanStack Query's default `networkMode: 'online'` PAUSES a query while
+`navigator.onLine` is false, so `refetch()` returns without running the read and without
+changing any state. The Solana card beside it, a plain `fetch`, printed its outage line at
+once. A browser test that only refuses requests cannot see this: the read has to be asked
+for while the browser reports itself offline (`context.setOffline(true)`).
+
+**Do:** for a read whose failure must be shown, set `networkMode: 'always'` so it runs and
+fails. Test it offline, not only with refused requests.
+
+## 2026-10-04: a read either lands or fails
+
+**Believed:** every way a read can go wrong ends in the card's "could not be read" line.
+
+**Measured:** a request that is held open and never answered is neither. With the Solana
+proxy call held, the card said "Reading…" with Refresh disabled for the whole 300 s watched,
+and showed the real figure 0.6 s after the request was let through. The Ethereum and Base
+card under the same hang gave up by itself after about 81 s, because viem's transport has a
+10 s timeout per endpoint; the hand-rolled `fetch` had none.
+
+**Do:** give every hand-rolled `fetch` a timeout that ends in the same unread state as a
+failure (an `AbortController` and a timer, cleared on answer and on unmount). Test it with a
+fetch that only ever ends by being aborted, under fake timers.
+
+## 2026-10-03: minted minus today's supply is what was burnt
+
+**Believed:** for a fixed-supply ERC-20, everything ever minted minus `totalSupply()` is the
+burn, so a burn figure needs one constant per token and one read.
+
+**Measured:** QR, DRB and JBM on Base are ClankerTokens (IERC7802). Their verified source has
+`crosschainBurn` and `crosschainMint`, callable only by the SuperchainTokenBridge predeploy
+`0x4200000000000000000000000000000000000028`. At Base block 52136964 that proxy's EIP-1967
+implementation slot reads zero, so the bridge is off today, and its admin slot reads
+`0x4200000000000000000000000000000000000018`, the standard ProxyAdmin, so an ordinary upgrade
+can switch it on. A bridge-out would then lower `totalSupply()` with nothing destroyed. The
+same contract also has a public `burn()`, and the two cannot be told apart from the supply.
+A first read of that proxy reported "no admin": the script held a mistyped slot constant, and
+a slot nobody writes returns zero, which reads exactly like "no admin".
+
+**Do:** before counting a fall in supply as a burn, read the token's source for every path
+that lowers supply. Where a second one exists, count only the burn-address balance, show the
+fall beside it as not counted, and do not print a "not burnt" figure. Paste the EIP-1967
+slots from the standard (implementation `0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc`,
+admin `0xb53127684a568b3173ae13b9f8a6016e243e63b6e8ee1178d6a717850b5d6103`): never retype one,
+and treat a zero from a storage read as "nothing here OR the wrong slot".
+
+## 2026-10-03: a pump.fun mint ends in "pump"
+
+**Believed:** RIZZ (`5ad4puH6yDBoeCcrQfwV5s9bxvPnAeWDoYDj3uLyBS8k`) was not a pump.fun mint,
+because its address has no "pump" suffix, so its minted supply could not be taken as
+pump.fun's 1,000,000,000.
+
+**Measured:** its create transaction
+`4mKCtSuQtBgtFfpThuqgDxaVJzz7fhpkFTvbRj7xMYHysjPgNynzkYP5QU81Cs7b9hLuZBUATPbj3hazE8Vbs5Sc`
+(slot 263919365, 2024-05-05) is pump.fun's `Create`: InitializeMint2 with pump's PDA as mint
+authority, one MintTo of 1,000,000,000,000,000 base units, then the authority set to none.
+Its bonding-curve account (seeds `bonding-curve` and the mint, under
+`6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P`) exists and is owned by pump, in the older
+49-byte layout. The suffix came later. It proves nothing in the other direction either:
+anyone can grind an address that ends in "pump". Finding the create transaction did not need
+the mint's own history, which is too deep to page on a free RPC: the oldest signature of the
+mint's Metaplex metadata account, or of its bonding-curve account, is the create transaction
+and sits one or two pages down.
+
+**Do:** prove pump.fun origin from the owner of the bonding-curve account or from the create
+transaction, never from the address. To find a busy mint's first transaction, page an account
+that only its creation and a few later events touch, not the mint.
+
+## 2026-10-03: no element box past the card means every number fits
+
+**Believed:** "no descendant's box runs past the card, and the page is no wider than the
+window" proves a long figure fits on a phone. The first run printed zero overflow for twelve
+bungalows at four widths, and its screenshots were filed as the proof.
+
+**Measured:** two blind spots, both in that run. (1) The figure sat in a `min-w-0` cell
+inside an `overflow-hidden` panel. A figure too wide for its row shrinks the cell and is
+clipped, or its unit drops under it, and no element's box moves. Run with the figures set
+to 26px on a 393px WebKit phone: the box check read 0 past the card and 0 page overflow,
+and the page did not slide, while a check on the TEXT (a `Range` over the cell) reported 4
+of the 5 rows, four with the unit on a second line and two with digits past the row. At
+320px in Chromium the same: box check 0, text check 4 of 5. (2) Every screenshot from that run was
+Vite's red error overlay. The page's market card fetches `/api/aggregator`; `vite` (dev) has
+no such function, serves `api/aggregator.js` as a module, fails its import analysis and
+paints the overlay over the whole page. The DOM under the overlay measured fine.
+
+**Do:** measure a figure's fit on its text: `range.selectNodeContents(cell)`, then require
+the rects to sit inside the row's padding box and to share one line. See the check fail
+once at a size that cannot fit before trusting its zero. Take screenshots from
+`vite preview` of a build, and open them: a measurement that passes says nothing about
+what was painted.
+
+## 2026-10-03: a helper that asks "the wallet" picks a network when the browser carries two
+
+**Believed:** a "use my wallet" helper that tries the Ethereum provider and falls back to
+Solana serves both kinds of visitor, and a Solana wallet's provider is at `window.solana`.
+
+**Measured:** at 393px on a production build, with a stand-in for Trust Wallet's own
+browser (`window.ethereum` and `window.trustwallet.solana`, each recording its calls), the
+Heat reader's button sent `eth_accounts`, then `eth_requestAccounts`, and never called the
+Solana provider. It did so on the home page, on the Solana launch door, and on trunk with
+#714 merged after the top bar showed the connected Solana address. Once each network had
+its own button, an Ethereum prompt approved after the Solana button was pressed replaced
+the Solana address in the field.
+
+**Do:** a fill or connect helper takes the network as an argument, and the caller names it:
+the page's own network, or one button per network. Where the site already holds the
+address (a connected wallet), use it and ask no provider. Two buttons are two answers that
+can arrive in either order: drop an answer only when the field was written after its press
+(typing, or another fill). "Latest press wins" was tried first and lost a prompt the
+visitor approved after a second press on the same button had been refused. Read
+`window.trustwallet.solana` wherever `window.solana` is read.
+
+## 2026-10-03: a plain `vite build` is not the build the e2e suite runs against
+
+**Believed:** `vite build --outDir <temp>` plus `vite preview --outDir <temp>` is the
+production build, so any spec can run against it.
+
+**Measured:** against such a folder `e2e/door-first-frame.spec.ts` failed 11 tests on
+chromium ("/bayla: served the stock shell"). Against the `dist/` that `npm run build`
+writes, the same eleven spec files listed 456 tests on chromium and mobile-chrome: 284
+passed, 172 skipped by design, none failed. `npm run build` runs
+`render-bungalow-doors.mjs` after `vite build`, and the door pages exist only after it.
+
+**Do:** walk a flow on a plain `vite build`; run specs against `npm run build`. A local,
+uncommitted config that spreads `playwright.config.ts` and overrides `webServer` (its own
+port, `reuseExistingServer: false`), `use.baseURL` and `outputDir` keeps the run off
+another session's preview on 4173.
+
+## 2026-10-03: a `flex: 1 1 0; min-width: 0` field does not let a sibling wrap; it shrinks
+
+**Believed:** `flex-wrap` on a form drops a third control to the next row on a phone.
+
+**Measured:** at 393px the address field (`flex-1 min-w-0`), Read Heat and one wallet
+button stayed on one row. The field's hint needs 158px and the field was left 99px on the
+home page and 57px on the launch door. A line wraps on the items' starting sizes, and a
+zero basis with no minimum starts at zero. With the wallet button in a `w-full sm:w-auto`
+row of its own the field had 212px and 170px.
+
+**Do:** give the control that must not squeeze the field its own full-width row below the
+breakpoint, or give the field a real minimum. Pin it by measuring the hint's drawn width
+(canvas `measureText` with the field's computed font) against the field's content width.
+
+## 2026-10-03: a Solana blockhash lasts about 40 seconds on mainnet now, not a minute
+
+**Believed:** a block takes about 0.4 seconds, so a blockhash (150 blocks) is good for
+about a minute, and a 45-second clock on a review "stays well inside" it.
+
+**Measured:** on mainnet (api.mainnet-beta.solana.com, apiVersion 4.3.0),
+`getRecentPerformanceSamples` gave 219 to 228 slots a minute over five samples, and
+`getBlockHeight` at 'confirmed' rose 114 in 30.6 seconds with the slot rising the same 114:
+0.27 seconds a block, 150 blocks in about 40 seconds. Two `getLatestBlockhash` answers 46.7
+seconds apart were 171 blocks apart, so the first was dead before the second was read: the
+45-second clock ran out after the blockhash had died. A phone walk of Add liquidity (Pixel
+5, a production build, mainnet reads, a wallet that refuses) took 3.0 seconds to prepare
+and showed "too old" 42.4 seconds after the review appeared: the timer, not the chain.
+Worked out from that rate and not pressed: the review's block-height check (25 blocks to
+spare) refuses from 125 blocks, about 33 seconds after the blockhash is read.
+
+**Do:** never turn blocks into seconds from a remembered block time; read
+`getRecentPerformanceSamples` (numSlots over samplePeriodSecs) the day you size a clock, and
+pin the clock to that number in a test. Let a block-height read decide, and treat any
+wall-clock limit as the fallback for when the height cannot be read.
+
+## 2026-10-03: a flag carried through a wallet's "Open app" link is an input anyone can write
+
+**Believed:** after a phone visitor presses a wallet's "Open app" row and the page reopens
+inside that wallet's own browser, the job is done, or at least the next step is obvious. And
+once a marker in the address was added to make that page connect by itself: that only our
+own press could ever put it there.
+
+**Measured:** four testers who had not seen the code walked the built site as a Trust user.
+Inside the wallet's browser the page asked the wallet for nothing and looked exactly like the
+start; the same three presses had to be repeated, and one tester called it "the spot most
+likely to produce: there was no way to connect". With a marker in the query the page
+connected with zero presses, 1.6 s after arrival (3.4 s with a provider injected 2.5 s late).
+Then three reviewers and three skeptics, each running real code, broke the first versions
+nine ways. The ones that transfer:
+
+- `WalletProvider autoConnect` (wallet-adapter-react 0.15.39) restores WHATEVER wallet name is
+  saved. For a Wallet Standard wallet that is `connect({ silent: true })`; for a legacy
+  injected adapter (`autoConnect() { await this.connect() }`) it is a full connect, the
+  wallet's own prompt. So mounting a provider because of a link made a wallet prompt, or
+  reconnect after the visitor had disconnected, with no press. `autoConnect` also takes a
+  function `(adapter) => Promise<boolean>`: gate the restore there.
+- The tab that WROTE the marker loads its own marked address again: Back from the wallet's
+  link page, a reload, a tab the phone discarded. A 3 second timer does not cover it (a tab
+  that has navigated away never runs it, and Playwright's WebKit recorded no `pagehide` at
+  all), and a link pressed inside the 3 seconds leaves the marked entry in history, where
+  the timer never looks. What held: a `sessionStorage` note in the origin tab that lasts as
+  long as the tab (the wallet's browser has its own storage and never sees it), plus
+  stripping the marker on `popstate`. Used up on first read, the note failed on the second
+  marked load.
+- Every wallet's app link is built from `window.location.href` inside `connect()`, upstream
+  Phantom's included, so one `history.replaceState` just before the press covers them all.
+  Put the flag in the QUERY: MetaMask's link is rebuilt from host, path and query and drops a
+  fragment.
+- With tab storage blocked the marker was not written, and the notice still promised the
+  page would connect by itself. A helper that can fail must say so to the caller that words
+  the notice.
+
+**Do:** treat a URL flag that triggers behaviour as hostile input from the first line. Read
+nothing out of it. Decide separately what a crafted link may cause in each kind of browser
+(a computer, an ordinary phone browser with a wallet of its own, a wallet's own browser),
+and write one test per kind against the REAL provider and adapters: fakes whose
+`autoConnect` is a no-op passed while the real ones prompted. Not settled here: the rule
+that tells a wallet's own browser from an ordinary one (no adapter offers "Open app" there)
+rests on user agents nobody has read off a real device.
+
+## 2026-10-03: React Router matches a path whatever its case; a hand-written path test does not
+
+**Believed:** `isSolanaPage(pathname)` and the router agree about which page is on screen,
+because both are given the same pathname.
+
+**Measured:** `/Earn/bobo`, `/earn/%62obo`, `/Dashboard` and `/Curve-Launch/<mint>` all render
+their route (React Router ignores case and decodes params), while a predicate comparing the
+raw string said "not a Solana page". Two wallet providers were then mounted for one page and
+the wallet was asked twice, 80 to 330 ms apart; with a wallet that refuses a second request
+the approval landed nowhere. The same shape, without the case trick: a route (`/solana-lp`)
+added to the router and not to the predicate.
+
+**Do:** a predicate that mirrors the router has to match the way the router does:
+`decodeURI`, and the `i` flag on the static part of the pattern (keep ids and addresses as
+written), or mark the routes `caseSensitive`. And when a route is added, grep for every
+hand-kept list of paths.
+
+## 2026-10-03: three things a Playwright walk and a wording guard got wrong before they were right
+
+**Believed:** `context.on('page')` is how to catch a popup; `route.abort()` on a navigation
+models "the phone opened an app instead"; and a test that greps for `>Connect Wallet<`
+proves the bare words are gone.
+
+**Measured:**
+
+- `context.on('page', ...)` registered before `context.newPage()` fires for that page too. A
+  handler that closes "the popup" closed the page under test: `page.goto: net::ERR_ABORTED;
+  maybe frame was detached`. Register it after creating the page, or skip `popup === page`.
+- Aborting a main-frame navigation leaves Chromium on a blank error page, while WebKit stays
+  where it was. A real phone that hands a link to an app leaves the browser ON the page. To
+  model that in both engines, answer the link with `route.fulfill({ status: 204 })`.
+- The guard caught `>Connect Wallet<` and a stock `<ConnectButton />`, and passed
+  `{'Connect Wallet'}`, a ternary, a variable, and `Connect wallet` with a small w (each
+  tried by mutation). After stripping comments, refuse the phrase anywhere in code, case
+  ignored, and count uses of the replacement constant rather than its presence: the import
+  line alone satisfied "contains".
+
+**Do:** when a test guards WORDS, mutate the ways the words can be spelled, not only the
+one spelling that existed.
+
 ## 2026-10-03: a local WebKit red that survives a solo re-run can still be trunk's: `e2e/arrival.spec.ts:79` is, on Windows
 
 **Believed:** a spec that fails in a full run and again alone with one worker was broken

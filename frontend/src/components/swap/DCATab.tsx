@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useAccount } from 'wagmi';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
+import { CONNECT_ETHEREUM_WALLET } from '../../lib/copy';
 import { useDCA, DEFAULT_SLIPPAGE_BPS, MIN_SLIPPAGE_BPS, MAX_SLIPPAGE_BPS } from '../../hooks/useDCA';
 import { DEFAULT_TOKENS } from '../../lib/tokenList';
 import { InfoTooltip } from '../ui/InfoTooltip';
@@ -253,7 +254,7 @@ export function DCATab() {
         <ConnectButton.Custom>
           {({ openConnectModal, mounted }) => (
             <div {...(!mounted && { style: { opacity: 0, pointerEvents: 'none' } })}>
-              <button onClick={openConnectModal} className="btn-primary w-full py-3 text-[13px]">Connect Wallet</button>
+              <button onClick={openConnectModal} className="btn-primary w-full py-3 text-[13px]">{CONNECT_ETHEREUM_WALLET}</button>
             </div>
           )}
         </ConnectButton.Custom>

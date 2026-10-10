@@ -32,9 +32,12 @@ export default function SolanaLpPage() {
   const lpMode = lpWriteMode();
   // The token being looked at (?mint=) follows the reader to the Venue AMM tab.
   const [params] = useSearchParams();
+  // A finger-sized press area on a 19.5px line: 14px of padding above and below (47.5px).
+  // The negative margin takes 6px of each back, so the line keeps the 8px it always had.
+  // The keyboard's ring goes round the words (`ring-on-words`, index.css).
   const venueAmmLink = (
-    <Link to={withMint('/pools', params)} className="inline-block py-2 underline underline-offset-2 text-white hover:text-white/80">
-      See fees, status and how the pools work on the Venue AMM tab
+    <Link to={withMint('/pools', params)} className="inline-block py-3.5 -my-1.5 underline underline-offset-2 text-white hover:text-white/80 ring-on-words">
+      <span className="ring-words">See fees, status and how the pools work on the Venue AMM tab</span>
     </Link>
   );
 
@@ -56,8 +59,9 @@ export default function SolanaLpPage() {
       </div>
 
       <div className="relative z-10 max-w-[900px] mx-auto px-4 md:px-6 pt-8 pb-16">
-        <m.div className="mb-6" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
-          <p className="text-white/70 text-[11px] uppercase tracking-[0.2em] mb-2">Solana LP · Venue AMM</p>
+        <m.div className="mb-4 sm:mb-6" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
+          {/* Not on a phone: the tab above already says Solana LP, and its line pushed the token buttons under the bottom bar. */}
+          <p className="hidden sm:block text-white/70 text-[11px] uppercase tracking-[0.2em] mb-2">Solana LP · Venue AMM</p>
           <h1 className="heading-luxury text-3xl md:text-5xl text-white tracking-tight mb-3">
             Solana liquidity.
           </h1>
@@ -104,7 +108,8 @@ const PAGE_DESCRIPTION =
 // What this tab can do follows LP's own switch (lpWriteFlag.ts), as on /pools. The venue
 // read alone does not say each can be done right now: the section's own reads do.
 const HERO_LINE: Record<LpWriteMode, string> = {
-  on: 'Find a pool, add or remove liquidity, or open a new pool on the venue’s own Solana AMM. The pools section below says whether each can be done right now.',
+  // Short: on a phone each of its lines pushes the three buttons under it down the screen.
+  on: 'Create a pool, add liquidity or take it out on the venue’s own Solana AMM.',
   'withdraw-only': 'Find a pool and take your liquidity out on the venue’s own Solana AMM. Adding liquidity and opening pools from here are paused.',
   off: 'Find a pool and check its health on the venue’s own Solana AMM. Adding and removing liquidity from here is not switched on yet.',
 };

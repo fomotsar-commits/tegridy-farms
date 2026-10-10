@@ -24,6 +24,7 @@ import type { CurveBuyQuote, SellQuote } from '../curve/math';
 import type { AmmConfigView } from '../../../solana/cpswap/program';
 import type { OwnPoolQuote } from '../../../solana/cpswap/read';
 import type { PriceCheck } from '../../../solana/lp/poolHealth';
+import type { QuoteCoin } from '../../../solana/lp/quotes';
 import type { SafetyReason } from '../../../solana/lp/tokenSafety';
 
 export type SolanaCluster = 'mainnet' | 'devnet' | 'localnet';
@@ -87,6 +88,15 @@ export type LpGate =
 
 export type LpOpenGate = Extract<LpGate, { kind: 'open' }>;
 
+/**
+ * Whether the swap page may trade in one of our pools. The same two reads as `LpGate`
+ * (the cluster and the pool program) and nothing else: no switch of LP's or the launch
+ * program's decides it.
+ */
+export type SwapGate = { kind: 'off' } | { kind: 'blocked'; reason: GateBlock; detail: string } | { kind: 'open'; cfg: CurveWriteConfig };
+
+export type SwapOpenGate = Extract<SwapGate, { kind: 'open' }>;
+
 /** The public fee tier's terms a person is shown before opening a pool, and that prepare re-checks. */
 export type TierTerms = Pick<AmmConfigView, 'createPoolFee' | 'tradeFeeRate' | 'protocolFeeRate' | 'fundFeeRate' | 'creatorFeeRate'>;
 
@@ -129,15 +139,21 @@ export interface ActionAvailability {
 /** Adding and removing liquidity in one of our cp-swap pools, and opening a new one. */
 export type LpKind = 'lp-deposit' | 'lp-withdraw' | 'lp-create';
 
-export type TxKind = 'create' | 'buy' | 'sell' | 'migrate' | 'pool-buy' | 'pool-sell' | LpKind;
+/**
+ * `pool-buy` / `pool-sell`: a graduated launch's own pool, from its launch page.
+ * `venue-swap`: any pool of ours for the pair, found by address, from the swap page.
+ */
+export type TxKind = 'create' | 'buy' | 'sell' | 'migrate' | 'pool-buy' | 'pool-sell' | 'venue-swap' | LpKind;
 
 /**
  * What a watched token account is, so the review can name it and print it in its
  * own mint's decimals. `treasury` is the platform treasury's account (create: the
  * reserve arriving); `workshop` is the island Workshop's $BAYLA account (create: the
  * plant's half); the rest are the signer's own. No role = the signer's token.
+ * `quote` is the signer's account for a pool's pairing coin when that coin is not SOL
+ * (USDC, BAYLA); SOL's is `wsol`.
  */
-export type TokenRole = 'treasury' | 'workshop' | 'lp' | 'wsol' | 'token';
+export type TokenRole = 'treasury' | 'workshop' | 'lp' | 'wsol' | 'quote' | 'token';
 
 /**
  * One instruction of the FINAL transaction, decoded back out of its bytes.
@@ -289,9 +305,60 @@ export type TxSummary =
       /** True when the transaction closes the wrapped-SOL account, so SOL comes back as plain SOL. */
       unwrapsWsol: boolean;
     }
+  | VenueSwapSummary
   | LpDepositSummary
   | LpWithdrawSummary
   | LpCreateSummary;
+
+/**
+ * What the aggregator answered for the trade a swap in our own pool was compared with.
+ * Three answers a review must not blur: it quoted (`out`, in the output's base units,
+ * `now` or `earlier` when it could not be asked again and the figure on screen stood
+ * in), it has no route, and it could not be asked at all.
+ */
+export type AggregatorSeen =
+  | { kind: 'quoted'; out: bigint; when: 'now' | 'earlier' }
+  | { kind: 'no-route' }
+  | { kind: 'unreachable' };
+
+/**
+ * A swap in one of our pools, as the review shows it. The amounts are decoded from the
+ * prepared transaction's bytes; the quote is from the fresh read it was built on.
+ */
+export interface VenueSwapSummary {
+  kind: 'venue-swap';
+  pool: PublicKey;
+  origin: PoolPins['origin'];
+  /** The pool's own fee tier, read while preparing. Never null: prepare refuses without it. */
+  config: AmmConfigView;
+  tokenMint: PublicKey;
+  tokenDecimals: number;
+  /** The pool's pairing coin. The other side of the trade is the token. */
+  coin: QuoteCoin;
+  /** True when the coin is paid in and the token comes out; false the other way round. */
+  paysCoin: boolean;
+  amountIn: bigint;
+  minimumAmountOut: bigint;
+  quoted: OwnPoolQuote;
+  /** What the aggregator was seen to pay for the same trade: the swap was held to it. */
+  aggregator: AggregatorSeen;
+  /** True when the wrapped-SOL account is closed at the end. Always false when the coin is not SOL. */
+  unwrapsWsol: boolean;
+  wsolHeldBefore: bigint;
+  notices: string[];
+}
+
+/**
+ * A price more than 3% from what it was checked against, from the builder's fresh reads.
+ * `diff` is the fraction above (positive) or below (negative) that reference. `lossQuote`
+ * is what arbitrage is ESTIMATED to take at the amounts going in, in the pairing coin's
+ * base units, rounded up: an upper bound, for display only. Null = it could not be worked
+ * out, which is said as such and never shown as 0.
+ */
+export interface PriceGap {
+  diff: number;
+  lossQuote: bigint | null;
+}
 
 /**
  * Adding liquidity, as the review shows it. Every amount comes from the prepared
@@ -311,21 +378,37 @@ export interface LpDepositSummary {
   enableCreatorFee: boolean;
   tokenMint: PublicKey;
   tokenDecimals: number;
-  solIsToken0: boolean;
+  /** The coin the token is paired with. Every `quote` amount below is in ITS base units. */
+  quote: QuoteCoin;
+  quoteIsToken0: boolean;
   lpAmount: bigint;
   lpDecimals: number;
   /** The ceiling cost from the fresh snapshot. */
-  quoted: { sol: bigint; token: bigint };
+  quoted: { quote: bigint; token: bigint };
   /** Decoded from the bytes. */
-  max: { sol: bigint; token: bigint };
+  max: { quote: bigint; token: bigint };
   /** The other side's maximum was lowered to what the wallet holds. */
-  limitedByBalance: 'none' | 'sol' | 'token';
+  limitedByBalance: 'none' | 'quote' | 'token';
   /** Display only. */
   sharePct: { before: number; after: number };
-  /** The fresh price check that passed. */
+  /**
+   * The fresh price check. A deposit is built when it agrees, and also when it disagrees
+   * or has nothing to be compared with (`no-market`): those two are said in `warnings`.
+   */
   price: PriceCheck;
   tokenWarnings: SafetyReason[];
-  /** True when the wrapped-SOL account is closed at the end, so unused SOL comes back as plain SOL. */
+  /**
+   * What the review must say before this is signed: plain sentences, any amount already
+   * in the pool's own coin. From the builder's own fresh reads, never from what the form
+   * showed. Always there; empty when there is nothing to warn of.
+   */
+  warnings: string[];
+  /** Set when the pool's price is off what it was checked against; null when it is not. */
+  priceGap: PriceGap | null;
+  /**
+   * True when the wrapped-SOL account is closed at the end, so unused SOL comes back as
+   * plain SOL. Always false for a pool paired with another coin: nothing is wrapped.
+   */
   unwrapsWsol: boolean;
   wsolHeldBefore: bigint;
   notices: string[];
@@ -339,7 +422,9 @@ export interface LpWithdrawSummary {
   config: AmmConfigView | null;
   tokenMint: PublicKey;
   tokenDecimals: number;
-  solIsToken0: boolean;
+  /** The coin the token is paired with. Every `quote` amount below is in ITS base units. */
+  quote: QuoteCoin;
+  quoteIsToken0: boolean;
   lpAccount: PublicKey;
   lpAmount: bigint;
   lpDecimals: number;
@@ -348,11 +433,17 @@ export interface LpWithdrawSummary {
   all: boolean;
   keep: bigint;
   /** The floor payout from the fresh snapshot. */
-  quoted: { sol: bigint; token: bigint };
-  min: { sol: bigint; token: bigint };
+  quoted: { quote: bigint; token: bigint };
+  min: { quote: bigint; token: bigint };
   tokenAccount: PublicKey;
   /** What opening the token account costs; `0n` when it exists. */
   tokenAccountRent: bigint;
+  /**
+   * A pool paired with a coin that is not SOL pays that coin into the signer's own
+   * account for it: the account, and what opening it costs (`0n` when it exists).
+   * Null for a SOL pool, whose SOL comes back through the wrapped-SOL account.
+   */
+  quoteAccount: { address: PublicKey; rent: bigint } | null;
   unwrapsWsol: boolean;
   notices: string[];
 }
@@ -371,22 +462,36 @@ export interface LpCreateSummary {
   config: AmmConfigView;
   tokenMint: PublicKey;
   tokenDecimals: number;
-  solIsToken0: boolean;
+  /** The coin the token is paired with. Every `quote` amount below is in ITS base units. */
+  quote: QuoteCoin;
+  quoteIsToken0: boolean;
   /** Decoded from the bytes: exactly what goes in. */
-  put: { sol: bigint; token: bigint };
-  /** isqrt(sol·token), the pool's whole share count; `lpAmount` = supply − 100. */
+  put: { quote: bigint; token: bigint };
+  /** isqrt(quote·token), the pool's whole share count; `lpAmount` = supply − 100. */
   supply: bigint;
   lpAmount: bigint;
   lpDecimals: 9;
   /** What the 100 locked shares are worth at the opening amounts (display). */
-  locked: { sol: bigint; token: bigint };
+  locked: { quote: bigint; token: bigint };
   createFee: bigint;
   feeReceiver: PublicKey;
   /** Read while preparing: the pool's own accounts (never returned), the opener's pool-share account (refundable). */
   rents: { neverRefunded: bigint; lpAccount: bigint };
-  /** The opening check that passed: state 'agrees', against 'outside'. */
+  /**
+   * The fresh opening check, against 'outside'. An opening is built when it agrees, and
+   * also when it disagrees or has nothing to be compared with (`no-market`): those two
+   * are said in `warnings`.
+   */
   price: PriceCheck;
   tokenWarnings: SafetyReason[];
+  /**
+   * What the review must say before this is signed: plain sentences, any amount already
+   * in the pool's own coin. From the builder's own fresh reads, never from what the form
+   * showed. Always there; empty when there is nothing to warn of.
+   */
+  warnings: string[];
+  /** Set when the opening price is off the market price; null when it is not. */
+  priceGap: PriceGap | null;
   unwrapsWsol: boolean;
   wsolHeldBefore: bigint;
   notices: string[];
@@ -492,7 +597,7 @@ export interface PreToken {
  * What `intent.ts` needs to judge a transaction for one signer: a launch-program
  * transaction (`CurveIntent`), or adding or removing liquidity (`PoolIntent`).
  */
-export type IntentContext = CurveIntent | PoolIntent;
+export type IntentContext = CurveIntent | PoolIntent | SwapIntent;
 
 /** A launch, a curve trade, a graduation or a launch pool's swap. Every field it had before liquidity stays required. */
 export interface CurveIntent {
@@ -500,7 +605,7 @@ export interface CurveIntent {
    * What this transaction is for. Each kind may call only its own programs: a create
    * never reaches the pool program, a curve trade never reaches Token Metadata.
    */
-  kind: Exclude<TxKind, LpKind>;
+  kind: Exclude<TxKind, LpKind | 'venue-swap'>;
   signer: PublicKey;
   cfg: CurveWriteConfig;
   /** Read off the decoded global, never guessed. */
@@ -532,10 +637,17 @@ export interface PoolPins {
   vault1: PublicKey;
   lpMint: PublicKey;
   observation: PublicKey;
-  /** The side that is not SOL. */
+  /** The side that is not the pairing coin. */
   tokenMint: PublicKey;
   tokenProgram: PublicKey;
-  solIsToken0: boolean;
+  /**
+   * The pairing coin (quotes.ts): SOL, USDC or BAYLA. The decoder looks its mint up in
+   * the site's own list again and refuses any other, so a pin can never name a coin of
+   * its own. SOL (`native`) is wrapped and unwrapped around the pool instruction; any
+   * other coin moves through the signer's own account for it, under the coin's program.
+   */
+  quote: QuoteCoin;
+  quoteIsToken0: boolean;
   /** Deposit: ATA(lpMint, signer, Tokenkeg). Withdraw: the pool-share account verified at prepare. */
   lpAccount: PublicKey;
 }
@@ -548,6 +660,22 @@ export interface PoolIntent {
   /** The most priority fee this transaction may carry, in lamports. */
   maxPriorityLamports: bigint;
   pins: PoolPins;
+}
+
+/**
+ * A swap in one pool of ours: every account its one swap names is pinned by `pins`, as
+ * for liquidity. What is paid out goes to the signer's own account for the other mint.
+ */
+export interface SwapIntent {
+  kind: 'venue-swap';
+  signer: PublicKey;
+  cfg: CurveWriteConfig;
+  /** The most priority fee this transaction may carry, in lamports. */
+  maxPriorityLamports: bigint;
+  /** The pool as read and checked while preparing. A swap never uses `lpAccount`. */
+  pins: PoolPins;
+  /** The mint paid in: one of the pool's two. */
+  inputMint: PublicKey;
 }
 
 /**

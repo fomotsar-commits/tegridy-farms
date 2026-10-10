@@ -3,6 +3,7 @@ import { JUPITER_PROXY_BASE, SOL_MINT } from '../../solana';
 import type { SolanaRpc } from '../../launcher/solana/curve/rpc';
 import { clipDetail } from '../../launcher/solana/curve/read';
 import { getMultipleAccounts } from './accounts';
+import type { QuoteCoin } from './quotes';
 
 /**
  * The token's price OUTSIDE our pools, to check a pool's price against before anyone
@@ -10,8 +11,9 @@ import { getMultipleAccounts } from './accounts';
  *
  * Why it matters: anyone can open a pool for any token at any price. Depositing into a
  * pool whose price is off hands the difference to the first arbitrage bot. So a pool
- * more than 3% away from the outside price is refused (poolHealth.ts), and a pool whose
- * outside price could not be read is "unchecked", never "fine".
+ * more than 3% away from the outside price is warned about, with what the gap is
+ * estimated to cost (poolHealth.ts), and a pool whose outside price could not be read is
+ * "unchecked", never "fine" and never a warning.
  *
  * HOW. Two Jupiter quotes through our own proxy: 0.05 SOL into the token, then that many
  * tokens back into SOL. The buy price includes the route's fees and impact on one side,
@@ -168,4 +170,79 @@ export async function readOutsidePrice(
   const mid = Math.sqrt(buyPrice * sellPrice);
   if (!Number.isFinite(mid) || mid <= 0) return { kind: 'unread', detail: 'Jupiter’s quotes did not give a usable price' };
   return { kind: 'ok', solPerToken: mid, source: 'Jupiter' };
+}
+
+/**
+ * A token's outside price in a POOL'S OWN pairing coin: what a pool paired with USDC or
+ * BAYLA is checked against. `perToken` is whole coins per whole token.
+ */
+export type QuotePrice =
+  | { kind: 'ok'; perToken: number; source: 'Jupiter' }
+  /**
+   * Jupiter ANSWERED that it has no route, and `of` says for what. `token`: the token has
+   * no outside market. `coin`: the token has a price, but the pool's pairing coin has
+   * none, so there is no price IN THAT COIN (owner ruling 2026-10-07: an answer, and a
+   * warning; it switches nothing off). Never a failed read: that is `unread`.
+   */
+  | { kind: 'no-route'; of: 'token' | 'coin'; detail: string }
+  | { kind: 'unread'; detail: string };
+
+/**
+ * Why a pairing coin's OWN price is missing, in words about the coin. The coin is priced
+ * by the same read as any token, and that read's words for "no route" say "this token".
+ * Said of the coin beside a pool or an opening, "this token" means the token on the other
+ * side, which has a price: so "no route" names the coin. Every other detail is the read's
+ * own. One place, for the pool card, the opening check and both builders.
+ */
+export function coinPriceDetail(quote: QuoteCoin, coin: Exclude<OutsidePrice, { kind: 'ok' }>): string {
+  return coin.kind === 'no-route' ? `Jupiter has no route for ${quote.symbol}` : coin.detail;
+}
+
+/**
+ * The token's outside price in `quote`, from SOL prices only: the token's own
+ * (`readOutsidePrice`) and, for a coin that is not SOL, that coin's own, read the same
+ * way. Both are the mid of a 0.05 SOL round trip, so their ratio is the token priced in
+ * the coin with each route's fees cancelled, and no second kind of Jupiter read exists.
+ *
+ * For SOL the answer IS the token's price: `coin` is not looked at.
+ *
+ * `no-route` is an ANSWER, and says whose it is (`of`). The token's: it has no outside
+ * market, and a launch pool then falls back to its own history (poolHealth.ts). The
+ * coin's (owner ruling 2026-10-07): Jupiter answered that it has no route for the pairing
+ * coin, so there is no price in that coin to compare with. Both are warnings, never a
+ * refusal.
+ *
+ * A pairing coin whose price was NOT ASKED FOR, or whose read FAILED, is `unread`: the
+ * token may well trade elsewhere, and unread is never a pass. Only Jupiter's own "no
+ * route" answer for the coin is `no-route`.
+ */
+export function priceInQuote(token: OutsidePrice, quote: QuoteCoin, coin: OutsidePrice | null): QuotePrice {
+  if (token.kind === 'no-route') return { kind: 'no-route', of: 'token', detail: token.detail };
+  if (token.kind !== 'ok') return token;
+  const priced = solPriceIn(quote, token.solPerToken, coin);
+  return priced.kind === 'ok' ? { ...priced, source: 'Jupiter' } : priced;
+}
+
+/**
+ * A price in SOL a token, said in `quote` instead: over that coin's own SOL price. For
+ * SOL it is the price itself, and `coin` is not looked at. The one division for every
+ * reference a pool is checked against: the outside price, and a launch pool's
+ * (poolHealth.ts). Three answers. `ok`. `no-route` of the coin: Jupiter ANSWERED that it
+ * has no route for the pairing coin, so there is no price in that coin (owner ruling
+ * 2026-10-07: a warning, it switches nothing off). `unread`: the coin's price was not
+ * asked for or its read failed, which is never a pass.
+ */
+export function solPriceIn(
+  quote: QuoteCoin,
+  solPerToken: number,
+  coin: OutsidePrice | null,
+): { kind: 'ok'; perToken: number } | { kind: 'no-route'; of: 'coin'; detail: string } | { kind: 'unread'; detail: string } {
+  if (quote.native) return { kind: 'ok', perToken: solPerToken };
+  if (!coin) return { kind: 'unread', detail: `the price of ${quote.symbol} was not read` };
+  // Only the ANSWER "no route". A failed read of the coin's price falls to `unread` below.
+  if (coin.kind === 'no-route') return { kind: 'no-route', of: 'coin', detail: coinPriceDetail(quote, coin) };
+  if (coin.kind !== 'ok') return { kind: 'unread', detail: `the price of ${quote.symbol} could not be read (${coinPriceDetail(quote, coin)})` };
+  const perToken = solPerToken / coin.solPerToken;
+  if (!Number.isFinite(perToken) || perToken <= 0) return { kind: 'unread', detail: `the price of ${quote.symbol} did not give a usable price` };
+  return { kind: 'ok', perToken };
 }

@@ -39,6 +39,16 @@ const LAST_UPDATE_OFFSET = OBS_START + OBS_LEN * OBSERVATION_NUM;
 export const AVERAGE_WINDOW_SECS = 30n * 60n;
 /** Less history than this since the first swap, and the average proves nothing yet. */
 export const MIN_HISTORY_SECS = 10n * 60n;
+/** That span in words ("10 minutes"), for every sentence that names it: the number is typed once, above. */
+export const MIN_HISTORY_TEXT = `${(MIN_HISTORY_SECS / 60n).toString()} minutes`;
+/**
+ * Why a launch pool's price was compared with nothing when its record is that short
+ * (poolHealth.ts `too-new`), as the clause every screen says it in: the pool card's
+ * "Checked against" row, the review's "Price check" row and the Open-a-pool card. The
+ * own average is only asked for when Jupiter ANSWERED "no route", and a launch pool is
+ * always paired with SOL (poolFinder.ts), so the missing price is the token's.
+ */
+export const TOO_NEW_WHY = `this pool has traded for under ${MIN_HISTORY_TEXT} and Jupiter has no price for this token`;
 
 const Q32 = 1n << 32n;
 const U128 = 1n << 128n;
@@ -86,6 +96,13 @@ export type OwnPrice =
   /** No swap has ever happened: the price is still the one the pool was opened at. */
   | { kind: 'no-trades' }
   | { kind: 'ok'; solPerToken: number; windowSecs: bigint }
+  /**
+   * The record was READ, and it spans less than `MIN_HISTORY_SECS` since the pool's first
+   * trade: too short for an average to prove anything. An ANSWER about the pool, not a
+   * failed read (owner ruling 2026-10-07: such a pool takes deposits, with a warning).
+   * Only that one branch gives it. Everything that could not be read or used stays `unread`.
+   */
+  | { kind: 'too-new'; historySecs: bigint }
   | { kind: 'unread'; detail: string };
 
 /**
@@ -114,9 +131,8 @@ export function ownAveragePrice(input: {
   if (!from) for (const o of valid) if (!from || o.blockTimestamp < from.blockTimestamp) from = o;
   if (!from) return { kind: 'unread', detail: 'its price record is empty' };
   const window = now - from.blockTimestamp;
-  if (window < MIN_HISTORY_SECS) {
-    return { kind: 'unread', detail: `it has only ${window.toString()} seconds of price history since its first trade` };
-  }
+  // Read, and too short: an answer, with how long the record is. Never `unread`.
+  if (window < MIN_HISTORY_SECS) return { kind: 'too-new', historySecs: window };
 
   // Both sides, and use the one with more precision (a very cheap token's own price in
   // Q32.32 can round to a handful of units; its inverse does not).

@@ -1,9 +1,15 @@
 import { describe, expect, it, vi, afterEach } from 'vitest';
-import { act, fireEvent, render, renderHook, screen } from '@testing-library/react';
-import { FeeRows, TxFlowView, TxOutcomeCard } from './TxFlowView';
-import { REVIEW_TTL_MS, useTxFlow } from './useTxFlow';
+import { act, fireEvent, render, renderHook, screen, within } from '@testing-library/react';
+import { Transaction, TransactionInstruction, type PublicKey } from '@solana/web3.js';
+import { FeeRows, TxFlowView, TxOutcomeCard, TxReview } from './TxFlowView';
+import { reviewLines } from './reviewLines';
+import { REVIEW_TTL_MS, SIGN_MARGIN_BLOCKS, useTxFlow } from './useTxFlow';
 import { CREATOR, KEY, PLANT_SUMMARY, SIG, buySummary, fakeApi, prepared } from './fakeWriteApi.fixture';
-import type { PreparedTx, TxOutcome, TxSigner, TxSummary, WriteRpc } from './ports';
+import { lpCreateSummary, lpDepositSummary, lpWithdrawSummary } from '../lp/fakeLpWriteApi.fixture';
+import type { Prepared, PreparedTx, TxOutcome, TxSigner, TxSummary, WriteApi, WriteRpc } from './ports';
+import { SOL_QUOTE } from '../../../lib/solana/lp/quotes';
+import { PRICE_TOLERANCE, TOO_NEW_WARNING, noPriceClause } from '../../../lib/solana/lp/poolHealth';
+import { TOO_NEW_WHY } from '../../../lib/solana/lp/ownPrice';
 
 const SOL_1 = 1_000_000_000n;
 const MINT_X = KEY(15);
@@ -412,7 +418,15 @@ describe('announced and focused', () => {
 // ---------------------------------------------------------------------------
 
 describe('useTxFlow', () => {
-  it('a review goes stale after a minute and can no longer be signed', async () => {
+  // Mainnet on 2026-10-03: 219 to 228 slots a minute (getRecentPerformanceSamples) and 114
+  // blocks in 30.6 seconds. A blockhash lasts 150 blocks: about 40 seconds, not a minute.
+  it('the review clock runs out while the blockhash still has its signing margin', () => {
+    const BLOCK_MS = 268;
+    const BLOCKHASH_BLOCKS = 150;
+    expect(REVIEW_TTL_MS / BLOCK_MS + SIGN_MARGIN_BLOCKS).toBeLessThanOrEqual(BLOCKHASH_BLOCKS);
+  });
+
+  it('a review goes stale when its clock runs out and can no longer be signed', async () => {
     vi.useFakeTimers();
     const api = fakeApi();
     const { result } = flowAt(api);
@@ -674,6 +688,528 @@ describe('useTxFlow', () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// A review left open past its blockhash. On a phone the review is two screens and a
+// blockhash does not last long enough to read it, so Sign on a stale review builds it
+// again on fresh reads: the same review goes to the wallet, a different one is shown first.
+// ---------------------------------------------------------------------------
+
+/** One of the transaction's own instructions (never compute budget), with its bytes. */
+const ix = (data: number[], account: PublicKey = KEY(51)) =>
+  new TransactionInstruction({
+    programId: KEY(50),
+    keys: [
+      { pubkey: CREATOR, isSigner: true, isWritable: true },
+      { pubkey: account, isSigner: false, isWritable: true },
+    ],
+    data: Buffer.from(data),
+  });
+
+function txOf(payer: PublicKey, ...ixs: TransactionInstruction[]): Transaction {
+  const tx = new Transaction();
+  tx.feePayer = payer;
+  if (ixs.length) tx.add(...ixs);
+  return tx;
+}
+
+type Buy = Extract<TxSummary, { kind: 'buy' }>;
+const buyWith = (over: Partial<Buy>): TxSummary => ({ ...(buySummary() as Buy), ...over });
+
+/** A transaction as prepared a second time: a newer blockhash, and whatever `over` changes. */
+const again = (summary: TxSummary = buySummary(), over: Partial<PreparedTx> = {}) =>
+  prepared(summary, { blockhash: '2'.repeat(32), lastValidBlockHeight: 5_000, ...over });
+
+/** A build that answers with each prepared transaction in turn. */
+function builds(...ps: PreparedTx[]) {
+  const build = vi.fn<() => Promise<Prepared>>();
+  for (const p of ps) build.mockResolvedValueOnce({ ok: true, prepared: p });
+  return build;
+}
+
+const confirmedApi = (over: Partial<WriteApi> = {}) =>
+  fakeApi({ submitPrepared: vi.fn(async () => ({ status: 'confirmed' as const, signature: SIG, slot: 1 })), ...over });
+
+/** What each call handed the wallet. */
+const signed = (api: WriteApi) => vi.mocked(api.submitPrepared).mock.calls.map((c) => c[2]);
+
+/** A buy review's lines, as the view hands them to the flow: enough to tell two apart. */
+const lines = (p: PreparedTx): string[] => {
+  const s = p.summary;
+  if (s.kind !== 'buy') throw new Error('kind');
+  return [`You pay (at most): ${s.maxLamportsIn}`, `You receive at least: ${s.minTokensOut}`, `Priority fee: ${p.fees.priorityLamports}`];
+};
+
+const pastItsClock = () =>
+  act(() => {
+    vi.advanceTimersByTime(REVIEW_TTL_MS + 1);
+  });
+
+describe('a review left open past its blockhash', () => {
+  it('Sign builds it again and, when nothing changed, the wallet gets the FRESH transaction', async () => {
+    vi.useFakeTimers();
+    const fresh = again();
+    const build = builds(prepared(buySummary()), fresh);
+    const api = confirmedApi();
+    const settled = vi.fn();
+    const { result } = renderHook(() => useTxFlow(api, rpc, settled));
+    await act(() => result.current.prepare(build, { repeatable: true }));
+    pastItsClock();
+    expect(result.current.state).toMatchObject({ step: 'review', expired: true, renewable: true });
+    await act(() => result.current.confirm(signer, lines));
+    expect(build).toHaveBeenCalledTimes(2);
+    // The stale transaction never reaches the wallet: the one signed carries the newer blockhash.
+    expect(signed(api)).toEqual([fresh]);
+    expect(result.current.state).toMatchObject({ step: 'outcome', outcome: { status: 'confirmed' }, prepared: fresh });
+    expect(settled).toHaveBeenCalledWith({ status: 'confirmed', signature: SIG, slot: 1 }, fresh, null);
+  });
+
+  it.each<[string, PreparedTx, string[], string[]]>([
+    [
+      'a lower minimum',
+      again(buyWith({ minTokensOut: 2_900_000_000n }), { tx: txOf(CREATOR, ix([9])) }),
+      ['You receive at least: 2900000000'],
+      ['You receive at least: 3000000000'],
+    ],
+    [
+      'the same instructions under a fee that reads differently',
+      again(buySummary(), { fees: { baseLamports: 5_000n, priorityLamports: 90_000n, priorityFeeRead: true, newAccountRentLamports: 2_039_280n } }),
+      ['Priority fee: 90000'],
+      ['Priority fee: 12000'],
+    ],
+    ['different instructions under a review that reads the same', again(buySummary(), { tx: txOf(CREATOR, ix([9])) }), [], []],
+    ['another wallet paying', again(buySummary(), { tx: txOf(KEY(60)) }), [], []],
+  ])('built again with %s: the new review is shown with what reads differently, and nothing is signed unread', async (_what, fresh, now, gone) => {
+    vi.useFakeTimers();
+    const build = builds(prepared(buySummary()), fresh);
+    const api = confirmedApi();
+    const { result } = flowAt(api);
+    await act(() => result.current.prepare(build, { repeatable: true }));
+    pastItsClock();
+    await act(() => result.current.confirm(signer, lines));
+    expect(api.submitPrepared).not.toHaveBeenCalled();
+    expect(result.current.state).toMatchObject({ step: 'review', prepared: fresh, expired: false, renewable: true, replaced: { n: 1, now, gone } });
+    // It is a review like any other now: one more press signs it, and only it.
+    await act(() => result.current.confirm(signer, lines));
+    expect(build).toHaveBeenCalledTimes(2);
+    expect(signed(api)).toEqual([fresh]);
+  });
+
+  it.each<[string, ((p: PreparedTx) => string[]) | undefined]>([
+    ['is not given the review lines', undefined],
+    [
+      'cannot read the review lines',
+      () => {
+        throw new Error('no document');
+      },
+    ],
+    // Two empty readings agree with each other and say nothing about the review.
+    ['reads no lines at all', () => []],
+  ])('a flow that %s never signs a rebuilt transaction unread', async (_what, read) => {
+    vi.useFakeTimers();
+    const fresh = again();
+    const api = confirmedApi();
+    const { result } = flowAt(api);
+    await act(() => result.current.prepare(builds(prepared(buySummary()), fresh), { repeatable: true }));
+    pastItsClock();
+    await act(() => result.current.confirm(signer, read));
+    expect(api.submitPrepared).not.toHaveBeenCalled();
+    expect(result.current.state).toMatchObject({ step: 'review', prepared: fresh, expired: false, replaced: { n: 1, now: [], gone: [] } });
+  });
+
+  it.each<[string, () => Promise<Prepared>, Partial<TxOutcome>]>([
+    [
+      'is refused',
+      async () => ({ ok: false, outcome: { status: 'not-sent', stage: 'simulate', message: 'The price moved past your limit.' } }),
+      { status: 'not-sent', stage: 'simulate', message: 'The price moved past your limit.' },
+    ],
+    ['throws', async () => Promise.reject(new Error('boom')), { status: 'not-sent', stage: 'build' }],
+  ])('a second build that %s is not-sent: nothing is signed, and the page reads the chain again', async (_what, second, outcome) => {
+    vi.useFakeTimers();
+    const build = builds(prepared(buySummary())).mockImplementationOnce(second);
+    const api = confirmedApi();
+    const settled = vi.fn();
+    const { result } = renderHook(() => useTxFlow(api, rpc, settled));
+    await act(() => result.current.prepare(build, { repeatable: true }));
+    pastItsClock();
+    await act(() => result.current.confirm(signer, lines));
+    expect(api.submitPrepared).not.toHaveBeenCalled();
+    expect(result.current.state).toMatchObject({ step: 'outcome', outcome, prepared: null });
+    expect(settled).toHaveBeenCalledTimes(1);
+    expect(settled.mock.calls[0]).toEqual([expect.objectContaining(outcome), null]);
+  });
+
+  // The launch: its build reads the door, asks the wallet for the upload and uploads.
+  it('a build not marked repeatable is never run twice: its stale review still cannot be signed', async () => {
+    vi.useFakeTimers();
+    const build = builds(prepared(buySummary()), again());
+    const api = confirmedApi();
+    const { result } = flowAt(api);
+    await act(() => result.current.prepare(build));
+    pastItsClock();
+    expect(result.current.state).toMatchObject({ step: 'review', expired: true });
+    expect(result.current.state).not.toMatchObject({ renewable: true });
+    await act(() => result.current.confirm(signer, lines));
+    expect(build).toHaveBeenCalledTimes(1);
+    expect(api.submitPrepared).not.toHaveBeenCalled();
+  });
+
+  // The fixture's lastValidBlockHeight is 1234; a rebuilt one's is 5,000.
+  const nearlyOver = () => ({ getBlockHeight: vi.fn(async () => 1234 - 5) }) as unknown as WriteRpc;
+
+  it('a Sign press that finds the block window nearly over builds it again in the same press', async () => {
+    const fresh = again();
+    const build = builds(prepared(buySummary()), fresh);
+    const api = confirmedApi();
+    const heightRpc = nearlyOver();
+    const { result } = renderHook(() => useTxFlow(api, heightRpc));
+    await act(() => result.current.prepare(build, { repeatable: true }));
+    await act(() => result.current.confirm(signer, lines));
+    expect(build).toHaveBeenCalledTimes(2);
+    expect(signed(api)).toEqual([fresh]);
+  });
+
+  it('a rebuilt transaction whose own window is nearly over is not signed, and that press does not build a third', async () => {
+    const fresh = again(buySummary(), { lastValidBlockHeight: 1240 });
+    const build = builds(prepared(buySummary()), fresh, again());
+    const api = confirmedApi();
+    const heightRpc = nearlyOver();
+    const { result } = renderHook(() => useTxFlow(api, heightRpc));
+    await act(() => result.current.prepare(build, { repeatable: true }));
+    await act(() => result.current.confirm(signer, lines));
+    expect(build).toHaveBeenCalledTimes(2);
+    expect(api.submitPrepared).not.toHaveBeenCalled();
+    expect(result.current.state).toMatchObject({ step: 'review', prepared: fresh, expired: true, renewable: true });
+    expect(result.current.state).not.toHaveProperty('replaced');
+  });
+
+  it('a rebuild that outlasts the review clock is not signed', async () => {
+    vi.useFakeTimers();
+    const fresh = again();
+    const build = builds(prepared(buySummary())).mockImplementationOnce(async () => {
+      vi.advanceTimersByTime(REVIEW_TTL_MS); // a build that hung on the network
+      return { ok: true, prepared: fresh };
+    });
+    const api = confirmedApi();
+    const { result } = flowAt(api);
+    await act(() => result.current.prepare(build, { repeatable: true }));
+    pastItsClock();
+    await act(() => result.current.confirm(signer, lines));
+    expect(api.submitPrepared).not.toHaveBeenCalled();
+    expect(result.current.state).toMatchObject({ step: 'review', prepared: fresh, expired: true });
+  });
+
+  it('Start over while it is built again abandons the press: the wallet is never asked, and the flow is free', async () => {
+    vi.useFakeTimers();
+    let finish: (r: Prepared) => void = () => undefined;
+    const build = builds(prepared(buySummary())).mockImplementationOnce(() => new Promise<Prepared>((r) => (finish = r)));
+    const api = confirmedApi();
+    const { result } = flowAt(api);
+    await act(() => result.current.prepare(build, { repeatable: true }));
+    pastItsClock();
+    let done: Promise<void> = Promise.resolve();
+    await act(async () => {
+      done = result.current.confirm(signer, lines);
+    });
+    expect(result.current.state).toMatchObject({ step: 'review', expired: true, renewing: true });
+    act(() => result.current.reset());
+    expect(result.current.state).toEqual({ step: 'idle' });
+    await act(async () => {
+      finish({ ok: true, prepared: again() });
+      await done;
+    });
+    expect(api.submitPrepared).not.toHaveBeenCalled();
+    expect(result.current.state).toEqual({ step: 'idle' });
+    await act(() => result.current.prepare(async () => ({ ok: true, prepared: prepared(buySummary()) })));
+    expect(result.current.state).toMatchObject({ step: 'review', expired: false });
+  });
+
+  it.each<[string, Prepared]>([
+    ['a refusal', { ok: false, outcome: { status: 'not-sent', stage: 'simulate', message: 'The price moved past your limit.' } }],
+    ['a review that changed', { ok: true, prepared: again(buyWith({ minTokensOut: 2_900_000_000n }), { tx: txOf(CREATOR, ix([9])) }) }],
+  ])('Start over, then the abandoned build answers with %s: the flow stays closed and the page is told nothing', async (_what, answer) => {
+    vi.useFakeTimers();
+    let finish: (r: Prepared) => void = () => undefined;
+    const build = builds(prepared(buySummary())).mockImplementationOnce(() => new Promise<Prepared>((r) => (finish = r)));
+    const api = confirmedApi();
+    const settled = vi.fn();
+    const { result } = renderHook(() => useTxFlow(api, rpc, settled));
+    await act(() => result.current.prepare(build, { repeatable: true }));
+    pastItsClock();
+    let done: Promise<void> = Promise.resolve();
+    await act(async () => {
+      done = result.current.confirm(signer, lines);
+    });
+    act(() => result.current.reset());
+    await act(async () => {
+      finish(answer);
+      await done;
+    });
+    expect(result.current.state).toEqual({ step: 'idle' });
+    expect(settled).not.toHaveBeenCalled();
+    expect(api.submitPrepared).not.toHaveBeenCalled();
+  });
+
+  it('Start over while the rebuilt transaction waits on the block height: the wallet is never asked', async () => {
+    vi.useFakeTimers();
+    let answer: (h: number) => void = () => undefined;
+    const heightRpc = { getBlockHeight: vi.fn(() => new Promise<number>((r) => (answer = r))) } as unknown as WriteRpc;
+    const api = confirmedApi();
+    const { result } = renderHook(() => useTxFlow(api, heightRpc));
+    await act(() => result.current.prepare(builds(prepared(buySummary()), again()), { repeatable: true }));
+    pastItsClock();
+    let done: Promise<void> = Promise.resolve();
+    await act(async () => {
+      done = result.current.confirm(signer, lines);
+    });
+    expect(heightRpc.getBlockHeight).toHaveBeenCalledTimes(1);
+    act(() => result.current.reset());
+    await act(async () => {
+      answer(1_000);
+      await done;
+    });
+    expect(api.submitPrepared).not.toHaveBeenCalled();
+    expect(result.current.state).toEqual({ step: 'idle' });
+  });
+
+  it('leaving the page while it is built again abandons the press: no wallet prompt for a review nobody is reading', async () => {
+    vi.useFakeTimers();
+    let finish: (r: Prepared) => void = () => undefined;
+    const build = builds(prepared(buySummary())).mockImplementationOnce(() => new Promise<Prepared>((r) => (finish = r)));
+    const api = confirmedApi();
+    const { result, unmount } = flowAt(api);
+    await act(() => result.current.prepare(build, { repeatable: true }));
+    pastItsClock();
+    let done: Promise<void> = Promise.resolve();
+    await act(async () => {
+      done = result.current.confirm(signer, lines);
+    });
+    unmount();
+    await act(async () => {
+      finish({ ok: true, prepared: again() });
+      await done;
+    });
+    expect(api.submitPrepared).not.toHaveBeenCalled();
+  });
+
+  it('builds again once and sends once, however many times Sign is pressed on a stale review', async () => {
+    vi.useFakeTimers();
+    const fresh = again();
+    const build = builds(prepared(buySummary()), fresh, again());
+    const api = confirmedApi();
+    const { result } = flowAt(api);
+    await act(() => result.current.prepare(build, { repeatable: true }));
+    pastItsClock();
+    const confirm = result.current.confirm;
+    let first: Promise<void> = Promise.resolve();
+    await act(async () => {
+      first = confirm(signer, lines);
+      void confirm(signer, lines);
+      void confirm(signer, lines);
+      await first;
+    });
+    expect(build).toHaveBeenCalledTimes(2);
+    expect(signed(api)).toEqual([fresh]);
+  });
+});
+
+// The same, through the button a visitor presses and the review they read.
+function Flow({ api, build }: { api: WriteApi; build: () => Promise<Prepared> }) {
+  const flow = useTxFlow(api, rpc);
+  return (
+    <>
+      <button type="button" onClick={() => void flow.prepare(build, { repeatable: true })}>
+        Review
+      </button>
+      <TxFlowView flow={flow} api={api} cluster="localnet" decimals={6} signer={signer} />
+    </>
+  );
+}
+
+describe('the stale review on screen', () => {
+  const openStale = async (api: WriteApi, build: () => Promise<Prepared>) => {
+    vi.useFakeTimers();
+    render(<Flow api={api} build={build} />);
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Review' }));
+    });
+    const sign = screen.getByRole('button', { name: 'Sign in wallet' });
+    sign.focus();
+    pastItsClock();
+    return sign;
+  };
+
+  it('keeps Sign in wallet on, says what pressing it does, and leaves focus where it is', async () => {
+    const sign = await openStale(fakeApi(), builds(prepared(buySummary())));
+    expect(sign).toBeEnabled();
+    expect(sign).not.toHaveAttribute('aria-disabled');
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(screen.getByRole('status')).toHaveTextContent(
+      'This review is too old to sign as it is. Sign in wallet builds it again on fresh numbers first: your wallet opens only if every line still reads the same. If any line reads differently, you are shown which.',
+    );
+    expect(document.activeElement).toBe(sign);
+    expect(screen.getByRole('button', { name: 'Start over' })).toBeInTheDocument();
+  });
+
+  it('Sign in wallet opens the wallet with the fresh transaction when every line reads the same', async () => {
+    const fresh = again();
+    const api = confirmedApi();
+    const sign = await openStale(api, builds(prepared(buySummary()), fresh));
+    await act(async () => {
+      fireEvent.click(sign);
+      await vi.waitFor(() => expect(api.submitPrepared).toHaveBeenCalled());
+    });
+    expect(signed(api)).toEqual([fresh]);
+    expect(screen.getByText(/Done\. The network confirmed it\./)).toBeInTheDocument();
+  });
+
+  it('while it is built again, a status line says so and Sign in wallet keeps focus without acting twice', async () => {
+    let finish: (r: Prepared) => void = () => undefined;
+    const build = builds(prepared(buySummary())).mockImplementationOnce(() => new Promise<Prepared>((r) => (finish = r)));
+    const api = confirmedApi();
+    const sign = await openStale(api, build);
+    await act(async () => {
+      fireEvent.click(sign);
+    });
+    expect(screen.getByRole('status')).toHaveTextContent(
+      'This review was too old to sign, so it is being built and test-run again on fresh numbers. Your wallet opens next only if every line still reads the same.',
+    );
+    expect(sign).not.toBeDisabled();
+    expect(sign).toHaveAttribute('aria-disabled', 'true');
+    expect(document.activeElement).toBe(sign);
+    fireEvent.click(sign);
+    expect(build).toHaveBeenCalledTimes(2);
+    await act(async () => {
+      finish({ ok: true, prepared: again() });
+      await vi.waitFor(() => expect(api.submitPrepared).toHaveBeenCalled());
+    });
+  });
+
+  it('a review that changed lists the lines that read differently beside Sign in wallet, takes focus there, and one more press signs it', async () => {
+    const fresh = again(buyWith({ minTokensOut: 2_900_000_000n }), { tx: txOf(CREATOR, ix([9])) });
+    const api = confirmedApi();
+    const sign = await openStale(api, builds(prepared(buySummary()), fresh));
+    await act(async () => {
+      fireEvent.click(sign);
+    });
+    const alert = screen.getByRole('alert');
+    expect(alert).toHaveTextContent('This review was built again on fresh numbers. 1 line reads differently now:');
+    expect(alert).toHaveTextContent('You receive at least: 2,900');
+    expect(alert).toHaveTextContent('In place of:');
+    expect(alert).toHaveTextContent('You receive at least: 3,000');
+    expect(alert).toHaveTextContent('Every other line reads as it did. Sign in wallet if this is still what you want.');
+    expect(alert).not.toHaveTextContent('You pay (at most)');
+    expect(document.activeElement).toBe(alert);
+    // It sits with the buttons, after the review, so nobody scrolls back up to find it.
+    expect(screen.getByTestId('tx-review').compareDocumentPosition(alert) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(api.submitPrepared).not.toHaveBeenCalled();
+    // The review above is the new one, and it can be signed.
+    expect(screen.getByText('You receive at least').nextElementSibling).toHaveTextContent('2,900');
+    const signNew = screen.getByRole('button', { name: 'Sign in wallet' });
+    expect(signNew).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Cancel' })).toBeInTheDocument();
+    await act(async () => {
+      fireEvent.click(signNew);
+      await vi.waitFor(() => expect(api.submitPrepared).toHaveBeenCalled());
+    });
+    expect(signed(api)).toEqual([fresh]);
+  });
+
+  // The price can move while a review is read. A deposit built again that now carries a
+  // warning it did not carry before must never go straight to the wallet.
+  it('a deposit built again with a warning it did not have: the warning is listed as new, and nothing is signed unread', async () => {
+    const NEW = 'Its price is 10.0% above the outside price. A deposit here would hand that gap to the first arbitrage trade.';
+    const first = lpDepositSummary(KEY(30), KEY(31));
+    const fresh = again(lpDepositSummary(KEY(30), KEY(31), { warnings: [NEW] }));
+    const api = confirmedApi();
+    const sign = await openStale(api, builds(prepared(first), fresh));
+    await act(async () => {
+      fireEvent.click(sign);
+    });
+    const alert = screen.getByRole('alert');
+    expect(alert).toHaveTextContent('This review was built again on fresh numbers. 2 lines read differently now:');
+    expect(alert).toHaveTextContent('Read these warnings first.');
+    expect(alert).toHaveTextContent(NEW);
+    expect(api.submitPrepared).not.toHaveBeenCalled();
+    // The new review has the warning at its head.
+    expect(within(screen.getByTestId('tx-review-warnings')).getByText(NEW)).toBeInTheDocument();
+  });
+
+  it('different instructions under the same words: says to read it through again, and names no line', async () => {
+    const api = confirmedApi();
+    const sign = await openStale(api, builds(prepared(buySummary()), again(buySummary(), { tx: txOf(CREATOR, ix([9])) })));
+    await act(async () => {
+      fireEvent.click(sign);
+    });
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      /^This review was built again on fresh numbers, and this page cannot say it is the same as the one you were reading\. Read it through again before you sign\.$/,
+    );
+    expect(api.submitPrepared).not.toHaveBeenCalled();
+  });
+});
+
+// What the flow compares is what a visitor reads: every piece of text on the review is
+// in one of its lines, for every kind, so nothing on screen can change unseen.
+describe('the review as lines', () => {
+  it('a row is "label: value"; the heading and each notice are lines of their own', () => {
+    const got = reviewLines(<TxReview prepared={prepared(buySummary())} decimals={6} display={(s) => s} />);
+    expect(got[0]).toBe('Review your buy');
+    expect(got).toContain('You pay (at most): 0.1 SOL');
+    expect(got).toContain('You receive at least: 3,000');
+    expect(got).toContain('Test run passed: the network ran this exact transaction without sending it.');
+  });
+
+  const create: TxSummary = {
+    kind: 'create', mint: MINT_X, creator: CREATOR, name: 'A', symbol: 'AB', uri: 'https://x', decimals: 6, openingBuy: null,
+    platformReserve: { amount: 36_900_000_000_000n, bps: 369n, recipient: KEY(4), treasuryToken: KEY(12) },
+    treasuryAccountRent: 1_488_440n, plant: PLANT_SUMMARY,
+  };
+  const withWarnings = { tokenWarnings: [{ code: 'mint-authority' as const, text: 'Its creator can still mint more.' }], notices: ['An approved spender can move tokens.'] };
+  // What the builder says must be read before signing: a price that is off, and its cost.
+  const SAID = ['Its price is 10.0% above the outside price.', 'At these amounts, a move back to the outside price would take up to about 0.002 SOL of what you put in. That is an estimate.'];
+  const offPrice = {
+    ...withWarnings,
+    warnings: SAID,
+    priceGap: { diff: 0.1, lossQuote: 2_000_000n },
+    price: { state: 'disagrees' as const, pool: 0.011, reference: 0.01, against: 'outside' as const, diff: 0.1 },
+  };
+
+  it.each<[string, TxSummary]>([
+    ['buy', buySummary()],
+    ['buy that fills the curve', buyWith({ fillsCurve: true, requestedLamports: SOL_1, priceImpactBps: 1_600n })],
+    ['create', create],
+    ['migrate', { kind: 'migrate', mint: CREATOR, pool: KEY(40) }],
+    ['lp-deposit', lpDepositSummary(KEY(30), KEY(31), withWarnings)],
+    ['lp-deposit with warnings', lpDepositSummary(KEY(30), KEY(31), offPrice)],
+    ['lp-withdraw', lpWithdrawSummary(KEY(30), KEY(31), KEY(32), { all: true, notices: ['Swaps on this pool are switched off.'] })],
+    ['lp-create', lpCreateSummary(KEY(30), KEY(31), { ...withWarnings, origin: 'other' })],
+    ['lp-create with warnings', lpCreateSummary(KEY(30), KEY(31), { ...offPrice, origin: 'other' })],
+  ])('%s: no text on the review is outside its lines', (_kind, summary) => {
+    const p = prepared(summary, {
+      simulated: { signerLamportsDelta: -SOL_1, tokenDeltas: [{ mint: KEY(20), account: KEY(21), delta: 2_500_000n, role: 'token' }] },
+    });
+    const review = <TxReview prepared={p} decimals={6} display={(s) => s} />;
+    const got = reviewLines(review);
+    render(review);
+    const walker = document.createTreeWalker(screen.getByTestId('tx-review'), NodeFilter.SHOW_TEXT);
+    const texts: string[] = [];
+    for (let n = walker.nextNode(); n; n = walker.nextNode()) if (n.textContent?.trim()) texts.push(n.textContent);
+    expect(texts.length).toBeGreaterThan(8);
+    for (const t of texts) expect(got.some((l) => l.includes(t)), t).toBe(true);
+    expect(got.every((l) => l.trim() !== '')).toBe(true);
+  });
+
+  // The warnings are part of what is compared when a review is built again: a warning that
+  // appears, goes or changes its figure is a line that reads differently, never a silent one.
+  it.each<[string, TxSummary]>([
+    ['lp-deposit', lpDepositSummary(KEY(30), KEY(31), offPrice)],
+    ['lp-create', lpCreateSummary(KEY(30), KEY(31), offPrice)],
+  ])('%s: each warning is a line of its own, right under the heading, and the cost is a row', (_kind, summary) => {
+    const got = reviewLines(<TxReview prepared={prepared(summary)} decimals={6} display={(s) => s} />);
+    expect(got.slice(1, 4)).toEqual(['Read these warnings first. Nothing here stops you signing, and each one is a risk to what you put in:', ...SAID]);
+    expect(got).toContain('Estimated cost of that gap: up to about 0.002 SOL of what you put in');
+  });
+});
+
 // D27: one transaction can move three different tokens. Each test-run line is named
 // for what it is and printed in that token's own decimals, never the page's.
 describe('test-run lines, by what each account is', () => {
@@ -756,19 +1292,19 @@ describe('liquidity reviews', () => {
     fundFeeRate: 0n, createPoolFee: 0n, creatorFeeRate: 0n, protocolOwner: KEY(7).toBase58(), fundOwner: KEY(7).toBase58(),
   };
   const deposit = (over: Partial<Extract<TxSummary, { kind: 'lp-deposit' }>> = {}): TxSummary => ({
-    kind: 'lp-deposit', pool: KEY(30), origin: 'standard', config, enableCreatorFee: false, tokenMint: KEY(31), tokenDecimals: 6, solIsToken0: true,
+    kind: 'lp-deposit', pool: KEY(30), origin: 'standard', config, enableCreatorFee: false, tokenMint: KEY(31), tokenDecimals: 6, quote: SOL_QUOTE, quoteIsToken0: true,
     lpAmount: 123_456_789_012n, lpDecimals: 9,
-    quoted: { sol: 2_000_000_000n, token: 5_000_000n }, max: { sol: 2_020_000_001n, token: 5_050_001n },
+    quoted: { quote: 2_000_000_000n, token: 5_000_000n }, max: { quote: 2_020_000_001n, token: 5_050_001n },
     limitedByBalance: 'none', sharePct: { before: 0, after: 12.5 },
     price: { state: 'agrees', pool: 1, reference: 1, against: 'outside', diff: -0.012 },
     tokenWarnings: [{ code: 'mint-authority', text: 'Its creator can still mint more.' }],
-    unwrapsWsol: true, wsolHeldBefore: 0n, notices: ['An approved spender can move tokens.'], ...over,
+    unwrapsWsol: true, wsolHeldBefore: 0n, notices: ['An approved spender can move tokens.'], warnings: [], priceGap: null, ...over,
   });
   const withdraw = (over: Partial<Extract<TxSummary, { kind: 'lp-withdraw' }>> = {}): TxSummary => ({
-    kind: 'lp-withdraw', pool: KEY(30), origin: 'launch-pool', config: null, tokenMint: KEY(31), tokenDecimals: 6, solIsToken0: true,
+    kind: 'lp-withdraw', pool: KEY(30), origin: 'launch-pool', config: null, tokenMint: KEY(31), tokenDecimals: 6, quote: SOL_QUOTE, quoteIsToken0: true,
     lpAccount: KEY(32), lpAmount: 250_000_000n, lpDecimals: 9, heldBefore: 1_000_000_000n, all: false, keep: 750_000_000n,
-    quoted: { sol: 1_000_000_000n, token: 3_000_000n }, min: { sol: 990_000_001n, token: 2_970_001n },
-    tokenAccount: KEY(33), tokenAccountRent: 2_074_080n, unwrapsWsol: false, notices: ['Swaps on this pool are switched off.'], ...over,
+    quoted: { quote: 1_000_000_000n, token: 3_000_000n }, min: { quote: 990_000_001n, token: 2_970_001n },
+    tokenAccount: KEY(33), tokenAccountRent: 2_074_080n, quoteAccount: null, unwrapsWsol: false, notices: ['Swaps on this pool are switched off.'], ...over,
   });
   const value = (label: string) => screen.getByText(label).nextElementSibling?.textContent;
   const review = async (summary: TxSummary) => {
@@ -818,6 +1354,112 @@ describe('liquidity reviews', () => {
     expect(value('Price check')).toBe('nobody has traded since the launch program opened it');
   });
 
+  // Owner ruling 2026-10-07: a brand-new launch pool (no route, under 10 minutes of trading)
+  // takes a deposit, with a warning. The review says the warning first, and its price row
+  // says the price was checked against nothing and why. It never reads as a check that passed.
+  it('adding to a launch pool that has traded for under 10 minutes: the warning first, and the row says it was checked against nothing', async () => {
+    await review(deposit({ origin: 'launch-pool', price: { state: 'too-new', pool: 1, historySecs: 120n }, warnings: [TOO_NEW_WARNING] }));
+    expect(value('Price check')).toBe('not checked against anything: this pool has traded for under 10 minutes and Jupiter has no price for this token');
+    expect(value('Price check')).toBe(`not checked against anything: ${TOO_NEW_WHY}`);
+    const box = screen.getByTestId('tx-review-warnings');
+    expect(Array.from(box.querySelectorAll('li')).map((li) => li.textContent)).toEqual([
+      'This pool has traded for under 10 minutes and Jupiter has no price for this token, so its price was checked against nothing. If someone has just pushed it, a deposit now pays for that.',
+    ]);
+    expect(screen.getByRole('heading', { name: 'Review: add liquidity' })).toHaveAttribute('aria-describedby', box.id);
+    // Nothing to compare with, so no gap and no cost row. A warning is not a stop: Sign is on.
+    expect(screen.queryByText('Estimated cost of that gap')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Sign in wallet' })).toBeEnabled();
+  });
+
+  // Owner ruling 2026-10-04 ("any token"): a deposit is built for a pool whose price is off,
+  // or has no market price, or whose token copies a name or can be frozen. The builder puts
+  // what must be read on the summary (`warnings`), and the review says every sentence of it
+  // FIRST: before the rows, and so well above the Sign button.
+  const GAP = 'Its price is 10.0% above the outside price. A deposit here would hand that gap to the first arbitrage trade.';
+  const COST = 'At these amounts, a move back to the outside price would take up to about 0.0045 SOL of what you put in. That is an estimate.';
+  const COPY = 'It calls itself by a well-known token’s name but has a different mint, so it is not that token. If the copy turns out to be worth nothing, so is your share of this pool.';
+  const off = (over: Partial<Extract<TxSummary, { kind: 'lp-deposit' }>> = {}) =>
+    deposit({
+      price: { state: 'disagrees', pool: 1.1, reference: 1, against: 'outside', diff: 0.1 },
+      warnings: [COPY, GAP, COST],
+      priceGap: { diff: 0.1, lossQuote: 4_500_000n },
+      ...over,
+    });
+
+  it('adding with warnings: every sentence is shown first, under a line that says to read them first, in the warning colour', async () => {
+    await review(off());
+    const box = screen.getByTestId('tx-review-warnings');
+    expect(box.querySelector('p')).toHaveTextContent('Read these warnings first. Nothing here stops you signing, and each one is a risk to what you put in:');
+    expect(Array.from(box.querySelectorAll('li')).map((li) => li.textContent)).toEqual([COPY, GAP, COST]);
+    expect(box.querySelector('p')).toHaveClass('text-amber-300/90');
+    expect(box.querySelector('ul')).toHaveClass('text-amber-300/90');
+    // First on the review: before its first row, and before the Sign button.
+    const heading = screen.getByRole('heading', { name: 'Review: add liquidity' });
+    expect(heading.nextElementSibling).toBe(box);
+    const after = (el: Element) => box.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING;
+    expect(after(screen.getByText('Pool'))).toBeTruthy();
+    expect(after(screen.getByRole('button', { name: 'Sign in wallet' }))).toBeTruthy();
+    // A screen reader lands on the heading: the warnings are what it is described by.
+    expect(heading).toHaveAttribute('aria-describedby', box.id);
+    // The token's own warnings keep their place, further down.
+    expect(after(screen.getByText('Read these about this token first:'))).toBeTruthy();
+    // A warning is not a stop: Sign is on.
+    expect(screen.getByRole('button', { name: 'Sign in wallet' })).toBeEnabled();
+  });
+
+  it('adding with warnings: the price row does not read as a check that passed, and the cost has its own row', async () => {
+    await review(off());
+    expect(value('Price check')).toBe('10.0% above the outside price (Jupiter), read just now. That is off by more than 3%.');
+    expect(value('Estimated cost of that gap')).toBe('up to about 0.0045 SOL of what you put in');
+    // The words follow the rule (poolHealth.ts): more than 3% apart is what "off" means.
+    expect(PRICE_TOLERANCE).toBe(0.03);
+  });
+
+  it('adding below a launch pool’s own average: the row says which way, and that it is off', async () => {
+    await review(off({ origin: 'launch-pool', price: { state: 'disagrees', pool: 0.8, reference: 1, against: 'own-average', diff: -0.2 }, priceGap: { diff: -0.2, lossQuote: 1n } }));
+    expect(value('Price check')).toBe('20.0% below its own average over the last 30 minutes. That is off by more than 3%.');
+    expect(value('Estimated cost of that gap')).toBe('up to about 0.000000001 SOL of what you put in');
+  });
+
+  it('a cost that could not be worked out is said as that, never as 0', async () => {
+    const UNKNOWN = 'What a move back to the outside price would cost you at these amounts could not be worked out.';
+    await review(off({ warnings: [GAP, UNKNOWN], priceGap: { diff: 0.1, lossQuote: null } }));
+    expect(value('Estimated cost of that gap')).toBe('could not be worked out');
+    expect(within(screen.getByTestId('tx-review-warnings')).getByText(UNKNOWN)).toBeInTheDocument();
+    // No figure is put in its place anywhere on the review.
+    expect(screen.getByTestId('tx-review').textContent).not.toMatch(/up to about/);
+  });
+
+  it('adding to a pool with no market price: the row says it was checked against nothing', async () => {
+    const NONE = 'Jupiter has no market price for this token, so this pool’s price was not checked against anything.';
+    await review(deposit({ price: { state: 'no-market', of: 'token', pool: 1, detail: 'Jupiter has no route for this token' }, warnings: [NONE] }));
+    expect(value('Price check')).toBe('not checked against anything: Jupiter has no market price for this token');
+    // The same words as every other screen (poolHealth.ts `noPriceClause`).
+    expect(value('Price check')).toBe(`not checked against anything: ${noPriceClause('token', SOL_QUOTE)}`);
+    expect(within(screen.getByTestId('tx-review-warnings')).getByText(NONE)).toBeInTheDocument();
+    // Nothing to compare with, so no gap and no cost row.
+    expect(screen.queryByText('Estimated cost of that gap')).not.toBeInTheDocument();
+  });
+
+  it('with nothing to warn of, the review has no warnings box and its heading is described by nothing', async () => {
+    await review(deposit());
+    expect(screen.queryByTestId('tx-review-warnings')).not.toBeInTheDocument();
+    expect(screen.queryByText(/Read these warnings first/)).not.toBeInTheDocument();
+    expect(screen.queryByText('Estimated cost of that gap')).not.toBeInTheDocument();
+    const heading = screen.getByRole('heading', { name: 'Review: add liquidity' });
+    expect(heading).not.toHaveAttribute('aria-describedby');
+    // The first thing under the heading is the first row, as before.
+    expect(heading.nextElementSibling).toHaveTextContent(`Pool${KEY(30).toBase58()}`);
+  });
+
+  // Taking liquidity out is never held up: a removal carries no warnings, and gets no box.
+  it('removing: no warnings box, whatever the pool or its token is like', async () => {
+    await review(withdraw());
+    expect(screen.queryByTestId('tx-review-warnings')).not.toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Review: remove liquidity' })).not.toHaveAttribute('aria-describedby');
+    expect(screen.queryByText('Estimated cost of that gap')).not.toBeInTheDocument();
+  });
+
   it('removing: every row, from the prepared summary', async () => {
     await review(withdraw());
     expect(screen.getByRole('heading', { name: 'Review: remove liquidity' })).toBeInTheDocument();
@@ -834,7 +1476,7 @@ describe('liquidity reviews', () => {
   });
 
   it('removing all of it: nothing kept, an existing token account, plain SOL', async () => {
-    await review(withdraw({ lpAmount: 1_000_000_000n, all: true, keep: 0n, tokenAccountRent: 0n, unwrapsWsol: true, origin: 'other' }));
+    await review(withdraw({ lpAmount: 1_000_000_000n, all: true, keep: 0n, tokenAccountRent: 0n, quoteAccount: null, unwrapsWsol: true, origin: 'other' }));
     expect(value('Pool kind')).toBe('Its own address');
     expect(value('Pool shares you give back')).toBe('1 (100.00% of yours)');
     expect(screen.getByText('This is all of your share in this pool.')).toBeInTheDocument();
@@ -851,7 +1493,7 @@ describe('liquidity reviews', () => {
 
   it('the priority fee is measured against the SOL side of the liquidity change', async () => {
     // 12,000 lamports of priority (the fixture) against 100,000 lamports quoted.
-    await review(deposit({ quoted: { sol: 100_000n, token: 5_000_000n } }));
+    await review(deposit({ quoted: { quote: 100_000n, token: 5_000_000n } }));
     expect(value('Priority fee')).toMatch(/\(12\.00% of this trade\)$/);
   });
 });
@@ -880,9 +1522,9 @@ describe('liquidity outcomes', () => {
     const api = fakeApi({ submitPrepared: vi.fn(async () => ({ status: 'unknown' as const, signature: SIG, message: 'slow' })) });
     const { result } = flowAt(api);
     const summary: TxSummary = {
-      kind: 'lp-withdraw', pool: KEY(30), origin: 'standard', config: null, tokenMint: KEY(31), tokenDecimals: 6, solIsToken0: true,
-      lpAccount: KEY(32), lpAmount: 1n, lpDecimals: 9, heldBefore: 1n, all: true, keep: 0n, quoted: { sol: 1n, token: 1n },
-      min: { sol: 1n, token: 1n }, tokenAccount: KEY(33), tokenAccountRent: 0n, unwrapsWsol: true, notices: [],
+      kind: 'lp-withdraw', pool: KEY(30), origin: 'standard', config: null, tokenMint: KEY(31), tokenDecimals: 6, quote: SOL_QUOTE, quoteIsToken0: true,
+      lpAccount: KEY(32), lpAmount: 1n, lpDecimals: 9, heldBefore: 1n, all: true, keep: 0n, quoted: { quote: 1n, token: 1n },
+      min: { quote: 1n, token: 1n }, tokenAccount: KEY(33), tokenAccountRent: 0n, quoteAccount: null, unwrapsWsol: true, notices: [],
     };
     await act(() => result.current.prepare(async () => ({ ok: true, prepared: prepared(summary) })));
     await act(() => result.current.confirm(signer));
@@ -901,15 +1543,15 @@ describe('opening a pool: the review', () => {
     fundFeeRate: 0n, createPoolFee: 150_000_000n, creatorFeeRate: 0n, protocolOwner: KEY(7).toBase58(), fundOwner: KEY(7).toBase58(),
   };
   const create = (over: Partial<Extract<TxSummary, { kind: 'lp-create' }>> = {}): TxSummary => ({
-    kind: 'lp-create', pool: KEY(40), origin: 'standard', config, tokenMint: KEY(41), tokenDecimals: 6, solIsToken0: true,
-    put: { sol: 1_000_000_000n, token: 5_000_000n },
+    kind: 'lp-create', pool: KEY(40), origin: 'standard', config, tokenMint: KEY(41), tokenDecimals: 6, quote: SOL_QUOTE, quoteIsToken0: true,
+    put: { quote: 1_000_000_000n, token: 5_000_000n },
     supply: 70_710_678n, lpAmount: 70_710_578n, lpDecimals: 9,
-    locked: { sol: 1_414n, token: 7n },
+    locked: { quote: 1_414n, token: 7n },
     createFee: 150_000_000n, feeReceiver: KEY(8),
     rents: { neverRefunded: 40_000_000n, lpAccount: 2_039_280n },
     price: { state: 'agrees', pool: 0.2, reference: 0.195, against: 'outside', diff: 0.2 / 0.195 - 1 },
     tokenWarnings: [{ code: 'mint-authority', text: 'Its creator can still mint more.' }],
-    unwrapsWsol: true, wsolHeldBefore: 0n, notices: ['A spender is approved on your token account.'], ...over,
+    unwrapsWsol: true, wsolHeldBefore: 0n, notices: ['A spender is approved on your token account.'], warnings: [], priceGap: null, ...over,
   });
   const value = (label: string) => screen.getByText(label).nextElementSibling?.textContent;
   const review = async (summary: TxSummary, over: Partial<PreparedTx> = {}) => {
@@ -941,7 +1583,7 @@ describe('opening a pool: the review', () => {
     expect(value('Your share of the pool')).toBe('100.00%');
     expect(screen.getByText('Read these about this token first:')).toBeInTheDocument();
     expect(screen.getByText('Its creator can still mint more.')).toBeInTheDocument();
-    expect(screen.getByText('Whoever holds it can make new tokens at any time and sell them into your pool for its SOL.')).toBeInTheDocument();
+    expect(screen.getByText('Whoever holds that mint authority can make new tokens at any time and sell them into your pool for its SOL.')).toBeInTheDocument();
     expect(screen.getByText('A spender is approved on your token account.')).toBeInTheDocument();
     expect(screen.getByText(/wrapped into a token account for the opening, and that account is closed in the same transaction/)).toBeInTheDocument();
     expect(screen.queryByText(/needs a second signature/)).not.toBeInTheDocument();
@@ -976,8 +1618,53 @@ describe('opening a pool: the review', () => {
 
   it('the priority fee is measured against the SOL put in', async () => {
     // 12,000 lamports of priority (the fixture) against 100,000 lamports put in.
-    await review(create({ put: { sol: 100_000n, token: 5_000_000n } }));
+    await review(create({ put: { quote: 100_000n, token: 5_000_000n } }));
     expect(value('Priority fee')).toMatch(/\(12\.00% of this trade\)$/);
+  });
+
+  // Owner ruling 2026-10-04: a pool may open at a price that is off the market, or with no
+  // market price at all. Neither is a check that passed, and the review says which it is.
+  it('an opening price that is off the market: the warnings first, the row says it is off, and the cost has its own row', async () => {
+    const OFF = 'Your opening price is 50.0% above the market price (Jupiter). The first trades would move it to the market price, at your cost.';
+    const COST = 'At these amounts, a move back to the market price would take up to about 0.0334 SOL of what you put in. That is an estimate.';
+    await review(
+      create({
+        price: { state: 'disagrees', pool: 0.3, reference: 0.2, against: 'outside', diff: 0.5 },
+        warnings: [OFF, COST],
+        priceGap: { diff: 0.5, lossQuote: 33_400_000n },
+      }),
+    );
+    const box = screen.getByTestId('tx-review-warnings');
+    expect(Array.from(box.querySelectorAll('li')).map((li) => li.textContent)).toEqual([OFF, COST]);
+    const heading = screen.getByRole('heading', { name: 'Review: open a pool' });
+    expect(heading.nextElementSibling).toBe(box);
+    expect(heading).toHaveAttribute('aria-describedby', box.id);
+    expect(box.compareDocumentPosition(screen.getByRole('button', { name: 'Sign in wallet' })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(value('Opening price')).toBe('1 token = 0.3 SOL. Market (Jupiter, read just now): 0.2 SOL, 50.0% above. That is off by more than 3%.');
+    expect(value('Estimated cost of that gap')).toBe('up to about 0.0334 SOL of what you put in');
+    expect(screen.getByRole('button', { name: 'Sign in wallet' })).toBeEnabled();
+  });
+
+  it('an opening with no market price: the opening price is still said, and that nothing checks it', async () => {
+    const ALONE = 'Jupiter has no market price for this token, so there is nothing to compare your opening price with.';
+    await review(create({ price: { state: 'no-market', of: 'token', pool: 0.2, detail: 'Jupiter has no route for this token' }, warnings: [ALONE] }));
+    expect(value('Opening price')).toBe(
+      '1 token = 0.2 SOL. Jupiter has no market price for this token, so there is nothing to compare it with: you are setting the price yourself',
+    );
+    expect(within(screen.getByTestId('tx-review-warnings')).getByText(ALONE)).toBeInTheDocument();
+    expect(screen.queryByText('Estimated cost of that gap')).not.toBeInTheDocument();
+  });
+
+  it('an opening cost that could not be worked out is said as that, never as 0', async () => {
+    await review(create({ price: { state: 'disagrees', pool: 0.3, reference: 0.2, against: 'outside', diff: 0.5 }, warnings: ['x'], priceGap: { diff: 0.5, lossQuote: null } }));
+    expect(value('Estimated cost of that gap')).toBe('could not be worked out');
+  });
+
+  it('with nothing to warn of, an opening has no warnings box and no cost row', async () => {
+    await review(create());
+    expect(screen.queryByTestId('tx-review-warnings')).not.toBeInTheDocument();
+    expect(screen.queryByText('Estimated cost of that gap')).not.toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Review: open a pool' })).not.toHaveAttribute('aria-describedby');
   });
 });
 
@@ -1004,12 +1691,12 @@ describe('opening a pool: the review wraps sentences between words', () => {
       fundFeeRate: 0n, createPoolFee: 150_000_000n, creatorFeeRate: 0n, protocolOwner: KEY(7).toBase58(), fundOwner: KEY(7).toBase58(),
     };
     const summary: TxSummary = {
-      kind: 'lp-create', pool: KEY(40), origin: 'standard', config, tokenMint: KEY(41), tokenDecimals: 6, solIsToken0: true,
-      put: { sol: 1_000_000_000n, token: 5_000_000n }, supply: 70_710_678n, lpAmount: 70_710_578n, lpDecimals: 9,
-      locked: { sol: 1_414n, token: 7n }, createFee: 150_000_000n, feeReceiver: KEY(8),
+      kind: 'lp-create', pool: KEY(40), origin: 'standard', config, tokenMint: KEY(41), tokenDecimals: 6, quote: SOL_QUOTE, quoteIsToken0: true,
+      put: { quote: 1_000_000_000n, token: 5_000_000n }, supply: 70_710_678n, lpAmount: 70_710_578n, lpDecimals: 9,
+      locked: { quote: 1_414n, token: 7n }, createFee: 150_000_000n, feeReceiver: KEY(8),
       rents: { neverRefunded: 40_000_000n, lpAccount: 2_039_280n },
       price: { state: 'agrees', pool: 0.2, reference: 0.195, against: 'outside', diff: 0.2 / 0.195 - 1 },
-      tokenWarnings: [], unwrapsWsol: true, wsolHeldBefore: 0n, notices: [],
+      tokenWarnings: [], unwrapsWsol: true, wsolHeldBefore: 0n, notices: [], warnings: [], priceGap: null,
     };
     const api = fakeApi();
     const { result } = renderHook(() => useTxFlow(api, rpc));

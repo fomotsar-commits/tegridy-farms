@@ -215,8 +215,9 @@ export function PoolSwapPanel({
               signer &&
               raw !== null &&
               slippageBps !== null &&
-              void flow.prepare(() =>
-                api.preparePoolSwap(rpc, gate, { owner: signer.publicKey, mint, pool: p, side, amountIn: raw, slippageBps }),
+              void flow.prepare(
+                () => api.preparePoolSwap(rpc, gate, { owner: signer.publicKey, mint, pool: p, side, amountIn: raw, slippageBps }),
+                { repeatable: true },
               )
             }
           >

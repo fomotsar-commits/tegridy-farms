@@ -220,6 +220,11 @@ function requireSection(heading: string): NavSection {
   return found;
 }
 
+/** Is `pathname` one of the section's own pages (or under one)? What lights the section's word in the bars. */
+export function sectionIsActive(section: NavSection, pathname: string): boolean {
+  return section.items.some((i) => pathname === i.to || pathname.startsWith(`${i.to}/`));
+}
+
 /** The six sections, each one word in the top bar and one tabbed page. */
 export const SWAP_SECTION = requireSection('Swap');
 export const POOLS_SECTION = requireSection('Pools');

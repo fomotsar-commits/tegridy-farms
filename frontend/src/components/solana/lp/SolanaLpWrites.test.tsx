@@ -3,14 +3,15 @@
 // what the URL may NOT set. The write layer is a fake (fakeLpWriteApi.fixture.ts); the
 // pools, positions and wallet are fake readers. Nothing here touches a chain.
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { act, render, screen, waitFor, within, fireEvent } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { PublicKey } from '@solana/web3.js';
 import { LpInner, type LpWritesOverrides } from './SolanaLpSection';
-import { solAbout } from './panelKit';
 import type { LpReaders } from './readers';
 import type { TokenSafety } from '../../../lib/solana/lp/tokenSafety';
+import { SOL_QUOTE } from '../../../lib/solana/lp/quotes';
+import { FORECAST_WORDS } from '../../../lib/solana/lp/format';
 import type { PoolSearchRead, PoolView } from '../../../lib/solana/lp/poolFinder';
 import { POOL_STATUS_DISABLE_WITHDRAW, decodeAmmConfig, decodePoolState } from '../../../lib/solana/cpswap/program';
 import type { Position } from '../../../lib/solana/lp/positions';
@@ -18,8 +19,8 @@ import type { WalletFacts } from '../../../lib/solana/lp/walletFacts';
 import { buildPool, key } from '../../../lib/solana/lp/testkit.fixture';
 import { LP_PENDING_SCOPE, savePendingTrade } from '../curve/pendingTrade';
 import { prepared } from '../curve/fakeWriteApi.fixture';
-import type { LpWriteApi, Prepared } from '../curve/ports';
-import { fakeLpApi, lpCfg, lpDepositSummary, lpOpenGate, LP_PROGRAM, unusedGateRpc } from './fakeLpWriteApi.fixture';
+import type { LpWriteApi, Prepared, TxOutcome, TxSummary } from '../curve/ports';
+import { fakeLpApi, lpCfg, lpDepositSummary, lpOpenGate, lpWithdrawSummary, LP_PROGRAM, unusedGateRpc } from './fakeLpWriteApi.fixture';
 import { parsePercentBps } from './PercentPicker';
 import { recordedTier } from '../../../lib/solana/cpswap/mainnetVenueReplay.fixture';
 
@@ -50,18 +51,19 @@ const SIG = '5'.repeat(88);
 function view(o: { address?: PublicKey; sol?: bigint; tok?: bigint; openTime?: bigint; origin?: PoolView['origin']; status?: number } = {}): PoolView {
   const s = o.sol ?? 10n * 10n ** 9n;
   const t = o.tok ?? 1_000n * 10n ** 6n;
-  const b = buildPool({ plain: true, mint: MINT, address: o.address, configIndex: 1, solReserve: s, tokenReserve: t, openTime: o.openTime ?? 1n, status: o.status });
+  const b = buildPool({ plain: true, mint: MINT, address: o.address, configIndex: 1, quoteReserve: s, tokenReserve: t, openTime: o.openTime ?? 1n, status: o.status });
   const pool = decodePoolState(b.address.toBase58(), b.accounts[b.address.toBase58()]!.data)!;
   const config = decodeAmmConfig(b.config.toBase58(), b.accounts[b.config.toBase58()]!.data);
-  const solIsToken0 = pool.token0Mint.startsWith('So111');
+  const quoteIsToken0 = pool.token0Mint.startsWith('So111');
   return {
     address: b.address.toBase58(),
     origin: o.origin ?? 'other',
-    snapshot: { pool, vault0Amount: solIsToken0 ? s : t, vault1Amount: solIsToken0 ? t : s, reserve0: solIsToken0 ? s : t, reserve1: solIsToken0 ? t : s },
+    snapshot: { pool, vault0Amount: quoteIsToken0 ? s : t, vault1Amount: quoteIsToken0 ? t : s, reserve0: quoteIsToken0 ? s : t, reserve1: quoteIsToken0 ? t : s },
     config,
     tokenMint: M,
-    solIsToken0,
-    solReserve: s,
+    quote: SOL_QUOTE,
+    quoteIsToken0,
+    quoteReserve: s,
     tokenReserve: t,
     vaultsFrozen: false,
     history: { kind: 'not-read' },
@@ -78,7 +80,7 @@ function search(views: PoolView[], extra: Partial<Extract<PoolSearchRead, { kind
     kind: 'ok',
     search: {
       mint: M,
-      known: { launchPool: key().toBase58(), standard: [{ index: 1, config: key().toBase58(), address: key().toBase58() }] },
+      known: { launchPool: key().toBase58(), standard: [{ index: 1, config: key().toBase58(), address: key().toBase58(), quote: SOL_QUOTE.mint }] },
       index: { kind: 'ok', pools: views.map((v) => v.address), truncated: false },
       pools: views.map((v) => ({ kind: 'pool' as const, view: v })),
       otherPairs: 0,
@@ -94,6 +96,7 @@ const facts = (over: Partial<Extract<WalletFacts, { kind: 'ok' }>> = {}): Wallet
   lamports: 5n * 10n ** 9n,
   token: { address: key().toBase58(), amount: 500n * 10n ** 6n },
   wsol: { exists: false, amount: 0n },
+  coin: null,
   lpAccountExists: false,
   rents: { walletFloor: 890_880n, tokenAccount165: 2_039_280n },
   ...over,
@@ -182,6 +185,69 @@ describe('Add liquidity', () => {
     expect(within(c).getByText('These checks run again, on fresh reads, when you press Review.')).toBeInTheDocument();
     expect(screen.getByTestId('lp-disclosure')).toHaveTextContent(/Opening a pool, adding and removing liquidity here send real transactions/);
     expect(screen.getByTestId('lp-disclosure')).not.toHaveTextContent(/only reads/);
+    // A clean token at the market price: the same green pass as ever, and no warning anywhere.
+    expect(within(c).getByText('Deposits: the checks pass')).toHaveClass('text-emerald-300/90');
+    expect(within(c).queryByTestId('lp-pool-warnings')).toBeNull();
+    expect(within(c).getByText('Difference').nextElementSibling?.textContent).toBe('0.0% above');
+    fireEvent.click(within(c).getByRole('button', { name: 'Add liquidity' }));
+    const panel = await screen.findByTestId('lp-add-panel');
+    await within(panel).findByRole('button', { name: 'Max SOL' });
+    fireEvent.change(within(panel).getByLabelText('SOL to add'), { target: { value: '1' } });
+    expect(within(panel).queryByTestId('lp-add-warnings')).toBeNull();
+    expect(panel).not.toHaveTextContent(/Read these before you review|a move back to|could cost you/);
+    expect(within(panel).getByRole('button', { name: 'Review: add liquidity' })).not.toHaveAttribute('aria-describedby');
+  });
+
+  // The owner on a phone (2026-10-03): "there is still no way to" add. The button was a
+  // screen and a half below the lookup. Chosen from the first card, the lookup ends in it.
+  it('with the token already on the page, Add liquidity on the first card opens the Add form of the pool that offers it, with nothing read again', async () => {
+    const v = view();
+    const r = readers({ findPools: vi.fn(async () => search([v])) });
+    mount(r);
+    await within(await card()).findByRole('button', { name: 'Add liquidity' });
+    expect(screen.queryByTestId('lp-add-panel')).toBeNull();
+    const finder = screen.getByTestId('lp-finder');
+    fireEvent.click(within(within(finder).getByTestId('lp-tasks')).getByRole('button', { name: 'Add liquidity' }));
+    const panel = await screen.findByTestId('lp-add-panel');
+    expect(r.findPools).toHaveBeenCalledTimes(1);
+    expect(await card()).toContainElement(panel);
+    // No pool was opened instead: the token has one that takes deposits.
+    expect(screen.queryByTestId('lp-create-panel')).toBeNull();
+    // The amount boxes come before the long notes, which are still on the page.
+    const sol = within(panel).getByLabelText('SOL to add');
+    const notes = within(panel).getByTestId('lp-before-you-add');
+    expect(sol.compareDocumentPosition(notes) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(panel).toHaveTextContent('Read the notes under this form before you review.');
+  });
+
+  it('chosen on the first card, then a typed address: the lookup ends in the Add form, and no pool form opens beside it', async () => {
+    const v = view();
+    mount(readers({ findPools: vi.fn(async () => search([v])) }), { path: '/pools' });
+    const finder = await screen.findByTestId('lp-finder');
+    expect(screen.queryByTestId('lp-pool')).toBeNull();
+    fireEvent.click(within(within(finder).getByTestId('lp-tasks')).getByRole('button', { name: 'Add liquidity' }));
+    fireEvent.change(within(finder).getByLabelText('Token mint address'), { target: { value: M } });
+    expect(screen.queryByTestId('lp-add-panel')).toBeNull();
+    fireEvent.click(within(finder).getByRole('button', { name: 'Find pools' }));
+    const panel = await screen.findByTestId('lp-add-panel');
+    expect(await card()).toContainElement(panel);
+    expect(screen.queryByTestId('lp-create-panel')).toBeNull();
+  });
+
+  it('with two pools, Add goes to the first one that takes deposits, not to one a pending deposit holds', async () => {
+    const a = view();
+    const b = view();
+    savePendingTrade(LP_PENDING_SCOPE, { kind: 'lp-deposit', signature: SIG, lastValidBlockHeight: 50, pool: a.address });
+    const api = fakeLpApi({ recheckOutcome: vi.fn(async () => ({ status: 'unknown' as const, signature: SIG, message: 'Not found yet.' })) });
+    mount(readers({ findPools: vi.fn(async () => search([a, b])) }), { api });
+    await waitFor(() => expect(screen.getAllByTestId('lp-pool')).toHaveLength(2));
+    await waitFor(() => expect(screen.getAllByTestId('lp-pool')[0]).toHaveAttribute('data-add', 'held'));
+    fireEvent.click(within(screen.getByTestId('lp-tasks')).getByRole('button', { name: 'Add liquidity' }));
+    const panel = await screen.findByTestId('lp-add-panel');
+    const cards = screen.getAllByTestId('lp-pool');
+    expect(cards[1]).toHaveAttribute('data-pool', b.address);
+    expect(cards[1]).toContainElement(panel);
+    expect(cards[0]).not.toContainElement(panel);
   });
 
   it("is never offered on 'unchecked' (no outside price), and says why in the amended words", async () => {
@@ -190,19 +256,53 @@ describe('Add liquidity', () => {
     await waitFor(() => expect(c).toHaveAttribute('data-add', 'checks'));
     expect(c).toHaveAttribute('data-deposits', 'unchecked');
     expect(within(c).queryByRole('button', { name: 'Add liquidity' })).toBeNull();
-    expect(c).toHaveTextContent(
-      "We offer adding liquidity only after checking the pool's price against a price from outside it, and we could not get one.",
-    );
+    // The reason is on the card, and the line under it says the rule as it is now: a
+    // check that could not be RUN. It no longer says an outside price is always needed
+    // (a pool with no market price at all is offered, with a warning).
+    expect(c).toHaveTextContent('We could not check its price against an outside price (Jupiter did not give a price (HTTP 502)).');
+    expect(c).toHaveTextContent('We offer adding liquidity only when every check above could be run, and one of them could not be run just now.');
+    expect(c).not.toHaveTextContent(/only after checking the pool's price against a price from outside it/);
     expect(c).not.toHaveTextContent(/Often that means/);
+    // Unread is not a warning: nothing here says deposits are open.
+    expect(c).not.toHaveTextContent('Deposits: the checks pass, with warnings');
+    expect(within(c).queryByTestId('lp-pool-warnings')).toBeNull();
   });
 
-  it('is never offered on a token that copies a well-known name', async () => {
-    const copy: TokenSafety = { ...okToken, verdict: 'warn', warnings: [{ code: 'copies-known-name', text: 'It calls itself USDC.' }] } as TokenSafety;
-    mount(readers({ safety: vi.fn(async () => new Map([[M, copy]])) }));
+  // Owner ruling 2026-10-04 ("any token"): a copied name stopped being a refusal. It is a
+  // warning, said on the card, on the form in full, and again on the review.
+  it('is offered on a token that copies a well-known name, and the copy is said on the card and on the form, with Review left on', async () => {
+    const TOKEN_LINE = 'It calls itself USDC, but it is NOT the real USDC (whose mint is EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v). It is a different token that copied the name.';
+    const POOL_LINE =
+      'It calls itself by a well-known token’s name but has a different mint, so it is not that token. If the copy turns out to be worth nothing, so is your share of this pool.';
+    const copy: TokenSafety = { ...okToken, verdict: 'warn', warnings: [{ code: 'copies-known-name', text: TOKEN_LINE }] } as TokenSafety;
+    const api = fakeLpApi({ prepareLpDeposit: vi.fn(async () => ({ ok: false as const, outcome: { status: 'not-sent' as const, stage: 'build' as const, message: 'x' } })) });
+    mount(readers({ safety: vi.fn(async () => new Map([[M, copy]])) }), { api });
     const c = await card();
-    await waitFor(() => expect(c).toHaveAttribute('data-add', 'checks'));
-    expect(c).toHaveAttribute('data-deposits', 'refused');
-    expect(within(c).queryByRole('button', { name: 'Add liquidity' })).toBeNull();
+    await waitFor(() => expect(c).toHaveAttribute('data-add', 'offer'));
+    expect(c).toHaveAttribute('data-deposits', 'allowed');
+    // Never a clean pass: the heading says there are warnings, and the warning is under it.
+    const deposits = within(c).getByTestId('lp-pool-deposits');
+    expect(deposits).toHaveTextContent('Deposits: the checks pass, with warnings');
+    expect(within(deposits).queryByText('Deposits: the checks pass')).toBeNull();
+    expect(within(deposits).getByText(POOL_LINE)).toHaveClass('text-amber-300/90');
+    expect(c).not.toHaveTextContent(/does not take deposits|refused here/);
+    fireEvent.click(within(c).getByRole('button', { name: 'Add liquidity' }));
+    const panel = await screen.findByTestId('lp-add-panel');
+    // In full: the token's own sentence (which names the real one), and what it means for this pool.
+    expect(within(panel).getByText(TOKEN_LINE)).toBeInTheDocument();
+    const warnings = within(panel).getByTestId('lp-add-warnings');
+    expect(warnings).toHaveTextContent('Read these before you review. You can still add, and each one is a risk to what you put in:');
+    expect(within(warnings).getByText(POOL_LINE)).toHaveClass('text-amber-300/90');
+    const review = within(panel).getByRole('button', { name: 'Review: add liquidity' });
+    expect(warnings.compareDocumentPosition(review) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // A warning never switches Review off.
+    await within(panel).findByRole('button', { name: 'Max SOL' });
+    fireEvent.change(within(panel).getByLabelText('SOL to add'), { target: { value: '1' } });
+    expect(review).toBeEnabled();
+    await act(async () => {
+      fireEvent.click(review);
+    });
+    expect(api.prepareLpDeposit).toHaveBeenCalledTimes(1);
   });
 
   it("'withdraw-only': adding is paused on every card, removing is still offered", async () => {
@@ -228,10 +328,13 @@ describe('Add liquidity', () => {
     const before = within(panel).getByTestId('lp-before-you-add');
     expect(before).toHaveTextContent(/Our pool program is Raydium's, with only its admin keys changed\. Those changes have not had their own independent review yet\./);
     expect(before).toHaveTextContent(/change its fee rates at once/);
-    expect(before).toHaveTextContent(/Jupiter does not send trades to these pools yet/);
+    expect(before).toHaveTextContent("Jupiter does not send trades to these pools yet. This site's own swap sends a trade to this pool only when it pays the trader at least as much as Jupiter does, so fees can be small.");
+    expect(before).toHaveTextContent('When the price moves, you can end up with less than if you had just held both tokens.');
+    // No word on who trades a pool: "mostly bots" was a guess the chain has not borne out.
+    expect(before).not.toHaveTextContent(/\bbots?\b|arbitrage|mostly/i);
     expect(before).toHaveTextContent(/liquidity providers keep 0\.\d{3}%, read from this pool's fee tier just now/);
     expect(before).not.toHaveTextContent(/burned the launch's own pool shares/); // not a launch pool
-    expect(panel).not.toHaveTextContent(/\bAPR\b|\bAPY\b|yield of/i);
+    expect(panel).not.toHaveTextContent(FORECAST_WORDS);
     fireEvent.click(within(panel).getByRole('button', { name: 'Close' }));
     await waitFor(() => expect(screen.queryByTestId('lp-add-panel')).toBeNull());
     expect(add).toHaveFocus();
@@ -269,7 +372,8 @@ describe('Add liquidity', () => {
         owner: OWNER,
         pool: new PublicKey(v.address),
         tokenMint: MINT,
-        driving: 'sol',
+        quoteMint: new PublicKey(SOL_QUOTE.mint),
+        driving: 'quote',
         maxIn: 1_000_000_000n,
         slippageBps: 100n,
         // The token side's maximum the preview showed: ceil(99,009,000 × 1.01).
@@ -297,10 +401,16 @@ describe('Add liquidity', () => {
     fireEvent.click(await within(await card()).findByRole('button', { name: 'Add liquidity' }));
     const panel = await screen.findByTestId('lp-add-panel');
     const cannot = await within(panel).findByTestId('lp-add-cannot');
+    // The swap opens on this token by its address, never by a name to search for; the wallet's address is one press to copy.
+    expect(within(cannot).getByRole('link', { name: 'this site’s Solana swap' })).toHaveAttribute('href', `/solana?out=${M}`);
+    expect(within(cannot).getByRole('button', { name: /Copy this wallet’s address/ })).toBeInTheDocument();
     expect(cannot).toHaveTextContent('This wallet cannot add to this pool yet.');
     // (5,000 + 1,000,000) for one signature and the reserve, 2,039,280 for the share
     // account, and max(2,039,280, 890,880) kept in the wallet.
-    expect(cannot).toHaveTextContent(`needs about ${solAbout(5_083_560n)}`);
+    // What is needed is rounded UP when it is cut to four decimals (5,083,560 lamports is
+    // 0.00508356 SOL): cut down, "needs about 0.005" beside a wallet holding 0.00505 read
+    // as enough.
+    expect(cannot).toHaveTextContent('needs about 0.0051 SOL');
     expect(cannot).toHaveTextContent('this wallet has 0.003 SOL');
     expect(cannot).toHaveTextContent('holds none of this token');
     expect(within(panel).getByRole('button', { name: 'Review: add liquidity' })).toBeDisabled();
@@ -362,9 +472,10 @@ describe('the URL selects a token and nothing else', () => {
 });
 
 describe('Remove liquidity', () => {
-  it('is offered while deposits are refused (far-future open, price off) and on a set-aside row', async () => {
+  it('is offered while deposits are refused (an open time years away) and on a set-aside row', async () => {
     const far = view({ openTime: 10n ** 10n });
-    const blocked: TokenSafety = { ...okToken, verdict: 'blocked', blocks: [{ code: 'freeze-authority', text: 'Its creator can still freeze token accounts.' }] } as TokenSafety;
+    // A token that is still blocked: one the pool program itself does not accept.
+    const blocked: TokenSafety = { ...okToken, verdict: 'blocked', blocks: [{ code: 'extension', text: 'It uses a transfer hook. The pool program does not accept tokens with it.' }] } as TokenSafety;
     const otherMint = key().toBase58();
     const aside = view();
     const asideView: PoolView = { ...aside, tokenMint: otherMint };
@@ -589,7 +700,7 @@ describe('where the tokens of a withdrawal arrive', () => {
 
   it('a missing Token-2022 account is never priced at the classic 165 bytes (D20): the review says the amount', async () => {
     const base = view();
-    const pool = base.solIsToken0 ? { ...base.snapshot.pool, token1Program: TOKEN_2022 } : { ...base.snapshot.pool, token0Program: TOKEN_2022 };
+    const pool = base.quoteIsToken0 ? { ...base.snapshot.pool, token1Program: TOKEN_2022 } : { ...base.snapshot.pool, token0Program: TOKEN_2022 };
     const v: PoolView = { ...base, snapshot: { ...base.snapshot, pool } };
     mount({ ...missingToken(), positions: vi.fn(async () => ({ kind: 'ok' as const, chainNow: 5n, totalShares: 1, positions: [position(v)] })) }, { path: '/pools' });
     fireEvent.click(await within(await screen.findByTestId('lp-position')).findByRole('button', { name: 'Remove liquidity' }));
@@ -705,6 +816,65 @@ describe('the review', () => {
   });
 });
 
+// A review read slowly on a phone outlives its blockhash. Adding and removing only read
+// the chain to prepare, so Sign prepares again and signs the fresh one (useTxFlow). Here
+// the block height says the first one's window is nearly over (the fixture's ends at 1234).
+describe('a review too old to sign when Sign in wallet is pressed', () => {
+  const rpc = conn.connection as { getBlockHeight?: () => Promise<number> };
+  beforeEach(() => {
+    rpc.getBlockHeight = async () => 1234 - 5;
+  });
+  afterEach(() => {
+    delete rpc.getBlockHeight;
+  });
+  const twice = (summary: TxSummary) => {
+    const fresh = prepared(summary, { lastValidBlockHeight: 5_000 });
+    const prepare = vi.fn<() => Promise<Prepared>>().mockResolvedValueOnce({ ok: true, prepared: prepared(summary) }).mockResolvedValueOnce({ ok: true, prepared: fresh });
+    const submitPrepared = vi.fn(async (): Promise<TxOutcome> => ({ status: 'confirmed', signature: SIG, slot: 1 }));
+    return { fresh, prepare, submitPrepared };
+  };
+
+  it('adding: it is prepared again and the wallet gets the fresh transaction', async () => {
+    const v = view();
+    const { fresh, prepare, submitPrepared } = twice(lpDepositSummary(new PublicKey(v.address), MINT));
+    mount(readers({ findPools: vi.fn(async () => search([v])) }), { api: fakeLpApi({ prepareLpDeposit: prepare, submitPrepared }) });
+    fireEvent.click(await within(await card()).findByRole('button', { name: 'Add liquidity' }));
+    const panel = await screen.findByTestId('lp-add-panel');
+    await within(panel).findByRole('button', { name: 'Max SOL' });
+    fireEvent.change(within(panel).getByLabelText('SOL to add'), { target: { value: '0.1' } });
+    await act(async () => {
+      fireEvent.click(within(panel).getByRole('button', { name: 'Review: add liquidity' }));
+    });
+    await act(async () => {
+      fireEvent.click(await within(panel).findByRole('button', { name: 'Sign in wallet' }));
+    });
+    expect(await within(panel).findByTestId('tx-outcome')).toHaveAttribute('data-status', 'confirmed');
+    expect(prepare).toHaveBeenCalledTimes(2);
+    expect(submitPrepared.mock.calls.map((c: unknown[]) => c[2])).toEqual([fresh]);
+  });
+
+  it('removing: it is prepared again and the wallet gets the fresh transaction', async () => {
+    const v = view();
+    const p = position(v);
+    const { fresh, prepare, submitPrepared } = twice(lpWithdrawSummary(new PublicKey(v.address), MINT, new PublicKey(p.lpAccount)));
+    mount(readers({ positions: vi.fn(async () => ({ kind: 'ok' as const, chainNow: 5n, totalShares: 1, positions: [p] })) }), {
+      api: fakeLpApi({ prepareLpWithdraw: prepare, submitPrepared }),
+    });
+    fireEvent.click(await within(await screen.findByTestId('lp-position')).findByRole('button', { name: 'Remove liquidity' }));
+    const panel = await screen.findByTestId('lp-remove-panel');
+    fireEvent.click(within(within(panel).getByRole('group', { name: 'How much to take out' })).getByRole('button', { name: '50%' }));
+    await act(async () => {
+      fireEvent.click(within(panel).getByRole('button', { name: 'Review: remove liquidity' }));
+    });
+    await act(async () => {
+      fireEvent.click(await within(panel).findByRole('button', { name: 'Sign in wallet' }));
+    });
+    expect(await within(panel).findByTestId('tx-outcome')).toHaveAttribute('data-status', 'confirmed');
+    expect(prepare).toHaveBeenCalledTimes(2);
+    expect(submitPrepared.mock.calls.map((c: unknown[]) => c[2])).toEqual([fresh]);
+  });
+});
+
 // A launch pool on tier 0 exactly as mainnet holds it (scripts/record-pools-venue-fixture.mjs):
 // the launch program opens it with its creator fee switched on, so a trade costs the 0.25%
 // trade fee plus the tier's 0.05% creator fee. What LPs keep is unchanged; the creator's part
@@ -712,7 +882,7 @@ describe('the review', () => {
 describe('adding to a launch pool that charges the creator fee', () => {
   const launchPool = (): PoolView => {
     const v = view({ origin: 'launch-pool' });
-    return { ...v, config: recordedTier(0), snapshot: { ...v.snapshot, pool: { ...v.snapshot.pool, enableCreatorFee: true, creatorFeeOn: v.solIsToken0 ? 1 : 2 } } };
+    return { ...v, config: recordedTier(0), snapshot: { ...v.snapshot, pool: { ...v.snapshot.pool, enableCreatorFee: true, creatorFeeOn: v.quoteIsToken0 ? 1 : 2 } } };
   };
 
   it("the panel says what LPs keep, and that traders also pay the pool's creator on top", async () => {

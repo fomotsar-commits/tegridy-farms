@@ -52,7 +52,7 @@ const VENUE_VOICE_DEBT: Record<string, number> = {
   '/nakamigos': 1,
   '/terms': 3,
   '/terminal': 2,
-  '/solana': 4,
+  '/solana': 2,
   '/launch-simulator': 4,
   '/leaderboard': 3,
   '/community': 2,
