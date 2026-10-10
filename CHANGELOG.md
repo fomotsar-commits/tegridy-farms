@@ -9,6 +9,7 @@ page keeps the newest thirty days.
 ### 2026-10-10
 
 - Phones whose browser draws the page under the status bar (seen on a Galaxy S25 inside the Phantom app): the row of tabs no longer hides under the header, and the icons in the bottom bar stay inside the bar. On a phone narrower than about 405px, the big headline on the home page and on each bungalow's front page is a little smaller, so MEMETICS.FINANCE no longer runs to the edge of the screen.
+- NFT Finance on a phone or an iPad: a link straight to a section, such as the Launchpad, now opens with that section's tab in view in the row of tabs, clear of the fade at the row's right edge. It used to sit out of sight past the right edge. Pressing a tab that is cut off at the edge of the row now brings it fully into view; it used to be selected and stay cut off.
 - Solana LP: each position now shows what you put in, what it is worth, the fees it earned and how that compares with just holding both tokens. Fees are already inside your pool shares, so there is nothing to claim.
 - Solana LP: each pool card shows its last trade and how much each share has grown since the pool opened, and one press reads its last 20 transactions. The row that read "Fees waiting: venue's share" is now "Venue's cut, not collected yet".
 - Solana LP: two short cards under your positions say how you earn and how the venue earns, with the rates read from the chain and the team's shared wallet as an address you can check.
