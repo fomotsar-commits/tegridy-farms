@@ -15,6 +15,7 @@ page keeps the newest thirty days.
 - Solana LP: a read that never answers now ends after 20 seconds and says so.
 - Once launching is switched on, the details file the site writes for a new Solana token says it was made on memetics.finance. It was set to say memetic.fun, which is another project's site. No token has been launched yet, so no launch carries the old address.
 - Solana LP: when the page could not check the network as it loaded, it now checks again by itself every 15 seconds. Add liquidity, Remove liquidity and Open a pool come back without pressing Read again or reloading the page.
+- Solana swap and launch pages: a read the network never answers is given up after 10 seconds and shown as a read that failed. It used to be waited on for the whole visit. The Solana LP page keeps its own 20 seconds, so each read is timed once and the message names the wait that applied.
 
 ### 2026-10-08
 

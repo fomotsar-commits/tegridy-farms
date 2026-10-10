@@ -6,6 +6,7 @@
  * The abort is driven by setTimeout, not AbortSignal.timeout: the native timer ignores
  * vitest's fake clock (measured 2026-10-06), so the 20 seconds could not be tested.
  */
+import type { SelfEndingFetch } from '../../launcher/solana/curve/rpc';
 
 /** How long one read may take (the burn tracker's figure, CHANGELOG 2026-10-04). */
 export const READ_TIMEOUT_MS = 20_000;
@@ -23,12 +24,13 @@ export function timeoutDetail(what: ReadWhat): string {
  * A fetch that ends: `signal` is the caller's merged with the timeout. A timeout throws
  * `new Error(timeoutDetail(what))`; every other error passes through. `onResponse` sees
  * every Response that arrives, before the caller does and before its body is read.
- * The time covers the body too: headers alone are not an answer, so a copy of the body is
- * read to its end under the same timer, and the caller's own Response keeps its body.
+ * The time covers the body too: a copy of the body is read to its end under the same
+ * timer, and the caller's own Response keeps its body. `endsAfterMs` tells the chain's
+ * transport this is the read's clock, so it starts no second one (curve/rpc.ts).
  */
-export function lpFetch(opts: { what: ReadWhat; onResponse?: (res: Response) => void }): typeof fetch {
+export function lpFetch(opts: { what: ReadWhat; onResponse?: (res: Response) => void }): SelfEndingFetch {
   const { what, onResponse } = opts;
-  return async (input, init) => {
+  const ending: typeof fetch = async (input, init) => {
     const ctrl = new AbortController();
     let timedOut = false;
     const timer = setTimeout(() => {
@@ -57,4 +59,5 @@ export function lpFetch(opts: { what: ReadWhat; onResponse?: (res: Response) => 
       outer?.removeEventListener('abort', forward);
     }
   };
+  return Object.assign(ending, { endsAfterMs: READ_TIMEOUT_MS });
 }
