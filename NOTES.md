@@ -15,6 +15,36 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-10-08: every caller had a branch for a read that failed, and the failure never reached one
+
+**Believed:** the swap page treated an unanswered read as "no answer" (law 8): every
+caller of a read had a branch for a read that failed.
+
+**Measured:** the failure never reached those branches. Three functions answered "could not
+check" with the same value as a finding. `refresh()` returned `[]` for "no pools" and for a
+read of our pools that failed. `prepareJupiterSwap` returned `blocked` both for a test run
+that refused the transaction and for a no-fee retry whose quote, build or test run threw.
+Its fail-open `ready` (first test run threw) looked the same as a clean run. A reviewer
+reproduced each in a page test: Jupiter's transaction sent with our pools unread; our pool
+built with a review saying Jupiter's transaction "failed its test run" when it was never run.
+
+**Do:** give "could not check" its own value where it is made (`null`, `unchecked: true`),
+then read every caller. A caller cannot honour a distinction its input does not carry.
+
+## 2026-10-08: `tsc -b` in a throwaway worktree can write the main checkout's build cache
+
+**Believed:** a git worktree with `node_modules` symlinked from the main checkout is
+isolated: what runs there does not touch the main tree.
+
+**Measured:** `tsc -b` keeps its incremental state in `node_modules/.tmp/*.tsbuildinfo`, so a
+worktree that symlinks `node_modules` shares that state. An agent's `tsc -b --noEmit` in such
+a worktree rewrote the three files the main checkout's `tsc -b` reads. A later clean result
+in the main checkout could have been an answer about the worktree's sources.
+
+**Do:** in a shared `node_modules`, run the gate as `npx tsc -b --noEmit --force`, or give the
+worktree its own `node_modules/.tmp`. Re-run with `--force` before trusting a clean `tsc -b`
+after any worktree run.
+
 ## 2026-10-08: a test rewritten for a new rule can stop holding the old rule it also held
 
 **Believed:** a pull request that changes one assertion in an existing test (a pool's price

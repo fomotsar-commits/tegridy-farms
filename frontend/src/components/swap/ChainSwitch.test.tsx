@@ -94,14 +94,14 @@ describe('ChainSwitch', () => {
   it('names the active Solana bungalow\'s token instead of leaving the visitor to guess', () => {
     window.localStorage.setItem(BUNGALOW_STORAGE_KEY, 'bayla');
     mount('/swap');
-    expect(screen.getByRole('link', { name: /Solana/ })).toHaveTextContent('BAYLA · Jupiter');
+    expect(screen.getByRole('link', { name: /Solana/ })).toHaveTextContent('BAYLA · Our pools + Jupiter');
   });
 
-  it('says only "Jupiter" when the active bungalow is not a Solana one', () => {
+  it('names both Solana routes, and no token, when the active bungalow is not a Solana one', () => {
     window.localStorage.setItem(BUNGALOW_STORAGE_KEY, 'toweli');
     mount('/swap');
     const sol = screen.getByRole('link', { name: /Solana/ });
-    expect(sol).toHaveTextContent('Jupiter');
+    expect(sol).toHaveTextContent('Our pools + Jupiter');
     expect(sol).not.toHaveTextContent('BAYLA');
   });
 });

@@ -32,7 +32,7 @@ export function venueFaq(floor: number): FAQSection[] {
         },
         {
           q: 'What network does memetics.finance run on?',
-          a: 'Staking, farming, swaps and NFT finance run on Ethereum Mainnet. The Memetics Curve launcher is also live on Base and Robinhood Chain, and /solana swaps SPL tokens through Jupiter. Your wallet prompts a network switch when a page needs a different chain.',
+          a: 'Staking, farming, swaps and NFT finance run on Ethereum Mainnet. The Memetics Curve launcher is also live on Base and Robinhood Chain, and /solana swaps SPL tokens in our own pools or through Jupiter, whichever pays you more. Your wallet prompts a network switch when a page needs a different chain.',
         },
       ],
     },

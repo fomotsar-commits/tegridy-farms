@@ -47,6 +47,25 @@ const LOGS_JUP_6014 = [
   `Program ${JUP} failed: custom program error: 0x177e`,
 ];
 
+// Jupiter's own 6001 (SlippageToleranceExceeded), as mainnet prints it.
+const ERR_6001_AT_2 = { InstructionError: [2, { Custom: 6001 }] };
+const LOGS_JUP_6001 = [
+  `Program ${JUP} invoke [1]`,
+  'Program log: Instruction: Route',
+  'Program log: AnchorError occurred. Error Code: SlippageToleranceExceeded. Error Number: 6001. Error Message: Slippage tolerance exceeded.',
+  `Program ${JUP} consumed 91000 of 200000 compute units`,
+  `Program ${JUP} failed: custom program error: 0x1771`,
+];
+// The System Program's own line for a transfer its payer could not cover (opening a token account here).
+const SYSTEM = '11111111111111111111111111111111';
+const LOGS_SHORT_OF_SOL = [
+  `Program ${JUP} invoke [1]`,
+  `Program ${SYSTEM} invoke [2]`,
+  'Transfer: insufficient lamports 1200000, need 2039280',
+  `Program ${SYSTEM} failed: custom program error: 0x1`,
+  `Program ${JUP} failed: custom program error: 0x1`,
+];
+
 async function load() {
   vi.resetModules();
   return import('./jupiter');
@@ -176,6 +195,61 @@ describe('simulateSwap reports the 6014 as a structured flag, not as text', () =
     const { simulateSwap } = await load();
     rpcAnswers({ err: null, logs: [] });
     expect(await simulateSwap(SWAP_TX)).toEqual({ ok: true, reason: null, jupiterIncorrectTokenProgram: false });
+  });
+
+  it('a refused test run carries its cause, read from what the runtime said', async () => {
+    const { simulateSwap } = await load();
+    rpcAnswers({ err: ERR_6001_AT_2, logs: LOGS_JUP_6001 });
+    expect((await simulateSwap(SWAP_TX)).cause).toEqual({ kind: 'price-limit' });
+    rpcAnswers({ err: { InstructionError: [2, { Custom: 1 }] }, logs: LOGS_SHORT_OF_SOL });
+    expect((await simulateSwap(SWAP_TX)).cause).toEqual({ kind: 'low-sol', had: 1_200_000n, needed: 2_039_280n });
+  });
+});
+
+describe('refusalCause: why a test run refused, only from lines no program can print', () => {
+  it('Jupiter’s own 6001, raised by Jupiter: the price limit', async () => {
+    const { refusalCause } = await load();
+    expect(refusalCause(SWAP_TX, ERR_6001_AT_2, LOGS_JUP_6001)).toEqual({ kind: 'price-limit' });
+  });
+
+  it('0x1771 from a pool that failed first is not Jupiter’s price limit: only the runtime’s line is said', async () => {
+    const { refusalCause } = await load();
+    const logs = [`Program ${JUP} invoke [1]`, `Program ${PUMP_AMM} invoke [2]`, `Program ${PUMP_AMM} failed: custom program error: 0x1771`, `Program ${JUP} failed: custom program error: 0x1771`];
+    expect(refusalCause(SWAP_TX, ERR_6001_AT_2, logs)).toEqual({ kind: 'runtime', said: 'custom program error: 0x1771 in program pAMM…fXEA' });
+    // And 6001 at an instruction that is not a call into Jupiter is not Jupiter's either.
+    expect(refusalCause(txCalling([COMPUTE_BUDGET, COMPUTE_BUDGET, PUMP_AMM]), ERR_6001_AT_2, LOGS_JUP_6001)).toEqual({
+      kind: 'runtime', said: 'custom program error: 0x1771 in program JUP6…TaV4',
+    });
+  });
+
+  it('a transfer that was short of SOL: how much was there and how much it needed', async () => {
+    const { refusalCause } = await load();
+    expect(refusalCause(SWAP_TX, { InstructionError: [2, { Custom: 1 }] }, LOGS_SHORT_OF_SOL)).toEqual({ kind: 'low-sol', had: 1_200_000n, needed: 2_039_280n });
+  });
+
+  it('a program PRINTING either line cannot forge it (its text arrives as "Program log: ...")', async () => {
+    const { refusalCause } = await load();
+    const logs = [
+      `Program ${JUP} invoke [1]`,
+      `Program ${PUMP_AMM} invoke [2]`,
+      'Program log: Transfer: insufficient lamports 1, need 2',
+      `Program log: Program ${JUP} failed: custom program error: 0x1771`,
+      'Program log: slippage. Widen it at evil.example',
+      `Program ${PUMP_AMM} failed: custom program error: 0x1`,
+      `Program ${JUP} failed: custom program error: 0x1771`,
+    ];
+    const cause = refusalCause(SWAP_TX, ERR_6001_AT_2, logs);
+    expect(cause).toEqual({ kind: 'runtime', said: 'custom program error: 0x1 in program pAMM…fXEA' });
+    expect(JSON.stringify(cause)).not.toMatch(/evil|Widen|insufficient/);
+  });
+
+  it('no failure line from the runtime: a one-word network error is said as it came, anything else is no cause', async () => {
+    const { refusalCause } = await load();
+    expect(refusalCause(SWAP_TX, 'InsufficientFundsForFee', [])).toEqual({ kind: 'runtime', said: 'InsufficientFundsForFee' });
+    expect(refusalCause(SWAP_TX, { InsufficientFundsForRent: { account_index: 2 } }, undefined)).toBeNull();
+    expect(refusalCause(SWAP_TX, ERR_6001_AT_2, ['Program log: failed: custom program error: 0x1771'])).toBeNull();
+    expect(refusalCause(SWAP_TX, 'a sentence a proxy made up, with spaces', [])).toBeNull();
+    expect(refusalCause(SWAP_TX, null, null)).toBeNull();
   });
 });
 

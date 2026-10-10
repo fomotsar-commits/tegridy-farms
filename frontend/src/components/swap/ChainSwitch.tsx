@@ -2,40 +2,10 @@ import { Link, useLocation, useSearchParams } from 'react-router-dom';
 import { getActiveBungalow } from '../../lib/bungalows';
 
 /**
- * The venue trades on two chains and had no way to say so.
- *
- * `/swap` is the Ethereum surface (Uniswap/CoW, TOWELI-denominated) and
- * `/solana` is the Jupiter one; the only route between them was the "More"
- * menu. So a visitor standing in the BAYLA bungalow — a token that exists
- * only on Solana — clicked "Trade" in the nav and landed on an ETH swap that
- * cannot touch her, with nothing on the page admitting the other half existed.
- *
- * This is that admission: one control, present on BOTH surfaces, that says
- * which chain you are on and moves you to the other one. It is a plain pair
- * of links (not a toggle with state) because the two surfaces are separate
- * routes with separate wallets — the URL IS the state.
- *
- * `?out=<mint>` on the Solana side is preserved when it is already there, so a
- * reload or a share of /solana?out=<mint> keeps the token you came for. It does
- * NOT survive the hop to Ethereum, and the header used to say it did: `?out=` is
- * a Solana mint and /swap has no use for one, so the Ethereum half is a bare
- * `/swap` and nothing in the app produces `/swap?out=`. The preservation is
- * real, but it is preservation of the SELF-link, not a round trip.
- *
- * WHICH ONE IS LIT IS READ OFF THE URL, NOT PASSED IN (2026-09-10). It used to be
- * an `active` prop, and a prop is a claim a caller can get wrong: /pools — the
- * venue's own Solana AMM, a LIQUIDITY page and neither of these two swap
- * surfaces — passed `active="solana"`, so the control sat there with the Solana
- * half highlighted and `aria-current="page"` on it, telling a screen reader the
- * visitor was on /solana. They were not. The URL is already the state (see
- * above), so deriving from it makes that class of mistake unrepresentable rather
- * than merely fixed: a page cannot mislabel itself, and a route that is neither
- * surface simply lights neither half and offers both as what they are — two
- * places to go.
- *
- * The segment-boundary match mirrors SectionHost's `matchesRoute` for the same
- * reason it exists there: a bare `startsWith` would light Solana on any future
- * `/solana-something`.
+ * Which chain's swap the visitor is on, and a link to the other: `/swap` (Ethereum) and
+ * `/solana` (our own pools or Jupiter). Plain links, lit by the URL (segment-boundary match,
+ * as SectionHost's `matchesRoute`), never by a prop: a route that is neither lights neither.
+ * `?out=` survives a reload of the Solana self-link only: /swap has no use for a Solana mint.
  */
 function isOn(pathname: string, route: string): boolean {
   return pathname === route || pathname.startsWith(`${route}/`);
@@ -53,14 +23,9 @@ export function ChainSwitch() {
   // A bungalow makes the point louder: the active token lives on one of these
   // chains, so name it rather than leaving the visitor to guess.
   //
-  // BOTH HALVES READ THE BUNGALOW, 2026-09-05. The Solana half always did; the
-  // Ethereum half was the hardcoded literal `'TOWELI · Uniswap / CoW'`, which
-  // meant a PEPE or BAYLA holder — and, worse, a visitor who had chosen no
-  // bungalow at all and was being spoken to by the VENUE — read one resident's
-  // ticker as the name of the whole Ethereum rail. The venue does not have a
-  // token; its residents do. With nothing chosen the sub is now just the venues
-  // this chain routes through, which is the honest answer to "what is over
-  // there" and is what the label above it was always carrying anyway.
+  // Each half names the active bungalow's token when it lives on that chain, and
+  // otherwise only the venues the chain routes through: the venue has no token. The
+  // venues never break across lines, so a narrow phone wraps after the token.
   const bungalow = getActiveBungalow();
   const solanaToken = bungalow?.chain === 'solana' ? bungalow.symbol : null;
   const ethToken =
@@ -70,10 +35,11 @@ export function ChainSwitch() {
     {
       id: 'ethereum' as const,
       label: 'Ethereum',
-      sub: ethToken ? `${ethToken} · Uniswap / CoW` : 'Uniswap / CoW',
+      token: ethToken,
+      venues: 'Uniswap / CoW',
       to: '/swap',
     },
-    { id: 'solana' as const, label: 'Solana', sub: solanaToken ? `${solanaToken} · Jupiter` : 'Jupiter', to: solanaTo },
+    { id: 'solana' as const, label: 'Solana', token: solanaToken, venues: 'Our pools + Jupiter', to: solanaTo },
   ];
 
   return (
@@ -97,7 +63,10 @@ export function ChainSwitch() {
             } : { textShadow: '0 1px 4px rgba(0,0,0,0.85)' }}
           >
             <span className="block text-[13px] font-medium leading-tight">{o.label}</span>
-            <span className="block text-[10px] leading-tight opacity-70">{o.sub}</span>
+            <span className="block text-[10px] leading-tight opacity-70">
+              {o.token && `${o.token} · `}
+              <span className="whitespace-nowrap">{o.venues}</span>
+            </span>
           </Link>
         );
       })}
