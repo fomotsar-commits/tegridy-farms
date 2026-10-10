@@ -706,6 +706,31 @@ and a picture would have been let in and then let out by three builders that all
 **Do:** a test of a rule over a list needs at least two items, with the one that matters not
 in the first place, and where order matters, first and last being different items.
 
+## 2026-10-04: a box that is the same on two frames has come to rest
+
+**Believed:** two things. That `locator.boundingBox()` followed by a `page.evaluate` using
+that box asks one question. And that an element whose box is unchanged across two animation
+frames (Playwright's own test for "stable") has settled.
+
+**Measured:** `e2e/modal-close.spec.ts` on an `npm run build` bundle under `vite preview`,
+chromium, one worker, 12 repeats: 3, 5 and 10 of 12 failed, the X "covered" by the dialog's
+own content wrapper. Sampled every frame from the moment the dialog mounts, the X is never
+covered. The dialog mounts in its entrance pose (`matrix(0.95, 0, 0, 0.95, 0, 10)`, X at
+950.7,149.7 and 41.8px wide), holds that pose unchanged for 3 or 4 frames (about 100 ms),
+then snaps to rest (`transform: none`, X at 967.0,123.4 and 44px). That is with reduced
+motion on, which the suite sets: the transform is not animated, but it still lands late. The
+centre of the entrance box is 3.2px below the X at rest. Ten runs with a 400 ms pause
+between the spec's two reads: the 6 that read the entrance box hit the wrapper, the 4 that
+read the rest box hit the X. So a pass meant both reads fell on one side of the snap, on
+either side, and a fail meant the snap fell between them. In all four sampled runs a wait for
+two unchanged frames alone would have stopped in the entrance pose.
+
+**Do:** read a box and use it inside ONE `page.evaluate`: `getBoundingClientRect` and
+`elementFromPoint` in the same task cannot have a frame between them. To measure at rest,
+wait first for a sign that the entrance is over (here the dialog's computed `transform` is
+`none`) and then for an unchanged box. With both: 60 of 60 on chromium, 18 of 18 on the other
+three projects, and still red when the wrapper is given the X's z-index.
+
 ## 2026-10-04: a new card that passes on a phone means the change passes on a phone
 
 **Believed:** the burn tracker was checked on phones: every new card at 320, 393, 810 and
