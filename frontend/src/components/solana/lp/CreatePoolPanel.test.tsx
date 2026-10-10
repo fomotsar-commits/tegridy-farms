@@ -11,6 +11,7 @@ import { LpInner } from './SolanaLpSection';
 import type { LpReaders } from './readers';
 import type { TokenSafety } from '../../../lib/solana/lp/tokenSafety';
 import { SOL_QUOTE } from '../../../lib/solana/lp/quotes';
+import { FORECAST_WORDS } from '../../../lib/solana/lp/format';
 import { isCreatedPool, type PoolSearchRead, type PoolView } from '../../../lib/solana/lp/poolFinder';
 import { decodeAmmConfig, decodePoolState } from '../../../lib/solana/cpswap/program';
 import type { WalletFacts } from '../../../lib/solana/lp/walletFacts';
@@ -155,12 +156,14 @@ describe('the panel', () => {
     expect(before).toHaveTextContent(/change the public fee tier's rates and its fee to open a pool at once/);
     expect(before).toHaveTextContent("Jupiter does not send trades to our pools. This site's own swap sends a trade to your pool only when your pool pays the trader at least as much as Jupiter does.");
     expect(before).not.toHaveTextContent(/not built yet/);
+    expect(before).toHaveTextContent('Any other trade has to come from someone using our pool program directly.');
+    expect(before).not.toHaveTextContent(/\bbots?\b|arbitrage|mostly/i);
     expect(before).toHaveTextContent(/Expect little or nothing in fees at first\./);
     expect(before).toHaveTextContent('Opening costs 0.15 SOL, paid to the team\'s vault, and about 0.04 SOL in account deposits that never come back.');
     // Shares are said in 9 decimals everywhere on this page: never "100 pool shares".
     expect(before).toHaveTextContent('0.0000001 pool shares (100 of the smallest unit) stay locked in the pool forever');
     expect(before).toHaveTextContent("Anyone can open other pools for this token, at any price. Yours will not be 'the' pool.");
-    expect(panel).not.toHaveTextContent(/\bAPR\b|\bAPY\b|yield of|earn fees on every trade/i);
+    expect(panel).not.toHaveTextContent(FORECAST_WORDS);
     expect(within(panel).getByText('Pool address').nextElementSibling).toHaveTextContent('the standard address for fee tier 1');
     expect(within(panel).getByText('Fee tier').nextElementSibling).toHaveTextContent('1: traders pay 1% a trade; LPs keep 0.840% of each trade');
     // The wallet is read with the opening's own deposits.

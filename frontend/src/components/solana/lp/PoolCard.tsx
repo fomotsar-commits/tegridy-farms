@@ -8,11 +8,26 @@ import { TOO_NEW_WHY } from '../../../lib/solana/lp/ownPrice';
 import { chargedCreatorFeeRate, feeSplit } from '../../../lib/solana/cpswap/venue';
 import { ratePercent } from '../../../lib/solana/cpswap/math';
 import type { TokenSafety } from '../../../lib/solana/lp/tokenSafety';
+import { poolEarned } from '../../../lib/solana/lp/poolGrowth';
+import {
+  POOL_PAST_AGAIN,
+  POOL_PAST_BUTTON,
+  POOL_PAST_READING,
+  POOL_PAST_READ_MORE,
+  olderPageProblem,
+  pagePast,
+  poolPastText,
+  type PoolPastPage,
+  type PoolTx,
+} from '../../../lib/solana/lp/poolPast';
+import { HISTORY_PAGES_MAX } from '../../../lib/solana/lp/txHistory';
 import { Notice, Row } from '../curve/ui';
 import { CARD, CARD_STYLE, SHADOW } from '../curve/uiFormat';
 import { AddLiquidityPanel } from './AddLiquidityPanel';
 import { depositOffer, lpHeld, type DepositOffer } from './offers';
+import type { LpReaders } from './readers';
 import { useLpWrites, type LpWrites } from './useLpWrites';
+import { WholeDates } from './WholeDates';
 
 const ORIGIN_LABEL: Record<PoolView['origin'], string> = {
   'launch-pool': 'Launch pool: opened by the launch program when the token graduated',
@@ -190,6 +205,8 @@ export function PoolCard({
   health,
   tokenDecimals,
   safety = null,
+  chainNow = null,
+  readers = null,
   openNow = 0,
   showNow = 0,
   onActed,
@@ -199,6 +216,10 @@ export function PoolCard({
   tokenDecimals: number | null;
   /** The token's check, for the Add panel's warnings and its "calls itself" row. */
   safety?: TokenSafety | null;
+  /** The chain's clock as read with the pools: the pace is measured to it, never to the device's. */
+  chainNow?: bigint | null;
+  /** For the pool's past, on a press only. Without `poolPast` no button is shown. */
+  readers?: Pick<LpReaders, 'poolPast'> | null;
   /** A wish's number (PoolFinder LpWish), or 0: open this pool's Add form by itself, once. */
   openNow?: number;
   /** A wish's number, or 0: the wish named this pool and its form cannot open (`useShownOnce`). */
@@ -227,6 +248,8 @@ export function PoolCard({
   const tokFees = view.quoteIsToken0 ? [pool.protocolFeesToken1 + pool.fundFeesToken1, pool.creatorFeesToken1] : [pool.protocolFeesToken0 + pool.fundFeesToken0, pool.creatorFeesToken0];
   const price = health.price;
   const depositsHead = depositHeading(health.deposits);
+  // What its shares have earned, from what the finder already read: no call of its own.
+  const earned = poolEarned(view, chainNow);
 
   return (
     <li
@@ -303,17 +326,120 @@ export function PoolCard({
         ) : (
           <Notice tone="warn">This pool’s fee settings could not be read.</Notice>
         )}
-        <Row label="Fees waiting: venue’s share" value={`${quoteText(quoteFees[0]!, view.quote)} and ${tokenText(tokFees[0]!, tokenDecimals)}`} mono={false} />
+        {/* Each is named for whose it is: neither is a liquidity provider's, and neither can be claimed by one. */}
+        <Row label="Venue’s cut, not collected yet" value={`${quoteText(quoteFees[0]!, view.quote)} and ${tokenText(tokFees[0]!, tokenDecimals)}`} mono={false} />
         {pool.enableCreatorFee && (
-          <Row label="Fees waiting: creator’s share" value={`${quoteText(quoteFees[1]!, view.quote)} and ${tokenText(tokFees[1]!, tokenDecimals)}`} mono={false} />
+          <Row label="Creator’s fee, not collected yet" value={`${quoteText(quoteFees[1]!, view.quote)} and ${tokenText(tokFees[1]!, tokenDecimals)}`} mono={false} />
         )}
         <Notice>
           LPs’ share of fees is not paid out separately: it stays in the pool, so each pool share is worth a little more after every trade.
         </Notice>
+        {earned && (
+          <div data-testid="lp-pool-earned" className="space-y-1 text-white/75">
+            <p data-testid="lp-pool-trade">
+              <WholeDates text={earned.trade} />
+            </p>
+            {earned.growth && (
+              <p data-testid="lp-pool-growth">
+                <WholeDates text={earned.growth} />
+              </p>
+            )}
+            {earned.pace && <p data-testid="lp-pace">{earned.pace}</p>}
+          </div>
+        )}
+        {readers?.poolPast && <PoolPastBlock view={view} readers={readers} />}
         <Row label="Pool shares issued" value={tokenText(pool.lpSupply, pool.lpMintDecimals, 'shares')} mono={false} />
         <Row label="Opened by" value={pool.poolCreator} />
       </div>
     </li>
+  );
+}
+
+interface PastAnswer {
+  /** Every entry read so far, newest first. */
+  items: PoolTx[];
+  more: boolean;
+  pages: number;
+}
+
+const PAST_BUTTON = 'btn-secondary w-full sm:w-auto min-h-[44px] px-4 text-[13px] aria-disabled:opacity-60';
+
+/**
+ * The pool's last transactions, on a press only: one signatures page and at most 20
+ * transaction reads a press, behind the budget gate (poolPast.ts). A search can list 103
+ * pools, so nothing here reads by itself. Read 20 more joins the older page's entries and
+ * totals them again, up to HISTORY_PAGES_MAX pages. A failed read prints its reason and no
+ * count. The first button and the status line stay mounted: focus stays, answers are read out.
+ */
+function PoolPastBlock({ view, readers }: { view: PoolView; readers: Pick<LpReaders, 'poolPast'> }) {
+  const [answer, setAnswer] = useState<PastAnswer | null>(null);
+  const [problem, setProblem] = useState<{ text: string; tone: 'info' | 'warn' } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const againButton = useRef<HTMLButtonElement | null>(null);
+  const moreButton = useRef<HTMLButtonElement | null>(null);
+  const ask = async (before?: string): Promise<PoolPastPage> => {
+    try {
+      // Called through its object, so a reader that needs `this` keeps it.
+      return before === undefined ? await readers.poolPast!(view) : await readers.poolPast!(view, { before });
+    } catch (e) {
+      return { kind: 'unread', detail: e instanceof Error ? e.message : String(e) };
+    }
+  };
+  const said = (page: PoolPastPage, text: string) => setProblem({ text, tone: page.kind === 'paused' ? 'info' : 'warn' });
+  const read = async (older: boolean) => {
+    if (busy) return;
+    const held = older ? answer : null;
+    const oldest = held?.items[held.items.length - 1];
+    if (older && (!held || !oldest)) return;
+    setBusy(true);
+    setProblem(null);
+    const page = await ask(oldest?.signature);
+    if (held) {
+      // What was read stays; an older page joins it only when every entry of it was read.
+      const why = olderPageProblem(page);
+      if (page.kind === 'page' && why === null) {
+        // Read 20 more leaves the page when nothing older is offered: focus goes to the button that stays.
+        const offeredAgain = page.more && held.pages + 1 < HISTORY_PAGES_MAX;
+        if (!offeredAgain && document.activeElement === moreButton.current) againButton.current?.focus();
+        setAnswer({ items: [...held.items, ...page.items], more: page.more, pages: held.pages + 1 });
+      } else if (why !== null) said(page, why);
+    } else if (page.kind === 'page') setAnswer({ items: page.items, more: page.more, pages: 1 });
+    else {
+      setAnswer(null);
+      said(page, poolPastText(page, view));
+    }
+    setBusy(false);
+  };
+  const past = answer ? pagePast({ kind: 'page', items: answer.items, more: answer.more }) : null;
+  const canPage = past?.kind === 'ok' && answer !== null && answer.more && answer.pages < HISTORY_PAGES_MAX;
+  const pastText = past ? poolPastText(past, view) : null;
+  return (
+    <div data-testid="lp-pool-past" data-past={past?.kind ?? 'idle'} className="relative space-y-2 text-white/75">
+      {past && pastText !== null &&
+        (past.kind === 'ok' ? (
+          <p data-testid="lp-pool-past-text">
+            <WholeDates text={pastText} />
+          </p>
+        ) : (
+          <Notice tone="warn">{pastText}</Notice>
+        ))}
+      {problem && <Notice tone={problem.tone}>{problem.text}</Notice>}
+      <div className="flex flex-col sm:flex-row gap-2">
+        {canPage && (
+          <button ref={moreButton} type="button" className={PAST_BUTTON} aria-disabled={busy} onClick={() => void read(true)}>
+            {POOL_PAST_READ_MORE}
+          </button>
+        )}
+        {/* Always here: pressing it never takes it off the page, so focus stays on it. */}
+        <button ref={againButton} type="button" className={PAST_BUTTON} aria-disabled={busy} onClick={() => void read(false)}>
+          {past ? POOL_PAST_AGAIN : POOL_PAST_BUTTON}
+        </button>
+      </div>
+      {/* Always there, so the reading line and each answer are read out when they arrive. */}
+      <p role="status" className={busy ? undefined : 'sr-only'}>
+        {busy ? POOL_PAST_READING : problem?.text ?? pastText ?? ''}
+      </p>
+    </div>
   );
 }
 

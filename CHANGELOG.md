@@ -10,6 +10,11 @@ page keeps the newest thirty days.
 
 - NFT Finance on a phone or an iPad: a link straight to a section, such as the Launchpad, now opens with that section's tab in view in the row of tabs, clear of the fade at the row's right edge. It used to sit out of sight past the right edge. Pressing a tab that is cut off at the edge of the row now brings it fully into view; it used to be selected and stay cut off.
 - NFT Finance on an iPad held upright, or in any window from 768 to 1,118 pixels wide: the page no longer slides sideways. The row of six section tabs was wider than the screen and carried the page with it. It now scrolls inside itself, with a fade at its right edge while more tabs are out of view.
+- Solana LP: each position now shows what you put in, what it is worth, the fees it earned and how that compares with just holding both tokens. Fees are already inside your pool shares, so there is nothing to claim.
+- Solana LP: each pool card shows its last trade and how much each share has grown since the pool opened, and one press reads its last 20 transactions. The row that read "Fees waiting: venue's share" is now "Venue's cut, not collected yet".
+- Solana LP: two short cards under your positions say how you earn and how the venue earns, with the rates read from the chain and the team's shared wallet as an address you can check.
+- Solana LP: a position and a pool card also say the pace so far and how long it covers, when the pool's own fee record shows that trades paid for it. It is measured from the chain and is never a forecast.
+- Solana LP: a read that never answers now ends after 20 seconds and says so.
 
 ### 2026-10-08
 
