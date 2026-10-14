@@ -8,6 +8,7 @@ page keeps the newest thirty days.
 
 ### 2026-10-14
 
+- Earn: the Referrals tab is gone. An old /referrals link opens Earn. A referral link (`/?ref=…`) still works anywhere on the site, and the TOWELI room's dashboard still shows your referral link and lets you claim what it earned.
 - Solana swap: one line under the form, and the same on our pool's review, gives the pair's 24h average traded price (weighted by volume, worked out by the site) and how far your trade's price is above or below it. How it is worked out is in a drop-down. When the pair traded too little it says so, and a failed read says "could not be read". It never holds a trade.
 - A quiet nod to Jungle Bay's music: the footer, the island page and an empty History now link to the collective on Spotify and YouTube. Plain links only, nowhere near a trade, a stake or a warning.
 - Bayla bungalow: hand-picked art on 102 more surfaces, across Pools, Earn and the rest of the site, placed in the Bayla studio.
