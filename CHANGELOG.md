@@ -12,6 +12,12 @@ page keeps the newest thirty days.
 - After the site goes back to an earlier version, a page could stay broken for one browser: it had asked for a script or a stylesheet while the site did not have it, and kept the wrong answer for up to a year. The site's background worker no longer keeps that answer, and it asks the site again when the browser itself kept it. A browser that does not run the worker is not covered yet.
 - Pools and Earn, every tab: each page has a background and each card a picture, and both studios list them all, under the tab's own name (Pools · Add / Remove, Solana LP, Venue AMM, Zap; Earn · Staking, Pool rooms, NFT Loans, Referrals, Yield, Copy Trading, Competitions, Checkout). The same goes for every other tab's cards. Pictures rotate until a studio places one.
 - Fewer words on every main page: Home, Island, Dashboard, Swap, Pools, Earn, Launch and Check, with all their tabs. Each page and card says what it does in a line. How it works, where a number comes from and the fine print are one press away, under a small "Details", "How it works" or "Risks" drop-down. What you earn, what the venue takes, the risk line where money goes in, and every warning stay on screen. Yield went from about 1,700 words on screen to about 300, Solana LP from about 780 to about 400 with the pools open.
+- Solana swap: a swap in one of our own pools now always stops on its review before your wallet is asked. Before, a swap whose fresh quote matched the form went straight to the wallet.
+- Solana swap through Jupiter: when the test run of Jupiter's transaction cannot run, nothing is sent and the page says "could not run just now, so nothing was sent. Press again." Before, the transaction went to your wallet unchecked.
+- Solana swap: "Swap would fail" now gives only a cause the network itself wrote, in plain words, or a fixed sentence. It no longer shows a line a token's own program printed.
+- Swap (Ethereum and Solana): one Ethereum / Solana switch above the swap card. The second, fixed one that covered the top of the form and the review when you scrolled is gone.
+- Solana DCA: a recurring order with a Token-2022 token such as BAYLA, on either side, is refused with one sentence before anything is signed: Jupiter's recurring orders cannot run it. Cancel still works for orders already running.
+- Solana DCA: the hint now says Jupiter's real minimum, $50 per buy, and when the page has read the price it says what each buy is worth and holds Start below $50.
 
 ### 2026-10-10
 

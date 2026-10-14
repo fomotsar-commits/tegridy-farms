@@ -80,11 +80,12 @@ import {
   type ShieldWarning,
   type TriggerOrder,
 } from '../lib/jupiter';
-import { prepareJupiterSwap, refusalWhy, NO_SITE_FEE_ROUTE_COPY, NOT_TEST_RUN_COPY, type PreparedJupiterSwap } from '../lib/solana/swap/jupiterFeeRetry';
+import { prepareJupiterSwap, refusalWhy, refusedSaid, NO_SITE_FEE_ROUTE_COPY, NOT_TEST_RUN_COPY, type PreparedJupiterSwap } from '../lib/solana/swap/jupiterFeeRetry';
 import { OWN_ROUTE_COPY, ownPoolNowWins, prepareOwnPoolSwap, within } from '../lib/solana/swap/ownPoolRoute';
 import { applySlippage } from '../lib/launcher/solana/curve/math';
 import { tradeCostText } from '../lib/solana/lp/format';
-import { needsNoReview, quietEnding } from '../components/swap/quietSwap';
+import { quietEnding } from '../components/swap/quietSwap';
+import { checkDcaPair, dcaToken2022Copy, DCA_MIN_PER_BUY_USD, DCA_UNREAD_COPY, DCA_UNREAD_NOTE, type DcaPairCheck } from '../lib/solana/swap/dcaPair';
 import { DECLINED_IN_WALLET } from '../lib/solana/swap/walletCopy';
 import { fractionToBps, impactWarning } from '../components/solana/curve/uiFormat';
 import { SiteFeeRow } from '../components/swap/SiteFeeRow';
@@ -743,13 +744,12 @@ function ActivityRail() {
   );
 }
 
-// DCA — Jupiter Recurring (time-based): deposit once, keepers buy the pair on a
-// fixed cadence, no tab to keep open. Same winning shape as the Trigger
-// integration. v1 ships fee-off (integrator fees need a referral-account
-// setup) and time-based only. Jupiter enforces roughly a $100-total minimum
-// deposit — surfaced as a hint, and their API refuses smaller honestly.
-function DcaTab({ payToken, buyToken, shieldWarnings, needsAck, ack, setAck, onPickPay, onPickBuy }: {
-  payToken: SolToken; buyToken: SolToken;
+// DCA: Jupiter Recurring (time-based). Deposit once, keepers buy the pair on a fixed
+// cadence, fee-off. Its program cannot take a Token-2022 token, so both mints' programs
+// are read before anything is signed (lib/solana/swap/dcaPair.ts). Jupiter asks for at
+// least $50 per buy: checked here only from a price the page read (`payUsd`).
+function DcaTab({ payToken, buyToken, payUsd, shieldWarnings, needsAck, ack, setAck, onPickPay, onPickBuy }: {
+  payToken: SolToken; buyToken: SolToken; payUsd: number | null;
   shieldWarnings: MintedShieldWarning[]; needsAck: boolean; ack: boolean; setAck: (v: boolean) => void;
   onPickPay: () => void; onPickBuy: () => void;
 }) {
@@ -774,6 +774,26 @@ function DcaTab({ payToken, buyToken, shieldWarnings, needsAck, ack, setAck, onP
     return per > 0n ? fromBaseUnits(per.toString(), payToken.decimals) : null;
   }, [totalBase, numBuys, payToken.decimals]);
   const insufficient = payBalance.raw !== null && totalBase !== null && BigInt(totalBase) > payBalance.raw;
+  // Dollars per buy, only from a price the page read. Null: no figure, so nothing is held for it.
+  const perBuyUsd = perBuyHuman !== null && payUsd !== null ? Number(perBuyHuman) * payUsd : null;
+  const underMinimum = perBuyUsd !== null && Number.isFinite(perBuyUsd) && perBuyUsd < DCA_MIN_PER_BUY_USD;
+
+  // Whether Jupiter's recurring program can take this pair, kept with the pair it was read for.
+  // Null while the read for the pair on the form is out.
+  const pairKey = `${payToken.mint}|${buyToken.mint}`;
+  const [checked, setChecked] = useState<{ key: string; check: DcaPairCheck } | null>(null);
+  const pairCheck = checked?.key === pairKey ? checked.check : null;
+  const readPair = useCallback(
+    () => checkDcaPair([payToken, buyToken], async (mints) =>
+      (await connection.getMultipleAccountsInfo(mints.map((m) => new PublicKey(m)))).map((a) => a?.owner.toBase58() ?? null)),
+    [connection, payToken, buyToken],
+  );
+  useEffect(() => {
+    let cancelled = false;
+    void readPair().then((check) => { if (!cancelled) setChecked({ key: pairKey, check }); });
+    return () => { cancelled = true; };
+  }, [readPair, pairKey]);
+  const refused = pairCheck?.kind === 'token-2022' ? pairCheck.symbol : null;
 
   const loadOrders = useCallback(() => {
     if (!publicKey) { setOrders([]); return; }
@@ -798,6 +818,13 @@ function DcaTab({ payToken, buyToken, shieldWarnings, needsAck, ack, setAck, onP
     if (!publicKey || !totalBase || sameToken) return;
     setPlacing(true);
     try {
+      // Read again at the press, whatever the tab's own read said: nothing is built or signed until it answers "ok".
+      const check = await readPair();
+      setChecked({ key: pairKey, check });
+      if (check.kind !== 'ok') {
+        toast.error('DCA not started', { description: check.kind === 'token-2022' ? dcaToken2022Copy(check.symbol) : DCA_UNREAD_COPY });
+        return;
+      }
       const b64 = await createRecurringOrder({
         user: publicKey.toBase58(),
         inputMint: payToken.mint,
@@ -839,7 +866,7 @@ function DcaTab({ payToken, buyToken, shieldWarnings, needsAck, ack, setAck, onP
     try {
       const sig = await signSend(await cancelRecurringOrder(publicKey.toBase58(), key), CANCEL_REPEAT_COST);
       if (!sig) { loadOrders(); return; }
-      toast.success('DCA cancelled — unspent funds return to your wallet', { description: shortSig(sig) });
+      toast.success('DCA cancelled: unspent funds return to your wallet', { description: shortSig(sig) });
       recordActivity(publicKey.toBase58(), { sig, ts: Date.now(), kind: 'dca-cancel', summary: 'Cancelled a DCA' });
       loadOrders();
     } catch (err) {
@@ -849,7 +876,7 @@ function DcaTab({ payToken, buyToken, shieldWarnings, needsAck, ack, setAck, onP
     }
   }
 
-  const canPlace = !!publicKey && !!totalBase && !!perBuyHuman && !sameToken && !placing && !insufficient && !(needsAck && !ack);
+  const canPlace = !!publicKey && !!totalBase && !!perBuyHuman && !sameToken && !placing && !insufficient && !(needsAck && !ack) && refused === null && !underMinimum;
 
   return (
     <>
@@ -899,9 +926,14 @@ function DcaTab({ payToken, buyToken, shieldWarnings, needsAck, ack, setAck, onP
           <span>Platform fee</span>
           <span className="font-mono">None on DCA orders</span>
         </div>
+        {refused !== null && <p className="text-amber-300" data-testid="dca-refused">{dcaToken2022Copy(refused)}</p>}
+        {pairCheck?.kind === 'unread' && <p className="text-white/60">{DCA_UNREAD_NOTE}</p>}
         {sameToken && <p className="text-amber-300">Pick two different tokens.</p>}
         {insufficient && <p className="text-amber-300">Insufficient {payToken.symbol} balance.</p>}
-        {totalAmount.trim() !== '' && totalBase && !perBuyHuman && <p className="text-amber-300">Per-buy amount rounds to zero — increase the total or reduce the buys.</p>}
+        {underMinimum && perBuyUsd !== null && (
+          <p className="text-amber-300">Each buy is about ${perBuyUsd.toFixed(2)}, and Jupiter requires at least ${DCA_MIN_PER_BUY_USD} per buy.</p>
+        )}
+        {totalAmount.trim() !== '' && totalBase && !perBuyHuman && <p className="text-amber-300">Each buy rounds to zero. Raise the total or pick fewer buys.</p>}
         {shieldWarnings.map((w, i) => (
           <p key={`dsh-${i}`} className={`flex items-start gap-1 ${shieldIsAlarming(w, w.mint) ? 'text-red-300' : 'text-white/50'}`}>
             <span aria-hidden="true">⚠</span><span>{w.message}</span>
@@ -922,17 +954,17 @@ function DcaTab({ payToken, buyToken, shieldWarnings, needsAck, ack, setAck, onP
         <SolanaConnectButton />
       ) : (
         <button type="button" onClick={() => void handlePlace()} disabled={!canPlace} className="btn-primary w-full py-2.5 text-[14px] disabled:opacity-50">
-          {placing ? 'Starting…' : !totalBase ? 'Enter a total amount' : insufficient ? `Insufficient ${payToken.symbol}` : !perBuyHuman ? 'Amount too small' : 'Start the DCA'}
+          {placing ? 'Starting…' : refused !== null ? `Not available for ${refused}` : !totalBase ? 'Enter a total amount' : insufficient ? `Insufficient ${payToken.symbol}` : !perBuyHuman ? 'Amount too small' : underMinimum ? `Under $${DCA_MIN_PER_BUY_USD} per buy` : 'Start the DCA'}
         </button>
       )}
 
       <p className="mt-3 text-center text-white/60 text-[10px]">
-        Deposited up front. Cancel anytime; unspent funds come back. Jupiter minimum: roughly $100 total.
+        Deposited up front. Cancel anytime; unspent funds come back. Jupiter requires at least ${DCA_MIN_PER_BUY_USD} per buy.
       </p>
       <FinePrint summary="How it works">
         <p>
-          The full amount is deposited up front and spent automatically by Jupiter keepers, {numBuys} buys {intervalLabel(intervalSecs)} —
-          no tab to keep open.
+          The full amount is deposited up front and spent automatically by Jupiter keepers, {numBuys} buys {intervalLabel(intervalSecs)}.
+          No tab to keep open.
         </p>
       </FinePrint>
 
@@ -1433,8 +1465,8 @@ function SolanaSwapInner() {
   // the pair on the form can change under an open review (a pick from the rails below).
   // `owner` is the wallet it was built for: the only one that can sign it (submitPrepared).
   const ownTrade = useRef<{ owner: string; pay: string; buy: string; buyMint: string; amount: string; outDecimals: number; done: 'Bought' | 'Sold'; symbol: string } | null>(null);
-  // The same, for the page to draw: the words of the trade and the minimum the form showed at the press.
-  const [pressed, setPressed] = useState<{ pay: string; buy: string; amount: string; outDecimals: number; floor: bigint | null } | null>(null);
+  // The same, for the page to draw: the words of the trade pressed.
+  const [pressed, setPressed] = useState<{ pay: string; buy: string; amount: string; outDecimals: number } | null>(null);
   const onOwnSettled = useCallback<OnSettled>(
     (outcome, prepared) => {
       const t = ownTrade.current;
@@ -1469,17 +1501,13 @@ function SolanaSwapInner() {
     onResolved: requote,
   });
   const flowState = venueSwap.flow.state;
-  const ownSigner = venueSwap.signerState.kind === 'ready' ? venueSwap.signerState.signer : null;
-  // ONE PRESS (components/swap/quietSwap.ts): a swap with nothing to read goes from Buy
-  // to the wallet, and an ending one line can say returns to the form by itself.
-  const goesStraight =
-    flowState.step === 'review' && !flowState.expired && !flowState.replaced && ownSigner !== null && needsNoReview(flowState.prepared, pressed?.floor ?? null);
+  // Every swap in our pool stops on its review before the wallet is asked (owner, 2026-10-13).
+  // An ending one line can say returns to the form by itself (components/swap/quietSwap.ts).
   const quiet = flowState.step === 'outcome' ? quietEnding(flowState.outcome) : null;
-  // Only a review that has to be read, or an ending with something to say, takes the form's place.
-  const ownFlowOpen = (flowState.step === 'review' && !goesStraight) || (flowState.step === 'outcome' && quiet === null);
+  // The review, or an ending with something to say, takes the form's place.
+  const ownFlowOpen = flowState.step === 'review' || (flowState.step === 'outcome' && quiet === null);
   const ownBusy =
     flowState.step === 'preparing' ? 'Preparing…'
-    : goesStraight ? 'Opening your wallet…'
     : flowState.step === 'submitting' ? 'Confirm in your wallet…'
     : flowState.step === 'sent' ? 'Confirming…'
     : null;
@@ -1503,21 +1531,7 @@ function SolanaSwapInner() {
   const inFlightTx = flowState.step === 'review' || flowState.step === 'submitting' || flowState.step === 'sent' ? flowState.prepared : null;
   const inFlight = inFlightTx?.summary.kind === 'venue-swap' ? inFlightTx.summary : null;
 
-  // Once per prepared swap: nothing here may ask the wallet twice for one press of Buy.
-  const sentStraight = useRef<unknown>(null);
-  const { confirm: confirmOwn, reset: resetOwn } = venueSwap.flow;
-  useEffect(() => {
-    if (!goesStraight || flowState.step !== 'review' || !ownSigner) return;
-    if (sentStraight.current === flowState.prepared) return;
-    sentStraight.current = flowState.prepared;
-    // The one cost the form does not show: a first buy of a token opens an account for it.
-    const deposit = flowState.prepared.fees.newAccountRentLamports;
-    if (deposit > 0n) {
-      toast.info(`One-time deposit: ${prettyAmount(fromBaseUnits(deposit.toString(), 9))} SOL`, { description: 'It opens your account for what you receive, and it stays in that account.' });
-    }
-    void confirmOwn(ownSigner);
-  }, [goesStraight, flowState, ownSigner, confirmOwn]);
-
+  const { reset: resetOwn } = venueSwap.flow;
   const explorerOwn = venueSwap.api?.explorerTxUrl;
   const ownCluster = venueSwap.cfg?.cluster ?? 'mainnet';
   useEffect(() => {
@@ -1674,7 +1688,7 @@ function SolanaSwapInner() {
     // The card for an ending that has to be read is its own chunk: asked for now, before
     // anything is signed, so it is never first fetched for a swap that was already sent.
     void loadVenueSwapFlow().catch(() => {});
-    setPressed({ pay: payToken.symbol, buy: buyToken.symbol, amount: prettyAmount(tokenAmount), outDecimals: buyToken.decimals, floor: applySlippage(ownBest.outAmount, BigInt(bps)) });
+    setPressed({ pay: payToken.symbol, buy: buyToken.symbol, amount: prettyAmount(tokenAmount), outDecimals: buyToken.decimals });
     const user = owner.toBase58();
     ownTrade.current = { owner: user, pay: payToken.symbol, buy: buyToken.symbol, buyMint: outputMint, amount: prettyAmount(tokenAmount), outDecimals: buyToken.decimals, done: said.done, symbol: said.symbol };
     const priority = speed;
@@ -1688,7 +1702,7 @@ function SolanaSwapInner() {
         // A test run that could not run (law 8) found nothing: it refuses nothing, and it lifts
         // no refusal kept for this trade. `j` null: the transaction could not be built.
         const wouldSend = (j: PreparedJupiterSwap | null): boolean => {
-          if (j?.status === 'ready' && !j.unchecked) seen.verdict = 'passed';
+          if (j?.status === 'ready') seen.verdict = 'passed';
           else if (j?.status === 'blocked' && !j.unchecked) {
             seen.verdict = 'refused';
             seen.why = refusalWhy(j, bps);
@@ -1726,7 +1740,7 @@ function SolanaSwapInner() {
                 if (j.status === 'blocked') return quotedOut;
                 // Kept for the pair pressed, whatever the form shows by now: its next quote is the no-fee one.
                 if (j.status === 'moved' || j.siteFeeWaived) noFeePairs.current.add(`${inputMint}|${outputMint}`);
-                else if (!j.unchecked) noFeePairs.current.delete(`${inputMint}|${outputMint}`);
+                else noFeePairs.current.delete(`${inputMint}|${outputMint}`);
                 return BigInt(j.quote.outAmount);
               } catch {
                 seen.sends = wouldSend(null);
@@ -1894,12 +1908,9 @@ function SolanaSwapInner() {
           }
         } catch { /* unparseable amount — the pre-sign simulation below still guards */ }
       }
-      // Build, then the pre-sign simulation — refuse to send a swap that would
-      // revert (honeypot / freeze / slippage / insufficient). FAIL OPEN if the
-      // first simulation itself errors. One narrow exception to "a failed
-      // simulation blocks": Jupiter's own 6014 on a fee-bearing build is
-      // answered by ONE no-fee rebuild, which must itself simulate clean. The
-      // whole rule lives in lib/solana/swap/jupiterFeeRetry.ts.
+      // Build, then the test run: only a transaction that passed it goes to the wallet.
+      // One that could not run sends nothing (law 8). Jupiter's own 6014 on a fee-bearing
+      // build is answered by ONE no-fee rebuild that must pass too (jupiterFeeRetry.ts).
       const prepared = await prepareJupiterSwap(
         { getQuote, buildSwapTransaction, simulateSwap, swapCarriesPlatformFee },
         {
@@ -1923,14 +1934,15 @@ function SolanaSwapInner() {
         }
         // A refused transaction is no route, so our pool is offered, with the cause its test run gave.
         if (await ownPoolInstead(refusalWhy(prepared, slippageBps))) return;
-        toast.error('Swap would fail — not sending', { description: prepared.reason ?? 'Simulation reverted on-chain.' });
+        // Only what the network wrote: `prepared.reason` can be a line a token's own program printed.
+        toast.error('Swap would fail', { description: refusedSaid(prepared, slippageBps) });
         return;
       }
       // Jupiter's transaction would run: a refusal kept for this trade is over.
-      if (prepared.status === 'ready' && !prepared.unchecked) setRefusedTrade((r) => (r?.key === refusalKey ? null : r));
+      if (prepared.status === 'ready') setRefusedTrade((r) => (r?.key === refusalKey ? null : r));
       // What the test run found is kept for the pair: its next quote asks for what Jupiter's transaction from this site pays.
       if (prepared.status === 'moved' || prepared.siteFeeWaived) noFeePairs.current.add(`${payToken.mint}|${buyToken.mint}`);
-      else if (!prepared.unchecked) noFeePairs.current.delete(`${payToken.mint}|${buyToken.mint}`);
+      else noFeePairs.current.delete(`${payToken.mint}|${buyToken.mint}`);
       if (prepared.status === 'moved') {
         // The no-fee re-quote is on screen now, labelled as such; nothing was sent.
         setWaivedQuote(prepared.quote);
@@ -1940,13 +1952,6 @@ function SolanaSwapInner() {
       }
       const sent = prepared.quote;
       const feeWaivedOnSend = prepared.siteFeeWaived;
-      if (shownWaived && !feeWaivedOnSend && prepared.unchecked) {
-        // The trader clicked the no-fee quote, and the fee-bearing build's test run could not
-        // run: nothing was found about whether the fee can be taken now. That quote is not
-        // sent and our pool is not held to it; the no-fee quote stays on screen.
-        toast.error('Swap not checked', { description: NOT_TEST_RUN_COPY });
-        return;
-      }
       if (carriesFee && (await ownPoolTakesIt(sent, feeWaivedOnSend, pressedFor))) return;
       if (shownWaived && !feeWaivedOnSend) {
         // The trader clicked a quote that said "no site fee", and this time the
@@ -2506,7 +2511,7 @@ function SolanaSwapInner() {
           ) : mode === 'limit' ? (
             <LimitTab payToken={payToken} buyToken={buyToken} shieldWarnings={shieldWarnings} needsAck={needsAck} ack={ack} setAck={onAck} onPickPay={() => setPicker('pay')} onPickBuy={() => setPicker('buy')} />
           ) : (
-            <DcaTab payToken={payToken} buyToken={buyToken} shieldWarnings={shieldWarnings} needsAck={needsAck} ack={ack} setAck={onAck} onPickPay={() => setPicker('pay')} onPickBuy={() => setPicker('buy')} />
+            <DcaTab payToken={payToken} buyToken={buyToken} payUsd={prices[payToken.mint] ?? null} shieldWarnings={shieldWarnings} needsAck={needsAck} ack={ack} setAck={onAck} onPickPay={() => setPicker('pay')} onPickBuy={() => setPicker('buy')} />
           )}
         </div>
       </m.div>
