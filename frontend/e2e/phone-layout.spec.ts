@@ -177,4 +177,38 @@ test.describe('/airdrop, a page with no tab strip, at 390x664', () => {
     await field.focus();
     await expect.poll(() => field.evaluate((f) => f.getBoundingClientRect().top), { message: `the field sits under the top bar (it ends at ${bar}px)` }).toBeGreaterThanOrEqual(bar);
   });
+
+  // "Campaign address" sat under the bar while its field was clear of it (2026-10-13).
+  const labelTop = (page: Page) => page.locator('label[for="claim-distributor"]').evaluate((l) => l.getBoundingClientRect().top);
+
+  test("a focused text field's label lands below the top bar too", async ({ page, browserName, walletMock: _w }) => {
+    test.skip(browserName !== 'webkit', 'Chromium centres a focused field; the next test reads the same room in every engine');
+    const { field, bar } = await underTheBar(page);
+    await field.focus();
+    await expect.poll(() => labelTop(page), { message: `the label sits under the top bar (it ends at ${bar}px)` }).toBeGreaterThanOrEqual(bar);
+  });
+
+  test('while a field has focus, a scroll to it leaves its label below the top bar', async ({ page, walletMock: _w }) => {
+    const { field, bar } = await underTheBar(page);
+    await field.focus();
+    await field.evaluate((f) => f.scrollIntoView({ block: 'start' }));
+    await expect.poll(() => labelTop(page), { message: `the label sits under the top bar (it ends at ${bar}px)` }).toBeGreaterThanOrEqual(bar);
+  });
+});
+
+test('/nft-finance at 390x844: the section tab row is whole on screen, clear of the bottom bar', async ({ page, walletMock: _w }) => {
+  await settle(page, '/nft-finance', { width: 390, height: 844 });
+  const row = page.getByRole('tablist', { name: 'NFT Finance sections' });
+  await expect(row).toBeVisible({ timeout: 15_000 });
+  // The overview cards above the row once pushed it down to 745 to 799px, and the bar starts at 779px.
+  await expect(page.getByRole('button', { name: 'Dismiss overview' }), 'the overview is not open: the page changed shape').toBeVisible();
+  const read = await row.evaluate((list) => {
+    const b = list.getBoundingClientRect();
+    const bar = Array.from(document.querySelectorAll('nav[aria-label="Main navigation"]')).find((n) => n.getBoundingClientRect().height > 0);
+    return { top: b.top, bottom: b.bottom, header: document.querySelector('header')!.getBoundingClientRect().bottom, bar: bar ? bar.getBoundingClientRect().top : null, scrolled: window.scrollY };
+  });
+  expect(read.scrolled).toBe(0);
+  expect(read.bar, 'no bottom bar on a phone: the page changed shape').not.toBeNull();
+  expect(read.top, 'the row starts under the top bar').toBeGreaterThanOrEqual(read.header);
+  expect(read.bottom, `the row (${Math.round(read.top)} to ${Math.round(read.bottom)}px) runs under the bottom bar at ${read.bar}px`).toBeLessThanOrEqual(read.bar!);
 });

@@ -1,8 +1,8 @@
 // @vitest-environment node
 //
-// The LP section mounts only on Pools tabs, under the pinned tab strip (PoolsHostPage).
-// There the page's scroll-padding (index.css, html.has-route-tabs) already stops what is
-// scrolled to 18px under the strip, and a scroll margin in here is added on top of that.
+// The LP section mounts only on Pools tabs (PoolsHostPage). The page's scroll-padding
+// (index.css) already stops what is scrolled to 18px under the top bar, and a scroll
+// margin in here is added on top of that.
 // e2e/tab-strip-clears-focus.spec.ts measures the targets that are on the page at rest;
 // the forms and pool cards mount only after a chain lookup, so their source is held here.
 
@@ -25,7 +25,7 @@ function topScrollMargins(source: string): string[] {
   return found;
 }
 
-describe('the LP section leaves the tab strip to the page', () => {
+describe('the LP section leaves the scroll line to the page', () => {
   it('reads the files that hold a scroll target', () => {
     // A scan of an empty or moved folder would pass whatever it holds.
     expect(COMPONENTS).toEqual(expect.arrayContaining(['CreatePoolCard.tsx', 'PanelFrame.tsx', 'PoolCard.tsx', 'PoolFinder.tsx', 'YourPositions.tsx']));
@@ -43,6 +43,6 @@ describe('the LP section leaves the tab strip to the page', () => {
 
   it('no component here carries a scroll margin of its own', () => {
     const found = COMPONENTS.flatMap((file) => topScrollMargins(readFileSync(join(HERE, file), 'utf-8')).map((hit) => `${file} ${hit}`));
-    expect(found, 'each of these lands its target that much lower than the 18px the page already leaves under the tab strip').toEqual([]);
+    expect(found, 'each of these lands its target that much lower than the 18px the page already leaves under the top bar').toEqual([]);
   });
 });

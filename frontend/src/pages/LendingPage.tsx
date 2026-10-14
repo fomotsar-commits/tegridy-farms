@@ -225,11 +225,76 @@ export default function LendingPage() {
           </p>
         </m.div>
 
+        {/* Section tabs, above the overview: below it a phone's bottom bar covered part of
+            the row at 390x844 (e2e/phone-layout.spec.ts). Below a 1,143px window the row is
+            held to the page by `max-w-full` and scrolls inside itself, no scroll snap. A
+            fade at the right edge, `--strip-fade` wide, is the only sign of more tabs, and
+            `tabListRef` keeps the selected tab clear of it. e2e/nft-finance-strip.spec.ts. */}
+        <m.div
+          ref={tabListRef}
+          className="flex overflow-x-auto gap-1.5 mb-6 p-1 [--strip-fade:2rem] pr-[var(--strip-fade)] min-[1143px]:pr-1 rounded-2xl mx-auto w-full md:w-fit max-w-full no-scrollbar [mask-image:linear-gradient(to_right,#000_calc(100%_-_var(--strip-fade)),transparent)] min-[1143px]:[mask-image:none]"
+          style={{ background: 'rgba(13,21,48,0.85)', border: '1px solid rgba(255,255,255,0.20)' }}
+          role="tablist"
+          aria-label="NFT Finance sections"
+          onKeyDown={tabKeys.onKeyDown}
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.05, duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
+        >
+          {SECTIONS.map(({ key, label, subtitle }) => (
+            <button
+              key={key}
+              role="tab"
+              id={`nft-finance-tab-${key}`}
+              aria-selected={section === key}
+              aria-controls={`nft-finance-panel-${key}`}
+              tabIndex={tabKeys.tabIndex(key)}
+              ref={tabKeys.ref(key)}
+              /* A11Y-R07: same ~32px tab strip as /community; /swap's is 44px. */
+              className={`relative px-3 py-2 min-h-[44px] md:px-5 md:py-2.5 rounded-xl text-xs md:text-sm font-medium transition-all duration-300 whitespace-nowrap flex-shrink-0 ${
+                section === key
+                  ? 'text-white'
+                  : 'text-white/70 hover:text-white hover:bg-white/5'
+              }`}
+              onClick={() => handleSectionChange(key)}
+            >
+              {section === key && (
+                <m.div
+                  layoutId="nft-finance-tab"
+                  className="absolute inset-0 rounded-xl bg-emerald-600 shadow-lg shadow-emerald-600/20"
+                  transition={{ type: 'spring', stiffness: 400, damping: 30 }}
+                />
+              )}
+              {/* F309: surface the section subtitle on desktop — "Staking + Restake"
+                  under Token Lending is the only hint restaking lives here. */}
+              <span className="relative z-10 flex flex-col items-center leading-tight">
+                <span className="inline-flex items-center gap-1.5">
+                  {label}
+                  {SECTION_DEPLOYED[key] ? (
+                    <span className="rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[9px] font-semibold leading-none px-1.5 py-0.5 uppercase tracking-wide">
+                      Live
+                    </span>
+                  ) : (
+                    <span className="rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30 text-[9px] font-semibold leading-none px-1.5 py-0.5 uppercase tracking-wide">
+                      Soon
+                    </span>
+                  )}
+                </span>
+                {subtitle && (
+                  <span className={`hidden md:block text-[10px] font-normal ${section === key ? 'text-white/80' : 'text-white/50'}`}>
+                    {subtitle}
+                  </span>
+                )}
+              </span>
+            </button>
+          ))}
+        </m.div>
+
         {/* Intro Overview Cards — dismissible */}
         <AnimatePresence>
           {!introDismissed && (
             <m.div
-              className="mb-6"
+              className="mb-10"
               initial={{ opacity: 0, height: 0 }}
               animate={{ opacity: 1, height: 'auto' }}
               exit={{ opacity: 0, height: 0 }}
@@ -292,72 +357,6 @@ export default function LendingPage() {
             </m.div>
           )}
         </AnimatePresence>
-
-        {/* Section tabs. Below a 1,143px window the row (about 1,095px from `md` up)
-            is held to the page by `max-w-full` and scrolls inside itself. No scroll
-            snap: it undoes the reveal. The scrollbar is hidden, so a fade at the right
-            edge is the only sign of more tabs. `--strip-fade` is the fade's width and
-            the end padding, and `tabListRef` keeps the selected tab out of the padding,
-            so never under the fade. Both come off at 1,143px. e2e/nft-finance-strip.spec.ts. */}
-        <m.div
-          ref={tabListRef}
-          className="flex overflow-x-auto gap-1.5 mb-10 p-1 [--strip-fade:2rem] pr-[var(--strip-fade)] min-[1143px]:pr-1 rounded-2xl mx-auto w-full md:w-fit max-w-full no-scrollbar [mask-image:linear-gradient(to_right,#000_calc(100%_-_var(--strip-fade)),transparent)] min-[1143px]:[mask-image:none]"
-          style={{ background: 'rgba(13,21,48,0.85)', border: '1px solid rgba(255,255,255,0.20)' }}
-          role="tablist"
-          aria-label="NFT Finance sections"
-          onKeyDown={tabKeys.onKeyDown}
-          initial={{ opacity: 0, y: 8 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.05, duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
-        >
-          {SECTIONS.map(({ key, label, subtitle }) => (
-            <button
-              key={key}
-              role="tab"
-              id={`nft-finance-tab-${key}`}
-              aria-selected={section === key}
-              aria-controls={`nft-finance-panel-${key}`}
-              tabIndex={tabKeys.tabIndex(key)}
-              ref={tabKeys.ref(key)}
-              /* A11Y-R07: same ~32px tab strip as /community; /swap's is 44px. */
-              className={`relative px-3 py-2 min-h-[44px] md:px-5 md:py-2.5 rounded-xl text-xs md:text-sm font-medium transition-all duration-300 whitespace-nowrap flex-shrink-0 ${
-                section === key
-                  ? 'text-white'
-                  : 'text-white/70 hover:text-white hover:bg-white/5'
-              }`}
-              onClick={() => handleSectionChange(key)}
-            >
-              {section === key && (
-                <m.div
-                  layoutId="nft-finance-tab"
-                  className="absolute inset-0 rounded-xl bg-emerald-600 shadow-lg shadow-emerald-600/20"
-                  transition={{ type: 'spring', stiffness: 400, damping: 30 }}
-                />
-              )}
-              {/* F309: surface the section subtitle on desktop — "Staking + Restake"
-                  under Token Lending is the only hint restaking lives here. */}
-              <span className="relative z-10 flex flex-col items-center leading-tight">
-                <span className="inline-flex items-center gap-1.5">
-                  {label}
-                  {SECTION_DEPLOYED[key] ? (
-                    <span className="rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[9px] font-semibold leading-none px-1.5 py-0.5 uppercase tracking-wide">
-                      Live
-                    </span>
-                  ) : (
-                    <span className="rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30 text-[9px] font-semibold leading-none px-1.5 py-0.5 uppercase tracking-wide">
-                      Soon
-                    </span>
-                  )}
-                </span>
-                {subtitle && (
-                  <span className={`hidden md:block text-[10px] font-normal ${section === key ? 'text-white/80' : 'text-white/50'}`}>
-                    {subtitle}
-                  </span>
-                )}
-              </span>
-            </button>
-          ))}
-        </m.div>
 
         {/* F299 / F300 / F313 (T7): the tabpanel always renders. Every section
             already shows its honest pre-deploy "being audited / not deployed"

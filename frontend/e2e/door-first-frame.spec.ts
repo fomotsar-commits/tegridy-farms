@@ -54,6 +54,9 @@ function watchHeading(heading: string) {
     }
     if (w.hero !== null && now() > w.hero + 1_000) w.done = true;
   };
+  // The test's poll runs this too: frames and DOM changes can both stop once the page is
+  // still, and then only the poll could see the second after the hero arrived.
+  (window as unknown as { __doorCheck: () => void }).__doorCheck = check;
   const frame = () => {
     w.frames += 1;
     check();
@@ -86,7 +89,11 @@ function watchHeading(heading: string) {
   } catch { /* no Element Timing: paint stays null and the assertion names it */ }
 }
 
-const readWatch = (page: Page) => page.evaluate(() => (window as unknown as { __door: Watch }).__door);
+const readWatch = (page: Page) => page.evaluate(() => {
+  const g = window as unknown as { __door: Watch; __doorCheck?: () => void };
+  g.__doorCheck?.();
+  return g.__door;
+});
 
 /** Hold every request matching `glob` until released: slow, not absent. */
 async function hold(page: Page, glob: string): Promise<() => void> {
@@ -291,5 +298,57 @@ for (const width of [360, 412]) {
     test.slow();
     await page.setViewportSize({ width, height: 800 });
     await expectHandoffHolds(page, '/', 'MEMETICS.FINANCE Held time counts here.', 'HomePage');
+  });
+}
+
+/** In the page: the two lines under the heading, then the field and the button beside it. */
+const readLines = (root: Element) => {
+  const box = (el: Element | null | undefined) => {
+    if (!el) return null;
+    const r = el.getBoundingClientRect();
+    return { top: r.top, left: r.left, width: r.width, height: r.height, font: parseFloat(getComputedStyle(el).fontSize) };
+  };
+  const lines: Element[] = [];
+  for (let n = root.querySelector('h1')?.nextElementSibling; n && lines.length < 2; n = n.nextElementSibling) if (n.tagName === 'P') lines.push(n);
+  const form = root.querySelector('form');
+  return {
+    'first line': box(lines[0]),
+    'second line': box(lines[1]),
+    field: box(form?.querySelector('input:not([type="hidden"])')),
+    button: box(form?.querySelector('button[type="submit"]')),
+  };
+};
+
+// The rest of the frame too (2026-10-14): at 360px the field and the button grew from
+// 37.5 to 44px tall and the button's words from 13 to 14px when the hero arrived.
+for (const width of [360, 412]) {
+  test(`the handoff keeps the home page's lines, field and button where they were at ${width}px`, async ({ page }) => {
+    test.slow();
+    await page.setViewportSize({ width, height: 800 });
+    const releaseEntry = await hold(page, '**/assets/index-*.js');
+    const releaseHome = await hold(page, '**/assets/HomePage-*.js');
+    await page.goto('/', { waitUntil: 'commit' });
+    await expect(page.locator('#first-frame h1')).toBeVisible({ timeout: 15_000 });
+    await page.evaluate(() => document.fonts.ready);
+    const frame = await page.locator('#first-frame').evaluate(readLines);
+
+    // React's fallback first, as a visitor sees it, then the hero in its place.
+    releaseEntry();
+    await expect(page.locator('main#main-content [aria-busy="true"] form')).toHaveCount(1, { timeout: 60_000 });
+    releaseHome();
+    await expect(page.locator('main#main-content [aria-busy="true"]')).toHaveCount(0, { timeout: 60_000 });
+    await expect(page.locator('main#main-content form')).toHaveCount(1);
+    await page.evaluate(() => document.fonts.ready);
+    const hero = await page.locator('main#main-content').evaluate(readLines);
+
+    const moved: string[] = [];
+    for (const [what, b] of Object.entries(hero)) {
+      const a = frame[what as keyof typeof frame];
+      if (!a || !b) { moved.push(`${what}: ${a ? 'not in the hero' : 'not in the frame'}`); continue; }
+      for (const k of ['top', 'left', 'width', 'height', 'font'] as const) {
+        if (Math.abs(a[k] - b[k]) > (k === 'font' ? 0.1 : 1)) moved.push(`${what} ${k}: ${Math.round(a[k] * 10) / 10} then ${Math.round(b[k] * 10) / 10}`);
+      }
+    }
+    expect(moved, 'what changed size or place when the hero replaced the frame').toEqual([]);
   });
 }
