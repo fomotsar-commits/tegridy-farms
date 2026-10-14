@@ -959,24 +959,45 @@
     },
     {
       "id": "launchpad-v2",
-      "address": "0xa6149B4d05138A4073902A0Ca0345c2d0E470dF7",
-      "role": "NFT launchpad V2.",
+      "address": "0xPENDING_REDEPLOY_LAUNCHPAD",
+      "role": "NFT launchpad V2, redeployed PENDING_REDEPLOY_DATE so its drop template carries the fix for audit finding F1 (docs/audits/audit_101/OPEN_FINDINGS_FIXED_IN_SOURCE_2026_10_14.md). Owner 0x14898258122C0740106391E6e8E4F17F3b6d456E; protocol fee 500 bps to the treasury Safe 0x7D2620243EdAd69Ec81A53c4A063B07995A4Bd7d, the same settings as the launchpad it replaced.",
       "status": "live",
       "expect": {
         "type": "contract"
       },
-      "evidence": "contracts/broadcast/DeployLaunchpadV2.s.sol/1/run-1784178539512.json CREATE TegridyLaunchpadV2, receipt status 0x1, block 0x185c17b; CONTRACTS.md read-back paused()==false."
+      "evidence": "contracts/broadcast/DeployLaunchpadV2.s.sol/1/PENDING_REDEPLOY_RECEIPT CREATE TegridyLaunchpadV2 from 0x14898258122C0740106391E6e8E4F17F3b6d456E, receipt status 0x1, block PENDING_REDEPLOY_BLOCK. Read back by frontend/scripts/fill-launchpad-redeploy.mjs before this address was written: owner(), protocolFeeBps() 500, protocolFeeRecipient(), weth(), sequencerFeed() 0 and dropTemplate() all as stated."
     },
     {
       "id": "launchpad-v2-drop-template",
-      "address": "0xA35ec3e20C4361144b0D99573DEa00B67873e872",
-      "role": "TegridyDropV2 implementation. The launchpad-v2 constructor deploys it and stores it as the immutable dropTemplate(), and every collection launchpad-v2 creates is a clone that DELEGATECALLs this code. It cannot be re-pointed without redeploying launchpad-v2.",
+      "address": "0xPENDING_REDEPLOY_DROP_TEMPLATE",
+      "role": "TegridyDropV2 implementation, with the F1 fix (its dispatcher has fixedPriceNeedsProposal()). The launchpad-v2 constructor deploys it and stores it as the immutable dropTemplate(), and every collection launchpad-v2 creates is a clone that DELEGATECALLs this code. It cannot be re-pointed without redeploying launchpad-v2.",
       "custody": "none — initializers disabled in its constructor, no owner",
-      "status": "live, 0 clones as of 2026-09-18",
+      "status": "live",
       "expect": {
         "type": "contract"
       },
-      "evidence": "contracts/broadcast/DeployLaunchpadV2.s.sol/1/run-1784178539512.json tx 0 additionalContracts: CREATE TegridyDropV2 inside the TegridyLaunchpadV2 constructor, which is getContractAddress(launchpad-v2, nonce 1). Read 2026-09-18 at block 26003300 on eth.drpc.org and ethereum-rpc.publicnode.com (both agreed): 21,554 bytes of code; launchpad-v2.dropTemplate() returns this address; launchpad-v2.getCollectionCount() = 0; the OpenZeppelin Initializable slot holds type(uint64).max; owner() is the zero address."
+      "evidence": "contracts/broadcast/DeployLaunchpadV2.s.sol/1/PENDING_REDEPLOY_RECEIPT tx 0 additionalContracts: CREATE TegridyDropV2 inside the TegridyLaunchpadV2 constructor; launchpad-v2.dropTemplate() returns this address (read by frontend/scripts/fill-launchpad-redeploy.mjs)."
+    },
+    {
+      "id": "launchpad-v2-f1-retired",
+      "address": "0xa6149B4d05138A4073902A0Ca0345c2d0E470dF7",
+      "role": "The NFT launchpad V2 deployed 2026-07-16. Replaced by launchpad-v2 on PENDING_REDEPLOY_DATE because its drop template has audit finding F1. It made 0 collections, so nothing moved. Still on chain and still owned by 0x14898258122C0740106391E6e8E4F17F3b6d456E; the site no longer points at it.",
+      "status": "retired PENDING_REDEPLOY_DATE (audit finding F1), 0 collections",
+      "expect": {
+        "type": "contract"
+      },
+      "evidence": "contracts/broadcast/DeployLaunchpadV2.s.sol/1/run-1784178539512.json CREATE TegridyLaunchpadV2, receipt status 0x1, block 0x185c17b. getCollectionCount() read 0 on 2026-10-14 at block 26190406 (eth.drpc.org)."
+    },
+    {
+      "id": "launchpad-v2-drop-template-f1-retired",
+      "address": "0xA35ec3e20C4361144b0D99573DEa00B67873e872",
+      "role": "TegridyDropV2 implementation of the retired launchpad-v2-f1-retired. It has audit finding F1: a sale can switch between its fixed price and its dutch auction in one transaction.",
+      "custody": "none — initializers disabled in its constructor, no owner",
+      "status": "retired PENDING_REDEPLOY_DATE (audit finding F1), 0 clones",
+      "expect": {
+        "type": "contract"
+      },
+      "evidence": "contracts/broadcast/DeployLaunchpadV2.s.sol/1/run-1784178539512.json tx 0 additionalContracts: CREATE TegridyDropV2 inside the TegridyLaunchpadV2 constructor. Read 2026-09-18 at block 26003300 on eth.drpc.org and ethereum-rpc.publicnode.com (both agreed): 21,554 bytes of code; the OpenZeppelin Initializable slot holds type(uint64).max; owner() is the zero address."
     },
     {
       "id": "locker-claimer",

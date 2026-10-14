@@ -106,7 +106,7 @@ Execute in this order. For each: `transferOwnership(ADMIN_SAFE)` from deployer �
 - [ ] **VoteIncentives** `0x6e1dCB7EBD16E09edb574F414aDc664B2A5E21AF` — OwnableNoRenounce. Has a **VoteIncentivesAdmin** sister (4.4).
 - [ ] **VoteIncentivesAdmin** `0xf87Ec231BA7FA3975619309bc16C698B2ea3B300` — OwnableNoRenounce sister-admin; lock-step with VoteIncentives.
 - [ ] **CommunityGrants** `0xebc3aaf48297b8ccfa8272d9e68c1545eb9cd471` — OwnableNoRenounce.
-- [ ] **LaunchpadV2** `0xa6149b4d05138a4073902a0ca0345c2d0e470df7` — OwnableNoRenounce `TegridyLaunchpadV2.sol:188` (ctor takes explicit `_owner`). Historically had a deployer/owner `--sender` mismatch on deploy — double-check `owner()` reads the deployer, not something else, before re-homing.
+- [ ] **LaunchpadV2** `0xPENDING_REDEPLOY_LAUNCHPAD` (redeployed PENDING_REDEPLOY_DATE for F1; the retired `0xa6149B4d05138A4073902A0Ca0345c2d0E470dF7` needs no re-home) — OwnableNoRenounce `TegridyLaunchpadV2.sol:188` (ctor takes explicit `_owner`). Historically had a deployer/owner `--sender` mismatch on deploy — double-check `owner()` reads the deployer, not something else, before re-homing.
 - [ ] **MemeBountyBoard** `0x6d2c6ec29d97fe8b6d1471091deee36baf69d890` — OwnableNoRenounce `MemeBountyBoard.sol:260`.
 - [ ] **PremiumAccess** `0x9dc2675b2017687dd9768c63d15f0ad5194fa3f5` — OwnableNoRenounce.
 - [ ] **TegridyLPFarming** `0x1171268AE5B69791c47Fd589b7825932c957e149` — OwnableNoRenounce. Deployed 2026-06-08; **window EXPIRED** (~2026-06-22), so treat like Wave-1 (deployer still owns, re-arm fresh). `constants.ts:39` tracks it live.

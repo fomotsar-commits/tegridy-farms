@@ -121,8 +121,8 @@ code, so it is not a Safe).
 | **TegridyNFTLendingAdmin** — EIP-170 admin sister. | [`0x693787831e9C36A98afeDaD39F8728491f580a9C`](https://etherscan.io/address/0x693787831e9C36A98afeDaD39F8728491f580a9C) | `contracts/src/TegridyNFTLendingAdmin.sol` | Live (2026-07-16) |
 | **TegridyNFTPoolFactory** — Deploys isolated NFT lending pools per collection. | [`0xbB8E49Ba4e3A85E2B8B70e00208770F429B56F5B`](https://etherscan.io/address/0xbB8E49Ba4e3A85E2B8B70e00208770F429B56F5B) | `contracts/src/TegridyNFTPoolFactory.sol` | Live (2026-07-16) — `owner()` = `0xA360…b7F8` (differs from the rest of the batch) |
 | **TegridyTokenURIReader** — Fallback tokenURI resolver for non-standard ERC721s. | [`0x5cfEe751eAf274F68b05267012b85a867dfCd326`](https://etherscan.io/address/0x5cfEe751eAf274F68b05267012b85a867dfCd326) | `contracts/src/TegridyTokenURIReader.sol` | Live (relaunch 2026-06-06) |
-| **TegridyLaunchpadV2** — Click-deploy factory for V2 drops. | [`0xa6149B4d05138A4073902A0Ca0345c2d0E470dF7`](https://etherscan.io/address/0xa6149B4d05138A4073902A0Ca0345c2d0E470dF7) | `contracts/src/TegridyLaunchpadV2.sol` | Live (2026-07-16) — `paused() == false` |
-| **TegridyDropV2** — Per-drop ERC721 template with `contractURI` (ERC-7572). | _per-drop clones_ | `contracts/src/TegridyDropV2.sol` | Template deployed with the V2 factory; clones minted per collection |
+| **TegridyLaunchpadV2** — Click-deploy factory for V2 drops. | [`0xPENDING_REDEPLOY_LAUNCHPAD`](https://etherscan.io/address/0xPENDING_REDEPLOY_LAUNCHPAD) | `contracts/src/TegridyLaunchpadV2.sol` | Live (redeployed PENDING_REDEPLOY_DATE for audit finding F1) — replaces the 2026-07-16 launchpad `0xa6149B4d05138A4073902A0Ca0345c2d0E470dF7`, now retired (0 collections) |
+| **TegridyDropV2** — Per-drop ERC721 template with `contractURI` (ERC-7572). | [`0xPENDING_REDEPLOY_DROP_TEMPLATE`](https://etherscan.io/address/0xPENDING_REDEPLOY_DROP_TEMPLATE) | `contracts/src/TegridyDropV2.sol` | Template deployed with the V2 factory; clones minted per collection. The retired launchpad's template `0xA35ec3e20C4361144b0D99573DEa00B67873e872` has F1 |
 
 ---
 

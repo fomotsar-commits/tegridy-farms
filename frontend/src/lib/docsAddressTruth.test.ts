@@ -91,6 +91,9 @@ const SUPERSEDED: Record<string, string> = {
   '0xfec9aea42ea966c9382eeb03f63a784579841eb2': 'pre-relaunch TegridyTokenURIReader',
   '0x05409880adfea888f2c93568b8d88c7b4aadb139': 'pre-relaunch TegridyNFTLending',
   '0x1c0e1771943fbb299f4e19dad0faa4fa4e6c04f0': 'pre-relaunch TegridyNFTPoolFactory',
+  // NFT launchpad — the 2026-07-16 deploy, replaced because its template has audit finding F1.
+  '0xa6149b4d05138a4073902a0ca0345c2d0e470df7': '2026-07-16 TegridyLaunchpadV2; its template has F1',
+  '0xa35ec3e20c4361144b0d99573dea00b67873e872': '2026-07-16 TegridyDropV2 template; has F1',
   // Treasury: live treasury is SwapFeeRouter.treasury() == TegridyStaking.treasury()
   // == 0x7D26…Bd7d (a 2-of-2 Safe). 0xE9B7… is one of that Safe's two owners — an EOA
   // carrying an EIP-7702 delegation designator (code == 0xef0100…), not the treasury.
