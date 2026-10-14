@@ -15,6 +15,23 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-10-14: viem's `fallback` moves to the next RPC on an error, never on a `null`
+
+**Believed:** over `fallback([publicnode, drpc])`, a receipt the first host lacks is read from
+the second.
+
+**Measured:** for an Ethereum transaction in block 25,038,892, `ethereum-rpc.publicnode.com`
+answered `eth_getTransactionReceipt` with HTTP 200 and `"result": null`, while `eth.drpc.org` and
+`eth-mainnet.public.blastapi.io` returned it with 28 logs. A viem client over publicnode then drpc
+threw `TransactionReceiptNotFoundError` ("could not be found. The Transaction may not be processed
+on a block yet."); the same two hosts in the other order returned the receipt. A `null` is an
+answer, so the fallback never asks the second host. A ranked transport picks the first host at
+run time, so one page reads fine for one visitor and fails for the next.
+
+**Do:** for a historical read through a fallback, treat "not found" as "the host that answered
+has no record" and ask a named second host before saying anything. The Solana form of this trap
+is the 2026-10-10 entry "a public RPC host can answer 200 with a history it does not have".
+
 ## 2026-10-10: a scroll reset in `useEffect` lands after the page is drawn, on every page change, and a test can see it without losing a race
 
 **Believed:** scrolling to the top in `useEffect` on a route change is the standard pattern

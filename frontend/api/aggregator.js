@@ -340,6 +340,12 @@ export default async function handler(req, res) {
     const { handleDopplerBirth } = await import("./_lib/evm-birth.js");
     return handleDopplerBirth(req, res);
   }
+  // `?resource=eas-attested` lists one token's EAS attestations under the disclosure schema
+  // (keyless Blockscout) for /launch/:token, which re-reads each uid. See _lib/eas-attested.js.
+  if (req.query.resource === "eas-attested") {
+    const { handleEasAttested } = await import("./_lib/eas-attested.js");
+    return handleEasAttested(req, res);
+  }
 
   // `?resource=heat` proxies Jungle Bay Island's held-time oracle at memetics.wtf.
   // This one is not an optimisation: the upstream answers with
