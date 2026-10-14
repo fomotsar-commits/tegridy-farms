@@ -18,6 +18,7 @@ import { HeldTimeLine } from './HeldTimeLine';
 import { CardArt } from '../ui/CardArt';
 import { FinePrint } from '../ui/FinePrint';
 
+import { PositionMark, positionHost } from '../ui/PositionMark';
 /**
  * The island's LOCKED EVM lighthouse card (LighthouseLadder.sol).
  *
@@ -186,7 +187,8 @@ export function EvmLadderPoolLive({ bungalow }: { bungalow: Bungalow & { stakePo
   const unfunded = view.vaultRaw !== null && view.vaultRaw === 0n;
 
   return (
-    <div className="relative isolate overflow-hidden rounded-2xl glass-card-animated" style={{ border: '1px solid var(--color-purple-75)' }}>
+    <div className={positionHost('relative isolate overflow-hidden rounded-2xl glass-card-animated', positions.length > 0)} style={{ border: '1px solid var(--color-purple-75)' }}>
+      <PositionMark inPosition={positions.length > 0} />
       <CardArt pageId="evm-ladder-pool-live" idx={0} scrim="transparent" />
       {/* ART VISIBILITY 2026-08-31 (owner): this scrim was 0.85 and the
           resident's art underneath was barely readable — a dark page scrim

@@ -15,6 +15,7 @@ import { formatEther, parseEther } from 'viem';
 import { TEGRIDY_STAKING_ABI } from '../../lib/contracts';
 import { TEGRIDY_STAKING_ADDRESS, CHAIN_ID, LOCK_OPTIONS, EARLY_WITHDRAWAL_PENALTY_BPS, MAX_LOCK_DURATION, TEGRIDY_RESTAKING_ADDRESS, isDeployed } from '../../lib/constants';
 
+import { PositionMark, positionHost } from '../ui/PositionMark';
 // Derive from the canonical constant so the penalty label + math track one source.
 const EARLY_WITHDRAWAL_PENALTY_PCT = EARLY_WITHDRAWAL_PENALTY_BPS / 100;
 
@@ -135,7 +136,8 @@ export function StakingCard({
 
   return (
     <m.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05 }}>
-      <div className="relative overflow-hidden rounded-xl glass-card-animated card-hover" style={{ border: '1px solid var(--color-purple-75)' }}>
+      <div className={positionHost('relative overflow-hidden rounded-xl glass-card-animated card-hover', pos.hasPosition)} style={{ border: '1px solid var(--color-purple-75)' }}>
+        <PositionMark inPosition={pos.hasPosition} />
         <div className="absolute inset-0">
           <ArtImg pageId="staking-card" idx={0} fallbackPosition="center 40%" alt="" loading="lazy" className="w-full h-full object-cover" />
         </div>

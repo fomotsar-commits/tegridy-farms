@@ -35,6 +35,7 @@ import { FinePrint } from '../ui/FinePrint';
 import { Reveal } from '../motion/Reveal';
 import { DUR, EASE_OUT, pressTap, staggerContainer, staggerItem } from '../../lib/motion';
 
+import { PositionMark, positionHost } from '../ui/PositionMark';
 /**
  * A `bayla-ladder` pool, LIVE.
  *
@@ -443,7 +444,8 @@ export function SolanaLadderPoolCard({ bungalow }: { bungalow: Bungalow & { ladd
 
   return (
     <Reveal>
-    <div className="relative isolate overflow-hidden rounded-2xl glass-card-animated" style={{ border: '1px solid var(--color-purple-75)' }}>
+    <div className={positionHost('relative isolate overflow-hidden rounded-2xl glass-card-animated', positions.length > 0)} style={{ border: '1px solid var(--color-purple-75)' }}>
+      <PositionMark inPosition={positions.length > 0} />
       <CardArt pageId="solana-ladder-pool-live" idx={0} scrim="transparent" />
       <div className="absolute inset-0" style={{ background: 'rgba(4,9,18,0.52)' }} />
       <div className="relative z-10 p-5 sm:p-6 flex flex-col gap-6">

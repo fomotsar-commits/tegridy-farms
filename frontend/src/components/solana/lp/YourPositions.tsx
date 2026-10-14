@@ -27,6 +27,7 @@ import { useLpWrites, type LpWrites } from './useLpWrites';
 import { WholeDates } from './WholeDates';
 import type { LpReaders } from './readers';
 
+import { PositionMark, positionHost } from '../../ui/PositionMark';
 type State =
   | { status: 'loading' }
   /** `refreshing`: this is the last answer for the same wallet, shown while it is read again. */
@@ -161,9 +162,12 @@ export function YourPositions({
     if (report && !owner) report(null);
   }, [report, owner]);
   const readAgain = useCallback(() => setNonce((n) => n + 1), []);
+  // A complete read that found a share: never while loading or unread.
+  const inPosition = Boolean(owner) && state?.status === 'done' && state.read.kind !== 'unread' && state.read.positions.length > 0;
   return (
     <section ref={sectionRef} tabIndex={sectionRef ? -1 : undefined} className="outline-none" data-testid="lp-positions" aria-label="Your positions">
-      <Card title="Your positions" art={<CardArt pageId="solana-lp" idx={3} />}>
+      <Card title="Your positions" art={<CardArt pageId="solana-lp" idx={3} />} className={positionHost('', inPosition).trim() || undefined}>
+        <PositionMark inPosition={inPosition} />
         {/* One live region for the whole section, always mounted: only its text changes. */}
         <p role="status" aria-live="polite" className="sr-only" data-testid="lp-positions-status">
           {statusText(owner, state)}

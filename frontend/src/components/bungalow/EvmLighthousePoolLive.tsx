@@ -12,6 +12,7 @@ import { shortenAddress } from '../../lib/formatting';
 import { CardArt } from '../ui/CardArt';
 import { FinePrint } from '../ui/FinePrint';
 
+import { PositionMark, positionHost } from '../ui/PositionMark';
 /**
  * The EVM lighthouse — live staking card for a bungalow whose pool is the
  * VENDORED Synthetix StakingRewards (contracts/src/vendor/, provenance D8).
@@ -181,7 +182,8 @@ export function EvmLighthousePoolLive({ bungalow }: { bungalow: Bungalow & { sta
   const notPaying = view.payingNowRawPerSec !== null && view.payingNowRawPerSec === 0n;
 
   return (
-    <div className="relative isolate overflow-hidden rounded-2xl glass-card-animated" style={{ border: '1px solid var(--color-purple-75)' }}>
+    <div className={positionHost('relative isolate overflow-hidden rounded-2xl glass-card-animated', userStakedRaw !== null && userStakedRaw > 0n)} style={{ border: '1px solid var(--color-purple-75)' }}>
+      <PositionMark inPosition={userStakedRaw !== null && userStakedRaw > 0n} />
       <CardArt pageId="evm-lighthouse-pool-live" idx={0} scrim="transparent" />
       {/* ART VISIBILITY 2026-08-31 (owner): this scrim was 0.85 and the
           resident's art underneath was barely readable — a dark page scrim

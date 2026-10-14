@@ -49,6 +49,7 @@ import {
 import { sharePct } from '../../lib/ladder/program';
 import { basisBehindWrite, FENCE_RETRY_MS, type WriteFence } from '../../lib/ladder/writeFence';
 
+import { PositionMark, positionHost } from '../ui/PositionMark';
 /**
  * The lighthouse pool, LIVE — rendered by BungalowFarmPanel when the
  * bungalow has a configured Streamflow stake-pool address.
@@ -572,7 +573,8 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
     // SECONDARY, WHOLE (2026-09-20): a quieter border, no glow loop, a heavier scrim,
     // and every control it has. Drawn for an open pool, or a closed one with no ladder;
     // a closed pool beside a ladder is members-only and gets LighthouseClaimStrip.
-    <div className="relative isolate overflow-hidden rounded-2xl" style={{ border: '1px solid var(--color-purple-25)' }}>
+    <div className={positionHost('relative isolate overflow-hidden rounded-2xl', Boolean(publicKey) && openEntries.length > 0)} style={{ border: '1px solid var(--color-purple-25)' }}>
+      <PositionMark inPosition={Boolean(publicKey) && openEntries.length > 0} />
       <CardArt pageId="lighthouse-pool-live" idx={0} scrim="transparent" />
       {/* ART VISIBILITY 2026-08-31 (owner): this scrim was 0.85 and the
           resident's art underneath was barely readable — a dark page scrim

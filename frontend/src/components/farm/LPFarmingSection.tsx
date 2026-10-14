@@ -12,6 +12,7 @@ import { Link } from 'react-router-dom';
 import { usePoolTVL } from '../../hooks/usePoolTVL';
 import { useTOWELIPrice } from '../../contexts/PriceContext';
 
+import { PositionMark, positionHost } from '../ui/PositionMark';
 type LPFarmHook = ReturnType<typeof useLPFarming>;
 
 interface LPFarmingSectionProps {
@@ -147,7 +148,8 @@ export function LPFarmingSection({ lpFarm, isConnected }: LPFarmingSectionProps)
         {lpFarm.isActive && <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-green-500/20 text-green-400 border border-green-500/30">LIVE</span>}
       </div>
 
-      <div className="relative overflow-hidden rounded-xl glass-card-animated" style={{ border: '1px solid var(--color-purple-75)' }}>
+      <div className={positionHost('relative overflow-hidden rounded-xl glass-card-animated', isConnected && lpFarm.stakedBalance > 0n)} style={{ border: '1px solid var(--color-purple-75)' }}>
+        <PositionMark inPosition={isConnected && lpFarm.stakedBalance > 0n} />
         <div className="absolute inset-0">
           <ArtImg pageId="lp-farming" idx={1} fallbackPosition="center 30%" alt="" loading="lazy" className="w-full h-full object-cover" />
         </div>
