@@ -9,6 +9,7 @@ page keeps the newest thirty days.
 ### 2026-10-14
 
 - Pools and Earn, every tab: each page has a background and each card a picture, and both studios list them all, under the tab's own name (Pools · Add / Remove, Solana LP, Venue AMM, Zap; Earn · Staking, Pool rooms, NFT Loans, Referrals, Yield, Copy Trading, Competitions, Checkout). The same goes for every other tab's cards. Pictures rotate until a studio places one.
+- Fewer words on every main page: Home, Island, Dashboard, Swap, Pools, Earn, Launch and Check, with all their tabs. Each page and card says what it does in a line. How it works, where a number comes from and the fine print are one press away, under a small "Details", "How it works" or "Risks" drop-down. What you earn, what the venue takes, the risk line where money goes in, and every warning stay on screen. Yield went from about 1,700 words on screen to about 300, Solana LP from about 780 to about 400 with the pools open.
 
 ### 2026-10-10
 
