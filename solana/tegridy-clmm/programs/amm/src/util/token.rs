@@ -23,14 +23,16 @@ use anchor_spl::token_2022::{
 use anchor_spl::token_2022_extensions::spl_token_metadata_interface;
 use anchor_spl::token_interface::{initialize_mint2, InitializeMint2, Mint, TokenInterface};
 
+// Changed by memetics.finance (tegridy-clmm): upstream lists an outside issuer here; this copy lists
+// none, so no position NFT is frozen at mint (an owner decision, docs/RANGE_POOLS_PLAN.md).
 pub mod frozen_position_nft_authorities {
-    use super::{pubkey, Pubkey};
+    use super::Pubkey;
     /// Position NFTs minted in a pool whose token mint has one of these freeze
     /// authorities must be frozen at mint time.
     #[cfg(feature = "devnet")]
-    pub const IDS: [Pubkey; 1] = [pubkey!("3TRuL3MFvzHaUfQAb6EsSAbQhWdhmYrKxEiViVkdQfXu")];
+    pub const IDS: [Pubkey; 0] = [];
     #[cfg(not(feature = "devnet"))]
-    pub const IDS: [Pubkey; 1] = [pubkey!("2Yq4T3mPNfjtEyTxSbRjRKqLf1pwbTasuCQrWe6QpM7x")];
+    pub const IDS: [Pubkey; 0] = [];
 }
 
 pub fn invoke_memo_instruction<'info>(

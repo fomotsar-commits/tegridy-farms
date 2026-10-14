@@ -152,7 +152,9 @@ if want solana; then
   else
     note solana "ladder layout pins" SKIP "cargo is not on PATH"
   fi
-  note solana "diff-guard, SBF builds, validator suites" "CI only" "need the Agave and Anchor toolchains; WSL recipe in docs/CI_ON_GITLAB.md"
+  # Clones raydium-clmm at its pin into /tmp/clmm-upstream the first time.
+  gate solana "clmm provenance" . bash solana/guards/clmm-provenance.sh /tmp/clmm-upstream
+  note solana "diff-guard, key guard, SBF builds, validator suites" "CI only" "need upstream clones and the Agave and Anchor toolchains; WSL recipe in docs/CI_ON_GITLAB.md"
 fi
 
 printf '\n%-10s %-44s %-8s %s\n' AREA GATE RESULT TIME/WHY

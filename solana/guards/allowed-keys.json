@@ -1,0 +1,37 @@
+{
+  "about": "Every key that may appear in our copies of cp-swap and tegridy-clmm, each named. key-guard.mjs fails on any other key, on any key the pinned upstream hard-codes, and on any entry here that appears nowhere. Change this list only in a reviewed pull request.",
+  "ours": {
+    "GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd": "The venue's Squads v4 vault (vault 0 of multisig EVGSnRZ, two signatures). Mainnet admin, fee owner and fee receiver of both programs.",
+    "EVGSnRZFWqjCaWR7z2xKbSXnuddY8upevEQK5HFmj6NK": "The venue's Squads multisig account that owns the vault. Named only in a cp-swap comment; it can sign nothing.",
+    "2sa31zceMSTAAbSu5wfSnNA6sBYzS7r97nvZYaQouEXa": "The vault's wrapped-SOL account: cp-swap's mainnet pool-opening fee lands here.",
+    "EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT": "cp-swap's mainnet program id, the venue's own key (owner ruling 2026-09-25).",
+    "BvBkt84ZiKmiPSuWrdefxbxPTX5YiLnU6YEGtY6pDodL": "cp-swap's devnet program id, the venue's own key.",
+    "GgE6AfEH2AVSrKGckyKMzC6mhtXWiAn39EzAikAsWq5a": "The venue's devnet admin key. Devnet arms only, in both programs; devnet coins have no value.",
+    "27AC7YwwAULHQcQXGErV7rHMsLZAUBWF6ozDNhSpTQE9": "The devnet admin's wrapped-SOL account: cp-swap's devnet pool-opening fee lands here."
+  },
+  "placeholder": {
+    "RangePoo1PLACEHo1DERnotDep1oyed111111111111": "tegridy-clmm's program id until the owner's deploy pack makes the real one. Nobody holds its key, a release build refuses it (lib.rs compile_error! gate) and key-guard --release refuses it."
+  },
+  "system": {
+    "So11111111111111111111111111111111111111112": "Wrapped SOL mint (SPL Token). Used only inside an upstream unit test in tegridy-clmm states/pool.rs.",
+    "metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s": "Metaplex Token Metadata program. tegridy-clmm's Anchor.toml copies it onto a local test chain; position NFTs carry its name record."
+  },
+  "keptUpstream": {
+    "HVbpJAQGNpkgBaYBZQBR1t7yFdvaYVp2vCQQfKKEN4tM": {
+      "why": "USDP (Pax Dollar) mint. Upstream cp-swap's MINT_WHITELIST, in the live binary; it lets this coin skip the Token-2022 extension check. Pays no one. Assessed 2026-10-10: not exploitable here, and removing it needs a cp-swap upgrade.",
+      "only_in": ["solana/tegridy-amm/programs/cp-swap/src/utils/token.rs"]
+    },
+    "Crn4x1Y2HUKko7ox2EZMT6N2t2ZyH7eKtwkBGVnhEq1g": {
+      "why": "GYEN (GMO JPY) mint. Upstream cp-swap's MINT_WHITELIST; same as USDP above.",
+      "only_in": ["solana/tegridy-amm/programs/cp-swap/src/utils/token.rs"]
+    },
+    "FrBfWJ4qE5sCzKm3k3JaAtqZcXUh4LvJygDeketsrsH4": {
+      "why": "ZUSD (Z.com USD) mint. Upstream cp-swap's MINT_WHITELIST; same as USDP above.",
+      "only_in": ["solana/tegridy-amm/programs/cp-swap/src/utils/token.rs"]
+    },
+    "2b1kV6DkPAnxd5ixfnxCpjxmKwqjjaYmCZfHsFu24GXo": {
+      "why": "PYUSD (PayPal USD) mint. Upstream cp-swap's MINT_WHITELIST; same as USDP above.",
+      "only_in": ["solana/tegridy-amm/programs/cp-swap/src/utils/token.rs"]
+    }
+  }
+}

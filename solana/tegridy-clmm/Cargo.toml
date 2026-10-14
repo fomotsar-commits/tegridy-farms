@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["programs/*", "client"]
+members = ["programs/*"]
 
 [workspace.metadata.cli]
 solana = "3.1.10"

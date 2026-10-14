@@ -3,12 +3,13 @@ use crate::states::*;
 use anchor_lang::prelude::*;
 use std::ops::DerefMut;
 
+// Changed by memetics.finance (tegridy-clmm): the venue's keys replace upstream's here.
 pub mod permission_pda_admin {
     use super::{pubkey, Pubkey};
     #[cfg(feature = "devnet")]
-    pub const ID: Pubkey = pubkey!("DRaybMsRNbqoKazUkpZVJ5A2zodQVfoUqC4Cm8fv1mgD");
+    pub const ID: Pubkey = pubkey!("GgE6AfEH2AVSrKGckyKMzC6mhtXWiAn39EzAikAsWq5a");
     #[cfg(not(feature = "devnet"))]
-    pub const ID: Pubkey = pubkey!("RayzVBPm6p6xtG7fU3KX4k44UexK4NjewDk2QCwoLqa");
+    pub const ID: Pubkey = pubkey!("GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd");
 }
 
 #[derive(Accounts)]

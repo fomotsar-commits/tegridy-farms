@@ -10,7 +10,8 @@ use anchor_spl::token_interface::{self, Mint, Token2022};
 use std::cell::RefMut;
 
 /// Memo msg for decrease liquidity
-pub const DECREASE_MEMO_MSG: &'static [u8] = b"raydium_decrease";
+// Changed by memetics.finance (tegridy-clmm): the venue's name in the memo.
+pub const DECREASE_MEMO_MSG: &'static [u8] = b"memetics_decrease";
 #[derive(Accounts)]
 pub struct DecreaseLiquidity<'info> {
     /// The position owner or delegated authority

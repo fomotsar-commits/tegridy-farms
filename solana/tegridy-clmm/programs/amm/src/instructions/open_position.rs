@@ -796,12 +796,14 @@ fn mint_nft_and_remove_mint_authority<'info>(
     )
 }
 
+// Changed by memetics.finance (tegridy-clmm): the venue's name, symbol and link. The link is
+// not served yet; it must be before any deploy (docs/RANGE_POOLS_PLAN.md).
 fn get_metadata_data(personal_position_id: Pubkey) -> (String, String, String) {
     return (
-        String::from("Raydium Concentrated Liquidity"),
-        String::from("RCL"),
+        String::from("Memetics Range Position"),
+        String::from("MEM-RANGE"),
         format!(
-            "https://dynamic-ipfs.raydium.io/clmm/position?id={}",
+            "https://memetics.finance/position/{}.json",
             personal_position_id.to_string()
         ),
     );

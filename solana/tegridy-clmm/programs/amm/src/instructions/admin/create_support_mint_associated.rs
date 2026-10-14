@@ -4,12 +4,13 @@ use anchor_lang::prelude::*;
 use anchor_spl::{token_2022, token_interface::Mint};
 use std::ops::DerefMut;
 
+// Changed by memetics.finance (tegridy-clmm): the venue's keys replace upstream's here.
 pub mod create_support_mint_associated_owner {
     use super::{pubkey, Pubkey};
     #[cfg(feature = "devnet")]
-    pub const ID: Pubkey = pubkey!("rayf3nEbb3bnfN6RDGFpqPbjc5uUa3tRUzu6UVYrRx5");
+    pub const ID: Pubkey = pubkey!("GgE6AfEH2AVSrKGckyKMzC6mhtXWiAn39EzAikAsWq5a");
     #[cfg(not(feature = "devnet"))]
-    pub const ID: Pubkey = pubkey!("RayVyjyJQz9vAi126A4sGexKnSU1XeZaHTRcM1mZMPY");
+    pub const ID: Pubkey = pubkey!("GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd");
 }
 
 #[derive(Accounts)]

@@ -10,7 +10,8 @@ use anchor_spl::token_interface::{Mint, Token2022, TokenAccount};
 use std::collections::VecDeque;
 
 /// Memo msg for swap
-pub const SWAP_MEMO_MSG: &'static [u8] = b"raydium_swap";
+// Changed by memetics.finance (tegridy-clmm): the venue's name in the memo.
+pub const SWAP_MEMO_MSG: &'static [u8] = b"memetics_swap";
 #[derive(Accounts)]
 pub struct SwapSingleV2<'info> {
     /// The user performing the swap

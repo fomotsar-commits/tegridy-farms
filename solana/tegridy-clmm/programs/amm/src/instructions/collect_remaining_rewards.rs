@@ -9,7 +9,8 @@ use anchor_spl::{
 };
 
 /// Memo msg for collect remaining
-pub const COLLECT_REMAINING_MEMO_MSG: &'static [u8] = b"raydium_collect_remaining";
+// Changed by memetics.finance (tegridy-clmm): the venue's name in the memo.
+pub const COLLECT_REMAINING_MEMO_MSG: &'static [u8] = b"memetics_collect_remaining";
 
 #[derive(Accounts)]
 pub struct CollectRemainingRewards<'info> {

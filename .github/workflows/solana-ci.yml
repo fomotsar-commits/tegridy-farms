@@ -35,6 +35,12 @@ name: solana-ci
 #      checkout because we hold neither key; diff-guard runs on its own clean
 #      checkout and independently proves the COMMITTED fork still carries exactly
 #      the pinned delta.
+#   6. clmm-guards — tegridy-clmm (raydium-clmm under the venue's keys, not deployed) is
+#      upstream plus exactly its pinned identity delta, and no key in it or in cp-swap is
+#      anyone's but the venue's (solana/guards/). Each guard first refuses a known-bad copy.
+#   7. clmm-build — builds tegridy-clmm on upstream's own Solana pin, proves a build
+#      without the placeholder feature is refused, runs upstream's unit tests, and prices
+#      the deploy at the rent rate read from mainnet.
 on:
   push:
     paths: ["solana/**", ".github/workflows/solana-ci.yml"]
@@ -277,8 +283,135 @@ jobs:
   # which reads as an infrastructure fault rather than as the deliberate deletion it is.
   #
   # The cp-swap diff-guard ABOVE is untouched and still the real one — cp-swap is still
-  # vendored and still the graduation venue. If concentrated-liquidity math is ever
-  # vendored again, restore this job WITH it; do not restore it alone.
+  # vendored and still the graduation venue. Concentrated liquidity came back on 2026-10-14
+  # as a whole program, tegridy-clmm, with its own guards in the two jobs below.
+  clmm-guards:
+    needs: scope
+    if: >-
+      !cancelled() &&
+      (needs.scope.result != 'success' || needs.scope.outputs.run == 'true')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # cp-swap's upstream at ITS pin, for the deny-list. clmm-provenance.sh clones
+      # raydium-clmm at its own pin, which lives in that script.
+      - name: Clone cp-swap's pinned upstream
+        run: |
+          git clone --quiet "$UPSTREAM_REPO" /tmp/cpswap-upstream
+          git -C /tmp/cpswap-upstream checkout --quiet "$UPSTREAM_COMMIT"
+      - name: tegridy-clmm is upstream plus exactly the pinned identity delta
+        run: bash solana/guards/clmm-provenance.sh /tmp/clmm-upstream
+      - name: No outside key in either copied program
+        run: >-
+          node solana/guards/key-guard.mjs --allow solana/guards/allowed-keys.json
+          --ours solana/tegridy-amm/programs/cp-swap --ours solana/tegridy-clmm
+          --upstream /tmp/cpswap-upstream --upstream /tmp/clmm-upstream
+          --clmm-lib solana/tegridy-clmm/programs/amm/src/lib.rs
+      # A guard that cannot fail proves nothing, so each one meets a copy it must refuse.
+      - name: Each guard refuses a known-bad copy
+        run: |
+          set -uo pipefail
+          refused() { if "$@" > /tmp/refused.log 2>&1; then echo "::error::this passed and must not: $*"; cat /tmp/refused.log; exit 1; fi; }
+          ALLOW="--allow solana/guards/allowed-keys.json"
+          # Upstream's own program carries Raydium's keys.
+          refused node solana/guards/key-guard.mjs $ALLOW --ours /tmp/clmm-upstream/programs/amm --upstream /tmp/clmm-upstream
+          grep -q 'GThUX1Atko4tqhN2NaiTazWSeFWMuiUvfFnyJyUghFMJ is hard-coded by upstream' /tmp/refused.log \
+            || { echo "::error::refused, but not for Raydium's admin key"; cat /tmp/refused.log; exit 1; }
+          # A release refuses the placeholder program id.
+          refused node solana/guards/key-guard.mjs $ALLOW --release --ours solana/tegridy-clmm --upstream /tmp/clmm-upstream
+          grep -q 'is the placeholder program id' /tmp/refused.log \
+            || { echo "::error::--release refused, but not for the placeholder"; cat /tmp/refused.log; exit 1; }
+          # One line added outside the identity files.
+          cp -r solana/tegridy-clmm /tmp/clmm-bad
+          echo '// injected' >> /tmp/clmm-bad/programs/amm/src/instructions/swap.rs
+          refused bash solana/guards/clmm-provenance.sh /tmp/clmm-upstream /tmp/clmm-bad
+          grep -q 'swap.rs differs from upstream' /tmp/refused.log \
+            || { echo "::error::refused, but not for the injected line"; cat /tmp/refused.log; exit 1; }
+          echo "all three known-bad copies refused"
+
+  clmm-build:
+    needs: scope
+    if: >-
+      !cancelled() &&
+      (needs.scope.result != 'success' || needs.scope.outputs.run == 'true')
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      # Upstream's own pins (its Anchor.toml): Solana 3.1.10, Anchor 1.0.2 via Cargo.lock.
+      CLMM_SOLANA_VERSION: v3.1.10
+    defaults:
+      run:
+        working-directory: solana/tegridy-clmm/programs/amm
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable branch @ 2026-08-05
+      - name: Cache cargo
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: clmm-cargo-${{ hashFiles('solana/tegridy-clmm/Cargo.lock') }}
+      - name: Install Solana CLI ${{ env.CLMM_SOLANA_VERSION }}
+        run: |
+          sh -c "$(curl -sSfL https://release.anza.xyz/${CLMM_SOLANA_VERSION}/install)"
+          echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
+      # The same two guards as cp-swap's build: build-sbf can exit 0 having compiled nothing,
+      # and a 4 KB stack overflow is only a linker warning.
+      - name: Build with the placeholder id
+        run: |
+          set -euo pipefail
+          SO=../../target/deploy/raydium_clmm.so
+          rm -f "$SO"
+          cargo build-sbf --features placeholder-id -- --locked 2>&1 | tee /tmp/clmm-build.log
+          if [ ! -f "$SO" ]; then
+            echo "::warning::first cargo build-sbf produced no artifact (toolchain install only), retrying"
+            cargo build-sbf --features placeholder-id -- --locked 2>&1 | tee -a /tmp/clmm-build.log
+          fi
+          [ -f "$SO" ] || { echo "::error::cargo build-sbf exited 0 but produced no $SO"; exit 1; }
+          if grep -q "exceeded max offset" /tmp/clmm-build.log; then
+            echo "::error::SBF stack frame overflow"
+            grep -B3 "exceeded max offset" /tmp/clmm-build.log
+            exit 1
+          fi
+          ls -l "$SO"
+          sha256sum "$SO"
+      # Rent is a refundable deposit. Read from mainnet at run time; a failed read says so
+      # rather than printing a figure nobody read.
+      - name: Deploy rent at today's rate
+        run: |
+          set -euo pipefail
+          SO=../../target/deploy/raydium_clmm.so
+          BYTES=$(stat -c%s "$SO")
+          rent() {
+            curl -sS -m 20 https://api.mainnet-beta.solana.com -H 'content-type: application/json' \
+              -d "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getMinimumBalanceForRentExemption\",\"params\":[$1]}" \
+              | python3 -c 'import json,sys; print("%.4f SOL" % (json.load(sys.stdin)["result"] / 1e9))' 2>/dev/null \
+              || echo "could not be read"
+          }
+          {
+            echo "### tegridy-clmm: what a deploy would lock in rent"
+            echo
+            echo "| | bytes | rent |"
+            echo "|---|---|---|"
+            echo "| program data, exact --max-len | $((BYTES + 45)) | $(rent $((BYTES + 45))) |"
+            echo "| program data, CLI default (twice the size) | $((2 * BYTES + 45)) | $(rent $((2 * BYTES + 45))) |"
+            echo "| upload buffer, refunded after deploy | $((BYTES + 37)) | $(rent $((BYTES + 37))) |"
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: A build without the placeholder feature is refused
+        run: |
+          set -uo pipefail
+          if cargo build-sbf -- --locked > /tmp/clmm-refused.log 2>&1; then
+            echo "::error::a build without placeholder-id succeeded: a release could carry the placeholder id"
+            exit 1
+          fi
+          grep -q 'the program id is still the placeholder' /tmp/clmm-refused.log \
+            || { echo "::error::the build failed, but not at the placeholder gate"; tail -40 /tmp/clmm-refused.log; exit 1; }
+          echo "refused at the placeholder gate, as it must be"
+      - name: Upstream's own unit tests
+        run: cargo test --locked --lib
+
   build:
     needs: scope
     if: >-
@@ -1070,6 +1203,8 @@ jobs:
       [
         scope,
         diff-guard,
+        clmm-guards,
+        clmm-build,
         build,
         launch-curve,
         bayla-ladder,
