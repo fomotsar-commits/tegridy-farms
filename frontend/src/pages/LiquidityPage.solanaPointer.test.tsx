@@ -40,7 +40,7 @@ afterEach(() => {
 describe('/liquidity points a Solana visitor at the Solana LP tab', () => {
   it('with a link in its header, before the paragraph and the pool table', () => {
     mount();
-    const link = screen.getByRole('link', { name: 'On Solana? Create a pool, add or remove liquidity on the Solana LP tab' });
+    const link = screen.getByRole('link', { name: 'On Solana? Create, add or remove on the Solana LP tab' });
     expect(link).toHaveAttribute('href', '/solana-lp');
     const header = screen.getByRole('heading', { level: 1, name: 'Liquidity' }).parentElement!;
     expect(header).toContainElement(link);

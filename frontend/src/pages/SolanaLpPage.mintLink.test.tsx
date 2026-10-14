@@ -118,7 +118,7 @@ describe('/solana-lp opens on the pool finder', () => {
     expectTopToBottom([
       ['the heading', h1],
       ...LP_PARTS.map((id): [string, HTMLElement] => [id, screen.getByTestId(id)]),
-      ['the Venue AMM link', screen.getByRole('link', { name: /fees, status and how the pools work/i })],
+      ['the Venue AMM link', screen.getByRole('link', { name: /fees and status, on the Venue AMM tab/i })],
       ['the status card', screen.getByRole('region', { name: 'Venue status' })],
       ['"The program"', screen.getByRole('region', { name: 'The program' })],
     ]);

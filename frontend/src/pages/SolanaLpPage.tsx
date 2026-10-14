@@ -37,7 +37,7 @@ export default function SolanaLpPage() {
   // The keyboard's ring goes round the words (`ring-on-words`, index.css).
   const venueAmmLink = (
     <Link to={withMint('/pools', params)} className="inline-block py-3.5 -my-1.5 underline underline-offset-2 text-white hover:text-white/80 ring-on-words">
-      <span className="ring-words">Fees, status and how the pools work, on the Venue AMM tab</span>
+      <span className="ring-words">Fees and status, on the Venue AMM tab</span>
     </Link>
   );
 

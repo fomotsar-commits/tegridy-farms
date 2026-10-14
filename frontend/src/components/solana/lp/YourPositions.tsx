@@ -174,11 +174,12 @@ export function YourPositions({
         </p>
         {!owner ? (
           <>
-            <p>Connect a Solana wallet to see the pool shares it holds.</p>
+            <p>Connect a wallet to see your pool shares.</p>
             <SolanaConnectButton />
-            {/* A phone's own browser has no wallet in it: the same way on the forms give. */}
-            <WalletAppHint />
-            <FinePrint summary="Details">
+            {/* A phone's own browser has no wallet in it: the same way on the forms give, one press
+                away, under a door named for that visitor (owner, 2026-10-14: fewer words). */}
+            <FinePrint summary="No wallet here?">
+              <WalletAppHint />
               <p>Reading them sends nothing and signs nothing.</p>
               {writes && <p>Removing liquidity starts here: each share that can be taken out gets a Remove liquidity button.</p>}
             </FinePrint>

@@ -58,7 +58,7 @@ export function VenuePoolTable({ poolData }: { poolData: ReturnType<typeof usePo
       quote: 'ETH',
       baseLogo: TOKEN_LOGOS.TOWELI,
       quoteLogo: TOKEN_LOGOS.ETH,
-      kind: 'Constant product · 0.3% fee',
+      kind: '0.3% fee',
       tvl: poolData.tvlFormatted,
       vol: poolData.vol24hFormatted,
     },
@@ -68,7 +68,7 @@ export function VenuePoolTable({ poolData }: { poolData: ReturnType<typeof usePo
     <section aria-labelledby="venue-pools-heading" className="mb-8">
       <div className="flex items-baseline justify-between gap-3 mb-3">
         <h2 id="venue-pools-heading" className="text-white text-lg font-semibold">
-          Pools on this venue
+          Pools
         </h2>
         <a href="#provide" className="text-[12.5px] underline underline-offset-2 text-white/70 hover:text-white">
           Seed a new pair ↓
@@ -158,11 +158,12 @@ export function VenuePoolTable({ poolData }: { poolData: ReturnType<typeof usePo
           each number is, and why there is no APR column, sit in the small print
           below, closed but in the DOM. */}
       <p className="mt-2.5 text-[11.5px] text-white/50 leading-relaxed">
-        A dash means the read did not land, never that the number is zero.
+        A dash: not read, never zero.
       </p>
 
       <FinePrint summary="Details">
         <p>
+          A dash means the read did not land, never that the number is zero. The pool is a constant-product pool with a 0.3% fee.{' '}
           TVL is a live read of the pair&apos;s reserves. &ldquo;Routed 24h&rdquo; is reconstructed from the
           venue router&apos;s own fee take, so it counts swaps that came through this venue and not
           those that hit the pool directly.{' '}

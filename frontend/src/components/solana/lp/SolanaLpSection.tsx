@@ -93,7 +93,7 @@ function LpBody({ readers, mode, reloadKey, finderFirst }: { readers: LpReaders;
   );
   const { publicKey } = useWallet();
 
-  const disclosure = <LpDisclosure programId={readers.programId} mode={mode} />;
+  const disclosure = <LpDisclosure programId={readers.programId} mode={mode} riskAbove={finderFirst} />;
   const writesTop = mode !== 'off' && <LpWritesTop />;
   const tierRead = useFeeTiers(readers);
   const tiers = <FeeTiers read={tierRead} />;
@@ -183,7 +183,7 @@ function LpRiskLine() {
 function LpEarnLine() {
   return (
     <p data-testid="lp-earn-line" className="px-1 text-white/85 text-[13px] leading-snug">
-      Fees are added to your pool shares as trades happen. Nothing to claim.
+      Fees grow your pool shares. Nothing to claim.
     </p>
   );
 }
@@ -239,14 +239,24 @@ const DISCLOSURE_NOTICE: Record<LpWriteMode, string> = {
     'Adding liquidity from this site is paused right now. Removing it still works, and each removal is checked and test-run before your wallet is asked to sign.',
 };
 
-export function LpDisclosure({ programId, mode = 'off' }: { programId: string; mode?: LpWriteMode }) {
+export function LpDisclosure({ programId, mode = 'off', riskAbove = false }: {
+  programId: string;
+  mode?: LpWriteMode;
+  /**
+   * The page already shows RISK_SHORT above the finder (LpRiskLine, finder first): the
+   * card then says it once more only in its small print. Said once per page, visibly
+   * (owner, 2026-10-14).
+   */
+  riskAbove?: boolean;
+}) {
   // "The program" (VenueProgramCard) is the last section of every page that mounts this one.
   return (
     <section data-testid="lp-disclosure" aria-label="Before you provide liquidity">
       <Card title="Before you provide liquidity" art={<CardArt pageId="solana-lp" idx={0} />}>
-        <p className="text-white/80">{RISK_SHORT}</p>
+        {!riskAbove && <p className="text-white/80">{RISK_SHORT}</p>}
         <Row label="Pool program" value={programId} />
         <FinePrint summary="Risks">
+          {riskAbove && <p>{RISK_SHORT}</p>}
           {/* True of the pool program RUNNING on mainnet, built before the source gained create_lp_metadata.
               It goes false the day that program is upgraded: reword it in the same release as the upgrade
               (src/test/poolProgramCopy.test.ts fails that release until you do, and holds the wording). */}
@@ -313,10 +323,22 @@ function useFeeTiers(readers: LpReaders): FeeTierRead | null {
   return read;
 }
 
+/**
+ * A tier's rates as one row of numbers (owner, 2026-10-14: the numbers in a row, the
+ * sentences one press away). A tier with a creator rate says it as the part on top: the
+ * trade fee is what LPs and the venue split, and launch pools charge the creator's part
+ * besides it (tierCostText, in the small print, says which pools).
+ */
+function tierRow(config: AmmConfigView): string {
+  const split = feeSplit(config);
+  const fee = config.creatorFeeRate > 0n ? `Fee ${feeRateText(config.tradeFeeRate)} + ${feeRateText(config.creatorFeeRate)} creator` : `Fee ${feeRateText(config.tradeFeeRate)}`;
+  return `${fee} · LPs ${split.lpKeepsPct.toFixed(3)}% · venue ${split.venueTakesPct.toFixed(3)}%`;
+}
+
 function FeeTiers({ read }: { read: FeeTierRead | null }) {
   return (
     <section data-testid="fee-tiers" aria-label="Fee tiers">
-      <Card title="Fee tiers, read from the chain" art={<CardArt pageId="solana-lp" idx={1} />}>
+      <Card title="Fee tiers" art={<CardArt pageId="solana-lp" idx={1} />}>
         {!read ? (
           <p>Reading the fee tiers…</p>
         ) : read.kind === 'unread' ? (
@@ -328,27 +350,37 @@ function FeeTiers({ read }: { read: FeeTierRead | null }) {
                 {t.state === 'live' && t.config ? (
                   <>
                     <Row
-                      label={`Tier ${t.index}${t.index === 0 ? ' (graduated launches)' : t.index === 1 ? ' (public pools)' : ''}`}
-                      value={tierCostText(t.config)}
+                      label={`Tier ${t.index}${t.index === 0 ? ' · launch pools' : t.index === 1 ? ' · public pools' : ''}`}
+                      value={tierRow(t.config)}
                       mono={false}
                     />
-                    <Row
-                      label="Split"
-                      value={`LPs ${feeSplit(t.config).lpKeepsPct.toFixed(3)}%, venue ${feeSplit(t.config).venueTakesPct.toFixed(3)}% of each trade`}
-                      mono={false}
-                    />
-                    {t.config.creatorFeeRate > 0n && (
+                    {/* The same tier in sentences: read from the chain, which pools pay what, what opening a pool
+                        costs (the venue's card above says the fee) and what a deposit never gives back. */}
+                    <FinePrint summary="Details">
+                      <p>Read from the chain when this page loads.</p>
                       <Row
-                        label="Creator fee"
-                        value={`${feeRateText(t.config.creatorFeeRate)} a trade on top of the trade fee, in launch pools only; it goes to the token's creator, not to LPs`}
+                        label={`Tier ${t.index}${t.index === 0 ? ' (graduated launches)' : t.index === 1 ? ' (public pools)' : ''}`}
+                        value={tierCostText(t.config)}
                         mono={false}
                       />
-                    )}
-                    <Row
-                      label="To open a pool"
-                      value={t.config.disableCreatePool ? 'switched off' : openingCost(t.config.createPoolFee, read.openingDeposits)}
-                      mono={false}
-                    />
+                      <Row
+                        label="Split"
+                        value={`LPs ${feeSplit(t.config).lpKeepsPct.toFixed(3)}%, venue ${feeSplit(t.config).venueTakesPct.toFixed(3)}% of each trade`}
+                        mono={false}
+                      />
+                      {t.config.creatorFeeRate > 0n && (
+                        <Row
+                          label="Creator fee"
+                          value={`${feeRateText(t.config.creatorFeeRate)} a trade on top of the trade fee, in launch pools only; it goes to the token's creator, not to LPs`}
+                          mono={false}
+                        />
+                      )}
+                      <Row
+                        label="To open a pool"
+                        value={t.config.disableCreatePool ? 'switched off' : openingCost(t.config.createPoolFee, read.openingDeposits)}
+                        mono={false}
+                      />
+                    </FinePrint>
                   </>
                 ) : (
                   <Row label={`Tier ${t.index}`} value={t.state === 'absent' ? 'not created yet' : 'the account there is not a fee tier'} mono={false} />
