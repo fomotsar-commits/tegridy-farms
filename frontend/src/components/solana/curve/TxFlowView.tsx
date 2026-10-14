@@ -607,6 +607,15 @@ function venueRouteText(s: Extract<TxSummary, { kind: 'venue-swap' }>): string {
   const a = s.aggregator;
   if (a.kind === 'no-route') return 'Jupiter has no route for this trade, so this pool is the only route';
   if (a.kind === 'unreachable') return 'Jupiter could not be asked just now, so this trade was not compared with it';
+  if (a.kind === 'refused') {
+    const failed = `its transaction for this trade failed its test run${a.earlier ? ' at your last press' : ''}, so it could not be sent`;
+    // By how much, against what THIS swap pays. A pool that has caught up since is not "more".
+    const quotedMore = a.out <= s.quoted.outAmount
+      ? `Jupiter quoted no more than this pool pays, and ${failed}`
+      : `Jupiter quoted ${edgePercent(Number(a.out - s.quoted.outAmount) / Number(s.quoted.outAmount))} more, but ${failed}`;
+    // A refusal this press could not test again is said as that, and its cause is said when it gave one.
+    return [quotedMore, ...(a.earlier ? ['It could not be checked again just now'] : []), ...(a.why ? [a.why] : [])].join('. ');
+  }
   const beside = a.when === 'now' ? 'Jupiter quoted just now' : 'the last quote Jupiter gave (it could not be asked again just now)';
   if (s.quoted.outAmount === a.out) return `the same as ${beside}, so the trade stays here`;
   return `${edgePercent(Number(s.quoted.outAmount - a.out) / Number(a.out))} more than ${beside}`;
@@ -941,6 +950,8 @@ const NOT_SENT_COPY: Record<NotSent['stage'], string> = {
   sign: 'Not sent. Your wallet did not sign it.',
   send: 'Not sent. The network turned it away before running it.',
 };
+/** A not-sent whose check could not run (NotSent.retry): no verdict on the transaction. */
+const NOT_READ_COPY = 'Not sent. A check this transaction needs could not be run just now, so we did not ask your wallet to sign it. Asking again may work.';
 
 export function TxOutcomeCard({
   outcome,
@@ -1061,7 +1072,7 @@ export function TxOutcomeCard({
     case 'not-sent':
       return (
         <div {...a11y} data-testid="tx-outcome" data-status="not-sent">
-          <Notice tone="warn">{NOT_SENT_COPY[outcome.stage]}</Notice>
+          <Notice tone="warn">{outcome.retry ? NOT_READ_COPY : NOT_SENT_COPY[outcome.stage]}</Notice>
           {outcome.message && <Notice>{outcome.message}</Notice>}
           <Notice>Nothing was charged.</Notice>
           <button type="button" onClick={onReset} className="btn-secondary min-h-[44px] w-full py-2 text-[12px] mt-1">

@@ -19,6 +19,12 @@
 // Active rows MUST still carry them (buy / accept / on-chain-cancel need them),
 // so the breadth is asserted in BOTH directions.
 import { describe, it, expect, beforeEach, vi } from "vitest";
+// Warms the module graph at collection time. NOT dead code: the first re-import under
+// `vi.resetModules()` below is a cold load of orderbook.js's graph, inside a `beforeEach`
+// that vitest bounds at 10s, and it grows with machine load. Paid here, where no timeout
+// runs, every re-import is a few ms. The resets stay: this instance is built before
+// SUPABASE_* are set, so its client is null and only a re-import gets a live one.
+import "../orderbook.js";
 
 vi.mock("../_lib/ratelimit.js", () => ({ checkRateLimit: vi.fn(async () => true) }));
 vi.mock("viem", () => ({ recoverMessageAddress: vi.fn(async () => "0x" + "a".repeat(40)) }));

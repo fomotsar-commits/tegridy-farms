@@ -312,14 +312,18 @@ export type TxSummary =
 
 /**
  * What the aggregator answered for the trade a swap in our own pool was compared with.
- * Three answers a review must not blur: it quoted (`out`, in the output's base units,
- * `now` or `earlier` when it could not be asked again and the figure on screen stood
- * in), it has no route, and it could not be asked at all.
+ * Four answers a review must not blur: it quoted (`out` in the output's base units, `now`,
+ * or `earlier` when the figure on screen stood in), it has no route, it could not be
+ * asked at all, and `refused`: it quoted `out`, more than our pool, but the transaction this
+ * site would send for that quote failed its own test run, so it was never a route to take.
+ * `earlier`: that test run was an earlier press's, and this one could not check it again.
+ * `why`: the cause that test run gave, as a sentence for the trader (jupiterFeeRetry.ts).
  */
 export type AggregatorSeen =
   | { kind: 'quoted'; out: bigint; when: 'now' | 'earlier' }
   | { kind: 'no-route' }
-  | { kind: 'unreachable' };
+  | { kind: 'unreachable' }
+  | { kind: 'refused'; out: bigint; earlier?: true; why?: string };
 
 /**
  * A swap in one of our pools, as the review shows it. The amounts are decoded from the
@@ -707,6 +711,8 @@ export type NotSent = {
   stage: 'gate' | 'build' | 'simulate' | 'sign' | 'send';
   message: string;
   logs?: string[];
+  /** A read or a check could not run, so nothing was learned about the transaction: asking again may work. */
+  retry?: true;
 };
 
 export type TxOutcome =

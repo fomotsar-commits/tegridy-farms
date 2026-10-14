@@ -6,6 +6,7 @@
 // review, or drops the pool's own signature, is refused before anything is sent; and a
 // refused opening found on Check again is said in the opening's own words.
 import { afterEach, describe, it, expect, vi } from 'vitest';
+import { WalletNotConnectedError } from '@solana/wallet-adapter-base';
 import { Keypair, Transaction } from '@solana/web3.js';
 import { WSOL_MINT } from '../curve/program';
 import { associatedTokenAddress } from '../curve/ix';
@@ -97,6 +98,21 @@ describe('an opening at a one-off address through the shared send path', () => {
     expect(tx.verifySignatures()).toBe(true);
     expect(tx.signatures.map((s) => s.publicKey.toBase58()).sort()).toEqual([ME.toBase58(), pool.toBase58()].sort());
     expect(tx.signatures.every((s) => s.signature !== null)).toBe(true);
+  });
+
+  // The adapter's own refusal, thrown with no words before the wallet is asked: said
+  // from its name, never as a cancel, and the pool's one-off key signs nothing.
+  it('a wallet that was never asked: not a cancel, and the pool’s own key never signs', async () => {
+    const { chain, p } = await preparedOneOff();
+    const partialSign = vi.spyOn(Transaction.prototype, 'partialSign');
+    const o = await submitPrepared(W(chain), { publicKey: ME, signTransaction: async () => { throw new WalletNotConnectedError(); } }, p, deps);
+    expect(o).toEqual({
+      status: 'not-sent',
+      stage: 'sign',
+      message: 'Your wallet did not sign this (this page is no longer connected to it, so it was never asked). Nothing was sent.',
+    });
+    expect(partialSign).not.toHaveBeenCalled();
+    expect(chain.calls).not.toContain('sendRawTransaction');
   });
 
   it.each([

@@ -45,8 +45,9 @@ export function VenueStatusCard({ status, onRefresh, lpMode, feeSheetBelow = tru
 }) {
   const amber = { background: 'rgba(28,21,6,0.92)', border: '1px solid rgba(227,179,65,0.45)' };
   const green = { background: 'rgba(6,24,14,0.92)', border: '1px solid rgba(34,197,94,0.45)' };
-  // A card that is scrolled to stops clear of the fixed header and the tab strip under it.
-  const frame = ref ? 'rounded-2xl p-6 scroll-mt-24' : 'rounded-2xl p-6';
+  // A card that is scrolled to stops with air above it. The page's scroll-padding
+  // (index.css) is what clears the fixed header and the tab strip.
+  const frame = ref ? 'rounded-2xl p-6 scroll-mt-5' : 'rounded-2xl p-6';
 
   if (status === null) {
     return (

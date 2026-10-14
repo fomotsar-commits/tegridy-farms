@@ -93,7 +93,7 @@ const howItWorksSteps = (toweli: boolean) => toweli ? [
   {
     step: '3',
     title: 'Harvest the Yield',
-    desc: 'Emissions pay you in TOWELI today; the ETH fee-share is wired on-chain and opens with the native pool. Claim whenever the crop looks ripe.',
+    desc: 'Emissions pay you in TOWELI today. The ETH fee-share is wired on-chain, and a payout round needs 1 ETH of fees first. Claim whenever the crop looks ripe.',
     to: '/dashboard',
   },
 ] : [
@@ -112,7 +112,7 @@ const howItWorksSteps = (toweli: boolean) => toweli ? [
   {
     step: '3',
     title: 'Harvest, verified',
-    desc: 'Emissions pay in TOWELI today; the ETH fee-share is wired on-chain and opens with the native pool. Claim any time.',
+    desc: 'Emissions pay in TOWELI today. The ETH fee-share is wired on-chain, and a payout round needs 1 ETH of fees first. Claim any time.',
     to: '/dashboard',
   },
 ];
@@ -136,17 +136,15 @@ export default function HomePage() {
   const burnRoom = homeBurnRoom(bungalowIdentity, isToweliArrival);
   const coreLoop = coreLoopSteps(isToweliArrival);
   const howItWorks = howItWorksSteps(isToweliArrival);
-  // 2026-08-07: the meta description said "Stake TOWELI on Ethereum" and stopped there,
-  // so every search result, every link preview, and every share of the front door
-  // described a single-chain product. Both halves below are separately checkable:
-  // TOWELI staking really is Ethereum-only (do not let that rot into "multichain
-  // staking"), and the Solana swap really is live and routed through Jupiter.
+  // The front door's description names both chains, each half checkable: TOWELI staking
+  // is Ethereum-only (never "multichain staking"), and the Solana swap is live, in our own
+  // pools or through Jupiter.
   usePageTitle(
     bungalowIdentity ? `${bungalowIdentity.symbol}. ${bungalowIdentity.identity.heroLine}` : 'Home',
     bungalowIdentity
       ? `${bungalowIdentity.name} bungalow on Jungle Bay Island. ${bungalowIdentity.identity.museLine} ${bungalowTradeBlurb(bungalowIdentity, isSolanaSwapLive())}`
       : isToweliArrival
-        ? 'Ethereum and Solana. Stake TOWELI on Ethereum — protocol swap fees flow on-chain to stakers, verifiable on Etherscan. Swap Solana tokens via Jupiter, and scan any token on either chain.'
+        ? 'Ethereum and Solana. Stake TOWELI on Ethereum — protocol swap fees flow on-chain to stakers, verifiable on Etherscan. Swap Solana tokens in our own pools or through Jupiter, and scan any token on either chain.'
         : VENUE.description,
   );
   const { address } = useAccount();
@@ -271,30 +269,14 @@ export default function HomePage() {
                 left). Additive only: fades to transparent, so the art elsewhere is untouched. */}
             <div aria-hidden="true" className="absolute -left-6 -right-10 -top-8 -bottom-8 -z-10 pointer-events-none"
               style={{ background: 'radial-gradient(115% 115% at 12% 42%, rgba(6,12,26,0.88) 0%, rgba(6,12,26,0.6) 42%, rgba(6,12,26,0.2) 68%, transparent 84%)' }} />
-            {/* CHAIN RAIL 2026-08-07: this was a single "LIVE ON ETHEREUM" badge, and
-                it was the first thing every visitor read. It made a two-chain product
-                look like a one-chain product: the Jupiter-routed Solana swap at /solana
-                is fully live and fee-earning, /scan reads both chains, and the Solana
-                launch rail is real — yet none of that existed above the fold, and the
-                Solana entries sat two clicks deep in the More menu.
-
-                Each pill states what is LIVE on that chain and links to it, so the claim
-                is one click from being checked. Deliberately NOT a generic "multichain"
-                badge: the two chains carry different surfaces and the pills say which.
-                The Solana pill names swap + scan only — the Solana LAUNCH rail gets its
-                own self-gating card in Launch & Verify below, which reads "Preview"
-                until isSolanaSubmitReady() is true, so this rail can never advertise a
-                launch surface that cannot launch. */}
+            {/* CHAIN RAIL: each pill states what is LIVE on its chain and links to it, so
+                the claim is one click from being checked; never a generic "multichain"
+                badge. The Solana pill names swap and scan only: the Solana launch rail
+                has its own self-gating card in Launch & Verify, reading "Preview" until
+                isSolanaSubmitReady() is true. */}
             <div className="flex flex-wrap items-center gap-2 mb-5">
-              <Link
-                // Above the voice branch, so in every room: TOWELI's own room goes to
-                // its farm, and anywhere else to the list, entering no room.
-                to={isToweliArrival && !bungalowIdentity ? '/earn/toweli' : '/earn'}
-                aria-label="Live on Ethereum: farm and stake TOWELI"
-                className="badge badge-primary text-[10px] no-underline hover:brightness-110 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent focus-visible:ring-[#8b5cf6]"
-              >
-                ETHEREUM
-              </Link>
+              {/* $BAYLA first (the owner, 2026-10-03): Solana leads the row, since $BAYLA
+                  and /solana are where a visitor starts. */}
               {/* FAIL-CLOSED. The Solana swap surface is gated behind
                   VITE_SOLANA_FEE_ACCOUNT: when that is unset, SolanaSwapPage renders a
                   "Solana swap isn't live yet" wall and navConfig drops /solana from the
@@ -311,6 +293,15 @@ export default function HomePage() {
                 className="badge badge-chain-solana text-[10px] no-underline hover:brightness-110 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent focus-visible:ring-[#4CAF50]"
               >
                 SOLANA
+              </Link>
+              <Link
+                // Above the voice branch, so in every room: TOWELI's own room goes to
+                // its farm, and anywhere else to the list, entering no room.
+                to={isToweliArrival && !bungalowIdentity ? '/earn/toweli' : '/earn'}
+                aria-label="Live on Ethereum: farm and stake TOWELI"
+                className="badge badge-primary text-[10px] no-underline hover:brightness-110 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent focus-visible:ring-[#8b5cf6]"
+              >
+                ETHEREUM
               </Link>
               <Link
                 to="/eth-curve"
@@ -349,20 +340,19 @@ export default function HomePage() {
                 is now Etherscan source-verified and /contracts proves it with live
                 per-address badges. So the headline leads with the one differentiator
                 a skeptic can check in a single click. */}
-            <h1 className="heading-luxury text-3xl md:text-6xl text-white leading-[1.1] tracking-tight mb-4">
+            <h1 className="heading-luxury text-[clamp(1.25rem,7.4vw,1.875rem)] md:text-6xl text-white leading-[1.1] tracking-tight mb-4">
               {TOWELI_HERO.heroTitle}{' '}<br /><span className="text-white">{TOWELI_HERO.heroLine}</span>
             </h1>
 
-            {/* 2026-08-07: added the Solana sentence. It is deliberately a SEPARATE
-                sentence rather than a rewrite of the staking claim — TOWELI staking is
-                Ethereum-only and must keep saying so. The Solana clause names only what
-                is live today (the Jupiter-routed swap and the two-chain scanner); the
+            {/* The Solana sentence is separate from the staking claim, which is
+                Ethereum-only and must keep saying so. It names only what is live (the
+                swap, in our pools or through Jupiter, and the two-chain scanner); the
                 launch rail is claimed by its own self-gating card further down. */}
             <p className="text-white text-base md:text-lg mb-6 max-w-md leading-relaxed">
               Stake TOWELI on Ethereum. Every protocol fee flows on-chain &mdash; to stakers, the
               liquidity engine, and operations. Every core contract is source-verified on Etherscan,
-              so you can read the code that holds your stake. On Solana we swap through Jupiter and
-              scan any token &mdash; same rails, second chain.
+              so you can read the code that holds your stake. On Solana we swap in our own pools or through
+              Jupiter, whichever pays you more, and scan any token &mdash; same rails, second chain.
             </p>
 
             <div className="flex flex-wrap gap-3">
@@ -512,7 +502,7 @@ export default function HomePage() {
               // genuinely loading; once resolved, render the honest "0.0000 ETH"
               // (the value that backs the on-chain-verifiable pitch) instead of an
               // eternal skeleton. `loading: true` forces the shimmer branch below.
-              { l: 'ETH Distributed', v: (revenueStats.isDataError || revenueStats.globalUnread) ? '–' : `${revenueStats.totalDistributed.toFixed(4)} ETH`, loading: revenueStats.isDataLoading, sub: (!revenueStats.isDataLoading && !revenueStats.isDataError && !revenueStats.globalUnread && revenueStats.totalDistributed === 0) ? 'fee rail live · first at native-pool launch' : undefined },
+              { l: 'ETH Distributed', v: (revenueStats.isDataError || revenueStats.globalUnread) ? '–' : `${revenueStats.totalDistributed.toFixed(4)} ETH`, loading: revenueStats.isDataLoading, sub: (!revenueStats.isDataLoading && !revenueStats.isDataError && !revenueStats.globalUnread && revenueStats.totalDistributed === 0) ? 'fee rail live · a round needs 1 ETH of fees' : undefined },
             ] as { l: string; v: string; sub?: string; showSparkline?: boolean; loading?: boolean }[]).map((s) => (
               <div key={s.l} className="flex items-center gap-3 px-4 py-2.5 rounded-lg"
                 style={{ background: 'rgba(0,0,0,0.78)', border: '1px solid rgba(76,175,80,0.35)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)' }}>
@@ -860,14 +850,9 @@ export default function HomePage() {
             <p className="text-white text-[13px]" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>Farm, swap, and track your positions &mdash; on Ethereum and on Solana.</p>
           </m.div>
 
-          {/* 2026-08-07: 3 -> 4 cards. The Solana swap has been fully live (Jupiter
-              routing, limit orders, SOL liquid-staking discovery, and a platform fee we
-              actually collect) while being reachable ONLY from the More menu, so the
-              product's second chain was invisible on its own front page. Nothing was
-              removed; each card now carries an explicit CHAIN label so a visitor can
-              tell at a glance which surface runs where.
-              Grid goes 1 -> 2 -> 4 rather than straight to 4: at md (iPad portrait) four
-              220px-min cards in a row are unreadably narrow, so tablets get a 2x2. */}
+          {/* Four cards, each with a CHAIN label so a visitor can tell which surface runs
+              where. The grid goes 1 -> 2 -> 4: at md (iPad portrait) four 220px-min cards
+              in a row are unreadably narrow, so tablets get a 2x2. */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             {[
               { to: '/swap', title: 'Swap', desc: HOME_SWAP_CARD.desc, stat: HOME_SWAP_CARD.stat, label: HOME_SWAP_CARD.label, art: pageArt('home', 6) },
@@ -885,7 +870,7 @@ export default function HomePage() {
               // SOON wall, so the card is simply absent and the grid falls back to
               // three. A card advertising a wall is worse than no card.
               ...(isSolanaSwapLive()
-                ? [{ to: '/solana', title: 'Solana Swap', desc: 'Buy Solana tokens routed through Jupiter, with limit orders and SOL liquid-staking yield. Trending pairs listed, fee shown before you sign.', stat: 'Jupiter', label: 'Solana', art: pageArt('home', 15) }]
+                ? [{ to: '/solana', title: 'Solana Swap', desc: 'Buy Solana tokens in our own pools or through Jupiter, whichever pays you more, with limit orders and SOL liquid-staking yield. Trending pairs listed, fee shown before you sign.', stat: 'Our pools + Jupiter', label: 'Solana', art: pageArt('home', 15) }]
                 : []),
               { to: '/dashboard', title: 'Dashboard', desc: 'Track your portfolio, positions, claimable rewards, and projections.', stat: 'Real-time', label: 'On-chain Data', art: pageArt('home', 8) },
             ].map((f, i) => (

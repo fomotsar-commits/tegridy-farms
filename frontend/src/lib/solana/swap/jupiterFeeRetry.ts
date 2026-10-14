@@ -22,14 +22,36 @@
 // lib/solana/swap/jupiterSend.ts (SPEC_S3 step S1) is expected to call this for
 // its build and simulate steps.
 import {
+  fromBaseUnits,
   quoteHasPlatformFee,
   type JupiterQuote,
   type PriorityLevel,
+  type SwapRefusalCause,
   type SwapSimulation,
 } from '../../jupiter';
 
 /** Said before signing and in the result whenever the retry is the trade that goes out. */
 export const NO_SITE_FEE_ROUTE_COPY = 'No site fee on this route: the fee cannot be taken on it yet.';
+
+/** Said when the transaction that would be sent could not be test-run (`unchecked`): never "would fail". */
+export const NOT_TEST_RUN_COPY = "The test run of Jupiter's transaction for this trade could not run just now, so nothing was sent. Press again.";
+
+/**
+ * Why a refused test run refused, as the trader reads it beside the refusal: in plain words
+ * where the runtime named a cause a trader may be able to act on, in its own words
+ * otherwise. Null when it gave none. No full stop at the end: each place adds its own.
+ */
+export function refusalWhy(refused: { cause?: SwapRefusalCause | null }, slippageBps: number): string | null {
+  const c = refused.cause;
+  if (!c) return null;
+  if (c.kind === 'price-limit') return `The test run paid less than your ${slippageBps / 100}% slippage allows. A wider slippage may let Jupiter's transaction run`;
+  if (c.kind === 'low-sol') {
+    const sol = (lamports: bigint) => fromBaseUnits(lamports.toString(), 9);
+    // The two amounts, and no advice: the page cannot tell whose transfer it was.
+    return `The test run was short of SOL: one transfer in it needed ${sol(c.needed)} SOL and had ${sol(c.had)}`;
+  }
+  return `The test run's reason, in the network's words: ${c.said}`;
+}
 
 export interface FeeRetryDeps {
   getQuote(params: {
@@ -50,11 +72,15 @@ export interface FeeRetryDeps {
   swapCarriesPlatformFee(inputMint: string, outputMint: string): boolean;
 }
 
+/**
+ * `unchecked`: the test run of the transaction that would be sent could not run (a read
+ * failed). It is no verdict on that transaction, so no caller may treat it as one.
+ */
 export type PreparedJupiterSwap =
   /** Hand `swapTransaction` to the wallet. `quote` is the one it was built from: show ITS amounts. */
-  | { status: 'ready'; quote: JupiterQuote; swapTransaction: string; siteFeeWaived: boolean }
-  /** Nothing may be signed. `reason` is the simulation's own words when it has any. */
-  | { status: 'blocked'; reason: string | null; retried: boolean }
+  | { status: 'ready'; quote: JupiterQuote; swapTransaction: string; siteFeeWaived: boolean; unchecked?: true }
+  /** Nothing may be signed. `reason` is the simulation's own words when it has any; `cause`, what the runtime gave. */
+  | { status: 'blocked'; reason: string | null; retried: boolean; unchecked?: true; cause?: SwapRefusalCause }
   /** The no-fee re-quote pays less than the fee-bearing one beyond the slippage: not silently sent. */
   | { status: 'moved'; quote: JupiterQuote };
 
@@ -62,6 +88,9 @@ function parseAmount(raw: unknown): bigint | null {
   if (typeof raw !== 'string' || !/^\d+$/.test(raw)) return null;
   return BigInt(raw);
 }
+
+/** The cause a refused test run gave, as a field only when it gave one. */
+const caused = (sim: SwapSimulation): { cause?: SwapRefusalCause } => (sim.cause ? { cause: sim.cause } : {});
 
 export async function prepareJupiterSwap(
   deps: FeeRetryDeps,
@@ -87,7 +116,7 @@ export async function prepareJupiterSwap(
   } catch {
     // Unchanged from before the retry existed: an unreadable FIRST simulation
     // still goes to the wallet. (SPEC_S3 S1 turns this into fail-closed.)
-    return { status: 'ready', quote: a.fresh, swapTransaction: first, siteFeeWaived: false };
+    return { status: 'ready', quote: a.fresh, swapTransaction: first, siteFeeWaived: false, unchecked: true };
   }
   if (sim.ok) return { status: 'ready', quote: a.fresh, swapTransaction: first, siteFeeWaived: false };
 
@@ -95,7 +124,7 @@ export async function prepareJupiterSwap(
   // and the error the chain returned for it.
   const feeWasAttached = deps.swapCarriesPlatformFee(a.inputMint, a.outputMint);
   if (!sim.jupiterIncorrectTokenProgram || !feeWasAttached) {
-    return { status: 'blocked', reason: sim.reason, retried: false };
+    return { status: 'blocked', reason: sim.reason, retried: false, ...caused(sim) };
   }
 
   // ONE retry. From here every doubt is a block: the trader has not agreed to
@@ -111,7 +140,7 @@ export async function prepareJupiterSwap(
       noPlatformFee: true,
     });
   } catch {
-    return blocked;
+    return { ...blocked, unchecked: true };
   }
   // The SAME trade, and really fee-free, by Jupiter's own fields.
   if (
@@ -147,15 +176,15 @@ export async function prepareJupiterSwap(
       noPlatformFee: true,
     });
   } catch {
-    return blocked;
+    return { ...blocked, unchecked: true };
   }
   let sim2: SwapSimulation;
   try {
     sim2 = await deps.simulateSwap(second);
   } catch {
     // The retry is never sent unsimulated.
-    return { status: 'blocked', reason: 'The no-fee rebuild could not be simulated.', retried: true };
+    return { status: 'blocked', reason: 'The no-fee rebuild could not be simulated.', retried: true, unchecked: true };
   }
-  if (!sim2.ok) return { status: 'blocked', reason: sim2.reason ?? sim.reason, retried: true };
+  if (!sim2.ok) return { status: 'blocked', reason: sim2.reason ?? sim.reason, retried: true, ...caused(sim2) };
   return { status: 'ready', quote: retried, swapTransaction: second, siteFeeWaived: true };
 }

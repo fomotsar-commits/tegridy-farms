@@ -125,7 +125,7 @@ export default function PrivacyPage() {
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.4, delay: 0.1 + i * 0.05 }}
-              className="rounded-2xl p-6 md:p-8 backdrop-blur-md scroll-mt-24"
+              className="rounded-2xl p-6 md:p-8 backdrop-blur-md scroll-mt-5"
               style={{
                 background: 'rgba(13, 21, 48, 0.88)',
                 border: '1px solid var(--color-purple-12)',

@@ -122,9 +122,11 @@ export function useVenueSwap(o: {
     };
   }, [o.load]);
 
-  const check = useMemo<CheckSignature | null>(
-    () => (api ? (sig, lvbh) => api.recheckOutcome(connection, sig, lvbh === null ? undefined : { lastValidBlockHeight: lvbh }) : null),
-    [api, connection],
+  // Through the lazy loader, never null: a note found on arrival is checked (and "Check again"
+  // answers) even while the swap code has not loaded; a load that fails is said by the card.
+  const check = useMemo<CheckSignature>(
+    () => (sig, lvbh) => lazy.recheckOutcome(connection, sig, lvbh === null ? undefined : { lastValidBlockHeight: lvbh }),
+    [lazy, connection],
   );
   const onResolved = o.onResolved;
   const resolved = useCallback(() => onResolved?.(), [onResolved]);

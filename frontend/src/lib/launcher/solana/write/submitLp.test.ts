@@ -6,6 +6,7 @@
 // landed refusal, and Check again). The launch-program kinds are pinned, unedited,
 // in submit.test.ts and prepare.test.ts.
 import { describe, it, expect } from 'vitest';
+import { WalletSignTransactionError } from '@solana/wallet-adapter-base';
 import { Keypair, Transaction, TransactionInstruction } from '@solana/web3.js';
 import { TOKEN_PROGRAM_ID, WSOL_MINT } from '../curve/program';
 import { associatedTokenAddress } from '../curve/ix';
@@ -17,6 +18,7 @@ import { recheckOutcome, submitPrepared } from './submit';
 import { AMM_CONFIG, CPSWAP, FakeChain, cfgLocal } from './testkit.fixture';
 import type { PoolIntent, PoolPins, PreparedTx, TxSigner, WriteRpc } from './types';
 import { SOL_QUOTE } from '../../../solana/lp/quotes';
+import { DECLINED_IN_WALLET } from '../../../solana/swap/walletCopy';
 
 const W = (c: FakeChain) => c as unknown as WriteRpc;
 
@@ -152,6 +154,30 @@ describe('a liquidity withdrawal through the shared pipeline', () => {
     expect(o).toMatchObject({ status: 'not-sent', stage: 'sign' });
     if (o.status === 'not-sent') expect(o.message).toMatch(/pays out to an account that is not yours/);
     expect(chain.calls).not.toContain('sendRawTransaction');
+  });
+
+  // One sign step for every kind: a wallet that fails before its prompt is quoted on a
+  // withdrawal as it is on a trade (submit.test.ts), and only a real "no" is a cancel.
+  it('a wallet that fails before its prompt is quoted, not called a cancel; a real "no" still is', async () => {
+    const failing = (inner: Error): TxSigner => ({
+      publicKey: ME,
+      signTransaction: async () => {
+        throw new WalletSignTransactionError(inner.message, inner);
+      },
+    });
+    const broke = await ready();
+    const o = await submitPrepared(W(broke.chain), failing(new Error("This wallet didn't allow transaction signing over WalletConnect")), broke.p, deps);
+    expect(o).toEqual({
+      status: 'not-sent',
+      stage: 'sign',
+      message: "Your wallet did not sign this (This wallet didn't allow transaction signing over WalletConnect). Nothing was sent.",
+    });
+    expect(broke.chain.calls).not.toContain('sendRawTransaction');
+
+    const said = await ready();
+    const no = await submitPrepared(W(said.chain), failing(Object.assign(new Error('4001'), { code: 4001 })), said.p, deps);
+    expect(no).toEqual({ status: 'not-sent', stage: 'sign', message: DECLINED_IN_WALLET });
+    expect(said.chain.calls).not.toContain('sendRawTransaction');
   });
 
   it('a first send the network turns away is said in the withdrawal’s words', async () => {

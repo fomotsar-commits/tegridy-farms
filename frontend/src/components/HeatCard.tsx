@@ -15,12 +15,14 @@ import {
   nextTier,
   tierFor,
   tierAtFloor,
+  tierAbove,
   gateDecision,
   TIER_FLOORS,
   type HeatReading,
   type HeatTier,
 } from '../lib/heat/heatOracle';
 import { fetchFlames, insertionRank } from '../lib/heat/flamesClient';
+import { roomRankLine } from '../lib/heat/roomRank';
 import { heatLaunchFloor, heatGateMaxAgeDays } from '../lib/heat/heatGateConfig';
 import { shortenAddress } from '../lib/formatting';
 import { heatExampleLine, VENUE } from '../lib/arrival';
@@ -107,6 +109,15 @@ function rememberRead(address: string, entry: LastRead): void {
   } catch {
     /* storage unavailable — the delta is a nicety, never a blocker */
   }
+}
+
+/** "Resident in 14 days.": the island's served days toward the tier above the served
+ *  word. Absent until the island serves the field, at Elder, and on the day itself. */
+function nextTierLine(reading: HeatReading): string | null {
+  const days = reading.daysToNextTier;
+  const above = tierAbove(reading.tier);
+  if (days === null || days < 1 || above === null) return null;
+  return `${above} in ${days.toLocaleString('en-US')} ${days === 1 ? 'day' : 'days'}.`;
 }
 
 type State =
@@ -449,14 +460,30 @@ function Reading({
   const color = TIER_COLOR[reading.tier];
   const days = daysHeld(reading.heldSinceUnix, reading.asOfUnix);
 
-  // The post, built from served numbers only. SITE_URL rather than a literal host, so
-  // the link cannot drift from the venue's own canonical origin.
+  // Retired rows sort last, grey, and leave the token count; every row prints the
+  // degrees the island served. The rooms are never added up: the served number rules.
+  const rows = useMemo(
+    () =>
+      [...reading.breakdown].sort(
+        (a, b) => Number(a.retired) - Number(b.retired) || b.degrees - a.degrees,
+      ),
+    [reading.breakdown],
+  );
+  const liveRows = rows.filter((r) => !r.retired);
+  const deepest = liveRows[0] ?? null;
+
+  // The post, built from served numbers only, and the number leads. The rank is the
+  // deepest live room's, named by its room, and absent when the island served none.
+  // SITE_URL rather than a literal host, so the link cannot drift from the venue's own.
   const shareIntent = useMemo(() => {
+    const rank = deepest ? roomRankLine(deepest.roomRank, deepest.roomHolders) : null;
     const text =
-      `${reading.tier}. ${days} days held. ${reading.degrees.toFixed(1)}° on Jungle Bay ` +
-      `Island's instrument. Held time counts here. ${SITE_URL}/read/${reading.address}`;
+      `${reading.degrees.toFixed(1)}° on Jungle Bay Island's instrument. ` +
+      `${reading.tier}. ${days} days held. ` +
+      (rank && deepest ? `${rank} in the ${deepest.symbol} room. ` : '') +
+      `Held time counts here. ${SITE_URL}/read/${reading.address}`;
     return `https://x.com/intent/post?text=${encodeURIComponent(text)}`;
-  }, [reading.tier, reading.degrees, reading.address, days]);
+  }, [reading.tier, reading.degrees, reading.address, deepest, days]);
 
   // The delta is DERIVED from the reading, not a second fact about it, so it is
   // computed during render rather than pushed into state by an effect. This also
@@ -507,16 +534,6 @@ function Reading({
     };
   }, [reading.address, reading.degrees, reading.isCold, reading.xHandle]);
 
-  // Retired rows sort last, grey, and leave the token count; every row prints the
-  // degrees the island served. The rooms are never added up: the served number rules.
-  const rows = useMemo(
-    () =>
-      [...reading.breakdown].sort(
-        (a, b) => Number(a.retired) - Number(b.retired) || b.degrees - a.degrees,
-      ),
-    [reading.breakdown],
-  );
-  const liveRows = rows.filter((r) => !r.retired);
   const retiredCount = rows.length - liveRows.length;
   const max = liveRows[0]?.degrees || 1;
   // token_count includes the retired rows, so they come off the count under the number.
@@ -549,6 +566,10 @@ function Reading({
           </span>
           <span className="text-[13px]" style={{ color }}>°</span>
         </div>
+
+        {nextTierLine(reading) && (
+          <div className="text-[12.5px] text-white/75 mt-1.5">{nextTierLine(reading)}</div>
+        )}
 
         <div className="text-[12px] text-white/55 leading-relaxed mt-2">
           {reading.heldSinceUnix !== null && (
@@ -667,32 +688,34 @@ function Reading({
           </div>
           <ul className="space-y-1.5 mb-4">
             {rows.map((r) => (
-              <li
-                key={`${r.chain}:${r.tokenAddress}`}
-                className="flex items-center gap-2 text-[12.5px]"
-                data-retired={r.retired ? 'true' : undefined}
-              >
-                <span
-                  className={`w-[86px] shrink-0 font-medium truncate ${r.retired ? 'text-white/40' : 'text-white/85'}`}
-                  title={r.name}
-                >
-                  {r.symbol}
-                </span>
-                <span className="w-[62px] shrink-0 text-white/40 text-[10.5px] uppercase tracking-wider">
-                  {r.chain}
-                </span>
-                {r.retired ? (
-                  <span className="flex-1 min-w-[40px] text-white/40 text-[11px]" title="The island no longer scans this token.">
-                    retired
+              <li key={`${r.chain}:${r.tokenAddress}`} data-retired={r.retired ? 'true' : undefined}>
+                <div className="flex items-center gap-2 text-[12.5px]">
+                  <span
+                    className={`w-[86px] shrink-0 font-medium truncate ${r.retired ? 'text-white/40' : 'text-white/85'}`}
+                    title={r.name}
+                  >
+                    {r.symbol}
                   </span>
-                ) : (
-                  <span className="flex-1 min-w-[40px] h-1.5 rounded-full overflow-hidden" style={{ background: 'rgba(255,255,255,0.08)' }}>
-                    <span className="block h-full rounded-full" style={{ width: `${(r.degrees / max) * 100}%`, background: color, opacity: 0.75 }} />
+                  <span className="w-[62px] shrink-0 text-white/40 text-[10.5px] uppercase tracking-wider">
+                    {r.chain}
                   </span>
+                  {r.retired ? (
+                    <span className="flex-1 min-w-[40px] text-white/40 text-[11px]" title="The island no longer scans this token.">
+                      retired
+                    </span>
+                  ) : (
+                    <span className="flex-1 min-w-[40px] h-1.5 rounded-full overflow-hidden" style={{ background: 'rgba(255,255,255,0.08)' }}>
+                      <span className="block h-full rounded-full" style={{ width: `${(r.degrees / max) * 100}%`, background: color, opacity: 0.75 }} />
+                    </span>
+                  )}
+                  <span className={`w-[58px] shrink-0 text-right stat-value ${r.retired ? 'text-white/40' : 'text-white/85'}`}>
+                    {r.degrees.toFixed(2)}°
+                  </span>
+                </div>
+                {/* The island's place for this wallet in this room, as served. */}
+                {roomRankLine(r.roomRank, r.roomHolders) && (
+                  <div className="text-[11px] text-white/50 mt-0.5">{roomRankLine(r.roomRank, r.roomHolders)}</div>
                 )}
-                <span className={`w-[58px] shrink-0 text-right stat-value ${r.retired ? 'text-white/40' : 'text-white/85'}`}>
-                  {r.degrees.toFixed(2)}°
-                </span>
               </li>
             ))}
           </ul>
@@ -787,6 +810,10 @@ function ScopedReading({
               {row.firstSeenAtUnix != null && <> &middot; since {sinceLabel(row.firstSeenAtUnix)}</>}
             </p>
           )}
+          {/* The island's place for this wallet in this room, as served. */}
+          {roomRankLine(row.roomRank, row.roomHolders) && (
+            <p className="text-white/70 text-[13px] mt-1">{roomRankLine(row.roomRank, row.roomHolders)}</p>
+          )}
         </div>
       ) : (
         <p className="text-white/80 text-[13px] mb-3">
@@ -797,6 +824,7 @@ function ScopedReading({
       <p className="text-white/60 text-[12px]">
         your whole flame reads {reading.degrees.toFixed(2)}&deg; {reading.tier}
       </p>
+      {nextTierLine(reading) && <p className="text-white/60 text-[12px] mt-1">{nextTierLine(reading)}</p>}
     </div>
   );
 }
@@ -886,6 +914,14 @@ function Eligibility({ reading, now }: { reading: HeatReading; now: number }) {
       )}
 
       <p className="text-[11.5px] text-white/55 leading-relaxed">{d.detail}</p>
+
+      {/* The island's own countdown to the floor, when it serves one. A stale reading
+          decides nothing and a warm one has nothing to wait for. */}
+      {d.state === 'COLD' && reading.daysToPlant !== null && reading.daysToPlant >= 1 && (
+        <p className="text-[11.5px] text-white/75 leading-relaxed mt-1">
+          You may plant in {reading.daysToPlant.toLocaleString('en-US')} {reading.daysToPlant === 1 ? 'day' : 'days'}.
+        </p>
+      )}
 
       {/* The one thing this venue must never imply. Both rails sign client-side, so
           the door raises the floor on the path we control and proves nothing about
