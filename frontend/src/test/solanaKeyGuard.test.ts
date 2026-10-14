@@ -21,6 +21,7 @@ import {
   testChainGate,
   readDeny,
   ancestorConfig,
+  rustDisguises,
   // eslint-disable-next-line @typescript-eslint/ban-ts-comment
   // @ts-ignore -- plain .mjs guard script, deliberately untyped and outside src/
 } from '../../../solana/guards/key-guard.mjs';
@@ -66,6 +67,37 @@ describe('what counts as a key', () => {
     // Glued to a base58 letter, the run is longer than a key: refused, never skipped.
     expect(findKeys(`x${VAULT}`)).toEqual({ keys: [], hidden: [`x${VAULT}`] });
     expect(findKeys('MissingTickArrayBitmapExtensionAccount')).toEqual({ keys: [], hidden: [] });
+  });
+});
+
+describe('a key in disguise is still a key', () => {
+  const bytes = Array.from(decodeKey(RAYDIUM_ADMIN) as Uint8Array);
+  const hex = bytes.map((b) => `0x${b.toString(16).padStart(2, '0')}`).join(', ');
+  const escaped = `${RAYDIUM_ADMIN.slice(0, 25)}\\x${RAYDIUM_ADMIN.charCodeAt(25).toString(16)}${RAYDIUM_ADMIN.slice(26)}`;
+
+  it('resolves escapes in a string', () => {
+    expect(rustDisguises(`let s = "${escaped}";`).keys).toContain(RAYDIUM_ADMIN);
+  });
+  it('joins the halves of a concat!', () => {
+    expect(rustDisguises(`let s = concat!("${RAYDIUM_ADMIN.slice(0, 20)}", "${RAYDIUM_ADMIN.slice(20)}");`).keys).toContain(RAYDIUM_ADMIN);
+  });
+  it('reads 32 listed numbers as a key, and refuses a 64-number list', () => {
+    expect(rustDisguises(`let b = [${hex}];`).keys).toContain(RAYDIUM_ADMIN);
+    expect(rustDisguises(`let b = [${bytes.join(',')}];`).keys).toContain(RAYDIUM_ADMIN);
+    expect(rustDisguises(`let b = [${[...bytes, ...bytes].join(', ')}];`).problems.join('\n')).toContain('list of 64 bytes');
+  });
+  it('refuses a key call given anything but one plain key, and a key built from bytes', () => {
+    expect(rustDisguises(`Pubkey::from_str(&s[1..])`).problems.join('\n')).toContain('something other than one plain key');
+    expect(rustDisguises(`pubkey!("${VAULT}")`).problems).toEqual([]);
+    expect(rustDisguises(`Pubkey::from([k; 32])`).problems.join('\n')).toContain('builds a key from bytes');
+  });
+  it('reads every file, and refuses a build script or a file it cannot read', () => {
+    const root = tree({ 'keys.dat': `${RAYDIUM_ADMIN}\n`, 'build.rs': 'fn main() {}\n' });
+    writeFileSync(join(root, 'blob.bin'), Buffer.from([0, 159, 146, 150]));
+    const scan = scanTree(root);
+    expect([...scan.keys.keys()]).toContain(RAYDIUM_ADMIN);
+    expect(scan.problems.join('\n')).toContain('build.rs: cargo reads this on its own');
+    expect(scan.problems.join('\n')).toContain('blob.bin: not text');
   });
 });
 
