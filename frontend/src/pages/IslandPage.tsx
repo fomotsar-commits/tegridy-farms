@@ -6,6 +6,7 @@ import { VENUE } from '../lib/arrival';
 import { FlamesBoard } from '../components/FlamesBoard';
 import { PageArtBackdrop } from '../components/PageArtBackdrop';
 import { CardArt } from '../components/ui/CardArt';
+import { IslandSoundLinks } from '../components/IslandSound';
 
 /**
  * The four-piece arrival film, on demand.
@@ -155,6 +156,10 @@ export default function IslandPage() {
           </Link>
         ))}
       </div>
+
+      <p className="mt-6 text-white/60 text-[12px]">
+        sound of the island · <IslandSoundLinks />
+      </p>
     </div>
     </>
   );
