@@ -12,6 +12,7 @@ interface ITegridyStakingApply {
     function applyRestakingContract(address _restaking) external;
     function applyMaxUnsettledRewards(uint256 _cap) external;
     function applyLendingContract(address _lending, bool _approved) external;
+    function applyRewardNotifier(address _notifier, bool _enabled) external;
     // NOTE: applyExtendFee / applyPenaltyRecycle / applyExtendFeeRecycle removed
     // with the extend-fee + penalty-recycle machinery (EIP-170 size on staking side).
     function MAX_REWARD_RATE() external view returns (uint256);
@@ -63,6 +64,7 @@ contract TegridyStakingAdmin is OwnableNoRenounce, TimelockAdmin {
     bytes32 public constant RESTAKING_CHANGE = keccak256("RESTAKING_CHANGE");
     bytes32 public constant UNSETTLED_CAP_CHANGE = keccak256("UNSETTLED_CAP_CHANGE");
     bytes32 public constant LENDING_CONTRACT_CHANGE = keccak256("LENDING_CONTRACT_CHANGE");
+    bytes32 public constant REWARD_NOTIFIER_CHANGE = keccak256("REWARD_NOTIFIER_CHANGE");
     // NOTE: EXTEND_FEE_CHANGE / PENALTY_RECYCLE_CHANGE / EXTEND_FEE_RECYCLE_CHANGE
     // keys removed with the extend-fee + penalty-recycle flows (EIP-170 size).
 
@@ -72,6 +74,7 @@ contract TegridyStakingAdmin is OwnableNoRenounce, TimelockAdmin {
     uint256 public constant RESTAKING_CHANGE_TIMELOCK = 48 hours;
     uint256 public constant UNSETTLED_CAP_TIMELOCK = 48 hours;
     uint256 public constant LENDING_CONTRACT_CHANGE_TIMELOCK = 48 hours;
+    uint256 public constant REWARD_NOTIFIER_CHANGE_TIMELOCK = 48 hours;
     // NOTE: EXTEND_FEE_TIMELOCK / PENALTY_RECYCLE_TIMELOCK / EXTEND_FEE_RECYCLE_TIMELOCK
     // removed with the extend-fee + penalty-recycle flows (EIP-170 size).
 
@@ -82,6 +85,8 @@ contract TegridyStakingAdmin is OwnableNoRenounce, TimelockAdmin {
     uint256 public pendingMaxUnsettledRewards;
     address public pendingLendingContract;
     bool public pendingLendingContractApproval;
+    address public pendingRewardNotifier;
+    bool public pendingRewardNotifierEnabled;
     // NOTE: pendingExtendFeeBps / pendingPenaltyRecycleBps / pendingExtendFeeRecycleBps
     // removed with the extend-fee + penalty-recycle flows (EIP-170 size).
 
@@ -97,6 +102,8 @@ contract TegridyStakingAdmin is OwnableNoRenounce, TimelockAdmin {
     event RestakingContractChanged(address oldRestaking, address newRestaking);
     event LendingContractChangeProposed(address indexed lending, bool approved, uint256 executeAfter);
     event LendingContractUpdated(address indexed lending, bool approved);
+    event RewardNotifierChangeProposed(address indexed notifier, bool enabled, uint256 executeAfter);
+    event RewardNotifierUpdated(address indexed notifier, bool enabled);
     event MaxUnsettledRewardsUpdated(uint256 oldCap, uint256 newCap);
     // NOTE: ExtendFeeProposed/Updated, PenaltyRecycleProposed/Updated, and
     // ExtendFeeRecycleProposed/Updated events removed with the extend-fee +
@@ -275,6 +282,38 @@ contract TegridyStakingAdmin is OwnableNoRenounce, TimelockAdmin {
         return _executeAfter[LENDING_CONTRACT_CHANGE];
     }
 
+    // ─── Reward notifier allowlist ────────────────────────────────────
+    /// @notice AUDIT MICROSCOPE_2026_04_30 M-S6: who may fund staking rewards besides the
+    ///         owner. Was an instant grant on TegridyStaking; now behind the same 48h
+    ///         timelock as every other staking parameter.
+    function proposeRewardNotifier(address _notifier, bool _enabled) external onlyOwner {
+        if (_notifier == address(0)) revert ZeroAddress();
+        pendingRewardNotifier = _notifier;
+        pendingRewardNotifierEnabled = _enabled;
+        _propose(REWARD_NOTIFIER_CHANGE, REWARD_NOTIFIER_CHANGE_TIMELOCK);
+        emit RewardNotifierChangeProposed(_notifier, _enabled, _executeAfter[REWARD_NOTIFIER_CHANGE]);
+    }
+
+    function executeRewardNotifier() external onlyOwner {
+        _execute(REWARD_NOTIFIER_CHANGE);
+        address notifier = pendingRewardNotifier;
+        bool enabled = pendingRewardNotifierEnabled;
+        pendingRewardNotifier = address(0);
+        pendingRewardNotifierEnabled = false;
+        staking.applyRewardNotifier(notifier, enabled);
+        emit RewardNotifierUpdated(notifier, enabled);
+    }
+
+    function cancelRewardNotifier() external onlyOwner {
+        _cancel(REWARD_NOTIFIER_CHANGE);
+        pendingRewardNotifier = address(0);
+        pendingRewardNotifierEnabled = false;
+    }
+
+    function rewardNotifierChangeReadyAt() external view returns (uint256) {
+        return _executeAfter[REWARD_NOTIFIER_CHANGE];
+    }
+
     // ─── REMOVED for EIP-170 size (deferred to a later version) ──────────
     // The extend-fee, penalty-recycle, and extend-fee-recycle propose/execute/
     // cancel/readyAt flows were removed alongside the matching machinery on
@@ -313,6 +352,11 @@ contract TegridyStakingAdmin is OwnableNoRenounce, TimelockAdmin {
             _cancel(LENDING_CONTRACT_CHANGE);
             pendingLendingContract = address(0);
             pendingLendingContractApproval = false;
+        }
+        if (_executeAfter[REWARD_NOTIFIER_CHANGE] != 0) {
+            _cancel(REWARD_NOTIFIER_CHANGE);
+            pendingRewardNotifier = address(0);
+            pendingRewardNotifierEnabled = false;
         }
         // NOTE: EXTEND_FEE_CHANGE / PENALTY_RECYCLE_CHANGE / EXTEND_FEE_RECYCLE_CHANGE
         // cancel-on-handoff blocks removed with those flows (EIP-170 size).
