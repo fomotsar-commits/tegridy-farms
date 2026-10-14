@@ -11,7 +11,7 @@ import { CopyButton } from '../ui/CopyButton';
 import { shortenAddress } from '../../lib/formatting';
 import { CardArt } from '../ui/CardArt';
 import { FinePrint } from '../ui/FinePrint';
-import { rewardsEndedLine, rewardsHaveEnded } from '../../lib/rewardsEnded';
+import { rewardsEndedLine, rewardsHaveEnded, rewardsZeroLine } from '../../lib/rewardsEnded';
 
 /**
  * The EVM lighthouse — live staking card for a bungalow whose pool is the
@@ -28,8 +28,9 @@ import { rewardsEndedLine, rewardsHaveEnded } from '../../lib/rewardsEnded';
  *    principal only — an empty vault can never hold an exit hostage. (The
  *    Solana lighthouse HAS locks and its 6012 class; do not copy that copy
  *    here, and say the difference out loud.)
- *  - staking while unfunded is allowed (it is safe — exits are free) but the
- *    card says plainly that it earns nothing until funding lands.
+ *  - staking while the vault is empty and a rate runs is allowed (exits are
+ *    free) and the card says it earns nothing until funding lands; a rate of 0
+ *    or an ended period takes no new stake (owner, 2026-10-14).
  */
 
 const CHAIN_IDS: Record<string, number> = { ethereum: 1, base: 8453 };
@@ -180,12 +181,14 @@ export function EvmLighthousePoolLive({ bungalow }: { bungalow: Bungalow & { sta
 
   const unfunded = view.vaultRaw !== null && view.vaultRaw === 0n;
   const notPaying = view.payingNowRawPerSec !== null && view.payingNowRawPerSec === 0n;
-  // A landed periodFinish in the past: no new stake (owner, 2026-10-14), and that
-  // outranks the unfunded note, which invites a stake. Withdraw, claim and exit stay.
-  // An unread end holds Stake; a never-funded pool (periodFinish 0) stays open.
+  // A landed periodFinish in the past, or a pool paying 0 now (never funded, or a
+  // rate of 0): no new stake (owner, 2026-10-14), and that outranks the unfunded
+  // note, which invites a stake. Withdraw, claim and exit stay. An unread end or
+  // rate holds Stake.
   const periodFinishRaw = big(3);
   const rewardsEnded = rewardsHaveEnded(periodFinishRaw, nowSecs);
-  const stakeClosed = rewardsEnded || periodFinishRaw === null;
+  const paysNothing = !rewardsEnded && notPaying;
+  const stakeClosed = rewardsEnded || paysNothing || periodFinishRaw === null || big(2) === null;
 
   return (
     <div className="relative isolate overflow-hidden rounded-2xl glass-card-animated" style={{ border: '1px solid var(--color-purple-75)' }}>
@@ -250,17 +253,15 @@ export function EvmLighthousePoolLive({ bungalow }: { bungalow: Bungalow & { sta
               <p className="text-[12px] mb-4" style={{ color: '#f0b26b' }} data-testid="lighthouse-rewards-ended">
                 {rewardsEndedLine(periodFinishRaw)}
               </p>
+            ) : paysNothing ? (
+              <p className="text-[12px] mb-4" style={{ color: '#f0b26b' }} data-testid="lighthouse-rewards-zero">
+                {rewardsZeroLine(periodFinishRaw === 0n)}
+              </p>
             ) : unfunded && (
               <p className="text-[12px] mb-4 rounded-lg p-3" style={{ background: 'rgba(240,178,107,0.08)', border: '1px solid rgba(240,178,107,0.35)', color: '#f0b26b' }}>
                 The reward vault is unfunded, so staking works but earns nothing until funding
                 lands. Unlike the Solana lighthouse, your principal is NEVER at the vault&apos;s
                 mercy here: withdraw is free at any time and moves principal only.
-              </p>
-            )}
-            {/* Reached only with periodFinish 0 now: an ended period says so above. */}
-            {!rewardsEnded && !unfunded && notPaying && (
-              <p className="text-[12px] mb-4 text-white/70">
-                No reward period has started, so the pool pays 0 until it is funded.
               </p>
             )}
 

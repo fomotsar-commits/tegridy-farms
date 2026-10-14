@@ -19,6 +19,16 @@ export function rewardsEndedLine(endSecs: number | bigint): string {
   return `Rewards ended ${rewardsEndDate(endSecs)}, so new stakes are closed. Withdraw and claim still work.`;
 }
 
+/**
+ * A landed rate of 0 (never funded, or a period set to pay nothing): the pool pays
+ * nothing now, so it takes no new stake either. It opens again once funding lands.
+ */
+export function rewardsZeroLine(neverStarted: boolean): string {
+  return neverStarted
+    ? 'No reward period has started, so new stakes are closed. Withdraw and claim still work.'
+    : 'This pool pays 0 rewards now, so new stakes are closed. Withdraw and claim still work.';
+}
+
 /** The end time did not come back from the chain: no date is said, and staking waits. */
 export const REWARDS_END_UNREAD_LINE = 'Whether rewards are still paid could not be read, so new stakes are held.';
 
