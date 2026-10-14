@@ -7,7 +7,7 @@ import { MemoryRouter } from 'react-router-dom';
 // SolanaLpPage.mintLink.test.tsx mounts the real one.
 const readVenue = vi.fn();
 vi.mock('../lib/solana/cpswap/read', () => ({ readVenue: (...a: unknown[]) => readVenue(...a) }));
-vi.mock('../lib/launcher/solana/curve/rpc', () => ({ browserCurveRpc: () => ({}) }));
+vi.mock('../lib/launcher/solana/curve/rpc', () => ({ browserCurveRpc: () => ({}), browserRpc: () => ({}) }));
 vi.mock('../lib/analytics', () => ({ trackPageView: vi.fn() }));
 vi.mock('../components/solana/lp/SolanaLpSection', () => ({
   default: ({ finderFirst = false }: { finderFirst?: boolean }) => <div data-testid="lp-section" data-finder-first={String(finderFirst)} />,
@@ -203,8 +203,8 @@ describe('when the venue reads live', () => {
     const card = screen.getByRole('region', { name: 'Venue status' });
     expect(scrolled.mock.contexts[0]).toBe(card);
     expect(scrolled).toHaveBeenCalledWith({ block: 'nearest' });
-    // The scroll stops short of the fixed header and tab strip (e2e measures it in a browser).
-    expect(card).toHaveClass('scroll-mt-24');
+    // The scroll stops with air above the card (e2e measures where, under the tab strip).
+    expect(card).toHaveClass('scroll-mt-5');
   });
 });
 
@@ -297,7 +297,7 @@ describe('always', () => {
     await mount();
     await settled();
     const program = screen.getByRole('region', { name: 'The program' });
-    expect(program).toHaveTextContent(/verbatim fork/i);
+    expect(program).toHaveTextContent(/one added instruction/i);
     const card = screen.getByRole('region', { name: 'Venue status' });
     expect(card.compareDocumentPosition(program) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });

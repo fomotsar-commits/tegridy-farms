@@ -10,7 +10,7 @@ import type { LpReaders } from '../components/solana/lp/readers';
 // Only the reads, the wallet stack and LP's mode (reads-only, so no write code) are faked.
 const readVenue = vi.fn();
 vi.mock('../lib/solana/cpswap/read', () => ({ readVenue: (...a: unknown[]) => readVenue(...a) }));
-vi.mock('../lib/launcher/solana/curve/rpc', () => ({ browserCurveRpc: () => ({}) }));
+vi.mock('../lib/launcher/solana/curve/rpc', () => ({ browserCurveRpc: () => ({}), browserRpc: () => ({}) }));
 vi.mock('../lib/analytics', () => ({ trackPageView: vi.fn() }));
 vi.mock('../components/solana/SolanaProviders', () => ({ SolanaProviders: ({ children }: { children: ReactNode }) => <>{children}</> }));
 vi.mock('@solana/wallet-adapter-react', () => ({ useWallet: () => ({ publicKey: null }) }));
@@ -82,7 +82,7 @@ function expectTopToBottom(named: [string, HTMLElement][]) {
 }
 
 const RISK_LINE =
-  'These pools run on a pool program whose admin-key changes have not had their own independent review yet. Put in only what you can afford to lose. The full notice is right under your positions.';
+  'These pools run on a pool program whose admin-key changes have not had their own independent review yet. Put in only what you can afford to lose. The full notice is below your positions.';
 const LP_PARTS = ['lp-risk-line', 'lp-finder', 'lp-positions', 'lp-disclosure', 'fee-tiers'];
 
 beforeEach(() => { vi.clearAllMocks(); readVenue.mockResolvedValue(LIVE); });
@@ -122,21 +122,25 @@ describe('/solana-lp opens on the pool finder', () => {
       ['"The program"', screen.getByRole('region', { name: 'The program' })],
     ]);
     expect(screen.getByRole('region', { name: 'Venue status' })).toHaveTextContent(/Pools are open/);
-    // Between the hero's words and the finder there is the risk line and nothing else.
+    // Between the hero's words and the finder there are two short lines and nothing else: the risk line, then
+    // the one line on earning (fees need no claim). e2e/tab-target-size.spec.ts holds the finder on the first screen.
     expect(h1.parentElement!.nextElementSibling!.firstElementChild).toBe(screen.getByTestId('lp-section'));
     expect(screen.getByTestId('lp-section').firstElementChild).toBe(screen.getByTestId('lp-risk-line'));
-    expect(screen.getByTestId('lp-risk-line').nextElementSibling).toBe(screen.getByTestId('lp-finder'));
+    expect(screen.getByTestId('lp-risk-line').nextElementSibling).toBe(screen.getByTestId('lp-earn-line'));
+    expect(screen.getByTestId('lp-earn-line').nextElementSibling).toBe(screen.getByTestId('lp-finder'));
     expect(within(h1.parentElement!).queryByRole('link')).toBeNull();
   });
 
   // The line may be short only because the whole notice is on the same page, where it says.
-  it('the risk line says exactly this, and the full notice is right under the positions', async () => {
+  it('the risk line says exactly this, and the full notice is below the positions, after the two earning cards', async () => {
     fakeReaders();
     await mount('/solana-lp');
     const line = await screen.findByTestId('lp-risk-line');
     expect(line.textContent).toBe(RISK_LINE);
     const full = screen.getByTestId('lp-disclosure');
-    expect(screen.getByTestId('lp-positions').nextElementSibling).toBe(full);
+    // How you earn is the positions' next neighbour; the long notice follows it.
+    expect(screen.getByTestId('lp-positions').nextElementSibling).toBe(screen.getByTestId('lp-how-it-pays'));
+    expect(screen.getByTestId('lp-how-it-pays').nextElementSibling).toBe(full);
     expect(full).toHaveTextContent(/have not had their own independent review yet/);
     expect(full).toHaveTextContent(/It can switch off deposits,\s+withdrawals or swaps on any pool/);
     expect(full).toHaveTextContent(PROGRAM);
@@ -168,7 +172,7 @@ describe('/pools keeps the order it had', () => {
       ['"The program"', screen.getByRole('region', { name: 'The program' })],
     ]);
     expect(screen.queryByTestId('lp-risk-line')).toBeNull();
-    expect(document.body.textContent).not.toContain('The full notice is right under your positions.');
+    expect(document.body.textContent).not.toContain('The full notice is below your positions.');
   });
 });
 

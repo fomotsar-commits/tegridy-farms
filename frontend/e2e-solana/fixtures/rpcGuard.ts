@@ -28,10 +28,18 @@ export interface RpcGuard {
   count(view: string, method?: string): number;
   /** Answer `method` with HTTP `status` (no body forwarded) for the next `forMs`. */
   fail(method: string, status: number, forMs: number): void;
-  /** Stop failing `method` now. */
+  /**
+   * Hold every request carrying `method` unanswered until `forMs` have passed, release() is
+   * called or the context closes (then forward it). The page gives a read 20 s (readFetch.ts),
+   * so a hang well past that is what a proxy that never answers looks like from the browser.
+   */
+  hang(method: string, forMs: number): void;
+  /** Stop failing and stop holding `method` now; held requests go through. */
   release(method: string): void;
   /** How many requests carrying `method` were failed on purpose. */
   failedCount(method: string): number;
+  /** How many requests carrying `method` were held. */
+  hungCount(method: string): number;
   /**
    * From now on, the PAGE reads `address` as `fn` says: `fn` gets the real bytes (null when
    * the account does not exist) and returns the bytes to show, or null for "no account".
@@ -79,9 +87,12 @@ export async function installRpcGuard(context: BrowserContext): Promise<RpcGuard
   const calls: RpcRecord[] = [];
   const violations: string[] = [];
   const failures = new Map<string, { status: number; until: number; hits: number }>();
+  const hangs = new Map<string, { until: number; hits: number }>();
   const rewrites = new Map<string, Rewrite>();
   const rewritten: string[] = [];
   let current = 'start';
+  // A hold never outlives its context: a test that fails before release() leaves no loop behind.
+  context.on('close', () => { for (const h of hangs.values()) h.until = 0; });
 
   await context.route('**/api/solrpc', async (route: Route) => {
     const req = route.request();
@@ -116,6 +127,19 @@ export async function installRpcGuard(context: BrowserContext): Promise<RpcGuard
       if (f && now < f.until) {
         f.hits++;
         return route.fulfill({ status: f.status, contentType: 'application/json', body: JSON.stringify({ error: 'Upstream RPC error' }) });
+      }
+    }
+    for (const c of list) {
+      const h = hangs.get(String(c.method));
+      if (h && now < h.until) {
+        h.hits++;
+        while (Date.now() < h.until) await new Promise((r) => setTimeout(r, 200));
+        // The page has usually given up by now: a request it aborted cannot be answered.
+        try {
+          return await route.continue();
+        } catch {
+          return;
+        }
       }
     }
     // Rewrites: only account reads that name a rewritten address are fetched and edited.
@@ -163,8 +187,15 @@ export async function installRpcGuard(context: BrowserContext): Promise<RpcGuard
     view(label) { current = label; },
     count(view, method) { return calls.filter((c) => c.view === view && (!method || c.method === method)).length; },
     fail(method, status, forMs) { failures.set(method, { status, until: Date.now() + forMs, hits: 0 }); },
-    release(method) { const f = failures.get(method); if (f) f.until = 0; },
+    hang(method, forMs) { hangs.set(method, { until: Date.now() + forMs, hits: 0 }); },
+    release(method) {
+      const f = failures.get(method);
+      if (f) f.until = 0;
+      const h = hangs.get(method);
+      if (h) h.until = 0;
+    },
     failedCount(method) { return failures.get(method)?.hits ?? 0; },
+    hungCount(method) { return hangs.get(method)?.hits ?? 0; },
     rewriteAccount(address, fn) { rewrites.set(address, fn); },
     clearRewrites() { rewrites.clear(); },
     rewrittenCount(address) { return address ? rewritten.filter((a) => a === address).length : rewritten.length; },

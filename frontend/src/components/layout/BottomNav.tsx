@@ -20,7 +20,8 @@ const SWAP_TAB = { label: 'Swap', section: SWAP_SECTION, icon: (
 )};
 
 const TABS = [
-  { to: '/liquidity', label: 'Pools', section: POOLS_SECTION, icon: (
+  // Where the Pools word lands is the section's own answer (navConfig), not a literal here.
+  { to: POOLS_SECTION.primaryTo ?? POOLS_SECTION.hub, label: 'Pools', section: POOLS_SECTION, icon: (
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
       <path d="M12 3c3.5 4.2 5.5 7 5.5 9.5a5.5 5.5 0 0 1-11 0C6.5 10 8.5 7.2 12 3z" />
     </svg>
@@ -64,7 +65,11 @@ export const BottomNav = React.memo(function BottomNav() {
         borderTop: '1px solid var(--color-purple-75)',
         paddingBottom: 'env(safe-area-inset-bottom, 0px)',
       }}>
-      <div className="flex items-center justify-around h-16 safe-area-bottom">
+      {/* No bottom inset on this row: the nav above already pads by it. Padding both
+          took the inset out of this row's own 64px, so a large inset (an Android 15
+          in-app browser, seen on a Galaxy S25) left the icons no room and they sat
+          on the nav's top border, over the page. */}
+      <div className="flex items-center justify-around h-16">
         {tabs.map(tab => (
           <NavLink key={tab.to} to={tab.to} aria-label={tab.label}
             data-lit={tab.section ? sectionIsActive(tab.section, pathname) : undefined}

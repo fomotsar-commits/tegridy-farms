@@ -1,14 +1,39 @@
 import { formatSol, formatTokenAmount } from '../../launcher/solana/curve/format';
 import { ratePercent } from '../cpswap/math';
 import { chargedCreatorFeeRate, tradeCost } from '../cpswap/venue';
+import type { QuoteCoin } from './quotes';
 
 /** Display helpers for the LP pages. Numbers that ride a transaction never pass through here. */
 
-/** A SOL-per-token price written out (never scientific notation), four significant digits. */
+/** A rate over a span of time, caught by its shape ("a year", "per month", "each week", "daily"), not word by word. */
+export const RATE_WORDS = /annual|\b(?:a|per|each|every)\s+(?:year|month|week|day)\b|\b(?:yearly|monthly|weekly|daily)\b|rate of return/i;
+
+/**
+ * Words that promise a return. No LP copy carries one; every pin uses this regex and no
+ * other, so a word added here is caught everywhere at once.
+ */
+export const FORECAST_WORDS = new RegExp(`\\bAPR\\b|\\bAPY\\b|yield of|earn fees on every trade|${RATE_WORDS.source}`, 'i');
+
+/** A chain time to the minute, in UTC ("2026-10-03 22:30 UTC"); a time the node did not record says so. */
+export function minuteText(unixSecs: number | null): string {
+  if (unixSecs === null || !Number.isFinite(unixSecs)) return 'a time the chain did not record';
+  return `${new Date(unixSecs * 1000).toISOString().slice(0, 16).replace('T', ' ')} UTC`;
+}
+
+/**
+ * A price written out (never scientific notation), four significant digits. The unit is
+ * the caller's: SOL per token for a SOL pool, the pool's own pairing coin otherwise
+ * (`priceText` adds it).
+ *
+ * From 10,000 up it is a whole number with its thousands grouped: "104,000". Four
+ * significant digits there would be "1.040e+5", which nobody reads as a price. No token
+ * costs 10,000 SOL, but one worth 10,000 USDC or 10,000 BAYLA is ordinary. The line is at
+ * 9,999.5, the first value that rounds to five digits.
+ */
 export function formatSolPrice(v: number): string {
   if (!Number.isFinite(v) || v < 0) return 'unreadable';
   if (v === 0) return '0';
-  if (v >= 1e9) return Math.round(v).toString();
+  if (v >= 9999.5) return Math.round(v).toLocaleString('en-US');
   if (v < 0.000001) {
     const digits = Math.min(100, 3 - Math.floor(Math.log10(v)));
     return v.toFixed(digits).replace(/0+$/, '');
@@ -17,9 +42,14 @@ export function formatSolPrice(v: number): string {
   return s.includes('.') ? s.replace(/\.?0+$/, '') : s;
 }
 
+/** A percent as a sentence prints it, four decimals at most and no padding: 0.84 → "0.84%", 1 → "1%". */
+export function pctText(pct: number): string {
+  return `${Number(pct.toFixed(4))}%`;
+}
+
 /** A fee rate (hundredths of a bip) as a percentage: 2500 → "0.25%". */
 export function feeRateText(rate: bigint): string {
-  return `${Number(ratePercent(rate).toFixed(4))}%`;
+  return pctText(ratePercent(rate));
 }
 
 /**
@@ -40,6 +70,19 @@ export function tradeCostText(config: { tradeFeeRate: bigint; creatorFeeRate: bi
 
 export function solText(lamports: bigint): string {
   return `${formatSol(lamports, 4)} SOL`;
+}
+
+/**
+ * An amount of a pool's pairing coin, in that coin's own decimals: "1.5 SOL",
+ * "250 USDC". SOL is `solText`, to the character.
+ */
+export function quoteText(raw: bigint, quote: QuoteCoin): string {
+  return quote.native ? solText(raw) : `${formatTokenAmount(raw, quote.decimals, 4).text} ${quote.symbol}`;
+}
+
+/** "1 token = 0.025 USDC": a pool's price, or its reference, in the pool's own coin. */
+export function priceText(perToken: number, quote: QuoteCoin): string {
+  return `1 token = ${formatSolPrice(perToken)} ${quote.symbol}`;
 }
 
 /** Token amount with its decimals, or raw base units said as such. */

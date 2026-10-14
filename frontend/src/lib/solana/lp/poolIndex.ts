@@ -4,12 +4,17 @@ import { PublicKey } from '@solana/web3.js';
  * The browser side of `/api/pools`, the server's list of pool ADDRESSES for a token.
  *
  * The browser cannot list pools itself: `getProgramAccounts` stays off the `/api/solrpc`
- * proxy (an open scan against a keyed RPC). So one server function does that single
- * filtered scan (TOKEN/SOL pools only, deepest SOL side first), caches it, and returns
- * addresses only. Nothing it says is trusted as a fact about a pool: every address is
- * then read from the chain in the browser and checked (owned by the pool program,
- * decodes as a pool, trades this token against SOL). A wrong index can therefore hide a
- * pool, which the page says it might, but it cannot put words in a pool's mouth.
+ * proxy (an open scan against a keyed RPC). So one server function does the filtered
+ * scans, one for each coin the token can be paired with (quotes.ts), caches the answer,
+ * and returns addresses only: SOL's pools first, then USDC's, then BAYLA's, deepest
+ * first within a coin. It does not say which coin an address is paired with. Nothing it
+ * says is trusted as a fact about a pool: every address is then read from the chain in
+ * the browser and checked (owned by the pool program, decodes as a pool, trades this
+ * token against a pairing coin). A wrong index can therefore hide a pool, which the page
+ * says it might, but it cannot put words in a pool's mouth.
+ *
+ * All or nothing: if the server could not scan or rank ANY one coin, it answers with an
+ * error (`unread` here), never with the other coins' pools as if they were all.
  *
  * The answer must name the pool program the PAGE reads. The server scans one fixed
  * program; a build pointed at another one (a local validator, devnet) would otherwise
@@ -18,8 +23,11 @@ import { PublicKey } from '@solana/web3.js';
 
 export const POOL_INDEX_PATH = '/api/pools';
 /**
- * The server returns at most this many; more means `truncated`. With the launch pool and
- * the two standard addresses that is 99 reads, one getMultipleAccounts call.
+ * The server returns at most this many (its `MAX_POOLS`, pinned to this by a test); more
+ * means `truncated`. The list is shared between the coins: each is promised an equal
+ * part, so junk pools paired with one coin cannot crowd out another coin's real pools.
+ * With the launch pool and two standard addresses per pairing coin, a search reads up to
+ * 103 addresses.
  */
 export const POOL_INDEX_MAX = 96;
 
@@ -46,7 +54,10 @@ export async function readPoolIndex(query: PoolIndexQuery, expectedProgram: stri
   try {
     res = await fetchImpl(`${POOL_INDEX_PATH}?${key}=${encodeURIComponent(value)}`, { headers: { Accept: 'application/json' } });
   } catch (e) {
-    return { kind: 'unread', detail: `the pool index did not answer (${e instanceof Error ? e.message : String(e)})` };
+    // A 20-second timeout (readFetch.ts) already names the index; wrapping it again
+    // would print the sentence twice inside one bracket.
+    const cause = e instanceof Error ? e.message : String(e);
+    return { kind: 'unread', detail: cause.startsWith('the pool index') ? cause : `the pool index did not answer (${cause})` };
   }
   if (!res.ok) {
     return {

@@ -7,7 +7,9 @@ import { checkLaunchEconomics } from '../src/lib/launcher/solana/curve/config';
 import { globalPda } from '../src/lib/launcher/solana/curve/program';
 import { deriveAmmConfig } from '../src/lib/solana/cpswap/program';
 import { LOCALNET_RPC, LAUNCH_PROGRAM, CP_SWAP_PROGRAM, assertLocalCluster, chain, deployment, globalConfig } from './fixtures/chain';
+import { TOKEN_PROGRAM_ID } from '@solana/spl-token';
 import { BAYLA_MINT, TOKEN_2022 } from './fixtures/bayla';
+import { USDC_MINT } from './fixtures/usdc';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 
@@ -61,6 +63,15 @@ export default async function globalSetup(): Promise<void> {
   const noSupply = (b: Buffer) => Buffer.concat([b.subarray(0, 36), b.subarray(44)]);
   if (!mintInfo || !mintInfo.owner.equals(TOKEN_2022) || !noSupply(Buffer.from(mintInfo.data)).equals(noSupply(wantMint))) {
     throw new Error('the validator\'s $BAYLA mint is not the seeded stand-in: restart start-validator.sh after genesis-accounts.mjs');
+  }
+  // The stand-in USDC mint (a coin a pool may pair a token with): the seeded bytes, apart
+  // from the supply, which the specs change by minting to wallets.
+  const seededUsdc = path.join(HERE, '..', 'scripts', 'solana-localnet', '.accounts', 'usdc-mint.json');
+  if (!fs.existsSync(seededUsdc)) throw new Error(`${seededUsdc} is missing: run node scripts/solana-localnet/genesis-accounts.mjs`);
+  const wantUsdc = Buffer.from(JSON.parse(fs.readFileSync(seededUsdc, 'utf8')).account.data[0], 'base64');
+  const usdcInfo = await chain().getAccountInfo(USDC_MINT, 'confirmed');
+  if (!usdcInfo || !usdcInfo.owner.equals(TOKEN_PROGRAM_ID) || !noSupply(Buffer.from(usdcInfo.data)).equals(noSupply(wantUsdc))) {
+    throw new Error('the validator\'s USDC mint is not the seeded stand-in: run genesis-accounts.mjs, then restart start-validator.sh');
   }
   const g = await globalConfig();
   const report = checkLaunchEconomics({

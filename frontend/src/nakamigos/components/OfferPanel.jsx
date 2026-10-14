@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { Eth } from "./Icons";
 import { fetchTokenOfferBook, acceptOffer } from "../api-offers";
 import { getFriendlyError } from "../lib/errorMessages";
+import { toastTxNotice } from "../lib/txOutcome";
 import { useActiveCollection } from "../contexts/CollectionContext";
 import NetProceeds from "./NetProceeds";
 
@@ -77,6 +78,9 @@ export default function OfferPanel({ tokenId, wallet, addToast, onMakeOffer, own
         load();
       } else if (result.error === "rejected") {
         addToast?.("Offer acceptance was declined in your wallet.", "info");
+      } else if (toastTxNotice(addToast, result)) {
+        // Unconfirmed or replaced: told as it is, and the book is re-read.
+        load();
       } else {
         // F646: surface the precise reason acceptOffer returned (e.g. expired,
         // insufficient funds, approval failed) instead of a generic message.

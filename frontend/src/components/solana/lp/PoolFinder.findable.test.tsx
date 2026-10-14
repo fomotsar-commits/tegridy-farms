@@ -24,6 +24,7 @@ import type { PublicKey } from '@solana/web3.js';
 import { LpInner, type LpWritesOverrides } from './SolanaLpSection';
 import type { LpReaders } from './readers';
 import type { TokenSafety } from '../../../lib/solana/lp/tokenSafety';
+import { SOL_QUOTE } from '../../../lib/solana/lp/quotes';
 import type { PoolSearchRead, PoolView } from '../../../lib/solana/lp/poolFinder';
 import { decodeAmmConfig, decodePoolState } from '../../../lib/solana/cpswap/program';
 import { buildPool, key } from '../../../lib/solana/lp/testkit.fixture';
@@ -55,7 +56,7 @@ const noPools = (mint: string): PoolSearchRead => ({
   kind: 'ok',
   search: {
     mint,
-    known: { launchPool: key().toBase58(), standard: [{ index: 1, config: TIER1_ADDRESS.toBase58(), address: key().toBase58() }] },
+    known: { launchPool: key().toBase58(), standard: [{ index: 1, config: TIER1_ADDRESS.toBase58(), address: key().toBase58(), quote: SOL_QUOTE.mint }] },
     index: { kind: 'ok', pools: [], truncated: false },
     pools: [],
     otherPairs: 0,
@@ -69,7 +70,7 @@ function poolView(tier1 = false): PoolView {
   const sol = 10n * 10n ** 9n;
   const tok = 1_000n * 10n ** 6n;
   const mint = key();
-  const b = buildPool({ plain: true, mint, configIndex: 1, solReserve: sol, tokenReserve: tok, openTime: 1n });
+  const b = buildPool({ plain: true, mint, configIndex: 1, quoteReserve: sol, tokenReserve: tok, openTime: 1n });
   const raw = decodePoolState(b.address.toBase58(), b.accounts[b.address.toBase58()]!.data)!;
   const pool = { ...raw, ammConfig: tier1 ? TIER1_ADDRESS.toBase58() : raw.ammConfig };
   const solIsToken0 = pool.token0Mint.startsWith('So111');
@@ -79,8 +80,9 @@ function poolView(tier1 = false): PoolView {
     snapshot: { pool, vault0Amount: solIsToken0 ? sol : tok, vault1Amount: solIsToken0 ? tok : sol, reserve0: solIsToken0 ? sol : tok, reserve1: solIsToken0 ? tok : sol },
     config: decodeAmmConfig(b.config.toBase58(), b.accounts[b.config.toBase58()]!.data),
     tokenMint: mint.toBase58(),
-    solIsToken0,
-    solReserve: sol,
+    quote: SOL_QUOTE,
+    quoteIsToken0: solIsToken0,
+    quoteReserve: sol,
     tokenReserve: tok,
     vaultsFrozen: false,
     history: { kind: 'not-read' },
@@ -163,7 +165,7 @@ describe('what a visitor can do is on the first card, as buttons', () => {
     mount();
     fireEvent.click(await task('Create a pool'));
     expect(await task('Create a pool')).toHaveAttribute('aria-pressed', 'true');
-    expect(screen.getByTestId('lp-task-line')).toHaveTextContent('Pick the token to open a pool for.');
+    expect(screen.getByTestId('lp-task-line')).toHaveTextContent('Pick the token to open a pool for: you can pair it with SOL, USDC or BAYLA. The form opens under the token’s checks.');
     fireEvent.click(await task('Add liquidity'));
     expect(await task('Create a pool')).toHaveAttribute('aria-pressed', 'false');
     expect(screen.getByTestId('lp-task-line')).toHaveTextContent('If it has no pool yet, your deposit opens one.');
@@ -235,7 +237,8 @@ describe('a lookup asked for with a button ends in a form', () => {
     fireEvent.click(await task('Add liquidity'));
     fireEvent.click(await chip('BAYLA'));
     expect(await screen.findByTestId('lp-create-panel')).toBeTruthy();
-    expect(screen.getByTestId('lp-create')).toHaveTextContent('There is no pool to add liquidity to yet. Opening one is how the first liquidity goes in.');
+    // BAYLA is paired with SOL or USDC only, so those are the coins the card names.
+    expect(screen.getByTestId('lp-create')).toHaveTextContent('There is no SOL or USDC pool to add liquidity to yet. Opening one is how the first liquidity goes in.');
   });
 
   it("Add liquidity on a token whose pool takes deposits opens that pool's Add form, and never the Open-a-pool form beside it", async () => {
@@ -532,8 +535,10 @@ describe('a token with no pool yet', () => {
   it('is told that opening the pool is how the first liquidity goes in', async () => {
     mount(`/solana-lp?mint=${BAYLA}`);
     const card = await screen.findByTestId('lp-create');
-    await waitFor(() => expect(card).toHaveTextContent('There is no pool to add liquidity to yet. Opening one is how the first liquidity goes in.'));
+    // BAYLA is a pairing coin itself: it was searched against SOL and USDC only, and the
+    // card names those two (BAYLA with BAYLA is no pair, and was never looked for).
+    await waitFor(() => expect(card).toHaveTextContent('There is no SOL or USDC pool to add liquidity to yet. Opening one is how the first liquidity goes in.'));
     // The sentence the card already had is kept.
-    expect(card).toHaveTextContent('No pool for this token yet. You can open the first one on the public fee tier');
+    expect(card).toHaveTextContent('No SOL or USDC pool for this token yet. You can open the first one on the public fee tier');
   });
 });

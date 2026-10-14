@@ -13,7 +13,7 @@ import {
 import {
   AuthorityType, ExtensionType, MINT_SIZE, TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID,
   createAssociatedTokenAccountIdempotentInstruction, createCloseAccountInstruction, createFreezeAccountInstruction,
-  createInitializeMetadataPointerInstruction, createInitializeMint2Instruction, createInitializeTransferHookInstruction,
+  createInitializeMetadataPointerInstruction, createInitializeMint2Instruction, createInitializeTransferFeeConfigInstruction, createInitializeTransferHookInstruction,
   createMintToInstruction, createSetAuthorityInstruction, createSyncNativeInstruction, createTransferCheckedInstruction,
   getAssociatedTokenAddressSync, getMintLen, tokenMetadataInitializeWithRentTransfer, tokenMetadataUpdateAuthority,
 } from '@solana/spl-token';
@@ -21,6 +21,7 @@ import type { BrowserContext, Route } from '@playwright/test';
 import { initializeIx } from '../../src/lib/solana/cpswap/ix';
 import { deriveAmmConfig, deriveLpMint, derivePool, deriveVault, sortMints } from '../../src/lib/solana/cpswap/program';
 import { CP_SWAP_PROGRAM, CREATE_POOL_FEE_RECEIVER, LOCALNET_RPC, METAPLEX, WSOL, accountOwner, assertLocalCluster, chain, metadataAddress, mintFacts, tokenAmount } from './chain';
+import { BAYLA_COIN, SOL_COIN, USDC_COIN, type Coin } from './coins';
 
 /** The vault's WSOL account: cp-swap's fixed create-pool-fee receiver (defined in chain.ts). */
 export { CREATE_POOL_FEE_RECEIVER };
@@ -102,6 +103,29 @@ export async function createTransferHookToken(owner: Keypair): Promise<PublicKey
   return mint.publicKey;
 }
 
+/**
+ * A Token-2022 token that takes a fee out of every transfer (`feeBps` hundredths of a
+ * percent), minted to `owner`'s Token-2022 ATA, mint authority revoked, no freeze authority.
+ * The pool program ACCEPTS this extension, so a pool for it can exist. The site still
+ * blocks the token: it cannot build an exact deposit or withdrawal for it.
+ */
+export async function createTransferFeeToken(owner: Keypair, o: { supply: bigint; feeBps: number; decimals?: number }): Promise<PublicKey> {
+  const mint = Keypair.generate();
+  const space = getMintLen([ExtensionType.TransferFeeConfig]);
+  const rent = await chain().getMinimumBalanceForRentExemption(space);
+  const account = getAssociatedTokenAddressSync(mint.publicKey, owner.publicKey, false, TOKEN_2022_PROGRAM_ID);
+  await send([
+    SystemProgram.createAccount({ fromPubkey: owner.publicKey, newAccountPubkey: mint.publicKey, lamports: rent, space, programId: TOKEN_2022_PROGRAM_ID }),
+    // No authority over the fee, and no one who can collect it: the fee setting can never change.
+    createInitializeTransferFeeConfigInstruction(mint.publicKey, null, null, o.feeBps, o.supply, TOKEN_2022_PROGRAM_ID),
+    createInitializeMint2Instruction(mint.publicKey, o.decimals ?? 6, owner.publicKey, null, TOKEN_2022_PROGRAM_ID),
+    createAssociatedTokenAccountIdempotentInstruction(owner.publicKey, account, owner.publicKey, mint.publicKey, TOKEN_2022_PROGRAM_ID),
+    createMintToInstruction(mint.publicKey, account, owner.publicKey, o.supply, [], TOKEN_2022_PROGRAM_ID),
+    createSetAuthorityInstruction(mint.publicKey, owner.publicKey, AuthorityType.MintTokens, null, [], TOKEN_2022_PROGRAM_ID),
+  ], [owner, mint]);
+  return mint.publicKey;
+}
+
 export interface Token2022MetadataOpts { name: string; symbol: string; decimals?: number; supply: bigint }
 
 /**
@@ -144,22 +168,25 @@ export interface CreatedPool {
 }
 
 /**
- * Open a TOKEN/SOL pool with `sol` lamports and `tokens` base units, as `creator`.
+ * Open a pool that pairs `mint` with `coin` (SOL, USDC or BAYLA), with `coinAmount` of the
+ * coin's base units and `tokens` base units, as `creator`.
  * `at: 'standard'` uses the standard address for the fee tier; `at: 'fresh'` a new
  * signing keypair (the fallback when the standard address is taken).
+ * SOL is wrapped here first. Any other coin is spent from the creator's own account for
+ * it, which must already hold it (giveUsdc, giveBayla).
  */
-export async function createSolPool(
+export async function createPairPool(
   creator: Keypair,
   mint: PublicKey,
-  o: { configIndex: 0 | 1; sol: bigint; tokens: bigint; openTime?: bigint; at: 'standard' | 'fresh'; tokenProgram?: PublicKey },
+  o: { coin: Coin; configIndex: 0 | 1; coinAmount: bigint; tokens: bigint; openTime?: bigint; at: 'standard' | 'fresh'; tokenProgram?: PublicKey },
 ): Promise<CreatedPool> {
   const config = deriveAmmConfig(CP_SWAP_PROGRAM, o.configIndex);
-  const { token0, token1, flipped } = sortMints(WSOL, mint);
+  const { token0, token1, flipped } = sortMints(o.coin.mint, mint);
   // sortMints(a, b): flipped means b sorted first, i.e. the token is token0.
-  const solIs0 = !flipped;
-  // The token side follows its mint's program (classic or Token-2022); wrapped SOL is classic.
+  const coinIs0 = !flipped;
+  // Each side follows its own mint's program (classic or Token-2022).
   const tokenProgram = o.tokenProgram ?? TOKEN_PROGRAM_ID;
-  const wsolAta = getAssociatedTokenAddressSync(WSOL, creator.publicKey);
+  const coinAta = getAssociatedTokenAddressSync(o.coin.mint, creator.publicKey, false, o.coin.program);
   const tokenAta = getAssociatedTokenAddressSync(mint, creator.publicKey, false, tokenProgram);
   const fresh = o.at === 'fresh' ? Keypair.generate() : null;
   const standard = derivePool(CP_SWAP_PROGRAM, config, token0, token1);
@@ -171,24 +198,35 @@ export async function createSolPool(
     ammConfig: config,
     token0Mint: token0,
     token1Mint: token1,
-    creatorToken0: solIs0 ? wsolAta : tokenAta,
-    creatorToken1: solIs0 ? tokenAta : wsolAta,
+    creatorToken0: coinIs0 ? coinAta : tokenAta,
+    creatorToken1: coinIs0 ? tokenAta : coinAta,
     creatorLpToken: getAssociatedTokenAddressSync(lpMint, creator.publicKey),
-    token0Program: solIs0 ? TOKEN_PROGRAM_ID : tokenProgram,
-    token1Program: solIs0 ? tokenProgram : TOKEN_PROGRAM_ID,
+    token0Program: coinIs0 ? o.coin.program : tokenProgram,
+    token1Program: coinIs0 ? tokenProgram : o.coin.program,
     createPoolFee: CREATE_POOL_FEE_RECEIVER,
-    initAmount0: solIs0 ? o.sol : o.tokens,
-    initAmount1: solIs0 ? o.tokens : o.sol,
+    initAmount0: coinIs0 ? o.coinAmount : o.tokens,
+    initAmount1: coinIs0 ? o.tokens : o.coinAmount,
     openTime: o.openTime ?? 0n,
     poolState: fresh?.publicKey,
   });
-  const signature = await send([
-    createAssociatedTokenAccountIdempotentInstruction(creator.publicKey, wsolAta, creator.publicKey, WSOL),
-    SystemProgram.transfer({ fromPubkey: creator.publicKey, toPubkey: wsolAta, lamports: o.sol }),
-    createSyncNativeInstruction(wsolAta),
-    init,
-  ], fresh ? [creator, fresh] : [creator]);
+  const wrap = o.coin.native
+    ? [
+        createAssociatedTokenAccountIdempotentInstruction(creator.publicKey, coinAta, creator.publicKey, WSOL),
+        SystemProgram.transfer({ fromPubkey: creator.publicKey, toPubkey: coinAta, lamports: o.coinAmount }),
+        createSyncNativeInstruction(coinAta),
+      ]
+    : [];
+  const signature = await send([...wrap, init], fresh ? [creator, fresh] : [creator]);
   return { address, lpMint, config, standard: address.equals(standard), signature };
+}
+
+/** Open a TOKEN/SOL pool with `sol` lamports and `tokens` base units: `createPairPool` with SOL. */
+export function createSolPool(
+  creator: Keypair,
+  mint: PublicKey,
+  o: { configIndex: 0 | 1; sol: bigint; tokens: bigint; openTime?: bigint; at: 'standard' | 'fresh'; tokenProgram?: PublicKey },
+): Promise<CreatedPool> {
+  return createPairPool(creator, mint, { coin: SOL_COIN, configIndex: o.configIndex, coinAmount: o.sol, tokens: o.tokens, openTime: o.openTime, at: o.at, tokenProgram: o.tokenProgram });
 }
 
 /**
@@ -306,12 +344,22 @@ export interface JupiterStub {
 }
 
 /**
+ * What the stub says USDC and BAYLA cost, in SOL per whole coin, unless a spec says
+ * otherwise (`prices`, `setPrice`, `setDown`). A pool paired with USDC or BAYLA is checked
+ * in that coin, which takes the coin's own SOL price as well as the token's, so a stub
+ * that priced only tokens would leave every such pool "not checked". 0.005 SOL is a USDC
+ * with SOL at 200; BAYLA at 0.000002 SOL is 0.0004 USDC.
+ */
+export const COIN_SOL_PRICE = { USDC: 0.005, BAYLA: 2e-6 } as const;
+
+/**
  * Jupiter, stubbed, answering as production's proxy (api/_lib/aggregator-proxy.js) does:
  * - a mint in `down` is an outage: 502 `{"error":"Upstream service error"}`;
  * - a mint in `prices` (SOL per whole token) is quoted at that price less 0.5% each way
  *   (a route fee the page must cancel out), through one pool: `routeThrough` when given
  *   (one of OUR pools, so the page must not take it as an outside price), otherwise
  *   STUB_ROUTE_POOL;
+ * - USDC and BAYLA are priced at `COIN_SOL_PRICE` unless `prices` names them;
  * - any other mint has no route: 404 `{"error":"No route","code":"NO_ROUTE"}`, the
  *   proxy's fixed answer to Jupiter's own no-route codes;
  * - any path but the quote is a 502.
@@ -325,7 +373,11 @@ export async function installJupiterStub(
   const asked: string[] = [];
   const down = new Set(o.down ?? []);
   // A copy: setPrice changes this context's answers only, never the caller's map.
-  const book = new Map(prices);
+  const book = new Map<string, { solPerToken: number; decimals: number }>([
+    [USDC_COIN.mint.toBase58(), { solPerToken: COIN_SOL_PRICE.USDC, decimals: USDC_COIN.decimals }],
+    [BAYLA_COIN.mint.toBase58(), { solPerToken: COIN_SOL_PRICE.BAYLA, decimals: BAYLA_COIN.decimals }],
+    ...prices,
+  ]);
   const routePool = (o.routeThrough ?? STUB_ROUTE_POOL).toBase58();
   const json = (status: number, body: unknown) => ({ status, contentType: 'application/json', body: JSON.stringify(body) });
   await context.route('**/api/jupiter/**', async (route: Route) => {

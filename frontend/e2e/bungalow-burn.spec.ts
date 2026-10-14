@@ -1,6 +1,7 @@
 import { test, expect, type Page } from '@playwright/test';
 import { decodeFunctionData, encodeFunctionResult, multicall3Abi, pad, toHex } from 'viem';
 import { BUNGALOWS } from '../src/lib/bungalows';
+import { readPageWidth } from './fixtures/pageWidth';
 import { gotoRoute, waitForQuiescence } from './fixtures/routes';
 
 // The burn card where a visitor meets it. No vitest renders HomePage or the dashboards, so
@@ -149,14 +150,9 @@ async function ledgerMisfits(page: Page, symbol: string): Promise<string[]> {
   }, `${symbol} burn`);
 }
 
-/** Behavioural, as in tab-target-size.spec.ts: body is overflow-x hidden, so widths can lie. */
+/** How many px too wide the page is; 0 when it fits its window. Measured by fixtures/pageWidth.ts. */
 async function slidSideways(page: Page): Promise<number> {
-  return page.evaluate(() => {
-    window.scrollTo(500, window.scrollY);
-    const x = window.scrollX;
-    window.scrollTo(0, window.scrollY);
-    return x;
-  });
+  return (await readPageWidth(page)).over;
 }
 
 test.describe('the burn card, on every door', () => {
@@ -401,6 +397,24 @@ test.describe('the burn card, read and fitted', () => {
       };
     });
     expect(clipped).toEqual({ ellipsis: false, overflowX: 0, pastRow: 0 });
+
+    // Every other row of that panel too. "1,000,000,000" cannot break, so on the narrowest
+    // phones it ran past its own box and under the tick beside it; a value that does not fit
+    // beside its label must drop under it instead.
+    const panelMisfits = await rowLink.evaluate((a) => {
+      const bad: string[] = [];
+      for (const row of a.parentElement!.querySelectorAll('a')) {
+        const value = [...row.querySelectorAll('span')].find((el) => el.classList.contains('stat-value'))!;
+        const tick = row.querySelector('[aria-label="verified"]');
+        const over = value.scrollWidth - value.clientWidth;
+        const v = value.getBoundingClientRect();
+        const t = tick?.getBoundingClientRect();
+        const underTick = t ? Math.round(v.left + value.scrollWidth - t.left) : 0;
+        if (over > 0 || underTick > 0) bad.push(`"${value.textContent}" overflows its box by ${over}px, reaches ${underTick}px into the tick`);
+      }
+      return bad;
+    });
+    expect(panelMisfits).toEqual([]);
     expect(await slidSideways(page), 'the page slid sideways').toBe(0);
   });
 });

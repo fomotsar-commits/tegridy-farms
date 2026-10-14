@@ -5,6 +5,8 @@ import { browserCurveRpc, browserRpc } from '../../../lib/launcher/solana/curve/
 import type { LpWriteMode } from '../../../lib/launcher/solana/lpWriteFlag';
 import { rememberCreatedShare, type PositionsRead } from '../../../lib/solana/lp/positions';
 import { rememberCreatedPool } from '../../../lib/solana/lp/poolFinder';
+import { lpFetch } from '../../../lib/solana/lp/readFetch';
+import { noteResponse } from '../../../lib/solana/lp/rpcBudget';
 import { withReadCommitment } from '../curve/confirmedRpc';
 import { browserGateRpc } from '../curve/gateRpc';
 import { LP_PENDING_SCOPE, readPendingTrades } from '../curve/pendingTrade';
@@ -109,7 +111,7 @@ export function LpWritesProvider({
   const { connection } = useConnection();
   const gateRpc = useMemo(() => {
     if (givenGateRpc) return givenGateRpc;
-    const rpc = withReadCommitment(browserRpc());
+    const rpc = withReadCommitment(browserRpc(lpFetch({ what: 'the chain', onResponse: noteResponse })));
     return browserGateRpc(rpc, browserCurveRpc(rpc));
   }, [givenGateRpc]);
   const gateState = useLpGate<LpWriteApi>(gateRpc, { enabled: true, load });

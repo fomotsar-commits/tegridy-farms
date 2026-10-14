@@ -29,6 +29,247 @@ stop and say so — a surprise is information.
 
 ---
 
+## 🔴 2026-10-09: one list of everything open, from every session
+
+Written after a read-only sweep of all 43 open pull requests, every recent session and the
+pending-work notes. Each area was read by one agent and re-checked by a second. Nothing was
+merged or changed by the sweep. Where an older section below disagrees, this one is newer.
+
+### Only you can do these, soonest first
+
+- ⬜ **O-1009-1: send the TOWELI staking top-up** you decided on 2026-09-17. It had not been sent
+  when read on 2026-10-09. Say which wallet it comes from; a session re-reads the numbers after.
+- ⬜ **O-1009-2: database migrations, before 2026-10-16.** 026 is not applied (the hourly retention
+  job says so), and the Privacy page says error reports start on the 16th. Paste 024, 025 and 026
+  by hand in the SQL editor, in that order, in one sitting. Add 027 if you want the 90-day
+  analytics limit (PR #695): its first run deletes older analytics for good, so export first if
+  you want a copy. Never `supabase db push`.
+- ✅ **O-1009-3: answered on 2026-10-10: yes.** The two Solana programs are inside the security
+  policy (O-0929-12, PR #775, which you merged that day). It had to be settled before the
+  pool-program upgrade, and it is.
+- ⬜ **O-1009-4: the pool-program upgrade.** The pack is ready. It needs 3.90 SOL in the deploy
+  wallet `CqcVvaMvesrSKrUSbqBqr9mLjKLJuYqhaXg1gXpR41cg` (about 3.68 comes back) and both
+  multisig members, on the pack's own page and never in the Squads app. Tell a session before
+  you start: draft PR #776 has to go out in the same hour, and not before.
+- ⬜ **O-1009-5: name the staking receipt.** Steps 3 and 4 of the 2026-10-07 section below. Not run
+  as of 2026-10-09.
+- ⬜ **O-1009-6: two forms.** Jupiter verification for BAYLA (its pack is in the release folder),
+  and Phantom's review form for the "could be malicious" warning. If Phantom's is already filed,
+  say so and this closes.
+- ⬜ **O-1009-7: turn on branch protection for `mvp-launch`.** Pick the required checks knowing
+  that draft #776 keeps three checks red on purpose until upgrade day.
+- ⬜ **O-1009-8: one sitting with real phones.** A Galaxy inside Phantom (after PR #751 is
+  repaired), adding liquidity from Trust on Android, the Solana wallet list on Android (PR #722),
+  the room doors and `/nb1` on an iPhone.
+- ⬜ **O-1009-9: send the island its reply** (the answer-seventeen block), if it has not gone. The
+  next block must also say the BAYLA tick box went on 2026-10-08 (PR #769).
+- ⬜ **O-1009-10: BAYLA ladder rewards stop 2026-12-23T15:32Z.** Decide the amount and where the
+  BAYLA comes from by mid-November. The reload is signed by both multisig members from the
+  multisig's own BAYLA account, which has to be funded first.
+- ⬜ **O-1009-11: look at two cloud sessions on claude.ai/code.** They wrote
+  `claude/intelligent-edison-s91nxi` (27 swap fixes, plus wording on the home page, FAQ and
+  footer) and `claude/zealous-heisenberg-yc9dbp` (adding liquidity from Trust on a phone is
+  reported as "You cancelled"). Neither branch has a pull request. 2026-10-10: both have one
+  now, PR #791 and PR #786 (C-1009-4).
+- ⬜ **O-1009-12: small, whenever.** Delete the stale Vercel project `tegridyfarms-three`. Check why
+  Dependabot has not run since 2026-09-21. Confirm the offline key backup is finished. Check
+  auto-renew on memetics.finance (registered 2026-08-02 for one year). Look at Railway once
+  after PR #768 merges. GitLab's secret stays parked, as you asked on 2026-10-02.
+- ⬜ **O-1009-20: switch the Dependency graph back on.** Found 2026-10-10: Dependabot stopped
+  because the repository's Dependency graph is off (Settings, Advanced Security). Its last pull
+  requests are from 2026-09-21. The same page shows secret scanning and push protection off too.
+- ⬜ **O-1009-21: the stale Vercel site is almost certainly the project named `tegridyfarms`.**
+  Found 2026-10-10: that project has no Git repository connected. Confirm on its Domains tab
+  that it is the one behind `tegridyfarms-three` before you delete it.
+
+### One word from you, then a session does it (every merge is a production deploy)
+
+2026-10-10: M-1009-1 to M-1009-5 are built into three trains, each waiting for your word:
+#784 (housekeeping), #792 (fixes, with #784 inside it) and #796 (repairs and small fixes, with
+both inside it). Merging the last one alone brings all three. Use "Create a merge commit" each
+time.
+
+- 🟡 **M-1009-1:** #778, #779 and #780. Small and green. #778 and #779 clash in NOTES.md only.
+  Carried by train #784.
+- 🟡 **M-1009-2: the reads train**, in this order: #768, #761, #763 (with its owed test), #766,
+  #767, then the notes #762 and #764. Each is refreshed right before its turn and its changelog
+  line moves under the merge day. About five hours of check time in all. Carried by train #792,
+  the two notes by #784.
+- 🟡 **M-1009-3: the housekeeping train**, one merge: #712, #711, #707, #708 (without its Pools
+  page change, trunk has its own), #736, the notes #710 #739 #744 #747, then #608 and #620.
+  This is train #784.
+- 🟡 **M-1009-4:** #732 (Pools opens the Solana LP tab) after a refresh, and the notes #731.
+  #732 is carried by train #792, the notes by #784.
+- 🟡 **M-1009-5: phone and tablet fixes.** Quick after a refresh: #738, #735, #699, #740 (keep
+  trunk's Copy link), #741. After their own repairs: #751, #723, #743. #746 after #738.
+  Carried by train #792: #738, #735, #699, #740, #746. By #784: #741. By train #796:
+  #751, #723 and #743, each repaired.
+- ⬜ **M-1009-6: close** #721, #639 and #701. Close #737 and have its launch-pool deposit check
+  rebuilt small (warn, not refuse). #660 and #658 stay parked: Streamflow pins web3.js 1.98.4.
+
+### A session can start these on your go-ahead
+
+- ✅ **C-1009-1: save the work that exists only on this PC.** Commit and push, no merges: the
+  island's first PR (`feat/island-review-pr1`), the pool redesign (`feat/solana-lp-5d` and its
+  task branches), the "offer our pool" fix, the opening-price check, the NFT Finance mouse
+  arrows, the card art. Done 2026-10-10: each is on GitHub, as its own branch or as a
+  `rescue/2026-10-10/*` snapshot branch for work that was not committed. Nothing was merged.
+- ✅ **C-1009-2: repair PR #751.** The first-frame heading in `frontend/index.html` keeps the old
+  size, so the heading jumps 2 to 3 pixels and three tests fail. Done 2026-10-10 in #751 itself,
+  which train #796 carries.
+- 🟡 **C-1009-3: resume the island's first PR.** It is built and tested. Merge trunk in, make it
+  match PR #769 on the BAYLA tick box, finish the 390px walk, open the PR. Do not start it again.
+  Built: PR #790, waiting for your go.
+- 🟡 **C-1009-4: open pull requests for the two cloud branches**, with the "offer our pool" fix on
+  top of the first. Built: PR #791 (the swap fixes, with that fix on top), waiting for your go,
+  and PR #786 (the Trust "You cancelled" fix), which train #796 carries.
+- ⬜ **C-1009-5: resume the pool redesign.** Your last word on 2026-10-08 was "ok keep going".
+- ✅ **C-1009-6: show a liquidity provider what a pool has paid them** (asked 2026-10-09): what a
+  position has earned, how much a pool's shares have grown, and in a few plain words how
+  liquidity providers earn and how the venue earns. Merged 2026-10-10 as PR #782. Three
+  calls in it are yours: the "at that pace, about X% a year" sentence, the pool card's heading,
+  and the label "Fees earned". On upgrade day #776 conflicts with it on one sentence; the
+  resolved sentence is written in #782.
+- ⬜ **C-1009-7: small ones.** Finish the "Back to top" test flake. Correct the three BAYLA ladder
+  rows in `frontend/scripts/addresses.json` (both controls are the Squads vault now). Start the
+  vault upgrade pack for the ladder's 4-year change. Renew or update the advisory waivers before
+  2026-11-16. Built 2026-10-10: the "Back to top" flake is PR #788 and the ladder rows are
+  PR #785, both carried by train #796. The upgrade pack and the waivers are still open.
+- ⬜ **C-1009-8: housekeeping that needs a quiet moment.** Move the shared main folder onto trunk
+  (it sits on a September branch and has no CLAUDE.md), after its only-copy files are saved. One
+  dedicated worktree cleanup (230 exist): unlink every linked folder and prove it gone first.
+
+### Where swap fees go (read from the chain 2026-10-10), and what follows from it
+
+A swap in one of our own Solana pools costs the trader 1%: 0.84% stays in the pool for its
+liquidity providers and 0.16% is set aside for the venue. There is no claim for liquidity
+providers and there never will be one in this pool design: their part is added to the pool, and
+they receive it when they remove liquidity. A swap the site sends through Jupiter instead pays
+the site 0.5% where the route allows it. Opening a public pool costs 0.15 SOL. All three go to
+the team's two-signature vault. The BAYLA/SOL pool has had 3 swaps in its life (0.501 SOL in
+all); the BAYLA/USDC pool has had none.
+
+- ⬜ **O-1009-13: the real lever is volume.** Jupiter does not route through our pool program, so a
+  pool sees only the trades our own swap page sends it. Decide whether to ask Jupiter to list
+  our pools (parked since the pool redesign).
+- ⬜ **O-1009-14: the BAYLA/USDC pool sits about 8% above the market price** and has never traded.
+  Leave it, or bring it in line: whoever trades it first takes that gap from its liquidity
+  providers.
+- 🟡 **C-1009-9: money words on the Ethereum pages.** Three lines disagree with the chain (the
+  Liquidity page's "five sixths", the assistant's "0.5% flows to stakers", the FAQ's "starts
+  flowing when the native pool launches"), and four liquid-staking rates on the Solana swap page
+  are typed in, not read. Needs one read of the Ethereum fee settings first. Built: PR #789,
+  carried by train #796.
+- 🟡 **C-1009-10: two stale rows in `frontend/scripts/addresses.json`.** The swap-fee account it
+  names has never received a fee (they go to the vault's wrapped-SOL account
+  `2sa31zceMSTAAbSu5wfSnNA6sBYzS7r97nvZYaQouEXa`), and the launch tier reads 20% to the venue plus
+  a 0.05% creator fee on chain, not the 12% and none the row says. Built: PR #785, carried by
+  train #796.
+- 📌 The venue's cut waiting in the BAYLA/SOL pool is under 0.001 SOL. Collecting it takes a
+  two-signature proposal that costs more than it brings in. Leave it.
+
+### Ranges, one-coin adds and VWAP (researched 2026-10-10, outside facts checked at their sources)
+
+Today's pool program cannot do price ranges or true one-sided positions: it is constant product
+by design. Only one proven range program may lawfully be copied, Raydium's CLMM (Apache-2.0).
+Orca's licence forbids it since 2025-02-27, Meteora's range program is not published. All BAYLA
+markets together trade under $2,000 a day, so none of this creates volume.
+
+- ⬜ **O-1009-15: "add with one coin" on our own pools.** Website only, about a week: the site
+  swaps about half by the best-price rule, then adds both. Two calls are yours: always the
+  cheapest route for the person (recommended), and whether to waive the site's 0.5% on the
+  swapped half.
+- ⬜ **O-1009-16: a real range pool for BAYLA, yes or no.** The no-build test: open and seed one
+  BAYLA/SOL pool on Raydium's own range program and link to Raydium's screens. Raydium keeps 16%
+  of the fees and holds the keys, and that liquidity is not on our venue. A copy of that program
+  under our own name comes only after that test shows demand, with money for an outside review.
+- ⬜ **O-1009-17: which VWAP did you mean?** A number on the page (one small pull request, no
+  cost, from data the swap page already downloads), an order that spreads a trade over time
+  (only through Jupiter's newer, custodial system; our own robot or escrow program: no), or a
+  feed for others (needs our own chain indexing).
+- ⬜ **O-1009-18: a free Jupiter developer key.** The keyless Jupiter address the whole Solana side
+  uses is being retired, with no date given. A session cannot sign up for the key.
+- ⬜ **O-1009-19: one real small order from each Jupiter tab.** A $10 BAYLA limit order, watched to
+  a fill. Jupiter is winding down the older order system both tabs use.
+- ⬜ **C-1009-11: the DCA tab offers a BAYLA order that cannot work** (the program rejects
+  Token-2022 tokens, buying and selling). Say so before signing, and fix the minimum it quotes.
+  You started this as its own session on 2026-10-10. No pull request for it was open when this
+  line was written.
+- ⬜ **C-1009-12: our pool program is about three Raydium releases behind.** It still has a
+  four-token bypass list Raydium deleted in September. Assess it read-only; do not touch the
+  ready upgrade pack. You started this as its own session on 2026-10-10. No pull request for it
+  was open when this line was written.
+- 🟡 **C-1009-13: small liquidity-provider tools, no program needed.** After the earnings view: a
+  "what if the price moves" preview before adding, and add by percent of wallet. Built: PR #787,
+  carried by train #796.
+
+### Parked calls, none urgent
+
+Where the torches sit on rooms whose pool pays nothing (the island's fourth PR). When the card
+art becomes a pull request. Launch-pool calls 1 and 3, and a lawyer's read, before launching is
+ever switched on. The two Ethereum / Solana switchers on the swap page. Finish the EVM
+hand-overs or write down that the EVM side is shelved. The 2026-09-17 audit-ledger rulings. Fix
+the weekly Contracts Coverage job or switch it off.
+
+---
+
+## 🔴 2026-10-07: token names and pictures (`/mint/`): files first, then the chain
+
+The site serves a name and a picture for the BAYLA/SOL and BAYLA/USDC pool shares and for the
+Bayla Staking receipt at `https://memetics.finance/mint/<mint address>.json`. A wallet shows them
+only once that link is written on each token. **The files must be live before any link is
+written.** A wallet that follows a link before its file exists gets the app page, and may keep
+that answer.
+
+1. **Merge just after a half-hour tick.** The monitor runs from trunk at :00 and :30. A run that
+   lands between the merge and the end of the deploy opens a `prod-incident` issue for the five
+   token probes. It closes by itself on the next green run.
+2. **After the deploy, check the files.** From the repo root: `node scripts/monitoring/venueHealth.mjs`.
+   **You should see** `UP` on all five `Token file` lines.
+3. **Dry run the receipt name.** In `frontend`: `node scripts/streamflow-receipt-name.mjs`.
+   **You should see** `files           live:` and `simulation      passed`. `NOT LIVE YET` means
+   stop; the lines under it say why.
+4. **Only then broadcast**, with the key of the lighthouse pool's authority,
+   `Fu7mNAv67sRbKynEp7gpPLaaEGHcE2R5Sq89AMTEtTb6` (the dry run prints it under `pool authority`):
+   `node scripts/streamflow-receipt-name.mjs --broadcast --keypair <key file> --rpc <keyed endpoint>`.
+   About 0.00024 SOL. **You should see** `confirmed. signature ...`. If it says `not confirmed`, do
+   not send again: run the dry run, which reads what the chain holds now.
+5. **The two pool-share links are written by the pool program's new instruction, which any
+   wallet may call** once the program is upgraded (a separate change; the owner's upgrade pack
+   has the paying wallet send both). The vault only upgrades the program and renames the two
+   records afterwards. Nothing on the site side stops anyone writing a link from the moment the
+   upgrade executes, so steps 1 and 2 come first there too.
+
+**Four things to know afterwards.**
+
+- **Never roll production back past this change once a link is on chain.** Every link would
+  answer the app page again. The monitor notices within 30 minutes, but a wallet that asked in
+  between may keep the wrong answer. Fix forward.
+- **A picture is never deleted.** If one is redesigned, the generator (in `frontend`:
+  `node scripts/generate-mint-identity.mjs`, run by hand) stops and asks for the old file name to
+  be added to `RETIRED_PICTURES` in `frontend/scripts/lib/mint-identity.mjs`. The old address has
+  to keep answering a picture for any wallet that still holds yesterday's file.
+- **After PR #754 (sharp 0.35.5) merges, run the generator once** and check `git status` shows
+  nothing. On sharp 0.35.4 it writes the committed pictures byte for byte. No test re-runs it, so a
+  new sharp could draw different bytes, and with them new picture addresses, the next time someone
+  runs it. If it stops and names a picture, that has happened: commit nothing and say so.
+- **The off-GitHub failover runner does not check the token files.** `scripts/ops/lib/synthetic.mjs`
+  is a separate copy of the probes. During a GitHub outage nobody is watching `/mint/`.
+
+**Three calls that are yours.** All three are off chain: edit `frontend/scripts/lib/mint-identity.mjs`,
+run the generator, and only the JSON files change.
+
+- **The four descriptions.** One sentence was added to the receipt's on 2026-10-07: "The amount
+  shown is your stake multiplied by your lock boost, not a count of BAYLA." A wallet shows the
+  receipt count, and on 2026-10-07 there were about 3.1 receipts for each BAYLA staked. The words
+  are yours to change.
+- **The default picture** (`frontend/public/mint/img/pool-share-93eea003.png`, a pale ring). It is
+  not one of the three you approved. It can change freely until a pool's record points at it.
+- **Optional:** end each named description with its own mint address, so a copy of the file on
+  someone else's token contradicts itself. The default file answers for any address under `/mint/`.
+
+---
+
 ## 🔴 2026-10-02: turn on error reports (PR #466), in this order
 
 Approved by the owner on 2026-10-02, with two decisions: **reports are kept 30 days, then
@@ -152,13 +393,11 @@ start the task again. It should pull the new run and pass. The report is in
 **If GitHub is gone again,** this is not the list to follow: OPS_SCHEDULER.md section 5 moves the
 six jobs GitHub ran onto this PC (`register-tasks.ps1 -Failover`) and takes the backup by hand.
 
-**Found while testing (2026-09-30):** the failover `npm-advisories` job found six blocking
-advisories. GitHub's `npm-advisories` workflow uses the same gate, so it should fail on them too.
-This is the set seen on 2026-09-30; the next run may add more. `frontend`: `undici`
-GHSA-rfgv-xxqx-mfg5 and GHSA-w293-vg96-wgc3, and `brace-expansion` GHSA-6j4f-fj2g-mc7p and
-GHSA-qhr7-859c-m2p7. `indexer`: the same two `brace-expansion` advisories. All have a fix
-available. An agent can bump the dependencies, or triage them into
-`.github/npm-advisory-allowlist.json` with a reason.
+**Done 2026-10-07:** the six blocking advisories the failover `npm-advisories` job found on
+2026-09-30 (`undici` and `brace-expansion`) are gone from both audits, and GitHub's
+`npm advisories` workflow is green on the trunk for all three projects (`9e1b7b5e`). The next
+date is 2026-11-16: the baseline and both accepted entries expire together (GIT_HOSTING.md,
+section 8).
 
 ---
 
@@ -276,7 +515,53 @@ GIT_HOSTING.md, the runbook's four GitLab lines and `OUR_REPOS` in
 
 ## 🟡 2026-09-29: at the next cp-swap upgrade, point its on-chain security.txt at our own domain
 
-### ⬜ O-0929-10: four `security_txt!` fields, changed in the same commit as the upgrade
+### ⬜ O-0929-10: four `security_txt!` fields. In source since 2026-10-06, waiting for the upgrade
+
+**Where it stands (2026-10-06).** The values below are in the source, on the branch that adds
+`create_lp_metadata` (PR #758), and the stale comment is gone. **Nothing on chain has
+changed.** The program on mainnet shows the old text until the Squads vault upgrades it. The
+owner was asked "one upgrade or two" and delegated the call on 2026-10-06. The answer is ONE:
+the same upgrade carries the instruction and this text. Its gates and its order are in
+`solana/tegridy-amm/MAINNET_RUNBOOK.md`, section 4b. Tick this box when the explorer shows the
+new values, not before.
+
+**Where it stands (2026-10-08).** The source is on `mvp-launch` (pull request #758, merged at
+07:40 UTC). **Nothing on chain has changed.** That day the whole upgrade was rehearsed three
+times on a private copy of mainnet on this computer: making the program account larger,
+uploading the new program, both members approving through the local page, the two name
+records, the rename, and a roll-back. It has never been run on devnet, and never with your
+real wallets.
+
+Your command sheet is a folder outside the repo, called the pack:
+`C:\Users\jimbo\solana-launch-release-2026-09-26\pool-program-upgrade-2026-10`. **Do not start
+from it yet.** A second operator walked it cold on 2026-10-08 and found fifteen things to
+change. All fifteen were changed in the pack the same day. Three things have to be true
+first, and the first one now is:
+
+1. You have been told the pack's fixes are in and it has been walked again. **True since
+   2026-10-08.** Someone who wrote none of the fixes walked it again that day and found it
+   ready. The eight smaller things that walk found are fixed too, and the pack writes the
+   names you ruled that day, "Bayla LP SOL" and "Bayla LP USDC".
+2. The website wording that goes false on upgrade day is ready to ship with the upgrade
+   (runbook 4b, part C).
+3. O-0929-12 below is decided.
+
+The paying wallet needs about 3.854 SOL at its peak. About 3.68 SOL of that comes back the
+moment the upgrade executes, and about 0.21 SOL is spent for good. No wallet of ours held
+that much on 2026-10-08.
+
+**Do, when all three are true:** open the pack's first page.
+
+```powershell
+notepad "C:\Users\jimbo\solana-launch-release-2026-09-26\pool-program-upgrade-2026-10\START-HERE.md"
+```
+
+**You should see** Notepad open a page whose first line begins `# Start here`. Follow that
+page and nothing else. Never approve or execute the upgrade in the Squads app: only the
+pack's local page checks that the uploaded file is the reviewed one.
+
+What was rehearsed and what was not, every cost, and what to do when a step does not go as
+written: `solana/tegridy-amm/MAINNET_RUNBOOK.md`, section 4b.
 
 **What is wrong.** cp-swap has been live on mainnet since 2026-09-29
 (`EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT`). Explorers show its on-chain security.txt,
@@ -285,13 +570,16 @@ and no link in it does its job. Measured 2026-09-30: `policy` opens `SECURITY.md
 because `main` has no `solana/tegridy-amm`. `contacts` points at `memetic.fun/trust`, which is
 now another project's 404. And all three depend on one git host, which went dark from
 2026-09-24 to 2026-09-29. Only a program upgrade can change them. Do not upgrade for this alone.
+Read again 2026-10-06: GitHub no longer has a `main` branch, so `policy` is a `404` too. All
+three links in the live program's text now fail.
 
-**Do, in the commit that builds the next cp-swap upgrade:** in
-`solana/tegridy-amm/programs/cp-swap/src/lib.rs`, set the macro to exactly these values. The
-email is the `Contact:` in `frontend/public/.well-known/security.txt` on the day you build
-(today `fomotsar@gmail.com`; if they differ, use the file's). Then drop the stale "add a
-dedicated security disclosure email here" comment inside the macro, because the email is now
-there:
+**Done in source on 2026-10-06:** in `solana/tegridy-amm/programs/cp-swap/src/lib.rs`, the
+macro is set to exactly these values. The email is the `Contact:` in
+`frontend/public/.well-known/security.txt`, read on the day of the build
+(`fomotsar@gmail.com`). If that file's contact changes before the upgrade is built, the macro
+must follow it, and that is a new binary: rebuild, re-pin and re-run everything in runbook 4b.
+The stale "add a dedicated security disclosure email here" comment inside the macro is gone,
+because the email is now there:
 
 ```rust
 solana_security_txt::security_txt! {
@@ -310,24 +598,44 @@ solana_security_txt::security_txt! {
   that path). `/source/...` is a redirect in `frontend/vercel.json` to whichever git host holds
   the code, so a future host move is a `vercel.json` edit, never another program upgrade. Never
   put a git-host URL in a program binary again.
-- The edit changes cp-swap's diff against upstream Raydium, so move the diff-guard's
-  `EXPECTED_DELTA_SHA256` in the same commit. Start from the value on the deployed branch
-  (`ship/solana-launch-on`: `5c737ac7…`), not trunk's.
+- The edit changes cp-swap's diff against upstream Raydium, so the diff-guard's
+  `EXPECTED_DELTA_SHA256` moved in the same commit, from `2bbd1e55…` to `5d7baf26…`. The
+  pin's history: `5c737ac7…` is the delta of the binary on mainnet (the deployed branch,
+  `ship/solana-launch-on`). `c18d4d63…` and then `2bbd1e55…` came on 2026-10-06 with
+  `create_lp_metadata`, the instruction that names a pool's lp token. `5d7baf26…` adds this
+  text: eight changed lines, four of them these values and four of them comments.
+- These strings are in the binary, so the build that carries them (`99a9e73d…`, 724,688
+  bytes) is a different file from the build made earlier that day with the instruction alone
+  (`7648994d…`, 724,672 bytes). Runbook 4b has the full hash and what the upgrade costs.
+  Never deploy the earlier build: it still carries the dead links.
 
 **You should see**, before the upgrade:
 `curl -sI https://memetics.finance/source/solana/tegridy-amm/SECURITY.md` answers `307`, and
 its `location` opens that file on the git host. Check the file itself opens, not a `404` page
-or the repo root: GitLab answers a path it does not have with the repo root. After the
-upgrade, the explorer's security tab for the program shows the four new values.
+or the repo root: GitLab answers a path it does not have with the repo root. The same for
+`https://memetics.finance/source/solana/tegridy-amm`, which must open the folder. And
+`https://memetics.finance/.well-known/security.txt` must be the text file, with the same
+`Contact:` email as the macro. Read on 2026-10-06 (04:53 UTC on the 7th): all three did. Both
+`/source` links answered `307` and opened the real file and the real folder on GitHub's
+`mvp-launch`, and the text file was the committed one, byte for byte. The folder link takes
+one more hop: our redirect sends it to the host's `/blob/` address, and the host forwards a
+folder from there to `/tree/`. GitHub does, and so did the GitLab standby when read the same
+day. A third host may not, so test the folder link itself after any host move. Check again
+on the day.
+After the upgrade, the explorer's security tab for the program shows the four new values.
 
-### ⬜ O-0929-12: decide whether the two new Solana programs are in the root security scope
+### ✅ O-0929-12: the two Solana programs are in the root security scope (decided 2026-10-10)
 
 Root `SECURITY.md` lists what is in scope, and scope decides safe harbour. The two programs that
-went live on 2026-09-29 are not on that list: cp-swap `EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT`
-and tegridy-launch `64WBTeNcrSHfmBpiqymyifW6FUNNLvJcuiqF9rXmz4q2`. Their own policy,
-`solana/tegridy-amm/SECURITY.md`, takes reports at the same email. Decide, then either add them
-to the root list and to the "In scope" block of `frontend/public/.well-known/security.txt`, or
-say in both that they are out of scope.
+went live on 2026-09-29, cp-swap `EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT` and
+tegridy-launch `64WBTeNcrSHfmBpiqymyifW6FUNNLvJcuiqF9rXmz4q2`, are now on that list and in the
+"In scope" block of `frontend/public/.well-known/security.txt`. Both places say neither program
+is audited. Their own policy, `solana/tegridy-amm/SECURITY.md`, takes reports at the same email.
+
+**Why it had a deadline.** The pool program's upgrade (O-0929-10 above) puts a link to
+`https://memetics.finance/.well-known/security.txt` on chain. Until this change that file named
+no Solana program, so a researcher who followed the link from the program would have been told
+it was out of scope. This closes runbook 4b, gate A10, once the change is live on the site.
 
 ---
 
@@ -1354,16 +1662,21 @@ in this order. Detail and the traps are in `SOLANA_LP_VENUE_2026_08_29.md` §3.
    BUILD time, so setting it in Vercel does nothing to the site until a new build ships.
 
 Optional but cheap, and it protects the whole thing: **arm branch protection on `mvp-launch`.**
-`diff-guard` — which proves the AMM is still verbatim Raydium — has **zero required checks**, so it
+`diff-guard`, which proves the AMM differs from Raydium only by the pinned delta, has **zero required checks**, so it
 is advisory today. Unenforced, it is a comment.
 
 ### ⬜ REMAINING — an agent can do these alone, AFTER the deploy above
 
-1. **Wire execution against our own pool.** The instruction builders exist and are source-verified
-   (`lib/solana/cpswap/ix.ts`), but nothing sends them, because the program is not deployed and an
-   unexercised money path is the ledger's most common defect class. Moot until step 4 above: with
-   no venue, the router always picks the aggregator. CI's `migration-rehearsal` job is where these
-   builders get their first real execution.
+1. ~~**Wire execution against our own pool.**~~ **Built 2026-10-06**, on branch
+   `feat/solana-swap-routes-to-own-pool`; it is live once that branch is merged. The swap page
+   finds every pool of ours for the pair (the launch pool, the standard address on fee tier 1 and
+   on tier 0, and what the pool index names), prices each with its own tier's fee, and lets
+   `lib/solana/route.ts` pick: our pool unless Jupiter pays more, a tie stays here. When our pool
+   wins, Buy opens a review of a swap in that pool (`write/venueSwap.ts`, kind `venue-swap`), with
+   the same test run and Sign in wallet as liquidity. Both venues are quoted again when Buy is
+   pressed, and a route that changed is shown, not taken. Before this the page looked only at
+   tier 0's standard address, so the owner's BAYLA/SOL pool (tier 1) was never compared, and
+   every trade was sent to Jupiter whatever the line said.
 2. **The LP forms on `/pools`** — create-pool / deposit / withdraw. Same reason, same unblock.
 3. ⚠️ **PICK ONE HOME for cp-swap client code — this is the repo's THIRD "two
    implementations of one thing".** `lib/launcher/solana/curve/program.ts` grew

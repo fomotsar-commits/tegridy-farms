@@ -156,6 +156,45 @@ describe('curve buy', () => {
     expect(chain.calls).not.toContain('sendRawTransaction');
   });
 
+  it('a test run that could not run, a node behind on blockhashes, or an answer without the balances asked for is a read that failed, not a refusal', async () => {
+    const { chain, gate, curve } = await setup();
+    const buy = () => prepareCurveBuy(W(chain), gate, { trader: ME, mint: MINT, curve, lamportsIn: 300_000_000n, slippageBps: 100n });
+    const notSent = async () => {
+      const r = await buy();
+      if (r.ok) throw new Error('prepared');
+      return r.outcome;
+    };
+    chain.simulate = () => { throw new Error('HTTP 502'); };
+    expect(await notSent()).toMatchObject({ stage: 'simulate', retry: true });
+    chain.simulate = () => ({ err: 'BlockhashNotFound', logs: [] });
+    expect(await notSent()).toMatchObject({ stage: 'simulate', retry: true });
+    chain.simulate = () => ({ err: null, logs: [], unitsConsumed: 50_000 });
+    expect(await notSent()).toMatchObject({ stage: 'simulate', retry: true });
+    // A program that refused is a verdict.
+    chain.simulate = () => ({ err: { InstructionError: [3, { Custom: 6007 }] }, logs: [] });
+    expect((await notSent()).retry).toBeUndefined();
+  });
+
+  it('the second test run (of the final bytes) and the reads before the first are reads that failed too', async () => {
+    const { chain, gate, curve } = await setup();
+    const notSent = async () => {
+      const r = await prepareCurveBuy(W(chain), gate, { trader: ME, mint: MINT, curve, lamportsIn: 300_000_000n, slippageBps: 100n });
+      if (r.ok) throw new Error('prepared');
+      return r.outcome;
+    };
+    const base = chain.simulate;
+    const secondFails: (() => ReturnType<typeof base>)[] = [() => { throw new Error('HTTP 502'); }, () => ({ err: 'BlockhashNotFound', logs: [] })];
+    for (const second of secondFails) {
+      let n = 0;
+      chain.simulate = (v, c, ch) => ((n += 1) === 2 ? second() : base(v, c, ch));
+      expect(await notSent()).toMatchObject({ stage: 'simulate', retry: true });
+      expect(n).toBe(2);
+    }
+    chain.simulate = base;
+    chain.getLatestBlockhash = async () => { throw new Error('HTTP 429'); };
+    expect(await notSent()).toMatchObject({ stage: 'build', retry: true });
+  });
+
   it('refuses while paused, an over-5% price limit, and a zero price limit', async () => {
     const paused = await setup({ paused: true });
     let r = await prepareCurveBuy(W(paused.chain), paused.gate, { trader: ME, mint: MINT, curve: paused.curve, lamportsIn: 1n, slippageBps: 100n });

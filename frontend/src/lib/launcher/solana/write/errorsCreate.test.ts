@@ -7,7 +7,7 @@
 // codes under adding liquidity, and under a swap, keep the words they always had.
 import { describe, it, expect } from 'vitest';
 import { SYSTEM_PROGRAM_ID, TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID } from '../curve/program';
-import { CREATE_FAILURE_COPY, LP_FAILURE_COPY, createFailure, explainFailure } from './errors';
+import { CREATE_FAILURE_COPY, LP_FAILURE_COPY, LP_SHORT_OF_EITHER, createFailure, explainFailure } from './errors';
 import { CP_SWAP_ERROR_COPY } from '../../../solana/cpswap/errors';
 import { CPSWAP, cfgLocal } from './testkit.fixture';
 import type { TxKind } from './types';
@@ -65,17 +65,24 @@ describe('opening a pool: every failure row in its own words', () => {
     expect(say(cpLogs(hex), code, 'lp-create')).toBe(copy);
   });
 
-  it('a frozen token account, under either token program', () => {
+  // An opening spends the token AND what it is paired with. The log of a frozen account, or
+  // of one that ran short, does not say which side it was, so the words cover both: on a
+  // USDC pool it may be the USDC account.
+  it('a frozen account of yours, under either token program: the token’s, or the one for what it is paired with', () => {
     for (const id of [TOKEN_PROGRAM_ID.toBase58(), TOKEN_2022_PROGRAM_ID.toBase58()]) {
       const logs = [`Program ${CP} invoke [1]`, `Program ${id} invoke [2]`, failed(id, '11'), failed(CP, '11')];
       expect(say(logs, 17, 'lp-create')).toBe(CREATE_FAILURE_COPY.accountFrozen);
     }
+    expect(CREATE_FAILURE_COPY.accountFrozen).toBe(
+      'Your account for the token, or for what it is paired with, is frozen by its issuer, so nothing can move out of it. Nothing was opened.',
+    );
   });
 
-  it('the general rules still answer the rest: too few tokens, too little SOL', () => {
-    const id = TOKEN_PROGRAM_ID.toBase58();
-    expect(say([`Program ${id} invoke [2]`, failed(id, '1'), failed(CP, '1')], 1, 'lp-create')).toBe('You do not hold that many tokens.');
-    const poor = [`Program ${SYS} invoke [2]`, 'Transfer: insufficient lamports 5, need 150000000', failed(SYS, '1'), failed(CP, '1')];
+  it('too little of either side, and too little SOL', () => {
+    for (const id of [TOKEN_PROGRAM_ID.toBase58(), TOKEN_2022_PROGRAM_ID.toBase58()]) {
+      expect(say([`Program ${id} invoke [2]`, failed(id, '1'), failed(CP, '1')], 1, 'lp-create')).toBe(LP_SHORT_OF_EITHER);
+    }
+    const poor =[`Program ${SYS} invoke [2]`, 'Transfer: insufficient lamports 5, need 150000000', failed(SYS, '1'), failed(CP, '1')];
     expect(say(poor, 1, 'lp-create')).toMatch(/does not have enough SOL/);
   });
 

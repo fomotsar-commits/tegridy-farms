@@ -165,29 +165,45 @@ test('with the pool index down, the page checks the addresses it can work out an
   await a.ctx.close();
 });
 
-test('a freezable token is blocked, its pool refuses deposits, and Jupiter is never asked about it', async ({ browser }) => {
+// Owner ruling 2026-10-04: a token its creator can freeze was blocked here, its pool refused
+// deposits, and Jupiter was never asked for its price. It is allowed now, with a warning on
+// the token and again on its pool, and its price is checked like any other token's.
+test('a freezable token is allowed with a warning, on the token and on its pool, which takes deposits; Jupiter is asked for its price', async ({ browser }) => {
   const a = await actor(browser);
   await openFor(a.page, freezable);
   const p = a.page;
-  await expect(ui.lp.safety(p)).toHaveAttribute('data-verdict', 'blocked');
-  await expect(ui.lp.safety(p)).toContainText('can still freeze token accounts');
-  await expect(ui.lp.safety(p)).toContainText(stranger.publicKey.toBase58()); // the freeze authority, named
-  await expect(poolCard(p, freezePool.address)).toHaveAttribute('data-deposits', 'refused');
-  await expect(poolCard(p, freezePool.address)).toContainText('Standard address, fee tier 0');
-  await expect(ui.lp.status(p)).toContainText('blocked on this site');
-  expect(a.jup.asked).not.toContain(freezable.toBase58());
+  await expect(ui.lp.safety(p)).toHaveAttribute('data-verdict', 'warn');
+  // The freeze authority is named, and what it can do to a pool is said.
+  await expect(ui.lp.safety(p)).toContainText(
+    `Its creator can freeze any account that holds it (freeze authority ${stranger.publicKey.toBase58()}), a pool’s own vault and your own account included. While a pool’s vault is frozen, nobody can take liquidity out of that pool.`,
+  );
+  const card = poolCard(p, freezePool.address);
+  await expect(card).toContainText('Standard address, fee tier 0');
+  await expect(card).toHaveAttribute('data-price', 'agrees');
+  await expect(card).toHaveAttribute('data-deposits', 'allowed');
+  // Never a clean pass: the heading says there are warnings, and the pool's own is listed under it.
+  await expect(card).toContainText('Deposits: the checks pass, with warnings');
+  await expect(ui.lp.poolWarnings(card)).toContainText(
+    'Its creator can freeze the vault of this pool, and while it is frozen nobody can take liquidity out, you included. They can also freeze your own account for the token.',
+  );
+  await expect(ui.lp.status(p)).toHaveText('One pool found for this token.');
+  expect(a.jup.asked, 'its price is checked against Jupiter now').toContain(freezable.toBase58());
   expect(a.rpc.violations).toEqual([]);
   await a.ctx.close();
 });
 
-test('a Token-2022 token with a transfer hook is refused, and it has no pool', async ({ browser }) => {
+test('a Token-2022 token with a transfer hook is refused, it has no pool, and Jupiter is never asked about it', async ({ browser }) => {
   const a = await actor(browser);
   await openFor(a.page, hooked);
   const p = a.page;
   await expect(ui.lp.safety(p)).toHaveAttribute('data-verdict', 'blocked');
   await expect(ui.lp.safety(p)).toContainText('Token-2022');
   await expect(ui.lp.safety(p)).toContainText('a transfer hook');
+  // The words say whose limit it is: the pool program's own, so a pool for it could not exist.
+  await expect(ui.lp.safety(p)).toContainText('The pool program does not accept tokens with it.');
   await expect(ui.lp.noPools(p)).toBeVisible();
+  // A blocked token is never priced: there is nothing to check a price for.
+  expect(a.jup.asked).not.toContain(hooked.toBase58());
   expect(a.rpc.violations).toEqual([]);
   await a.ctx.close();
 });
@@ -208,7 +224,9 @@ test('your positions: the wallet’s own pool share, read from its token account
   const pct = ((Number(lpHeld) / Number(pool.lpSupply)) * 100).toFixed(4);
   await expect(row).toContainText(`${pct}%`);
   await expect(row).toContainText('no problems found');
-  await expect(row).toContainText(clean.toBase58());
+  // The row prints addresses short, with the whole one a press away: a token the site has no room for heads it by its short address.
+  const mint = clean.toBase58();
+  await expect(row).toContainText(`${mint.slice(0, 4)}…${mint.slice(-4)} / SOL`);
   expect(a.wallet!.records, 'reading positions put nothing in front of the wallet').toEqual([]);
   expect(a.rpc.violations).toEqual([]);
   await a.ctx.close();

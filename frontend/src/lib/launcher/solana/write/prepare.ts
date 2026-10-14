@@ -1,25 +1,9 @@
-// The one path every write takes from "instructions" to "ready to sign".
-//
-// Six kinds of transaction are built here (create, curve buy, curve sell,
-// graduate, pool buy, pool sell) and all of them pass through
-// `buildAndSimulate`, so every protection is structural rather than remembered per
-// button:
-//
-//   1. a fresh blockhash and its last valid block height;
-//   2. the signer's balances read BEFORE anything runs;
-//   3. a first simulation at the maximum compute limit and no priority fee. Any
-//      error stops here with the failing program's own reason, and no wallet is
-//      asked for anything;
-//   4. the final transaction: compute limit from that simulation, a capped
-//      priority fee;
-//   5. every instruction decoded back out of the final transaction and checked
-//      against the shapes this site builds (`intent.ts`);
-//   6. a second simulation, of the FINAL bytes, whose effect on the signer's own
-//      SOL and token balances must fall inside what the review screen says. If it
-//      does not, the action is blocked;
-//   7. the summary the review renders is built from the decoded instructions.
-//
-// Nothing here signs or sends.
+// The one path every write takes from "instructions" to "ready to sign" (`buildAndSimulate`):
+// a fresh blockhash, the signer's balances read first, a simulation at the compute ceiling,
+// the final transaction (limit from that run, a capped priority fee) decoded back and checked
+// against the shapes this site builds (intent.ts), then a second simulation of the final bytes
+// whose effect on the signer's balances must sit inside the review's bounds. The review is
+// built from the decoded steps. A read that could not run is `notRead`, never a verdict.
 
 import {
   PublicKey,
@@ -94,6 +78,15 @@ export interface BuildSpec {
 const notSent = (stage: NotSent['stage'], message: string, logs?: string[]): { ok: false; outcome: NotSent } => ({
   ok: false,
   outcome: { status: 'not-sent', stage, message, ...(logs && logs.length ? { logs } : {}) },
+});
+
+/** A node that did not know the blockhash just read from it is behind, not a verdict. */
+const lagged = (sim: { err?: unknown }): boolean => sim.err === 'BlockhashNotFound';
+
+/** Not sent because a read or a check could not run: no verdict on the transaction. */
+const notRead = (stage: NotSent['stage'], message: string): { ok: false; outcome: NotSent } => ({
+  ok: false,
+  outcome: { status: 'not-sent', stage, message, retry: true },
 });
 
 function tokenAmount(data: Uint8Array | null | undefined): bigint | null {
@@ -267,7 +260,7 @@ export async function buildAndSimulate(rpc: WriteRpc, spec: BuildSpec): Promise<
     pre = preState;
     rents = { tokenAccount: BigInt(tokenRent) };
   } catch (e) {
-    return notSent('build', `Could not read the network to prepare this: ${clipDetail(e)}`);
+    return notRead('build', `Could not read the network to prepare this: ${clipDetail(e)}`);
   }
 
   // Pass 1: find the units, at the ceiling and no priority fee.
@@ -275,11 +268,11 @@ export async function buildAndSimulate(rpc: WriteRpc, spec: BuildSpec): Promise<
   try {
     first = await simulate(rpc, assemble(signer, blockhash, lastValidBlockHeight, MAX_COMPUTE_UNITS, 0n, spec.body), null);
   } catch (e) {
-    return notSent('simulate', `Could not run the safety check: ${clipDetail(e)}`);
+    return notRead('simulate', `Could not run the safety check: ${clipDetail(e)}`);
   }
   if (!first.ok) {
     const why = explainFailure(first.err, first.logs, spec.intent.cfg, spec.kind);
-    return notSent('simulate', why.message, first.logs);
+    return lagged(first) ? notRead('simulate', why.message) : notSent('simulate', why.message, first.logs);
   }
 
   const limit = computeLimitFromSimulation(first.unitsConsumed, spec.computeFloor ?? 0);
@@ -304,15 +297,16 @@ export async function buildAndSimulate(rpc: WriteRpc, spec: BuildSpec): Promise<
   try {
     second = await simulate(rpc, tx, spec.watch);
   } catch (e) {
-    return notSent('simulate', `Could not run the safety check: ${clipDetail(e)}`);
+    return notRead('simulate', `Could not run the safety check: ${clipDetail(e)}`);
   }
   if (!second.ok) {
     const why = explainFailure(second.err, second.logs, spec.intent.cfg, spec.kind);
-    return notSent('simulate', why.message, second.logs);
+    return lagged(second) ? notRead('simulate', why.message) : notSent('simulate', why.message, second.logs);
   }
 
   const effect = simulatedEffect(spec.watch, pre, second.accounts);
-  if (typeof effect === 'string') return notSent('simulate', `The safety check could not confirm this: ${effect}.`);
+  // The node left out what it was asked for: no verdict on the transaction.
+  if (typeof effect === 'string') return notRead('simulate', `The safety check could not confirm this: ${effect}.`);
 
   const baseLamports = baseFeeLamports(tx);
   const priorityFee = priorityLamports(priority.microLamports, limit);
@@ -350,4 +344,4 @@ export function bodySteps(steps: IntentStep[]): IntentStep[] {
   return steps.filter((s) => s.kind !== 'compute-limit' && s.kind !== 'compute-price');
 }
 
-export { notSent };
+export { notSent, notRead };

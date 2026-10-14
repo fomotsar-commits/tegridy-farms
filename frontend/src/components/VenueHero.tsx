@@ -25,7 +25,7 @@ export function VenueHero() {
 
   return (
     <>
-      <h1 className="heading-luxury text-3xl md:text-6xl text-white leading-[1.1] tracking-tight mb-4">
+      <h1 className="heading-luxury text-[clamp(1.25rem,7.4vw,1.875rem)] md:text-6xl text-white leading-[1.1] tracking-tight mb-4">
         {/* A real space before the break: a <br> is not text, so without it a screen
             reader or an unfurl reads "MEMETICS.FINANCEHeld". */}
         {VENUE.heroTitle}{' '}<br /><span className="text-white">{VENUE.heroLine}</span>

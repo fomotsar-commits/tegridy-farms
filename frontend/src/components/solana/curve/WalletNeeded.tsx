@@ -45,7 +45,8 @@ export function WalletAppHint() {
       {here && (
         <>
           {' '}
-          <CopyButton text={here} display="Copy this page's link" className="underline text-white/60" />
+          {/* A 44px press target: as a bare word in the sentence it was 16px tall on a phone (local-chain suite, 2026-10-04). */}
+          <CopyButton text={here} display="Copy this page's link" className="underline text-white/60 min-h-[44px]" />
         </>
       )}
     </p>

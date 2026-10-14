@@ -1,8 +1,10 @@
 // Polyfill MUST load before any @solana/* import, the same rule as SolanaProviders.
 import '../lib/solanaPolyfill';
 import { useCallback, useEffect, useState } from 'react';
-import { browserCurveRpc } from '../lib/launcher/solana/curve/rpc';
+import { browserCurveRpc, browserRpc } from '../lib/launcher/solana/curve/rpc';
 import { readVenue, type VenueStatus } from '../lib/solana/cpswap/read';
+import { lpFetch } from '../lib/solana/lp/readFetch';
+import { noteResponse } from '../lib/solana/lp/rpcBudget';
 
 /**
  * The venue's Solana AMM, read live from the chain: null while reading. A read that
@@ -15,7 +17,7 @@ export function useVenueStatus(): { status: VenueStatus | null; refresh: () => v
 
   useEffect(() => {
     let cancelled = false;
-    readVenue(browserCurveRpc())
+    readVenue(browserCurveRpc(browserRpc(lpFetch({ what: 'the chain', onResponse: noteResponse }))))
       .then((s) => { if (!cancelled) setStatus(s); })
       .catch(() => {
         if (!cancelled) setStatus({ kind: 'unreadable', detail: 'the RPC proxy did not answer' });

@@ -18,9 +18,12 @@ import {
 } from '../../../solana/cpswap/program';
 import { lpTokensToTradingTokens } from '../../../solana/cpswap/math';
 import { spendableSol } from '../../../solana/lp/liquidityMath';
+import { estimatedLoss } from '../../../solana/lp/opening';
 import { assessPool } from '../../../solana/lp/poolHealth';
-import { classifyToken } from '../../../solana/lp/tokenSafety';
+import { BUILDABLE_EXTENSIONS, EXTENSION, classifyToken } from '../../../solana/lp/tokenSafety';
+import { observationBytes } from '../../../solana/lp/testkit.fixture';
 import type { OutsidePrice } from '../../../solana/lp/outsidePrice';
+import { METAPLEX_TOKEN_METADATA_ID, metadataPda } from './metaplex';
 import {
   LP_COPY,
   LP_FEE_RESERVE,
@@ -52,6 +55,7 @@ import {
   type SimHandler,
 } from './testkit.fixture';
 import type { LpOpenGate, PreparedTx, WriteRpc, LpDepositSummary, LpWithdrawSummary, IntentStep } from './types';
+import { SOL_QUOTE } from '../../../solana/lp/quotes';
 
 const W = (c: FakeChain) => c as unknown as WriteRpc;
 const ME = Keypair.generate().publicKey;
@@ -66,6 +70,31 @@ const METADATA_ONLY: Array<[number, number]> = [[EXT.MetadataPointer, 64], [EXT.
 
 const priced = (solPerToken = 0.01): LpPrepareReads => ({ outsidePrice: async () => ({ kind: 'ok', solPerToken, source: 'Jupiter' }) });
 const answering = (o: OutsidePrice): LpPrepareReads => ({ outsidePrice: async () => o });
+const NO_ROUTE: OutsidePrice = { kind: 'no-route', detail: 'Jupiter has no route for this token' };
+
+/** The body length each Token-2022 mint extension needs to decode (the two name ones); any other is opaque here. */
+const extensionOf = (type: number): [number, number] => [type, type === EXTENSION.MetadataPointer ? 64 : type === EXTENSION.TokenMetadata ? 76 : 8];
+/** A Token-2022 mint's extra beyond its name and picture. */
+const withExtra = (type: number): Array<[number, number]> => [extensionOf(type), ...METADATA_ONLY];
+
+function str(s: string): number[] {
+  const b = Buffer.from(s, 'utf8');
+  return [b.length & 255, (b.length >> 8) & 255, 0, 0, ...b];
+}
+/** Gives the token a Metaplex name record (key 4), immutable. */
+function nameToken(chain: FakeChain, mint: PublicKey, name: string, symbol: string): void {
+  const data = Uint8Array.from([4, ...Keypair.generate().publicKey.toBytes(), ...mint.toBytes(), ...str(name), ...str(symbol), ...str('https://x.test/a.json'), 0, 0, 0, 0, 0]);
+  chain.set(metadataPda(mint), { lamports: 1, owner: METAPLEX_TOKEN_METADATA_ID, data });
+}
+
+const NO_MARKET_DEPOSIT =
+  'Jupiter has no market price for this token, so this pool’s price was not checked against anything. If it is off, a deposit here hands the difference to whoever trades it back.';
+const COPY_DEPOSIT =
+  'It calls itself by a well-known token’s name but has a different mint, so it is not that token. If the copy turns out to be worth nothing, so is your share of this pool.';
+const FREEZE_DEPOSIT =
+  'Its creator can freeze the vault of this pool, and while it is frozen nobody can take liquidity out, you included. They can also freeze your own account for the token.';
+const AMOUNTS =
+  'The amount a wallet displays for this token changes over time. This site shows and moves raw token units, so check the amounts against your wallet before you sign.';
 
 // ── the simulator: the pool program's own maths on the fake chain ─────────────
 
@@ -159,6 +188,8 @@ function world(o: {
   tokenProgram?: PublicKey;
   mintExtensions?: Array<[number, number]>;
   mintDecimals?: number;
+  /** The decimals the POOL records for the token (default 6). */
+  poolDecimals?: number;
   freezeAuthority?: PublicKey;
   sol?: bigint;
   tokens?: bigint;
@@ -192,6 +223,7 @@ function world(o: {
     tokenProgram,
     frozenTokenVault: o.frozenTokenVault,
     record: o.record,
+    ...(o.poolDecimals === undefined ? {} : { tokenDecimals: o.poolDecimals }),
   });
   setClock(chain, NOW);
   chain.fund(ME, Number(o.wallet ?? 20n * 10n ** 9n));
@@ -212,7 +244,8 @@ const depositArgs = (w: World, o: Partial<Parameters<typeof prepareLpDeposit>[3]
   owner: ME,
   pool: w.pool.address,
   tokenMint: w.mint,
-  driving: 'sol' as const,
+  quoteMint: WSOL_MINT,
+  driving: 'quote' as const,
   maxIn: 100_000_000n,
   slippageBps: 100n,
   shownOtherMax: null,
@@ -223,6 +256,7 @@ const withdrawArgs = (w: World, o: Partial<Parameters<typeof prepareLpWithdraw>[
   owner: ME,
   pool: w.pool.address,
   tokenMint: w.mint,
+  quoteMint: WSOL_MINT,
   lpAccount: w.lpAta,
   pctBps: 5_000n,
   slippageBps: 100n,
@@ -262,7 +296,7 @@ describe('readPoolForWrite: one read for the maths', () => {
       asked.push(keys.map((k) => k.toBase58()));
       return orig(keys);
     };
-    const snap = (await readPoolForWrite(W(w.chain), cfgLocal, { pool: w.pool.address, tokenMint: w.mint, owner: ME })) as WriteSnapshot;
+    const snap = (await readPoolForWrite(W(w.chain), cfgLocal, { pool: w.pool.address, tokenMint: w.mint, quote: SOL_QUOTE, owner: ME })) as WriteSnapshot;
     expect(typeof snap).toBe('object');
     expect(asked).toHaveLength(1);
     expect(asked[0]).toHaveLength(13);
@@ -271,14 +305,18 @@ describe('readPoolForWrite: one read for the maths', () => {
     expect(w.chain.calls.filter((c) => c === 'getAccountInfo')).toHaveLength(1);
     expect(w.chain.calls.filter((c) => c === 'getMinimumBalanceForRentExemption')).toHaveLength(3);
     expect(snap.view.snapshot.reserve0 + snap.view.snapshot.reserve1).toBe(SOL_RESERVE + TOKEN_RESERVE);
-    expect(snap.rents).toEqual({ walletFloor: BigInt(rent(0)), tokenAccount165: BigInt(rent(165)), tokenAccountForMint: BigInt(rent(165)) });
+    // A SOL pool: the wrapped-SOL account is a classic one, so its rent is the 165 read, with no fourth read.
+    expect(snap.rents).toEqual({ walletFloor: BigInt(rent(0)), tokenAccount165: BigInt(rent(165)), tokenAccountForMint: BigInt(rent(165)), quoteAccount: BigInt(rent(165)) });
+    expect(snap.quote).toBe(SOL_QUOTE);
+    expect(snap.quoteMint).toBeNull();
+    expect(snap.quoteAccount.address.equals(w.wsolAta)).toBe(true);
     expect(snap.chainNow).toBe(NOW);
   });
 
   it('a recorded vault, LP mint or price record that is not the one the address gives is refused (one per field)', async () => {
     for (const field of ['token0Vault', 'token1Vault', 'lpMint', 'observationKey'] as const) {
       const w = world({ record: { [field]: Keypair.generate().publicKey } });
-      const r = await readPoolForWrite(W(w.chain), cfgLocal, { pool: w.pool.address, tokenMint: w.mint, owner: ME });
+      const r = await readPoolForWrite(W(w.chain), cfgLocal, { pool: w.pool.address, tokenMint: w.mint, quote: SOL_QUOTE, owner: ME });
       expect(r, field).toMatch(/no longer matches what the page read/);
     }
   });
@@ -288,7 +326,7 @@ describe('readPoolForWrite: one read for the maths', () => {
     w.chain.getMultipleAccountsInfo = async () => {
       throw new Error('HTTP 502');
     };
-    expect(await readPoolForWrite(W(w.chain), cfgLocal, { pool: w.pool.address, tokenMint: w.mint, owner: ME })).toBe(POOL_READ_FAILED);
+    expect(await readPoolForWrite(W(w.chain), cfgLocal, { pool: w.pool.address, tokenMint: w.mint, quote: SOL_QUOTE, owner: ME })).toBe(POOL_READ_FAILED);
     expect(refused(await deposit(w))).toBe(LP_COPY.depositPoolUnread);
     expect(refused(await withdraw(w))).toBe(LP_COPY.withdrawPoolUnread);
   });
@@ -297,16 +335,16 @@ describe('readPoolForWrite: one read for the maths', () => {
     const w = world();
     const acc = w.chain.accounts.get(w.pool.address.toBase58())!;
     w.chain.set(w.pool.address, { ...acc, owner: STRANGER });
-    expect(await readPoolForWrite(W(w.chain), cfgLocal, { pool: w.pool.address, tokenMint: w.mint, owner: ME })).toMatch(/not owned by the pool program/);
+    expect(await readPoolForWrite(W(w.chain), cfgLocal, { pool: w.pool.address, tokenMint: w.mint, quote: SOL_QUOTE, owner: ME })).toMatch(/not owned by the pool program/);
     const v = world();
-    expect(await readPoolForWrite(W(v.chain), cfgLocal, { pool: v.pool.address, tokenMint: Keypair.generate().publicKey, owner: ME })).toBe(LP_COPY.notThisPair);
+    expect(await readPoolForWrite(W(v.chain), cfgLocal, { pool: v.pool.address, tokenMint: Keypair.generate().publicKey, quote: SOL_QUOTE, owner: ME })).toBe(LP_COPY.notThisPair('SOL'));
   });
 });
 
 describe('poolPins', () => {
   async function view() {
     const w = world();
-    const snap = (await readPoolForWrite(W(w.chain), cfgLocal, { pool: w.pool.address, tokenMint: w.mint, owner: ME })) as WriteSnapshot;
+    const snap = (await readPoolForWrite(W(w.chain), cfgLocal, { pool: w.pool.address, tokenMint: w.mint, quote: SOL_QUOTE, owner: ME })) as WriteSnapshot;
     return { w, view: snap.view };
   }
 
@@ -322,11 +360,11 @@ describe('poolPins', () => {
 
   it('refuses SOL under the Token-2022 program, the wrong token, and a token under an unknown program', async () => {
     const { w, view: v } = await view();
-    const solSide = v.solIsToken0 ? 'token0Program' : 'token1Program';
-    const tokSide = v.solIsToken0 ? 'token1Program' : 'token0Program';
+    const solSide = v.quoteIsToken0 ? 'token0Program' : 'token1Program';
+    const tokSide = v.quoteIsToken0 ? 'token1Program' : 'token0Program';
     const withPool = (over: Partial<typeof v.snapshot.pool>) => ({ ...v, snapshot: { ...v.snapshot, pool: { ...v.snapshot.pool, ...over } } });
     expect(poolPins(cfgLocal, withPool({ [solSide]: TOKEN_2022_PROGRAM_ID.toBase58() }), { tokenMint: w.mint, lpAccount: w.lpAta })).toMatch(/SOL side/);
-    expect(poolPins(cfgLocal, v, { tokenMint: Keypair.generate().publicKey, lpAccount: w.lpAta })).toBe(LP_COPY.notThisPair);
+    expect(poolPins(cfgLocal, v, { tokenMint: Keypair.generate().publicKey, lpAccount: w.lpAta })).toBe(LP_COPY.notThisPair('SOL'));
     expect(poolPins(cfgLocal, withPool({ [tokSide]: Keypair.generate().publicKey.toBase58() }), { tokenMint: w.mint, lpAccount: w.lpAta })).toMatch(/program this site does not know/);
   });
 });
@@ -339,8 +377,8 @@ describe('prepareLpDeposit', () => {
     const p = ok(await deposit(w));
     expect(p.kind).toBe('lp-deposit');
     const s = p.summary as LpDepositSummary;
-    expect(s.max.sol).toBe(100_000_000n);
-    expect(s.quoted.sol <= s.max.sol && s.quoted.token <= s.max.token).toBe(true);
+    expect(s.max.quote).toBe(100_000_000n);
+    expect(s.quoted.quote <= s.max.quote && s.quoted.token <= s.max.token).toBe(true);
     expect(s.max.token).toBeLessThan(2n ** 64n - 1n);
     expect(s.lpAmount).toBeGreaterThan(0n);
     expect(s.unwrapsWsol).toBe(true);
@@ -350,6 +388,11 @@ describe('prepareLpDeposit', () => {
     expect(p.check.intent).toMatchObject({ kind: 'lp-deposit' });
     // The pool shares and the wrapped SOL are watched, each in its own decimals.
     expect(p.check.watch.tokenAccounts.map((t) => [t.role, t.decimals])).toEqual([['token', 6], ['lp', 9], ['wsol', 9]]);
+    // A clean token at the market price: nothing to warn of, and no price gap.
+    expect(s.price).toMatchObject({ state: 'agrees', against: 'outside' });
+    expect(s.warnings).toEqual([]);
+    expect(s.priceGap).toBeNull();
+    expect(s.tokenWarnings.map((x) => x.code)).toEqual(['no-metadata']);
   });
 
   it('refused while adding is paused (withdraw-only); a withdrawal from the same pool still prepares', async () => {
@@ -358,32 +401,179 @@ describe('prepareLpDeposit', () => {
     ok(await withdraw(w, {}, WITHDRAW_ONLY));
   });
 
-  it('refused when the price was pushed after the card read it (the card said allowed; the fresh read is 4% off)', async () => {
-    const w = world();
-    const first = (await readPoolForWrite(W(w.chain), cfgLocal, { pool: w.pool.address, tokenMint: w.mint, owner: ME })) as WriteSnapshot;
-    const safety = classifyToken(w.mint.toBase58(), first.mint, first.metaplex);
-    expect(assessPool({ view: first.view, tokenDecimals: 6, chainNow: NOW, outside: { kind: 'ok', solPerToken: 0.01, source: 'Jupiter' }, safety }).deposits.verdict).toBe('allowed');
-    // Someone pushes the pool's SOL side up 4% before Review.
-    w.chain.tokenAccount(w.pool.solVault, WSOL_MINT, new PublicKey(w.chain.accounts.get(w.pool.solVault.toBase58())!.data.subarray(32, 64)), (SOL_RESERVE * 104n) / 100n);
-    expect(refused(await deposit(w))).toMatch(/^We did not build this deposit: Its price is 4\.0% above the outside price/);
+  // The loss is worked out with the TOKEN's own decimals. Every other loss test here uses
+  // a 6-decimal token, so a builder that assumed 6 passed them all (review, 2026-10-04).
+  it('a 9-decimal token: the estimated loss uses the token’s own decimals', async () => {
+    // 10 SOL against 1,000 whole tokens of 9 decimals: 0.01 SOL a token. The market says 0.0096.
+    const w = world({ mintDecimals: 9, poolDecimals: 9, tokens: 1_000n * 10n ** 9n, heldTokens: 10_000n * 10n ** 9n });
+    const s = ok(await deposit(w, {}, priced(0.0096))).summary as LpDepositSummary;
+    expect(s.tokenDecimals).toBe(9);
+    expect(s.price).toMatchObject({ state: 'disagrees', against: 'outside' });
+    const loss = estimatedLoss({ quoteAmount: s.quoted.quote, token: s.quoted.token, tokenDecimals: 9, marketPricePerToken: 0.0096, quote: SOL_QUOTE })!;
+    expect(s.priceGap!.lossQuote).toBe(loss);
+    // Read as 6 decimals the tokens would count a thousand times over, and so would the loss.
+    expect(loss).not.toBe(estimatedLoss({ quoteAmount: s.quoted.quote, token: s.quoted.token, tokenDecimals: 6, marketPricePerToken: 0.0096, quote: SOL_QUOTE }));
+    expect(loss).toBeGreaterThan(0n);
+    expect(loss).toBeLessThan(s.quoted.quote / 1_000n);
   });
 
-  it('refused when the outside price cannot be read at prepare, or the read throws', async () => {
+  // Owner ruling 2026-10-04: a price that is off is a warning. The gap and the estimated
+  // loss come from the builder's own fresh reads, not from what the card showed.
+  it('a price pushed after the card read it (the card saw it agree; the fresh read is 4% off) builds, with the gap and the estimated loss from the fresh read', async () => {
+    const w = world();
+    const first = (await readPoolForWrite(W(w.chain), cfgLocal, { pool: w.pool.address, tokenMint: w.mint, quote: SOL_QUOTE, owner: ME })) as WriteSnapshot;
+    const safety = classifyToken(w.mint.toBase58(), first.mint, first.metaplex);
+    const card = assessPool({ view: first.view, tokenDecimals: 6, chainNow: NOW, outside: { kind: 'ok', solPerToken: 0.01, source: 'Jupiter' }, safety });
+    expect(card.deposits).toEqual({ verdict: 'allowed', reasons: [], warnings: [] });
+    // Someone pushes the pool's SOL side up 4% before Review.
+    w.chain.tokenAccount(w.pool.solVault, WSOL_MINT, new PublicKey(w.chain.accounts.get(w.pool.solVault.toBase58())!.data.subarray(32, 64)), (SOL_RESERVE * 104n) / 100n);
+    const s = ok(await deposit(w)).summary as LpDepositSummary;
+    expect(s.price).toMatchObject({ state: 'disagrees', against: 'outside' });
+    expect(s.priceGap!.diff).toBeCloseTo(0.04, 9);
+    // The loss is worked out from the amounts that go in, against the price just read, rounded up.
+    const loss = estimatedLoss({ quoteAmount: s.quoted.quote, token: s.quoted.token, tokenDecimals: 6, marketPricePerToken: 0.01, quote: SOL_QUOTE })!;
+    expect(s.priceGap!.lossQuote).toBe(loss);
+    expect(loss).toBeGreaterThan(0n);
+    // About 0.1 SOL at 4% off costs about 0.00002 SOL, never more than what goes in.
+    expect(loss).toBeLessThan(s.quoted.quote / 1_000n);
+    expect(s.warnings).toEqual([
+      'Its price is 4.0% above the outside price. A deposit here would hand that gap to the first arbitrage trade.',
+      `At these amounts, a move back to the outside price would take up to about ${(Number(loss) / 1e9).toFixed(9).replace(/0+$/, '')} SOL of what you put in. That is an estimate.`,
+    ]);
+  });
+
+  it('the estimated loss never decides anything: a pool 50% off still builds, and the transaction is the one a pool at the market gets', async () => {
+    const at = async (reads: LpPrepareReads) => ok(await deposit(world(), {}, reads));
+    const fair = await at(priced(0.01));
+    const off = await at(priced(0.02));
+    const [f, o] = [fair.summary as LpDepositSummary, off.summary as LpDepositSummary];
+    expect(o.priceGap!.diff).toBeCloseTo(-0.5, 9);
+    expect(o.priceGap!.lossQuote).toBeGreaterThan(0n);
+    expect(f.priceGap).toBeNull();
+    // The same shares, the same limits, the same bounds on what may leave.
+    expect([o.lpAmount, o.max, o.quoted]).toEqual([f.lpAmount, f.max, f.quoted]);
+    expect(off.check.expect.maxSolOut).toBe(fair.check.expect.maxSolOut);
+  });
+
+  it('a loss that cannot be worked out is said as such, never as 0', async () => {
+    // A market price no number can be multiplied by: the gap is real, its cost is not known.
+    const s = ok(await deposit(world(), {}, priced(1e300))).summary as LpDepositSummary;
+    expect(s.price.state).toBe('disagrees');
+    expect(s.priceGap).toMatchObject({ lossQuote: null });
+    expect(s.warnings[s.warnings.length - 1]).toBe('What a move back to the outside price would cost you at these amounts could not be worked out.');
+    expect(s.warnings.join(' ')).not.toMatch(/about 0 SOL/);
+  });
+
+  it('refused when the outside price cannot be read at prepare, or the read throws: unread is never a warning', async () => {
     const w = world();
     expect(refused(await deposit(w, {}, answering({ kind: 'unread', detail: 'Jupiter did not give a price (HTTP 502)' })))).toMatch(/could not check its price.*HTTP 502/);
     const throwing: LpPrepareReads = { outsidePrice: async () => { throw new Error('offline'); } };
     expect(refused(await deposit(w, {}, throwing))).toMatch(/could not check its price.*offline/);
   });
 
-  it('refused for a token now blocked, a mint under another program than the pool’s, other decimals, and a 0-bps transfer fee', async () => {
-    expect(refused(await deposit(world({ freezeAuthority: STRANGER })))).toMatch(/^This token is now blocked on this site: Its creator can still freeze/);
+  // Owner ruling 2026-10-04. Jupiter ANSWERING "no route" for a pool anyone could open is
+  // "no market": it builds, and says the price was checked against nothing.
+  it('Jupiter answers "no route" for a pool anyone could open: it builds as "no market", with the warning and no price gap', async () => {
+    const s = ok(await deposit(world(), {}, answering(NO_ROUTE))).summary as LpDepositSummary;
+    expect(s.origin).toBe('standard');
+    expect(s.price).toMatchObject({ state: 'no-market', detail: 'Jupiter has no route for this token' });
+    expect(s.warnings).toEqual([NO_MARKET_DEPOSIT]);
+    expect(s.priceGap).toBeNull();
+  });
+
+  it('what still refuses a deposit, each in its own words: a mint under another program than the pool’s, other decimals, a 0-bps transfer fee, an extension the pool program rejects', async () => {
     // The pool says classic; the mint is Token-2022.
     const w = world();
     w.chain.mint2022(w.mint, METADATA_ONLY, { decimals: 6 });
     expect(refused(await deposit(w))).toBe(LP_COPY.poolChanged("the token's program"));
     expect(refused(await deposit(world({ mintDecimals: 9 })))).toBe(LP_COPY.poolChanged("the token's decimals"));
+    // A transfer fee: the leave rule. The words say it is this site's limit.
     const fee = world({ tokenProgram: TOKEN_2022_PROGRAM_ID, mintExtensions: [[EXT.TransferFeeConfig, 108], ...METADATA_ONLY] });
-    expect(refused(await deposit(fee))).toMatch(/^This token is now blocked on this site: It uses a transfer fee/);
+    expect(refused(await deposit(fee))).toBe(
+      LP_COPY.tokenBlocked(
+        'It uses a transfer-fee setting, which lets the token take a fee out of every transfer. This site cannot build exact deposits and withdrawals for a token with one, so it does not open or add to pools for it.',
+      ),
+    );
+    const hook = world({ tokenProgram: TOKEN_2022_PROGRAM_ID, mintExtensions: withExtra(EXTENSION.TransferHook) });
+    expect(refused(await deposit(hook))).toBe(
+      LP_COPY.tokenBlocked('It uses a transfer hook, a program that runs on every transfer and can refuse or redirect it. The pool program does not accept tokens with it.'),
+    );
+    // The token gone, or no longer a mint.
+    const gone = world();
+    gone.chain.accounts.delete(gone.mint.toBase58());
+    expect(refused(await deposit(gone))).toBe(LP_COPY.poolChanged('its token mint is missing'));
+    const broken = world();
+    const m = broken.chain.accounts.get(broken.mint.toBase58())!;
+    broken.chain.set(broken.mint, { ...m, data: m.data.subarray(0, 81) });
+    expect(refused(await deposit(broken))).toMatch(/^This site does not add to pools for this token: This address is not a token this site can use/);
+  });
+
+  // Owner ruling 2026-10-07: a refusal says what this site does not do, and why. It never
+  // says the TOKEN is "blocked": the token is not accused of anything.
+  it('the builder’s two sentences about a token it will not add to: what this site does not do, never "blocked"', () => {
+    expect(LP_COPY.tokenBlocked('It uses a transfer hook.')).toBe('This site does not add to pools for this token: It uses a transfer hook.');
+    expect(LP_COPY.tokenBlockedInform('It uses a transfer hook.')).toBe(
+      'This site does not take new deposits of this token (It uses a transfer hook.). You can still take your liquidity out.',
+    );
+    for (const s of [LP_COPY.tokenBlocked('x'), LP_COPY.tokenBlockedInform('x')]) expect(s).not.toMatch(/blocked/i);
+  });
+
+  // Owner ruling 2026-10-04: a token its creator can freeze takes deposits, with the warning.
+  it('a token whose creator can freeze accounts builds, and the summary says what a freeze means for this pool and for the holder', async () => {
+    const s = ok(await deposit(world({ freezeAuthority: STRANGER }))).summary as LpDepositSummary;
+    expect(s.warnings).toEqual([FREEZE_DEPOSIT]);
+    expect(s.priceGap).toBeNull();
+    const own = s.tokenWarnings.find((x) => x.code === 'freeze-authority')!;
+    expect(own.text).toContain(STRANGER.toBase58());
+    expect(own.text).toMatch(/While a pool’s vault is frozen, nobody can take liquidity out of that pool\./);
+  });
+
+  it('a freezable token whose pool vault IS frozen right now is still refused: the warning lifts nothing about the pool', async () => {
+    const msg = refused(await deposit(world({ freezeAuthority: STRANGER, frozenTokenVault: true })));
+    expect(msg).toMatch(/^We did not build this deposit: One of this pool’s vaults is frozen by the token’s issuer/);
+  });
+
+  it('a copy of a well-known name builds, and the copy warning is on the summary', async () => {
+    const w = world();
+    nameToken(w.chain, w.mint, 'USD Coin', 'USDC');
+    const s = ok(await deposit(w)).summary as LpDepositSummary;
+    expect(s.warnings).toEqual([COPY_DEPOSIT]);
+    expect(s.tokenWarnings.map((x) => x.code)).toEqual(['copies-known-name']);
+  });
+
+  it('every warning that applies is carried together: a freezable copy in a pool with no market price', async () => {
+    const w = world({ freezeAuthority: STRANGER });
+    nameToken(w.chain, w.mint, 'BAYLA', 'BAYLA');
+    const s = ok(await deposit(w, {}, answering(NO_ROUTE))).summary as LpDepositSummary;
+    expect(s.warnings).toEqual([COPY_DEPOSIT, FREEZE_DEPOSIT, NO_MARKET_DEPOSIT]);
+  });
+
+  it.each([
+    ['interest-bearing', EXTENSION.InterestBearingConfig],
+    ['scaled-amount', EXTENSION.ScaledUiAmountConfig],
+  ] as const)('a Token-2022 token with %s amounts builds, with the line about what a wallet displays, and its withdrawal builds too', async (code, type) => {
+    const w = world({ tokenProgram: TOKEN_2022_PROGRAM_ID, mintExtensions: withExtra(type), heldLp: LP_SUPPLY / 10n });
+    const s = ok(await deposit(w)).summary as LpDepositSummary;
+    expect(s.warnings).toEqual([AMOUNTS]);
+    expect(s.tokenWarnings.map((x) => x.code)).toContain(code);
+    // The leave rule: what went in can come out.
+    expect((ok(await withdraw(w)).summary as LpWithdrawSummary).lpAmount).toBe(LP_SUPPLY / 20n);
+  });
+
+  // The leave rule as code, with the real verdict: this site adds to a pool for exactly
+  // the extensions it can also build a withdrawal for, and for no other.
+  it('for each Token-2022 extension: a deposit builds only if a withdrawal builds, and only for the one set this site builds for', async () => {
+    const letIn: number[] = [];
+    const letOut: number[] = [];
+    for (const type of [...Object.values(EXTENSION), 99]) {
+      const w = world({ tokenProgram: TOKEN_2022_PROGRAM_ID, mintExtensions: [extensionOf(type)], heldLp: LP_SUPPLY / 10n });
+      if ((await deposit(w)).ok) letIn.push(type);
+      if ((await withdraw(w)).ok) letOut.push(type);
+    }
+    const sorted = (xs: Iterable<number>) => [...xs].sort((a, b) => a - b);
+    expect(sorted(letIn)).toEqual(sorted(BUILDABLE_EXTENSIONS));
+    expect(sorted(letOut)).toEqual(sorted(BUILDABLE_EXTENSIONS));
+    for (const type of letIn) expect(letOut, String(type)).toContain(type);
   });
 
   it('refused for a token account a stranger owns (naming the owner), a frozen source, and CPI Guard', async () => {
@@ -416,6 +606,21 @@ describe('prepareLpDeposit', () => {
   it('refused with no token account at all, naming where it looked', async () => {
     const w = world({ heldTokens: null });
     expect(refused(await deposit(w))).toBe(LP_COPY.noTokenAccount(w.tokenAta.toBase58()));
+  });
+
+  // Whole-change review 2026-10-04 (L4). A withdrawal is refused while the token account
+  // it pays into has an approved spender. A deposit spends from that same account and
+  // built in silence, so the wallet was let in and then refused on the way out.
+  it('an approved spender on the token account: the deposit builds, and its review says a withdrawal into that account is off until it is revoked', async () => {
+    const w = world({ heldLp: LP_SUPPLY / 10n });
+    w.chain.tokenAccount(w.tokenAta, w.mint, ME, 10n ** 12n, { delegate: STRANGER, delegatedAmount: 1_000_000n });
+    expect((ok(await deposit(w)).summary as LpDepositSummary).notices).toEqual([
+      `An approved spender (${STRANGER.toBase58()}) can move up to 1 out of your token account (${w.tokenAta.toBase58()}). This site will not pay a withdrawal into that account until you revoke that approval.`,
+    ]);
+    // The way out for the same wallet: refused, as it always was.
+    expect(refused(await withdraw(w))).toBe(LP_COPY.delegatedDestination(STRANGER.toBase58(), '1', 'token', w.tokenAta.toBase58()));
+    // No approval: the review says nothing more than it did.
+    expect((ok(await deposit(world())).summary as LpDepositSummary).notices).toEqual([]);
   });
 
   it('refused above the most this wallet can put in, saying that number (the rent band)', async () => {
@@ -468,6 +673,225 @@ describe('prepareLpDeposit', () => {
     expect((p.summary as LpDepositSummary).price.state).toBe('no-trades-yet');
     // The card had said allowed; at prepare Jupiter is down: unchecked, so no deposit.
     expect(refused(await deposit(w, {}, answering({ kind: 'unread', detail: 'Jupiter did not give a price (HTTP 502)' })))).toMatch(/^We did not build this deposit: .*HTTP 502/);
+  });
+
+  // A launch pool with no route keeps its own-average check. Off that average it builds
+  // too, and the review is told which price it is off: its own, not the market's.
+  it('a launch pool pushed to double its own half-hour average builds, and the gap and the loss are said against its own average', async () => {
+    const w = world({ launch: true });
+    // One hour of trading at half today's price, last written ten seconds ago.
+    const Q32 = 1n << 32n;
+    const [first, last] = [NOW - 3_610n, NOW - 10n];
+    const own = 5n * Q32 * (last - first);
+    const other = ((Q32 * Q32) / (5n * Q32)) * (last - first);
+    const [c0, c1] = w.pool.quoteIsToken0 ? [other, own] : [own, other];
+    w.chain.set(w.pool.observation, {
+      lamports: rent(4075),
+      owner: CPSWAP,
+      data: observationBytes({ pool: w.pool.address, index: 1, lastUpdate: last, obs: [[0, first, 0n, 0n], [1, last, c0, c1]] }),
+    });
+    const s = ok(await deposit(w, {}, answering(NO_ROUTE))).summary as LpDepositSummary;
+    expect(s.price).toMatchObject({ state: 'disagrees', against: 'own-average' });
+    expect(s.priceGap!.diff).toBeCloseTo(0.994, 2);
+    const reference = s.price.state === 'disagrees' ? s.price.reference : 0;
+    const loss = estimatedLoss({ quoteAmount: s.quoted.quote, token: s.quoted.token, tokenDecimals: 6, marketPricePerToken: reference, quote: SOL_QUOTE })!;
+    expect(s.priceGap!.lossQuote).toBe(loss);
+    expect(loss).toBeGreaterThan(0n);
+    expect(s.warnings).toEqual([
+      'Its price is 99.4% above its own average over the last half hour. Someone may have just pushed it; a deposit now would pay for that.',
+      `At these amounts, a move back to its own average would take up to about ${(Number(loss) / 1e9).toFixed(9).replace(/0+$/, '')} SOL of what you put in. That is an estimate.`,
+    ]);
+    // Nothing here names a market this token does not have.
+    expect(s.warnings.join(' ')).not.toMatch(/outside price|market price/);
+  });
+
+  // Review, 2026-10-04 (leave/L2). With no route, a pool a stranger opened for a token
+  // that has a launch pool was "no market" at any price. The builder reads the launch
+  // pool itself, so the review says the gap and its cost from fresh reads.
+  describe('a pool anyone could open, for a token with a launch pool and no route', () => {
+    /** The launch pool (10 SOL, 1,000 tokens: 0.01 SOL a token, never traded) beside a stranger's pool at the standard address. */
+    function besideLaunch(o: { sol?: bigint; tokens?: bigint; launch?: Partial<Parameters<typeof addPool>[2]> } = {}) {
+      const w = world({ sol: o.sol ?? 10n ** 9n, tokens: o.tokens ?? 10n * 10n ** 6n });
+      const launch = addPool(w.chain, w.mint, { sol: SOL_RESERVE, tokens: TOKEN_RESERVE, launch: true, ...o.launch });
+      return { w, launch };
+    }
+    /** An hour of trading on `pool` at `perBase` lamports a token base unit, last written ten seconds ago. */
+    function traded(chain: FakeChain, pool: PoolFixture, perBase: bigint) {
+      const Q32 = 1n << 32n;
+      const [first, last] = [NOW - 3_610n, NOW - 10n];
+      const own = perBase * Q32 * (last - first);
+      const other = ((Q32 * Q32) / (perBase * Q32)) * (last - first);
+      const [c0, c1] = pool.quoteIsToken0 ? [other, own] : [own, other];
+      chain.set(pool.observation, { lamports: rent(4075), owner: CPSWAP, data: observationBytes({ pool: pool.address, index: 1, lastUpdate: last, obs: [[0, first, 0n, 0n], [1, last, c0, c1]] }) });
+    }
+    /** Every address each account read asked for, in order. */
+    function reads(w: World): string[][] {
+      const asked: string[][] = [];
+      const orig = w.chain.getMultipleAccountsInfo;
+      w.chain.getMultipleAccountsInfo = async (keys: PublicKey[]) => {
+        asked.push(keys.map((k) => k.toBase58()));
+        return orig(keys);
+      };
+      return asked;
+    }
+    const GAP = 'Its price is 900.0% above the launch pool’s price. A deposit here would hand that gap to the first arbitrage trade.';
+    const summaryOf = async (w: World, r: LpPrepareReads = answering(NO_ROUTE)) => ok(await deposit(w, {}, r)).summary as LpDepositSummary;
+
+    it('at ten times the launch price it builds as off-price: the gap and the estimated loss, against the launch pool read just now', async () => {
+      // The stranger's pool: 1 SOL against 10 tokens, 0.1 SOL a token.
+      for (const history of ['never traded', 'traded at its price for an hour'] as const) {
+        const { w, launch } = besideLaunch();
+        if (history !== 'never traded') traded(w.chain, launch, 10n);
+        const s = await summaryOf(w);
+        expect(s.origin, history).toBe('standard');
+        expect(s.price, history).toMatchObject({ state: 'disagrees', against: 'launch-pool' });
+        if (s.price.state !== 'disagrees') throw new Error('unreachable');
+        expect(s.price.reference).toBeCloseTo(0.01, 12);
+        expect(s.priceGap!.diff).toBeCloseTo(9, 9);
+        const loss = estimatedLoss({ quoteAmount: s.quoted.quote, token: s.quoted.token, tokenDecimals: 6, marketPricePerToken: s.price.reference, quote: SOL_QUOTE })!;
+        expect(loss).toBeGreaterThan(0n);
+        expect(s.priceGap!.lossQuote).toBe(loss);
+        expect(s.warnings).toEqual([
+          GAP,
+          `At these amounts, a move back to the launch pool’s price would take up to about ${(Number(loss) / 1e9).toFixed(9).replace(/0+$/, '')} SOL of what you put in. That is an estimate.`,
+        ]);
+        // Nothing says the price was compared with nothing, and nothing names Jupiter's price.
+        expect(s.warnings.join(' ')).not.toMatch(/not checked against anything|outside price/);
+      }
+    });
+
+    it('the launch pool is read fresh: its price moves after the page read it, and the review follows', async () => {
+      // The stranger's pool sits at 0.02 SOL a token. The page saw the launch pool there too.
+      const { w, launch } = besideLaunch({ sol: 2n * 10n ** 9n, tokens: 100n * 10n ** 6n, launch: { sol: 2n * SOL_RESERVE } });
+      expect((await summaryOf(w)).price).toMatchObject({ state: 'agrees', against: 'launch-pool' });
+      // Before Review the launch pool is back at 0.01: the stranger's pool is now 100% above it.
+      w.chain.tokenAccount(launch.solVault, WSOL_MINT, new PublicKey(w.chain.accounts.get(launch.solVault.toBase58())!.data.subarray(32, 64)), SOL_RESERVE);
+      const s = await summaryOf(w);
+      expect(s.price).toMatchObject({ state: 'disagrees', against: 'launch-pool' });
+      expect(s.priceGap!.diff).toBeCloseTo(1, 9);
+    });
+
+    it('at the launch price it agrees with the launch pool: nothing to warn of, and no price gap', async () => {
+      const { w } = besideLaunch({ sol: SOL_RESERVE / 2n, tokens: TOKEN_RESERVE / 2n });
+      const s = await summaryOf(w);
+      expect(s.price).toMatchObject({ state: 'agrees', against: 'launch-pool' });
+      expect(s.warnings).toEqual([]);
+      expect(s.priceGap).toBeNull();
+    });
+
+    // Unread stays unread: no reference, so the deposit is "no market", as it was.
+    it('no reference is "no market", never a refusal: the launch read fails, the launch pool is off its own average, or its accounts are not the ones its address gives', async () => {
+      const failing = besideLaunch();
+      const orig = failing.w.chain.getMultipleAccountsInfo;
+      failing.w.chain.getMultipleAccountsInfo = async (keys: PublicKey[]) => {
+        if (keys.some((k) => k.equals(failing.launch.address))) throw new Error('HTTP 502');
+        return orig(keys);
+      };
+      const pushed = besideLaunch();
+      traded(pushed.w.chain, pushed.launch, 5n);
+      const wrongVault = besideLaunch({ launch: { record: { token0Vault: Keypair.generate().publicKey } } });
+      for (const [name, w] of [['the read fails', failing.w], ['pushed', pushed.w], ['a vault that is not its own', wrongVault.w]] as const) {
+        const s = await summaryOf(w);
+        expect(s.price, name).toMatchObject({ state: 'no-market', detail: 'Jupiter has no route for this token' });
+        expect(s.warnings, name).toEqual([NO_MARKET_DEPOSIT]);
+        expect(s.priceGap, name).toBeNull();
+      }
+    });
+
+    it('the launch pool is read once, in one call with its vaults, its price record and the clock, and only when it decides something', async () => {
+      const { w, launch } = besideLaunch();
+      const noRoute = reads(w);
+      await summaryOf(w);
+      const launchReads = noRoute.filter((keys) => keys.includes(launch.address.toBase58()));
+      expect(launchReads).toEqual([[launch.address, launch.vault0, launch.vault1, launch.observation, new PublicKey('SysvarC1ock11111111111111111111111111111111')].map((k) => k.toBase58())]);
+
+      // Jupiter has a price: that is the reference, and the launch pool is not read at all.
+      const withPrice = besideLaunch();
+      const priced1 = reads(withPrice.w);
+      expect((await summaryOf(withPrice.w, priced(0.1))).price).toMatchObject({ state: 'agrees', against: 'outside' });
+      expect(priced1.flat()).not.toContain(withPrice.launch.address.toBase58());
+
+      // Jupiter is down: refused as unread, and the launch pool does not stand in.
+      const down = besideLaunch();
+      const downReads = reads(down.w);
+      expect(refused(await deposit(down.w, {}, answering({ kind: 'unread', detail: 'Jupiter did not give a price (HTTP 502)' })))).toMatch(/could not check its price against an outside price.*HTTP 502/);
+      expect(downReads.flat()).not.toContain(down.launch.address.toBase58());
+
+      // A deposit into the launch pool itself reads it once, as the pool it writes to.
+      const own = world({ launch: true });
+      const ownReads = reads(own);
+      expect((await summaryOf(own)).price.state).toBe('no-trades-yet');
+      expect(ownReads.filter((keys) => keys.includes(own.pool.address.toBase58()))).toHaveLength(1);
+    });
+
+    it('removing liquidity never reads the launch pool, and prepares whatever it holds', async () => {
+      const w = holding({ sol: 10n ** 9n, tokens: 10n * 10n ** 6n });
+      const launch = addPool(w.chain, w.mint, { sol: SOL_RESERVE, tokens: TOKEN_RESERVE, launch: true });
+      const asked = reads(w);
+      ok(await withdraw(w));
+      expect(asked.length).toBeGreaterThan(0);
+      expect(asked.flat()).not.toContain(launch.address.toBase58());
+    });
+  });
+
+  // Owner ruling 2026-10-07: a brand-new launch pool (no route, under 10 minutes of
+  // trading) takes deposits. Its record is too short to prove anything, so the price was
+  // checked against nothing: the builder builds, and the warning reaches the review the
+  // person signs. Before, this was `unchecked` and nothing was built.
+  describe('a launch pool with no route and under 10 minutes of trading', () => {
+    const TOO_NEW =
+      'This pool has traded for under 10 minutes and Jupiter has no price for this token, so its price was checked against nothing. If someone has just pushed it, a deposit now pays for that.';
+    /** A launch pool whose first trade was `age` seconds ago, at today's price, last written ten seconds ago. */
+    const tradedFor = (age: bigint, o: Parameters<typeof world>[0] = {}) => {
+      const w = world({ launch: true, ...o });
+      const Q32 = 1n << 32n;
+      const [first, last] = [NOW - age, NOW - 10n];
+      const own = 10n * Q32 * (last - first);
+      const other = ((Q32 * Q32) / (10n * Q32)) * (last - first);
+      const [c0, c1] = w.pool.quoteIsToken0 ? [other, own] : [own, other];
+      w.chain.set(w.pool.observation, {
+        lamports: rent(4075),
+        owner: CPSWAP,
+        data: observationBytes({ pool: w.pool.address, index: 1, lastUpdate: last, obs: [[0, first, 0n, 0n], [1, last, c0, c1]] }),
+      });
+      return w;
+    };
+
+    it('it builds as "too new": the warning is on the summary, with no price gap, and the transaction is the one an older pool gets', async () => {
+      const young = ok(await deposit(tradedFor(120n), {}, answering(NO_ROUTE)));
+      const s = young.summary as LpDepositSummary;
+      expect(s.origin).toBe('launch-pool');
+      expect(s.price).toEqual({ state: 'too-new', pool: expect.closeTo(0.01, 12), historySecs: 120n });
+      expect(s.warnings).toEqual([TOO_NEW]);
+      expect(s.priceGap).toBeNull();
+      // The warning decides nothing: the same shares, limits and bounds as a pool an hour old.
+      const old = ok(await deposit(tradedFor(3_610n), {}, answering(NO_ROUTE)));
+      const o = old.summary as LpDepositSummary;
+      expect(o.price).toMatchObject({ state: 'agrees', against: 'own-average' });
+      expect(o.warnings).toEqual([]);
+      expect([s.lpAmount, s.max, s.quoted]).toEqual([o.lpAmount, o.max, o.quoted]);
+      expect(young.check.expect.maxSolOut).toBe(old.check.expect.maxSolOut);
+    });
+
+    it('one second short of 10 minutes is "too new"; at 10 minutes it is checked against its own average', async () => {
+      expect((ok(await deposit(tradedFor(599n), {}, answering(NO_ROUTE))).summary as LpDepositSummary).price.state).toBe('too-new');
+      expect((ok(await deposit(tradedFor(600n), {}, answering(NO_ROUTE))).summary as LpDepositSummary).price.state).toBe('agrees');
+    });
+
+    // UNREAD IS STILL REFUSED: the same brand-new pool builds nothing when something was not read.
+    it('nothing is built when Jupiter failed to answer, when the clock was not read, or when its price record is missing', async () => {
+      expect(refused(await deposit(tradedFor(120n), {}, answering({ kind: 'unread', detail: 'Jupiter did not give a price (HTTP 502)' })))).toMatch(/^We did not build this deposit: .*HTTP 502/);
+      const noClock = tradedFor(120n);
+      setClock(noClock.chain, null);
+      expect(refused(await deposit(noClock, {}, answering(NO_ROUTE)))).toMatch(/^We did not build this deposit: .*network clock/);
+      const noRecord = tradedFor(120n);
+      noRecord.chain.accounts.delete(noRecord.pool.observation.toBase58());
+      expect(refused(await deposit(noRecord, {}, answering(NO_ROUTE)))).toMatch(/^We did not build this deposit: .*its price record account is missing/);
+    });
+
+    it('it lifts nothing else: the same pool with withdrawals switched off is still refused', async () => {
+      expect(refused(await deposit(tradedFor(120n, { status: POOL_STATUS_DISABLE_WITHDRAW }), {}, answering(NO_ROUTE)))).toMatch(/^We did not build this deposit: Withdrawals are switched off/);
+    });
   });
 
   it('existing wrapped SOL is never closed, and only what the pool did not use may stay in it', async () => {
@@ -551,8 +975,8 @@ describe('prepareLpWithdraw: the leave rule', () => {
     const p = ok(await withdraw(w));
     const s = p.summary as LpWithdrawSummary;
     expect(s.lpAmount).toBe(LP_SUPPLY / 20n);
-    expect(s.min.sol >= 1n && s.min.token >= 1n).toBe(true);
-    expect(s.min.sol <= s.quoted.sol && s.min.token <= s.quoted.token).toBe(true);
+    expect(s.min.quote >= 1n && s.min.token >= 1n).toBe(true);
+    expect(s.min.quote <= s.quoted.quote && s.min.token <= s.quoted.token).toBe(true);
     expect(s.keep).toBe(LP_SUPPLY / 20n);
     expect(s.tokenAccountRent).toBe(0n);
     expect(p.steps.filter((x) => x.kind === 'pool-withdraw')).toHaveLength(1);
@@ -563,15 +987,30 @@ describe('prepareLpWithdraw: the leave rule', () => {
   });
 
   it('prepares while every fact that refuses a deposit holds', async () => {
-    const cases: Array<[string, Parameters<typeof world>[0]]> = [
+    const cases: Array<[string, Parameters<typeof world>[0], ((w: World) => void)?]> = [
       ['the deposit switch is off', { status: POOL_STATUS_DISABLE_DEPOSIT }],
       ['swaps are switched off', { status: POOL_STATUS_DISABLE_SWAP }],
       ['the pool opens in 10 years', { openTime: NOW + 10n * 365n * 24n * 3600n }],
-      ['the token is blocked (a freeze authority)', { freezeAuthority: STRANGER }],
+      // A token blocked for new deposits: its mint reads as never set up.
+      ['the token is blocked (a mint that was never set up)', {}, (w) => { w.chain.accounts.get(w.mint.toBase58())!.data[45] = 0; }],
     ];
-    for (const [why, o] of cases) {
-      const r = await withdraw(holding(o));
-      expect(r.ok, why).toBe(true);
+    for (const [why, o, change] of cases) {
+      const w = holding(o);
+      change?.(w);
+      // Each of these does refuse a deposit ...
+      expect((await deposit(w)).ok, why).toBe(false);
+      // ... and none of them stops the way out.
+      expect((await withdraw(w)).ok, why).toBe(true);
+    }
+  });
+
+  it('prepares while every fact that only WARNS a deposit holds, and says nothing about them: leaving never depends on a warning', async () => {
+    const freezable = holding({ freezeAuthority: STRANGER });
+    const copy = holding();
+    nameToken(copy.chain, copy.mint, 'USD Coin', 'USDC');
+    for (const w of [freezable, copy]) {
+      const s = ok(await withdraw(w)).summary as LpWithdrawSummary;
+      expect(s.notices).toEqual([]);
     }
   });
 
@@ -591,7 +1030,7 @@ describe('prepareLpWithdraw: the leave rule', () => {
     w.chain.accounts.delete(decodePoolState(w.pool.address.toBase58(), w.chain.accounts.get(w.pool.address.toBase58())!.data)!.ammConfig);
     const p = ok(await withdraw(w));
     expect((p.summary as LpWithdrawSummary).config).toBeNull();
-    expect((p.summary as LpWithdrawSummary).notices.join(' ')).toMatch(/blocked on this site for new deposits/);
+    expect((p.summary as LpWithdrawSummary).notices.join(' ')).toMatch(/This site does not take new deposits of this token \(/);
   });
 
   it('says what would stop a deposit, without refusing: swaps off, a far open time, a blocked token', async () => {
@@ -599,15 +1038,24 @@ describe('prepareLpWithdraw: the leave rule', () => {
     expect(off.notices).toContain(LP_COPY.swapsOff);
     const later = ok(await withdraw(holding({ openTime: NOW + 3600n }))).summary as LpWithdrawSummary;
     expect(later.notices.join(' ')).toMatch(/^Swaps on this pool are blocked until .*That does not stop you taking your liquidity out\.$/);
-    const blocked = ok(await withdraw(holding({ freezeAuthority: STRANGER }))).summary as LpWithdrawSummary;
-    expect(blocked.notices.join(' ')).toMatch(/This token is blocked on this site for new deposits \(Its creator can still freeze/);
+    const never = holding();
+    never.chain.accounts.get(never.mint.toBase58())!.data[45] = 0;
+    const blocked = ok(await withdraw(never)).summary as LpWithdrawSummary;
+    expect(blocked.notices).toEqual([LP_COPY.tokenBlockedInform('This token mint was never set up.')]);
   });
 });
 
 describe('prepareLpWithdraw: what may refuse it', () => {
   it('the pool program’s withdraw switch, and a frozen vault, each with its own words', async () => {
     expect(refused(await withdraw(holding({ status: POOL_STATUS_DISABLE_WITHDRAW })))).toBe(LP_COPY.withdrawBit);
-    expect(refused(await withdraw(holding({ frozenTokenVault: true })))).toBe(LP_COPY.vaultFrozen);
+    // A SOL pool has one vault anyone can freeze, the token's: the words are as they were.
+    expect(refused(await withdraw(holding({ frozenTokenVault: true })))).toBe(
+      "The token's issuer has frozen one of this pool's vaults, so nothing can move in or out, for anyone. That is the issuer's doing, not the pool program's.",
+    );
+    // On a pool paired with a coin whose issuer can freeze, the frozen vault may be the coin's.
+    expect(LP_COPY.vaultFrozen("The token's issuer, or USDC's,")).toBe(
+      "The token's issuer, or USDC's, has frozen one of this pool's vaults, so nothing can move in or out, for anyone. That is the issuer's doing, not the pool program's.",
+    );
   });
 
   // The row still offers Remove in this state, so the "Leaving without this site" block
@@ -615,7 +1063,7 @@ describe('prepareLpWithdraw: what may refuse it', () => {
   it('a transfer-fee token: this site cannot build it yet, says the program still allows it, and points at no section that is not shown', async () => {
     const w = holding({ tokenProgram: TOKEN_2022_PROGRAM_ID, mintExtensions: [[EXT.TransferFeeConfig, 108], ...METADATA_ONLY] });
     const msg = refused(await withdraw(w));
-    expect(msg).toMatch(/^This site cannot build a withdrawal for this token yet \(it uses a transfer fee[^)]*\)\. The pool program still lets you withdraw/);
+    expect(msg).toMatch(/^This site cannot build a withdrawal for this token yet \(it uses a transfer-fee setting[^)]*\)\. The pool program still lets you withdraw/);
     expect(msg).not.toMatch(/Leaving without this site|\bsee\b/i);
   });
 
@@ -732,13 +1180,13 @@ describe('the balance check is sized to the plan (spec 3.4)', () => {
     expect(row(p, w.lpAta)).toEqual([s.lpAmount, 2n ** 64n]);
     expect(row(p, w.tokenAta)).toEqual([-s.max.token, -1n]);
     expect(row(p, w.wsolAta)).toEqual([0n, 0n]);
-    expect(p.check.expect.maxSolOut).toBe(s.max.sol + BigInt(rent(165)));
+    expect(p.check.expect.maxSolOut).toBe(s.max.quote + BigInt(rent(165)));
     expect(p.check.expect.minSolIn).toBeUndefined();
     expect(p.fees.newAccountRentLamports).toBe(BigInt(rent(165)));
     // With the pool-share account already there, no new account is paid for.
     const v = world({ heldLp: 1n });
     const q = ok(await deposit(v));
-    expect(q.check.expect.maxSolOut).toBe((q.summary as LpDepositSummary).max.sol);
+    expect(q.check.expect.maxSolOut).toBe((q.summary as LpDepositSummary).max.quote);
     expect(q.fees.newAccountRentLamports).toBe(0n);
   });
 
@@ -750,7 +1198,7 @@ describe('the balance check is sized to the plan (spec 3.4)', () => {
     expect(row(p, w.tokenAta)).toEqual([s.min.token, 2n ** 64n]);
     expect(row(p, w.wsolAta)).toEqual([0n, 0n]);
     expect(p.check.expect.maxSolOut).toBe(BigInt(rent(165)));
-    expect(p.check.expect.minSolIn).toBe(s.min.sol - BigInt(rent(165)));
+    expect(p.check.expect.minSolIn).toBe(s.min.quote - BigInt(rent(165)));
     expect(s.tokenAccountRent).toBe(BigInt(rent(165)));
   });
 
@@ -760,7 +1208,7 @@ describe('the balance check is sized to the plan (spec 3.4)', () => {
     const s = p.summary as LpWithdrawSummary;
     expect(p.steps.some((x) => x.kind === 'close-wsol')).toBe(false);
     expect(s.unwrapsWsol).toBe(false);
-    expect(row(p, w.wsolAta)).toEqual([s.min.sol, 2n ** 64n]);
+    expect(row(p, w.wsolAta)).toEqual([s.min.quote, 2n ** 64n]);
     expect(p.check.expect.minSolIn).toBeUndefined();
   });
 });
@@ -844,7 +1292,7 @@ describe('SOL sent to an address before its account exists is no account', () =>
       expect(s.unwrapsWsol, String(sent)).toBe(true);
       expect(row(p, w.wsolAta), String(sent)).toEqual([0n, 0n]);
       expect(moved(p, w.wsolAta), String(sent)).toBe(0n);
-      expect(p.simulated.signerLamportsDelta, String(sent)).toBe(s.quoted.sol + BigInt(sent));
+      expect(p.simulated.signerLamportsDelta, String(sent)).toBe(s.quoted.quote + BigInt(sent));
     }
   });
 
@@ -861,7 +1309,7 @@ describe('SOL sent to an address before its account exists is no account', () =>
         expect(s.tokenAccountRent, label).toBe(BigInt(deposit));
         expect(p.check.expect.maxSolOut, label).toBe(BigInt(deposit));
         expect(moved(p, w.tokenAta), label).toBe(s.quoted.token);
-        expect(p.simulated.signerLamportsDelta, label).toBe(s.quoted.sol - BigInt(Math.max(0, deposit - sent)));
+        expect(p.simulated.signerLamportsDelta, label).toBe(s.quoted.quote - BigInt(Math.max(0, deposit - sent)));
       }
     }
   });
@@ -876,7 +1324,7 @@ describe('SOL sent to an address before its account exists is no account', () =>
       expect(s.wsolHeldBefore, String(sent)).toBe(0n);
       expect(row(p, w.wsolAta), String(sent)).toEqual([0n, 0n]);
       // Out: the cost and the new pool-share account. Back: what was sent to the address.
-      expect(p.simulated.signerLamportsDelta, String(sent)).toBe(-s.quoted.sol - BigInt(rent(165)) + BigInt(sent));
+      expect(p.simulated.signerLamportsDelta, String(sent)).toBe(-s.quoted.quote - BigInt(rent(165)) + BigInt(sent));
     }
   });
 
@@ -888,9 +1336,9 @@ describe('SOL sent to an address before its account exists is no account', () =>
       const s = p.summary as LpDepositSummary;
       expect(moved(p, w.lpAta), String(sent)).toBe(s.lpAmount);
       expect(s.sharePct.before, String(sent)).toBe(0);
-      expect(p.check.expect.maxSolOut, String(sent)).toBe(s.max.sol + BigInt(rent(165)));
+      expect(p.check.expect.maxSolOut, String(sent)).toBe(s.max.quote + BigInt(rent(165)));
       expect(p.fees.newAccountRentLamports, String(sent)).toBe(BigInt(rent(165)));
-      expect(p.simulated.signerLamportsDelta, String(sent)).toBe(-s.quoted.sol - BigInt(Math.max(0, rent(165) - sent)));
+      expect(p.simulated.signerLamportsDelta, String(sent)).toBe(-s.quoted.quote - BigInt(Math.max(0, rent(165) - sent)));
     }
   });
 
@@ -971,7 +1419,7 @@ describe('a credit between the balance read and the test run does not block; a s
     const s = clean.summary as LpWithdrawSummary;
     const fees = clean.fees.baseLamports + clean.fees.priorityLamports;
     const tokenShort = s.quoted.token - s.min.token;
-    const solShort = s.quoted.sol - s.min.sol + fees;
+    const solShort = s.quoted.quote - s.min.quote + fees;
 
     const atMin = holding();
     skewTestRun(atMin.chain, atMin.tokenAta, -tokenShort);
