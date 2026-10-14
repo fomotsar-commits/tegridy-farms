@@ -142,7 +142,6 @@ export const PAGE_ROUTES: Record<string, string> = {
   'launch-gate': '/launch',
   'launch-token': '/launch',
   shield: '/nft-finance',
-  referrals: '/referrals',
   'copy-trading': '/copy-trading',
   competitions: '/competitions',
   trust: '/trust',
@@ -414,7 +413,6 @@ export const SURFACES: Surface[] = [
   { group: 'Trust tools',   pageId: 'chart',            idx: 0, label: 'TT5 — Pro Charting backdrop' },
   { group: 'Trust tools',   pageId: 'chart',            idx: 1, label: 'TT5b — Pro Charting pool picker card' },
   { group: 'Trust tools',   pageId: 'chart',            idx: 2, label: 'TT5c — Pro Charting sources card' },
-  { group: 'Engage',        pageId: 'referrals',        idx: 0, label: 'EN1 — Referrals backdrop' },
   { group: 'Engage',        pageId: 'copy-trading',     idx: 0, label: 'EN2 — Copy Trading backdrop' },
   { group: 'Engage',        pageId: 'competitions',     idx: 0, label: 'EN3 — Competitions backdrop' },
   { group: 'Engage',        pageId: 'checkout',         idx: 0, label: 'EN4 — Checkout backdrop' },
@@ -919,11 +917,6 @@ export const SURFACES: Surface[] = [
   { group: 'Earn · NFT Loans', pageId: 'shield', idx: 3, label: 'Deadline alerts card (has deadline alert rules)' },
 
   // Earn · Referrals
-  { group: 'Earn · Referrals', pageId: 'referrals', idx: 1, label: 'Before you share a link card' },
-  { group: 'Earn · Referrals', pageId: 'referrals', idx: 2, label: 'Your referral link card' },
-  { group: 'Earn · Referrals', pageId: 'referrals', idx: 3, label: 'What the splitter holds card' },
-  { group: 'Earn · Referrals', pageId: 'referrals', idx: 4, label: 'Who referred you card' },
-  { group: 'Earn · Referrals', pageId: 'referrals', idx: 5, label: 'What this page promises card' },
 
   // Earn · Yield
   { group: 'Earn · Yield', pageId: 'yield', idx: 4, label: 'Chain read status card' },

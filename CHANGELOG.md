@@ -8,6 +8,7 @@ page keeps the newest thirty days.
 
 ### 2026-10-14
 
+- Earn: the Referrals tab is gone. An old /referrals link opens Earn. A referral link (`/?ref=…`) still works anywhere on the site, and the TOWELI room's dashboard still shows your referral link and lets you claim what it earned.
 - A quiet nod to Jungle Bay's music: the footer, the island page and an empty History now link to the collective on Spotify and YouTube. Plain links only, nowhere near a trade, a stake or a warning.
 - Bayla bungalow: hand-picked art on 102 more surfaces, across Pools, Earn and the rest of the site, placed in the Bayla studio.
 - A link to one part of a page now lands on that part while the page is still loading, when its address is opened directly, and when the same link is pressed again. "The bungalows" on the Island page often left you at the top of the home page instead. "See what you'd earn" on the TOWELI farm now opens the estimate in the TOWELI room; it used to open the front page, which has no estimate.
