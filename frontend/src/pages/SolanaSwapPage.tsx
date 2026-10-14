@@ -96,6 +96,7 @@ import { fractionToBps, impactWarning } from '../components/solana/curve/uiForma
 import { SiteFeeRow } from '../components/swap/SiteFeeRow';
 import { TokenDetail } from '../components/solana/TokenDetail';
 import { PairChart } from '../components/solana/PairChart';
+import { PairAverageLine, type PairAverageTrade } from '../components/solana/PairAverageLine';
 import { ClockLine } from '../components/ClockLine';
 import { bungalowByAddress, getActiveBungalow } from '../lib/bungalows';
 import { openingBuyMint } from '../lib/solanaOpeningPair';
@@ -1668,6 +1669,32 @@ function SolanaSwapInner() {
   const ownFloor = ownBest ? applySlippage(ownBest.outAmount, BigInt(slippageBps)) : null;
   // Said in view, never only inside the Details fold: a large move is not a detail.
   const impactNote = (quote || ownBest) && priceImpact !== null ? impactWarning(fractionToBps(priceImpact / 100)) : null;
+  // The trade beside the 24h average: only figures for THIS amount (a same-pair re-quote keeps
+  // the last amount's numbers on screen while it is asked for).
+  const quoteIsForm = quote !== null && !quoteLoading && quote.inputMint === payToken.mint && quote.outputMint === buyToken.mint && quote.inAmount === baseAmount;
+  const comparedOut = ownBest ? ownBest.outAmount.toString() : quoteIsForm ? quote.outAmount : null;
+  const averageTrade: PairAverageTrade = {
+    payMint: payToken.mint,
+    buyMint: buyToken.mint,
+    paySymbol: payToken.symbol,
+    buySymbol: buyToken.symbol,
+    payAmount: comparedOut !== null && baseAmount ? Number(baseAmount) / 10 ** payToken.decimals : null,
+    buyAmount: comparedOut !== null ? Number(comparedOut) / 10 ** buyToken.decimals : null,
+  };
+  // The same line on our pool's review, from the review's own transaction.
+  const reviewAverage = inFlight && pressed ? (
+    <PairAverageLine
+      testId="review-pair-average"
+      trade={{
+        payMint: inFlight.paysCoin ? inFlight.coin.mint : inFlight.tokenMint.toBase58(),
+        buyMint: inFlight.paysCoin ? inFlight.tokenMint.toBase58() : inFlight.coin.mint,
+        paySymbol: pressed.pay,
+        buySymbol: pressed.buy,
+        payAmount: Number(inFlight.amountIn) / 10 ** (inFlight.paysCoin ? inFlight.coin.decimals : inFlight.tokenDecimals),
+        buyAmount: Number(inFlight.quoted.outAmount) / 10 ** (inFlight.paysCoin ? inFlight.tokenDecimals : inFlight.coin.decimals),
+      }}
+    />
+  ) : null;
   const feePct = (SOLANA_PLATFORM_FEE_BPS / 100).toFixed(2);
   // The fee can only be collected on a pair touching SOL or USDC (pre-created
   // fee ATAs). Drive the UI off the SAME decision the quote/swap use.
@@ -2289,7 +2316,7 @@ function SolanaSwapInner() {
             // A review that has to be read, or an ending with something to say, takes
             // the form's place until it is closed. Everything else leaves the form up.
             <Suspense fallback={<p role="status" className="text-white/55 text-[11px]">One moment…</p>}>
-              <VenueSwapFlow swap={venueSwap} />
+              <VenueSwapFlow swap={venueSwap} extraReview={reviewAverage} />
             </Suspense>
           ) : mode === 'swap' ? (
             // Held while a trade is on its way, by either route (`held`).
@@ -2512,6 +2539,7 @@ function SolanaSwapInner() {
 
           {/* Quote details */}
           <div className="mb-4 text-[11px] space-y-1">
+            {!sameToken && <PairAverageLine trade={averageTrade} />}
             {ownBest ? (
               // Our own pool: no platform fee is added. Its own fee is inside the quote.
               <div className="flex items-center justify-between text-white/70" data-testid="own-pool-fee">
