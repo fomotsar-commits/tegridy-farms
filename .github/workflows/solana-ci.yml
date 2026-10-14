@@ -37,8 +37,9 @@ name: solana-ci
 #      checkout and independently proves the COMMITTED fork still carries exactly
 #      the pinned delta.
 #   6. clmm-guards — tegridy-clmm (raydium-clmm under the venue's keys, not deployed) is
-#      upstream plus exactly its pinned identity delta, and no key in it or in cp-swap is
-#      anyone's but the venue's (solana/guards/). Each guard first refuses known-bad copies.
+#      upstream plus exactly its pinned identity delta, and no key in it, cp-swap, tegridy-launch
+#      or bayla-ladder is anyone's but the venue's (solana/guards/). A pin changes in a pull
+#      request of its own. Each guard first refuses known-bad copies.
 #   7. clmm-build — builds tegridy-clmm on upstream's own Solana pin, proves a build
 #      without the placeholder feature, or with devnet or localnet, is refused, runs
 #      upstream's unit tests, and prices the deploy at the rent rate read from mainnet.
@@ -164,16 +165,30 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The merge commit and its base, so the pull request's own changes can be listed.
+          fetch-depth: 2
       # No clone here either: hashes, the reviewed patches and the deny-list are in
       # solana/guards/upstream/, written once by `provenance.mjs --regenerate`.
       - name: tegridy-clmm and its vendored uint are upstream plus exactly the pinned identity delta
         run: node solana/guards/provenance.mjs tegridy-clmm uint
-      - name: No outside key in either copied program
+      - name: No outside key in any of the four programs, and no build flag in the build workflows
         run: |
           node solana/guards/key-guard.mjs --allow solana/guards/allowed-keys.json \
             --deny solana/guards/upstream/deny-keys.txt \
             --ours solana/tegridy-amm/programs/cp-swap --ours solana/tegridy-clmm \
-            --clmm-lib solana/tegridy-clmm/programs/amm/src/lib.rs
+            --ours solana/tegridy-amm/programs/tegridy-launch --ours solana/tegridy-amm/programs/bayla-ladder \
+            --clmm-lib solana/tegridy-clmm/programs/amm/src/lib.rs \
+            --workflow .github/workflows/solana-ci.yml --workflow .github/workflows/solana-deploy-artifact.yml
+      # A re-pin is read alone: a pull request that changes a file in solana/guards/ may change
+      # nothing else but the programs it pins. The changed guard lines are printed for the reader.
+      - name: A change to a pin, the reviewed patch or the allow-list is its own pull request
+        if: github.event_name == 'pull_request'
+        run: |
+          set -euo pipefail
+          git diff --name-status --no-renames HEAD^1 HEAD > /tmp/pr-files.txt
+          git diff --diff-filter=MD HEAD^1 HEAD -- solana/guards
+          node solana/guards/provenance.mjs --pr-files /tmp/pr-files.txt
       # A guard that cannot fail proves nothing, so each one meets copies it must refuse.
       # Every disguise an outside check tried is in frontend/src/test/solanaGuardTampers.test.ts.
       - name: Each guard refuses a known-bad copy
@@ -209,6 +224,15 @@ jobs:
           because "lacks the compile_error! gate"
           # A release refuses the placeholder program id.
           refused $KG --release --ours solana/tegridy-clmm; because "is the placeholder program id"
+          # Raydium's admin in tegridy-launch, which graduates its pools into cp-swap.
+          cp -r solana/tegridy-amm/programs/tegridy-launch /tmp/launch-key
+          echo "// $RAYDIUM_ADMIN" >> /tmp/launch-key/src/lib.rs
+          refused $KG --ours /tmp/launch-key; because "$RAYDIUM_ADMIN is hard-coded by upstream"
+          # A [patch] table in cp-swap's workspace, spelled with a tab, spaces and quotes.
+          printf '\n[\tpatch . "crates-io" ]\nuint = { path = "x" }\n' >> solana/tegridy-amm/Cargo.toml
+          refused $PV cp-swap; because "solana/tegridy-amm/Cargo.toml hashes to"
+          refused $KG --ours solana/tegridy-amm/programs/cp-swap; because "swaps a dependency's source"
+          git checkout -- solana/tegridy-amm/Cargo.toml
           echo "every known-bad copy refused"
 
   clmm-build:
@@ -358,10 +382,10 @@ jobs:
           set -euo pipefail
           SO=../../target/deploy/raydium_cp_swap.so
           rm -f "$SO"
-          cargo build-sbf --features devnet 2>&1 | tee /tmp/cpswap-build.log
+          cargo build-sbf --features devnet -- --locked 2>&1 | tee /tmp/cpswap-build.log
           if [ ! -f "$SO" ]; then
             echo "::warning::first cargo build-sbf produced no artifact (toolchain install only) — retrying"
-            cargo build-sbf --features devnet 2>&1 | tee -a /tmp/cpswap-build.log
+            cargo build-sbf --features devnet -- --locked 2>&1 | tee -a /tmp/cpswap-build.log
           fi
           if [ ! -f "$SO" ]; then
             echo "::error::cargo build-sbf exited 0 but produced no $SO — the program was NOT compiled, and the artifact published below would be stale or absent"

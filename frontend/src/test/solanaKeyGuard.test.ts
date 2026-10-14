@@ -1,7 +1,7 @@
 // @vitest-environment node
 //
-// solana/guards/key-guard.mjs keeps every key in our copies of the two pool programs
-// (cp-swap and tegridy-clmm) the venue's own or a named system address, and refuses any key
+// solana/guards/key-guard.mjs keeps every key in the four Solana programs (both pool copies,
+// tegridy-launch, bayla-ladder) the venue's own or a named system address, and refuses any key
 // the pinned upstream hard-codes (solana/guards/upstream/deny-keys.txt). This file pins its rules
 // on fixtures and holds the allow-list exact against the real tree; solanaGuardTampers.test.ts
 // holds every disguise an outside check tried.
@@ -22,6 +22,9 @@ import {
   readDeny,
   ancestorConfig,
   rustDisguises,
+  cargoManifest,
+  tomlKeys,
+  buildFlags,
   // eslint-disable-next-line @typescript-eslint/ban-ts-comment
   // @ts-ignore -- plain .mjs guard script, deliberately untyped and outside src/
 } from '../../../solana/guards/key-guard.mjs';
@@ -188,13 +191,70 @@ describe('cargo config above a program', () => {
   });
 });
 
-describe('the real tree', () => {
-  const OURS = {
-    'solana/tegridy-amm/programs/cp-swap': scanTree(join(REPO_ROOT, 'solana', 'tegridy-amm', 'programs', 'cp-swap')),
-    'solana/tegridy-clmm': scanTree(join(REPO_ROOT, 'solana', 'tegridy-clmm')),
-  };
+describe('a Cargo.toml is read as TOML, so no spelling hides a source swap', () => {
+  it('finds a [patch] table however it is written', () => {
+    for (const t of [
+      '[patch.crates-io]\nuint = { path = "x" }\n',
+      '[ patch.crates-io ]\nuint = { path = "x" }\n',
+      '[\tpatch . "crates-io" ]\nuint = { path = "x" }\n',
+      '["patch".crates-io]\nuint = { path = "x" }\n',
+      "['patch'.crates-io]\nuint = { path = 'x' }\n",
+      '["p\\u0061tch".crates-io]\nuint = { path = "x" }\n',
+      'patch.crates-io.uint = { git = "https://example.com/u" }\n[package]\nname = "a"\n',
+      'patch = { crates-io = { uint = { path = "x" } } }\n',
+      '[[replace]]\nx = 1\n',
+    ]) {
+      expect(cargoManifest(t), t).toEqual(["swaps a dependency's source"]);
+    }
+  });
+  it('finds a build script however it is written, and passes a plain manifest', () => {
+    expect(cargoManifest('[package]\n"build" = "b.rs"\n')).toEqual(['names a build script']);
+    expect(cargoManifest('package.build = "b.rs"\n')).toEqual(['names a build script']);
+    expect(cargoManifest('[package]\nname = "a" # x\n[dependencies]\nb = { version = "1", features = ["c"] }\nd = [\n  "e", # f\n]\n')).toEqual([]);
+    expect(tomlKeys('[workspace]\nmembers = ["programs/*"]\n[profile.release]\nlto = "fat"\n')).toEqual([['workspace'], ['workspace', 'members'], ['profile', 'release'], ['profile', 'release', 'lto']]);
+  });
+  it('refuses a manifest it cannot read rather than passing it', () => {
+    expect(cargoManifest('[patch\n').join('\n')).toContain('cannot be read as TOML');
+    expect(cargoManifest('x = [\n  ["a"]\n]]\n').join('\n')).toContain('cannot be read as TOML');
+  });
+});
 
-  it('every key in both copies is on allowed-keys.json, and every entry is used', () => {
+describe('shapes that build a key the scan cannot read', () => {
+  it('refuses files read into the build, outside env!, renamed key types and stringify!', () => {
+    const why = (t: string) => rustDisguises(t).problems.join('\n');
+    expect(why('const S: &str = include_str!("../k.txt");')).toContain('not a source file beside it');
+    expect(why('let src = include_str!("lib.rs");')).toBe('');
+    expect(why('const B: &[u8] = include_bytes!("k.hex");')).toContain('reads a file into the build');
+    expect(why('const S: &str = env!("EVIL_ADMIN");')).toContain('outside the gated localnet arm');
+    expect(why('#[cfg(feature = "localnet")]\n    pub const ID: Pubkey = Pubkey::from_str_const(env!(\n        "CLMM_LOCALNET_ADMIN",\n        "x"\n    ));')).toBe('');
+    expect(why('use x::Pubkey as P;')).toContain('renames the key type');
+    expect(why('const K: [u8; 32 ] = [0; 32];')).toContain('builds a key from bytes');
+    expect(why('pub const X: Pubkey = <Pubkey>::new_from_array(K);')).toContain('builds a key from bytes');
+    expect(why('const S: &str = concat!(stringify!(abc), "d");')).toContain('turns code into text');
+    expect(why('Pubkey::from_str_const(S)')).toContain('something other than one plain key');
+  });
+  it('reads a key split across side-by-side literals, and 32 bytes in binary or "as u8"', () => {
+    const bytes = Array.from(decodeKey(RAYDIUM_ADMIN) as Uint8Array);
+    expect(rustDisguises(`["${RAYDIUM_ADMIN.slice(0, 10)}",\n "${RAYDIUM_ADMIN.slice(10, 30)}", "${RAYDIUM_ADMIN.slice(30)}"].concat()`).keys).toContain(RAYDIUM_ADMIN);
+    expect(rustDisguises(`let b = [${bytes.map((b) => `0b${b.toString(2)}`).join(', ')}];`).keys).toContain(RAYDIUM_ADMIN);
+    expect(rustDisguises(`let b = [${bytes.map((b) => `${b} as u8`).join(', ')}];`).keys).toContain(RAYDIUM_ADMIN);
+  });
+  it('reads a vendor/ or target/ folder below the top of a program', () => {
+    const root = tree({ 'vendor/evil/src/lib.rs': `"${RAYDIUM_ADMIN}"`, 'src/target/x.rs': `"${STRANGER}"`, 'target/out.rs': `"${VAULT}"`, 'vendor/uint/x.rs': `"${VAULT}"` });
+    expect([...scanTree(root).keys.keys()].sort()).toEqual([RAYDIUM_ADMIN, STRANGER].sort());
+  });
+  it('refuses a build workflow that sets flags cargo compiles with', () => {
+    expect(buildFlags('env:\n  RUSTFLAGS: --cfg feature="devnet"\n').join('\n')).toContain('sets RUSTFLAGS');
+    expect(buildFlags('run: cargo build-sbf -- --config x').join('\n')).toContain('sets --config');
+    expect(buildFlags('run: cargo build-sbf --features devnet -- --locked')).toEqual([]);
+  });
+});
+
+describe('the real tree', () => {
+  const PROGRAMS = ['solana/tegridy-amm/programs/cp-swap', 'solana/tegridy-clmm', 'solana/tegridy-amm/programs/tegridy-launch', 'solana/tegridy-amm/programs/bayla-ladder'];
+  const OURS = Object.fromEntries(PROGRAMS.map((d) => [d, scanTree(join(REPO_ROOT, ...d.split('/')))]));
+
+  it('every key in all four programs is on allowed-keys.json, and every entry is used', () => {
     // The same verdict CI reaches: the committed deny-list, and every allow-list entry used.
     expect(judge({ ours: OURS, deny: DENY, allow: ALLOW }).problems).toEqual([]);
   });
@@ -203,12 +263,16 @@ describe('the real tree', () => {
     expect(DENY).toHaveLength(39);
     expect(DENY).toContain(RAYDIUM_ADMIN);
     expect(DENY).toContain('CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK');
-    expect(judge({ ours: OURS, deny: DENY, allow: ALLOW }).counts).toEqual({ found: 14, deny: 39, allowed: 14 });
+    expect(judge({ ours: OURS, deny: DENY, allow: ALLOW }).counts).toEqual({ found: 22, deny: 39, allowed: 22 });
   });
 
-  it('finds no cargo config, toolchain file or source swap above either program', () => {
-    for (const d of ['solana/tegridy-amm/programs/cp-swap', 'solana/tegridy-clmm']) {
-      expect(ancestorConfig(join(REPO_ROOT, d), REPO_ROOT)).toEqual([]);
+  it('finds no cargo config, toolchain file or source swap above any program', () => {
+    for (const d of PROGRAMS) expect(ancestorConfig(join(REPO_ROOT, d), REPO_ROOT)).toEqual([]);
+  });
+
+  it('finds no build flag in the two workflows that build them', () => {
+    for (const w of ['solana-ci.yml', 'solana-deploy-artifact.yml']) {
+      expect(buildFlags(readFileSync(join(REPO_ROOT, '.github', 'workflows', w), 'utf-8'))).toEqual([]);
     }
   });
 

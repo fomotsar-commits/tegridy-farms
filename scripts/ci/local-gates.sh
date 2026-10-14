@@ -155,7 +155,7 @@ if want solana; then
   # No clone: both read the hashes and deny-list in solana/guards/upstream/.
   gate solana "diff-guard (cp-swap provenance)" . node solana/guards/provenance.mjs cp-swap
   gate solana "clmm provenance" . node solana/guards/provenance.mjs tegridy-clmm uint
-  gate solana "no outside key" . node solana/guards/key-guard.mjs --allow solana/guards/allowed-keys.json --deny solana/guards/upstream/deny-keys.txt --ours solana/tegridy-amm/programs/cp-swap --ours solana/tegridy-clmm --clmm-lib solana/tegridy-clmm/programs/amm/src/lib.rs
+  gate solana "no outside key" . node solana/guards/key-guard.mjs --allow solana/guards/allowed-keys.json --deny solana/guards/upstream/deny-keys.txt --ours solana/tegridy-amm/programs/cp-swap --ours solana/tegridy-clmm --ours solana/tegridy-amm/programs/tegridy-launch --ours solana/tegridy-amm/programs/bayla-ladder --clmm-lib solana/tegridy-clmm/programs/amm/src/lib.rs --workflow .github/workflows/solana-ci.yml --workflow .github/workflows/solana-deploy-artifact.yml
   note solana "SBF builds, validator suites" "CI only" "need the Agave and Anchor toolchains; WSL recipe in docs/CI_ON_GITLAB.md"
 fi
 

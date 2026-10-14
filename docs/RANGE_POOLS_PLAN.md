@@ -72,16 +72,26 @@ can re-run it, and `git diff solana/guards/upstream` must then show no change.
    whole package, 37 files, 3 patched. `vendor/uint`: 16 files, none patched. Undoing the patch
    on our file must give back Raydium's exact file. No file may be added anywhere in either
    package, a `build.rs` included. The patch and the lockfile are each pinned by hash, so even a
-   crate swapped for another version Raydium's lock lists fails.
-2. **No outside key** (`solana/guards/key-guard.mjs` and `allowed-keys.json`). Every key in BOTH
-   pool programs must be named on the list, and none may be one of the 39 keys the two pinned
-   Raydium repositories hard-code. Today: 14 keys, all named. It finds a key however it is
-   written: plain, glued to other letters, split by `concat!`, escaped, or as 32 bytes. It
-   refuses a build script, a cargo config folder above either program, and any file it cannot
-   read. An outside check tried 17 disguises on 2026-10-14; each guard now refuses every one in
-   its field, and all 17 are tests (`frontend/src/test/solanaGuardTampers.test.ts`). It cannot
-   promise to catch a disguise nobody has tried yet. That is why the patch is also pinned and
-   read by a person.
+   crate swapped for another version Raydium's lock lists fails. cp-swap's workspace is pinned
+   too: its `Cargo.toml` whole (no `[patch]` table, release profile, members), the 301 crates
+   cp-swap builds with in the shared `Cargo.lock`, and `programs/` must hold exactly its three
+   folders. Nothing may be committed in a build folder (`target/`). **This check is the wall.**
+2. **No outside key** (`solana/guards/key-guard.mjs` and `allowed-keys.json`). Every key in all
+   four Solana programs (both pool programs, tegridy-launch, bayla-ladder) must be named on the
+   list, and none may be one of the 39 keys the two pinned Raydium repositories hard-code.
+   Today: 22 keys, all named. It reads a key written plain, glued to other letters, escaped,
+   split across string literals or `concat!`, or as 32 numbers in any notation. It refuses the
+   shapes that build a key it cannot read (a file read in, a build-time value outside the one
+   gated test arm, a renamed key type, 32-byte arrays, `stringify!`), a build script, a cargo
+   config folder, a `[patch]` table however the TOML spells it, and any file it cannot read.
+   It also refuses build flags (`RUSTFLAGS`, `--config`) in the two workflows that build these
+   programs. It is a second check, not the wall: Rust can compute a key at build time in ways no
+   scan follows. For the pool copies the wall is check 1; for our own programs it is a person
+   reading the change. Outside checks tried 39 disguises on 2026-10-14; every one is refused,
+   and all are tests (`frontend/src/test/solanaGuardTampers.test.ts`).
+   A pull request that changes a pin, the reviewed patch, the allow-list or a guard may change
+   nothing else but the programs they pin, so the person reading it reads it alone; CI prints
+   the changed guard lines (`provenance.mjs --pr-files`).
 3. **The build** (`clmm-build`): builds with the placeholder, then proves a build without it is
    refused, and that `devnet` or `localnet` is refused without `test-chain-keys`. Those two
    settings would give every power to one test key or to a key read at build time; the gate

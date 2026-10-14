@@ -1,28 +1,44 @@
 #!/usr/bin/env node
-// No outside key in our copies of the two pool programs (cp-swap and tegridy-clmm).
+// No outside key in the venue's Solana programs: both pool copies, tegridy-launch, bayla-ladder.
+// Every key found must be on allowed-keys.json and none on upstream/deny-keys.txt. It reads a key
+// written plain, glued, escaped, split across literals or as 32 numbers, and refuses the SHAPES
+// that build one it cannot read. A second check, not the wall: compile-time Rust can make a key
+// no scan follows. provenance.mjs is the wall for the two copies; a person reading the diff, for ours.
 //
-// Every key found in OUR copies must be on allowed-keys.json, and none may be one the pinned
-// upstream hard-codes (upstream/deny-keys.txt, written by provenance.mjs --regenerate). A key
-// is found however it is written: plain, glued to other letters, split by concat!, escaped, or
-// as 32 bytes. Shapes it cannot read (a build script, cargo config, a binary file) are refused.
-//
-// node solana/guards/key-guard.mjs --allow <json> --deny <txt> --ours <dir>... [--release]
+// node solana/guards/key-guard.mjs --allow <json> --deny <txt> --ours <dir>... [--workflow <yml>]... [--release]
 
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ALPHABET = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
-// Lockfiles carry checksums, not keys; provenance.mjs pins tegridy-clmm's Cargo.lock by hash.
-// vendor/ holds third-party crates that provenance.mjs holds byte for byte to their commit.
+// Lockfiles carry checksums, not keys; provenance.mjs pins the ones the pool programs build with.
 const SKIP_FILES = new Set(['Cargo.lock', 'yarn.lock', 'package-lock.json', 'pnpm-lock.yaml']);
-const SKIP_DIRS = new Set(['.git', 'node_modules', 'target', '.anchor', 'vendor']);
+// Skipped only at the top of a scanned folder: build output, and the crate provenance.mjs holds
+// byte for byte (its test numbers read as keys). The same name deeper down is read like any file.
+const ROOT_SKIP = new Set(['.git', 'node_modules', 'target', '.anchor', 'vendor/uint']);
 // Files cargo reads on its own: each can swap a source, run code, or name a key we never scan.
 const BUILD_CONFIG = new Set(['build.rs', '.cargo', 'rust-toolchain', 'rust-toolchain.toml']);
-// A key the source builds from bytes would never match a base58 scan: refuse the shape.
-const BYTE_KEY = /Pubkey::new_from_array\s*\(|Pubkey::from\s*\(\s*\[|\[u8;\s*32\]\s*=\s*\[/;
+// Shapes that build a key from something a base58 scan never sees. None is in any program today.
+const SHAPES = [
+  [/\binclude(?:_bytes)?!\s*\(/, 'reads a file into the build'],
+  [/\bnew_from_array\b|\bPubkey\s*>?\s*::\s*from\s*\(/, 'builds a key from bytes, which this guard cannot read'],
+  [/\[\s*u8\s*;\s*32\s*\]/, 'builds a key from bytes, which this guard cannot read: [u8; 32]'],
+  [/\bPubkey\s+as\s+\w+|\btype\s+\w+\s*=\s*(?:[\w:]*::)?Pubkey\s*;/, 'renames the key type'],
+  [/\bstringify!\s*\(/, 'turns code into text'],
+  [/\bparse\s*::\s*<\s*Pubkey\s*>/, 'parses a key from text it builds'],
+  [/#\s*!?\s*\[\s*path\s*=/, 'compiles a file from another path'],
+];
+// The one build-time value allowed: tegridy-clmm's localnet admin, in the arm only a localnet
+// build compiles (and lib.rs refuses a localnet build without test-chain-keys).
+const GATED_ENV = /#\[cfg\(feature = "localnet"\)\]\s*\n\s*pub const ID: Pubkey = Pubkey::from_str_const\(env!\(\s*"CLMM_LOCALNET_ADMIN"/g;
 // Calls that turn their argument into a key; it must be one plain string literal.
 const KEY_CALL = /\b(pubkey!|declare_id!|from_str_const|from_str)\s*\(/g;
+// A byte as Rust may spell it: 0x41, 0b1000001, 0o101, 65, 65u8, 65 as u8.
+const NUM = String.raw`(?:0x[0-9a-fA-F_]+|0b[01_]+|0o[0-7_]+|\d[\d_]*)(?:_?u8)?(?:\s+as\s+u8)?`;
+const NUM_LIST = new RegExp(String.raw`\[\s*((?:${NUM}\s*,\s*){31,}${NUM})\s*,?\s*\]`, 'g');
+// Settings that change what cargo compiles without changing any file the guards read.
+const BUILD_FLAGS = /\b(?:RUSTFLAGS|RUSTC\w*|CARGO_[A-Z0-9_]+)\b|--config\b|--cfg\b|\.cargo\/config/g;
 
 /** The 32 bytes a base58 string names, or null when it is not a 32-byte key. */
 export function decodeKey(s) {
@@ -112,6 +128,13 @@ function argument(text, open) {
   return null;
 }
 
+/** A byte as Rust spells it, or NaN. */
+function byte(s) {
+  const t = s.trim().replace(/\s+as\s+u8$/, '').replace(/_?u8$/, '').replace(/_/g, '');
+  const base = { '0x': 16, '0b': 2, '0o': 8 }[t.slice(0, 2)];
+  return base ? parseInt(t.slice(2), base) : /^\d+$/.test(t) ? parseInt(t, 10) : NaN;
+}
+
 /** Keys and refusals in one Rust source text, beyond what the plain scan sees. */
 export function rustDisguises(text) {
   const keys = [];
@@ -131,10 +154,22 @@ export function rustDisguises(text) {
     keys.push(...found.keys);
     if (found.hidden.length) problems.push('joins text with concat! into a run that could hide a key');
   }
+  // A key split across literals side by side: ["half", "half"].concat(), "half" + "half".
+  const lits = [...text.matchAll(/"((?:[^"\\]|\\[\s\S])*)"/g)];
+  for (let i = 0; i < lits.length; i++) {
+    let joined = '';
+    for (let j = i; j < lits.length && joined.length <= 44; j++) {
+      const end = lits[j - 1] ? lits[j - 1].index + lits[j - 1][0].length : 0;
+      if (j > i && !/^[\s,+[\]()&]*$/.test(text.slice(end, lits[j].index))) break;
+      const piece = unescapeRust(lits[j][1]);
+      if (!/^[1-9A-HJ-NP-Za-km-z]+$/.test(piece)) break;
+      joined += piece;
+      if (j > i && joined.length >= 32 && joined.length <= 44 && decodeKey(joined)) keys.push(joined);
+    }
+  }
   // 32 numbers between brackets are a key's bytes, however they are spelled.
-  for (const m of text.matchAll(/\[\s*((?:(?:0x[0-9a-fA-F_]+|\d[\d_]*)(?:u8)?\s*,\s*){31,}(?:0x[0-9a-fA-F_]+|\d[\d_]*)(?:u8)?)\s*,?\s*\]/g)) {
-    const nums = m[1].split(',').map((s) => s.trim().replace(/u8$/, '').replace(/_/g, ''));
-    const bytes = nums.map((s) => (s.startsWith('0x') ? parseInt(s, 16) : parseInt(s, 10)));
+  for (const m of text.matchAll(NUM_LIST)) {
+    const bytes = m[1].split(',').map(byte);
     if (bytes.some((b) => !(b >= 0 && b <= 255))) continue;
     if (bytes.length === 32) keys.push(encodeKey(bytes));
     else problems.push(`holds a list of ${bytes.length} bytes, which could be a key pair`);
@@ -144,17 +179,167 @@ export function rustDisguises(text) {
     const raw = unescapeRust(m[1]);
     if (raw.length === 32) keys.push(encodeKey([...raw].map((c) => c.charCodeAt(0) & 0xff)));
   }
-  if (BYTE_KEY.test(text)) problems.push('builds a key from bytes, which this guard cannot read');
+  for (const [shape, why] of SHAPES) if (shape.test(text)) problems.push(why);
+  // include_str! may read only a source file beside it, which this scan reads too.
+  for (const m of text.matchAll(/\binclude_str!\s*\(/g)) {
+    const arg = argument(text, m.index + m[0].length - 1) ?? '';
+    if (!/^\s*"[\w-]+\.rs"\s*$/.test(arg)) problems.push(`include_str! reads ${arg.trim().slice(0, 40)}, not a source file beside it`);
+  }
+  const gated = new Set([...text.matchAll(GATED_ENV)].map((m) => m.index + m[0].indexOf('env!')));
+  for (const m of text.matchAll(/\b(?:option_)?env!\s*\(/g)) {
+    if (!gated.has(m.index)) problems.push('reads a value from the build environment outside the gated localnet arm');
+  }
   for (const m of text.matchAll(KEY_CALL)) {
     const arg = argument(text, m.index + m[0].length - 1);
     if (arg === null) continue;
     const plain = /^\s*&?\s*"[1-9A-HJ-NP-Za-km-z]*"\s*$/.test(arg);
     const localnetEnv = /^\s*env!\(\s*"CLMM_LOCALNET_ADMIN"/.test(arg);
-    if (!plain && !localnetEnv && !/^\s*\w+\s*$/.test(arg)) {
-      problems.push(`${m[1]} is given something other than one plain key: ${arg.trim().slice(0, 60)}`);
-    }
+    if (!plain && !localnetEnv) problems.push(`${m[1]} is given something other than one plain key: ${arg.trim().slice(0, 60)}`);
   }
   return { keys, problems };
+}
+
+/**
+ * Every key path a TOML text defines: table headers, keys and the keys inside inline tables,
+ * each as its parts (`[ "patch" . crates-io ]` is patch, crates-io). Throws on text it cannot
+ * read, so a spelling it does not know is refused rather than passed.
+ */
+export function tomlKeys(s) {
+  let i = 0;
+  let table = [];
+  const out = [];
+  const fail = (why) => {
+    throw new Error(`${why} on line ${s.slice(0, i).split('\n').length}`);
+  };
+  const sp = () => {
+    while (s[i] === ' ' || s[i] === '\t') i++;
+  };
+  const comment = () => {
+    if (s[i] === '#') while (i < s.length && s[i] !== '\n') i++;
+  };
+  const gap = () => {
+    for (;;) {
+      sp();
+      comment();
+      if (s[i] !== '\r' && s[i] !== '\n') return;
+      i++;
+    }
+  };
+  const lineEnd = () => {
+    sp();
+    comment();
+    if (s[i] === '\r') i++;
+    if (i < s.length && s[i] !== '\n') fail('more text after a value');
+    i++;
+  };
+  const str = () => {
+    const q = s[i];
+    const triple = s.startsWith(q.repeat(3), i);
+    i += triple ? 3 : 1;
+    let v = '';
+    for (;;) {
+      if (i >= s.length) fail('a string that never closes');
+      if (triple && s.startsWith(q.repeat(3), i)) {
+        i += 3;
+        while (s[i] === q) (v += q), i++;
+        return v;
+      }
+      if (!triple && s[i] === q) return i++, v;
+      if (!triple && s[i] === '\n') fail('a line break inside a string');
+      if (q === '"' && s[i] === '\\') {
+        const e = s[i + 1];
+        const simple = { b: '\b', t: '\t', n: '\n', f: '\f', r: '\r', e: '\x1b', '"': '"', '\\': '\\' }[e];
+        const width = { x: 2, u: 4, U: 8 }[e];
+        if (simple !== undefined) (v += simple), (i += 2);
+        else if (width && /^[0-9a-fA-F]+$/.test(s.slice(i + 2, i + 2 + width)) && s.slice(i + 2, i + 2 + width).length === width) {
+          v += String.fromCodePoint(parseInt(s.slice(i + 2, i + 2 + width), 16));
+          i += 2 + width;
+        } else if (triple && /[ \t\r\n]/.test(e)) for (i++; /[ \t\r\n]/.test(s[i] ?? ''); i++);
+        else fail('an escape it cannot read');
+        continue;
+      }
+      v += s[i++];
+    }
+  };
+  const key = () => {
+    const parts = [];
+    for (;;) {
+      sp();
+      if (s[i] === '"' || s[i] === "'") {
+        if (s.startsWith(s[i].repeat(3), i)) fail('a key written as a multi-line string');
+        parts.push(str());
+      } else {
+        const start = i;
+        while (i < s.length && /[A-Za-z0-9_-]/.test(s[i])) i++;
+        if (i === start) fail('a key it cannot read');
+        parts.push(s.slice(start, i));
+      }
+      sp();
+      if (s[i] !== '.') return parts;
+      i++;
+    }
+  };
+  const value = (path) => {
+    if (s[i] === '"' || s[i] === "'") return void str();
+    if (s[i] === '[' || s[i] === '{') {
+      const close = s[i++] === '[' ? ']' : '}';
+      for (;;) {
+        gap();
+        if (s[i] === close) return void i++;
+        if (close === '}') {
+          const k = key();
+          out.push([...path, ...k]);
+          if (s[i++] !== '=') fail('a key with no value');
+          sp();
+          value([...path, ...k]);
+        } else value(path);
+        gap();
+        if (s[i] === ',') i++;
+        else if (s[i] !== close) fail(`a list it cannot read`);
+      }
+    }
+    const start = i;
+    while (i < s.length && !/[,\]}#\r\n]/.test(s[i])) i++;
+    if (!/^[\w.:+-]+(?: [\w.:+-]+)?$/.test(s.slice(start, i).trim())) fail('a value it cannot read');
+  };
+  for (;;) {
+    gap();
+    if (i >= s.length) return out;
+    if (s[i] === '[') {
+      const double = s[i + 1] === '[';
+      i += double ? 2 : 1;
+      table = key();
+      if (s[i] !== ']' || (double && s[i + 1] !== ']')) fail('a table name it cannot read');
+      i += double ? 2 : 1;
+      out.push(table);
+    } else {
+      const k = key();
+      if (s[i++] !== '=') fail('a key with no value');
+      sp();
+      value([...table, ...k]);
+      out.push([...table, ...k]);
+    }
+    lineEnd();
+  }
+}
+
+/** What a Cargo.toml asks of cargo that this guard refuses, however the TOML spells it. */
+export function cargoManifest(text) {
+  let keys;
+  try {
+    keys = tomlKeys(text);
+  } catch (e) {
+    return [`cannot be read as TOML (${e.message}), so it cannot be cleared`];
+  }
+  const problems = [];
+  if (keys.some((k) => ['patch', 'replace', 'source'].includes(k[0]))) problems.push("swaps a dependency's source");
+  if (keys.some((k) => k[0] === 'package' && k[1] === 'build')) problems.push('names a build script');
+  return problems;
+}
+
+/** A workflow setting that changes what cargo compiles without changing a file we read. */
+export function buildFlags(text) {
+  return [...new Set([...text.matchAll(BUILD_FLAGS)].map((m) => m[0]))].map((f) => `sets ${f}, which changes what cargo compiles without changing any file the guards read`);
 }
 
 function walk(dir, root = dir, out = { files: [], refused: [] }) {
@@ -163,7 +348,7 @@ function walk(dir, root = dir, out = { files: [], refused: [] }) {
     const rel = relative(root, p).split(sep).join('/');
     if (BUILD_CONFIG.has(name)) out.refused.push(`${rel}: cargo reads this on its own, and no copy of ours may carry one`);
     if (statSync(p).isDirectory()) {
-      if (!SKIP_DIRS.has(name)) walk(p, root, out);
+      if (!ROOT_SKIP.has(rel)) walk(p, root, out);
     } else if (!SKIP_FILES.has(name)) {
       out.files.push({ path: p, rel });
     }
@@ -200,10 +385,7 @@ export function scanTree(dir) {
       for (const k of r.keys) add(k, f.rel);
       for (const p of r.problems) problems.push(`${f.rel}: ${p}`);
     }
-    if (/(^|\/)Cargo\.toml$/.test(f.rel)) {
-      if (/^\s*build\s*=/m.test(text)) problems.push(`${f.rel}: names a build script`);
-      if (/^\s*\[(patch|replace|source)\b/m.test(text)) problems.push(`${f.rel}: swaps a dependency's source`);
-    }
+    if (/(^|\/)Cargo\.toml$/.test(f.rel)) for (const p of cargoManifest(text)) problems.push(`${f.rel}: ${p}`);
   }
   return { keys, files: files.length, problems };
 }
@@ -221,8 +403,8 @@ export function ancestorConfig(dir, root) {
       if (name !== 'build.rs' && existsSync(join(d, name))) problems.push(`${relative(top, join(d, name)) || name}: cargo reads this for ${relative(top, dir)}`);
     }
     const toml = join(d, 'Cargo.toml');
-    if (existsSync(toml) && /^\s*\[(patch|replace|source)\b/m.test(readFileSync(toml, 'utf-8'))) {
-      problems.push(`${relative(top, toml)}: swaps a dependency's source for ${relative(top, dir)}`);
+    if (existsSync(toml)) {
+      for (const p of cargoManifest(readFileSync(toml, 'utf-8'))) problems.push(`${relative(top, toml)}: ${p}, for ${relative(top, dir)}`);
     }
     if (d === top) break;
   }
@@ -319,7 +501,7 @@ export function testChainGate(libRs, cargoToml) {
 }
 
 function args(argv) {
-  const out = { ours: [], upstream: [], deny: [], release: false };
+  const out = { ours: [], upstream: [], deny: [], workflows: [], release: false };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--release') out.release = true;
@@ -328,10 +510,11 @@ function args(argv) {
     else if (a === '--ours') out.ours.push(argv[++i]);
     else if (a === '--upstream') out.upstream.push(argv[++i]);
     else if (a === '--clmm-lib') out.clmmLib = argv[++i];
+    else if (a === '--workflow') out.workflows.push(argv[++i]);
     else throw new Error(`unknown argument ${a}`);
   }
   if (!out.allow || out.ours.length === 0 || out.deny.length + out.upstream.length === 0) {
-    throw new Error('usage: key-guard.mjs --allow <json> --deny <txt> --ours <dir>... [--upstream <dir>] [--clmm-lib <lib.rs>] [--release]');
+    throw new Error('usage: key-guard.mjs --allow <json> --deny <txt> --ours <dir>... [--upstream <dir>] [--clmm-lib <lib.rs>] [--workflow <yml>]... [--release]');
   }
   return out;
 }
@@ -344,6 +527,7 @@ function main() {
   const upstream = Object.fromEntries(a.upstream.map((d) => [d.replace(/\/+$/, ''), scanTree(d)]));
   const { problems, counts } = judge({ ours, upstream, deny, allow, release: a.release });
   for (const d of a.ours) problems.push(...ancestorConfig(d, process.cwd()));
+  for (const w of a.workflows) for (const p of buildFlags(readFileSync(w, 'utf-8'))) problems.push(`${w}: ${p}`);
   if (a.clmmLib) {
     const ph = Object.keys(allow.placeholder ?? {})[0];
     const lib = readFileSync(a.clmmLib, 'utf-8');
@@ -357,7 +541,7 @@ function main() {
     for (const p of problems) console.log(`::error::${p}`);
     process.exit(1);
   }
-  console.log('no outside key in our copies');
+  console.log(`no outside key in our copies${a.workflows.length ? `, and no build flag in ${a.workflows.length} workflows` : ''}`);
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1])) main();

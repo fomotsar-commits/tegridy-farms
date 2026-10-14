@@ -9,7 +9,7 @@
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
-import { dirname, join, relative, resolve, sep } from 'node:path';
+import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { decodeKey, scanTree } from './key-guard.mjs';
@@ -82,8 +82,32 @@ export const COPIES = {
     deltaSha256: '5d7baf2682af807a7b1c330a1ca6a10d65b0393f20a33e26555f86323354f2f1',
     patched: ['src/lib.rs', 'src/instructions/admin/create_support_mint_associated.rs', 'Cargo.toml'],
     oursOnly: [],
+    // The workspace cargo builds cp-swap in. Its manifest (patch tables, the release profile,
+    // members) is pinned whole; its lock, for the crates cp-swap compiles; programs/ holds only
+    // these folders, since each one there joins the workspace.
+    workspace: {
+      dir: 'solana/tegridy-amm',
+      manifest: { file: 'Cargo.toml', sha256: '507aabe0bca91903c94d71f7dc259919b3f02f1eed82eaa664c2f0c0ad10e1a2' },
+      lock: { file: 'Cargo.lock', root: 'raydium-cp-swap', sha256: '2fafdb6b101e39ab4f42dbe52c6f62c648da217b91e453e3473c71f945f189c0' },
+      programs: ['bayla-ladder', 'cp-swap', 'tegridy-launch'],
+    },
   },
 };
+
+// A pull request that changes a file in solana/guards/ (a pin, the reviewed patch, the
+// allow-list, a guard) may change only these, so the person reading it reads nothing else.
+export const REPIN_MAY_TOUCH = [
+  'solana/guards/',
+  ...Object.values(COPIES).map((c) => `${c.ours}/`),
+  'solana/tegridy-amm/Cargo.toml',
+  'solana/tegridy-amm/Cargo.lock',
+  'solana/tegridy-amm/TEGRIDY_FORK.md',
+  'docs/RANGE_POOLS_PLAN.md',
+  'CHANGELOG.md',
+  'frontend/src/test/solanaGuardTampers.test.ts',
+  'frontend/src/test/solanaKeyGuard.test.ts',
+  '.github/workflows/solana-ci.yml',
+];
 
 /** Line endings aside: the copies carry CRLF in places, and upstream does not. */
 export const strip = (t) => t.replace(/\r$/gm, '');
@@ -196,6 +220,86 @@ export function checkPins() {
   return problems;
 }
 
+/** `name version source checksum` of every crate `root` builds with in a Cargo.lock, sorted. */
+export function lockClosure(lock, root) {
+  const pkgs = strip(lock)
+    .split(/^\[\[package\]\]$/m)
+    .slice(1)
+    .map((b) => {
+      const get = (k) => new RegExp(`^${k} = "([^"]*)"$`, 'm').exec(b)?.[1] ?? '';
+      const deps = /^dependencies = \[([^\]]*)\]/m.exec(b)?.[1] ?? '';
+      return { name: get('name'), version: get('version'), source: get('source'), checksum: get('checksum'), deps: [...deps.matchAll(/"([^"]+)"/g)].map((m) => m[1]) };
+    });
+  const find = (spec) => {
+    const [, name, version, source] = /^(\S+)(?: (\S+))?(?: \((.+)\))?$/.exec(spec) ?? [];
+    const hits = pkgs.filter((p) => p.name === name && (!version || p.version === version) && (!source || p.source === source));
+    if (hits.length !== 1) throw new Error(`names the dependency "${spec}", which matches ${hits.length} crates`);
+    return hits[0];
+  };
+  const start = pkgs.filter((p) => p.name === root && !p.source);
+  if (start.length !== 1) throw new Error(`holds ${start.length} local crates named ${root}`);
+  const seen = new Set();
+  for (const todo = [start[0]]; todo.length; ) {
+    const p = todo.pop();
+    if (seen.has(p)) continue;
+    seen.add(p);
+    todo.push(...p.deps.map(find));
+  }
+  return [...seen].map((p) => [p.name, p.version, p.source, p.checksum].join(' ')).sort();
+}
+
+/** The workspace a copy builds in: manifest, the copy's crates in the lock, its members. */
+export function checkWorkspace(w, root) {
+  const dir = resolve(root, w.dir);
+  const read = (f) => (existsSync(join(dir, f)) ? strip(readFileSync(join(dir, f), 'utf-8')) : null);
+  const problems = [];
+  const manifest = read(w.manifest.file);
+  const got = manifest === null ? 'nothing' : sha256(manifest);
+  if (got !== w.manifest.sha256) problems.push(`${w.dir}/${w.manifest.file} hashes to ${got}, not the pinned ${w.manifest.sha256}: it sets how the program builds (patch tables, release profile, members), so a change needs a re-pin here`);
+  let crates = [];
+  try {
+    const lock = read(w.lock.file);
+    if (lock === null) throw new Error('is missing');
+    crates = lockClosure(lock, w.lock.root);
+    const h = sha256(crates.join('\n'));
+    if (h !== w.lock.sha256) problems.push(`the ${crates.length} crates ${w.lock.root} builds with in ${w.dir}/${w.lock.file} hash to ${h}, not the pinned ${w.lock.sha256}: re-pin only after reading which crate changed`);
+  } catch (e) {
+    problems.push(`${w.dir}/${w.lock.file} ${e.message}`);
+  }
+  const progs = existsSync(join(dir, 'programs')) ? readdirSync(join(dir, 'programs')).sort() : [];
+  if (progs.join('|') !== w.programs.join('|')) problems.push(`${w.dir}/programs holds ${progs.join(', ')}, not exactly ${w.programs.join(', ')}: each folder there joins the workspace`);
+  return { problems, crates: crates.length };
+}
+
+/** A clean checkout has no build folder, and cargo may reuse what one holds: refuse its files. */
+export function committedBuildFiles(dirs, root) {
+  const present = dirs.filter((d) => existsSync(d));
+  if (!present.length) return [];
+  let top = null;
+  try {
+    top = execFileSync('git', ['rev-parse', '--show-toplevel'], { cwd: root, encoding: 'utf-8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+  } catch {
+    top = null;
+  }
+  const problems = [];
+  for (const d of present) {
+    const rel = relative(resolve(root), d).split(sep).join('/');
+    const tracked = top !== null && relative(resolve(top), resolve(root)) === '' && !rel.startsWith('..') && !isAbsolute(rel);
+    const found = tracked ? git(['ls-files', '-z', '--', rel], root).split('\0').filter(Boolean) : files(d).map((f) => `${rel}/${f}`);
+    for (const f of found) problems.push(`${f} is in a build folder ${tracked ? 'and is committed' : 'outside a git checkout'}: cargo may reuse it`);
+  }
+  return problems;
+}
+
+/** `git diff --name-status` of a pull request: one that changes solana/guards/ changes nothing else. */
+export function repinAlone(nameStatus) {
+  const rows = strip(nameStatus).split('\n').filter(Boolean).map((l) => l.split('\t'));
+  const pins = rows.filter(([s, p]) => p?.startsWith('solana/guards/') && s !== 'A').map(([, p]) => p);
+  if (!pins.length) return [];
+  const mayTouch = (p) => REPIN_MAY_TOUCH.some((a) => (a.endsWith('/') ? p.startsWith(a) : p === a));
+  return rows.map(([, p]) => p).filter((p) => !mayTouch(p)).map((p) => `${p}: this pull request changes ${pins.join(', ')}, so it may change nothing outside solana/guards/ and the programs they pin`);
+}
+
 /** Check one copy. Returns problems (empty = pass) and what was compared. */
 export function checkCopy(name, oursDir, root = process.cwd()) {
   const c = COPIES[name];
@@ -249,7 +353,10 @@ export function checkCopy(name, oursDir, root = process.cwd()) {
     }
   }
   for (const f of sections.keys()) if (!manifest.has(f)) problems.push(`${c.delta} patches ${f}, which upstream does not have`);
-  return { problems, compared, changed, patched: sections.size };
+  const ws = c.workspace ? checkWorkspace(c.workspace, root) : null;
+  if (ws) problems.push(...ws.problems);
+  problems.push(...committedBuildFiles([join(dir, 'target'), ...(ws ? [resolve(root, c.workspace.dir, 'target')] : [])], root));
+  return { problems, compared, changed, patched: sections.size, crates: ws?.crates };
 }
 
 function git(args, cwd) {
@@ -338,6 +445,12 @@ function regenerate(scratch, root) {
 function main() {
   const argv = process.argv.slice(2);
   if (argv[0] === '--regenerate') return regenerate(resolve(argv[1] ?? '.'), process.cwd());
+  if (argv[0] === '--pr-files') {
+    const problems = repinAlone(readFileSync(argv[1], 'utf-8'));
+    for (const p of problems) console.log(`::error::${p}`);
+    if (problems.length) process.exit(1);
+    return console.log('no pin, patch, allow-list or guard changed alongside other work');
+  }
   const names = [];
   let oursDir;
   for (let i = 0; i < argv.length; i++) {
@@ -360,7 +473,7 @@ function main() {
     for (const p of r.problems) console.log(`::error::${name}: ${p}`);
     if (r.problems.length) fail = true;
     else {
-      const lock = c.lock ? `, ${c.lock.file} pinned` : '';
+      const lock = c.lock ? `, ${c.lock.file} pinned` : r.crates ? `; workspace ${c.workspace.dir}: Cargo.toml pinned, the ${r.crates} crates it builds with in Cargo.lock pinned, programs/ exact` : '';
       const how = c.delta ? 'plus the reviewed patch' : 'exactly';
       console.log(`${name} = ${c.repo} @ ${c.commit.slice(0, 8)} ${how} (${r.compared} upstream files compared, ${r.patched ?? 0} patched, ${r.changed} changed lines${lock})`);
     }
