@@ -9,6 +9,7 @@ page keeps the newest thirty days.
 ### 2026-10-10
 
 - Shared heat links: a memetics.finance/read link for a wallet the island reads now shows the island's painted card of that wallet when it is posted. A cold wallet, or one the island could not be asked about, keeps the venue's card.
+- Every page now opens at the top before it is drawn, in the marketplace and across the venue. Before, a page you moved to could show part-way down for a moment and then jump to the top, and on Safari a collection page could pull you back to the top if you began scrolling in its first half second.
 - Read Heat: each room shows your place in it as the island counts it, for example "12th of 498 measured", on the room's own read and under each room on the card. A wallet the island does not rank shows no place. "Post my number" now starts with the degrees and carries the place in your deepest room.
 - Solana swap: the page opens on SOL to $BAYLA, and inside a Solana bungalow on SOL to that bungalow's coin. A link that names a coin still opens on that coin. $BAYLA is marked as this venue's own coin and asks for no tick box, as it has since 2026-10-08.
 - Home: the chain pills read Solana, Ethereum, Base.
