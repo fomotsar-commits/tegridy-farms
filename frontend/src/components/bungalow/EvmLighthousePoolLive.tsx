@@ -11,6 +11,7 @@ import { CopyButton } from '../ui/CopyButton';
 import { shortenAddress } from '../../lib/formatting';
 import { CardArt } from '../ui/CardArt';
 import { FinePrint } from '../ui/FinePrint';
+import { rewardsEndedLine, rewardsHaveEnded } from '../../lib/rewardsEnded';
 
 /**
  * The EVM lighthouse — live staking card for a bungalow whose pool is the
@@ -179,6 +180,12 @@ export function EvmLighthousePoolLive({ bungalow }: { bungalow: Bungalow & { sta
 
   const unfunded = view.vaultRaw !== null && view.vaultRaw === 0n;
   const notPaying = view.payingNowRawPerSec !== null && view.payingNowRawPerSec === 0n;
+  // A landed periodFinish in the past: no new stake (owner, 2026-10-14), and that
+  // outranks the unfunded note, which invites a stake. Withdraw, claim and exit stay.
+  // An unread end holds Stake; a never-funded pool (periodFinish 0) stays open.
+  const periodFinishRaw = big(3);
+  const rewardsEnded = rewardsHaveEnded(periodFinishRaw, nowSecs);
+  const stakeClosed = rewardsEnded || periodFinishRaw === null;
 
   return (
     <div className="relative isolate overflow-hidden rounded-2xl glass-card-animated" style={{ border: '1px solid var(--color-purple-75)' }}>
@@ -239,18 +246,21 @@ export function EvmLighthousePoolLive({ bungalow }: { bungalow: Bungalow & { sta
               />
             </div>
 
-            {unfunded && (
+            {rewardsEnded && periodFinishRaw !== null ? (
+              <p className="text-[12px] mb-4" style={{ color: '#f0b26b' }} data-testid="lighthouse-rewards-ended">
+                {rewardsEndedLine(periodFinishRaw)}
+              </p>
+            ) : unfunded && (
               <p className="text-[12px] mb-4 rounded-lg p-3" style={{ background: 'rgba(240,178,107,0.08)', border: '1px solid rgba(240,178,107,0.35)', color: '#f0b26b' }}>
-                The reward vault is unfunded — staking works but earns nothing until funding
+                The reward vault is unfunded, so staking works but earns nothing until funding
                 lands. Unlike the Solana lighthouse, your principal is NEVER at the vault&apos;s
                 mercy here: withdraw is free at any time and moves principal only.
               </p>
             )}
-            {!unfunded && notPaying && (
+            {/* Reached only with periodFinish 0 now: an ended period says so above. */}
+            {!rewardsEnded && !unfunded && notPaying && (
               <p className="text-[12px] mb-4 text-white/70">
-                The last reward period has ended — the pool is paying 0 until the next
-                funding. Configured rate from the last notify:{' '}
-                {view.configuredRawPerSec === null ? '—' : `${fmtRaw(view.configuredRawPerSec * 86_400n, decimals)} ${bungalow.symbol}/day`}.
+                No reward period has started, so the pool pays 0 until it is funded.
               </p>
             )}
 
@@ -297,7 +307,7 @@ export function EvmLighthousePoolLive({ bungalow }: { bungalow: Bungalow & { sta
                     </button>
                   </div>
                   <div className="flex flex-wrap gap-2">
-                    {needsApproval ? (
+                    {stakeClosed ? null : needsApproval ? (
                       <button type="button" disabled={busy !== null || !amountRaw} onClick={() => send('approve')} className="btn-primary px-5 py-2 text-[13px] disabled:opacity-50">
                         {busy === 'approve' ? 'Approving…' : `Approve ${bungalow.symbol}`}
                       </button>

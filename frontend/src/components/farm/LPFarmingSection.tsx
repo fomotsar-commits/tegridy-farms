@@ -11,6 +11,7 @@ import { FinePrint } from '../ui/FinePrint';
 import { Link } from 'react-router-dom';
 import { usePoolTVL } from '../../hooks/usePoolTVL';
 import { useTOWELIPrice } from '../../contexts/PriceContext';
+import { lpFarmDeposit } from '../../lib/lpEmissions';
 
 type LPFarmHook = ReturnType<typeof useLPFarming>;
 
@@ -58,6 +59,11 @@ export function LPFarmingSection({ lpFarm, isConnected }: LPFarmingSectionProps)
     const annualRewardsUsd = lpFarm.rewardRatePerYear * price.priceInUsd;
     return (annualRewardsUsd / stakedUsd) * 100;
   }, [lpFarm.isActive, poolTVL.isLoaded, poolTVL.lpSupply, poolTVL.tvl, lpFarm.totalStaked, lpFarm.rewardRatePerYear, price.priceInUsd]);
+
+  // A NEW stake is offered only while rewards are paid (owner, 2026-10-14). Ended:
+  // one line with the date the read returned, no Stake box. Unread: Stake waits.
+  // Withdraw, Claim and Exit never ask this.
+  const deposit = lpFarmDeposit(lpFarm.periodFinishUnread ? null : lpFarm.periodFinish);
 
   // Loading skeleton — render whenever we're still reading, regardless of deploy status.
   // Prior guard (`isDeployed && isReadLoading`) skipped the skeleton when isDeployed was
@@ -166,7 +172,7 @@ export function LPFarmingSection({ lpFarm, isConnected }: LPFarmingSectionProps)
               </p>
               <FinePrint summary="Details">
                 <p>
-                  The farm&rsquo;s figures could not be read just now &mdash; the network did
+                  The farm&rsquo;s figures could not be read just now. The network did
                   not answer. The farm figures below are unknown, not zero: this is not a
                   statement that nothing is staked or that rewards have ended. Retry before
                   acting on them.
@@ -180,6 +186,9 @@ export function LPFarmingSection({ lpFarm, isConnected }: LPFarmingSectionProps)
                 Retry
               </button>
             </div>
+          )}
+          {!deposit.open && deposit.reason === 'ended' && (
+            <p className="text-amber-200 text-[13px] mb-4" data-testid="lp-farming-ended">{deposit.line}</p>
           )}
           {/* APR hero — the headline number a farmer wants, derived live from on-chain
               emissions + staked TVL (not a hardcoded figure).
@@ -209,9 +218,9 @@ export function LPFarmingSection({ lpFarm, isConnected }: LPFarmingSectionProps)
                       activate the live APR". Worded as an end, not "between epochs":
                       the Reward Rate tile below says why that reads as a lull. */}
                   {lpFarm.statsUnread
-                    ? 'the farm figures could not be read — retry above'
+                    ? 'the farm figures could not be read; retry above'
                     : !lpFarm.isActive
-                      ? 'reward period ended — staking LP earns nothing until the farm is refunded'
+                      ? 'reward period ended'
                       : lpFarm.totalStaked === 0n
                         ? 'be the first to stake LP to activate the live APR'
                         : 'calculating…'}
@@ -248,7 +257,7 @@ export function LPFarmingSection({ lpFarm, isConnected }: LPFarmingSectionProps)
               ) : lpFarm.isActive ? (
                 <p className="stat-value text-[14px] text-white font-mono">{formatNumber(lpFarm.rewardRatePerDay, 2)} / day</p>
               ) : (
-                <p className="stat-value text-[14px] text-amber-300 font-mono" title="The reward period has ended — staking LP here accrues nothing until it is refunded.">
+                <p className="stat-value text-[14px] text-amber-300 font-mono" title="The reward period has ended. Staked LP accrues nothing until the farm is refunded.">
                   0 / day
                 </p>
               )}
@@ -274,7 +283,9 @@ export function LPFarmingSection({ lpFarm, isConnected }: LPFarmingSectionProps)
 
           {!isConnected ? (
             <div className="text-center py-8">
-              <p className="text-white text-sm mb-3">Connect an Ethereum wallet to stake LP tokens</p>
+              <p className="text-white text-sm mb-3">
+                {deposit.open ? 'Connect an Ethereum wallet to stake LP tokens' : 'Connect an Ethereum wallet to withdraw or claim'}
+              </p>
               <ConnectButton label={CONNECT_ETHEREUM_WALLET} />
             </div>
           ) : (
@@ -335,9 +346,16 @@ export function LPFarmingSection({ lpFarm, isConnected }: LPFarmingSectionProps)
                 </div>
               ) : null}
 
-              {/* Stake / Withdraw inputs */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* Stake / Withdraw inputs. Ended: no Stake box at all, the line at the
+                  top says why. Unread end: the box stays, held, with no date. */}
+              <div className={`grid grid-cols-1 gap-4 ${deposit.open || deposit.reason !== 'ended' ? 'md:grid-cols-2' : ''}`}>
                 {/* Stake */}
+                {!deposit.open && deposit.reason !== 'ended' ? (
+                  <div className="rounded-lg p-4" style={{ background: 'var(--color-purple-75)', border: '1px solid var(--color-purple-75)' }} data-testid="lp-farming-stake-held">
+                    <p className="text-white text-[11px] mb-2 font-semibold uppercase tracking-wider label-pill">Stake LP</p>
+                    <p className="text-amber-200 text-[12px]">{deposit.line}</p>
+                  </div>
+                ) : deposit.open && (
                 <div className="rounded-lg p-4" style={{ background: 'var(--color-purple-75)', border: '1px solid var(--color-purple-75)' }}>
                   <p className="text-white text-[11px] mb-2 font-semibold uppercase tracking-wider label-pill">Stake LP</p>
                   <div className="flex gap-2 mb-2">
@@ -403,11 +421,12 @@ export function LPFarmingSection({ lpFarm, isConnected }: LPFarmingSectionProps)
                     <p className="text-white/50 text-[10px] mt-2">
                       Min stake <span className="font-mono">{formatTokenAmount(lpFarm.minStakeFormatted, 0)}</span> LP
                       {!lpFarm.positionUnread && parseFloat(lpFarm.walletLPBalanceFormatted) < parseFloat(lpFarm.minStakeFormatted) && (
-                        <> &middot; you hold {formatTokenAmount(lpFarm.walletLPBalanceFormatted)} &mdash; <Link to="/liquidity" className="underline hover:text-white">add liquidity</Link></>
+                        <> &middot; you hold {formatTokenAmount(lpFarm.walletLPBalanceFormatted)} &middot; <Link to="/liquidity" className="underline hover:text-white">add liquidity</Link></>
                       )}
                     </p>
                   )}
                 </div>
+                )}
 
                 {/* Withdraw */}
                 <div className="rounded-lg p-4" style={{ background: 'var(--color-purple-75)', border: '1px solid var(--color-purple-75)' }}>
@@ -456,7 +475,7 @@ export function LPFarmingSection({ lpFarm, isConnected }: LPFarmingSectionProps)
                   the load-bearing half: without it a failed read renders the
                   you-have-never-staked panel at the same moment the notice above
                   says the position is unknown. */}
-              {!lpFarm.positionUnread && lpFarm.stakedBalance === 0n && (
+              {deposit.open && !lpFarm.positionUnread && lpFarm.stakedBalance === 0n && (
                 <div className="rounded-lg p-3 mt-4 text-[11px]" style={{ background: 'rgba(245,158,11,0.06)', border: '1px solid rgba(245,158,11,0.15)' }}>
                   <p className="text-amber-400 font-medium mb-1">Impermanent loss risk</p>
                   <p className="text-white/60">If TOWELI moves against ETH, your LP may be worth less than just holding both.</p>

@@ -32,6 +32,7 @@ import { Fact, HEAD, PANEL_BG, LEDGER_BG, HAIR, DIVIDED_BG } from './ledger';
 import { HeldTimeLine } from './HeldTimeLine';
 import { CardArt } from '../ui/CardArt';
 import { FinePrint } from '../ui/FinePrint';
+import { rewardsEndedLine } from '../../lib/rewardsEnded';
 import { Reveal } from '../motion/Reveal';
 import { DUR, EASE_OUT, pressTap, staggerContainer, staggerItem } from '../../lib/motion';
 
@@ -740,7 +741,14 @@ export function SolanaLadderPoolCard({ bungalow }: { bungalow: Bungalow & { ladd
 
                 {/* ── the action rail ──────────────────────────────────── */}
                 <div className="min-w-0 @min-[52rem]:col-span-5">
-                  {!publicKey ? (
+                  {/* An ended reward window takes no new stake (owner, 2026-10-14): the
+                      date the pool read returned, and no form. Claim and the exit
+                      doors below are untouched. */}
+                  {rewardWindow === 'ended' ? (
+                    <div className="flex flex-col gap-4" data-testid="ladder-window-ended">
+                      <p className="m-0 text-[12px]" style={{ color: '#f0b26b' }}>{rewardsEndedLine(pool.periodFinish)}</p>
+                    </div>
+                  ) : !publicKey ? (
                     <div className="flex flex-col gap-4">
                       {minStakeFact}
                       <button type="button" onClick={openConnect} className="btn-primary w-full px-6 py-2.5 text-[13px]">

@@ -17,6 +17,7 @@ import { shortenAddress } from '../../lib/formatting';
 import { HeldTimeLine } from './HeldTimeLine';
 import { CardArt } from '../ui/CardArt';
 import { FinePrint } from '../ui/FinePrint';
+import { rewardsEndedLine, rewardsHaveEnded } from '../../lib/rewardsEnded';
 
 /**
  * The island's LOCKED EVM lighthouse card (LighthouseLadder.sol).
@@ -184,6 +185,11 @@ export function EvmLadderPoolLive({ bungalow }: { bungalow: Bungalow & { stakePo
   }
 
   const unfunded = view.vaultRaw !== null && view.vaultRaw === 0n;
+  // A landed periodFinish in the past: no new stake (owner, 2026-10-14). Claim and
+  // every position exit stay. An unread end holds Stake; never funded stays open.
+  const periodFinishRaw = big(4);
+  const rewardsEnded = rewardsHaveEnded(periodFinishRaw, nowSecs);
+  const stakeClosed = depositsFrozen || rewardsEnded || periodFinishRaw === null;
 
   return (
     <div className="relative isolate overflow-hidden rounded-2xl glass-card-animated" style={{ border: '1px solid var(--color-purple-75)' }}>
@@ -244,6 +250,12 @@ export function EvmLadderPoolLive({ bungalow }: { bungalow: Bungalow & { stakePo
               </p>
             )}
 
+            {rewardsEnded && periodFinishRaw !== null && (
+              <p className="text-[12px] mb-4" style={{ color: '#f0b26b' }} data-testid="ladder-rewards-ended">
+                {rewardsEndedLine(periodFinishRaw)}
+              </p>
+            )}
+
             <p className="text-[11px] text-white/60 mb-4 leading-relaxed">
               Longer locks earn a larger <em>share</em>. Leaving before your lock opens costs 25%.
             </p>
@@ -297,6 +309,7 @@ export function EvmLadderPoolLive({ bungalow }: { bungalow: Bungalow & { stakePo
                 </div>
 
 
+                {!rewardsEnded && (<>
                 <div className="flex items-center gap-2 mb-2">
                   <input value={amount} onChange={(e) => setAmount(e.target.value)} inputMode="decimal"
                     placeholder={`Amount (${bungalow.symbol})`} aria-label={`Amount of ${bungalow.symbol} to stake`}
@@ -325,6 +338,7 @@ export function EvmLadderPoolLive({ bungalow }: { bungalow: Bungalow & { stakePo
                     </>
                   )}
                 </p>
+                </>)}
 
                 {depositsFrozen && (
                   <div className="rounded-xl p-3 mb-3 text-[12px]" style={{ background: 'rgba(120,20,20,0.30)', border: '1px solid rgba(255,120,120,0.40)' }}>
@@ -344,7 +358,7 @@ export function EvmLadderPoolLive({ bungalow }: { bungalow: Bungalow & { stakePo
                 )}
 
                 <div className="flex flex-wrap gap-2 mb-4">
-                  {depositsFrozen ? null : needsApproval ? (
+                  {stakeClosed ? null : needsApproval ? (
                     <button type="button" disabled={busy !== null || !amountRaw} className="btn-primary px-5 py-2 text-[13px] disabled:opacity-50"
                       onClick={() => send('approve', () => writeContractAsync({ ...tokenC, functionName: 'approve', args: [pool, amountRaw ?? 0n] }))}>
                       {busy === 'approve' ? 'Approving…' : `Approve ${bungalow.symbol}`}
