@@ -33,12 +33,24 @@ export function isWalletDecline(e: unknown): boolean {
 }
 
 // The adapter's own refusals: thrown BEFORE the wallet is asked, with a name and no
-// words (wallet-adapter-base errors.js, StandardWalletAdapter's signTransaction).
+// words (wallet-adapter-base errors.js, StandardWalletAdapter's signTransaction,
+// wallet-adapter-react's sendTransaction with no wallet chosen).
 const NEVER_ASKED = new Map([
+  ['WalletNotSelectedError', 'no wallet is chosen on this page, so none was asked'],
   ['WalletNotConnectedError', 'this page is no longer connected to it, so it was never asked'],
   ['WalletConfigError', 'it does not offer transaction signing to this page, so it was never asked'],
   ['WalletAccountError', 'the account it shared does not allow transaction signing, so it was never asked'],
 ]);
+/**
+ * The adapter's sentence for a wallet that cannot take this transaction's version, thrown
+ * before signing with nothing under it (wallet-adapter-base signer.js). A bare send error
+ * is not read this way: a wallet that answered with no value after sending throws the same.
+ */
+const VERSION_REFUSED = /^Sending (versioned transactions|transaction version \S+) isn't supported by this wallet$/;
+function refusedVersion(e: unknown): boolean {
+  const o = (typeof e === 'object' && e !== null ? e : {}) as { name?: unknown; message?: unknown; error?: unknown };
+  return o.name === 'WalletSendTransactionError' && o.error == null && typeof o.message === 'string' && VERSION_REFUSED.test(o.message);
+}
 /** Names that say nothing about why: a bare Error, and the wrappers every failure wears. */
 const PLAIN_NAMES = new Set(['Error', 'WalletSignTransactionError', 'WalletSendTransactionError']);
 
@@ -85,9 +97,9 @@ export function signThrowCopy(e: unknown): string {
 
 /**
  * A throw from a wallet's sendTransaction, which signs AND sends. Only two throws prove
- * nothing was sent: the adapter's own refusals before the wallet is asked, and a sign
- * step that failed (WalletSignTransactionError). Any other can come after the wallet
- * signed, so the transaction may be out: `unsure`, never "failed".
+ * nothing was sent: the adapter's own refusals before the wallet is asked (by name, or a
+ * version it cannot take), and a sign step that failed (WalletSignTransactionError). Any
+ * other can come after the wallet signed, so it may be out: `unsure`, never "failed".
  */
 export type SendThrow =
   | { kind: 'declined'; message: string }
@@ -98,7 +110,7 @@ export type SendThrow =
 export function readSendThrow(e: unknown): SendThrow {
   if (isWalletDecline(e)) return { kind: 'declined', message: DECLINED_IN_WALLET };
   const names = namesIn(e);
-  if (names.some((n) => NEVER_ASKED.has(n) || n === 'WalletSignTransactionError')) {
+  if (refusedVersion(e) || names.some((n) => NEVER_ASKED.has(n) || n === 'WalletSignTransactionError')) {
     return { kind: 'not-signed', message: notSignedCopy(walletReason(e)) };
   }
   return { kind: 'unsure', reason: walletReason(e), byWallet: names.includes('WalletSendTransactionError') };

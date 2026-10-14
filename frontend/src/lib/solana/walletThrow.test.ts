@@ -7,6 +7,7 @@ import {
   WalletSendTransactionError,
   WalletSignTransactionError,
 } from '@solana/wallet-adapter-base';
+import { WalletNotSelectedError } from '@solana/wallet-adapter-react';
 import { DECLINED_IN_WALLET } from './swap/walletCopy';
 import { JUPITER_WINDOW_BLOCKS, jupiterLastValidAtMost } from './swap/jupiterNote';
 import { notSignedCopy, readSendThrow } from './walletThrow';
@@ -29,6 +30,24 @@ describe('readSendThrow: a throw from a wallet that signs AND sends', () => {
     ['a sign step that failed, in its words', new WalletSignTransactionError('Wallet is locked', new Error('Wallet is locked')), 'Wallet is locked'],
   ])('a wallet that never signed (%s) gets its reason, and nothing was sent', (_, thrown, reason) => {
     expect(readSendThrow(thrown)).toEqual({ kind: 'not-signed', message: notSignedCopy(reason) });
+  });
+
+  // Thrown by the adapter before the wallet is asked (wallet-adapter-base signer.js,
+  // wallet-adapter-react WalletProviderBase.js): nothing was signed, so nothing was sent.
+  it.each([
+    ['a wallet that cannot take a versioned transaction (every Jupiter swap is one)', new WalletSendTransactionError("Sending versioned transactions isn't supported by this wallet"), "Sending versioned transactions isn't supported by this wallet"],
+    ['a wallet that cannot take this version', new WalletSendTransactionError("Sending transaction version 0 isn't supported by this wallet"), "Sending transaction version 0 isn't supported by this wallet"],
+    ['no wallet chosen on the page', new WalletNotSelectedError(), 'no wallet is chosen on this page, so none was asked'],
+  ])('the adapter refused before asking the wallet (%s): nothing was sent', (_, thrown, reason) => {
+    expect(readSendThrow(thrown)).toEqual({ kind: 'not-signed', message: notSignedCopy(reason) });
+  });
+
+  it('a send error with nothing under it stays unsure: a wallet that answered with no value after it may have sent throws the same', () => {
+    // StandardWalletAdapter's other-network refusal is `new WalletSendTransactionError()`; a wallet
+    // that rejects with undefined is wrapped as `new WalletSendTransactionError(undefined, undefined)`.
+    expect(readSendThrow(new WalletSendTransactionError())).toMatchObject({ kind: 'unsure', byWallet: true });
+    // The adapter's sentence over an error the wallet raised is not the adapter's own refusal.
+    expect(readSendThrow(new WalletSendTransactionError("Sending versioned transactions isn't supported by this wallet", new Error('x')))).toMatchObject({ kind: 'unsure' });
   });
 
   it('a send that failed after the wallet may have signed is unsure, with the wallet’s words', () => {

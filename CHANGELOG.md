@@ -17,6 +17,10 @@ page keeps the newest thirty days.
 - Solana swap: a swap you sent and that is not confirmed yet now holds Buy for that wallet, by either route, in every tab of the site and after a reload, with its signature and a link. Buy comes back when the network says it landed, failed or can no longer land, after 10 minutes, or when you turn it back on. Another wallet is not held.
 - Solana swap: a wallet whose answer did not come back now reads "Sent or not, we cannot tell" with what was pressed, and the amount is cleared. A price or transaction that could not be fetched at the press reads "Not sent" with the reason, and the form stays as it was. Neither says "Swap failed" any more.
 - Solana swap, DCA, limit orders, the BAYLA lock ladder and lighthouse staking: a cancel in the wallet reads the same everywhere, including Trust's cancel that carries only code 4001, and a wallet that was never asked says why.
+- Solana swap: a swap sent from the same wallet in another tab now also stops a press already under way here. An open review of a swap in our pool closes and shows the hold card, and a press through Jupiter is stopped just before the wallet. Either way the page says "Not sent" and your wallet is not asked.
+- Solana swap with site data blocked: switching to another wallet and back no longer turns Buy back on while the first wallet's swap may still land.
+- Solana swap: a wallet that cannot take Jupiter's kind of transaction, or a page with no wallet chosen, now reads "Not sent" with the reason, not "Sent or not, we cannot tell".
+- Lighthouse staking: if the wallet signed and the send then stopped, the page now says it cannot tell whether the stake, unstake or claim was sent, and asks you to check your wallet first. It no longer says "Nothing moved".
 
 ### 2026-10-10
 

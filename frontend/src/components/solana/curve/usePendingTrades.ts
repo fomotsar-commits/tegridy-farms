@@ -46,6 +46,11 @@ export interface PendingTradesState {
   hold(t: { kind: TradeKind; signature: string; lastValidBlockHeight: number | null }, scope?: string): void;
   /** The chain answered for one of them: drop its note. */
   release(signature: string, scope?: string): void;
+  /**
+   * Read again now: does a note hold this scope (this hook's own by default)? A note
+   * another tab wrote counts before its event arrives. The notes on screen follow.
+   */
+  holdsNow(scope?: string | null): boolean;
 }
 
 type LpSummary = Extract<TxSummary, { kind: LpKind }>;
@@ -90,17 +95,21 @@ export function usePendingTrades(
   o: { live?: boolean; scopeFor?: (p: PreparedTx) => string | null; recheckEveryMs?: number } = {},
 ): PendingTradesState {
   const live = o.live === true;
-  // Live only: notes this tab wrote while storage threw, so they still hold here.
-  const written = useRef(new Map<string, PendingTrade>());
-  const current = useCallback((): PendingTrade[] => {
-    if (scope === null) return [];
-    const stored = readPendingTrades(scope);
-    if (!live) return stored;
-    const now = Date.now();
-    const seen = new Set(stored.map((n) => n.signature));
-    const extra = [...written.current.values()].filter((n) => !seen.has(n.signature) && now - n.sentAt <= PENDING_TRADE_TTL_MS);
-    return [...stored, ...extra].sort((a, b) => b.sentAt - a.sentAt);
-  }, [scope, live]);
+  // Live only: notes this tab wrote while storage threw, kept per scope, so they still
+  // hold here, and still hold a wallet that is switched away from and back to.
+  const written = useRef(new Map<string, Map<string, PendingTrade>>());
+  const notesOf = useCallback(
+    (at: string): PendingTrade[] => {
+      const stored = readPendingTrades(at);
+      if (!live) return stored;
+      const now = Date.now();
+      const seen = new Set(stored.map((n) => n.signature));
+      const extra = [...(written.current.get(at)?.values() ?? [])].filter((n) => !seen.has(n.signature) && now - n.sentAt <= PENDING_TRADE_TTL_MS);
+      return [...stored, ...extra].sort((a, b) => b.sentAt - a.sentAt);
+    },
+    [live],
+  );
+  const current = useCallback((): PendingTrade[] => (scope === null ? [] : notesOf(scope)), [scope, notesOf]);
   const [notes, setNotes] = useState<PendingTrade[]>(() => (scope === null ? [] : readPendingTrades(scope)));
   const [checking, setChecking] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -116,7 +125,6 @@ export function usePendingTrades(
   useEffect(() => {
     if (shownScope.current === scope) return;
     shownScope.current = scope;
-    written.current.clear();
     autoChecked.current = false;
     setMessage(null);
     setNotes(current());
@@ -156,8 +164,10 @@ export function usePendingTrades(
           o = { status: 'unknown', signature: n.signature, message: `Could not check just now (${clipDetail(e)}).` };
         }
         if (o.status === 'confirmed' || o.status === 'reverted' || o.status === 'expired') {
-          if (scope !== null) clearPendingTrade(scope, n.signature);
-          written.current.delete(n.signature);
+          if (scope !== null) {
+            clearPendingTrade(scope, n.signature);
+            written.current.get(scope)?.delete(n.signature);
+          }
           resolved = true;
         } else if (o.status === 'unknown') {
           last = o.message;
@@ -199,17 +209,18 @@ export function usePendingTrades(
   const dismiss = useCallback(() => {
     if (busy.current || scope === null) return;
     clearPendingTrade(scope);
-    written.current.clear();
+    written.current.delete(scope);
     setNotes([]);
     setMessage(null);
   }, [scope]);
 
-  /** Live only: what this tab now holds, after a write to or a clear of this scope. */
+  /** Live only: what this tab now holds, after a write to or a clear of a scope. */
   const follow = useCallback(
     (at: string, note: PendingTrade | null, stored: boolean, cleared: string | null) => {
-      if (!live || at !== scope) return;
-      if (note && !stored) written.current.set(note.signature, note);
-      if (cleared) written.current.delete(cleared);
+      if (!live) return;
+      if (note && !stored) written.current.set(at, (written.current.get(at) ?? new Map<string, PendingTrade>()).set(note.signature, note));
+      if (cleared) written.current.get(at)?.delete(cleared);
+      if (at !== scope) return;
       // The arrival check is for notes found on load; a note written here has its own
       // panel's answer coming (or Check again on the card).
       autoChecked.current = true;
@@ -274,5 +285,15 @@ export function usePendingTrades(
     [scope, scopeFor, follow],
   );
 
-  return { notes, checking, message, recheck: () => void recheck(), dismiss, record, sent, hold, release };
+  const holdsNow = useCallback(
+    (at: string | null = scope): boolean => {
+      if (at === null) return false;
+      const found = notesOf(at);
+      if (at === scope) setNotes(found);
+      return found.length > 0;
+    },
+    [scope, notesOf],
+  );
+
+  return { notes, checking, message, recheck: () => void recheck(), dismiss, record, sent, hold, release, holdsNow };
 }

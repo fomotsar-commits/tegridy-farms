@@ -1,5 +1,5 @@
 import { OWN_ROUTE_COPY } from '../../lib/solana/swap/ownPoolRoute';
-import { DECLINED_IN_WALLET } from '../../lib/solana/swap/walletCopy';
+import { DECLINED_IN_WALLET, HELD_NOT_SENT } from '../../lib/solana/swap/walletCopy';
 import type { TxOutcome } from '../solana/curve/ports';
 
 // THE QUIET ENDING. Every swap in our own pool stops on its review before the wallet is
@@ -8,7 +8,7 @@ import type { TxOutcome } from '../solana/curve/ports';
 
 export type QuietEnding =
   | { kind: 'confirmed'; signature: string }
-  /** The trader said no in their wallet: nothing left the page. */
+  /** Nothing left the page: the trader said no in their wallet, or a swap this wallet sent holds it. */
   | { kind: 'not-signed'; message: string }
   /** The route was checked again at the press and is no longer our pool. */
   | { kind: 'route-changed'; message: string };
@@ -23,7 +23,7 @@ const ROUTE_CHANGED: ReadonlySet<string> = new Set([OWN_ROUTE_COPY.routeMoved, O
 export function quietEnding(o: TxOutcome): QuietEnding | null {
   if (o.status === 'confirmed') return { kind: 'confirmed', signature: o.signature };
   if (o.status !== 'not-sent') return null;
-  if (o.stage === 'sign' && o.message === DECLINED_IN_WALLET) return { kind: 'not-signed', message: o.message };
+  if (o.stage === 'sign' && (o.message === DECLINED_IN_WALLET || o.message === HELD_NOT_SENT)) return { kind: 'not-signed', message: o.message };
   if (o.stage === 'build' && ROUTE_CHANGED.has(o.message)) return { kind: 'route-changed', message: o.message };
   return null;
 }

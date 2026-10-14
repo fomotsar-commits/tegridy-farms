@@ -287,7 +287,8 @@ describe('stake', () => {
     // with AccountNotInitialized without it), then stake, then reward entry.
     const [ixs, ext] = execute.mock.calls[0]!;
     expect(ixs.map((i: { __ix: string }) => i.__ix)).toEqual(['create-receipt-ata', 'stake', 'reward-entry']);
-    expect(ext.invoker).toBe(invoker);
+    // The staker's wallet, watched for its signature (writeFailure).
+    expect(ext.invoker.publicKey).toBe((invoker as { publicKey: unknown }).publicKey);
     const [stakeArgs] = prepareStakeInstructions.mock.calls[0]!;
     expect(stakeArgs.stakePool).toBe(POOL);
     expect(stakeArgs.stakePoolMint).toBe('MintAddr');
@@ -372,6 +373,53 @@ describe('stake', () => {
       expect(r.reason).toContain('vault');
       expect(r.reason).toContain('topped up');
     }
+  });
+
+  // The SDK signs with the wallet, then test-runs and sends, in one call (client.execute).
+  const signsThen = (thrown: unknown) => async (_args: unknown, ext: { invoker: { signTransaction(tx: unknown): Promise<unknown> } }) => {
+    await ext.invoker.signTransaction({});
+    throw thrown;
+  };
+  const signing = { publicKey: { toBase58: () => 'StakerPk' }, signTransaction: vi.fn(async (tx: unknown) => tx) };
+  const ready = () => {
+    prepareStakeInstructions.mockResolvedValue({ ixs: [] });
+    prepareCreateRewardEntryInstructions.mockResolvedValue({ ixs: [] });
+    getAccountInfo.mockResolvedValue({ owner: { toBase58: () => 'ReceiptProgram' } });
+  };
+
+  it('a send that stops after the wallet signed is "we cannot tell", never "nothing moved", and never a cancel', async () => {
+    ready();
+    for (const thrown of [new TypeError('fetch failed'), new Error('request rejected by the node')]) {
+      execute.mockImplementation(signsThen(thrown));
+      const r = await stake({ invoker: signing as never, pool, amountRaw: 1n, durationSecs: 86400, entries: [] });
+      expect(!r.ok && r.reason).toMatch(/^Sent or not, we cannot tell\. Your wallet signed it, then the send stopped \(/);
+      expect(!r.ok && r.reason).not.toMatch(/nothing moved|cancelled/i);
+    }
+    expect(signing.signTransaction).toHaveBeenCalledTimes(2);
+  });
+
+  it('after the wallet signed, a test run that refused it, or a chain that refused it, still did not go through', async () => {
+    ready();
+    for (const thrown of [
+      new Error('failed to simulate transaction: {"InstructionError":[1,{"Custom":1}]}'),
+      new Error('Raw transaction Xyz failed ({"err":{"InstructionError":[1,{"Custom":1}]}})'),
+    ]) {
+      execute.mockImplementation(signsThen(thrown));
+      const r = await stake({ invoker: signing as never, pool, amountRaw: 1n, durationSecs: 86400, entries: [] });
+      expect(!r.ok && r.reason).toMatch(/^The stake did not go through\. Nothing moved\./);
+    }
+  });
+
+  it('the unstake, the claim and the rescue read a stop after the signature the same way', async () => {
+    const lib = await import('./bungalowStaking');
+    for (const sdk of [unstakeAndClaim, claimRewards, unstakeAndClose]) sdk.mockReset().mockImplementation(signsThen(new TypeError('fetch failed')));
+    const results = [
+      await lib.unstakeAndClaim({ invoker: signing as never, pool, entryNonce: 0 }),
+      await lib.claimRewards({ invoker: signing as never, pool, rewardPool: pool.rewardPools[0]!, entryNonce: 0 }),
+      // Nothing pending to claim first, so this is the close itself.
+      await unstakeAndCloseForfeitingRewards({ invoker: signing as never, pool, entryNonce: 0, entry: { createdTs: 1, pendingRaw: { 3: 0n } } }),
+    ];
+    for (const r of results) expect(!r.ok && r.reason).toMatch(/^Sent or not, we cannot tell\./);
   });
 
   // The claim strip and the full card print these verbatim, and venue copy has no em dash.

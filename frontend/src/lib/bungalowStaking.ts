@@ -996,13 +996,36 @@ export function nextVacantNonce(entries: StakeEntryView[]): number | null {
 
 /* ──────────────────────────────── writes ────────────────────────────────── */
 
-function writeFailure(err: unknown, fallback: string): Failure {
+/**
+ * The wallet as the SDK is handed it, noting when it has signed: the SDK signs, then
+ * test-runs and sends, in one call (client.execute), and reads only `publicKey` and
+ * `signTransaction` of it (@streamflow/common signTransaction, prepareTransaction).
+ */
+function watchSigning(invoker: SignerWalletAdapter): { invoker: SignerWalletAdapter; signed: () => boolean } {
+  let signed = false;
+  const watched = {
+    get publicKey() {
+      return invoker.publicKey;
+    },
+    signTransaction: ((tx) =>
+      invoker.signTransaction(tx).then((s) => {
+        signed = true;
+        return s;
+      })) as SignerWalletAdapter['signTransaction'],
+  };
+  return { invoker: watched as unknown as SignerWalletAdapter, signed: () => signed };
+}
+
+/** After the wallet signed, the only stops that sent nothing more: the SDK's test run refused it, or the chain did. */
+const REFUSED_AFTER_SIGNING = /failed to simulate transaction|^Raw transaction \S+ failed/;
+
+function writeFailure(err: unknown, fallback: string, walletSigned = false): Failure {
   const msg = err instanceof Error ? err.message : String(err ?? '');
   // The wallet's throw, read as every Solana write reads it (lib/solana/walletThrow.ts):
   // a cancel by code 4001 or by words, or a wallet that never signed, with its reason.
-  // Not once a signature exists: then it was sent.
+  // Not once the wallet signed or a signature exists: what threw then is the send.
   const signed = (err as { signature?: unknown } | null)?.signature;
-  const t = typeof signed === 'string' && signed !== '' ? null : readSendThrow(err);
+  const t = walletSigned || (typeof signed === 'string' && signed !== '') ? null : readSendThrow(err);
   if (t && t.kind !== 'unsure') return { ok: false, reason: t.message };
   // Streamflow custom error 6012 = the reward vault cannot cover the rewards
   // this action must pay out. PROVEN ON DEVNET (2026-08-28, same program ids
@@ -1080,6 +1103,13 @@ function writeFailure(err: unknown, fallback: string): Failure {
       reason: `Outcome unknown: the transaction was sent and may still land. Check your wallet or Solscan before retrying.${sigNote}`,
     };
   }
+  // Signed, then stopped anywhere else: the send may have gone out, so never "nothing moved".
+  if (walletSigned && !REFUSED_AFTER_SIGNING.test(msg)) {
+    return {
+      ok: false,
+      reason: `Sent or not, we cannot tell. Your wallet signed it, then the send stopped (${msg ? msg.slice(0, 140) : 'no reason was given'}). Check your wallet's activity before you try again.`,
+    };
+  }
   return { ok: false, reason: `${fallback}${msg ? ` (${msg.slice(0, 140)})` : ''}` };
 }
 
@@ -1098,6 +1128,7 @@ export async function stake(args: {
   durationSecs: number;
   entries: StakeEntryView[];
 }): Promise<Result<{ txId: string }> | Failure> {
+  const wallet = watchSigning(args.invoker);
   try {
     const nonce = nextVacantNonce(args.entries);
     if (nonce === null) return { ok: false, reason: 'All 256 stake slots are in use for this wallet.' };
@@ -1109,7 +1140,7 @@ export async function stake(args: {
       import('@solana/web3.js'),
       import('@solana/spl-token'),
     ]);
-    const ext = { invoker: args.invoker };
+    const ext = { invoker: wallet.invoker };
     const stakeMintPda = staking.deriveStakeMintPDA(
       client.getCurrentProgramId('stakePoolProgram' as any),
       new web3.PublicKey(args.pool.address),
@@ -1156,7 +1187,7 @@ export async function stake(args: {
     const res: any = await client.execute([ataIx, ...(stakePrep?.ixs ?? []), ...rewardIxs], ext);
     return { ok: true, txId: String(res?.txId ?? res?.signature ?? '') };
   } catch (err) {
-    return writeFailure(err, 'The stake did not go through. Nothing moved.');
+    return writeFailure(err, 'The stake did not go through. Nothing moved.', wallet.signed());
   }
 }
 
@@ -1166,6 +1197,7 @@ export async function unstakeAndClaim(args: {
   pool: PoolView;
   entryNonce: number;
 }): Promise<Result<{ txId: string }> | Failure> {
+  const wallet = watchSigning(args.invoker);
   try {
     const client = await makeClient();
     const res: any = await client.unstakeAndClaim(
@@ -1181,11 +1213,11 @@ export async function unstakeAndClaim(args: {
           tokenProgramId: args.pool.tokenProgram as any,
         })),
       },
-      { invoker: args.invoker },
+      { invoker: wallet.invoker },
     );
     return { ok: true, txId: String(res?.txId ?? '') };
   } catch (err) {
-    return writeFailure(err, 'The unstake did not go through. Your stake is untouched.');
+    return writeFailure(err, 'The unstake did not go through. Your stake is untouched.', wallet.signed());
   }
 }
 
@@ -1235,6 +1267,8 @@ export async function unstakeAndCloseForfeitingRewards(args: {
    */
   entry: Pick<StakeEntryView, 'createdTs' | 'pendingRaw'>;
 }): Promise<Result<{ txId: string }> | Failure> {
+  // The close's own wallet watch: each claim before it reads its own (claimRewards).
+  let closing: ReturnType<typeof watchSigning> | null = null;
   try {
     // CLAIM WHAT CAN STILL BE PAID, THEN CLOSE.
     //
@@ -1285,6 +1319,7 @@ export async function unstakeAndCloseForfeitingRewards(args: {
       }
     }
     if (switched()) return stopped;
+    closing = watchSigning(args.invoker);
     const client = await makeClient();
     // Same argument shape as unstakeAndClaim — the SDK aliases
     // UnstakeAndClaimArgs = UnstakeAndCloseArgs.
@@ -1301,11 +1336,11 @@ export async function unstakeAndCloseForfeitingRewards(args: {
           tokenProgramId: args.pool.tokenProgram as any,
         })),
       },
-      { invoker: args.invoker },
+      { invoker: closing.invoker },
     );
     return { ok: true, txId: String(res?.txId ?? '') };
   } catch (err) {
-    return writeFailure(err, 'The rescue unstake did not go through. Your stake is untouched.');
+    return writeFailure(err, 'The rescue unstake did not go through. Your stake is untouched.', closing?.signed() ?? false);
   }
 }
 
@@ -1316,6 +1351,7 @@ export async function claimRewards(args: {
   rewardPool: RewardPoolView;
   entryNonce: number;
 }): Promise<Result<{ txId: string }> | Failure> {
+  const wallet = watchSigning(args.invoker);
   try {
     const client = await makeClient();
     const res: any = await client.claimRewards(
@@ -1328,11 +1364,11 @@ export async function claimRewards(args: {
         rewardPoolType: args.rewardPool.kind,
         tokenProgramId: args.pool.tokenProgram as any,
       },
-      { invoker: args.invoker },
+      { invoker: wallet.invoker },
     );
     return { ok: true, txId: String(res?.txId ?? '') };
   } catch (err) {
-    return writeFailure(err, 'The claim did not go through. Your rewards are untouched.');
+    return writeFailure(err, 'The claim did not go through. Your rewards are untouched.', wallet.signed());
   }
 }
 

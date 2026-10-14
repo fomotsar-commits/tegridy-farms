@@ -23,7 +23,7 @@ import type { TxKind } from './ports';
 export const curveTradeScope = (mint: string): string => 'curve-launch:pending-trade:' + mint;
 /** Where every liquidity note lives, whatever its pool. */
 export const LP_PENDING_SCOPE = 'lp:pending';
-/** The swap page's notes before they were kept per wallet: one tab's, read only to move them. */
+/** The prefix of the swap page's per-wallet scopes. A note an older build kept under this bare key (one tab's) is not read. */
 export const SWAP_PENDING_SCOPE = 'swap:pending';
 /** Where the swap page keeps the notes of one wallet: every swap it signed here, either route, any pair. */
 export const swapPendingScope = (wallet: string): string => `${SWAP_PENDING_SCOPE}:${wallet}`;

@@ -1,11 +1,12 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useConnection, useWallet } from '@solana/wallet-adapter-react';
 import { browserCurveRpc, browserRpc } from '../../lib/launcher/solana/curve/rpc';
 import { ownPoolSwapsOn } from '../../lib/solana/swap/ownPoolSwapFlag';
+import { HELD_NOT_SENT } from '../../lib/solana/swap/walletCopy';
 import { withReadCommitment } from '../solana/curve/confirmedRpc';
 import { browserGateRpc } from '../solana/curve/gateRpc';
-import { swapPendingScope } from '../solana/curve/pendingTrade';
-import type { CurveWriteConfig, GateBlock, GateRpc, PreparedTx, SwapGate, SwapOpenGate, VenueSwapApi, WriteRpc } from '../solana/curve/ports';
+import { readPendingTrades, swapPendingScope } from '../solana/curve/pendingTrade';
+import type { CurveWriteConfig, GateBlock, GateRpc, PreparedTx, SwapGate, SwapOpenGate, TxOutcome, VenueSwapApi, WriteRpc } from '../solana/curve/ports';
 import { useCurveSigner, type CurveSignerState } from '../solana/curve/useCurveSigner';
 import { usePendingTrades, type CheckSignature, type PendingTradesState } from '../solana/curve/usePendingTrades';
 import { useTxFlow, type OnSettled, type TxFlow } from '../solana/curve/useTxFlow';
@@ -117,12 +118,21 @@ export function useVenueSwap(o: {
   else if (mismatch) unavailable = 'this page reads pools from one program and would send to another';
   else if (signerState.kind === 'cannot-sign') unavailable = 'this wallet cannot sign a transaction for this page to send';
 
+  // Whether a note holds the wallet now, read again at the wallet's door (set below, once
+  // the notes are read; storage alone until then).
+  const holds = useRef<(scope?: string | null) => boolean>((at) => !!at && readPendingTrades(at).length > 0);
   // The send path, awaited: the flow below exists before the swap code has loaded, and
-  // nothing reaches it until `ready` is set.
+  // nothing reaches it until `ready` is set. A swap this wallet sent, in any tab, that the
+  // chain has not answered for stops it, whatever is on screen: nothing is awaited between
+  // that read and the wallet's prompt (write/submit.ts).
   const lazy = useMemo(() => {
     const load = o.load ?? loadVenueSwapApi;
     return {
-      submitPrepared: async (...a: Parameters<VenueSwapApi['submitPrepared']>) => (await load()).submitPrepared(...a),
+      submitPrepared: async (...a: Parameters<VenueSwapApi['submitPrepared']>): Promise<TxOutcome> => {
+        const api = await load();
+        if (holds.current(signerScope(a[2]) ?? undefined)) return { status: 'not-sent', stage: 'sign', message: HELD_NOT_SENT };
+        return api.submitPrepared(...a);
+      },
       recheckOutcome: async (...a: Parameters<VenueSwapApi['recheckOutcome']>) => (await load()).recheckOutcome(...a),
     };
   }, [o.load]);
@@ -145,7 +155,10 @@ export function useVenueSwap(o: {
     recheckEveryMs: NOTE_RECHECK_MS,
   });
 
-  const { record, sent } = pending;
+  const { record, sent, holdsNow } = pending;
+  useEffect(() => {
+    holds.current = holdsNow;
+  }, [holdsNow]);
   const pageSettled = o.onSettled;
   const settled = useCallback<OnSettled>(
     (outcome, prepared, sentSignature) => {

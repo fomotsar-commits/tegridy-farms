@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent, waitFor, cleanup, configure, within } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, cleanup, configure, within, act } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { PublicKey } from '@solana/web3.js';
 import type { ReactNode } from 'react';
@@ -184,7 +184,7 @@ import { getActivity } from '../lib/solanaActivity';
 import { OWN_ROUTE_COPY } from '../lib/solana/swap/ownPoolRoute';
 import { NOT_TEST_RUN_COPY, REFUSED_COPY } from '../lib/solana/swap/jupiterFeeRetry';
 import { readPendingTrades, savePendingTrade, swapPendingScope } from '../components/solana/curve/pendingTrade';
-import { DECLINED_IN_WALLET } from '../lib/solana/swap/walletCopy';
+import { DECLINED_IN_WALLET, HELD_NOT_SENT } from '../lib/solana/swap/walletCopy';
 /** Where the connected wallet's notes of sent swaps live (every tab of the site reads them). */
 const MY_NOTES = swapPendingScope(USER.toBase58());
 
@@ -753,6 +753,57 @@ describe('a swap in our pool that was sent and not confirmed', () => {
     const again = await screen.findByRole('button', { name: 'Buy BAYLA' }, { timeout: 20_000 });
     await waitFor(() => expect(receive()).toBe('1.01'));
     expect(again).toBeDisabled();
+  });
+});
+
+describe('a swap this wallet sends in another tab while a press here is under way', () => {
+  const OTHER_TAB_SIG = '4'.repeat(88);
+  /** Another tab sends from the same wallet: its note, and the event that tells this tab (unless it has not arrived yet). */
+  const otherTabSends = (o: { heard?: boolean } = {}) => {
+    savePendingTrade(MY_NOTES, { kind: 'jupiter-swap', signature: OTHER_TAB_SIG, lastValidBlockHeight: 99 });
+    if (o.heard !== false) act(() => { window.dispatchEvent(new StorageEvent('storage', { key: MY_NOTES })); });
+  };
+
+  it('a review of a swap in our pool, open here, closes: the hold card shows, and its Sign is gone', async () => {
+    const buy = await readyToBuy();
+    fireEvent.click(buy);
+    expect(await screen.findByText('Review your swap', {}, { timeout: 20_000 })).toBeInTheDocument();
+    otherTabSends();
+    expect(await screen.findByTestId('venue-swap-pending')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Sign in wallet' })).toBeNull();
+    expect(h.toast.info).toHaveBeenCalledWith('Not sent', { description: HELD_NOT_SENT });
+    expect(screen.getByRole('button', { name: 'Buy BAYLA' })).toBeDisabled();
+    expect(h.submitPrepared).not.toHaveBeenCalled();
+  });
+
+  it('a Sign pressed before this tab has heard of the other swap stops before the wallet', async () => {
+    const buy = await readyToBuy();
+    fireEvent.click(buy);
+    expect(await screen.findByText('Review your swap', {}, { timeout: 20_000 })).toBeInTheDocument();
+    otherTabSends({ heard: false });
+    fireEvent.click(screen.getByRole('button', { name: 'Sign in wallet' }));
+    await waitFor(() => expect(h.toast.info).toHaveBeenCalledWith('Not sent', { description: HELD_NOT_SENT }));
+    expect(h.submitPrepared).not.toHaveBeenCalled();
+    // Back on the form as typed, held by the other swap's card.
+    await waitFor(backOnTheForm);
+    expect(await screen.findByTestId('venue-swap-pending')).toBeInTheDocument();
+    expect(amountBox().value).toBe('0.1');
+  });
+
+  it('a press through Jupiter, between Buy and the wallet when the other swap is sent, never reaches the wallet', async () => {
+    h.ownOut.value = 990_000n;
+    const buy = await readyToBuy();
+    await waitFor(() => expect(routeLine()).toMatch(/Jupiter pays/));
+    let release: (v: string) => void = () => {};
+    h.buildSwapTransaction.mockImplementation(() => new Promise<string>((res) => { release = res; }));
+    fireEvent.click(buy);
+    await waitFor(() => expect(h.buildSwapTransaction).toHaveBeenCalledTimes(1));
+    otherTabSends();
+    expect(await screen.findByTestId('venue-swap-pending')).toBeInTheDocument();
+    await act(async () => { release(JUPITER_TX); });
+    await waitFor(() => expect(h.toast.info).toHaveBeenCalledWith('Not sent', { description: HELD_NOT_SENT }));
+    expect(h.sendTransaction).not.toHaveBeenCalled();
+    expect(amountBox().value).toBe('0.1');
   });
 });
 

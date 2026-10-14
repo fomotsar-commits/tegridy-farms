@@ -84,7 +84,7 @@ import { applySlippage } from '../lib/launcher/solana/curve/math';
 import { tradeCostText } from '../lib/solana/lp/format';
 import { quietEnding } from '../components/swap/quietSwap';
 import { checkDcaPair, dcaToken2022Copy, DCA_MIN_PER_BUY_USD, DCA_UNREAD_COPY, DCA_UNREAD_NOTE, type DcaPairCheck } from '../lib/solana/swap/dcaPair';
-import { LOST_ANSWER_TITLE, lostAnswerCopy, nothingSentCopy } from '../lib/solana/swap/walletCopy';
+import { HELD_NOT_SENT, LOST_ANSWER_TITLE, lostAnswerCopy, nothingSentCopy } from '../lib/solana/swap/walletCopy';
 import { jupiterLastValidAtMost } from '../lib/solana/swap/jupiterNote';
 import { readSendThrow } from '../lib/solana/walletThrow';
 import { readPendingTrades, swapPendingScope } from '../components/solana/curve/pendingTrade';
@@ -1598,7 +1598,16 @@ function SolanaSwapInner() {
   // A swap the connected wallet sent from this browser, by either route, in any tab, and
   // not confirmed yet holds Buy for that wallet until the chain answers (useVenueSwap).
   const pendingNote = venueSwap.pending.notes.length > 0;
-  const { hold: holdNote, release: releaseNote } = venueSwap.pending;
+  const { hold: holdNote, release: releaseNote, holdsNow } = venueSwap.pending;
+  // A note that stands up while a review is open (another tab sent from this wallet) closes
+  // it: the hold card takes its place. Not under a Sign already pressed: the send path
+  // reads the notes again before the wallet (useVenueSwap).
+  const reviewOpen = flowState.step === 'review' && !flowState.checking;
+  useEffect(() => {
+    if (!pendingNote || !reviewOpen) return;
+    resetOwn();
+    toast.info('Not sent', { description: HELD_NOT_SENT });
+  }, [pendingNote, reviewOpen, resetOwn]);
 
   // The trade on the form, for a press that answers late (ownPoolTakesIt). Updated after
   // each render, never during one.
@@ -2001,6 +2010,12 @@ function SolanaSwapInner() {
       const sent = prepared.quote;
       const feeWaivedOnSend = prepared.siteFeeWaived;
       if (carriesFee && (await ownPoolTakesIt(sent, feeWaivedOnSend, pressedFor))) return;
+      // A swap this wallet sent in another tab while this press was on its way holds it too.
+      // From this read to the wallet's prompt nothing is awaited.
+      if (holdsNow(noteScope)) {
+        toast.info('Not sent', { description: HELD_NOT_SENT });
+        return;
+      }
       if (shownWaived && !feeWaivedOnSend) {
         // The trader clicked a quote that said "no site fee", and this time the
         // fee-bearing build simulates clean. That swap pays them less than the
