@@ -57,12 +57,27 @@ function lpShareLine(config: AmmConfigView | null, enableCreatorFee: boolean): s
   return `Of each trade, liquidity providers keep ${feeSplit(config).lpKeepsPct.toFixed(3)}%, read from this pool's fee tier just now.${creatorLine} The vault can change that tier's rates at once, and a change applies to what you put in too.`;
 }
 
-export function LpBeforeYouAdd({ launchPool, config, enableCreatorFee }: { launchPool: boolean; config: AmmConfigView | null; enableCreatorFee: boolean }) {
+/**
+ * `reviewing`: a review is on screen, and it says the fork line and the vault line above
+ * its rows, so they are not said a second time under its Sign button (island, answer
+ * eighteen: the two risk notices stand once).
+ */
+export function LpBeforeYouAdd({
+  launchPool,
+  config,
+  enableCreatorFee,
+  reviewing = false,
+}: {
+  launchPool: boolean;
+  config: AmmConfigView | null;
+  enableCreatorFee: boolean;
+  reviewing?: boolean;
+}) {
   return (
     <div className="space-y-2" data-testid="lp-before-you-add">
       <ul className="list-disc pl-4 space-y-1 text-white/75">
-        <li>{FORK_LINE}</li>
-        <li>{VAULT_LINE}</li>
+        {!reviewing && <li>{FORK_LINE}</li>}
+        {!reviewing && <li>{VAULT_LINE}</li>}
         <li>{PRICE_MOVES_LINE}</li>
         <li>{ROUTING_LINE}</li>
         <li>{lpShareLine(config, enableCreatorFee)}</li>
@@ -118,6 +133,7 @@ export function LpBeforeYouOpen({
   neverRefunded,
   walletConnected = true,
   coin = SOL_QUOTE,
+  reviewing = false,
 }: {
   fee: bigint;
   neverRefunded: bigint | null;
@@ -125,6 +141,8 @@ export function LpBeforeYouOpen({
   walletConnected?: boolean;
   /** The coin the new pool is paired with. Left out, it is SOL. */
   coin?: QuoteCoin;
+  /** As on `LpBeforeYouAdd`: the review on screen says the fork line and the vault line. */
+  reviewing?: boolean;
 }) {
   const deposits =
     neverRefunded !== null
@@ -135,8 +153,8 @@ export function LpBeforeYouOpen({
   return (
     <div className="space-y-2" data-testid="lp-before-you-open">
       <ul className="list-disc pl-4 space-y-1 text-white/75">
-        <li>{FORK_LINE}</li>
-        <li>{CREATE_VAULT_LINE}</li>
+        {!reviewing && <li>{FORK_LINE}</li>}
+        {!reviewing && <li>{CREATE_VAULT_LINE}</li>}
         <li>{MONEY_LINE}</li>
         <li>
           Opening costs {solExact(fee)}, paid to the team&apos;s vault, and {deposits}.{' '}

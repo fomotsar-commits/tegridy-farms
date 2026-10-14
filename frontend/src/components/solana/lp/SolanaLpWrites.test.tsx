@@ -813,6 +813,14 @@ describe('the review', () => {
     const disclosure = within(panel).getByTestId('lp-review-disclosure');
     expect(disclosure).toHaveTextContent(/have not had their own independent review yet/);
     expect(disclosure).toHaveTextContent(/change its fee rates at once/);
+    // Island, answer eighteen: the two risk notices stand once, above the rows. The list under
+    // the panel said them again under the Sign button; it keeps its other lines.
+    expect(within(panel).getAllByText(/have not had their own independent review yet/)).toHaveLength(1);
+    expect(within(panel).getAllByText(/change its fee rates at once/)).toHaveLength(1);
+    expect(within(panel).getByTestId('lp-before-you-add')).toHaveTextContent('When the price moves, you can end up with less than if you had just held both tokens.');
+    // Back on the form, with no review on screen, the list says them again.
+    fireEvent.click(within(panel).getByRole('button', { name: 'Cancel' }));
+    expect(within(panel).getByTestId('lp-before-you-add')).toHaveTextContent(/have not had their own independent review yet/);
   });
 });
 
