@@ -162,7 +162,8 @@ describe('what the shares have earned, with no press and no read of its own', ()
 describe('the fees the pool holds for others are named for whose they are', () => {
   it('the venue’s uncollected cut is the venue’s by its label, and nothing on the card reads as fees waiting for a provider', () => {
     const card = mount(view());
-    expect(rowValue(card, 'Venue’s cut, not collected yet')).toBe('0.0008 SOL and 0 tokens');
+    // BAYLA is in the site's registry, so the card names it.
+    expect(rowValue(card, 'Venue’s cut, not collected yet')).toBe('0.0008 SOL and 0 BAYLA');
     expect(card).not.toHaveTextContent(/fees waiting|unclaimed|your fees|to claim/i);
     // Every row about an uncollected amount says whose it is, first.
     const labels = [...card.querySelectorAll('span')].map((s) => s.textContent ?? '').filter((t) => /not collected/i.test(t));

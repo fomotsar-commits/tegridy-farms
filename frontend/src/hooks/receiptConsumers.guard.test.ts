@@ -137,7 +137,7 @@ const READS_NOT_WAITS: Record<string, string> = {
   'lib/launcher/notifyBirth.ts':
     'reads only the block a confirmed launch landed in; a failed read queues nothing',
   'nakamigos/components/TransactionProgress.jsx':
-    "ethers, re-reading a receipt its caller already waited for with tx.wait(); ethers' own replacement handling is a separate question",
+    'ethers, re-reading a receipt its caller already waited for through waitForTxOutcome() (nakamigos/lib/txOutcome.js), which tells a speed-up, a cancel and an unread receipt apart; a read that fails here only polls again',
 };
 
 const sources = walk(SRC).map((f) => ({ file: relative(SRC, f).replace(/\\/g, '/'), src: code(f) }));

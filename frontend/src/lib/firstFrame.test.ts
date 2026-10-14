@@ -12,6 +12,7 @@ import { dirname, join } from 'node:path';
 import { VENUE } from './arrival';
 import { pageArt } from './artConfig';
 import { derivedUrl, naturalWidthOf, widthsFor } from './artSrcSet';
+import { HEADING_STYLE, PILL_ROW_STYLE } from '../../scripts/render-bungalow-doors.mjs';
 
 const FRONTEND = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const html = readFileSync(join(FRONTEND, 'index.html'), 'utf8');
@@ -88,5 +89,55 @@ describe('the first frame ships in the HTML', () => {
 
   it('never paints the word Loading', () => {
     expect(spoken(frame)).not.toMatch(/loading/i);
+  });
+
+  // The hero puts its chain-pill row above the heading and spaces it as .heading-luxury
+  // does; a frame without either moved the heading 44.5px down when the hero arrived.
+  it("holds the hero's pill row above the heading and spaces its letters as the hero does, as a door's frame does", () => {
+    const spacer = frame!.querySelector('.ff-col > div[aria-hidden="true"]');
+    expect(spacer?.getAttribute('style')).toBe(PILL_ROW_STYLE);
+    expect(spacer?.nextElementSibling?.tagName).toBe('H1');
+    expect(frame!.querySelector('h1')?.getAttribute('style')).toBe(HEADING_STYLE);
+  });
+});
+
+// The frame and the React fallback draw their heading with .ff-h1; one of these four
+// headings then takes its place: `/`, a bungalow door, /toweli, an open lot. If the two
+// size rules differ at any width, the heading moves as the page loads.
+// e2e/door-first-frame.spec.ts measures that on three doors on a built page, phone
+// Chromium only; this compares the rules themselves, at every hero.
+const HEROES = [
+  'src/components/VenueHero.tsx',
+  'src/components/bungalow/BungalowHero.tsx',
+  'src/pages/HomePage.tsx',
+  'src/components/bungalow/BungalowDoorLanding.tsx',
+];
+const NAMED_SIZE: Record<string, string> = { '3xl': '1.875rem', '6xl': '3.75rem' };
+const SIZE_CLASS = /^(md:)?text-(\[.+\]|xs|sm|base|lg|\d?xl)$/;
+const cssSize = (cls: string) => {
+  const v = cls.replace(/^(md:)?text-/, '');
+  return (v.startsWith('[') ? v.slice(1, -1).replace(/_/g, ' ') : NAMED_SIZE[v] ?? `unknown size ${v}`).replace(/\s+/g, '');
+};
+
+describe("the frame's heading is sized by the rule of the hero that replaces it", () => {
+  const style = Array.from(doc.querySelectorAll('head style')).map((s) => s.textContent ?? '').join('\n').replace(/\s+/g, '');
+  const frameBase = /\.ff-h1\{[^}]*?font-size:([^;}]+)/.exec(style)?.[1];
+  const frameWide = /@media\(min-width:768px\)\{(?:[^{}]*\{[^}]*\})*?\.ff-h1\{[^}]*?font-size:([^;}]+)/.exec(style)?.[1];
+
+  it('the frame states a size below 768px and one from 768px up', () => {
+    expect(frameBase).toBeTruthy();
+    expect(frameWide).toBeTruthy();
+  });
+
+  it.each(HEROES)('%s', (file) => {
+    const src = readFileSync(join(FRONTEND, file), 'utf8');
+    const heads = Array.from(src.matchAll(/<h1 className="([^"]*\bheading-luxury\b[^"]*)"/g));
+    expect(heads, `${file}: exactly one hero heading`).toHaveLength(1);
+    const sizes = heads[0]![1]!.split(/\s+/).filter((c) => SIZE_CLASS.test(c));
+    const base = sizes.filter((c) => !c.startsWith('md:'));
+    const wide = sizes.filter((c) => c.startsWith('md:'));
+    expect([base.length, wide.length], `${file}: one size below 768px, one from 768px up (${sizes.join(' ')})`).toEqual([1, 1]);
+    expect(cssSize(base[0]!), `${file}: the frame's heading is another size below 768px`).toBe(frameBase);
+    expect(cssSize(wide[0]!), `${file}: the frame's heading is another size from 768px up`).toBe(frameWide);
   });
 });

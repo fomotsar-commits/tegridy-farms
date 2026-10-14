@@ -4,6 +4,7 @@ import { m } from 'framer-motion';
 import { usePageTitle } from '../hooks/usePageTitle';
 import { PageArtBackdrop } from '../components/PageArtBackdrop';
 import { ArtCard } from '../components/ui/ArtCard';
+import { FinePrint } from '../components/ui/FinePrint';
 import { YieldRouterPanel } from '../components/yield/YieldRouterPanel';
 import { useYieldMarkets } from '../hooks/useYieldMarkets';
 import { hasRoutableYieldVenue } from '../lib/yield/venues';
@@ -34,6 +35,10 @@ import { hasRoutableYieldVenue } from '../lib/yield/venues';
 // Plain buttons with `aria-pressed`, not a tablist. A tab whose `aria-controls`
 // names a panel that is not in the DOM is an invalid-attribute finding, and both
 // panels here are mutually exclusive by design.
+//
+// FEWER WORDS (owner, 2026-10-13: "use minimal words to get the point across").
+// Each card says its point in one line; how it works, the caveats and the
+// not-advice note sit in a FinePrint at the bottom of that card, verbatim.
 
 type Section = 'staking' | 'stables';
 
@@ -64,16 +69,25 @@ export default function YieldPage() {
         <m.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="mb-5">
           <h1 className="heading-luxury text-2xl md:text-4xl text-text-primary tracking-tight mb-2">Yield Routing</h1>
           <p className="text-[14px] text-text-secondary max-w-[680px] leading-relaxed">
+            {hasRoutableYieldVenue()
+              ? 'Other protocols’ yields. You deposit direct; the venue adds no fee.'
+              : 'Other protocols’ yields, compared. Nothing here moves your money.'}
+          </p>
+        </m.div>
+
+        <ArtCard pageId="yield" idx={1} className="mb-5" padding="p-4">
+          <h2 className="text-text-primary font-semibold text-[14px] mb-1">How this page works</h2>
+          <p className="text-[13px] text-text-secondary leading-relaxed">
+            Rates are read live on-chain. A dash means not read, never 0%.
+          </p>
+          <FinePrint summary="Details">
+          <p>
             Every destination on this page belongs to{' '}
             <span className="text-text-primary font-medium">someone else</span>. The venue issues no staking token and no
             stablecoin, runs no vault here, and takes no custody — so each row names the counterparty whose solvency you
             would be trusting and the specific way that position loses money, before it shows you a rate.
           </p>
-        </m.div>
-
-        <ArtCard pageId="yield" idx={1} className="mb-5" padding="p-4">
-          <h2 className="text-text-primary font-semibold text-[14px] mb-2">What this page does and does not do</h2>
-          <ul className="text-[13px] text-text-secondary space-y-1.5 leading-relaxed list-disc pl-4">
+          <ul className="space-y-1.5 list-disc pl-4">
             <li>
               <span className="text-text-primary">Rates are read, never modelled.</span> Each figure names the contract
               call or feed round it came from and the block it was read at. A rate this venue could not read is shown as
@@ -94,6 +108,7 @@ export default function YieldPage() {
                 : 'No destination in this build has a wired deposit address, so every route control is disabled with its reason attached. Nothing on this page can move your money.'}
             </li>
           </ul>
+          </FinePrint>
         </ArtCard>
 
         <div className="flex gap-2 mb-5" role="group" aria-label="Yield category">
@@ -116,7 +131,8 @@ export default function YieldPage() {
           <YieldRouterPanel
             id="yield-staking"
             heading="Liquid staking and restaking"
-            intro="Rate, peg and exit liquidity side by side. The peg column is the one worth your attention: these tokens trade against ETH on a market, and the market has priced several of them under it — a fact that only shows up if somebody actually reads the price instead of assuming it."
+            intro="Rate, peg and exit, side by side. The peg is read, never assumed."
+            introDetail="Rate, peg and exit liquidity side by side. The peg column is the one worth your attention: these tokens trade against ETH on a market, and the market has priced several of them under it — a fact that only shows up if somebody actually reads the price instead of assuming it."
             kinds={STAKING_KINDS}
             markets={markets}
           />
@@ -124,15 +140,20 @@ export default function YieldPage() {
           <YieldRouterPanel
             id="yield-stables"
             heading="Stablecoin lending markets"
-            intro="The venue issues no stablecoin and holds no deposits. These are third-party lending markets, and the rate on each is paid by that market's borrowers — it moves, and it is not a promise. Read the counterparty line before the rate."
+            intro="Third-party lending markets. Borrowers pay the rate, so it moves."
+            introDetail="The venue issues no stablecoin and holds no deposits. These are third-party lending markets, and the rate on each is paid by that market's borrowers — it moves, and it is not a promise. Read the counterparty line before the rate."
             kinds={STABLE_KINDS}
             markets={markets}
           />
         )}
 
         <ArtCard pageId="yield" idx={2} className="mt-4" padding="p-4">
-          <h2 className="text-text-primary font-semibold text-[14px] mb-2">Buying over time instead of at once</h2>
+          <h2 className="text-text-primary font-semibold text-[14px] mb-1">Buying over time instead of at once</h2>
           <p className="text-[13px] text-text-secondary leading-relaxed">
+            A DCA budget waits in your own wallet, earning nothing.
+          </p>
+          <FinePrint summary="How it works">
+          <p>
             A schedule on the{' '}
             <Link to="/swap" className="text-emerald-400/80 hover:text-emerald-300 underline transition-colors">
               trade
@@ -142,9 +163,11 @@ export default function YieldPage() {
             Neither parking nor staking happens on its own: this venue runs no keeper, and no server here holds or can
             derive your key, so every leg is a transaction you sign in an open tab.
           </p>
+          </FinePrint>
         </ArtCard>
 
-        <p className="text-[12px] text-text-muted mt-4 leading-relaxed">
+        <FinePrint summary="Not advice" className="mt-3">
+        <p>
           None of this is advice, and inclusion here is not an endorsement — see{' '}
           <Link to="/risks" className="text-emerald-400/80 hover:text-emerald-300 underline transition-colors">
             Risks
@@ -152,6 +175,7 @@ export default function YieldPage() {
           . Every protocol listed is audited by its own team and reviewed by nobody here; the counterparty and loss-mode
           lines are descriptions of how each position is built, not judgements about whether it will hold.
         </p>
+        </FinePrint>
       </div>
     </>
   );

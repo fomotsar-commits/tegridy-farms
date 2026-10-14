@@ -1,5 +1,6 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
+  COMMERCE_TIMEOUT_MS,
   CommerceStoreError,
   fetchInvoice,
   fetchSettlements,
@@ -7,6 +8,7 @@ import {
   recordSettlement,
 } from './store';
 import { invoiceToWire, type Invoice } from './invoice';
+import { neverAnswered, stalledBody, watch } from '../../test/quietHost';
 
 // The distinction this file exists to hold:
 //
@@ -127,6 +129,54 @@ describe('the four ways a lookup can end are four different answers', () => {
     expect(
       await reasonOf(fetchInvoice('x', { fetchImpl: stub(404, { error: 'gone', code: 'not-found' }) })),
     ).not.toBe('resolved');
+  });
+});
+
+// The store's 8 s cover the whole answer. A store that sends a 200, its headers and half a
+// body has not answered, and saying "unreadable" would be a statement about the invoice.
+describe('a store that starts its answer and then stops did not answer', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  const stalls = (status: number) =>
+    ((_url: string, init: RequestInit) => Promise.resolve(stalledBody(init.signal, status))) as unknown as typeof fetch;
+
+  it('gives up a half-sent 200 after 8 s, as unreachable and not as malformed', async () => {
+    const ended = await watch(() => reasonOf(fetchInvoice('order-10231', { fetchImpl: stalls(200) })), 30_000);
+    expect(ended, 'still pending after 30 s').not.toBeNull();
+    expect(ended).toEqual({ afterMs: COMMERCE_TIMEOUT_MS, value: 'unreachable' });
+  });
+
+  it('gives up a half-sent 404 the same way: half a "not found" is not an answer', async () => {
+    const ended = await watch(() => reasonOf(fetchInvoice('order-10231', { fetchImpl: stalls(404) })), 30_000);
+    expect(ended, 'still pending after 30 s').not.toBeNull();
+    expect(ended).toEqual({ afterMs: COMMERCE_TIMEOUT_MS, value: 'unreachable' });
+  });
+
+  it('ends at the same moment as a store that never answers', async () => {
+    const silent = ((_url: string, init: RequestInit) => neverAnswered(init.signal)) as unknown as typeof fetch;
+    const ended = await watch(() => reasonOf(fetchInvoice('order-10231', { fetchImpl: silent })), 30_000);
+    expect(ended).toEqual({ afterMs: COMMERCE_TIMEOUT_MS, value: 'unreachable' });
+  });
+
+  it('a caller that stops waiting while the body arrives ends the read then', async () => {
+    const caller = new AbortController();
+    setTimeout(() => caller.abort(), 1_000);
+    const ended = await watch(
+      () => reasonOf(fetchInvoice('order-10231', { fetchImpl: stalls(200), signal: caller.signal })),
+      30_000,
+    );
+    expect(ended).toEqual({ afterMs: 1_000, value: 'unreachable' });
+  });
+
+  it('still calls a whole 200 that is not JSON malformed', async () => {
+    const page = (async () => new Response('<!doctype html>', { status: 200 })) as unknown as typeof fetch;
+    const ended = await watch(() => reasonOf(fetchInvoice('order-10231', { fetchImpl: page })), 30_000);
+    expect(ended).toEqual({ afterMs: 0, value: 'malformed' });
   });
 });
 

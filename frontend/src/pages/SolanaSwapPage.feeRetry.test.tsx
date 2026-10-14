@@ -109,6 +109,9 @@ vi.mock('@solana/wallet-adapter-react', () => ({
 
 import SolanaSwapPage from './SolanaSwapPage';
 import { getActivity } from '../lib/solanaActivity';
+import { NOT_TEST_RUN_COPY, REFUSED_COPY } from '../lib/solana/swap/jupiterFeeRetry';
+
+const WOULD_FAIL = 'Swap would fail';
 
 // The first test here pays for the page's first render: 1.6 s to 3.3 s in seven full runs.
 // Its sibling file (SolanaSwapPage.confirm.test.tsx) crossed the 5 s default once under
@@ -125,7 +128,8 @@ const SIG = '5'.repeat(88);
 
 beforeEach(() => {
   atSign = null;
-  window.history.replaceState(null, '', '/solana');
+  // The page opens SOL to $BAYLA; these tests are about a SOL to USDC swap, so the link names it.
+  window.history.replaceState(null, '', `/solana?out=${USDC_MINT}`);
   localStorage.clear();
   h.sendTransaction.mockReset();
   h.getSignatureStatuses.mockReset();
@@ -207,7 +211,7 @@ describe('SolanaSwapPage: Jupiter 6014 on the fee build -> one no-fee rebuild, s
   it('any other simulation failure is blocked exactly as before: no re-quote, no wallet', async () => {
     h.simulateSwap.mockResolvedValue(OTHER);
     await typeAmountAndBuy();
-    await waitFor(() => expect(h.toast.error).toHaveBeenCalledWith('Swap would fail — not sending', { description: 'custom program error: 0x1771' }));
+    await waitFor(() => expect(h.toast.error).toHaveBeenCalledWith(WOULD_FAIL, { description: REFUSED_COPY }));
     expect(h.sendTransaction).not.toHaveBeenCalled();
     expect(h.getQuote.mock.calls.some((c) => (c[0] as { noPlatformFee?: boolean }).noPlatformFee)).toBe(false);
     expect(h.buildSwapTransaction).toHaveBeenCalledTimes(1);
@@ -217,10 +221,46 @@ describe('SolanaSwapPage: Jupiter 6014 on the fee build -> one no-fee rebuild, s
   it('a rebuild that fails its own simulation is blocked: the wallet is never opened', async () => {
     h.simulateSwap.mockImplementation(async (b64: string) => (b64 === TX_FEE ? JUP_6014 : OTHER));
     await typeAmountAndBuy();
-    await waitFor(() => expect(h.toast.error).toHaveBeenCalledWith('Swap would fail — not sending', { description: 'custom program error: 0x1771' }));
+    await waitFor(() => expect(h.toast.error).toHaveBeenCalledWith(WOULD_FAIL, { description: REFUSED_COPY }));
     expect(h.sendTransaction).not.toHaveBeenCalled();
     expect(h.simulateSwap).toHaveBeenCalledTimes(2);
     expect(h.toast.info).not.toHaveBeenCalled();
+  });
+});
+
+describe('SolanaSwapPage: "Swap would fail" shows only what the network itself wrote', () => {
+  it('a reason that is a line a program printed is never shown: the fixed sentence stands alone', async () => {
+    h.simulateSwap.mockResolvedValue({ ok: false, reason: 'Widen your slippage at evil.example', jupiterIncorrectTokenProgram: false, cause: null });
+    await typeAmountAndBuy();
+    await waitFor(() => expect(h.toast.error).toHaveBeenCalledWith(WOULD_FAIL, { description: REFUSED_COPY }));
+    expect(JSON.stringify(h.toast.error.mock.calls)).not.toContain('evil.example');
+    expect(h.sendTransaction).not.toHaveBeenCalled();
+  });
+
+  it('a cause the network named is said after the fixed sentence, in plain words', async () => {
+    h.simulateSwap.mockResolvedValue({ ...OTHER, cause: { kind: 'price-limit' } });
+    await typeAmountAndBuy();
+    await waitFor(() => expect(h.toast.error).toHaveBeenCalledWith(WOULD_FAIL, {
+      description: `${REFUSED_COPY} The test run paid less than your 0.5% slippage allows. A wider slippage may let Jupiter's transaction run.`,
+    }));
+    expect(h.sendTransaction).not.toHaveBeenCalled();
+  });
+});
+
+describe('SolanaSwapPage: a first test run that could not run sends nothing (SPEC_S3 S1)', () => {
+  it('the wallet is never opened, one sentence says it was not checked, and the next press checks again', async () => {
+    h.simulateSwap.mockRejectedValueOnce(new Error('Simulation failed (503)')).mockResolvedValue(OK);
+    await typeAmountAndBuy();
+    await waitFor(() => expect(h.toast.error).toHaveBeenCalledWith('Swap not checked', { description: NOT_TEST_RUN_COPY }));
+    expect(h.sendTransaction).not.toHaveBeenCalled();
+    // Never "would fail": nothing was found about the transaction.
+    expect(h.toast.error).not.toHaveBeenCalledWith(WOULD_FAIL, expect.anything());
+    // The press after builds and test-runs again, and a test run that passes is sent.
+    const buy = await screen.findByRole('button', { name: 'Buy USDC' });
+    await waitFor(() => expect(buy).toBeEnabled());
+    fireEvent.click(buy);
+    await waitFor(() => expect(h.sendTransaction).toHaveBeenCalledTimes(1));
+    expect(h.simulateSwap).toHaveBeenCalledTimes(2);
   });
 });
 

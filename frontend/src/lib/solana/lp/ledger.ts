@@ -427,7 +427,7 @@ export const ledgerText = {
       case 'run-start-not-read': return `Your history in this pool goes back further than the ${plural(r.window.count, 'transaction')} this page reads (the oldest read is from ${minuteText(r.window.oldest)}), so what you put in could not be fully read.`;
       case 'unread-entry': return `One of your transactions in this pool (${when('unread')}) could not be read.`;
       case 'mixed-entry': return `A transaction on ${when('mixed')} changed this pool in more than one way at once, which this page cannot read as one deposit or withdrawal.`;
-      case 'no-deposit-read': return `None of the ${plural(r.window.count, 'transaction')} read on your shares is a deposit by this wallet into this pool, so these shares arrived another way (sent to this wallet) and what they cost is not known.`;
+      case 'no-deposit-read': return `${r.window.count === 1 ? 'The one transaction read on your shares is not' : `None of the ${plural(r.window.count, 'transaction')} read on your shares is`} a deposit by this wallet into this pool, so these shares arrived another way (sent to this wallet) and what they cost is not known.`;
     }
   },
   unread(detail: string): string {

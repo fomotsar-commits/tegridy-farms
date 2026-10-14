@@ -1,6 +1,8 @@
 import { Link } from 'react-router-dom';
 import type { usePoolTVL } from '../../hooks/usePoolTVL';
 import { TOKEN_LOGOS } from '../farm/poolConfig';
+import { CardArt } from '../ui/CardArt';
+import { FinePrint } from '../ui/FinePrint';
 
 /**
  * The venue's own pools, as a table.
@@ -21,9 +23,10 @@ import { TOKEN_LOGOS } from '../farm/poolConfig';
  * VENUE's own platform fee — skimmed off `msg.value` BEFORE the swap reaches
  * the pair (SwapFeeRouter.sol:721-732) — annualised against this pool's TVL.
  *
- * It is not the LP's income. The LP's income is the pair's 0.3% swap fee, of
- * which 5/6 accrues into the reserves and 1/6 goes to the protocol's `feeTo`
- * (TegridyPair.sol:16-17). Those are different parties taking different cuts of
+ * It is not the LP's income. The LP's income is the pair's 0.3% swap fee, all
+ * of which accrues into the reserves while the pair's one-sixth `feeTo` cut
+ * (TegridyPair.sol:16-17) stays off, as it was on 2026-10-10 (`kLast` = 0).
+ * Those are different parties taking different cuts of
  * different bases. Worse, `totalETHFees` counts only swaps that went THROUGH
  * the fee router, so it also undercounts the pool's actual activity.
  *
@@ -76,9 +79,10 @@ export function VenuePoolTable({ poolData }: { poolData: ReturnType<typeof usePo
           inside its own box on a 390px phone rather than making the document
           scroll sideways. */}
       <div
-        className="rounded-2xl overflow-hidden"
+        className="relative isolate rounded-2xl overflow-hidden"
         style={{ background: 'rgba(4,9,18,0.72)', border: '1px solid var(--color-purple-25)' }}
       >
+        <CardArt pageId="liquidity" idx={1} />
         {/* `relative` IS LOAD-BEARING — it is what CONTAINS the sr-only span in the
             last <th>. Tailwind's `sr-only` is `position:absolute`, and an
             absolutely-positioned element is clipped by an ancestor's overflow
@@ -150,36 +154,38 @@ export function VenuePoolTable({ poolData }: { poolData: ReturnType<typeof usePo
         </div>
       </div>
 
-      {/* The footnote is load-bearing, not decoration: it says what each number
-          is, what a dash means, and — the part most tables skip — what is NOT
-          here and why. An absent APR with no explanation reads as an oversight;
-          an absent APR with a reason reads as a standard. */}
+      {/* The one line that stays out: a dash is "not read", never a zero. What
+          each number is, and why there is no APR column, sit in the small print
+          below, closed but in the DOM. */}
       <p className="mt-2.5 text-[11.5px] text-white/50 leading-relaxed">
-        TVL is a live read of the pair&apos;s reserves. &ldquo;Routed 24h&rdquo; is reconstructed from the
-        venue router&apos;s own fee take, so it counts swaps that came through this venue and not
-        those that hit the pool directly. A dash means the read did not land, never that the number
-        is zero.{' '}
-        <strong className="text-white/70">There is deliberately no APR column:</strong> the only fee
-        figure this venue can read on chain is the router&apos;s platform fee, which is the
-        protocol&apos;s income rather than yours, and annualising it against the pool would misstate
-        what providing liquidity actually pays.
+        A dash means the read did not land, never that the number is zero.
       </p>
 
-      <p className="mt-3 text-[12.5px] text-white/60 leading-relaxed">
-        This venue is small on purpose and the list is short. Most ERC-20 pairs can be opened here —
-        ERC-777 tokens are refused by the factory — and if the pair does not exist yet, the first
-        deposit creates it and sets its starting price.
-      </p>
-
-      {/* /pools is the OTHER venue — the Solana AMM — and is a sibling tab, so
-          this is a pointer rather than a link out of the section. */}
-      <p className="mt-2 text-[12.5px] text-white/60">
-        The venue also runs its own constant-product AMM on Solana.{' '}
-        <Link to="/pools" className="underline underline-offset-2 text-white hover:text-white/80">
-          See where that stands
-        </Link>
-        .
-      </p>
+      <FinePrint summary="Details">
+        <p>
+          TVL is a live read of the pair&apos;s reserves. &ldquo;Routed 24h&rdquo; is reconstructed from the
+          venue router&apos;s own fee take, so it counts swaps that came through this venue and not
+          those that hit the pool directly.{' '}
+          <strong className="text-white/85">There is deliberately no APR column:</strong> the only fee
+          figure this venue can read on chain is the router&apos;s platform fee, which is the
+          protocol&apos;s income rather than yours, and annualising it against the pool would misstate
+          what providing liquidity actually pays.
+        </p>
+        <p>
+          This venue is small on purpose and the list is short. Most ERC-20 pairs can be opened here —
+          ERC-777 tokens are refused by the factory — and if the pair does not exist yet, the first
+          deposit creates it and sets its starting price.
+        </p>
+        {/* /pools is the OTHER venue — the Solana AMM — and is a sibling tab, so
+            this is a pointer rather than a link out of the section. */}
+        <p>
+          The venue also runs its own constant-product AMM on Solana.{' '}
+          <Link to="/pools" className="underline underline-offset-2 text-white hover:text-white/80">
+            See where that stands
+          </Link>
+          .
+        </p>
+      </FinePrint>
     </section>
   );
 }

@@ -12,8 +12,12 @@ import type { VenuePoolCandidate } from './venuePools';
 
 export const OWN_ROUTE_COPY = {
   routeMoved: 'Jupiter now pays more for this trade than our own pool, so nothing was sent. Press again to take the better route.',
+  underLastQuote: 'Our own pool now pays less than the last quote Jupiter gave, and Jupiter could not be asked again just now, so nothing was sent. Check the route and press again.',
   poolGone: 'Our own pool could not be quoted just now, so nothing was sent. Press again.',
   ownNowWins: 'Our own pool now pays at least as much as Jupiter for this trade. Check the new route and press again.',
+  jupiterRefused: 'Jupiter quoted more, but its transaction for this trade failed its test run, so nothing was sent. Our own pool quotes this trade. Check the new route and press again.',
+  notChecked: 'Our own pools did not answer in time, so nothing was sent. Press again.',
+  formChanged: 'The trade on the form changed while its route was being checked, so nothing was sent.',
 } as const;
 
 const notBuilt = (message: string): Prepared => ({ ok: false, outcome: { status: 'not-sent', stage: 'build', message } });
@@ -30,6 +34,12 @@ export interface OwnPoolSwapDeps {
    * when it answers that it has no route. THROWS when it could not be asked.
    */
   aggregatorOut(): Promise<bigint | null>;
+  /**
+   * Would the transaction for the quote `aggregatorOut` just gave pass its own test run?
+   * Asked only when that quote would take the trade from our pool. False only when the
+   * test run refused it: one that could not run is true, as the Jupiter path sends it.
+   */
+  aggregatorSends?(): Promise<boolean>;
   /** Our pools for the pair, read again and quoted. Never throws; none = none could be quoted. */
   ownPools(): Promise<VenuePoolCandidate[]>;
   /** Build and test-run the swap in `pool`, refusing if it pays less than the aggregator was seen to. */
@@ -42,19 +52,38 @@ export interface OwnPoolSwapDeps {
  * the aggregator cannot be asked again, so a pool is never taken at less than the last
  * figure the trader saw beside it. With neither, the swap is built and its review says
  * the aggregator could not be asked: an unanswered question is never "no route".
+ * `refusedShownOut`: the quote on screen is of a transaction that failed its test run. It
+ * holds the pool to nothing, and when the aggregator cannot be asked again the review still
+ * says that refusal and its figure, as an earlier press's.
  */
-export async function prepareOwnPoolSwap(deps: OwnPoolSwapDeps, shownAggregatorOut: bigint | null): Promise<Prepared> {
+export async function prepareOwnPoolSwap(deps: OwnPoolSwapDeps, shownAggregatorOut: bigint | null, refusedShownOut: bigint | null = null): Promise<Prepared> {
+  const lastSeen = (): AggregatorSeen => {
+    if (refusedShownOut !== null) return { kind: 'refused', out: refusedShownOut, earlier: true };
+    return shownAggregatorOut === null ? { kind: 'unreachable' } : { kind: 'quoted', out: shownAggregatorOut, when: 'earlier' };
+  };
   const [agg, own] = await Promise.all([
-    deps.aggregatorOut().then(
-      (out): AggregatorSeen => (out === null ? { kind: 'no-route' } : { kind: 'quoted', out, when: 'now' }),
-      (): AggregatorSeen => (shownAggregatorOut === null ? { kind: 'unreachable' } : { kind: 'quoted', out: shownAggregatorOut, when: 'earlier' }),
-    ),
+    deps.aggregatorOut().then((out): AggregatorSeen => (out === null ? { kind: 'no-route' } : { kind: 'quoted', out, when: 'now' }), lastSeen),
     deps.ownPools(),
   ]);
   if (own.length === 0) return notBuilt(OWN_ROUTE_COPY.poolGone);
-  const chosen = freshDecision(own, agg.kind === 'quoted' ? agg.out : null).chosen;
-  if (chosen?.venue !== 'own-pool' || !chosen.poolAddress) return notBuilt(OWN_ROUTE_COPY.routeMoved);
-  return deps.prepare(chosen.poolAddress, agg);
+  let seen = agg;
+  let chosen = freshDecision(own, agg.kind === 'quoted' ? agg.out : null).chosen;
+  // A quote whose transaction this site would refuse to send is no better route.
+  if (chosen?.venue !== 'own-pool' && agg.kind === 'quoted' && agg.when === 'now' && deps.aggregatorSends && !(await deps.aggregatorSends())) {
+    seen = { kind: 'refused', out: agg.out };
+    chosen = freshDecision(own, null).chosen;
+  }
+  if (chosen?.venue !== 'own-pool' || !chosen.poolAddress) {
+    // A figure from earlier is the last quote Jupiter gave, not an answer it gave now.
+    return notBuilt(agg.kind === 'quoted' && agg.when === 'earlier' ? OWN_ROUTE_COPY.underLastQuote : OWN_ROUTE_COPY.routeMoved);
+  }
+  const built = await deps.prepare(chosen.poolAddress, seen);
+  // The builder found our pool under the quote it was held to: a quote whose transaction is
+  // refused holds nothing, so the pool is built as it is, and its review says why.
+  if (!built.ok && built.outcome.message === OWN_ROUTE_COPY.routeMoved && seen.kind === 'quoted' && seen.when === 'now' && deps.aggregatorSends && !(await deps.aggregatorSends())) {
+    return deps.prepare(chosen.poolAddress, { kind: 'refused', out: seen.out });
+  }
+  return built;
 }
 
 /** With what the aggregator's transaction would pay in hand: does one of our pools, read again now, take the trade? */

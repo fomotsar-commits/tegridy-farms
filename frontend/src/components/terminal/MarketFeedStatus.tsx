@@ -5,6 +5,8 @@ import {
   type FeedBannerContext,
   type MarketFeedState,
 } from '../../lib/terminal/feedBanner';
+import { CardArt } from '../ui/CardArt';
+import { FinePrint } from '../ui/FinePrint';
 
 // The market feed's banner. It renders `feedBanner()` and adds nothing.
 //
@@ -31,7 +33,8 @@ export function MarketFeedStatus({ state, context, onReload }: MarketFeedStatusP
   const banner = feedBanner(state, context);
 
   return (
-    <div className={`rounded-xl border px-4 py-3 ${TONES[banner.tone]}`} role="status">
+    <div className={`relative isolate rounded-xl border px-4 py-3 ${TONES[banner.tone]}`} role="status">
+      <CardArt pageId="terminal" idx={2} />
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 className="text-sm font-semibold text-white">{banner.title}</h2>
         {banner.showRetry ? (
@@ -45,12 +48,29 @@ export function MarketFeedStatus({ state, context, onReload }: MarketFeedStatusP
         ) : null}
       </div>
 
-      <ul className="mt-1.5 space-y-1 text-xs leading-relaxed text-white/80">
-        {banner.lines.map((line) => (
-          <li key={line}>{line}</li>
-        ))}
-        {banner.notAZero ? <li className="text-white/70">{NOT_A_ZERO}</li> : null}
-      </ul>
+      {/* A healthy feed says what it read in one line and folds the rest
+          (attribution, "not endorsed", any withheld count). A warn or neutral
+          banner is a read that did not happen, so every line stays out. */}
+      {banner.tone === 'good' && banner.lines.length > 1 ? (
+        <>
+          <p className="mt-1.5 text-xs leading-relaxed text-white/80">{banner.lines[0]}</p>
+          <FinePrint>
+            <ul className="space-y-1">
+              {banner.lines.slice(1).map((line) => (
+                <li key={line}>{line}</li>
+              ))}
+              {banner.notAZero ? <li>{NOT_A_ZERO}</li> : null}
+            </ul>
+          </FinePrint>
+        </>
+      ) : (
+        <ul className="mt-1.5 space-y-1 text-xs leading-relaxed text-white/80">
+          {banner.lines.map((line) => (
+            <li key={line}>{line}</li>
+          ))}
+          {banner.notAZero ? <li className="text-white/70">{NOT_A_ZERO}</li> : null}
+        </ul>
+      )}
     </div>
   );
 }

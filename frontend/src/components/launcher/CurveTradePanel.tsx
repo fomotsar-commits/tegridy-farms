@@ -33,6 +33,7 @@ import {
 import { useCurveIdentity } from '../../hooks/useCurveIdentity';
 import { useReceiptOutcome } from '../../hooks/useReceiptOutcome';
 import { noteReplacement } from '../../lib/txErrors';
+import { CardArt } from '../ui/CardArt';
 
 /** Completes "…before you send it again: if it landed, ___" per action. */
 const REPEAT_COST: Record<string, string> = {
@@ -220,7 +221,8 @@ export function CurveTradeView({
 
   if (launch.graduated) {
     return (
-      <div className="rounded-2xl p-5 space-y-3" style={cardStyle}>
+      <div className="relative isolate rounded-2xl p-5 space-y-3" style={cardStyle}>
+        <CardArt pageId="eth-curve" idx={7} />
         <IdentityHeader identity={identity} tokenSymbol={tokenSymbol} fallbackName={fallbackName} />
         <p className="text-white/90 text-sm font-semibold">This launch has graduated 🎓</p>
         <p className="text-white/60 text-[12px] mt-1 leading-relaxed">
@@ -265,9 +267,10 @@ export function CurveTradeView({
       initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.3 }}
-      className="rounded-2xl p-5 space-y-4"
+      className="relative isolate rounded-2xl p-5 space-y-4"
       style={cardStyle}
     >
+      <CardArt pageId="eth-curve" idx={7} />
       <IdentityHeader identity={identity} tokenSymbol={tokenSymbol} fallbackName={fallbackName} />
 
       {/* Graduation progress */}
@@ -534,7 +537,8 @@ export function CurveTradePanel({ launcher, token, chainId, tokenSymbol = 'TOKEN
     // progress, against the read-vs-zero honesty rule.
     if (launchReadFailed) {
       return (
-        <div className="rounded-2xl p-5" style={cardStyle}>
+        <div className="relative isolate rounded-2xl p-5" style={cardStyle}>
+          <CardArt pageId="eth-curve" idx={7} />
           <p className="text-white/85 text-sm font-semibold">No curve launch at this address.</p>
           <p className="text-white/55 text-[12px] mt-1 leading-relaxed">
             Nothing launched from this chain&apos;s Memetics curve lives at{' '}
@@ -545,7 +549,8 @@ export function CurveTradePanel({ launcher, token, chainId, tokenSymbol = 'TOKEN
       );
     }
     return (
-      <div className="rounded-2xl p-5 text-white/60 text-[13px]" style={cardStyle}>
+      <div className="relative isolate rounded-2xl p-5 text-white/60 text-[13px]" style={cardStyle}>
+        <CardArt pageId="eth-curve" idx={7} />
         Loading the curve…
       </div>
     );

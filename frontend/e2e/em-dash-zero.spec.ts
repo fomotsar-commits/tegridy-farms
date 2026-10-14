@@ -52,27 +52,27 @@ const VENUE_VOICE_DEBT: Record<string, number> = {
   '/nakamigos': 1,
   '/terms': 3,
   '/terminal': 2,
-  '/solana': 2,
-  '/launch-simulator': 4,
+  '/solana': 1,
+  '/launch-simulator': 2,
   '/leaderboard': 3,
   '/community': 2,
-  '/liquidity': 6,
+  '/liquidity': 5,
   '/privacy': 7,
-  '/trust': 7,
+  '/trust': 5,
   '/pools': 1,
   '/solana-lp': 0,
-  '/nft-finance': 10,
+  '/nft-finance': 7,
   '/developers': 10,
   '/risks': 3,
-  '/copy-trading': 11,
+  '/copy-trading': 10,
   '/tax': 13,
   '/curve-launch': 7,
-  '/eth-curve': 11,
-  '/alerts': 17,
+  '/eth-curve': 9,
+  '/alerts': 16,
   // ScoringRules' written paragraphs; the Cup's coverage notice is a data-unread-ledger.
   '/competitions': 3,
   '/yield': 21,
-  '/launch': 26,
+  '/launch': 24,
 
 };
 
@@ -238,8 +238,8 @@ test.describe('element I: em dashes in venue-voice prose', () => {
 const ROOM_VOICE_DEBT: Record<string, number> = {
   // The settled rooms are at 0 and fail on their first prose dash (roomProse.test.tsx guards
   // the same sources on every push). The TOWELI-skin doors carry the protocol cluster.
-  '/toweli': 22,
-  '/towelie': 22,
+  '/toweli': 13,
+  '/towelie': 13,
   '/bayla': 0,
   '/pepe': 0,
   '/qr': 0,
@@ -302,7 +302,7 @@ test.describe('element I: em dashes in the rooms', () => {
 // branch is walked in the next block. toweli's farm is its own room's prose, and nb1, not
 // yet live, goes to the venue's list.
 const ROOM_FARM_DEBT: Record<string, number> = {
-  toweli: 11,
+  toweli: 8,
   bayla: 0,
   bobo: 0,
   soy: 0,
@@ -503,8 +503,11 @@ test.describe('element I: /pools, once its venue reads', () => {
     await expect(page.getByRole('region', { name: 'Venue status' }), 'the venue did not read').toContainText('Pools are open');
     const sheet = page.getByRole('region', { name: 'Fee sheet' });
     await expect(sheet, 'the fee sheet did not read').toContainText('read from the chain when this page loads');
-    const traderPays = await sheet.getByText('Trader pays', { exact: true }).evaluate((el) => el.nextElementSibling?.textContent ?? '');
-    expect(traderPays, 'Trader pays is a figure it read').toMatch(/^\d+(\.\d+)?%$/);
+    // One per tier the sheet shows: the public tier first, then the launch tier.
+    const paid = await sheet.getByText('Trader pays', { exact: true }).evaluateAll((els) => els.map((el) => el.nextElementSibling?.textContent ?? ''));
+    expect(paid, 'the sheet shows the public tier and the launch tier').toHaveLength(2);
+    for (const figure of paid) expect(figure, 'Trader pays is a figure it read').toMatch(/^\d+(\.\d+)?%$/);
+    const traderPays = paid.join(' on the public tier, ') + ' on the launch tier';
     await expect(page.getByTestId('fee-tier'), 'the fee tiers did not read').toHaveCount(2);
     await expect(page.locator('[data-testid="fee-tier"][data-state="live"]')).toHaveCount(2);
     test.info().annotations.push({ type: 'venue', description: `recorded at slot ${MAINNET_VENUE_RECORDING.slot}: trader pays ${traderPays}` });

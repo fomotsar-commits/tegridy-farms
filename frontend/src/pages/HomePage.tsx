@@ -27,6 +27,8 @@ import { YieldCalculator } from '../components/ui/YieldCalculator';
 import { TOWELIE_QUOTES, FAQ_INTRO, HOME_SWAP_CARD, CONNECT_ETHEREUM_WALLET } from '../lib/copy';
 import { TOWELI_FAQ_DATA } from '../lib/faqData';
 import { ArtImg } from '../components/ArtImg';
+import { CardArt } from '../components/ui/CardArt';
+import { FinePrint } from '../components/ui/FinePrint';
 import { ProtocolStats } from '../components/ProtocolStats';
 import { RealYieldProof } from '../components/RealYieldProof';
 import { ProtocolPulse } from '../components/ProtocolPulse';
@@ -81,7 +83,7 @@ const howItWorksSteps = (toweli: boolean) => toweli ? [
   {
     step: '1',
     title: 'Get Some Towelies',
-    desc: 'Swap ETH for TOWELI on the venue DEX. Nine routes checked, best price picked \u2014 Randy does the math so you don\u2019t have to.',
+    desc: 'Swap ETH for TOWELI on the venue DEX. Nine routes checked, best price picked.',
     to: '/swap',
   },
   {
@@ -93,7 +95,7 @@ const howItWorksSteps = (toweli: boolean) => toweli ? [
   {
     step: '3',
     title: 'Harvest the Yield',
-    desc: 'Emissions pay you in TOWELI today; the ETH fee-share is wired on-chain and opens with the native pool. Claim whenever the crop looks ripe.',
+    desc: 'Emissions pay you in TOWELI today. An ETH payout round needs 1 ETH of fees first.',
     to: '/dashboard',
   },
 ] : [
@@ -112,7 +114,7 @@ const howItWorksSteps = (toweli: boolean) => toweli ? [
   {
     step: '3',
     title: 'Harvest, verified',
-    desc: 'Emissions pay in TOWELI today; the ETH fee-share is wired on-chain and opens with the native pool. Claim any time.',
+    desc: 'Emissions pay in TOWELI today. The ETH fee-share is wired on-chain, and a payout round needs 1 ETH of fees first. Claim any time.',
     to: '/dashboard',
   },
 ];
@@ -136,17 +138,15 @@ export default function HomePage() {
   const burnRoom = homeBurnRoom(bungalowIdentity, isToweliArrival);
   const coreLoop = coreLoopSteps(isToweliArrival);
   const howItWorks = howItWorksSteps(isToweliArrival);
-  // 2026-08-07: the meta description said "Stake TOWELI on Ethereum" and stopped there,
-  // so every search result, every link preview, and every share of the front door
-  // described a single-chain product. Both halves below are separately checkable:
-  // TOWELI staking really is Ethereum-only (do not let that rot into "multichain
-  // staking"), and the Solana swap really is live and routed through Jupiter.
+  // The front door's description names both chains, each half checkable: TOWELI staking
+  // is Ethereum-only (never "multichain staking"), and the Solana swap is live, in our own
+  // pools or through Jupiter.
   usePageTitle(
     bungalowIdentity ? `${bungalowIdentity.symbol}. ${bungalowIdentity.identity.heroLine}` : 'Home',
     bungalowIdentity
       ? `${bungalowIdentity.name} bungalow on Jungle Bay Island. ${bungalowIdentity.identity.museLine} ${bungalowTradeBlurb(bungalowIdentity, isSolanaSwapLive())}`
       : isToweliArrival
-        ? 'Ethereum and Solana. Stake TOWELI on Ethereum — protocol swap fees flow on-chain to stakers, verifiable on Etherscan. Swap Solana tokens via Jupiter, and scan any token on either chain.'
+        ? 'Ethereum and Solana. Stake TOWELI on Ethereum — protocol swap fees flow on-chain to stakers, verifiable on Etherscan. Swap Solana tokens in our own pools or through Jupiter, and scan any token on either chain.'
         : VENUE.description,
   );
   const { address } = useAccount();
@@ -271,30 +271,16 @@ export default function HomePage() {
                 left). Additive only: fades to transparent, so the art elsewhere is untouched. */}
             <div aria-hidden="true" className="absolute -left-6 -right-10 -top-8 -bottom-8 -z-10 pointer-events-none"
               style={{ background: 'radial-gradient(115% 115% at 12% 42%, rgba(6,12,26,0.88) 0%, rgba(6,12,26,0.6) 42%, rgba(6,12,26,0.2) 68%, transparent 84%)' }} />
-            {/* CHAIN RAIL 2026-08-07: this was a single "LIVE ON ETHEREUM" badge, and
-                it was the first thing every visitor read. It made a two-chain product
-                look like a one-chain product: the Jupiter-routed Solana swap at /solana
-                is fully live and fee-earning, /scan reads both chains, and the Solana
-                launch rail is real — yet none of that existed above the fold, and the
-                Solana entries sat two clicks deep in the More menu.
-
-                Each pill states what is LIVE on that chain and links to it, so the claim
-                is one click from being checked. Deliberately NOT a generic "multichain"
-                badge: the two chains carry different surfaces and the pills say which.
-                The Solana pill names swap + scan only — the Solana LAUNCH rail gets its
-                own self-gating card in Launch & Verify below, which reads "Preview"
-                until isSolanaSubmitReady() is true, so this rail can never advertise a
-                launch surface that cannot launch. */}
+            {/* CHAIN RAIL: each pill states what is LIVE on its chain and links to it, so
+                the claim is one click from being checked; never a generic "multichain"
+                badge. The Solana pill names swap and scan only: the Solana launch rail
+                has its own self-gating card in Launch & Verify, reading "Preview" until
+                isSolanaSubmitReady() is true. */}
             <div className="flex flex-wrap items-center gap-2 mb-5">
-              <Link
-                // Above the voice branch, so in every room: TOWELI's own room goes to
-                // its farm, and anywhere else to the list, entering no room.
-                to={isToweliArrival && !bungalowIdentity ? '/earn/toweli' : '/earn'}
-                aria-label="Live on Ethereum: farm and stake TOWELI"
-                className="badge badge-primary text-[10px] no-underline hover:brightness-110 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent focus-visible:ring-[#8b5cf6]"
-              >
-                ETHEREUM
-              </Link>
+              {/* $BAYLA first (the owner, 2026-10-03): Solana leads the row, since $BAYLA
+                  and /solana are where a visitor starts. Each pill paints 24.5px tall and a
+                  transparent ::before presses 46.5px; the row keeps its 24.5px, which the
+                  first frame's spacer holds (index.html). */}
               {/* FAIL-CLOSED. The Solana swap surface is gated behind
                   VITE_SOLANA_FEE_ACCOUNT: when that is unset, SolanaSwapPage renders a
                   "Solana swap isn't live yet" wall and navConfig drops /solana from the
@@ -308,14 +294,23 @@ export default function HomePage() {
               <Link
                 to={isSolanaSwapLive() ? '/solana' : '/scan'}
                 aria-label={isSolanaSwapLive() ? 'Live on Solana: swap and scan' : 'Live on Solana: scan any token'}
-                className="badge badge-chain-solana text-[10px] no-underline hover:brightness-110 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent focus-visible:ring-[#4CAF50]"
+                className="badge badge-chain-solana relative before:absolute before:content-[''] before:inset-x-0 before:-inset-y-[11px] text-[10px] no-underline hover:brightness-110 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent focus-visible:ring-[#4CAF50]"
               >
                 SOLANA
               </Link>
               <Link
+                // Above the voice branch, so in every room: TOWELI's own room goes to
+                // its farm, and anywhere else to the list, entering no room.
+                to={isToweliArrival && !bungalowIdentity ? '/earn/toweli' : '/earn'}
+                aria-label="Live on Ethereum: farm and stake TOWELI"
+                className="badge badge-primary relative before:absolute before:content-[''] before:inset-x-0 before:-inset-y-[11px] text-[10px] no-underline hover:brightness-110 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent focus-visible:ring-[#8b5cf6]"
+              >
+                ETHEREUM
+              </Link>
+              <Link
                 to="/eth-curve"
                 aria-label="Live on Base: launch and trade on the curve"
-                className="badge badge-chain-base text-[10px] no-underline hover:brightness-110 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent focus-visible:ring-[#2151f5]"
+                className="badge badge-chain-base relative before:absolute before:content-[''] before:inset-x-0 before:-inset-y-[11px] text-[10px] no-underline hover:brightness-110 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent focus-visible:ring-[#2151f5]"
               >
                 BASE
               </Link>
@@ -343,26 +338,23 @@ export default function HomePage() {
                 headlined any farm. It deliberately does NOT lead with the ETH
                 fee-share: that mechanic is wired on-chain but has distributed 0 ETH
                 until the native pool opens, so a present-tense yield claim would
-                overclaim (and "100% of fees to stakers" is flat wrong — AUDIT R073:
-                swap fees split 5/6 to LPs, 1/6 to the protocol). What IS true, and
+                overclaim (and "100% of fees to stakers" is flat wrong: the router's fee
+                pays a 20% referral share first, and the pool's one-sixth protocol cut
+                has never been switched on, read 2026-10-10). What IS true, and
                 became materially truer today, is verifiability: every core contract
                 is now Etherscan source-verified and /contracts proves it with live
                 per-address badges. So the headline leads with the one differentiator
                 a skeptic can check in a single click. */}
-            <h1 className="heading-luxury text-3xl md:text-6xl text-white leading-[1.1] tracking-tight mb-4">
+            <h1 className="heading-luxury text-[clamp(1.25rem,7.4vw,1.875rem)] md:text-6xl text-white leading-[1.1] tracking-tight mb-4">
               {TOWELI_HERO.heroTitle}{' '}<br /><span className="text-white">{TOWELI_HERO.heroLine}</span>
             </h1>
 
-            {/* 2026-08-07: added the Solana sentence. It is deliberately a SEPARATE
-                sentence rather than a rewrite of the staking claim — TOWELI staking is
-                Ethereum-only and must keep saying so. The Solana clause names only what
-                is live today (the Jupiter-routed swap and the two-chain scanner); the
+            {/* The Solana sentence is separate from the staking claim, which is
+                Ethereum-only and must keep saying so. It names only what is live (the
+                swap, in our pools or through Jupiter, and the two-chain scanner); the
                 launch rail is claimed by its own self-gating card further down. */}
             <p className="text-white text-base md:text-lg mb-6 max-w-md leading-relaxed">
-              Stake TOWELI on Ethereum. Every protocol fee flows on-chain &mdash; to stakers, the
-              liquidity engine, and operations. Every core contract is source-verified on Etherscan,
-              so you can read the code that holds your stake. On Solana we swap through Jupiter and
-              scan any token &mdash; same rails, second chain.
+              Stake TOWELI on Ethereum. Protocol swap fees flow on-chain: a referral share, the rest toward stakers.
             </p>
 
             <div className="flex flex-wrap gap-3">
@@ -418,6 +410,18 @@ export default function HomePage() {
                 First time here? Take the tour
               </button>
             </div>
+
+            {/* The hero's longer sentences, one press away (owner, 2026-10-13). */}
+            <FinePrint className="mt-1">
+              <p>
+                Every core contract is source-verified on Etherscan, so you can read the code that
+                holds your stake.
+              </p>
+              <p>
+                On Solana we swap in our own pools or through Jupiter, whichever pays you more, and
+                scan any token &mdash; same rails, second chain.
+              </p>
+            </FinePrint>
 
             {/* Rotating Towelie one-liner — the personality beat right next to
                 the CTAs that the front-end critique flagged as missing.
@@ -489,7 +493,7 @@ export default function HomePage() {
               pills above: this banner talks about Ethereum-mainnet TOWELI
               reads that a Solana bungalow's home is not showing. */}
           {!bungalowIdentity && (
-            <WrongChainBanner className="mt-10 max-w-xl" message="Showing Ethereum mainnet data. Switch your wallet to the canonical network to interact." />
+            <WrongChainBanner className="mt-10 max-w-xl" message="Showing Ethereum mainnet data. Switch your wallet to mainnet to interact." />
           )}
 
           {/* Token-first bungalow (Bayla): the TVL/TOWELI-price stat pills and
@@ -512,7 +516,7 @@ export default function HomePage() {
               // genuinely loading; once resolved, render the honest "0.0000 ETH"
               // (the value that backs the on-chain-verifiable pitch) instead of an
               // eternal skeleton. `loading: true` forces the shimmer branch below.
-              { l: 'ETH Distributed', v: (revenueStats.isDataError || revenueStats.globalUnread) ? '–' : `${revenueStats.totalDistributed.toFixed(4)} ETH`, loading: revenueStats.isDataLoading, sub: (!revenueStats.isDataLoading && !revenueStats.isDataError && !revenueStats.globalUnread && revenueStats.totalDistributed === 0) ? 'fee rail live · first at native-pool launch' : undefined },
+              { l: 'ETH Distributed', v: (revenueStats.isDataError || revenueStats.globalUnread) ? '–' : `${revenueStats.totalDistributed.toFixed(4)} ETH`, loading: revenueStats.isDataLoading, sub: (!revenueStats.isDataLoading && !revenueStats.isDataError && !revenueStats.globalUnread && revenueStats.totalDistributed === 0) ? 'fee rail live · a round needs 1 ETH of fees' : undefined },
             ] as { l: string; v: string; sub?: string; showSparkline?: boolean; loading?: boolean }[]).map((s) => (
               <div key={s.l} className="flex items-center gap-3 px-4 py-2.5 rounded-lg"
                 style={{ background: 'rgba(0,0,0,0.78)', border: '1px solid rgba(76,175,80,0.35)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)' }}>
@@ -639,9 +643,10 @@ export default function HomePage() {
                 plain terms, unreadable. This is BungalowHolders' panel, matched
                 exactly, so the room's three cards read as one set. */}
             <div
-              className="rounded-2xl p-6"
+              className="relative isolate rounded-2xl p-6"
               style={{ background: 'rgba(4,9,18,0.72)', border: '1px solid var(--color-purple-25)' }}
             >
+              <CardArt pageId="home" idx={18} />
               <HeatCard
                 variant="embedded"
                 showEligibility={false}
@@ -816,7 +821,7 @@ export default function HomePage() {
         <m.div className="pb-16" initial={{ opacity: 0, y: 15 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}>
           <div className="mb-6">
             <h2 className="heading-luxury text-2xl text-white tracking-tight mb-1" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>By the Numbers</h2>
-            <p className="text-white text-[13px]" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>Live on-chain stats &mdash; and the protocol guarantees behind them.</p>
+            <p className="text-white text-[13px]" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>Live on-chain stats and the guarantees behind them.</p>
           </div>
           <ProtocolStats />
         </m.div>
@@ -857,17 +862,12 @@ export default function HomePage() {
         <div className="pb-16">
           <m.div className="mb-10" initial={{ opacity: 0, y: 15 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}>
             <h2 className="heading-luxury text-2xl text-white tracking-tight mb-1" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>Protocol Overview</h2>
-            <p className="text-white text-[13px]" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>Farm, swap, and track your positions &mdash; on Ethereum and on Solana.</p>
+            <p className="text-white text-[13px]" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>Farm, swap and track your positions on Ethereum and Solana.</p>
           </m.div>
 
-          {/* 2026-08-07: 3 -> 4 cards. The Solana swap has been fully live (Jupiter
-              routing, limit orders, SOL liquid-staking discovery, and a platform fee we
-              actually collect) while being reachable ONLY from the More menu, so the
-              product's second chain was invisible on its own front page. Nothing was
-              removed; each card now carries an explicit CHAIN label so a visitor can
-              tell at a glance which surface runs where.
-              Grid goes 1 -> 2 -> 4 rather than straight to 4: at md (iPad portrait) four
-              220px-min cards in a row are unreadably narrow, so tablets get a 2x2. */}
+          {/* Four cards, each with a CHAIN label so a visitor can tell which surface runs
+              where. The grid goes 1 -> 2 -> 4: at md (iPad portrait) four 220px-min cards
+              in a row are unreadably narrow, so tablets get a 2x2. */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             {[
               { to: '/swap', title: 'Swap', desc: HOME_SWAP_CARD.desc, stat: HOME_SWAP_CARD.stat, label: HOME_SWAP_CARD.label, art: pageArt('home', 6) },
@@ -885,7 +885,7 @@ export default function HomePage() {
               // SOON wall, so the card is simply absent and the grid falls back to
               // three. A card advertising a wall is worse than no card.
               ...(isSolanaSwapLive()
-                ? [{ to: '/solana', title: 'Solana Swap', desc: 'Buy Solana tokens routed through Jupiter, with limit orders and SOL liquid-staking yield. Trending pairs listed, fee shown before you sign.', stat: 'Jupiter', label: 'Solana', art: pageArt('home', 15) }]
+                ? [{ to: '/solana', title: 'Solana Swap', desc: 'Buy Solana tokens in our own pools or through Jupiter, whichever pays you more. Fee shown before you sign.', stat: 'Our pools + Jupiter', label: 'Solana', art: pageArt('home', 15) }]
                 : []),
               { to: '/dashboard', title: 'Dashboard', desc: 'Track your portfolio, positions, claimable rewards, and projections.', stat: 'Real-time', label: 'On-chain Data', art: pageArt('home', 8) },
             ].map((f, i) => (
@@ -938,7 +938,7 @@ export default function HomePage() {
         <div className="pb-16">
           <m.div className="mb-10" initial={{ opacity: 0, y: 15 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}>
             <h2 className="heading-luxury text-2xl text-white tracking-tight mb-1" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>Launch &amp; Verify</h2>
-            <p className="text-white text-[13px]" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>Ship a token with its disclosure attached, on Ethereum or Solana &mdash; or check someone else&apos;s before you ape.</p>
+            <p className="text-white text-[13px]" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>Ship a token with its disclosure attached, or check someone else&apos;s before you ape.</p>
           </m.div>
 
           {/* 2026-08-07: 3 -> 4 cards, adding the Solana rail. Same 1 -> 2 -> 4 grid as
@@ -956,7 +956,7 @@ export default function HomePage() {
                 ? [{
                     to: '/eth-curve',
                     title: 'Memetics Curve',
-                    desc: 'Our own zero-toll bonding curve. Launch, then graduate into our own pool with the LP burned — no Airlock, no petition, no third-party cut.',
+                    desc: 'Our own zero-toll bonding curve. Graduates into our own pool with the LP burned.',
                     stat: 'Zero-toll',
                     label: 'Live · Ethereum, Base & Robinhood',
                     art: pageArt('home', 17),
@@ -968,7 +968,7 @@ export default function HomePage() {
               {
                 to: '/launch',
                 title: 'Launch on Ethereum',
-                desc: 'A Doppler dynamic auction with an automated hygiene gate and a published Fact Sheet: fee split, LP lock, and vesting, disclosed at launch.',
+                desc: 'A Doppler dynamic auction with an automated hygiene gate and a published Fact Sheet.',
                 stat: isLauncherEnabled() ? 'Doppler V4' : 'Soon',
                 label: isLauncherEnabled() ? 'Ethereum' : 'Not yet live',
                 art: pageArt('home', 12),
@@ -981,7 +981,7 @@ export default function HomePage() {
               // nav pills it "Soon" from a live read of the program id; a home tile has
               // no such read and would be a claim rather than a measurement. Restore a
               // tile here only after the redeploy, and gate it on the same read.
-              { to: '/scan', title: 'Scan a token', desc: 'Holder concentration and distribution for any Ethereum or Solana token — with every exclusion listed and a timestamp. No wallet needed.', stat: 'ETH + SOL', label: 'Any token', art: pageArt('home', 13) },
+              { to: '/scan', title: 'Scan a token', desc: 'Holder concentration for any Ethereum or Solana token. No wallet needed.', stat: 'ETH + SOL', label: 'Any token', art: pageArt('home', 13) },
               // 2026-08-07: stat was 'On-chain', which named no chain. That was harmless
               // while the page was ETH-only; it is not now. /deployer accepts EVM
               // addresses ONLY (DeployerPage rejects anything else with "Not a valid
@@ -989,7 +989,7 @@ export default function HomePage() {
               // badge reads "ETH + SOL" — so a reader carries the chain scope across and
               // pastes a Solana address into an Ethereum-only tool. Naming the chain is
               // the fix; the copy is otherwise untouched.
-              { to: '/deployer', title: 'Check a deployer', desc: 'See what a wallet has shipped before and where each token stands today. Gaps in the data are stated plainly, never papered over.', stat: 'ETH', label: 'Track record', art: pageArt('home', 14) },
+              { to: '/deployer', title: 'Check a deployer', desc: 'See what a wallet has shipped before and where each token stands today.', stat: 'ETH', label: 'Track record', art: pageArt('home', 14) },
             ].map((f, i) => (
               <m.div key={f.title} initial={{ opacity: 0, y: 40, scale: 0.9 }} whileInView={{ opacity: 1, y: 0, scale: 1 }}
                 viewport={{ once: true, margin: '-50px' }} transition={{ delay: i * 0.15, type: 'spring', damping: 20, stiffness: 100 }}>
@@ -1013,6 +1013,16 @@ export default function HomePage() {
               </m.div>
             ))}
           </div>
+          {/* The cards' second sentences, one press away: a card is a link, so its
+              own small print cannot open inside it. */}
+          <FinePrint className="mt-2">
+            {isDeployed(CURVE_LAUNCHER_ADDRESS) && (
+              <p>Memetics Curve: no Airlock, no petition, no third-party cut.</p>
+            )}
+            <p>Launch on Ethereum: the Fact Sheet discloses the fee split, LP lock, and vesting at launch.</p>
+            <p>Scan a token: every exclusion is listed, with a timestamp.</p>
+            <p>Check a deployer: gaps in the data are stated plainly, never papered over.</p>
+          </FinePrint>
         </div>
         )}
 
@@ -1077,7 +1087,7 @@ export default function HomePage() {
               </div>
               <div className="relative z-10 p-5">
                 <p className="text-white text-[14px] font-semibold group-hover:text-white transition-colors mb-1">JBAC NFTs</p>
-                <p className="text-white text-[12px]">5,555 customizable apes. The genesis collection that started it all.</p>
+                <p className="text-white text-[12px]">5,555 customizable apes. The genesis collection.</p>
               </div>
             </a>
             </m.div>
@@ -1095,7 +1105,7 @@ export default function HomePage() {
               </div>
               <div className="relative z-10 p-5">
                 <p className="text-white text-[14px] font-semibold group-hover:text-white transition-colors mb-1">$JBM on Base</p>
-                <p className="text-white text-[12px]">The accidental community token. Born from a bot glitch, adopted by the degens.</p>
+                <p className="text-white text-[12px]">The accidental community token, born from a bot glitch.</p>
               </div>
             </Link>
             </m.div>
@@ -1106,7 +1116,7 @@ export default function HomePage() {
               </div>
               <div className="relative z-10 p-5">
                 <p className="text-white text-[14px] font-semibold group-hover:text-white transition-colors mb-1">The Story</p>
-                <p className="text-white text-[12px]">From rug to riches. How we became the blueprint for community-built DeFi.</p>
+                <p className="text-white text-[12px]">From rug to riches.</p>
               </div>
             </Link>
             </m.div>
@@ -1190,12 +1200,13 @@ export default function HomePage() {
         {isToweliArrival && !bungalowIdentity && (
         <div className="pb-16">
           <m.div
-            className="rounded-2xl p-6 md:p-8 text-center"
+            className="relative isolate rounded-2xl p-6 md:p-8 text-center"
             style={{ background: 'rgba(6,12,26,0.78)', border: '1px solid var(--color-purple-40)', backdropFilter: 'blur(10px)', WebkitBackdropFilter: 'blur(10px)' }}
             initial={{ opacity: 0, y: 15 }}
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true }}
           >
+            <CardArt pageId="home" idx={19} />
             <h2 className="heading-luxury text-xl text-white tracking-tight mb-2" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>
               {FAQ_INTRO.headline}
             </h2>

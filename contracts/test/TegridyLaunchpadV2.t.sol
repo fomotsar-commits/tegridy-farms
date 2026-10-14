@@ -57,6 +57,8 @@ contract TegridyLaunchpadV2Test is Test {
         cfg.dutchStartTime = block.timestamp + 1 hours;
         cfg.dutchDuration = 12 hours;
         cfg.initialPhase = TegridyDropV2.MintPhase.DUTCH_AUCTION;
+        // F1: a drop that opens on the dutch curve carries no fixed price.
+        cfg.mintPrice = 0;
 
         vm.prank(creator);
         (uint256 id, address collection) = launchpad.createCollection(cfg);

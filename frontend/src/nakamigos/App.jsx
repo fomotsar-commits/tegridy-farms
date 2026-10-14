@@ -45,6 +45,7 @@ import useSound from "./hooks/useSound";
 import useHolderStatus from "./hooks/useHolderStatus.jsx";
 import useDmUnread from "./hooks/useDmUnread";
 import useIncomingTrades from "./hooks/useIncomingTrades";
+import { useOpensAtTheTop } from "../hooks/useOpensAtTheTop";
 // Lazy-imported to avoid pulling @supabase/supabase-js into the initial bundle.
 // These are only needed after wallet connect / user interaction.
 const getUserdata = () => import("./lib/userdata");
@@ -217,11 +218,9 @@ function AppInner() {
   });
 
   // Landing page: set title and scroll to top
+  useOpensAtTheTop(isLanding ? "landing" : null);
   useEffect(() => {
-    if (isLanding) {
-      document.title = "Tradermigos | NFT Collections";
-      window.scrollTo({ top: 0, behavior: "instant" });
-    }
+    if (isLanding) document.title = "Tradermigos | NFT Collections";
   }, [isLanding]);
 
   // 404 page: set title
@@ -463,9 +462,9 @@ function CollectionView({ tab, deepLinkTokenId, collectionSlug, themeName, cycle
   // On mount (and collection switch — key={collectionSlug} forces remount),
   // update the page title and scroll to top.
   // All React state resets are handled by the remount itself (useState initializers).
+  useOpensAtTheTop(collectionSlug);
   useEffect(() => {
     document.title = `${collection.name} | Tradermigos`;
-    window.scrollTo({ top: 0, behavior: "instant" });
   }, [collectionSlug, collection.name]);
 
   // ═══ Deep link: /:collection/nft/:id — auto-open modal ═══

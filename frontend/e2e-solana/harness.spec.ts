@@ -48,7 +48,7 @@ function metadataIx(mint: PublicKey, wallet: PublicKey, isMutable: boolean, uri 
 
 /** The $BAYLA plant as the site appends it: burn 50,000 from your own $BAYLA account, then 50,000 to the Workshop. */
 interface PlantOpts { burnFrom?: PublicKey; mint?: PublicKey; to?: PublicKey; authority?: PublicKey; burn?: bigint; give?: bigint; decimals?: number; coSigner?: PublicKey }
-function plantIxs(wallet: PublicKey, o: PlantOpts = {}): TransactionInstruction[] {
+function plantIxs(wallet: PublicKey, o: PlantOpts = {}): [burn: TransactionInstruction, give: TransactionInstruction] {
   const from = o.burnFrom ?? baylaAccount(wallet);
   const mint = o.mint ?? BAYLA_MINT;
   const auth = o.authority ?? wallet;
@@ -57,6 +57,21 @@ function plantIxs(wallet: PublicKey, o: PlantOpts = {}): TransactionInstruction[
     createBurnCheckedInstruction(from, mint, auth, o.burn ?? PLANT_HALF, dec, [], TOKEN_2022_PROGRAM_ID),
     createTransferCheckedInstruction(from, mint, o.to ?? WORKSHOP_BAYLA_ACCOUNT, auth, o.give ?? PLANT_HALF, dec, o.coSigner ? [o.coSigner] : [], TOKEN_2022_PROGRAM_ID),
   ];
+}
+
+/** Change part of account slot `i` of an instruction a case breaks; a slot it lacks fails the case. */
+function patchKey(ix: TransactionInstruction, i: number, patch: Partial<TransactionInstruction['keys'][number]>): void {
+  const k = ix.keys[i];
+  if (!k) throw new Error(`the instruction has no account slot ${i}`);
+  ix.keys[i] = { ...k, ...patch };
+}
+/** Swap two account slots of an instruction a case breaks. */
+function swapKeys(ix: TransactionInstruction, i: number, j: number): void {
+  const a = ix.keys[i];
+  const b = ix.keys[j];
+  if (!a || !b) throw new Error(`the instruction has no account slot ${a ? j : i}`);
+  ix.keys[i] = b;
+  ix.keys[j] = a;
 }
 
 // A case that adds a signer (64 B) would not fit beside the 80-byte link and the plant.
@@ -372,7 +387,7 @@ test.describe('the test wallet guard: adding and removing liquidity', () => {
       const ixs = await checkTransaction(bytes, w.publicKey);
       expect(ixs.map((i) => i.name)).toEqual(['set-compute-unit-limit', 'set-compute-unit-price', 'create-idempotent', 'create-idempotent', 'withdraw', 'close-wsol']);
       const tokenProg = f === t22Pool ? TOKEN_2022_PROGRAM_ID : TOKEN_PROGRAM_ID;
-      expect(ixs[2].args.tokenProgram).toBe(tokenProg.toBase58());
+      expect(ixs[2]?.args.tokenProgram).toBe(tokenProg.toBase58());
       await land(bytes, w);
       expect((await tokenAmount(lpAta)) ?? 0n).toBe(before - lp);
     }
@@ -500,8 +515,8 @@ test.describe('the test wallet guard: adding and removing liquidity', () => {
       ['a withdrawal from a share account of another pool', withdrawTx(w.publicKey, classic, { over: { ownerLpToken: ata(sides(t22Pool).lpMint, w.publicKey) } }), w.publicKey, /withdraw: the pool-share account holds a different token/],
       ['a deposit made in someone else\'s name', depositTx(w.publicKey, classic, { over: { owner: Keypair.generate().publicKey } }), w.publicKey, /deposit: the owner is not you/],
       ['zero shares', depositTx(w.publicKey, classic, { over: { lpTokenAmount: 0n } }), w.publicKey, /deposit: lp_token_amount is 0/],
-      ['a wrong authority', depositTx(w.publicKey, classic, { mutate: (ix) => { ix.keys[1] = { ...ix.keys[1], pubkey: Keypair.generate().publicKey }; } }), w.publicKey, /authority is not the pool program's own/],
-      ['the Token-2022 program slot holding the classic program', withdrawTx(w.publicKey, classic, { mutate: (ix) => { ix.keys[9] = { ...ix.keys[9], pubkey: TOKEN_PROGRAM_ID }; } }), w.publicKey, /token_program_2022 is TokenkegQ/],
+      ['a wrong authority', depositTx(w.publicKey, classic, { mutate: (ix) => { patchKey(ix, 1, { pubkey: Keypair.generate().publicKey }); } }), w.publicKey, /authority is not the pool program's own/],
+      ['the Token-2022 program slot holding the classic program', withdrawTx(w.publicKey, classic, { mutate: (ix) => { patchKey(ix, 9, { pubkey: TOKEN_PROGRAM_ID }); } }), w.publicKey, /token_program_2022 is TokenkegQ/],
       ['an extra account on the withdrawal', withdrawTx(w.publicKey, classic, { mutate: (ix) => { ix.keys.push({ pubkey: Keypair.generate().publicKey, isSigner: false, isWritable: true }); } }), w.publicKey, /withdraw: 15 accounts, the pinned IDL has 14/],
     ];
     for (const [what, build, signer, why] of cases) {
@@ -623,20 +638,22 @@ test.describe('the test wallet guard: opening a pool', () => {
     const cases: [string, Promise<{ bytes: Uint8Array }>, RegExp][] = [
       ['another creator', openingTx(opener.publicKey, mint, { fresh, over: { creator: stranger } }), /opened and paid for by someone else/],
       ['fee tier 2', openingTx(opener.publicKey, mint, { tier: 2 }), /a fee tier this site does not use/],
-      ['a pool key that does not sign', openingTx(opener.publicKey, mint, { fresh, mutate: (ix) => { ix.keys[3] = { ...ix.keys[3], isSigner: false }; } }), /neither the standard address nor a fresh key that signs/],
-      ['a vault not derived from the pool', openingTx(opener.publicKey, mint, { fresh, mutate: (ix) => { ix.keys[10] = { ...ix.keys[10], pubkey: Keypair.generate().publicKey }; } }), /token_0_vault is not the one the pool's address gives/],
+      ['a pool key that does not sign', openingTx(opener.publicKey, mint, { fresh, mutate: (ix) => { patchKey(ix, 3, { isSigner: false }); } }), /neither the standard address nor a fresh key that signs/],
+      ['a vault not derived from the pool', openingTx(opener.publicKey, mint, { fresh, mutate: (ix) => { patchKey(ix, 10, { pubkey: Keypair.generate().publicKey }); } }), /token_0_vault is not the one the pool's address gives/],
       ['the token side under Token-2022', openingTx(opener.publicKey, mint, { fresh, over: { token0Program: TOKEN_2022_PROGRAM_ID, token1Program: TOKEN_2022_PROGRAM_ID } }), /token_\d_program is not the program that owns that mint/],
       ['shares to a stranger', openingTx(opener.publicKey, mint, { fresh, over: { creatorLpToken: ata(deriveLpMint(CP_SWAP_PROGRAM, fresh.publicKey), stranger) } }), /the pool shares go to an account that is not your own/],
       ['an empty side', openingTx(opener.publicKey, mint, { fresh, over: { initAmount0: 0n } }), /would open with an empty side/],
       ['the fee to open paid elsewhere', openingTx(opener.publicKey, mint, { fresh, over: { createPoolFee: stranger } }), /create_pool_fee is .*, not 2sa31zce/],
-      ['a wrong authority', openingTx(opener.publicKey, mint, { fresh, mutate: (ix) => { ix.keys[2] = { ...ix.keys[2], pubkey: stranger }; } }), /the authority is not the pool program's own/],
-      ['the mints out of order', openingTx(opener.publicKey, mint, { fresh, mutate: (ix) => { const k4 = ix.keys[4]; ix.keys[4] = ix.keys[5]; ix.keys[5] = k4; } }), /the two mints are not in the program's order/],
+      ['a wrong authority', openingTx(opener.publicKey, mint, { fresh, mutate: (ix) => { patchKey(ix, 2, { pubkey: stranger }); } }), /the authority is not the pool program's own/],
+      ['the mints out of order', openingTx(opener.publicKey, mint, { fresh, mutate: (ix) => { swapKeys(ix, 4, 5); } }), /the two mints are not in the program's order/],
       ['two tokens and no SOL', openingTx(opener.publicKey, mint, {
         fresh,
         mutate: (ix) => {
-          const [a, b] = [Keypair.generate().publicKey, Keypair.generate().publicKey].sort((x, y) => Buffer.compare(x.toBuffer(), y.toBuffer()));
-          ix.keys[4] = { ...ix.keys[4], pubkey: a };
-          ix.keys[5] = { ...ix.keys[5], pubkey: b };
+          const x = Keypair.generate().publicKey;
+          const y = Keypair.generate().publicKey;
+          const [a, b] = Buffer.compare(x.toBuffer(), y.toBuffer()) < 0 ? [x, y] : [y, x];
+          patchKey(ix, 4, { pubkey: a });
+          patchKey(ix, 5, { pubkey: b });
         },
       }), /does not pair a token with SOL/],
     ];
@@ -672,7 +689,7 @@ test.describe('the test wallet guard: opening a pool', () => {
     const { bytes, pool } = await usdcOpeningTx(owner);
     const ixs = await checkTransaction(bytes, owner);
     expect(ixs.map((i) => i.name)).toEqual(['set-compute-unit-limit', 'set-compute-unit-price', 'initialize']);
-    expect(ixs[2].args).toMatchObject({ pairedWith: 'USDC', origin: 'standard', openTime: '0' });
+    expect(ixs[2]?.args).toMatchObject({ pairedWith: 'USDC', origin: 'standard', openTime: '0' });
     await land(bytes, opener);
     expect(await usdcAmount(deriveVault(CP_SWAP_PROGRAM, pool, USDC_MINT)), 'the pool holds the 10 USDC').toBe(usdc(10));
     expect(await tokenAmount(ata(WSOL, owner)), 'no wrapped-SOL account was opened').toBeNull();
@@ -696,7 +713,7 @@ test.describe('the test wallet guard: opening a pool', () => {
     const good = await finish(body, owner);
     const signed = await checkTransaction(good, owner);
     expect(signed.map((i) => i.name)).toEqual(['set-compute-unit-limit', 'set-compute-unit-price', 'create-idempotent', 'deposit']);
-    expect(signed[3].args.pairedWith).toBe('USDC');
+    expect(signed[3]?.args.pairedWith).toBe('USDC');
     const heldBefore = (await tokenAmount(lpAta))!;
     await land(good, opener);
     expect((await tokenAmount(lpAta))! - heldBefore).toBe(plan.lp);

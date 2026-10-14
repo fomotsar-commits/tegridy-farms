@@ -24,6 +24,7 @@ const SEED_READERS = [
   'hasChosenBungalow',
   'pageArt',
   'arrivalVoice',
+  'voiceAt',
   'isToweliVoice',
   'loaderIdentity',
 ];

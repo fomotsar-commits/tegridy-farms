@@ -12,6 +12,8 @@ import { isAddress, type Address } from 'viem';
 import { usePageTitle } from '../hooks/usePageTitle';
 import { trackPageView } from '../lib/analytics';
 import { PageArtBackdrop } from '../components/PageArtBackdrop';
+import { CardArt } from '../components/ui/CardArt';
+import { FinePrint } from '../components/ui/FinePrint';
 import { FeatureNotDeployed } from '../components/ui/FeatureNotDeployed';
 import { WrongChainBanner } from '../components/ui/WrongChainGuard';
 import { CHAIN_ID } from '../lib/constants';
@@ -25,6 +27,7 @@ import { CurveTradePanel } from '../components/launcher/CurveTradePanel';
 import { CurveLaunchesGrid } from '../components/launcher/CurveLaunchesGrid';
 
 const PAGE_ID = 'eth-curve';
+// eth-curve art idx: 0 backdrop, 1-3 cards here, 4-14 in components/launcher and CurveTokenPage.
 const cardStyle = { border: '1px solid rgba(255,255,255,0.12)', background: 'rgba(6,12,26,0.6)' } as const;
 
 /** Pure, prop-free explainer of the curve's economics — safe to render anywhere. */
@@ -37,8 +40,14 @@ export function CurveHowItWorks() {
     { k: 'Creators keep 0.40% of volume', v: 'On-chain, claimable any time from the token page — multiples of the going launchpad creator share.' },
   ];
   return (
-    <div className="rounded-2xl p-5 space-y-3" style={cardStyle}>
+    <div className="relative isolate rounded-2xl p-5 space-y-3" style={cardStyle}>
+      <CardArt pageId="eth-curve" idx={3} />
       <h2 className="text-white font-semibold text-sm">How the Memetics curve works</h2>
+      {/* What a trader pays and where it goes, in one visible line; the rest folds. */}
+      <p className="text-white/70 text-[12px] leading-relaxed">
+        1% trade fee: 40% to the creator, 25% to the Jungle Bay treasury, 35% to the protocol.
+      </p>
+      <FinePrint>
       <ul className="space-y-2">
         {points.map((p) => (
           <li key={p.k} className="text-[12px] leading-relaxed">
@@ -66,6 +75,7 @@ export function CurveHowItWorks() {
           <Link to="/bayla" className="text-sky-300/80 hover:text-sky-200 underline">Jungle Bay Island</Link>.
         </p>
       </div>
+      </FinePrint>
     </div>
   );
 }
@@ -81,7 +91,8 @@ function TradeByAddress({ launcher, chainId, prefill }: { launcher: Address; cha
   const token = useMemo<Address | null>(() => (isAddress(input) ? (input as Address) : null), [input]);
   return (
     <div className="space-y-3">
-      <div className="rounded-2xl p-5" style={cardStyle}>
+      <div className="relative isolate rounded-2xl p-5" style={cardStyle}>
+        <CardArt pageId="eth-curve" idx={2} />
         <label className="block text-[11px] text-white/55 mb-1">Trade a curve token — paste its address</label>
         <input
           className="w-full px-3 py-2 rounded-lg bg-black/55 text-white text-[13px] font-mono outline-none"
@@ -125,11 +136,11 @@ function ChainLaunchCounts({
   });
 
   return (
-    <div className="rounded-2xl p-3" style={cardStyle}>
+    <div className="relative isolate rounded-2xl p-3" style={cardStyle}>
+      <CardArt pageId="eth-curve" idx={1} />
       <p className="text-white/50 text-[11px] uppercase tracking-wider mb-1">Launch on</p>
       <p className="text-white/60 text-[12px] mb-2 leading-relaxed">
-        The same curve, deployed on each of these. Pick one and the form below — and every
-        launch it lists — follows it. Your choice is in the URL, so a chain is linkable.
+        The same curve, deployed on each of these.
       </p>
       <div className="flex flex-wrap gap-2">
         {chains.map((c, i) => {
@@ -158,10 +169,16 @@ function ChainLaunchCounts({
           );
         })}
       </div>
-      <p className="text-white/40 text-[11px] mt-2 leading-relaxed">
-        Counts are read from each chain&rsquo;s launcher. A chain whose read did not return says
-        so — it is never shown as zero.
-      </p>
+      <FinePrint className="mt-1">
+        <p>
+          Pick one and the form below — and every launch it lists — follows it. Your choice is in
+          the URL, so a chain is linkable.
+        </p>
+        <p>
+          Counts are read from each chain&rsquo;s launcher. A chain whose read did not return says
+          so — it is never shown as zero.
+        </p>
+      </FinePrint>
     </div>
   );
 }
@@ -217,13 +234,11 @@ export default function EthCurvePage() {
             )}
           </div>
           <p className="text-white/60 text-[13px] mt-1 leading-relaxed">
-            Our own bonding curve. Launch a token, trade it as it climbs, and
-            graduate into our own pool with the liquidity burned — no third party takes a cut.
+            Our own bonding curve. Launch, trade, then graduate into our own pool.
             {curveChains.length > 0 && (
               <>
                 {' '}
-                Live on <span className="text-white/85">{curveChainNames()}</span> — the same
-                launcher on each, picked below.
+                Live on <span className="text-white/85">{curveChainNames()}</span>.
               </>
             )}
           </p>

@@ -8,6 +8,7 @@ import { PLATFORM_FEE_BPS, SEAPORT_ADDRESS, BUNDLE_LISTING_ENABLED } from "../co
 import { getProvider } from "../api";
 import { cancelSeaportOrder } from "../lib/seaportCancel";
 import { getFriendlyError } from "../lib/errorMessages";
+import { waitForTxOutcome, toastTxOutcome, toastTxNotice } from "../lib/txOutcome";
 import { computeBookSides } from "../lib/bookDepth";
 import NativeListingsList from "./NativeListingsList";
 
@@ -70,7 +71,16 @@ function NativeListingsTable({ wallet, onConnect, addToast, floorPrice }) {
           params: order.parameters,
           seaportAddress: order.protocol_address || SEAPORT_ADDRESS,
         });
-        await tx.wait();
+        // Anything but a confirmed cancel leaves the row on screen and the
+        // backend untouched: the order may still be live.
+        const done = await waitForTxOutcome(tx);
+        if (done.kind !== "success") {
+          toastTxOutcome(addToast, done, {
+            reverted: { error: "reverted", message: "The cancel reverted on-chain. The listing is still live." },
+            ifLanded: "the listing is already cancelled and a second cancel only costs gas.",
+          });
+          return;
+        }
       }
 
       // Update backend
@@ -185,6 +195,9 @@ function NativeListingsTable({ wallet, onConnect, addToast, floorPrice }) {
       addToast?.("Insufficient ETH balance", "error");
     } else if (result.error === "expired") {
       addToast?.("This listing has expired. Refreshing...", "error");
+      fetchOrders();
+    } else if (toastTxNotice(addToast, result)) {
+      // Unconfirmed or replaced: told as it is, and the book is re-read.
       fetchOrders();
     } else {
       // #19: plain-language mapping (a stale order reverts with "missing revert

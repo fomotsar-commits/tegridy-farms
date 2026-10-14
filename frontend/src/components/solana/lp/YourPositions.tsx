@@ -16,6 +16,8 @@ import { HISTORY_PAGES_MAX } from '../../../lib/solana/lp/txHistory';
 import { SolanaConnectButton } from '../SolanaConnectButton';
 import { WalletAppHint } from '../curve/WalletNeeded';
 import { Card, Notice, Row } from '../curve/ui';
+import { CardArt } from '../../ui/CardArt';
+import { FinePrint } from '../../ui/FinePrint';
 import { AddressRow } from './AddressRow';
 import { LeaveWithoutThisSite } from './LpDisclosures';
 import { lpHeld, withdrawOffer, type WithdrawOffer } from './offers';
@@ -160,19 +162,22 @@ export function YourPositions({
   }, [report, owner]);
   const readAgain = useCallback(() => setNonce((n) => n + 1), []);
   return (
-    <section ref={sectionRef} tabIndex={sectionRef ? -1 : undefined} className="scroll-mt-[4.5rem] outline-none" data-testid="lp-positions" aria-label="Your positions">
-      <Card title="Your positions">
+    <section ref={sectionRef} tabIndex={sectionRef ? -1 : undefined} className="outline-none" data-testid="lp-positions" aria-label="Your positions">
+      <Card title="Your positions" art={<CardArt pageId="solana-lp" idx={3} />}>
         {/* One live region for the whole section, always mounted: only its text changes. */}
         <p role="status" aria-live="polite" className="sr-only" data-testid="lp-positions-status">
           {statusText(owner, state)}
         </p>
         {!owner ? (
           <>
-            <p>Connect a Solana wallet to see the pool shares it holds. Reading them sends nothing and signs nothing.</p>
-            {writes && <p>Removing liquidity starts here: each share that can be taken out gets a Remove liquidity button.</p>}
+            <p>Connect a Solana wallet to see the pool shares it holds.</p>
             <SolanaConnectButton />
             {/* A phone's own browser has no wallet in it: the same way on the forms give. */}
             <WalletAppHint />
+            <FinePrint summary="Details">
+              <p>Reading them sends nothing and signs nothing.</p>
+              {writes && <p>Removing liquidity starts here: each share that can be taken out gets a Remove liquidity button.</p>}
+            </FinePrint>
           </>
         ) : !state || state.status === 'loading' ? (
           <p>Reading your wallet’s pool shares…</p>
@@ -223,8 +228,10 @@ function PositionsList({
     return (
       <>
         <p data-testid="lp-no-positions">This wallet holds no shares in our pools.</p>
-        <p>So there is nothing to remove yet. A share appears here once this wallet adds liquidity or opens a pool.</p>
         <ReadAgain onClick={onReadAgain} />
+        <FinePrint summary="Details">
+          <p>So there is nothing to remove yet. A share appears here once this wallet adds liquidity or opens a pool.</p>
+        </FinePrint>
       </>
     );
   }
@@ -250,9 +257,12 @@ function PositionsList({
       {aside.length > 0 && (
         <details data-testid="lp-positions-set-aside" className="rounded-lg" style={{ border: '1px solid rgba(255,255,255,0.08)' }}>
           <summary className="min-h-[44px] flex items-center px-3 cursor-pointer text-white/75">
-            {plural(aside.length, 'other pool share', 'other pool shares')}, set aside without their names: tokens this site does not open or
-            add to pools for, pools that are not paired with {QUOTE_COINS_OR}, or pools we could not confirm
+            {plural(aside.length, 'other pool share', 'other pool shares')}, set aside
           </summary>
+          <p className="px-3 text-white/70">
+            Set aside without their names: tokens this site does not open or add to pools for, pools that are not paired with{' '}
+            {QUOTE_COINS_OR}, or pools we could not confirm.
+          </p>
           <ul className="space-y-3 p-3">
             {aside.map((p) => (
               <PositionRow

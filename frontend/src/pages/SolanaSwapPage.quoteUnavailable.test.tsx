@@ -50,6 +50,12 @@ vi.mock('../components/ArtImg', () => ({ ArtImg: () => null }));
 vi.mock('../components/ClockLine', () => ({ ClockLine: () => null }));
 vi.mock('../components/swap/ChainSwitch', () => ({ ChainSwitch: () => null }));
 vi.mock('../components/swap/SolanaRouteLine', () => ({ SolanaRouteLine: () => null }));
+// No pool program on this network: our pools are found to have nothing, so Jupiter's own
+// answer decides "No route" here. (A read of our pools that failed never says it.)
+vi.mock('../lib/solana/cpswap/read', async (orig) => ({
+  ...(await orig<typeof import('../lib/solana/cpswap/read')>()),
+  readVenue: async () => ({ kind: 'no-program-id' }),
+}));
 vi.mock('../components/solana/PairChart', () => ({ PairChart: () => null }));
 vi.mock('../components/solana/TokenDetail', () => ({ TokenDetail: () => null }));
 vi.mock('../components/solana/SolanaConnectButton', () => ({ SolanaConnectButton: () => null }));
@@ -95,7 +101,8 @@ async function typeAndLetTheQuoteEnd(calls = 1) {
 }
 
 beforeEach(() => {
-  window.history.replaceState(null, '', '/solana');
+  // The page opens SOL to $BAYLA; these tests are about a SOL to USDC swap, so the link names it.
+  window.history.replaceState(null, '', `/solana?out=${USDC_MINT}`);
   localStorage.clear();
   h.getQuote.mockReset();
   h.sendTransaction.mockReset();

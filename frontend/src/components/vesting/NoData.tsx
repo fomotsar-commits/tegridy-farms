@@ -39,10 +39,11 @@ export function Value({ value, suffix }: { value: ReactNode | null | undefined; 
   );
 }
 
-/** Panel-level banner for a rail that answered nothing at all. */
-export function UnavailableNotice({ title, detail }: { title: string; detail: string }) {
+/** Panel-level banner for a rail that answered nothing at all. `art` is passed only where the notice stands alone, not inside a card that has its own. */
+export function UnavailableNotice({ title, detail, art }: { title: string; detail: string; art?: ReactNode }) {
   return (
-    <div className="rounded-xl border border-amber-500/25 bg-amber-500/[0.06] p-4">
+    <div className={`${art ? 'relative isolate ' : ''}rounded-xl border border-amber-500/25 bg-amber-500/[0.06] p-4`}>
+      {art}
       <p className="text-amber-200/90 text-[13px] font-semibold">{title}</p>
       <p className="text-white/55 text-[12px] mt-1 leading-relaxed">{detail}</p>
     </div>

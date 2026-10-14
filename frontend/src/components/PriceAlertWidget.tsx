@@ -1,6 +1,7 @@
 import { useState, useMemo } from 'react';
 import { useTOWELIPrice } from '../contexts/PriceContext';
 import { usePriceAlerts } from '../hooks/usePriceAlerts';
+import { CardArt } from './ui/CardArt';
 
 export function PriceAlertWidget() {
   const price = useTOWELIPrice();
@@ -21,7 +22,8 @@ export function PriceAlertWidget() {
   };
 
   return (
-    <div className="relative overflow-hidden rounded-xl glass-card-animated" style={{ background: '#000', border: '1px solid var(--color-purple-75)' }}>
+    <div className="relative isolate overflow-hidden rounded-xl glass-card-animated" style={{ background: '#000', border: '1px solid var(--color-purple-75)' }}>
+      <CardArt pageId="price-alert-widget" idx={0} />
       <div className="relative z-10 p-4">
         {/* Header */}
         <button

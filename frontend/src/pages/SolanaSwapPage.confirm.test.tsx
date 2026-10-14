@@ -24,6 +24,8 @@ const { toast, connection, wallet, jup } = vi.hoisted(() => ({
     getBalance: vi.fn(),
     getParsedTokenAccountsByOwner: vi.fn(),
     getSignatureStatuses: vi.fn(),
+    // The DCA tab reads which token program owns each mint before it builds anything.
+    getMultipleAccountsInfo: vi.fn(),
   },
   wallet: { sendTransaction: vi.fn() },
   jup: {
@@ -108,11 +110,14 @@ const toastTitles = (fn: { mock: { calls: unknown[][] } }) => fn.mock.calls.map(
 beforeEach(() => {
   vi.useFakeTimers({ shouldAdvanceTime: true });
   localStorage.clear();
-  window.history.replaceState(null, '', '/solana?amt=0.5');
+  // The page opens SOL to $BAYLA; these tests are about a SOL to USDC swap, so the link names it.
+  window.history.replaceState(null, '', `/solana?amt=0.5&out=${USDC_MINT}`);
   Object.values(toast).forEach((fn) => fn.mockReset());
   connection.getBalance.mockReset().mockResolvedValue(10_000_000_000);
   connection.getParsedTokenAccountsByOwner.mockReset().mockResolvedValue({ value: [] });
   connection.getSignatureStatuses.mockReset();
+  // SOL and USDC are both plain SPL tokens.
+  connection.getMultipleAccountsInfo.mockReset().mockImplementation(async (keys: PublicKey[]) => keys.map(() => ({ owner: new PublicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA') })));
   wallet.sendTransaction.mockReset().mockResolvedValue(SIG);
   jup.getQuote.mockReset().mockResolvedValue(quote);
   jup.buildSwapTransaction.mockReset().mockResolvedValue('AAAA');

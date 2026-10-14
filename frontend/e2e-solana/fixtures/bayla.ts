@@ -86,7 +86,9 @@ export function baylaMoves(t: AnyTx, keys: PublicKey[]): BaylaMoves {
     for (const b of list) {
       if (b.mint !== BAYLA_MINT.toBase58()) continue;
       if (b.programId !== undefined && b.programId !== TOKEN_2022.toBase58()) throw new Error(`a $BAYLA balance under ${b.programId}`);
-      const k = keys[b.accountIndex].toBase58();
+      const key = keys[b.accountIndex];
+      if (!key) throw new Error(`a $BAYLA balance names account ${b.accountIndex}, and the transaction carries only ${keys.length}`);
+      const k = key.toBase58();
       byAccount.set(k, (byAccount.get(k) ?? 0n) + sign * BigInt(b.uiTokenAmount.amount));
     }
   };

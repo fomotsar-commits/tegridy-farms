@@ -35,6 +35,7 @@ export const VENUE_SWAP_COPY = {
   cannotPrice: 'The pool cannot price this trade right now.',
   tooSmall: 'That amount is too small to protect with a price limit.',
   routeMoved: OWN_ROUTE_COPY.routeMoved,
+  underLastQuote: OWN_ROUTE_COPY.underLastQuote,
   noSource: (what: string, address: string) => `You hold no ${what} in your main account for it (${address}).`,
   short: (need: string, have: string) => `This needs ${need} and your wallet has ${have}.`,
   cannotSize: 'This site cannot open your account for what this swap pays out, so nothing was built.',
@@ -138,7 +139,9 @@ export async function prepareVenueSwap(rpc: WriteRpc, gate: SwapOpenGate, a: Ven
   if (snap.chainNow === null && p.openTime > 0n) return notSent('build', VENUE_SWAP_COPY.noClock);
   const quoted = quoteOwnPool(view.snapshot, config, a.inputMint.toBase58(), a.amountIn, snap.chainNow === null ? 0 : Number(snap.chainNow));
   if (!quoted) return notSent('build', VENUE_SWAP_COPY.cannotPrice);
-  if (a.aggregator.kind === 'quoted' && quoted.outAmount < a.aggregator.out) return notSent('build', VENUE_SWAP_COPY.routeMoved);
+  if (a.aggregator.kind === 'quoted' && quoted.outAmount < a.aggregator.out) {
+    return notSent('build', a.aggregator.when === 'now' ? VENUE_SWAP_COPY.routeMoved : VENUE_SWAP_COPY.underLastQuote);
+  }
   const minimumAmountOut = applySlippage(quoted.outAmount, a.slippageBps);
   if (minimumAmountOut === null || minimumAmountOut <= 0n) return notSent('build', VENUE_SWAP_COPY.tooSmall);
 

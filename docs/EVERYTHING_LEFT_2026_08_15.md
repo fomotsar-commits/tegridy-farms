@@ -256,7 +256,7 @@ secret on the bot host and Vercel, or link tokens verify on one side only.
 Both program ids are permanently spent; every PDA is orphaned (the `global` PDA holds
 0.0059 SOL owned by a program that no longer exists); graduation never ran once (`admin::ID`
 was the multisig account — fixed in source, undeployable now; #282 closed for that reason).
-A restart = fresh keypairs, new `declare_id!`, **8.46 SOL settled / 13.4 SOL peak float** —
+A restart = fresh keypairs, new `declare_id!`, **8.46 SOL settled / 13.4 SOL peak float** (at the August rent rate; at mainnet's rate read 2026-10-14, (bytes + 128) x 5,080 lamports, the same builds are about **6.20 SOL settled / 9.77 SOL peak**) —
 and note the shape: that is within 0.01 SOL of the 8.467 the closes released. §0.4's answer
 decides whether this is a transfer or an ask.
 

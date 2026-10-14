@@ -68,7 +68,7 @@ describe('ConnectPrompt', () => {
   it('renders dashboard surface copy (F519)', () => {
     renderPrompt('dashboard');
     expect(screen.getByRole('heading', { name: 'Connect an Ethereum wallet' })).toBeInTheDocument();
-    expect(screen.getByText(/View your portfolio, positions, and earnings/i)).toBeInTheDocument();
+    expect(screen.getByText(/Your positions, earnings and unclaimed yield/i)).toBeInTheDocument();
   });
 
   it('names its button for the wallet list it opens, and links the FAQ', () => {

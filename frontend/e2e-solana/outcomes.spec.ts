@@ -9,6 +9,7 @@ import { PublicKey, type Keypair } from '@solana/web3.js';
 import { ata, buyDirect, createLaunchDirect, curve, fundedKeypair, lamports, landedTx, sol, tokenAmount } from './fixtures/chain';
 import { bayla, giveBayla } from './fixtures/bayla';
 import { installTestWallet } from './fixtures/testWallet';
+import { field } from './fixtures/walletGuard';
 import { installRpcGuard } from './fixtures/rpcGuard';
 import { installUploadStub, makePng } from './fixtures/uploadStub';
 import { installHeatStub } from './fixtures/heatStub';
@@ -219,7 +220,7 @@ test('a reload WHILE a launch is in the air: the form comes back holding Review 
   const broadcast = firstBroadcast(t.page);
   await clickReal(ui.signButton(t.page), 'Sign in wallet');
   await expect(ui.sent(t.page)).toBeVisible({ timeout: 60_000 });
-  const launched = t.wallet.lastIx('create_launch').accounts.mint;
+  const launched = field(t.wallet.lastIx('create_launch').accounts, 'mint');
 
   // In the air: broadcast, and still not confirmed (no status can be read).
   await expectBroadcastTaken(broadcast, t.wallet.lastSigned().signature!);

@@ -2,6 +2,8 @@ import { Link } from 'react-router-dom';
 import { BUNGALOWS, DEFAULT_BUNGALOW_ID } from '../../lib/bungalows';
 import { TEGRIDY_STAKING_ADDRESS, isDeployed } from '../../lib/constants';
 import { poolShape } from '../../lib/poolShape';
+import { CardArt } from '../ui/CardArt';
+import { FinePrint } from '../ui/FinePrint';
 
 /**
  * Every pool on the island: /earn, whatever room the visitor is in. Each row
@@ -92,16 +94,15 @@ export function VenuePoolIndex() {
           Earn across Jungle Bay Island
         </h2>
         <p className="text-white/65 text-[13px] leading-relaxed max-w-[64ch]">
-          Every resident community runs its own pool, in its own token, on its own chain. Pick a
-          room to see its live rate, its reward balance and what your position is worth. Those
-          numbers are read on chain there, where a failed read can say so.
+          Pick a pool to see its live rate and rewards.
         </p>
       </div>
 
       <div
-        className="rounded-2xl overflow-hidden"
+        className="relative isolate rounded-2xl overflow-hidden"
         style={{ background: 'rgba(4,9,18,0.72)', border: '1px solid var(--color-purple-25)' }}
       >
+        <CardArt pageId="earn" idx={1} />
         {/* `relative` IS LOAD-BEARING — it is what CONTAINS the sr-only span in the
             last <th>. Tailwind's `sr-only` is `position:absolute`, and an
             absolutely-positioned element is clipped by an ancestor's overflow
@@ -161,12 +162,19 @@ export function VenuePoolIndex() {
         </div>
       </div>
 
-      <p className="mt-2.5 text-[11.5px] text-white/50 leading-relaxed">
-        No rate is shown here because none is read here. Twelve pools across three chains would be
-        twelve calls before this list could draw, and a call that does not answer renders as a zero,
-        which would read as &ldquo;empty, pays nothing&rdquo; about a pool that may be neither.
-        Each room reads its own.
-      </p>
+      <FinePrint summary="Why no rates here" className="mt-1.5">
+        <p>
+          Every resident community runs its own pool, in its own token, on its own chain. Pick a
+          room to see its live rate, its reward balance and what your position is worth. Those
+          numbers are read on chain there, where a failed read can say so.
+        </p>
+        <p>
+          No rate is shown here because none is read here. Twelve pools across three chains would be
+          twelve calls before this list could draw, and a call that does not answer renders as a zero,
+          which would read as &ldquo;empty, pays nothing&rdquo; about a pool that may be neither.
+          Each room reads its own.
+        </p>
+      </FinePrint>
 
       {/* The venue's OWN surface, named as such. Liquidity is the one earning
           route that is genuinely the VENUE's rather than a resident's — the
