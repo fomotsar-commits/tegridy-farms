@@ -315,12 +315,28 @@ describe('the routing rule is held again where the swap is built', () => {
     const w = world();
     const out = await ours(w);
     const earlier: AggregatorSeen = { kind: 'quoted', out: out + 1n, when: 'earlier' };
-    expect((await refusal(w, buy(w, { aggregator: earlier }))).message).toBe(VENUE_SWAP_COPY.routeMoved);
+    expect((await refusal(w, buy(w, { aggregator: earlier }))).message).toBe(VENUE_SWAP_COPY.underLastQuote);
     const stoodIn: AggregatorSeen = { kind: 'quoted', out, when: 'earlier' };
     expect(summaryOf(ok(await prepareVenueSwap(W(w.chain), OPEN, buy(w, { aggregator: stoodIn })))).aggregator).toEqual(stoodIn);
     // An aggregator that could not be asked holds the swap to nothing, and is said as that.
     const unreachable: AggregatorSeen = { kind: 'unreachable' };
     expect(summaryOf(ok(await prepareVenueSwap(W(w.chain), OPEN, buy(w, { aggregator: unreachable })))).aggregator).toEqual(unreachable);
+  });
+
+  it('a refusal held to a figure that stood in for a fresh one says the pool fell under the last quote, never that the aggregator "now pays more"', async () => {
+    const w = world();
+    const out = await ours(w);
+    const o = await refusal(w, buy(w, { aggregator: { kind: 'quoted', out: out + 1n, when: 'earlier' } }));
+    expect(o).toMatchObject({ status: 'not-sent', stage: 'build' });
+    expect(o.message).not.toBe(VENUE_SWAP_COPY.routeMoved);
+    expect(o.message).not.toMatch(/now pays more|better route/);
+  });
+
+  it('an aggregator whose transaction was refused by its test run holds the swap to nothing, and is carried to the review as that', async () => {
+    const w = world();
+    // A quote far above anything the pool pays: held to it, the swap could never be built.
+    const refused: AggregatorSeen = { kind: 'refused', out: 2n ** 62n };
+    expect(summaryOf(ok(await prepareVenueSwap(W(w.chain), OPEN, buy(w, { aggregator: refused })))).aggregator).toEqual(refused);
   });
 });
 

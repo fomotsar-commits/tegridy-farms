@@ -14,6 +14,7 @@
  */
 import type { Locator, Page } from '@playwright/test';
 import { test, expect } from './fixtures/wallet';
+import { expectNoSidewaysScroll } from './fixtures/pageWidth';
 import { gotoRoute, waitForQuiescence } from './fixtures/routes';
 import { playLiveVenue } from './fixtures/playedVenue';
 
@@ -88,43 +89,7 @@ for (const path of ['/community', '/nft-finance', '/trust', '/launch', '/lore', 
   }
 }
 
-/**
- * THE PAGE MUST NOT SCROLL SIDEWAYS ON A PHONE.
- *
- * ⚠️ WRITTEN BECAUSE IT SHIPPED BROKEN. The 2026-09-05 nav rewrite added two
- * wide tables (/liquidity's pool table, /farm's island index), each correctly
- * wrapped in `overflow-x-auto`. The wrapper clipped the TABLE — and did not clip
- * the `sr-only` span in its last <th>, because Tailwind's `sr-only` is
- * `position:absolute` and an absolutely-positioned element is only clipped by an
- * ancestor that is its CONTAINING BLOCK, i.e. a positioned one. The static
- * wrapper was not, so the span painted at the 520px table's right edge and
- * dragged the document's scroll width to 521 on a 390px viewport.
- *
- * It looked completely fine: the table sat inside its rounded card, scrolling
- * its own overflow, while the whole page slid sideways under the user's thumb.
- *
- * The assertion is deliberately BEHAVIOURAL — it scrolls and checks the page
- * moved — rather than comparing scrollWidth to clientWidth. `body` carries
- * `overflow-x: hidden` in index.css, so the two can disagree, and the question
- * that matters to a person holding a phone is whether it moves.
- */
-async function expectNoSidewaysScroll(page: Page): Promise<void> {
-  const moved = await page.evaluate(() => {
-    const before = window.scrollX;
-    window.scrollTo(500, 0);
-    const after = window.scrollX;
-    window.scrollTo(0, 0);
-    return { before, after, scrollW: document.documentElement.scrollWidth };
-  });
-
-  expect(
-    moved.after,
-    `the page slid sideways to x=${moved.after} (scrollWidth ${moved.scrollW}). Something is ` +
-      'escaping its scroll container: check for a position:absolute child (sr-only!) inside ' +
-      'a STATIC overflow-x-auto wrapper.',
-  ).toBe(moved.before);
-}
-
+// No page below is wider than its window, in any project: fixtures/pageWidth.ts measures it.
 for (const path of ['/', '/liquidity', '/earn', '/island', '/swap', '/trust']) {
   test(`${path} does not scroll horizontally at 390px`, async ({ page, walletMock: _w }) => {
     await page.setViewportSize(IPHONE_390);

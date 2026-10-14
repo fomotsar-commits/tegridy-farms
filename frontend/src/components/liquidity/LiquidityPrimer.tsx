@@ -64,22 +64,22 @@ export function LiquidityPrimer() {
 
         <div>
           <h3 className="text-white text-[13px] font-semibold mb-1">How do I get paid?</h3>
-          {/* ⚠️ CORRECTED 2026-09-05. This said the 0.3% "stays in the pool… not
-              claimed and not distributed", which is the textbook Uniswap-V2
-              description and is NOT what this fork does. TegridyPair.sol:16-17
-              splits it 5/6 to LPs via the reserves and 1/6 to the protocol's
-              `feeTo`, minted as LP inside `_mintFee` on every mint/burn and
-              harvestable permissionlessly. Telling an LP they keep all of it
-              overstates their income by ~17% of the fee. Naming the split is
-              also the honest thing: it is the venue's only revenue from this
-              pool and a large depositor will find it in the contract anyway. */}
-          <p>
-            Every swap through the pool pays a 0.3% fee. Five sixths of it (about 0.25% of the
-            trade) accrues straight into the pool&apos;s reserves — not claimed, not distributed,
-            just left there — so the share you hold becomes redeemable for more than you put in.
-            The remaining sixth (about 0.05%) is the protocol&apos;s cut, and it is taken as newly
-            minted LP rather than out of your balance. You earn in proportion to your share, for as
-            long as you hold it. Nothing is locked; you can withdraw at any block.
+          {/* The pair can mint the venue one sixth of the fee as LP (`_mintFee`), but only
+              after `harvest()` from the factory's feeToSetter first writes `kLast`. Read
+              2026-10-10: kLast is 0 and feeTo holds no LP, so the cut is off. This page has
+              no kLast read, so the copy dates what it saw and names who can change it.
+              src/lib/moneyWordsMatchTheChain.test.tsx pins the shape. */}
+          <p data-testid="primer-how-paid">
+            Every swap through the pool pays a 0.3% fee, and the fee stays in the pool. It is not
+            claimed and not paid out. It sits in the reserves, so the share you hold becomes
+            redeemable for more than you put in. The pair contract lets the venue take one sixth
+            of that fee (about 0.05% of a trade) as newly minted pool shares. On 10 October 2026
+            that cut had never been switched on, and liquidity providers kept the whole 0.3%. Only
+            the venue&apos;s owner wallet can switch it on, in one transaction with no waiting
+            period. To check today, read kLast on the pair contract: 0 means the cut is off. The
+            venue earns another way: swaps sent through this site&apos;s own router pay a separate
+            venue fee, shown on the swap screen before you sign. You earn in proportion to your
+            share, for as long as you hold it. Nothing is locked; you can withdraw at any block.
           </p>
         </div>
 

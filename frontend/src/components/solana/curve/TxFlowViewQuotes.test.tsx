@@ -610,6 +610,17 @@ describe.each(COINS)('after signing, for a pool paired with $symbol', (coin) => 
     }
   }, 60_000);
 
+  // What the wallet said is the only clue to a sign that failed before its prompt
+  // opened (submit.ts walletReason), so the card has to show it on every kind.
+  it('not signed: the card says why, on every kind', async () => {
+    const why = 'Your wallet did not sign this (this page is no longer connected to it, so it was never asked). Nothing was sent.';
+    for (const [kind, summary] of kinds) {
+      const text = await outcomeText(summary(), { status: 'not-sent', stage: 'sign', message: why });
+      expect(text, kind).toContain(why);
+      expect(text, kind).not.toMatch(/cancel/i);
+    }
+  }, 60_000);
+
   it('unknown keeps each kind’s own warning about doing it twice', async () => {
     const unknown: TxOutcome = { status: 'unknown', signature: SIG, message: 'slow' };
     expect(await outcomeText(deposit(coin), unknown)).toContain('Sending again could make you pay twice.');

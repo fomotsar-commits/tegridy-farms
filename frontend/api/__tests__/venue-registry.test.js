@@ -13,6 +13,15 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { COLLECTIONS } from "../../src/nakamigos/constants.js";
 import { ADDR, VIEW_ONLY_EVM_SLUGS } from "../../src/nakamigos/__fixtures__/jungleBayFamily.js";
+// Warms the five handlers at collection time. NOT dead code: each is first loaded inside
+// a test body, which vitest bounds at 5s, and orderbook.js alone (it pulls in viem) has
+// taken over 10s on a loaded machine. Here no timeout runs. Nothing in this file resets
+// modules, so the `load()` calls below get these same instances.
+import "../opensea.js";
+import "../alchemy.js";
+import "../orderbook.js";
+import "../_lib/holder-gate.js";
+import "../v1/index.js";
 
 vi.mock("../_lib/ratelimit.js", () => ({
   checkRateLimit: vi.fn(async () => true),

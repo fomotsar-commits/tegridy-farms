@@ -89,6 +89,25 @@ describe('the venue knows its own coins by mint', () => {
   });
 });
 
+describe('the liquid-staking list holds no rate', () => {
+  // Four rates used to be typed in here (7.5, 7.2, 7.0, 8.0) and printed as "~X% APY".
+  // Nothing on the page reads a staking rate, so the list may hold none to print.
+  it('the only number a staking token carries is its decimals', () => {
+    expect(LST_TOKENS.length).toBeGreaterThanOrEqual(4);
+    for (const t of LST_TOKENS) {
+      const numeric = Object.entries(t).filter(([, v]) => typeof v === 'number').map(([k]) => k);
+      expect(numeric, t.symbol).toEqual(['decimals']);
+    }
+  });
+
+  it('each one is named for what it is, with no rate in the name', () => {
+    for (const t of LST_TOKENS) {
+      expect(t.name, t.symbol).toMatch(/staked SOL/i);
+      expect(`${t.symbol} ${t.name}`, t.symbol).not.toMatch(/\d\s*%|\bAP[YR]\b/i);
+    }
+  });
+});
+
 describe('search results put the venue coin where a trader can find it', () => {
   const row = (mint: string, symbol = 'BAYLA'): SolToken => ({ mint, symbol, name: symbol, decimals: 6 });
   const copies = [row('Copy1111111111111111111111111111111111111pump'), row('Copy2222222222222222222222222222222222222pump')];

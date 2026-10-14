@@ -46,7 +46,7 @@ export async function readVenuePools(
   rpc: SolanaRpc,
   inputMint: string,
   outputMint: string,
-  opts: ReadPoolsOptions & { fetchImpl?: typeof fetch },
+  opts: ReadPoolsOptions & { fetchImpl?: typeof fetch; also?: readonly string[] },
 ): Promise<VenuePoolsRead> {
   const pair = readPair(inputMint, outputMint);
   if (!pair) return { kind: 'not-searched' };
@@ -143,5 +143,8 @@ export function quoteVenuePools(
   }
   if (candidates.length) return { state: 'quoted', candidates };
   if (read.pools.length === 0) return { state: read.complete ? 'absent' : 'error', candidates };
-  return { state: unread > 0 ? 'error' : 'unquotable', candidates };
+  // "Cannot be traded" is a finding only for a token no pool can price, or after a search
+  // that read everything on the chain's own clock; otherwise a pool may have been missed.
+  if (read.tokenProblem !== null) return { state: 'unquotable', candidates };
+  return { state: unread > 0 || !read.complete || read.chainNow === null ? 'error' : 'unquotable', candidates };
 }
