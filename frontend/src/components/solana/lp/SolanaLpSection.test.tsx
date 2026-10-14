@@ -276,7 +276,11 @@ describe('what a trade costs, on the tiers mainnet holds (recorded)', () => {
     expect(rowValue(card, 'Fee tier 0')).toBe('Traders pay 0.3% a trade (0.25% trade fee, 0.05% creator fee)');
     expect(rowValue(card, 'Of that fee')).toBe("LPs keep 0.200% of each trade, the venue 0.050%, the pool's creator 0.050%");
     expect(rowValue(card, 'Creator fee')).toBe("0.05% a trade on top of the trade fee, paid to the wallet that opened this pool (Opened by, below), not to LPs");
-    expect(rowValue(card, 'Opened by')).toBe(v.snapshot.pool.poolCreator);
+    // The wallet the creator fee goes to stays in view on a pool that charges one, short, with the whole address a press away.
+    const openedBy = within(card).getByRole('group', { name: 'Opened by' });
+    expect(within(card).getByTestId('lp-pool-more')).not.toContainElement(openedBy);
+    fireEvent.click(within(openedBy).getByRole('button', { name: /Show whole/ }));
+    expect(rowValue(openedBy, 'Opened by')).toBe(v.snapshot.pool.poolCreator);
   });
 
   it('a pool anyone opened on tier 0 charges no creator fee, and says so; it shows no creator row', async () => {

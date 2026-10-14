@@ -10,7 +10,7 @@ import { ArtImg } from '../components/ArtImg';
 import { ChainSwitch } from '../components/swap/ChainSwitch';
 import { VenueStatusCard } from '../components/solana/VenueStatusCard';
 import { VenueProgramCard } from '../components/solana/VenueProgramCard';
-import type { VenueStatus } from '../lib/solana/cpswap/read';
+import type { PublicTierRead, VenueStatus } from '../lib/solana/cpswap/read';
 import { lpWriteMode, type LpWriteMode } from '../lib/launcher/solana/lpWriteFlag';
 import {
   CREATOR_FEE_SWITCH,
@@ -41,11 +41,15 @@ export default function PoolsPage() {
   );
   useEffect(() => { trackPageView('pools'); }, []);
 
-  // The same live read as /solana-lp; "Try again" uses `retry`, the card's Refresh `refresh`.
-  const { status, refresh, retry } = useVenueStatus();
+  // The same live read as /solana-lp, with the public tier read in the same pass for the
+  // fee sheet. "Try again" uses `retry`, the card's Refresh `refresh`.
+  const { status, refresh, retry } = useVenueStatus({ publicTier: true });
 
   // Fees come only from a config the chain returned. With none, the sheet shows no number.
   const liveConfig = status?.kind === 'live' ? status.config : null;
+  const publicTier = status?.kind === 'live' && status.publicTier.kind !== 'not-asked' ? status.publicTier : null;
+  // Under the public tier's own heading, the launch tier's is a level down.
+  const LaunchHead = publicTier ? 'h3' : 'h2';
   const split = liveConfig ? feeSplit(liveConfig) : null;
   // The sheet is about the pools that graduate onto this tier, and the launch program
   // opens every one with its creator fee switched on: a trade there pays the trade fee
@@ -119,60 +123,65 @@ export default function PoolsPage() {
 
         {/* ── The fee sheet ───────────────────────────────────────────────── */}
         <section className="rounded-2xl p-6 mt-6" style={CARD} aria-label="Fee sheet">
-          <div className="flex items-baseline justify-between gap-3 flex-wrap mb-1">
-            <p className="text-[10px] uppercase tracking-wider" style={{ color: 'var(--color-kyle)' }}>
-              {liveConfig
-                ? `Fees · tier ${liveConfig.index}, graduated launch pools · read from the chain`
-                : 'Fees · not read'}
+          {/* The public tier first: every pool opened from this site is on it. The launch tier,
+              where launches graduate, under it. */}
+          {publicTier && <PublicTierFees read={publicTier} />}
+          <div data-testid="fee-sheet-launch">
+            <div className="flex items-baseline justify-between gap-3 flex-wrap mb-1">
+              <p className="text-[10px] uppercase tracking-wider" style={{ color: 'var(--color-kyle)' }}>
+                {liveConfig
+                  ? `Fees · tier ${liveConfig.index}, graduated launch pools · read from the chain`
+                  : 'Fees · not read'}
+              </p>
+            </div>
+            <LaunchHead className="heading-luxury text-xl text-white mb-4">
+              {/* Names the pools it is about and whose part it is: this tier is the launch pools', and a pool
+                  opened from this site (the public tier, above) charges its own rate. */}
+              {split && cost
+                ? `A launch pool charges ${feeRateText(cost.totalRate)} a trade; its liquidity providers keep ${split.lpKeepsPct.toFixed(2)}% of each trade`
+                : feesNotRead(status).title}
+            </LaunchHead>
+
+            {liveConfig && split && cost && (
+              <div className={`grid grid-cols-2 gap-3 mb-4 ${charged ? 'sm:grid-cols-3 md:grid-cols-5' : 'sm:grid-cols-4'}`}>
+                <Stat
+                  label="Trader pays"
+                  value={feeRateText(cost.totalRate)}
+                  sub={charged ? `${feeRateText(cost.tradeFeeRate)} trade fee + ${feeRateText(cost.creatorFeeRate)} creator fee` : 'of each trade'}
+                />
+                <Stat label="LPs keep" value={`${split.lpKeepsPct.toFixed(2)}%`} sub="of volume" tone="good" />
+                <Stat label="Venue takes" value={`${split.venueTakesPct.toFixed(2)}%`} sub={`${split.venueShareOfFeePct}% of the trade fee`} />
+                {charged && <Stat label="Creator gets" value={feeRateText(cost.creatorFeeRate)} sub="on top, to the token’s creator" />}
+                <Stat
+                  label="Open a pool"
+                  value={`${solOf(liveConfig.createPoolFee)} SOL`}
+                  sub={`fee on tier ${liveConfig.index}; account deposits extra`}
+                />
+              </div>
+            )}
+
+            <p className="text-white/70 text-[13px] leading-relaxed">
+              {liveConfig ? (
+                <>
+                  These are the live <code className="font-mono text-white/85">AmmConfig</code> rates
+                  of fee tier {liveConfig.index}, where launches graduate, read from the chain when
+                  this page loads, not copied into it. Retuning them on chain changes this card
+                  without a deploy.{' '}
+                  {charged && (
+                    <>
+                      A launch pool charges the creator fee on top of the trade fee and pays it to the
+                      token&rsquo;s creator: the launch program opens every launch pool with it switched
+                      on. A pool opened on this tier any other way charges only the trade fee.{' '}
+                    </>
+                  )}
+                  Pools opened from this site use the public fee tier instead; the fee tiers in the
+                  pools section above are read live for both.
+                </>
+              ) : (
+                feesNotRead(status).line
+              )}
             </p>
           </div>
-          <h2 className="heading-luxury text-xl text-white mb-4">
-            {/* Names the pools it is about and whose part it is: this tier is the launch pools', and a pool
-                opened from this site (the public tier, listed in the pools section) charges its own rate. */}
-            {split && cost
-              ? `A launch pool charges ${feeRateText(cost.totalRate)} a trade; its liquidity providers keep ${split.lpKeepsPct.toFixed(2)}% of each trade`
-              : feesNotRead(status).title}
-          </h2>
-
-          {liveConfig && split && cost && (
-            <div className={`grid grid-cols-2 gap-3 mb-4 ${charged ? 'sm:grid-cols-3 md:grid-cols-5' : 'sm:grid-cols-4'}`}>
-              <Stat
-                label="Trader pays"
-                value={feeRateText(cost.totalRate)}
-                sub={charged ? `${feeRateText(cost.tradeFeeRate)} trade fee + ${feeRateText(cost.creatorFeeRate)} creator fee` : 'of each trade'}
-              />
-              <Stat label="LPs keep" value={`${split.lpKeepsPct.toFixed(2)}%`} sub="of volume" tone="good" />
-              <Stat label="Venue takes" value={`${split.venueTakesPct.toFixed(2)}%`} sub={`${split.venueShareOfFeePct}% of the trade fee`} />
-              {charged && <Stat label="Creator gets" value={feeRateText(cost.creatorFeeRate)} sub="on top, to the token’s creator" />}
-              <Stat
-                label="Open a pool"
-                value={`${solOf(liveConfig.createPoolFee)} SOL`}
-                sub={`fee on tier ${liveConfig.index}; account deposits extra`}
-              />
-            </div>
-          )}
-
-          <p className="text-white/70 text-[13px] leading-relaxed">
-            {liveConfig ? (
-              <>
-                These are the live <code className="font-mono text-white/85">AmmConfig</code> rates
-                of fee tier {liveConfig.index}, where launches graduate, read from the chain when
-                this page loads, not copied into it. Retuning them on chain changes this card
-                without a deploy.{' '}
-                {charged && (
-                  <>
-                    A launch pool charges the creator fee on top of the trade fee and pays it to the
-                    token&rsquo;s creator: the launch program opens every launch pool with it switched
-                    on. A pool opened on this tier any other way charges only the trade fee.{' '}
-                  </>
-                )}
-                Pools opened from this site use the public fee tier instead; the fee tiers in the
-                pools section above are read live for both.
-              </>
-            ) : (
-              feesNotRead(status).line
-            )}
-          </p>
           {status?.kind === 'unreadable' && (
             <button type="button" onClick={retry} className="btn-secondary px-4 py-2 text-[12px] mt-3">
               Try again
@@ -245,6 +254,63 @@ const SOLANA_LP_LINK: Record<LpWriteMode, string> = {
   'withdraw-only': 'Take your liquidity out on the Solana LP tab',
 };
 const SOLANA_LP_LINK_NOT_OPEN = 'Go to the Solana LP tab';
+
+/**
+ * The public fee tier's part of the fee sheet, from the same live read as the launch tier's.
+ * A pool opened from this site charges no creator fee (CREATOR_FEE_SWITCH.publicOpen), so
+ * "Trader pays" is the trade fee unless the tier and that switch say otherwise.
+ */
+function PublicTierFees({ read }: { read: PublicTierRead }) {
+  const config = read.kind === 'ok' ? read.config : null;
+  const split = config ? feeSplit(config) : null;
+  const cost = config ? tradeCost(config, chargedCreatorFeeRate(config, CREATOR_FEE_SWITCH.publicOpen)) : null;
+  const charged = cost !== null && cost.creatorFeeRate > 0n;
+  return (
+    <div data-testid="fee-sheet-public" className="pb-5 mb-5 border-b border-white/10">
+      <p className="text-[10px] uppercase tracking-wider mb-1" style={{ color: 'var(--color-kyle)' }}>
+        {config ? `Fees · tier ${config.index}, the public tier · read from the chain` : 'Fees · the public tier · not read'}
+      </p>
+      <h2 className="heading-luxury text-xl text-white mb-4">
+        {config && split && cost
+          ? `A pool on the public tier charges ${feeRateText(cost.totalRate)} a trade; its liquidity providers keep ${split.lpKeepsPct.toFixed(2)}% of each trade`
+          : read.kind === 'absent'
+            ? 'No public fee tier was read'
+            : 'The public fee tier could not be read just now'}
+      </h2>
+      {config && split && cost ? (
+        <>
+          <div className={`grid grid-cols-2 gap-3 mb-4 ${charged ? 'sm:grid-cols-3 md:grid-cols-5' : 'sm:grid-cols-4'}`}>
+            <Stat
+              label="Trader pays"
+              value={feeRateText(cost.totalRate)}
+              sub={charged ? `${feeRateText(cost.tradeFeeRate)} trade fee + ${feeRateText(cost.creatorFeeRate)} creator fee` : 'of each trade'}
+            />
+            <Stat label="LPs keep" value={`${split.lpKeepsPct.toFixed(2)}%`} sub="of volume" tone="good" />
+            <Stat label="Venue takes" value={`${split.venueTakesPct.toFixed(2)}%`} sub={`${split.venueShareOfFeePct}% of the trade fee`} />
+            {charged && <Stat label="Creator gets" value={feeRateText(cost.creatorFeeRate)} sub="on top, to the pool’s creator" />}
+            <Stat label="Open a pool" value={`${solOf(config.createPoolFee)} SOL`} sub={`fee on tier ${config.index}; account deposits extra`} />
+          </div>
+          <p className="text-white/70 text-[13px] leading-relaxed">
+            These are the live <code className="font-mono text-white/85">AmmConfig</code> rates of fee tier {config.index}, the
+            public tier, read from the chain when this page loads. Every pool opened from this site is on this tier.
+            {config.creatorFeeRate > 0n && !charged && (
+              <>
+                {' '}A pool opened on it from elsewhere can switch on the tier&rsquo;s {feeRateText(config.creatorFeeRate)} creator fee
+                as well: each pool&rsquo;s card says what that pool charges.
+              </>
+            )}
+          </p>
+        </>
+      ) : (
+        <p className="text-white/70 text-[13px] leading-relaxed">
+          {read.kind === 'absent'
+            ? 'There is no public fee tier on chain to read, so no rate is shown for it.'
+            : 'The chain did not answer for the public tier, so this page shows no rate for it rather than a guess.'}
+        </p>
+      )}
+    </div>
+  );
+}
 
 function Stat({ label, value, sub, tone }: { label: string; value: string; sub?: string; tone?: 'good' }) {
   return (

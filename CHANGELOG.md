@@ -6,6 +6,11 @@ page keeps the newest thirty days.
 
 ## [Unreleased]
 
+### 2026-10-14
+
+- Solana LP: a pool card is now headed by its pair and fee, for example "BAYLA / SOL · 1% tier", like your positions. What the pool has earned comes right under its price, before the fees and the deposit checks. Addresses show short, with the whole address, Copy and Explorer one press away. A token the site lists, such as BAYLA, is named in the amounts and the price instead of "tokens".
+- Venue AMM: the fee sheet now shows the public fee tier first, the one every pool opened from this site uses. On mainnet that is 1% a trade, of which liquidity providers keep 0.84% of each trade. The launch pools' tier is under it, as before.
+
 ### 2026-10-10
 
 - Shared heat links: a memetics.finance/read link for a wallet the island reads now shows the island's painted card of that wallet when it is posted. A cold wallet, or one the island could not be asked about, keeps the venue's card.

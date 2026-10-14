@@ -80,9 +80,9 @@ export function quoteText(raw: bigint, quote: QuoteCoin): string {
   return quote.native ? solText(raw) : `${formatTokenAmount(raw, quote.decimals, 4).text} ${quote.symbol}`;
 }
 
-/** "1 token = 0.025 USDC": a pool's price, or its reference, in the pool's own coin. */
-export function priceText(perToken: number, quote: QuoteCoin): string {
-  return `1 token = ${formatSolPrice(perToken)} ${quote.symbol}`;
+/** "1 token = 0.025 USDC": a pool's price, or its reference, in the pool's own coin. `unit` names a listed token ("1 BAYLA"). */
+export function priceText(perToken: number, quote: QuoteCoin, unit = 'token'): string {
+  return `1 ${unit} = ${formatSolPrice(perToken)} ${quote.symbol}`;
 }
 
 /** Token amount with its decimals, or raw base units said as such. */

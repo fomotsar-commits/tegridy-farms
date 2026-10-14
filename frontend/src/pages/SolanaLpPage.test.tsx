@@ -31,6 +31,7 @@ const LIVE = {
     createPoolFee: 0n, creatorFeeRate: 0n,
     protocolOwner: 'Own1', fundOwner: 'Own2',
   },
+  publicTier: { kind: 'not-asked' },
 } as const;
 const UNREADABLE = { kind: 'unreadable', detail: 'proxy timed out' } as const;
 

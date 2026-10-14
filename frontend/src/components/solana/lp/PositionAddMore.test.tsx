@@ -33,6 +33,7 @@ import type { LpReaders } from './readers';
 import type { TokenSafety } from '../../../lib/solana/lp/tokenSafety';
 import { BAYLA_QUOTE, SOL_QUOTE, USDC_QUOTE, type QuoteCoin } from '../../../lib/solana/lp/quotes';
 import type { PoolSearchRead, PoolView } from '../../../lib/solana/lp/poolFinder';
+import { pairLabel } from '../../../lib/solana/lp/identity';
 import { decodeAmmConfig, decodePoolState } from '../../../lib/solana/cpswap/program';
 import type { Position } from '../../../lib/solana/lp/positions';
 import type { WalletFacts } from '../../../lib/solana/lp/walletFacts';
@@ -425,10 +426,10 @@ describe('it goes to that pool or to nowhere', () => {
     expect(its).toHaveAttribute('data-add', c.offer);
     expect(its).toHaveTextContent(c.says);
     // A keyboard and a screen reader land on the card too, and are told why: the heading
-    // alone is only the pool's kind, and the card beside it carries the same one.
+    // alone is only the pool's pair and tier, which the card beside it can carry too.
     const heading = within(its).getByRole('heading', { level: 3 });
     expect(heading).toHaveFocus();
-    expect(heading.textContent).toBe(within(card(deep.address)).getByRole('heading', { level: 3 }).textContent);
+    expect(heading.textContent).toBe(pairLabel(mine));
     const why = within(its).getByTestId('lp-wish-why');
     expect(why).toHaveTextContent('This is your position’s pool. Its Add form was not opened:');
     expect(why).toHaveTextContent(c.why);

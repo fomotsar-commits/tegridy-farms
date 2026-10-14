@@ -11,6 +11,7 @@ import {
   DEFAULT_AMM_CONFIG_INDEX,
   deriveAmmConfig,
   derivePool,
+  publicTierConfig,
   deriveVault,
   decodeAmmConfig,
   decodePoolState,
@@ -106,13 +107,30 @@ export type VenueStatus =
   | { kind: 'no-program-id' }
   | { kind: 'program'; deployment: Exclude<Deployment, { kind: 'deployed' }> }
   | { kind: 'no-config'; programId: string }
-  | { kind: 'live'; programId: string; config: AmmConfigView }
+  | { kind: 'live'; programId: string; config: AmmConfigView; publicTier: PublicTierRead }
   | { kind: 'unreadable'; detail: string };
+
+/** The public fee tier (PUBLIC_TIER_INDEX), read beside the launch tier when a page asks for it. */
+export type PublicTierRead =
+  | { kind: 'ok'; config: AmmConfigView }
+  | { kind: 'absent' }
+  | { kind: 'unreadable'; detail: string }
+  | { kind: 'not-asked' };
+
+async function readTier(rpc: AccountRpc, address: PublicKey): Promise<PublicTierRead> {
+  const raw = await fetchAccount(rpc, address);
+  if (raw.kind === 'absent') return { kind: 'absent' };
+  if (raw.kind === 'unreadable') return raw;
+  if (raw.kind !== 'ok') return { kind: 'unreadable', detail: 'the public tier account could not be decoded' };
+  const config = decodeAmmConfig(address.toBase58(), raw.value);
+  return config ? { kind: 'ok', config } : { kind: 'unreadable', detail: 'an account exists at the public tier address but does not decode as one' };
+}
 
 export async function readVenue(
   rpc: AccountRpc,
   programId: PublicKey | null = LIVE_PROGRAM_ID,
   configIndex: number = DEFAULT_AMM_CONFIG_INDEX,
+  opts: { publicTier?: boolean } = {},
 ): Promise<VenueStatus> {
   if (!programId) return { kind: 'no-program-id' };
 
@@ -121,7 +139,11 @@ export async function readVenue(
   if (deployment.kind !== 'deployed') return { kind: 'program', deployment };
 
   const configAddress = deriveAmmConfig(programId, configIndex);
-  const raw = await fetchAccount(rpc, configAddress);
+  // Asked for, the public tier is read alongside, not after: one more account, no more waiting.
+  const [raw, publicTier] = await Promise.all([
+    fetchAccount(rpc, configAddress),
+    opts.publicTier ? readTier(rpc, publicTierConfig(programId)) : Promise.resolve<PublicTierRead>({ kind: 'not-asked' }),
+  ]);
   if (raw.kind === 'unreadable') return { kind: 'unreadable', detail: raw.detail };
   // An absent AmmConfig is NOT an outage — it is the operator's `create_amm_config`
   // step not having run. Naming it precisely is the difference between "come back
@@ -135,7 +157,7 @@ export async function readVenue(
   if (!config) {
     return { kind: 'unreadable', detail: 'an account exists at the AmmConfig address but does not decode as one' };
   }
-  return { kind: 'live', programId: programId.toBase58(), config };
+  return { kind: 'live', programId: programId.toBase58(), config, publicTier };
 }
 
 export interface PoolSnapshot {
