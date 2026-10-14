@@ -829,12 +829,12 @@
     {
       "id": "lp-farming",
       "address": "0x1171268AE5B69791c47Fd589b7825932c957e149",
-      "role": "LP farming. Emissions ended 2026-06-15; 0 LP staked.",
+      "role": "LP farming. Emissions ended 2026-06-15; 528.2 LP staked by one wallet (read 2026-10-14), earning no TOWELI since the period ended.",
       "status": "live, idle",
       "expect": {
         "type": "contract"
       },
-      "evidence": "CONTRACTS.md (Native DEX, TegridyLPFarming) and docs/MIGRATION_HISTORY.md:134 record a live read-back: stakingToken()=0x5587...a481, rewardToken()=TOWELI, MAX_BOOST_BPS_CEILING()==45000. frontend/src/lib/lpEmissions.ts:9 cites a mainnet verification against it on 2026-07-31."
+      "evidence": "CONTRACTS.md (Native DEX, TegridyLPFarming) and docs/MIGRATION_HISTORY.md:134 record a live read-back: stakingToken()=0x5587...a481, rewardToken()=TOWELI, MAX_BOOST_BPS_CEILING()==45000. frontend/src/lib/lpEmissions.ts:9 cites a mainnet verification against it on 2026-07-31. Read 2026-10-14 at block 26,188,902: totalRawSupply()=528199806982326905120 (528.2 LP), periodFinish()=1781493095 (2026-06-15T03:11:35Z); its Staked and Withdrawn events since deployment net to that total for one wallet, which staked 528.2 LP between 2026-08-08 and 2026-09-07."
     },
     {
       "id": "referral-splitter",
