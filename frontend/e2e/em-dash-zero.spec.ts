@@ -61,7 +61,7 @@ const VENUE_VOICE_DEBT: Record<string, number> = {
   '/trust': 5,
   '/pools': 1,
   '/solana-lp': 0,
-  '/nft-finance': 7,
+  '/nft-finance': 6,
   '/developers': 10,
   '/risks': 3,
   '/copy-trading': 10,
@@ -302,19 +302,19 @@ test.describe('element I: em dashes in the rooms', () => {
 // branch is walked in the next block. toweli's farm is its own room's prose, and nb1, not
 // yet live, goes to the venue's list.
 const ROOM_FARM_DEBT: Record<string, number> = {
-  toweli: 8,
+  toweli: 5,
   bayla: 0,
   bobo: 0,
   soy: 0,
   brainlet: 0,
   rizz: 0,
-  // The six EVM ladders: the unread card's "The pool could not be read just now" line.
-  pepe: 1,
-  qr: 1,
-  mfer: 1,
-  bnkr: 1,
-  drb: 1,
-  jbm: 1,
+  // The six EVM ladders: their unread line lost its dash on 2026-10-14 (fewer-words pass).
+  pepe: 0,
+  qr: 0,
+  mfer: 0,
+  bnkr: 0,
+  drb: 0,
+  jbm: 0,
   nb1: 0,
 };
 
