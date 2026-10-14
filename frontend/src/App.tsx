@@ -17,6 +17,7 @@ import { usePageTitle } from './hooks/usePageTitle';
 import { useOpensAtTheTop } from './hooks/useOpensAtTheTop';
 import { PwaRuntime } from './components/pwa/PwaRuntime';
 import { BUNGALOWS, getActiveBungalow } from './lib/bungalows';
+import { useSectionLink } from './hooks/useSectionLink';
 import { BungalowDoor, VENUE_ID } from './components/bungalow/BungalowDoor';
 import { EARN_PATH, isEarnPoolId, legacyFarmTarget } from './lib/earnRoutes';
 
@@ -166,23 +167,13 @@ function ScrollToTop() {
   useOpensAtTheTop(navType === 'POP' || hash ? null : `${navType} ${pathname}`);
   useEffect(() => {
     if (navType === 'POP') return;
-    // A #section deep link: the native hash-scroll fires before the target mounts, so
-    // it is re-run on the next frame and once more shortly after.
+    // A #section link is useSectionLink's to place, below: it waits for the section,
+    // which a page whose code is still arriving has not drawn yet.
     if (hash) {
-      const id = decodeURIComponent(hash.slice(1));
-      let raf2 = 0;
-      const scrollToTarget = () => document.getElementById(id)?.scrollIntoView({ behavior: 'auto', block: 'start' });
-      const raf1 = requestAnimationFrame(() => {
-        scrollToTarget();
-        // Second pass after lazy/animated content has likely mounted.
-        raf2 = window.setTimeout(scrollToTarget, 120) as unknown as number;
-      });
-      return () => {
-        cancelAnimationFrame(raf1);
-        if (raf2) clearTimeout(raf2);
-      };
+      return;
     }
   }, [pathname, hash, navType]);
+  useSectionLink();
   return null;
 }
 
