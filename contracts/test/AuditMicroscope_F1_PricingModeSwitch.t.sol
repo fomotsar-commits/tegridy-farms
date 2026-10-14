@@ -17,7 +17,7 @@ contract MockWETH_PricingMode is ERC20 {
 ///         between the two in one transaction. `mint()` charges the price at execution
 ///         and refunds only the excess, so a buyer who sent more than the price shown
 ///         paid the other mode's price. Now opening one mode switches the other off.
-contract AuditDropV2_PricingModeSwitchTest is Test {
+contract AuditMicroscope_F1_PricingModeSwitchTest is Test {
     TegridyDropV2 drop;
     address creator = makeAddr("creator");
     address alice = makeAddr("alice");
@@ -125,5 +125,78 @@ contract AuditDropV2_PricingModeSwitchTest is Test {
         drop.setMintPhase(TegridyDropV2.MintPhase.DUTCH_AUCTION);
         vm.stopPrank();
         assertEq(drop.mintPrice(), 0, "opening the curve switches the fixed price off");
+    }
+
+    // ─── Review of the F1 fix (2026-10-14) ───────────────────────────
+
+    /// Opening the curve zeroes the stored 0.05 ETH. With nothing sold, the old guard
+    /// (zero price only after a sale) let PUBLIC open at 0: every token free, the
+    /// creator and the platform fee paid nothing, and no price event said so.
+    function test_F1_curveThenFixedPriceBeforeAnySaleIsNeverFree() public {
+        drop.initialize(_params(PUBLIC_PRICE, TegridyDropV2.MintPhase.CLOSED));
+        vm.startPrank(creator);
+        drop.setMintPhase(TegridyDropV2.MintPhase.DUTCH_AUCTION);
+        drop.setMintPhase(TegridyDropV2.MintPhase.CLOSED);
+        try drop.setMintPhase(TegridyDropV2.MintPhase.PUBLIC) {} catch {}
+        vm.stopPrank();
+
+        vm.prank(alice);
+        try drop.mint{value: PUBLIC_PRICE}(1, 0, noProof) {} catch {}
+        assertEq(drop.totalProceeds(), drop.totalSupply() * PUBLIC_PRICE, "F1: tokens went out free");
+
+        vm.startPrank(creator);
+        vm.expectRevert(TegridyDropV2.FixedPriceNeedsProposal.selector);
+        drop.setMintPhase(TegridyDropV2.MintPhase.PUBLIC);
+        vm.stopPrank();
+    }
+
+    /// The same from an allowlist, and from a drop that opened straight into the auction.
+    function test_F1_anOpenedAuctionBlocksEveryFixedPricePhase() public {
+        TegridyDropV2.InitParams memory p = _params(0, TegridyDropV2.MintPhase.DUTCH_AUCTION);
+        p.merkleRoot = keccak256("allowlist");
+        drop.initialize(p);
+        assertTrue(drop.fixedPriceNeedsProposal(), "an auction opened at initialize");
+        vm.startPrank(creator);
+        vm.expectRevert(TegridyDropV2.FixedPriceNeedsProposal.selector);
+        drop.setMintPhase(TegridyDropV2.MintPhase.PUBLIC);
+        vm.expectRevert(TegridyDropV2.FixedPriceNeedsProposal.selector);
+        drop.setMintPhase(TegridyDropV2.MintPhase.ALLOWLIST);
+        vm.stopPrank();
+    }
+
+    /// The way back to a fixed price is a 24h proposal, after which the sale charges it.
+    function test_F1_fixedPriceReopensOnlyAfterA24hProposal() public {
+        drop.initialize(_params(PUBLIC_PRICE, TegridyDropV2.MintPhase.CLOSED));
+        vm.startPrank(creator);
+        drop.setMintPhase(TegridyDropV2.MintPhase.DUTCH_AUCTION);
+        drop.setMintPhase(TegridyDropV2.MintPhase.CLOSED);
+        drop.proposeMintPrice(0.2 ether);
+        uint256 readyAt = vm.getBlockTimestamp() + drop.MINT_PRICE_DELAY();
+        vm.warp(readyAt);
+        drop.executeMintPrice(0.2 ether, readyAt);
+        assertFalse(drop.fixedPriceNeedsProposal());
+        drop.setMintPhase(TegridyDropV2.MintPhase.PUBLIC);
+        vm.stopPrank();
+
+        vm.prank(alice);
+        drop.mint{value: 1 ether}(1, 0, noProof);
+        assertEq(drop.paidPerWallet(alice), 0.2 ether);
+    }
+
+    /// Each switch-off is logged, and a switched-off auction reads as no auction.
+    function test_F1_switchingAModeOffEmitsItsEvent() public {
+        drop.initialize(_params(PUBLIC_PRICE, TegridyDropV2.MintPhase.CLOSED));
+        vm.expectEmit(address(drop));
+        emit TegridyDropV2.DutchAuctionConfigured(0, 0, 0, 0);
+        vm.prank(creator);
+        drop.setMintPhase(TegridyDropV2.MintPhase.PUBLIC);
+        assertEq(drop.dutchStartPrice() + drop.dutchEndPrice() + drop.dutchStartTime() + drop.dutchDuration(), 0);
+
+        TegridyDropV2 other = TegridyDropV2(payable(Clones.clone(address(new TegridyDropV2()))));
+        other.initialize(_params(PUBLIC_PRICE, TegridyDropV2.MintPhase.CLOSED));
+        vm.expectEmit(address(other));
+        emit TegridyDropV2.MintPriceChanged(0);
+        vm.prank(creator);
+        other.setMintPhase(TegridyDropV2.MintPhase.DUTCH_AUCTION);
     }
 }

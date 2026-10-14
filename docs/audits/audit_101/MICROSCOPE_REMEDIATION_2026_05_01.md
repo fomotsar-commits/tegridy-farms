@@ -20,7 +20,7 @@ any deferred item. Format mirrors `.audit_101/POST_REMEDIATION_LEDGER.md`.
 | **Medium** | 39 | **36** | 0 | **Updated 2026-10-14:** M-G3, M-S6 and M-S7 are fixed in source at `b8b5135d`, with tests. The deployed contracts still have them, so each is owed a redeploy; nobody is exposed today (§3, and [`OPEN_FINDINGS_FIXED_IN_SOURCE_2026_10_14.md`](OPEN_FINDINGS_FIXED_IN_SOURCE_2026_10_14.md)). M-S6 was deferred here until then. **Corrected 2026-09-17:** M-G3 and M-S7 were listed Closed but never shipped. M-S1 and M-S5 are closed, but not by the change this ledger described, and not until the day after it was written — rows rewritten (§3). |
 | **Low / Info** | 23 | partial | most | Documented for follow-up. |
 
-**Total:** 63 of 66 Critical/High/Medium findings closed in source and on chain. The other 3 (M-G3, M-S6, M-S7) are fixed in source since 2026-10-14 and still live in the deployed contracts until a redeploy. 0 deferred, 0 regressions.
+**Total:** 63 of 66 Critical/High/Medium findings are recorded as closed in source. Whether each fix is in the deployed contracts was not checked, and 24 of the Medium findings counted closed are unverified (§3). The other 3 (M-G3, M-S6, M-S7) are fixed in source since 2026-10-14 and still live in the deployed contracts until a redeploy. 0 deferred.
 
 **Test-suite delta:** 2,287 (pre) → **2,363** (post) — 76 net new regression tests across:
 - ~~`AuditMicroscope_Kick.t.sol` (4 tests, C4 root cause)~~ **Corrected 2026-09-17:** this file never existed. `git log --all --reflog -S AuditMicroscope_Kick` matches only `7e7a4a15`, the commit that added this ledger. The `kick()` tests shipped in `contracts/test/Deep_Staking_2026_05_01.t.sol`.

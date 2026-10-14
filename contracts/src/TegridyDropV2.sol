@@ -116,6 +116,9 @@ contract TegridyDropV2 is ERC721("", ""), ERC2981, ReentrancyGuard, Pausable, In
     error DutchAuctionAlreadyEnded();
     /// @notice F1: `initialize` opened in one pricing mode with the other mode's price set.
     error PricingModeConflict();
+    /// @notice F1: an auction has opened, so a fixed-price sale needs a fresh 24h price
+    ///         proposal first (`fixedPriceNeedsProposal`).
+    error FixedPriceNeedsProposal();
 
     event InitializedV2(
         address indexed creator,
@@ -389,6 +392,11 @@ contract TegridyDropV2 is ERC721("", ""), ERC2981, ReentrancyGuard, Pausable, In
     }
     PendingDutchConfig public pendingDutchConfig;
 
+    /// @notice F1: set when an auction opens, cleared by `executeMintPrice`. While set,
+    ///         ALLOWLIST and PUBLIC cannot open: the price the auction zeroed is never
+    ///         replaced by a free sale, or any price, without a 24h proposal.
+    bool public fixedPriceNeedsProposal;
+
     function initialize(InitParams calldata p) external initializer {
         if (p.creator == address(0)) revert ZeroAddress();
         if (p.platformFeeRecipient == address(0)) revert ZeroAddress();
@@ -471,6 +479,7 @@ contract TegridyDropV2 is ERC721("", ""), ERC2981, ReentrancyGuard, Pausable, In
         }
         if (p.initialPhase != MintPhase.CLOSED) {
             mintPhase = p.initialPhase;
+            if (p.initialPhase == MintPhase.DUTCH_AUCTION) fixedPriceNeedsProposal = true;
             emit MintPhaseChanged(p.initialPhase);
         }
 
@@ -731,11 +740,20 @@ contract TegridyDropV2 is ERC721("", ""), ERC2981, ReentrancyGuard, Pausable, In
             (phase == MintPhase.PUBLIC || phase == MintPhase.ALLOWLIST)
                 && mintPrice == 0 && totalSupply > 0
         ) revert ZeroPricePostMint();
-        // F1 (2026-09-17 triage): opening one pricing mode switches the other off, so
-        // switching back needs a fresh 24h proposal (made while CLOSED) like any price
-        // change. Without this the owner could flip PUBLIC <-> DUTCH under pending buyers.
-        if (phase == MintPhase.DUTCH_AUCTION) mintPrice = 0;
-        else if (phase != MintPhase.CLOSED) dutchDuration = 0;
+        // F1 (2026-09-17 triage): opening one pricing mode switches the other off, with an
+        // event, so switching back needs a fresh 24h proposal (made while CLOSED) like any
+        // price change. Without this the owner could flip PUBLIC <-> DUTCH under pending
+        // buyers. The flag keeps a zeroed price from reopening as a free sale.
+        if (phase == MintPhase.DUTCH_AUCTION) {
+            fixedPriceNeedsProposal = true;
+            if (mintPrice != 0) { mintPrice = 0; emit MintPriceChanged(0); }
+        } else if (phase != MintPhase.CLOSED) {
+            if (fixedPriceNeedsProposal) revert FixedPriceNeedsProposal();
+            if (dutchDuration != 0) {
+                delete dutchStartPrice; delete dutchEndPrice; delete dutchStartTime; delete dutchDuration;
+                emit DutchAuctionConfigured(0, 0, 0, 0);
+            }
+        }
         mintPhase = phase;
         emit MintPhaseChanged(phase);
     }
@@ -844,6 +862,7 @@ contract TegridyDropV2 is ERC721("", ""), ERC2981, ReentrancyGuard, Pausable, In
         if (expectedPrice == 0 && totalSupply > 0) revert ZeroPricePostMint();
         _execute(MINT_PRICE_CHANGE);
         mintPrice = expectedPrice;
+        fixedPriceNeedsProposal = false;
         pendingMintPrice = 0;
         emit MintPriceChanged(expectedPrice);
     }
