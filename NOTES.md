@@ -15,6 +15,30 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-10-14: a rebuilt review compared line for line shuts on lines that move by themselves
+
+**Believed:** when a stale review is built again before signing, requiring every rendered
+line to read the same is the safe rule: nothing the reader did not see can reach the wallet.
+
+**Found** (island, answer eighteen: a holder could not get a 1 SOL add signed from a phone).
+Some lines move with nothing in the transaction changed. A price checked against an outside
+market moves every few seconds. A gap estimate printed to the lamport moves with it. A
+priority fee re-read from recent fees moves block to block, and its "share of this trade"
+text with it. In unit tests on the review, a 0.1 SOL add read 0.01% at 12,000 lamports and
+0.03% at 30,000. A review read at phone speed outlives the blockhash, so the rebuild ran on
+almost every press, one of those lines had always moved, and the wallet never opened. The
+rule that was meant to be strict kept a careful reader from ever signing.
+
+**Do instead:** sort the lines by what can move them (mark the element; treat an unknown
+mark as the transaction's own). Hold the transaction's own lines and its instruction bytes
+to equality. Let market and fee lines move, and show what moved while the wallet is open.
+Shut on what is news: a warning in words the reader has not seen, or a move past the
+page's own warning gap. When it does shut, list every line that differs, market lines
+included, so "every other line reads as it did" stays true. Measuring a fee move needs the
+lamports: the review prints SOL to 0.0001, so a few thousand lamports leave the printed
+SOL change unchanged. (`frontend/src/components/solana/curve/useTxFlow.ts` `compare`,
+`reviewLines.ts`.)
+
 ## 2026-10-10: a scroll reset in `useEffect` lands after the page is drawn, on every page change, and a test can see it without losing a race
 
 **Believed:** scrolling to the top in `useEffect` on a route change is the standard pattern
