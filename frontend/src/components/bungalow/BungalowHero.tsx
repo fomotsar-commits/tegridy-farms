@@ -4,6 +4,7 @@ import { bungalowExplorerUrl, bungalowScanRoute, bungalowTradeRoute, OPEN_BUNGAL
 import { isSolanaSwapLive } from '../../lib/solana';
 import { CopyButton } from '../ui/CopyButton';
 import { shortenAddress } from '../../lib/formatting';
+import { FinePrint } from '../ui/FinePrint';
 
 /**
  * The hero of a room that speaks for itself, rendered by HomePage in place of the TOWELI
@@ -18,6 +19,9 @@ export function BungalowHero({ bungalow }: { bungalow: Bungalow & { identity: Bu
   const trade = bungalowTradeRoute(bungalow, isSolanaSwapLive());
   const tradeClass = 'px-7 py-2.5 text-[14px] font-semibold rounded-lg transition-all inline-block text-center hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent focus-visible:ring-[#d4a843]';
   const tradeStyle = { background: 'linear-gradient(135deg, #d4a843 0%, #b8892e 100%)', color: '#0a0a0f' } as const;
+  // Scan's outline, shared by the Marketplace and NFT loans doors.
+  const doorClass = 'px-7 py-2.5 text-[14px] font-semibold rounded-lg transition-all inline-block text-center hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent focus-visible:ring-[#1E88E5]';
+  const doorStyle = { background: 'rgba(0,0,0,0.72)', border: '1px solid rgba(30,136,229,0.55)', color: 'var(--color-stan)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)' } as const;
   return (
     <>
       <h1 className="heading-luxury text-[clamp(1.25rem,7.4vw,1.875rem)] md:text-6xl text-white leading-[1.1] tracking-tight mb-4">
@@ -26,8 +30,10 @@ export function BungalowHero({ bungalow }: { bungalow: Bungalow & { identity: Bu
         {id.heroTitle}{' '}<br /><span className="text-white">{id.heroLine}</span>
       </h1>
 
+      {/* One line under the name (owner, 2026-10-14: fewer words). The room's paragraph
+          (heroCopy) is folded below the buttons, word for word, in the small print. */}
       <p className="text-white text-base md:text-lg mb-6 max-w-md leading-relaxed">
-        {id.heroCopy}
+        Trade {bungalow.symbol}. Hold it. Time held is what counts.
       </p>
 
       <div className="flex flex-wrap gap-3">
@@ -58,14 +64,18 @@ export function BungalowHero({ bungalow }: { bungalow: Bungalow & { identity: Bu
           {bungalow.stakePool ? `Stake ${bungalow.symbol}` : 'The lighthouse'}
         </Link>
         {bungalowScanRoute(bungalow) && (
-          <Link
-            to={bungalowScanRoute(bungalow)!}
-            className="px-7 py-2.5 text-[14px] font-semibold rounded-lg transition-all inline-block text-center hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent focus-visible:ring-[#1E88E5]"
-            style={{ background: 'rgba(0,0,0,0.72)', border: '1px solid rgba(30,136,229,0.55)', color: 'var(--color-stan)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)' }}
-          >
+          <Link to={bungalowScanRoute(bungalow)!} className={doorClass} style={doorStyle}>
             Scan {bungalow.symbol}
           </Link>
         )}
+        {/* The two doors this room never showed (owner, 2026-10-14): the marketplace and
+            NFT loans. Outlines in Scan's trust hue, so the row stays one filled Trade. */}
+        <Link to="/nakamigos" className={doorClass} style={doorStyle}>
+          Marketplace
+        </Link>
+        <Link to="/nft-finance" className={doorClass} style={doorStyle}>
+          NFT loans
+        </Link>
       </div>
 
       {/* The muse line — same pill geometry as the Towelie ticker it replaces,
@@ -87,10 +97,15 @@ export function BungalowHero({ bungalow }: { bungalow: Bungalow & { identity: Bu
           ITSELF over the page on a first visit. It waits here instead. The copy
           is unchanged and undeleted; it simply arrives when somebody asks, which
           is the whole rule — a modal exists only behind a tap. */}
+      {/* The hero paragraph, moved here word for word (owner, 2026-10-14: one line on
+          the page, the rest one press away). */}
+      <FinePrint summary={`About ${bungalow.symbol}`} className="mt-2 max-w-md">
+        <p>{id.heroCopy}</p>
+      </FinePrint>
       <button
         type="button"
         onClick={() => window.dispatchEvent(new Event(OPEN_BUNGALOW_ABOUT_EVENT))}
-        className="mt-3 text-[12px] underline underline-offset-4 decoration-white/30 hover:decoration-white transition-colors"
+        className="mt-1 text-[12px] underline underline-offset-4 decoration-white/30 hover:decoration-white transition-colors"
         style={{ color: 'rgba(255,255,255,0.75)' }}
       >
         About this bungalow
