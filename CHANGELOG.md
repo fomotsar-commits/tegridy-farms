@@ -48,6 +48,7 @@ page keeps the newest thirty days.
 - Pages with a row of section tabs (Pools, Earn, Launch, Check, the island's pages, Learn and the rest): the row now scrolls away with the page instead of staying pinned under the top bar, where it covered fields, buttons and links on 19 of the 21 pages measured once you scrolled.
 - NFT Finance: the row of section tabs now sits above the overview cards, so on a 390x844 phone it is whole on screen and no longer half under the bottom bar.
 - Home on a phone: the address field and the "Read Heat" button no longer grow from 37.5px to 44px tall, or the button's words from 13px to 14px, when the page finishes loading.
+- TOWELI room, footer, welcome screen, Lore and Security pages: the sentences about where Ethereum swap fees go now say a referral share comes off first and the rest goes toward stakers. The TOWELI room no longer says fees go to "the liquidity engine and operations", a share that is 0 on chain.
 
 ### 2026-10-10
 
