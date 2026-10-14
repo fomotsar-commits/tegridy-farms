@@ -83,7 +83,8 @@ export default function LiquidityPage() {
             one-sixth cut is a switch, so its state carries the date it was read
             (the primer below says who holds it and how to check it). */}
         <p className="text-white/75 text-[14px] md:text-[15px] leading-relaxed max-w-[62ch]">
-          Earn your share of each swap&apos;s 0.3% fee. Venue cut: off on 10 October 2026.
+          Providers split the whole 0.3% swap fee by pool share (the venue&apos;s optional cut was
+          off when read on 10 October 2026). The venue earns its own fee on swaps routed here.
         </p>
         <FinePrint summary="How it works">
           <p>
