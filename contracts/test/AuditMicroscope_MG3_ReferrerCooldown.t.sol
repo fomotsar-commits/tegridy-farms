@@ -45,16 +45,15 @@ contract AuditMicroscope_MG3_ReferrerCooldownTest is Test {
     /// Bob brought the user in; the user swaps 1 ETH of fees a day later. With the
     /// first change free, the user hops to carol first and bob's 0.1 ETH goes to carol.
     function test_MG3_firstChangeWaitsThirtyDays() public {
-        assertEq(ref.lastReferrerChange(user), T0, "M-G3: setReferrer must start the clock");
-
         vm.warp(T0 + 1 days);
         vm.prank(user);
         try ref.updateReferrer(carol) {} catch {}
         ref.recordFee{value: 1 ether}(user);
 
-        assertEq(ref.referrerOf(user), bob, "M-G3: first referrer change skipped the 30-day wait");
-        assertEq(ref.pendingETH(bob), 0.1 ether);
-        assertEq(ref.pendingETH(carol), 0);
+        assertEq(ref.pendingETH(bob), 0.1 ether, "M-G3: bob's referral fee went elsewhere");
+        assertEq(ref.pendingETH(carol), 0, "M-G3: first referrer change skipped the 30-day wait");
+        assertEq(ref.referrerOf(user), bob);
+        assertEq(ref.lastReferrerChange(user), T0, "setReferrer must start the clock");
     }
 
     function test_MG3_firstChangeRevertsUntilDayThirty() public {
