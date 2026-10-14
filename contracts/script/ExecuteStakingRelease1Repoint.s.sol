@@ -65,7 +65,7 @@ contract ExecuteStakingRelease1RepointScript is Script {
         uint256 routerCredit = oldSplitter.callerCredit(SWAP_FEE_ROUTER);
 
         vm.startBroadcast();
-        require(msg.sender == OWNER, "broadcast from the current owner 0x1489...456E, nobody else");
+        require(msg.sender == OWNER, "sender must be the owner 0x14898258122C0740106391E6e8E4F17F3b6d456E");
         if (treasuryShare > 0) oldSplitter.withdrawTreasuryFees();
         if (routerCredit > 0 && !router.paused()) router.recoverCallerCredit();
         sfra.executeRevenueDistributor();

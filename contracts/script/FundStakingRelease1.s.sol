@@ -32,7 +32,7 @@ contract FundStakingRelease1Script is Script {
         require(IERC20(TOWELI).balanceOf(OWNER) >= amount, "owner wallet holds less TOWELI than that");
 
         vm.startBroadcast();
-        require(msg.sender == OWNER, "broadcast from the current owner 0x1489...456E, nobody else");
+        require(msg.sender == OWNER, "sender must be the owner 0x14898258122C0740106391E6e8E4F17F3b6d456E");
         IERC20(TOWELI).approve(address(staking), amount);
         staking.notifyRewardAmount(amount);
         vm.stopBroadcast();

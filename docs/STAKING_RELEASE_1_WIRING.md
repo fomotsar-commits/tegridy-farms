@@ -47,7 +47,7 @@ the live contracts and aborts if any moved since 2026-10-14. After sending, it c
 | 4 | `staking.setPauseGuardian(0xCDCA0F0621ce34012AD61bBD140f327EB778F354)` (the live guardian Safe) | instant |
 | 5 | `staking.setMaxStakePerUser(50,000 TOWELI)`, `staking.setMaxTotalStaked(5,000,000 TOWELI)` (live caps) | instant |
 | 6 | deploy `StakingMonitorView`, `TegridyTokenURIReader`, `TegridyLPFarming` | deploy |
-| 7 | deploy `RevenueDistributor`; `revDist.setPauseGuardian(0xCDCA…F354)` | instant |
+| 7 | deploy `RevenueDistributor`; `revDist.setPauseGuardian(0xCDCA0F0621ce34012AD61bBD140f327EB778F354)` | instant |
 | 8 | deploy `ReferralSplitter`; `setApprovedCaller(SwapFeeRouter 0x6d5791A660e79175F74C6D639584C98422d5956E, true)`; `completeSetup()` | one-shot, instant |
 | 9 | `SwapFeeRouterAdmin(0xa517A1cEfd961c0DDE8155a0Fa870aEE5bb0D060).proposeRevenueDistributor(newRevDist)` | **starts a 48h timelock** |
 | 10 | `SwapFeeRouterAdmin.proposeReferralSplitterChange(newSplitter)` | **starts a 48h timelock** |
