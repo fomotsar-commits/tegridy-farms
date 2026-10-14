@@ -26,6 +26,7 @@ import { readFileSync, writeFileSync, readdirSync, existsSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createPublicClient, http, getAddress, isAddress, getContractAddress, keccak256, toFunctionSelector } from 'viem';
+import { redactRpcUrl } from '../../scripts/lib/redact-url.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 export const REPO = resolve(HERE, '..', '..');
@@ -162,7 +163,7 @@ async function main() {
     }
   };
   const code = await client.getCode({ address: launchpad }).catch((e) => stop(`getCode: ${e.message}`));
-  if (!code || code === '0x') stop(`no code at ${launchpad} on ${rpc}`);
+  if (!code || code === '0x') stop(`no code at ${launchpad} on ${redactRpcUrl(rpc)}`);
   const got = {
     owner: await read(launchpad, 'owner'),
     pendingOwner: await read(launchpad, 'pendingOwner'),
