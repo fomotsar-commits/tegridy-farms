@@ -49,6 +49,12 @@ contract LaunchpadF1ForkRehearsal is Test {
         forked = true;
 
         oldLp = TegridyLaunchpadV2(OLD_LAUNCHPAD);
+        // Once retired, the old launchpad is paused on chain. Unpause it on this local
+        // fork only, so its F1 behaviour can still be shown next to the new one.
+        if (oldLp.paused()) {
+            vm.prank(OWNER);
+            oldLp.unpause();
+        }
         address given = vm.envOr("NEW_LAUNCHPAD", address(0));
         if (given == address(0)) {
             // The deploy script's constructor arguments, verbatim.
