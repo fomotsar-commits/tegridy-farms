@@ -4,33 +4,11 @@ import { TEGRIDY_STAKING_ADDRESS, isDeployed } from '../../lib/constants';
 import { poolShape } from '../../lib/poolShape';
 
 /**
- * Every pool on the island: /earn, whatever room the visitor is in. Each row
- * opens that pool at /earn/<id>, and each pool links back here.
- *
- * ⚠️ WHY THIS EXISTS AT ALL. /farm gated on
- * `bungalow && bungalow.id !== DEFAULT_BUNGALOW_ID`, and `getActiveBungalow()`
- * returns null when NOTHING is chosen — so the venue's own default arrival, the
- * first impression a stranger gets, fell through to the classic TOWELI farm:
- * "Stake TOWELI and earn rewards · FAFO", TOWELI price, TOWELI balance, the
- * whole stack. TOWELI is the token of ONE bungalow. The venue does not have a
- * token, and it should not speak as though a resident's is its own.
- *
- * The classic farm did not move and was not edited — it is exactly where it was,
- * inside its own room (isToweliVoice()). This is what the venue says instead.
- *
- * ⚠️ IT READS NO CHAIN, ON PURPOSE, AND THAT IS THE DESIGN — not a shortcut.
- * Twelve pools across three chains would be twelve multicalls before this page
- * could render a single row, and the failure mode is the one this repo keeps
- * relearning: a read that does not land renders as `$0` / `0% APR`, which tells
- * a visitor a funded pool is empty and pays nothing. That is a money-harmful lie
- * about a pool that is neither.
- *
- * So the index is REGISTRY-DERIVED — chain, program shape and lock ladder are
- * facts of `BUNGALOWS`, true whether or not an RPC answers — and every rate,
- * balance and TVL stays where it is actually read: inside each room, on its own
- * self-gating panel, which can name the pool that failed and the reason it gave.
- * The rule this follows is the repo's: a number is publishable only when a read
- * returned it.
+ * Every live pool on the island, at /earn; each row opens /earn/<id>. It reads
+ * no chain: rows come from the registry, so no failed read can draw a funded
+ * pool as $0. Each pool's rate is read inside its own room, which can say when
+ * a read failed. Below 640px the chain and terms fold under the pool's name, so
+ * each row's Open button stays on the screen beside it.
  */
 
 const CHAIN_LABEL: Record<string, string> = {
@@ -63,16 +41,9 @@ export function VenuePoolIndex() {
     terms: poolShape(b),
   }));
 
-  // ⚠️ TOWELI IS A ROW, NOT A FOOTNOTE, AND THAT IS THE WHOLE POINT OF THE PAGE.
-  // The first cut of this component listed the eleven registry pools and then
-  // gave Towelie its own "Open the Towelie bungalow →" link underneath — which
-  // is the exact favouritism this page exists to end, just wearing a smaller
-  // font. Towelie is one resident of thirteen. Its pool is a peer.
-  //
-  // It needs a hand-written entry only because its staking program predates the
-  // registry: every other resident carries a `stakePool`, while TOWELI's is
-  // TEGRIDY_STAKING_ADDRESS in constants.ts (the ladder the classic farm reads).
-  // Same shape, same lock terms, different place of declaration.
+  // TOWELI is a row like every other resident's, never a footnote. Its staking
+  // program predates the registry, so its row is built here from
+  // TEGRIDY_STAKING_ADDRESS (constants.ts) instead of a registry `stakePool`.
   const toweli = BUNGALOWS.find((b) => b.id === DEFAULT_BUNGALOW_ID);
   if (toweli && isDeployed(TEGRIDY_STAKING_ADDRESS)) {
     rows.push({
@@ -103,25 +74,16 @@ export function VenuePoolIndex() {
         style={{ background: 'rgba(4,9,18,0.72)', border: '1px solid var(--color-purple-25)' }}
       >
         {/* `relative` IS LOAD-BEARING — it is what CONTAINS the sr-only span in the
-            last <th>. Tailwind's `sr-only` is `position:absolute`, and an
-            absolutely-positioned element is clipped by an ancestor's overflow
-            ONLY if that ancestor is its containing block, i.e. positioned. With
-            a STATIC scroll wrapper the span escaped the clip, painted at the
-            520px table's right edge, and dragged `documentElement.scrollWidth`
-            to 521 on a 390px phone — so the whole PAGE scrolled sideways while
-            the table itself sat there looking perfectly contained.
-
-            Measured live before the fix: /liquidity and /farm both scrolled
-            horizontally at 390px; /trust (same RouteTabs, no wide table) did
-            not. Proven by A/B/A in the page: remove the span -> 390, restore it
-            -> 521, add `relative` here -> 390. */}
+            last <th>. `sr-only` is position:absolute, clipped by this overflow only
+            when this box is positioned; static, the span painted at the table's
+            right edge and the whole page scrolled sideways on a phone. */}
         <div className="relative overflow-x-auto">
-          <table className="w-full text-left border-collapse min-w-[520px]">
+          <table className="w-full text-left border-collapse sm:min-w-[520px]">
             <thead>
               <tr className="text-[10px] uppercase tracking-wider text-white/50">
                 <th scope="col" className="font-semibold px-4 py-3">Pool</th>
-                <th scope="col" className="font-semibold px-4 py-3">Chain</th>
-                <th scope="col" className="font-semibold px-4 py-3">Terms</th>
+                <th scope="col" className="hidden sm:table-cell font-semibold px-4 py-3">Chain</th>
+                <th scope="col" className="hidden sm:table-cell font-semibold px-4 py-3">Terms</th>
                 <th scope="col" className="font-semibold px-4 py-3 text-right">
                   <span className="sr-only">Open</span>
                 </th>
@@ -130,7 +92,7 @@ export function VenuePoolIndex() {
             <tbody>
               {rows.map((b) => (
                 <tr key={b.id} style={{ borderTop: '1px solid rgba(255,255,255,0.08)' }}>
-                  <th scope="row" className="px-4 py-3.5 font-normal">
+                  <th scope="row" className="pl-4 pr-2 sm:pr-4 py-3.5 font-normal">
                     <span className="flex items-center gap-2.5">
                       <span
                         className="w-2 h-2 rounded-full flex-shrink-0"
@@ -140,10 +102,14 @@ export function VenuePoolIndex() {
                       <span className="text-white text-[14px] font-semibold">{b.symbol}</span>
                       <span className="text-white/45 text-[12px]">{b.name}</span>
                     </span>
+                    {/* Below 640px the Chain and Terms cells are hidden; their words ride here. */}
+                    <span className="sm:hidden block mt-1 pl-[18px] text-white/60 text-[12px] leading-snug">
+                      {CHAIN_LABEL[b.chain] ?? b.chain} · {b.terms}
+                    </span>
                   </th>
-                  <td className="px-4 py-3.5 text-white/75 text-[13px]">{CHAIN_LABEL[b.chain] ?? b.chain}</td>
-                  <td className="px-4 py-3.5 text-white/60 text-[12.5px]">{b.terms}</td>
-                  <td className="px-4 py-3.5 text-right">
+                  <td className="hidden sm:table-cell px-4 py-3.5 text-white/75 text-[13px]">{CHAIN_LABEL[b.chain] ?? b.chain}</td>
+                  <td className="hidden sm:table-cell px-4 py-3.5 text-white/60 text-[12.5px]">{b.terms}</td>
+                  <td className="pl-2 pr-4 sm:pl-4 py-3.5 text-right">
                     {/* A real link: each pool has its own address, /earn/<id>, which
                         enters that pool's room on arrival (App.tsx EarnPoolRoute). */}
                     <Link

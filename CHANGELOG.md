@@ -6,6 +6,10 @@ page keeps the newest thirty days.
 
 ## [Unreleased]
 
+### 2026-10-14
+
+- Earn and Liquidity on a phone: each pool's Open or Provide button now sits on the screen beside the pool's name. It used to sit past the right edge of the list, reachable only by swiping the list sideways, with nothing to say so. The pool's chain and terms (on Liquidity, its TVL and routed volume) now show under its name.
+
 ### 2026-10-10
 
 - Shared heat links: a memetics.finance/read link for a wallet the island reads now shows the island's painted card of that wallet when it is posted. A cold wallet, or one the island could not be asked about, keeps the venue's card.
