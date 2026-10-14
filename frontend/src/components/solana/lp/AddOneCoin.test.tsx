@@ -8,6 +8,7 @@
 //      wallet answer says its own limit: 2 minutes at most (D1).
 //   5. What step 1 paid is held to the floor of the transaction sent, not the review's (m-1).
 //   6. Step 1 landed in another tab: this tab offers step 2, never step 1 again (m-2).
+//   7. A new deploy never reloads the page while step 1 is with the wallet (#793's hold).
 //
 // Our own pool's swap code is a stub here that is not ready, so the route is Jupiter's,
 // whose quotes are a fake. Nothing here touches a chain.
@@ -29,6 +30,7 @@ import type { PendingTrade } from '../curve/pendingTrade';
 import { fakeLpApi, LP_PROGRAM, unusedGateRpc } from './fakeLpWriteApi.fixture';
 import { readStepTwo, saveStepTwo, type StepTwoNote } from './oneCoinSwap';
 import { HELD_NOT_SENT } from '../../../lib/solana/swap/walletCopy';
+import { reloadHeld } from '../../../lib/reloadHold';
 import { ONE_COIN_LINE } from './AddOneCoinPanel';
 
 const OWNER = key();
@@ -367,5 +369,23 @@ describe('Add with one coin: step 1 landed in another tab', () => {
     saveStepTwo(OWNER.toBase58(), otherTab(v, { got: 48_700_000n, gotExact: true }));
     tabWrote();
     await waitFor(() => expect(screen.getByTestId('lp-one-step2')).not.toHaveTextContent('could not be read'));
+  });
+});
+
+describe('Add with one coin: a new deploy never reloads the page under step 1', () => {
+  it('holds the reload from Sign until step 1 is answered, as the swap page does', async () => {
+    const { sign } = await toReview();
+    let answer: () => void = () => {};
+    leg.received = vi.fn(async () => 49_000_000n);
+    leg.send = vi.fn<Leg['sendJupiterLeg']>(
+      (_d, a) => new Promise((r) => (answer = () => r({ kind: 'sent', signature: SENT_SIG, outcome: 'confirmed', quote: a.shown, feeWaived: false }))),
+    );
+    expect(reloadHeld()).toBe(false);
+    sign();
+    await waitFor(() => expect(leg.send).toHaveBeenCalled());
+    expect(reloadHeld()).toBe(true);
+    await act(async () => answer());
+    await screen.findByTestId('lp-one-step2');
+    expect(reloadHeld()).toBe(false);
   });
 });

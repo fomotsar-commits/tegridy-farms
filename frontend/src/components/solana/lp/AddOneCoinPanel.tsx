@@ -13,6 +13,7 @@ import {
 } from '../../../lib/jupiter';
 import { decimalCommaToPoint, formatTokenAmount, parseDecimalToBaseUnits } from '../../../lib/launcher/solana/curve/format';
 import { displaySafe } from '../../../lib/launchMetadata/validate';
+import { holdReload } from '../../../lib/reloadHold';
 import { quoteOwnPool } from '../../../lib/solana/cpswap/read';
 import { feeReserveFor, isPlanProblem, solSetAside } from '../../../lib/solana/lp/liquidityMath';
 import { outsideShare, ownPoolShare, stepTwo, type Side, type StepTwo } from '../../../lib/solana/lp/oneCoin';
@@ -509,36 +510,43 @@ function OneCoinInner({
     setSaid(null);
     if (stepTwoOwed()) return;
     setPhase({ kind: 'sending', plan: p });
-    const end = await sendJupiterLeg(
-      {
-        ...JUPITER,
-        ownPoolWins: async (out) => {
-          if (!venueSwap.ready) return false;
-          const r = await within(readPool(), OWN_CHECK_MS, null);
-          const c = r ? candidate(r.view, r.now, p.inputMint, p.swapIn) : null;
-          return ownPoolNowWins(async () => (c ? [c] : []), out);
+    // Until step 1 is answered the page does not reload itself (lib/staleBuild.ts), as on the swap page.
+    const release = holdReload();
+    let end: Awaited<ReturnType<typeof sendJupiterLeg>>;
+    try {
+      end = await sendJupiterLeg(
+        {
+          ...JUPITER,
+          ownPoolWins: async (out) => {
+            if (!venueSwap.ready) return false;
+            const r = await within(readPool(), OWN_CHECK_MS, null);
+            const c = r ? candidate(r.view, r.now, p.inputMint, p.swapIn) : null;
+            return ownPoolNowWins(async () => (c ? [c] : []), out);
+          },
+          // Read again right before the wallet: a swap still held, or a step 1 that landed in another tab.
+          holdsNow: () => venueSwap.pending.holdsNow(scope) || owed() !== null,
+          hold: (n) => venueSwap.pending.hold({ kind: 'jupiter-swap', ...n }, scope),
+          stillHeld: (n) => readPendingTrades(scope).some((x) => noteKey(x) === noteKey(n)),
+          release: (sig) => venueSwap.pending.release(sig, scope),
+          send: (tx) => sendTransaction(tx, connection),
+          rpc: connection,
         },
-        // Read again right before the wallet: a swap still held, or a step 1 that landed in another tab.
-        holdsNow: () => venueSwap.pending.holdsNow(scope) || owed() !== null,
-        hold: (n) => venueSwap.pending.hold({ kind: 'jupiter-swap', ...n }, scope),
-        stillHeld: (n) => readPendingTrades(scope).some((x) => noteKey(x) === noteKey(n)),
-        release: (sig) => venueSwap.pending.release(sig, scope),
-        send: (tx) => sendTransaction(tx, connection),
-        rpc: connection,
-      },
-      {
-        shown: p.quote,
-        inputMint: p.inputMint,
-        outputMint: p.outputMint,
-        amount: p.swapIn.toString(),
-        slippageBps: Number(slippageBps),
-        user: owner.toBase58(),
-        priority: speed(),
-        uncheckedBefore: uncheckedRun.current,
-        words: `≈${about(other(p.paid), p.out)} with ${exact(p.paid, p.swapIn)}`,
-        onNoFee: (nf) => learnNoFee(pair(p), nf),
-      },
-    );
+        {
+          shown: p.quote,
+          inputMint: p.inputMint,
+          outputMint: p.outputMint,
+          amount: p.swapIn.toString(),
+          slippageBps: Number(slippageBps),
+          user: owner.toBase58(),
+          priority: speed(),
+          uncheckedBefore: uncheckedRun.current,
+          words: `≈${about(other(p.paid), p.out)} with ${exact(p.paid, p.swapIn)}`,
+          onNoFee: (nf) => learnNoFee(pair(p), nf),
+        },
+      );
+    } finally {
+      release();
+    }
     if (end.kind === 'not-sent') {
       if (stepTwoOwed()) return;
       uncheckedRun.current = end.unchecked ? uncheckedRun.current + 1 : 0;
