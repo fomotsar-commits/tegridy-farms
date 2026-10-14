@@ -1,5 +1,5 @@
 import { PUBLIC_TIER_INDEX, type AmmConfigView } from '../../../lib/solana/cpswap/program';
-import { feeSplit } from '../../../lib/solana/cpswap/venue';
+import { feeSplit, solOf } from '../../../lib/solana/cpswap/venue';
 import { feeRateText, pctText } from '../../../lib/solana/lp/format';
 import { SOLANA_FEE_ACCOUNT, SOLANA_PLATFORM_FEE_BPS, isSolanaFeeConfigured } from '../../../lib/solana';
 import { EARN_TITLES, howVenueEarns, howYouEarn, type JupiterFee } from '../../../lib/solana/lp/earnCopy';
@@ -18,14 +18,31 @@ const BUILD_JUPITER_FEE: JupiterFee | null =
 const LINE = 'text-white/80 text-[12px]';
 
 /**
- * The one line on earning, in plain sight (owner, 2026-10-09 and 2026-10-13): what a trade
- * pays and who keeps which part, with the numbers earnCopy.ts prints from the same tier.
- * No tier read, no number.
+ * The one line on earning, in plain sight (owner, 2026-10-09, 2026-10-13 and 2026-10-14:
+ * the numbers in a row, the sentence one press away): what a trade pays and who keeps which
+ * part, with the numbers earnCopy.ts prints from the same tier. No tier read, no number.
  */
-function earnLine(tier: AmmConfigView | null): string {
+function earnRow(tier: AmmConfigView | null): string {
   if (!tier) return 'Each trade pays a fee, split between LPs and the venue.';
   const split = feeSplit(tier);
+  return `Trade fee ${feeRateText(tier.tradeFeeRate)} · LPs ${pctText(split.lpKeepsPct)} · venue ${pctText(split.venueTakesPct)}`;
+}
+
+/** The same split as a sentence, in the small print under the row. */
+function earnSentence(tier: AmmConfigView): string {
+  const split = feeSplit(tier);
   return `In a public pool, each trade pays ${feeRateText(tier.tradeFeeRate)}: ${pctText(split.lpKeepsPct)} stays with LPs, ${pctText(split.venueTakesPct)} goes to the venue.`;
+}
+
+/**
+ * What the venue takes, as one row of numbers: its cut of a trade, its fee to open a pool,
+ * its fee on a swap sent through Jupiter. The sentences (earnCopy.ts) sit under it.
+ */
+function venueRow(tier: AmmConfigView | null, jupiter: JupiterFee | null): string {
+  const swap = jupiter ? `${pctText(jupiter.bps / 100)} on a Jupiter swap` : 'no swap fee';
+  if (!tier) return `A cut of each trade · a fee to open a pool · ${swap}`;
+  const opening = tier.createPoolFee > 0n ? `${solOf(tier.createPoolFee)} SOL to open a pool` : 'no fee to open a pool';
+  return `${pctText(feeSplit(tier).venueTakesPct)} of each trade · ${opening} · ${swap}`;
 }
 
 /**
@@ -50,28 +67,30 @@ export function HowItPays({ read, jupiterFee = BUILD_JUPITER_FEE }: { read: FeeT
     <section data-testid="lp-how-it-pays" aria-label="How you earn, and how the venue earns" className="grid grid-cols-1 md:grid-cols-2 gap-4">
       <Card title={EARN_TITLES.you} testId="lp-how-you-earn" art={<CardArt pageId="solana-lp" idx={11} />}>
         <p className={LINE} data-testid="lp-earn-split">
-          {earnLine(tier)}
+          {earnRow(tier)}
         </p>
         <FinePrint summary="Details">
+          {tier && <p>{earnSentence(tier)}</p>}
           {howYouEarn(tier).map((line) => (
             <p key={line}>{line}</p>
           ))}
         </FinePrint>
       </Card>
       <Card title={EARN_TITLES.venue} testId="lp-how-venue-earns" art={<CardArt pageId="solana-lp" idx={12} />}>
-        <ul className={`list-disc pl-4 space-y-1 ${LINE}`}>
-          {venue.sources.map((line) => (
-            <li key={line}>{line}</li>
-          ))}
-        </ul>
+        <p className={LINE} data-testid="lp-venue-row">
+          {venueRow(tier, jupiterFee)}
+        </p>
         {venue.wallets.map((w) => (
           <AddressRow key={w.address} label={w.label} value={w.address} explorerUrl={explorer(w.address)} />
         ))}
-        {venue.where && (
-          <FinePrint summary="Where it goes">
-            <p>{venue.where}</p>
-          </FinePrint>
-        )}
+        <FinePrint summary="Details">
+          <ul className="list-disc pl-4 space-y-1">
+            {venue.sources.map((line) => (
+              <li key={line}>{line}</li>
+            ))}
+          </ul>
+          {venue.where && <p>{venue.where}</p>}
+        </FinePrint>
       </Card>
       {/* Said once, for both cards. */}
       {noRate && (

@@ -226,10 +226,13 @@ describe('on tier 0 as mainnet holds it (recorded)', () => {
     // from the site is on the public tier, at another rate) and says the providers' part as a
     // part of the TRADE: "0.20% of it" read as a fifth of a percent of the fee, and "to you"
     // as the reader's own pool.
-    // Under the public tier's heading, the launch tier's is a level down.
+    // Under the public tier's heading, the launch tier's is a level down. Fewer words (owner,
+    // 2026-10-14): the heading names the pools, the sentence sits in the closed small print.
     const heading = within(sheet).getByRole('heading', { level: 3 });
-    expect(heading).toHaveTextContent('A launch pool charges 0.3% a trade; its liquidity providers keep 0.20% of each trade');
-    expect(heading).not.toHaveTextContent(/of it\b|to you\b/);
+    expect(heading).toHaveTextContent('Launch pools (tier 0)');
+    const sentence = within(sheet).getByText(/A launch pool charges 0.3% a trade; its liquidity providers keep 0.20% of each trade\./);
+    expect(sentence.closest('details')).not.toBeNull();
+    expect(sentence).not.toHaveTextContent(/of it\b|to you\b/);
     expect(sheet).toHaveTextContent('0.25% trade fee + 0.05% creator fee');
     expect(sheet).not.toHaveTextContent(/0\.25% a trade/);
   });
@@ -276,10 +279,13 @@ describe('the public tier comes first on the fee sheet, from the same read', () 
     await waitFor(() => expect(screen.getByText(/Pools are open/i)).toBeInTheDocument());
     const sheet = screen.getByRole('region', { name: 'Fee sheet' });
     const headings = within(sheet).getAllByRole('heading');
-    expect(headings[0]).toHaveTextContent('A pool on the public tier charges 1% a trade; its liquidity providers keep 0.84% of each trade');
+    expect(headings[0]).toHaveTextContent('Public pools (tier 1)');
     expect(headings[0]!.tagName).toBe('H2');
-    expect(headings[1]).toHaveTextContent('A launch pool charges 0.3% a trade');
+    expect(headings[1]).toHaveTextContent('Launch pools (tier 0)');
     const pub = within(sheet).getByTestId('fee-sheet-public');
+    // The sentence each heading used to be is still said, in the closed small print under the numbers.
+    expect(within(pub).getByText(/A pool on the public tier charges 1% a trade; its liquidity providers keep 0.84% of each trade\./).closest('details')).not.toBeNull();
+    expect(within(sheet).getByText(/A launch pool charges 0.3% a trade/).closest('details')).not.toBeNull();
     const stat = (label: string) => within(pub).getByText(label).nextElementSibling?.textContent;
     expect(stat('Trader pays')).toBe('1%');
     expect(stat('LPs keep')).toBe('0.84%');
@@ -341,7 +347,7 @@ describe('when the tier it reads is closed to new pools', () => {
     await mount();
     await waitFor(() => expect(screen.getByText(/Pools are open/i)).toBeInTheDocument());
     const sheet = screen.getByRole('region', { name: 'Fee sheet' });
-    expect(sheet).toHaveTextContent(/tier 0, graduated launch pools/);
+    expect(sheet).toHaveTextContent(/Launch pools \(tier 0\)/);
     expect(sheet).toHaveTextContent(/fee on tier 0/);
     expect(sheet).toHaveTextContent(/Pools opened from this site use the public fee tier/);
   });

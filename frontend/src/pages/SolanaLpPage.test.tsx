@@ -58,7 +58,7 @@ function expectNoLpSection() {
   expect(screen.queryByText(/Loading the pool finder/)).toBeNull();
 }
 
-const venueAmmLink = () => screen.getByRole('link', { name: /fees, status and how the pools work/i });
+const venueAmmLink = () => screen.getByRole('link', { name: /fees and status, on the Venue AMM tab/i });
 
 /** The hero block, and each thing after it in the page's column, top to bottom. */
 function column() {

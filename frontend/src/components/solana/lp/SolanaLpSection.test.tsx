@@ -476,7 +476,7 @@ describe('the order of the section', () => {
     expect(screen.getByTestId('lp-positions').nextElementSibling).toBe(screen.getByTestId('lp-how-it-pays'));
     expect(order.indexOf('lp-how-it-pays')).toBeLessThan(order.indexOf('lp-disclosure'));
     const line = screen.getByTestId('lp-earn-line');
-    expect(line.textContent).toBe('Fees are added to your pool shares as trades happen. Nothing to claim.');
+    expect(line.textContent).toBe('Fees grow your pool shares. Nothing to claim.');
     // Where it points is true: it stands before the positions, and the cards are under them.
     expect(order.indexOf('lp-earn-line')).toBeLessThan(order.indexOf('lp-positions'));
     // It stands above the finder in the page itself, at every size: what is drawn first is what a screen reader
@@ -536,14 +536,19 @@ describe('how you earn, and how the venue earns', () => {
     mount(r, '/pools');
     const { you, venue } = await cards();
     expect(within(you).getByRole('heading', { level: 2 })).toHaveTextContent('How you earn');
-    // The one line in plain sight (owner, 2026-10-13: fewer words); the rest is one press away.
+    // The one line in plain sight (owner, 2026-10-13: fewer words; 2026-10-14: the numbers in a row); the sentence is one press away.
     const split = within(you).getByTestId('lp-earn-split');
-    expect(split.textContent).toBe('In a public pool, each trade pays 1%: 0.84% stays with LPs, 0.16% goes to the venue.');
+    expect(split.textContent).toBe('Trade fee 1% · LPs 0.84% · venue 0.16%');
     expect(split.closest('details')).toBeNull();
+    expect(within(you).getByText('In a public pool, each trade pays 1%: 0.84% stays with LPs, 0.16% goes to the venue.').closest('details')).not.toBeNull();
     expect(you).toHaveTextContent('Each trade in a public pool pays a 1% fee. 0.84% of the trade stays in the pool, and your part is added to your position automatically.');
     expect(you).toHaveTextContent('Nothing to claim: you receive it when you remove liquidity.');
     expect(you).toHaveTextContent('Few trades means small fees.');
     expect(within(venue).getByRole('heading', { level: 2 })).toHaveTextContent('How the venue earns');
+    // The venue's take as one row of numbers in plain sight; the three sentences under it, one press away.
+    const row = within(venue).getByTestId('lp-venue-row');
+    expect(row.textContent).toBe('0.16% of each trade · 0.15 SOL to open a pool · no swap fee');
+    expect(row.closest('details')).toBeNull();
     expect(within(venue).getAllByRole('listitem').slice(0, 2).map((li) => li.textContent)).toEqual(['0.16% of each trade in a public pool.', '0.15 SOL when a public pool is opened.']);
     expect(within(venue).getAllByRole('listitem')[2]).toHaveTextContent(/a swap sent through Jupiter/);
     expect(venue).toHaveTextContent(/the team’s shared wallet, which needs two signatures and can change the pool rates\./);
@@ -587,7 +592,8 @@ describe('how you earn, and how the venue earns', () => {
       expect(you).toHaveTextContent('Each trade in a pool pays a fee. Part of it stays in the pool, and your part is added to your position automatically.');
       expect(you.textContent).not.toMatch(/\d/);
       expect(within(venue).getAllByRole('listitem').slice(0, 2).map((li) => li.textContent)).toEqual(['A cut of each trade in its pools.', 'A fee when a public pool is opened.']);
-      expect(within(venue).queryByRole('group')).toBeNull();
+      // No wallet row (its address group); the card's small print, itself a group, is still there.
+      expect(within(venue).queryByRole('group', { name: /wallet/i })).toBeNull();
       expect(venue).not.toHaveTextContent(/shared wallet/);
       view.unmount();
     }

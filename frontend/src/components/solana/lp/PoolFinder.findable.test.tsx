@@ -155,10 +155,10 @@ describe('what a visitor can do is on the first card, as buttons', () => {
     expect(within(tasks).getAllByRole('button').map((b) => b.textContent)).toEqual(['Create a pool', 'Add liquidity', 'Remove liquidity']);
     // Nothing is chosen for them, and the card is named for what it does.
     for (const b of within(tasks).getAllByRole('button')) expect(b).toHaveAttribute('aria-pressed', 'false');
-    expect(await finder()).toHaveTextContent('Create a pool, add or remove liquidity');
+    expect(await finder()).toHaveTextContent('Start here');
     // No helper line until one is pressed: on a phone it would push the tokens off the first screen.
     expect(within(tasks).getByTestId('lp-task-line')).toBeEmptyDOMElement();
-    expect(within(await finder()).getByTestId('lp-site-tokens')).toHaveTextContent('Then pick a token with a room on this site');
+    expect(within(await finder()).getByTestId('lp-site-tokens')).toHaveTextContent('Then pick a token');
   });
 
   it('a pressed one says what happens next', async () => {
@@ -182,7 +182,7 @@ describe('what a visitor can do is on the first card, as buttons', () => {
     mount('/solana-lp', 'off');
     const f = await finder();
     expect(within(f).queryByTestId('lp-tasks')).toBeNull();
-    expect(f).toHaveTextContent('Find pools for a token');
+    expect(f).toHaveTextContent('Find a pool');
     // The site's tokens are still a press away: looking a token up signs nothing.
     expect(within(f).getByTestId('lp-site-tokens')).toBeTruthy();
   });
