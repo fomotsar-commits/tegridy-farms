@@ -35,7 +35,8 @@ drop-down under it. It never stops or changes a trade.
   tenth of the day and would set the number on its own, and 8 quarter-hours means trading
   spread over at least two hours, not one burst. BAYLA/USDC's own pools are below this floor
   today, so for that pair the line says so.
-- **Not read is not a number.** A read that failed says "could not be read".
+- **Not read is not a number.** A read that failed says "could not be read" and is tried again
+  after 30 seconds (the free feed rate-limits); a number is read again every 2 minutes.
 
 ### Our own pools are not in it (measured, below the 5% bar)
 
