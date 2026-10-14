@@ -3,6 +3,7 @@ import { SOLANA_FEE_ACCOUNT, SOLANA_PLATFORM_FEE_BPS, isSolanaFeeConfigured } fr
 import { EARN_TITLES, howVenueEarns, howYouEarn, type JupiterFee } from '../../../lib/solana/lp/earnCopy';
 import type { FeeTierRead } from '../../../lib/solana/lp/poolFinder';
 import { Card, Notice } from '../curve/ui';
+import { CardArt } from '../../ui/CardArt';
 import { AddressRow } from './AddressRow';
 import { explorerOf } from './panelKit';
 import { useLpWrites } from './useLpWrites';
@@ -33,14 +34,14 @@ export function HowItPays({ read, jupiterFee = BUILD_JUPITER_FEE }: { read: FeeT
         : 'There is no public fee tier to read yet, so no rate is shown here.';
   return (
     <section data-testid="lp-how-it-pays" aria-label="How you earn, and how the venue earns" className="grid grid-cols-1 md:grid-cols-2 gap-4">
-      <Card title={EARN_TITLES.you} testId="lp-how-you-earn">
+      <Card title={EARN_TITLES.you} testId="lp-how-you-earn" art={<CardArt pageId="solana-lp" idx={11} />}>
         {howYouEarn(tier).map((line) => (
           <p key={line} className={LINE}>
             {line}
           </p>
         ))}
       </Card>
-      <Card title={EARN_TITLES.venue} testId="lp-how-venue-earns">
+      <Card title={EARN_TITLES.venue} testId="lp-how-venue-earns" art={<CardArt pageId="solana-lp" idx={12} />}>
         <ul className={`list-disc pl-4 space-y-1 ${LINE}`}>
           {venue.sources.map((line) => (
             <li key={line}>{line}</li>
