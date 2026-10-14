@@ -291,14 +291,14 @@ export default function LendingPage() {
           )}
         </AnimatePresence>
 
-        {/* Section Toggle — horizontal scroll on mobile.
-            F510: the chip row scrolls horizontally but `no-scrollbar` hides the
-            scrollbar, so the 4th chip ("Launchpad") clipped mid-word with zero
-            affordance at 390-414px. A right-edge fade mask (mobile only — the
-            row is `md:w-fit` and never scrolls on desktop) signals there's more
-            to scroll. Additive CSS, pointer-events untouched. */}
+        {/* Section tabs. From `md` up the row is about 1,095px wide, and the page
+            has that much room only from a 1,143px window. Below that `max-w-full`
+            holds the row to the page and it scrolls inside itself. `no-scrollbar`
+            hides the scrollbar, so a right-edge fade is the only sign of more
+            tabs; it comes off at 1,143px, where the row fits. Pinned by
+            e2e/nft-finance-strip.spec.ts. */}
         <m.div
-          className="flex overflow-x-auto gap-1.5 mb-10 p-1 rounded-2xl mx-auto w-full md:w-fit no-scrollbar snap-x snap-mandatory [mask-image:linear-gradient(to_right,#000_calc(100%-2rem),transparent)] md:[mask-image:none]"
+          className="flex overflow-x-auto gap-1.5 mb-10 p-1 rounded-2xl mx-auto w-full md:w-fit max-w-full no-scrollbar snap-x snap-mandatory [mask-image:linear-gradient(to_right,#000_calc(100%-2rem),transparent)] min-[1143px]:[mask-image:none]"
           style={{ background: 'rgba(13,21,48,0.85)', border: '1px solid rgba(255,255,255,0.20)' }}
           role="tablist"
           aria-label="NFT Finance sections"

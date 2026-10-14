@@ -3,7 +3,7 @@ import { act, cleanup, fireEvent, render, renderHook, screen, waitFor } from '@t
 import { WriteGateBanner } from './WriteGateBanner';
 import { GraduationPanel, type GraduationPanelProps } from './GraduationPanel';
 import { PoolSwapPanel, type PoolSwapPanelProps } from './PoolSwapPanel';
-import { useWriteGate } from './useWriteGate';
+import { GATE_RETRY_MS, useWriteGate } from './useWriteGate';
 import {
   CREATOR,
   KEY,
@@ -115,6 +115,37 @@ describe('useWriteGate', () => {
     const { result } = renderHook(() => useWriteGate(rpc, { enabled: true, load }));
     await waitFor(() => expect(result.current.status).toBe('ready'));
     expect(api.readWriteGate).toHaveBeenCalledWith(rpc, openGate().cfg);
+  });
+
+  // The launch pages have no Refresh for the gate: without this, one failed answer at
+  // page load is the page's answer until it is reloaded. The body is pinned in useLpGate.test.tsx.
+  it('an unread gate is read again by itself; a gate that was read and is closed is not', async () => {
+    vi.useFakeTimers();
+    try {
+      const wait = (ms: number) =>
+        act(async () => {
+          await vi.advanceTimersByTimeAsync(ms);
+        });
+      const unread = { kind: 'blocked' as const, reason: 'unreadable' as const, detail: 'HTTP 503' };
+      const api = fakeApi({ readWriteGate: vi.fn().mockResolvedValueOnce(unread).mockResolvedValue(openGate()) });
+      // One loader for the hook's life: a new function each render would read the gate each render.
+      const load = async () => api;
+      const { result } = renderHook(() => useWriteGate(rpc, { enabled: true, load }));
+      await wait(0);
+      expect(result.current.status === 'ready' && result.current.gate).toEqual(unread);
+      await wait(GATE_RETRY_MS);
+      expect(result.current.status === 'ready' && result.current.gate.kind).toBe('open');
+
+      const closed = fakeApi({ readWriteGate: vi.fn(async () => ({ kind: 'blocked' as const, reason: 'protocol-not-initialized' as const, detail: '' })) });
+      const loadClosed = async () => closed;
+      renderHook(() => useWriteGate(rpc, { enabled: true, load: loadClosed }));
+      // One period at a time: a try is armed only once an answer has been drawn.
+      await wait(0);
+      for (let i = 0; i < 4; i++) await wait(GATE_RETRY_MS);
+      expect(closed.readWriteGate).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

@@ -20,7 +20,8 @@ const SWAP_TAB = { label: 'Swap', section: SWAP_SECTION, icon: (
 )};
 
 const TABS = [
-  { to: '/liquidity', label: 'Pools', section: POOLS_SECTION, icon: (
+  // Where the Pools word lands is the section's own answer (navConfig), not a literal here.
+  { to: POOLS_SECTION.primaryTo ?? POOLS_SECTION.hub, label: 'Pools', section: POOLS_SECTION, icon: (
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
       <path d="M12 3c3.5 4.2 5.5 7 5.5 9.5a5.5 5.5 0 0 1-11 0C6.5 10 8.5 7.2 12 3z" />
     </svg>
