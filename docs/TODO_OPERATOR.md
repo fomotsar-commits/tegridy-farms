@@ -2583,7 +2583,7 @@ sweep of the ones whose branches are merged.
    is closed for exactly that reason.
 
    **A restart costs roughly what the first one did:** two fresh program keypairs, new `declare_id!`
-   values, **8.46 SOL settled / 13.4 SOL peak float** of rent, and a re-derivation of every PDA the
+   values, **8.46 SOL settled / 13.4 SOL peak float** of rent (at the August rent rate; at mainnet's rate read 2026-10-14, (bytes + 128) x 5,080 lamports, the same builds are about **6.20 SOL settled / 9.77 SOL peak**), and a re-derivation of every PDA the
    fork owns. At SOL $96.94 that is ~$820 settled, ~$1,299 peak — but quote the SOL, not the
    dollars: rent is denominated in lamports and does not move with the price, so only the dollar
    figure ages. Full derivation, re-priced 2026-08-22, in
