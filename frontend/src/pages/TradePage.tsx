@@ -24,6 +24,7 @@ import { ChainSwitch } from '../components/swap/ChainSwitch';
 import { ChainSwapAvailability } from '../components/swap/ChainSwapAvailability';
 import { ArtImg } from '../components/ArtImg';
 import { CardArt } from '../components/ui/CardArt';
+import { FinePrint } from '../components/ui/FinePrint';
 import { useTowelie } from '../hooks/useTowelie';
 import { useTabListKeys } from '../hooks/useTabListKeys';
 
@@ -114,6 +115,15 @@ export default function TradePage() {
     trigger:   { title: 'Trigger Order', desc: 'Build a stop-loss, take-profit, trailing stop or OCO exit — and read whether anything would actually watch it. An order is not armed unless a named executor exists for that exact order.' },
   };
   usePageTitle(titleByTab[tab].title, titleByTab[tab].desc);
+  // The one short line under the heading. `desc` above stays the search-result and
+  // og:description sentence; the tab's own panel carries its caveats.
+  const lineByTab: Record<Tab, string> = {
+    swap: 'Swap on the native DEX or across routed aggregators.',
+    dca: 'Buy TOWELI on a schedule while this tab is open.',
+    limit: 'An on-chain CoW order that fills at your price.',
+    twap: 'Split a buy into slices over time. Needs a Safe wallet.',
+    trigger: 'Build a stop-loss, take-profit, trailing stop or OCO exit.',
+  };
   const [showTokenSelect, setShowTokenSelect] = useState<'from' | 'to' | null>(null);
   const [showRouteDetails, setShowRouteDetails] = useState(false);
   // F190: the custom-slippage field keeps its OWN string state while focused so
@@ -235,7 +245,7 @@ export default function TradePage() {
       <div className="relative z-10 max-w-[600px] mx-auto px-4 md:px-6 pt-20 pb-28 md:pb-12">
         <m.div className="mb-5" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
           <h1 className="heading-luxury text-2xl md:text-3xl text-white tracking-tight mb-1" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>{titleByTab[tab].title}</h1>
-          <p className="text-white text-[13px]" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>{titleByTab[tab].desc}</p>
+          <p className="text-white text-[13px]" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>{lineByTab[tab]}</p>
         </m.div>
 
         {/* Which chain — this surface is the Ethereum one, and the venue also
@@ -540,9 +550,11 @@ export default function TradePage() {
                       />
                     </button>
                   </label>
-                  <p className="mt-1 text-[10px] text-white/70" style={{ textShadow: '0 1px 3px rgba(0,0,0,0.8)' }}>
-                    Enable for tokens with an internal transfer fee (reflection / deflationary). Auto-enabled on retry after insufficient-output reverts.
-                  </p>
+                  <FinePrint summary="Details">
+                    <p>
+                      Enable for tokens with an internal transfer fee (reflection / deflationary). Auto-enabled on retry after insufficient-output reverts.
+                    </p>
+                  </FinePrint>
                 </div>
 
                 {/* MEV protection — one-time, user-confirmed opt-in to MEV Blocker's
@@ -605,8 +617,8 @@ export default function TradePage() {
                         style={{ background: 'rgba(255,178,55,0.15)', border: '1px solid rgba(255,178,55,0.40)' }}
                         data-testid="swap-price-impact-unread"
                       >
-                        Price impact could not be read — the network did not answer. This is
-                        not a statement that impact is low. Refresh the quote before you sign.
+                        Price impact could not be read. This is not a statement that impact
+                        is low. Refresh the quote before you sign.
                       </div>
                     ) : swap.priceImpact !== null && swap.priceImpact > 5 ? (
                       <div className="mt-2 px-2 py-1.5 rounded text-[10px] text-red-200 font-semibold" style={{ background: 'rgba(239,68,68,0.25)', border: '1px solid rgba(239,68,68,0.45)' }}>
@@ -721,10 +733,15 @@ export default function TradePage() {
               <p className="text-[13px] text-text-secondary leading-relaxed">
                 <span className="text-text-primary font-medium">Launching something?</span>{' '}
                 The <Link to="/eth-curve" className="text-emerald-400/80 hover:text-emerald-300 underline">Memetics Curve</Link>{' '}
-                pays creators <span className="text-text-primary font-medium">0.40% of every trade</span> (40% of the 1% fee,
-                on-chain, claimable any time) and graduates into this venue with the LP burned. Every token here is{' '}
-                <Link to="/scan" className="text-emerald-400/80 hover:text-emerald-300 underline">scannable</Link>.
+                pays creators <span className="text-text-primary font-medium">0.40% of every trade</span> (40% of the 1% fee).
               </p>
+              <FinePrint summary="Details">
+                <p>
+                  The creator share is on-chain and claimable any time. The curve graduates into this venue with
+                  the LP burned. Every token here is{' '}
+                  <Link to="/scan" className="underline underline-offset-2 text-white hover:text-white/80">scannable</Link>.
+                </p>
+              </FinePrint>
             </div>
           </>
         )}

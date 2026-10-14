@@ -8,6 +8,7 @@ import { type TokenInfo } from '../../lib/tokenList';
 import { formatTokenAmountGrouped } from '../../lib/formatting';
 import { providerFeeAttachment } from '../../lib/fees/swapFee';
 import { VenueFeeLine } from './VenueFeeLine';
+import { FinePrint } from '../ui/FinePrint';
 
 interface Props {
   fromToken: TokenInfo | null;
@@ -122,11 +123,6 @@ export function CowSwapPanel({ fromToken, toToken, inputAmount, slippage, onChai
           <span className="text-white/60 text-[10px]" aria-live="polite">Quoting…</span>
         )}
       </div>
-      <p className="mt-1 text-[10px] text-white/70" style={{ textShadow: '0 1px 3px rgba(0,0,0,0.8)' }}>
-        Signs one gasless order that CoW’s solvers settle off the public mempool. No sandwich surface,
-        and an unfilled order costs nothing.
-      </p>
-
       {/* Self-gated states — honest, never a fake number. */}
       {isNativeSell ? (
         <p className="mt-2 text-[10px] text-amber-300" style={{ textShadow: '0 1px 3px rgba(0,0,0,0.8)' }}>
@@ -199,6 +195,13 @@ export function CowSwapPanel({ fromToken, toToken, inputAmount, slippage, onChai
           ))}
         </div>
       )}
+
+      <FinePrint summary="How it works">
+        <p>
+          Signs one gasless order that CoW’s solvers settle off the public mempool. No sandwich surface,
+          and an unfilled order costs nothing.
+        </p>
+      </FinePrint>
     </div>
   );
 }

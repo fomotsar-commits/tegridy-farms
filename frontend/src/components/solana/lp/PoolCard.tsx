@@ -24,6 +24,7 @@ import { HISTORY_PAGES_MAX } from '../../../lib/solana/lp/txHistory';
 import { Notice, Row } from '../curve/ui';
 import { CARD, CARD_STYLE, SHADOW } from '../curve/uiFormat';
 import { CardArt } from '../../ui/CardArt';
+import { FinePrint } from '../../ui/FinePrint';
 import { AddLiquidityPanel } from './AddLiquidityPanel';
 import { depositOffer, lpHeld, type DepositOffer } from './offers';
 import type { LpReaders } from './readers';
@@ -272,7 +273,6 @@ export function PoolCard({
         {view.origin === 'launch-pool' ? 'Launch pool' : view.origin === 'standard' ? `Standard address, fee tier ${cfg?.index ?? '?'}` : 'Pool at its own address'}
       </h3>
       {why && <WishWhy id={whyId} why={why} />}
-      <p className="text-white/50 text-[11px] mb-2">{ORIGIN_LABEL[view.origin]}</p>
       {isCreatedPool(view.address) && (
         <p className="text-emerald-300/90 text-[12px] mb-2" data-testid="lp-opened-here">
           You opened this pool just now. Your share is under &apos;Your positions&apos;.
@@ -299,9 +299,7 @@ export function PoolCard({
               ))}
             </div>
           )}
-          {!writes && health.deposits.verdict === 'allowed' && (
-            <Notice>Adding liquidity from this page is not switched on yet. These checks will run again before any deposit.</Notice>
-          )}
+          {!writes && health.deposits.verdict === 'allowed' && <Notice>Adding liquidity here is not switched on yet.</Notice>}
           {writes && <DepositOfferBlock writes={writes} offer={offer} view={view} health={health} safety={safety} tokenDecimals={tokenDecimals} openNow={openNow} onActed={onActed} />}
         </div>
 
@@ -333,9 +331,6 @@ export function PoolCard({
         {pool.enableCreatorFee && (
           <Row label="Creator’s fee, not collected yet" value={`${quoteText(quoteFees[1]!, view.quote)} and ${tokenText(tokFees[1]!, tokenDecimals)}`} mono={false} />
         )}
-        <Notice>
-          LPs’ share of fees is not paid out separately: it stays in the pool, so each pool share is worth a little more after every trade.
-        </Notice>
         {earned && (
           <div data-testid="lp-pool-earned" className="space-y-1 text-white/75">
             <p data-testid="lp-pool-trade">
@@ -352,6 +347,11 @@ export function PoolCard({
         {readers?.poolPast && <PoolPastBlock view={view} readers={readers} />}
         <Row label="Pool shares issued" value={tokenText(pool.lpSupply, pool.lpMintDecimals, 'shares')} mono={false} />
         <Row label="Opened by" value={pool.poolCreator} />
+        <FinePrint summary="About this pool">
+          <p>{ORIGIN_LABEL[view.origin]}</p>
+          <p>LPs’ share of fees is not paid out separately: it stays in the pool, so each pool share is worth a little more after every trade.</p>
+          {!writes && health.deposits.verdict === 'allowed' && <p>These checks will run again before any deposit.</p>}
+        </FinePrint>
       </div>
     </li>
   );
@@ -502,7 +502,7 @@ function DepositOfferBlock({
             Add liquidity
           </button>
           {blockedByOther && <Notice>Finish or close the open liquidity panel first.</Notice>}
-          <Notice>These checks run again, on fresh reads, when you press Review.</Notice>
+          <Notice>Checks run again on fresh reads when you press Review.</Notice>
         </>
       )}
       {panel}
@@ -521,7 +521,7 @@ function OfferLine({ offer, health }: { offer: DepositOffer; health: PoolHealth 
       // offered, with a warning. What stops it here is a check that could not be RUN (the
       // reasons above say which), and a read that failed is never taken as a pass.
       return health.deposits.verdict === 'unchecked' ? (
-        <Notice>We offer adding liquidity only when every check above could be run, and one of them could not be run just now.</Notice>
+        <Notice>Adding is off: a check above could not be run just now.</Notice>
       ) : null;
     case 'offer':
     case 'gate':

@@ -12,6 +12,7 @@ import { trackPageView } from '../lib/analytics';
 import { ArtImg } from '../components/ArtImg';
 import { PageArtBackdrop } from '../components/PageArtBackdrop';
 import { FeatureNotDeployed } from '../components/ui/FeatureNotDeployed';
+import { FinePrint } from '../components/ui/FinePrint';
 import { SolanaProviders } from '../components/solana/SolanaProviders';
 import { SolanaConnectButton } from '../components/solana/SolanaConnectButton';
 import { ChainSwitch } from '../components/swap/ChainSwitch';
@@ -672,14 +673,21 @@ function EarnRail({ onPick }: { onPick: (t: SolToken) => void }) {
           </button>
         ))}
       </div>
+      {/* One line: how the holder earns, and what the venue takes. The rest is small print. */}
       <p className="text-white/55 text-[11px] mt-1.5">
-        A liquid-staking token is staked SOL you can trade. Its value in SOL is built to rise as staking rewards
-        are added. There is no lockup, and you can sell back to SOL at any time. This page reads no staking rate,
-        so it shows none: each provider publishes its own.{' '}
-        {isSolanaFeeConfigured()
-          ? `A ${SOLANA_PLATFORM_FEE_BPS / 100}% fee applies when the buy goes through Jupiter. A buy in one of our pools pays that pool's own fee inside the quote, and no platform fee on top.`
-          : 'No platform fee is charged on the buy.'}
+        Its SOL value is built to rise with staking rewards.{' '}
+        {isSolanaFeeConfigured() ? `Platform fee: ${SOLANA_PLATFORM_FEE_BPS / 100}% via Jupiter.` : 'No platform fee.'}
       </p>
+      <FinePrint summary="Details">
+        <p>
+          A liquid-staking token is staked SOL you can trade. Its value in SOL is built to rise as staking rewards
+          are added. There is no lockup, and you can sell back to SOL at any time. This page reads no staking rate,
+          so it shows none: each provider publishes its own.{' '}
+          {isSolanaFeeConfigured()
+            ? `A ${SOLANA_PLATFORM_FEE_BPS / 100}% fee applies when the buy goes through Jupiter. A buy in one of our pools pays that pool's own fee inside the quote, and no platform fee on top.`
+            : 'No platform fee is charged on the buy.'}
+        </p>
+      </FinePrint>
     </div>
   );
 }
@@ -919,9 +927,14 @@ function DcaTab({ payToken, buyToken, shieldWarnings, needsAck, ack, setAck, onP
       )}
 
       <p className="mt-3 text-center text-white/60 text-[10px]">
-        The full amount is deposited up front and spent automatically by Jupiter keepers, {numBuys} buys {intervalLabel(intervalSecs)} —
-        no tab to keep open. Cancel anytime; unspent funds come back. Jupiter requires roughly a $100 total minimum.
+        Deposited up front. Cancel anytime; unspent funds come back. Jupiter minimum: roughly $100 total.
       </p>
+      <FinePrint summary="How it works">
+        <p>
+          The full amount is deposited up front and spent automatically by Jupiter keepers, {numBuys} buys {intervalLabel(intervalSecs)} —
+          no tab to keep open.
+        </p>
+      </FinePrint>
 
       {publicKey && (
         <div className="mt-4 pt-3" style={{ borderTop: '1px solid rgba(255,255,255,0.10)' }}>
@@ -1152,8 +1165,11 @@ function LimitTab({ payToken, buyToken, shieldWarnings, needsAck, ack, setAck, o
       )}
 
       <p className="mt-3 text-center text-white/60 text-[10px]">
-        Real on-chain order, filled automatically by Jupiter keepers — no tab to keep open. Funds are reserved until fill, cancel, or expiry.
+        Funds are reserved until fill, cancel, or expiry.
       </p>
+      <FinePrint summary="How it works">
+        <p>Real on-chain order, filled automatically by Jupiter keepers — no tab to keep open.</p>
+      </FinePrint>
 
       {publicKey && (
         <div className="mt-4 pt-3" style={{ borderTop: '1px solid rgba(255,255,255,0.10)' }}>

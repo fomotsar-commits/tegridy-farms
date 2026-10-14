@@ -3,6 +3,7 @@ import type { Bungalow } from '../../lib/bungalows';
 import { usePoolMarket } from '../../hooks/usePoolMarket';
 import { ErrorBoundary } from '../ui/ErrorBoundary';
 import { CardArt } from '../ui/CardArt';
+import { FinePrint } from '../ui/FinePrint';
 import { BungalowTrades } from './BungalowTrades';
 
 // The chart pulls in lightweight-charts; keep it out of the bungalow's first
@@ -133,10 +134,14 @@ export function BungalowMarket({ bungalow }: { bungalow: Bungalow }) {
       <BungalowTrades bungalow={bungalow} />
 
       <p className="text-[10px] text-white/40 mt-3">
-        Price, liquidity, volume and the trade split are read from GeckoTerminal for this
-        pool on read. Nothing here refreshes on its own. A dash means the figure could
-        not be read, not that it is zero.
+        A dash means the figure could not be read, not that it is zero.
       </p>
+      <FinePrint summary="Sources" className="mt-1">
+        <p>
+          Price, liquidity, volume and the trade split are read from GeckoTerminal for this
+          pool on read. Nothing here refreshes on its own.
+        </p>
+      </FinePrint>
     </section>
   );
 }

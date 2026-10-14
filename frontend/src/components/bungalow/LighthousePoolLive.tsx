@@ -11,6 +11,7 @@ import { staggerContainer } from '../../lib/motion';
 import { Fact, HAIR, DIVIDED_BG } from './ledger';
 import { HeldTimeLine } from './HeldTimeLine';
 import { CardArt } from '../ui/CardArt';
+import { FinePrint } from '../ui/FinePrint';
 import {
   vaultIsMateriallyEmpty,
   payingNowRate,
@@ -675,33 +676,43 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
                 and BOTH move. Saying so plainly is the only accurate option —
                 and the safest one. */}
             {dynamicPool && (
-              <p className="text-[12px] mb-4 rounded-lg px-3 py-2" style={{ background: 'rgba(96,165,250,0.10)', border: '1px solid rgba(96,165,250,0.35)', color: '#bfdbfe' }}>
-                <strong>This pool pays out a funded budget, not a fixed rate.</strong>{' '}
-                Whatever is funded gets split across everyone staked, in proportion to
-                weighted stake — so a longer lock still earns a bigger share
-                {weighted ? ` (up to ${maxBoost.toFixed(2)}×)` : ''}, but the amount per
-                {' '}{bungalow.symbol} falls as more people stake and rises as fewer do.
-                There is no APR to quote here, and this venue will not invent one:
-                the honest figures are the budget above and your share of it.
-              </p>
+              <div className="text-[12px] mb-4 rounded-lg px-3 py-2" style={{ background: 'rgba(96,165,250,0.10)', border: '1px solid rgba(96,165,250,0.35)', color: '#bfdbfe' }}>
+                <p className="m-0"><strong>This pool pays out a funded budget, not a fixed rate.</strong></p>
+                <FinePrint summary="How it pays">
+                  <p className="m-0">
+                    Whatever is funded gets split across everyone staked, in proportion to
+                    weighted stake — so a longer lock still earns a bigger share
+                    {weighted ? ` (up to ${maxBoost.toFixed(2)}×)` : ''}, but the amount per
+                    {' '}{bungalow.symbol} falls as more people stake and rises as fewer do.
+                    There is no APR to quote here, and this venue will not invent one:
+                    the honest figures are the budget above and your share of it.
+                  </p>
+                </FinePrint>
+              </div>
             )}
 
             {vaultDry && (
-              <p className="text-[12px] mb-4 rounded-lg px-3 py-2" style={{ background: 'rgba(227,179,65,0.1)', border: '1px solid rgba(227,179,65,0.4)', color: '#e3b341' }}>
+              <div className="text-[12px] mb-4 rounded-lg px-3 py-2" style={{ background: 'rgba(227,179,65,0.1)', border: '1px solid rgba(227,179,65,0.4)', color: '#e3b341' }}>
                 {/* Lead with the fact that changes what the visitor can DO. The
                     reason used to arrive first and the consequence fourth, which
                     buried "staking is paused" inside a paragraph of rate talk. */}
-                <strong>Staking is paused until the reward vault is funded.</strong>{' '}
-                The vault is {funded === 0n ? 'empty' : 'effectively empty'}, so paying now is 0% —
-                {ratePercent ? ` a configured ${pct(rateAtMax)} tops out at nothing` : ' a configured rate pays nothing'}{' '}
-                until someone tops it up.
-                <span className="block mt-1.5 opacity-90">
-                  Deposits stay closed on purpose: while accrued rewards exceed the vault
-                  the program <strong>reverts</strong> claims and unstakes, even after a lock
-                  opens — so a deposit here could become principal nothing can release.
-                  Accrual itself is never lost; it pays in full after a top-up.
-                </span>
-              </p>
+                <p className="m-0">
+                  <strong>Staking is paused until the reward vault is funded.</strong>{' '}
+                  The vault is {funded === 0n ? 'empty' : 'effectively empty'}, so paying now is 0%.
+                </p>
+                <FinePrint summary="Why">
+                  <p className="m-0">
+                    {ratePercent ? `A configured ${pct(rateAtMax)} tops out at nothing` : 'A configured rate pays nothing'}{' '}
+                    until someone tops it up.
+                  </p>
+                  <p className="m-0">
+                    Deposits stay closed on purpose: while accrued rewards exceed the vault
+                    the program <strong>reverts</strong> claims and unstakes, even after a lock
+                    opens — so a deposit here could become principal nothing can release.
+                    Accrual itself is never lost; it pays in full after a top-up.
+                  </p>
+                </FinePrint>
+              </div>
             )}
             {funded === null && (
               <p className="text-[12px] mb-4" style={{ color: '#f0b26b' }}>
@@ -727,19 +738,24 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
                   Closed to new deposits
                 </p>
                 <p className="text-white/70 text-[12px] leading-relaxed">
-                  This pool is no longer taking new stakes. It keeps running for everyone already in
-                  it &mdash; rewards keep accruing, claims work, and every position comes back in full
-                  when its lock opens.
+                  No new stakes. Rewards, claims and unlocks keep working for everyone in it.
                 </p>
-                <p className="text-white/50 text-[11px] leading-relaxed mt-2">
-                  Existing locks stay where they are and keep running in this pool until the last one
-                  matures; nothing in this pool is moved anywhere.
-                </p>
-                <p className="text-white/40 text-[11px] leading-relaxed mt-2">
-                  To be exact about what changed: the pool still exists on-chain and its terms are
-                  immutable. It is this venue that has stopped offering it, not the program that has
-                  stopped accepting it.
-                </p>
+                <FinePrint summary="Details">
+                  <p>
+                    This pool is no longer taking new stakes. It keeps running for everyone already in
+                    it &mdash; rewards keep accruing, claims work, and every position comes back in full
+                    when its lock opens.
+                  </p>
+                  <p>
+                    Existing locks stay where they are and keep running in this pool until the last one
+                    matures; nothing in this pool is moved anywhere.
+                  </p>
+                  <p>
+                    To be exact about what changed: the pool still exists on-chain and its terms are
+                    immutable. It is this venue that has stopped offering it, not the program that has
+                    stopped accepting it.
+                  </p>
+                </FinePrint>
               </div>
             )}
 
@@ -757,9 +773,7 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
             {bungalow.depositsClosed && !publicKey && (
               <div className="rounded-xl p-4 mb-4" style={{ background: 'rgba(0,0,0,0.5)', border: '1px solid var(--color-purple-25)' }}>
                 <p className="text-white/80 text-[13px] mb-3 max-w-md leading-relaxed">
-                  Already staked here? Connect your Solana wallet to claim rewards, or to unstake a
-                  position whose lock has opened. This pool takes no new stakes, but nothing about
-                  leaving it has changed.
+                  Already staked here? Connect to claim rewards, or unstake once your lock opens.
                 </p>
                 <button type="button" onClick={openConnect} className="btn-primary px-6 py-2.5 text-[13px]">
                   Connect Solana Wallet
@@ -892,8 +906,8 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
                         just one more line to read. */}
                     {flatWeight && (
                       <p className="text-white/45 text-[11px] mt-2 leading-relaxed">
-                        This pool weights every lock the same (1.00&times;), so a longer lock does
-                        <strong className="text-white/70"> not</strong> raise the rate — it only sets
+                        Every lock weighs 1.00&times; here: a longer lock does
+                        <strong className="text-white/70"> not</strong> raise the rate, it only sets
                         when you can take your {bungalow.symbol} back.
                       </p>
                     )}
@@ -905,14 +919,21 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
                         the kind of quiet substitution the honesty rules exist to
                         prevent, and anyone can check the pool on-chain. */}
                     {ceilingApplies && (
-                      <p className="text-[11px] mt-2 leading-relaxed" style={{ color: '#f0b26b' }}>
-                        We currently offer locks up to <strong>{labelForDays(maxDays)}</strong>, though this
-                        pool itself allows up to {labelForDays(poolMaxDays)}. Longer locks are paused while
-                        the reward rail is replaced: past roughly {maxDays} days a position&rsquo;s reward
-                        accounting runs out before the lock opens, and it stops paying for the rest of its
-                        term. Your {bungalow.symbol} would still come back in full — but it would sit there
-                        earning nothing collectable, and you could not move it.
-                      </p>
+                      <div className="text-[11px] mt-2 leading-relaxed" style={{ color: '#f0b26b' }}>
+                        <p className="m-0">
+                          We currently offer locks up to <strong>{labelForDays(maxDays)}</strong>, though this
+                          pool itself allows up to {labelForDays(poolMaxDays)}.
+                        </p>
+                        <FinePrint summary="Why">
+                          <p className="m-0">
+                            Longer locks are paused while
+                            the reward rail is replaced: past roughly {maxDays} days a position&rsquo;s reward
+                            accounting runs out before the lock opens, and it stops paying for the rest of its
+                            term. Your {bungalow.symbol} would still come back in full — but it would sit there
+                            earning nothing collectable, and you could not move it.
+                          </p>
+                        </FinePrint>
+                      </div>
                     )}
                   </div>
 
@@ -933,11 +954,15 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
                         <p className="stat-value text-2xl leading-tight" style={{ color: '#bfdbfe' }}>{pct(share)}</p>
                         <p className="text-white/45 text-[11px] mt-1 leading-relaxed">
                           of every payout, at a {stakeWeight(pool, chosenSecs).toFixed(2)}× weight on{' '}
-                          {labelForDays(chosenDays).toLowerCase()} — computed against the stake in the pool
-                          right now. It falls as others stake and rises as they leave. No amount is
-                          projected here because the payout depends on future funding, which is not a
-                          number this page can know.
+                          {labelForDays(chosenDays).toLowerCase()}. It falls as others stake and rises as they leave.
                         </p>
+                        <FinePrint summary="Details">
+                          <p className="m-0">
+                            Computed against the stake in the pool right now. No amount is
+                            projected here because the payout depends on future funding, which is not a
+                            number this page can know.
+                          </p>
+                        </FinePrint>
                       </div>
                     );
                   })()}
@@ -999,18 +1024,22 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
                   {!publicKey ? (
                     <>
                       <p className="text-white/80 text-[13px] mb-2 max-w-md leading-relaxed">
-                        Connect a Solana wallet to stake. Your principal comes back to you
-                        when the lock opens.
+                        Your principal comes back to you when the lock opens.
                       </p>
                       {/* The no-early-exit fact belongs BEFORE the wallet, not after
                           it: this is the screen where someone decides whether to take
                           part at all. It used to appear only under the stake button,
                           which a disconnected visitor never reaches. */}
-                      <p className="text-[12px] mb-3 max-w-md leading-relaxed" style={{ color: '#e3b341' }}>
-                        There is no early exit. The program refuses an unstake until the
-                        lock you choose opens — not for a fee, not by the venue, not by
-                        anyone. Pick a lock you can wait out.
+                      <p className="text-[12px] mb-1 max-w-md leading-relaxed" style={{ color: '#e3b341' }}>
+                        There is no early exit. Pick a lock you can wait out.
                       </p>
+                      <FinePrint summary="Why" className="mb-2">
+                        <p className="m-0">
+                          The program refuses an unstake until the
+                          lock you choose opens — not for a fee, not by the venue, not by
+                          anyone.
+                        </p>
+                      </FinePrint>
                       <button type="button" onClick={openConnect} className="btn-primary px-6 py-2.5 text-[13px]">
                         Connect Solana Wallet
                       </button>
@@ -1040,8 +1069,7 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
                     </p>
                   )}
                   <p className="text-white/45 text-[11px] text-center mt-2">
-                    Unlocks {new Date((nowSec + chosenSecs) * 1000).toLocaleDateString()} · no early exit and no
-                    penalty path — the program simply refuses an unstake until then
+                    Unlocks {new Date((nowSec + chosenSecs) * 1000).toLocaleDateString()} · no early exit
                     {pool.unstakePeriodSecs > 0 ? `, then a ${humanDuration(pool.unstakePeriodSecs)} cool-down applies` : ''}.
                   </p>
                   </>
@@ -1242,10 +1270,8 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
                 </ul>
                 {vaultDry && (
                   <p className="text-white/45 text-[11px] mt-3">
-                    Accrual keeps counting while the vault is dry, and nothing is lost — but
-                    claims and exits <strong>revert</strong> until the vault covers what has
-                    accrued (proven against the live program). Both work again the moment it
-                    is topped up, and the backlog pays in full.
+                    Claims and exits <strong>revert</strong> until the vault covers what has
+                    accrued. Nothing is lost: the backlog pays in full after a top-up.
                   </p>
                 )}
               </div>
@@ -1289,12 +1315,14 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
                 </a>
               )}
             </div>
-            <p className="text-white/45 text-[11px] m-0 leading-relaxed">
-              A Streamflow staking pool — audited program, non-custodial, verifiable on-chain.
-              {primaryRp && (primaryRp.permissionless
-                ? ' Reward vault funding is permissionless: anyone can top it up, and the balance above is the proof.'
-                : ' Only the pool authority can fund the reward vault.')}
-            </p>
+            <FinePrint summary="About this pool">
+              <p className="m-0">
+                A Streamflow staking pool — audited program, non-custodial, verifiable on-chain.
+                {primaryRp && (primaryRp.permissionless
+                  ? ' Reward vault funding is permissionless: anyone can top it up, and the balance above is the proof.'
+                  : ' Only the pool authority can fund the reward vault.')}
+              </p>
+            </FinePrint>
           </>
         )}
       </div>
@@ -1450,10 +1478,7 @@ export function LighthouseClaimStrip({ bungalow }: { bungalow: Bungalow & { stak
   return shell(
     <>
       <p className="text-white/60 text-[11px] leading-relaxed mb-3">
-        This pool takes no new stakes.{' '}
-        {openEntries.length === 1
-          ? 'Claim what your position has earned here, and withdraw it here once its lock opens.'
-          : 'Claim what your positions have earned here, and withdraw each one here once its lock opens.'}
+        This pool takes no new stakes. Claim here, and withdraw once {openEntries.length === 1 ? 'its lock opens' : 'each lock opens'}.
       </p>
 
       {poolRead === null && <p role="status" className="text-white/70 text-[12px] m-0">Reading the pool…</p>}

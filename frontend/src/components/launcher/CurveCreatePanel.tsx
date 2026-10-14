@@ -23,6 +23,7 @@ import {
 } from '../../lib/launcher/curveIdentity';
 import { useIrysUpload } from '../../hooks/useIrysUpload';
 import { CardArt } from '../ui/CardArt';
+import { FinePrint } from '../ui/FinePrint';
 import { assertMayLaunch } from '../../lib/heat/launchGate';
 import { getTxUrl } from '../../lib/explorer';
 import {
@@ -356,34 +357,42 @@ export function CurveCreateView({
             are still reading — an unread term is never quoted as a number, the
             same rule the pool cards follow for figures they could not fetch. */}
         {terms ? (
-          <>
-            <span className="text-white/70 font-medium">
-              You earn {terms.creatorShare} of every trade’s fee (the fee is {terms.fee} of each trade) while the
-              curve runs — accrued on-chain, claimable only by you.
-            </span>{' '}
-            Fixed supply, no team unlock beyond your opening buy. Graduation seeds our own pool
-            with the LP burned; a {terms.reserve} reserve goes to protocol custody for discretionary ecosystem support.{' '}
-            <span className="text-white/35">These terms are read live from the launcher and snapshot onto your launch when you create.</span>
-          </>
+          <span className="text-white/70 font-medium">
+            You earn {terms.creatorShare} of every trade’s fee (the fee is {terms.fee} of each trade) while the
+            curve runs — accrued on-chain, claimable only by you.
+          </span>
         ) : (
-          <>
-            <span className="text-white/70 font-medium">Reading the current launch terms from the launcher…</span>{' '}
-            Fixed supply, no team unlock beyond your opening buy. Graduation seeds our own pool with the LP burned,
-            and a reserve is carved off total supply for protocol custody. The exact creator share, trade fee and
-            reserve are shown here once the read lands — they are set on-chain and can be retuned, so this panel
-            will not quote them from memory.
-          </>
+          <span className="text-white/70 font-medium">Reading the current launch terms from the launcher…</span>
         )}
       </p>
       <p className="text-white/40 text-[11px] leading-relaxed">
-        By launching you become the <span className="text-white/55">issuer</span> of this token and are
-        responsible for its legal treatment — including whether it is a security or otherwise regulated
-        where you and your buyers are. You accept the{' '}
+        You accept the{' '}
         <Link to="/terms" className="text-emerald-400/80 hover:text-emerald-300 underline transition-colors">
           Terms
         </Link>
         , including the issuer, irreversibility and prohibited-use sections.
       </p>
+      <FinePrint summary="Terms">
+        {terms ? (
+          <p>
+            Fixed supply, no team unlock beyond your opening buy. Graduation seeds our own pool
+            with the LP burned; a {terms.reserve} reserve goes to protocol custody for discretionary ecosystem support.{' '}
+            These terms are read live from the launcher and snapshot onto your launch when you create.
+          </p>
+        ) : (
+          <p>
+            Fixed supply, no team unlock beyond your opening buy. Graduation seeds our own pool with the LP burned,
+            and a reserve is carved off total supply for protocol custody. The exact creator share, trade fee and
+            reserve are shown here once the read lands — they are set on-chain and can be retuned, so this panel
+            will not quote them from memory.
+          </p>
+        )}
+        <p>
+          By launching you become the <span className="text-white/90">issuer</span> of this token and are
+          responsible for its legal treatment — including whether it is a security or otherwise regulated
+          where you and your buyers are.
+        </p>
+      </FinePrint>
       <button
         type="button"
         disabled={disabled}

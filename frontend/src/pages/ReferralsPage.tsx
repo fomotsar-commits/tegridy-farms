@@ -3,6 +3,7 @@ import { usePageTitle } from '../hooks/usePageTitle';
 import { trackPageView } from '../lib/analytics';
 import { PageArtBackdrop } from '../components/PageArtBackdrop';
 import { CardArt } from '../components/ui/CardArt';
+import { FinePrint } from '../components/ui/FinePrint';
 import { ReferralsPanel } from '../components/referrals/ReferralsPanel';
 
 /**
@@ -58,10 +59,15 @@ export default function ReferralsPage() {
         <div className="mb-6">
           <h1 className="text-2xl font-bold text-white">Referrals</h1>
           <p className="text-white/60 text-sm mt-1 max-w-2xl leading-relaxed">
-            ReferralSplitter takes a fixed carve of a referred wallet&rsquo;s swap fee and pays it to their referrer —
-            but only while that referrer&rsquo;s own staking power clears the contract&rsquo;s threshold. Everything
-            below is read from that contract, and where a read fails it says so instead of showing a zero.
+            Share a link and earn a fixed share of your referees&rsquo; swap fees.
           </p>
+          <FinePrint summary="How it works" className="max-w-2xl">
+            <p>
+              ReferralSplitter takes a fixed carve of a referred wallet&rsquo;s swap fee and pays it to their referrer —
+              but only while that referrer&rsquo;s own staking power clears the contract&rsquo;s threshold. Everything
+              below is read from that contract, and where a read fails it says so instead of showing a zero.
+            </p>
+          </FinePrint>
         </div>
 
         {/* The panels below carry their own <h3> headings, so this level exists to keep
@@ -71,7 +77,8 @@ export default function ReferralsPage() {
 
         <div className="relative isolate mt-10 rounded-2xl border border-white/10 bg-black/20 p-5">
           <CardArt pageId="referrals" idx={5} />
-          <h2 className="text-white/80 font-semibold text-sm mb-2">What this page does and does not promise</h2>
+          <h2 className="text-white/80 font-semibold text-sm mb-1">What this page does and does not promise</h2>
+          <FinePrint summary="Details">
           <ul className="text-white/50 text-xs space-y-1.5 leading-relaxed list-disc pl-4 marker:text-white/25">
             <li>
               A referrer below the staking threshold earns <strong className="text-white/70">nothing</strong>. Their
@@ -100,6 +107,7 @@ export default function ReferralsPage() {
               contract, so nobody can say who the top referrers are.
             </li>
           </ul>
+          </FinePrint>
         </div>
       </div>
     </>

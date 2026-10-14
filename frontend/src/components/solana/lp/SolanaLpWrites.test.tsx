@@ -158,7 +158,7 @@ describe("mode 'off' (the shipped build)", () => {
     const c = await card();
     expect(c).toHaveAttribute('data-add', 'off');
     expect(c).toHaveAttribute('data-deposits', 'allowed');
-    expect(within(c).getByText(/Adding liquidity from this page is not switched on yet/)).toBeInTheDocument();
+    expect(within(c).getByText(/Adding liquidity here is not switched on yet/)).toBeInTheDocument();
     expect(within(c).queryByRole('button', { name: 'Add liquidity' })).toBeNull();
     expect(screen.getByTestId('lp-disclosure')).toHaveTextContent(/only reads/);
     const row = await screen.findByTestId('lp-position');
@@ -182,7 +182,7 @@ describe('Add liquidity', () => {
     const c = await card();
     expect(await within(c).findByRole('button', { name: 'Add liquidity' })).toBeInTheDocument();
     expect(c).toHaveAttribute('data-add', 'offer');
-    expect(within(c).getByText('These checks run again, on fresh reads, when you press Review.')).toBeInTheDocument();
+    expect(within(c).getByText('Checks run again on fresh reads when you press Review.')).toBeInTheDocument();
     expect(screen.getByTestId('lp-disclosure')).toHaveTextContent(/Opening a pool, adding and removing liquidity here send real transactions/);
     expect(screen.getByTestId('lp-disclosure')).not.toHaveTextContent(/only reads/);
     // A clean token at the market price: the same green pass as ever, and no warning anywhere.
@@ -260,7 +260,7 @@ describe('Add liquidity', () => {
     // check that could not be RUN. It no longer says an outside price is always needed
     // (a pool with no market price at all is offered, with a warning).
     expect(c).toHaveTextContent('We could not check its price against an outside price (Jupiter did not give a price (HTTP 502)).');
-    expect(c).toHaveTextContent('We offer adding liquidity only when every check above could be run, and one of them could not be run just now.');
+    expect(c).toHaveTextContent('Adding is off: a check above could not be run just now.');
     expect(c).not.toHaveTextContent(/only after checking the pool's price against a price from outside it/);
     expect(c).not.toHaveTextContent(/Often that means/);
     // Unread is not a warning: nothing here says deposits are open.

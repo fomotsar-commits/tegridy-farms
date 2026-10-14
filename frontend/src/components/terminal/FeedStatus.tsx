@@ -2,6 +2,7 @@ import type { IndexedStatus } from '../../hooks/useTerminalFeed';
 import type { TerminalFeed } from '../../lib/terminal/feed';
 import { NOT_A_ZERO } from '../../lib/terminal/feedBanner';
 import { CardArt } from '../ui/CardArt';
+import { FinePrint } from '../ui/FinePrint';
 
 // What the feed is, in words, before any row is drawn.
 //
@@ -94,11 +95,20 @@ function FeedCoverage({ feed, syncedAt }: { feed: TerminalFeed | null; syncedAt:
     lines.push(`Indexer head block timestamp: ${new Date(syncedAt * 1000).toISOString()}.`);
   }
 
+  // The count leads; every coverage caveat after it folds.
+  const [first, ...rest] = lines;
   return (
-    <ul className="mt-2 space-y-1 text-[11px] leading-relaxed text-white/70">
-      {lines.map((line) => (
-        <li key={line}>{line}</li>
-      ))}
-    </ul>
+    <>
+      <p className="mt-2 text-[11px] leading-relaxed text-white/70">{first}</p>
+      {rest.length > 0 ? (
+        <FinePrint summary="Coverage">
+          <ul className="space-y-1">
+            {rest.map((line) => (
+              <li key={line}>{line}</li>
+            ))}
+          </ul>
+        </FinePrint>
+      ) : null}
+    </>
   );
 }

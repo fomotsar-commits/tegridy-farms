@@ -51,6 +51,7 @@ import { UpcomingPoolCard } from '../components/farm/UpcomingPoolCard';
 import { ArtImg } from '../components/ArtImg';
 import { CardArt } from '../components/ui/CardArt';
 import { PageArtBackdrop } from '../components/PageArtBackdrop';
+import { FinePrint } from '../components/ui/FinePrint';
 
 /**
  * Earn's Staking tab. `/earn` is the list of every pool (VenueEarn) whatever
@@ -102,10 +103,15 @@ function VenueEarn() {
           </p>
           <h1 className="heading-luxury text-3xl md:text-4xl text-white leading-tight mb-3">Earn</h1>
           <p className="text-white/75 text-[14px] md:text-[15px] leading-relaxed max-w-[62ch]">
-            Stake a token to earn a share of its pool, or provide liquidity and take a cut of every
-            swap that routes through it. The longer you lock, the larger your share of the same
-            rewards.
+            Stake for a share of a pool&rsquo;s rewards. Longer locks earn more.
           </p>
+          <FinePrint summary="How it works" className="mt-1 max-w-[62ch]">
+            <p>
+              Stake a token to earn a share of its pool, or provide liquidity and take a cut of every
+              swap that routes through it. The longer you lock, the larger your share of the same
+              rewards.
+            </p>
+          </FinePrint>
         </header>
         <VenuePoolIndex />
       </div>
@@ -432,7 +438,7 @@ function ToweliFarm() {
                 to="/toweli#yield-calculator"
                 className="inline-flex items-center gap-1.5 text-[12px] text-white/70 hover:text-white transition-colors"
               >
-                See what you&rsquo;d earn &mdash; estimate before connecting &#8594;
+                See what you&rsquo;d earn before connecting &#8594;
               </Link>
             </div>
           </div>
@@ -456,7 +462,7 @@ function ToweliFarm() {
             centralized so Community/Farm/future pages share one component. */}
         <WrongChainBanner
           className="mb-4"
-          message="Wrong network detected — switch to the canonical chain to stake, claim, or withdraw."
+          message="Wrong network. Switch chains to stake, claim or withdraw."
         />
         <m.div className="mb-8" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
           <h1 className="heading-luxury text-2xl md:text-3xl lg:text-4xl text-white tracking-tight mb-1">Farm</h1>
@@ -533,11 +539,16 @@ function ToweliFarm() {
             style={{ background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.25)' }}
           >
             <CardArt pageId="farm" idx={2} />
-            <p className="text-amber-200 text-[12px] leading-snug flex-1">
-              Your JBAC boost is not applied to your staked LP. The farm recalculates the boost only
-              when you stake, withdraw or exit, so LP staked before you acquired the NFT is still
-              earning at the unboosted rate until you refresh it.
-            </p>
+            <div className="text-amber-200 text-[12px] leading-snug flex-1">
+              <p>Your JBAC boost is not applied to your staked LP. Refresh it to earn the boosted rate.</p>
+              <FinePrint summary="Why">
+                <p>
+                  The farm recalculates the boost only
+                  when you stake, withdraw or exit, so LP staked before you acquired the NFT is still
+                  earning at the unboosted rate until you refresh it.
+                </p>
+              </FinePrint>
+            </div>
             <button
               onClick={() => lpFarm.refreshBoost()}
               disabled={lpFarm.isPending || lpFarm.isConfirming}

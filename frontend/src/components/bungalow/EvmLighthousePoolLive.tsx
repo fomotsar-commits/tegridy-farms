@@ -10,6 +10,7 @@ import { getTxUrl, getAddressUrl } from '../../lib/explorer';
 import { CopyButton } from '../ui/CopyButton';
 import { shortenAddress } from '../../lib/formatting';
 import { CardArt } from '../ui/CardArt';
+import { FinePrint } from '../ui/FinePrint';
 
 /**
  * The EVM lighthouse — live staking card for a bungalow whose pool is the
@@ -253,11 +254,15 @@ export function EvmLighthousePoolLive({ bungalow }: { bungalow: Bungalow & { sta
               </p>
             )}
 
-            <p className="text-[11px] text-white/55 mb-4">
-              No locks on this pool: stake and withdraw are free at any time. Rewards
-              accrue per second while a funded period runs, and claiming is separate
-              from withdrawing.
+            <p className="text-[11px] text-white/55 mb-1">
+              No locks on this pool: stake and withdraw are free at any time.
             </p>
+            <FinePrint summary="How it works" className="mb-3">
+              <p className="m-0">
+                Rewards accrue per second while a funded period runs, and claiming is separate
+                from withdrawing.
+              </p>
+            </FinePrint>
 
             {isConnected && user ? (
               !onPoolChain ? (

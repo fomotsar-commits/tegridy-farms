@@ -12,6 +12,7 @@ import { lpWriteMode, type LpWriteMode } from '../../../lib/launcher/solana/lpWr
 import { isLpKind } from '../../../lib/launcher/solana/write/lpKinds';
 import { Card, Notice, Row } from '../curve/ui';
 import { CardArt } from '../../ui/CardArt';
+import { FinePrint } from '../../ui/FinePrint';
 import { PendingTradeCard } from '../curve/PendingTradeCard';
 import type { GateRpc, LpKind, LpWriteApi } from '../curve/ports';
 import { PoolFinder, type PoolFinderHandle } from './PoolFinder';
@@ -19,6 +20,7 @@ import { parseMintInput } from '../../../lib/solana/lp/mintInput';
 import { YourPositions } from './YourPositions';
 import { HowItPays } from './HowItPays';
 import { LpGateBanner } from './LpGateBanner';
+import { RISK_SHORT } from './LpDisclosures';
 import { LpWritesProvider, useLpWrites } from './useLpWrites';
 import { browserLpReaders, type LpReaders } from './readers';
 
@@ -167,8 +169,7 @@ function LpRiskLine() {
   return (
     <p data-testid="lp-risk-line" className="relative isolate rounded-xl px-4 py-2.5 sm:py-3 text-amber-200 text-[13px] leading-snug sm:leading-relaxed" style={RISK_LINE_STYLE}>
       <CardArt pageId="solana-lp" idx={10} />
-      These pools run on a pool program whose admin-key changes have not had their own independent review yet. Put in only what
-      you can afford to lose. The full notice is below your positions.
+      {RISK_SHORT}
     </p>
   );
 }
@@ -182,8 +183,7 @@ function LpRiskLine() {
 function LpEarnLine() {
   return (
     <p data-testid="lp-earn-line" className="px-1 text-white/85 text-[13px] leading-snug">
-      Trading fees are added to your pool shares as trades happen, so there is nothing to claim. How you earn, and how the venue
-      earns, is under your positions.
+      Fees are added to your pool shares as trades happen. Nothing to claim.
     </p>
   );
 }
@@ -244,24 +244,27 @@ export function LpDisclosure({ programId, mode = 'off' }: { programId: string; m
   return (
     <section data-testid="lp-disclosure" aria-label="Before you provide liquidity">
       <Card title="Before you provide liquidity" art={<CardArt pageId="solana-lp" idx={0} />}>
-        {/* True of the pool program RUNNING on mainnet, built before the source gained create_lp_metadata.
-            It goes false the day that program is upgraded: reword it in the same release as the upgrade
-            (src/test/poolProgramCopy.test.ts fails that release until you do, and holds the wording). */}
-        <p className="text-white/80">
-          Our pool program is Raydium’s constant-product pool; we changed only its admin keys (see “The program” below).{' '}
-          <strong>Those changes have not had their own independent review yet.</strong> Put in only what you can afford to lose.
-        </p>
-        <p>
-          The team’s shared wallet (a Squads vault, two signatures needed) controls the program. It can switch off deposits,
-          withdrawals or swaps on any pool, change the fee rates of a fee tier, and upgrade the program.
-        </p>
-        <p>
-          Anyone can open a pool for any token, at any price. Jupiter does not send trades to these pools yet, so a pool earns fees
-          only from trades sent to it by this site’s own swap, or by someone using the pool program directly. When the price moves,
-          liquidity providers can end up with less than if they had just held both tokens.
-        </p>
+        <p className="text-white/80">{RISK_SHORT}</p>
         <Row label="Pool program" value={programId} />
-        <Notice>{DISCLOSURE_NOTICE[mode]}</Notice>
+        <FinePrint summary="Risks">
+          {/* True of the pool program RUNNING on mainnet, built before the source gained create_lp_metadata.
+              It goes false the day that program is upgraded: reword it in the same release as the upgrade
+              (src/test/poolProgramCopy.test.ts fails that release until you do, and holds the wording). */}
+          <p>
+            Our pool program is Raydium’s constant-product pool; we changed only its admin keys (see “The program” below).{' '}
+            <strong>Those changes have not had their own independent review yet.</strong> Put in only what you can afford to lose.
+          </p>
+          <p>
+            The team’s shared wallet (a Squads vault, two signatures needed) controls the program. It can switch off deposits,
+            withdrawals or swaps on any pool, change the fee rates of a fee tier, and upgrade the program.
+          </p>
+          <p>
+            Anyone can open a pool for any token, at any price. Jupiter does not send trades to these pools yet, so a pool earns fees
+            only from trades sent to it by this site’s own swap, or by someone using the pool program directly. When the price moves,
+            liquidity providers can end up with less than if they had just held both tokens.
+          </p>
+          <p>{DISCLOSURE_NOTICE[mode]}</p>
+        </FinePrint>
       </Card>
     </section>
   );

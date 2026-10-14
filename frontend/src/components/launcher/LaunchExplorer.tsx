@@ -17,6 +17,7 @@ import { Link } from 'react-router-dom';
 import type { Address } from 'viem';
 import type { LaunchTier } from '../../lib/launcher/factSheet';
 import { ArtCard } from '../ui/ArtCard';
+import { FinePrint } from '../ui/FinePrint';
 import { CardArt } from '../ui/CardArt';
 import {
   orderLaunches,
@@ -82,10 +83,14 @@ export function LaunchExplorer({ launches, outcomes, now }: LaunchExplorerProps)
         <div>
           <h2 className="text-lg font-semibold text-white">Launches &amp; outcomes</h2>
           <p className="text-white/50 text-xs mt-1 max-w-lg leading-relaxed">
-            Ordered by a published, deterministic score — tier, recency, and log-scaled on-chain
-            activity. Rank cannot be bought. Post-launch outcomes below are factual disclosures, not
-            safety judgements.
+            Ranked by a published score. Rank cannot be bought.
           </p>
+          <FinePrint className="max-w-lg">
+            <p>
+              Ordered by a published, deterministic score — tier, recency, and log-scaled on-chain
+              activity. Post-launch outcomes below are factual disclosures, not safety judgements.
+            </p>
+          </FinePrint>
         </div>
       </header>
 

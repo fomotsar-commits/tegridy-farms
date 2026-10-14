@@ -14,6 +14,7 @@ import {
 } from '../../lib/commerce/subscription';
 import { useCheckoutSubscription } from '../../hooks/useCheckoutSubscription';
 import { CardArt } from '../ui/CardArt';
+import { FinePrint } from '../ui/FinePrint';
 
 // Recurring billing as it actually exists on this venue.
 //
@@ -36,6 +37,10 @@ import { CardArt } from '../ui/CardArt';
 //
 // The consequence a payer has to see: clearing site data loses the record, not
 // the allowance. Revoking is what cancels.
+//
+// FEWER WORDS (owner, 2026-10-13). "What this actually authorises" is the
+// warning about the action and stays as it is; the terms card and the
+// allowance card each say their point in a line, with the rest in a FinePrint.
 
 const STORAGE_KEY = 'tegridy_subscription_draft_v1';
 
@@ -186,8 +191,7 @@ export function SubscriptionPanel() {
         <CardArt pageId="checkout" idx={14} />
         <h2 className="text-sm font-semibold text-white">Terms</h2>
         <p className="mt-1 text-[12px] leading-relaxed text-white/60">
-          These terms are YOUR record, kept in this browser. Nothing on chain stores them and nothing on chain
-          enforces them — the only on-chain facts are the allowance and your balance, read below.
+          Your own record, kept in this browser. Nothing on chain enforces it.
         </p>
 
         <div className="mt-3 grid gap-3 sm:grid-cols-2">
@@ -290,6 +294,13 @@ export function SubscriptionPanel() {
             ))}
           </div>
         </fieldset>
+
+        <FinePrint className="mt-1">
+          <p>
+            These terms are YOUR record, kept in this browser. Nothing on chain stores them and nothing on chain
+            enforces them — the only on-chain facts are the allowance and your balance, read below.
+          </p>
+        </FinePrint>
       </section>
 
       {subscription ? (
@@ -348,9 +359,8 @@ export function SubscriptionPanel() {
               <CardArt pageId="checkout" idx={17} />
               <h2 className="text-sm font-semibold text-white">Allowance</h2>
               <p className="mt-2 text-[13px] leading-relaxed text-white/75">
-                Granting sets the allowance to exactly{' '}
-                {formatScaled(grantAmount, subscription.tokenDecimals)} {subscription.tokenSymbol} — {draft.periodsAgreed}{' '}
-                charge(s), and no more. There is no unlimited option here.
+                Sets the allowance to exactly {formatScaled(grantAmount, subscription.tokenDecimals)}{' '}
+                {subscription.tokenSymbol} ({draft.periodsAgreed} charge(s)). No unlimited option.
               </p>
               <div className="mt-3 flex flex-wrap gap-2">
                 <button
@@ -378,8 +388,8 @@ export function SubscriptionPanel() {
           <CardArt pageId="checkout" idx={18} />
           <p className="text-[13px] leading-relaxed text-white/70">
             {address
-              ? 'Fill in a merchant address and a positive amount to see what a subscription on these terms would authorise. Nothing is evaluated against a wallet until then.'
-              : 'Connect a wallet to read the allowance and balance this would depend on. Nothing below is a statement about any wallet until then.'}
+              ? 'Enter a merchant address and an amount to see what this would authorise.'
+              : 'Connect a wallet to read the allowance and balance this depends on.'}
           </p>
         </section>
       )}

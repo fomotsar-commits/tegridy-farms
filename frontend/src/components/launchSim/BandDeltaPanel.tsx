@@ -13,6 +13,7 @@
 import type { BandTarget, SoftLever } from '../../lib/launchSim/simulate';
 import type { Band } from '../../lib/detection';
 import { CardArt } from '../ui/CardArt';
+import { FinePrint } from '../ui/FinePrint';
 
 const BAND_TITLE: Record<Band, string> = {
   'well-distributed': 'Well-distributed',
@@ -137,15 +138,18 @@ export function BandDeltaPanel({ targets }: { targets: BandTarget[] }) {
   return (
     <div>
       <h3 className="text-white font-semibold text-sm mb-1">What it takes to reach each band</h3>
-      <p className="text-white/50 text-xs mb-3 leading-relaxed">
-        Every item is derived from the same detection method buyers will see. Single-lever targets assume that one change
-        in isolation — because the signals interact, treat them as direction, not a recipe. Fix the hard blockers first.
-      </p>
+      <p className="text-white/50 text-xs mb-3 leading-relaxed">Fix the hard blockers first.</p>
       <div className="grid gap-3 sm:grid-cols-2">
         {targets.map((t, i) => (
           <TargetCard key={t.band} target={t} slot={i} />
         ))}
       </div>
+      <FinePrint>
+        <p>
+          Every item is derived from the same detection method buyers will see. Single-lever targets assume that one change
+          in isolation — because the signals interact, treat them as direction, not a recipe.
+        </p>
+      </FinePrint>
     </div>
   );
 }

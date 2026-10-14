@@ -159,7 +159,7 @@ export function NFTLendingSection() {
       <m.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ ease: EASE }}>
         <h2 className="heading-luxury text-xl md:text-2xl text-white mb-2">NFT Lending</h2>
         <p className="text-white/70 text-[13px]">
-          Borrow ETH against your NFTs or lend ETH and earn interest. P2P — no oracles, no liquidations.
+          Borrow ETH against NFTs, or lend and earn interest (less the protocol fee).
         </p>
       </m.div>
 
@@ -1006,7 +1006,7 @@ function MyLoansTab({ loanCount }: { loanCount: number }) {
       >
         <CardArt pageId="nft-finance" idx={19} />
         <p className="text-white/70 text-[13px]">No loans yet.</p>
-        <p className="text-white/70 text-[11px] mt-1">Browse available offers in the Borrow tab to get started, or create your own in the Lend tab!</p>
+        <p className="text-white/70 text-[11px] mt-1">Take an offer in the Borrow tab, or create one in the Lend tab.</p>
       </div>
     );
   }

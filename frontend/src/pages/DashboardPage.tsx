@@ -44,6 +44,7 @@ import { ReferralWidget } from '../components/ReferralWidget';
 import { PriceAlertWidget } from '../components/PriceAlertWidget';
 import { ArtImg } from '../components/ArtImg';
 import { CardArt } from '../components/ui/CardArt';
+import { FinePrint } from '../components/ui/FinePrint';
 import { useTowelie } from '../hooks/useTowelie';
 import { useTabListKeys } from '../hooks/useTabListKeys';
 import { usePortfolio } from '../hooks/usePortfolio';
@@ -148,10 +149,15 @@ function VenueDashboard() {
           Your positions
         </h1>
         <p className="text-white/75 text-[14px] md:text-[15px] leading-relaxed max-w-[62ch]">
-          Positions live in the room they were opened in. Each resident&apos;s pool is its own
-          token, on its own chain, read by its own panel. Open a room to see what you hold there.
-          The venue itself holds nothing on your behalf.
+          Open a room to see what you hold there.
         </p>
+        <FinePrint className="mt-1">
+          <p>
+            Positions live in the room they were opened in. Each resident&apos;s pool is its own
+            token, on its own chain, read by its own panel. The venue itself holds nothing on your
+            behalf.
+          </p>
+        </FinePrint>
       </header>
       <VenuePoolIndex />
     </div>
@@ -386,7 +392,7 @@ function ToweliDashboard() {
         {isWrongNetwork && (
           <div role="alert" aria-live="assertive" className="relative isolate mb-4 px-4 py-3 rounded-xl bg-warning/10 border border-warning/30 text-warning text-[13px] text-center">
             <CardArt pageId="dashboard" idx={17} />
-            Wrong network detected. Please switch to Ethereum Mainnet.
+            Wrong network. Switch to Ethereum Mainnet.
           </div>
         )}
         {/* Page header. The portfolio figure lives in <UnifiedPortfolio/> below, which
@@ -672,10 +678,8 @@ function ToweliDashboard() {
               >
                 <CardArt pageId="dashboard" idx={19} />
                 <p>
-                  Your staking position could not be read just now - the network did not
-                  answer. This is not a statement that you have nothing staked: anything
-                  you staked is still staked, and the contract is the record. Retry before
-                  acting on this panel.
+                  Your staking position could not be read just now. Retry before acting on
+                  this panel.
                 </p>
                 <button
                   type="button"
@@ -684,6 +688,12 @@ function ToweliDashboard() {
                 >
                   Retry
                 </button>
+                <FinePrint className="mt-1">
+                  <p>
+                    The network did not answer. This is not a statement that you have nothing
+                    staked: anything you staked is still staked, and the contract is the record.
+                  </p>
+                </FinePrint>
               </div>
             ) : (
               <m.div className="relative overflow-hidden rounded-xl glass-card-animated mb-10" style={{ border: '1px solid var(--color-purple-75)' }}
@@ -720,11 +730,15 @@ function ToweliDashboard() {
                   <div className="relative z-10 p-8 py-12 text-center" data-testid="dash-lp-unread">
                     <p className="text-amber-300 text-[15px] mb-2">Couldn't read your liquidity position</p>
                     <p className="text-white/70 text-[12px] max-w-sm mx-auto">
-                      A network read failed, so we can't show your TGLP, your pool share or what
-                      it redeems for. This is not a statement that you have none — anything you
-                      provided is still yours and the pair contract is the record. This refreshes
-                      automatically; reload before concluding anything here.
+                      This refreshes automatically; reload before concluding anything here.
                     </p>
+                    <FinePrint className="mt-1 max-w-sm mx-auto">
+                      <p>
+                        A network read failed, so we can't show your TGLP, your pool share or what
+                        it redeems for. This is not a statement that you have none — anything you
+                        provided is still yours and the pair contract is the record.
+                      </p>
+                    </FinePrint>
                   </div>
                 </div>
               </m.div>
@@ -767,8 +781,7 @@ function ToweliDashboard() {
                       <div className="mt-4 px-3 py-2 rounded-lg flex items-start gap-2" style={{ background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.25)' }}>
                         <span className="text-amber-300 text-[13px] leading-none" aria-hidden="true">⚠</span>
                         <p className="text-amber-200 text-[11px] leading-snug">
-                          Your JBAC boost is not applied to this staked LP, so the pending figure is
-                          accruing at the unboosted rate. Refresh it on the{' '}
+                          JBAC boost not applied: pending is accruing at the unboosted rate. Refresh it on the{' '}
                           <Link to="/earn/toweli" className="underline hover:text-amber-100">Farm page</Link>.
                         </p>
                       </div>
@@ -833,7 +846,7 @@ function ToweliDashboard() {
                 <div className="relative z-10 p-8 py-12 text-center">
                   <p className="text-white text-[15px] mb-2">Couldn’t load your loans</p>
                   <p className="text-white/70 text-[12px] max-w-sm mx-auto">
-                    A network read failed, so we can’t confirm your positions right now. This refreshes automatically — check back in a moment.
+                    A network read failed. This refreshes automatically.
                   </p>
                 </div>
               </m.div>
@@ -850,9 +863,14 @@ function ToweliDashboard() {
                     {myLoans.unreadCount === null
                       ? 'Part of the loan sweep did not answer, so we cannot say how many records are missing.'
                       : `${myLoans.unreadCount} loan ${myLoans.unreadCount === 1 ? 'record' : 'records'} could not be read.`}{' '}
-                    None of the records that did come back are yours - but this is not a
-                    statement that you have no loans. Reload before concluding anything here.
+                    Reload before concluding anything here.
                   </p>
+                  <FinePrint className="mt-1 max-w-sm mx-auto">
+                    <p>
+                      None of the records that did come back are yours - but this is not a
+                      statement that you have no loans.
+                    </p>
+                  </FinePrint>
                 </div>
               </m.div>
             ) : (
@@ -1065,14 +1083,19 @@ export function POLAccumulatorCard() {
           <span className="px-2 py-0.5 rounded text-[9px] font-semibold tracking-wider uppercase" style={badgeStyle}>{badge}</span>
         </div>
 
-        {/* The original promise. Kept verbatim — it is still the design intent,
-            and it is what the rest of the copy is measured against. */}
+        {/* The original promise: it is still the design intent, and it is what the
+            status is measured against. Its first clause stays on screen with the badge,
+            which carries the status; the rest of the promise and the status's own
+            sentences sit one press away. */}
         <p className="text-white text-[12px] leading-relaxed max-w-lg">
-          Protocol-Owned Liquidity will automatically accumulate LP positions from a share of swap fees, deepening TOWELI liquidity permanently and reducing reliance on external LPs.
+          Protocol-Owned Liquidity will automatically accumulate LP positions from a share of swap fees.
         </p>
 
         {deployed && (
-          <div className="mt-3 pt-3 border-t border-white/10 max-w-lg">
+          <FinePrint summary="Status" className="mt-2 max-w-lg">
+            <p className="text-white/70 text-[11px] leading-relaxed">
+              The aim: deepening TOWELI liquidity permanently and reducing reliance on external LPs.
+            </p>
             {wired ? (
               <p className="text-white/70 text-[11px] leading-relaxed">
                 Wired and earning: SwapFeeRouter routes {((shareBps ?? 0) / 100).toFixed(2)}% of each
@@ -1110,7 +1133,7 @@ export function POLAccumulatorCard() {
             >
               Verify on the block explorer: {POL_ACCUMULATOR_ADDRESS} ↗
             </a>
-          </div>
+          </FinePrint>
         )}
       </div>
     </m.div>
@@ -1261,8 +1284,7 @@ function OutstandingLoans({ loans, unreadCount }: {
               {unreadCount === null
                 ? 'Part of the loan sweep did not answer, so an unknown number of loan records are missing from this panel.'
                 : `${unreadCount} loan ${unreadCount === 1 ? 'record' : 'records'} could not be read.`}{' '}
-              The counts and totals below cover only the records that came back - this is
-              an incomplete view, not a full account of your positions. Reload before
+              The counts and totals below cover only the records that came back. Reload before
               acting on these figures.
             </div>
           )}

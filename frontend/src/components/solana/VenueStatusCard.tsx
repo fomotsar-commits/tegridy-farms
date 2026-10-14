@@ -3,6 +3,7 @@ import '../../lib/solanaPolyfill';
 import type { Ref } from 'react';
 import { CopyButton } from '../ui/CopyButton';
 import { CardArt } from '../ui/CardArt';
+import { FinePrint } from '../ui/FinePrint';
 import type { VenueStatus } from '../../lib/solana/cpswap/read';
 import { SPENT_PROGRAM_ID, hasProgramId } from '../../lib/solana/cpswap/program';
 import type { LpWriteMode } from '../../lib/launcher/solana/lpWriteFlag';
@@ -70,17 +71,22 @@ export function VenueStatusCard({ status, onRefresh, lpMode, feeSheetBelow = tru
           <button type="button" onClick={onRefresh} className={REFRESH}><span className="ring-words">Refresh</span></button>
         </div>
         <h2 className="heading-luxury text-xl text-white mb-2">Pools are open</h2>
-        <p className="text-white/80 text-[13px] leading-relaxed mb-3">
-          {status.config.disableCreatePool
-            ? `The AMM is deployed and its config exists, but opening new pools on fee tier ${status.config.index} is switched off by the pool program’s admin, so on chain anyone can only provide liquidity to pools that already exist.`
-            : 'The AMM is deployed and its config exists, so anyone can open a pool and provide liquidity on chain.'}{' '}
-          {VENUE_LP_LINE[lpMode](lpSection)}
-          {feeSheetBelow && ' Fees below are read from that config.'}
-        </p>
+        {status.config.disableCreatePool && (
+          <p className="text-white/80 text-[13px] leading-relaxed mb-2">New pools on fee tier {status.config.index} are switched off.</p>
+        )}
         <div className="flex flex-wrap gap-3 text-[12px]">
           <Addr label="Program" value={status.programId} />
           <Addr label="Config" value={status.config.address} />
         </div>
+        <FinePrint summary="Details" className="mt-2">
+          <p>
+            {status.config.disableCreatePool
+              ? `The AMM is deployed and its config exists, but opening new pools on fee tier ${status.config.index} is switched off by the pool program’s admin, so on chain anyone can only provide liquidity to pools that already exist.`
+              : 'The AMM is deployed and its config exists, so anyone can open a pool and provide liquidity on chain.'}{' '}
+            {VENUE_LP_LINE[lpMode](lpSection)}
+            {feeSheetBelow && ' Fees below are read from that config.'}
+          </p>
+        </FinePrint>
       </section>
     );
   }
@@ -137,9 +143,6 @@ export function VenueStatusCard({ status, onRefresh, lpMode, feeSheetBelow = tru
         <button type="button" onClick={onRefresh} className={REFRESH}><span className="ring-words">Refresh</span></button>
       </div>
       <h2 className="heading-luxury text-xl text-white mb-2">{body.title}</h2>
-      {body.lines.map((l) => (
-        <p key={l.slice(0, 24)} className="text-white/80 text-[13px] leading-relaxed mb-2">{l}</p>
-      ))}
 
       {body.spent && (
         <div className="mt-3 text-[12px]">
@@ -147,12 +150,17 @@ export function VenueStatusCard({ status, onRefresh, lpMode, feeSheetBelow = tru
         </div>
       )}
 
-      {!hasProgramId() && (
-        <p className="text-white/45 text-[11px] mt-3">
-          This site takes the id from <code className="font-mono">VITE_SOLANA_CPSWAP_PROGRAM</code> when
-          it is built.
-        </p>
-      )}
+      <FinePrint summary="Details" className="mt-2">
+        {body.lines.map((l) => (
+          <p key={l.slice(0, 24)}>{l}</p>
+        ))}
+        {!hasProgramId() && (
+          <p>
+            This site takes the id from <code className="font-mono">VITE_SOLANA_CPSWAP_PROGRAM</code> when
+            it is built.
+          </p>
+        )}
+      </FinePrint>
     </section>
   );
 }

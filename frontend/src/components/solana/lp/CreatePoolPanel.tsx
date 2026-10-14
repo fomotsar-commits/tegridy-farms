@@ -21,6 +21,7 @@ import { FundingNextStep } from './FundingNextStep';
 import { LpAmountPair, type LpSide } from './LpAmountPair';
 import { CoinRiskNotice, LpBeforeYouOpen, LpReviewDisclosure } from './LpDisclosures';
 import { PanelFrame } from './PanelFrame';
+import { FinePrint } from '../../ui/FinePrint';
 import { LOCKED_SHARES_TEXT, NOTES_BELOW, cannotFundText, coinExact, reviewOffWhy, sharePct, solAbout, solAboutUp, solExact, tokensAbout, unitsExact, useDebounced, useFlowReports, useSettledAlert, useWalletFacts } from './panelKit';
 import { POOL_RISK_CODES, createHeld, type CreateOffer, type PairFacts } from './offers';
 import { useLpWrites, type LpWrites } from './useLpWrites';
@@ -918,13 +919,15 @@ function CreateInner({
               Close
             </button>
           </div>
-          <p className="text-white/40 text-[10px]">
-            {!coin.native
-              ? `Your ${coin.symbol} is spent straight from your own ${coin.symbol} account. Nothing is wrapped.`
-              : wsolKept && facts?.kind === 'ok'
-                ? `You already hold ${unitsExact(facts.wsol.amount, 9)} wrapped SOL. None of it is spent.`
-                : 'Your SOL is wrapped into a token account for the opening, and that account is closed in the same transaction.'}
-          </p>
+          <FinePrint summary={`Your ${coin.symbol}`}>
+            <p>
+              {!coin.native
+                ? `Your ${coin.symbol} is spent straight from your own ${coin.symbol} account. Nothing is wrapped.`
+                : wsolKept && facts?.kind === 'ok'
+                  ? `You already hold ${unitsExact(facts.wsol.amount, 9)} wrapped SOL. None of it is spent.`
+                  : 'Your SOL is wrapped into a token account for the opening, and that account is closed in the same transaction.'}
+            </p>
+          </FinePrint>
         </>
       )}
       <div className="space-y-1.5" data-testid="lp-create-terms">

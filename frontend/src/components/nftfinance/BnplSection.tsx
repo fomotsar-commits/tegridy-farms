@@ -7,6 +7,7 @@ import { useBnplQuote } from '../../hooks/useBnplQuote';
 import { usePooledLendingVaults } from '../../hooks/usePooledLendingVault';
 import { isBnplLive, POOLED_VAULT_WRITTEN_TERMS } from '../../hooks/usePooledLendingConfig';
 import { CardArt } from '../ui/CardArt';
+import { FinePrint } from '../ui/FinePrint';
 
 // Buy-now-pay-later at the point of sale (#62).
 //
@@ -131,19 +132,29 @@ export function BnplSection() {
           Pay in instalments
         </h2>
         <p className="text-[12px] text-white/70 leading-relaxed" style={LABEL_STYLE}>
-          A buyer puts a deposit down, the lending pool fronts the rest, and the seller is paid in full immediately. The
-          token sits in the pool&rsquo;s escrow until the plan is cleared. There is no promotional rate and no interest-free
-          window: the financed part is a loan from the pool and it costs what the pool charges.
+          Pay a deposit; the pool lends the rest at what the pool charges.
         </p>
+        <FinePrint summary="How it works">
+          <p>
+            A buyer puts a deposit down, the lending pool fronts the rest, and the seller is paid in full immediately. The
+            token sits in the pool&rsquo;s escrow until the plan is cleared. There is no promotional rate and no interest-free
+            window: the financed part is a loan from the pool and it costs what the pool charges.
+          </p>
+        </FinePrint>
       </div>
 
       <RiskBanner variant="danger" art={<CardArt pageId="nft-finance" idx={24} />}>
-        <span className="font-semibold">Missing a payment costs you the token.</span> If an instalment goes unpaid past
-        its grace period, anyone may wind the plan up: the escrowed token is sold through the pool&rsquo;s liquidation route,
-        the pool is repaid first, and only what is left over comes back to you. Payments you have already made reduce
-        the debt, so they sit inside that leftover rather than being lost ahead of it — but a sale below the debt returns
-        nothing. Nothing here reminds you or pays for you; this venue runs no keeper, and a due date passes whether or
-        not anything notices.
+        <span className="font-semibold">Missing a payment costs you the token.</span>
+        <FinePrint summary="Risks">
+          <p>
+            If an instalment goes unpaid past
+            its grace period, anyone may wind the plan up: the escrowed token is sold through the pool&rsquo;s liquidation route,
+            the pool is repaid first, and only what is left over comes back to you. Payments you have already made reduce
+            the debt, so they sit inside that leftover rather than being lost ahead of it — but a sale below the debt returns
+            nothing. Nothing here reminds you or pays for you; this venue runs no keeper, and a due date passes whether or
+            not anything notices.
+          </p>
+        </FinePrint>
       </RiskBanner>
 
       {!live && (
@@ -155,11 +166,13 @@ export function BnplSection() {
           <p className="text-[13px] font-semibold text-amber-300 mb-1" style={LABEL_STYLE}>
             The instalment desk is not deployed.
           </p>
-          <p className="text-[12px] text-white/70 leading-relaxed" style={LABEL_STYLE}>
-            {desk.detail} No listing can be made and no plan can be opened. The estimator below runs entirely in your
-            browser against the terms written in the contract source, so you can see what a plan would cost — it is not
-            a quote from a live desk, and no live desk exists to give one.
-          </p>
+          <FinePrint summary="Details">
+            <p>
+              {desk.detail} No listing can be made and no plan can be opened. The estimator below runs entirely in your
+              browser against the terms written in the contract source, so you can see what a plan would cost — it is not
+              a quote from a live desk, and no live desk exists to give one.
+            </p>
+          </FinePrint>
         </div>
       )}
 

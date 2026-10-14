@@ -32,6 +32,7 @@ const BnplSection = lazy(() =>
 );
 import { ArtImg } from '../components/ArtImg';
 import { CardArt } from '../components/ui/CardArt';
+import { FinePrint } from '../components/ui/FinePrint';
 import { FeatureNotDeployed } from '../components/ui/FeatureNotDeployed';
 import { PageSkeleton } from '../components/PageSkeleton';
 import { ShieldPanel } from '../components/shield/ShieldPanel';
@@ -61,35 +62,42 @@ const SECTIONS: { key: Section; label: string; subtitle?: string }[] = [
 // Per-section wallet-gate copy. Without this, every disconnected tab rendered
 // the identical generic ConnectPrompt, so switching tabs looked broken (the
 // body never changed). Each section now reflects what that surface does.
-const SECTION_PROMPTS: Record<Section, { title: string; description: string }> = {
+// `description` is the one short visible line; `more` (when set) is the longer
+// original, one press away in a FinePrint.
+const SECTION_PROMPTS: Record<Section, { title: string; description: string; more?: string }> = {
   lending: {
     title: 'Connect to lend ETH against staking positions',
-    description:
+    description: 'Peer-to-peer. 1-hour grace period, no liquidation auctions.',
+    more:
       'Lend ETH against staked-TOWELI position NFTs, borrow against your own staking NFT, or restake for bonus rewards. 1-hour grace period, no liquidation auctions — peer-to-peer.',
   },
   nftlending: {
     title: 'Connect to borrow against your NFTs',
-    description:
-      'Use JBAC, Nakamigos, or GNSS NFTs as collateral to borrow ETH. No oracles, peer-to-peer terms you set yourself.',
+    description: 'No oracles. Peer-to-peer terms you set yourself.',
+    more: 'Use JBAC, Nakamigos, or GNSS NFTs as collateral to borrow ETH.',
   },
   amm: {
     title: 'Connect to trade NFTs on bonding curves',
-    description:
+    description: 'Trade instantly, or provide liquidity and earn trading fees.',
+    more:
       'Buy and sell NFTs instantly against AMM pools, or provide liquidity to a collection and earn trading fees.',
   },
   pooled: {
     title: 'Pooled lending against one collection at a time',
-    description:
+    description: 'Isolated per collection. No pool is deployed yet.',
+    more:
       'Deposit WETH into a single collection’s pool and borrowers draw against it instantly. Isolated per collection, so a loss on one reaches only the depositors who chose it. No pool is deployed yet.',
   },
   bnpl: {
     title: 'Buy an NFT in instalments',
-    description:
+    description: 'Missing a payment costs you the token. Not deployed yet.',
+    more:
       'A deposit now, three payments after, and the token in escrow until the plan clears. Missing a payment costs you the token. The desk is not deployed yet.',
   },
   launchpad: {
     title: 'Connect to the NFT launchpad',
-    description:
+    description: 'Launch an ERC-721 collection, then seed a bonding-curve pool.',
+    more:
       'Launch ERC-721 collections with allowlists, dutch auctions, reveals and royalties — then seed a bonding-curve pool from the NFT AMM tab.',
   },
 };
@@ -98,28 +106,28 @@ const introCards = () => [
   {
     key: 'lending' as Section,
     title: 'Token Lending',
-    desc: 'Lend ETH against staking positions, borrow using your staked NFTs, and restake for bonus rewards.',
+    desc: 'Lend or borrow ETH against staking NFTs, and restake.',
     icon: 'M2.25 18.75a60.07 60.07 0 0115.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 013 6h-.75m0 0v-.375c0-.621.504-1.125 1.125-1.125H20.25M2.25 6v9m18-10.5v.75c0 .414.336.75.75.75h.75m-1.5-1.5h.375c.621 0 1.125.504 1.125 1.125v9.75c0 .621-.504 1.125-1.125 1.125h-.375m1.5-1.5H21a.75.75 0 00-.75.75v.75m0 0H3.75m0 0h-.375a1.125 1.125 0 01-1.125-1.125V15m1.5 1.5v-.75A.75.75 0 003 15h-.75M15 10.5a3 3 0 11-6 0 3 3 0 016 0zm3 0h.008v.008H18V10.5zm-12 0h.008v.008H6V10.5z',
     art: pageArt('nft-finance', 1),
   },
   {
     key: 'nftlending' as Section,
     title: 'NFT Lending',
-    desc: 'Borrow ETH using your NFTs (JBAC, Nakamigos, GNSS) as collateral. No oracles needed.',
+    desc: 'Borrow ETH against JBAC, Nakamigos or GNSS NFTs.',
     icon: 'M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4',
     art: pageArt('nft-finance', 2),
   },
   {
     key: 'amm' as Section,
     title: 'NFT AMM',
-    desc: 'Trade NFTs instantly via bonding curve pools. Provide liquidity and earn fees.',
+    desc: 'Trade NFTs on bonding curves, or provide liquidity for fees.',
     icon: 'M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z',
     art: pageArt('nft-finance', 3),
   },
   {
     key: 'launchpad' as Section,
     title: 'Launchpad',
-    desc: 'Launch ERC-721 collections with allowlists, dutch auctions, reveals and royalties — then seed a bonding-curve pool from the NFT AMM tab.',
+    desc: 'Launch an ERC-721 collection, then seed a bonding-curve pool.',
     icon: 'M15.59 14.37a6 6 0 01-5.84 7.38v-4.8m5.84-2.58a14.98 14.98 0 006.16-12.12A14.98 14.98 0 009.631 8.41m5.96 5.96a14.926 14.926 0 01-5.841 2.58m-.119-8.54a6 6 0 00-7.381 5.84h4.8m2.581-5.84a14.927 14.927 0 00-2.58 5.84m2.699 2.7c-.103.021-.207.041-.311.06a15.09 15.09 0 01-2.448-2.448 14.9 14.9 0 01.06-.312m-2.24 2.39a4.493 4.493 0 00-1.757 4.306 4.493 4.493 0 004.306-1.758M16.5 9a1.5 1.5 0 11-3 0 1.5 1.5 0 013 0z',
     art: pageArt('nft-finance', 4),
   },
@@ -222,7 +230,7 @@ export default function LendingPage() {
               the painting. Force white + a dark scrim inline so it stays legible. */}
           <h1 className="heading-luxury text-2xl md:text-3xl lg:text-4xl mb-2 tracking-tight" style={{ color: '#ffffff', textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>NFT Finance</h1>
           <p className="text-white max-w-md mx-auto text-[14px]" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>
-            Peer-to-peer NFT lending, an NFT AMM, and a launchpad — no oracles, terms you set yourself.
+            Peer-to-peer NFT lending, an NFT AMM and a launchpad.
           </p>
         </m.div>
 
@@ -380,6 +388,11 @@ export default function LendingPage() {
             <CardArt pageId="nft-finance" idx={5} />
             <p className="text-white text-[13px] font-semibold mb-0.5">{SECTION_PROMPTS[section].title}</p>
             <p className="text-white/70 text-[12px] leading-relaxed">{SECTION_PROMPTS[section].description}</p>
+            {SECTION_PROMPTS[section].more && (
+              <FinePrint summary="Details" className="text-left">
+                <p>{SECTION_PROMPTS[section].more}</p>
+              </FinePrint>
+            )}
           </m.div>
         )}
 

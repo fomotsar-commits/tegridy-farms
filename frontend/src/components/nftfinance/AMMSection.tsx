@@ -33,6 +33,7 @@ import { useSafeConnectModal } from '../../hooks/useSafeConnectModal';
 import { useReceiptOutcome } from '../../hooks/useReceiptOutcome';
 import { artImgProps } from '../../lib/artSrcSet';
 import { CardArt } from '../ui/CardArt';
+import { FinePrint } from '../ui/FinePrint';
 import { noteReplacement } from '../../lib/txErrors';
 
 // ─── Constants ────────────────────────────────────────────────────
@@ -2586,7 +2587,10 @@ function CreatePoolTab({ deployed }: { deployed: boolean }) {
 
                   {poolType === 2 && (
                     <RiskBanner variant="info">
-                      TRADE pools are exposed to inventory risk. If the NFT floor price drops, your pool may accumulate NFTs worth less than the ETH you deposited. This is similar to impermanent loss in token AMMs.
+                      <span className="font-semibold">Inventory risk:</span> if the NFT floor drops, your pool may hold NFTs worth less than the ETH you deposited.
+                      <FinePrint summary="Details">
+                        <p>TRADE pools are exposed to inventory risk. If the NFT floor price drops, your pool may accumulate NFTs worth less than the ETH you deposited. This is similar to impermanent loss in token AMMs.</p>
+                      </FinePrint>
                     </RiskBanner>
                   )}
                 </div>
@@ -2870,7 +2874,7 @@ function MyPoolsTab({ deployed }: { deployed: boolean }) {
               </svg>
             </div>
             <p className="text-sm text-white mb-1">No pools tracked yet</p>
-            <p className="text-xs text-white">You haven't created any pools yet. Go to Create Pool to get started, or enter a pool address above to track an existing one.</p>
+            <p className="text-xs text-white">Create one, or enter a pool address above to track it.</p>
           </div>
         </ArtCard>
       ) : (

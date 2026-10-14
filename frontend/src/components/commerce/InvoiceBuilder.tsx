@@ -20,6 +20,7 @@ import {
 import { CopyButton } from '../ui/CopyButton';
 import { ProofOfPaymentPanel } from './ProofOfPaymentPanel';
 import { CardArt } from '../ui/CardArt';
+import { FinePrint } from '../ui/FinePrint';
 
 // The merchant's side: SIGN a debt, hand out the link, then read the chain.
 //
@@ -59,6 +60,10 @@ import { CardArt } from '../ui/CardArt';
 // this component runs the SAME verifier the buyer will run, against the same
 // document, before it prints a link. A link that would fail in the buyer's
 // browser is never handed out.
+//
+// FEWER WORDS (owner, 2026-10-13). Each card says its point in a line; the why
+// (no payee field, no fiat, the short link's weakness, the callback's limits)
+// sits in a FinePrint at the bottom of the card, verbatim.
 
 /** Whole-token string → smallest units, exactly. Null on anything lossy. */
 function toSmallestUnits(whole: string, decimals: number): bigint | null {
@@ -258,10 +263,7 @@ export function InvoiceBuilder({ fetchImpl }: { fetchImpl?: typeof fetch }) {
         <CardArt pageId="checkout" idx={8} />
         <h2 className="text-sm font-semibold text-white">Sign an invoice</h2>
         <p className="mt-1 text-[12px] leading-relaxed text-white/60">
-          The payee is the wallet you sign with. There is no field for it, so an invoice can only ever name
-          you. The amount is denominated in the asset you pick and in nothing else: a fiat price would have to
-          be converted at a rate nobody agreed to. Nothing on this venue stores what you sign; the link IS the
-          invoice.
+          You are the payee. The signed link is the invoice.
         </p>
 
         <div className="mt-3 grid gap-3 sm:grid-cols-2">
@@ -357,10 +359,23 @@ export function InvoiceBuilder({ fetchImpl }: { fetchImpl?: typeof fetch }) {
           <p className="mt-2 text-[12px] leading-relaxed text-amber-200/85">
             Signed payment links are minted on {MINTABLE_CHAIN_NAMES} in this build. Your wallet is on{' '}
             {walletChainId === undefined ? 'a chain this build does not serve' : getChainLabel(walletChainId)}.
-            A link minted elsewhere would name a settlement asset this venue has not verified on that chain, and
-            a buyer could never pay it.
           </p>
         ) : null}
+
+        <FinePrint className="mt-1">
+          <p>
+            The payee is the wallet you sign with. There is no field for it, so an invoice can only ever name
+            you. The amount is denominated in the asset you pick and in nothing else: a fiat price would have to
+            be converted at a rate nobody agreed to. Nothing on this venue stores what you sign; the link IS the
+            invoice.
+          </p>
+          {address && !chainIsMintable ? (
+            <p>
+              A link minted elsewhere would name a settlement asset this venue has not verified on that chain, and
+              a buyer could never pay it.
+            </p>
+          ) : null}
+        </FinePrint>
       </section>
 
       {mint.kind === 'rejected' ? (
@@ -421,12 +436,16 @@ export function InvoiceBuilder({ fetchImpl }: { fetchImpl?: typeof fetch }) {
           </div>
           {shared ? <p className="mt-2 text-[11px] text-white/50">Handed to your device's share sheet.</p> : null}
           <p className="mt-3 break-all text-[13px] leading-relaxed text-white/75">
-            This link IS the invoice. It was signed by {mint.invoice.merchant} and carries every figure a buyer
-            will sign against — {formatScaled(mint.invoice.settleAmount, mint.invoice.settleDecimals)}{' '}
-            {mint.invoice.settleSymbol} on chain {mint.invoice.chainId}. Nothing on this venue stores it: if you
-            lose the link, sign a new one. It is payable until{' '}
+            {formatScaled(mint.invoice.settleAmount, mint.invoice.settleDecimals)} {mint.invoice.settleSymbol} on
+            chain {mint.invoice.chainId}, signed by {mint.invoice.merchant}. Payable until{' '}
             {new Date(mint.invoice.expiresAt * 1000).toISOString()}.
           </p>
+          <p className="mt-1 text-[12px] leading-relaxed text-amber-200/85">
+            Nothing on this venue stores it: if you lose the link, sign a new one.
+          </p>
+          <FinePrint className="mt-1">
+            <p>This link IS the invoice. It carries every figure a buyer will sign against.</p>
+          </FinePrint>
         </section>
       ) : null}
 
@@ -445,9 +464,7 @@ export function InvoiceBuilder({ fetchImpl }: { fetchImpl?: typeof fetch }) {
           {showStore ? 'Hide the short-link option' : 'Also publish a short link'}
         </button>
         <p className="mt-2 text-[12px] leading-relaxed text-white/60">
-          A short <code className="text-white/80">/checkout?invoice=…</code> link is nicer to paste and is
-          strictly weaker: it needs this deployment's invoice store to answer, and it can 404 on a link that has
-          already gone out. The signed link above needs nothing.
+          Optional. The signed link above needs nothing.
         </p>
 
         {showStore ? (
@@ -463,10 +480,7 @@ export function InvoiceBuilder({ fetchImpl }: { fetchImpl?: typeof fetch }) {
               />
             </label>
             <p className="text-[11px] leading-relaxed text-amber-200/80">
-              The callback is ONE signed POST, sent inline when a payment is reported. This venue runs no
-              keeper, so a failed delivery is never retried — poll the claims list below rather than depending
-              on it. If no signing secret is configured on the deployment, nothing is sent at all, because an
-              unsigned callback is one anybody could forge.
+              Sent once and never retried. Check reported payments yourself.
             </p>
             <button
               type="button"
@@ -478,6 +492,22 @@ export function InvoiceBuilder({ fetchImpl }: { fetchImpl?: typeof fetch }) {
             </button>
           </div>
         ) : null}
+
+        <FinePrint className="mt-1">
+          <p>
+            A short <code className="text-white/80">/checkout?invoice=…</code> link is nicer to paste and is
+            strictly weaker: it needs this deployment's invoice store to answer, and it can 404 on a link that has
+            already gone out.
+          </p>
+          {showStore ? (
+            <p>
+              The callback is ONE signed POST, sent inline when a payment is reported. This venue runs no
+              keeper, so a failed delivery is never retried — poll the claims list below rather than depending
+              on it. If no signing secret is configured on the deployment, nothing is sent at all, because an
+              unsigned callback is one anybody could forge.
+            </p>
+          ) : null}
+        </FinePrint>
       </section>
 
       {publish.kind === 'failed' ? (
@@ -488,7 +518,9 @@ export function InvoiceBuilder({ fetchImpl }: { fetchImpl?: typeof fetch }) {
             The short-link store is not on this deployment. The signed link above works without it.
           </p>
           {publish.operatorStep ? (
-            <p className="mt-2 text-[11px] leading-relaxed text-white/55">Operator: {publish.operatorStep}</p>
+            <FinePrint summary="For the operator" className="mt-1">
+              <p>Operator: {publish.operatorStep}</p>
+            </FinePrint>
           ) : null}
         </section>
       ) : null}

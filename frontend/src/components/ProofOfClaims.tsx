@@ -108,7 +108,7 @@ export function ProofOfClaims() {
         <span className="text-[10px] uppercase tracking-wider" style={{ color: '#22c55e' }}>live on-chain</span>
       </div>
       <p className="text-[12px] text-text-secondary mb-2">
-        Every number below is read straight from the contracts right now — tap any row to check it yourself on Etherscan.
+        Read live from the contracts. Tap a row to check it on Etherscan.
       </p>
       <div className="space-y-0.5">
         {rows.map((r) => (
