@@ -287,6 +287,11 @@ describe('the public tier comes first on the fee sheet, from the same read', () 
     expect(stat('Open a pool')).toBe('0.15 SOL');
     expect(pub).toHaveTextContent('tier 1, the public tier');
     expect(pub).toHaveTextContent('Every pool opened from this site is on this tier.');
+    // Fewer words: the rates stay on the card, how they are read sits in a closed drop-down.
+    const how = within(pub).getByText(/Every pool opened from this site is on this tier\./);
+    expect(how.closest('details')).not.toBeNull();
+    expect(how).not.toBeVisible();
+    expect(within(pub).getByText('Trader pays')).toBeVisible();
     // Tier 1 charges no creator fee, so the public part says nothing about one.
     expect(pub).not.toHaveTextContent(/creator/i);
     expect(pub.compareDocumentPosition(within(sheet).getByTestId('fee-sheet-launch')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
@@ -299,6 +304,8 @@ describe('the public tier comes first on the fee sheet, from the same read', () 
     await waitFor(() => expect(screen.getByText(/Pools are open/i)).toBeInTheDocument());
     const pub = within(screen.getByRole('region', { name: 'Fee sheet' })).getByTestId('fee-sheet-public');
     expect(pub).toHaveTextContent('The public fee tier could not be read just now');
+    expect(within(pub).getByRole('heading', { name: 'The public fee tier could not be read just now' })).toBeVisible();
+    expect(within(pub).getByText(/rather than a guess/).closest('details')).not.toBeNull();
     expect(pub.textContent).not.toMatch(/\d\s*%|\d\s*SOL\b/);
     expect(screen.getByText('0.3%')).toBeInTheDocument();
   });

@@ -314,23 +314,27 @@ function PublicTierFees({ read }: { read: PublicTierRead }) {
             {charged && <Stat label="Creator gets" value={feeRateText(cost.creatorFeeRate)} sub="on top, to the pool’s creator" />}
             <Stat label="Open a pool" value={`${solOf(config.createPoolFee)} SOL`} sub={`fee on tier ${config.index}; account deposits extra`} />
           </div>
-          <p className="text-white/70 text-[13px] leading-relaxed">
-            These are the live <code className="font-mono text-white/85">AmmConfig</code> rates of fee tier {config.index}, the
-            public tier, read from the chain when this page loads. Every pool opened from this site is on this tier.
-            {config.creatorFeeRate > 0n && !charged && (
-              <>
-                {' '}A pool opened on it from elsewhere can switch on the tier&rsquo;s {feeRateText(config.creatorFeeRate)} creator fee
-                as well: each pool&rsquo;s card says what that pool charges.
-              </>
-            )}
-          </p>
+          <FinePrint summary="How it works" className="mt-2">
+            <p>
+              These are the live <code className="font-mono text-white/85">AmmConfig</code> rates of fee tier {config.index}, the
+              public tier, read from the chain when this page loads. Every pool opened from this site is on this tier.
+              {config.creatorFeeRate > 0n && !charged && (
+                <>
+                  {' '}A pool opened on it from elsewhere can switch on the tier&rsquo;s {feeRateText(config.creatorFeeRate)} creator fee
+                  as well: each pool&rsquo;s card says what that pool charges.
+                </>
+              )}
+            </p>
+          </FinePrint>
         </>
       ) : (
-        <p className="text-white/70 text-[13px] leading-relaxed">
-          {read.kind === 'absent'
-            ? 'There is no public fee tier on chain to read, so no rate is shown for it.'
-            : 'The chain did not answer for the public tier, so this page shows no rate for it rather than a guess.'}
-        </p>
+        <FinePrint summary="Why no fee" className="mt-2">
+          <p>
+            {read.kind === 'absent'
+              ? 'There is no public fee tier on chain to read, so no rate is shown for it.'
+              : 'The chain did not answer for the public tier, so this page shows no rate for it rather than a guess.'}
+          </p>
+        </FinePrint>
       )}
     </div>
   );

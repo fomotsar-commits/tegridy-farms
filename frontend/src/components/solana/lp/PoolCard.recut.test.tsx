@@ -142,6 +142,8 @@ describe('the pool card reads like a pool', () => {
     expect(rowValue(card, 'Of that fee')).toBe('LPs keep 0.840% of each trade, the venue 0.160%');
     expect(rowValue(card, 'Paired with')).toBe('SOL');
     expect(card).toHaveTextContent('LPs’ share of fees is not paid out separately: it stays in the pool, so each pool share is worth a little more after every trade.');
+    // How an LP is paid stays on the card, never only in a drop-down.
+    expect(within(card).getByText(/LPs’ share of fees is not paid out separately/)).toBeVisible();
     expect(card).toHaveTextContent('Deposits: the checks pass');
     // Fewer words (#803): the notice stays on the card, the reassurance sits in the drop-down.
     expect(within(card).getByText('Adding liquidity here is not switched on yet.')).toBeVisible();
