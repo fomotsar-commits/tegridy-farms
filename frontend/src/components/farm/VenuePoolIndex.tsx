@@ -89,16 +89,9 @@ export function VenuePoolIndex() {
     terms: poolShape(b),
   }));
 
-  // ⚠️ TOWELI IS A ROW, NOT A FOOTNOTE, AND THAT IS THE WHOLE POINT OF THE PAGE.
-  // The first cut of this component listed the eleven registry pools and then
-  // gave Towelie its own "Open the Towelie bungalow →" link underneath — which
-  // is the exact favouritism this page exists to end, just wearing a smaller
-  // font. Towelie is one resident of thirteen. Its pool is a peer.
-  //
-  // It needs a hand-written entry only because its staking program predates the
-  // registry: every other resident carries a `stakePool`, while TOWELI's is
-  // TEGRIDY_STAKING_ADDRESS in constants.ts (the ladder the classic farm reads).
-  // Same shape, same lock terms, different place of declaration.
+  // TOWELI is a row like every other resident's, never a footnote. Its staking
+  // program predates the registry, so its row is built here from
+  // TEGRIDY_STAKING_ADDRESS (constants.ts) instead of a registry `stakePool`.
   const toweli = BUNGALOWS.find((b) => b.id === DEFAULT_BUNGALOW_ID);
   if (toweli && isDeployed(TEGRIDY_STAKING_ADDRESS)) {
     rows.push({
