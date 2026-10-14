@@ -1,7 +1,7 @@
 // The swap form's one line about the 24h average: what it says in each state, that it says
 // "above" or "below" and never a judgement, and that a read that failed is said as that.
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { act, render, screen } from '@testing-library/react';
 import { SOL_MINT, USDC_MINT } from '../../lib/solana';
 import { PairAverageLine, aboveBelowText, averageLineText, averagePriceText, type PairAverageTrade } from './PairAverageLine';
 
@@ -59,6 +59,27 @@ describe('PairAverageLine', () => {
     expect(box).toHaveTextContent(/at least 20 trades and \$1,000 of trading in 24 hours/);
     expect(box).toHaveTextContent(/never stops or changes a trade/);
     expect(box.textContent ?? '').not.toMatch(/fair|good|—/i);
+  });
+
+  it('a read that failed is tried again after 30 seconds; a number, after 2 minutes', async () => {
+    vi.useFakeTimers();
+    try {
+      h.fetch.mockRejectedValueOnce(new TypeError('Failed to fetch')).mockResolvedValue(baylaInSol);
+      render(<PairAverageLine trade={buyBayla} />);
+      const line = () => screen.getByTestId('pair-average-line').textContent;
+      await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+      expect(line()).toBe('BAYLA 24h average: could not be read');
+      await act(async () => { await vi.advanceTimersByTimeAsync(29_000); });
+      expect(h.fetch).toHaveBeenCalledTimes(1);
+      await act(async () => { await vi.advanceTimersByTimeAsync(1_000); });
+      expect(line()).toBe('BAYLA 24h average: 0.000005 SOL · this trade 10.0% above');
+      await act(async () => { await vi.advanceTimersByTimeAsync(119_000); });
+      expect(h.fetch).toHaveBeenCalledTimes(2);
+      await act(async () => { await vi.advanceTimersByTimeAsync(1_000); });
+      expect(h.fetch).toHaveBeenCalledTimes(3);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('a read that threw is "could not be read"', async () => {

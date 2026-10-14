@@ -15,6 +15,8 @@ import {
 
 /** Read again this often while on screen: the window moves. */
 const REFRESH_MS = 120_000;
+/** A read that failed (most often the keyless feed's rate limit) is tried again sooner. */
+export const RETRY_UNREAD_MS = 30_000;
 
 export interface PairAverageTrade {
   payMint: string;
@@ -57,14 +59,18 @@ function PairAverageInner({ trade, testId }: { trade: PairAverageTrade; testId: 
   const { payMint, buyMint } = trade;
   useEffect(() => {
     const ctrl = new AbortController();
+    let next: ReturnType<typeof setTimeout> | undefined;
     const read = () => {
       fetchPairAverage(payMint, buyMint, ctrl.signal)
-        .then((v) => { if (!ctrl.signal.aborted) setState(v); })
-        .catch(() => { if (!ctrl.signal.aborted) setState({ kind: 'unread' }); });
+        .catch((): PairAverage => ({ kind: 'unread' }))
+        .then((v) => {
+          if (ctrl.signal.aborted) return;
+          setState(v);
+          next = setTimeout(read, v.kind === 'unread' ? RETRY_UNREAD_MS : REFRESH_MS);
+        });
     };
-    const first = setTimeout(read, 0);
-    const again = setInterval(read, REFRESH_MS);
-    return () => { clearTimeout(first); clearInterval(again); ctrl.abort(); };
+    next = setTimeout(read, 0);
+    return () => { clearTimeout(next); ctrl.abort(); };
   }, [payMint, buyMint]);
 
   return (
