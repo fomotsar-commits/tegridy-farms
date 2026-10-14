@@ -182,7 +182,7 @@ vi.mock('@solana/wallet-adapter-react', () => ({
 import SolanaSwapPage from './SolanaSwapPage';
 import { getActivity } from '../lib/solanaActivity';
 import { OWN_ROUTE_COPY } from '../lib/solana/swap/ownPoolRoute';
-import { NOT_TEST_RUN_COPY } from '../lib/solana/swap/jupiterFeeRetry';
+import { NOT_TEST_RUN_COPY, REFUSED_COPY } from '../lib/solana/swap/jupiterFeeRetry';
 import { SWAP_PENDING_SCOPE, readPendingTrades, savePendingTrade } from '../components/solana/curve/pendingTrade';
 import { DECLINED_IN_WALLET } from '../lib/solana/swap/walletCopy';
 
@@ -265,23 +265,29 @@ const backOnTheForm = () => {
   expect(screen.queryByRole('button', { name: 'Close' })).toBeNull();
   expect(amountBox()).toBeInTheDocument();
 };
+/** Every swap in our pool stops on its review (owner, 2026-10-13): its "Sign in wallet" is the press that asks the wallet. */
+const signOnReview = async () => {
+  fireEvent.click(await screen.findByRole('button', { name: 'Sign in wallet' }, { timeout: 20_000 }));
+};
 
 describe('our own pool pays more: the trade goes there', () => {
-  it('ONE press: Buy hands the swap in our pool to the wallet, with no review screen and no second button', async () => {
+  it('Buy ALWAYS stops on the review (owner, 2026-10-13): the wallet is asked only from "Sign in wallet"', async () => {
     const buy = await readyToBuy();
     // The page already shows the route and its figure: our pool's 1.01, not Jupiter's 1.
     await waitFor(() => expect(routeLine()).toMatch(/Our pool pays 1% more than Jupiter\./));
     expect(receive()).toBe('1.01');
     expect(screen.getByTestId('own-pool-fee').textContent).toMatch(/1% a trade/);
 
+    // A swap with nothing unusual about it, a fresh quote at the figure the form showed: still the review.
     fireEvent.click(buy);
-    // The wallet is asked without another press, and the review never took the form's place.
-    await waitFor(() => expect(h.submitPrepared).toHaveBeenCalledTimes(1));
-    expect(screen.queryByText('Review your swap')).toBeNull();
-    expect(screen.queryByRole('button', { name: 'Sign in wallet' })).toBeNull();
-    expect((h.submitPrepared.mock.calls[0]![2] as PreparedTx).kind).toBe('venue-swap');
+    expect(await screen.findByText('Review your swap', {}, { timeout: 20_000 })).toBeInTheDocument();
+    await new Promise((r) => setTimeout(r, 300));
+    expect(h.submitPrepared).not.toHaveBeenCalled();
     expect(h.buildSwapTransaction).not.toHaveBeenCalled();
     expect(h.sendTransaction).not.toHaveBeenCalled();
+    // The review names the one cost the form does not show: this buy opens a token account.
+    expect(screen.getByText('One-time deposit for your new token account (it stays in that account)')).toBeInTheDocument();
+    expect(h.toast.info).not.toHaveBeenCalled();
 
     // Built against that pool, for the pair and amount on screen, and held to Jupiter's FRESH quote.
     expect(h.prepareVenueSwap).toHaveBeenCalledTimes(1);
@@ -291,8 +297,10 @@ describe('our own pool pays more: the trade goes there', () => {
     expect(args).toMatchObject({ amountIn: 100_000_000n, slippageBps: 50n, aggregator: { kind: 'quoted', out: 1_000_000n, when: 'now' } });
     expect(args.owner.equals(USER)).toBe(true);
 
-    // The one cost the form does not show, said as the wallet opens: this buy opens a token account.
-    expect(h.toast.info).toHaveBeenCalledWith('One-time deposit: 0.002074 SOL', { description: 'It opens your account for what you receive, and it stays in that account.' });
+    // The press on the review is the one that asks the wallet, once.
+    fireEvent.click(screen.getByRole('button', { name: 'Sign in wallet' }));
+    await waitFor(() => expect(h.submitPrepared).toHaveBeenCalledTimes(1));
+    expect((h.submitPrepared.mock.calls[0]![2] as PreparedTx).kind).toBe('venue-swap');
 
     // When it lands: one line says so, and the form is ready again with nothing to close.
     await waitFor(() => expect(h.toast.success).toHaveBeenCalledWith('Bought BAYLA', expect.objectContaining({ description: expect.stringContaining('1.01 BAYLA') })));
@@ -307,6 +315,7 @@ describe('our own pool pays more: the trade goes there', () => {
     h.submitPrepared.mockImplementation(() => new Promise((r) => { land = r; }));
     const buy = await readyToBuy();
     fireEvent.click(buy);
+    await signOnReview();
     expect(await screen.findByRole('button', { name: 'Confirm in your wallet…' })).toBeDisabled();
     expect(amountBox()).toBeInTheDocument();
     expect(screen.queryByText('Review your swap')).toBeNull();
@@ -328,6 +337,9 @@ describe('our own pool pays more: the trade goes there', () => {
     });
     const buy = await readyToBuy();
     fireEvent.click(buy);
+    expect(await screen.findByText('Review your swap', {}, { timeout: 20_000 })).toBeInTheDocument();
+    expect(screen.queryByText(/One-time deposit/)).toBeNull();
+    await signOnReview();
     await waitFor(() => expect(h.submitPrepared).toHaveBeenCalledTimes(1));
     expect(h.toast.info).not.toHaveBeenCalled();
   });
@@ -337,6 +349,7 @@ describe('our own pool pays more: the trade goes there', () => {
     const buy = await readyToBuy();
     await waitFor(() => expect(routeLine()).toMatch(/Our pool matches Jupiter, so the trade stays here/));
     fireEvent.click(buy);
+    await signOnReview();
     await waitFor(() => expect(h.submitPrepared).toHaveBeenCalledTimes(1));
     expect((h.prepareVenueSwap.mock.calls[0]![2] as VenueSwapArgs).aggregator).toEqual({ kind: 'quoted', out: 1_000_000n, when: 'now' });
     expect(h.buildSwapTransaction).not.toHaveBeenCalled();
@@ -349,6 +362,7 @@ describe('our own pool pays more: the trade goes there', () => {
     await waitFor(() => expect(routeLine()).toMatch(/Only our pool quoted this pair\./));
     expect(screen.queryByText(/No route for this pair/)).toBeNull();
     fireEvent.click(buy);
+    await signOnReview();
     await waitFor(() => expect(h.submitPrepared).toHaveBeenCalledTimes(1));
     expect((h.prepareVenueSwap.mock.calls[0]![2] as VenueSwapArgs).aggregator).toEqual({ kind: 'no-route' });
   });
@@ -367,7 +381,7 @@ describe('the form is held while a swap is being prepared', () => {
   });
 });
 
-describe('a swap that needs a second look still stops on the review', () => {
+describe('a swap with something to read stops on the review, as every swap in our pool does', () => {
   const stopsOnReview = async () => {
     const buy = await readyToBuy();
     fireEvent.click(buy);
@@ -413,14 +427,15 @@ describe('a swap that needs a second look still stops on the review', () => {
     expect(h.submitPrepared).not.toHaveBeenCalled();
   });
 
-  it('a price that moved the trader’s way, or stayed inside their slippage, still goes straight', async () => {
+  it('a price that stayed inside the slippage still stops on the review: its own minimum is one slippage step lower', async () => {
     const buy = await readyToBuy();
     await waitFor(() => expect(receive()).toBe('1.01'));
     // 1.005: under the 1.01 shown, and above the 1.00495 minimum the form showed.
     h.ownOut.value = 1_005_000n;
     fireEvent.click(buy);
-    await waitFor(() => expect(h.submitPrepared).toHaveBeenCalledTimes(1));
-    expect(screen.queryByText('Review your swap')).toBeNull();
+    expect(await screen.findByText('Review your swap', {}, { timeout: 20_000 })).toBeInTheDocument();
+    await new Promise((r) => setTimeout(r, 300));
+    expect(h.submitPrepared).not.toHaveBeenCalled();
   });
 
   it('when a sale for SOL would be paid as wrapped SOL into an account the wallet already had', async () => {
@@ -464,6 +479,7 @@ describe('endings that need nothing read return to the form by themselves', () =
     h.submitPrepared.mockImplementation(async () => ({ status: 'not-sent', stage: 'sign', message: 'You cancelled in your wallet. Nothing was sent.' }));
     const buy = await readyToBuy();
     fireEvent.click(buy);
+    await signOnReview();
     await waitFor(() => expect(h.toast.info).toHaveBeenCalledWith('Not sent', { description: 'You cancelled in your wallet. Nothing was sent.' }));
     await waitFor(backOnTheForm);
     expect(amountBox().value).toBe('0.1');
@@ -476,6 +492,7 @@ describe('endings that need nothing read return to the form by themselves', () =
     h.submitPrepared.mockImplementation(async () => ({ status: 'not-sent', stage: 'sign', message: reason }));
     const buy = await readyToBuy();
     fireEvent.click(buy);
+    await signOnReview();
     const card = await screen.findByTestId('tx-outcome', {}, { timeout: 20_000 });
     expect(card.getAttribute('data-status')).toBe('not-sent');
     expect(card.textContent).toContain(reason);
@@ -489,6 +506,7 @@ describe('endings that need nothing read return to the form by themselves', () =
     });
     const buy = await readyToBuy();
     fireEvent.click(buy);
+    await signOnReview();
     const card = await screen.findByTestId('tx-outcome', {}, { timeout: 20_000 });
     expect(card.getAttribute('data-status')).toBe('reverted');
     expect(h.toast.success).not.toHaveBeenCalled();
@@ -542,6 +560,7 @@ describe('what Jupiter would PAY, not only what it quotes: the site fee it canno
     h.simulateSwap.mockResolvedValue(OK);
     const buy = await readyToBuy();
     fireEvent.click(buy);
+    await signOnReview();
     await waitFor(() => expect(h.submitPrepared).toHaveBeenCalledTimes(1), { timeout: 20_000 });
     expect((h.prepareVenueSwap.mock.calls[0]![2] as VenueSwapArgs).aggregator).toEqual({ kind: 'quoted', out: 1_005_000n, when: 'now' });
     expect(h.sendTransaction).not.toHaveBeenCalled();
@@ -713,6 +732,7 @@ describe('a swap in our pool that was sent and not confirmed', () => {
     });
     const buy = await readyToBuy();
     fireEvent.click(buy);
+    await signOnReview();
     // This ending is never passed over: the swap may still land, so the card stays until it is read.
     expect(await screen.findByText('Sent, not confirmed yet. Do not retry until you check.', {}, { timeout: 20_000 })).toBeInTheDocument();
     expect(h.toast.success).not.toHaveBeenCalled();
@@ -747,6 +767,7 @@ describe('a swap in our pool that the chain answers after the wallet changed', (
     await waitFor(() => expect(h.readSwapGate).toHaveBeenCalled());
     await waitFor(() => expect(buy).toBeEnabled());
     fireEvent.click(buy);
+    await signOnReview();
     await waitFor(() => expect(h.submitPrepared).toHaveBeenCalledTimes(1));
     return { r, finish: () => finish({ status: 'confirmed', signature: SIG, slot: 7 }) };
   }
@@ -773,6 +794,7 @@ describe('a swap in our pool that the chain answers after the wallet changed', (
     await waitFor(() => expect(h.readSwapGate).toHaveBeenCalled());
     await waitFor(() => expect(buy).toBeEnabled());
     fireEvent.click(buy);
+    await signOnReview();
     await waitFor(() => expect(h.submitPrepared).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(getActivity(USER.toBase58())[0]).toMatchObject({ sig: SIG, summary: 'Bought ≈1.01 BAYLA with 0.1 SOL, in our own pool' }));
     expect(getActivity(OTHER.toBase58())).toEqual([]);
@@ -834,6 +856,7 @@ describe('a venue read that failed, or has not answered yet, is not the page’s
     const again = screen.getByRole('button', { name: 'Buy BAYLA' });
     await waitFor(() => expect(again).toBeEnabled());
     fireEvent.click(again);
+    await signOnReview();
     await waitFor(() => expect(h.submitPrepared).toHaveBeenCalledTimes(1));
     expect(h.sendTransaction.mock.calls.length, 'Jupiter transactions sent').toBe(0);
   });
@@ -1005,7 +1028,10 @@ describe('a read of our pools at the press that did not finish is never "Jupiter
     // From here the pool index answers 429 or 502.
     index.up = false;
     fireEvent.click(buy);
-    await waitFor(() => expect(h.toast.error.mock.calls.length + h.submitPrepared.mock.calls.length).toBeGreaterThan(0), { timeout: 20_000 });
+    // Either the press ends on a line, or the swap is built and stops on its review, where Sign sends it.
+    const signNow = () => screen.queryAllByRole('button', { name: 'Sign in wallet' });
+    await waitFor(() => expect(h.toast.error.mock.calls.length + signNow().length).toBeGreaterThan(0), { timeout: 20_000 });
+    if (signNow().length) fireEvent.click(signNow()[0]!);
     expect(h.toast.error.mock.calls.map((c) => (c[1] as { description?: string } | undefined)?.description)).not.toContain(OWN_ROUTE_COPY.routeMoved);
     expect(builtIn().every((p) => p === A)).toBe(true);
     expect(h.sendTransaction).not.toHaveBeenCalled();
@@ -1036,6 +1062,7 @@ describe('a read of our pools at the press that did not finish is never "Jupiter
     index.up = false;
     const beforePress = h.readVenuePools.mock.calls.length;
     fireEvent.click(buy);
+    await signOnReview();
     await waitFor(() => expect(h.toast.info).toHaveBeenCalledWith('Not sent', { description: DECLINED_IN_WALLET }));
     await waitFor(backOnTheForm);
     // The press reads our pools, and the ending drops the held read and reads them again, the
@@ -1242,7 +1269,7 @@ describe('Jupiter was shown, and the transaction for its quote fails its test ru
   const OK = { ok: true, reason: null, jupiterIncorrectTokenProgram: false };
   const REFUSED = { ok: false, reason: 'custom program error: 0x1771', jupiterIncorrectTokenProgram: false };
   const JUP_6014 = { ok: false, reason: 'custom program error: 0x177e', jupiterIncorrectTokenProgram: true };
-  const WOULD_FAIL = 'Swap would fail — not sending';
+  const WOULD_FAIL = 'Swap would fail';
   // Jupiter quotes 1 and our pool 0.99: 1.01% more, as a share of what our pool pays.
   const TO_OUR_POOL = /Jupiter quoted 1\.01% more, but its transaction for this trade failed its test run, so the trade goes to our pool\.$/;
   const jupiterShown = async () => {
@@ -1293,7 +1320,8 @@ describe('Jupiter was shown, and the transaction for its quote fails its test ru
     h.simulateSwap.mockResolvedValue(REFUSED);
     atThePress();
     fireEvent.click(buy);
-    await waitFor(() => expect(h.toast.error).toHaveBeenCalledWith(WOULD_FAIL, { description: 'custom program error: 0x1771' }), { timeout: 20_000 });
+    // REFUSED names no cause the network wrote, so the fixed sentence is all that is said.
+    await waitFor(() => expect(h.toast.error).toHaveBeenCalledWith(WOULD_FAIL, { description: REFUSED_COPY }), { timeout: 20_000 });
     expect(h.toast.error).not.toHaveBeenCalledWith('Route changed', expect.anything());
     await buyAgain();
     expect(routeLine()).toMatch(line);
@@ -1686,7 +1714,8 @@ describe('what a press writes lands only on the trade it was pressed for', () =>
     h.ownOut.value = 990_000n;
     render(<MemoryRouter><SolanaSwapPage /></MemoryRouter>);
     fireEvent.change(amountBox(), { target: { value: '0.1' } });
-    const buy = await screen.findByRole('button', { name: 'Buy USDC' }, { timeout: 20_000 });
+    // $BAYLA stands on the form while the link's token is looked up.
+    const buy = await screen.findByRole('button', { name: 'Buy BAYLA' }, { timeout: 20_000 });
     await waitFor(() => expect(buy).toBeEnabled());
     await waitFor(() => expect(routeLine()).toMatch(/Jupiter pays/));
     const held = defer<unknown>();
@@ -1704,16 +1733,15 @@ describe('what a press writes lands only on the trade it was pressed for', () =>
 
   describe('whatever our pools hold, the wallet is never asked for a pair the form no longer shows', () => {
     const OTHER = 'Dog1111111111111111111111111111111111111111';
-    const USDC_MINT = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
     const buyPick = () => screen.getByTestId('solana-receive').parentElement!.querySelector('button')!.textContent;
-    /** Arrive by a link whose token is still being looked up, type 0.1 SOL, and have Buy USDC live on `line`. */
+    /** Arrive by a link whose token is still being looked up ($BAYLA stands meanwhile), type 0.1 SOL, and have Buy BAYLA live on `line`. */
     async function arrivedByLink(line: RegExp) {
       const looked = defer<unknown>();
       h.resolveMint.mockImplementation((mint: string) => (mint === OTHER ? looked.p : Promise.resolve(null)));
       window.history.replaceState(null, '', `/solana?out=${OTHER}`);
       render(<MemoryRouter><SolanaSwapPage /></MemoryRouter>);
       fireEvent.change(amountBox(), { target: { value: '0.1' } });
-      const buy = await screen.findByRole('button', { name: 'Buy USDC' }, { timeout: 20_000 });
+      const buy = await screen.findByRole('button', { name: 'Buy BAYLA' }, { timeout: 20_000 });
       await waitFor(() => expect(buy).toBeEnabled());
       await waitFor(() => expect(routeLine()).toMatch(line));
       /** The lookup answers, and the form shows the link's token. */
@@ -1745,8 +1773,8 @@ describe('what a press writes lands only on the trade it was pressed for', () =>
       fireEvent.click(buy);
       await waitFor(() => expect(h.buildSwapTransaction).toHaveBeenCalledTimes(1));
       await land();
-      // The press is for SOL to USDC, whatever the form shows by now: its line never names the new token.
-      expect(screen.getByTestId('jupiter-swap-status').textContent).toBe('Through Jupiter: 0.1 SOL for about 1 USDC.');
+      // The press is for SOL to BAYLA, whatever the form shows by now: its line never names the new token.
+      expect(screen.getByTestId('jupiter-swap-status').textContent).toBe('Through Jupiter: 0.1 SOL for about 1 BAYLA.');
       built.release(TX_FEE);
       await nothingWasSent();
       // And nothing is said of the old pair's transaction under the new token: not even that it would fail.
@@ -1765,7 +1793,7 @@ describe('what a press writes lands only on the trade it was pressed for', () =>
       fireEvent.click(buy);
       await waitFor(() => expect(h.getQuote.mock.calls.length).toBeGreaterThan(asked));
       await land();
-      fresh.release({ ...jupiterQuote('1000000'), outputMint: USDC_MINT });
+      fresh.release({ ...jupiterQuote('1000000'), outputMint: BAYLA_MINT });
       await nothingWasSent();
       expect(h.buildSwapTransaction).not.toHaveBeenCalled();
     });
@@ -1961,6 +1989,8 @@ describe('after a confirmed swap the pay balance is read again', () => {
       await waitFor(() => expect(balance()).toBe('Balance: 5'));
       held.lamports = o.after;
       fireEvent.click(buy);
+      // Our pool's swap stops on its review; Jupiter's goes to the wallet from the press.
+      if (o.ownOut > 1_000_000n) await signOnReview();
       await waitFor(() => expect(h.toast.success).toHaveBeenCalledWith('Bought BAYLA', expect.anything()));
       // Balance, MAX and the insufficient guard stand on what the wallet holds now, not before the trade.
       await waitFor(() => expect(balance()).toBe(o.shown), { timeout: 3_000 });

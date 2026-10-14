@@ -6,6 +6,15 @@ page keeps the newest thirty days.
 
 ## [Unreleased]
 
+### 2026-10-14
+
+- Solana swap: a swap in one of our own pools now always stops on its review before your wallet is asked. Before, a swap whose fresh quote matched the form went straight to the wallet.
+- Solana swap through Jupiter: when the test run of Jupiter's transaction cannot run, nothing is sent and the page says "could not run just now, so nothing was sent. Press again." Before, the transaction went to your wallet unchecked.
+- Solana swap: "Swap would fail" now gives only a cause the network itself wrote, in plain words, or a fixed sentence. It no longer shows a line a token's own program printed.
+- Swap (Ethereum and Solana): one Ethereum / Solana switch above the swap card. The second, fixed one that covered the top of the form and the review when you scrolled is gone.
+- Solana DCA: a recurring order with a Token-2022 token such as BAYLA, on either side, is refused with one sentence before anything is signed: Jupiter's recurring orders cannot run it. Cancel still works for orders already running.
+- Solana DCA: the hint now says Jupiter's real minimum, $50 per buy, and when the page has read the price it says what each buy is worth and holds Start below $50.
+
 ### 2026-10-10
 
 - Shared heat links: a memetics.finance/read link for a wallet the island reads now shows the island's painted card of that wallet when it is posted. A cold wallet, or one the island could not be asked about, keeps the venue's card.

@@ -16,11 +16,10 @@
 //     fails, cannot be read, or comes back as a different or worse trade is
 //     blocked. There is never a second retry.
 // Nothing else opens the retry: not a URL, not a token name, not a route label,
-// not "any simulation failure".
+// not "any simulation failure". A test run that could not run, first or retry, sends
+// nothing (SPEC_S3 S1): it is no verdict, so the trader is asked to press again.
 //
-// No React and no wallet in here, so every branch is unit-testable. The later
-// lib/solana/swap/jupiterSend.ts (SPEC_S3 step S1) is expected to call this for
-// its build and simulate steps.
+// No React and no wallet in here, so every branch is unit-testable.
 import {
   fromBaseUnits,
   quoteHasPlatformFee,
@@ -53,6 +52,15 @@ export function refusalWhy(refused: { cause?: SwapRefusalCause | null }, slippag
   return `The test run's reason, in the network's words: ${c.said}`;
 }
 
+/** Said when Jupiter's transaction failed its test run: never `reason`, which a token's own program can word. */
+export const REFUSED_COPY = "Jupiter's transaction for this trade failed its test run, so nothing was sent.";
+
+/** "Swap would fail", in full: the fixed sentence, then the cause when the network itself named one. `reason` is never read. */
+export function refusedSaid(refused: { reason?: string | null; cause?: SwapRefusalCause | null }, slippageBps: number): string {
+  const why = refusalWhy(refused, slippageBps);
+  return why ? `${REFUSED_COPY} ${why}.` : REFUSED_COPY;
+}
+
 export interface FeeRetryDeps {
   getQuote(params: {
     inputMint: string;
@@ -77,8 +85,8 @@ export interface FeeRetryDeps {
  * failed). It is no verdict on that transaction, so no caller may treat it as one.
  */
 export type PreparedJupiterSwap =
-  /** Hand `swapTransaction` to the wallet. `quote` is the one it was built from: show ITS amounts. */
-  | { status: 'ready'; quote: JupiterQuote; swapTransaction: string; siteFeeWaived: boolean; unchecked?: true }
+  /** Hand `swapTransaction` to the wallet: it passed its test run. `quote` is the one it was built from: show ITS amounts. */
+  | { status: 'ready'; quote: JupiterQuote; swapTransaction: string; siteFeeWaived: boolean }
   /** Nothing may be signed. `reason` is the simulation's own words when it has any; `cause`, what the runtime gave. */
   | { status: 'blocked'; reason: string | null; retried: boolean; unchecked?: true; cause?: SwapRefusalCause }
   /** The no-fee re-quote pays less than the fee-bearing one beyond the slippage: not silently sent. */
@@ -114,9 +122,8 @@ export async function prepareJupiterSwap(
   try {
     sim = await deps.simulateSwap(first);
   } catch {
-    // Unchanged from before the retry existed: an unreadable FIRST simulation
-    // still goes to the wallet. (SPEC_S3 S1 turns this into fail-closed.)
-    return { status: 'ready', quote: a.fresh, swapTransaction: first, siteFeeWaived: false, unchecked: true };
+    // Not checked is not "would run": nothing goes to the wallet, and a press checks again.
+    return { status: 'blocked', reason: null, retried: false, unchecked: true };
   }
   if (sim.ok) return { status: 'ready', quote: a.fresh, swapTransaction: first, siteFeeWaived: false };
 
