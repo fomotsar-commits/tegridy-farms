@@ -195,8 +195,7 @@ describe('the real tree', () => {
   };
 
   it('every key in both copies is on allowed-keys.json, and every entry is used', () => {
-    // CI judges against real upstream clones; here the deny-list is one Raydium key, so this
-    // pins the allow-list itself.
+    // The same verdict CI reaches: the committed deny-list, and every allow-list entry used.
     expect(judge({ ours: OURS, deny: DENY, allow: ALLOW }).problems).toEqual([]);
   });
 

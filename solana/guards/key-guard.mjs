@@ -238,7 +238,7 @@ export function readDeny(text) {
  * The verdict. `ours` and `upstream` are scanTree results keyed by a label, `deny` a list of
  * upstream keys, `allow` is allowed-keys.json. Returns the problems found (empty = pass).
  */
-export function judge({ ours, upstream = {}, deny: denyList = [], allow, release = false }) {
+export function judge({ ours, upstream = {}, deny: denyList = /** @type {string[]} */ ([]), allow, release = false }) {
   const problems = [];
   const system = new Map(Object.entries(allow.system ?? {}));
   const named = new Map([
