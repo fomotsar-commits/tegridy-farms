@@ -744,13 +744,13 @@ function Reading({
 
       {/* The share: one button, under a WARM read only, since a cold wallet has nothing to
           post. It opens the composer with served numbers and the read link; nothing is
-          posted on the holder's behalf. */}
+          posted on the holder's behalf. mr-4 keeps it off "How heat is earned" on its line. */}
       {!reading.isCold && days !== null && (
         <a
           href={shareIntent}
           target="_blank"
           rel="noopener noreferrer"
-          className="inline-block mb-4 px-5 py-2 text-[13px] font-semibold rounded-lg transition-all hover:brightness-110"
+          className="inline-block mb-4 mr-4 px-5 py-2 text-[13px] font-semibold rounded-lg transition-all hover:brightness-110"
           style={{ background: 'rgba(0,0,0,0.72)', border: `1px solid ${color}`, color }}
         >
           Post my number

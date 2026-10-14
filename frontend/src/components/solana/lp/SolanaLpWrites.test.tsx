@@ -559,14 +559,15 @@ describe('Remove liquidity', () => {
   it('a search that finds nothing says the shares are safe; a failed one says it could not read', async () => {
     const v = view();
     const unplaced = position(v, { placement: 'not-found', pool: null, value: null });
-    const placeShareOnChain = vi.fn().mockResolvedValueOnce({ kind: 'not-found' }).mockResolvedValueOnce({ kind: 'unread', detail: 'HTTP 429' });
+    const placeShareOnChain = vi.fn().mockResolvedValueOnce({ kind: 'not-found' }).mockResolvedValueOnce({ kind: 'unread', detail: 'the network is busy; try again in a minute' });
     mount(readers({ positions: vi.fn(async () => ({ kind: 'ok' as const, chainNow: 5n, totalShares: 1, positions: [unplaced] })), placeShareOnChain }), { path: '/pools' });
     const row = await screen.findByTestId('lp-position');
     const find = await within(row).findByRole('button', { name: "Find this share's pool on the chain" });
     fireEvent.click(find);
     expect(await within(row).findByText(/could not find this share’s pool from its recent history\. Your shares are safe/)).toBeInTheDocument();
     fireEvent.click(find);
-    expect(await within(row).findByText(/could not read the chain just now \(HTTP 429\)\. Your shares are safe/)).toBeInTheDocument();
+    // The reader says a busy network in words (positions.ts), and the row prints them.
+    expect(await within(row).findByText(/could not read the chain just now \(the network is busy; try again in a minute\)\. Your shares are safe/)).toBeInTheDocument();
   });
 });
 

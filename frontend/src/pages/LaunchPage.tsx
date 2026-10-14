@@ -1278,10 +1278,9 @@ function LaunchHeader() {
 
 function Stepper({ step }: { step: number }) {
   return (
-    // overflow-x-auto (matching LendingPage/DashboardPage tab strips) so the 4 steps SCROLL
-    // instead of clipping off the right edge on iPhone-14-width — body{overflow-x:hidden}
-    // would otherwise hide step 4 ("Review") entirely.
-    <div className="flex items-center gap-2 overflow-x-auto no-scrollbar">
+    // The four steps wrap onto a second line on a phone. A row that scrolled sideways with
+    // no scrollbar showed "Fees & disclo" at 390px and hid "Review" entirely.
+    <div className="flex flex-wrap items-center gap-2">
       {STEPS.map((label, i) => (
         <div key={label} className="flex items-center gap-2 shrink-0">
           <div

@@ -276,7 +276,9 @@ export default function HomePage() {
                 isSolanaSubmitReady() is true. */}
             <div className="flex flex-wrap items-center gap-2 mb-5">
               {/* $BAYLA first (the owner, 2026-10-03): Solana leads the row, since $BAYLA
-                  and /solana are where a visitor starts. */}
+                  and /solana are where a visitor starts. Each pill paints 24.5px tall and a
+                  transparent ::before presses 46.5px; the row keeps its 24.5px, which the
+                  first frame's spacer holds (index.html). */}
               {/* FAIL-CLOSED. The Solana swap surface is gated behind
                   VITE_SOLANA_FEE_ACCOUNT: when that is unset, SolanaSwapPage renders a
                   "Solana swap isn't live yet" wall and navConfig drops /solana from the
@@ -290,7 +292,7 @@ export default function HomePage() {
               <Link
                 to={isSolanaSwapLive() ? '/solana' : '/scan'}
                 aria-label={isSolanaSwapLive() ? 'Live on Solana: swap and scan' : 'Live on Solana: scan any token'}
-                className="badge badge-chain-solana text-[10px] no-underline hover:brightness-110 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent focus-visible:ring-[#4CAF50]"
+                className="badge badge-chain-solana relative before:absolute before:content-[''] before:inset-x-0 before:-inset-y-[11px] text-[10px] no-underline hover:brightness-110 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent focus-visible:ring-[#4CAF50]"
               >
                 SOLANA
               </Link>
@@ -299,14 +301,14 @@ export default function HomePage() {
                 // its farm, and anywhere else to the list, entering no room.
                 to={isToweliArrival && !bungalowIdentity ? '/earn/toweli' : '/earn'}
                 aria-label="Live on Ethereum: farm and stake TOWELI"
-                className="badge badge-primary text-[10px] no-underline hover:brightness-110 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent focus-visible:ring-[#8b5cf6]"
+                className="badge badge-primary relative before:absolute before:content-[''] before:inset-x-0 before:-inset-y-[11px] text-[10px] no-underline hover:brightness-110 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent focus-visible:ring-[#8b5cf6]"
               >
                 ETHEREUM
               </Link>
               <Link
                 to="/eth-curve"
                 aria-label="Live on Base: launch and trade on the curve"
-                className="badge badge-chain-base text-[10px] no-underline hover:brightness-110 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent focus-visible:ring-[#2151f5]"
+                className="badge badge-chain-base relative before:absolute before:content-[''] before:inset-x-0 before:-inset-y-[11px] text-[10px] no-underline hover:brightness-110 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent focus-visible:ring-[#2151f5]"
               >
                 BASE
               </Link>

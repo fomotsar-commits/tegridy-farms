@@ -1,6 +1,7 @@
 import { PublicKey } from '@solana/web3.js';
 import type { SolanaRpc } from '../../launcher/solana/curve/rpc';
 import { clipDetail } from '../../launcher/solana/curve/read';
+import { detailOf } from './ledger';
 import { deriveAuthority, deriveLpMint } from '../cpswap/program';
 import { lpWithdrawValue } from '../cpswap/read';
 import { getMultipleAccounts, getTokenAccountsByOwner, type RawAccount } from './accounts';
@@ -310,11 +311,11 @@ export async function placeShareOnChain(rpc: SolanaRpc, opts: ReadPoolsOptions, 
         // Only one address can derive this LP mint, so this is the only candidate there
         // will ever be: read it, and it is the pool or there is none.
         const read = await readPools(rpc, [candidate], opts);
-        if (read.kind === 'unread') return { kind: 'unread', detail: read.detail };
+        if (read.kind === 'unread') return { kind: 'unread', detail: detailOf(read.detail) };
         const entry = read.entries[0];
         // A pool whose vaults could not be read is a failed read, not an answer: say
         // "try again", never "not on the chain".
-        if (entry?.kind === 'unread') return { kind: 'unread', detail: entry.detail };
+        if (entry?.kind === 'unread') return { kind: 'unread', detail: detailOf(entry.detail) };
         if (entry?.kind !== 'pool' || entry.view.snapshot.pool.lpMint !== share.lpMint) return { kind: 'not-found' };
         placedPools.set(`${program}:${share.lpMint}`, { pool: candidate, via: 'chain' });
         return { kind: 'placed', entry };
@@ -322,6 +323,7 @@ export async function placeShareOnChain(rpc: SolanaRpc, opts: ReadPoolsOptions, 
     }
     return { kind: 'not-found' };
   } catch (e) {
-    return { kind: 'unread', detail: clipDetail(e) };
+    // "HTTP 429" is said in words, as the earnings view says it.
+    return { kind: 'unread', detail: detailOf(e) };
   }
 }

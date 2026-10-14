@@ -6,6 +6,18 @@ page keeps the newest thirty days.
 
 ## [Unreleased]
 
+### 2026-10-14
+
+- Home: the headline no longer jumps 44.5px down, or changes its letter spacing, when the page finishes loading on a phone.
+- Home and the TOWELI home: each chain pill (Solana, Ethereum, Base) can be pressed anywhere in an area 46.5px tall, up from 24.5px. The pills look the same.
+- Changelog: on a 360px phone, long lines (file paths like ".audit_101/...") wrap inside their card instead of being cut off at its edge.
+- NFT Finance, Pooled Lending: on a 360px phone the "Not deployed" badges stay on screen and the page no longer slides 6px sideways.
+- TOWELI room: Towelie's round button in the corner steps aside while a row of section tabs is under it, so it never covers a tab. It comes back when the tabs scroll away.
+- Launch: on a phone the four steps wrap onto a second line instead of being cut off at "Fees & disclo".
+- Heat card: "Post my number" and "How heat is earned" now have a 16px gap between them.
+- Solana positions: one transaction reads "The one transaction read on your shares is not a deposit" instead of "None of the 1 transaction". A busy network during "Find this share's pool on the chain" says "the network is busy; try again in a minute" instead of "HTTP 429".
+- Safari on pages without a tab row: a text field you tap no longer ends up 2px under the top bar. The page keeps 74px clear under the bar, up from 64px.
+
 ### 2026-10-10
 
 - Shared heat links: a memetics.finance/read link for a wallet the island reads now shows the island's painted card of that wallet when it is posted. A cold wallet, or one the island could not be asked about, keeps the venue's card.
