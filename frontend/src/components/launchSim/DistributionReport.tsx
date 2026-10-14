@@ -11,6 +11,8 @@
 // always prints the method version, timestamp, caveats and correction path.
 
 import type { Band, ConfidenceLevel, DistributionAnalysis, HolderCategory } from '../../lib/detection';
+import { CardArt } from '../ui/CardArt';
+import { FinePrint } from '../ui/FinePrint';
 
 function pct(x: number, dp = 1): string {
   return `${(x * 100).toFixed(dp)}%`;
@@ -70,7 +72,8 @@ export function DistributionReport({ analysis }: { analysis: DistributionAnalysi
   const observed = new Date(analysis.observedAt * 1000);
 
   return (
-    <div className="rounded-2xl border border-white/12 bg-[rgba(6,12,26,0.6)] p-5 sm:p-6">
+    <div className="relative isolate rounded-2xl border border-white/12 bg-[rgba(6,12,26,0.6)] p-5 sm:p-6">
+      <CardArt pageId="launch-simulator" idx={5} />
       {/* Band + headline + confidence */}
       <div className="flex flex-wrap items-center gap-2 justify-between">
         <span className={`px-2.5 py-1 rounded-full text-xs font-semibold border ${band.cls}`}>{band.label}</span>
@@ -137,16 +140,18 @@ export function DistributionReport({ analysis }: { analysis: DistributionAnalysi
 
       {/* Caveats + correction path + method/timestamp */}
       <div className="mt-4 pt-3 border-t border-white/10">
-        <ul className="space-y-1 mb-2">
-          {analysis.caveats.map((c) => (
-            <li key={c} className="text-white/35 text-[10px] leading-relaxed">{c}</li>
-          ))}
-        </ul>
-        <p className="text-white/35 text-[10px] leading-relaxed">{analysis.correctionPath}</p>
-        <p className="text-white/25 text-[10px] mt-2">
+        <p className="text-white/25 text-[10px]">
           {analysis.method.version} · measured {observed.toISOString().slice(0, 16).replace('T', ' ')} UTC · this is a descriptive
           measurement, not a verdict.
         </p>
+        <FinePrint summary="Caveats">
+          <ul className="space-y-1">
+            {analysis.caveats.map((c) => (
+              <li key={c}>{c}</li>
+            ))}
+          </ul>
+          <p>{analysis.correctionPath}</p>
+        </FinePrint>
       </div>
     </div>
   );

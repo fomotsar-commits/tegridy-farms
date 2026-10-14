@@ -2,6 +2,8 @@
 import '../../lib/solanaPolyfill';
 import type { Ref } from 'react';
 import { CopyButton } from '../ui/CopyButton';
+import { CardArt } from '../ui/CardArt';
+import { FinePrint } from '../ui/FinePrint';
 import type { VenueStatus } from '../../lib/solana/cpswap/read';
 import { SPENT_PROGRAM_ID, hasProgramId } from '../../lib/solana/cpswap/program';
 import type { LpWriteMode } from '../../lib/launcher/solana/lpWriteFlag';
@@ -47,11 +49,12 @@ export function VenueStatusCard({ status, onRefresh, lpMode, feeSheetBelow = tru
   const green = { background: 'rgba(6,24,14,0.92)', border: '1px solid rgba(34,197,94,0.45)' };
   // A card that is scrolled to stops with air above it. The page's scroll-padding
   // (index.css) is what clears the fixed header and the tab strip.
-  const frame = ref ? 'rounded-2xl p-6 scroll-mt-5' : 'rounded-2xl p-6';
+  const frame = ref ? 'relative isolate rounded-2xl p-6 scroll-mt-5' : 'relative isolate rounded-2xl p-6';
 
   if (status === null) {
     return (
       <section ref={ref} className={frame} style={CARD}>
+        <CardArt pageId="venue-amm" idx={0} />
         <p className="text-white/70 text-[13px]">Reading the venue&rsquo;s status from the chain…</p>
       </section>
     );
@@ -62,22 +65,28 @@ export function VenueStatusCard({ status, onRefresh, lpMode, feeSheetBelow = tru
   if (status.kind === 'live') {
     return (
       <section ref={ref} className={frame} style={green} aria-label="Venue status">
+        <CardArt pageId="venue-amm" idx={0} />
         <div className="flex items-center justify-between gap-3 flex-wrap mb-2">
           <p className="text-[10px] uppercase tracking-wider" style={{ color: '#4ade80' }}>Venue · LIVE</p>
           <button type="button" onClick={onRefresh} className={REFRESH}><span className="ring-words">Refresh</span></button>
         </div>
         <h2 className="heading-luxury text-xl text-white mb-2">Pools are open</h2>
-        <p className="text-white/80 text-[13px] leading-relaxed mb-3">
-          {status.config.disableCreatePool
-            ? `The AMM is deployed and its config exists, but opening new pools on fee tier ${status.config.index} is switched off by the pool program’s admin, so on chain anyone can only provide liquidity to pools that already exist.`
-            : 'The AMM is deployed and its config exists, so anyone can open a pool and provide liquidity on chain.'}{' '}
-          {VENUE_LP_LINE[lpMode](lpSection)}
-          {feeSheetBelow && ' Fees below are read from that config.'}
-        </p>
+        {status.config.disableCreatePool && (
+          <p className="text-white/80 text-[13px] leading-relaxed mb-2">New pools on fee tier {status.config.index} are switched off.</p>
+        )}
         <div className="flex flex-wrap gap-3 text-[12px]">
           <Addr label="Program" value={status.programId} />
           <Addr label="Config" value={status.config.address} />
         </div>
+        <FinePrint summary="Details" className="mt-2">
+          <p>
+            {status.config.disableCreatePool
+              ? `The AMM is deployed and its config exists, but opening new pools on fee tier ${status.config.index} is switched off by the pool program’s admin, so on chain anyone can only provide liquidity to pools that already exist.`
+              : 'The AMM is deployed and its config exists, so anyone can open a pool and provide liquidity on chain.'}{' '}
+            {VENUE_LP_LINE[lpMode](lpSection)}
+            {feeSheetBelow && ' Fees below are read from that config.'}
+          </p>
+        </FinePrint>
       </section>
     );
   }
@@ -128,14 +137,12 @@ export function VenueStatusCard({ status, onRefresh, lpMode, feeSheetBelow = tru
 
   return (
     <section ref={ref} className={frame} style={amber} aria-label="Venue status">
+      <CardArt pageId="venue-amm" idx={0} />
       <div className="flex items-center justify-between gap-3 flex-wrap mb-2">
         <p className="text-[10px] uppercase tracking-wider" style={{ color: '#e3b341' }}>Venue status · live chain read</p>
         <button type="button" onClick={onRefresh} className={REFRESH}><span className="ring-words">Refresh</span></button>
       </div>
       <h2 className="heading-luxury text-xl text-white mb-2">{body.title}</h2>
-      {body.lines.map((l) => (
-        <p key={l.slice(0, 24)} className="text-white/80 text-[13px] leading-relaxed mb-2">{l}</p>
-      ))}
 
       {body.spent && (
         <div className="mt-3 text-[12px]">
@@ -143,12 +150,17 @@ export function VenueStatusCard({ status, onRefresh, lpMode, feeSheetBelow = tru
         </div>
       )}
 
-      {!hasProgramId() && (
-        <p className="text-white/45 text-[11px] mt-3">
-          This site takes the id from <code className="font-mono">VITE_SOLANA_CPSWAP_PROGRAM</code> when
-          it is built.
-        </p>
-      )}
+      <FinePrint summary="Details" className="mt-2">
+        {body.lines.map((l) => (
+          <p key={l.slice(0, 24)}>{l}</p>
+        ))}
+        {!hasProgramId() && (
+          <p>
+            This site takes the id from <code className="font-mono">VITE_SOLANA_CPSWAP_PROGRAM</code> when
+            it is built.
+          </p>
+        )}
+      </FinePrint>
     </section>
   );
 }

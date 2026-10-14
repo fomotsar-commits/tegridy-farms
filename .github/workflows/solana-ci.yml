@@ -440,17 +440,17 @@ jobs:
           ls -l "$SO"
 
       # -- DEPLOY COST, MEASURED --------------------------------------------
-      # The ~16.8 SOL peak-float figure in the runbook and the capital model uses
-      # cp-swap's size as a stand-in for BOTH programs, because tegridy-launch had
-      # never been built to a .so anywhere. That is the number an operator funds a
-      # deployer with, so derive it from the artifact just produced, not an estimate.
-      #
-      # Rate read from mainnet getMinimumBalanceForRentExemption: 6960.89
-      # lamports/byte. programdata carries a 45-byte header. `solana program deploy`
-      # defaults max_len to 2x the binary so the program can grow on upgrade, which
-      # DOUBLES the permanently-locked rent -- that is why the runbook's literal
-      # command costs 9.865 SOL on cp-swap rather than the ~5 SOL it claims.
+      # What deploying the .so just built would lock up in rent: the number an
+      # operator funds a deployer with, so it is derived from this artifact and
+      # priced by MAINNET on the day, never by a rate written here. Until
+      # 2026-10-14 this step used 6960.89 lamports a byte; mainnet's rent had
+      # fallen to (bytes + 128) x 5,080 by 2026-09-25 (read again 2026-10-14,
+      # slot 456,735,211), so it overstated every figure by about 37%.
+      # `solana program deploy` defaults max_len to 2x the binary so the program
+      # can grow on upgrade, which DOUBLES the locked rent: pass --max-len.
       - name: Report measured deploy cost
+        env:
+          RENT_RPC: https://api.mainnet-beta.solana.com
         run: |
           set -euo pipefail
           SO=../../target/deploy/tegridy_launch.so
@@ -459,44 +459,33 @@ jobs:
           # file exists, so its absence here means something upstream lied.
           [ -f "$SO" ] || { echo "::error::no $SO to measure — the build step claimed success"; exit 1; }
           BYTES=$(stat -c%s "$SO")
-          # Rent model, and why the peak is NOT "settled x 2".
-          #
-          # A deploy holds TWO accounts at once:
-          #   1. the write buffer, sized to the PROGRAM (b + hdr) — it holds the
-          #      bytes being uploaded, so it is never sized to max_len;
-          #   2. programdata, sized to MAX_LEN (max_len + hdr) — the upgrade
-          #      headroom you asked for.
-          # The buffer is closed and refunded at the end, so:
-          #
-          #   settled = (max_len + hdr) * rate
-          #   peak    = (b + hdr) * rate  +  (max_len + hdr) * rate
-          #
-          # With the CLI default (max_len = 2b) that peak is (3b + 2*hdr) * rate.
-          # This step used to print `settled_default * 2` = (4b + 2*hdr) * rate,
-          # which overstates the peak by ~33% — it sized the BUFFER at max_len too.
-          #
-          # Sanity check on the settled figure, against a number that is on chain
-          # rather than derived: cp-swap's .so is 793,824 bytes and its live
-          # programdata account holds 5.526 SOL. (793824 + 45) * 6960.89 = 5.526e9
-          # lamports exactly — so cp-swap was deployed with an exact --max-len, and
-          # the `(size + hdr) * rate` shape is confirmed, not assumed.
-          awk -v b="$BYTES" 'BEGIN {
-            rate = 6960.89; hdr = 45;
-            exact = (b + hdr) * rate / 1e9;          # settled, --max-len = b
-            dbl   = (2 * b + hdr) * rate / 1e9;      # settled, CLI default max_len = 2b
-            peak_exact   = exact + exact;            # buffer(b) + programdata(b)
-            peak_default = exact + dbl;              # buffer(b) + programdata(2b)
-            printf "### tegridy-launch - measured deploy cost\n\n";
-            printf "| | |\n|---|---|\n";
-            printf "| .so size | %d bytes |\n", b;
-            printf "| rent settled, --max-len exact | **%.3f SOL** |\n", exact;
-            printf "| rent settled, CLI default (2x max_len) | **%.3f SOL** |\n", dbl;
-            printf "| peak float, --max-len exact | ~**%.3f SOL** |\n", peak_exact;
-            printf "| peak float, CLI default | ~**%.3f SOL** |\n\n", peak_default;
-            printf "Peak exceeds the settled cost because the write buffer holds its OWN rent, sized to the program (%d bytes), until it is closed and refunded. It is never sized to max_len.\n\n", b;
-            printf "So peak = (size + 45) * rate + (max_len + 45) * rate. With the CLI default that is (3*size + 90) * rate, NOT twice the settled default.\n\n";
-            printf "Rent is a refundable deposit, not a fee. Pass an explicit --max-len to avoid paying double for upgrade headroom.\n";
-          }' | tee -a "$GITHUB_STEP_SUMMARY"
+          # A deploy holds a write buffer (b + 37 bytes, the bytes being
+          # uploaded) and programdata (max_len + 45) at once; the buffer is
+          # refunded at the end. So settled = programdata, peak = buffer +
+          # programdata: (3b + ...) with the CLI default, not twice the settled.
+          # Each figure is mainnet's own answer for that exact size.
+          rpc() { curl -sS --fail --max-time 20 -X POST "$RENT_RPC" -H 'content-type: application/json' -d "$1" | grep -o '"result":[0-9]*' | cut -d: -f2; }
+          rent() { rpc "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getMinimumBalanceForRentExemption\",\"params\":[$1]}"; }
+          SUMMARY="### tegridy-launch - measured deploy cost"
+          if SLOT=$(rpc '{"jsonrpc":"2.0","id":1,"method":"getSlot"}') && R0=$(rent 0) && R1=$(rent 1) \
+             && BUF=$(rent $((BYTES + 37))) && PD1=$(rent $((BYTES + 45))) && PD2=$(rent $((2 * BYTES + 45))) \
+             && [ -n "$SLOT" ] && [ -n "$R0" ] && [ -n "$R1" ] && [ -n "$BUF" ] && [ -n "$PD1" ] && [ -n "$PD2" ]; then
+            awk -v b="$BYTES" -v slot="$SLOT" -v r0="$R0" -v r1="$R1" -v buf="$BUF" -v pd1="$PD1" -v pd2="$PD2" 'BEGIN {
+              per = r1 - r0;
+              printf "### tegridy-launch - measured deploy cost\n\n";
+              printf "Rent read from mainnet at slot %d: %d lamports a byte, over the account size plus %d bytes.\n\n", slot, per, r0 / per;
+              printf "| | |\n|---|---|\n";
+              printf "| .so size | %d bytes |\n", b;
+              printf "| rent settled, --max-len exact | **%.3f SOL** |\n", pd1 / 1e9;
+              printf "| rent settled, CLI default (2x max_len) | **%.3f SOL** |\n", pd2 / 1e9;
+              printf "| peak float, --max-len exact | **%.3f SOL** |\n", (buf + pd1) / 1e9;
+              printf "| peak float, CLI default | **%.3f SOL** |\n\n", (buf + pd2) / 1e9;
+              printf "Peak exceeds the settled cost because the write buffer holds its own rent, sized to the program, until it is closed and refunded.\n\n";
+              printf "Rent is a refundable deposit, not a fee. Pass an explicit --max-len to avoid paying double for upgrade headroom.\n";
+            }' | tee -a "$GITHUB_STEP_SUMMARY"
+          else
+            printf '%s\n\nMainnet rent could not be read from %s, so no SOL figure is printed. The .so is %d bytes.\n' "$SUMMARY" "$RENT_RPC" "$BYTES" | tee -a "$GITHUB_STEP_SUMMARY"
+          fi
 
           # ⚠️ SBF gives each function a 4 KB stack frame, and overflowing it is NOT
           # a compile error. The linker prints a warning, the build "succeeds", and

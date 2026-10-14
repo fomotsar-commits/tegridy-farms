@@ -1,3 +1,5 @@
+import { CardArt } from '../ui/CardArt';
+
 /**
  * "What is a liquidity pool, and why does this venue need one?"
  *
@@ -23,12 +25,15 @@
 export function LiquidityPrimer() {
   return (
     <details
-      className="group rounded-2xl overflow-hidden"
+      className="group relative isolate rounded-2xl overflow-hidden"
       style={{ background: 'rgba(4,9,18,0.6)', border: '1px solid var(--color-purple-25)' }}
     >
       <summary
         className="cursor-pointer list-none px-4 py-3.5 min-h-[48px] flex items-center justify-between gap-3 text-white text-[14px] font-semibold"
       >
+        {/* Inside the summary on purpose: a closed <details> renders nothing
+            else. It still fills the whole card, which is the positioned box. */}
+        <CardArt pageId="liquidity" idx={2} />
         <span>New to this? What a liquidity pool is, in four answers</span>
         <svg
           width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4"

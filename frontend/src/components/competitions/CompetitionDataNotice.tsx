@@ -1,4 +1,6 @@
 import type { IndexedStatus } from '../../hooks/useCompetitionStandings';
+import { CardArt } from '../ui/CardArt';
+import { FinePrint } from '../ui/FinePrint';
 
 // What a standings read is, before a single competitor is drawn.
 //
@@ -42,7 +44,8 @@ export function CompetitionDataNotice({
   const showRetry = status === 'unavailable' || status === 'backfilling';
 
   return (
-    <div className={`rounded-xl border px-4 py-3 ${TONES[status]}`} role="status">
+    <div className={`relative isolate rounded-xl border px-4 py-3 ${TONES[status]}`} role="status">
+      <CardArt pageId="competitions" idx={7} />
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h3 className="text-sm font-semibold text-white">{TITLES[status]}</h3>
         {showRetry ? (
@@ -57,14 +60,17 @@ export function CompetitionDataNotice({
       </div>
 
       {detail ? <p className="mt-1.5 text-xs leading-relaxed text-white/80">{detail}</p> : null}
-      {status !== 'ready' ? (
-        <p className="mt-1.5 text-xs leading-relaxed text-white/70">{NOT_A_ZERO}</p>
-      ) : null}
 
       {(status === 'ready' || status === 'backfilling') && syncedAt !== null ? (
         <p className="mt-1.5 text-[11px] leading-relaxed text-white/60">
           Indexer head block timestamp: {new Date(syncedAt * 1000).toISOString()}.
         </p>
+      ) : null}
+
+      {status !== 'ready' ? (
+        <FinePrint summary="What this means" className="mt-1">
+          <p>{NOT_A_ZERO}</p>
+        </FinePrint>
       ) : null}
     </div>
   );

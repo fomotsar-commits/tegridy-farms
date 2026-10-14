@@ -35,6 +35,17 @@ Written after a read-only sweep of all 43 open pull requests, every recent sessi
 pending-work notes. Each area was read by one agent and re-checked by a second. Nothing was
 merged or changed by the sweep. Where an older section below disagrees, this one is newer.
 
+### Decided by you on 2026-10-13
+
+- ✅ A swap in one of our own pools always shows the review before it is signed.
+- ✅ When our pools cannot be read, the trade still goes through Jupiter.
+- ✅ When Jupiter's transaction fails its test run, the trade is offered in our own pool.
+- ✅ Audit findings are fixed, never accepted as known.
+- ✅ Range pools are built on our own program, never on another venue's (this answers
+  O-1009-16: no Raydium-run test pool). No fee owner, fee receiver or admin key in any program
+  of ours may belong to anyone else.
+- ✅ The venue builds its own VWAP (this answers O-1009-17).
+
 ### Only you can do these, soonest first
 
 - ⬜ **O-1009-1: send the TOWELI staking top-up** you decided on 2026-09-17. It had not been sent
@@ -87,25 +98,28 @@ merged or changed by the sweep. Where an older section below disagrees, this one
 2026-10-10: M-1009-1 to M-1009-5 are built into three trains, each waiting for your word:
 #784 (housekeeping), #792 (fixes, with #784 inside it) and #796 (repairs and small fixes, with
 both inside it). Merging the last one alone brings all three. Use "Create a merge commit" each
-time.
+time. ✅ 2026-10-14: #792 and #796 merged (02:24 and 02:26 UTC), so every pull request named in
+M-1009-1 to M-1009-5 is merged. #790 and #791 merged in the same minutes. M-1009-6's four
+closes are done.
 
-- 🟡 **M-1009-1:** #778, #779 and #780. Small and green. #778 and #779 clash in NOTES.md only.
+- ✅ **M-1009-1:** #778, #779 and #780. Small and green. #778 and #779 clash in NOTES.md only.
   Carried by train #784.
-- 🟡 **M-1009-2: the reads train**, in this order: #768, #761, #763 (with its owed test), #766,
+- ✅ **M-1009-2: the reads train**, in this order: #768, #761, #763 (with its owed test), #766,
   #767, then the notes #762 and #764. Each is refreshed right before its turn and its changelog
   line moves under the merge day. About five hours of check time in all. Carried by train #792,
   the two notes by #784.
-- 🟡 **M-1009-3: the housekeeping train**, one merge: #712, #711, #707, #708 (without its Pools
+- ✅ **M-1009-3: the housekeeping train**, one merge: #712, #711, #707, #708 (without its Pools
   page change, trunk has its own), #736, the notes #710 #739 #744 #747, then #608 and #620.
   This is train #784.
-- 🟡 **M-1009-4:** #732 (Pools opens the Solana LP tab) after a refresh, and the notes #731.
+- ✅ **M-1009-4:** #732 (Pools opens the Solana LP tab) after a refresh, and the notes #731.
   #732 is carried by train #792, the notes by #784.
-- 🟡 **M-1009-5: phone and tablet fixes.** Quick after a refresh: #738, #735, #699, #740 (keep
+- ✅ **M-1009-5: phone and tablet fixes.** Quick after a refresh: #738, #735, #699, #740 (keep
   trunk's Copy link), #741. After their own repairs: #751, #723, #743. #746 after #738.
   Carried by train #792: #738, #735, #699, #740, #746. By #784: #741. By train #796:
   #751, #723 and #743, each repaired.
-- ⬜ **M-1009-6: close** #721, #639 and #701. Close #737 and have its launch-pool deposit check
+- 🟡 **M-1009-6: close** #721, #639 and #701. Close #737 and have its launch-pool deposit check
   rebuilt small (warn, not refuse). #660 and #658 stay parked: Streamflow pins web3.js 1.98.4.
+  2026-10-14: all four are closed. The small rebuild of #737's deposit check is still open.
 
 ### A session can start these on your go-ahead
 
@@ -117,12 +131,12 @@ time.
 - ✅ **C-1009-2: repair PR #751.** The first-frame heading in `frontend/index.html` keeps the old
   size, so the heading jumps 2 to 3 pixels and three tests fail. Done 2026-10-10 in #751 itself,
   which train #796 carries.
-- 🟡 **C-1009-3: resume the island's first PR.** It is built and tested. Merge trunk in, make it
+- ✅ **C-1009-3: resume the island's first PR.** It is built and tested. Merge trunk in, make it
   match PR #769 on the BAYLA tick box, finish the 390px walk, open the PR. Do not start it again.
-  Built: PR #790, waiting for your go.
-- 🟡 **C-1009-4: open pull requests for the two cloud branches**, with the "offer our pool" fix on
-  top of the first. Built: PR #791 (the swap fixes, with that fix on top), waiting for your go,
-  and PR #786 (the Trust "You cancelled" fix), which train #796 carries.
+  Built: PR #790, merged 2026-10-14.
+- ✅ **C-1009-4: open pull requests for the two cloud branches**, with the "offer our pool" fix on
+  top of the first. Built: PR #791 (the swap fixes, with that fix on top), merged 2026-10-14,
+  and PR #786 (the Trust "You cancelled" fix), merged with train #796.
 - ⬜ **C-1009-5: resume the pool redesign.** Your last word on 2026-10-08 was "ok keep going".
 - ✅ **C-1009-6: show a liquidity provider what a pool has paid them** (asked 2026-10-09): what a
   position has earned, how much a pool's shares have grown, and in a few plain words how
@@ -134,7 +148,8 @@ time.
   rows in `frontend/scripts/addresses.json` (both controls are the Squads vault now). Start the
   vault upgrade pack for the ladder's 4-year change. Renew or update the advisory waivers before
   2026-11-16. Built 2026-10-10: the "Back to top" flake is PR #788 and the ladder rows are
-  PR #785, both carried by train #796. The upgrade pack and the waivers are still open.
+  PR #785, both merged with train #796 on 2026-10-14. The upgrade pack and the waivers are
+  still open.
 - ⬜ **C-1009-8: housekeeping that needs a quiet moment.** Move the shared main folder onto trunk
   (it sits on a September branch and has no CLAUDE.md), after its only-copy files are saved. One
   dedicated worktree cleanup (230 exist): unlink every linked folder and prove it gone first.
@@ -155,16 +170,16 @@ all); the BAYLA/USDC pool has had none.
 - ⬜ **O-1009-14: the BAYLA/USDC pool sits about 8% above the market price** and has never traded.
   Leave it, or bring it in line: whoever trades it first takes that gap from its liquidity
   providers.
-- 🟡 **C-1009-9: money words on the Ethereum pages.** Three lines disagree with the chain (the
+- ✅ **C-1009-9: money words on the Ethereum pages.** Three lines disagree with the chain (the
   Liquidity page's "five sixths", the assistant's "0.5% flows to stakers", the FAQ's "starts
   flowing when the native pool launches"), and four liquid-staking rates on the Solana swap page
   are typed in, not read. Needs one read of the Ethereum fee settings first. Built: PR #789,
-  carried by train #796.
-- 🟡 **C-1009-10: two stale rows in `frontend/scripts/addresses.json`.** The swap-fee account it
+  merged 2026-10-14.
+- ✅ **C-1009-10: two stale rows in `frontend/scripts/addresses.json`.** The swap-fee account it
   names has never received a fee (they go to the vault's wrapped-SOL account
   `2sa31zceMSTAAbSu5wfSnNA6sBYzS7r97nvZYaQouEXa`), and the launch tier reads 20% to the venue plus
-  a 0.05% creator fee on chain, not the 12% and none the row says. Built: PR #785, carried by
-  train #796.
+  a 0.05% creator fee on chain, not the 12% and none the row says. Built: PR #785, merged with
+  train #796 on 2026-10-14.
 - 📌 The venue's cut waiting in the BAYLA/SOL pool is under 0.001 SOL. Collecting it takes a
   two-signature proposal that costs more than it brings in. Leave it.
 
@@ -179,11 +194,12 @@ markets together trade under $2,000 a day, so none of this creates volume.
   swaps about half by the best-price rule, then adds both. Two calls are yours: always the
   cheapest route for the person (recommended), and whether to waive the site's 0.5% on the
   swapped half.
-- ⬜ **O-1009-16: a real range pool for BAYLA, yes or no.** The no-build test: open and seed one
+- ✅ **O-1009-16: a real range pool for BAYLA, yes or no.** Answered 2026-10-13: on our own
+  program only (see "Decided by you" above). The text below is the question as it was put. The no-build test: open and seed one
   BAYLA/SOL pool on Raydium's own range program and link to Raydium's screens. Raydium keeps 16%
   of the fees and holds the keys, and that liquidity is not on our venue. A copy of that program
   under our own name comes only after that test shows demand, with money for an outside review.
-- ⬜ **O-1009-17: which VWAP did you mean?** A number on the page (one small pull request, no
+- ✅ **O-1009-17: which VWAP did you mean?** Answered 2026-10-13: the venue builds its own. A number on the page (one small pull request, no
   cost, from data the swap page already downloads), an order that spreads a trade over time
   (only through Jupiter's newer, custodial system; our own robot or escrow program: no), or a
   feed for others (needs our own chain indexing).
@@ -199,9 +215,9 @@ markets together trade under $2,000 a day, so none of this creates volume.
   four-token bypass list Raydium deleted in September. Assess it read-only; do not touch the
   ready upgrade pack. You started this as its own session on 2026-10-10. No pull request for it
   was open when this line was written.
-- 🟡 **C-1009-13: small liquidity-provider tools, no program needed.** After the earnings view: a
+- ✅ **C-1009-13: small liquidity-provider tools, no program needed.** After the earnings view: a
   "what if the price moves" preview before adding, and add by percent of wallet. Built: PR #787,
-  carried by train #796.
+  merged with train #796 on 2026-10-14.
 
 ### Parked calls, none urgent
 
@@ -2196,11 +2212,13 @@ that does not belong in a public registry — **do not put a personal trading wa
 `addresses.json`.** Either answer closes it; silence leaves the largest single number in the Solana
 column pointing nowhere.
 
-While you are looking: `swap-fee-account` `DVGiHe98CzEf7VuCS6YpVDFnp38ubJmKNLt6aMJwAyER` holds
-0.006477 SOL plus two ATAs (~0.004 more), and **its key is not on this machine.** I scanned
-`.solana-operator`, `tegridy-ops\solana` and `.config\solana` and derived the pubkey of every
-keypair file in them; none matches. Either it is somewhere else, or ~0.010 SOL is written off.
-Worth one sentence so the registry stops implying it is spendable.
+While you are looking: the old `swap-fee-account` `DVGiHe98CzEf7VuCS6YpVDFnp38ubJmKNLt6aMJwAyER`
+holds **17,894,587 lamports (0.0179 SOL)**, read 2026-10-13 at slot 456,674,306, and **its key
+exists**: it signed and paid the fee for transactions on 2026-08-29 and 2026-09-21. This
+paragraph used to say it held 0.006477 SOL and that its key was not on this machine (a scan of
+`.solana-operator`, `tegridy-ops\solana` and `.config\solana` found no match); the balance
+moved on 2026-08-29 and 2026-09-21, and those signatures show the key is held somewhere. Say where, so the
+registry can name its custody.
 
 ## 0.5 🔴 THE TWAP FLOOR CHANGE **EXPIRED** — it is cancel → re-propose → 24h → execute
 
@@ -2565,7 +2583,7 @@ sweep of the ones whose branches are merged.
    is closed for exactly that reason.
 
    **A restart costs roughly what the first one did:** two fresh program keypairs, new `declare_id!`
-   values, **8.46 SOL settled / 13.4 SOL peak float** of rent, and a re-derivation of every PDA the
+   values, **8.46 SOL settled / 13.4 SOL peak float** of rent (at the August rent rate; at mainnet's rate read 2026-10-14, (bytes + 128) x 5,080 lamports, the same builds are about **6.20 SOL settled / 9.77 SOL peak**), and a re-derivation of every PDA the
    fork owns. At SOL $96.94 that is ~$820 settled, ~$1,299 peak — but quote the SOL, not the
    dollars: rent is denominated in lamports and does not move with the price, so only the dollar
    figure ages. Full derivation, re-priced 2026-08-22, in

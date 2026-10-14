@@ -3,6 +3,8 @@ import { Link } from 'react-router-dom';
 import type { Bungalow } from '../../lib/bungalows';
 import { useTokenScan } from '../../hooks/useTokenScan';
 import { bungalowScanRoute } from '../../lib/bungalows';
+import { CardArt } from '../ui/CardArt';
+import { FinePrint } from '../ui/FinePrint';
 
 /**
  * Who holds the bungalow's token — distribution, in the bungalow.
@@ -46,10 +48,11 @@ export function BungalowHolders({ bungalow }: { bungalow: Bungalow }) {
 
   return (
     <section
-      className="rounded-2xl p-6"
+      className="relative isolate rounded-2xl p-6"
       style={{ background: 'rgba(4,9,18,0.72)', border: '1px solid var(--color-purple-25)' }}
       aria-label={`${bungalow.symbol} holder distribution`}
     >
+      <CardArt pageId="bungalow-holders" idx={0} />
       <div className="flex items-center gap-3 flex-wrap mb-4">
         <p className="text-[10px] uppercase tracking-wider" style={{ color: 'var(--color-kyle)' }}>
           Who holds her
@@ -94,26 +97,35 @@ export function BungalowHolders({ bungalow }: { bungalow: Bungalow }) {
             />
           </div>
 
-          {/* The scanner's own limits, in its own words. */}
-          {(outcome.coverageNotes.length > 0 || a.caveats.length > 0) && (
-            <ul className="mt-4 space-y-1 text-[11px] text-white/50 list-disc pl-4">
-              {outcome.coverageNotes.slice(0, 3).map((n) => <li key={n}>{n}</li>)}
-              {a.caveats.slice(0, 2).map((c) => <li key={c}>{c}</li>)}
-            </ul>
-          )}
-
           <p className="text-[10px] text-white/40 mt-3">
             Read from {outcome.source} — {outcome.enumeratedHolders} accounts
             {outcome.holderCoverage === 'top-n' ? ' (largest only, so these shares are an upper bound)' : ''}.
           </p>
+
+          {/* The scanner's own limits, in its own words, one press away. */}
+          {(outcome.coverageNotes.length > 0 || a.caveats.length > 0) && (
+            <FinePrint summary="Limits" className="mt-1">
+              <ul className="space-y-1 list-disc pl-4">
+                {outcome.coverageNotes.slice(0, 3).map((n) => <li key={n}>{n}</li>)}
+                {a.caveats.slice(0, 2).map((c) => <li key={c}>{c}</li>)}
+              </ul>
+            </FinePrint>
+          )}
         </>
       ) : status === 'loading' ? (
         <p className="text-[12px] text-white/55">Reading holders…</p>
       ) : !armed ? (
-        <p className="text-[12px] text-white/55">
-          Reads the largest {bungalow.symbol} accounts on demand and measures concentration
-          with the venue's own scanner. Not run automatically. It is a real chain scan.
-        </p>
+        <>
+          <p className="text-[12px] text-white/55">
+            Reads the largest {bungalow.symbol} accounts on demand.
+          </p>
+          <FinePrint className="mt-1">
+            <p>
+              It measures concentration with the venue's own scanner. Not run automatically. It is a
+              real chain scan.
+            </p>
+          </FinePrint>
+        </>
       ) : (
         <p className="text-[12px]" style={{ color: '#f0b26b' }}>
           {errorMessage ?? 'Holders could not be read right now. That is an outage, not a distribution.'}

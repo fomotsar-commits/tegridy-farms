@@ -546,7 +546,9 @@ describe('ledgerText: the sentences, verbatim', () => {
     expect(ledgerText.worthOnly(worthOnly('run-start-not-read', [deposit(DEPOSIT_81)]))).toBe('Your history in this pool goes back further than the 1 transaction this page reads (the oldest read is from 2026-10-03 04:00 UTC), so what you put in could not be fully read.');
     expect(ledgerText.worthOnly(worthOnly('unread-entry', [{ kind: 'unread', signature: sig('u'), blockTime: 1_791_066_624, detail: 'x' }, deposit(DEPOSIT_81)]))).toBe('One of your transactions in this pool (2026-10-03 22:30 UTC) could not be read.');
     expect(ledgerText.worthOnly(worthOnly('mixed-entry', [plain('mixed', 1_791_066_624), deposit(DEPOSIT_81)]))).toBe('A transaction on 2026-10-03 22:30 UTC changed this pool in more than one way at once, which this page cannot read as one deposit or withdrawal.');
-    expect(ledgerText.worthOnly(worthOnly('no-deposit-read', [plain('other')]))).toBe('None of the 1 transaction read on your shares is a deposit by this wallet into this pool, so these shares arrived another way (sent to this wallet) and what they cost is not known.');
+    // One transaction is "the one", never "none of the 1".
+    expect(ledgerText.worthOnly(worthOnly('no-deposit-read', [plain('other')]))).toBe('The one transaction read on your shares is not a deposit by this wallet into this pool, so these shares arrived another way (sent to this wallet) and what they cost is not known.');
+    expect(ledgerText.worthOnly(worthOnly('no-deposit-read', [plain('other'), plain('other')]))).toBe('None of the 2 transactions read on your shares is a deposit by this wallet into this pool, so these shares arrived another way (sent to this wallet) and what they cost is not known.');
     expect(ledgerText.unread('the chain did not answer in 20 seconds')).toBe('Your history in this pool could not be read (the chain did not answer in 20 seconds).');
     expect(ledgerText.paused()).toMatch(/paused/);
   });

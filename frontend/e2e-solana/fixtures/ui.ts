@@ -241,7 +241,7 @@ const TYPED_INPUTS = 'input:not([type="radio"]):not([type="checkbox"])';
  */
 export async function expectPressableAtSizes(p: Page, label: string, controls: Array<[Locator, string]>): Promise<void> {
   const original = p.viewportSize();
-  const heights: Record<number, number> = { 390: 844, 820: 1180, 1280: 900 };
+  const heights = { 390: 844, 820: 1180, 1280: 900 } as const;
   const section = ui.lp.section(p);
   for (const width of [390, 820, 1280] as const) {
     await p.setViewportSize({ width, height: heights[width] });

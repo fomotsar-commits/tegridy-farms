@@ -20,6 +20,8 @@ import { validateAddress } from '../lib/tokenList';
 import { readExplorerPage, isTokenTxRow } from '../lib/txHistory';
 import { PageArtBackdrop } from '../components/PageArtBackdrop';
 import { HeatCard } from '../components/HeatCard';
+import { CardArt } from '../components/ui/CardArt';
+import { FinePrint } from '../components/ui/FinePrint';
 
 // WalletExposurePage — connect a wallet, see every ERC-20 position, and read each
 // one's concentration / bundle / rug exposure from the shared detection core.
@@ -89,10 +91,10 @@ function MeasuredBody({ exposure }: { exposure: HoldingExposure }) {
         <Metric label="Holders measured" value={String(a.metrics.includedHolders)} />
         <Metric label="Excluded supply" value={pct(a.excludedSupplyShareOfTotal)} />
       </div>
-      {a.confidence.reasons.length > 0 && (
-        <p className="text-white/45 text-[11px] leading-relaxed">{a.confidence.reasons[0]}</p>
-      )}
-      <p className="text-white/40 text-[11px] leading-relaxed">{a.correctionPath}</p>
+      <FinePrint>
+        {a.confidence.reasons.length > 0 && <p>{a.confidence.reasons[0]}</p>}
+        <p>{a.correctionPath}</p>
+      </FinePrint>
     </div>
   );
 }
@@ -113,7 +115,9 @@ function UnmeasuredBody({ exposure, token }: { exposure: HoldingExposure; token:
         style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.14)' }}>
         Distribution not measured
       </span>
-      <p className="text-white/60 text-[12px] leading-relaxed">{exposure.reason}</p>
+      <FinePrint summary="Why">
+        <p>{exposure.reason}</p>
+      </FinePrint>
       <a
         href={etherscanHoldersUrl(token)}
         target="_blank"
@@ -132,9 +136,10 @@ function HoldingCard({ holding, exposure }: { holding: WalletHolding; exposure: 
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.35 }}
-      className="rounded-2xl p-4 sm:p-5"
+      className="relative isolate rounded-2xl p-4 sm:p-5"
       style={{ background: CARD_BG, border: CARD_BORDER, boxShadow: '0 8px 30px rgba(0,0,0,0.35)' }}
     >
+      <CardArt pageId="wallet-exposure" idx={2} />
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
@@ -329,17 +334,26 @@ export default function WalletExposurePage() {
       <header className="mb-6">
         <h1 className="heading-luxury text-3xl md:text-4xl text-white mb-2">Wallet Exposure</h1>
         <p className="text-white/70 text-[14px] leading-relaxed max-w-2xl">
-          A descriptive, method-disclosed read of how concentrated each token you hold is: effective
-          holder count, top-holder share, and (when available) bundle and sniper supply. This is a
-          measurement of on-chain distribution, not a verdict on any project’s intent.
+          How concentrated is each token you hold?
         </p>
+        <FinePrint summary="How it works">
+          <p>
+            A descriptive, method-disclosed read of how concentrated each token you hold is: effective
+            holder count, top-holder share, and (when available) bundle and sniper supply. This is a
+            measurement of on-chain distribution, not a verdict on any project’s intent.
+          </p>
+          <p>
+            Check your balances across a tracked token set, the tokens the explorer says you have received, and any
+            token address you paste.
+          </p>
+        </FinePrint>
       </header>
 
       {!isConnected ? (
         <ConnectPrompt
           surface="dashboard"
           title="Connect to scan your wallet"
-          description="Check your balances across a tracked token set, the tokens the explorer says you have received, and any token address you paste. Read-only: no signing, no approvals, no funds moved."
+          description="Read-only: no signing, no approvals, no funds moved."
         />
       ) : (
         <>
@@ -352,7 +366,8 @@ export default function WalletExposurePage() {
           </div>
 
           {/* Add-a-token */}
-          <div className="rounded-2xl p-4 mb-6" style={{ background: CARD_BG, border: CARD_BORDER }}>
+          <div className="relative isolate rounded-2xl p-4 mb-6" style={{ background: CARD_BG, border: CARD_BORDER }}>
+            <CardArt pageId="wallet-exposure" idx={1} />
             <label htmlFor="paste-token" className="block text-white/70 text-[12px] mb-2">
               Check a specific token not in the tracked list
             </label>
@@ -386,16 +401,13 @@ export default function WalletExposurePage() {
                   {discovery.kind === 'reading' ? 'Reading the transfer log…' : 'Discover my tokens'}
                 </button>
                 <p className="text-white/45 text-[11px] leading-relaxed">
-                  Reads tokens this wallet has ever received, per the explorer — not a complete
-                  wallet index. Balances are then read on chain like everything else here.
+                  Tokens this wallet has ever received, per the explorer. Not a complete wallet index.
                 </p>
               </div>
 
               {discovery.kind === 'failed' && (
                 <p className="text-[12px] text-amber-300 mt-2 leading-relaxed">
-                  The transfer log could not be read, so nothing was discovered: {discovery.detail} This
-                  is a failed read, not an empty wallet — the list below is still only the curated set
-                  plus anything you added.
+                  Could not read the transfer log: {discovery.detail} A failed read, not an empty wallet.
                 </p>
               )}
 
@@ -453,14 +465,15 @@ export default function WalletExposurePage() {
           {isLoading ? (
             <div className="text-white/50 text-[13px] py-10 text-center">Reading your on-chain balances…</div>
           ) : error ? (
-            <div className="rounded-2xl p-5 text-[13px] text-white/70"
+            <div className="relative isolate rounded-2xl p-5 text-[13px] text-white/70"
               style={{ background: CARD_BG, border: CARD_BORDER }}>
-              Couldn’t read balances right now. This is a network hiccup, not a signal about any token —
-              try again shortly.
+              <CardArt pageId="wallet-exposure" idx={3} />
+              Couldn’t read balances right now. Not a signal about any token. Try again shortly.
             </div>
           ) : holdings.length === 0 ? (
-            <div className="rounded-2xl p-6 text-center"
+            <div className="relative isolate rounded-2xl p-6 text-center"
               style={{ background: CARD_BG, border: CARD_BORDER }}>
+              <CardArt pageId="wallet-exposure" idx={4} />
               <p className="text-white/80 text-[14px] mb-1">
                 {discovery.kind === 'done'
                   ? 'No ERC-20 balances found in this wallet.'
@@ -468,10 +481,10 @@ export default function WalletExposurePage() {
               </p>
               <p className="text-white/50 text-[12px] leading-relaxed max-w-md mx-auto">
                 {discovery.kind === 'done'
-                  ? 'This read covers the curated set, anything you added, and the tokens the explorer says this wallet has received. Tokens acquired in ways the explorer’s transfer log does not show are still not covered.'
+                  ? 'Tokens the explorer’s transfer log does not show are still not covered.'
                   : discovery.kind === 'failed'
-                    ? 'The discovery read failed, so this is the curated token set plus anything you added — it says nothing about the rest of the wallet. Try Discover again, or paste a contract address.'
-                    : 'This view reads a curated token set plus any address you add above — it does not enumerate every token you hold. Run Discover above, or paste a contract address to check a specific position.'}
+                    ? 'Discovery failed, so this says nothing about the rest of the wallet. Try again, or paste an address.'
+                    : 'Only a curated set plus what you add. Run Discover, or paste a contract address.'}
               </p>
             </div>
           ) : (
@@ -489,9 +502,12 @@ export default function WalletExposurePage() {
               Method {METHOD_VERSION} ·{' '}
               {observedAt
                 ? `balances read on-chain as of ${observedAt.toLocaleString()}`
-                : 'no distribution read has completed yet, so there is no observation time to report'}. Concentration
-              excludes pools, exchanges, bridges, burns and contracts before any math; an unlabeled large wallet
-              is kept but lowers confidence, never assumed hostile.
+                : 'no distribution read has completed yet, so there is no observation time to report'}.
+            </p>
+            <FinePrint summary="Method">
+            <p>
+              Concentration excludes pools, exchanges, bridges, burns and contracts before any math; an unlabeled
+              large wallet is kept but lowers confidence, never assumed hostile.
             </p>
             <p>
               Distribution comes from the same read the scanner uses, which enumerates the largest holders — the
@@ -506,6 +522,8 @@ export default function WalletExposurePage() {
               counted as unreadable above rather than dropped silently: an omitted position would understate the
               concentration on this page.
             </p>
+            <p>Discovery reads the explorer&apos;s transfer log; balances are then read on chain like everything else here.</p>
+            </FinePrint>
           </footer>
         </>
       )}

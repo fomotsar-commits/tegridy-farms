@@ -319,11 +319,11 @@ test.describe('the item panel on a tablet', () => {
 const overlaps = (a: { x: number; y: number; width: number; height: number }, b: typeof a) =>
   a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
 
-// The trading view jumps to the top once when it opens, in the effect that
-// also sets the tab's title, and that effect runs after the header is already
-// on screen: a scroll made before it is undone. The title says it has run.
-// The first card says the page is its full height: with only the skeleton up,
-// the 1440 by 900 case can scroll 603 px in Chromium, and Back to top needs
+// The view is at the top before it is drawn, so a scroll made once its header
+// is up stays. Back to top shows from a scroll listener attached in the view's
+// mount effects; the title is set by the same effects, so it says they have
+// run. The first card says the page is its full height: with only the skeleton
+// up, the 1440 by 900 case can scroll 603 px in Chromium, and Back to top needs
 // more than 600.
 async function expectOpenedAtTheTopAndFilled(page: Page) {
   await expect(page).toHaveTitle('Jungle Bay Gold Cards | Tradermigos', { timeout: 20_000 });

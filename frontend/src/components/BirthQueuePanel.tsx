@@ -17,6 +17,7 @@ import {
   birthQueueSummary,
   type BirthQueueItem,
 } from '../lib/launcher/birthNotify';
+import { CardArt } from './ui/CardArt';
 
 function ago(ms: number): string {
   const s = Math.max(0, Math.floor((Date.now() - ms) / 1000));
@@ -55,9 +56,10 @@ export function BirthQueuePanel() {
 
   return (
     <div
-      className="rounded-2xl p-5"
+      className="relative isolate rounded-2xl p-5"
       style={{ background: 'rgba(6,12,26,0.78)', border: '1px solid var(--color-purple-40)' }}
     >
+      <CardArt pageId="birth-queue-panel" idx={0} />
       <div className="flex flex-wrap items-baseline justify-between gap-2 mb-1">
         <h2 className="heading-luxury text-lg text-white tracking-tight">Birth notifications</h2>
         <span className="text-[10px] uppercase tracking-[0.16em] text-white/45">Jungle Bay Island · enrollment</span>

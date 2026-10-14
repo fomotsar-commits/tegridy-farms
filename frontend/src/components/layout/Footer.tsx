@@ -10,6 +10,7 @@ import { CopyButton } from '../ui/CopyButton';
 import { voiceAt, VENUE } from '../../lib/arrival';
 import { isToweliRoomPage, roomSpeaksOn } from '../../lib/routeVoice';
 import { useActiveBungalowId } from '../../hooks/useActiveBungalowId';
+import { IslandSoundLinks } from '../IslandSound';
 
 /**
  * Footer — four-column IA: Product / Resources / Community / Legal.
@@ -137,7 +138,7 @@ export function Footer() {
               </p>
             ) : toweliVoice ? (
               <p className="text-[13px] leading-relaxed max-w-[280px]" style={{ ...LINK_SHADOW, color: 'var(--color-kyle)' }}>
-                Art-first DeFi on Ethereum and Solana. Stake TOWELI &amp; LP tokens to earn rewards; protocol swap fees route on-chain to stakers in ETH. On Solana, swap in our own pools or through Jupiter, whichever pays you more.
+                Art-first DeFi on Ethereum and Solana. Stake TOWELI &amp; LP tokens to earn rewards; protocol swap fees route on-chain, after a referral share, to stakers in ETH. On Solana, swap in our own pools or through Jupiter, whichever pays you more.
               </p>
             ) : (
               <p className="text-[13px] leading-relaxed max-w-[280px]" style={{ ...LINK_SHADOW, color: 'var(--color-kyle)' }}>
@@ -294,8 +295,8 @@ export function Footer() {
           <span className="text-white/90 text-[11px]" style={LINK_SHADOW}>
             Experimental protocol. Use at your own risk. Not financial advice. <Link to="/risks" className="text-white hover:text-white/80 underline" style={LINK_SHADOW}>Risk Disclosure</Link> · <Link to="/security" className="text-white hover:text-white/80 underline" style={LINK_SHADOW}>Security</Link>
           </span>
-          <span className="text-white/60 text-[11px]" style={LINK_SHADOW}>
-            © 2026 memetics.finance
+          <span className="text-white/60 text-[11px] text-center md:text-right" style={LINK_SHADOW}>
+            © 2026 memetics.finance · built by the jungle bay artists collective · <IslandSoundLinks />
           </span>
         </div>
       </div>

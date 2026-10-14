@@ -141,7 +141,9 @@
          inline script by hash, and style-src allows inline. Hidden unless /theme-init.js
          opens it (only on `/` with no other resident's skin): the SPA fallback serves this
          file on every route. FirstFrame.tsx reuses the ff-* classes, and .ff-h1's two sizes
-         are the hero headings' two, so no swap moves. Pinned by src/lib/firstFrame.test.ts. -->
+         are the hero headings' two, so no swap moves. The frame also holds the hero's chain-pill
+         row and letter-spacing, as a door's does, and .ff-input and .ff-btn are HeatCard's field and
+         button (font-mono, btn-primary). Pinned by src/lib/firstFrame.test.ts. -->
     <style>
       html{background:#060c1a}
       #first-frame{display:none}
@@ -157,18 +159,19 @@
       .ff-plain{color:#fff}
       .ff-hook{color:#4CAF50}
       .ff-form{display:flex;flex-wrap:wrap;gap:.5rem;margin:0 0 1.25rem;max-width:28rem}
-      .ff-input{flex:1 1 0;min-width:0;padding:.5rem .75rem;border-radius:.5rem;border:1px solid rgba(139,92,246,.4);background:rgba(0,0,0,.55);color:#fff;font-family:'JetBrains Mono',ui-monospace,monospace;font-size:12.5px;outline:none}
+      .ff-input{flex:1 1 0;min-width:0;padding:.5rem .75rem;border-radius:.5rem;border:1px solid rgba(139,92,246,.4);background:rgba(0,0,0,.55);color:#fff;font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono","Courier New",monospace;font-size:12.5px;outline:none}
       .ff-input:focus-visible{box-shadow:0 0 0 2px #8b5cf6}
-      .ff-btn{padding:.5rem 1.25rem;border-radius:10px;border:1px solid rgba(129,199,132,.45);background:linear-gradient(145deg,#1b5e20 0%,#2e7d32 35%,#4CAF50 65%,#1b5e20 100%);color:#fff;font-family:'Inter',system-ui,sans-serif;font-weight:700;font-size:13px;letter-spacing:.02em;text-shadow:0 1px 2px rgba(0,0,0,.5);cursor:pointer}
+      .ff-btn{padding:10px 20px;border-radius:10px;border:1px solid rgba(129,199,132,.45);background:linear-gradient(145deg,#1b5e20 0%,#2e7d32 35%,#4CAF50 65%,#1b5e20 100%);color:#fff;font-family:'Inter',system-ui,sans-serif;font-weight:700;font-size:14px;letter-spacing:.02em;text-shadow:0 1px 2px rgba(0,0,0,.5);cursor:pointer}
+      @media (max-width:767px){.ff-btn{min-height:44px}}
       @media (min-width:640px){.ff-input{min-width:280px}}
       @media (min-width:768px){.ff-wrap{padding-left:24px;padding-right:24px}.ff-h1{font-size:3.75rem}.ff-plain,.ff-hook{font-size:1.125rem}}
     </style>
     <script type="application/ld+json">
-    {"@context":"https://schema.org","@type":"WebApplication","name":"MEMETICS.FINANCE","description":"The venue of Jungle Bay Island. Memetic finance on Ethereum, Base and Solana.","url":"https://memetics.finance","applicationCategory":"DeFi","operatingSystem":"Web"}
+    {"@context":"https://schema.org","@type":"WebApplication","name":"MEMETICS.FINANCE","description":"The venue of Jungle Bay Island. Memetic finance on Ethereum, Base and Solana.","url":"https://memetics.finance","applicationCategory":"DeFi","operatingSystem":"Web","creator":{"@type":"Organization","name":"Jungle Bay Artists Collective","sameAs":["https://open.spotify.com/artist/0tviFMxqVFawAkZmsLDjOV","https://www.youtube.com/@junglebayisland"]}}
     </script>
   </head>
   <body>
-    <div id="root"><!-- first-frame --><div id="first-frame"><div class="ff-bg"><img src="/art/door-home.jpg" srcset="/_derived/art/door-home-jpg-128.webp 128w, /_derived/art/door-home-jpg-480.webp 480w, /_derived/art/door-home-jpg-960.webp 960w, /art/door-home.jpg 2048w" sizes="100vw" alt="" width="1200" height="800" loading="lazy" decoding="async"></div><div class="ff-wrap"><div class="ff-col"><h1 class="ff-h1" elementtiming="first-frame-h1">MEMETICS.FINANCE <br><span>Held time counts here.</span></h1><p class="ff-plain">Stake meme tokens, swap on Ethereum, Base and Solana, and check any token before you buy.</p><p class="ff-hook">Your heat already exists. Your clock on a token starts at your first hold.</p><form class="ff-form" method="get" action="/"><input class="ff-input" name="heat" placeholder="0x&hellip; or a Solana address" aria-label="Wallet address to read Heat for (Ethereum, Base, or Solana)" autocomplete="off" spellcheck="false" required><button class="ff-btn" type="submit">Read Heat</button></form></div></div></div><!-- /first-frame --></div>
+    <div id="root"><!-- first-frame --><div id="first-frame"><div class="ff-bg"><img src="/art/door-home.jpg" srcset="/_derived/art/door-home-jpg-128.webp 128w, /_derived/art/door-home-jpg-480.webp 480w, /_derived/art/door-home-jpg-960.webp 960w, /art/door-home.jpg 2048w" sizes="100vw" alt="" width="1200" height="800" loading="lazy" decoding="async"></div><div class="ff-wrap"><div class="ff-col"><div aria-hidden="true" style="height:24.5px;margin:0 0 1.25rem"></div><h1 class="ff-h1" elementtiming="first-frame-h1" style="letter-spacing:0.01em">MEMETICS.FINANCE <br><span>Held time counts here.</span></h1><p class="ff-plain">Stake meme tokens, swap on Ethereum, Base and Solana, and check any token before you buy.</p><p class="ff-hook">Your heat already exists. Your clock on a token starts at your first hold.</p><form class="ff-form" method="get" action="/"><input class="ff-input" name="heat" placeholder="0x&hellip; or a Solana address" aria-label="Wallet address to read Heat for (Ethereum, Base, or Solana)" autocomplete="off" spellcheck="false" required><button class="ff-btn" type="submit">Read Heat</button></form></div></div></div><!-- /first-frame --></div>
     <!-- F30: JS-disabled visitors otherwise get a blank #root. -->
     <noscript>
       <div style="max-width:640px;margin:48px auto;padding:24px;font-family:system-ui,sans-serif;color:#ede9fe;text-align:center;line-height:1.5">

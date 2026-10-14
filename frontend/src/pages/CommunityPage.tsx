@@ -15,6 +15,7 @@ const GrantsSection = lazy(() => import('../components/community/GrantsSection')
 const BountiesSection = lazy(() => import('../components/community/BountiesSection').then((m) => ({ default: m.BountiesSection })));
 const VoteIncentivesSection = lazy(() => import('../components/community/VoteIncentivesSection').then((m) => ({ default: m.VoteIncentivesSection })));
 import { ArtImg } from '../components/ArtImg';
+import { CardArt } from '../components/ui/CardArt';
 import { FeatureNotDeployed } from '../components/ui/FeatureNotDeployed';
 import { COMMUNITY_GRANTS_ADDRESS, MEME_BOUNTY_BOARD_ADDRESS, VOTE_INCENTIVES_ADDRESS, GAUGE_CONTROLLER_ADDRESS, isDeployed, CHAIN_ID } from '../lib/constants';
 import { getAddressUrl } from '../lib/explorer';
@@ -151,15 +152,18 @@ export default function CommunityPage() {
             <span className="text-white/80 text-[11px] font-mono uppercase tracking-[0.14em]">Live now</span>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 max-w-3xl mx-auto">
-            <Link to="/leaderboard" className="group rounded-xl p-4 transition-colors hover:border-emerald-500/40" style={{ background: 'rgba(13,21,48,0.55)', border: '1px solid rgba(255,255,255,0.12)' }}>
+            <Link to="/leaderboard" className="group relative isolate rounded-xl p-4 transition-colors hover:border-emerald-500/40" style={{ background: 'rgba(13,21,48,0.55)', border: '1px solid rgba(255,255,255,0.12)' }}>
+              <CardArt pageId="community" idx={6} />
               <div className="text-white font-semibold text-sm group-hover:text-emerald-300 transition-colors">Venue Score →</div>
               <div className="text-white/60 text-xs mt-1 leading-relaxed">On-chain reputation from your real activity — staking, LP, lock duration.</div>
             </Link>
-            <Link to="/nakamigos" className="group rounded-xl p-4 transition-colors hover:border-emerald-500/40" style={{ background: 'rgba(13,21,48,0.55)', border: '1px solid rgba(255,255,255,0.12)' }}>
+            <Link to="/nakamigos" className="group relative isolate rounded-xl p-4 transition-colors hover:border-emerald-500/40" style={{ background: 'rgba(13,21,48,0.55)', border: '1px solid rgba(255,255,255,0.12)' }}>
+              <CardArt pageId="community" idx={7} />
               <div className="text-white font-semibold text-sm group-hover:text-emerald-300 transition-colors">Community chat →</div>
               <div className="text-white/60 text-xs mt-1 leading-relaxed">Live chat, P2P trades, and whale intel over in the Marketplace.</div>
             </Link>
-            <Link to="/gallery" className="group rounded-xl p-4 transition-colors hover:border-emerald-500/40" style={{ background: 'rgba(13,21,48,0.55)', border: '1px solid rgba(255,255,255,0.12)' }}>
+            <Link to="/gallery" className="group relative isolate rounded-xl p-4 transition-colors hover:border-emerald-500/40" style={{ background: 'rgba(13,21,48,0.55)', border: '1px solid rgba(255,255,255,0.12)' }}>
+              <CardArt pageId="community" idx={8} />
               <div className="text-white font-semibold text-sm group-hover:text-emerald-300 transition-colors">Gallery →</div>
               <div className="text-white/60 text-xs mt-1 leading-relaxed">Browse the full art collection.</div>
             </Link>

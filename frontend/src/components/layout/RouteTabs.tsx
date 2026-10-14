@@ -1,11 +1,15 @@
-import { useLayoutEffect } from 'react';
 import { useTabListKeys } from '../../hooks/useTabListKeys';
 import type { NavItem } from '../../lib/navConfig';
 import { tabDomId } from './routeTabId';
 import { useRevealSelectedTab } from './tabStripScroll';
 
 /**
- * The sticky pill tab strip shared by every route-navigating tabbed host.
+ * The pill tab strip shared by every route-navigating tabbed host.
+ *
+ * IN THE PAGE'S FLOW, NEVER PINNED (2026-10-14). Fixed under the top bar, it covered
+ * fields, buttons and links on 19 pages once they scrolled. It now hangs from a
+ * zero-height anchor where the page starts, below the header or a TOWELI room's band,
+ * over the panel's own top padding, and scrolls away with the page.
  *
  * WHY IT EXISTS. LearnPage, InfoPage and ActivityPage each carry their own
  * hand-copied version of this markup — same fixed shell, same frosted pill row,
@@ -74,36 +78,17 @@ function TabLabel({ item }: { item: NavItem }) {
   );
 }
 
-/* While a strip is mounted <html> carries this class, and index.css keeps whatever the
-   browser scrolls to below the strip. Counted, because a route change can mount two. */
-const SCROLLPORT_CLASS = 'has-route-tabs';
-let mountedStrips = 0;
-
 export function RouteTabs({ idPrefix, ariaLabel, items, active, onSelect }: RouteTabsProps) {
   const keys = items.map((i) => i.to);
   const tabKeys = useTabListKeys(keys, active, onSelect);
-
-  // Before paint and before any effect that scrolls, so the first scroll already clears it.
-  useLayoutEffect(() => {
-    mountedStrips += 1;
-    document.documentElement.classList.add(SCROLLPORT_CLASS);
-    return () => {
-      mountedStrips -= 1;
-      if (mountedStrips === 0) document.documentElement.classList.remove(SCROLLPORT_CLASS);
-    };
-  }, []);
-
   const listRef = useRevealSelectedTab(active, keys.join(' '));
 
   return (
-    <div
-      className="fixed left-0 right-0 z-30 px-4 md:px-6 pointer-events-none"
-      /* The header is 3.5rem PLUS the top safe-area inset (TopNav.tsx). Without the
-         inset here the strip sat under the header wherever the inset is not zero:
-         an Android 15 in-app browser drawn edge to edge (seen on a Galaxy S25). */
-      style={{ top: 'calc(56px + env(safe-area-inset-top, 0px) + var(--room-band-h, 0px))' }}
-    >
-      <div className="max-w-[900px] mx-auto pt-3 pointer-events-auto">
+    /* The anchor takes no room, so the panel starts where it did; z-30 keeps the strip
+       above the panel's padding it lies over. flow-root: a panel's -mt-14 would else
+       collapse through the empty anchor and lift the strip 56px, under the top bar. */
+    <div data-route-tabs className="relative z-30 h-0 flow-root">
+      <div className="absolute inset-x-4 md:inset-x-6 top-0 max-w-[900px] mx-auto pt-3">
         <div
           ref={listRef}
           role="tablist"

@@ -1,6 +1,7 @@
 import { m } from 'framer-motion';
 import { usePageTitle } from '../hooks/usePageTitle';
 import { ArtImg } from '../components/ArtImg';
+import { CardArt } from '../components/ui/CardArt';
 import {
   SWAP_FEE_BPS,
   isDeployed,
@@ -220,11 +221,20 @@ const RISKS = [
   },
 ];
 
+// risk-cards art, in page order, one run per list: idx 0-2 the venue's risks, 3-9
+// TOWELI's, 10-15 the limits, 16-28 the general disclosure. Each run wraps at its
+// own list length, so an entry added to a list reuses a registered surface. The
+// banner at the top is risks idx 1.
+const VENUE_RISK_ART_SLOTS = 3;
+const TOWELI_RISK_ART_SLOTS = 7;
+const LIMIT_ART_SLOTS = 6;
+const GENERAL_RISK_ART_SLOTS = 13;
+
 export default function RisksPage() {
   usePageTitle('Risk Disclosure', 'Important risk factors for using memetics.finance DeFi protocol.');
 
   // One card list, two owners: the venue's risks, then TOWELI's.
-  const riskList = (list: typeof PROTOCOL_RISKS) => (
+  const riskList = (list: typeof PROTOCOL_RISKS, artBase: number, artSlots: number) => (
     <ul className="space-y-4 list-none p-0 m-0">
       {list.map((risk, i) => (
         <m.li
@@ -232,12 +242,13 @@ export default function RisksPage() {
           initial={{ opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.35, delay: 0.12 + i * 0.04 }}
-          className="rounded-2xl p-6 md:p-7 backdrop-blur-md"
+          className="relative isolate rounded-2xl p-6 md:p-7 backdrop-blur-md"
           style={{
             background: 'rgba(48, 12, 16, 0.82)',
             border: '1px solid rgba(248, 113, 113, 0.32)',
           }}
         >
+          <CardArt pageId="risk-cards" idx={artBase + (i % artSlots)} />
           <div className="flex items-start gap-3">
             <span className="text-red-400 text-lg mt-0.5 shrink-0" aria-hidden="true">&#9888;</span>
             <div className="flex-1">
@@ -308,12 +319,13 @@ export default function RisksPage() {
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.4, delay: 0.1 }}
-          className="rounded-2xl p-5 mb-8 backdrop-blur-md"
+          className="relative isolate rounded-2xl p-5 mb-8 backdrop-blur-md"
           style={{
             background: 'rgba(234, 179, 8, 0.08)',
             border: '1px solid rgba(234, 179, 8, 0.25)',
           }}
         >
+          <CardArt pageId="risks" idx={1} />
           <div className="flex items-start gap-3">
             <span className="text-yellow-400 text-xl mt-0.5 shrink-0">&#9888;</span>
             <p className="text-yellow-200/90 text-sm leading-relaxed">
@@ -343,7 +355,7 @@ export default function RisksPage() {
             </p>
           </div>
 
-          {riskList(VENUE_RISKS)}
+          {riskList(VENUE_RISKS, 0, VENUE_RISK_ART_SLOTS)}
 
           <p className="text-white/55 text-xs mt-4 leading-relaxed">
             Rolling status is tracked in{' '}
@@ -383,7 +395,7 @@ export default function RisksPage() {
               The classic protocol TOWELI runs on Ethereum: its keys, its contracts, its market, its brand and its limits.
             </p>
           </div>
-          <div className="mb-10">{riskList(TOWELI_RISKS)}</div>
+          <div className="mb-10">{riskList(TOWELI_RISKS, 3, TOWELI_RISK_ART_SLOTS)}</div>
 
         <m.section
           aria-labelledby="limits-heading"
@@ -408,12 +420,13 @@ export default function RisksPage() {
                 initial={{ opacity: 0, y: 12 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.35, delay: 0.12 + i * 0.04 }}
-                className="rounded-2xl p-5 md:p-6 backdrop-blur-md"
+                className="relative isolate rounded-2xl p-5 md:p-6 backdrop-blur-md"
                 style={{
                   background: 'rgba(13, 21, 48, 0.82)',
                   border: '1px solid var(--color-purple-20)',
                 }}
               >
+                <CardArt pageId="risk-cards" idx={10 + (i % LIMIT_ART_SLOTS)} />
                 <div className="flex items-center flex-wrap gap-2 mb-3">
                   <h4 className="text-lg font-semibold text-white">{grp.feature}</h4>
                   <span
@@ -463,12 +476,13 @@ export default function RisksPage() {
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.4, delay: 0.15 + i * 0.05 }}
-              className="rounded-2xl p-6 md:p-8 backdrop-blur-md"
+              className="relative isolate rounded-2xl p-6 md:p-8 backdrop-blur-md"
               style={{
                 background: 'rgba(13, 21, 48, 0.88)',
                 border: '1px solid var(--color-purple-12)',
               }}
             >
+              <CardArt pageId="risk-cards" idx={16 + (i % GENERAL_RISK_ART_SLOTS)} />
               <div className="flex items-start gap-3">
                 <span className="text-amber-400 text-lg mt-0.5 shrink-0" aria-hidden="true">&#9888;</span>
                 <div>

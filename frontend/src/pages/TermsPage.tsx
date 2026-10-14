@@ -1,6 +1,7 @@
 import { m } from 'framer-motion';
 import { usePageTitle } from '../hooks/usePageTitle';
 import { ArtImg } from '../components/ArtImg';
+import { CardArt } from '../components/ui/CardArt';
 import { SWAP_FEE_BPS } from '../lib/constants';
 import { DEFAULT_FEE_CONSTITUTION, LAUNCH_FEE_TIER, TOWELI_NUMERAIRE } from '../lib/launcher/config';
 import { protocolFeeSink } from '../lib/launcher/launchService';
@@ -100,6 +101,10 @@ export const SECTIONS = [
   },
 ];
 
+/** How many clause cards have an art surface of their own (terms-cards idx 0 to 14).
+ *  The index wraps here, so a clause added to SECTIONS reuses a registered surface. */
+const TERMS_ART_SLOTS = 15;
+
 export default function TermsPage() {
   usePageTitle('Terms of Service', 'Terms and conditions for using the memetics.finance protocol.');
 
@@ -133,12 +138,13 @@ export default function TermsPage() {
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.4, delay: 0.1 + i * 0.05 }}
-              className="rounded-2xl p-6 md:p-8 backdrop-blur-md"
+              className="relative isolate rounded-2xl p-6 md:p-8 backdrop-blur-md"
               style={{
                 background: 'rgba(13, 21, 48, 0.88)',
                 border: '1px solid var(--color-purple-12)',
               }}
             >
+              <CardArt pageId="terms-cards" idx={i % TERMS_ART_SLOTS} />
               <h2 className="text-lg font-semibold text-white mb-3">
                 {section.title}
               </h2>

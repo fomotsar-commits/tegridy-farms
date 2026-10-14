@@ -43,7 +43,15 @@ export function cidV1Raw(bytes: Uint8Array): string {
 /** A valid w×h RGB PNG (a diagonal gradient), built here so the repo carries no binary fixture. */
 export function makePng(w = 96, h = 96): Buffer {
   const crcTable = Array.from({ length: 256 }, (_, n) => { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1; return c >>> 0; });
-  const crc = (buf: Buffer) => { let c = 0xffffffff; for (const b of buf) c = crcTable[(c ^ b) & 0xff] ^ (c >>> 8); return (c ^ 0xffffffff) >>> 0; };
+  const crc = (buf: Buffer) => {
+    let c = 0xffffffff;
+    for (const b of buf) {
+      const entry = crcTable[(c ^ b) & 0xff];
+      if (entry === undefined) throw new Error(`no CRC table entry ${(c ^ b) & 0xff}`);
+      c = entry ^ (c >>> 8);
+    }
+    return (c ^ 0xffffffff) >>> 0;
+  };
   const chunk = (type: string, data: Buffer) => {
     const len = Buffer.alloc(4); len.writeUInt32BE(data.length);
     const td = Buffer.concat([Buffer.from(type, 'ascii'), data]);

@@ -1,35 +1,14 @@
 import { OWN_ROUTE_COPY } from '../../lib/solana/swap/ownPoolRoute';
-import { DECLINED_IN_WALLET } from '../../lib/solana/swap/walletCopy';
-import type { PreparedTx, TxOutcome } from '../solana/curve/ports';
-import { fractionToBps, impactWarning } from '../solana/curve/uiFormat';
+import { DECLINED_IN_WALLET, HELD_NOT_SENT } from '../../lib/solana/swap/walletCopy';
+import type { TxOutcome } from '../solana/curve/ports';
 
-// ONE PRESS. A swap in our own pool that built, passed its test run and carries nothing
-// a trader has to read goes from Buy to the wallet, as a Jupiter swap does. Every check
-// the review flow makes has already run by then. These two rules say which swaps skip
-// the review screen and which endings skip the outcome card. Anything else stops.
-
-/**
- * True when the review would tell the trader nothing the form did not: the swap pays at
- * least the minimum the form showed when Buy was pressed (`floorShown`), no notice, a
- * read priority fee, a price impact under the warning line, Jupiter asked just now, and
- * SOL that arrives as plain SOL.
- */
-export function needsNoReview(p: PreparedTx, floorShown: bigint | null): boolean {
-  const s = p.summary;
-  if (s.kind !== 'venue-swap') return false;
-  // The price moved under what was pressed on: the new figures are read before signing.
-  if (floorShown === null || s.quoted.outAmount < floorShown) return false;
-  if (s.notices.length > 0 || !p.fees.priorityFeeRead) return false;
-  // A sale paid as WRAPPED SOL into an account the wallet already had is said on the review.
-  if (s.coin.native && !s.paysCoin && !s.unwrapsWsol) return false;
-  if (impactWarning(fractionToBps(s.quoted.priceImpact)) !== null) return false;
-  // "Could not be asked", "an earlier quote" and "refused by its test run" are each said before signing.
-  return s.aggregator.kind === 'no-route' || (s.aggregator.kind === 'quoted' && s.aggregator.when === 'now');
-}
+// THE QUIET ENDING. Every swap in our own pool stops on its review before the wallet is
+// asked (owner, 2026-10-13). After the wallet, an ending one line can say skips the
+// outcome card and the form comes back by itself. Anything else holds the screen.
 
 export type QuietEnding =
   | { kind: 'confirmed'; signature: string }
-  /** The trader said no in their wallet: nothing left the page. */
+  /** Nothing left the page: the trader said no in their wallet, or a swap this wallet sent holds it. */
   | { kind: 'not-signed'; message: string }
   /** The route was checked again at the press and is no longer our pool. */
   | { kind: 'route-changed'; message: string };
@@ -44,7 +23,7 @@ const ROUTE_CHANGED: ReadonlySet<string> = new Set([OWN_ROUTE_COPY.routeMoved, O
 export function quietEnding(o: TxOutcome): QuietEnding | null {
   if (o.status === 'confirmed') return { kind: 'confirmed', signature: o.signature };
   if (o.status !== 'not-sent') return null;
-  if (o.stage === 'sign' && o.message === DECLINED_IN_WALLET) return { kind: 'not-signed', message: o.message };
+  if (o.stage === 'sign' && (o.message === DECLINED_IN_WALLET || o.message === HELD_NOT_SENT)) return { kind: 'not-signed', message: o.message };
   if (o.stage === 'build' && ROUTE_CHANGED.has(o.message)) return { kind: 'route-changed', message: o.message };
   return null;
 }

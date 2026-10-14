@@ -7,6 +7,9 @@
     // import from ../scripts/, which exists in CI/local but not inside Vercel's
     // rootDirectory=frontend upload, so a bare `tsc -b` fails every deploy while
     // passing everywhere else. The build script names app+node explicitly.
-    { "path": "./tsconfig.test.json" }
+    { "path": "./tsconfig.test.json" },
+    // The browser tests, which Playwright runs without type-checking them.
+    { "path": "./tsconfig.e2e.json" },
+    { "path": "./tsconfig.e2e-solana.json" }
   ]
 }

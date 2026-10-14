@@ -21,6 +21,7 @@ import { TAPE_RETURN_RANKING } from '../lib/copytrade/tapeLeaderboard';
 import { DEFAULT_QUOTE_TOKEN } from '../lib/copytrade/quoteTokens';
 import type { PoolFamily } from '../lib/copytrade/tape';
 import { PageArtBackdrop } from '../components/PageArtBackdrop';
+import { FinePrint } from '../components/ui/FinePrint';
 import { isIndexerConfigured } from '../lib/indexer/client';
 
 // COPY TRADING — follow an address, size the mirror, place it yourself.
@@ -50,6 +51,10 @@ import { isIndexerConfigured } from '../lib/indexer/client';
 // VITE_INDEXER_URL unset (CI, local builds, previews) that half is one line
 // saying so. None of the panels draws an empty table, because an empty
 // copy-trading board is a claim about every wallet at once.
+//
+// FEWER WORDS (owner, 2026-10-13). The two load-bearing sentences above
+// (TAPE_RETURN_RANKING.reason, MIRROR_EXECUTION) are still rendered in full, in
+// the header's FinePrint; the face says the same thing in one line.
 
 export default function CopyTradingPage() {
   usePageTitle(
@@ -122,8 +127,13 @@ export default function CopyTradingPage() {
       <div className="relative z-10 mx-auto w-full max-w-6xl px-4 py-8">
         <header>
           <h1 className="text-2xl font-bold text-white">Copy Trading</h1>
-          <p className="mt-2 max-w-3xl text-sm leading-relaxed text-white/75">{TAPE_RETURN_RANKING.reason}</p>
-          <p className="mt-2 max-w-3xl text-sm leading-relaxed text-white/75">{MIRROR_EXECUTION}</p>
+          <p className="mt-2 max-w-3xl text-sm leading-relaxed text-white/75">
+            Follow an address, size a mirror, sign it yourself. No profit ranking.
+          </p>
+          <FinePrint summary="How it works" className="mt-1">
+            <p>{TAPE_RETURN_RANKING.reason}</p>
+            <p>{MIRROR_EXECUTION}</p>
+          </FinePrint>
         </header>
 
         <div className="mt-6 space-y-6">
@@ -204,8 +214,7 @@ export default function CopyTradingPage() {
           <h2 className="text-sm font-semibold text-white">Venue router</h2>
           {!isIndexerConfigured() ? (
             <p className="mt-1.5 max-w-3xl text-xs leading-relaxed text-white/70">
-              Swaps routed through this venue&apos;s own router are not on the island tape above. They
-              appear here once this deployment reads the venue&apos;s indexer.
+              Router swaps are not on the tape above. This deployment does not read them yet.
             </p>
           ) : (
           <div className="mt-4 grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)]">

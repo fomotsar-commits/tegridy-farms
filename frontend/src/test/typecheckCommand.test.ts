@@ -103,6 +103,29 @@ describe('the typecheck actually covers the files people write', () => {
     ).toBe(true);
   });
 
+  // Playwright strips types without checking them, so until 2026-10-13 a browser test
+  // could merge with a wrong import or a missing property that no gate saw.
+  it.each(['e2e', 'e2e-solana'])('the solution references a project that includes the %s folder', (dir) => {
+    const solution = readJsonc(join(FRONTEND, 'tsconfig.json'));
+    const refs = (solution.references as { path: string }[]).map((r) => r.path);
+    const covers = refs.some((p) => {
+      const include = (readJsonc(join(FRONTEND, p)).include as string[] | undefined) ?? [];
+      return include.some((g) => g === dir || g.startsWith(`${dir}/`));
+    });
+    expect(covers, `no referenced project includes ${dir}/, so \`tsc -b\` type-checks none of its specs`).toBe(true);
+  });
+
+  // e2e-solana ran with noUncheckedIndexedAccess off until 2026-10-14 (185 unguarded reads,
+  // most in the test wallet's own transaction check). A browser-test project may add
+  // settings, never switch off a check the app keeps on.
+  it.each(['tsconfig.e2e.json', 'tsconfig.e2e-solana.json'])('%s switches off no check the app keeps on', (file) => {
+    const app = readJsonc(join(FRONTEND, 'tsconfig.app.json')).compilerOptions as Record<string, unknown>;
+    const own = readJsonc(join(FRONTEND, file)).compilerOptions as Record<string, unknown>;
+    const relaxed = ['strict', 'noUncheckedIndexedAccess', 'noUnusedLocals', 'noUnusedParameters', 'noFallthroughCasesInSwitch']
+      .filter((k) => app[k] === true && own[k] === false);
+    expect(relaxed, `${file} switches off ${relaxed.join(', ')}`).toEqual([]);
+  });
+
   it('every referenced project is a real file', () => {
     // A reference to a path that does not exist makes `tsc -b` fail loudly rather
     // than quietly, which is fine — but a typo'd path that happens to resolve

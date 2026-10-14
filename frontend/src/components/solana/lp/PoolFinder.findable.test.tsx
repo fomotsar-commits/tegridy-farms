@@ -165,7 +165,7 @@ describe('what a visitor can do is on the first card, as buttons', () => {
     mount();
     fireEvent.click(await task('Create a pool'));
     expect(await task('Create a pool')).toHaveAttribute('aria-pressed', 'true');
-    expect(screen.getByTestId('lp-task-line')).toHaveTextContent('Pick the token to open a pool for: you can pair it with SOL, USDC or BAYLA. The form opens under the token’s checks.');
+    expect(screen.getByTestId('lp-task-line')).toHaveTextContent('Pick a token. You can pair it with SOL, USDC or BAYLA.');
     fireEvent.click(await task('Add liquidity'));
     expect(await task('Create a pool')).toHaveAttribute('aria-pressed', 'false');
     expect(screen.getByTestId('lp-task-line')).toHaveTextContent('If it has no pool yet, your deposit opens one.');
@@ -175,7 +175,7 @@ describe('what a visitor can do is on the first card, as buttons', () => {
     mount('/solana-lp', 'withdraw-only');
     const tasks = within(await finder()).getByTestId('lp-tasks');
     expect(within(tasks).getAllByRole('button').map((b) => b.textContent)).toEqual(['Remove liquidity']);
-    expect(tasks).toHaveTextContent('Adding liquidity and opening pools from this site are paused right now. Removing still works.');
+    expect(tasks).toHaveTextContent('Adding and opening pools are paused here. Removing still works.');
   });
 
   it('with liquidity switched off, the card is only a finder', async () => {
@@ -194,7 +194,8 @@ describe("the site's own tokens are picked by a press, in any room", () => {
     mount();
     const chips = within(await finder()).getByTestId('lp-site-tokens');
     expect(within(chips).getAllByRole('button').map((b) => b.textContent)).toEqual(SITE.map((t) => t.symbol));
-    expect(chips).toHaveTextContent('looked up by its address from this site’s own list, not by its name');
+    // How they are looked up is one press away, at the foot of the card.
+    expect(within(await finder()).getByTestId('lp-site-tokens-note')).toHaveTextContent('looked up by its address from this site’s own list, not by its name');
   });
 
   it("puts the visitor's own room first, and offers no token that is not on Solana", async () => {
@@ -352,7 +353,7 @@ describe('a lookup asked for with a button ends in a form', () => {
     mount(`/solana-lp?mint=${BAYLA}`);
     await screen.findByTestId('lp-create');
     expect(screen.getByTestId('lp-task-line')).toHaveTextContent(
-      'A token is already on this page: its address is in the box below. Create a pool and Add liquidity open its form.',
+      'Create a pool and Add liquidity act on the token in the box below.',
     );
     expect(within(await finder()).getByLabelText('Token mint address')).toHaveValue(BAYLA);
   });
@@ -493,7 +494,7 @@ describe('Remove liquidity goes to the positions', () => {
     expect(scrolledTo()).toContain(positions);
     expect(document.activeElement).toBe(positions);
     expect(await task('Remove liquidity')).toHaveAttribute('aria-pressed', 'true');
-    expect(screen.getByTestId('lp-task-line')).toHaveTextContent('Your pool shares are listed under Your positions.');
+    expect(screen.getByTestId('lp-task-line')).toHaveTextContent('Shares you can take out have a Remove button under Your positions.');
     expect(positions).toHaveTextContent('Removing liquidity starts here: each share that can be taken out gets a Remove liquidity button.');
     // A phone's own browser has no wallet in it: the card says what to do, as the forms do.
     expect(positions).toHaveTextContent('On a phone or tablet with no wallet in this browser: open this page inside your wallet app');
