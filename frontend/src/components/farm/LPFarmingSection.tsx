@@ -91,7 +91,7 @@ export function LPFarmingSection({ lpFarm, isConnected }: LPFarmingSectionProps)
         <div className="flex items-center justify-between mb-5">
           <div>
             <h2 className="heading-luxury text-white text-[22px] tracking-tight">LP Farming</h2>
-            <p className="text-white text-[13px] mt-0.5">Stake LP tokens &middot; earn TOWELI rewards</p>
+            <p className="text-white text-[13px] mt-0.5">Stake LP, earn TOWELI rewards.</p>
           </div>
         </div>
         <div className="rounded-xl p-6" style={{ background: 'rgba(0,0,0,0.35)', border: '1px solid var(--color-purple-15)' }}>
@@ -117,7 +117,7 @@ export function LPFarmingSection({ lpFarm, isConnected }: LPFarmingSectionProps)
         <div className="flex items-center justify-between mb-5">
           <div>
             <h2 className="heading-luxury text-white text-[22px] tracking-tight" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>LP Farming</h2>
-            <p className="text-white/85 text-[13px] mt-0.5" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>Stake LP tokens &middot; earn TOWELI rewards</p>
+            <p className="text-white/85 text-[13px] mt-0.5" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>Stake LP, earn TOWELI rewards.</p>
           </div>
           <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-500/20 text-amber-300 border border-amber-500/30">SOON</span>
         </div>
@@ -143,7 +143,7 @@ export function LPFarmingSection({ lpFarm, isConnected }: LPFarmingSectionProps)
       <div className="flex items-center justify-between mb-5">
         <div>
           <h2 className="heading-luxury text-white text-[22px] tracking-tight">LP Farming</h2>
-          <p className="text-white text-[13px] mt-0.5">Stake LP tokens &middot; earn TOWELI rewards</p>
+          <p className="text-white text-[13px] mt-0.5">Stake LP, earn TOWELI rewards.</p>
         </div>
         {lpFarm.isActive && <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-green-500/20 text-green-400 border border-green-500/30">LIVE</span>}
       </div>
@@ -211,9 +211,9 @@ export function LPFarmingSection({ lpFarm, isConnected }: LPFarmingSectionProps)
                       activate the live APR". Worded as an end, not "between epochs":
                       the Reward Rate tile below says why that reads as a lull. */}
                   {lpFarm.statsUnread
-                    ? 'the farm figures could not be read — retry above'
+                    ? 'the farm figures could not be read, retry above'
                     : !lpFarm.isActive
-                      ? 'reward period ended — staking LP earns nothing until the farm is refunded'
+                      ? 'reward period ended, staking LP earns nothing until refunded'
                       : lpFarm.totalStaked === 0n
                         ? 'be the first to stake LP to activate the live APR'
                         : 'calculating…'}
@@ -276,7 +276,7 @@ export function LPFarmingSection({ lpFarm, isConnected }: LPFarmingSectionProps)
 
           {!isConnected ? (
             <div className="text-center py-8">
-              <p className="text-white text-sm mb-3">Connect an Ethereum wallet to stake LP tokens</p>
+              <p className="text-white text-sm mb-3">Connect to stake LP.</p>
               <ConnectButton label={CONNECT_ETHEREUM_WALLET} />
             </div>
           ) : (
@@ -405,7 +405,7 @@ export function LPFarmingSection({ lpFarm, isConnected }: LPFarmingSectionProps)
                     <p className="text-white/50 text-[10px] mt-2">
                       Min stake <span className="font-mono">{formatTokenAmount(lpFarm.minStakeFormatted, 0)}</span> LP
                       {!lpFarm.positionUnread && parseFloat(lpFarm.walletLPBalanceFormatted) < parseFloat(lpFarm.minStakeFormatted) && (
-                        <> &middot; you hold {formatTokenAmount(lpFarm.walletLPBalanceFormatted)} &mdash; <Link to="/liquidity" className="underline hover:text-white">add liquidity</Link></>
+                        <> &middot; you hold {formatTokenAmount(lpFarm.walletLPBalanceFormatted)}, <Link to="/liquidity" className="underline hover:text-white">add liquidity</Link></>
                       )}
                     </p>
                   )}
