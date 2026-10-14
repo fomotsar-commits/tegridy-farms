@@ -37,8 +37,9 @@
 // message is also simulated again and its balance effect re-checked.
 
 import { signThrowCopy } from '../../../solana/walletThrow';
+import { blockhashGone, type NoteBlockhash } from '../../../solana/blockhashWindow';
 import { base58 } from '@scure/base';
-import { Transaction } from '@solana/web3.js';
+import { Transaction, type Connection } from '@solana/web3.js';
 import { clipDetail } from '../curve/read';
 import { explainFailure } from './errors';
 import { computeUnitLimit, decodeIntent } from './intent';
@@ -356,14 +357,15 @@ function extractLogs(e: unknown): string[] | null {
  * Look again. Searches history, so an old signature is still found.
  *
  * With `lastValidBlockHeight`, a signature the network has no record of AND whose
- * height has passed is `expired` (safe to retry). Without it, or when the height
- * cannot be read, no record is `unknown`, never "failed". With `cfg`, a refusal names
+ * height has passed is `expired` (safe to retry). `blockhash` (seen valid) is asked
+ * first: gone is the same proof, and still valid means it can land. Without either, or
+ * unread, no record is `unknown`, never "failed". With `cfg`, a refusal names
  * the program and its reason; `kind` says it in that kind's own words (liquidity).
  */
 export async function recheckOutcome(
   rpc: WriteRpc,
   signature: string,
-  opts: { lastValidBlockHeight?: number; cfg?: PreparedTx['check']['intent']['cfg']; kind?: TxKind } = {},
+  opts: { lastValidBlockHeight?: number; blockhash?: NoteBlockhash; cfg?: PreparedTx['check']['intent']['cfg']; kind?: TxKind } = {},
 ): Promise<TxOutcome> {
   const read = await readStatus(rpc, signature, true);
   if (read === 'unread') return { status: 'unknown', signature, message: 'Could not check right now. Try again in a moment.' };
@@ -394,6 +396,18 @@ export async function recheckOutcome(
     }
     return { status: 'confirmed', signature, slot: typeof st.slot === 'number' ? st.slot : null };
   }
+  const noRecord: TxOutcome = { status: 'unknown', signature, message: 'The network has no record of it yet. It may still be landing.' };
+  if (opts.blockhash) {
+    const bh = await blockhashGone(rpc as WriteRpc & Partial<Pick<Connection, 'isBlockhashValid'>>, opts.blockhash);
+    if (bh === 'live') return noRecord;
+    if (bh !== null) {
+      // Gone at a confirmed slot: two empty history reads from servers caught up to it.
+      const again = await recordAfterExpiry(rpc, signature, bh.gone);
+      if (again === null) return { status: 'expired', signature, message: EXPIRED_COPY };
+      if (again !== 'unread' && settled(again)) return recheckOutcome(rpc, signature, { cfg: opts.cfg, kind: opts.kind });
+      if (again !== 'unread') return { status: 'unknown', signature, message: 'The network has seen it but has not confirmed it yet.' };
+    }
+  }
   if (opts.lastValidBlockHeight !== undefined) {
     const h = await finalizedHeight(rpc);
     if (h !== null && h > opts.lastValidBlockHeight) {
@@ -407,5 +421,5 @@ export async function recheckOutcome(
       }
     }
   }
-  return { status: 'unknown', signature, message: 'The network has no record of it yet. It may still be landing.' };
+  return noRecord;
 }

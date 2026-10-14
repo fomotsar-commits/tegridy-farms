@@ -94,6 +94,26 @@ import { notSignedCopy } from './solana/walletThrow';
 const bn = (v: string | number) => ({ toString: () => String(v) });
 const POOL = 'PooLAddr111111111111111111111111111111111111';
 
+const REWARD_PROGRAM = 'RWRDdfRbi3339VgKxTAXg4cjyniF7cbhNbMxZWiSKmj';
+const STAKE_PROGRAM = 'STAKEvGqQTtzJZH6BWDcbpzXXn2BBerPAgQ3EGLN2GH';
+/**
+ * A program's custom error as the SDK throws it from its test run: web3's SendTransactionError
+ * (its logs on `transactionLogs`), wrapped in Streamflow's ContractError (`cause`).
+ */
+const programSays = (program: string, code: number) => {
+  const sim = Object.assign(new Error(`Simulation failed. Message: failed to simulate transaction: {"InstructionError":[2,{"Custom":${code}}]}.`), {
+    transactionLogs: [
+      `Program ${program} invoke [1]`,
+      'Program log: Instruction: ClaimRewards',
+      `Program log: AnchorError occurred. Error Number: ${code}.`,
+      `Program ${program} consumed 9000 of 200000 compute units`,
+      `Program ${program} failed: custom program error: 0x${code.toString(16)}`,
+    ],
+  });
+  return Object.assign(new Error(sim.message, { cause: sim }), { name: 'ContractError' });
+};
+const rewardProgramSays = (code: number) => programSays(REWARD_PROGRAM, code);
+
 beforeEach(() => {
   vi.clearAllMocks();
 });
@@ -452,7 +472,7 @@ describe('stake', () => {
       }
     }
     // Closing past a permanent claim failure reaches unstakeAndClose's own fallback.
-    claimRewards.mockReset().mockRejectedValue(new Error('Error Number: 6000.'));
+    claimRewards.mockReset().mockRejectedValue(rewardProgramSays(6000));
     unstakeAndClose.mockReset().mockRejectedValue(new Error('something else'));
     const closed = await unstakeAndCloseForfeitingRewards({ invoker, pool, entryNonce: 0, entry: { createdTs: 1, pendingRaw: { 3: 5n } } });
     if (!closed.ok) reasons.push(closed.reason);
@@ -600,8 +620,9 @@ describe('unstakeAndCloseForfeitingRewards', () => {
   });
 
   it('when the chain itself says 6000, the rescue accepts that and frees the principal', async () => {
-    // The ONLY evidence that closes a door. Not the counter — the program.
-    claimRewards.mockRejectedValue(new Error('Error Code: ArithmeticError. Error Number: 6000.'));
+    // The ONLY evidence that closes a door. Not the counter — the program, by the runtime's
+    // own log line, wrapped as the SDK throws it (ContractError around SendTransactionError).
+    claimRewards.mockRejectedValue(rewardProgramSays(6000));
     unstakeAndClose.mockResolvedValue({ txId: 'CLOSE_SIG' });
     const r = await unstakeAndCloseForfeitingRewards({
       invoker,
@@ -651,6 +672,25 @@ describe('unstakeAndCloseForfeitingRewards', () => {
     expect(r.ok).toBe(false);
     expect(unstakeAndClose).not.toHaveBeenCalled();
     if (!r.ok) expect(r.reason).toMatch(/wallet changed/i);
+  });
+
+  it.each([
+    ['an unrelated message with 6000 in it', new Error('fetch failed: the request took over 6000 ms')],
+    ['the reward program’s words alone, with no logs', new Error('Error Code: ArithmeticError. Error Number: 6000.')],
+    ['6000 from the STAKE program (InvalidDuration there), by its log line', programSays(STAKE_PROGRAM, 6000)],
+    ['another code from the reward program', programSays(REWARD_PROGRAM, 6001)],
+  ])('%s never lets the rescue close the entry', async (_name, thrown) => {
+    claimRewards.mockRejectedValue(thrown);
+    unstakeAndClose.mockResolvedValue({ txId: 'CLOSE_SIG' });
+    const r = await unstakeAndCloseForfeitingRewards({
+      invoker,
+      pool: poolWith([rp(0, 'fixed')]),
+      entryNonce: 7,
+      entry: { createdTs: 1_000, pendingRaw: { 0: 4_000n } },
+    });
+    expect(r.ok).toBe(false);
+    expect(unstakeAndClose).not.toHaveBeenCalled();
+    if (!r.ok) expect(r.reason).toMatch(/could not be claimed first/);
   });
 
   it('a NON-permanent failure still aborts — a dry vault is not a death certificate', async () => {

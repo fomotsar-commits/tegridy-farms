@@ -16,7 +16,7 @@ import type { ReactNode } from 'react';
 import { PublicKey } from '@solana/web3.js';
 import { WalletNotConnectedError, WalletSendTransactionError } from '@solana/wallet-adapter-base';
 
-const { toast, connection, wallet, jup, recheckOutcome } = vi.hoisted(() => ({
+const { toast, connection, wallet, jup, recheckOutcome, built } = vi.hoisted(() => ({
   toast: { success: vi.fn(), error: vi.fn(), info: vi.fn(), warning: vi.fn(), message: vi.fn() },
   connection: {
     getBalance: vi.fn(),
@@ -24,6 +24,7 @@ const { toast, connection, wallet, jup, recheckOutcome } = vi.hoisted(() => ({
     getSignatureStatuses: vi.fn(),
     getMultipleAccountsInfo: vi.fn(),
     getBlockHeight: vi.fn(),
+    isBlockhashValid: vi.fn(),
   },
   wallet: { sendTransaction: vi.fn(), publicKey: null as unknown },
   jup: {
@@ -32,6 +33,8 @@ const { toast, connection, wallet, jup, recheckOutcome } = vi.hoisted(() => ({
     simulateSwap: vi.fn(),
   },
   recheckOutcome: vi.fn(),
+  // What Jupiter's transaction deserializes to: none of its fields by default.
+  built: { tx: {} as unknown },
 }));
 
 const OWNER = new PublicKey('11111111111111111111111111111111');
@@ -48,7 +51,7 @@ vi.mock('@solana/wallet-adapter-react', () => ({
 }));
 vi.mock('@solana/web3.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@solana/web3.js')>()),
-  VersionedTransaction: { deserialize: () => ({}) },
+  VersionedTransaction: { deserialize: () => built.tx },
 }));
 vi.mock('../components/solana/SolanaProviders', () => ({ SolanaProviders: ({ children }: { children: ReactNode }) => <>{children}</> }));
 vi.mock('../components/solana/SolanaConnectButton', () => ({ SolanaConnectButton: () => null }));
@@ -88,15 +91,20 @@ vi.mock('../components/swap/venueSwapApi', () => ({
 }));
 
 import SolanaSwapPage from './SolanaSwapPage';
-import { readPendingTrades, savePendingTrade, swapPendingScope, PENDING_TRADE_TTL_MS } from '../components/solana/curve/pendingTrade';
+import { readPendingTrades, savePendingTrade, swapPendingScope, LOST_ANSWER_TTL_MS, PENDING_TRADE_TTL_MS } from '../components/solana/curve/pendingTrade';
 import {
+  CHECK_KEEPS_FAILING,
   DECLINED_IN_WALLET,
   HELD_UNTIL,
   HOLD_DISMISS_LABEL,
   HOLD_DISMISS_MEANS,
   LOST_ANSWER_TITLE,
+  LOST_HELD_UNTIL,
+  LOST_HOLD_TITLE,
+  LOST_NO_SIGNATURE,
   nothingSentCopy,
 } from '../lib/solana/swap/walletCopy';
+import { NOT_TEST_RUN_COPY } from '../lib/solana/swap/jupiterFeeRetry';
 import { JUPITER_WINDOW_BLOCKS } from '../lib/solana/swap/jupiterNote';
 import { notSignedCopy } from '../lib/solana/walletThrow';
 
@@ -125,6 +133,8 @@ beforeEach(() => {
   connection.getSignatureStatuses.mockReset().mockResolvedValue(notYet);
   connection.getMultipleAccountsInfo.mockReset().mockResolvedValue([]);
   connection.getBlockHeight.mockReset().mockResolvedValue(HEIGHT);
+  connection.isBlockhashValid.mockReset().mockRejectedValue(new Error('not asked here'));
+  built.tx = {};
   wallet.sendTransaction.mockReset().mockResolvedValue(SIG);
   jup.getQuote.mockReset().mockResolvedValue(quote);
   jup.buildSwapTransaction.mockReset().mockResolvedValue('AAAA');
@@ -311,5 +321,112 @@ describe('a press that ends before a signature says what happened', () => {
     await waitFor(() => expect(toast.error).toHaveBeenCalledWith('Not sent', { description: notSignedCopy('this page is no longer connected to it, so it was never asked') }));
     expect(toast.warning).not.toHaveBeenCalled();
     expect(amountBox().value).toBe('0.5');
+  });
+
+  it('"Swap submitted" carries no em dash', async () => {
+    fireEvent.click(await readyToBuy());
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith('Swap submitted', { description: expect.stringMatching(/\. Confirming…$/) }));
+    for (const [, o] of toast.success.mock.calls) expect(JSON.stringify(o)).not.toContain('—');
+  });
+});
+
+// A lost answer: the wallet threw in a way that can come after it signed, with no signature
+// (owner, 2026-10-14, D1). Buy is held for that wallet until the swap's blockhash can no
+// longer land, 2 minutes at most, or "Turn Buy back on now".
+describe('a wallet answer lost before a signature came back', () => {
+  const BH = 'GHtXQBsoZHVnNFa9YevAzFr17DJjgHXk3ycTKD5xD3Zi';
+  const lost = () => new WalletSendTransactionError('failed to send transaction: fetch failed', new TypeError('fetch failed'));
+  /** Seen valid at slot 100 by the probe; a later check (minContextSlot) answers `later`. */
+  const blockhashAnswers = (later: { context: { slot: number }; value: boolean }) => {
+    built.tx = { message: { recentBlockhash: BH } };
+    connection.isBlockhashValid.mockImplementation(async (_h: string, o?: { minContextSlot?: number }) =>
+      o?.minContextSlot ? later : { context: { slot: 100 }, value: true });
+  };
+  /** The amount typed again, as a trader would after the form was cleared. */
+  const typeAgain = async () => {
+    fireEvent.change(amountBox(), { target: { value: '0.5' } });
+    return buyButton();
+  };
+
+  it('holds Buy for this wallet with no signature known, in every tab and after a reload', async () => {
+    wallet.sendTransaction.mockRejectedValue(lost());
+    fireEvent.click(await readyToBuy());
+    await waitFor(() => expect(toast.warning).toHaveBeenCalledWith(LOST_ANSWER_TITLE, expect.anything()));
+    expect(readPendingTrades(mine())).toEqual([expect.objectContaining({ kind: 'jupiter-swap', signature: null })]);
+    const card = await screen.findByTestId('venue-swap-pending');
+    expect(within(card).getByText(LOST_HOLD_TITLE)).toBeInTheDocument();
+    expect(within(card).getByText(LOST_NO_SIGNATURE)).toBeInTheDocument();
+    expect(within(card).getByText(LOST_HELD_UNTIL)).toBeInTheDocument();
+    expect(within(card).queryByRole('link')).toBeNull();
+    // The same buy typed again is not sent.
+    const buy = await typeAgain();
+    await act(async () => { await vi.advanceTimersByTimeAsync(2_000); });
+    expect(buy).toBeDisabled();
+    cleanup();
+    render(<SolanaSwapPage />);
+    expect(await screen.findByTestId('venue-swap-pending')).toBeInTheDocument();
+    expect(await buyButton()).toBeDisabled();
+    expect(wallet.sendTransaction).toHaveBeenCalledTimes(1);
+  });
+
+  it('ends once its blockhash can no longer land, by a server past the slot it was seen valid at', async () => {
+    blockhashAnswers({ context: { slot: 200 }, value: false });
+    wallet.sendTransaction.mockRejectedValue(lost());
+    fireEvent.click(await readyToBuy());
+    await waitFor(() => expect(readPendingTrades(mine())[0]?.blockhash).toEqual({ hash: BH, validAt: 100 }));
+    expect(await screen.findByTestId('venue-swap-pending')).toBeInTheDocument();
+    await act(async () => { await vi.advanceTimersByTimeAsync(21_000); });
+    await waitFor(() => expect(screen.queryByTestId('venue-swap-pending')).toBeNull());
+    expect(readPendingTrades(mine())).toEqual([]);
+    const buy = await typeAgain();
+    await waitFor(() => expect(buy).toBeEnabled());
+  });
+
+  it('"not valid" from a server behind that slot does not end it; 2 minutes do', async () => {
+    blockhashAnswers({ context: { slot: 90 }, value: false });
+    wallet.sendTransaction.mockRejectedValue(lost());
+    fireEvent.click(await readyToBuy());
+    await waitFor(() => expect(readPendingTrades(mine())[0]?.blockhash).toEqual({ hash: BH, validAt: 100 }));
+    await act(async () => { await vi.advanceTimersByTimeAsync(61_000); });
+    expect(screen.getByTestId('venue-swap-pending')).toBeInTheDocument();
+    await act(async () => { await vi.advanceTimersByTimeAsync(LOST_ANSWER_TTL_MS - 61_000 + 2_000); });
+    await waitFor(() => expect(screen.queryByTestId('venue-swap-pending')).toBeNull());
+    expect(readPendingTrades(mine())).toEqual([]);
+  });
+
+  it('a swap that did get a signature keeps its blockhash, and its check asks the blockhash first', async () => {
+    blockhashAnswers({ context: { slot: 200 }, value: true });
+    fireEvent.click(await readyToBuy());
+    await waitFor(() => expect(readPendingTrades(mine())[0]).toMatchObject({ signature: SIG, blockhash: { hash: BH, validAt: 100 } }));
+    await outlastTheWatch();
+    cleanup();
+    render(<SolanaSwapPage />);
+    await waitFor(() => expect(recheckOutcome).toHaveBeenCalledWith(connection, SIG, {
+      lastValidBlockHeight: HEIGHT + JUPITER_WINDOW_BLOCKS,
+      blockhash: { hash: BH, validAt: 100 },
+    }));
+  });
+});
+
+// Jupiter's test run runs through our own RPC. While it cannot run, every press stops before
+// the wallet; from the second in a row the page says the fault is likely ours (D2).
+describe('a test run that could not run, press after press', () => {
+  it('the first press says "press again"; the second says the check keeps failing on our side; one that answers starts the count again', async () => {
+    jup.simulateSwap.mockRejectedValue(new Error('fetch failed: 503'));
+    const buy = await readyToBuy();
+    fireEvent.click(buy);
+    await waitFor(() => expect(toast.error).toHaveBeenLastCalledWith('Swap not checked', { description: NOT_TEST_RUN_COPY }));
+    await waitFor(() => expect(buy).toBeEnabled());
+    fireEvent.click(buy);
+    await waitFor(() => expect(toast.error).toHaveBeenLastCalledWith('Swap not checked', { description: CHECK_KEEPS_FAILING }));
+    // A test run that answers (here it refuses) ends the run.
+    await waitFor(() => expect(buy).toBeEnabled());
+    jup.simulateSwap.mockResolvedValueOnce({ ok: false, reason: 'custom program error: 0x1', jupiterIncorrectTokenProgram: false });
+    fireEvent.click(buy);
+    await waitFor(() => expect(toast.error).toHaveBeenLastCalledWith('Swap would fail', expect.anything()));
+    await waitFor(() => expect(buy).toBeEnabled());
+    fireEvent.click(buy);
+    await waitFor(() => expect(toast.error).toHaveBeenLastCalledWith('Swap not checked', { description: NOT_TEST_RUN_COPY }));
+    expect(wallet.sendTransaction).not.toHaveBeenCalled();
   });
 });

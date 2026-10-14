@@ -79,15 +79,17 @@ import {
   type TriggerOrder,
 } from '../lib/jupiter';
 import { prepareJupiterSwap, refusalWhy, refusedSaid, NO_SITE_FEE_ROUTE_COPY, NOT_TEST_RUN_COPY, type PreparedJupiterSwap } from '../lib/solana/swap/jupiterFeeRetry';
-import { OWN_ROUTE_COPY, ownPoolNowWins, prepareOwnPoolSwap, within } from '../lib/solana/swap/ownPoolRoute';
+import { OWN_ROUTE_COPY, freshDecision, ownPoolNowWins, prepareOwnPoolSwap, within } from '../lib/solana/swap/ownPoolRoute';
 import { applySlippage } from '../lib/launcher/solana/curve/math';
 import { tradeCostText } from '../lib/solana/lp/format';
 import { quietEnding } from '../components/swap/quietSwap';
 import { checkDcaPair, dcaToken2022Copy, DCA_MIN_PER_BUY_USD, DCA_UNREAD_COPY, DCA_UNREAD_NOTE, type DcaPairCheck } from '../lib/solana/swap/dcaPair';
-import { HELD_NOT_SENT, LOST_ANSWER_TITLE, lostAnswerCopy, nothingSentCopy } from '../lib/solana/swap/walletCopy';
+import { CHECK_KEEPS_FAILING, HELD_NOT_SENT, LOST_ANSWER_TITLE, OWN_POOL_REVIEW_OFFER, lostAnswerCopy, nothingSentCopy } from '../lib/solana/swap/walletCopy';
 import { jupiterLastValidAtMost } from '../lib/solana/swap/jupiterNote';
+import { blockhashSeen, recentBlockhashOf, type NoteBlockhash } from '../lib/solana/blockhashWindow';
+import type { AggregatorSeen } from '../lib/launcher/solana/write/types';
 import { readSendThrow } from '../lib/solana/walletThrow';
-import { readPendingTrades, swapPendingScope } from '../components/solana/curve/pendingTrade';
+import { noteKey, readPendingTrades, swapPendingScope } from '../components/solana/curve/pendingTrade';
 import { fractionToBps, impactWarning } from '../components/solana/curve/uiFormat';
 import { SiteFeeRow } from '../components/swap/SiteFeeRow';
 import { TokenDetail } from '../components/solana/TokenDetail';
@@ -916,6 +918,15 @@ function DcaTab({ payToken, buyToken, payUsd, shieldWarnings, needsAck, ack, set
   }
 
   const canPlace = !!publicKey && !!totalBase && !!perBuyHuman && !sameToken && !placing && !insufficient && !(needsAck && !ack) && refused === null && !underMinimum;
+  // One amber line at a time, the one that matters most: a token Jupiter's program cannot
+  // take comes first, since no amount fixes it.
+  const amberLine =
+    refused !== null ? dcaToken2022Copy(refused)
+    : sameToken ? 'Pick two different tokens.'
+    : insufficient ? `Insufficient ${payToken.symbol} balance.`
+    : totalAmount.trim() !== '' && totalBase && !perBuyHuman ? 'Each buy rounds to zero. Raise the total or pick fewer buys.'
+    : underMinimum && perBuyUsd !== null ? `Each buy is about $${perBuyUsd.toFixed(2)}, and Jupiter requires at least $${DCA_MIN_PER_BUY_USD} per buy.`
+    : null;
 
   return (
     <>
@@ -965,14 +976,10 @@ function DcaTab({ payToken, buyToken, payUsd, shieldWarnings, needsAck, ack, set
           <span>Platform fee</span>
           <span className="font-mono">None on DCA orders</span>
         </div>
-        {refused !== null && <p className="text-amber-300" data-testid="dca-refused">{dcaToken2022Copy(refused)}</p>}
-        {pairCheck?.kind === 'unread' && <p className="text-white/60">{DCA_UNREAD_NOTE}</p>}
-        {sameToken && <p className="text-amber-300">Pick two different tokens.</p>}
-        {insufficient && <p className="text-amber-300">Insufficient {payToken.symbol} balance.</p>}
-        {underMinimum && perBuyUsd !== null && (
-          <p className="text-amber-300">Each buy is about ${perBuyUsd.toFixed(2)}, and Jupiter requires at least ${DCA_MIN_PER_BUY_USD} per buy.</p>
+        {amberLine !== null && (
+          <p className="text-amber-300" data-testid={refused !== null ? 'dca-refused' : 'dca-warning'}>{amberLine}</p>
         )}
-        {totalAmount.trim() !== '' && totalBase && !perBuyHuman && <p className="text-amber-300">Each buy rounds to zero. Raise the total or pick fewer buys.</p>}
+        {pairCheck?.kind === 'unread' && <p className="text-white/60">{DCA_UNREAD_NOTE}</p>}
         {shieldWarnings.map((w, i) => (
           <p key={`dsh-${i}`} className={`flex items-start gap-1 ${shieldIsAlarming(w, w.mint) ? 'text-red-300' : 'text-white/50'}`}>
             <span aria-hidden="true">⚠</span><span>{w.message}</span>
@@ -1353,6 +1360,11 @@ function SolanaSwapInner() {
   // trade (useSolanaRoute). `why`: the cause that test run gave (refusalWhy). Dropped only
   // when a later test run of it answers and passes.
   const [refusedTrade, setRefusedTrade] = useState<{ key: string; why: string | null } | null>(null);
+  // Presses in a row whose Jupiter test run could not run (a run that answers resets it). From
+  // the second, the trade pressed (key) and Jupiter's quote for it (out) are kept: when one of
+  // our pools quotes that trade, its review is offered (owner, 2026-10-14, D2).
+  const uncheckedRun = useRef(0);
+  const [ownOffer, setOwnOffer] = useState<{ key: string; out: bigint } | null>(null);
   // What a press through Jupiter is for, in words, kept from the press: the form can come to
   // show another trade under it (formNow), and the line under it must not name that one.
   const [throughJupiter, setThroughJupiter] = useState('');
@@ -1720,9 +1732,10 @@ function SolanaSwapInner() {
    * quotes from both venues (swap/ownPoolRoute.ts): if Jupiter pays more by then,
    * nothing is built. A review that went stale is built the same way again.
    */
-  function startOwnSwap() {
+  function startOwnSwap(unchecked?: bigint) {
     const ready = venueSwap.ready;
-    if (!publicKey || !baseAmount || !ready || !ownBest) return;
+    if (!publicKey || !baseAmount || !ready || (!ownBest && unchecked === undefined)) return;
+    setOwnOffer(null);
     const owner = publicKey;
     const amountIn = BigInt(baseAmount);
     const [inputMint, outputMint, bps] = [payToken.mint, buyToken.mint, slippageBps];
@@ -1742,8 +1755,25 @@ function SolanaSwapInner() {
     const user = owner.toBase58();
     ownTrade.current = { owner: user, pay: payToken.symbol, buy: buyToken.symbol, buyMint: outputMint, amount: prettyAmount(tokenAmount), outDecimals: buyToken.decimals, done: said.done, symbol: said.symbol };
     const priority = speed;
+    const buildIn = (pool: string, aggregator: AggregatorSeen) =>
+      ready.api.prepareVenueSwap(venueSwap.rpc, ready.gate, {
+        owner,
+        pool: new PublicKey(pool),
+        inputMint: new PublicKey(inputMint),
+        outputMint: new PublicKey(outputMint),
+        amountIn,
+        slippageBps: BigInt(bps),
+        aggregator,
+      });
     void venueSwap.flow.prepare(
       async () => {
+        // Offered after Jupiter's test run could not run press after press: our best pool, built
+        // as it is, and its review says Jupiter's quote and why it was not sent.
+        if (unchecked !== undefined) {
+          const best = freshDecision((await route.refresh(amountIn)) ?? [], null).chosen;
+          if (best?.venue !== 'own-pool' || !best.poolAddress) return { ok: false, outcome: { status: 'not-sent', stage: 'build', message: OWN_ROUTE_COPY.poolGone } };
+          return buildIn(best.poolAddress, { kind: 'unchecked', out: unchecked });
+        }
         // Jupiter's fresh quote, whether this site would send its transaction (null: not asked
         // yet), what its test run answered at this press (null: it did not answer), and the
         // cause of a refusal: this press's, or the one kept with a refusal that stands.
@@ -1806,17 +1836,12 @@ function SolanaSwapInner() {
             },
             ownPools: async () => (await route.refresh(amountIn)) ?? [],
             prepare: (pool, aggregator) =>
-              ready.api.prepareVenueSwap(venueSwap.rpc, ready.gate, {
-                owner,
-                pool: new PublicKey(pool),
-                inputMint: new PublicKey(inputMint),
-                outputMint: new PublicKey(outputMint),
-                amountIn,
-                slippageBps: BigInt(bps),
+              buildIn(
+                pool,
                 // The review says a refusal with its cause, and as an earlier press's when this press could not test again.
-                aggregator: aggregator.kind !== 'refused' ? aggregator
+                aggregator.kind !== 'refused' ? aggregator
                   : { ...aggregator, ...(seen.verdict === 'refused' ? {} : { earlier: true as const }), ...(seen.why ? { why: seen.why } : {}) },
-              }),
+              ),
           },
           stands ? null : shownAggregatorOut,
           stands ? shownAggregatorOut : null,
@@ -1923,6 +1948,9 @@ function SolanaSwapInner() {
     let step: 'quote' | 'build' = 'quote';
     let signed: string | null = null;
     let tradeWords = '';
+    // Writes this press's note once the wallet has answered: by its signature, or null for an
+    // answer that was lost (owner, 2026-10-14, D1). Set just before the wallet is asked.
+    const press: { note: ((signature: string | null) => void) | null } = { note: null };
     const noteScope = swapPendingScope(publicKey.toBase58());
     setSwapping(true);
     try {
@@ -1982,11 +2010,25 @@ function SolanaSwapInner() {
         },
       );
       if (formMoved()) return;
+      // A test run that answered (passed, moved or refused) ends a run of presses it could not check.
+      if (prepared.status !== 'blocked' || !prepared.unchecked) {
+        uncheckedRun.current = 0;
+        setOwnOffer(null);
+      }
       if (prepared.status === 'blocked') {
         // A test run that could not run found nothing about the transaction: it was not
         // refused, so our pool is not offered for it and the press never says "would fail".
         if (prepared.unchecked) {
-          toast.error('Swap not checked', { description: NOT_TEST_RUN_COPY });
+          uncheckedRun.current += 1;
+          if (uncheckedRun.current < 2) {
+            toast.error('Swap not checked', { description: NOT_TEST_RUN_COPY });
+            return;
+          }
+          // Again: the fault is likely ours. Our pool's review is offered under Buy while one quotes this trade.
+          toast.error('Swap not checked', { description: CHECK_KEEPS_FAILING });
+          try {
+            setOwnOffer({ key: refusalKey, out: BigInt(fresh.outAmount) });
+          } catch { /* unparseable: nothing to compare the pool with, so nothing is offered */ }
           return;
         }
         // A refused transaction is no route, so our pool is offered, with the cause its test run gave.
@@ -2044,20 +2086,27 @@ function SolanaSwapInner() {
       // Read after Jupiter built it, so its blockhash is older than this height (jupiterNote.ts).
       const lastValid: { at: number | null } = { at: null };
       const heightRead = jupiterLastValidAtMost(() => connection.getBlockHeight('confirmed')).then((h) => (lastValid.at = h));
+      // Its own blockhash, seen valid now: later, the first proof that it can no longer land.
+      const proof: { bh: NoteBlockhash | null } = { bh: null };
+      const bhRead = blockhashSeen(connection, recentBlockhashOf(tx)).then((b) => (proof.bh = b));
+      press.note = (signature) => {
+        const sentAt = Date.now();
+        const write = () =>
+          holdNote({ kind: 'jupiter-swap', signature, lastValidBlockHeight: signature ? lastValid.at : null, blockhash: proof.bh, sentAt }, noteScope);
+        write();
+        // A read that lands after the note: the note learns when it can no longer land.
+        const had = { at: lastValid.at, bh: proof.bh };
+        void Promise.all([heightRead, bhRead]).then(() => {
+          const learned = (signature !== null && had.at === null && lastValid.at !== null) || (had.bh === null && proof.bh !== null);
+          if (learned && readPendingTrades(noteScope).some((n) => noteKey(n) === noteKey({ signature, sentAt }))) write();
+        });
+      };
       const sig = await viaWallet(() => sendTransaction(tx, connection));
       signed = sig;
       // A signature exists: the swap may be on chain. Its note holds Buy for this wallet,
       // in every tab of this site, until the chain answers for it (useVenueSwap).
-      holdNote({ kind: 'jupiter-swap', signature: sig, lastValidBlockHeight: lastValid.at }, noteScope);
-      if (lastValid.at === null) {
-        // The height landed after the signature: the note learns when it can no longer land.
-        void heightRead.then((h) => {
-          if (h !== null && readPendingTrades(noteScope).some((n) => n.signature === sig)) {
-            holdNote({ kind: 'jupiter-swap', signature: sig, lastValidBlockHeight: h }, noteScope);
-          }
-        });
-      }
-      toast.success('Swap submitted', { description: `${shortSig(sig)} — confirming…` });
+      press.note(sig);
+      toast.success('Swap submitted', { description: `${shortSig(sig)}. Confirming…` });
       // From here nothing below may say "failed" unless the chain itself said so.
       // pollConfirm (lib/solana/confirm.ts, the one poller the ladder and the DCA and
       // limit tabs also use) never throws; a timeout or an unreadable status is
@@ -2122,6 +2171,9 @@ function SolanaSwapInner() {
       // same buy is not one click away.
       const said = sayWalletThrew(err, `it sent ${tradeWords || 'this swap'}`);
       if (said === 'unsure') {
+        // It may be out with no signature to look up: Buy is held for this wallet until its
+        // blockhash can no longer land, 2 minutes at most (owner, 2026-10-14, D1).
+        press.note?.(null);
         setAmount('');
         setQuote(null);
       } else if (said === 'other' && signed) {
@@ -2140,6 +2192,10 @@ function SolanaSwapInner() {
 
   const words = sideWords(payToken, buyToken);
   const actionDisabled = (!quote && !ownBest) || quoteLoading || swapping || sameToken || (needsAck && !ack) || insufficient || ownPreparing || pendingNote || ownBusy !== null;
+  // Jupiter's test run could not run press after press on this trade, and one of our pools
+  // quotes it: its review is offered. The review runs its own test run before Sign.
+  const offerOwn = ownOffer !== null && ownOffer.key === refusalKey && !ownBest && venueSwap.ready !== null
+    && route.own === 'quoted' && route.candidates.length > 0 && !actionDisabled;
   // What the buy button says. "No route" only when the quote service said it AND our pools
   // were found to have nothing (none deployed, none for this pair, or none that can trade):
   // a read of our pools still out or failed, a quote that could not be fetched, two of the
@@ -2570,6 +2626,16 @@ function SolanaSwapInner() {
               className="btn-primary w-full py-2.5 text-[14px] disabled:opacity-50"
             >
               {ctaLabel}
+            </button>
+          )}
+          {offerOwn && ownOffer && (
+            <button
+              type="button"
+              onClick={() => startOwnSwap(ownOffer.out)}
+              className="btn-secondary w-full min-h-[44px] mt-2 py-2.5 text-[13px]"
+              data-testid="solana-own-offer"
+            >
+              {OWN_POOL_REVIEW_OFFER}
             </button>
           )}
 

@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 import { Card, ExplorerLink, Row } from './ui';
-import type { PendingTrade } from './pendingTrade';
+import { noteKey, type PendingTrade } from './pendingTrade';
 import type { PendingTradesState } from './usePendingTrades';
 
 /**
@@ -38,10 +38,15 @@ export function PendingTradeCard({
         {state.checking ? 'Checking it on the network…' : (state.message ?? '')}
       </p>
       {state.notes.map((n) => (
-        <div key={n.signature} className="space-y-1">
+        <div key={noteKey(n)} className="space-y-1">
           {describe?.(n)}
-          <Row label="Transaction signature" value={n.signature} />
-          <ExplorerLink href={explorerUrl(n.signature)} />
+          {/* A lost wallet answer has none: its `describe` says so. */}
+          {n.signature !== null && (
+            <>
+              <Row label="Transaction signature" value={n.signature} />
+              <ExplorerLink href={explorerUrl(n.signature)} />
+            </>
+          )}
         </div>
       ))}
       {/* aria-disabled, not disabled: a button switched off under the keyboard drops focus to the page. */}

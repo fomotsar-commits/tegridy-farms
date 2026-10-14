@@ -256,3 +256,26 @@ describe('DCA: Jupiter asks for at least $50 per buy', () => {
     expect(screen.queryByText(/Each buy is about/)).toBeNull();
   });
 });
+
+describe('DCA: at most one amber line at a time', () => {
+  /** Every amber line the tab draws (its warnings), by its words. */
+  const amberLines = () => [...document.querySelectorAll('p.text-amber-300')].map((p) => p.textContent);
+
+  it('a Token-2022 token outranks "Insufficient" and the under-$50 line', async () => {
+    // 2 SOL held, 3 SOL typed: short. At $10 a SOL, 4 buys of 0.75 SOL are $7.50 each: under $50.
+    prices.value = { [SOL_MINT]: 10 };
+    connection.getBalance.mockResolvedValue(2_000_000_000);
+    await openDca(`?out=${BAYLA_MINT}`);
+    fireEvent.change(total('SOL'), { target: { value: '3' } });
+    expect(await screen.findByText(REFUSED)).toBeInTheDocument();
+    await waitFor(() => expect(amberLines()).toEqual([REFUSED]));
+  });
+
+  it('with a plain pair, "Insufficient" outranks the under-$50 line', async () => {
+    prices.value = { [SOL_MINT]: 10 };
+    connection.getBalance.mockResolvedValue(2_000_000_000);
+    await openDca(`?out=${USDC_MINT}`);
+    fireEvent.change(total('SOL'), { target: { value: '3' } });
+    await waitFor(() => expect(amberLines()).toEqual(['Insufficient SOL balance.']));
+  });
+});

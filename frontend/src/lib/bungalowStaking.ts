@@ -1019,6 +1019,29 @@ function watchSigning(invoker: SignerWalletAdapter): { invoker: SignerWalletAdap
 /** After the wallet signed, the only stops that sent nothing more: the SDK's test run refused it, or the chain did. */
 const REFUSED_AFTER_SIGNING = /failed to simulate transaction|^Raw transaction \S+ failed/;
 
+/** The runtime's own line for a program that failed with a custom error. A program's printing starts "Program log:", so it cannot write this. */
+const RUNTIME_FAILED = /^Program ([1-9A-HJ-NP-Za-km-z]{32,44}) failed: custom program error: 0x([0-9a-fA-F]{1,8})$/;
+/** Streamflow's reward programs, classic and dynamic: on both, 6000 is ArithmeticError (their IDLs). */
+const REWARD_PROGRAMS: ReadonlySet<string> = new Set(['RWRDdfRbi3339VgKxTAXg4cjyniF7cbhNbMxZWiSKmj', 'RWRDyfZa6Rk9UYi85yjYYfGmoUqffLqjo6vZdFawEez']);
+
+/**
+ * The program that failed first and its custom error code, from the logs a test run or the
+ * chain returned (on the error or the error it wraps). Null without them: an error's words
+ * are never read as a code, so a message that happens to contain a number proves nothing.
+ */
+export function failedProgram(err: unknown): { program: string; code: number } | null {
+  for (let cur = err, i = 0; cur != null && typeof cur === 'object' && i < 4; i++) {
+    const o = cur as { transactionLogs?: unknown; logs?: unknown; cause?: unknown; error?: unknown };
+    const logs = Array.isArray(o.transactionLogs) ? o.transactionLogs : Array.isArray(o.logs) ? o.logs : [];
+    for (const line of logs) {
+      const m = typeof line === 'string' ? RUNTIME_FAILED.exec(line) : null;
+      if (m) return { program: m[1]!, code: parseInt(m[2]!, 16) };
+    }
+    cur = o.cause ?? o.error;
+  }
+  return null;
+}
+
 function writeFailure(err: unknown, fallback: string, walletSigned = false): Failure {
   const msg = err instanceof Error ? err.message : String(err ?? '');
   // The wallet's throw, read as every Solana write reads it (lib/solana/walletThrow.ts):
@@ -1058,7 +1081,12 @@ function writeFailure(err: unknown, fallback: string, walletSigned = false): Fai
   // risk: the stake program's `unstake` does not take the reward entry as an
   // account at all, and a real overflowed position was seen exiting on mainnet
   // (tx 2eLftTr3…, 2026-09-04) with no reward instruction in the transaction.
-  if (/\b6000\b/.test(msg) || /ArithmeticError/i.test(msg)) {
+  //
+  // `permanent` lets the rescue close the entry and give up its rewards, so it is
+  // read only from the runtime's log line naming a reward program (failedProgram),
+  // never from the words: other programs' 6000 is not this (stake: InvalidDuration).
+  const failed = failedProgram(err);
+  if (failed && failed.code === 6000 && REWARD_PROGRAMS.has(failed.program)) {
     return {
       ok: false,
       reason:

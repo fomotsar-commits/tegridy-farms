@@ -6,13 +6,15 @@
 // It covers buy, sell, graduation and pool swaps (one scope per launch mint), adding
 // and removing liquidity and opening a pool (one scope for every pool, each note
 // naming its pool), and the swap page's swaps by either route (one scope per wallet
-// that signed). The launch create flow has its own note (pendingLaunch.ts).
+// that signed), including a Jupiter swap whose wallet answer was lost before a
+// signature came back. The launch create flow has its own note (pendingLaunch.ts).
 //
 // sessionStorage (localStorage for the swap page's, so every tab of the site holds
 // them), and only as a convenience: it can be empty, blocked or throw, and the page
 // must still be right without it. The chain is the truth.
 
 import { PublicKey } from '@solana/web3.js';
+import type { NoteBlockhash } from '../../../lib/solana/blockhashWindow';
 import { isLpKind } from '../../../lib/launcher/solana/write/lpKinds';
 import type { TxKind } from './ports';
 
@@ -35,6 +37,12 @@ export const isSharedScope = (scope: string): boolean => scope.startsWith(`${SWA
  * window (about 40 s on mainnet now), so one sent this long ago can no longer land.
  */
 export const PENDING_TRADE_TTL_MS = 10 * 60_000;
+/**
+ * A wallet answer lost before a signature came back (the swap page's Jupiter route): the
+ * swap may be out, and nothing can look it up, so its note ends sooner. Past any blockhash
+ * window it was built with (about 60 to 90 s), and only on the blockhash before that.
+ */
+export const LOST_ANSWER_TTL_MS = 2 * 60_000;
 /**
  * Kept per scope; past this the oldest are dropped, and dropping a live note reopens
  * the form it held while its transaction can still land. The liquidity scope holds
@@ -63,7 +71,8 @@ const TRADE_KINDS: ReadonlySet<string> = new Set(Object.keys(KNOWN));
 
 export interface PendingTrade {
   kind: TradeKind;
-  signature: string;
+  /** Null only for a wallet answer lost before a signature came back ('jupiter-swap' alone). */
+  signature: string | null;
   /** The blockhash window of the sent transaction, so a later check can say "expired". */
   lastValidBlockHeight: number | null;
   sentAt: number;
@@ -72,7 +81,14 @@ export interface PendingTrade {
    * liquidity note whose pool could not be read back, which then holds EVERY pool.
    */
   pool: string | null;
+  /** The swap page's Jupiter route: its blockhash, seen valid, so a later check can prove it can no longer land. */
+  blockhash?: NoteBlockhash | null;
 }
+
+/** A note's name: its signature, or for a lost answer the moment it was written. */
+export const noteKey = (n: Pick<PendingTrade, 'signature' | 'sentAt'>): string => n.signature ?? `lost:${n.sentAt}`;
+/** How long a note can hold: a lost answer's is shorter. */
+export const noteTtl = (n: Pick<PendingTrade, 'signature'>): number => (n.signature === null ? LOST_ANSWER_TTL_MS : PENDING_TRADE_TTL_MS);
 
 const SIGNATURE = /^[1-9A-HJ-NP-Za-km-z]{64,90}$/;
 const BASE58 = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
@@ -96,18 +112,28 @@ function poolOf(v: unknown): string | null {
   }
 }
 
+function blockhashOf(v: unknown): NoteBlockhash | null {
+  if (!v || typeof v !== 'object') return null;
+  const { hash, validAt } = v as { hash?: unknown; validAt?: unknown };
+  return typeof hash === 'string' && BASE58.test(hash) && typeof validAt === 'number' && Number.isSafeInteger(validAt) && validAt > 0
+    ? { hash, validAt }
+    : null;
+}
+
 function parse(raw: unknown, now: number): PendingTrade | null {
   if (!raw || typeof raw !== 'object') return null;
   const v = raw as Partial<Record<keyof PendingTrade, unknown>>;
   if (typeof v.kind !== 'string' || !TRADE_KINDS.has(v.kind)) return null;
-  if (typeof v.signature !== 'string' || !SIGNATURE.test(v.signature)) return null;
-  if (typeof v.sentAt !== 'number' || now - v.sentAt > PENDING_TRADE_TTL_MS || v.sentAt > now + 60_000) return null;
+  const lost = v.signature === null && v.kind === 'jupiter-swap';
+  if (!lost && (typeof v.signature !== 'string' || !SIGNATURE.test(v.signature))) return null;
+  const signature = lost ? null : (v.signature as string);
+  if (typeof v.sentAt !== 'number' || now - v.sentAt > noteTtl({ signature }) || v.sentAt > now + 60_000) return null;
   const lvbh =
     typeof v.lastValidBlockHeight === 'number' && Number.isSafeInteger(v.lastValidBlockHeight) && v.lastValidBlockHeight > 0
       ? v.lastValidBlockHeight
       : null;
   const kind = v.kind as TradeKind;
-  return { kind, signature: v.signature, lastValidBlockHeight: lvbh, sentAt: v.sentAt, pool: isLpKind(kind) ? poolOf(v.pool) : null };
+  return { kind, signature, lastValidBlockHeight: lvbh, sentAt: v.sentAt, pool: isLpKind(kind) ? poolOf(v.pool) : null, blockhash: blockhashOf(v.blockhash) };
 }
 
 /** Every live note in this scope, newest first. Unreadable storage = none. */
@@ -126,10 +152,10 @@ export function readPendingTrades(scope: string, now: number = Date.now()): Pend
   }
 }
 
-/** The stored form: `pool` is written for liquidity notes only, so a curve note's bytes are what they always were. */
+/** The stored form: `pool` for liquidity notes only, `blockhash` when there is one, so a curve note's bytes are what they always were. */
 function stored(n: PendingTrade): object {
-  const { pool, ...rest } = n;
-  return isLpKind(n.kind) ? { ...rest, pool } : rest;
+  const { pool, blockhash, ...rest } = n;
+  return { ...rest, ...(isLpKind(n.kind) ? { pool } : {}), ...(blockhash ? { blockhash } : {}) };
 }
 
 /** False when storage threw: the page still works, it just cannot remember across a reload. */
@@ -143,23 +169,40 @@ function write(scope: string, notes: PendingTrade[]): boolean {
   }
 }
 
+/** What a note is written from. `sentAt`: a note written again keeps its first time. */
+export type NewNote = {
+  kind: TradeKind;
+  signature: string | null;
+  lastValidBlockHeight: number | null;
+  pool?: string | null;
+  blockhash?: NoteBlockhash | null;
+  sentAt?: number;
+};
+
+/** The note as it is kept. */
+export const noteOf = (t: NewNote, now: number): PendingTrade => ({
+  kind: t.kind,
+  signature: t.signature,
+  lastValidBlockHeight: t.lastValidBlockHeight,
+  sentAt: t.sentAt ?? now,
+  pool: t.pool ?? null,
+  blockhash: t.blockhash ?? null,
+});
+
 /** True when the note is in storage. */
-export function savePendingTrade(
-  scope: string,
-  t: { kind: TradeKind; signature: string; lastValidBlockHeight: number | null; pool?: string | null },
-  now: number = Date.now(),
-): boolean {
-  const rest = readPendingTrades(scope, now).filter((n) => n.signature !== t.signature);
-  return write(scope, [{ kind: t.kind, signature: t.signature, lastValidBlockHeight: t.lastValidBlockHeight, sentAt: now, pool: t.pool ?? null }, ...rest]);
+export function savePendingTrade(scope: string, t: NewNote, now: number = Date.now()): boolean {
+  const note = noteOf(t, now);
+  const rest = readPendingTrades(scope, now).filter((n) => noteKey(n) !== noteKey(note));
+  return write(scope, [note, ...rest]);
 }
 
-/** Drop one note (the chain answered for it), or every note in the scope when no signature is given. */
-export function clearPendingTrade(scope: string, signature?: string): void {
-  if (signature === undefined) {
+/** Drop one note (the chain answered for it) by its key (`noteKey`, its signature when it has one), or every note in the scope. */
+export function clearPendingTrade(scope: string, key?: string): void {
+  if (key === undefined) {
     write(scope, []);
     return;
   }
   const all = readPendingTrades(scope);
-  const rest = all.filter((n) => n.signature !== signature);
+  const rest = all.filter((n) => noteKey(n) !== key);
   if (rest.length !== all.length) write(scope, rest);
 }

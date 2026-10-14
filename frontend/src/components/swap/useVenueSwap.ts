@@ -8,7 +8,8 @@ import { browserGateRpc } from '../solana/curve/gateRpc';
 import { readPendingTrades, swapPendingScope } from '../solana/curve/pendingTrade';
 import type { CurveWriteConfig, GateBlock, GateRpc, PreparedTx, SwapGate, SwapOpenGate, TxOutcome, VenueSwapApi, WriteRpc } from '../solana/curve/ports';
 import { useCurveSigner, type CurveSignerState } from '../solana/curve/useCurveSigner';
-import { usePendingTrades, type CheckSignature, type PendingTradesState } from '../solana/curve/usePendingTrades';
+import { usePendingTrades, type CheckLost, type CheckSignature, type PendingTradesState } from '../solana/curve/usePendingTrades';
+import { blockhashGone } from '../../lib/solana/blockhashWindow';
 import { useTxFlow, type OnSettled, type TxFlow } from '../solana/curve/useTxFlow';
 import { useLoadedGate } from '../solana/curve/useWriteGate';
 import { loadVenueSwapApi } from './venueSwapApi';
@@ -34,7 +35,7 @@ export const GATE_RETRY_MS = 15_000;
 /** A note of a sent swap is looked up again this often while it holds Buy. */
 export const NOTE_RECHECK_MS = 20_000;
 /** A sent swap's note belongs to the wallet that signed it: the fee payer it was built for. */
-const signerScope = (p: PreparedTx): string | null => (p.tx.feePayer ? swapPendingScope(p.tx.feePayer.toBase58()) : null);
+export const signerScope = (p: PreparedTx): string | null => (p.tx.feePayer ? swapPendingScope(p.tx.feePayer.toBase58()) : null);
 
 export interface VenueSwap {
   /** The swap code and the gate are still on their way. */
@@ -139,10 +140,19 @@ export function useVenueSwap(o: {
 
   // Through the lazy loader, never null: a note found on arrival is checked (and "Check again"
   // answers) even while the swap code has not loaded; a load that fails is said by the card.
+  // A Jupiter note's blockhash, when it was seen valid, is the first proof it can no longer land.
   const check = useMemo<CheckSignature>(
-    () => (sig, lvbh) => lazy.recheckOutcome(connection, sig, lvbh === null ? undefined : { lastValidBlockHeight: lvbh }),
+    () => (sig, lvbh, _kind, blockhash) => {
+      const opts = { ...(lvbh === null ? {} : { lastValidBlockHeight: lvbh }), ...(blockhash ? { blockhash } : {}) };
+      return lazy.recheckOutcome(connection, sig, Object.keys(opts).length ? opts : undefined);
+    },
     [lazy, connection],
   );
+  // A lost wallet answer has no signature: only its blockhash, once gone, ends its hold early.
+  const checkLost = useCallback<CheckLost>(async (bh) => {
+    const r = await blockhashGone(connection, bh);
+    return r === null ? null : r !== 'live';
+  }, [connection]);
   const onResolved = o.onResolved;
   const resolved = useCallback(() => onResolved?.(), [onResolved]);
   // One wallet's notes: a swap it signed, by either route, holds Buy for it in every tab
@@ -153,6 +163,7 @@ export function useVenueSwap(o: {
     live: true,
     scopeFor: signerScope,
     recheckEveryMs: NOTE_RECHECK_MS,
+    checkLost,
   });
 
   const { record, sent, holdsNow } = pending;

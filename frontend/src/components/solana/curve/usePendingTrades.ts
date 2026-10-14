@@ -1,15 +1,18 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { clipDetail } from '../../../lib/launcher/solana/curve';
 import { isLpKind } from '../../../lib/launcher/solana/write/lpKinds';
+import type { NoteBlockhash } from '../../../lib/solana/blockhashWindow';
 import {
-  PENDING_TRADE_TTL_MS,
   clearPendingTrade,
   isSharedScope,
+  noteKey,
+  noteOf,
+  noteTtl,
   pendingStorageKey,
   readPendingTrades,
   savePendingTrade,
+  type NewNote,
   type PendingTrade,
-  type TradeKind,
 } from './pendingTrade';
 import type { LpKind, PreparedTx, TxOutcome, TxSummary } from './ports';
 
@@ -27,7 +30,8 @@ import type { LpKind, PreparedTx, TxOutcome, TxSummary } from './ports';
  * against the chain (once on its own, then on "Check again"). A note goes away only
  * when the chain answers (confirmed, refused, or expired: past its blockhash window
  * with no record), when the person says they checked their wallet, or ten minutes
- * after it was sent (PENDING_TRADE_TTL_MS), when it can no longer land either way.
+ * after it was sent (PENDING_TRADE_TTL_MS), when it can no longer land either way. A
+ * note with no signature (a lost wallet answer) ends on its blockhash, or after two.
  */
 export interface PendingTradesState {
   /** Newest first. Non-empty = trade forms stay hidden. */
@@ -42,10 +46,10 @@ export interface PendingTradesState {
   record(outcome: TxOutcome, prepared: PreparedTx | null, sentSignature?: string | null): void;
   /** A trade is about to be sent (a panel's onSent): write its note now. */
   sent(signature: string, prepared: PreparedTx): void;
-  /** A transaction this page did not prepare (the wallet sent it) has a signature: write its note now. */
-  hold(t: { kind: TradeKind; signature: string; lastValidBlockHeight: number | null }, scope?: string): void;
-  /** The chain answered for one of them: drop its note. */
-  release(signature: string, scope?: string): void;
+  /** A transaction this page did not prepare (the wallet sent it, or its answer was lost): write its note now. */
+  hold(t: Omit<NewNote, 'pool'>, scope?: string): void;
+  /** The chain answered for one of them: drop its note (by `noteKey`: its signature when it has one). */
+  release(key: string, scope?: string): void;
   /**
    * Read again now: does a note hold this scope (this hook's own by default)? A note
    * another tab wrote counts before its event arrives. The notes on screen follow.
@@ -68,10 +72,14 @@ function poolOf(p: PreparedTx): string | null {
 /**
  * Look a note's transaction up again. A liquidity note's check is also told its kind,
  * so a refusal found there is said in that kind's own words ("Withdrawals are switched
- * off on this pool…"), not as a bare program error. Every other note is checked with
- * the two arguments it always was.
+ * off on this pool…"), not as a bare program error. A note with a blockhash is told it
+ * too; every other note is checked with the two arguments it always was.
  */
-export type CheckSignature = (signature: string, lastValidBlockHeight: number | null, kind?: LpKind) => Promise<TxOutcome>;
+export type CheckSignature = (signature: string, lastValidBlockHeight: number | null, kind?: LpKind, blockhash?: NoteBlockhash) => Promise<TxOutcome>;
+/** A note with no signature: true once its blockhash can no longer land, null when that could not be read. */
+export type CheckLost = (blockhash: NoteBlockhash) => Promise<boolean | null>;
+/** Said on the card when a note with no signature could not be checked. */
+export const LOST_UNREAD = 'Could not check just now whether it can still land.';
 
 export function usePendingTrades(
   /**
@@ -91,8 +99,9 @@ export function usePendingTrades(
    * showing the "sent" step, and a non-empty `notes` would hide that panel's form.
    * `scopeFor`: the scope a sent transaction's note belongs in (the wallet that signed it).
    * `recheckEveryMs`: also check standing notes this often, so a hold ends on the chain's answer.
+   * `checkLost`: how a note with no signature is checked; without it, only its time ends it.
    */
-  o: { live?: boolean; scopeFor?: (p: PreparedTx) => string | null; recheckEveryMs?: number } = {},
+  o: { live?: boolean; scopeFor?: (p: PreparedTx) => string | null; recheckEveryMs?: number; checkLost?: CheckLost } = {},
 ): PendingTradesState {
   const live = o.live === true;
   // Live only: notes this tab wrote while storage threw, kept per scope, so they still
@@ -103,8 +112,8 @@ export function usePendingTrades(
       const stored = readPendingTrades(at);
       if (!live) return stored;
       const now = Date.now();
-      const seen = new Set(stored.map((n) => n.signature));
-      const extra = [...(written.current.get(at)?.values() ?? [])].filter((n) => !seen.has(n.signature) && now - n.sentAt <= PENDING_TRADE_TTL_MS);
+      const seen = new Set(stored.map(noteKey));
+      const extra = [...(written.current.get(at)?.values() ?? [])].filter((n) => !seen.has(noteKey(n)) && now - n.sentAt <= noteTtl(n));
       return [...stored, ...extra].sort((a, b) => b.sentAt - a.sentAt);
     },
     [live],
@@ -141,6 +150,7 @@ export function usePendingTrades(
     return () => window.removeEventListener('storage', onStorage);
   }, [scope, current]);
 
+  const checkLost = o.checkLost;
   const recheck = useCallback(
     async (quiet = false) => {
       if (!check || busy.current) return;
@@ -154,24 +164,32 @@ export function usePendingTrades(
       let resolved = false;
       let last: string | null = null;
       for (const n of toCheck) {
-        let o: TxOutcome;
-        try {
-          o = await (isLpKind(n.kind)
-            ? check(n.signature, n.lastValidBlockHeight, n.kind)
-            : check(n.signature, n.lastValidBlockHeight));
-        } catch (e) {
-          // A failed read changes nothing we know: the note stays.
-          o = { status: 'unknown', signature: n.signature, message: `Could not check just now (${clipDetail(e)}).` };
-        }
-        if (o.status === 'confirmed' || o.status === 'reverted' || o.status === 'expired') {
-          if (scope !== null) {
-            clearPendingTrade(scope, n.signature);
-            written.current.get(scope)?.delete(n.signature);
+        let ended: boolean;
+        if (n.signature === null) {
+          // No signature to look up: only its blockhash, once it can no longer land, ends it.
+          const gone = n.blockhash && checkLost ? await checkLost(n.blockhash).catch(() => null) : false;
+          ended = gone === true;
+          if (gone === null) last = LOST_UNREAD;
+        } else {
+          let o: TxOutcome;
+          try {
+            o = await (isLpKind(n.kind)
+              ? check(n.signature, n.lastValidBlockHeight, n.kind)
+              : n.blockhash
+                ? check(n.signature, n.lastValidBlockHeight, undefined, n.blockhash)
+                : check(n.signature, n.lastValidBlockHeight));
+          } catch (e) {
+            // A failed read changes nothing we know: the note stays.
+            o = { status: 'unknown', signature: n.signature, message: `Could not check just now (${clipDetail(e)}).` };
           }
-          resolved = true;
-        } else if (o.status === 'unknown') {
-          last = o.message;
+          ended = o.status === 'confirmed' || o.status === 'reverted' || o.status === 'expired';
+          if (o.status === 'unknown') last = o.message;
         }
+        if (ended && scope !== null) {
+          clearPendingTrade(scope, noteKey(n));
+          written.current.get(scope)?.delete(noteKey(n));
+        }
+        resolved ||= ended;
       }
       busy.current = false;
       if (!quiet) setChecking(false);
@@ -180,7 +198,7 @@ export function usePendingTrades(
       setNotes(current());
       if (resolved) resolvedRef.current();
     },
-    [check, scope, current],
+    [check, scope, current, checkLost],
   );
 
   // Check on arrival, before any form this scope holds is shown.
@@ -201,7 +219,7 @@ export function usePendingTrades(
   // Live only: a note past its ten minutes leaves `notes` then, not on the next read.
   useEffect(() => {
     if (!live || notes.length === 0) return;
-    const ends = Math.min(...notes.map((n) => n.sentAt + PENDING_TRADE_TTL_MS));
+    const ends = Math.min(...notes.map((n) => n.sentAt + noteTtl(n)));
     const t = setTimeout(() => setNotes(current()), Math.max(0, ends - Date.now()) + 1_000);
     return () => clearTimeout(t);
   }, [live, notes, current]);
@@ -218,7 +236,7 @@ export function usePendingTrades(
   const follow = useCallback(
     (at: string, note: PendingTrade | null, stored: boolean, cleared: string | null) => {
       if (!live) return;
-      if (note && !stored) written.current.set(at, (written.current.get(at) ?? new Map<string, PendingTrade>()).set(note.signature, note));
+      if (note && !stored) written.current.set(at, (written.current.get(at) ?? new Map<string, PendingTrade>()).set(noteKey(note), note));
       if (cleared) written.current.get(at)?.delete(cleared);
       if (at !== scope) return;
       // The arrival check is for notes found on load; a note written here has its own
@@ -232,18 +250,18 @@ export function usePendingTrades(
   const hold = useCallback<PendingTradesState['hold']>(
     (t, at = scope ?? undefined) => {
       if (!at) return;
-      const note = { kind: t.kind, signature: t.signature, lastValidBlockHeight: t.lastValidBlockHeight, pool: null };
+      const note = noteOf({ ...t, pool: null }, Date.now());
       const stored = savePendingTrade(at, note);
-      follow(at, { ...note, sentAt: Date.now() }, stored, null);
+      follow(at, note, stored, null);
     },
     [scope, follow],
   );
 
   const release = useCallback<PendingTradesState['release']>(
-    (signature, at = scope ?? undefined) => {
+    (key, at = scope ?? undefined) => {
       if (!at) return;
-      clearPendingTrade(at, signature);
-      follow(at, null, true, signature);
+      clearPendingTrade(at, key);
+      follow(at, null, true, key);
     },
     [scope, follow],
   );
@@ -256,9 +274,9 @@ export function usePendingTrades(
       if (at === null) return;
       // Storage: the note is what a reload, or a trip away and back, finds. Without
       // `live`, storage only: the panel that sent it keeps showing its own "sent" step.
-      const note = { kind: prepared.kind, signature, lastValidBlockHeight: prepared.lastValidBlockHeight, pool: poolOf(prepared) };
+      const note = noteOf({ kind: prepared.kind, signature, lastValidBlockHeight: prepared.lastValidBlockHeight, pool: poolOf(prepared) }, Date.now());
       const stored = savePendingTrade(at, note);
-      follow(at, { ...note, sentAt: Date.now() }, stored, null);
+      follow(at, note, stored, null);
     },
     [scope, scopeFor, follow],
   );
@@ -273,9 +291,9 @@ export function usePendingTrades(
       const sig = ('signature' in outcome && outcome.signature) || sentSignature || '';
       if (!sig) return;
       if (outcome.status === 'unknown') {
-        const note = { kind: prepared.kind, signature: sig, lastValidBlockHeight: prepared.lastValidBlockHeight, pool: poolOf(prepared) };
+        const note = noteOf({ kind: prepared.kind, signature: sig, lastValidBlockHeight: prepared.lastValidBlockHeight, pool: poolOf(prepared) }, Date.now());
         const stored = savePendingTrade(at, note);
-        follow(at, { ...note, sentAt: Date.now() }, stored, null);
+        follow(at, note, stored, null);
       } else {
         // Confirmed, refused or expired: the chain answered for this one.
         clearPendingTrade(at, sig);
