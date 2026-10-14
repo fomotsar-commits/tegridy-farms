@@ -29,7 +29,7 @@ export function FarmStatsRow({ stats, pool, price, priceData, priceError, season
     // house-correct one; this row now matches it instead of contradicting it.
     { l: 'Emissions APR', v: !pool.isDeployed || pool.aprUnread ? '–' : `${pool.apr}%`, accent: true, art: pageArt('farm-stats', 2), pos: 'center 0%', sub: pool.aprUnread ? undefined : pool.aprDisclaimer },
     // An expired window reads "Ended", never a frozen "0d left" (see lib/season.ts).
-    { l: 'Season', v: season.shortLabel, sub: season.phase === 'ended' ? `${CURRENT_SEASON.name} — closed` : CURRENT_SEASON.name, art: pageArt('farm-stats', 3), pos: 'center 30%' },
+    { l: 'Season', v: season.shortLabel, sub: season.phase === 'ended' ? `${CURRENT_SEASON.name}, closed` : CURRENT_SEASON.name, art: pageArt('farm-stats', 3), pos: 'center 30%' },
   ];
 
   return (
