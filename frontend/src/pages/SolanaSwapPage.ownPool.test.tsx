@@ -739,6 +739,9 @@ describe('a swap in our pool that was sent and not confirmed', () => {
     expect(await screen.findByText('Sent, not confirmed yet. Do not retry until you check.', {}, { timeout: 20_000 })).toBeInTheDocument();
     expect(h.toast.success).not.toHaveBeenCalled();
     expect(getActivity(USER.toBase58())[0]).toMatchObject({ sig: SIG, summary: 'Sent, not confirmed: ≈1.01 BAYLA with 0.1 SOL, in our own pool' });
+    // The note is the signing wallet's, where every tab of the site reads it.
+    expect(readPendingTrades(MY_NOTES)).toEqual([expect.objectContaining({ kind: 'venue-swap', signature: SIG })]);
+    expect(localStorage.getItem(MY_NOTES)).not.toBeNull();
 
     // A reload: the note is found, said, and Buy is held until it is checked.
     cleanup();

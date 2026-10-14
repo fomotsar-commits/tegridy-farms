@@ -14,6 +14,9 @@ page keeps the newest thirty days.
 - Swap (Ethereum and Solana): one Ethereum / Solana switch above the swap card. The second, fixed one that covered the top of the form and the review when you scrolled is gone.
 - Solana DCA: a recurring order with a Token-2022 token such as BAYLA, on either side, is refused with one sentence before anything is signed: Jupiter's recurring orders cannot run it. Cancel still works for orders already running.
 - Solana DCA: the hint now says Jupiter's real minimum, $50 per buy, and when the page has read the price it says what each buy is worth and holds Start below $50.
+- Solana swap: a swap you sent and that is not confirmed yet now holds Buy for that wallet, by either route, in every tab of the site and after a reload, with its signature and a link. Buy comes back when the network says it landed, failed or can no longer land, after 10 minutes, or when you turn it back on. Another wallet is not held.
+- Solana swap: a wallet whose answer did not come back now reads "Sent or not, we cannot tell" with what was pressed, and the amount is cleared. A price or transaction that could not be fetched at the press reads "Not sent" with the reason, and the form stays as it was. Neither says "Swap failed" any more.
+- Solana swap, DCA, limit orders, the BAYLA lock ladder and lighthouse staking: a cancel in the wallet reads the same everywhere, including Trust's cancel that carries only code 4001, and a wallet that was never asked says why.
 
 ### 2026-10-10
 
