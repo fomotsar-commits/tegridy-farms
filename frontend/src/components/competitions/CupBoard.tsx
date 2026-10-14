@@ -9,6 +9,8 @@ import {
   type CupBoardStatus,
 } from '../../lib/competitions/islandCup';
 import { shortenAddress } from '../../lib/formatting';
+import { CardArt } from '../ui/CardArt';
+import { FinePrint } from '../ui/FinePrint';
 
 // THE BOARD.
 //
@@ -27,6 +29,9 @@ import { shortenAddress } from '../../lib/formatting';
 // AND NO PROFIT COLUMN. A trade feed gives one leg of a trade. A return exists
 // for nobody here, which is stated on the page rather than approximated with a
 // column that looks like one.
+//
+// FEWER WORDS (owner, 2026-10-13). What a rank means, the sender and unit
+// notes, and the full empty-board sentences sit in the card's FinePrint.
 
 /** The island's sentence for its own board, verbatim (memetics.wtf/heat). */
 const ISLAND_FLAMES =
@@ -44,7 +49,8 @@ export function CupBoard({ board, status, account }: CupBoardProps) {
   const from = board.windowFrom === null ? board.oldestFillAt : board.windowFrom;
 
   return (
-    <section className="rounded-xl border border-white/15 bg-white/[0.02] p-4">
+    <section className="relative isolate rounded-xl border border-white/15 bg-white/[0.02] p-4">
+      <CardArt pageId="competitions" idx={2} />
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <h2 className="text-sm font-semibold text-white">Volume board</h2>
         <p className="text-[11px] text-white/60">
@@ -70,8 +76,7 @@ export function CupBoard({ board, status, account }: CupBoardProps) {
 
       {from !== null && board.newestFillAt !== null ? (
         <p className="mt-1.5 text-xs leading-relaxed text-white/75">
-          Scored over {utcMinute(from)} – {utcMinute(board.newestFillAt)}, the widest window every
-          answering pool covers, as GeckoTerminal served it.
+          Scored over {utcMinute(from)} – {utcMinute(board.newestFillAt)}. Volume, not profit.
         </p>
       ) : (
         <p className="mt-1.5 text-xs leading-relaxed text-white/75">
@@ -79,19 +84,17 @@ export function CupBoard({ board, status, account }: CupBoardProps) {
         </p>
       )}
 
-      {board.newestFillAt !== null ? (
+      {from === null && board.newestFillAt !== null ? (
         <p className="mt-1 text-[11px] leading-relaxed text-white/60">
           Newest fill read: {utcMinute(board.newestFillAt)}.
         </p>
       ) : null}
 
-      <p className="mt-2 text-[11px] leading-relaxed text-white/70">{CUP_RANK_MEANING}</p>
-
       {board.rows.length === 0 ? (
         <p className="mt-4 text-xs leading-relaxed text-white/75">
           {status === 'complete'
-            ? CUP_EMPTY_AFTER_COMPLETE
-            : 'The pools that answered reported no fill inside the window they all cover. Pools that did not answer are listed above, and this is not a statement about them.'}
+            ? 'Every pool answered and none reported a fill inside the window.'
+            : 'The pools that answered reported no fill inside the window they all cover.'}
         </p>
       ) : (
         <div className="mt-4 overflow-x-auto">
@@ -144,9 +147,22 @@ export function CupBoard({ board, status, account }: CupBoardProps) {
         </div>
       )}
 
-      <p className="mt-3 text-[11px] leading-relaxed text-white/55">
-        {CUP_SENDER}. Volumes are {CUP_UNIT}.
-      </p>
+      <FinePrint summary="What a rank means" className="mt-2">
+        {from !== null && board.newestFillAt !== null ? (
+          <p>The window is the widest every answering pool covers, as GeckoTerminal served it.</p>
+        ) : null}
+        <p>{CUP_RANK_MEANING}</p>
+        {board.rows.length === 0 ? (
+          status === 'complete' ? (
+            <p>{CUP_EMPTY_AFTER_COMPLETE}</p>
+          ) : (
+            <p>Pools that did not answer are listed above, and this is not a statement about them.</p>
+          )
+        ) : null}
+        <p>
+          {CUP_SENDER}. Volumes are {CUP_UNIT}.
+        </p>
+      </FinePrint>
     </section>
   );
 }

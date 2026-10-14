@@ -75,6 +75,8 @@ import {
 import { useLpEmissionsPhase } from '../hooks/useLpEmissionsPhase';
 import { useTOWELIPriceOptional } from '../contexts/PriceContext';
 import { PageArtBackdrop } from '../components/PageArtBackdrop';
+import { CardArt } from '../components/ui/CardArt';
+import { FinePrint } from '../components/ui/FinePrint';
 import { LaunchGate } from '../components/LaunchGate';
 import { VenueLaunchLines } from '../components/launcher/VenueLaunchLines';
 import { notifyBirth } from '../lib/launcher/notifyBirth';
@@ -541,9 +543,11 @@ export default function LaunchPage() {
         initial={{ opacity: 0, y: 12 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.3 }}
-        className="rounded-2xl p-6 sm:p-8 mt-4"
+        className="relative isolate rounded-2xl p-6 sm:p-8 mt-4"
         style={{ border: '1px solid rgba(255,255,255,0.12)', background: 'rgba(6,12,26,0.6)' }}
       >
+        {/* launch art idx: 50 wizard, 51-57 explainers (passed in as `art`), 58-62 panels and banners, 63-66 explorer rows */}
+        <CardArt pageId="launch" idx={50} />
         {step === 0 && <StepDetails w={w} set={set} />}
         {step === 1 && <StepTier w={w} set={set} />}
         {step === 2 && <StepFees w={w} set={set} sheet={sheet} />}
@@ -662,7 +666,8 @@ export default function LaunchPage() {
             launches have graduated through this rail yet", which is the claim this banner
             exists to contradict. A correction printed underneath the claim is read second. */}
         {cohortUnavailable && (
-          <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
+          <div className="relative isolate rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
+            <CardArt pageId="launch" idx={60} />
             We couldn&rsquo;t read the launch history just now, so the cohort below may be incomplete.
             This is a problem on our side — it does <span className="font-semibold">not</span> mean no
             tokens have launched.
@@ -687,7 +692,8 @@ function LaunchStatusBanner({ status, attest, onAttest, schemaReady, onResetLaun
   if (status.phase === 'idle') return null;
   if (status.phase === 'pending') {
     return (
-      <div className="mt-4 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-200">
+      <div className="relative isolate mt-4 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-200">
+        <CardArt pageId="launch" idx={61} />
         Submitting the Doppler <code className="text-emerald-100">create()</code> transaction — confirm in your wallet…
       </div>
     );
@@ -699,7 +705,8 @@ function LaunchStatusBanner({ status, attest, onAttest, schemaReady, onResetLaun
     if (status.broadcast) {
       const txUrl = status.txHash ? `https://etherscan.io/tx/${status.txHash}` : undefined;
       return (
-        <div className="mt-4 rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-100 break-words">
+        <div className="relative isolate mt-4 rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-100 break-words">
+          <CardArt pageId="launch" idx={61} />
           <div className="font-semibold mb-1">Your launch may already be on-chain.</div>
           <p className="text-amber-200/90 leading-relaxed">
             The transaction was broadcast but its result didn’t come back (often an RPC timeout). It may still be
@@ -723,7 +730,8 @@ function LaunchStatusBanner({ status, attest, onAttest, schemaReady, onResetLaun
       );
     }
     return (
-      <div className="mt-4 rounded-xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-200 break-words">
+      <div className="relative isolate mt-4 rounded-xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-200 break-words">
+        <CardArt pageId="launch" idx={61} />
         {status.message}
       </div>
     );
@@ -732,7 +740,8 @@ function LaunchStatusBanner({ status, attest, onAttest, schemaReady, onResetLaun
   const txUrl = `https://etherscan.io/tx/${result.transactionHash}`;
   const tokenUrl = `https://etherscan.io/token/${result.tokenAddress}`;
   return (
-    <div className="mt-4 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100">
+    <div className="relative isolate mt-4 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100">
+      <CardArt pageId="launch" idx={61} />
       <div className="font-semibold mb-1">Launched.</div>
 
       {/* THE HAND-OFF. The permalink at /launch/:token is the only artifact here that
@@ -813,11 +822,13 @@ function LaunchStatusBanner({ status, attest, onAttest, schemaReady, onResetLaun
           farming today" for six weeks after the last emissions period ended 2026-06-15.
           ba4d3399 corrected this sentence to a static "period ended and is not currently
           funded"; the live read replaces it so a re-funded period needs no code change. */}
-      <p className="text-emerald-200/60 text-xs mt-3 leading-relaxed">
-        After the auction graduates into a V4 pool, this token can plug into the venue's day-2
-        economy — {dayTwoEconomyPhrase(lpPhase)}. Few launchers give a launch any day-2
-        economy at all.
-      </p>
+      <FinePrint summary="After graduation" className="mt-2">
+        <p>
+          After the auction graduates into a V4 pool, this token can plug into the venue's day-2
+          economy — {dayTwoEconomyPhrase(lpPhase)}. Few launchers give a launch any day-2
+          economy at all.
+        </p>
+      </FinePrint>
     </div>
   );
 }
@@ -940,12 +951,11 @@ function PostGraduationReattest({ prefillToken }: { prefillToken?: string }) {
   const busy = state.phase === 'reading' || state.phase === 'attesting';
 
   return (
-    <div className="rounded-2xl p-5 sm:p-6" style={{ border: '1px solid rgba(255,255,255,0.12)', background: 'rgba(6,12,26,0.6)' }}>
+    <div className="relative isolate rounded-2xl p-5 sm:p-6" style={{ border: '1px solid rgba(255,255,255,0.12)', background: 'rgba(6,12,26,0.6)' }}>
+      <CardArt pageId="launch" idx={59} />
       <h2 className="text-white font-semibold text-sm mb-1">Re-attest the real fees (post-graduation)</h2>
       <p className="text-white/55 text-xs leading-relaxed mb-3">
-        Once a launch graduates into its Uniswap V4 pool, its fee split becomes a live on-chain
-        stream. This reads the actual beneficiaries from Doppler&rsquo;s StreamableFeesLocker and
-        attests them — the fully-verifiable version of the launch-time disclosure.
+        For a graduated launch: read its live fee split and attest it.
       </p>
       <div className="flex flex-col sm:flex-row gap-2">
         <input
@@ -966,20 +976,16 @@ function PostGraduationReattest({ prefillToken }: { prefillToken?: string }) {
 
       {state.phase === 'not-graduated' && (
         <p className="mt-3 text-white/60 text-xs leading-relaxed break-words">
-          No fee stream for this token in Doppler&rsquo;s StreamableFeesLocker — it either hasn&rsquo;t graduated yet
-          (price discovery still running), or it wasn&rsquo;t launched through this rail. Re-attestation reads the
-          real split once the auction migrates to its V4 pool.
+          No fee stream for this token in Doppler&rsquo;s StreamableFeesLocker. Either it hasn&rsquo;t graduated yet,
+          or it wasn&rsquo;t launched through this rail.
         </p>
       )}
 
       {/* Deliberately says nothing about the token — the limitation is ours, not its. */}
       {state.phase === 'unsupported' && (
         <p className="mt-3 text-amber-300/80 text-xs leading-relaxed break-words">
-          Automatic re-attestation isn&rsquo;t available yet. The locker holding graduated-pool fees indexes
-          positions by their Uniswap V4 position id, and we can&rsquo;t yet map a token to that id on-chain — so
-          we can&rsquo;t read this token&rsquo;s split from here. <strong className="text-amber-200">This is a gap on
-          our side and says nothing about this token</strong> — it may well have graduated. If it launched
-          through this rail, the fee split it committed at launch is unaffected and still on-chain.
+          Automatic re-attestation isn&rsquo;t available yet. <strong className="text-amber-200">This is a gap on
+          our side and says nothing about this token.</strong>
         </p>
       )}
 
@@ -1026,16 +1032,37 @@ function PostGraduationReattest({ prefillToken }: { prefillToken?: string }) {
           </a>
         </div>
       )}
+
+      <FinePrint summary="How it works" className="mt-2">
+        <p>
+          Once a launch graduates into its Uniswap V4 pool, its fee split becomes a live on-chain
+          stream. This reads the actual beneficiaries from Doppler&rsquo;s StreamableFeesLocker and
+          attests them — the fully-verifiable version of the launch-time disclosure.
+        </p>
+        <p>
+          A token with no fee stream may still be in price discovery. Re-attestation reads the real split once the
+          auction migrates to its V4 pool.
+        </p>
+        {state.phase === 'unsupported' && (
+          <p>
+            The locker holding graduated-pool fees indexes positions by their Uniswap V4 position id, and we
+            can&rsquo;t yet map a token to that id on-chain — so we can&rsquo;t read this token&rsquo;s split from here.
+            It may well have graduated. If it launched through this rail, the fee split it committed at launch is
+            unaffected and still on-chain.
+          </p>
+        )}
+      </FinePrint>
     </div>
   );
 }
 
-function ExplainerCard({ title, children }: { title: string; children: React.ReactNode }) {
+function ExplainerCard({ title, art, children }: { title: string; art: React.ReactNode; children: React.ReactNode }) {
   return (
     <div
-      className="rounded-2xl p-5 sm:p-6"
+      className="relative isolate rounded-2xl p-5 sm:p-6"
       style={{ border: '1px solid rgba(255,255,255,0.12)', background: 'rgba(6,12,26,0.6)' }}
     >
+      {art}
       <h2 className="text-white font-semibold text-sm mb-2">{title}</h2>
       <div className="text-white/60 text-xs leading-relaxed space-y-2">{children}</div>
     </div>
@@ -1064,7 +1091,7 @@ function LauncherExplainer() {
   const flagshipTeamPct = g.flagshipMaxTeamBps / 100;
   return (
     <div className="mt-8 space-y-4">
-      <ExplainerCard title="What the launch rail does">
+      <ExplainerCard title="What the launch rail does" art={<CardArt pageId="launch" idx={51} />}>
         <ol className="list-decimal pl-4 space-y-1.5 marker:text-white/30">
           <li>
             <span className="text-white/80">Configure.</span> Name, supply, tier and curve range, LP lock, and any
@@ -1085,7 +1112,7 @@ function LauncherExplainer() {
         </ol>
       </ExplainerCard>
 
-      <ExplainerCard title="Why an audited template matters">
+      <ExplainerCard title="Why an audited template matters" art={<CardArt pageId="launch" idx={52} />}>
         <p>
           Neither you nor the venue writes the token contract. Every launch is pinned to Doppler's{' '}
           <code className="text-white/70">DopplerERC20V1</code> factory — the template already whitelisted on Doppler's
@@ -1098,7 +1125,7 @@ function LauncherExplainer() {
         </p>
       </ExplainerCard>
 
-      <ExplainerCard title="What a Fact Sheet is">
+      <ExplainerCard title="What a Fact Sheet is" art={<CardArt pageId="launch" idx={53} />}>
         <p>
           A machine-generated disclosure — not a certificate, not a safety rating, and not an endorsement. Nothing is
           scored and no human vouches for anything. It records:
@@ -1133,7 +1160,7 @@ function LauncherExplainer() {
         </p>
       </ExplainerCard>
 
-      <ExplainerCard title="The fee split is fixed at launch">
+      <ExplainerCard title="The fee split is fixed at launch" art={<CardArt pageId="launch" idx={54} />}>
         <p>
           These shares divide the <strong>graduated pool&apos;s {GRADUATED_FEE_PCT}% trade fee</strong> — published in the
           Fact Sheet and never a marketing dial. They do <strong>not</strong> split the {AUCTION_FEE_PCT}% auction fee:
@@ -1175,7 +1202,7 @@ function LauncherExplainer() {
           (LaunchAfterlife's header), because this card sits inside a fold no
           stranger opens and the ledger does not. The card keeps the door and the
           flame, which is exactly what the ruling left it. */}
-      <ExplainerCard title="The Launch Afterlife: a day 2">
+      <ExplainerCard title="The Launch Afterlife: a day 2" art={<CardArt pageId="launch" idx={55} />}>
         <p>
           When its community settles, it gets its own door in the hall: its own room, its own art, and its own board.
         </p>
@@ -1197,7 +1224,7 @@ function LauncherExplainer() {
           is also why src/pages/recordSurfaces.test.ts pins who may declare one
           of these at all, and one per file. */}
       <section data-voice="toweli" aria-label="TOWELI's protocol: boosted LP farming and gauge emissions">
-        <ExplainerCard title="TOWELI's rails, if a launch wants them">
+        <ExplainerCard title="TOWELI's rails, if a launch wants them" art={<CardArt pageId="launch" idx={56} />}>
           <p>
             Most launchers graduate a token into nothing. Because this launcher sits inside a DeFi protocol that is
             already deployed, a graduated launch has somewhere to go: a boosted LP-farming program on its own
@@ -1218,7 +1245,7 @@ function LauncherExplainer() {
         </ExplainerCard>
       </section>
 
-      <ExplainerCard title="What is built, and what is still open">
+      <ExplainerCard title="What is built, and what is still open" art={<CardArt pageId="launch" idx={57} />}>
         <p>
           The engine is integrated rather than sketched: Doppler's mainnet modules are address-verified on-chain, the
           gate and Fact Sheet are pure, unit-tested code, and a full auction creation has been run green against a fork
@@ -1278,10 +1305,9 @@ function LaunchHeader() {
 
 function Stepper({ step }: { step: number }) {
   return (
-    // overflow-x-auto (matching LendingPage/DashboardPage tab strips) so the 4 steps SCROLL
-    // instead of clipping off the right edge on iPhone-14-width — body{overflow-x:hidden}
-    // would otherwise hide step 4 ("Review") entirely.
-    <div className="flex items-center gap-2 overflow-x-auto no-scrollbar">
+    // The four steps wrap onto a second line on a phone. A row that scrolled sideways with
+    // no scrollbar showed "Fees & disclo" at 390px and hid "Review" entirely.
+    <div className="flex flex-wrap items-center gap-2">
       {STEPS.map((label, i) => (
         <div key={label} className="flex items-center gap-2 shrink-0">
           <div
@@ -1505,8 +1531,8 @@ function StepFees({ w, set, sheet }: { w: WizardState; set: <K extends keyof Wiz
     <div>
       <h3 className="text-white font-semibold text-sm mb-1">Constitutional fee split</h3>
       <p className="text-white/50 text-xs mb-3">
-        Fixed at launch and published in the Fact Sheet — never a marketing dial. These shares divide the{' '}
-        <strong>graduated pool&apos;s {GRADUATED_FEE_PCT}% fee</strong>, not the {AUCTION_FEE_PCT}% auction fee — see Terms §7. You direct your pool below.
+        Splits the <strong>graduated pool&apos;s {GRADUATED_FEE_PCT}% fee</strong>, not the {AUCTION_FEE_PCT}% auction
+        fee (see Terms §7). Fixed at launch.
       </p>
       <div className="rounded-xl border border-white/12 overflow-hidden mb-6">
         {FEE_POOL_DISPLAY.map((l, i) => (
@@ -1519,8 +1545,7 @@ function StepFees({ w, set, sheet }: { w: WizardState; set: <K extends keyof Wiz
 
       <h3 className="text-white font-semibold text-sm mb-1">Attention beneficiaries <span className="text-white/40 font-normal">(optional)</span></h3>
       <p className="text-white/50 text-xs mb-2">
-        Direct part of your creator share to KOLs/community who bring buyers — the proven distribution
-        lever. Carved from your 80% pool; protocol + Doppler are untouched.
+        Share your creator cut with people who bring buyers. Carved from your 80% pool; protocol + Doppler are untouched.
       </p>
       <div className="rounded-xl border border-white/12 p-3 mb-6 space-y-2">
         {w.attentionSplits.map((row, i) => (
@@ -1543,7 +1568,7 @@ function StepFees({ w, set, sheet }: { w: WizardState; set: <K extends keyof Wiz
       </div>
 
       <h3 className="text-white font-semibold text-sm mb-1">Fact Sheet preview</h3>
-      <p className="text-white/50 text-xs mb-3">Exactly what buyers will see — generated by the same automated gate that attests it.</p>
+      <p className="text-white/50 text-xs mb-3">Exactly what buyers will see.</p>
       <FactSheetCard sheet={sheet} />
     </div>
   );
@@ -1605,21 +1630,23 @@ function StepReview({ w, sheet }: { w: WizardState; sheet: LaunchFactSheet }) {
         );
       })()}
       <FactSheetCard sheet={sheet} />
-      <p className="text-white/40 text-xs mt-4">
-        Launching submits a single Doppler <code className="text-white/60">create()</code> transaction on Ethereum
-        mainnet. Your token deploys from Doppler's audited template, the V4 auction opens, and on graduation liquidity
-        migrates to a V4 pool with fees locked to the constitution above.
-      </p>
       {/* The irreversible action is one button away, so surface the issuer terms HERE — a
           term nobody is shown is a weak term, and §8–§11 of the Terms are the issuer-side
           ones (you are the issuer; launches are permissionless and final). */}
-      <p className="text-white/40 text-xs mt-2">
+      <p className="text-white/40 text-xs mt-4">
         By launching you become the <span className="text-white/60">issuer</span> of this token and accept the{' '}
         <Link to="/terms" className="text-emerald-400/80 hover:text-emerald-300 underline transition-colors">
           Terms of Service
         </Link>
         , including the issuer, irreversibility and prohibited-use sections.
       </p>
+      <FinePrint summary="What launching does">
+        <p>
+          Launching submits a single Doppler <code className="text-white/90">create()</code> transaction on Ethereum
+          mainnet. Your token deploys from Doppler's audited template, the V4 auction opens, and on graduation liquidity
+          migrates to a V4 pool with fees locked to the constitution above.
+        </p>
+      </FinePrint>
     </div>
   );
 }
@@ -1648,9 +1675,11 @@ function FactSheetCard({ sheet }: { sheet: LaunchFactSheet }) {
         ))}
       </ul>
       <p className="text-white/35 text-[11px] mt-3 leading-relaxed">
-        Facts are point-in-time disclosures, not a safety endorsement. A tier reflects structural configuration, not
-        a judgement of the project.
+        Facts are point-in-time disclosures, not a safety endorsement.
       </p>
+      <FinePrint>
+        <p>A tier reflects structural configuration, not a judgement of the project.</p>
+      </FinePrint>
     </div>
   );
 }

@@ -113,7 +113,10 @@ test('a clean pool: token ok, pool read from chain, deposits pass the checks, fe
   await expect(card).toHaveAttribute('data-swaps', 'open');
   await expect(card).toHaveAttribute('data-price', 'agrees');
   await expect(card).toHaveAttribute('data-deposits', 'allowed');
-  await expect(card).toContainText('Standard address, fee tier 1');
+  // Headed by its pair and tier; where it sits is said under the heading.
+  await expect(card.getByRole('heading', { level: 3 })).toHaveText(/ \/ SOL · 1% tier$/);
+  await expect(card).toContainText('At the standard address for its fee tier');
+  await expect(card).toContainText('Fee tier 1');
   await expect(card).toContainText('Traders pay 1% a trade');
   await expect(card).toContainText('2 SOL and 2,000,000 tokens');
   await expect(ui.lp.status(p)).toHaveText('One pool found for this token.');
@@ -178,7 +181,8 @@ test('a freezable token is allowed with a warning, on the token and on its pool,
     `Its creator can freeze any account that holds it (freeze authority ${stranger.publicKey.toBase58()}), a pool’s own vault and your own account included. While a pool’s vault is frozen, nobody can take liquidity out of that pool.`,
   );
   const card = poolCard(p, freezePool.address);
-  await expect(card).toContainText('Standard address, fee tier 0');
+  await expect(card).toContainText('At the standard address for its fee tier');
+  await expect(card).toContainText('Fee tier 0');
   await expect(card).toHaveAttribute('data-price', 'agrees');
   await expect(card).toHaveAttribute('data-deposits', 'allowed');
   // Never a clean pass: the heading says there are warnings, and the pool's own is listed under it.

@@ -7,6 +7,7 @@ import { parseEther } from 'viem';
 import type { useLPFarming } from '../../hooks/useLPFarming';
 import { ILCalculator } from './ILCalculator';
 import { ArtImg } from '../ArtImg';
+import { FinePrint } from '../ui/FinePrint';
 import { Link } from 'react-router-dom';
 import { usePoolTVL } from '../../hooks/usePoolTVL';
 import { useTOWELIPrice } from '../../contexts/PriceContext';
@@ -161,11 +162,16 @@ export function LPFarmingSection({ lpFarm, isConnected }: LPFarmingSectionProps)
               data-testid="lp-farming-stats-unread"
             >
               <p>
-                The farm&rsquo;s figures could not be read just now &mdash; the network did
-                not answer. The farm figures below are unknown, not zero: this is not a
-                statement that nothing is staked or that rewards have ended. Retry before
-                acting on them.
+                The farm&rsquo;s figures could not be read. They are unknown, not zero.
               </p>
+              <FinePrint summary="Details">
+                <p>
+                  The farm&rsquo;s figures could not be read just now &mdash; the network did
+                  not answer. The farm figures below are unknown, not zero: this is not a
+                  statement that nothing is staked or that rewards have ended. Retry before
+                  acting on them.
+                </p>
+              </FinePrint>
               <button
                 type="button"
                 className="btn-secondary mt-2 px-4 py-1.5 text-[12px]"
@@ -283,10 +289,8 @@ export function LPFarmingSection({ lpFarm, isConnected }: LPFarmingSectionProps)
                   data-testid="lp-farming-position-unread"
                 >
                   <p>
-                    Your staked LP could not be read just now - the network did not answer.
-                    This is not a statement that you have nothing staked: anything you staked
-                    is still staked, and the contract is the record. Retry before acting on
-                    this panel.
+                    Your staked LP could not be read. Anything you staked is still staked.
+                    Retry before acting on this panel.
                   </p>
                   <button
                     type="button"
@@ -393,8 +397,7 @@ export function LPFarmingSection({ lpFarm, isConnected }: LPFarmingSectionProps)
                       of a constant would be the worse trade. */}
                   {lpFarm.minStakeUnread ? (
                     <p className="text-white/50 text-[10px] mt-2">
-                      Minimum stake <span className="font-mono">unread</span> &mdash; if this pool has one,
-                      a stake below it will revert. Retry in a moment to check.
+                      Minimum stake <span className="font-mono">unread</span>: if this pool has one, a stake below it will revert.
                     </p>
                   ) : lpFarm.minStake > 0n && (
                     <p className="text-white/50 text-[10px] mt-2">
@@ -456,7 +459,10 @@ export function LPFarmingSection({ lpFarm, isConnected }: LPFarmingSectionProps)
               {!lpFarm.positionUnread && lpFarm.stakedBalance === 0n && (
                 <div className="rounded-lg p-3 mt-4 text-[11px]" style={{ background: 'rgba(245,158,11,0.06)', border: '1px solid rgba(245,158,11,0.15)' }}>
                   <p className="text-amber-400 font-medium mb-1">Impermanent loss risk</p>
-                  <p className="text-white/60">When TOWELI price changes relative to ETH, your LP position may be worth less than holding the tokens separately. Farm rewards can offset this over time.</p>
+                  <p className="text-white/60">If TOWELI moves against ETH, your LP may be worth less than just holding both.</p>
+                  <FinePrint summary="Details">
+                    <p>When TOWELI price changes relative to ETH, your LP position may be worth less than holding the tokens separately. Farm rewards can offset this over time.</p>
+                  </FinePrint>
                 </div>
               )}
 

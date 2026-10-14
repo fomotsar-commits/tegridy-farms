@@ -30,6 +30,8 @@ import { basisBehindWrite, confirmedSlotOf, slotOrNull, type WriteFence } from '
 import { useAccrualMeter } from '../../hooks/useAccrualMeter';
 import { Fact, HEAD, PANEL_BG, LEDGER_BG, HAIR, DIVIDED_BG } from './ledger';
 import { HeldTimeLine } from './HeldTimeLine';
+import { CardArt } from '../ui/CardArt';
+import { FinePrint } from '../ui/FinePrint';
 import { Reveal } from '../motion/Reveal';
 import { DUR, EASE_OUT, pressTap, staggerContainer, staggerItem } from '../../lib/motion';
 
@@ -441,7 +443,8 @@ export function SolanaLadderPoolCard({ bungalow }: { bungalow: Bungalow & { ladd
 
   return (
     <Reveal>
-    <div className="relative overflow-hidden rounded-2xl glass-card-animated" style={{ border: '1px solid var(--color-purple-75)' }}>
+    <div className="relative isolate overflow-hidden rounded-2xl glass-card-animated" style={{ border: '1px solid var(--color-purple-75)' }}>
+      <CardArt pageId="solana-ladder-pool-live" idx={0} scrim="transparent" />
       <div className="absolute inset-0" style={{ background: 'rgba(4,9,18,0.52)' }} />
       <div className="relative z-10 p-5 sm:p-6 flex flex-col gap-6">
         <header>
@@ -454,12 +457,14 @@ export function SolanaLadderPoolCard({ bungalow }: { bungalow: Bungalow & { ladd
           {/* Owner-mandated disclosure. Every rule on this card is what the DEPLOYED
               program enforces; the upgrade authority can change any of it. */}
           {config.ok && (
-            <p className="text-[12px] leading-relaxed m-0 max-w-2xl" style={{ color: 'rgba(255,255,255,0.72)' }}>
-              A position keeps its full weight after its lock opens, for as long as it stays in the pool.
-              The program can be upgraded by its upgrade authority, and a future upgrade may reset matured positions
-              to the {boostLabel(MIN_BOOST_BPS)} base weight. Everything on this card describes the program
-              as deployed today.
-            </p>
+            <FinePrint summary="Upgrade risk" className="max-w-2xl">
+              <p className="m-0">
+                A position keeps its full weight after its lock opens, for as long as it stays in the pool.
+                The program can be upgraded by its upgrade authority, and a future upgrade may reset matured positions
+                to the {boostLabel(MIN_BOOST_BPS)} base weight. Everything on this card describes the program
+                as deployed today.
+              </p>
+            </FinePrint>
           )}
         </header>
 
@@ -501,9 +506,8 @@ export function SolanaLadderPoolCard({ bungalow }: { bungalow: Bungalow & { ladd
             {pool.degraded && (
               <p role="alert" className="text-[13px] rounded-lg p-3 m-0" style={{ background: 'rgba(240,178,107,0.10)', border: '1px solid rgba(240,178,107,0.4)', color: '#f0b26b' }}>
                 <strong>This pool has been declared degraded.</strong> It takes no new stakes. Every open
-                position still exits, and while it is degraded neither early exit nor the emergency hatch
-                charges any penalty. That is what the flag is for. The deployed program has no instruction
-                to switch it back.
+                position still exits, and neither early exit nor the emergency hatch charges a penalty. The
+                deployed program has no instruction to switch it back.
               </p>
             )}
 
@@ -530,8 +534,7 @@ export function SolanaLadderPoolCard({ bungalow }: { bungalow: Bungalow & { ladd
                     </>
                   ) : walletUnreadable ? (
                     <p role="alert" className="text-[13px] rounded-lg p-3 m-0" style={{ background: 'rgba(240,178,107,0.10)', border: '1px solid rgba(240,178,107,0.4)', color: '#f0b26b' }}>
-                      {walletUnreadable} Nothing is shown below rather than a zero, because a read that did not land
-                      is not the same as an empty position.{' '}
+                      {walletUnreadable} Not read, so no figure is shown.{' '}
                       <button type="button" onClick={reread} className="underline underline-offset-2">Try again</button>
                     </p>
                   ) : !walletLoaded ? (
@@ -582,8 +585,8 @@ export function SolanaLadderPoolCard({ bungalow }: { bungalow: Bungalow & { ladd
                         </p>
                       ) : positions.length === 0 ? (
                         <p role="alert" className="m-0 text-[12px]" style={{ color: '#f0b26b' }}>
-                          This wallet has {openCount ?? 'some'} open {openCount === 1 ? 'position' : 'positions'} this view
-                          could not read, so no figure is shown rather than a zero.{' '}
+                          {openCount ?? 'Some'} open {openCount === 1 ? 'position' : 'positions'} could not be read, so
+                          no figure is shown.{' '}
                           <button type="button" onClick={reread} className="underline underline-offset-2">Try again</button>
                         </p>
                       ) : (
@@ -673,7 +676,7 @@ export function SolanaLadderPoolCard({ bungalow }: { bungalow: Bungalow & { ladd
               <div className="grid grid-cols-1 gap-6 @min-[52rem]:grid-cols-12">
                 <div className="min-w-0 @min-[52rem]:col-span-7">
                   <p className="text-[12px] mb-3 m-0" style={{ color: 'rgba(255,255,255,0.78)' }} id="ladder-rungs-label">
-                    Lock length: a longer lock carries more weight, and weight is what decides your share.
+                    Lock length: a longer lock carries more weight, and a larger share.
                   </p>
                   {/* TAP TARGETS (2026-09-21): seven rungs across a phone came out 40px
                       wide at 393px, under the 44px floor. On a narrow panel the rungs
@@ -730,6 +733,7 @@ export function SolanaLadderPoolCard({ bungalow }: { bungalow: Bungalow & { ladd
                   <div className="mt-2 pt-2 flex justify-end" style={{ borderTop: '1px solid rgba(255,255,255,0.1)' }}>
                     <p className="m-0 text-[11px] text-right" style={{ color: 'rgba(255,255,255,0.62)' }}>
                       weight grows with lock length · capped at {MAX_LOCK_SECS / (365 * DAY)} years
+                      {!pool.degraded && ' · leaving early costs a penalty'}
                     </p>
                   </div>
                 </div>
@@ -868,8 +872,8 @@ export function SolanaLadderPoolCard({ bungalow }: { bungalow: Bungalow & { ladd
                   </p>
                   {walletView?.truncated && (
                     <p role="alert" className="text-[12px] m-0" style={{ color: '#f0b26b' }}>
-                      This wallet has more positions than one read could cover, so the list below is partial.
-                      Nothing is missing from your account, only from this view.
+                      One read could not cover every position, so the list below is partial. Nothing is missing
+                      from your account, only from this view.
                     </p>
                   )}
 
@@ -941,6 +945,7 @@ export function SolanaLadderPoolCard({ bungalow }: { bungalow: Bungalow & { ladd
                   <Fact span2 label="Reward window" value={rewardWindow === 'ended' ? 'ended' : 'not started'} describedBy={`${fid}-window`} />
                 )}
               </m.div>
+              <FinePrint summary="Notes">
               <ul className="list-none m-0 p-0 flex flex-col gap-1 text-[11.5px] leading-relaxed" style={{ color: 'rgba(255,255,255,0.62)' }}>
                 {rewardWindow === 'live' ? (
                   <>
@@ -969,6 +974,7 @@ export function SolanaLadderPoolCard({ bungalow }: { bungalow: Bungalow & { ladd
                 </li>
                 {fundingLine && <li>{fundingLine}</li>}
               </ul>
+              </FinePrint>
             </section>
 
             {action?.note && (

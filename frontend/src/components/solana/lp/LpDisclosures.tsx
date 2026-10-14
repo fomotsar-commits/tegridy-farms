@@ -1,8 +1,10 @@
+import type { ReactNode } from 'react';
 import type { AmmConfigView } from '../../../lib/solana/cpswap/program';
 import { chargedCreatorFeeRate, feeSplit } from '../../../lib/solana/cpswap/venue';
 import { feeRateText } from '../../../lib/solana/lp/format';
 import { SOL_QUOTE, type QuoteCoin } from '../../../lib/solana/lp/quotes';
 import { Notice, Row } from '../curve/ui';
+import { FinePrint } from '../../ui/FinePrint';
 import { LOCKED_SHARES_TEXT, solAbout, solExact } from './panelKit';
 
 // What a person must know before putting money into one of these pools, said in the
@@ -17,6 +19,11 @@ import { LOCKED_SHARES_TEXT, solAbout, solExact } from './panelKit';
 // src/test/poolProgramCopy.test.ts fails that release until you do, and holds the wording.
 const FORK_LINE =
   "Our pool program is Raydium's, with only its admin keys changed. Those changes have not had their own independent review yet. Put in only what you can afford to lose.";
+/**
+ * FORK_LINE's risk in one visible sentence (owner, 2026-10-13: fewer words, the rest one
+ * press away). The same day as FORK_LINE, reword this one too.
+ */
+export const RISK_SHORT = 'Admin-key changes not independently reviewed yet: put in only what you can afford to lose.';
 const VAULT_LINE =
   "The team's vault (a Squads multisig, two signatures) can switch off deposits, withdrawals or swaps on this pool, change its fee rates at once, and upgrade the program. If it switched off withdrawals, you could not take your money out until it switched them back on.";
 const LAUNCH_POOL_LINE =
@@ -60,24 +67,26 @@ function lpShareLine(config: AmmConfigView | null, enableCreatorFee: boolean): s
 export function LpBeforeYouAdd({ launchPool, config, enableCreatorFee }: { launchPool: boolean; config: AmmConfigView | null; enableCreatorFee: boolean }) {
   return (
     <div className="space-y-2" data-testid="lp-before-you-add">
-      <ul className="list-disc pl-4 space-y-1 text-white/75">
+      <p className="text-amber-300/90">{RISK_SHORT}</p>
+      <LpRisksDetails>
         <li>{FORK_LINE}</li>
         <li>{VAULT_LINE}</li>
         <li>{PRICE_MOVES_LINE}</li>
         <li>{ROUTING_LINE}</li>
         <li>{lpShareLine(config, enableCreatorFee)}</li>
         {launchPool && <li>{LAUNCH_POOL_LINE}</li>}
-      </ul>
-      <LpRisksDetails />
+      </LpRisksDetails>
     </div>
   );
 }
 
-export function LpRisksDetails() {
+/** The risks, one press away: the form's own lines (`children`) first, then the ones every form shares. */
+export function LpRisksDetails({ children }: { children?: ReactNode }) {
   return (
     <details className="rounded-lg" style={{ border: '1px solid rgba(255,255,255,0.08)' }}>
-      <summary className="min-h-[44px] flex items-center px-3 cursor-pointer text-white/75">More about the risks</summary>
+      <summary className="min-h-[44px] flex items-center px-3 cursor-pointer text-white/75">Risks</summary>
       <ul className="list-disc pl-7 pr-3 pb-3 space-y-1 text-white/65">
+        {children}
         <li>Anyone can open a pool for any token, at any price, so being listed here does not make it &quot;the&quot; pool.</li>
         <li>Whether a token&apos;s creator can still freeze accounts is checked only when you look; it is not watched for you.</li>
         <li>When withdrawals are switched off on a pool, the pool program refuses every withdrawal from it.</li>
@@ -134,7 +143,8 @@ export function LpBeforeYouOpen({
         : 'account deposits that never come back (the fee tiers list on this page has their amount)';
   return (
     <div className="space-y-2" data-testid="lp-before-you-open">
-      <ul className="list-disc pl-4 space-y-1 text-white/75">
+      <p className="text-amber-300/90">{RISK_SHORT}</p>
+      <LpRisksDetails>
         <li>{FORK_LINE}</li>
         <li>{CREATE_VAULT_LINE}</li>
         <li>{MONEY_LINE}</li>
@@ -144,8 +154,7 @@ export function LpBeforeYouOpen({
           {LOCKED_SHARES_TEXT} stay locked in the pool forever; that is the pool program&apos;s rule for every new pool.
         </li>
         <li>{NOT_THE_POOL_LINE}</li>
-      </ul>
-      <LpRisksDetails />
+      </LpRisksDetails>
     </div>
   );
 }
@@ -160,10 +169,13 @@ export function LpReviewDisclosure(p: { kind: 'add'; origin: 'launch-pool' | 'st
     <div className="space-y-1" data-testid="lp-review-disclosure" data-kind={p.kind}>
       {/* On a phone the review is two screens long and its button is at the end of it. */}
       <Notice>Read this through. The Sign in wallet button is at the end of it.</Notice>
-      <Notice tone="warn">{FORK_LINE}</Notice>
-      <Notice>{p.kind === 'create' ? CREATE_VAULT_LINE : VAULT_LINE}</Notice>
-      {p.kind === 'add' && p.origin === 'launch-pool' && <Notice>{LAUNCH_POOL_LINE}</Notice>}
-      {p.kind === 'create' && <Notice>{MONEY_NOTE}</Notice>}
+      <Notice tone="warn">{RISK_SHORT}</Notice>
+      <FinePrint summary="Risks">
+        <p>{FORK_LINE}</p>
+        <p>{p.kind === 'create' ? CREATE_VAULT_LINE : VAULT_LINE}</p>
+        {p.kind === 'add' && p.origin === 'launch-pool' && <p>{LAUNCH_POOL_LINE}</p>}
+        {p.kind === 'create' && <p>{MONEY_NOTE}</p>}
+      </FinePrint>
     </div>
   );
 }

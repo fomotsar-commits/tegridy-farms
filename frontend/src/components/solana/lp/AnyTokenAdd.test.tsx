@@ -233,7 +233,7 @@ describe.each(CASES)('a %s pool whose price is 10%% above the outside price', (s
     // The price rows are in the pool's own coin, and the difference says which side of the line it is.
     expect(cardRow(c, 'Price here')).toBe(`1 token = 0.01 ${symbol}`);
     expect(cardRow(c, 'Outside price (Jupiter)')).toBe(`1 token = 0.009091 ${symbol}`);
-    expect(cardRow(c, 'Difference')).toBe('10.0% above. That is more than 3% apart: see the warning above.');
+    expect(cardRow(c, 'Difference')).toBe('10.0% above. That is more than 3% apart: see the warning below.');
     expect(within(c).getByRole('button', { name: 'Add liquidity' })).toBeEnabled();
   });
 
@@ -281,7 +281,7 @@ describe('a price below the market is said once', () => {
   it('9.1% below: a warning, and never "-9.1% below"', async () => {
     mount(readers(view(SOL_QUOTE), { token: tokenAt(SOL_QUOTE, 1 / 1.1) }));
     const c = await cardWith('offer');
-    expect(cardRow(c, 'Difference')).toBe('9.1% below. That is more than 3% apart: see the warning above.');
+    expect(cardRow(c, 'Difference')).toBe('9.1% below. That is more than 3% apart: see the warning below.');
     expect(within(c).getByTestId('lp-pool-warnings')).toHaveTextContent('Its price is 9.1% below the outside price.');
     const { type, said } = await openAdd(c, SOL_QUOTE);
     type('1');
@@ -581,7 +581,7 @@ describe('a launch pool whose price is off its own average', () => {
     const c = await cardWith('offer');
     expect(within(c).getByText('Deposits: the checks pass, with warnings')).toBeInTheDocument();
     expect(cardRow(c, 'Its own average, last 30 minutes')).toBe('1 token = 0.008 SOL');
-    expect(cardRow(c, 'Difference')).toBe('25.0% above. That is more than 3% apart: see the warning above.');
+    expect(cardRow(c, 'Difference')).toBe('25.0% above. That is more than 3% apart: see the warning below.');
     const { type, said } = await openAdd(c, SOL_QUOTE);
     type('1');
     // 0.99009 SOL and 99.009 tokens against an average of 0.008: (√0.99009 − √0.792072)².
@@ -626,7 +626,7 @@ describe('a pool anyone could open whose price is off the launch pool’s', () =
     const c = await cardWith('offer');
     expect(within(c).getByText('Deposits: the checks pass, with warnings')).toBeInTheDocument();
     expect(cardRow(c, 'The launch pool’s price')).toBe('1 token = 0.008 SOL');
-    expect(cardRow(c, 'Difference')).toBe('25.0% above. That is more than 3% apart: see the warning above.');
+    expect(cardRow(c, 'Difference')).toBe('25.0% above. That is more than 3% apart: see the warning below.');
     // Not one of the other references' labels.
     expect(c).not.toHaveTextContent(/Outside price \(Jupiter\)|Its own average/);
 

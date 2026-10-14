@@ -1,4 +1,5 @@
 import { COST_BASIS_METHODS, methodInfo, type CostBasisMethod } from '../../lib/tax/methods';
+import { CardArt } from '../ui/CardArt';
 
 // The method picker.
 //
@@ -16,7 +17,8 @@ export function CostBasisPicker({
   onChange: (method: CostBasisMethod) => void;
 }) {
   return (
-    <fieldset className="rounded-xl border border-white/15 bg-white/[0.02] p-4">
+    <fieldset className="relative isolate rounded-xl border border-white/15 bg-white/[0.02] p-4">
+      <CardArt pageId="tax" idx={2} />
       <legend className="px-1 text-sm font-semibold text-white">Cost-basis method</legend>
       <p className="text-[12px] leading-relaxed text-white/65">
         These do not produce the same answer. On identical history they routinely differ by enough to change

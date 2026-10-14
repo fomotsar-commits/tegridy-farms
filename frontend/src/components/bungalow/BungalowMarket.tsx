@@ -2,6 +2,8 @@ import { Suspense, lazy, useMemo } from 'react';
 import type { Bungalow } from '../../lib/bungalows';
 import { usePoolMarket } from '../../hooks/usePoolMarket';
 import { ErrorBoundary } from '../ui/ErrorBoundary';
+import { CardArt } from '../ui/CardArt';
+import { FinePrint } from '../ui/FinePrint';
 import { BungalowTrades } from './BungalowTrades';
 
 // The chart pulls in lightweight-charts; keep it out of the bungalow's first
@@ -51,10 +53,11 @@ export function BungalowMarket({ bungalow }: { bungalow: Bungalow }) {
 
   return (
     <section
-      className="rounded-2xl p-6"
+      className="relative isolate rounded-2xl p-6"
       style={{ background: 'rgba(4,9,18,0.72)', border: '1px solid var(--color-purple-25)' }}
       aria-label={`${bungalow.symbol} market`}
     >
+      <CardArt pageId="bungalow-market" idx={0} />
       <div className="flex items-center gap-3 flex-wrap mb-4">
         <p className="text-[10px] uppercase tracking-wider" style={{ color: 'var(--color-kyle)' }}>
           The market
@@ -131,10 +134,14 @@ export function BungalowMarket({ bungalow }: { bungalow: Bungalow }) {
       <BungalowTrades bungalow={bungalow} />
 
       <p className="text-[10px] text-white/40 mt-3">
-        Price, liquidity, volume and the trade split are read from GeckoTerminal for this
-        pool on read. Nothing here refreshes on its own. A dash means the figure could
-        not be read, not that it is zero.
+        A dash means the figure could not be read, not that it is zero.
       </p>
+      <FinePrint summary="Sources" className="mt-1">
+        <p>
+          Price, liquidity, volume and the trade split are read from GeckoTerminal for this
+          pool on read. Nothing here refreshes on its own.
+        </p>
+      </FinePrint>
     </section>
   );
 }

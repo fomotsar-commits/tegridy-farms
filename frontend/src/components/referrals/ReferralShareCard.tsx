@@ -7,6 +7,8 @@ import {
 } from '../../lib/referrals/link';
 import { REF_CODE_RE } from '../../lib/referrals/attribution';
 import { claimCode, readOwnCode, type CodeStoreStatus } from '../../lib/referrals/codesClient';
+import { CardArt } from '../ui/CardArt';
+import { FinePrint } from '../ui/FinePrint';
 
 // The link a referrer carries off-site, and the two forms it comes in.
 //
@@ -138,15 +140,21 @@ export function ReferralShareCard({ address, warnBeforeSharing, fetchImpl }: Pro
   if (!address) {
     return (
       <section
-        className="rounded-xl p-4"
+        className="relative isolate rounded-xl p-4"
         style={{ background: '#000', border: '1px solid var(--color-purple-75)' }}
         aria-label="Your referral link"
       >
+        <CardArt pageId="referrals" idx={2} />
         <h3 className="text-white text-[13px] font-medium">Your referral link</h3>
         <p className="mt-2 text-white/60 text-[12px] leading-relaxed">
-          A referral link points at a payee address, so there is nothing to mint until a wallet is connected. This is
-          not an error — no link exists yet because no address does.
+          Connect a wallet to get your link.
         </p>
+        <FinePrint summary="Details">
+          <p>
+            A referral link points at a payee address, so there is nothing to mint until a wallet is connected. This is
+            not an error — no link exists yet because no address does.
+          </p>
+        </FinePrint>
       </section>
     );
   }
@@ -158,10 +166,11 @@ export function ReferralShareCard({ address, warnBeforeSharing, fetchImpl }: Pro
 
   return (
     <section
-      className="rounded-xl p-4"
+      className="relative isolate rounded-xl p-4"
       style={{ background: '#000', border: '1px solid var(--color-purple-75)' }}
       aria-label="Your referral link"
     >
+      <CardArt pageId="referrals" idx={2} />
       <h3 className="text-white text-[13px] font-medium">Your referral link</h3>
 
       {warnBeforeSharing && (
@@ -171,7 +180,7 @@ export function ReferralShareCard({ address, warnBeforeSharing, fetchImpl }: Pro
       )}
 
       <p className="mt-2 text-white/50 text-[11px] leading-relaxed">
-        This form needs no server and cannot expire. It is the one to share.
+        Needs no server and cannot expire. Share this one.
       </p>
       <div className="mt-2 flex items-center gap-2">
         <div className="flex-1 min-w-0 bg-black/40 rounded-lg px-3 py-2.5 border border-white/20">
@@ -206,9 +215,14 @@ export function ReferralShareCard({ address, warnBeforeSharing, fetchImpl }: Pro
       <div className="mt-5 pt-4 border-t border-white/10">
         <h4 className="text-white/80 text-[12px] font-medium">A shorter link (optional)</h4>
         <p className="mt-1 text-white/50 text-[11px] leading-relaxed">
-          Nicer to paste, and strictly weaker: it needs this deployment’s code store to resolve. The link above keeps
-          working whatever this section says.
+          Nicer to paste, but it needs this deployment’s code store to resolve.
         </p>
+        <FinePrint summary="Details">
+          <p>
+            Nicer to paste, and strictly weaker: it needs this deployment’s code store to resolve. The link above keeps
+            working whatever this section says.
+          </p>
+        </FinePrint>
 
         {status === 'loading' && <p className="mt-2 text-white/50 text-[11px]">Reading your code…</p>}
 
@@ -267,10 +281,12 @@ export function ReferralShareCard({ address, warnBeforeSharing, fetchImpl }: Pro
           </p>
         )}
         {operatorStep && (
-          <p className="mt-1 text-white/50 text-[11px] leading-relaxed">
-            <span className="uppercase tracking-wide">Operator: </span>
-            {operatorStep}
-          </p>
+          <FinePrint summary="Operator note">
+            <p>
+              <span className="uppercase tracking-wide">Operator: </span>
+              {operatorStep}
+            </p>
+          </FinePrint>
         )}
       </div>
     </section>

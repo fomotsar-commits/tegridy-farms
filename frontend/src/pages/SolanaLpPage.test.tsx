@@ -31,6 +31,7 @@ const LIVE = {
     createPoolFee: 0n, creatorFeeRate: 0n,
     protocolOwner: 'Own1', fundOwner: 'Own2',
   },
+  publicTier: { kind: 'not-asked' },
 } as const;
 const UNREADABLE = { kind: 'unreadable', detail: 'proxy timed out' } as const;
 
@@ -117,7 +118,7 @@ describe('when the venue reads live', () => {
     expect(document.title).toMatch(/^Solana liquidity/);
     // The venue read alone does not say each can be done right now: the section's own reads do.
     expect(
-      screen.getByText(/^Create a pool, add liquidity or take it out on the venue.s own Solana AMM\.$/),
+      screen.getByText(/^Create a pool, add liquidity or take it out\.$/),
     ).toBeInTheDocument();
   });
 
@@ -125,13 +126,13 @@ describe('when the venue reads live', () => {
     lp.mode = 'withdraw-only';
     const first = await mount();
     await screen.findByTestId('lp-section');
-    expect(screen.getByText(/take your liquidity out.*Adding liquidity and opening pools from here are paused\./)).toBeInTheDocument();
+    expect(screen.getByText(/take your liquidity out.*Adding and opening pools are paused here\./i)).toBeInTheDocument();
     expect(screen.queryByText(/add or remove liquidity, or open/)).toBeNull();
     first.unmount();
     lp.mode = 'off';
     await mount();
     await screen.findByTestId('lp-section');
-    expect(screen.getByText(/Adding and removing liquidity from here is not switched on yet\./)).toBeInTheDocument();
+    expect(screen.getByText(/Adding and removing are not switched on yet\./)).toBeInTheDocument();
     expect(screen.queryByText(/add or remove liquidity, or open/)).toBeNull();
   });
 
@@ -222,9 +223,9 @@ describe('when the venue does not read live', () => {
     // No present-tense claim above a card that says the venue is not open.
     expect(screen.queryByText(/^Find a pool/)).toBeNull();
     expect(screen.getByText(/once a chain read says the venue is open/i)).toBeInTheDocument();
-    // The card is directly under the hero, which says "the card below"; then "The program".
+    // The card is directly under the hero, which says when the tab opens; then "The program".
     const { hero, after } = column();
-    expect(hero).toHaveTextContent(/The card below says what the latest read found\./);
+    expect(hero).toHaveTextContent(/Opens here once a chain read says the venue is open\./);
     expect(after).toHaveLength(2);
     expect(after[0]).toBe(screen.getByRole('region', { name: 'Venue status' }));
     expect(after[0]).toHaveTextContent(title);

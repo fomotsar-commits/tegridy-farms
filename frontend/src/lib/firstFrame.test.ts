@@ -12,6 +12,7 @@ import { dirname, join } from 'node:path';
 import { VENUE } from './arrival';
 import { pageArt } from './artConfig';
 import { derivedUrl, naturalWidthOf, widthsFor } from './artSrcSet';
+import { HEADING_STYLE, PILL_ROW_STYLE } from '../../scripts/render-bungalow-doors.mjs';
 
 const FRONTEND = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const html = readFileSync(join(FRONTEND, 'index.html'), 'utf8');
@@ -88,6 +89,15 @@ describe('the first frame ships in the HTML', () => {
 
   it('never paints the word Loading', () => {
     expect(spoken(frame)).not.toMatch(/loading/i);
+  });
+
+  // The hero puts its chain-pill row above the heading and spaces it as .heading-luxury
+  // does; a frame without either moved the heading 44.5px down when the hero arrived.
+  it("holds the hero's pill row above the heading and spaces its letters as the hero does, as a door's frame does", () => {
+    const spacer = frame!.querySelector('.ff-col > div[aria-hidden="true"]');
+    expect(spacer?.getAttribute('style')).toBe(PILL_ROW_STYLE);
+    expect(spacer?.nextElementSibling?.tagName).toBe('H1');
+    expect(frame!.querySelector('h1')?.getAttribute('style')).toBe(HEADING_STYLE);
   });
 });
 

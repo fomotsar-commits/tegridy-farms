@@ -20,9 +20,8 @@ const MOUSE_1024 = { viewport: { width: 1024, height: 900 }, hasTouch: false, is
 /** Sub-pixel rounding between a label and its tab is not paint-over. */
 const TOLERANCE_PX = 0.5;
 
-// One route per RouteTabs host.
+// One route per RouteTabs host. /swap has none: its chain switch is the one in the page (TradeHostPage.tsx).
 const STRIPS = [
-  { path: '/swap', strip: 'Swap destinations' },
   { path: '/liquidity', strip: 'Liquidity sections' },
   { path: '/launch', strip: 'Launch sections' },
   { path: '/earn', strip: 'Earn sections' },

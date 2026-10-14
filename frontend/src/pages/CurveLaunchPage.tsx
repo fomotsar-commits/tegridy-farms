@@ -10,6 +10,8 @@ import { usePageTitle } from '../hooks/usePageTitle';
 import { trackPageView } from '../lib/analytics';
 import { ArtImg } from '../components/ArtImg';
 import { PageArtBackdrop } from '../components/PageArtBackdrop';
+import { CardArt } from '../components/ui/CardArt';
+import { FinePrint } from '../components/ui/FinePrint';
 import { LaunchGate } from '../components/LaunchGate';
 import { VenueLaunchLines } from '../components/launcher/VenueLaunchLines';
 import { SolanaProviders } from '../components/solana/SolanaProviders';
@@ -188,9 +190,9 @@ export function DeploymentBanner({
           stayed on the page for two weeks. It is not describing anything now: the badge
           above is a live read and is the only thing here entitled to make a claim.
         */}
-        <p className="text-white/35 text-[10px] mt-1 leading-relaxed">
-          The badge above is read from the chain each time this page loads. It is not a hardcoded state.
-        </p>
+        <FinePrint>
+          <p>The badge above is read from the chain each time this page loads. It is not a hardcoded state.</p>
+        </FinePrint>
         {/* The dead-end fix (2026-08-28): a dead Solana program is not a dead
             venue. Same rationale as App.tsx's no-redirect note — we never
             redirect INTO a dead rail, but a measured link OUT to live ones is
@@ -275,7 +277,7 @@ export function TradePanel({
   const disabled = !c || !!blocked;
 
   return (
-    <Card title="Trade the curve">
+    <Card title="Trade the curve" art={<CardArt pageId="curve-launch" idx={4} />}>
       <div className="flex gap-1.5 mb-3" role="group" aria-label="Buy or sell">
         {(['buy', 'sell'] as const).map((s) => (
           <button
@@ -357,11 +359,20 @@ export function TradePanel({
 
       {/* The write seam. No transaction is built here — see the file header. */}
       {writeClient === null ? (
-        <p className="text-white/40 text-[10px] leading-relaxed mt-3 pt-3" style={{ borderTop: '1px solid rgba(255,255,255,0.08)' }}>
-          {gateNotOpen
-            ? 'Launching and trading are not available right now; see the note above. The quote above is the same arithmetic the program runs.'
-            : 'There is no signing path on this page. Launching and trading from this site are switched off for now. The quote above is the same arithmetic the program runs, shown so the terms can be checked.'}
-        </p>
+        <>
+          <p className="text-white/40 text-[10px] leading-relaxed mt-3 pt-3" style={{ borderTop: '1px solid rgba(255,255,255,0.08)' }}>
+            {gateNotOpen
+              ? 'Launching and trading are not available right now; see the note above.'
+              : 'There is no signing path on this page. Launching and trading from this site are switched off for now.'}
+          </p>
+          <FinePrint>
+            <p>
+              {gateNotOpen
+                ? 'The quote above is the same arithmetic the program runs.'
+                : 'The quote above is the same arithmetic the program runs, shown so the terms can be checked.'}
+            </p>
+          </FinePrint>
+        </>
       ) : (
         <button type="button" className="btn-primary w-full py-2.5 text-[13px] mt-3 disabled:opacity-60" disabled={disabled || !quote}>
           Review {side}
@@ -398,10 +409,14 @@ function BuyQuoteRows({
       <Row label={`You receive${out.isBaseUnits ? ' (base units)' : ''}`} value={out.text} />
       <Row label="Minimum received" value={floor === null ? 'not computable at that tolerance' : floor.text} />
       <p className="text-white/35 text-[10px] leading-relaxed">
-        A quote is computed from an account snapshot and is stale the moment it is made, so a trade carries the minimum
-        above as an on-chain floor. Network fees and the rent for a token account, if you do not already have one, are on
-        top of this.
+        Network fees and the rent for a token account, if you do not already have one, are on top of this.
       </p>
+      <FinePrint>
+        <p>
+          A quote is computed from an account snapshot and is stale the moment it is made, so a trade carries the minimum
+          above as an on-chain floor.
+        </p>
+      </FinePrint>
     </div>
   );
 }
@@ -422,10 +437,12 @@ function SellQuoteRows({
         label="Minimum received"
         value={floor === null ? 'not computable at that tolerance' : `${formatSol(floor)} SOL`}
       />
-      <p className="text-white/35 text-[10px] leading-relaxed">
-        A sell may also be refused if it would drop the curve account below its rent floor. That check reads the
-        account&apos;s live balance, so it is only knowable at send time.
-      </p>
+      <FinePrint>
+        <p>
+          A sell may also be refused if it would drop the curve account below its rent floor. That check reads the
+          account&apos;s live balance, so it is only knowable at send time.
+        </p>
+      </FinePrint>
     </div>
   );
 }
@@ -513,30 +530,14 @@ export function CreateChecklist({
   const g = global;
   const treasury = describeTreasury(g?.feeRecipient ?? null);
   return (
-    <Card title="Open a launch">
+    <Card title="Open a launch" art={<CardArt pageId="curve-launch" idx={5} />}>
       {launchingOff && <p className="text-white/85">{launchingOff}</p>}
-      <p>
-        Launching mints the entire supply, sends the platform reserve listed below to {treasury.name}, puts the rest
-        into a fresh curve&apos;s vault and permanently revokes the mint authority, all in the
-        same instruction, so no further supply can ever exist. The curve can sell everything in its vault; whatever it
-        has not sold when it graduates goes into the pool. The curve&apos;s terms
-        are not chosen per launch — they are
-        copied from the protocol config at creation and frozen, so nothing can rewrite a live launch&apos;s economics
-        afterwards.
-      </p>
 
       <p className="text-white/50 pt-1">Your mint must satisfy:</p>
       <ul className="space-y-1.5">
-        <Check ok={f ? f.supply === 0n : null}>
-          Supply is zero. The program mints the whole supply itself; a pre-minted token is rejected.
-        </Check>
-        <Check ok={f ? f.freezeAuthority === null : null}>
-          No freeze authority. A retained one could freeze the curve&apos;s vault — a publicly derivable address — and
-          lock every lamport raised, permanently.
-        </Check>
-        <Check ok={f ? f.isLegacySplToken : null}>
-          Legacy SPL Token, not Token-2022. Token-2022 mints fail the program&apos;s account validation.
-        </Check>
+        <Check ok={f ? f.supply === 0n : null}>Supply is zero.</Check>
+        <Check ok={f ? f.freezeAuthority === null : null}>No freeze authority.</Check>
+        <Check ok={f ? f.isLegacySplToken : null}>Legacy SPL Token, not Token-2022.</Check>
         <Check ok={f ? f.mintAuthority !== null : null}>
           You still hold the mint authority, so the program can mint and then revoke it.
         </Check>
@@ -591,11 +592,30 @@ export function CreateChecklist({
         )}
       </div>
 
-      <p className="text-white/35 text-[10px] leading-relaxed">
-        Name, symbol and image are not part of this. The program stores none of them and never creates token metadata —
-        that is a separate Metaplex account on the mint, and a client that showed a name here would be reading it from
-        somewhere else entirely.
-      </p>
+      <FinePrint summary="How it works">
+        <p>
+          Launching mints the entire supply, sends the platform reserve listed below to {treasury.name}, puts the rest
+          into a fresh curve&apos;s vault and permanently revokes the mint authority, all in the
+          same instruction, so no further supply can ever exist. The curve can sell everything in its vault; whatever it
+          has not sold when it graduates goes into the pool. The curve&apos;s terms
+          are not chosen per launch — they are
+          copied from the protocol config at creation and frozen, so nothing can rewrite a live launch&apos;s economics
+          afterwards.
+        </p>
+        <ul className="space-y-1 list-disc pl-4">
+          <li>The program mints the whole supply itself; a pre-minted token is rejected.</li>
+          <li>
+            A retained freeze authority could freeze the curve&apos;s vault — a publicly derivable address — and
+            lock every lamport raised, permanently.
+          </li>
+          <li>Token-2022 mints fail the program&apos;s account validation.</li>
+        </ul>
+        <p>
+          Name, symbol and image are not part of this. The program stores none of them and never creates token metadata —
+          that is a separate Metaplex account on the mint, and a client that showed a name here would be reading it from
+          somewhere else entirely.
+        </p>
+      </FinePrint>
     </Card>
   );
 }
@@ -692,7 +712,7 @@ export function CurveLaunchView({
           launchingOff={launchingOff}
         />
 
-        <Card title="Look up a launch">
+        <Card title="Look up a launch" art={<CardArt pageId="curve-launch" idx={2} />}>
           <p>Open a launch by its token address (mint). This view has no list of launches.</p>
           <Field label="Token mint address">
             <input
@@ -757,7 +777,7 @@ export function CurveLaunchView({
         />
 
         {wallet && (
-          <Card title="Wallet">
+          <Card title="Wallet" art={<CardArt pageId="curve-launch" idx={6} />}>
             {wallet.address ? (
               <Row label="Connected" value={wallet.address} />
             ) : (
@@ -790,7 +810,9 @@ export function CurveLaunchView({
 function CurveExplainer({ treasury }: { treasury: TreasuryDescription }) {
   return (
     <div className="space-y-4">
-      <Card title="What this is">
+      <Card title="What this is" art={<CardArt pageId="curve-launch" idx={7} />}>
+        <p>Our own Solana bonding curve. A launch graduates into our own AMM.</p>
+        <FinePrint>
         <p>
           Our own bonding curve program, and our own AMM to graduate into — unlike the retired Solana launch rail, which
           ran on Meteora&apos;s curve and migrated into Meteora&apos;s pool.
@@ -809,12 +831,15 @@ function CurveExplainer({ treasury }: { treasury: TreasuryDescription }) {
           The platform treasury is meant to be a Squads multisig vault ({PLATFORM_TREASURY_VAULT.toBase58()}). This page
           calls it a multisig only after reading the live config and finding that vault there.
         </p>
-        <p className="text-white/40">
+        <p>
           The Meteora rail was retired on 2026-08-23 — this curve is now the only Solana launch surface here.
         </p>
+        </FinePrint>
       </Card>
 
-      <Card title="What graduation does and does not promise">
+      <Card title="What graduation does and does not promise" art={<CardArt pageId="curve-launch" idx={8} />}>
+        <p>The pool&apos;s LP tokens are burned when it opens. Listing is within 5% of the curve price.</p>
+        <FinePrint>
         <ul className="list-disc pl-4 space-y-1">
           <li>
             The LP tokens are burned in the same instruction that creates the pool, and the program aborts the whole
@@ -835,18 +860,22 @@ function CurveExplainer({ treasury }: { treasury: TreasuryDescription }) {
             and the program does not limit what it does with them, including selling them while the curve is live.
           </li>
         </ul>
+        </FinePrint>
       </Card>
 
-      <Card title="What this page will not show you">
+      <Card title="What this page will not show you" art={<CardArt pageId="curve-launch" idx={9} />}>
+        <p>Where a value cannot be read it says so rather than showing a zero.</p>
+        <FinePrint>
         <p>
           Program state contains reserves, terms and a completion flag. It does not contain a price in dollars, a market
           cap, a holder count, a trade history or a volume figure, and there is no indexer behind this page inventing
-          them. Where a value cannot be read it says so rather than showing a zero.
+          them.
         </p>
-        <p className="text-white/40">
+        <p>
           Token names and images are not program state either. Anything showing one is reading separate metadata that a
           launch is not required to have.
         </p>
+        </FinePrint>
       </Card>
     </div>
   );
@@ -871,7 +900,7 @@ function OpenByMint() {
     }
   }
   return (
-    <Card title="Open a launch by its address">
+    <Card title="Open a launch by its address" art={<CardArt pageId="curve-launch" idx={10} />}>
       <p>Paste the full token address (mint). Compare every character with the one you were given.</p>
       <Field label="Token mint address">
         <input

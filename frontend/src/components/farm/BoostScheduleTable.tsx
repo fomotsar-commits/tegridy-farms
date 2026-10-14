@@ -3,6 +3,7 @@ import { JBAC_BONUS_BPS, LOCK_OPTIONS, EARLY_WITHDRAWAL_PENALTY_BPS } from '../.
 import { calculateBoost } from '../../lib/boostCalculations';
 import { isBootstrapApr, BOOTSTRAP_APR_NOTE } from '../../lib/copy';
 import { ArtImg } from '../ArtImg';
+import { FinePrint } from '../ui/FinePrint';
 
 // Derive from the canonical constant so this table can't drift from the on-chain penalty.
 const EARLY_WITHDRAWAL_PENALTY_PCT = EARLY_WITHDRAWAL_PENALTY_BPS / 100;
@@ -111,7 +112,7 @@ export function BoostScheduleTable({ selectedLockLabel, aprNum }: BoostScheduleT
           <div className="relative z-10 p-4">
             <p className="text-warning/80 text-[12px] font-medium mb-1">Early Withdrawal</p>
             <p className="text-white text-[11px]">
-              You can exit your lock at any time with a {EARLY_WITHDRAWAL_PENALTY_PCT}% penalty. Penalty tokens are sent to the treasury — so locking in is the move.
+              Exit any time for a {EARLY_WITHDRAWAL_PENALTY_PCT}% penalty, which goes to the treasury.
             </p>
           </div>
         </div>
@@ -128,11 +129,16 @@ export function BoostScheduleTable({ selectedLockLabel, aprNum }: BoostScheduleT
                 ever shortens it. This is the corrected copy that natspec
                 prescribed and no pass had landed. */}
             <p className="text-white text-[11px]">
-              Enable auto-max lock to keep maximum boost (4.0x) perpetually — enabling
-              immediately sets a full 4-year lock, and it re-extends on every claim.
-              Disabling stops future re-extensions, but the current 4-year lock stays;
-              exiting before it ends always costs the 25% early-withdrawal penalty.
+              Sets a full 4-year lock now and re-extends it on every claim.
             </p>
+            <FinePrint summary="Details">
+              <p>
+                Enable auto-max lock to keep maximum boost (4.0x) perpetually — enabling
+                immediately sets a full 4-year lock, and it re-extends on every claim.
+                Disabling stops future re-extensions, but the current 4-year lock stays;
+                exiting before it ends always costs the 25% early-withdrawal penalty.
+              </p>
+            </FinePrint>
           </div>
         </div>
         </div>

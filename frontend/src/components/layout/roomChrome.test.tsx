@@ -195,12 +195,11 @@ describe("the nav chip's chrome follows the route", () => {
 });
 
 describe('the tab bar leaves room for the band', () => {
-  it('offsets itself by the measured band height, never a bare 56px', () => {
-    // The OTHER half of ruling 1, as far as a unit test can honestly reach: the
-    // occlusion itself needs a browser, but a tab bar pinned at a hard-coded
-    // top is the defect that caused it, and that is visible here. AppLayout
-    // measures the band and publishes --room-band-h; the fallback 0px keeps
-    // every page without a band exactly where it was.
+  it('sits in the page flow after the band, never pinned over it or over the page', () => {
+    // The OTHER half of ruling 1, as far as a unit test can reach: a pinned tab bar
+    // painted over the band, and once scrolled over fields and buttons on 19 pages
+    // (2026-10-14). In the flow it can do neither. A browser measures both in
+    // e2e/safe-area-insets.spec.ts and e2e/tab-strip-clears-focus.spec.ts.
     const { container } = render(
       <MemoryRouter>
         <RouteTabs
@@ -212,8 +211,13 @@ describe('the tab bar leaves room for the band', () => {
         />
       </MemoryRouter>,
     );
-    const fixed = container.querySelector<HTMLElement>('div.fixed');
-    expect(fixed).not.toBeNull();
-    expect(fixed!.style.top).toBe('calc(56px + env(safe-area-inset-top, 0px) + var(--room-band-h, 0px))');
+    const anchor = container.firstElementChild as HTMLElement;
+    expect(anchor.classList.contains('relative') && anchor.classList.contains('h-0'), 'the anchor is in the flow and takes no room').toBe(true);
+    // Without it a panel's -mt-14 collapses through the empty anchor: the strip rose 56px.
+    expect(anchor).toHaveClass('flow-root');
+    const pinned = Array.from(container.querySelectorAll<HTMLElement>('*')).filter(
+      (el) => el.classList.contains('fixed') || el.classList.contains('sticky') || el.style.position === 'fixed' || el.style.position === 'sticky' || el.style.top !== '',
+    );
+    expect(pinned.map((el) => el.className)).toEqual([]);
   });
 });

@@ -86,7 +86,7 @@ export async function readRails({ fetchImpl = fetch, env = process.env } = {}) {
 
   await solTokens('Squads partner vault', SQUADS_VAULT);
   if (env.SOLANA_FEE_ACCOUNT) await solTokens('Solana swap-fee wallet', env.SOLANA_FEE_ACCOUNT);
-  else unconfigured.push('- Solana swap-fee wallet: set SOLANA_FEE_ACCOUNT to watch this rail');
+  else unconfigured.push('- Solana swap-fee wallet: none set. Venue swap fees go to the Squads partner vault, which is watched; SOLANA_FEE_ACCOUNT adds one more wallet');
 
   const state = earned.length ? 'earned' : unknown.length ? 'partial' : 'zero';
   return { earned, unknown, unconfigured, state };

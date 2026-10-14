@@ -317,10 +317,10 @@ test.describe('row Q: the route census', () => {
       await seedVenueVisitor(page, true);
       await settle(page, host.path);
       // SCOPED TO THE HOST'S OWN STRIP, found through the landing tab's id.
-      // Reading every role="tab" on the page does not work: the section-host
-      // bar above /swap renders `trade-tab--swap`, which starts with the same
-      // prefix and is a ROUTE, judged by its own row. Anchoring on the landing
-      // tab and walking its tablist asks the host and nothing else.
+      // Reading every role="tab" on the page does not work: a section-host bar
+      // can sit above a host with ids that start with the same prefix, and those
+      // are ROUTES, judged by their own rows. Anchoring on the landing tab and
+      // walking its tablist asks the host and nothing else.
       const keys = await page.evaluate(
         ({ prefix, landing }) => {
           const anchor = document.getElementById(prefix + landing);

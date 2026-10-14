@@ -6,6 +6,13 @@ import { VENUE_FAQ_INTRO } from '../lib/copy';
 import { venueFaq } from '../lib/faqData';
 import { heatLaunchFloor } from '../lib/heat/heatGateConfig';
 import { ArtImg } from '../components/ArtImg';
+import { CardArt } from '../components/ui/CardArt';
+
+// Art for the accordion groups is faq idx 1 up (one per venueFaq section); the
+// "no match" card is idx 4. A group keeps its surface while a search filters
+// the list, so the index is taken before filtering, and wraps at this count so
+// a section added to venueFaq reuses a registered surface.
+const FAQ_ART_SLOTS = 3;
 
 export default function FAQPage() {
   usePageTitle('FAQ', 'Frequently asked questions about memetics.finance');
@@ -43,8 +50,9 @@ export default function FAQPage() {
   const slugId = (category: string, q: string) =>
     `${category}-${q}`.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
 
-  const filtered = venueFaq(heatLaunchFloor()).map((section) => ({
+  const filtered = venueFaq(heatLaunchFloor()).map((section, artIdx) => ({
     ...section,
+    artIdx,
     items: section.items.filter(
       (item) =>
         item.q.toLowerCase().includes(search.toLowerCase()) ||
@@ -110,9 +118,10 @@ export default function FAQPage() {
         {/* FAQ Sections */}
         {filtered.length === 0 && (
           <div
-            className="rounded-xl px-5 py-10 text-center"
+            className="relative isolate rounded-xl px-5 py-10 text-center"
             style={{ background: 'rgba(13, 21, 48, 0.85)', border: '1px solid var(--color-purple-12)' }}
           >
+            <CardArt pageId="faq" idx={4} />
             <p className="text-white text-sm mb-1">No questions match your search.</p>
             <p className="text-gray-400 text-xs mb-4">Try a different term, or browse all questions.</p>
             <button
@@ -139,9 +148,10 @@ export default function FAQPage() {
               {section.category}
             </h2>
             <div
-              className="rounded-xl overflow-hidden divide-y divide-white/5"
+              className="relative isolate rounded-xl overflow-hidden divide-y divide-white/5"
               style={{ background: 'rgba(13, 21, 48, 0.85)', border: '1px solid var(--color-purple-12)' }}
             >
+              <CardArt pageId="faq" idx={1 + (section.artIdx % FAQ_ART_SLOTS)} />
               {section.items.map((item) => {
                 const key = stableKey(section.category, item.q);
                 const id = slugId(section.category, item.q);

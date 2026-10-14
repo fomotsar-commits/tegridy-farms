@@ -15,6 +15,61 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-10-10: a scroll reset in `useEffect` lands after the page is drawn, on every page change, and a test can see it without losing a race
+
+**Believed:** scrolling to the top in `useEffect` on a route change is the standard pattern
+and lands with the new page; where it is late that is a WebKit race, so a test for it can
+only fail now and then.
+
+**Measured** on production builds (Chromium, mobile Chrome, iPhone, iPad and desktop WebKit
+from Playwright 1.62, React 19.3, react-router 7.18). The router commits every navigation
+inside `startTransition`, so the new page and the effect that resets the scroll are one
+commit, and a passive effect of that commit runs in a later task. When the new page's DOM
+landed the window was still where the old page had been scrolled to (600 px), and the jump
+came 3 to 56 ms later; on a page with its own mount jump a second one came at 32 to 355 ms.
+A `MutationObserver` callback runs after the commit's layout effects and before its passive
+ones. A test that scrolls the window inside that callback and then asks whether anything
+jumped to the top afterwards failed 30 of 30 on the old code, in every engine, and passed
+150 of 150 on the new.
+
+**Do:** make the jump in `useLayoutEffect`. React re-runs layout effects (not passive ones)
+when a Suspense boundary hides and re-shows a subtree, so keep the key last handled in a ref
+and do nothing for the same key twice. Test with the observer, not with a wheel and a timer.
+Assert `scrollY > 0`, not the number you set: when content above the fold grows, the browser
+moves the window to keep the visitor's place (250 became 359 in Chromium, 1022 on the iPhone
+build).
+
+## 2026-10-10: one walk of the old build and one of the new cannot tell a race from a regression
+
+**Believed:** walking a flow once on the build before a change and once on the build after,
+and comparing the numbers, shows what the change did. "The same on both" means unchanged and
+working.
+
+**Measured:** a link to a section of a lazily loaded page (`/island` to `/#hall`) landed on
+its section on both builds in the first walk, in 3 of 3 browsers, and was written down as
+working. In a second walk the new build missed it in one browser, which read as a regression.
+Ten runs a browser on each build: 19 of 30 on the old, 18 of 30 on the new. It was a coin
+flip in code the change does not touch (two tries 120 ms apart against a lazy chunk). The
+same second walk put Back 736 px lower on the new build; three more runs on each showed
+both positions on both builds, because that page is 736 px taller once a live read answers.
+
+**Do:** repeat a step ten times on each build before reading a difference, or a sameness,
+and compare counts. Compare what the code decides (was a jump made: the same in every run
+here) before what the browser and the network decide (the final pixel).
+
+## 2026-10-10: a worktree named after its spec makes the spec's name match every test file
+
+**Believed:** `npx playwright test opens-at-the-top` runs `e2e/opens-at-the-top.spec.ts`.
+
+**Measured:** the filter is matched against the whole path. In a worktree at
+`...\wt\opens-at-the-top\frontend` it matched all 39 spec files (591 tests a project), and
+the run looked like a hang for thirteen minutes. `"opens-at-the-top\.spec"` ran the 6. The
+same folder taught a second thing: `npx eslint .` does not read `.gitignore`. A scratch
+folder ignored by git as `*.local`, holding copies of `dist`, turned a clean lint into
+15,835 errors, 126 files from each copy.
+
+**Do:** filter by `name\.spec`, never by a bare name a branch or folder may share. Keep
+scratch builds outside `frontend/`, or move the scratch folder out before the lint gate.
 ## 2026-10-10: `origin/<trunk>` moves under a long job, and without your fetch
 
 **Believed:** the trunk commit named at the start of a job holds for the job, and
@@ -407,6 +462,77 @@ in the main checkout could have been an answer about the worktree's sources.
 **Do:** in a shared `node_modules`, run the gate as `npx tsc -b --noEmit --force`, or give the
 worktree its own `node_modules/.tmp`. Re-run with `--force` before trusting a clean `tsc -b`
 after any worktree run.
+## 2026-10-10: a cache told not to store a wrong answer still hands it on, when the cache behind it holds the same answer
+
+**Believed:** the service worker stored the app's page under an asset's name, so a check
+that stops it storing HTML fixes a visitor whose browser runs the worker.
+
+**Measured:** Chromium 151, the built app and the real `public/sw.js`, on a local host that
+sends what production sends for an asset name it does not have (status 200, `text/html`,
+`Cache-Control: public, max-age=31536000, immutable`). With the check alone the worker's
+cache stayed empty, and once the host had the file again `fetch()` still got the page,
+`import()` failed and the host was asked 0 times: the worker's own `fetch(request)` is
+answered from the browser's HTTP cache, which had kept the page for its year. Asking a
+second time with `fetch(request, { cache: 'reload' })` when the first answer is a page
+reached the host, returned the file and replaced the browser's entry: with the worker then
+unregistered and its caches deleted, the browser answered with the file and asked the host
+0 times. A `<link rel="stylesheet">` (a no-cors request) healed the same way. Playwright's
+WebKit 26.5 showed the worker's half and the same repair, but its own cache kept nothing
+between two page loads with no worker at all, so it says nothing about Safari's cache.
+
+**Do:** when a worker sits in front of the browser's cache, name both caches and prove each
+alone. Read the worker's with `caches.open(name)`; then unregister the worker, delete its
+caches, and count the requests that reach the host. `cache: 'reload'` is how a worker gets
+past the browser's cache and repairs it in one request. A browser with no worker in control
+is not reached by any of this.
+
+## 2026-10-10: `vite preview` does not answer a missing asset the way the host does
+
+**Believed:** `vite preview` answers a file it does not have with index.html and status 200,
+as production does, so it can stand in for the host when the question is what a browser
+keeps.
+
+**Measured:** vite 8.3.0, `curl` on a made-up `/assets/` name with each `Sec-Fetch-Dest`:
+`script` gets status 404 and an empty body; `style`, `font`, `image` and `empty` (a
+`fetch()`) get the page with status 200. Production gave the page to all of them. Every
+answer from `vite preview`, real files included, carries `Cache-Control: no-cache` and
+`Vary: Origin`; production sent `public, max-age=31536000, immutable` and no `Vary`. Seen in
+Chromium as a result: the browser's own cache never kept the page, so that half of the
+fault cannot be shown there; and the worker's Cache held one URL apart by request. An
+`import()` carries an `origin` request header and a `fetch()` does not, so a page stored
+for a `fetch()` was not matched by an `import()` of the same URL, which went to the network
+and loaded while `fetch()` still got the stored page. `cache.match(url)` said "no entry"
+for a response an `import()` had stored; `{ ignoreVary: true }` found it.
+
+**Do:** read the real host's headers first (`curl -s -o /dev/null -D -`), and build the
+local host from them: a Node server of about 60 lines did. Ask the way the page asks: an
+`import()`, a `<link>` and a `fetch()` are three different requests. When a test looks in a
+Cache, pass `ignoreVary: true` or list `cache.keys()`.
+
+## 2026-10-10: on Vercel a 404 carries the header rules of its path
+
+**Believed:** leaving `/assets/` out of the single-page rewrite in `vercel.json` makes a
+missing asset a plain 404, and a 404 is not something a browser keeps.
+
+**Measured:** on memetics.finance only `/api/` paths can answer 404 today (the rewrite
+leaves them out). `/api/zz-not-a-file` answered 404 with `Cache-Control: public, max-age=0,
+must-revalidate`, the platform's default, and the `X-Frame-Options` of the `/(.*)` rule.
+`/api/zz-not-a-file.map` answered 404 with `Cache-Control: no-store` and `X-Robots-Tag:
+noindex`, both from the `/(.*).map` rule. So a header rule is applied to a 404 by its path,
+Cache-Control included. A 404 under `/assets/` could not be read, because nothing there can
+answer 404 today; by the same rule it would carry `max-age=31536000, immutable`. Chromium
+151 keeps a 404 sent with that header: on a local host that answers a missing asset that
+way, the next ask after the host had the file again was answered 404 from the browser's
+cache, 0 requests reached the host, and `import()` failed. The path decides the header for
+the page too: a made-up `/icons/` name got the page with the year-long header, and made-up
+`/art/` and `/_derived/` names got it with seven days.
+
+**Do:** before turning a wrong 200 into a 404, find a path that already answers 404 under a
+header rule and read what it sends. `headers` in `vercel.json` matches the request, never
+whether a file exists. Vercel's reference (read 2026-10-10) lists the one thing that did,
+`handle` in `routes`, as deprecated. And a repair written for the wrong answer of today
+(`public/sw.js` asks again when it is handed a page) does not fire for another wrong answer:
+change what the host sends for a missing name, and that check changes with it.
 
 ## 2026-10-08: a test rewritten for a new rule can stop holding the old rule it also held
 

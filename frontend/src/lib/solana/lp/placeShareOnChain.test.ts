@@ -100,6 +100,12 @@ describe('placeShareOnChain', () => {
     expect((await placeShareOnChain(broken, opts, { lpMint: s.lpMint, lpAccount: s.lpAccount })).kind).toBe('unread');
   });
 
+  it('a busy network is said in words, never as "HTTP 429"', async () => {
+    const s = share();
+    const busy: SolanaRpc = async (method) => { throw new Error(`${method}: HTTP 429`); };
+    expect(await placeShareOnChain(busy, opts, { lpMint: s.lpMint, lpAccount: s.lpAccount })).toEqual({ kind: 'unread', detail: 'the network is busy; try again in a minute' });
+  });
+
   // readPools reads the pool, then its vaults. When only that second read fails it
   // still answers 'ok', with this pool's entry 'unread'. That is "try again", not
   // "this share's pool is not on the chain".
@@ -114,7 +120,8 @@ describe('placeShareOnChain', () => {
     };
     const r = await placeShareOnChain(secondReadFails, opts, { lpMint: s.lpMint, lpAccount: s.lpAccount });
     expect(reads).toBe(2);
-    expect(r).toEqual({ kind: 'unread', detail: expect.stringMatching(/HTTP 429/) });
+    // The proxy's "too many requests" in words, as the earnings view says it, never "HTTP 429".
+    expect(r).toEqual({ kind: 'unread', detail: 'the network is busy; try again in a minute' });
     // The same share, read again once the network answers: placed.
     expect((await placeShareOnChain(chainWith(s.accounts, history), opts, { lpMint: s.lpMint, lpAccount: s.lpAccount })).kind).toBe('placed');
   });

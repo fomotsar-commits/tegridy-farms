@@ -17,6 +17,8 @@ import { Link } from 'react-router-dom';
 import type { Address } from 'viem';
 import type { LaunchTier } from '../../lib/launcher/factSheet';
 import { ArtCard } from '../ui/ArtCard';
+import { FinePrint } from '../ui/FinePrint';
+import { CardArt } from '../ui/CardArt';
 import {
   orderLaunches,
   defaultOrderingConfig,
@@ -61,6 +63,10 @@ const tierBadge: Record<LaunchTier, { label: string; cls: string }> = {
   none: { label: 'BELOW BAR', cls: 'bg-white/10 text-white/60 border-white/20' },
 };
 
+// Launch rows cycle through four art surfaces (launch 63-66), so a longer list reuses them.
+const ROW_ART_BASE = 63;
+const ROW_ART_SLOTS = 4;
+
 function shortAddr(a: Address): string {
   return a.length > 12 ? `${a.slice(0, 6)}…${a.slice(-4)}` : a;
 }
@@ -77,10 +83,14 @@ export function LaunchExplorer({ launches, outcomes, now }: LaunchExplorerProps)
         <div>
           <h2 className="text-lg font-semibold text-white">Launches &amp; outcomes</h2>
           <p className="text-white/50 text-xs mt-1 max-w-lg leading-relaxed">
-            Ordered by a published, deterministic score — tier, recency, and log-scaled on-chain
-            activity. Rank cannot be bought. Post-launch outcomes below are factual disclosures, not
-            safety judgements.
+            Ranked by a published score. Rank cannot be bought.
           </p>
+          <FinePrint className="max-w-lg">
+            <p>
+              Ordered by a published, deterministic score — tier, recency, and log-scaled on-chain
+              activity. Post-launch outcomes below are factual disclosures, not safety judgements.
+            </p>
+          </FinePrint>
         </div>
       </header>
 
@@ -129,9 +139,10 @@ function LaunchRow({
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.25, delay: Math.min(rank, 8) * 0.03 }}
-      className="rounded-2xl p-4 sm:p-5"
+      className="relative isolate rounded-2xl p-4 sm:p-5"
       style={{ border: '1px solid rgba(255,255,255,0.12)', background: 'rgba(6,12,26,0.6)' }}
     >
+      <CardArt pageId="launch" idx={ROW_ART_BASE + ((rank - 1) % ROW_ART_SLOTS)} />
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-3 min-w-0">
           <span className="text-white/30 tabular-nums text-sm w-6 shrink-0">#{rank}</span>
