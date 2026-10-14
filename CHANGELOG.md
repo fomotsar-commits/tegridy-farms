@@ -8,6 +8,7 @@ page keeps the newest thirty days.
 
 ### 2026-10-14
 
+- Bayla lighthouse staking: when a claim or an unstake fails, the reason is read from the program that failed, never from numbers in the error's text. A claim the reward program can never pay could be called "vault short" when a compute count in the error happened to read 6012, which stopped the rescue that frees your stake; and a lock that had not opened could be called "vault short" too.
 - Earn: the Referrals tab is gone. An old /referrals link opens Earn. A referral link (`/?ref=…`) still works anywhere on the site, and the TOWELI room's dashboard still shows your referral link and lets you claim what it earned.
 - A quiet nod to Jungle Bay's music: the footer, the island page and an empty History now link to the collective on Spotify and YouTube. Plain links only, nowhere near a trade, a stake or a warning.
 - Bayla bungalow: hand-picked art on 102 more surfaces, across Pools, Earn and the rest of the site, placed in the Bayla studio.
