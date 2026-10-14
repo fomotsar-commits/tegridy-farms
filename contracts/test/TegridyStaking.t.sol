@@ -1207,7 +1207,7 @@ contract TegridyStakingTest is Test {
     /// @notice AUDIT NEW-S5: allowlisted notifiers can fund.
     function test_NEWS5_allowlistedNotifierCanFund() public {
         address treasuryOp = makeAddr("treasuryOp");
-        staking.setRewardNotifier(treasuryOp, true);
+        _grantNotifier(treasuryOp, true);
 
         // Fund the notifier with TOWELI + approval.
         token.transfer(treasuryOp, 1000 ether);
@@ -1223,25 +1223,37 @@ contract TegridyStakingTest is Test {
     /// @notice AUDIT NEW-S5: removing a notifier reverts their future calls.
     function test_NEWS5_notifierCanBeRevoked() public {
         address treasuryOp = makeAddr("treasuryOp");
-        staking.setRewardNotifier(treasuryOp, true);
+        _grantNotifier(treasuryOp, true);
         token.transfer(treasuryOp, 2000 ether);
         vm.prank(treasuryOp);
         token.approve(address(staking), 2000 ether);
         vm.prank(treasuryOp);
         staking.notifyRewardAmount(1000 ether);
 
-        staking.setRewardNotifier(treasuryOp, false);
+        _grantNotifier(treasuryOp, false);
         vm.prank(treasuryOp);
         vm.expectRevert(TegridyStaking.NotRewardNotifier.selector);
         staking.notifyRewardAmount(1000 ether);
     }
 
-    /// @notice AUDIT NEW-S5: setRewardNotifier is onlyOwner.
+    /// @notice AUDIT NEW-S5 + M-S6: only the admin's timelocked execute writes the
+    ///         notifier set, and only the owner can propose it.
     function test_NEWS5_setNotifier_onlyOwner() public {
         address random = makeAddr("random");
         vm.prank(random);
+        vm.expectRevert(TegridyStaking.Unauthorized.selector);
+        staking.applyRewardNotifier(random, true);
+        vm.prank(random);
         vm.expectRevert();
-        staking.setRewardNotifier(random, true);
+        admin.proposeRewardNotifier(random, true);
+    }
+
+    /// @dev M-S6: propose, wait the 48h timelock, execute.
+    function _grantNotifier(address who, bool enabled) internal {
+        admin.proposeRewardNotifier(who, enabled);
+        // vm.getBlockTimestamp(): via_ir can fold block.timestamp across warps.
+        vm.warp(vm.getBlockTimestamp() + admin.REWARD_NOTIFIER_CHANGE_TIMELOCK());
+        admin.executeRewardNotifier();
     }
 
     receive() external payable {}

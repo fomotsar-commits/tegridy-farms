@@ -365,7 +365,9 @@ contract AuditFixesStakingTest is Test {
     function test_revert_fundBelowMinimum() public {
         // AUDIT NEW-S5 (MEDIUM): notifyRewardAmount now requires owner or notifier.
         // Whitelist bob so this suite continues to exercise the MIN_NOTIFY_AMOUNT path.
-        staking.setRewardNotifier(bob, true);
+        // M-S6: the grant is the admin's timelocked write; this fixture plays the admin.
+        vm.prank(address(admin));
+        staking.applyRewardNotifier(bob, true);
         vm.prank(bob);
         vm.expectRevert(TegridyStaking.FundAmountTooSmall.selector);
         staking.notifyRewardAmount(999 ether);
@@ -375,7 +377,9 @@ contract AuditFixesStakingTest is Test {
         uint256 fundedBefore = staking.totalRewardsFunded();
 
         // AUDIT NEW-S5: whitelist bob as notifier so the auth check passes.
-        staking.setRewardNotifier(bob, true);
+        // M-S6: the grant is the admin's timelocked write; this fixture plays the admin.
+        vm.prank(address(admin));
+        staking.applyRewardNotifier(bob, true);
         vm.prank(bob);
         staking.notifyRewardAmount(1000 ether);
 
