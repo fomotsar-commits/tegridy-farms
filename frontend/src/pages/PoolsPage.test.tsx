@@ -43,6 +43,17 @@ const LIVE = {
     createPoolFee: 300_000_000n, creatorFeeRate: 0n,
     protocolOwner: 'Own1', fundOwner: 'Own2',
   },
+  // The public tier, read in the same pass: rates apart from the launch tier's, so each figure is found once.
+  publicTier: {
+    kind: 'ok',
+    config: {
+      address: 'CfG2222222222222222222222222222222222222222',
+      index: 1, disableCreatePool: false,
+      tradeFeeRate: 20_000n, protocolFeeRate: 100_000n, fundFeeRate: 0n,
+      createPoolFee: 120_000_000n, creatorFeeRate: 0n,
+      protocolOwner: 'Own1', fundOwner: 'Own2',
+    },
+  },
 } as const;
 
 // The page's module graph is loaded once here, outside any test's own clock: mount() then
@@ -175,7 +186,8 @@ describe('when the venue is live', () => {
     expect(screen.getByText('0.23%')).toBeInTheDocument();
     expect(screen.getByText('0.07%')).toBeInTheDocument();
     expect(screen.getByText('0.3 SOL')).toBeInTheDocument();
-    expect(screen.getByText(/read from the chain when this page loads/i)).toBeInTheDocument();
+    // Said for each tier the sheet shows: the public one, and the launch one under it.
+    expect(screen.getAllByText(/read from the chain when this page loads/i)).toHaveLength(2);
     // The live card points at the fee sheet, which this tab has.
     expect(screen.getByRole('region', { name: 'Venue status' })).toHaveTextContent(/Fees below are read from that config\./);
   });
@@ -201,20 +213,21 @@ describe('when the venue is live', () => {
 // costs 0.3%, and the creator's part is its own line.
 describe('on tier 0 as mainnet holds it (recorded)', () => {
   beforeEach(() => {
-    readVenue.mockResolvedValue({ kind: 'live', programId: RECORDING.program, config: recordedTier(0) });
+    readVenue.mockResolvedValue({ kind: 'live', programId: RECORDING.program, config: recordedTier(0), publicTier: { kind: 'ok', config: recordedTier(1) } });
   });
 
   it('says a trade on a launch pool costs 0.3%, never the 0.25% trade fee alone', async () => {
     await mount();
     await waitFor(() => expect(screen.getByText(/Pools are open/i)).toBeInTheDocument());
-    const sheet = screen.getByRole('region', { name: 'Fee sheet' });
+    const sheet = within(screen.getByRole('region', { name: 'Fee sheet' })).getByTestId('fee-sheet-launch');
     const stat = (label: string) => within(sheet).getByText(label).nextElementSibling?.textContent;
     expect(stat('Trader pays')).toBe('0.3%');
     // The heading names the pools it is about (this tier is the launch pools'; a pool opened
     // from the site is on the public tier, at another rate) and says the providers' part as a
     // part of the TRADE: "0.20% of it" read as a fifth of a percent of the fee, and "to you"
     // as the reader's own pool.
-    const heading = within(sheet).getByRole('heading', { level: 2 });
+    // Under the public tier's heading, the launch tier's is a level down.
+    const heading = within(sheet).getByRole('heading', { level: 3 });
     expect(heading).toHaveTextContent('A launch pool charges 0.3% a trade; its liquidity providers keep 0.20% of each trade');
     expect(heading).not.toHaveTextContent(/of it\b|to you\b/);
     expect(sheet).toHaveTextContent('0.25% trade fee + 0.05% creator fee');
@@ -224,7 +237,7 @@ describe('on tier 0 as mainnet holds it (recorded)', () => {
   it('shows the creator fee as its own line, and who gets it', async () => {
     await mount();
     await waitFor(() => expect(screen.getByText(/Pools are open/i)).toBeInTheDocument());
-    const sheet = screen.getByRole('region', { name: 'Fee sheet' });
+    const sheet = within(screen.getByRole('region', { name: 'Fee sheet' })).getByTestId('fee-sheet-launch');
     const creator = within(sheet).getByText('Creator gets');
     expect(creator.nextElementSibling?.textContent).toBe('0.05%');
     expect(creator.parentElement).toHaveTextContent(/to the token.s creator/);
@@ -244,11 +257,67 @@ describe('on tier 0 as mainnet holds it (recorded)', () => {
   });
 });
 
+// The fee sheet read only the launch tier, which no pool opened from this site is on. The
+// public tier (1% on mainnet, 0.84% to LPs) comes first now, from the same read.
+describe('the public tier comes first on the fee sheet, from the same read', () => {
+  const live = (publicTier: unknown) => ({ kind: 'live', programId: RECORDING.program, config: recordedTier(0), publicTier });
+
+  it('asks the one venue read for the public tier too', async () => {
+    readVenue.mockResolvedValue(live({ kind: 'ok', config: recordedTier(1) }));
+    await mount();
+    await waitFor(() => expect(readVenue).toHaveBeenCalled());
+    expect(readVenue).toHaveBeenCalledTimes(1);
+    expect(readVenue.mock.calls[0]![3]).toEqual({ publicTier: true });
+  });
+
+  it('heads the sheet with the public tier as mainnet holds it: 1% a trade, 0.84% to LPs, 0.16% to the venue, 0.15 SOL to open', async () => {
+    readVenue.mockResolvedValue(live({ kind: 'ok', config: recordedTier(1) }));
+    await mount();
+    await waitFor(() => expect(screen.getByText(/Pools are open/i)).toBeInTheDocument());
+    const sheet = screen.getByRole('region', { name: 'Fee sheet' });
+    const headings = within(sheet).getAllByRole('heading');
+    expect(headings[0]).toHaveTextContent('A pool on the public tier charges 1% a trade; its liquidity providers keep 0.84% of each trade');
+    expect(headings[0]!.tagName).toBe('H2');
+    expect(headings[1]).toHaveTextContent('A launch pool charges 0.3% a trade');
+    const pub = within(sheet).getByTestId('fee-sheet-public');
+    const stat = (label: string) => within(pub).getByText(label).nextElementSibling?.textContent;
+    expect(stat('Trader pays')).toBe('1%');
+    expect(stat('LPs keep')).toBe('0.84%');
+    expect(stat('Venue takes')).toBe('0.16%');
+    expect(stat('Open a pool')).toBe('0.15 SOL');
+    expect(pub).toHaveTextContent('tier 1, the public tier');
+    expect(pub).toHaveTextContent('Every pool opened from this site is on this tier.');
+    // Tier 1 charges no creator fee, so the public part says nothing about one.
+    expect(pub).not.toHaveTextContent(/creator/i);
+    expect(pub.compareDocumentPosition(within(sheet).getByTestId('fee-sheet-launch')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(sheet.textContent).not.toContain('—');
+  });
+
+  it('a public tier that could not be read shows no rate for it, says so, and the launch tier still shows', async () => {
+    readVenue.mockResolvedValue(live({ kind: 'unreadable', detail: 'HTTP 502' }));
+    await mount();
+    await waitFor(() => expect(screen.getByText(/Pools are open/i)).toBeInTheDocument());
+    const pub = within(screen.getByRole('region', { name: 'Fee sheet' })).getByTestId('fee-sheet-public');
+    expect(pub).toHaveTextContent('The public fee tier could not be read just now');
+    expect(pub.textContent).not.toMatch(/\d\s*%|\d\s*SOL\b/);
+    expect(screen.getByText('0.3%')).toBeInTheDocument();
+  });
+
+  it('a public tier with no account says none was read, and shows no rate', async () => {
+    readVenue.mockResolvedValue(live({ kind: 'absent' }));
+    await mount();
+    await waitFor(() => expect(screen.getByText(/Pools are open/i)).toBeInTheDocument());
+    const pub = within(screen.getByRole('region', { name: 'Fee sheet' })).getByTestId('fee-sheet-public');
+    expect(pub).toHaveTextContent('No public fee tier was read');
+    expect(pub.textContent).not.toMatch(/\d\s*%|\d\s*SOL\b/);
+  });
+});
+
 // "Anyone can open a pool" is a claim about the tier the page read: with opening switched
 // off there, it must not be made.
 describe('when the tier it reads is closed to new pools', () => {
   beforeEach(() => {
-    readVenue.mockResolvedValue({ kind: 'live', programId: RECORDING.program, config: { ...recordedTier(0), disableCreatePool: true } });
+    readVenue.mockResolvedValue({ kind: 'live', programId: RECORDING.program, config: { ...recordedTier(0), disableCreatePool: true }, publicTier: { kind: 'ok', config: recordedTier(1) } });
   });
 
   it('never says anyone can open a pool, and says opening is switched off', async () => {
@@ -413,6 +482,7 @@ describe("what this site can do with the pools follows LP's own switch", () => {
         createPoolFee: 0n, creatorFeeRate: 500n,
         protocolOwner: 'Own1', fundOwner: 'Own2',
       },
+      publicTier: LIVE.publicTier,
     });
   beforeEach(() => { lp.mode = 'off'; live(); });
 

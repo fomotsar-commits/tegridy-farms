@@ -32,6 +32,9 @@ page keeps the newest thirty days.
 - Solana DCA: at most one warning line shows at a time. A Token-2022 token comes first, then "Insufficient", then the under-$50 line.
 - Solana swap in our own pool: after a swap that is not confirmed, "I checked my wallet: start over" now turns Buy back on in one press. It still says this does not cancel the swap.
 - Lighthouse staking: the rescue that closes a position and gives up its unclaimed rewards now runs past a failed claim only when the network's own log names the reward program's error 6000. A message that only contains the number no longer counts.
+- Solana LP: a pool card is now headed by its pair and fee, for example "BAYLA / SOL · 1% tier", like your positions. What the pool has earned comes right under its price, before the fees and the deposit checks. Addresses show short, with the whole address, Copy and Explorer one press away. A token the site lists, such as BAYLA, is named in the amounts and the price instead of "tokens".
+- Venue AMM: the fee sheet now shows the public fee tier first, the one every pool opened from this site uses. On mainnet that is 1% a trade, of which liquidity providers keep 0.84% of each trade. The launch pools' tier is under it, as before.
+- NFT Finance in a narrow window with a mouse: small arrows now sit over each end of the row of section tabs that has more tabs past it, and a press moves the row along by one tab. They do not show on a phone or a tablet, where the row is swiped, and the keyboard still moves between the tabs themselves.
 
 ### 2026-10-10
 

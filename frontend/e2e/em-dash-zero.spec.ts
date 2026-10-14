@@ -503,8 +503,11 @@ test.describe('element I: /pools, once its venue reads', () => {
     await expect(page.getByRole('region', { name: 'Venue status' }), 'the venue did not read').toContainText('Pools are open');
     const sheet = page.getByRole('region', { name: 'Fee sheet' });
     await expect(sheet, 'the fee sheet did not read').toContainText('read from the chain when this page loads');
-    const traderPays = await sheet.getByText('Trader pays', { exact: true }).evaluate((el) => el.nextElementSibling?.textContent ?? '');
-    expect(traderPays, 'Trader pays is a figure it read').toMatch(/^\d+(\.\d+)?%$/);
+    // One per tier the sheet shows: the public tier first, then the launch tier.
+    const paid = await sheet.getByText('Trader pays', { exact: true }).evaluateAll((els) => els.map((el) => el.nextElementSibling?.textContent ?? ''));
+    expect(paid, 'the sheet shows the public tier and the launch tier').toHaveLength(2);
+    for (const figure of paid) expect(figure, 'Trader pays is a figure it read').toMatch(/^\d+(\.\d+)?%$/);
+    const traderPays = paid.join(' on the public tier, ') + ' on the launch tier';
     await expect(page.getByTestId('fee-tier'), 'the fee tiers did not read').toHaveCount(2);
     await expect(page.locator('[data-testid="fee-tier"][data-state="live"]')).toHaveCount(2);
     test.info().annotations.push({ type: 'venue', description: `recorded at slot ${MAINNET_VENUE_RECORDING.slot}: trader pays ${traderPays}` });
