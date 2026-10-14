@@ -36,7 +36,7 @@ export function ProtocolStats() {
   // HONESTY 2026-07-24: this reads collected router fees, NOT RevenueDistributor
   // .totalDistributed — labelling it "distributed to stakers" would overstate the
   // moment the first fee lands. Name what the number actually measures.
-  if (s.feesUsd > 0) live.push({ l: 'Protocol Fees Collected', v: fmtUsd(s.feesUsd), sub: 'in ETH — routed to stakers, liquidity & ops', icon: '💸' });
+  if (s.feesUsd > 0) live.push({ l: 'Protocol Fees Collected', v: fmtUsd(s.feesUsd), sub: 'in ETH: a referral share, the rest toward stakers', icon: '💸' });
   if (s.rewardPoolToweli > 0) live.push({ l: 'Reward Pool', v: fmtToken(s.rewardPoolToweli), sub: 'TOWELI staking rewards', icon: '💰' });
   if (s.dailyEmissionToweli > 0) live.push({ l: 'Daily Emissions', v: `${fmtToken(s.dailyEmissionToweli)}/day`, sub: 'to stakers', icon: '⚡' });
   // Below ~$1k the USD figure undersells the position — show the token count.
@@ -46,11 +46,11 @@ export function ProtocolStats() {
   // Reintroduce only from indexer data (SwapExecuted event count).
 
   const evergreen: StatItem[] = [
-    // F68: don't freeze a governable on-chain split (stakerShareBps) into a fixed
-    // "100%" that contradicts the hero's three-way (stakers / liquidity / ops)
-    // framing. F67: "bounty live" → "responsible disclosure" to match the hero
-    // trust badge (the bounty has no funded pool yet).
-    { l: 'Fee Routing', v: 'On-chain', sub: 'fees → stakers, liquidity & ops, in ETH', icon: '💸' },
+    // F68: no fixed "100%": the router fee pays a 20% referral share first, and the
+    // liquidity share is 0 on chain (polShareBps, read 2026-10-10). F67: "bounty
+    // live" → "responsible disclosure" to match the hero trust badge (the bounty has
+    // no funded pool yet).
+    { l: 'Fee Routing', v: 'On-chain', sub: 'fees → referral share, then stakers, in ETH', icon: '💸' },
     { l: 'LP Locked', v: '~69 yrs', sub: 'Uniswap LP in UNCX until 2093', icon: '🔐' },
     { l: 'Fixed Supply', v: '1B', sub: 'TOWELI — no mint function, ever', icon: '🧱' },
     // F-2026-07-24: "82+ findings resolved" is unverifiable by a visitor and the

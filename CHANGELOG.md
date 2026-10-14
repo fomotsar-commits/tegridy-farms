@@ -6,6 +6,10 @@ page keeps the newest thirty days.
 
 ## [Unreleased]
 
+### 2026-10-14
+
+- TOWELI room, footer, welcome screen, Lore and Security pages: the sentences about where Ethereum swap fees go now say a referral share comes off first and the rest goes toward stakers. The TOWELI room no longer says fees go to "the liquidity engine and operations", a share that is 0 on chain.
+
 ### 2026-10-10
 
 - Shared heat links: a memetics.finance/read link for a wallet the island reads now shows the island's painted card of that wallet when it is posted. A cold wallet, or one the island could not be asked about, keeps the venue's card.

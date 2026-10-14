@@ -21,9 +21,10 @@ import { TOKEN_LOGOS } from '../farm/poolConfig';
  * VENUE's own platform fee — skimmed off `msg.value` BEFORE the swap reaches
  * the pair (SwapFeeRouter.sol:721-732) — annualised against this pool's TVL.
  *
- * It is not the LP's income. The LP's income is the pair's 0.3% swap fee, of
- * which 5/6 accrues into the reserves and 1/6 goes to the protocol's `feeTo`
- * (TegridyPair.sol:16-17). Those are different parties taking different cuts of
+ * It is not the LP's income. The LP's income is the pair's 0.3% swap fee, all
+ * of which accrues into the reserves while the pair's one-sixth `feeTo` cut
+ * (TegridyPair.sol:16-17) stays off, as it was on 2026-10-10 (`kLast` = 0).
+ * Those are different parties taking different cuts of
  * different bases. Worse, `totalETHFees` counts only swaps that went THROUGH
  * the fee router, so it also undercounts the pool's actual activity.
  *

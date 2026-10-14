@@ -334,8 +334,9 @@ export default function HomePage() {
                 headlined any farm. It deliberately does NOT lead with the ETH
                 fee-share: that mechanic is wired on-chain but has distributed 0 ETH
                 until the native pool opens, so a present-tense yield claim would
-                overclaim (and "100% of fees to stakers" is flat wrong — AUDIT R073:
-                swap fees split 5/6 to LPs, 1/6 to the protocol). What IS true, and
+                overclaim (and "100% of fees to stakers" is flat wrong: the router's fee
+                pays a 20% referral share first, and the pool's one-sixth protocol cut
+                has never been switched on, read 2026-10-10). What IS true, and
                 became materially truer today, is verifiability: every core contract
                 is now Etherscan source-verified and /contracts proves it with live
                 per-address badges. So the headline leads with the one differentiator
@@ -349,8 +350,8 @@ export default function HomePage() {
                 swap, in our pools or through Jupiter, and the two-chain scanner); the
                 launch rail is claimed by its own self-gating card further down. */}
             <p className="text-white text-base md:text-lg mb-6 max-w-md leading-relaxed">
-              Stake TOWELI on Ethereum. Every protocol fee flows on-chain &mdash; to stakers, the
-              liquidity engine, and operations. Every core contract is source-verified on Etherscan,
+              Stake TOWELI on Ethereum. Protocol swap fees flow on-chain: a referral share, the rest
+              toward stakers. Every core contract is source-verified on Etherscan,
               so you can read the code that holds your stake. On Solana we swap in our own pools or through
               Jupiter, whichever pays you more, and scan any token &mdash; same rails, second chain.
             </p>

@@ -341,7 +341,7 @@ export default function SecurityPage() {
           <ArtCard art={pageArt('security', 15)}>
             <div className="space-y-3">
               {[
-                'Protocol swap fees route on-chain to stakers (split is governance-adjustable — see Treasury)',
+                'Protocol swap fees route on-chain, after a referral share, to stakers (split is governance-adjustable — see Treasury)',
                 'Sensitive admin changes are timelocked (24-48h); emergency pause and some operational setters act immediately',
                 'No proxy contracts — all code is immutable after deployment',
                 'Source code available for independent review',
