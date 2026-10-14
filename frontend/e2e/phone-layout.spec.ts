@@ -39,8 +39,9 @@ test('/nft-finance?section=pooled at 360px: the "Not deployed" badges stay on sc
 });
 
 test('in the TOWELI room at 390px, the corner steps aside from a section tab instead of covering it', async ({ page, walletMock: _w }) => {
-  // The Launchpad tab is selected, so the strip shows the right end of its row.
-  await settle(page, '/nft-finance?section=launchpad&bungalow=toweli', { width: 390, height: 844 });
+  // The NFT AMM's own tabs ("My Pools") pass under the corner as the page scrolls. The
+  // section row no longer does: it sits under the heading (2026-10-14).
+  await settle(page, '/nft-finance?section=amm&bungalow=toweli', { width: 390, height: 844 });
   // By CSS: a corner that has stepped aside is hidden, so no role query finds it.
   await expect(page.locator('button[aria-label="Towelie says hi"]')).toHaveCount(1, { timeout: 15_000 });
   const scan = await page.evaluate(async () => {

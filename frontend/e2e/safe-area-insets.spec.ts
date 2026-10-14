@@ -192,10 +192,11 @@ async function landings(): Promise<{ under: 'the tab row' | 'the header'; rows: 
   return { under: strip ? 'the tab row' : 'the header', rows };
 }
 
-// The header and the tab row move down by the top inset and the bottom bar grows by the
-// bottom one, so the room index.css keeps clear for a scroll has to grow with them. One
-// tabbed page and one with no tab row: the two top rules, and the bottom rule on both.
-for (const [path, under] of [['/liquidity', 'the tab row'], ['/gallery', 'the header']] as const) {
+// The header moves down by the top inset and the bottom bar grows by the bottom one, so
+// the room index.css keeps clear for a scroll has to grow with them. One tabbed page and
+// one with no tab row: the tab row scrolls with the page (2026-10-14), so the header is
+// the top chrome on both, and a pinned row coming back fails here.
+for (const [path, under] of [['/liquidity', 'the header'], ['/gallery', 'the header']] as const) {
   test(`with the insets, what the browser scrolls to on ${path} lands below ${under} and above the bottom bar`, async ({ page }) => {
     test.setTimeout(120_000);
     await openWithInsets(page, path);
