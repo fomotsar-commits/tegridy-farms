@@ -9,6 +9,7 @@ import { InfoTooltip, HowItWorks, StepIndicator, RiskBanner, TxSummary } from '.
 import { ART, pageArt, artStyle } from '../../lib/artConfig';
 import { ArtImg } from '../ArtImg';
 import { CardArt } from '../ui/CardArt';
+import { FinePrint } from '../ui/FinePrint';
 import { useCountdown } from '../../hooks/useCountdown';
 import { useTabListKeys } from '../../hooks/useTabListKeys';
 import { useSafeConnectModal } from '../../hooks/useSafeConnectModal';
@@ -159,25 +160,14 @@ export function NFTLendingSection() {
       <m.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ ease: EASE }}>
         <h2 className="heading-luxury text-xl md:text-2xl text-white mb-2">NFT Lending</h2>
         <p className="text-white/70 text-[13px]">
-          Borrow ETH against NFTs, or lend and earn interest (less the protocol fee).
+          Borrow ETH against your NFT, or lend ETH and earn the interest.
         </p>
       </m.div>
 
-      {/* How It Works */}
-      <HowItWorks
-        storageKey="tegridy-nft-lending-how"
-        title="How does NFT Lending work?"
-        steps={[
-          { label: 'Set Terms', description: 'Lender picks a collection and sets loan terms — ETH amount, APR, and duration.' },
-          { label: 'Lock NFT', description: 'Borrower locks their NFT as collateral and receives the ETH instantly.' },
-          { label: 'Repay Loan', description: 'Borrower repays principal + pro-rata interest before the deadline to reclaim their NFT.' },
-          { label: 'Default', description: 'If the deadline passes without repayment, the lender claims the NFT. No oracles, no liquidations.' },
-        ]}
-      />
-
-      {/* Stats Bar */}
+      {/* Stats Bar: two across on a phone (was one), so the four numbers are a pair of
+          rows and the Lend / Borrow / My Loans controls sit within one scroll of the top. */}
       <m.div
-        className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3"
+        className="grid grid-cols-2 lg:grid-cols-4 gap-3"
         initial={{ opacity: 0, y: 8 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ ease: EASE, delay: 0.03 }}
@@ -274,6 +264,27 @@ export function NFTLendingSection() {
           </m.div>
         )}
       </AnimatePresence>
+
+      {/* How it works, one press away (owner, 2026-10-13: how-it-works goes in a closed
+          drop-down). The one visible line is the risk line. The four-step strip and its
+          art sit inside, word for word. */}
+      <div className="space-y-1">
+        <p className="text-white/80 text-[13px]" style={LABEL_STYLE}>
+          Lock NFT, get ETH. Repay on time or the lender keeps it.
+        </p>
+        <FinePrint summary="How it works" testId="nft-lending-how">
+          <HowItWorks
+            storageKey="tegridy-nft-lending-how"
+            title="How does NFT Lending work?"
+            steps={[
+              { label: 'Set Terms', description: 'Lender picks a collection and sets loan terms: ETH amount, APR, and duration.' },
+              { label: 'Lock NFT', description: 'Borrower locks their NFT as collateral and receives the ETH instantly.' },
+              { label: 'Repay Loan', description: 'Borrower repays principal + pro-rata interest before the deadline to reclaim their NFT.' },
+              { label: 'Default', description: 'If the deadline passes without repayment, the lender claims the NFT. No oracles, no liquidations.' },
+            ]}
+          />
+        </FinePrint>
+      </div>
     </div>
   );
 }
@@ -377,8 +388,10 @@ function LendTab() {
     <div className="space-y-5">
       {/* Collection Selector */}
       <div>
-        <label className="text-white/90 text-[11px] uppercase tracking-wider mb-2 block" style={LABEL_STYLE}>Collateral Collection</label>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <label className="text-white/90 text-[11px] uppercase tracking-wider mb-2 block" style={LABEL_STYLE}>Collection</label>
+        {/* Three across at every width: stacked, the three squares alone were a phone
+            screen and a half before the first field. */}
+        <div className="grid grid-cols-3 gap-2 sm:gap-3">
           {COLLECTIONS.map((c) => (
             <button
               key={c.address}
@@ -392,15 +405,15 @@ function LendTab() {
               <img src={COLLECTION_ART[c.symbol]} {...artImgProps(COLLECTION_ART[c.symbol])} alt="" loading="lazy" className="absolute inset-0 w-full h-full object-cover" />
               {/* Label overlaid on the art — text sits inside a tight black
                   inline-block sized to the text itself, not a full-width panel. */}
-              <div className="absolute inset-0 p-3 flex flex-col justify-end items-start">
+              <div className="absolute inset-0 p-2 sm:p-3 flex flex-col justify-end items-start">
                 <span
-                  className="inline-block text-[15px] font-semibold px-2 py-0.5 rounded"
+                  className="inline-block text-[11px] sm:text-[15px] font-semibold px-2 py-0.5 rounded"
                   style={{ color: '#22c55e', background: 'rgba(0,0,0,0.85)', textShadow: '0 1px 4px rgba(0,0,0,0.95)' }}
                 >
                   {c.name}
                 </span>
                 <span
-                  className="inline-block text-[11px] font-mono px-2 py-0.5 mt-0.5 rounded"
+                  className="inline-block text-[9px] sm:text-[11px] font-mono px-2 py-0.5 mt-0.5 rounded"
                   style={{ color: '#22c55e', background: 'rgba(0,0,0,0.85)', textShadow: '0 1px 4px rgba(0,0,0,0.95)' }}
                 >
                   {c.symbol}
@@ -451,7 +464,7 @@ function LendTab() {
           swap in a cheaper item from the same collection. */}
       <div>
         <label className="text-white/90 text-[11px] uppercase tracking-wider mb-2 flex items-center gap-1.5" style={LABEL_STYLE}>
-          Collateral Token ID
+          Token ID
           <InfoTooltip text="The exact tokenId in the selected collection you will accept as collateral. Pick a specific NFT you've appraised — the borrower cannot substitute a different one." />
         </label>
         <input
@@ -468,7 +481,7 @@ function LendTab() {
 
       {/* Duration Presets */}
       <div>
-        <label className="text-white/90 text-[11px] uppercase tracking-wider mb-2 block" style={LABEL_STYLE}>Loan Duration</label>
+        <label className="text-white/90 text-[11px] uppercase tracking-wider mb-2 block" style={LABEL_STYLE}>Duration</label>
         <div className="flex flex-wrap gap-2">
           {DURATION_PRESETS.map((d) => (
             <button
@@ -878,15 +891,18 @@ function OfferCard({
                     <>
                       You'll lock <span className="font-mono text-white font-semibold">{collectionName(offer.collateralContract)} #{tokenId}</span> and receive <span className="font-mono text-white font-semibold">{principalEth.toFixed(4)} ETH</span>.
                       Total repayment: <span className="font-mono text-emerald-400 font-semibold">{totalRepay.toFixed(6)} ETH</span> ({principalEth.toFixed(4)} + {maxInterest.toFixed(6)} interest over {formatDuration(Number(offer.duration))}).
-                      <span className="block text-[11px] text-white/70 mt-1">Repay early to save — interest is pro-rata.</span>
+                      <span className="block text-[11px] text-white/70 mt-1">Repay early to save. Interest is pro-rata.</span>
                     </>
                   );
                 })()}
               </TxSummary>
 
-              {/* Risk Warning */}
+              {/* The risk line stays visible; the full warning is one press away. */}
               <RiskBanner variant="warning">
-                Your {collectionName(offer.collateralContract)} NFT #{tokenId} will be locked as collateral. If you miss the repayment deadline, the lender keeps it permanently. You must own tokenId #{tokenId} for acceptance to succeed.
+                <span className="font-semibold">Miss the deadline and the lender keeps {collectionName(offer.collateralContract)} #{tokenId} for good.</span>
+                <FinePrint summary="Details">
+                  <p>Your {collectionName(offer.collateralContract)} NFT #{tokenId} will be locked as collateral. If you miss the repayment deadline, the lender keeps it permanently. You must own tokenId #{tokenId} for acceptance to succeed.</p>
+                </FinePrint>
               </RiskBanner>
 
               {/* Step Indicator */}
