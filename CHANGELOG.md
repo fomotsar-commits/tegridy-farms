@@ -8,6 +8,12 @@ page keeps the newest thirty days.
 
 ### 2026-10-14
 
+- Staking and pools: the card you have money in now wears a steady green ring and a "You’re in" mark, on every staking card, lock ladder, LP farm, your Solana pool shares and the dashboard, so your position is the first thing you see. Cards you are not in keep their purple pulse.
+- Fewer words again, on Pools, Earn and every pool room, NFT Finance, the Marketplace and the Bayla bungalow: each page is a heading and a line, each card its numbers and buttons, and everything that explains sits one press away under "Details" or "How it works". Visible words on a phone: Pools 570 to about 320, Solana LP 390 to 205, Bayla 351 to 288, NFT Finance 320 to 233, Dashboard 246 to 201, Earn 160 to 109. A guard now fails a page that grows wordy again.
+- Earn on a phone: the Open button for every pool is on the first screen; before, it sat off the right edge of the list. In the TOWELI room, Connect wallet is on the first screen instead of eight screens down.
+- NFT Finance: Lend, Borrow and My Loans and the form are one screen down instead of three and a half; the four-step explanations and the shield’s small print fold away.
+- Marketplace: the opening animation has an Enter button from the first moment and leaves on its own after about three seconds; the first screen then shows Browse, Buy, Sell / List and Make offer. The marketplace is now in the bungalow studios as "Island · Marketplace", so a skin can dress its backdrop and cards.
+- Bayla bungalow: two more doors, Marketplace and NFT loans, on the front page and the dashboard. The studio’s NFT group is now called "NFT Finance".
 - Earn and Liquidity on a phone: each pool's Open or Provide button now sits on the screen beside the pool's name. It used to sit past the right edge of the list, reachable only by swiping the list sideways, with nothing to say so. The pool's chain and terms (on Liquidity, its TVL and routed volume) now show under its name.
 - A quiet nod to Jungle Bay's music: the footer, the island page and an empty History now link to the collective on Spotify and YouTube. Plain links only, nowhere near a trade, a stake or a warning.
 - Bayla bungalow: hand-picked art on 102 more surfaces, across Pools, Earn and the rest of the site, placed in the Bayla studio.
