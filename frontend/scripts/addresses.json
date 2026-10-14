@@ -177,9 +177,19 @@
     {
       "id": "cp-swap-amm-config-restart",
       "address": "BHMteE8u6LAppswQmFmd2h7hp1fCfWtGahvVJnhRk8jW",
-      "role": "cp-swap AmmConfig index 0 under EKS4C6x…, seeds [\"amm_config\", 0u16 big-endian]: the graduated pools' fee sheet, create_amm_config(0, 2500, 120000, 0, 0, 0) = 0.25% per swap, 12% of it to the protocol, no create-pool fee. Created by Squads proposal 1 (MAINNET_GO_LIVE.md §4). Pinned by restartRegistry.test.ts.",
+      "role": "cp-swap AmmConfig index 0 under cp-swap-program-restart, seeds [\"amm_config\", 0u16 big-endian]: the launch tier, the fee sheet of graduated pools. READ on mainnet-beta at finalized slot 455,314,217 (2026-10-10), 236 bytes: trade_fee_rate 2,500 per million (0.25% of each swap), protocol_fee_rate 200,000 per million OF THAT TRADE FEE (20% of it, so 0.05% of the swap), fund_fee_rate 0, creator_fee_rate 500 per million of the swap (0.05%, charged on top of the trade fee where a pool has its creator fee switched on), create_pool_fee 0 lamports, disable_create_pool false; protocol_owner and fund_owner are both squads-vault. HISTORY, from this account's only three transactions, each a Squads vault transaction: created 2026-09-30T02:10:29Z (slot 451,825,863) as create_amm_config(0, 2500, 120000, 0, 0, 0), which is the '12% of it to the protocol' and no creator fee this row described until 2026-10-10; update_amm_config(7, 500) set the creator fee on 2026-10-01T06:09:01Z (slot 452,202,367); update_amm_config(1, 200000) raised the protocol share from 12% to 20% of the trade fee on 2026-10-01T06:09:13Z (slot 452,202,414). Created by Squads proposal 1 (MAINNET_GO_LIVE.md §4). Pinned by restartRegistry.test.ts.",
       "custody": "program-derived, no key. Only cp-swap's compiled admin (squads-vault) can change it.",
       "status": "CREATED (post-deploy truth for website release 2). Recorded as deployed by website release 2 (branch ship/solana-launch-on), which the owner deploys only after website-release-2/precheck.mjs has read it on mainnet (MAINNET_GO_LIVE.md §3-§8 done). Written 2026-09-29 as the state this release REQUIRES, not as a read of it. What precheck.mjs read that day: both programs on mainnet with the tested bytes (last deployed slots 451,687,458 cp-swap and 451,687,658 tegridy-launch), their upgrade authority still tegridy-launch-deployer, and global, AmmConfig and Permission not created yet. If this branch is built before the rest is done, an entry here is wrong and the daily registry-onchain job fails on it, which is the point.",
+      "expect": {
+        "type": "program-owned"
+      }
+    },
+    {
+      "id": "cp-swap-amm-config-public-restart",
+      "address": "CapqvAA9HvERTwzmE26xrtFhMaNcaXXoQUADpBWqWjKy",
+      "role": "cp-swap AmmConfig index 1 under cp-swap-program-restart, seeds [\"amm_config\", 1u16 big-endian], bump 255, derived and matched: the public tier, the fee sheet of every pool opened from the site (venue-pool-bayla-sol and venue-pool-bayla-usdc both name it). READ on mainnet-beta at finalized slot 455,314,217 (2026-10-10), 236 bytes: trade_fee_rate 10,000 per million (1% of each swap), protocol_fee_rate 160,000 per million OF THAT TRADE FEE (16% of it, so 0.16% of the swap; the other 0.84% stays in the pool for its liquidity providers), fund_fee_rate 0, creator_fee_rate 0, create_pool_fee 150,000,000 lamports (0.15 SOL to open a pool, paid into cpswap-fee-receiver-wsol-ata), disable_create_pool false; protocol_owner and fund_owner are both squads-vault. Created 2026-10-01T06:08:37Z (slot 452,202,278) by a Squads vault transaction as create_amm_config(1, 10000, 160000, 0, 150000000, 0) and not changed since: its other five transactions are the two pool openings and three swaps. Pinned against the code's own derivation by src/lib/solana/feeRowsRegistry.test.ts.",
+      "custody": "program-derived, no key. Only cp-swap's compiled admin (squads-vault) can change it.",
+      "status": "CREATED, and read: at finalized slot 455,314,217 (2026-10-10) it is owned by cp-swap-program-restart and holds 1,849,120 lamports. Registered 2026-10-10; until then the registry named this address only inside the two venue-pool rows, so nothing asserted it against the chain.",
       "expect": {
         "type": "program-owned"
       }
@@ -227,7 +237,7 @@
     {
       "id": "squads-vault",
       "address": "GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd",
-      "role": "Squads vault PDA, index 0. Held upgrade authority for both own-venue programs until they were closed on 2026-08-13, and is tegridy-launch's `global.fee_recipient` on a global PDA that is now stranded. It was NOT the admin::ID of any deployed cp-swap binary — see the correction below. Since 2026-09-26 it IS the committed non-devnet admin::ID and create_support_mint_associated_owner::ID of the restart source (owner ruling 2026-09-25), NOT yet deployed. Re-derive it from the multisig rather than trusting this literal; System-ownership alone proves nothing.",
+      "role": "Squads vault PDA, index 0. Held upgrade authority for both own-venue programs until they were closed on 2026-08-13, and is tegridy-launch's `global.fee_recipient` on a global PDA that is now stranded. It was NOT the admin::ID of any deployed cp-swap binary — see the correction below. Since 2026-09-26 it IS the committed non-devnet admin::ID and create_support_mint_associated_owner::ID of the restart source (owner ruling 2026-09-25). That source is deployed (cp-swap-program-restart, last deployed slot 451,687,458, 2026-09-29T15:52:11Z) and the live program has accepted this vault as its admin: it created both fee tiers and changed cp-swap-amm-config-restart twice. This sentence ended 'NOT yet deployed' until 2026-10-10. WHAT IT HOLDS, read on mainnet-beta 2026-10-10 at finalized slots 455,314,128 to 455,314,217: the upgrade authority of all three live programs (bayla-ladder-programdata, cp-swap-programdata-restart, tegridy-launch-programdata-restart), the `authority` field of bayla-ladder-pool and of bayla-ladder-idl, the protocol_owner and fund_owner of both fee tiers (cp-swap-amm-config-restart, cp-swap-amm-config-public-restart), and the two token accounts the site's swap fee is paid to (cpswap-fee-receiver-wsol-ata, squads-vault-usdc-ata). Re-derive it from the multisig rather than trusting this literal; System-ownership alone proves nothing.",
       "custody": "PDA of the Squads multisig — no private key exists",
       "status": "live",
       "correction": "This entry used to read 'Squads vault PDA index 0 = cp-swap admin::ID and create_support_mint_associated_owner::ID'. Both halves were wrong, and it is the exact confusion that bricked graduation. (a) The cp-swap binary that WAS deployed baked the MULTISIG account EVGSnRZ… as admin::ID — a 495-byte Squads-program-owned account that can neither sign (v4 signs CPIs as the vault) nor be debited by the System Program, and `CreateAmmConfig` has `payer = owner`. create_amm_config was therefore uncallable and migrate_to_amm never got past AmmNotConfigured (6015). (b) The SOURCE fix (#281) repoints admin::ID at deploy-authority Dcjink4RG…, a plain system-owned wallet — still not this vault. (c) create_support_mint_associated_owner::ID is deliberately the multisig, left as-is because it is a pure OR-fallback. This correction is now history rather than a live hazard: both program ids were closed on 2026-08-13, `verify-program-constants.mjs --deployed` has no bytecode left to search, and the question it settled must be re-answered against whatever binary a restart actually deploys.",
@@ -275,9 +285,19 @@
     {
       "id": "cpswap-fee-receiver-wsol-ata",
       "address": "2sa31zceMSTAAbSu5wfSnNA6sBYzS7r97nvZYaQouEXa",
-      "role": "cp-swap create_pool_fee_reveiver::ID — the Squads vault's WSOL associated-token-account. An SPL token account, NOT a wallet.",
+      "role": "cp-swap create_pool_fee_reveiver::ID — the Squads vault's WSOL associated-token-account. An SPL token account, NOT a wallet. It is ALSO where the site's Solana swap fee lands when that fee is taken in wrapped SOL: src/lib/jupiter.ts pays the fee to the associated token account of the fee owner, and the live build's fee owner is squads-vault (swap-fee-account says how that was read). So two kinds of income meet in this one account: the 0.15 SOL fee to open a pool, and the 0.5% platform fee on a swap sent through Jupiter. Pinned against the code's own derivation by src/lib/solana/feeRowsRegistry.test.ts.",
       "custody": "owned by the Squads vault",
-      "status": "live, created 2026-08-08 (0.00204 SOL). cp-swap's create_pool fails if it is missing, so it had to exist before the first graduation.",
+      "status": "live, created 2026-08-08 (0.00204 SOL). cp-swap's create_pool fails if it is missing, so it had to exist before the first graduation. At finalized slot 455,314,130 (2026-10-10) it holds 0.30481084 wrapped SOL, from seven transactions ever: its creation; two pool-opening fees of 0.15 SOL each (2026-10-03T19:18:03Z and 2026-10-04T15:12:50Z); and four swap fees totalling 0.00426 SOL, each exactly 0.5% of the SOL swapped (three on 2026-10-06 from 06:38:49Z, one on 2026-10-09T00:10:19Z). The last 0.00055084 is rent it no longer needs: a token account's rent floor fell from 2,039,280 to 1,488,440 lamports, and the first sync counted the difference as wrapped SOL.",
+      "expect": {
+        "type": "token-account"
+      }
+    },
+    {
+      "id": "squads-vault-usdc-ata",
+      "address": "3gGzyz6cushQWNTAYRj4qJoQJyGcqdctXh98vNwBRvZ6",
+      "role": "The Squads vault's USDC associated token account: ATA(USDC EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v, squads-vault) under the classic token program, derived and matched. It is where the site's Solana swap fee lands when that fee is taken in USDC (src/lib/jupiter.ts prefers USDC, then wrapped SOL, and pays the fee owner's associated token account). An SPL token account, NOT a wallet. Pinned against the code's own derivation by src/lib/solana/feeRowsRegistry.test.ts.",
+      "custody": "owned by the Squads vault",
+      "status": "live, balance 0. Created 2026-09-30T04:35:09Z (slot 451,858,343), paid for by tegridy-launch-deployer; that creation is its only transaction, so no USDC fee has arrived yet. Read at finalized slot 455,314,130 (2026-10-10): 165 bytes, 1,488,440 lamports, mint USDC, owner field squads-vault. Registered 2026-10-10.",
       "expect": {
         "type": "token-account"
       }
@@ -285,9 +305,9 @@
     {
       "id": "swap-fee-account",
       "address": "DVGiHe98CzEf7VuCS6YpVDFnp38ubJmKNLt6aMJwAyER",
-      "role": "VITE_SOLANA_FEE_ACCOUNT — the live Jupiter platform-fee receiver for /solana. Verified present in the deployed bundle.",
-      "custody": "SINGLE KEY, not a Squads vault. Proven on-curve and by transaction-level signing. This is a known custody gap.",
-      "status": "live, has never collected a fee",
+      "role": "NOT the swap-fee receiver any more; the id is kept because older notes use it. It WAS VITE_SOLANA_FEE_ACCOUNT, the owner of the Jupiter platform-fee accounts for /solana, and this row said 'the live Jupiter platform-fee receiver ... Verified present in the deployed bundle' until 2026-10-10. What the live build carries now, read 2026-10-10T16:07Z from https://memetics.finance/assets/solana-Etwqv48D.js (the site's front page was last modified 2026-10-09T07:57:39Z): the fee owner is squads-vault GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd, the fee is 50 bps, and this address is not in that file. The chain agrees: four swap fees have landed in cpswap-fee-receiver-wsol-ata, the first on 2026-10-06, and none has ever landed in this wallet's two fee accounts. The fee accounts in use are cpswap-fee-receiver-wsol-ata and squads-vault-usdc-ata. The day the setting changed is not recorded in this repo, and no read here returned it.",
+      "custody": "SINGLE KEY, not a Squads vault. Proven on-curve and by transaction-level signing: it signed its own transactions on 2026-07-10, 2026-08-29 and 2026-09-21, so somebody holds the key. It used to be a custody gap for fee income; it is not one now, because no fee is sent here.",
+      "status": "live as a wallet, and it never collected a fee: both of its fee accounts hold 0 and each has one transaction ever, its own creation (see swap-fee-ata-wsol, swap-fee-ata-usdc). 17,894,587 lamports at finalized slot 455,314,130 (2026-10-10), seven transactions ever, none of them a fee.",
       "expect": {
         "type": "wallet"
       }
@@ -295,9 +315,9 @@
     {
       "id": "swap-fee-ata-wsol",
       "address": "7H4wVGcpycjoAwNoMb8aRu2pk1Ao5pkMzfc9nqcCSKpw",
-      "role": "WSOL fee ATA owned by swap-fee-account.",
+      "role": "WSOL fee ATA owned by swap-fee-account. UNUSED: the site's swap fee in wrapped SOL goes to cpswap-fee-receiver-wsol-ata, the Squads vault's account.",
       "custody": "owned by swap-fee-account",
-      "status": "live, balance 0",
+      "status": "live, balance 0, and nothing has ever arrived: one transaction ever, its creation on 2026-07-10T15:20:28Z (slot 432,036,448). Read at finalized slot 455,314,130 (2026-10-10).",
       "expect": {
         "type": "token-account"
       }
@@ -305,9 +325,9 @@
     {
       "id": "swap-fee-ata-usdc",
       "address": "Ca5ASzyVgVQkQHWJKv6aUCA4Wib6WWQu8D8sCUfptcxw",
-      "role": "USDC fee ATA owned by swap-fee-account.",
+      "role": "USDC fee ATA owned by swap-fee-account. UNUSED: the site's swap fee in USDC goes to squads-vault-usdc-ata, the Squads vault's account.",
       "custody": "owned by swap-fee-account",
-      "status": "live, balance 0",
+      "status": "live, balance 0, and nothing has ever arrived: one transaction ever, its creation on 2026-07-10T15:20:28Z (slot 432,036,448). Read at finalized slot 455,314,130 (2026-10-10).",
       "expect": {
         "type": "token-account"
       }
@@ -393,13 +413,13 @@
       }
     },
     {
-      "$comment": "bayla-ladder — the venue's OWN Solana staking program, deployed to mainnet-beta 2026-09-20 from tag bayla-ladder-mainnet (50065ef03b7eae4ec955ec40ffd32aaf4181b3c2). It is NOT the Streamflow rail above: the four lighthouse-* pools keep their own stakers and their own locks. Every address in this block was DERIVED, not transcribed — the pool, both vaults, the ProgramData account, the IDL account and the deployer's ATA are each a PDA of the program id (or of the BPF upgradeable loader), re-derived and matched against the live account before being written here, which is the only defence against the homoglyph spraying recorded above. Read on mainnet-beta at finalized slot 448,901,426 (2026-09-20)."
+      "$comment": "bayla-ladder — the venue's OWN Solana staking program, deployed to mainnet-beta 2026-09-20 from tag bayla-ladder-mainnet (50065ef03b7eae4ec955ec40ffd32aaf4181b3c2). It is NOT the Streamflow rail above: the four lighthouse-* pools keep their own stakers and their own locks. Every address in this block was DERIVED, not transcribed — the pool, both vaults, the ProgramData account, the IDL account and the deployer's ATA are each a PDA of the program id (or of the BPF upgradeable loader), re-derived and matched against the live account before being written here, which is the only defence against the homoglyph spraying recorded above. Read on mainnet-beta at finalized slot 448,901,426 (2026-09-20). WHO HOLDS IT WAS RE-READ on 2026-10-10 at finalized slots 455,314,128 to 455,314,130: the upgrade authority, the IDL authority and the pool's authority all moved from bayla-ladder-deployer to squads-vault on 2026-09-30, and the custody of the five rows that said otherwise (program, ProgramData, IDL, pool, deployer) was rewritten that day with the dates and slots. Every other number in this block is still the 2026-09-20 read unless its sentence gives a later slot."
     },
     {
       "id": "bayla-ladder-program",
       "address": "EJLP5GEJXEyPTdoKbGtp2xJiREJpE4DkHSWbVEs9FfUQ",
       "role": "`bayla-ladder` program id — the venue's own lock-ladder staking program on Solana, the port of LighthouseLadder.sol. Executable, owned by BPFLoaderUpgradeab1e11111111111111111111111; its 36-byte stub names ProgramData FormQpVVwmM3Rpyh6qrpCLmMRuPamTvV6vx7VD8yt3Dw, which is registered below. Charges Yearn's veYFI early-exit schedule, amount × min(time left / 4 years, 75%).",
-      "custody": "the program id keypair is spent — it claimed the address at first deploy and authorises nothing afterwards. What can still change this program is the UPGRADE AUTHORITY on its ProgramData account, which is the deployer wallet, not the multisig. See bayla-ladder-programdata.",
+      "custody": "the program id keypair is spent — it claimed the address at first deploy and authorises nothing afterwards. What can still change this program is the UPGRADE AUTHORITY on its ProgramData account, which is squads-vault since 2026-09-30 (the multisig's vault, threshold 2). From the deploy on 2026-09-20 until then it was the deployer wallet, one key, and this row said so until 2026-10-10. See bayla-ladder-programdata.",
       "status": "LIVE ON MAINNET 2026-09-20. Deployed from tag `bayla-ladder-mainnet` (50065ef03b7eae4ec955ec40ffd32aaf4181b3c2); the artifact's sha256 is b21e1277e104817886a31d6f5b16ba2a35fa6732558cbd6d227e4fb8e21bb0a1 at 515,352 bytes, and the ProgramData account carries exactly 515,352 bytes of bytecode after its 45-byte header. `expect.type: executable` below is NOT on its own evidence that this program can run — a closed program keeps that flag, which is why the two ids above still pass it. The entry that actually holds the liveness claim is bayla-ladder-programdata, whose `program-owned` assertion fails the moment the ProgramData account is closed.",
       "expect": {
         "type": "executable"
@@ -409,8 +429,8 @@
       "id": "bayla-ladder-programdata",
       "address": "FormQpVVwmM3Rpyh6qrpCLmMRuPamTvV6vx7VD8yt3Dw",
       "role": "ProgramData account for bayla-ladder — PDA of the BPF upgradeable loader, seeds [program id]. Holds the deployed bytecode and the upgrade authority. THIS is the account that answers 'is the ladder live', because `solana program close` deletes it and leaves the program stub executable-flagged.",
-      "custody": "🔴 UPGRADE AUTHORITY IS `Fu7mNAv67sRbKynEp7gpPLaaEGHcE2R5Sq89AMTEtTb6`, A SINGLE OPERATOR-HELD KEY — not the Squads vault. The mainnet runbook's §1 identity table names squads-vault GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd as the upgrade authority; that is the TARGET, and the handover has not happened. Read at finalized slot 448,901,426: option byte 1, authority Fu7mNAv67sRbKynEp7gpPLaaEGHcE2R5Sq89AMTEtTb6.",
-      "status": "LIVE. 515,397 bytes, 2,618,867,000 lamports of rent, last deployed slot 448,851,661. `expect.type: program-owned` is the tripwire the closed programs above needed and did not have: if this program is ever closed, the account goes to value:null and the chain read fails with 'registry expects this account to exist and it DOES NOT' rather than passing on a stale executable flag.",
+      "custody": "UPGRADE AUTHORITY IS squads-vault `GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd`, the vault of the Squads multisig (threshold 2, time_lock 0). Read at finalized slot 455,314,128 (2026-10-10): option byte 1, authority GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd. HISTORY: from the deploy on 2026-09-20 until 2026-09-30 it was `Fu7mNAv67sRbKynEp7gpPLaaEGHcE2R5Sq89AMTEtTb6` (bayla-ladder-deployer), a single operator-held key, and this row carried a red mark saying the handover had not happened; that was the read at finalized slot 448,901,426. The deployer handed it over itself with the loader's SetAuthority at slot 451,986,389 (2026-09-30T14:05:22Z). A Squads vault cannot hand it on by accident: any further change needs two of the multisig's members.",
+      "status": "LIVE. 515,397 bytes, 2,618,867,000 lamports of rent, last deployed slot 448,851,661; all three unchanged at finalized slot 455,314,128 (2026-10-10), so the program has not been upgraded since its deploy. `expect.type: program-owned` is the tripwire the closed programs above needed and did not have: if this program is ever closed, the account goes to value:null and the chain read fails with 'registry expects this account to exist and it DOES NOT' rather than passing on a stale executable flag.",
       "expect": {
         "type": "program-owned"
       }
@@ -419,7 +439,7 @@
       "id": "bayla-ladder-idl",
       "address": "3nHKL72LUn5vijmHk76v6qwgkMshToKkJGsEzbWBaQ2r",
       "role": "Anchor IDL account for bayla-ladder — `createWithSeed(base, 'anchor:idl', program)` where base is findProgramAddress([], program). Published 2026-09-20 so `anchor idl fetch` answers on mainnet and the program's interface is readable without this repo.",
-      "custody": "program-derived, owned by EJLP5GEJXEyPTdoKbGtp2xJiREJpE4DkHSWbVEs9FfUQ — no key exists for it. Its IDL authority is the deployer, the same key that holds the upgrade authority.",
+      "custody": "program-derived, owned by EJLP5GEJXEyPTdoKbGtp2xJiREJpE4DkHSWbVEs9FfUQ — no key exists for it. Its IDL authority is squads-vault, the same key that holds the upgrade authority: the authority field at offset 8 read GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd at finalized slot 455,314,130 (2026-10-10). Until 2026-09-30 it was the deployer; one transaction moved both this and the upgrade authority (slot 451,986,389, 2026-09-30T14:05:22Z).",
       "status": "live. 16,280 bytes, 83,352,640 lamports of rent — the largest single rent cost of the deploy after the bytecode itself.",
       "expect": {
         "type": "program-owned"
@@ -429,8 +449,8 @@
       "id": "bayla-ladder-pool",
       "address": "Bq6jovnQhayMjr5RqsezGMxgmF5851mqFAhX6LrsXTXV",
       "role": "The BAYLA ladder pool — PDA seeds ['pool', BAYLA mint, nonce 0] off the program above. 508 bytes, the `POOL_SIZE` the frontend decoder pins. Decoded at slot 448,901,426 with the repo's own POOL_L offsets (src/lib/ladder/program.ts:185): mint 7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump, tokenProgram Token-2022, decimals 6, nonce 0, degraded 0, pendingAuthority is the all-zero pubkey (no handover in flight).",
-      "custody": "program-derived — no key. Its `authority` FIELD is Fu7mNAv67sRbKynEp7gpPLaaEGHcE2R5Sq89AMTEtTb6, the deployer; `pendingAuthority` is unset, so the two-step handover to squads-vault has not been started.",
-      "status": "live and emitting. 3,200 BAYLA of principal across 3 open positions; periodFinish 1797724962 = 2026-12-20T00:02:42Z. This is the address VITE_BAYLA_LADDER_POOL must carry; the card also needs VITE_BAYLA_LADDER_PROGRAM, and neither is set in production as of 2026-09-20.",
+      "custody": "program-derived — no key. Its `authority` FIELD is squads-vault GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd and `pendingAuthority` is unset (the all-zero pubkey): the two-step handover is finished. Read at finalized slot 455,314,130 (2026-10-10). HISTORY: the authority was Fu7mNAv67sRbKynEp7gpPLaaEGHcE2R5Sq89AMTEtTb6, the deployer, from 2026-09-20; the deployer proposed the vault on 2026-09-26T02:35:43Z (slot 450,542,188) and a Squads vault transaction accepted on 2026-09-30T06:31:33Z (slot 451,884,482). Until 2026-10-10 this row said the handover had not been started.",
+      "status": "live and emitting. At finalized slot 455,314,130 (2026-10-10): 14,880,138.303655 BAYLA of principal, periodFinish 1798039936 = 2026-12-23T15:32:16Z, degraded 0. On 2026-09-20 it was 3,200 BAYLA across 3 open positions with periodFinish 1797724962 = 2026-12-20T00:02:42Z; a notify_reward of 2,000,000 BAYLA on 2026-09-24T15:32:16Z (slot 450,070,318) restarted the 90 days. This is the address VITE_BAYLA_LADDER_POOL must carry; the card also needs VITE_BAYLA_LADDER_PROGRAM. Neither was set in production on 2026-09-20. Both are set now: the live site's held-through.json (generated 2026-10-09, read 2026-10-10) lists this pool, which a build does only with both set.",
       "expect": {
         "type": "program-owned"
       }
@@ -458,9 +478,9 @@
     {
       "id": "bayla-ladder-deployer",
       "address": "Fu7mNAv67sRbKynEp7gpPLaaEGHcE2R5Sq89AMTEtTb6",
-      "role": "Deployer of bayla-ladder, and today BOTH of its live authorities: the ProgramData upgrade authority AND the pool's `authority` field (set_deposit_cap, notify_reward, set_degraded, the authority handover itself). Compiled into the build as the only key that could call initialize_pool. Rotated 2026-09-20 away from GCCSLE7dBPMijj5F4pDxe592mcGAK83N84R2w5HPauV9, which was also a devnet faucet hot key in a cloud-synced folder.",
-      "custody": "single key, operator-held, generated outside any cloud-synced folder. 🔴 Both authorities are due to move to squads-vault GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd (multisig EVGSnRZFWqjCaWR7z2xKbSXnuddY8upevEQK5HFmj6NK, threshold 2, time_lock 0) and NEITHER MOVE HAS HAPPENED — the chain read at slot 448,901,426 shows this key on ProgramData and on pool.authority, with pool.pendingAuthority unset. Until then one key can upgrade the program and re-point every account it owns.",
-      "status": "live and funded — 211,679,240 lamports (0.21167924 SOL), system-owned. Its BAYLA ATA is DsGFcoYREF44GJxYofDKJXbxhY2oEMoAewELUMn89Wqc (Token-2022, derived and matched), which is where the reward funding came from; that ATA is deliberately NOT a separate row, because nothing in this repo references it and rule 4 reaches only the files it names.",
+      "role": "Deployer of bayla-ladder. It holds NEITHER of the ladder's authorities now. From the deploy on 2026-09-20 until 2026-09-30 it held both: the ProgramData upgrade authority AND the pool's `authority` field (set_deposit_cap, notify_reward, set_degraded, the authority handover itself); both are squads-vault today, and so is the IDL authority. WHAT IT STILL HOLDS, read at finalized slot 455,316,026 (2026-10-10): the `authority` field of the five Streamflow stake pools registered here (lighthouse-bobo, lighthouse-soy, lighthouse-brainlet, lighthouse-rizz, lighthouse-bayla), which it took over from GCCSLE7dBPMijj5F4pDxe592mcGAK83N84R2w5HPauV9 on 2026-09-21T09:21:46Z (slot 449,013,404). Compiled into the build as the only key that could call initialize_pool. Rotated 2026-09-20 away from GCCSLE7dBPMijj5F4pDxe592mcGAK83N84R2w5HPauV9, which was also a devnet faucet hot key in a cloud-synced folder.",
+      "custody": "single key, operator-held, generated outside any cloud-synced folder. BOTH LADDER AUTHORITIES HAVE MOVED to squads-vault GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd (multisig EVGSnRZFWqjCaWR7z2xKbSXnuddY8upevEQK5HFmj6NK, threshold 2, time_lock 0): pool.authority on 2026-09-30T06:31:33Z (slot 451,884,482), and the upgrade authority with the IDL authority on 2026-09-30T14:05:22Z (slot 451,986,389). Read at finalized slots 455,314,128 to 455,314,130 (2026-10-10): this key is on none of the three, and pool.pendingAuthority is unset. It can no longer upgrade the ladder or change its pool. It is still one key over the five Streamflow pools named in the role. HISTORY: until 2026-10-10 this row said, with a red mark, that neither move had happened and that one key could upgrade the program; that was the chain at slot 448,901,426 (2026-09-20).",
+      "status": "live and funded: 180,150,400 lamports (0.1801504 SOL) at finalized slot 455,314,130 (2026-10-10), system-owned; it was 211,679,240 on 2026-09-20. Its BAYLA ATA is DsGFcoYREF44GJxYofDKJXbxhY2oEMoAewELUMn89Wqc (Token-2022, derived and matched), which is where the reward funding came from; that ATA is deliberately NOT a separate row, because nothing in this repo references it and rule 4 reaches only the files it names.",
       "expect": {
         "type": "wallet",
         "funded": true

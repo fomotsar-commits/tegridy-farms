@@ -42,6 +42,7 @@ import {
   isDeployed,
 } from '../lib/constants';
 import { useTabListKeys } from '../hooks/useTabListKeys';
+import { useRevealSelectedTab } from '../components/layout/tabStripScroll';
 import { isPooledLendingLive, isBnplLive } from '../hooks/usePooledLendingConfig';
 import { artImgProps } from '../lib/artSrcSet';
 
@@ -191,6 +192,7 @@ export default function LendingPage() {
   };
   // T10 (F303): WAI-ARIA tabs roving-focus + arrow-key navigation.
   const tabKeys = useTabListKeys(VALID_SECTIONS, section, handleSectionChange);
+  const tabListRef = useRevealSelectedTab(section);
   const [introDismissed, setIntroDismissed] = useState(() => {
     try { return localStorage.getItem(INTRO_DISMISSED_KEY) === '1'; } catch { return false; }
   });
@@ -291,14 +293,15 @@ export default function LendingPage() {
           )}
         </AnimatePresence>
 
-        {/* Section tabs. From `md` up the row is about 1,095px wide, and the page
-            has that much room only from a 1,143px window. Below that `max-w-full`
-            holds the row to the page and it scrolls inside itself. `no-scrollbar`
-            hides the scrollbar, so a right-edge fade is the only sign of more
-            tabs; it comes off at 1,143px, where the row fits. Pinned by
-            e2e/nft-finance-strip.spec.ts. */}
+        {/* Section tabs. Below a 1,143px window the row (about 1,095px from `md` up)
+            is held to the page by `max-w-full` and scrolls inside itself. No scroll
+            snap: it undoes the reveal. The scrollbar is hidden, so a fade at the right
+            edge is the only sign of more tabs. `--strip-fade` is the fade's width and
+            the end padding, and `tabListRef` keeps the selected tab out of the padding,
+            so never under the fade. Both come off at 1,143px. e2e/nft-finance-strip.spec.ts. */}
         <m.div
-          className="flex overflow-x-auto gap-1.5 mb-10 p-1 rounded-2xl mx-auto w-full md:w-fit max-w-full no-scrollbar snap-x snap-mandatory [mask-image:linear-gradient(to_right,#000_calc(100%-2rem),transparent)] min-[1143px]:[mask-image:none]"
+          ref={tabListRef}
+          className="flex overflow-x-auto gap-1.5 mb-10 p-1 [--strip-fade:2rem] pr-[var(--strip-fade)] min-[1143px]:pr-1 rounded-2xl mx-auto w-full md:w-fit max-w-full no-scrollbar [mask-image:linear-gradient(to_right,#000_calc(100%_-_var(--strip-fade)),transparent)] min-[1143px]:[mask-image:none]"
           style={{ background: 'rgba(13,21,48,0.85)', border: '1px solid rgba(255,255,255,0.20)' }}
           role="tablist"
           aria-label="NFT Finance sections"
@@ -317,7 +320,7 @@ export default function LendingPage() {
               tabIndex={tabKeys.tabIndex(key)}
               ref={tabKeys.ref(key)}
               /* A11Y-R07: same ~32px tab strip as /community; /swap's is 44px. */
-              className={`relative px-3 py-2 min-h-[44px] md:px-5 md:py-2.5 rounded-xl text-xs md:text-sm font-medium transition-all duration-300 whitespace-nowrap snap-start flex-shrink-0 ${
+              className={`relative px-3 py-2 min-h-[44px] md:px-5 md:py-2.5 rounded-xl text-xs md:text-sm font-medium transition-all duration-300 whitespace-nowrap flex-shrink-0 ${
                 section === key
                   ? 'text-white'
                   : 'text-white/70 hover:text-white hover:bg-white/5'

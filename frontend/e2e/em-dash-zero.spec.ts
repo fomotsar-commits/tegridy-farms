@@ -52,11 +52,11 @@ const VENUE_VOICE_DEBT: Record<string, number> = {
   '/nakamigos': 1,
   '/terms': 3,
   '/terminal': 2,
-  '/solana': 2,
+  '/solana': 1,
   '/launch-simulator': 4,
   '/leaderboard': 3,
   '/community': 2,
-  '/liquidity': 6,
+  '/liquidity': 5,
   '/privacy': 7,
   '/trust': 7,
   '/pools': 1,
@@ -238,8 +238,8 @@ test.describe('element I: em dashes in venue-voice prose', () => {
 const ROOM_VOICE_DEBT: Record<string, number> = {
   // The settled rooms are at 0 and fail on their first prose dash (roomProse.test.tsx guards
   // the same sources on every push). The TOWELI-skin doors carry the protocol cluster.
-  '/toweli': 22,
-  '/towelie': 22,
+  '/toweli': 20,
+  '/towelie': 20,
   '/bayla': 0,
   '/pepe': 0,
   '/qr': 0,

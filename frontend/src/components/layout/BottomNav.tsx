@@ -65,7 +65,11 @@ export const BottomNav = React.memo(function BottomNav() {
         borderTop: '1px solid var(--color-purple-75)',
         paddingBottom: 'env(safe-area-inset-bottom, 0px)',
       }}>
-      <div className="flex items-center justify-around h-16 safe-area-bottom">
+      {/* No bottom inset on this row: the nav above already pads by it. Padding both
+          took the inset out of this row's own 64px, so a large inset (an Android 15
+          in-app browser, seen on a Galaxy S25) left the icons no room and they sat
+          on the nav's top border, over the page. */}
+      <div className="flex items-center justify-around h-16">
         {tabs.map(tab => (
           <NavLink key={tab.to} to={tab.to} aria-label={tab.label}
             data-lit={tab.section ? sectionIsActive(tab.section, pathname) : undefined}

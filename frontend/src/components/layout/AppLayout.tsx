@@ -125,7 +125,11 @@ export function AppLayout() {
     let frame = 0;
     const measure = () => {
       frame = 0;
-      host.style.setProperty('--room-band-h', `${Math.max(0, Math.round(band.getBoundingClientRect().bottom - 56))}px`);
+      // The header's real lower edge, not a bare 56: it is taller by the top safe-area
+      // inset, and RouteTabs adds that inset itself, so counting it here too would
+      // push the tabs down twice.
+      const headerBottom = document.querySelector('header')?.getBoundingClientRect().bottom ?? 56;
+      host.style.setProperty('--room-band-h', `${Math.max(0, Math.round(band.getBoundingClientRect().bottom - headerBottom))}px`);
     };
     const schedule = () => {
       if (!frame) frame = requestAnimationFrame(measure);

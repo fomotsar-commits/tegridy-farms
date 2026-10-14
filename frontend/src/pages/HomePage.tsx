@@ -93,7 +93,7 @@ const howItWorksSteps = (toweli: boolean) => toweli ? [
   {
     step: '3',
     title: 'Harvest the Yield',
-    desc: 'Emissions pay you in TOWELI today; the ETH fee-share is wired on-chain and opens with the native pool. Claim whenever the crop looks ripe.',
+    desc: 'Emissions pay you in TOWELI today. The ETH fee-share is wired on-chain, and a payout round needs 1 ETH of fees first. Claim whenever the crop looks ripe.',
     to: '/dashboard',
   },
 ] : [
@@ -112,7 +112,7 @@ const howItWorksSteps = (toweli: boolean) => toweli ? [
   {
     step: '3',
     title: 'Harvest, verified',
-    desc: 'Emissions pay in TOWELI today; the ETH fee-share is wired on-chain and opens with the native pool. Claim any time.',
+    desc: 'Emissions pay in TOWELI today. The ETH fee-share is wired on-chain, and a payout round needs 1 ETH of fees first. Claim any time.',
     to: '/dashboard',
   },
 ];
@@ -349,7 +349,7 @@ export default function HomePage() {
                 is now Etherscan source-verified and /contracts proves it with live
                 per-address badges. So the headline leads with the one differentiator
                 a skeptic can check in a single click. */}
-            <h1 className="heading-luxury text-3xl md:text-6xl text-white leading-[1.1] tracking-tight mb-4">
+            <h1 className="heading-luxury text-[clamp(1.25rem,7.4vw,1.875rem)] md:text-6xl text-white leading-[1.1] tracking-tight mb-4">
               {TOWELI_HERO.heroTitle}{' '}<br /><span className="text-white">{TOWELI_HERO.heroLine}</span>
             </h1>
 
@@ -512,7 +512,7 @@ export default function HomePage() {
               // genuinely loading; once resolved, render the honest "0.0000 ETH"
               // (the value that backs the on-chain-verifiable pitch) instead of an
               // eternal skeleton. `loading: true` forces the shimmer branch below.
-              { l: 'ETH Distributed', v: (revenueStats.isDataError || revenueStats.globalUnread) ? '–' : `${revenueStats.totalDistributed.toFixed(4)} ETH`, loading: revenueStats.isDataLoading, sub: (!revenueStats.isDataLoading && !revenueStats.isDataError && !revenueStats.globalUnread && revenueStats.totalDistributed === 0) ? 'fee rail live · first at native-pool launch' : undefined },
+              { l: 'ETH Distributed', v: (revenueStats.isDataError || revenueStats.globalUnread) ? '–' : `${revenueStats.totalDistributed.toFixed(4)} ETH`, loading: revenueStats.isDataLoading, sub: (!revenueStats.isDataLoading && !revenueStats.isDataError && !revenueStats.globalUnread && revenueStats.totalDistributed === 0) ? 'fee rail live · a round needs 1 ETH of fees' : undefined },
             ] as { l: string; v: string; sub?: string; showSparkline?: boolean; loading?: boolean }[]).map((s) => (
               <div key={s.l} className="flex items-center gap-3 px-4 py-2.5 rounded-lg"
                 style={{ background: 'rgba(0,0,0,0.78)', border: '1px solid rgba(76,175,80,0.35)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)' }}>

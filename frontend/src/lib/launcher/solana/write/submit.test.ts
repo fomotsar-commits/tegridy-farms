@@ -8,6 +8,7 @@
 // carrying the signature.
 import { describe, it, expect, vi } from 'vitest';
 import { base58 } from '@scure/base';
+import { WalletAccountError, WalletConfigError, WalletNotConnectedError, WalletSignTransactionError, WalletTimeoutError } from '@solana/wallet-adapter-base';
 import { Keypair, SendTransactionError, SystemProgram, Transaction, TransactionInstruction } from '@solana/web3.js';
 import { WSOL_MINT, cpPermissionPda, migrationAuthorityPda } from '../curve/program';
 import { associatedTokenAddress } from '../curve/ix';
@@ -18,6 +19,7 @@ import { explainFailure } from './errors';
 import { LIGHTHOUSE_PROGRAM_ID } from './intent';
 import { prepareCreateLaunch, quoteOpeningBuy } from './launch';
 import { recheckOutcome, submitPrepared } from './submit';
+import { DECLINED_IN_WALLET } from '../../../solana/swap/walletCopy';
 import { prepareCurveBuy } from './trade';
 import { CPSWAP, FakeChain, LAUNCH, VAULT, addPlantAccounts, cfgLocal, freshCurve, globalValue, plantMoved, rent } from './testkit.fixture';
 import type { OpenGate, PreparedTx, TxOutcome, TxSigner, WriteRpc } from './types';
@@ -88,6 +90,132 @@ describe('before anything is sent', () => {
     const o = await submitPrepared(W(chain), { publicKey: ME, signTransaction: async () => { throw new Error('User rejected the request.'); } }, p, deps);
     expect(o).toMatchObject({ status: 'not-sent', stage: 'sign', message: expect.stringMatching(/cancelled/) });
     expect(chain.calls).not.toContain('sendRawTransaction');
+  });
+
+  // Every adapter rethrows ANY failure inside its signTransaction as a
+  // WalletSignTransactionError(inner.message, inner): the shapes below are the ones
+  // Trust's provider and the WalletConnect adapter reject with.
+  const failingWith = (inner: unknown): TxSigner => ({
+    publicKey: ME,
+    signTransaction: async () => {
+      throw new WalletSignTransactionError((inner as Error)?.message, inner);
+    },
+  });
+
+  /** A sign that threw: always not-sent at the sign stage, with nothing broadcast. Returns what the card is told. */
+  const unsigned = async (signer: TxSigner): Promise<string> => {
+    const { chain, p } = await preparedBuy();
+    const o = await submitPrepared(W(chain), signer, p, deps);
+    expect(o).toMatchObject({ status: 'not-sent', stage: 'sign' });
+    expect(chain.calls).not.toContain('sendRawTransaction');
+    return o.status === 'not-sent' ? o.message : '';
+  };
+  const throwing = (thrown: unknown): TxSigner => ({ publicKey: ME, signTransaction: async () => { throw thrown; } });
+  /** The whole sentence a failed sign is said in, so nothing else can ride along with the reason. */
+  const NOT_SIGNED = (reason: string) => `Your wallet did not sign this (${reason}). Nothing was sent.`;
+
+  it.each([
+    ['a wallet that failed before showing a prompt', new Error('invalid account')],
+    ['a WalletConnect session that never allowed signing', new Error("This wallet didn't allow transaction signing over WalletConnect")],
+  ])('%s is not reported as a cancel, and says what the wallet said', async (_, inner) => {
+    const { chain, p } = await preparedBuy();
+    const o = await submitPrepared(W(chain), failingWith(inner), p, deps);
+    expect(o).toMatchObject({ status: 'not-sent', stage: 'sign' });
+    if (o.status !== 'not-sent') return;
+    expect(o.message).not.toMatch(/cancel/i);
+    expect(o.message).toContain(inner.message);
+    expect(chain.calls).not.toContain('sendRawTransaction');
+  });
+
+  it('a wallet that rejects with a bare string is quoted, never "the RPC call failed"', async () => {
+    const { chain, p } = await preparedBuy();
+    const o = await submitPrepared(W(chain), failingWith('Transaction could not be decoded'), p, deps);
+    expect(o).toMatchObject({ status: 'not-sent', stage: 'sign', message: expect.stringContaining('Transaction could not be decoded') });
+    if (o.status === 'not-sent') expect(o.message).not.toMatch(/cancel|RPC/i);
+  });
+
+  it('a wallet that gives no reason at all is not reported as a cancel', async () => {
+    const { chain, p } = await preparedBuy();
+    const o = await submitPrepared(W(chain), failingWith(undefined), p, deps);
+    expect(o).toMatchObject({ status: 'not-sent', stage: 'sign' });
+    if (o.status === 'not-sent') expect(o.message).not.toMatch(/cancel|RPC/i);
+  });
+
+  // The swap page reads `message === DECLINED_IN_WALLET` as "they said no" and goes
+  // back to the form without a card (quietSwap.ts). So a decline must be exactly that
+  // sentence, and a failure must never be.
+  it.each([
+    // Trust's CallbackAdapter turns a numeric answer into RPCError(4001, '4001').
+    ['Trust’s 4001, whose message is only the number', Object.assign(new Error('4001'), { code: 4001 })],
+    ['Trust’s older bare-string answer', 'Canceled'],
+    ['a bare 4001 with no error around it', 4001],
+    ['a WalletConnect decline', Object.assign(new Error('User rejected.'), { code: 5000 })],
+    ['Phantom’s decline', Object.assign(new Error('User rejected the request.'), { code: 4001 })],
+    ['a decline that is a plain object, not an Error', { code: 4001, message: 'User rejected the request.' }],
+    ['Backpack’s decline', new Error('Approval Denied')],
+    ['Solflare’s decline', new Error('Transaction cancelled')],
+    ['Coinbase Wallet’s decline', new Error('User denied transaction signature')],
+    ['a hardware wallet’s decline', new Error('Ledger device: Condition of use not satisfied (denied by the user?) (0x6985)')],
+  ])('%s still reads as a cancel', async (_, inner) => {
+    expect(await unsigned(failingWith(inner))).toBe(DECLINED_IN_WALLET);
+    // The same answer straight from the wallet, with no adapter error around it.
+    expect(await unsigned(throwing(inner))).toBe(DECLINED_IN_WALLET);
+  });
+
+  // StandardWalletAdapter throws these three with no words, before the wallet is asked,
+  // and does not wrap them. Each is said from its name: "it gave no reason" would send
+  // the next report back with nothing in it.
+  it.each([
+    ['a page that lost its connection to the wallet', new WalletNotConnectedError(), 'this page is no longer connected to it, so it was never asked'],
+    ['a wallet that offers no transaction signing', new WalletConfigError(), 'it does not offer transaction signing to this page, so it was never asked'],
+    ['an account that does not allow signing', new WalletAccountError(), 'the account it shared does not allow transaction signing, so it was never asked'],
+  ])('%s is said plainly, and is not a cancel', async (_, thrown, reason) => {
+    expect(await unsigned(throwing(thrown))).toBe(NOT_SIGNED(reason));
+  });
+
+  it('an adapter error that carries words says the words, not its name', async () => {
+    expect(await unsigned(throwing(new WalletAccountError('The wallet shared no Solana account')))).toBe(NOT_SIGNED('The wallet shared no Solana account'));
+  });
+
+  it.each([
+    // Trust answers with a bare number: RPCError(4100, '4100').
+    ['a numeric answer that is not 4001', Object.assign(new Error('4100'), { code: 4100 }), 'error code 4100'],
+    ['a bare number', -32603, 'error code -32603'],
+    ['a code with no words at all', { code: -32603, data: { why: 'internal' } }, 'error code -32603'],
+    ['a code sent as text, with no words', { code: '4900' }, 'error code 4900'],
+  ])('%s is called an error code, and is not a cancel', async (_, inner, reason) => {
+    expect(await unsigned(failingWith(inner))).toBe(NOT_SIGNED(reason));
+  });
+
+  it('an error with a name and nothing else says the name', async () => {
+    expect(await unsigned(throwing(new WalletTimeoutError()))).toBe(NOT_SIGNED('it gave no reason, only the name WalletTimeoutError'));
+    // The wrapper every failure wears, and a bare Error, say nothing about why.
+    expect(await unsigned(throwing(new WalletSignTransactionError()))).toBe(NOT_SIGNED('it gave no reason'));
+    expect(await unsigned(throwing(new Error('')))).toBe(NOT_SIGNED('it gave no reason'));
+    expect(await unsigned(throwing(undefined))).toBe(NOT_SIGNED('it gave no reason'));
+  });
+
+  it('only words are printed: never an object, and a long answer is cut to one line', async () => {
+    const odd = { message: { nested: true }, name: { also: 'an object' }, code: { n: 1 }, stack: 'Error\n    at sign (wallet.js:1:1)' };
+    expect(await unsigned(failingWith(odd))).toBe(NOT_SIGNED('it gave no reason'));
+    // An object that points at itself is read to a fixed depth, and ends.
+    const loop: { error?: unknown } = {};
+    loop.error = loop;
+    expect(await unsigned(throwing(loop))).toBe(NOT_SIGNED('it gave no reason'));
+
+    const long = await unsigned(failingWith(new Error(`could not decode\n  the transaction\n${'x'.repeat(600)}`)));
+    expect(long).not.toMatch(/\n|\[object|cancel/i);
+    expect(long.startsWith('Your wallet did not sign this (could not decode the transaction xxx')).toBe(true);
+    expect(long.length).toBeLessThan(260);
+  });
+
+  // The WalletConnect adapter's own sentences end "Nothing was sent", and so does ours.
+  it.each([
+    ['The WalletConnect session has ended. Connect again. Nothing was sent', 'The WalletConnect session has ended. Connect again'],
+    ['No answer from the wallet in time. Nothing was sent', 'No answer from the wallet in time'],
+    ['Nothing was sent.', 'it gave no reason'],
+  ])('"%s" is not said twice', async (words, reason) => {
+    expect(await unsigned(failingWith(new Error(words)))).toBe(NOT_SIGNED(reason));
   });
 
   it('a different connected wallet is refused before signing', async () => {

@@ -203,8 +203,8 @@ describe('when the venue reads live', () => {
     const card = screen.getByRole('region', { name: 'Venue status' });
     expect(scrolled.mock.contexts[0]).toBe(card);
     expect(scrolled).toHaveBeenCalledWith({ block: 'nearest' });
-    // The scroll stops short of the fixed header and tab strip (e2e measures it in a browser).
-    expect(card).toHaveClass('scroll-mt-24');
+    // The scroll stops with air above the card (e2e measures where, under the tab strip).
+    expect(card).toHaveClass('scroll-mt-5');
   });
 });
 

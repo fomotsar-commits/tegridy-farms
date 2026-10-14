@@ -8,11 +8,20 @@ page keeps the newest thirty days.
 
 ### 2026-10-10
 
+- Phones whose browser draws the page under the status bar (seen on a Galaxy S25 inside the Phantom app): the row of tabs no longer hides under the header, and the icons in the bottom bar stay inside the bar. On a phone narrower than about 405px, the big headline on the home page and on each bungalow's front page is a little smaller, so MEMETICS.FINANCE no longer runs to the edge of the screen.
+- On those same phones, a button or field you move to with the keyboard, and a section a link jumps to, now stops clear of the header, the row of tabs and the bottom bar. With the bars drawn taller there, it used to stop partly behind them.
+- NFT Finance on a phone or an iPad: a link straight to a section, such as the Launchpad, now opens with that section's tab in view in the row of tabs, clear of the fade at the row's right edge. It used to sit out of sight past the right edge. Pressing a tab that is cut off at the edge of the row now brings it fully into view; it used to be selected and stay cut off.
 - Solana LP: each position now shows what you put in, what it is worth, the fees it earned and how that compares with just holding both tokens. Fees are already inside your pool shares, so there is nothing to claim.
 - Solana LP: each pool card shows its last trade and how much each share has grown since the pool opened, and one press reads its last 20 transactions. The row that read "Fees waiting: venue's share" is now "Venue's cut, not collected yet".
+- Solana LP, swaps in our own pools and launch trades: when a wallet fails to sign without ever opening its prompt, the card now says what the wallet said, or that this page is no longer connected to it, instead of "You cancelled in your wallet". A real cancel still reads as a cancel.
 - Solana LP: two short cards under your positions say how you earn and how the venue earns, with the rates read from the chain and the team's shared wallet as an address you can check.
+- Liquidity page: "How do I get paid?" now says liquidity providers keep the whole 0.3% pool fee. It used to say they got five sixths of it. The pair contract lets the venue take one sixth as new pool shares; on 10 October 2026 that cut had never been switched on, and only the venue's owner wallet can switch it on. The answer also says how the venue earns: a separate fee on swaps sent through this site's own router. The Risks page says the same in its limits table.
+- TOWELI room, Tokenomics and the assistant: the sentences that said ETH for stakers starts "when the native pool launches" are gone, because the pool is live. They now say what a payout round waits on, which is 1 ETH of fees reaching the distributor, and where the venue's swap fee went on 10 October 2026: 20% was the referral share and 80% was routed toward stakers. By that date the router had taken 0.000003 ETH in all and stakers had been paid none.
+- Solana swap: the four staking tokens under "Earn SOL staking yield" no longer show a rate. The four figures (7.5%, 7.2%, 7.0% and 8.0%) were typed into the code and read from nowhere. Each card now names its token, and the note says the page reads no staking rate and what the venue takes on the buy.
 - Solana LP: a position and a pool card also say the pace so far and how long it covers, when the pool's own fee record shows that trades paid for it. It is measured from the chain and is never a forecast.
 - Solana LP: a read that never answers now ends after 20 seconds and says so.
+- Solana LP, Add liquidity: each amount box has 25%, 50% and 75% buttons beside Max. For SOL the percent is of what can go in after fees and account deposits, not of your whole balance, and the other amount follows the pool as before.
+- Solana LP, Add liquidity: a short "What if the price moves" table under Review says how a position compares with just holding both tokens: the same if the price ends where it was, about 5.7% less if it doubles or halves, 20% less at 4 times or a quarter. Fees are not counted in it, and it is arithmetic, not a forecast.
 - Once launching is switched on, the details file the site writes for a new Solana token says it was made on memetics.finance. It was set to say memetic.fun, which is another project's site. No token has been launched yet, so no launch carries the old address.
 - Solana LP: when the page could not check the network as it loaded, it now checks again by itself every 15 seconds. Add liquidity, Remove liquidity and Open a pool come back without pressing Read again or reloading the page.
 - Solana swap and launch pages: a read the network never answers is given up after 10 seconds and shown as a read that failed. It used to be waited on for the whole visit. The Solana LP page keeps its own 20 seconds, so each read is timed once and the message names the wait that applied.
@@ -25,6 +34,7 @@ page keeps the newest thirty days.
 - In the marketplace, when a transaction's result cannot be read, the site says it cannot tell and links to Etherscan, instead of saying it failed and offering Retry.
 - In the marketplace, a transaction you cancelled or replaced in your wallet says it did not happen, and one that reverted says it reverted.
 - The marketplace's Speed Up button follows the faster transaction it sent, and sends nothing for a purchase that already confirmed.
+- On every page with a row of section tabs under the top bar (Pools, Earn, Launch, Stats, Trust & Safety and the rest), a button or field you move to with the keyboard, and a section a link jumps to, now stops below the tabs. It used to stop behind them, where it could not be seen or pressed.
 
 ### 2026-10-08
 
