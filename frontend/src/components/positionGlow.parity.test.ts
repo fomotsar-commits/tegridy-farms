@@ -20,6 +20,8 @@ const SIBLINGS: Record<string, string> = {
   'bungalow/EvmLadderPoolLive.tsx': 'positions.length > 0',
   'bungalow/EvmLighthousePoolLive.tsx': 'userStakedRaw > 0n',
   'solana/lp/YourPositions.tsx': 'inPosition',
+  // The venue dashboard's two summary cards: drawn only for a position, ringed the same way.
+  '../pages/DashboardPage.tsx': 'lpPos.hasPosition',
 };
 
 describe('position glow parity', () => {
