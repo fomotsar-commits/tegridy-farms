@@ -8,7 +8,8 @@ name: solana-ci
 #   1. diff-guard  — proves the fork's delta from pinned audited upstream is
 #      EXACTLY the pinned hash. Not a file allowlist: the previous version accepted
 #      ANY change inside lib.rs, which holds upstream's whole #[program] dispatcher.
-#      This is the security invariant; it needs no Solana toolchain.
+#      This is the security invariant; it needs no Solana toolchain, and since
+#      2026-10-14 no clone: no job here fetches anything from Raydium.
 #      SCOPED TO cp-swap ONLY — tegridy-launch is our own code with no upstream
 #      to diff against, so it is deliberately NOT covered by this job.
 #   2. build       — compiles the SBF program (validates our diff compiles).
@@ -37,10 +38,10 @@ name: solana-ci
 #      the pinned delta.
 #   6. clmm-guards — tegridy-clmm (raydium-clmm under the venue's keys, not deployed) is
 #      upstream plus exactly its pinned identity delta, and no key in it or in cp-swap is
-#      anyone's but the venue's (solana/guards/). Each guard first refuses a known-bad copy.
+#      anyone's but the venue's (solana/guards/). Each guard first refuses known-bad copies.
 #   7. clmm-build — builds tegridy-clmm on upstream's own Solana pin, proves a build
-#      without the placeholder feature is refused, runs upstream's unit tests, and prices
-#      the deploy at the rent rate read from mainnet.
+#      without the placeholder feature, or with devnet or localnet, is refused, runs
+#      upstream's unit tests, and prices the deploy at the rent rate read from mainnet.
 on:
   push:
     paths: ["solana/**", ".github/workflows/solana-ci.yml"]
@@ -53,10 +54,7 @@ permissions:
   contents: read
 
 env:
-  # Upstream commit this fork is pinned to. Bump deliberately + re-diff on any
-  # intentional upstream sync.
-  UPSTREAM_REPO: https://github.com/raydium-io/raydium-cp-swap
-  UPSTREAM_COMMIT: 78f254e1023751e706df7dc15c453fc3e046697c
+  # The upstream commits both pool programs are pinned to live in solana/guards/provenance.mjs.
   SOLANA_VERSION: v2.3.0
   # Must match Anchor.toml's [toolchain] anchor_version and the anchor-lang /
   # anchor-spl versions both programs pin — the IDL the TS tests load is
@@ -136,141 +134,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: Clone pinned upstream
-        run: |
-          git clone "$UPSTREAM_REPO" /tmp/upstream
-          git -C /tmp/upstream checkout --quiet "$UPSTREAM_COMMIT"
+      # No clone: solana/guards/upstream/ holds upstream's file hashes at the pin and the
+      # reviewed patch, so this job needs nothing from Raydium. It refuses any file added to,
+      # missing from or changed in the cp-swap package beyond that patch (a build.rs too), and
+      # the patch must hash to the pin in solana/guards/provenance.mjs. Re-pin history up to
+      # 2026-10-06: this file's git log. What the patch holds: solana/tegridy-amm/TEGRIDY_FORK.md.
       - name: Assert the delta from audited upstream is EXACTLY the pinned one
-        run: |
-          set -euo pipefail
-          UP=/tmp/upstream/programs/cp-swap
-          OURS=solana/tegridy-amm/programs/cp-swap
-
-          # ── WHY A HASH, NOT A FILE ALLOWLIST ──────────────────────────────────
-          # The previous guard filtered `diff -rq` output through
-          #   ALLOWED='/(lib\.rs|create_support_mint_associated\.rs) '
-          # i.e. it accepted ANY difference in those files. Upstream's lib.rs contains
-          # the entire `#[program]` dispatcher and every instruction handler, so
-          # arbitrary logic could be added there and this job stayed green — while the
-          # comment above it claimed the files hold "ONLY hardcoded authority constants".
-          # That assumption was never enforced, and it is the exact claim we make to
-          # auditors (since 2026-10-06: "the delta is four constants, one instruction
-          # that names lp tokens, and the program's own name and contact text"; before
-          # that, "four constants"), so it has to be mechanical.
-          #
-          # Now: the delta is canonicalised and hashed. Any change to it — including
-          # inside the allowed files — fails until a human deliberately re-pins
-          # EXPECTED_DELTA_SHA256 after reading the printed diff.
-          #
-          # CRLF is stripped on BOTH sides: the fork carries CRLF for some files, and
-          # without normalising, every line reads as changed (736 lines of noise for an
-          # 86-line real delta).
-          # RE-PINNED 2026-08-08. The delta gained one functional line and a block of
-          # comments: `admin::ID` moved off the Squads MULTISIG ACCOUNT
-          # (EVGSnRZFWqjCaWR7z2xKbSXnuddY8upevEQK5HFmj6NK) — which can neither sign a CPI
-          # nor pay rent, and therefore made `create_amm_config` permanently uncallable —
-          # onto the deploy authority. Diffing the old delta against the new one shows
-          # exactly one changed `pubkey!` line; everything else added is comment.
-          # RE-PINNED 2026-08-24: comment-only change — lib.rs's header paragraphs
-          # instructing the exact admin=multisig mistake that bricked graduation
-          # (and claiming sentinel values that are live keys) were deleted. Verified
-          # from the guard's own printed delta: every changed line vs the previous
-          # pin is a `//` comment; the functional delta is untouched.
-          # RE-PINNED 2026-09-26: the fresh mainnet identities (owner rulings
-          # 2026-09-25). Diffing the old delta against the new one shows exactly three
-          # changed `pubkey!`/`declare_id!` lines, all on the NON-devnet arms:
-          #   declare_id!                               3ZvZXEBr… (spent) -> EKS4C6x…
-          #   admin::ID                                 Dcjink4…         -> GRMtSxgs… (Squads vault PDA)
-          #   create_support_mint_associated_owner::ID  EVGSnRZ… (multisig, unsignable) -> GRMtSxgs…
-          # Every other changed line is a `//` comment or a diff hunk header. Every
-          # devnet arm and create_pool_fee_reveiver are unchanged. Reproduced locally
-          # with this exact recipe: the unmodified base (b500db57) yields the previous
-          # pin 7b2adbad…, which is the positive control for this value.
-          # RE-PINNED 2026-10-06: the delta is no longer constants only. It gained ONE
-          # instruction, `create_lp_metadata`, all of it inside lib.rs (step 1 below is
-          # unchanged: still only the two files may differ). Why it exists: a pool's lp
-          # token is a classic SPL mint with no name record, so wallets list it as an
-          # unknown token, and Metaplex only creates the record when the mint authority
-          # signs, which is this program's own address. Diffing the old delta against the
-          # new one shows, apart from `//` and `///` comments and diff hunk headers:
-          #   7 `use` lines (ErrorCode, PoolState, the anchor-spl metadata helper, Mint)
-          #   the 17-line handler in the #[program] module (no arguments)
-          #   `struct CreateLpMetadata` (9 accounts)
-          #   `get_lp_metadata_data` and `initialize_metadata_account`, taken from
-          #   raydium-clmm @ ed7c84a5 open_position.rs (Apache-2.0)
-          # No constant, no existing instruction and no Cargo.toml line changed: the
-          # `metadata` feature of anchor-spl was already on, inherited from upstream.
-          # What a reviewer must hold it to: the caller passes no words; `lp_mint` is
-          # bound to `pool_state`; the editor is `admin::ID`; and the inner call gets six
-          # accounts and no remaining account, because the address that signs it also owns
-          # every pool vault. Four of the six are fixed by the program. The caller picks the
-          # payer and the record slot, and the program does not check the record slot:
-          # Metaplex does. Reproduced locally with this exact recipe: the unmodified base
-          # (f1e60f60) yields the previous pin 5c737ac7…, which is the positive control.
-          # That first pin of the instruction was c18d4d63….
-          # RE-PINNED 2026-10-06, a second time, for comments only: five `//` lines of the
-          # FUND SAFETY note in lib.rs. The note said no vault and no token program is ever
-          # passed on. That was more than the program checks, since a caller can put any
-          # account in the record slot. It now says what is so (see TEGRIDY_FORK.md). Diffing
-          # the old delta against the new one shows five changed lines, every one a `//`
-          # comment, and the same count of changed lines (261). The control for this value:
-          # the same recipe on the commit before yields c18d4d63…. That pin was 2bbd1e55….
-          # RE-PINNED 2026-10-06, a third time, for the on-chain security.txt, so that ONE
-          # upgrade carries it together with the instruction (docs/TODO_OPERATOR.md
-          # O-0929-10; the owner delegated "one upgrade or two" that day and the answer is
-          # one). The binary on mainnet shows a contact that is another project's 404 and
-          # two links to a GitHub branch that no longer exists. Diffing the old delta
-          # against the new one shows eight changed lines and the same count (261):
-          #   4 values of the `security_txt!` macro: project_url, contacts, policy and
-          #     source_code. Every link is on memetics.finance and the first contact is an
-          #     email. `name` and `preferred_languages` are as they were.
-          #   4 `//` comment lines: two inside the macro (the stale "add a disclosure
-          #     email" note is gone) and two in the fork header under it.
-          # No constant, no instruction, no account check and no Cargo.toml line changed.
-          # Unlike a comment, these four strings ARE in the binary, so the build's hash
-          # and size moved with this pin. The control for this value: the same recipe on
-          # the commit before yields 2bbd1e55…, and on the unmodified base (f1e60f60) it
-          # still yields 5c737ac7….
-          EXPECTED_DELTA_SHA256=5d7baf2682af807a7b1c330a1ca6a10d65b0393f20a33e26555f86323354f2f1
-
-          # 1. NO file outside the two allowed source files may differ at all.
-          #    Paths are anchored to their full relative path — the old pattern matched
-          #    a bare `lib.rs ` anywhere in the tree.
-          UNEXPECTED=$(diff -rq "$UP/src" "$OURS/src"             | grep -vE "(^Files .*/src/lib\.rs and .* differ$|^Files .*/src/instructions/admin/create_support_mint_associated\.rs and .* differ$)"             || true)
-          if [ -n "$UNEXPECTED" ]; then
-            echo "::error::Fork diverges from audited upstream beyond the two allowed files:"
-            echo "$UNEXPECTED"
-            exit 1
-          fi
-
-          # 2. The delta INSIDE those files — plus Cargo.toml, which the old guard did
-          #    not look at at all, leaving a dependency swap completely unguarded — must
-          #    hash to the pinned value.
-          {
-            for f in lib.rs instructions/admin/create_support_mint_associated.rs; do
-              echo "=== src/$f ==="
-              diff <(sed 's/\r$//' "$UP/src/$f") <(sed 's/\r$//' "$OURS/src/$f") || true
-            done
-            echo "=== Cargo.toml ==="
-            diff <(sed 's/\r$//' "$UP/Cargo.toml") <(sed 's/\r$//' "$OURS/Cargo.toml") || true
-          } > /tmp/tegridy-delta.txt
-
-          ACTUAL=$(sha256sum /tmp/tegridy-delta.txt | cut -d' ' -f1)
-          echo "─── the delta being hashed ───"
-          cat /tmp/tegridy-delta.txt
-          echo "──────────────────────────────"
-          if [ "$ACTUAL" != "$EXPECTED_DELTA_SHA256" ]; then
-            echo "::error::Delta from upstream CHANGED."
-            echo "  expected $EXPECTED_DELTA_SHA256"
-            echo "  actual   $ACTUAL"
-            echo "If the change is intentional, read the diff printed above, satisfy yourself"
-            echo "it is still ONLY the four authority/identity constants, the program's own"
-            echo "name and contact text, the one create_lp_metadata instruction and comments,"
-            echo "then update EXPECTED_DELTA_SHA256 in this workflow IN THE SAME PR."
-            exit 1
-          fi
-          echo "✅ Delta from upstream $UPSTREAM_COMMIT matches the pinned hash exactly"
-          echo "   ($(grep -c '^[<>]' /tmp/tegridy-delta.txt) changed lines across 3 files)"
+        run: node solana/guards/provenance.mjs cp-swap
 
   # The Raydium CLMM vendor guard lived here until 2026-08-23.
   #
@@ -294,41 +164,52 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      # cp-swap's upstream at ITS pin, for the deny-list. clmm-provenance.sh clones
-      # raydium-clmm at its own pin, which lives in that script.
-      - name: Clone cp-swap's pinned upstream
-        run: |
-          git clone --quiet "$UPSTREAM_REPO" /tmp/cpswap-upstream
-          git -C /tmp/cpswap-upstream checkout --quiet "$UPSTREAM_COMMIT"
-      - name: tegridy-clmm is upstream plus exactly the pinned identity delta
-        run: bash solana/guards/clmm-provenance.sh /tmp/clmm-upstream
+      # No clone here either: hashes, the reviewed patches and the deny-list are in
+      # solana/guards/upstream/, written once by `provenance.mjs --regenerate`.
+      - name: tegridy-clmm and its vendored uint are upstream plus exactly the pinned identity delta
+        run: node solana/guards/provenance.mjs tegridy-clmm uint
       - name: No outside key in either copied program
-        run: >-
-          node solana/guards/key-guard.mjs --allow solana/guards/allowed-keys.json
-          --ours solana/tegridy-amm/programs/cp-swap --ours solana/tegridy-clmm
-          --upstream /tmp/cpswap-upstream --upstream /tmp/clmm-upstream
-          --clmm-lib solana/tegridy-clmm/programs/amm/src/lib.rs
-      # A guard that cannot fail proves nothing, so each one meets a copy it must refuse.
+        run: |
+          node solana/guards/key-guard.mjs --allow solana/guards/allowed-keys.json \
+            --deny solana/guards/upstream/deny-keys.txt \
+            --ours solana/tegridy-amm/programs/cp-swap --ours solana/tegridy-clmm \
+            --clmm-lib solana/tegridy-clmm/programs/amm/src/lib.rs
+      # A guard that cannot fail proves nothing, so each one meets copies it must refuse.
+      # Every disguise an outside check tried is in frontend/src/test/solanaGuardTampers.test.ts.
       - name: Each guard refuses a known-bad copy
         run: |
           set -uo pipefail
           refused() { if "$@" > /tmp/refused.log 2>&1; then echo "::error::this passed and must not: $*"; cat /tmp/refused.log; exit 1; fi; }
-          ALLOW="--allow solana/guards/allowed-keys.json"
-          # Upstream's own program carries Raydium's keys.
-          refused node solana/guards/key-guard.mjs $ALLOW --ours /tmp/clmm-upstream/programs/amm --upstream /tmp/clmm-upstream
-          grep -q 'GThUX1Atko4tqhN2NaiTazWSeFWMuiUvfFnyJyUghFMJ is hard-coded by upstream' /tmp/refused.log \
-            || { echo "::error::refused, but not for Raydium's admin key"; cat /tmp/refused.log; exit 1; }
+          because() { grep -qF "$1" /tmp/refused.log || { echo "::error::refused, but not because: $1"; cat /tmp/refused.log; exit 1; }; }
+          KG="node solana/guards/key-guard.mjs --allow solana/guards/allowed-keys.json --deny solana/guards/upstream/deny-keys.txt"
+          PV="node solana/guards/provenance.mjs"
+          VAULT=GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd
+          RAYDIUM_ADMIN=GThUX1Atko4tqhN2NaiTazWSeFWMuiUvfFnyJyUghFMJ
+          # Raydium's admin back in the admin's place, and glued to a letter.
+          cp -r solana/tegridy-clmm /tmp/clmm-key
+          sed -i "0,/$VAULT/s//$RAYDIUM_ADMIN/" /tmp/clmm-key/programs/amm/src/lib.rs
+          refused $KG --ours /tmp/clmm-key; because "$RAYDIUM_ADMIN is hard-coded by upstream"
+          refused $PV tegridy-clmm --ours /tmp/clmm-key; because "is not the reviewed one"
+          cp -r solana/tegridy-clmm /tmp/clmm-glued
+          echo "// 0$RAYDIUM_ADMIN" >> /tmp/clmm-glued/programs/amm/src/states/pool.rs
+          refused $KG --ours /tmp/clmm-glued; because "$RAYDIUM_ADMIN is hard-coded by upstream"
+          # A build script in cp-swap's package, outside src/.
+          cp -r solana/tegridy-amm/programs/cp-swap /tmp/cp-build
+          echo 'fn main() {}' > /tmp/cp-build/build.rs
+          refused $PV cp-swap --ours /tmp/cp-build; because "build.rs is in our copy"
+          refused $KG --ours /tmp/cp-build; because "cargo reads this on its own"
+          # A crate swapped in the lock.
+          cp -r solana/tegridy-clmm /tmp/clmm-lock
+          sed -i '0,/^version = "0.11.1"$/s//version = "0.8.0"/' /tmp/clmm-lock/Cargo.lock
+          refused $PV tegridy-clmm --ours /tmp/clmm-lock; because "Cargo.lock hashes to"
+          # The devnet and localnet gate removed.
+          cp -r solana/tegridy-clmm /tmp/clmm-gate
+          sed -i '/not(feature = "test-chain-keys")/,+1d' /tmp/clmm-gate/programs/amm/src/lib.rs
+          refused $KG --ours solana/tegridy-clmm --clmm-lib /tmp/clmm-gate/programs/amm/src/lib.rs
+          because "lacks the compile_error! gate"
           # A release refuses the placeholder program id.
-          refused node solana/guards/key-guard.mjs $ALLOW --release --ours solana/tegridy-clmm --upstream /tmp/clmm-upstream
-          grep -q 'is the placeholder program id' /tmp/refused.log \
-            || { echo "::error::--release refused, but not for the placeholder"; cat /tmp/refused.log; exit 1; }
-          # One line added outside the identity files.
-          cp -r solana/tegridy-clmm /tmp/clmm-bad
-          echo '// injected' >> /tmp/clmm-bad/programs/amm/src/instructions/swap.rs
-          refused bash solana/guards/clmm-provenance.sh /tmp/clmm-upstream /tmp/clmm-bad
-          grep -q 'swap.rs differs from upstream' /tmp/refused.log \
-            || { echo "::error::refused, but not for the injected line"; cat /tmp/refused.log; exit 1; }
-          echo "all three known-bad copies refused"
+          refused $KG --release --ours solana/tegridy-clmm; because "is the placeholder program id"
+          echo "every known-bad copy refused"
 
   clmm-build:
     needs: scope
@@ -409,6 +290,21 @@ jobs:
           grep -q 'the program id is still the placeholder' /tmp/clmm-refused.log \
             || { echo "::error::the build failed, but not at the placeholder gate"; tail -40 /tmp/clmm-refused.log; exit 1; }
           echo "refused at the placeholder gate, as it must be"
+      # devnet hands every power to one test key and localnet reads the admin from the build's
+      # environment: neither may build unless test-chain-keys is also named.
+      - name: A devnet or localnet build is refused without test-chain-keys
+        run: |
+          set -uo pipefail
+          for F in devnet localnet; do
+            if CLMM_LOCALNET_ADMIN=GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd \
+              cargo build-sbf --features "placeholder-id,$F" -- --locked > "/tmp/clmm-$F.log" 2>&1; then
+              echo "::error::a $F build without test-chain-keys succeeded"
+              exit 1
+            fi
+            grep -q 'devnet and localnet give every power to a test key' "/tmp/clmm-$F.log" \
+              || { echo "::error::the $F build failed, but not at the test-chain gate"; tail -40 "/tmp/clmm-$F.log"; exit 1; }
+            echo "$F refused at the test-chain gate, as it must be"
+          done
       - name: Upstream's own unit tests
         run: cargo test --locked --lib
 

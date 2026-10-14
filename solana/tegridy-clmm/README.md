@@ -5,12 +5,17 @@ Raydium's concentrated-liquidity program, `raydium-io/raydium-clmm` at commit
 Only its identity changed: every address upstream hard-codes for itself is the venue's
 (admin, fee owners and the spare-SOL collector are the venue's two-signature vault), and its
 name, links and memos say memetics.finance. Its program id is a placeholder that no release
-build accepts.
+build accepts, and a `devnet` or `localnet` build is refused unless `test-chain-keys` is named.
 
-Three CI checks in `.github/workflows/solana-ci.yml` hold that:
+`vendor/uint` is Raydium's copy of the `uint` crate (MIT or Apache-2.0, see its two licence
+files) at commit `43a0303b9c2a23a00508816bd6d5a2e9381f143c`, unchanged, so the build fetches
+nothing from Raydium.
 
-- `solana/guards/clmm-provenance.sh`: same files as upstream, only the identity files differ,
-  and the change inside them hashes to the reviewed value.
+Three CI checks in `.github/workflows/solana-ci.yml` hold that, with no clone of any Raydium
+repository:
+
+- `solana/guards/provenance.mjs`: same files as upstream (hashes in `solana/guards/upstream/`),
+  only the reviewed patch differs, and the patch and `Cargo.lock` hash to their pins.
 - `solana/guards/key-guard.mjs`: every key in this copy and in `../tegridy-amm/programs/cp-swap`
   is named in `solana/guards/allowed-keys.json`, and none is a key upstream hard-codes.
 - the build: compiles with `--features placeholder-id`, and is refused without it.

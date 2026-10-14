@@ -152,9 +152,11 @@ if want solana; then
   else
     note solana "ladder layout pins" SKIP "cargo is not on PATH"
   fi
-  # Clones raydium-clmm at its pin into /tmp/clmm-upstream the first time.
-  gate solana "clmm provenance" . bash solana/guards/clmm-provenance.sh /tmp/clmm-upstream
-  note solana "diff-guard, key guard, SBF builds, validator suites" "CI only" "need upstream clones and the Agave and Anchor toolchains; WSL recipe in docs/CI_ON_GITLAB.md"
+  # No clone: both read the hashes and deny-list in solana/guards/upstream/.
+  gate solana "diff-guard (cp-swap provenance)" . node solana/guards/provenance.mjs cp-swap
+  gate solana "clmm provenance" . node solana/guards/provenance.mjs tegridy-clmm uint
+  gate solana "no outside key" . node solana/guards/key-guard.mjs --allow solana/guards/allowed-keys.json --deny solana/guards/upstream/deny-keys.txt --ours solana/tegridy-amm/programs/cp-swap --ours solana/tegridy-clmm --clmm-lib solana/tegridy-clmm/programs/amm/src/lib.rs
+  note solana "SBF builds, validator suites" "CI only" "need the Agave and Anchor toolchains; WSL recipe in docs/CI_ON_GITLAB.md"
 fi
 
 printf '\n%-10s %-44s %-8s %s\n' AREA GATE RESULT TIME/WHY

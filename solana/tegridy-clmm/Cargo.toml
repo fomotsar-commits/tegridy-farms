@@ -1,6 +1,9 @@
 [workspace]
 resolver = "2"
 members = ["programs/*"]
+# memetics.finance: Raydium's uint fork, at the commit upstream's lock named, so the build
+# fetches nothing from Raydium. Not a member: its own dev-dependencies stay out of the lock.
+exclude = ["vendor"]
 
 [workspace.metadata.cli]
 solana = "3.1.10"

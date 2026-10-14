@@ -3086,7 +3086,6 @@ checksum = "b6f5e870be6c3b371b77fe0ee0bafb859fa4964b4404c27de1d380043c4dda20"
 [[package]]
 name = "uint"
 version = "0.9.5"
-source = "git+https://github.com/raydium-io/parity-common#43a0303b9c2a23a00508816bd6d5a2e9381f143c"
 dependencies = [
  "byteorder",
  "crunchy",

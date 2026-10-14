@@ -12,7 +12,7 @@ use states::*;
 
 // Changed by memetics.finance (tegridy-clmm): raydium-clmm @ ed1eb415 (Apache-2.0) with every
 // address upstream hard-codes for itself replaced by the venue's, plus its name, links and memos.
-// No other line differs; CI's clmm-provenance and key guard hold that (docs/RANGE_POOLS_PLAN.md).
+// No other line differs; the guards in solana/guards/ hold that (docs/RANGE_POOLS_PLAN.md).
 // No `auditors` line: upstream's audits do not cover this copy.
 #[cfg(not(feature = "no-entrypoint"))]
 solana_security_txt::security_txt! {
@@ -28,6 +28,11 @@ solana_security_txt::security_txt! {
 // any build without the `placeholder-id` feature stops here, so no release can carry it.
 #[cfg(not(any(test, feature = "placeholder-id")))]
 compile_error!("tegridy-clmm: the program id is still the placeholder; the deploy pack sets the real id and removes this gate");
+// `devnet` gives every power to one test key and `localnet` reads the admin from the build's
+// environment. Neither builds unless `test-chain-keys` is also named, so no release can move a
+// power off the vault by a feature flag. The deploy pack keeps this gate.
+#[cfg(all(any(feature = "devnet", feature = "localnet"), not(feature = "test-chain-keys")))]
+compile_error!("tegridy-clmm: devnet and localnet give every power to a test key; add the test-chain-keys feature to build one, and never deploy that build");
 #[cfg(feature = "devnet")]
 declare_id!("RangePoo1PLACEHo1DERnotDep1oyed111111111111");
 #[cfg(not(feature = "devnet"))]
