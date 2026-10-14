@@ -4,7 +4,7 @@ import { BUNGALOWS } from './bungalows';
 
 describe('routeVoice (wave seven, row Q)', () => {
   it('puts TOWELI protocol pages and TOWELI doors in the TOWELI room', () => {
-    for (const p of ['/tokenomics', '/treasury', '/premium', '/lore', '/referrals', '/zap', '/earn/toweli', '/toweli', '/towelie']) {
+    for (const p of ['/tokenomics', '/treasury', '/premium', '/lore', '/zap', '/earn/toweli', '/toweli', '/towelie']) {
       expect(routeVoice(p), p).toBe('toweli');
     }
   });
@@ -27,7 +27,7 @@ describe('routeVoice (wave seven, row Q)', () => {
     expect(routeVoice('/tokenomics/')).toBe('toweli');
     expect(isToweliRoomPage('/tokenomics/')).toBe(true);
     expect(isToweliRoomPage('/toweli')).toBe(false);
-    expect(TOWELI_ROOM_PATHS.size).toBe(7);
+    expect(TOWELI_ROOM_PATHS.size).toBe(6);
   });
 });
 
