@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import { usePageTitle } from '../hooks/usePageTitle';
 import { PageArtBackdrop } from '../components/PageArtBackdrop';
+import { CardArt } from '../components/ui/CardArt';
 import { CheckoutWidget } from '../components/commerce/CheckoutWidget';
 import { InvoiceBuilder } from '../components/commerce/InvoiceBuilder';
 import { SubscriptionPanel } from '../components/commerce/SubscriptionPanel';
@@ -107,7 +108,8 @@ export default function CheckoutPage() {
         <div className="mt-6">
           {tab === 'pay' ? (
             bothPresent ? (
-              <section className="rounded-xl border border-white/15 bg-white/[0.02] p-4">
+              <section className="relative isolate rounded-xl border border-white/15 bg-white/[0.02] p-4">
+                <CardArt pageId="checkout" idx={1} />
                 <h2 className="text-sm font-semibold text-white">This link names two invoices</h2>
                 <p className="mt-2 text-[13px] leading-relaxed text-white/75">
                   The address bar carries a signed invoice (<code className="text-white/85">#i=…</code>) and a

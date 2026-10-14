@@ -12,6 +12,7 @@
 
 import type { BandTarget, SoftLever } from '../../lib/launchSim/simulate';
 import type { Band } from '../../lib/detection';
+import { CardArt } from '../ui/CardArt';
 
 const BAND_TITLE: Record<Band, string> = {
   'well-distributed': 'Well-distributed',
@@ -58,14 +59,19 @@ function LeverRow({ lever }: { lever: SoftLever }) {
   );
 }
 
-function TargetCard({ target }: { target: BandTarget }) {
+// Band target cards cycle through three art surfaces (launch-simulator 6-8), one per band.
+const TARGET_ART_BASE = 6;
+const TARGET_ART_SLOTS = 3;
+
+function TargetCard({ target, slot }: { target: BandTarget; slot: number }) {
   const met = target.met;
   return (
     <div
-      className={`rounded-xl border p-4 ${
+      className={`relative isolate rounded-xl border p-4 ${
         met ? 'border-emerald-500/30 bg-emerald-500/[0.06]' : 'border-white/12 bg-black/20'
       }`}
     >
+      <CardArt pageId="launch-simulator" idx={TARGET_ART_BASE + (slot % TARGET_ART_SLOTS)} />
       <div className="flex items-center justify-between mb-2">
         <span className="text-white font-semibold text-sm">{BAND_TITLE[target.band]}</span>
         <span
@@ -136,8 +142,8 @@ export function BandDeltaPanel({ targets }: { targets: BandTarget[] }) {
         in isolation — because the signals interact, treat them as direction, not a recipe. Fix the hard blockers first.
       </p>
       <div className="grid gap-3 sm:grid-cols-2">
-        {targets.map((t) => (
-          <TargetCard key={t.band} target={t} />
+        {targets.map((t, i) => (
+          <TargetCard key={t.band} target={t} slot={i} />
         ))}
       </div>
     </div>

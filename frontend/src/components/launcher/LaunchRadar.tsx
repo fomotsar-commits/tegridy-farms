@@ -17,6 +17,7 @@ import { Link } from 'react-router-dom';
 import { m } from 'framer-motion';
 import { fetchLaunchRadar, type RadarEntry } from '../../lib/launcher/radarClient';
 import { formatTimeAgo } from '../../lib/formatting';
+import { CardArt } from '../ui/CardArt';
 
 type State =
   | { phase: 'loading' }
@@ -81,18 +82,20 @@ export function LaunchRadar() {
 
       {state.phase === 'loading' && (
         <div
-          className="rounded-2xl p-8 text-center"
+          className="relative isolate rounded-2xl p-8 text-center"
           style={{ border: '1px dashed rgba(255,255,255,0.12)', background: 'rgba(6,12,26,0.6)' }}
         >
+          <CardArt pageId="launch" idx={62} />
           <p className="text-white/50 text-xs animate-pulse">Reading new pools…</p>
         </div>
       )}
 
       {state.phase === 'unavailable' && (
         <div
-          className="rounded-2xl p-8 text-center"
+          className="relative isolate rounded-2xl p-8 text-center"
           style={{ border: '1px dashed rgba(255,255,255,0.12)', background: 'rgba(6,12,26,0.6)' }}
         >
+          <CardArt pageId="launch" idx={62} />
           <p className="text-white/70 text-sm font-medium">Radar unavailable right now</p>
           <p className="text-white/40 text-xs mt-1">
             The new-pool feed didn&apos;t respond. That&apos;s a data outage on our side, not a signal about any token —
@@ -107,9 +110,10 @@ export function LaunchRadar() {
 
       {state.phase === 'ready' && state.entries.length === 0 && (
         <div
-          className="rounded-2xl p-8 text-center"
+          className="relative isolate rounded-2xl p-8 text-center"
           style={{ border: '1px dashed rgba(255,255,255,0.12)', background: 'rgba(6,12,26,0.6)' }}
         >
+          <CardArt pageId="launch" idx={62} />
           <p className="text-white/70 text-sm font-medium">No new pools in the current window</p>
           <p className="text-white/40 text-xs mt-1">The upstream returned nothing to show right now.</p>
         </div>

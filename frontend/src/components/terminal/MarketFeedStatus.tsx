@@ -5,6 +5,7 @@ import {
   type FeedBannerContext,
   type MarketFeedState,
 } from '../../lib/terminal/feedBanner';
+import { CardArt } from '../ui/CardArt';
 
 // The market feed's banner. It renders `feedBanner()` and adds nothing.
 //
@@ -31,7 +32,8 @@ export function MarketFeedStatus({ state, context, onReload }: MarketFeedStatusP
   const banner = feedBanner(state, context);
 
   return (
-    <div className={`rounded-xl border px-4 py-3 ${TONES[banner.tone]}`} role="status">
+    <div className={`relative isolate rounded-xl border px-4 py-3 ${TONES[banner.tone]}`} role="status">
+      <CardArt pageId="terminal" idx={2} />
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 className="text-sm font-semibold text-white">{banner.title}</h2>
         {banner.showRetry ? (

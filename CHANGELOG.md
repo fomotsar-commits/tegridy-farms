@@ -10,6 +10,7 @@ page keeps the newest thirty days.
 
 - A link to one part of a page now lands on that part while the page is still loading, when its address is opened directly, and when the same link is pressed again. "The bungalows" on the Island page often left you at the top of the home page instead. "See what you'd earn" on the TOWELI farm now opens the estimate in the TOWELI room; it used to open the front page, which has no estimate.
 - After the site goes back to an earlier version, a page could stay broken for one browser: it had asked for a script or a stylesheet while the site did not have it, and kept the wrong answer for up to a year. The site's background worker no longer keeps that answer, and it asks the site again when the browser itself kept it. A browser that does not run the worker is not covered yet.
+- Pools and Earn, every tab: each page has a background and each card a picture, and both studios list them all, under the tab's own name (Pools · Add / Remove, Solana LP, Venue AMM, Zap; Earn · Staking, Pool rooms, NFT Loans, Referrals, Yield, Copy Trading, Competitions, Checkout). The same goes for every other tab's cards. Pictures rotate until a studio places one.
 
 ### 2026-10-10
 

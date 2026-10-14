@@ -22,6 +22,7 @@ import {
   IDENTITY_IMAGE_MAX_BYTES,
 } from '../../lib/launcher/curveIdentity';
 import { useIrysUpload } from '../../hooks/useIrysUpload';
+import { CardArt } from '../ui/CardArt';
 import { assertMayLaunch } from '../../lib/heat/launchGate';
 import { getTxUrl } from '../../lib/explorer';
 import {
@@ -163,9 +164,10 @@ export function CurveCreateView({
         initial={{ opacity: 0, y: 12 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.3 }}
-        className="rounded-2xl p-5 space-y-3"
+        className="relative isolate rounded-2xl p-5 space-y-3"
         style={cardStyle}
       >
+        <CardArt pageId="eth-curve" idx={4} />
         <p className="text-white/90 text-sm font-semibold">We couldn’t confirm your launch</p>
         <p className="text-amber-300/90 text-[11px] leading-relaxed">
           The create transaction was sent, but we couldn’t read its result, so we can’t tell whether your
@@ -208,9 +210,10 @@ export function CurveCreateView({
         initial={{ opacity: 0, y: 12 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.3 }}
-        className="rounded-2xl p-5 space-y-3"
+        className="relative isolate rounded-2xl p-5 space-y-3"
         style={cardStyle}
       >
+        <CardArt pageId="eth-curve" idx={4} />
         <p className="text-white/90 text-sm font-semibold">
           {stage === 'done' ? 'Your launch is live 🎉' : 'Launch is live — identity didn’t publish'}
         </p>
@@ -270,9 +273,10 @@ export function CurveCreateView({
       initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.3 }}
-      className="rounded-2xl p-5 space-y-3"
+      className="relative isolate rounded-2xl p-5 space-y-3"
       style={cardStyle}
     >
+      <CardArt pageId="eth-curve" idx={4} />
       <div className="flex gap-3">
         {/* Image picker — identity is the price of entry for a memecoin. */}
         <div className="shrink-0">

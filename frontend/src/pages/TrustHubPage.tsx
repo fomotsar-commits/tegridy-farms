@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom';
 import { m } from 'framer-motion';
 import { usePageTitle } from '../hooks/usePageTitle';
 import { PageArtBackdrop } from '../components/PageArtBackdrop';
+import { CardArt } from '../components/ui/CardArt';
 import { SOURCE_URL } from '../lib/constants';
 
 // TRUST HUB — the one screen that frames the three detection surfaces as a single
@@ -49,6 +50,9 @@ const TOOLS: Tool[] = [
   },
 ];
 
+// The tool cards take trust:0..2 (wraps at the list length); "How to read a result" is trust:3.
+const TOOL_ART_SLOTS = 3;
+
 export default function TrustHubPage() {
   usePageTitle(
     'Trust Tools',
@@ -83,8 +87,9 @@ export default function TrustHubPage() {
             >
               <Link
                 to={t.to}
-                className="glass-card rounded-xl p-4 h-full flex flex-col hover:border-emerald-500/40 transition-colors"
+                className="glass-card relative isolate rounded-xl p-4 h-full flex flex-col hover:border-emerald-500/40 transition-colors"
               >
+                <CardArt pageId="trust" idx={0 + (i % TOOL_ART_SLOTS)} />
                 <div className="flex items-baseline justify-between gap-3 mb-1">
                   <span className="text-text-primary font-semibold text-[15px]">{t.name}</span>
                   <span className="text-[10px] uppercase tracking-wider text-text-muted shrink-0">{t.reads}</span>
@@ -98,7 +103,8 @@ export default function TrustHubPage() {
         </div>
 
         {/* ── How to read a result ───────────────────────────────────── */}
-        <div className="glass-card rounded-xl p-4 mt-4">
+        <div className="glass-card relative isolate rounded-xl p-4 mt-4">
+          <CardArt pageId="trust" idx={3} />
           <h2 className="text-text-primary font-semibold text-[14px] mb-2">How to read a result</h2>
           <ul className="text-[13px] text-text-secondary space-y-1.5 leading-relaxed list-disc pl-4">
             <li>

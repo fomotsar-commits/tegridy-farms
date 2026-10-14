@@ -10,6 +10,7 @@ import { usePageTitle } from '../hooks/usePageTitle';
 import { trackPageView } from '../lib/analytics';
 import { ArtImg } from '../components/ArtImg';
 import { PageArtBackdrop } from '../components/PageArtBackdrop';
+import { CardArt } from '../components/ui/CardArt';
 import { LaunchGate } from '../components/LaunchGate';
 import { VenueLaunchLines } from '../components/launcher/VenueLaunchLines';
 import { SolanaProviders } from '../components/solana/SolanaProviders';
@@ -275,7 +276,7 @@ export function TradePanel({
   const disabled = !c || !!blocked;
 
   return (
-    <Card title="Trade the curve">
+    <Card title="Trade the curve" art={<CardArt pageId="curve-launch" idx={4} />}>
       <div className="flex gap-1.5 mb-3" role="group" aria-label="Buy or sell">
         {(['buy', 'sell'] as const).map((s) => (
           <button
@@ -513,7 +514,7 @@ export function CreateChecklist({
   const g = global;
   const treasury = describeTreasury(g?.feeRecipient ?? null);
   return (
-    <Card title="Open a launch">
+    <Card title="Open a launch" art={<CardArt pageId="curve-launch" idx={5} />}>
       {launchingOff && <p className="text-white/85">{launchingOff}</p>}
       <p>
         Launching mints the entire supply, sends the platform reserve listed below to {treasury.name}, puts the rest
@@ -692,7 +693,7 @@ export function CurveLaunchView({
           launchingOff={launchingOff}
         />
 
-        <Card title="Look up a launch">
+        <Card title="Look up a launch" art={<CardArt pageId="curve-launch" idx={2} />}>
           <p>Open a launch by its token address (mint). This view has no list of launches.</p>
           <Field label="Token mint address">
             <input
@@ -757,7 +758,7 @@ export function CurveLaunchView({
         />
 
         {wallet && (
-          <Card title="Wallet">
+          <Card title="Wallet" art={<CardArt pageId="curve-launch" idx={6} />}>
             {wallet.address ? (
               <Row label="Connected" value={wallet.address} />
             ) : (
@@ -790,7 +791,7 @@ export function CurveLaunchView({
 function CurveExplainer({ treasury }: { treasury: TreasuryDescription }) {
   return (
     <div className="space-y-4">
-      <Card title="What this is">
+      <Card title="What this is" art={<CardArt pageId="curve-launch" idx={7} />}>
         <p>
           Our own bonding curve program, and our own AMM to graduate into — unlike the retired Solana launch rail, which
           ran on Meteora&apos;s curve and migrated into Meteora&apos;s pool.
@@ -814,7 +815,7 @@ function CurveExplainer({ treasury }: { treasury: TreasuryDescription }) {
         </p>
       </Card>
 
-      <Card title="What graduation does and does not promise">
+      <Card title="What graduation does and does not promise" art={<CardArt pageId="curve-launch" idx={8} />}>
         <ul className="list-disc pl-4 space-y-1">
           <li>
             The LP tokens are burned in the same instruction that creates the pool, and the program aborts the whole
@@ -837,7 +838,7 @@ function CurveExplainer({ treasury }: { treasury: TreasuryDescription }) {
         </ul>
       </Card>
 
-      <Card title="What this page will not show you">
+      <Card title="What this page will not show you" art={<CardArt pageId="curve-launch" idx={9} />}>
         <p>
           Program state contains reserves, terms and a completion flag. It does not contain a price in dollars, a market
           cap, a holder count, a trade history or a volume figure, and there is no indexer behind this page inventing
@@ -871,7 +872,7 @@ function OpenByMint() {
     }
   }
   return (
-    <Card title="Open a launch by its address">
+    <Card title="Open a launch by its address" art={<CardArt pageId="curve-launch" idx={10} />}>
       <p>Paste the full token address (mint). Compare every character with the one you were given.</p>
       <Field label="Token mint address">
         <input

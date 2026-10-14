@@ -12,6 +12,7 @@ import { StandingsTable } from '../components/competitions/StandingsTable';
 import { YourRank } from '../components/competitions/YourRank';
 import { SEASONS } from '../lib/competitions/season';
 import { PageArtBackdrop } from '../components/PageArtBackdrop';
+import { CardArt } from '../components/ui/CardArt';
 import { isIndexerConfigured } from '../lib/indexer/client';
 
 /** A season boundary as a calendar day, in UTC: the season table's own clock. */
@@ -112,7 +113,8 @@ export default function CompetitionsPage() {
               collapse to the sentence that says what opens and when. With one,
               all three render exactly as before, behind the same gates. */}
           {!isIndexerConfigured() && season ? (
-            <p className="rounded-xl border border-white/15 bg-white/[0.02] p-4 text-xs leading-relaxed text-white/75">
+            <p className="relative isolate rounded-xl border border-white/15 bg-white/[0.02] p-4 text-xs leading-relaxed text-white/75">
+              <CardArt pageId="competitions" idx={9} />
               {season.name}, {utcDay(season.startsAt)} to {utcDay(season.endsAt)}: its standings open once
               this deployment reads the venue&apos;s indexer. Nothing is being counted until then.
             </p>
@@ -126,7 +128,8 @@ export default function CompetitionsPage() {
               syncedAt={standings.syncedAt}
             />
           ) : (
-            <section className="rounded-xl border border-white/15 bg-white/[0.02] p-4">
+            <section className="relative isolate rounded-xl border border-white/15 bg-white/[0.02] p-4">
+              <CardArt pageId="competitions" idx={5} />
               <h2 className="text-sm font-semibold text-white">No season is declared</h2>
               <p className="mt-1.5 text-xs leading-relaxed text-white/75">
                 This build declares no router season, so there is nothing to score for one. That is

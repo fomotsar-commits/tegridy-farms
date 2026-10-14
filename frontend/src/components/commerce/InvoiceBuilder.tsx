@@ -19,6 +19,7 @@ import {
 } from '../../lib/commerce/paymentLink';
 import { CopyButton } from '../ui/CopyButton';
 import { ProofOfPaymentPanel } from './ProofOfPaymentPanel';
+import { CardArt } from '../ui/CardArt';
 
 // The merchant's side: SIGN a debt, hand out the link, then read the chain.
 //
@@ -253,7 +254,8 @@ export function InvoiceBuilder({ fetchImpl }: { fetchImpl?: typeof fetch }) {
 
   return (
     <div className="space-y-4">
-      <section className={CARD}>
+      <section className={`relative isolate ${CARD}`}>
+        <CardArt pageId="checkout" idx={8} />
         <h2 className="text-sm font-semibold text-white">Sign an invoice</h2>
         <p className="mt-1 text-[12px] leading-relaxed text-white/60">
           The payee is the wallet you sign with. There is no field for it, so an invoice can only ever name
@@ -362,7 +364,8 @@ export function InvoiceBuilder({ fetchImpl }: { fetchImpl?: typeof fetch }) {
       </section>
 
       {mint.kind === 'rejected' ? (
-        <section className="rounded-xl border border-amber-400/30 bg-amber-400/[0.06] p-4">
+        <section className="relative isolate rounded-xl border border-amber-400/30 bg-amber-400/[0.06] p-4">
+          <CardArt pageId="checkout" idx={9} />
           <p className="text-[13px] leading-relaxed text-white/85">{mint.detail}</p>
           <p className="mt-2 text-[12px] leading-relaxed text-white/60">
             Nothing was signed and nothing was sent anywhere. Press the button again when you are ready.
@@ -371,14 +374,16 @@ export function InvoiceBuilder({ fetchImpl }: { fetchImpl?: typeof fetch }) {
       ) : null}
 
       {mint.kind === 'self-check-failed' ? (
-        <section className="rounded-xl border border-rose-400/30 bg-rose-400/[0.06] p-4">
+        <section className="relative isolate rounded-xl border border-rose-400/30 bg-rose-400/[0.06] p-4">
+          <CardArt pageId="checkout" idx={9} />
           <h2 className="text-sm font-semibold text-white">The signature did not verify</h2>
           <p className="mt-2 break-all text-[13px] leading-relaxed text-white/85">{mint.detail}</p>
         </section>
       ) : null}
 
       {mint.kind === 'signed' ? (
-        <section className="rounded-xl border border-emerald-400/25 bg-emerald-400/[0.06] p-4">
+        <section className="relative isolate rounded-xl border border-emerald-400/25 bg-emerald-400/[0.06] p-4">
+          <CardArt pageId="checkout" idx={9} />
           <h2 className="text-sm font-semibold text-white">Your payment link</h2>
           <code className="mt-2 block break-all rounded bg-black/40 px-2 py-2 font-mono text-[12px] text-white/85">
             {mint.link}
@@ -429,7 +434,8 @@ export function InvoiceBuilder({ fetchImpl }: { fetchImpl?: typeof fetch }) {
 
       {/* ── The optional store, behind the signed link ─────────────────── */}
 
-      <section className={CARD}>
+      <section className={`relative isolate ${CARD}`}>
+        <CardArt pageId="checkout" idx={10} />
         <button
           type="button"
           onClick={() => setShowStore((v) => !v)}
@@ -475,7 +481,8 @@ export function InvoiceBuilder({ fetchImpl }: { fetchImpl?: typeof fetch }) {
       </section>
 
       {publish.kind === 'failed' ? (
-        <section className="rounded-xl border border-amber-400/30 bg-amber-400/[0.06] p-4">
+        <section className="relative isolate rounded-xl border border-amber-400/30 bg-amber-400/[0.06] p-4">
+          <CardArt pageId="checkout" idx={11} />
           <p className="text-[13px] leading-relaxed text-white/85">{publish.detail}</p>
           <p className="mt-2 text-[13px] leading-relaxed text-white/75">
             The short-link store is not on this deployment. The signed link above works without it.
@@ -487,7 +494,8 @@ export function InvoiceBuilder({ fetchImpl }: { fetchImpl?: typeof fetch }) {
       ) : null}
 
       {publish.kind === 'published' ? (
-        <section className="rounded-xl border border-emerald-400/25 bg-emerald-400/[0.06] p-4">
+        <section className="relative isolate rounded-xl border border-emerald-400/25 bg-emerald-400/[0.06] p-4">
+          <CardArt pageId="checkout" idx={11} />
           <h2 className="text-sm font-semibold text-white">Short link published</h2>
           <p className="mt-2 break-all text-[13px] text-white/85">
             {formatScaled(publish.invoice.settleAmount, publish.invoice.settleDecimals)}{' '}
@@ -510,7 +518,8 @@ export function InvoiceBuilder({ fetchImpl }: { fetchImpl?: typeof fetch }) {
       ) : null}
 
       {claims.kind !== 'idle' ? (
-        <section className={CARD}>
+        <section className={`relative isolate ${CARD}`}>
+          <CardArt pageId="checkout" idx={12} />
           <h2 className="text-sm font-semibold text-white">Reported payments</h2>
           {claims.kind === 'loading' ? (
             <p className="mt-2 text-[13px] text-white/70" aria-busy="true">

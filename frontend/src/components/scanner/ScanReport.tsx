@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { m } from 'framer-motion';
 import type { ScanOutcome } from '../../lib/scanner';
 import type { Band, ConfidenceLevel, HolderCategory } from '../../lib/detection';
+import { CardArt } from '../ui/CardArt';
 
 // Presentational render of a completed scan — the descriptive measurement, framed
 // as a measurement (disclosed method, components, exclusions, timestamp, correction
@@ -117,7 +118,8 @@ export function ScanReport({ outcome }: { outcome: ScanOutcome }) {
   return (
     <m.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.25 }} className="space-y-4">
       {/* ── Verdict header ─────────────────────────────────────────── */}
-      <div className="rounded-xl p-5" style={{ background: band.tint, border: `1px solid ${band.border}` }}>
+      <div className="relative isolate rounded-xl p-5" style={{ background: band.tint, border: `1px solid ${band.border}` }}>
+        <CardArt pageId="scanner" idx={5} />
         <div className="flex flex-wrap items-center gap-3 mb-2">
           <span className="text-[22px] md:text-[26px] font-bold leading-none" style={{ color: band.color }}>
             {band.label}
@@ -141,12 +143,14 @@ export function ScanReport({ outcome }: { outcome: ScanOutcome }) {
       </div>
 
       {/* ── Why this band ──────────────────────────────────────────── */}
-      <div className="glass-card rounded-xl p-4">
+      <div className="glass-card relative isolate rounded-xl p-4">
+        <CardArt pageId="scanner" idx={6} />
         <p className="text-[12px] text-text-secondary">{analysis.bandReason}</p>
       </div>
 
       {/* ── Concentration components ───────────────────────────────── */}
-      <div className="glass-card rounded-xl p-4">
+      <div className="glass-card relative isolate rounded-xl p-4">
+        <CardArt pageId="scanner" idx={7} />
         <h3 className="text-[13px] font-semibold text-text-primary mb-3">Concentration components</h3>
         <div className="grid grid-cols-2 md:grid-cols-3 gap-2.5">
           <StatTile label="Effective holders (N_eff)" value={roundEff(m2.effectiveHolders)} sub={`over ${m2.includedHolders} holders`} />
@@ -180,7 +184,8 @@ export function ScanReport({ outcome }: { outcome: ScanOutcome }) {
       </div>
 
       {/* ── Hard-fact checks (the weakest-link gate) ───────────────── */}
-      <div className="glass-card rounded-xl p-4">
+      <div className="glass-card relative isolate rounded-xl p-4">
+        <CardArt pageId="scanner" idx={8} />
         <h3 className="text-[13px] font-semibold text-text-primary mb-1">Hard-fact checks</h3>
         <p className="text-[11px] text-text-muted mb-3">
           Facts that can override the distribution read. Unknown facts are shown but never counted against a token.
@@ -214,7 +219,8 @@ export function ScanReport({ outcome }: { outcome: ScanOutcome }) {
       </div>
 
       {/* ── Exclusions ─────────────────────────────────────────────── */}
-      <div className="glass-card rounded-xl p-4">
+      <div className="glass-card relative isolate rounded-xl p-4">
+        <CardArt pageId="scanner" idx={9} />
         <h3 className="text-[13px] font-semibold text-text-primary mb-1">What was excluded before the math</h3>
         <p className="text-[11px] text-text-muted mb-3">
           Pools, exchanges, bridges, burns, lockers and contracts are not people holding the token, so they are removed
@@ -249,7 +255,8 @@ export function ScanReport({ outcome }: { outcome: ScanOutcome }) {
       </div>
 
       {/* ── Data confidence ────────────────────────────────────────── */}
-      <div className="glass-card rounded-xl p-4">
+      <div className="glass-card relative isolate rounded-xl p-4">
+        <CardArt pageId="scanner" idx={10} />
         <h3 className="text-[13px] font-semibold text-text-primary mb-2">
           Data confidence: <span style={{ color: conf.color }}>{conf.label}</span>
         </h3>
@@ -265,7 +272,8 @@ export function ScanReport({ outcome }: { outcome: ScanOutcome }) {
 
       {/* ── Coverage + caveats ─────────────────────────────────────── */}
       {(outcome.coverageNotes.length > 0 || analysis.caveats.length > 0) && (
-        <div className="glass-card rounded-xl p-4">
+        <div className="glass-card relative isolate rounded-xl p-4">
+          <CardArt pageId="scanner" idx={11} />
           <h3 className="text-[13px] font-semibold text-text-primary mb-2">Read this with</h3>
           <ul className="space-y-1.5">
             {outcome.coverageNotes.map((n, i) => (
@@ -279,7 +287,8 @@ export function ScanReport({ outcome }: { outcome: ScanOutcome }) {
       )}
 
       {/* ── Method + correction path ───────────────────────────────── */}
-      <div className="glass-card rounded-xl p-4">
+      <div className="glass-card relative isolate rounded-xl p-4">
+        <CardArt pageId="scanner" idx={12} />
         <details>
           <summary className="text-[13px] font-semibold text-text-primary cursor-pointer select-none">
             Method &amp; how to dispute a label

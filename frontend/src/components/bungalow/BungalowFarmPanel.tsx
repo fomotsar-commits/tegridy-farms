@@ -36,6 +36,7 @@ import { BackToEarn } from '../farm/BackToEarn';
 import { CopyButton } from '../ui/CopyButton';
 import { shortenAddress } from '../../lib/formatting';
 import { ArtImg } from '../ArtImg';
+import { CardArt } from '../ui/CardArt';
 
 /**
  * The Farm while a room with its own token is active. The room's pool cards lead, picked
@@ -204,7 +205,8 @@ export function BungalowFarmPanel({ bungalow }: { bungalow: Bungalow }) {
       </div>
 
       {/* While-you-wait: the live surfaces. */}
-      <div className="mt-6 rounded-2xl p-6" style={{ background: 'rgba(4,9,18,0.72)', border: '1px solid var(--color-purple-25)' }}>
+      <div className="relative isolate mt-6 rounded-2xl p-6" style={{ background: 'rgba(4,9,18,0.72)', border: '1px solid var(--color-purple-25)' }}>
+        <CardArt pageId="bungalow-farm" idx={3} />
         <p className="text-[10px] uppercase tracking-wider mb-3" style={{ color: 'var(--color-kyle)' }}>Live today</p>
         <div className="flex flex-wrap items-center gap-3">
           {(() => {

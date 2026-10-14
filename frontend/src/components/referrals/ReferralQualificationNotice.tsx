@@ -1,6 +1,7 @@
 import { formatUnits } from 'viem';
 import { formatNumber } from '../../lib/formatting';
 import { carveDestination, type EarnVerdict } from '../../lib/referrals/qualification';
+import { CardArt } from '../ui/CardArt';
 
 // THE DISCLOSURE. This component exists for one sentence, and the sentence has
 // to be on screen BEFORE anybody shares a link.
@@ -131,10 +132,11 @@ export function ReferralQualificationNotice({ earn, isLoading, connected, referr
 
   return (
     <section
-      className="rounded-xl p-4"
+      className="relative isolate rounded-xl p-4"
       style={{ background: '#000', border: '1px solid var(--color-purple-75)' }}
       aria-label="Referral earning requirement"
     >
+      <CardArt pageId="referrals" idx={1} />
       <h3 className="text-white text-[13px] font-medium">Before you share a link</h3>
 
       {/* UNCONDITIONAL. No wallet, no read, no verdict required — this is what the

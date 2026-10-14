@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { usePageTitle } from '../hooks/usePageTitle';
 import { trackPageView } from '../lib/analytics';
 import { PageArtBackdrop } from '../components/PageArtBackdrop';
+import { CardArt } from '../components/ui/CardArt';
 import { AlertsPanel } from '../components/notifications/AlertsPanel';
 
 /**
@@ -62,7 +63,8 @@ export default function AlertsPage() {
         <h2 className="sr-only">Your rules, inbox and delivery</h2>
         <AlertsPanel />
 
-        <div className="mt-10 rounded-2xl border border-white/10 bg-black/20 p-5">
+        <div className="relative isolate mt-10 rounded-2xl border border-white/10 bg-black/20 p-5">
+          <CardArt pageId="alerts" idx={5} />
           <h2 className="text-white/80 font-semibold text-sm mb-2">What this page does and does not promise</h2>
           <ul className="text-white/50 text-xs space-y-1.5 leading-relaxed list-disc pl-4 marker:text-white/25">
             <li>

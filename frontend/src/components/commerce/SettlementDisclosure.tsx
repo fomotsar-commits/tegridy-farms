@@ -1,5 +1,6 @@
 import { formatScaled } from '../../lib/tax/csv';
 import { canSign, type SettlementPlan } from '../../lib/commerce/settlement';
+import { CardArt } from '../ui/CardArt';
 
 // The card a buyer reads BEFORE any signature is offered.
 //
@@ -37,7 +38,8 @@ export function SettlementDisclosure({
   const signable = canSign(plan);
 
   return (
-    <section className="rounded-xl border border-white/15 bg-white/[0.02] p-4">
+    <section className="relative isolate rounded-xl border border-white/15 bg-white/[0.02] p-4">
+      <CardArt pageId="checkout" idx={6} />
       <h2 className="text-sm font-semibold text-white">Before you sign</h2>
 
       <div className="mt-3 grid gap-4 sm:grid-cols-2">

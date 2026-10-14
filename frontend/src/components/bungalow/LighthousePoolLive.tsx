@@ -10,6 +10,7 @@ import type { Bungalow } from '../../lib/bungalows';
 import { staggerContainer } from '../../lib/motion';
 import { Fact, HAIR, DIVIDED_BG } from './ledger';
 import { HeldTimeLine } from './HeldTimeLine';
+import { CardArt } from '../ui/CardArt';
 import {
   vaultIsMateriallyEmpty,
   payingNowRate,
@@ -570,7 +571,8 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
     // SECONDARY, WHOLE (2026-09-20): a quieter border, no glow loop, a heavier scrim,
     // and every control it has. Drawn for an open pool, or a closed one with no ladder;
     // a closed pool beside a ladder is members-only and gets LighthouseClaimStrip.
-    <div className="relative overflow-hidden rounded-2xl" style={{ border: '1px solid var(--color-purple-25)' }}>
+    <div className="relative isolate overflow-hidden rounded-2xl" style={{ border: '1px solid var(--color-purple-25)' }}>
+      <CardArt pageId="lighthouse-pool-live" idx={0} scrim="transparent" />
       {/* ART VISIBILITY 2026-08-31 (owner): this scrim was 0.85 and the
           resident's art underneath was barely readable — a dark page scrim
           plus a dark card scrim stacked into near-black. Lightened hard.
@@ -1369,7 +1371,8 @@ export function LighthouseClaimStrip({ bungalow }: { bungalow: Bungalow & { stak
   );
   // The closed full card's quiet shell: no glow loop, the quiet border, the 0.62 scrim.
   const shell = (body: ReactNode) => (
-    <section aria-labelledby={titleId} className="relative overflow-hidden rounded-2xl" style={{ border: '1px solid var(--color-purple-25)' }}>
+    <section aria-labelledby={titleId} className="relative isolate overflow-hidden rounded-2xl" style={{ border: '1px solid var(--color-purple-25)' }}>
+      <CardArt pageId="lighthouse-claim-strip" idx={0} scrim="transparent" />
       <div className="absolute inset-0" style={{ background: 'rgba(4,9,18,0.62)' }} />
       <div className="relative z-10 p-5">
         <p id={titleId} className="text-[11px] uppercase tracking-wider mb-1" style={{ color: 'rgba(255,255,255,0.7)' }}>

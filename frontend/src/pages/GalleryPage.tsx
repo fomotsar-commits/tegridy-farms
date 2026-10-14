@@ -4,6 +4,8 @@ import { useAccount } from 'wagmi';
 import { GALLERY_ORDER, UNIQUE_GALLERY_COUNT } from '../lib/artConfig';
 import { getBungalowIdentity } from '../lib/bungalows';
 import { ArtLightbox } from '../components/ui/ArtLightbox';
+import { CardArt } from '../components/ui/CardArt';
+import { PageArtBackdrop } from '../components/PageArtBackdrop';
 import { safeSetItem } from '../lib/storage';
 import { usePageTitle } from '../hooks/usePageTitle';
 // R041 + R072: every gallery <img> renders piece.src (from our first-party
@@ -90,9 +92,12 @@ export default function GalleryPage() {
 
   return (
     <div className="-mt-14 relative min-h-screen">
-      {/* Gallery has its own grid of every art piece — adding a fullscreen bg
-          guarantees the bg matches one of the cards. Solid color only. */}
+      {/* The solid layer is the base. This page was solid colour only until
+          2026-10-03, because a backdrop here is always one of the pieces in the
+          grid below it; the owner then asked for a placeable background on
+          every tab, and a studio pick now decides which piece that is. */}
       <div className="fixed inset-0 z-0" style={{ background: '#060c1a' }} />
+      <PageArtBackdrop pageId="gallery" />
 
       <div className="relative z-10 max-w-[1200px] mx-auto px-4 md:px-6 pt-20 pb-28 md:pb-12">
         <m.div className="mb-8" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
@@ -111,7 +116,8 @@ export default function GalleryPage() {
         </div>
 
         {sortedPieces.length === 0 ? (
-          <div className="rounded-xl p-8 text-center" style={{ background: 'rgba(13, 21, 48, 0.6)', border: '1px solid var(--color-purple-12)' }}>
+          <div className="relative isolate rounded-xl p-8 text-center" style={{ background: 'rgba(13, 21, 48, 0.6)', border: '1px solid var(--color-purple-12)' }}>
+            <CardArt pageId="gallery" idx={1} />
             <p className="text-white/70 text-[13px]">No gallery pieces available right now.</p>
             <p className="text-white/25 text-[11px] mt-1">Check back soon — new artwork is added regularly.</p>
           </div>

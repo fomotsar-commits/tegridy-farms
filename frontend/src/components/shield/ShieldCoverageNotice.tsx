@@ -1,4 +1,5 @@
 import { SHIELD_VENUES, shieldVenueReadiness, unreadableVenues } from '../../lib/shield/venues';
+import { CardArt } from '../ui/CardArt';
 
 // What this surface can see, and what it cannot.
 //
@@ -14,10 +15,11 @@ export function ShieldCoverageNotice() {
 
   return (
     <section
-      className="rounded-xl p-4"
+      className="relative isolate rounded-xl p-4"
       style={{ background: '#000', border: '1px solid var(--color-purple-75)' }}
       aria-label="Coverage"
     >
+      <CardArt pageId="shield" idx={2} />
       <p className="text-white text-[12px] font-semibold">Not covered by this page</p>
       <p className="mt-1 text-white/60 text-[11px] leading-snug">
         These venues are not read here. A position on any of them is not being watched, and its absence

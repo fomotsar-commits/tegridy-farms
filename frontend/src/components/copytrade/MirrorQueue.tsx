@@ -4,6 +4,7 @@ import { TAPE_MIRROR_REFUSAL_TEXT } from '../../lib/copytrade/tapeMirror';
 import type { MirrorIntent } from '../../lib/copytrade/follows';
 import type { QueueRefusal, QueueRow } from './queueRows';
 import { shortenAddress } from '../../lib/formatting';
+import { CardArt } from '../ui/CardArt';
 
 // Every read fill by a followed address — the copyable ones AND the ones that
 // are not.
@@ -44,7 +45,8 @@ export function MirrorQueue({ candidates, loggedTxHashes, onLog, heading = 'Mirr
   const copyable = candidates.filter((c) => c.plan !== null).length;
 
   return (
-    <section className="rounded-xl border border-white/15 bg-white/[0.02] p-4">
+    <section className="relative isolate rounded-xl border border-white/15 bg-white/[0.02] p-4">
+      <CardArt pageId="copy-trading" idx={5} />
       <h2 className="text-sm font-semibold text-white">{heading}</h2>
       <p className="mt-1.5 text-xs leading-relaxed text-white/70">{MIRROR_EXECUTION}</p>
       <p className="mt-1.5 text-[11px] leading-relaxed text-white/60">

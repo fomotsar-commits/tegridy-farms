@@ -23,6 +23,7 @@ import {
 import { HISTORY_PAGES_MAX } from '../../../lib/solana/lp/txHistory';
 import { Notice, Row } from '../curve/ui';
 import { CARD, CARD_STYLE, SHADOW } from '../curve/uiFormat';
+import { CardArt } from '../../ui/CardArt';
 import { AddLiquidityPanel } from './AddLiquidityPanel';
 import { depositOffer, lpHeld, type DepositOffer } from './offers';
 import type { LpReaders } from './readers';
@@ -254,7 +255,7 @@ export function PoolCard({
   return (
     <li
       ref={cardRef}
-      className={CARD}
+      className={`${CARD} isolate`}
       style={CARD_STYLE}
       data-testid="lp-pool"
       data-pool={view.address}
@@ -266,6 +267,7 @@ export function PoolCard({
       data-price={price.state}
       data-add={offer}
     >
+      <CardArt pageId="solana-lp" idx={7} />
       <h3 ref={headingRef} tabIndex={-1} aria-describedby={why ? whyId : undefined} className="text-white font-semibold text-[13px] mb-1 outline-none" style={SHADOW}>
         {view.origin === 'launch-pool' ? 'Launch pool' : view.origin === 'standard' ? `Standard address, fee tier ${cfg?.index ?? '?'}` : 'Pool at its own address'}
       </h3>
@@ -544,7 +546,8 @@ export function UnreadPoolCard({
   const shownFor = useShownFor(showNow);
   const whyId = useId();
   return (
-    <li ref={cardRef} className={CARD} style={CARD_STYLE} data-testid="lp-pool" data-pool={entry.address} data-deposits="unchecked" data-swaps="unread">
+    <li ref={cardRef} className={`${CARD} isolate`} style={CARD_STYLE} data-testid="lp-pool" data-pool={entry.address} data-deposits="unchecked" data-swaps="unread">
+      <CardArt pageId="solana-lp" idx={8} />
       <h3 ref={headingRef} tabIndex={-1} aria-describedby={shownFor ? whyId : undefined} className="text-white font-semibold text-[13px] mb-1 outline-none" style={SHADOW}>Pool not read</h3>
       {shownFor > 0 && <WishWhy id={whyId} why="this pool could not be read just now. Press Add more liquidity on your position again in a minute." />}
       <div className="text-white/60 text-[11px] leading-relaxed space-y-2">

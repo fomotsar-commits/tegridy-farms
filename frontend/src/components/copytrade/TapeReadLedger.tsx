@@ -2,6 +2,7 @@ import type { IslandTapeStatus } from '../../hooks/useIslandTape';
 import type { IslandTape } from '../../lib/copytrade/tape';
 import type { TapeLeaderboard } from '../../lib/copytrade/tapeLeaderboard';
 import { TAPE_CAPPED_NOTICE, TAPE_WINDOW_NOTICE } from '../../lib/copytrade/tapeLeaderboard';
+import { CardArt } from '../ui/CardArt';
 
 // THE READ LEDGER — what was asked, what answered, and what did not.
 //
@@ -74,7 +75,8 @@ export function TapeReadLedger({
   const gated = refreshAvailableAt !== null;
 
   return (
-    <div className={`rounded-xl border px-4 py-3 ${TONES[status]}`} role="status">
+    <div className={`relative isolate rounded-xl border px-4 py-3 ${TONES[status]}`} role="status">
+      <CardArt pageId="copy-trading" idx={1} />
       <div className="flex flex-wrap items-center justify-between gap-2">
         {/* h2, not h3: this ledger is a top-level section of /copy-trading, mounted
             directly after the page's h1 and sibling to the "Venue router" h2. As an h3

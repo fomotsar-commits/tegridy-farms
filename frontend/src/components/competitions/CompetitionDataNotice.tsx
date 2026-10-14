@@ -1,4 +1,5 @@
 import type { IndexedStatus } from '../../hooks/useCompetitionStandings';
+import { CardArt } from '../ui/CardArt';
 
 // What a standings read is, before a single competitor is drawn.
 //
@@ -42,7 +43,8 @@ export function CompetitionDataNotice({
   const showRetry = status === 'unavailable' || status === 'backfilling';
 
   return (
-    <div className={`rounded-xl border px-4 py-3 ${TONES[status]}`} role="status">
+    <div className={`relative isolate rounded-xl border px-4 py-3 ${TONES[status]}`} role="status">
+      <CardArt pageId="competitions" idx={7} />
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h3 className="text-sm font-semibold text-white">{TITLES[status]}</h3>
         {showRetry ? (

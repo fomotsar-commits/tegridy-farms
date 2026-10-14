@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom';
 import { m } from 'framer-motion';
 import { useUserPosition } from '../hooks/useUserPosition';
 import { staggerContainer, staggerItem } from '../lib/motion';
+import { CardArt } from './ui/CardArt';
 
 /**
  * Position Health Center (#7) — proactive warnings, not just a position readout.
@@ -88,7 +89,8 @@ export function PositionHealth() {
   const healthy = alerts.length === 0;
 
   return (
-    <div className="glass-card rounded-xl p-4 md:p-5">
+    <div className="relative isolate glass-card rounded-xl p-4 md:p-5">
+      <CardArt pageId="position-health" idx={0} />
       <div className="flex items-center justify-between mb-3">
         <h3 className="heading-luxury text-[15px] text-white">Position Health</h3>
         <span

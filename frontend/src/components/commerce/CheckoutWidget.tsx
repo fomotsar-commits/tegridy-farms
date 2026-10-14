@@ -25,6 +25,7 @@ import { noteReplacement, receiptOutcome, shortHash } from '../../lib/txErrors';
 import { getTxUrl } from '../../lib/explorer';
 import { SettlementDisclosure } from './SettlementDisclosure';
 import { ProofOfPaymentPanel } from './ProofOfPaymentPanel';
+import { CardArt } from '../ui/CardArt';
 
 // The buyer's side of a payment link.
 //
@@ -259,7 +260,8 @@ export function CheckoutWidget({ invoiceId, link, fetchImpl }: CheckoutWidgetPro
 
   if (link.status === 'none' && !invoiceId) {
     return (
-      <section className={CARD}>
+      <section className={`relative isolate ${CARD}`}>
+        <CardArt pageId="checkout" idx={2} />
         <h2 className="text-sm font-semibold text-white">No invoice</h2>
         <p className="mt-2 text-[13px] leading-relaxed text-white/70">
           A payment link looks like <code className="text-white/85">/checkout#i=…</code> (signed by the
@@ -275,7 +277,8 @@ export function CheckoutWidget({ invoiceId, link, fetchImpl }: CheckoutWidgetPro
 
   if (link.status === 'unreadable') {
     return (
-      <section className={CARD}>
+      <section className={`relative isolate ${CARD}`}>
+        <CardArt pageId="checkout" idx={2} />
         <h2 className="text-sm font-semibold text-white">This is not a payment link this build can read</h2>
         <p className="mt-2 text-[13px] leading-relaxed text-white/75">{link.detail}</p>
         <p className="mt-2 text-[12px] leading-relaxed text-white/60">
@@ -288,7 +291,8 @@ export function CheckoutWidget({ invoiceId, link, fetchImpl }: CheckoutWidgetPro
 
   if (link.status === 'verifying') {
     return (
-      <section className={CARD} aria-busy="true">
+      <section className={`relative isolate ${CARD}`} aria-busy="true">
+        <CardArt pageId="checkout" idx={2} />
         <p className="text-[13px] text-white/70">Checking the merchant signature…</p>
       </section>
     );
@@ -296,7 +300,8 @@ export function CheckoutWidget({ invoiceId, link, fetchImpl }: CheckoutWidgetPro
 
   if (link.status === 'forged') {
     return (
-      <section className={ROSE_CARD}>
+      <section className={`relative isolate ${ROSE_CARD}`}>
+        <CardArt pageId="checkout" idx={2} />
         <h2 className="text-sm font-semibold text-white">This link does not verify</h2>
         <p className="mt-2 break-all text-[13px] leading-relaxed text-white/85">
           The signature on this link does not verify against {link.merchant}. Either the link was edited after
@@ -308,7 +313,8 @@ export function CheckoutWidget({ invoiceId, link, fetchImpl }: CheckoutWidgetPro
 
   if (link.status === 'unverifiable') {
     return (
-      <section className={AMBER_CARD}>
+      <section className={`relative isolate ${AMBER_CARD}`}>
+        <CardArt pageId="checkout" idx={2} />
         <h2 className="text-sm font-semibold text-white">The merchant signature could not be checked</h2>
         <p className="mt-2 text-[13px] leading-relaxed text-white/85">
           {link.detail}. This is a statement about this browser's connection, not about the link — do not
@@ -326,7 +332,8 @@ export function CheckoutWidget({ invoiceId, link, fetchImpl }: CheckoutWidgetPro
   if (link.status === 'none') {
     if (invoiceState.status === 'loading' || invoiceState.status === 'idle') {
       return (
-        <section className={CARD} aria-busy="true">
+        <section className={`relative isolate ${CARD}`} aria-busy="true">
+          <CardArt pageId="checkout" idx={2} />
           <p className="text-[13px] text-white/70">Reading the invoice…</p>
         </section>
       );
@@ -337,7 +344,8 @@ export function CheckoutWidget({ invoiceId, link, fetchImpl }: CheckoutWidgetPro
       // they were phished.
       const missing = invoiceState.status === 'missing';
       return (
-        <section className={missing ? CARD : AMBER_CARD}>
+        <section className={`relative isolate ${missing ? CARD : AMBER_CARD}`}>
+          <CardArt pageId="checkout" idx={2} />
           <h2 className="text-sm font-semibold text-white">
             {missing ? 'No invoice is published under that id' : 'The invoice could not be read'}
           </h2>
@@ -370,7 +378,8 @@ export function CheckoutWidget({ invoiceId, link, fetchImpl }: CheckoutWidgetPro
   return (
     <div className="space-y-4">
       {signedInvoice ? (
-        <section className={CARD}>
+        <section className={`relative isolate ${CARD}`}>
+          <CardArt pageId="checkout" idx={3} />
           <h2 className="text-sm font-semibold text-white">Signed by the merchant</h2>
           <p className="mt-2 break-all text-[13px] leading-relaxed text-white/85">
             Signed by {signedInvoice.merchant} on chain {signedInvoice.chainId}.
@@ -383,7 +392,8 @@ export function CheckoutWidget({ invoiceId, link, fetchImpl }: CheckoutWidgetPro
         </section>
       ) : null}
 
-      <section className={CARD}>
+      <section className={`relative isolate ${CARD}`}>
+        <CardArt pageId="checkout" idx={4} />
         <h2 className="text-sm font-semibold text-white">Invoice {invoice.id}</h2>
         <p className="mt-2 text-[12px] text-white/60">
           Due: {due} on chain {invoice.chainId}
@@ -423,7 +433,8 @@ export function CheckoutWidget({ invoiceId, link, fetchImpl }: CheckoutWidgetPro
       {/* ── The signed token, re-read from the chain ───────────────────── */}
 
       {tokenCheck.status === 'reading' || tokenCheck.status === 'idle' ? (
-        <section className={CARD} aria-busy="true">
+        <section className={`relative isolate ${CARD}`} aria-busy="true">
+          <CardArt pageId="checkout" idx={5} />
           <p className="text-[13px] text-white/70">
             Reading the settlement token from chain {invoice.chainId}…
           </p>
@@ -431,7 +442,8 @@ export function CheckoutWidget({ invoiceId, link, fetchImpl }: CheckoutWidgetPro
       ) : null}
 
       {tokenCheck.verdict === 'unread' ? (
-        <section className={AMBER_CARD}>
+        <section className={`relative isolate ${AMBER_CARD}`}>
+          <CardArt pageId="checkout" idx={5} />
           <h2 className="text-sm font-semibold text-white">The settlement token could not be read</h2>
           <p className="mt-2 text-[13px] leading-relaxed text-white/85">
             Nothing answered on chain {invoice.chainId} for {invoice.settleToken}. This is a statement about
@@ -448,7 +460,8 @@ export function CheckoutWidget({ invoiceId, link, fetchImpl }: CheckoutWidgetPro
       ) : null}
 
       {tokenCheck.verdict === 'no-code' ? (
-        <section className={ROSE_CARD}>
+        <section className={`relative isolate ${ROSE_CARD}`}>
+          <CardArt pageId="checkout" idx={5} />
           <h2 className="text-sm font-semibold text-white">There is no contract at that address</h2>
           <p className="mt-2 break-all text-[13px] leading-relaxed text-white/85">
             Chain {invoice.chainId} has no code at {invoice.settleToken}, so nothing could be paid to it.
@@ -458,7 +471,8 @@ export function CheckoutWidget({ invoiceId, link, fetchImpl }: CheckoutWidgetPro
       ) : null}
 
       {tokenCheck.verdict === 'mismatch' ? (
-        <section className={ROSE_CARD}>
+        <section className={`relative isolate ${ROSE_CARD}`}>
+          <CardArt pageId="checkout" idx={5} />
           <h2 className="text-sm font-semibold text-white">That address is not the token this invoice names</h2>
           <p className="mt-2 break-all text-[13px] leading-relaxed text-white/85">
             The contract at {invoice.settleToken} reports a different symbol or a different decimal count than
@@ -473,7 +487,8 @@ export function CheckoutWidget({ invoiceId, link, fetchImpl }: CheckoutWidgetPro
       {tokenCheck.verdict === 'matches' ? (
         <>
           {quote.status === 'quoting' ? (
-            <section className={CARD} aria-busy="true">
+            <section className={`relative isolate ${CARD}`} aria-busy="true">
+              <CardArt pageId="checkout" idx={6} />
               <p className="text-[13px] text-white/70">Pricing this payment…</p>
             </section>
           ) : quote.plan ? (
@@ -483,7 +498,8 @@ export function CheckoutWidget({ invoiceId, link, fetchImpl }: CheckoutWidgetPro
           {quote.detail ? <p className="text-[12px] leading-relaxed text-amber-200/85">{quote.detail}</p> : null}
 
           {quote.plan && canSign(quote.plan) ? (
-            <section className={CARD}>
+            <section className={`relative isolate ${CARD}`}>
+              <CardArt pageId="checkout" idx={7} />
               {balance.kind === 'reading' ? (
                 <p className="text-[13px] text-white/70" aria-busy="true">
                   Reading your {invoice.settleSymbol} balance…

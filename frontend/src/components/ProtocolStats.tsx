@@ -1,5 +1,9 @@
 import { m } from 'framer-motion';
 import { useProtocolStats } from '../hooks/useProtocolStats';
+import { CardArt } from './ui/CardArt';
+
+// Up to six tiles render (items.slice(0, 6)); idx wraps if that ever grows.
+const STAT_ART_SLOTS = 6;
 
 function fmtUsd(n: number): string {
   if (!Number.isFinite(n) || n <= 0) return '—';
@@ -81,12 +85,13 @@ export function ProtocolStats() {
       whileInView={{ opacity: 1, y: 0 }}
       viewport={{ once: true }}
     >
-      {items.map((it) => (
+      {items.map((it, i) => (
         <div
           key={it.l}
-          className="rounded-xl p-3 md:p-4"
+          className="relative isolate rounded-xl p-3 md:p-4"
           style={{ border: '1px solid var(--color-purple-75)', background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(2px)' }}
         >
+          <CardArt pageId="protocol-stats" idx={0 + (i % STAT_ART_SLOTS)} />
           <p
             className="text-[11px] uppercase tracking-wider mb-1.5 flex items-center gap-1.5"
             style={{ color: '#22c55e', textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}

@@ -1,5 +1,6 @@
 import { formatWei } from '../../lib/formatting';
 import type { ClaimVerdict } from '../../lib/referrals/qualification';
+import { CardArt } from '../ui/CardArt';
 
 // What ReferralSplitter actually holds for this wallet, and nothing else.
 //
@@ -79,10 +80,11 @@ export function ReferralEarningsCard({
 }: Props) {
   return (
     <section
-      className="rounded-xl p-4"
+      className="relative isolate rounded-xl p-4"
       style={{ background: '#000', border: '1px solid var(--color-purple-75)' }}
       aria-label="Your referral earnings"
     >
+      <CardArt pageId="referrals" idx={3} />
       <h3 className="text-white text-[13px] font-medium">What the splitter holds for you</h3>
 
       {!connected && (

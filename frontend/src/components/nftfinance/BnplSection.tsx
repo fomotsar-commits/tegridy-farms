@@ -6,6 +6,7 @@ import { useBnplDesk, BNPL_WRITTEN_TERMS } from '../../hooks/useBnplDesk';
 import { useBnplQuote } from '../../hooks/useBnplQuote';
 import { usePooledLendingVaults } from '../../hooks/usePooledLendingVault';
 import { isBnplLive, POOLED_VAULT_WRITTEN_TERMS } from '../../hooks/usePooledLendingConfig';
+import { CardArt } from '../ui/CardArt';
 
 // Buy-now-pay-later at the point of sale (#62).
 //
@@ -124,7 +125,8 @@ export function BnplSection() {
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.3, ease: EASE }}
     >
-      <div className="rounded-xl p-4" style={{ background: CARD_BG, border: `1px solid ${CARD_BORDER}` }}>
+      <div className="relative isolate rounded-xl p-4" style={{ background: CARD_BG, border: `1px solid ${CARD_BORDER}` }}>
+        <CardArt pageId="nft-finance" idx={12} />
         <h2 className="text-[16px] font-semibold text-white mb-1" style={LABEL_STYLE}>
           Pay in instalments
         </h2>
@@ -135,7 +137,7 @@ export function BnplSection() {
         </p>
       </div>
 
-      <RiskBanner variant="danger">
+      <RiskBanner variant="danger" art={<CardArt pageId="nft-finance" idx={24} />}>
         <span className="font-semibold">Missing a payment costs you the token.</span> If an instalment goes unpaid past
         its grace period, anyone may wind the plan up: the escrowed token is sold through the pool&rsquo;s liquidation route,
         the pool is repaid first, and only what is left over comes back to you. Payments you have already made reduce
@@ -146,9 +148,10 @@ export function BnplSection() {
 
       {!live && (
         <div
-          className="rounded-xl p-4"
+          className="relative isolate rounded-xl p-4"
           style={{ background: 'rgba(234,179,8,0.06)', border: '1px solid rgba(234,179,8,0.2)' }}
         >
+          <CardArt pageId="nft-finance" idx={13} />
           <p className="text-[13px] font-semibold text-amber-300 mb-1" style={LABEL_STYLE}>
             The instalment desk is not deployed.
           </p>
@@ -161,7 +164,8 @@ export function BnplSection() {
       )}
 
       {/* ── Cost-of-credit estimator ───────────────────────────────── */}
-      <div className="rounded-xl p-4" style={{ background: CARD_BG, border: `1px solid ${CARD_BORDER}` }}>
+      <div className="relative isolate rounded-xl p-4" style={{ background: CARD_BG, border: `1px solid ${CARD_BORDER}` }}>
+        <CardArt pageId="nft-finance" idx={14} />
         <div className="flex items-center gap-1 mb-2">
           <h3 className="text-[14px] font-semibold text-white" style={LABEL_STYLE}>
             What a plan would cost

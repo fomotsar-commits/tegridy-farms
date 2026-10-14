@@ -12,6 +12,14 @@ import { bestRateClaim } from '../../lib/yield/metrics';
 import { yieldVenueAvailability, type YieldVenueKind } from '../../lib/yield/venues';
 import { YieldDepositPanel } from './YieldDepositPanel';
 import { YieldMetricCell } from './YieldMetricCell';
+import { CardArt } from '../ui/CardArt';
+
+// Venue cards take yield art 5 to 9 by the venue's place in the CATALOGUE, not
+// by its rank: the ranking moves as rates arrive, and a card must not change its
+// art when it changes rows. The staking list (5 venues) and the stablecoin list
+// (3) are never on screen together, so they share these.
+const VENUE_ART_BASE = 5;
+const VENUE_ART_SLOTS = 5;
 
 // ONE panel, configured twice — liquid staking and stablecoin lending are the
 // same comparison over different counterparties, and two components would be two
@@ -60,7 +68,8 @@ export function YieldRouterPanel({ id, heading, intro, kinds, markets }: YieldRo
       </h2>
       <p className="text-[13px] text-text-secondary leading-relaxed mb-3">{intro}</p>
 
-      <div className="glass-card rounded-xl p-3 mb-3">
+      <div className="relative isolate glass-card rounded-xl p-3 mb-3">
+        <CardArt pageId="yield" idx={4} />
         <p className="text-[12px] text-text-secondary leading-relaxed">
           {readStatusLine(markets.status, markets.block, markets.asOf, markets.unreadCells, markets.totalCells, markets.detail)}
         </p>
@@ -74,13 +83,15 @@ export function YieldRouterPanel({ id, heading, intro, kinds, markets }: YieldRo
 
       <ul className="space-y-3 list-none p-0 m-0">
         {ordered.map((row) => {
+          const artSlot = Math.max(0, rows.indexOf(row));
           const availability = yieldVenueAvailability(row.venue.id);
           const routable = availability?.routable === true;
           const vs = vsNavDisplay(row.vsNav);
           const open = openVenue === row.venue.id;
           const panelId = `${id}-${row.venue.id}-deposit`;
           return (
-            <li key={row.venue.id} className="glass-card rounded-xl p-4">
+            <li key={row.venue.id} className="relative isolate glass-card rounded-xl p-4">
+              <CardArt pageId="yield" idx={VENUE_ART_BASE + (artSlot % VENUE_ART_SLOTS)} />
               <div className="flex items-baseline justify-between gap-3 mb-1">
                 <h3 className="text-text-primary font-semibold text-[15px] m-0">{row.venue.label}</h3>
                 <span className="text-[11px] font-mono text-text-muted shrink-0">{row.venue.symbol}</span>

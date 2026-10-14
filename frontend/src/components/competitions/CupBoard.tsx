@@ -9,6 +9,7 @@ import {
   type CupBoardStatus,
 } from '../../lib/competitions/islandCup';
 import { shortenAddress } from '../../lib/formatting';
+import { CardArt } from '../ui/CardArt';
 
 // THE BOARD.
 //
@@ -44,7 +45,8 @@ export function CupBoard({ board, status, account }: CupBoardProps) {
   const from = board.windowFrom === null ? board.oldestFillAt : board.windowFrom;
 
   return (
-    <section className="rounded-xl border border-white/15 bg-white/[0.02] p-4">
+    <section className="relative isolate rounded-xl border border-white/15 bg-white/[0.02] p-4">
+      <CardArt pageId="competitions" idx={2} />
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <h2 className="text-sm font-semibold text-white">Volume board</h2>
         <p className="text-[11px] text-white/60">

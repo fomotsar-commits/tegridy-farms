@@ -7,6 +7,7 @@ import {
   type PooledVaultState,
 } from '../../hooks/usePooledLendingVault';
 import { isPooledLendingLive } from '../../hooks/usePooledLendingConfig';
+import { CardArt } from '../ui/CardArt';
 
 // Pooled NFT lending (#61) — the lender side of the existing P2P desk, pooled.
 //
@@ -23,6 +24,10 @@ const CARD_BG = 'rgba(6, 12, 26, 0.80)';
 const CARD_BORDER = 'rgba(255, 255, 255, 0.18)';
 const LABEL_STYLE: React.CSSProperties = { textShadow: '0 1px 6px rgba(0,0,0,0.95)' };
 const EASE: [number, number, number, number] = [0.22, 1, 0.36, 1];
+
+// The three pool cards take nft-finance art 8 to 10, one per pool in the list.
+const POOL_ART_BASE = 8;
+const POOL_ART_SLOTS = 3;
 
 function eth(wei: bigint | null): string {
   if (wei === null) return 'no data';
@@ -58,11 +63,12 @@ function Stat({ label, value, hint }: { label: string; value: string; hint?: str
   );
 }
 
-function PoolCard({ state }: { state: PooledVaultState }) {
+function PoolCard({ state, slot }: { state: PooledVaultState; slot: number }) {
   const { pool, status } = state;
 
   return (
-    <div className="rounded-xl p-4" style={{ background: CARD_BG, border: `1px solid ${CARD_BORDER}` }}>
+    <div className="relative isolate rounded-xl p-4" style={{ background: CARD_BG, border: `1px solid ${CARD_BORDER}` }}>
+      <CardArt pageId="nft-finance" idx={POOL_ART_BASE + (slot % POOL_ART_SLOTS)} />
       <div className="flex items-start justify-between gap-3 mb-3">
         <div>
           <h3 className="text-[14px] font-semibold text-white" style={LABEL_STYLE}>
@@ -146,7 +152,8 @@ export function PooledLendingSection() {
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.3, ease: EASE }}
     >
-      <div className="rounded-xl p-4" style={{ background: CARD_BG, border: `1px solid ${CARD_BORDER}` }}>
+      <div className="relative isolate rounded-xl p-4" style={{ background: CARD_BG, border: `1px solid ${CARD_BORDER}` }}>
+        <CardArt pageId="nft-finance" idx={6} />
         <h2 className="text-[16px] font-semibold text-white mb-1" style={LABEL_STYLE}>
           Pooled lending
         </h2>
@@ -157,7 +164,7 @@ export function PooledLendingSection() {
         </p>
       </div>
 
-      <RiskBanner variant="warning">
+      <RiskBanner variant="warning" art={<CardArt pageId="nft-finance" idx={23} />}>
         <span className="font-semibold">This is a small market and the surface will not pretend otherwise.</span>{' '}
         NFT lending volume across the whole sector is down roughly 97% from its 2022 peak. These pools are cheap to run
         on rails the venue already had; they are not a flagship, and any depth you see here is whatever depositors
@@ -167,9 +174,10 @@ export function PooledLendingSection() {
 
       {!anyLive && (
         <div
-          className="rounded-xl p-4"
+          className="relative isolate rounded-xl p-4"
           style={{ background: 'rgba(234,179,8,0.06)', border: '1px solid rgba(234,179,8,0.2)' }}
         >
+          <CardArt pageId="nft-finance" idx={7} />
           <p className="text-[13px] font-semibold text-amber-300 mb-1" style={LABEL_STYLE}>
             No pool is deployed.
           </p>
@@ -182,13 +190,14 @@ export function PooledLendingSection() {
       )}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-        {vaults.map((v) => (
-          <PoolCard key={v.pool.key} state={v} />
+        {vaults.map((v, i) => (
+          <PoolCard key={v.pool.key} state={v} slot={i} />
         ))}
       </div>
 
       {!history.available && (
-        <div className="rounded-xl p-4" style={{ background: CARD_BG, border: `1px solid ${CARD_BORDER}` }}>
+        <div className="relative isolate rounded-xl p-4" style={{ background: CARD_BG, border: `1px solid ${CARD_BORDER}` }}>
+          <CardArt pageId="nft-finance" idx={11} />
           <p className="text-[12px] font-semibold text-white/80 mb-1" style={LABEL_STYLE}>
             No realized-yield or liquidation history
           </p>

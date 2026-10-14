@@ -9,6 +9,7 @@ import { noteReplacement, receiptOutcome, surfaceTxError } from '../../lib/txErr
 import { getTxUrl, getAddressUrl } from '../../lib/explorer';
 import { CopyButton } from '../ui/CopyButton';
 import { shortenAddress } from '../../lib/formatting';
+import { CardArt } from '../ui/CardArt';
 
 /**
  * The EVM lighthouse — live staking card for a bungalow whose pool is the
@@ -179,7 +180,8 @@ export function EvmLighthousePoolLive({ bungalow }: { bungalow: Bungalow & { sta
   const notPaying = view.payingNowRawPerSec !== null && view.payingNowRawPerSec === 0n;
 
   return (
-    <div className="relative overflow-hidden rounded-2xl glass-card-animated" style={{ border: '1px solid var(--color-purple-75)' }}>
+    <div className="relative isolate overflow-hidden rounded-2xl glass-card-animated" style={{ border: '1px solid var(--color-purple-75)' }}>
+      <CardArt pageId="evm-lighthouse-pool-live" idx={0} scrim="transparent" />
       {/* ART VISIBILITY 2026-08-31 (owner): this scrim was 0.85 and the
           resident's art underneath was barely readable — a dark page scrim
           plus a dark card scrim stacked into near-black. Lightened hard.

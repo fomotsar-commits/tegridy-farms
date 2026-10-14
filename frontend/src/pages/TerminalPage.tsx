@@ -24,6 +24,7 @@ import {
 } from '../lib/terminal/rowSafety';
 import { TOWELI_ADDRESS, WETH_ADDRESS } from '../lib/constants';
 import { ArtCard } from '../components/ui/ArtCard';
+import { CardArt } from '../components/ui/CardArt';
 import { FeedStatus } from '../components/terminal/FeedStatus';
 import { FeedTabs } from '../components/terminal/FeedTabs';
 import { MarketFeedStatus } from '../components/terminal/MarketFeedStatus';
@@ -297,7 +298,8 @@ export default function TerminalPage() {
         ) : null}
 
         <div className="mt-6 grid gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
-          <div className="rounded-xl border border-white/15 bg-white/[0.02] p-4">
+          <div className="relative isolate rounded-xl border border-white/15 bg-white/[0.02] p-4">
+            <CardArt pageId="terminal" idx={1} />
             <div className="flex flex-wrap items-end gap-3">
               <label className="text-[11px] font-medium uppercase tracking-wide text-white/60">
                 Safety filter

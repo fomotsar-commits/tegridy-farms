@@ -5,6 +5,7 @@ import {
   WASH_WINDOW_SECONDS,
 } from '../../lib/competitions/scoring';
 import { SETTLEMENT } from '../../lib/competitions/season';
+import { CardArt } from '../ui/CardArt';
 
 // The rules, above the board rather than behind a link. The page claims no prize, no
 // settlement and no measure of skill, and says why; each sentence is imported from the
@@ -12,7 +13,8 @@ import { SETTLEMENT } from '../../lib/competitions/season';
 
 export function ScoringRules() {
   return (
-    <section className="rounded-xl border border-white/15 bg-white/[0.02] p-4">
+    <section className="relative isolate rounded-xl border border-white/15 bg-white/[0.02] p-4">
+      <CardArt pageId="competitions" idx={4} />
       <h2 className="text-sm font-semibold text-white">How this is scored, and what it is not</h2>
       <dl className="mt-3 space-y-3 text-xs leading-relaxed">
         <div>

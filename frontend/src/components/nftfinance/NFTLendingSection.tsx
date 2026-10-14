@@ -8,6 +8,7 @@ import { TEGRIDY_NFT_LENDING_ABI, ERC721_ABI } from '../../lib/contracts';
 import { InfoTooltip, HowItWorks, StepIndicator, RiskBanner, TxSummary } from '../ui/InfoTooltip';
 import { ART, pageArt, artStyle } from '../../lib/artConfig';
 import { ArtImg } from '../ArtImg';
+import { CardArt } from '../ui/CardArt';
 import { useCountdown } from '../../hooks/useCountdown';
 import { useTabListKeys } from '../../hooks/useTabListKeys';
 import { useSafeConnectModal } from '../../hooks/useSafeConnectModal';
@@ -491,9 +492,10 @@ function LendTab() {
         <m.div
           initial={{ opacity: 0, y: 4 }}
           animate={{ opacity: 1, y: 0 }}
-          className="rounded-xl p-3 md:p-5"
+          className="relative isolate rounded-xl p-3 md:p-5"
           style={{ background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.2)' }}
         >
+          <CardArt pageId="nft-finance" idx={17} />
           <p className="text-white/85 text-[11px] uppercase tracking-wider mb-1">Estimated Interest Earned</p>
           <p className="text-emerald-400 text-xl font-semibold">{interestPreview} ETH</p>
           <p className="text-white/70 text-[11px] mt-1">
@@ -504,7 +506,7 @@ function LendTab() {
 
       {/* Transaction Summary */}
       {principal && parseFloat(principal) > 0 && aprBps && parseInt(aprBps) > 0 && (
-        <TxSummary>
+        <TxSummary art={<CardArt pageId="nft-finance" idx={25} />}>
           You'll deposit <span className="font-mono text-white font-semibold">{principal} ETH</span>. If a borrower accepts and repays, you earn ~<span className="font-mono text-emerald-400 font-semibold">{interestPreview} ETH</span> interest over {formatDuration(duration)}.
         </TxSummary>
       )}
@@ -801,10 +803,11 @@ function OfferCard({
 
   return (
     <div
-      className="rounded-xl overflow-hidden cursor-pointer transition-all hover:border-purple-500/25"
+      className="relative isolate rounded-xl overflow-hidden cursor-pointer transition-all hover:border-purple-500/25"
       style={{ background: CARD_BG, border: `1px solid ${CARD_BORDER}` }}
       onClick={onToggle}
     >
+      <CardArt pageId="nft-finance" idx={18} />
       <div className="p-3 md:p-5 space-y-3">
         <div className="flex items-center justify-between">
           <span className="text-white/70 text-[11px] font-mono">Offer #{offer.id}</span>
@@ -982,9 +985,10 @@ function MyLoansTab({ loanCount }: { loanCount: number }) {
   if (!isConnected) {
     return (
       <div
-        className="rounded-xl p-8 text-center"
+        className="relative isolate rounded-xl p-8 text-center"
         style={{ background: CARD_BG, border: `1px solid ${CARD_BORDER}` }}
       >
+        <CardArt pageId="nft-finance" idx={19} />
         <p className="text-white/70 text-[13px]">Connect your wallet to view your loans.</p>
       </div>
     );
@@ -997,9 +1001,10 @@ function MyLoansTab({ loanCount }: { loanCount: number }) {
   if (myLoans.length === 0) {
     return (
       <div
-        className="rounded-xl p-8 text-center"
+        className="relative isolate rounded-xl p-8 text-center"
         style={{ background: CARD_BG, border: `1px solid ${CARD_BORDER}` }}
       >
+        <CardArt pageId="nft-finance" idx={19} />
         <p className="text-white/70 text-[13px]">No loans yet.</p>
         <p className="text-white/70 text-[11px] mt-1">Browse available offers in the Borrow tab to get started, or create your own in the Lend tab!</p>
       </div>
@@ -1182,9 +1187,10 @@ function LoanCard({ loan, userAddress, onLoanChanged }: { loan: LoanData & { id:
 
   return (
     <div
-      className="rounded-xl p-3 md:p-5 space-y-3"
+      className="relative isolate rounded-xl p-3 md:p-5 space-y-3"
       style={{ background: CARD_BG, border: `1px solid ${CARD_BORDER}` }}
     >
+      <CardArt pageId="nft-finance" idx={20} />
       {/* Header */}
       <div className="flex items-center justify-between">
         <span className="text-white/70 text-[11px] font-mono">Loan #{loan.id}</span>

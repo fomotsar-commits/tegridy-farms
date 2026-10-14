@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { m, AnimatePresence } from 'framer-motion';
 import { formatCurrency } from '../../lib/formatting';
+import { CardArt } from '../ui/CardArt';
 
 /**
  * ⚠️ THE LABELS ARE PAIR-AGNOSTIC AS OF 2026-09-05, and that is a correctness
@@ -55,8 +56,9 @@ export function ILCalculator({ pairLabel }: { pairLabel?: string } = {}) {
 
       <AnimatePresence>
         {open && (
-          <m.div className="glass-card rounded-xl p-5 mt-3"
+          <m.div className="relative isolate glass-card rounded-xl p-5 mt-3"
             initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }}>
+            <CardArt pageId="il-calculator" idx={0} />
             <h4 className="text-white text-[14px] font-semibold mb-1">Impermanent Loss Calculator</h4>
             <p className="text-white text-[11px] mb-4">
               Estimate how much you&apos;d lose vs. simply holding, based on the price change of{' '}

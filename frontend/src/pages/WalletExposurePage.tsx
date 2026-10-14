@@ -20,6 +20,7 @@ import { validateAddress } from '../lib/tokenList';
 import { readExplorerPage, isTokenTxRow } from '../lib/txHistory';
 import { PageArtBackdrop } from '../components/PageArtBackdrop';
 import { HeatCard } from '../components/HeatCard';
+import { CardArt } from '../components/ui/CardArt';
 
 // WalletExposurePage — connect a wallet, see every ERC-20 position, and read each
 // one's concentration / bundle / rug exposure from the shared detection core.
@@ -132,9 +133,10 @@ function HoldingCard({ holding, exposure }: { holding: WalletHolding; exposure: 
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.35 }}
-      className="rounded-2xl p-4 sm:p-5"
+      className="relative isolate rounded-2xl p-4 sm:p-5"
       style={{ background: CARD_BG, border: CARD_BORDER, boxShadow: '0 8px 30px rgba(0,0,0,0.35)' }}
     >
+      <CardArt pageId="wallet-exposure" idx={2} />
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
@@ -352,7 +354,8 @@ export default function WalletExposurePage() {
           </div>
 
           {/* Add-a-token */}
-          <div className="rounded-2xl p-4 mb-6" style={{ background: CARD_BG, border: CARD_BORDER }}>
+          <div className="relative isolate rounded-2xl p-4 mb-6" style={{ background: CARD_BG, border: CARD_BORDER }}>
+            <CardArt pageId="wallet-exposure" idx={1} />
             <label htmlFor="paste-token" className="block text-white/70 text-[12px] mb-2">
               Check a specific token not in the tracked list
             </label>
@@ -453,14 +456,16 @@ export default function WalletExposurePage() {
           {isLoading ? (
             <div className="text-white/50 text-[13px] py-10 text-center">Reading your on-chain balances…</div>
           ) : error ? (
-            <div className="rounded-2xl p-5 text-[13px] text-white/70"
+            <div className="relative isolate rounded-2xl p-5 text-[13px] text-white/70"
               style={{ background: CARD_BG, border: CARD_BORDER }}>
+              <CardArt pageId="wallet-exposure" idx={3} />
               Couldn’t read balances right now. This is a network hiccup, not a signal about any token —
               try again shortly.
             </div>
           ) : holdings.length === 0 ? (
-            <div className="rounded-2xl p-6 text-center"
+            <div className="relative isolate rounded-2xl p-6 text-center"
               style={{ background: CARD_BG, border: CARD_BORDER }}>
+              <CardArt pageId="wallet-exposure" idx={4} />
               <p className="text-white/80 text-[14px] mb-1">
                 {discovery.kind === 'done'
                   ? 'No ERC-20 balances found in this wallet.'

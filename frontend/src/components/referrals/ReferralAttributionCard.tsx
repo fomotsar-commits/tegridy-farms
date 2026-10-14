@@ -1,6 +1,7 @@
 import { shortenAddress } from '../../lib/formatting';
 import { isSelfReferral } from '../../lib/referrals/attribution';
 import type { ReferralAttributionState } from '../../hooks/useReferralAttribution';
+import { CardArt } from '../ui/CardArt';
 
 // Who this browser is attributed to, why that did not change, and how to undo it.
 //
@@ -77,10 +78,11 @@ export function ReferralAttributionCard({
 
   return (
     <section
-      className="rounded-xl p-4"
+      className="relative isolate rounded-xl p-4"
       style={{ background: '#000', border: '1px solid var(--color-purple-75)' }}
       aria-label="Who referred you"
     >
+      <CardArt pageId="referrals" idx={4} />
       <h3 className="text-white text-[13px] font-medium">Who referred you</h3>
 
       {/* The chain is the authority the moment it has an answer. */}

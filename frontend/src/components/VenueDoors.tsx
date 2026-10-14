@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom';
 import { m } from 'framer-motion';
 import { BUNGALOWS, type Bungalow } from '../lib/bungalows';
 import { doorArt } from '../lib/doorArt';
+import { CardArt } from './ui/CardArt';
 /**
  * THE HALL OF DOORS — the venue arrival's island map.
  *
@@ -260,9 +261,10 @@ export function VenueDoors() {
           as the picker) so thirteen doors read as one place, not thirteen
           tiles floating on loud page art. */}
       <div
-        className="rounded-2xl p-3"
+        className="relative isolate rounded-2xl p-3"
         style={{ background: 'rgba(0,0,0,0.45)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)', border: '1px solid rgba(255,255,255,0.10)' }}
       >
+        <CardArt pageId="venue-doors" idx={0} />
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
           {BUNGALOWS.map((b) => (
             <DoorTile key={b.id} bungalow={b} />

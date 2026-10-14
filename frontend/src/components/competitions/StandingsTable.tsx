@@ -1,6 +1,7 @@
 import { TRUNCATED_NOTICE, type Standings } from '../../lib/competitions/scoring';
 import { formatQuoteAmount } from '../../lib/copytrade/quoteTokens';
 import { formatTimeAgo, shortenAddress } from '../../lib/formatting';
+import { CardArt } from '../ui/CardArt';
 
 // The board itself.
 //
@@ -24,7 +25,8 @@ export function StandingsTable({ standings, account }: StandingsTableProps) {
   const me = account ? account.toLowerCase() : null;
 
   return (
-    <section className="rounded-xl border border-white/15 bg-white/[0.02] p-4">
+    <section className="relative isolate rounded-xl border border-white/15 bg-white/[0.02] p-4">
+      <CardArt pageId="competitions" idx={8} />
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <h2 className="text-sm font-semibold text-white">{standings.season.name}</h2>
         <p className="text-[11px] text-white/60">

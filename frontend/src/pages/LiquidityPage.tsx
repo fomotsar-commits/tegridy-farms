@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom';
 import { usePageTitle } from '../hooks/usePageTitle';
+import { PageArtBackdrop } from '../components/PageArtBackdrop';
 import { usePoolTVL } from '../hooks/usePoolTVL';
 import { LiquidityTab } from '../components/swap/LiquidityTab';
 import { ILCalculator } from '../components/farm/ILCalculator';
@@ -57,7 +58,12 @@ export default function LiquidityPage() {
   const poolData = usePoolTVL();
 
   return (
-    <div className="mx-auto w-full max-w-[900px] px-4 py-8 sm:py-10">
+    <>
+    <PageArtBackdrop pageId="liquidity" />
+    {/* `relative` with no z-index on purpose: it paints above the backdrop by
+        coming after it, without becoming a stacking context. A z-10 here would
+        trap LiquidityTab's token picker (z-[100]) under the tab strip (z-30). */}
+    <div className="relative mx-auto w-full max-w-[900px] px-4 py-8 sm:py-10">
       <header className="mb-6">
         <p className="text-[11px] uppercase tracking-wider label-pill mb-2" style={{ color: 'var(--color-stan)' }}>
           Native pools · Ethereum
@@ -113,5 +119,6 @@ export default function LiquidityPage() {
         <ILCalculator />
       </section>
     </div>
+    </>
   );
 }
