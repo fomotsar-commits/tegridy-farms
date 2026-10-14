@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { prepareJupiterSwap, NO_SITE_FEE_ROUTE_COPY, type FeeRetryDeps } from './jupiterFeeRetry';
+import { prepareJupiterSwap, refusalWhy, NO_SITE_FEE_ROUTE_COPY, type FeeRetryDeps } from './jupiterFeeRetry';
 import type { JupiterQuote, SwapSimulation } from '../../jupiter';
 
 /**
@@ -77,7 +77,8 @@ describe('prepareJupiterSwap: the fee-bearing build is tried first, and usually 
   it('an unreadable FIRST simulation behaves as it did before the retry existed: no retry, the fee build goes on', async () => {
     const d = deps({ simulateSwap: vi.fn(async () => { throw new Error('Simulation failed (503)'); }) });
     const r = await prepareJupiterSwap(d, ARGS);
-    expect(r).toEqual({ status: 'ready', quote: FEE_QUOTE, swapTransaction: 'TX_FEE', siteFeeWaived: false });
+    // Marked as not checked: a test run that could not run is no verdict on the transaction.
+    expect(r).toEqual({ status: 'ready', quote: FEE_QUOTE, swapTransaction: 'TX_FEE', siteFeeWaived: false, unchecked: true });
     expect(d.getQuote).not.toHaveBeenCalled();
   });
 });
@@ -142,6 +143,7 @@ describe('prepareJupiterSwap: a failing retry is blocked, and there is never a s
     const d = deps({ simulateSwap: vi.fn(async (tx: string) => (tx === 'TX_FEE' ? JUP_6014 : SLIPPAGE)) });
     const r = await prepareJupiterSwap(d, ARGS);
     expect(r).toEqual({ status: 'blocked', reason: 'custom program error: 0x1771', retried: true });
+    expect('unchecked' in r).toBe(false);
   });
 
   it('the retry failing with 6014 AGAIN blocks: one re-quote, two builds, two simulations, then stop', async () => {
@@ -162,12 +164,14 @@ describe('prepareJupiterSwap: a failing retry is blocked, and there is never a s
     });
     const r = await prepareJupiterSwap(d, ARGS);
     expect(r.status).toBe('blocked');
+    // Blocked, and marked as not checked: the no-fee transaction was never test-run.
+    expect(r).toMatchObject({ unchecked: true });
   });
 
   it('a re-quote that cannot be fetched blocks', async () => {
     const d = deps({ getQuote: vi.fn(async () => { throw new Error('Quote unavailable (429)'); }) });
     const r = await prepareJupiterSwap(d, ARGS);
-    expect(r).toEqual({ status: 'blocked', reason: 'custom program error: 0x177e', retried: true });
+    expect(r).toEqual({ status: 'blocked', reason: 'custom program error: 0x177e', retried: true, unchecked: true });
     expect(d.buildSwapTransaction).toHaveBeenCalledTimes(1);
   });
 
@@ -179,7 +183,7 @@ describe('prepareJupiterSwap: a failing retry is blocked, and there is never a s
       }),
     });
     const r = await prepareJupiterSwap(d, ARGS);
-    expect(r.status).toBe('blocked');
+    expect(r).toMatchObject({ status: 'blocked', unchecked: true });
     expect(d.simulateSwap).toHaveBeenCalledTimes(1);
   });
 });
@@ -248,5 +252,49 @@ describe('prepareJupiterSwap: the re-quote must be the same trade, fee-free, and
     const r = await prepareJupiterSwap(d, { ...ARGS, slippageBps });
     expect(r).toEqual({ status: 'blocked', reason: 'custom program error: 0x177e', retried: true });
     expect(d.buildSwapTransaction).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('a refused test run keeps what the runtime gave as its cause, for the trader to act on', () => {
+  const PRICE_LIMIT: SwapSimulation = { ...SLIPPAGE, cause: { kind: 'price-limit' } };
+  const SHORT_OF_SOL: SwapSimulation = { ok: false, reason: 'Transfer: insufficient lamports 1200000, need 2039280', jupiterIncorrectTokenProgram: false, cause: { kind: 'low-sol', had: 1_200_000n, needed: 2_039_280n } };
+
+  it('the first test run refused: its cause is on the result', async () => {
+    const r = await prepareJupiterSwap(deps({ simulateSwap: vi.fn(async () => PRICE_LIMIT) }), ARGS);
+    expect(r).toEqual({ status: 'blocked', reason: 'custom program error: 0x1771', retried: false, cause: { kind: 'price-limit' } });
+  });
+
+  it('the no-fee rebuild refused: the cause is that test run’s, not the 6014 that opened the retry', async () => {
+    const d = deps({ simulateSwap: vi.fn(async (tx: string) => (tx === 'TX_FEE' ? { ...JUP_6014, cause: { kind: 'runtime' as const, said: 'custom program error: 0x177e in program JUP6…TaV4' } } : SHORT_OF_SOL)) });
+    expect(await prepareJupiterSwap(d, ARGS)).toMatchObject({ status: 'blocked', retried: true, cause: { kind: 'low-sol', had: 1_200_000n, needed: 2_039_280n } });
+  });
+
+  it('a test run that gave no cause adds no field', async () => {
+    const r = await prepareJupiterSwap(deps({ simulateSwap: vi.fn(async () => SLIPPAGE) }), ARGS);
+    expect('cause' in r).toBe(false);
+    expect(refusalWhy(r as { cause?: null }, 50)).toBeNull();
+  });
+
+  it('the price limit: says so against the trader’s own slippage, and what may let it run', () => {
+    expect(refusalWhy({ cause: { kind: 'price-limit' } }, 50)).toBe("The test run paid less than your 0.5% slippage allows. A wider slippage may let Jupiter's transaction run");
+    expect(refusalWhy({ cause: { kind: 'price-limit' } }, 100)).toMatch(/your 1% slippage/);
+  });
+
+  it('short of SOL: the two amounts the runtime printed, in SOL, and no advice (whose transfer it was is not known)', () => {
+    expect(refusalWhy({ cause: { kind: 'low-sol', had: 1_200_000n, needed: 2_039_280n } }, 50)).toBe(
+      "The test run was short of SOL: one transfer in it needed 0.00203928 SOL and had 0.0012",
+    );
+  });
+
+  it('anything else: the runtime’s own words, marked as that', () => {
+    expect(refusalWhy({ cause: { kind: 'runtime', said: 'custom program error: 0x1774 in program pAMM…fXEA' } }, 50)).toBe(
+      "The test run's reason, in the network's words: custom program error: 0x1774 in program pAMM…fXEA",
+    );
+  });
+
+  it('no sentence carries an em dash or ends on a full stop (each place adds its own)', () => {
+    for (const cause of [{ kind: 'price-limit' }, { kind: 'low-sol', had: 1n, needed: 2n }, { kind: 'runtime', said: 'x' }] as const) {
+      expect(refusalWhy({ cause }, 50)).not.toMatch(/—|\.$/);
+    }
   });
 });

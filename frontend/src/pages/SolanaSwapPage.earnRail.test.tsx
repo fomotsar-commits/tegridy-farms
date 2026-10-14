@@ -36,6 +36,12 @@ vi.mock('../lib/jupiter', async (orig) => ({
   getUsdPrices: vi.fn(async () => ({})),
   getShield: vi.fn(async () => ({})),
 }));
+// Whether the venue takes a platform fee is an env fact read at import; a test sets it here.
+const fee = vi.hoisted(() => ({ on: false }));
+vi.mock('../lib/solana', async (orig) => ({
+  ...(await orig<typeof import('../lib/solana')>()),
+  isSolanaFeeConfigured: () => fee.on,
+}));
 const connection = {
   getBalance: async () => 5_000_000_000,
   getParsedTokenAccountsByOwner: async () => ({ value: [] }),
@@ -49,10 +55,12 @@ vi.mock('@solana/wallet-adapter-react', () => ({
 
 import SolanaSwapPage from './SolanaSwapPage';
 import { LST_TOKENS } from '../lib/solanaTokenList';
+import { SOLANA_PLATFORM_FEE_BPS } from '../lib/solana';
 
 beforeEach(() => {
   window.history.replaceState(null, '', '/solana');
   localStorage.clear();
+  fee.on = false;
 });
 afterEach(() => {
   cleanup();
@@ -86,14 +94,24 @@ describe('SolanaSwapPage: the Earn rail names each staking token and prints no r
     expect(rail()).toHaveTextContent(/each provider publishes its own/i);
   });
 
-  it('says how the venue earns on the buy, and the only percentage in the rail is that fee', () => {
+  it('with a fee set up, says it is on Jupiter’s route only, and the only percentage in the rail is that fee', () => {
+    fee.on = true;
     render(<SolanaSwapPage />);
     const text = rail().textContent ?? '';
-    // Fee set or not, the venue's take is stated; a rate is never among the percentages.
-    expect(text).toMatch(/The venue takes (?:a \d+(?:\.\d+)?% fee|no fee) on the buy\./);
+    // A rate is never among the percentages: the one figure is the platform fee.
     const percentages = text.match(/\d+(?:\.\d+)?\s*%/g) ?? [];
-    expect(percentages.length).toBeLessThanOrEqual(1);
-    if (percentages.length === 1) expect(text).toContain(`The venue takes a ${percentages[0]} fee on the buy.`);
+    expect(percentages).toEqual([`${SOLANA_PLATFORM_FEE_BPS / 100}%`]);
+    expect(text).toContain(`A ${percentages[0]} fee applies when the buy goes through Jupiter.`);
+    // A buy that goes to one of our pools pays no platform fee, so the fee is never said of every buy.
+    expect(text).toContain("A buy in one of our pools pays that pool's own fee inside the quote, and no platform fee on top.");
+    expect(text).not.toMatch(/fee on the buy/);
+  });
+
+  it('with no fee set up, says no platform fee is charged and prints no percentage', () => {
+    render(<SolanaSwapPage />);
+    const text = rail().textContent ?? '';
+    expect(text).toContain('No platform fee is charged on the buy.');
+    expect(text).not.toMatch(/\d\s*%/);
   });
 
   it('carries no em dash', () => {

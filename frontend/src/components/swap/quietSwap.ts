@@ -23,7 +23,7 @@ export function needsNoReview(p: PreparedTx, floorShown: bigint | null): boolean
   // A sale paid as WRAPPED SOL into an account the wallet already had is said on the review.
   if (s.coin.native && !s.paysCoin && !s.unwrapsWsol) return false;
   if (impactWarning(fractionToBps(s.quoted.priceImpact)) !== null) return false;
-  // "Could not be asked" and "an earlier quote" are both said to the trader before signing.
+  // "Could not be asked", "an earlier quote" and "refused by its test run" are each said before signing.
   return s.aggregator.kind === 'no-route' || (s.aggregator.kind === 'quoted' && s.aggregator.when === 'now');
 }
 
@@ -34,7 +34,7 @@ export type QuietEnding =
   /** The route was checked again at the press and is no longer our pool. */
   | { kind: 'route-changed'; message: string };
 
-const ROUTE_CHANGED: ReadonlySet<string> = new Set([OWN_ROUTE_COPY.routeMoved, OWN_ROUTE_COPY.poolGone]);
+const ROUTE_CHANGED: ReadonlySet<string> = new Set([OWN_ROUTE_COPY.routeMoved, OWN_ROUTE_COPY.underLastQuote, OWN_ROUTE_COPY.poolGone]);
 
 /**
  * An ending that one line can say, so the form comes back by itself. Never `unknown`
