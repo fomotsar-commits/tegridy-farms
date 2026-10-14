@@ -183,8 +183,10 @@ import SolanaSwapPage from './SolanaSwapPage';
 import { getActivity } from '../lib/solanaActivity';
 import { OWN_ROUTE_COPY } from '../lib/solana/swap/ownPoolRoute';
 import { NOT_TEST_RUN_COPY, REFUSED_COPY } from '../lib/solana/swap/jupiterFeeRetry';
-import { SWAP_PENDING_SCOPE, readPendingTrades, savePendingTrade } from '../components/solana/curve/pendingTrade';
+import { readPendingTrades, savePendingTrade, swapPendingScope } from '../components/solana/curve/pendingTrade';
 import { DECLINED_IN_WALLET } from '../lib/solana/swap/walletCopy';
+/** Where the connected wallet's notes of sent swaps live (every tab of the site reads them). */
+const MY_NOTES = swapPendingScope(USER.toBase58());
 
 // The first test here pays for the page's first render (see SolanaSwapPage.feeRetry.test.tsx).
 // In a whole run on a busy machine the page took over 3 s to offer Buy: every wait is
@@ -891,7 +893,7 @@ describe('a venue read that failed, or has not answered yet, is not the page’s
 
 describe('a note found on arrival, with the swap code not loaded', () => {
   it('“Check again” answers: the status line says what became of the check, and the note stays', async () => {
-    savePendingTrade(SWAP_PENDING_SCOPE, { kind: 'venue-swap', signature: SIG, lastValidBlockHeight: 1_000 }, Date.now() - 5_000);
+    savePendingTrade(MY_NOTES, { kind: 'venue-swap', signature: SIG, lastValidBlockHeight: 1_000 }, Date.now() - 5_000);
     h.loadFails.value = true;
     render(<MemoryRouter><SolanaSwapPage /></MemoryRouter>);
     const card = await screen.findByTestId('venue-swap-pending');
@@ -2111,11 +2113,11 @@ describe('a note of a swap in our pool, sent and not confirmed, found on arrival
   it('on a pair with no pool of ours, it is checked at once; when the chain says it landed the note goes and Buy is live', async () => {
     h.recheckOutcome.mockImplementation(landed);
     h.quoteVenuePools.mockImplementation(() => ({ state: 'absent', candidates: [] }));
-    savePendingTrade(SWAP_PENDING_SCOPE, { kind: 'venue-swap', signature: SIG, lastValidBlockHeight: 1_000 });
+    savePendingTrade(MY_NOTES, { kind: 'venue-swap', signature: SIG, lastValidBlockHeight: 1_000 });
     render(<MemoryRouter><SolanaSwapPage /></MemoryRouter>);
     await waitFor(() => expect(h.recheckOutcome).toHaveBeenCalledWith(expect.anything(), SIG, { lastValidBlockHeight: 1_000 }));
     await waitFor(() => expect(screen.queryByTestId('venue-swap-pending')).toBeNull());
-    expect(readPendingTrades(SWAP_PENDING_SCOPE)).toEqual([]);
+    expect(readPendingTrades(MY_NOTES)).toEqual([]);
     fireEvent.change(amountBox(), { target: { value: '0.1' } });
     const buy = await screen.findByRole('button', { name: 'Buy BAYLA' }, { timeout: 20_000 });
     await waitFor(() => expect(h.quoteVenuePools).toHaveBeenCalled());
@@ -2125,11 +2127,11 @@ describe('a note of a swap in our pool, sent and not confirmed, found on arrival
   it('with swaps in our pools switched off, the note is still checked on arrival', async () => {
     h.on.value = false;
     h.recheckOutcome.mockImplementation(landed);
-    savePendingTrade(SWAP_PENDING_SCOPE, { kind: 'venue-swap', signature: SIG, lastValidBlockHeight: 1_000 });
+    savePendingTrade(MY_NOTES, { kind: 'venue-swap', signature: SIG, lastValidBlockHeight: 1_000 });
     render(<MemoryRouter><SolanaSwapPage /></MemoryRouter>);
     await waitFor(() => expect(h.recheckOutcome).toHaveBeenCalledWith(expect.anything(), SIG, { lastValidBlockHeight: 1_000 }));
     await waitFor(() => expect(screen.queryByTestId('venue-swap-pending')).toBeNull());
-    expect(readPendingTrades(SWAP_PENDING_SCOPE)).toEqual([]);
+    expect(readPendingTrades(MY_NOTES)).toEqual([]);
   });
 });
 

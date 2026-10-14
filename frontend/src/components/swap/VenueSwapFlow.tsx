@@ -1,13 +1,14 @@
 import { PendingTradeCard } from '../solana/curve/PendingTradeCard';
 import { TxFlowView } from '../solana/curve/TxFlowView';
 import { Notice } from '../solana/curve/ui';
+import { HELD_UNTIL, HOLD_DISMISS_LABEL, HOLD_DISMISS_MEANS } from '../../lib/solana/swap/walletCopy';
 import type { VenueSwap } from './useVenueSwap';
 
 /**
  * What the swap page shows in place of its form while a swap in our own pool is under
- * way (the review, the wallet's turn, the wait, the answer), and the note of a swap this
- * browser sent and could not confirm. Its own chunk: the page asks for it only when one
- * of those is on screen.
+ * way (the review, the wallet's turn, the wait, the answer), and the note of a swap the
+ * connected wallet sent from this browser, by either route, that is not confirmed yet.
+ * Its own chunk: the page asks for it only when one of those is on screen.
  */
 export default function VenueSwapFlow({ swap }: { swap: VenueSwap }) {
   const { flow, api, cfg, signerState, pending } = swap;
@@ -19,8 +20,16 @@ export default function VenueSwapFlow({ swap }: { swap: VenueSwap }) {
         state={pending}
         explorerUrl={(sig) => (api ? api.explorerTxUrl(sig, cluster) : `https://solscan.io/tx/${sig}`)}
         title="A swap you sent is not confirmed yet"
-        lead={<Notice tone="warn">It may still land. Buying again now could make you pay twice. Check it first.</Notice>}
+        lead={
+          <>
+            <Notice tone="warn">It may still land. Buying again now could make you pay twice. Check it first.</Notice>
+            <Notice>{HELD_UNTIL}</Notice>
+          </>
+        }
+        describe={(n) => <p className="text-white/70">{n.kind === 'jupiter-swap' ? 'Through Jupiter' : 'In our own pool'}</p>}
         testId="venue-swap-pending"
+        dismissLabel={HOLD_DISMISS_LABEL}
+        dismissMeans={HOLD_DISMISS_MEANS}
       />
     );
   }

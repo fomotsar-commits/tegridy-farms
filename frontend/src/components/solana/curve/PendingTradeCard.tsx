@@ -15,6 +15,8 @@ export function PendingTradeCard({
   lead,
   testId,
   describe,
+  dismissLabel = 'I checked my wallet: start over',
+  dismissMeans,
 }: {
   state: Pick<PendingTradesState, 'notes' | 'checking' | 'message' | 'recheck' | 'dismiss'>;
   explorerUrl: (signature: string) => string;
@@ -24,6 +26,9 @@ export function PendingTradeCard({
   testId: string;
   /** What one note was (its pool, what it did), above its signature. */
   describe?: (note: PendingTrade) => ReactNode;
+  dismissLabel?: string;
+  /** What pressing the dismiss button does and does not do, under it. */
+  dismissMeans?: string;
 }) {
   return (
     <Card title={title} testId={testId}>
@@ -54,8 +59,9 @@ export function PendingTradeCard({
         aria-disabled={state.checking || undefined}
         onClick={() => !state.checking && state.dismiss()}
       >
-        I checked my wallet: start over
+        {dismissLabel}
       </button>
+      {dismissMeans && <p className="text-white/55">{dismissMeans}</p>}
     </Card>
   );
 }

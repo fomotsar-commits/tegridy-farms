@@ -88,6 +88,8 @@ import {
   type RewardPoolView,
   type StakeEntryView,
 } from './bungalowStaking';
+import { DECLINED_IN_WALLET } from './solana/swap/walletCopy';
+import { notSignedCopy } from './solana/walletThrow';
 
 const bn = (v: string | number) => ({ toString: () => String(v) });
 const POOL = 'PooLAddr111111111111111111111111111111111111';
@@ -308,10 +310,35 @@ describe('stake', () => {
     getAccountInfo.mockResolvedValue({ owner: { toBase58: () => 'ReceiptProgram' } });
     const r = await stake({ invoker, pool, amountRaw: 1n, durationSecs: 86400, entries: [] });
     expect(r.ok).toBe(false);
-    if (!r.ok) {
-      expect(r.reason).toMatch(/declined the signature/);
-      expect(r.reason).toMatch(/nothing moved/i);
-    }
+    if (!r.ok) expect(r.reason).toBe(DECLINED_IN_WALLET);
+  });
+
+  // One wallet behaviour, one wording (owner, 2026-10-13): the SDK signs through the
+  // adapter's signTransaction, so these are the shapes a stake's catch receives (the
+  // adapter's WalletError: a name, the wallet's message, the wallet's own error under it).
+  const sign = (message: string | undefined, error: unknown) => Object.assign(new Error(message ?? ''), { name: 'WalletSignTransactionError', error });
+  it.each([
+    ['Solflare’s decline, in its own words', sign('Transaction cancelled', new Error('Transaction cancelled')), DECLINED_IN_WALLET],
+    ['Trust’s decline, code 4001 and the message "4001" only', sign('4001', Object.assign(new Error('4001'), { code: 4001 })), DECLINED_IN_WALLET],
+    ['a decline that is a plain object with no message', sign(undefined, { code: 4001 }), DECLINED_IN_WALLET],
+    ['a page no longer connected to the wallet', Object.assign(new Error(''), { name: 'WalletNotConnectedError' }), notSignedCopy('this page is no longer connected to it, so it was never asked')],
+    ['a wallet that failed before its prompt, in its words', sign('Wallet is locked', new Error('Wallet is locked')), notSignedCopy('Wallet is locked')],
+  ])('%s reads as every Solana write reads it', async (_, thrown, said) => {
+    prepareStakeInstructions.mockResolvedValue({ ixs: [] });
+    prepareCreateRewardEntryInstructions.mockResolvedValue({ ixs: [] });
+    execute.mockRejectedValue(thrown);
+    getAccountInfo.mockResolvedValue({ owner: { toBase58: () => 'ReceiptProgram' } });
+    const r = await stake({ invoker, pool, amountRaw: 1n, durationSecs: 86400, entries: [] });
+    expect(!r.ok && r.reason).toBe(said);
+  });
+
+  it('once a signature exists, no word in the error makes it a cancel', async () => {
+    prepareStakeInstructions.mockResolvedValue({ ixs: [] });
+    prepareCreateRewardEntryInstructions.mockResolvedValue({ ixs: [] });
+    getAccountInfo.mockResolvedValue({ owner: { toBase58: () => 'ReceiptProgram' } });
+    execute.mockRejectedValue(Object.assign(new Error('Transaction was not confirmed: request rejected by the node'), { signature: 'SigAbc' }));
+    const r = await stake({ invoker, pool, amountRaw: 1n, durationSecs: 86400, entries: [] });
+    expect(!r.ok && r.reason).toMatch(/^Outcome unknown/);
   });
 
   it('NEVER claims "nothing moved" for a post-broadcast confirmation timeout — outcome unknown + signature', async () => {

@@ -5,13 +5,12 @@
 //
 // It covers buy, sell, graduation and pool swaps (one scope per launch mint), adding
 // and removing liquidity and opening a pool (one scope for every pool, each note
-// naming its pool), and the swap page's swaps in our own pools (one scope). The
-// launch create flow has its own note (pendingLaunch.ts).
+// naming its pool), and the swap page's swaps by either route (one scope per wallet
+// that signed). The launch create flow has its own note (pendingLaunch.ts).
 //
-// sessionStorage, and only as a convenience: it can be empty, blocked or throw (a
-// private window, cleared site data), and the page must still be right without it.
-// The chain is the truth. The page checks every note against the chain before it
-// shows any form the note holds.
+// sessionStorage (localStorage for the swap page's, so every tab of the site holds
+// them), and only as a convenience: it can be empty, blocked or throw, and the page
+// must still be right without it. The chain is the truth.
 
 import { PublicKey } from '@solana/web3.js';
 import { isLpKind } from '../../../lib/launcher/solana/write/lpKinds';
@@ -24,12 +23,16 @@ import type { TxKind } from './ports';
 export const curveTradeScope = (mint: string): string => 'curve-launch:pending-trade:' + mint;
 /** Where every liquidity note lives, whatever its pool. */
 export const LP_PENDING_SCOPE = 'lp:pending';
-/** Where the swap page's notes live: its swaps in our own pools, whatever the pair. */
+/** The swap page's notes before they were kept per wallet: one tab's, read only to move them. */
 export const SWAP_PENDING_SCOPE = 'swap:pending';
+/** Where the swap page keeps the notes of one wallet: every swap it signed here, either route, any pair. */
+export const swapPendingScope = (wallet: string): string => `${SWAP_PENDING_SCOPE}:${wallet}`;
+/** A scope every tab of this site reads (localStorage): a swap sent in one tab holds Buy in the others. */
+export const isSharedScope = (scope: string): boolean => scope.startsWith(`${SWAP_PENDING_SCOPE}:`);
 
 /**
  * Past this, a note is ignored. A transaction can only land inside its blockhash
- * window (about a minute and a half), so one sent this long ago can no longer land.
+ * window (about 40 s on mainnet now), so one sent this long ago can no longer land.
  */
 export const PENDING_TRADE_TTL_MS = 10 * 60_000;
 /**
@@ -41,7 +44,8 @@ export const PENDING_TRADE_TTL_MS = 10 * 60_000;
  */
 export const MAX_NOTES = 64;
 
-export type TradeKind = Exclude<TxKind, 'create'>;
+/** `jupiter-swap`: the swap page's trade through Jupiter, sent by the wallet itself. */
+export type TradeKind = Exclude<TxKind, 'create'> | 'jupiter-swap';
 /** Every kind a note may carry. A Record, so a new kind of transaction is a compile error here until it is listed. */
 const KNOWN: Record<TradeKind, true> = {
   buy: true,
@@ -50,6 +54,7 @@ const KNOWN: Record<TradeKind, true> = {
   'pool-buy': true,
   'pool-sell': true,
   'venue-swap': true,
+  'jupiter-swap': true,
   'lp-deposit': true,
   'lp-withdraw': true,
   'lp-create': true,
@@ -77,7 +82,9 @@ const BASE58 = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
  * function here took before scopes existed, so a mint and `curveTradeScope(mint)` name
  * the same notes, and a bare mint never reads a key that nothing writes.
  */
-const storageKey = (scope: string): string => (BASE58.test(scope) ? curveTradeScope(scope) : scope);
+export const pendingStorageKey = (scope: string): string => (BASE58.test(scope) ? curveTradeScope(scope) : scope);
+/** Read inside a try: the accessor itself can throw (blocked site data). */
+const storeOf = (scope: string): Storage => (isSharedScope(scope) ? localStorage : sessionStorage);
 
 /** A pool address as stored, or null when it is not one. */
 function poolOf(v: unknown): string | null {
@@ -106,7 +113,7 @@ function parse(raw: unknown, now: number): PendingTrade | null {
 /** Every live note in this scope, newest first. Unreadable storage = none. */
 export function readPendingTrades(scope: string, now: number = Date.now()): PendingTrade[] {
   try {
-    const raw = sessionStorage.getItem(storageKey(scope));
+    const raw = storeOf(scope).getItem(pendingStorageKey(scope));
     if (!raw) return [];
     const list: unknown = JSON.parse(raw);
     if (!Array.isArray(list)) return [];
@@ -125,22 +132,25 @@ function stored(n: PendingTrade): object {
   return isLpKind(n.kind) ? { ...rest, pool } : rest;
 }
 
-function write(scope: string, notes: PendingTrade[]): void {
+/** False when storage threw: the page still works, it just cannot remember across a reload. */
+function write(scope: string, notes: PendingTrade[]): boolean {
   try {
-    if (notes.length === 0) sessionStorage.removeItem(storageKey(scope));
-    else sessionStorage.setItem(storageKey(scope), JSON.stringify(notes.slice(0, MAX_NOTES).map(stored)));
+    if (notes.length === 0) storeOf(scope).removeItem(pendingStorageKey(scope));
+    else storeOf(scope).setItem(pendingStorageKey(scope), JSON.stringify(notes.slice(0, MAX_NOTES).map(stored)));
+    return true;
   } catch {
-    /* storage unavailable: the page still works, it just cannot remember across a reload */
+    return false;
   }
 }
 
+/** True when the note is in storage. */
 export function savePendingTrade(
   scope: string,
   t: { kind: TradeKind; signature: string; lastValidBlockHeight: number | null; pool?: string | null },
   now: number = Date.now(),
-): void {
+): boolean {
   const rest = readPendingTrades(scope, now).filter((n) => n.signature !== t.signature);
-  write(scope, [{ kind: t.kind, signature: t.signature, lastValidBlockHeight: t.lastValidBlockHeight, sentAt: now, pool: t.pool ?? null }, ...rest]);
+  return write(scope, [{ kind: t.kind, signature: t.signature, lastValidBlockHeight: t.lastValidBlockHeight, sentAt: now, pool: t.pool ?? null }, ...rest]);
 }
 
 /** Drop one note (the chain answered for it), or every note in the scope when no signature is given. */

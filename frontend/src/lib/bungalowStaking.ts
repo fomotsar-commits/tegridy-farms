@@ -1,6 +1,7 @@
 import type { SignerWalletAdapter } from '@solana/wallet-adapter-base';
 import { solanaRpcEndpoint } from './solana';
 import { confirmedSlotOf, slotOrNull } from './ladder/writeFence';
+import { readSendThrow } from './solana/walletThrow';
 
 /**
  * Bungalow staking adapter — the venue's thin seam over the Streamflow
@@ -997,7 +998,12 @@ export function nextVacantNonce(entries: StakeEntryView[]): number | null {
 
 function writeFailure(err: unknown, fallback: string): Failure {
   const msg = err instanceof Error ? err.message : String(err ?? '');
-  if (/reject|declin|denied/i.test(msg)) return { ok: false, reason: 'You declined the signature. Nothing moved.' };
+  // The wallet's throw, read as every Solana write reads it (lib/solana/walletThrow.ts):
+  // a cancel by code 4001 or by words, or a wallet that never signed, with its reason.
+  // Not once a signature exists: then it was sent.
+  const signed = (err as { signature?: unknown } | null)?.signature;
+  const t = typeof signed === 'string' && signed !== '' ? null : readSendThrow(err);
+  if (t && t.kind !== 'unsure') return { ok: false, reason: t.message };
   // Streamflow custom error 6012 = the reward vault cannot cover the rewards
   // this action must pay out. PROVEN ON DEVNET (2026-08-28, same program ids
   // as mainnet): while accrued > vault, claim AND unstake&claim both revert —
