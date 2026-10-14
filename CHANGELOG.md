@@ -8,6 +8,11 @@ page keeps the newest thirty days.
 
 ### 2026-10-10
 
+- Shared heat links: a memetics.finance/read link for a wallet the island reads now shows the island's painted card of that wallet when it is posted. A cold wallet, or one the island could not be asked about, keeps the venue's card.
+- Read Heat: each room shows your place in it as the island counts it, for example "12th of 498 measured", on the room's own read and under each room on the card. A wallet the island does not rank shows no place. "Post my number" now starts with the degrees and carries the place in your deepest room.
+- Solana swap: the page opens on SOL to $BAYLA, and inside a Solana bungalow on SOL to that bungalow's coin. A link that names a coin still opens on that coin. $BAYLA is marked as this venue's own coin and asks for no tick box, as it has since 2026-10-08.
+- Home: the chain pills read Solana, Ethereum, Base.
+- After a visit to the TOWELI bungalow, the venue's own pages keep the venue's footer and words, and Towelie stays on the farm's pages. The same goes for every bungalow's footer card. The art and the Swap link still follow the bungalow you opened last, and so does the dashboard.
 - Phones whose browser draws the page under the status bar (seen on a Galaxy S25 inside the Phantom app): the row of tabs no longer hides under the header, and the icons in the bottom bar stay inside the bar. On a phone narrower than about 405px, the big headline on the home page and on each bungalow's front page is a little smaller, so MEMETICS.FINANCE no longer runs to the edge of the screen.
 - On those same phones, a button or field you move to with the keyboard, and a section a link jumps to, now stops clear of the header, the row of tabs and the bottom bar. With the bars drawn taller there, it used to stop partly behind them.
 - NFT Finance on a phone or an iPad: a link straight to a section, such as the Launchpad, now opens with that section's tab in view in the row of tabs, clear of the fade at the row's right edge. It used to sit out of sight past the right edge. Pressing a tab that is cut off at the edge of the row now brings it fully into view; it used to be selected and stay cut off.

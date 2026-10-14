@@ -13,6 +13,7 @@
  *   /deployer     deployer-report share links (?address=<address>).
  *   /read/<addr>  held-time share links — the card IS the holder's number, and
  *                 is the whole reason the share exists (wave seven, element M).
+ *                 Its picture is the island's painted card for a wallet it reads.
  *
  * HONESTY RULE, one law for every card here: a card ASSERTS NOTHING OF THE
  * VENUE'S OWN. It states what the page measures, identifies the subject, and
@@ -295,6 +296,11 @@ async function trustCard(url) {
 // from the edge carries no Origin header) for no gain.
 
 const HEAT_BASE = "https://memetics.wtf/api/heat";
+// The island paints a wallet's card itself. A link to a wallet it reads carries that
+// picture; a cold or unread wallet keeps the venue's own, because the island's cold
+// card prints "DAY 0" and the venue never posts a zero. The picture is the crawler's
+// to fetch: this function only names it.
+const CARD_BASE = "https://memetics.wtf/api/card";
 const READ_DESCRIPTION = "Held time counts here. Read any wallet, no wallet needed.";
 const READ_GENERIC_TITLE = "Read any wallet on Jungle Bay Island";
 
@@ -346,7 +352,7 @@ async function readCard(url) {
   return respond(ogHtml({
     title: `${r.tier} · ${r.days.toLocaleString("en-US")} days held · ${r.degrees.toFixed(1)}° on Jungle Bay Island`,
     description: READ_DESCRIPTION,
-    image,
+    image: `${CARD_BASE}?w=${address}`,
     url: `${CANONICAL_ORIGIN}/read/${address}`,
     siteName,
   }));

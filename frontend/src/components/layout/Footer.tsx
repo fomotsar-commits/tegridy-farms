@@ -7,8 +7,8 @@ import { NFT_FINANCE_LIVE, COMMUNITY_LIVE, PREMIUM_LIVE } from '../../lib/navCon
 import { isSolanaSwapLive } from '../../lib/solana';
 import { shortenAddress } from '../../lib/formatting';
 import { CopyButton } from '../ui/CopyButton';
-import { isToweliVoice, VENUE } from '../../lib/arrival';
-import { isToweliRoomPage } from '../../lib/routeVoice';
+import { voiceAt, VENUE } from '../../lib/arrival';
+import { isToweliRoomPage, roomSpeaksOn } from '../../lib/routeVoice';
 import { useActiveBungalowId } from '../../hooks/useActiveBungalowId';
 
 /**
@@ -78,19 +78,15 @@ export function Footer() {
   // Jungle Bay bungalows: token-first footer identity (blurb + contract card)
   // when the active bungalow carries one, re-read when a door switches it.
   useActiveBungalowId();
-  // ANSWER EIGHT, ruling 1: THE DOOR DECIDES THE CHROME.
-  //
-  // getBungalowIdentity() reads ambient storage, never the route, so a
-  // visitor who walked through /bayla and then opened a TOWELI protocol
-  // page got the band saying TOWELI and this footer saying Bayla in the
-  // same viewport, down to a BAYLA contract card with a Solana explorer
-  // link. On a room route the route wins: the resident is suppressed and
-  // the room's own voice stands, which is TOWELI or the venue, never the
-  // last resident a visitor happened to visit.
-  const { pathname } = useLocation();
+  // THE ROUTE DECIDES WHO SPEAKS HERE, never the room opened last (docs/FACE_LAWS.md,
+  // law 21). getBungalowIdentity() reads storage, so it is asked only whether THIS
+  // route is that room's own page: a resident's sentence and contract card show there,
+  // the farm's on TOWELI's pages, and every other route reads the venue's.
+  const { pathname, search } = useLocation();
   const inToweliRoom = isToweliRoomPage(pathname);
-  const bungalowIdentity = inToweliRoom ? null : getBungalowIdentity();
-  const toweliVoice = inToweliRoom || isToweliVoice();
+  const lastRoom = getBungalowIdentity();
+  const bungalowIdentity = lastRoom && roomSpeaksOn(pathname, lastRoom.id) ? lastRoom : null;
+  const toweliVoice = inToweliRoom || voiceAt(pathname, search) === 'toweli';
   // Footer sits on top of whatever fixed art background the current page provides
   // (galleryCollage on Home, apeHug on Trade, etc.). Before this change, links were
   // text-white/60 with no scrim — barely legible over bright art regions. Now we
@@ -228,18 +224,12 @@ export function Footer() {
               <a href="/llms.txt" className={LINK_CLASS} style={LINK_SHADOW}>
                 For your AI
               </a>
-              {/* TOWELI market links (Uniswap/Etherscan/GeckoTerminal) — inside
-                  the TOWELI bungalow only; the bungalow card above carries each
-                  other resident's own explorer link.
-
-                  GATE CORRECTED 2026-09-05: this read `!bungalowIdentity`, which
-                  is null for BOTH "the TOWELI bungalow" AND "no bungalow chosen"
-                  — so the VENUE's own footer, the first one a stranger scrolls
-                  to, linked out to one resident's Uniswap pair and token page as
-                  if they were the island's. `isToweliVoice()` is the gate that
-                  tells those two states apart, and the contract card 50 lines
-                  above already uses it. */}
-              {isToweliVoice() && EXTERNAL_RESOURCES.map((l) => (
+              {/* TOWELI market links (Uniswap, Etherscan, GeckoTerminal): on the
+                  farm's own pages only, by the same `toweliVoice` as the contract
+                  card above. `!bungalowIdentity` is not that gate: it is also
+                  true when no room is chosen, and the venue's footer must link
+                  to no single resident's market. */}
+              {toweliVoice && EXTERNAL_RESOURCES.map((l) => (
                 <a key={l.label} href={l.href} target="_blank" rel="noopener noreferrer"
                   aria-label={`${l.label} (opens in new tab)`}
                   className={LINK_CLASS} style={LINK_SHADOW}>
