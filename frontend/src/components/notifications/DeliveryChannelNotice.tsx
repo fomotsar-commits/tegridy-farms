@@ -5,6 +5,7 @@ import {
   type ChannelId,
   type ChannelStatus,
 } from '../../lib/alerts/channels';
+import { FinePrint } from '../ui/FinePrint';
 
 // Where alerts can go, stated before the user relies on them going anywhere.
 //
@@ -73,10 +74,12 @@ export function DeliveryChannelNotice({ channels, onSubscribe }: Props) {
             </div>
             {channel.detail && <p className="mt-1 text-white/70 text-[11px] leading-snug">{channel.detail}</p>}
             {channel.operatorStep && (
-              <p className="mt-1 text-white/50 text-[11px] leading-snug">
-                <span className="uppercase tracking-wide">Operator: </span>
-                {channel.operatorStep}
-              </p>
+              <FinePrint summary="Operator note">
+                <p>
+                  <span className="uppercase tracking-wide">Operator: </span>
+                  {channel.operatorStep}
+                </p>
+              </FinePrint>
             )}
             {channel.canSubscribe && onSubscribe && SUBSCRIBE_LABEL[channel.id] && (
               <button

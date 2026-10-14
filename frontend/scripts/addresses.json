@@ -829,12 +829,12 @@
     {
       "id": "lp-farming",
       "address": "0x1171268AE5B69791c47Fd589b7825932c957e149",
-      "role": "LP farming. Emissions ended 2026-06-15; 0 LP staked.",
+      "role": "LP farming. Emissions ended 2026-06-15; 528.2 LP staked by one wallet (read 2026-10-14), earning no TOWELI since the period ended.",
       "status": "live, idle",
       "expect": {
         "type": "contract"
       },
-      "evidence": "CONTRACTS.md (Native DEX, TegridyLPFarming) and docs/MIGRATION_HISTORY.md:134 record a live read-back: stakingToken()=0x5587...a481, rewardToken()=TOWELI, MAX_BOOST_BPS_CEILING()==45000. frontend/src/lib/lpEmissions.ts:9 cites a mainnet verification against it on 2026-07-31."
+      "evidence": "CONTRACTS.md (Native DEX, TegridyLPFarming) and docs/MIGRATION_HISTORY.md:134 record a live read-back: stakingToken()=0x5587...a481, rewardToken()=TOWELI, MAX_BOOST_BPS_CEILING()==45000. frontend/src/lib/lpEmissions.ts:9 cites a mainnet verification against it on 2026-07-31. Read 2026-10-14 at block 26,188,902: totalRawSupply()=528199806982326905120 (528.2 LP), periodFinish()=1781493095 (2026-06-15T03:11:35Z); its Staked and Withdrawn events since deployment net to that total for one wallet, which staked 528.2 LP between 2026-08-08 and 2026-09-07."
     },
     {
       "id": "referral-splitter",
@@ -2013,5 +2013,56 @@
         "type": "contract"
       }
     }
-  ]
+  ],
+  "solanaFields": {
+    "$comment": "Who holds each authority of our Solana programs, and what each fee tier charges, as decoded from the account data by `verify-addresses.mjs --onchain` (check 3d). Values that name a key are solana row ids. Every admin, fee owner and fee receiver must be `onlyHolder`: the offline check fails on anything else. All values read 2026-10-13 at finalized slot 456,675,628. Not covered here: cp-swap's admin, which is compiled into the program (src/lib.rs `admin::ID`, the Squads vault), not stored in an account.",
+    "onlyHolder": "squads-vault",
+    "accounts": {
+      "cp-swap-programdata-restart": { "layout": "programdata", "upgradeAuthority": "squads-vault" },
+      "tegridy-launch-programdata-restart": { "layout": "programdata", "upgradeAuthority": "squads-vault" },
+      "bayla-ladder-programdata": { "layout": "programdata", "upgradeAuthority": "squads-vault" },
+      "bayla-ladder-idl": { "layout": "anchor-idl", "owner": "bayla-ladder-program", "authority": "squads-vault" },
+      "bayla-ladder-pool": { "layout": "bayla-ladder-pool", "owner": "bayla-ladder-program", "authority": "squads-vault", "pendingAuthority": "system-program" },
+      "cp-swap-amm-config-restart": {
+        "layout": "cp-swap-amm-config",
+        "owner": "cp-swap-program-restart",
+        "disableCreatePool": 0,
+        "index": 0,
+        "tradeFeeRate": 2500,
+        "protocolFeeRate": 200000,
+        "fundFeeRate": 0,
+        "createPoolFee": 0,
+        "protocolOwner": "squads-vault",
+        "fundOwner": "squads-vault",
+        "creatorFeeRate": 500
+      },
+      "cp-swap-amm-config-public-restart": {
+        "layout": "cp-swap-amm-config",
+        "owner": "cp-swap-program-restart",
+        "disableCreatePool": 0,
+        "index": 1,
+        "tradeFeeRate": 10000,
+        "protocolFeeRate": 160000,
+        "fundFeeRate": 0,
+        "createPoolFee": 150000000,
+        "protocolOwner": "squads-vault",
+        "fundOwner": "squads-vault",
+        "creatorFeeRate": 0
+      },
+      "tegridy-launch-global-restart": {
+        "layout": "tegridy-launch-global",
+        "owner": "tegridy-launch-program-restart",
+        "authority": "squads-vault",
+        "feeRecipient": "squads-vault",
+        "tradeFeeBps": 100,
+        "creatorFeeShareBps": 5000,
+        "cpSwapProgram": "cp-swap-program-restart",
+        "ammConfig": "cp-swap-amm-config-restart",
+        "platformReserveBps": 369
+      }
+    },
+    "notAsserted": {
+      "tegridy-launch-global": "The closed 2026-08 tegridy-launch's global account. Its program's data account is gone (tegridy-launch-programdata is expected absent), so no code can act on it and no field of it can move money."
+    }
+  }
 }

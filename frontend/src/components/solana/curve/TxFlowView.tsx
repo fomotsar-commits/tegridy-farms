@@ -616,6 +616,12 @@ function venueRouteText(s: Extract<TxSummary, { kind: 'venue-swap' }>): string {
     // A refusal this press could not test again is said as that, and its cause is said when it gave one.
     return [quotedMore, ...(a.earlier ? ['It could not be checked again just now'] : []), ...(a.why ? [a.why] : [])].join('. ');
   }
+  if (a.kind === 'unchecked') {
+    const why = 'its transaction for this trade could not be test-run on our side, so it was not sent';
+    return a.out <= s.quoted.outAmount
+      ? `Jupiter quoted no more than this pool pays, and ${why}`
+      : `Jupiter quoted ${edgePercent(Number(a.out - s.quoted.outAmount) / Number(s.quoted.outAmount))} more, but ${why}`;
+  }
   const beside = a.when === 'now' ? 'Jupiter quoted just now' : 'the last quote Jupiter gave (it could not be asked again just now)';
   if (s.quoted.outAmount === a.out) return `the same as ${beside}, so the trade stays here`;
   return `${edgePercent(Number(s.quoted.outAmount - a.out) / Number(a.out))} more than ${beside}`;
@@ -991,6 +997,7 @@ export function TxOutcomeCard({
   fees,
   checks = 0,
   kind,
+  resetMeans,
 }: {
   outcome: TxOutcome;
   /** `null` when there is no signature to link. */
@@ -1006,6 +1013,8 @@ export function TxOutcomeCard({
   checks?: number;
   /** What the transaction was for, when known: taking liquidity out again has its own risk to name. */
   kind?: TxKind;
+  /** Under "I checked my wallet: start over" on a sent, unconfirmed one: what that press does and does not do. */
+  resetMeans?: string;
 }) {
   // Done is news; everything else needs the user to read it before acting.
   const a11y = {
@@ -1085,6 +1094,7 @@ export function TxOutcomeCard({
             <button type="button" onClick={onReset} className="btn-secondary min-h-[44px] w-full py-2 text-[12px]">
               I checked my wallet: start over
             </button>
+            {resetMeans && <p className="text-white/55">{resetMeans}</p>}
           </div>
         );
       }
@@ -1124,6 +1134,8 @@ export function TxFlowView({
   signer,
   extraReview,
   preparingText,
+  onOutcomeReset,
+  resetMeans,
 }: {
   flow: TxFlow;
   /** `WriteApi` and `LpWriteApi` both satisfy it. */
@@ -1135,6 +1147,10 @@ export function TxFlowView({
   extraReview?: ReactNode;
   /** What is happening while it builds, when that is more than building (the launch's upload request). */
   preparingText?: string;
+  /** The outcome's own button, when a page does more than start over (the swap page also drops its hold). */
+  onOutcomeReset?: () => void;
+  /** Passed to TxOutcomeCard. */
+  resetMeans?: string;
 }) {
   const s = flow.state;
   // One focus target per step. Moving focus both keeps keyboard users in place (the
@@ -1211,7 +1227,7 @@ export function TxFlowView({
             Sign in wallet
           </button>
           <button type="button" className="btn-secondary min-h-[44px] w-full py-2.5 text-[13px]" onClick={flow.reset}>
-            {s.expired ? 'Start over' : 'Cancel'}
+            {s.expired || s.renewing ? 'Start over' : 'Cancel'}
           </button>
         </div>
       </div>
@@ -1251,12 +1267,13 @@ export function TxFlowView({
       outcome={s.outcome}
       explorerUrl={sig ? api.explorerTxUrl(sig, cluster) : null}
       onRecheck={() => void flow.recheck()}
-      onReset={flow.reset}
+      onReset={onOutcomeReset ?? flow.reset}
       rechecking={s.rechecking}
       boxRef={setFocus}
       fees={s.prepared?.fees ?? null}
       checks={s.checks ?? 0}
       kind={s.prepared?.kind}
+      resetMeans={resetMeans}
     />
   );
 }

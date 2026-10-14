@@ -37,7 +37,7 @@ export default function SolanaLpPage() {
   // The keyboard's ring goes round the words (`ring-on-words`, index.css).
   const venueAmmLink = (
     <Link to={withMint('/pools', params)} className="inline-block py-3.5 -my-1.5 underline underline-offset-2 text-white hover:text-white/80 ring-on-words">
-      <span className="ring-words">See fees, status and how the pools work on the Venue AMM tab</span>
+      <span className="ring-words">Fees, status and how the pools work, on the Venue AMM tab</span>
     </Link>
   );
 
@@ -109,9 +109,8 @@ const PAGE_DESCRIPTION =
 // read alone does not say each can be done right now: the section's own reads do.
 const HERO_LINE: Record<LpWriteMode, string> = {
   // Short: on a phone each of its lines pushes the three buttons under it down the screen.
-  on: 'Create a pool, add liquidity or take it out on the venue’s own Solana AMM.',
-  'withdraw-only': 'Find a pool and take your liquidity out on the venue’s own Solana AMM. Adding liquidity and opening pools from here are paused.',
-  off: 'Find a pool and check its health on the venue’s own Solana AMM. Adding and removing liquidity from here is not switched on yet.',
+  on: 'Create a pool, add liquidity or take it out.',
+  'withdraw-only': 'Take your liquidity out. Adding and opening pools are paused here.',
+  off: 'Find a pool and check its health. Adding and removing are not switched on yet.',
 };
-const HERO_NOT_OPEN =
-  'Liquidity on the venue’s own Solana AMM opens here once a chain read says the venue is open. The card below says what the latest read found.';
+const HERO_NOT_OPEN = 'Opens here once a chain read says the venue is open.';

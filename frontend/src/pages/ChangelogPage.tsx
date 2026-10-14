@@ -534,7 +534,8 @@ export default function ChangelogPage() {
                           >
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
                           </svg>
-                          <span>{item}</span>
+                          {/* min-w-0 and break-words: a long path or name wraps inside the card instead of running past it. */}
+                          <span className="min-w-0 break-words">{item}</span>
                         </li>
                       ))}
                     </ul>

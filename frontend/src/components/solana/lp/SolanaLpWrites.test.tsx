@@ -4,6 +4,7 @@
 // pools, positions and wallet are fake readers. Nothing here touches a chain.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { RISK_SHORT } from './LpDisclosures';
 import { act, render, screen, waitFor, within, fireEvent } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { PublicKey } from '@solana/web3.js';
@@ -158,7 +159,7 @@ describe("mode 'off' (the shipped build)", () => {
     const c = await card();
     expect(c).toHaveAttribute('data-add', 'off');
     expect(c).toHaveAttribute('data-deposits', 'allowed');
-    expect(within(c).getByText(/Adding liquidity from this page is not switched on yet/)).toBeInTheDocument();
+    expect(within(c).getByText(/Adding liquidity here is not switched on yet/)).toBeInTheDocument();
     expect(within(c).queryByRole('button', { name: 'Add liquidity' })).toBeNull();
     expect(screen.getByTestId('lp-disclosure')).toHaveTextContent(/only reads/);
     const row = await screen.findByTestId('lp-position');
@@ -182,7 +183,7 @@ describe('Add liquidity', () => {
     const c = await card();
     expect(await within(c).findByRole('button', { name: 'Add liquidity' })).toBeInTheDocument();
     expect(c).toHaveAttribute('data-add', 'offer');
-    expect(within(c).getByText('These checks run again, on fresh reads, when you press Review.')).toBeInTheDocument();
+    expect(within(c).getByText('Checks run again on fresh reads when you press Review.')).toBeInTheDocument();
     expect(screen.getByTestId('lp-disclosure')).toHaveTextContent(/Opening a pool, adding and removing liquidity here send real transactions/);
     expect(screen.getByTestId('lp-disclosure')).not.toHaveTextContent(/only reads/);
     // A clean token at the market price: the same green pass as ever, and no warning anywhere.
@@ -260,7 +261,7 @@ describe('Add liquidity', () => {
     // check that could not be RUN. It no longer says an outside price is always needed
     // (a pool with no market price at all is offered, with a warning).
     expect(c).toHaveTextContent('We could not check its price against an outside price (Jupiter did not give a price (HTTP 502)).');
-    expect(c).toHaveTextContent('We offer adding liquidity only when every check above could be run, and one of them could not be run just now.');
+    expect(c).toHaveTextContent('Adding is off: a check above could not be run just now.');
     expect(c).not.toHaveTextContent(/only after checking the pool's price against a price from outside it/);
     expect(c).not.toHaveTextContent(/Often that means/);
     // Unread is not a warning: nothing here says deposits are open.
@@ -559,14 +560,15 @@ describe('Remove liquidity', () => {
   it('a search that finds nothing says the shares are safe; a failed one says it could not read', async () => {
     const v = view();
     const unplaced = position(v, { placement: 'not-found', pool: null, value: null });
-    const placeShareOnChain = vi.fn().mockResolvedValueOnce({ kind: 'not-found' }).mockResolvedValueOnce({ kind: 'unread', detail: 'HTTP 429' });
+    const placeShareOnChain = vi.fn().mockResolvedValueOnce({ kind: 'not-found' }).mockResolvedValueOnce({ kind: 'unread', detail: 'the network is busy; try again in a minute' });
     mount(readers({ positions: vi.fn(async () => ({ kind: 'ok' as const, chainNow: 5n, totalShares: 1, positions: [unplaced] })), placeShareOnChain }), { path: '/pools' });
     const row = await screen.findByTestId('lp-position');
     const find = await within(row).findByRole('button', { name: "Find this share's pool on the chain" });
     fireEvent.click(find);
     expect(await within(row).findByText(/could not find this share’s pool from its recent history\. Your shares are safe/)).toBeInTheDocument();
     fireEvent.click(find);
-    expect(await within(row).findByText(/could not read the chain just now \(HTTP 429\)\. Your shares are safe/)).toBeInTheDocument();
+    // The reader says a busy network in words (positions.ts), and the row prints them.
+    expect(await within(row).findByText(/could not read the chain just now \(the network is busy; try again in a minute\)\. Your shares are safe/)).toBeInTheDocument();
   });
 });
 
@@ -817,6 +819,7 @@ describe('the review', () => {
     // the panel said them again under the Sign button; it keeps its other lines.
     expect(within(panel).getAllByText(/have not had their own independent review yet/)).toHaveLength(1);
     expect(within(panel).getAllByText(/change its fee rates at once/)).toHaveLength(1);
+    expect(within(panel).getAllByText(RISK_SHORT)).toHaveLength(1);
     expect(within(panel).getByTestId('lp-before-you-add')).toHaveTextContent('When the price moves, you can end up with less than if you had just held both tokens.');
     // Back on the form, with no review on screen, the list says them again.
     fireEvent.click(within(panel).getByRole('button', { name: 'Cancel' }));

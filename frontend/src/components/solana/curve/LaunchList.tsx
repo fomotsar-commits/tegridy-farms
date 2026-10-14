@@ -12,6 +12,7 @@ import {
   type Read,
   type SolanaRpc,
 } from '../../../lib/launcher/solana/curve';
+import { CardArt } from '../../ui/CardArt';
 import { Card, Notice } from './ui';
 import { TOGGLE_CLS, sharePercent } from './uiFormat';
 import { CreatorStakeFacts, LaunchImage } from './LaunchIdentity';
@@ -111,7 +112,7 @@ export function LaunchList({
 
   const items = state.items;
   return (
-    <Card title="Launches" testId="launch-list">
+    <Card title="Launches" testId="launch-list" art={<CardArt pageId="curve-launch" idx={12} />}>
       <div className="flex gap-1.5" role="group" aria-label="Which launches">
         {(
           [

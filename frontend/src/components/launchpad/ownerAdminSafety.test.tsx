@@ -43,6 +43,7 @@ vi.mock('framer-motion', () => {
 
 vi.mock('wagmi', () => ({
   useChainId: () => 1,
+  usePublicClient: () => undefined,
   useReadContract: (opts: { functionName: string }) => ({
     data: readResults.get(opts.functionName),
     refetch: vi.fn(),
@@ -73,26 +74,29 @@ beforeEach(() => {
 
 describe('owner panel numeric inputs', () => {
   it('refuses an exponent-notation mint price instead of throwing on click', () => {
+    readResults.set('mintPhase', 0n); // a price can only be proposed while CLOSED
     openPanel();
     fireEvent.change(screen.getByPlaceholderText('0.05'), { target: { value: '1e3' } });
     expect(screen.getByRole('alert')).toBeTruthy();
-    expect((screen.getByText('Set Price') as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByText('Propose Price') as HTMLButtonElement).disabled).toBe(true);
   });
 
   it('refuses a fractional wallet cap', () => {
+    readResults.set('mintPhase', 0n);
     openPanel();
     fireEvent.change(screen.getByPlaceholderText('5'), { target: { value: '1.5' } });
     expect((screen.getByText('Set Cap') as HTMLButtonElement).disabled).toBe(true);
   });
 
-  it('sends the parsed wei for a well-formed price', () => {
+  it('proposes the parsed wei for a well-formed price (the one-step setMintPrice reverts)', () => {
+    readResults.set('mintPhase', 0n);
     openPanel();
     fireEvent.change(screen.getByPlaceholderText('0.05'), { target: { value: '0.25' } });
-    const btn = screen.getByText('Set Price') as HTMLButtonElement;
+    const btn = screen.getByText('Propose Price') as HTMLButtonElement;
     expect(btn.disabled).toBe(false);
     fireEvent.click(btn);
     expect(writeContract).toHaveBeenCalledWith(
-      expect.objectContaining({ functionName: 'setMintPrice', args: [250_000_000_000_000_000n] }),
+      expect.objectContaining({ functionName: 'proposeMintPrice', args: [250_000_000_000_000_000n] }),
       expect.anything(),
     );
   });

@@ -11,6 +11,7 @@ import {
   parseDecimalToBaseUnits,
   type Read,
 } from '../../../lib/launcher/solana/curve';
+import { CardArt } from '../../ui/CardArt';
 import { Card, Field, Notice, Row } from './ui';
 import {
   DIVIDER,
@@ -583,7 +584,7 @@ export function LaunchCreateForm({ api, rpc, gate, actions, signerState }: Launc
 
   if (flow.state.step !== 'idle') {
     return (
-      <Card title="Launch a token" testId="launch-create-form" headingRef={headingRef}>
+      <Card title="Launch a token" testId="launch-create-form" headingRef={headingRef} art={<CardArt pageId="curve-launch" idx={11} />}>
         <TxFlowView
           flow={flow}
           api={api}
@@ -636,7 +637,7 @@ export function LaunchCreateForm({ api, rpc, gate, actions, signerState }: Launc
   // Who the reserve goes to, from the settings read from chain. A multisig only when it is the known vault.
   const treasury = describeTreasury(g.feeRecipient);
   return (
-    <Card title="Launch a token" testId="launch-create-form" headingRef={headingRef}>
+    <Card title="Launch a token" testId="launch-create-form" headingRef={headingRef} art={<CardArt pageId="curve-launch" idx={11} />}>
       {!actions.create && (
         <Notice tone="warn">{gate.paused ? 'New launches are paused right now.' : 'Launching is not available right now.'}</Notice>
       )}

@@ -4,6 +4,8 @@ import { TAPE_MIRROR_REFUSAL_TEXT } from '../../lib/copytrade/tapeMirror';
 import type { MirrorIntent } from '../../lib/copytrade/follows';
 import type { QueueRefusal, QueueRow } from './queueRows';
 import { shortenAddress } from '../../lib/formatting';
+import { CardArt } from '../ui/CardArt';
+import { FinePrint } from '../ui/FinePrint';
 
 // Every read fill by a followed address — the copyable ones AND the ones that
 // are not.
@@ -24,6 +26,10 @@ import { shortenAddress } from '../../lib/formatting';
 // trade. That note is what lets the fill rate and the entry lag be measured
 // later against real fills, and it is the reason the log is written BEFORE the
 // trade rather than after it.
+//
+// FEWER WORDS (owner, 2026-10-13). The notes that were identical on every row
+// (who the sender is, why no minimum-out, what logging does) are said ONCE, in
+// the FinePrint under the list. Refusals stay on their rows: they are the row.
 
 export interface MirrorQueueProps {
   candidates: readonly QueueRow[];
@@ -42,22 +48,25 @@ function refusalText(refusal: QueueRefusal): string {
 
 export function MirrorQueue({ candidates, loggedTxHashes, onLog, heading = 'Mirror queue' }: MirrorQueueProps) {
   const copyable = candidates.filter((c) => c.plan !== null).length;
+  // Said once under the list rather than once per row: every row from one
+  // source carries the same sentence.
+  const senderLines = [...new Set(candidates.map((c) => c.senderLine))];
+  const minOutReasons = [
+    ...new Set(candidates.flatMap((c) => (c.plan ? [c.plan.minOutReason] : []))),
+  ];
 
   return (
-    <section className="rounded-xl border border-white/15 bg-white/[0.02] p-4">
+    <section className="relative isolate rounded-xl border border-white/15 bg-white/[0.02] p-4">
+      <CardArt pageId="copy-trading" idx={5} />
       <h2 className="text-sm font-semibold text-white">{heading}</h2>
-      <p className="mt-1.5 text-xs leading-relaxed text-white/70">{MIRROR_EXECUTION}</p>
       <p className="mt-1.5 text-[11px] leading-relaxed text-white/60">
         {candidates.length} fill{candidates.length === 1 ? '' : 's'} read from followed addresses,{' '}
-        {copyable} of which can be sized right now. A fill older than{' '}
-        {Math.round(MAX_SIGNAL_AGE_SECONDS / 60)} minutes is listed with its reason instead of a
-        size — copying it would be a different trade at a different price.
+        {copyable} sizable now.
       </p>
 
       {candidates.length === 0 ? (
         <p className="mt-4 text-xs leading-relaxed text-white/70">
-          No fills by the followed addresses came back in what was read. Within what was read this
-          is a measurement; outside it, nothing was looked at.
+          No fills by the followed addresses came back in what was read.
         </p>
       ) : (
         <ul className="mt-4 space-y-3">
@@ -69,8 +78,6 @@ export function MirrorQueue({ candidates, loggedTxHashes, onLog, heading = 'Mirr
                   {Math.max(0, candidate.ageSeconds)}s ago · {candidate.sourceLabel}
                 </p>
               </div>
-              <p className="mt-0.5 text-[10px] leading-snug text-white/50">{candidate.senderLine}</p>
-
               {candidate.plan ? (
                 <div className="mt-2">
                   <p className="text-xs text-white/85">
@@ -79,7 +86,6 @@ export function MirrorQueue({ candidates, loggedTxHashes, onLog, heading = 'Mirr
                       <span className="text-amber-200"> — {candidate.plan.cappedText}</span>
                     ) : null}
                   </p>
-                  <p className="mt-1 text-[10px] leading-snug text-white/55">{candidate.plan.minOutReason}</p>
                   <div className="mt-2 flex flex-wrap items-center gap-2">
                     {loggedTxHashes.has(candidate.plan.leaderTxHash) ? (
                       <span className="text-[11px] text-white/60">Logged</span>
@@ -115,10 +121,6 @@ export function MirrorQueue({ candidates, loggedTxHashes, onLog, heading = 'Mirr
                         </a>
                       ) : null
                     ) : null}
-                    <span className="text-[10px] text-white/50">
-                      Logging records that you decided to mirror. It places no trade and fills
-                      nothing in — you enter it yourself.
-                    </span>
                   </div>
                   {candidate.plan.noIdentityReason ? (
                     <p className="mt-1 text-[10px] text-white/55">{candidate.plan.noIdentityReason}</p>
@@ -133,6 +135,29 @@ export function MirrorQueue({ candidates, loggedTxHashes, onLog, heading = 'Mirr
           ))}
         </ul>
       )}
+
+      <FinePrint summary="How mirroring works" className="mt-2">
+        <p>{MIRROR_EXECUTION}</p>
+        <p>
+          A fill older than {Math.round(MAX_SIGNAL_AGE_SECONDS / 60)} minutes is listed with its
+          reason instead of a size — copying it would be a different trade at a different price.
+        </p>
+        {candidates.length === 0 ? (
+          <p>Within what was read this is a measurement; outside it, nothing was looked at.</p>
+        ) : null}
+        {senderLines.map((line) => (
+          <p key={line}>{line}</p>
+        ))}
+        {minOutReasons.map((reason) => (
+          <p key={reason}>{reason}</p>
+        ))}
+        {copyable > 0 ? (
+          <p>
+            Logging records that you decided to mirror. It places no trade and fills nothing in —
+            you enter it yourself.
+          </p>
+        ) : null}
+      </FinePrint>
     </section>
   );
 }

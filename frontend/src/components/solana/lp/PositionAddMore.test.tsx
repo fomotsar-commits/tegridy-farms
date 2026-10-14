@@ -33,6 +33,7 @@ import type { LpReaders } from './readers';
 import type { TokenSafety } from '../../../lib/solana/lp/tokenSafety';
 import { BAYLA_QUOTE, SOL_QUOTE, USDC_QUOTE, type QuoteCoin } from '../../../lib/solana/lp/quotes';
 import type { PoolSearchRead, PoolView } from '../../../lib/solana/lp/poolFinder';
+import { pairLabel } from '../../../lib/solana/lp/identity';
 import { decodeAmmConfig, decodePoolState } from '../../../lib/solana/cpswap/program';
 import type { Position } from '../../../lib/solana/lp/positions';
 import type { WalletFacts } from '../../../lib/solana/lp/walletFacts';
@@ -241,8 +242,10 @@ describe('Add more liquidity is on a position', () => {
     expect(within(aside).queryByRole('button', { name: ADD_MORE })).toBeNull();
     // Owner ruling 2026-10-07: none of these lines calls the token "blocked". Each says what
     // this site does not do, and each is still a sentence where it stands.
-    expect(aside.querySelector('summary')).toHaveTextContent(
-      '3 other pool shares, set aside without their names: tokens this site does not open or add to pools for, pools that are not paired with SOL, USDC or BAYLA, or pools we could not confirm',
+    // The fold's label is short; why they are set aside is the first line inside it.
+    expect(aside.querySelector('summary')).toHaveTextContent(/^3 other pool shares, set aside$/);
+    expect(aside).toHaveTextContent(
+      'Set aside without their names: tokens this site does not open or add to pools for, pools that are not paired with SOL, USDC or BAYLA, or pools we could not confirm.',
     );
     const refusedRow = within(aside).getAllByTestId('lp-position').find((el) => el.getAttribute('data-pool') === ofBlocked.address)!;
     expect(refusedRow).toHaveTextContent('Set aside: this site does not open or add to pools for its token.');
@@ -425,10 +428,10 @@ describe('it goes to that pool or to nowhere', () => {
     expect(its).toHaveAttribute('data-add', c.offer);
     expect(its).toHaveTextContent(c.says);
     // A keyboard and a screen reader land on the card too, and are told why: the heading
-    // alone is only the pool's kind, and the card beside it carries the same one.
+    // alone is only the pool's pair and tier, which the card beside it can carry too.
     const heading = within(its).getByRole('heading', { level: 3 });
     expect(heading).toHaveFocus();
-    expect(heading.textContent).toBe(within(card(deep.address)).getByRole('heading', { level: 3 }).textContent);
+    expect(heading.textContent).toBe(pairLabel(mine));
     const why = within(its).getByTestId('lp-wish-why');
     expect(why).toHaveTextContent('This is your position’s pool. Its Add form was not opened:');
     expect(why).toHaveTextContent(c.why);

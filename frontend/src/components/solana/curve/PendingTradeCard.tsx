@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
+import { CardArt } from '../../ui/CardArt';
 import { Card, ExplorerLink, Row } from './ui';
-import type { PendingTrade } from './pendingTrade';
+import { noteKey, type PendingTrade } from './pendingTrade';
 import type { PendingTradesState } from './usePendingTrades';
 
 /**
@@ -15,6 +16,8 @@ export function PendingTradeCard({
   lead,
   testId,
   describe,
+  dismissLabel = 'I checked my wallet: start over',
+  dismissMeans,
 }: {
   state: Pick<PendingTradesState, 'notes' | 'checking' | 'message' | 'recheck' | 'dismiss'>;
   explorerUrl: (signature: string) => string;
@@ -24,19 +27,27 @@ export function PendingTradeCard({
   testId: string;
   /** What one note was (its pool, what it did), above its signature. */
   describe?: (note: PendingTrade) => ReactNode;
+  dismissLabel?: string;
+  /** What pressing the dismiss button does and does not do, under it. */
+  dismissMeans?: string;
 }) {
   return (
-    <Card title={title} testId={testId}>
+    <Card title={title} testId={testId} art={<CardArt pageId="pending-trade" idx={0} />}>
       {lead}
       {/* Always there, so each check's answer is read out when it arrives. */}
       <p role="status" className="text-white/55">
         {state.checking ? 'Checking it on the network…' : (state.message ?? '')}
       </p>
       {state.notes.map((n) => (
-        <div key={n.signature} className="space-y-1">
+        <div key={noteKey(n)} className="space-y-1">
           {describe?.(n)}
-          <Row label="Transaction signature" value={n.signature} />
-          <ExplorerLink href={explorerUrl(n.signature)} />
+          {/* A lost wallet answer has none: its `describe` says so. */}
+          {n.signature !== null && (
+            <>
+              <Row label="Transaction signature" value={n.signature} />
+              <ExplorerLink href={explorerUrl(n.signature)} />
+            </>
+          )}
         </div>
       ))}
       {/* aria-disabled, not disabled: a button switched off under the keyboard drops focus to the page. */}
@@ -54,8 +65,9 @@ export function PendingTradeCard({
         aria-disabled={state.checking || undefined}
         onClick={() => !state.checking && state.dismiss()}
       >
-        I checked my wallet: start over
+        {dismissLabel}
       </button>
+      {dismissMeans && <p className="text-white/55">{dismissMeans}</p>}
     </Card>
   );
 }

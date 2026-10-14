@@ -1,10 +1,12 @@
 import { Link } from 'react-router-dom';
 import { usePageTitle } from '../hooks/usePageTitle';
+import { PageArtBackdrop } from '../components/PageArtBackdrop';
 import { usePoolTVL } from '../hooks/usePoolTVL';
 import { LiquidityTab } from '../components/swap/LiquidityTab';
 import { ILCalculator } from '../components/farm/ILCalculator';
 import { LiquidityPrimer } from '../components/liquidity/LiquidityPrimer';
 import { VenuePoolTable } from '../components/liquidity/VenuePoolTable';
+import { FinePrint } from '../components/ui/FinePrint';
 import { lpWriteMode, type LpWriteMode } from '../lib/launcher/solana/lpWriteFlag';
 
 /** What the Solana LP tab can do follows LP's own switch, so the pointer never promises more. */
@@ -57,7 +59,12 @@ export default function LiquidityPage() {
   const poolData = usePoolTVL();
 
   return (
-    <div className="mx-auto w-full max-w-[900px] px-4 py-8 sm:py-10">
+    <>
+    <PageArtBackdrop pageId="liquidity" />
+    {/* `relative` with no z-index on purpose: it paints above the backdrop by
+        coming after it, without becoming a stacking context. A z-10 here would
+        trap LiquidityTab's token picker (z-[100]) under the tab strip (z-30). */}
+    <div className="relative mx-auto w-full max-w-[900px] px-4 py-8 sm:py-10">
       <header className="mb-6">
         <p className="text-[11px] uppercase tracking-wider label-pill mb-2" style={{ color: 'var(--color-stan)' }}>
           Native pools · Ethereum
@@ -72,14 +79,21 @@ export default function LiquidityPage() {
             {SOLANA_POINTER[lpWriteMode()]}
           </Link>
         </p>
-        {/* One sentence, and it is the mechanism rather than a pitch: what you
-            put in, what you get back, and who pays you. */}
+        {/* One line: how a provider earns and what the venue takes. The venue's
+            one-sixth cut is a switch, so its state carries the date it was read
+            (the primer below says who holds it and how to check it). */}
         <p className="text-white/75 text-[14px] md:text-[15px] leading-relaxed max-w-[62ch]">
-          Pair two tokens into a pool and every swap that routes through it pays you a share of
-          its fee, in proportion to how much of the pool is yours. Your position is an ERC-20
-          token in your own wallet, redeemable for the underlying at any time. There is no lock
-          and no counterparty.
+          Providers split the whole 0.3% swap fee by pool share (the venue&apos;s optional cut was
+          off when read on 10 October 2026). The venue earns its own fee on swaps routed here.
         </p>
+        <FinePrint summary="How it works">
+          <p>
+            Pair two tokens into a pool and every swap that routes through it pays you a share of
+            its fee, in proportion to how much of the pool is yours. Your position is an ERC-20
+            token in your own wallet, redeemable for the underlying at any time. There is no lock
+            and no counterparty.
+          </p>
+        </FinePrint>
       </header>
 
       <VenuePoolTable poolData={poolData} />
@@ -92,8 +106,7 @@ export default function LiquidityPage() {
       <section id="provide" className="mt-8 scroll-mt-5">
         <h2 className="text-white text-lg font-semibold mb-1">Add or remove liquidity</h2>
         <p className="text-white/60 text-[12.5px] mb-4">
-          Both sides, priced off the pool&apos;s current reserves. You keep full control of the
-          pair, the amounts and the slippage you will accept.
+          Both sides, priced off the pool&apos;s current reserves.
         </p>
         <LiquidityTab />
       </section>
@@ -105,13 +118,19 @@ export default function LiquidityPage() {
       <section className="mt-10">
         <h2 className="text-white text-lg font-semibold mb-1">What could go wrong?</h2>
         <p className="text-white/60 text-[12.5px] mb-2">
-          Fees are not the only thing that moves your position. If the two tokens drift apart in
-          price, the pool rebalances you into more of the one that fell — so an LP can end up
-          worth less than simply holding both. That gap is called impermanent loss, it is real,
-          and it is not a fee anyone charges you. Move the slider to size it.
+          An LP can end up worth less than simply holding both tokens.
         </p>
         <ILCalculator />
+        <FinePrint summary="Impermanent loss" className="mt-2">
+          <p>
+            Fees are not the only thing that moves your position. If the two tokens drift apart in
+            price, the pool rebalances you into more of the one that fell — so an LP can end up
+            worth less than simply holding both. That gap is called impermanent loss, it is real,
+            and it is not a fee anyone charges you. Move the slider to size it.
+          </p>
+        </FinePrint>
       </section>
     </div>
+    </>
   );
 }

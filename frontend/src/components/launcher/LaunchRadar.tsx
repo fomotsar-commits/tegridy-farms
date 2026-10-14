@@ -17,6 +17,8 @@ import { Link } from 'react-router-dom';
 import { m } from 'framer-motion';
 import { fetchLaunchRadar, type RadarEntry } from '../../lib/launcher/radarClient';
 import { formatTimeAgo } from '../../lib/formatting';
+import { CardArt } from '../ui/CardArt';
+import { FinePrint } from '../ui/FinePrint';
 
 type State =
   | { phase: 'loading' }
@@ -73,30 +75,35 @@ export function LaunchRadar() {
           </span>
         </div>
         <p className="text-white/50 text-xs mt-1 max-w-lg leading-relaxed">
-          New Ethereum pools from across the whole market — <span className="text-white/70">not</span> launches from this
-          rail. Nothing here is endorsed, ranked or vetted; it is a feed you can point our detection engine at. Open any
-          row in the Token Scanner for a holder-concentration read with its method and exclusions.
+          New Ethereum pools market-wide, <span className="text-white/70">not</span> launches from this rail.
         </p>
+        <FinePrint className="max-w-lg">
+          <p>
+            Nothing here is endorsed, ranked or vetted; it is a feed you can point our detection engine at. Open any
+            row in the Token Scanner for a holder-concentration read with its method and exclusions.
+          </p>
+        </FinePrint>
       </header>
 
       {state.phase === 'loading' && (
         <div
-          className="rounded-2xl p-8 text-center"
+          className="relative isolate rounded-2xl p-8 text-center"
           style={{ border: '1px dashed rgba(255,255,255,0.12)', background: 'rgba(6,12,26,0.6)' }}
         >
+          <CardArt pageId="launch" idx={62} />
           <p className="text-white/50 text-xs animate-pulse">Reading new pools…</p>
         </div>
       )}
 
       {state.phase === 'unavailable' && (
         <div
-          className="rounded-2xl p-8 text-center"
+          className="relative isolate rounded-2xl p-8 text-center"
           style={{ border: '1px dashed rgba(255,255,255,0.12)', background: 'rgba(6,12,26,0.6)' }}
         >
+          <CardArt pageId="launch" idx={62} />
           <p className="text-white/70 text-sm font-medium">Radar unavailable right now</p>
           <p className="text-white/40 text-xs mt-1">
-            The new-pool feed didn&apos;t respond. That&apos;s a data outage on our side, not a signal about any token —
-            you can still scan any address directly in the{' '}
+            The new-pool feed didn&apos;t respond. Not a signal about any token. You can still scan any address in the{' '}
             <Link to="/scan" className="text-emerald-400/80 hover:text-emerald-300 underline transition-colors">
               Token Scanner
             </Link>
@@ -107,9 +114,10 @@ export function LaunchRadar() {
 
       {state.phase === 'ready' && state.entries.length === 0 && (
         <div
-          className="rounded-2xl p-8 text-center"
+          className="relative isolate rounded-2xl p-8 text-center"
           style={{ border: '1px dashed rgba(255,255,255,0.12)', background: 'rgba(6,12,26,0.6)' }}
         >
+          <CardArt pageId="launch" idx={62} />
           <p className="text-white/70 text-sm font-medium">No new pools in the current window</p>
           <p className="text-white/40 text-xs mt-1">The upstream returned nothing to show right now.</p>
         </div>
@@ -144,13 +152,18 @@ export function LaunchRadar() {
             ))}
           </ol>
           <p className="text-white/30 text-[11px]">
-            Liquidity is the pool reserve as reported upstream. &ldquo;—&rdquo; means we have no figure we trust — either
-            none was reported, or what was reported isn&apos;t a believable market price — never that it is zero.
+            A dash means no trusted figure, never zero.
             {state.poolsReadFailed && (
               <> Part of the window could not be read, so this list is short — it is not everything that launched.</>
             )}
             {state.observedAt > 0 && <> Read {formatTimeAgo(state.observedAt)}.</>}
           </p>
+          <FinePrint>
+            <p>
+              Liquidity is the pool reserve as reported upstream. &ldquo;—&rdquo; means we have no figure we trust — either
+              none was reported, or what was reported isn&apos;t a believable market price — never that it is zero.
+            </p>
+          </FinePrint>
         </>
       )}
     </section>

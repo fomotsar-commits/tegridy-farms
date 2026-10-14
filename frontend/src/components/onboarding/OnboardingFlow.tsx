@@ -18,6 +18,7 @@ import { useAccount } from 'wagmi';
 import { usePageTitle } from '../../hooks/usePageTitle';
 import { VENUE } from '../../lib/arrival';
 import { PageArtBackdrop } from '../PageArtBackdrop';
+import { CardArt } from '../ui/CardArt';
 import { FiatOnrampPanel } from './FiatOnrampPanel';
 import { onboardingSteps } from './onboardingSteps';
 
@@ -61,7 +62,8 @@ export default function OnboardingFlow() {
           </p>
         </div>
 
-        <div className="rounded-2xl border border-white/10 bg-black/25 p-6">
+        <div className="relative isolate rounded-2xl border border-white/10 bg-black/25 p-6">
+          <CardArt pageId="onboarding" idx={5} />
           <h2 className="text-white font-semibold text-lg mb-3">{step.title}</h2>
           <div className="space-y-3">
             {step.body.map((paragraph) => (

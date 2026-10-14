@@ -276,7 +276,11 @@ describe('what a trade costs, on the tiers mainnet holds (recorded)', () => {
     expect(rowValue(card, 'Fee tier 0')).toBe('Traders pay 0.3% a trade (0.25% trade fee, 0.05% creator fee)');
     expect(rowValue(card, 'Of that fee')).toBe("LPs keep 0.200% of each trade, the venue 0.050%, the pool's creator 0.050%");
     expect(rowValue(card, 'Creator fee')).toBe("0.05% a trade on top of the trade fee, paid to the wallet that opened this pool (Opened by, below), not to LPs");
-    expect(rowValue(card, 'Opened by')).toBe(v.snapshot.pool.poolCreator);
+    // The wallet the creator fee goes to stays in view on a pool that charges one, short, with the whole address a press away.
+    const openedBy = within(card).getByRole('group', { name: 'Opened by' });
+    expect(within(card).getByTestId('lp-pool-more')).not.toContainElement(openedBy);
+    fireEvent.click(within(openedBy).getByRole('button', { name: /Show whole/ }));
+    expect(rowValue(openedBy, 'Opened by')).toBe(v.snapshot.pool.poolCreator);
   });
 
   it('a pool anyone opened on tier 0 charges no creator fee, and says so; it shows no creator row', async () => {
@@ -443,7 +447,7 @@ describe('your positions: a share too small to take out', () => {
 // three screens down, under the long notice (walk of 2026-10-10).
 describe('the order of the section', () => {
   const RISK_LINE =
-    'These pools run on a pool program whose admin-key changes have not had their own independent review yet. Put in only what you can afford to lose. The full notice is below your positions.';
+    'Admin-key changes not independently reviewed yet: put in only what you can afford to lose.';
   const parts = () => [...screen.getByTestId('lp-section').children].map((c) => c.getAttribute('data-testid'));
   const mountFirst = (r: LpReaders, writes: LpWritesOverrides = { mode: 'off' }) =>
     render(<MemoryRouter initialEntries={['/solana-lp']}><LpInner readers={r} writes={writes} finderFirst /></MemoryRouter>);
@@ -472,7 +476,7 @@ describe('the order of the section', () => {
     expect(screen.getByTestId('lp-positions').nextElementSibling).toBe(screen.getByTestId('lp-how-it-pays'));
     expect(order.indexOf('lp-how-it-pays')).toBeLessThan(order.indexOf('lp-disclosure'));
     const line = screen.getByTestId('lp-earn-line');
-    expect(line.textContent).toBe('Trading fees are added to your pool shares as trades happen, so there is nothing to claim. How you earn, and how the venue earns, is under your positions.');
+    expect(line.textContent).toBe('Fees are added to your pool shares as trades happen. Nothing to claim.');
     // Where it points is true: it stands before the positions, and the cards are under them.
     expect(order.indexOf('lp-earn-line')).toBeLessThan(order.indexOf('lp-positions'));
     // It stands above the finder in the page itself, at every size: what is drawn first is what a screen reader
@@ -532,6 +536,10 @@ describe('how you earn, and how the venue earns', () => {
     mount(r, '/pools');
     const { you, venue } = await cards();
     expect(within(you).getByRole('heading', { level: 2 })).toHaveTextContent('How you earn');
+    // The one line in plain sight (owner, 2026-10-13: fewer words); the rest is one press away.
+    const split = within(you).getByTestId('lp-earn-split');
+    expect(split.textContent).toBe('In a public pool, each trade pays 1%: 0.84% stays with LPs, 0.16% goes to the venue.');
+    expect(split.closest('details')).toBeNull();
     expect(you).toHaveTextContent('Each trade in a public pool pays a 1% fee. 0.84% of the trade stays in the pool, and your part is added to your position automatically.');
     expect(you).toHaveTextContent('Nothing to claim: you receive it when you remove liquidity.');
     expect(you).toHaveTextContent('Few trades means small fees.');
@@ -566,9 +574,9 @@ describe('how you earn, and how the venue earns', () => {
   it('still reading, a read that failed, a tier that is not there: three states, each said, and none prints a pool rate or a wallet', async () => {
     const states: [LpReaders['feeTiers'] | null, string][] = [
       [vi.fn(() => new Promise<never>(() => {})), 'Reading the rates from the chain…'],
-      [vi.fn(async () => ({ kind: 'unread' as const, detail: 'the chain did not answer in 20 seconds' })), 'The fee tiers could not be read just now, so no rate is shown here.'],
+      [vi.fn(async () => ({ kind: 'unread' as const, detail: 'the chain did not answer in 20 seconds' })), 'The fee tiers could not be read, so no rate is shown.'],
       // The default readers: both tiers answered, and neither exists.
-      [null, 'There is no public fee tier to read yet, so no rate is shown here.'],
+      [null, 'No public fee tier yet, so no rate is shown.'],
     ];
     for (const [feeTiers, said] of states) {
       const view = mount(readers(feeTiers ? { feeTiers } : {}), '/pools');

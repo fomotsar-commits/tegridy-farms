@@ -18,6 +18,7 @@ import { FundingNextStep } from './FundingNextStep';
 import { LpAmountPair, type LpSide } from './LpAmountPair';
 import { LpBeforeYouAdd, LpReviewDisclosure } from './LpDisclosures';
 import { PanelFrame } from './PanelFrame';
+import { FinePrint } from '../../ui/FinePrint';
 import { ALL_BPS, PercentPicker } from './PercentPicker';
 import { NOTES_BELOW, cannotFundText, coinAbout, coinExact, priceGapLossText, reviewOffWhy, sharePct, solExact, tokensAbout, unitsExact, useDebounced, useFlowReports, useSettledAlert, useWalletFacts } from './panelKit';
 import { lpHeld } from './offers';
@@ -447,13 +448,15 @@ function AddInner({
             </button>
           </div>
           {/* Only SOL is wrapped. The coin's words are the review's own (TxFlowView.tsx). */}
-          <p className="text-white/40 text-[10px]">
-            {!coin.native
-              ? `Your ${coin.symbol} is spent straight from your own ${coin.symbol} account. Nothing is wrapped, and what the pool does not use never leaves that account. The network fee and any account deposit are paid in SOL.`
-              : wsolKept && facts?.kind === 'ok'
-                ? `You already hold ${unitsExact(facts.wsol.amount, 9)} wrapped SOL. None of it is spent. Up to ${plan ? solExact(coinOf(plan).max - coinOf(plan).cost) : 'the unused part'} of this deposit that the pool does not use stays in that account as wrapped SOL; your wallet app can unwrap it.`
-                : 'Your SOL is wrapped into a token account for the deposit, and the account is closed at the end, so anything not used comes back as plain SOL.'}
-          </p>
+          <FinePrint summary={`Your ${coin.symbol}`}>
+            <p>
+              {!coin.native
+                ? `Your ${coin.symbol} is spent straight from your own ${coin.symbol} account. Nothing is wrapped, and what the pool does not use never leaves that account. The network fee and any account deposit are paid in SOL.`
+                : wsolKept && facts?.kind === 'ok'
+                  ? `You already hold ${unitsExact(facts.wsol.amount, 9)} wrapped SOL. None of it is spent. Up to ${plan ? solExact(coinOf(plan).max - coinOf(plan).cost) : 'the unused part'} of this deposit that the pool does not use stays in that account as wrapped SOL; your wallet app can unwrap it.`
+                  : 'Your SOL is wrapped into a token account for the deposit, and the account is closed at the end, so anything not used comes back as plain SOL.'}
+            </p>
+          </FinePrint>
           {/* Under Review, so it never pushes the button down; first of the notes the line above Review points to. */}
           <WhatIfPriceMoves view={view} />
         </>
