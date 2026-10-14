@@ -15,6 +15,252 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-10-14: a wallet send error that is not a "cancel" can still mean the swap was sent
+
+**Believed:** when `sendTransaction` from the Solana wallet adapter throws, nothing left the
+browser, so the visitor can press Buy again.
+
+**Measured** (PR #806, wallet-adapter as pinned on trunk): `StandardWalletAdapter` wraps
+everything `signAndSendTransaction` throws in `WalletSendTransactionError`, so for Phantom,
+Solflare and Backpack a failure before signing and a send whose answer was lost look the same.
+Only `WalletSignTransactionError` (a decline) and the adapter's own pre-prompt errors
+(`WalletNotConnectedError`, `WalletConfigError`, `WalletAccountError`) mean "nothing sent". A
+bare `new WalletSendTransactionError()` with no message is byte-identical to a wallet that
+rejected with `undefined` after it may have sent. The case can be played safely on a production
+build: a stand-in Wallet Standard wallet whose `signTransaction` returns the bytes unsigned
+(chains mainnet and localnet listed), and `route.abort` on the `sendTransaction` RPC. The
+adapter then throws `WalletSendTransactionError('Failed to fetch')` and nothing leaves the
+browser.
+
+**Do:** read every non-cancel throw, including an empty one, as "may have been sent", and hold
+the button until the blockhash is dead (next entry). For Streamflow, which reads only
+`publicKey` and `signTransaction` of its invoker, a small wrapper that notes the signature tells
+"never signed" from "signed, then stopped" without forking the SDK.
+
+## 2026-10-14: `isBlockhashValid` says false for a blockhash the server has never seen, and Jupiter's blockhash is already old
+
+**Believed:** `isBlockhashValid(...) === false` means a transaction can no longer land, and a
+Jupiter `/swap` transaction carries a fresh blockhash.
+
+**Measured** (PR #806, mainnet, 2026-10-14): a lagging RPC node answers false for a blockhash it
+has not seen yet. Jupiter's `/swap` transaction arrived with a blockhash that was valid at slot
+456,744,303 and gone by 456,744,489, about 40 seconds after the wallet step, which fits a
+finalized-commitment blockhash. A release built on "height after build plus 300 blocks" waits
+far longer than needed.
+
+**Do:** treat false as "can no longer land" only from a server at or past a slot where the
+blockhash was once seen valid: pass `minContextSlot` and check `context.slot >= ` that slot. A
+note for a transaction the wallet sends itself has no last valid height; the height read after
+the build plus 150, plus a margin for node lag, is a safe upper bound (too high only delays the
+release).
+
+## 2026-10-14: a storage event never fires in the tab that wrote, and a hold that disables a button misses presses already under way
+
+**Believed:** listening for `storage` keeps every tab's copy of a cross-tab hold current, and
+disabling the button is the hold.
+
+**Measured** (PR #806): the event fires only in the other tabs. A note another tab wrote counts
+before its event arrives, so a press read from hook state can go through. A review that rebuilt
+itself, or a press already awaiting a quote, passed a disabled button. Merging a "written while
+storage threw" backup into the notes on every read brought back a note another tab had cleared.
+
+**Do:** update the writing tab directly and use the event only for the others. Read storage
+again at the press and put the last check in the shared send wrapper, at the point just before
+the wallet with nothing awaited after it (here `useVenueSwap`'s `submitPrepared`). Keep the
+in-memory backup only when the storage write really failed (make the save return whether it
+stored). In jsdom, `window.dispatchEvent(new StorageEvent('storage', { key }))` tests the other
+tab. A mid-press race replays on a production build: hold one request with `page.route` while
+another tab writes `localStorage`.
+
+## 2026-10-14: a red run before the fix can be red for a reason that has nothing to do with the fix
+
+**Believed:** the named test failed on the old code, so it guards the fix.
+
+**Measured** across five pull requests on 2026-10-13 and 14: a break-it check on a line the test
+never reaches passed quietly, because a failed read returned early above it (#805). New tests run
+against old product files failed only on their import of a new helper (#806). A test whose first
+failing assertion was bookkeeping never showed the harm in numbers (#799). A restore by
+`git show HEAD:path > path` also erased uncommitted edits (#801).
+
+**Do:** read which path the named test takes before trusting its result. For pre-fix runs, put
+the product files back to the old commit but keep new pure helpers, with a small uncommitted shim
+for new exports. Put the money assertion first. Mutate by copying the file to a backup, applying
+one edit, running the test, copying the backup back and comparing sha256: that proves the
+restore without `git stash` and touches nothing else.
+
+## 2026-10-14: a green pull request can turn red on the merge itself, with no conflict
+
+**Believed:** a PR green on its own head, merged with no conflict, leaves trunk green.
+
+**Measured:** PR #791 was written before `35c2b92c` changed how the swap page waits for a linked
+coin. It merged with no conflict and five own-pool page tests went red on trunk `08596661`.
+Every PR opened afterwards showed the same red "Lint, Type Check & Test" job for a reason that
+was not its own.
+
+**Do:** before blaming a PR for a red job, compare it with trunk's last run of the same job.
+When a train carries copy changes, run `moneyWordsMatchTheChain` after every copy merge: on
+2026-10-14 a sentence shortened in #803 carried a fact #801 had corrected, and only that test
+caught it.
+
+## 2026-10-14: a train branch made of merge commits hides each pull request's secret scan
+
+**Believed:** a train's green "Scan for secrets" covers every PR it carries.
+
+**Measured** (train #809): gitleaks runs here as `git log -p --no-merges --first-parent
+base^..head`, so a branch made of `--no-ff` merges scans only its own non-merge commits. A PR
+that is red on that check is green inside the train.
+
+**Do:** read each carried PR's own scan before the train merges, and apply any skip rule by
+hand. Merging each PR's exact head (read `headRefOid` right before each merge) lets GitHub mark
+every carried PR merged.
+
+## 2026-10-14: a new contract test file can switch off every contract test on GitHub
+
+**Believed:** adding `contracts/test/Foo.t.sol` adds tests and changes nothing else.
+
+**Measured** (PR #799): a file whose name matches no pattern in
+`.github/contracts-test-slices.json` fails the slice coverage guard. Every `forge test` slice
+depends on that guard, so all were skipped and no contract test ran. A skipped job reads as
+not red. A fresh worktree also needs `git submodule update --init --recursive`; a non-recursive
+init fails the first build on `permit2/src/...`.
+
+**Do:** run `node scripts/check-test-slice-coverage.mjs` before pushing a new test file.
+
+## 2026-10-14: zero as "switched off" is also a real value
+
+**Believed:** setting a price to 0 is a clean way to mark a feature off.
+
+**Measured** (PR #799): a mint price of 0 means a free drop, so "off" became "free". A guard
+keyed on "after the first sale" (`totalSupply > 0`) left the zero-sale window open.
+
+**Do:** use a separate flag and let only the timelocked setter clear it. Test every state switch
+with nothing sold as well as after a sale.
+
+## 2026-10-14: the contract size levers were not exhausted: a modifier is copied into every function that uses it
+
+**Believed:** TegridyStaking has no EIP-170 room left without moving logic out.
+
+**Measured** (PR #799, `via_ir`): a modifier used at N sites is inlined N times. Moving its body
+into one private function the modifier calls (the same move as `_requireContract`) saved 48 bytes
+over 6 sites.
+
+**Do:** before calling a contract full, count modifier uses and fold the bodies.
+
+## 2026-10-14: an Ethereum read that "reverted" can be a broken RPC, and some questions need no archive node
+
+**Believed:** a revert from a read means the function is missing or refused, and full event
+history needs a paid archive RPC.
+
+**Measured** (PRs #799 and #801): viem labels a JSON-RPC -32603 "Internal error" as
+`ContractFunctionRevertedError`. drpc's free tier caps `getLogs` at 10,000 blocks and publicnode
+refuses archive ranges, but Blockscout's Etherscan-style API
+(`eth.blockscout.com/api?module=logs&action=getLogs`, and `module=contract&action=getcontractcreation`)
+returned a contract's whole history and its creation transaction in one keyless call.
+
+**Do:** to learn whether a deployed contract has a function, read `eth_getCode` and search for
+`PUSH4 <selector>` (`63xxxxxxxx`; a selector starting `00` is pushed with `PUSH3`, `62`). For an
+EIP-1167 clone, read the template address out of the 45-byte proxy first. A Python script on
+Windows prints `\r\n`: strip `\r` before passing a hash to `cast`.
+
+## 2026-10-14: the "failed: custom program error" line in Solana logs cannot be written by a program, and 6000 means a different thing in each program
+
+**Believed:** a Streamflow error is opaque, and one error number means one thing across a
+vendor's programs.
+
+**Measured** (PR #806): the Streamflow staking SDK throws `ContractError` with `cause` set to
+web3's `SendTransactionError`, whose `transactionLogs` hold the full simulation. Program output
+is always prefixed `Program log:`, so the runtime's `Program <id> failed: custom program error:
+0x...` line is the reliable source of program and code. Code 6000 is `ArithmeticError` in the
+reward programs, `InvalidDuration` in the stake pool and `Unauthorized` in the fee manager.
+
+**Do:** read the program id and the code together from that runtime line, and map codes per
+program. This complements the 2026-10-10 entry on reasons a token's own program can write.
+
+## 2026-10-14: vendoring an upstream Solana program has three quiet traps
+
+**Believed:** `git archive` gives the upstream bytes, a path dependency is just a path, and a
+new `.so` hash means new code.
+
+**Measured** (PR #800, Raydium CLMM): `git archive` applies `core.autocrlf`, so `diff -rq` flagged
+every file. A path dependency inside the workspace folder joined the workspace and dragged its
+dev-dependencies into the lockfile. Moving a git dependency to a vendored path kept the SBF `.so`
+the same size (1,523,176 bytes) but changed its hash, because crate identity feeds the mangled
+symbol hashes. Two builds of the same source, Solana tools 3.1.11 in WSL and 3.1.10 on GitHub,
+both platform-tools v1.52, were byte-identical.
+
+**Do:** vendor with `git -c core.autocrlf=false archive` and clone upstream the same way. Add
+`exclude = ["vendor"]` to the workspace. Compare Cargo.lock by (name, version, source, checksum)
+tuples. Treat a local WSL build as a cross-check for CI. A committed manifest of upstream hashes
+plus the reviewed diff in plain `diff` format can replace a CI clone: undo the diff strictly
+(every `>` line must match) and compare with upstream's hash. To tie an unverified deployed
+program to a commit, compare its programdata's last-deploy slot time with upstream merge times
+and find an error string unique to one commit with `git log -S`; searching the binary for raw
+32-byte keys fails because the compiler inlines constant keys.
+
+## 2026-10-14: a press area made with `::before` can be zero wide, or covered by a later sibling
+
+**Believed:** `before:-inset-y-[N]` grows a button's press area to 44px.
+
+**Measured** (PR #802): with only the vertical insets set, `left` and `right` stay auto and the
+absolutely positioned `::before` is zero wide. A later positioned sibling (a `relative` wrapper)
+painted over another element's `::before` extension. On paper 10px gave 44.5px; a hit test at
++22px missed.
+
+**Do:** add `before:inset-x-0`, or use `-inset-[N]` on all sides. Hit-test with
+`elementFromPoint` at the exact edge points, with about 1px of slack for pixel snapping.
+
+## 2026-10-14: WebKit ignores a focused field's `scroll-margin-top`, and an empty anchor lets a margin collapse through it
+
+**Believed:** `scroll-margin-top` on a field keeps it clear of a fixed bar when it takes focus,
+and an empty anchor sits where it is placed.
+
+**Measured** (PR #802): WebKit reveals a focused element using only the scroller's
+`scroll-padding`, landing it up to about 10 to 15px short; Chromium centres it, so the bug cannot
+be seen there. A zero-height empty anchor let a later sibling's negative `margin-top` (the
+panels' `-mt-14`) collapse through it and moved the anchor up 56px.
+
+**Do:** raise `scroll-padding` only while a field has focus with
+`html:has(:is(input,select,textarea):focus)`, and check focus landings on WebKit. Give an
+empty anchor `display: flow-root`. This adds to the 2026-10-03 entry on WebKit lining up a
+field by its text.
+
+## 2026-10-14: small tool traps met this week
+
+- `spawnSync('npx', args, { shell: true })` splits a multi-word vitest `-t` name into words, so
+  the filter runs the wrong set or none. Run `node_modules/vitest/vitest.mjs` with
+  `process.execPath` and no shell (#805).
+- Git Bash turns a Playwright `-g` pattern that starts with `/` into a Windows path, and the run
+  reports "No tests found". Drop the slash (#802). It also rewrites a lone `/root/...` argument
+  to `wsl`: prefix `MSYS_NO_PATHCONV=1` (#800).
+- `gh run view --log` returns nothing while any job of the run is still going;
+  `gh api repos/<o>/<r>/actions/jobs/<id>/logs` returns a finished job's log at once (#800).
+  Match `^::error::` in guard logs: a printed diff can hold `use crate::error::ErrorCode`.
+- The workflow scratchpad is shared by every agent of a run: a generic `commit-msg.txt` was
+  overwritten by another agent's message twice (#800, #802). Prefix scratch files with the task.
+- A wait for `[aria-busy]` count 0 passes at once, before React has mounted anything. Wait for
+  the fallback to appear, then to go (#802).
+- `vite preview` reuses `server.proxy`, so `/api/solrpc` and `/api/jupiter` reach mainnet, but
+  Vercel functions (`/api/pools`, `/api/aggregator`) are not there: a local walk sees only
+  pools the browser finds by address, and console 404s production does not have (#804, #809).
+  Restart the preview after every build before measuring (#802).
+- Playwright's Chromium "Pixel 5" device matches `(hover: hover) and (pointer: fine)`, so
+  mouse-only UI shows and touch-only tests skip on `mobile-chrome` (#809).
+- `em-dash-zero` counts text nodes that hold a dash, not dashes: removing one of two dashes in
+  one paragraph leaves that route's count unchanged (#801; read in the spec's `proseDashes`).
+- A Python heredoc turns a typed `\b` into a backspace byte inside a regex. Write files that
+  hold backslashes with the file tool (#804).
+- A test that mocks framer-motion with a Proxy returning a new component per access remounts the
+  subtree on every render; element references taken before a click go stale. Re-query (#801).
+- In a TypeScript test that imports an `.mjs`, a default of `= []` is typed `never[]`. Add a JSDoc
+  cast (#800).
+- `gitlabCi.test.ts` needs each `local-gates.sh` command word for word on one CI line: use
+  `run: |` with backslash continuations, never a folded `run: >-` block (#800).
+- To confirm a walk build matches production, build with the two Jupiter fee `VITE_` values:
+  the small `solana-*.js` chunk then has a byte-identical name to the live one (#805).
+- To build trunk without touching a worktree: `git archive <sha> frontend | tar -x` into a
+  scratch folder, junction `node_modules`, `npm run build`, then
+  `npx vite preview --outDir <abs path>` (#802).
+
 ## 2026-10-10: a scroll reset in `useEffect` lands after the page is drawn, on every page change, and a test can see it without losing a race
 
 **Believed:** scrolling to the top in `useEffect` on a route change is the standard pattern
