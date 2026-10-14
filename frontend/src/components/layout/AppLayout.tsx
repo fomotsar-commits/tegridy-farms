@@ -47,6 +47,7 @@ import { WalletConnectWatchdog } from '../ui/WalletConnectWatchdog';
 import { SeasonalEventBanner } from '../SeasonalEvent';
 import { isToweliVoice, OPEN_VENUE_WELCOME_EVENT } from '../../lib/arrival';
 import { useActiveBungalowId } from '../../hooks/useActiveBungalowId';
+import { useReferralAttribution } from '../../hooks/useReferralAttribution';
 
 const NAV_ORDER = [
   '/', '/dashboard', '/earn', '/swap', '/nft-finance', '/gallery', '/tokenomics',
@@ -97,6 +98,11 @@ export function AppLayout() {
   const location = useLocation();
   // Everything below that reads the skin re-renders when a door switches it.
   useActiveBungalowId();
+  // A `?ref=0x…` or `?r=<code>` link is captured on whatever route the app is entered
+  // on, once per load. Its only mount was the /referrals page until that left Earn
+  // (2026-10-14), so a short link or a `/swap?ref=` link was credited only to a
+  // visitor who later opened that page.
+  useReferralAttribution();
 
   // True when the current path IS a settled (not-live) resident's door — the
   // landing page speaks for that token, so every other voice stays outside.

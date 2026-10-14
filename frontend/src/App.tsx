@@ -364,7 +364,9 @@ function AnimatedRoutes() {
         <Route path="terminal" element={<Suspense fallback={<PageSkeleton />}><TrustPage /></Suspense>} />
         <Route path="chart" element={<Suspense fallback={<PageSkeleton />}><TrustPage /></Suspense>} />
         <Route path="alerts" element={<Suspense fallback={<PageSkeleton />}><TrustPage /></Suspense>} />
-        <Route path="referrals" element={<Suspense fallback={<PageSkeleton />}><EarnPage /></Suspense>} />
+        {/* Referrals left Earn on 2026-10-14 (owner). A referral link is `/?ref=` and is read
+            site-wide; the claim and share box stays on the TOWELI room's dashboard. */}
+        <Route path="referrals" element={<Navigate to="/earn" replace />} />
         <Route path="checkout" element={<Suspense fallback={<PageSkeleton />}><EarnPage /></Suspense>} />
         <Route path="tax" element={<Suspense fallback={<PageSkeleton />}><StatsPage /></Suspense>} />
         <Route path="developers" element={<Suspense fallback={<PageSkeleton />}><DeveloperPage /></Suspense>} />
