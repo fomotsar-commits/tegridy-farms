@@ -88,10 +88,9 @@ export function BungalowFarmPanel({ bungalow }: { bungalow: Bungalow }) {
       <div className="relative z-10 max-w-[1200px] mx-auto px-4 md:px-6 pt-8 pb-16">
       <BackToEarn />
       {/* Header */}
+      {/* FEWER WORDS (owner, 2026-10-14): one heading and one line. The island eyebrow
+          ("Jungle Bay Island · status") moved into About, word for word. */}
       <div className="mb-8">
-        <p className="text-white/70 text-[11px] uppercase tracking-[0.2em] mb-2">
-          Jungle Bay Island · {bungalow.status}
-        </p>
         <h1 className="heading-luxury text-3xl md:text-5xl text-white tracking-tight mb-3">
           Stake {bungalow.symbol}.
         </h1>
@@ -101,6 +100,9 @@ export function BungalowFarmPanel({ bungalow }: { bungalow: Bungalow }) {
             : <>The lighthouse pool is being built for {bungalow.symbol} on {chainLabel}.</>}
         </p>
         <FinePrint summary="About" className="max-w-lg">
+          <p className="text-[11px] uppercase tracking-[0.2em]">
+            Jungle Bay Island · {bungalow.status}
+          </p>
           <p>
             {bungalow.tagline}{' '}
             {poolIsLive
@@ -192,17 +194,22 @@ export function BungalowFarmPanel({ bungalow }: { bungalow: Bungalow }) {
           </div>
           <div className="absolute inset-0" style={{ background: 'rgba(4,9,18,0.78)' }} />
           <div className="relative z-10 p-6">
-            <p className="text-[10px] uppercase tracking-wider mb-2" style={{ color: 'var(--color-kyle)' }}>How the pool gets funded</p>
-            <h2 className="heading-luxury text-xl text-white mb-3">Routes under evaluation</h2>
-            <ul className="text-white/85 text-[13px] leading-relaxed space-y-2 list-disc pl-4">
-              {/* No creator-fee route: the venue does not control a pump.fun coin's creator
-                  fee, and BAYLA's goes whole to the island. */}
-              <li>
-                <strong>Venue swap fees</strong>: {swapFeeLine}
-              </li>
-              {/* Names the mechanism, never another resident. */}
-              <li><strong>Community top-ups</strong>: visible transfers into the reward pool, as every pool here is seeded.</li>
-            </ul>
+            {/* One heading, one line; the two routes are spelled out in Details, word for word. */}
+            <h2 className="heading-luxury text-xl text-white mb-2">How the pool gets funded</h2>
+            <p className="text-white/85 text-[13px] leading-relaxed m-0">
+              Two routes under evaluation: venue swap fees and community top-ups.
+            </p>
+            <FinePrint summary="Details">
+              <ul className="space-y-2 list-disc pl-4 m-0">
+                {/* No creator-fee route: the venue does not control a pump.fun coin's creator
+                    fee, and BAYLA's goes whole to the island. */}
+                <li>
+                  <strong>Venue swap fees</strong>: {swapFeeLine}
+                </li>
+                {/* Names the mechanism, never another resident. */}
+                <li><strong>Community top-ups</strong>: visible transfers into the reward pool, as every pool here is seeded.</li>
+              </ul>
+            </FinePrint>
           </div>
         </div>
       </div>

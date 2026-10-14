@@ -713,7 +713,7 @@ describe('what the exit buttons promise', () => {
   it('the DEGRADED banner names BOTH early doors as penalty-free, and does not promise forever', async () => {
     reads.pool = { ok: true, value: poolView({ degraded: true }) };
     draw();
-    const banner = (await screen.findByText(/declared degraded/)).parentElement!;
+    const banner = (await screen.findByText(/declared degraded/)).closest('[role="alert"]')!;
     const text = banner.textContent ?? '';
     expect(text).toMatch(/early exit/i);
     expect(text).toMatch(/emergency hatch/i);
