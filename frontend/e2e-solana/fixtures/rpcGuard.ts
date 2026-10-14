@@ -164,8 +164,11 @@ export async function installRpcGuard(context: BrowserContext): Promise<RpcGuard
       const a = answers.find((x) => x?.id === c.id);
       if (!a?.result || !('value' in a.result)) continue;
       if (c.method === 'getAccountInfo') {
-        a.result.value = rewriteValue(a.result.value as RpcAccount | null, rewrites.get(addrs[0])!, note);
-        rewritten.push(addrs[0]);
+        const addr = addrs[0];
+        const fn = addr === undefined ? undefined : rewrites.get(addr);
+        if (addr === undefined || !fn) continue;
+        a.result.value = rewriteValue(a.result.value as RpcAccount | null, fn, note);
+        rewritten.push(addr);
       } else if (Array.isArray(a.result.value)) {
         const vals = a.result.value as (RpcAccount | null)[];
         addrs.forEach((addr, i) => {

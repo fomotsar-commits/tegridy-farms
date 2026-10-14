@@ -115,6 +115,17 @@ describe('the typecheck actually covers the files people write', () => {
     expect(covers, `no referenced project includes ${dir}/, so \`tsc -b\` type-checks none of its specs`).toBe(true);
   });
 
+  // e2e-solana ran with noUncheckedIndexedAccess off until 2026-10-14 (185 unguarded reads,
+  // most in the test wallet's own transaction check). A browser-test project may add
+  // settings, never switch off a check the app keeps on.
+  it.each(['tsconfig.e2e.json', 'tsconfig.e2e-solana.json'])('%s switches off no check the app keeps on', (file) => {
+    const app = readJsonc(join(FRONTEND, 'tsconfig.app.json')).compilerOptions as Record<string, unknown>;
+    const own = readJsonc(join(FRONTEND, file)).compilerOptions as Record<string, unknown>;
+    const relaxed = ['strict', 'noUncheckedIndexedAccess', 'noUnusedLocals', 'noUnusedParameters', 'noFallthroughCasesInSwitch']
+      .filter((k) => app[k] === true && own[k] === false);
+    expect(relaxed, `${file} switches off ${relaxed.join(', ')}`).toEqual([]);
+  });
+
   it('every referenced project is a real file', () => {
     // A reference to a path that does not exist makes `tsc -b` fail loudly rather
     // than quietly, which is fine — but a typo'd path that happens to resolve
