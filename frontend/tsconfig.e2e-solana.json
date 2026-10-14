@@ -1,0 +1,17 @@
+{
+  // The Solana browser tests in e2e-solana/. Strict, like the app, with ONE
+  // setting relaxed: noUncheckedIndexedAccess, which raised 185 errors here on
+  // 2026-10-13 (array and record reads, not wrong imports or missing
+  // properties). Everything else that catches a wrong import, a missing
+  // property or a wrong argument stays on. allowJs is off so the validator
+  // scripts' plain .mjs modules stay untyped, as their @ts-expect-error says.
+  "extends": "./tsconfig.app.json",
+  "compilerOptions": {
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.e2e-solana.tsbuildinfo",
+    "types": ["node", "vite/client"],
+    "allowJs": false,
+    "noUncheckedIndexedAccess": false
+  },
+  "include": ["src/**/*.d.ts", "e2e-solana"],
+  "exclude": []
+}

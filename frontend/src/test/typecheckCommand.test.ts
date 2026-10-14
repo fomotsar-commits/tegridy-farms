@@ -103,6 +103,18 @@ describe('the typecheck actually covers the files people write', () => {
     ).toBe(true);
   });
 
+  // Playwright strips types without checking them, so until 2026-10-13 a browser test
+  // could merge with a wrong import or a missing property that no gate saw.
+  it.each(['e2e', 'e2e-solana'])('the solution references a project that includes the %s folder', (dir) => {
+    const solution = readJsonc(join(FRONTEND, 'tsconfig.json'));
+    const refs = (solution.references as { path: string }[]).map((r) => r.path);
+    const covers = refs.some((p) => {
+      const include = (readJsonc(join(FRONTEND, p)).include as string[] | undefined) ?? [];
+      return include.some((g) => g === dir || g.startsWith(`${dir}/`));
+    });
+    expect(covers, `no referenced project includes ${dir}/, so \`tsc -b\` type-checks none of its specs`).toBe(true);
+  });
+
   it('every referenced project is a real file', () => {
     // A reference to a path that does not exist makes `tsc -b` fail loudly rather
     // than quietly, which is fine — but a typo'd path that happens to resolve

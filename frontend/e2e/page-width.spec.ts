@@ -41,7 +41,7 @@ for (const route of AUDITABLE_ROUTES) {
       });
     }
 
-    await page.setViewportSize({ width: IPAD_WIDTHS[0], height: 1080 });
+    await page.setViewportSize({ width: IPAD_WIDTHS[0] ?? 820, height: 1080 });
     if (isNakamigos) await gotoNakamigos(page);
     else await gotoRoute(page, navigablePath(route));
 
