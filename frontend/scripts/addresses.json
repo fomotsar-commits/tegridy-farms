@@ -2013,5 +2013,56 @@
         "type": "contract"
       }
     }
-  ]
+  ],
+  "solanaFields": {
+    "$comment": "Who holds each authority of our Solana programs, and what each fee tier charges, as decoded from the account data by `verify-addresses.mjs --onchain` (check 3d). Values that name a key are solana row ids. Every admin, fee owner and fee receiver must be `onlyHolder`: the offline check fails on anything else. All values read 2026-10-13 at finalized slot 456,675,628. Not covered here: cp-swap's admin, which is compiled into the program (src/lib.rs `admin::ID`, the Squads vault), not stored in an account.",
+    "onlyHolder": "squads-vault",
+    "accounts": {
+      "cp-swap-programdata-restart": { "layout": "programdata", "upgradeAuthority": "squads-vault" },
+      "tegridy-launch-programdata-restart": { "layout": "programdata", "upgradeAuthority": "squads-vault" },
+      "bayla-ladder-programdata": { "layout": "programdata", "upgradeAuthority": "squads-vault" },
+      "bayla-ladder-idl": { "layout": "anchor-idl", "owner": "bayla-ladder-program", "authority": "squads-vault" },
+      "bayla-ladder-pool": { "layout": "bayla-ladder-pool", "owner": "bayla-ladder-program", "authority": "squads-vault", "pendingAuthority": "system-program" },
+      "cp-swap-amm-config-restart": {
+        "layout": "cp-swap-amm-config",
+        "owner": "cp-swap-program-restart",
+        "disableCreatePool": 0,
+        "index": 0,
+        "tradeFeeRate": 2500,
+        "protocolFeeRate": 200000,
+        "fundFeeRate": 0,
+        "createPoolFee": 0,
+        "protocolOwner": "squads-vault",
+        "fundOwner": "squads-vault",
+        "creatorFeeRate": 500
+      },
+      "cp-swap-amm-config-public-restart": {
+        "layout": "cp-swap-amm-config",
+        "owner": "cp-swap-program-restart",
+        "disableCreatePool": 0,
+        "index": 1,
+        "tradeFeeRate": 10000,
+        "protocolFeeRate": 160000,
+        "fundFeeRate": 0,
+        "createPoolFee": 150000000,
+        "protocolOwner": "squads-vault",
+        "fundOwner": "squads-vault",
+        "creatorFeeRate": 0
+      },
+      "tegridy-launch-global-restart": {
+        "layout": "tegridy-launch-global",
+        "owner": "tegridy-launch-program-restart",
+        "authority": "squads-vault",
+        "feeRecipient": "squads-vault",
+        "tradeFeeBps": 100,
+        "creatorFeeShareBps": 5000,
+        "cpSwapProgram": "cp-swap-program-restart",
+        "ammConfig": "cp-swap-amm-config-restart",
+        "platformReserveBps": 369
+      }
+    },
+    "notAsserted": {
+      "tegridy-launch-global": "The closed 2026-08 tegridy-launch's global account. Its program's data account is gone (tegridy-launch-programdata is expected absent), so no code can act on it and no field of it can move money."
+    }
+  }
 }
