@@ -128,6 +128,8 @@ export const PAGE_ROUTES: Record<string, string> = {
   'wrong-chain': '/earn/toweli',
   island: '/island',
   gallery: '/gallery',
+  // The Tradermigos landing. Its three pop-ups above have the same host route.
+  marketplace: '/nakamigos',
   'heat-card': '/leaderboard',
   'clock-line': '/swap',
   'solana-swap': '/solana',
@@ -699,6 +701,14 @@ export const SURFACES: Surface[] = [
   // Island · Gallery
   { group: 'Island · Gallery', pageId: 'gallery', idx: 0, label: 'Page background' },
   { group: 'Island · Gallery', pageId: 'gallery', idx: 1, label: 'No gallery pieces card (empty)' },
+
+  // Island · Marketplace: the Tradermigos landing at /nakamigos. Owner 2026-10-14:
+  // "the bayla bungalow doesnt even show the marketplace". Until now only its
+  // three pop-ups (PU10 to PU12) were listed, so no skin could dress the page
+  // or its cards. The backdrop sits UNDER the marketplace's own collage.
+  { group: 'Island · Marketplace', pageId: 'marketplace', idx: 0, label: 'Page backdrop behind the landing (under the collage)' },
+  { group: 'Island · Marketplace', pageId: 'marketplace', idx: 1, label: 'Start card (Browse, Buy, Sell, Make offer, the numbers)' },
+  { group: 'Island · Marketplace', pageId: 'marketplace', idx: 2, label: 'Collection card (one surface, every card in the grid)' },
 
   // Community
   { group: 'Community', pageId: 'toweli-section-band', idx: 0, label: 'TOWELI protocol band above the tabs' },
