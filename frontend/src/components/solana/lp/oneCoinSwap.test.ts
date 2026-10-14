@@ -43,7 +43,7 @@ const TX_B64 = (() => {
 const OK: SwapSimulation = { ok: true, reason: null, jupiterIncorrectTokenProgram: false };
 
 function deps(over: Partial<JupiterLegDeps> = {}) {
-  const held: { signature: string | null; sentAt: number }[] = [];
+  const held: Parameters<JupiterLegDeps['hold']>[0][] = [];
   const d = {
     getQuote: vi.fn<JupiterLegDeps['getQuote']>(async () => quote()),
     buildSwapTransaction: vi.fn<JupiterLegDeps['buildSwapTransaction']>(async () => TX_B64),
@@ -115,7 +115,7 @@ describe('sendJupiterLeg', () => {
     const end = await sendJupiterLeg(d, ARGS);
     expect(end.kind).toBe('lost');
     expect(held).toEqual([expect.objectContaining({ signature: null })]);
-    expect(d.hold.mock.calls[0]![0].lastValidBlockHeight).toBeNull();
+    expect(held[0]!.lastValidBlockHeight).toBeNull();
   });
 
   it('a read that lands after the swap was confirmed and released does not bring its note back', async () => {

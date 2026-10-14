@@ -196,7 +196,8 @@ describe('Add with one coin', () => {
     expect(jup.getQuote).toHaveBeenNthCalledWith(2, expect.objectContaining({ amount: '505050505' }));
     expect(review).toHaveTextContent('Step 1: swap, through Jupiter');
     expect(review).toHaveTextContent('You pay0.505050505 SOL');
-    expect(review).toHaveTextContent('This pool would paycould not be read');
+    // This pool's figure for the same swap is said even though its swap is not ready here.
+    expect(review).toHaveTextContent(/This pool would pay[\d.,]+ CORN/);
     expect(within(review).getByTestId('lp-one-step2-plan')).toHaveTextContent('Left in your wallet, about');
     expect(within(review).getByRole('button', { name: 'Sign in wallet' })).toBeEnabled();
     expect(wallet.sendTransaction).not.toHaveBeenCalled();

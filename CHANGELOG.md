@@ -8,6 +8,7 @@ page keeps the newest thirty days.
 
 ### 2026-10-14
 
+- Solana LP: "Add with one coin" beside Add liquidity on our own pools. Step 1 swaps the right part of your coin for the other one, through Jupiter or the pool, whichever pays more, with the swap page's rules and fees and its review; step 2 adds both coins through the usual Add liquidity review. Two signatures. If step 2 is cancelled, step 1 stays done and step 2 is offered again for an hour.
 - A quiet nod to Jungle Bay's music: the footer, the island page and an empty History now link to the collective on Spotify and YouTube. Plain links only, nowhere near a trade, a stake or a warning.
 - Bayla bungalow: hand-picked art on 102 more surfaces, across Pools, Earn and the rest of the site, placed in the Bayla studio.
 - A link to one part of a page now lands on that part while the page is still loading, when its address is opened directly, and when the same link is pressed again. "The bungalows" on the Island page often left you at the top of the home page instead. "See what you'd earn" on the TOWELI farm now opens the estimate in the TOWELI room; it used to open the front page, which has no estimate.

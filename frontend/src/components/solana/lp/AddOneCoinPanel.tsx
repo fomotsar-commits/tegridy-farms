@@ -417,7 +417,8 @@ function OneCoinInner({
       jup = e instanceof NoRouteError ? 'no-route' : 'unread';
     }
     if (typeof jup === 'object') {
-      const at = own ? candidate(v, read.now, inputMint, jup.swapIn) : null;
+      // What this pool pays for the same swap, said even when its swap cannot be sent from here.
+      const at = candidate(v, read.now, inputMint, jup.swapIn);
       const out = BigInt(jup.quote.outAmount);
       // The swap page's rule (route.ts): our pool takes the swap when it pays at least as much.
       if (!own || freshDecision(at ? [at] : [], out).chosen?.venue !== 'own-pool') {
@@ -613,7 +614,12 @@ function OneCoinInner({
           cluster={venueSwap.cfg?.cluster ?? 'mainnet'}
           decimals={null}
           signer={signer}
-          extraReview={<StepTwoRows plan={phase.plan} about={about} quoteIsToken0={view.quoteIsToken0} lpDecimals={pool.lpMintDecimals} />}
+          extraReview={
+            <>
+              <Notice>Step 1 of 2 is this swap, in this pool (below). Step 2 adds both coins once it lands, with its own review.</Notice>
+              <StepTwoRows plan={phase.plan} about={about} quoteIsToken0={view.quoteIsToken0} lpDecimals={pool.lpMintDecimals} />
+            </>
+          }
           preparingText="Reading this pool and Jupiter again, then test-running step 1 on the network…"
         />
       )}
@@ -719,6 +725,11 @@ function OneCoinInner({
               Close
             </button>
           </div>
+          {signer && loadingOwn && phase.kind === 'form' && (
+            <p role="status" className="text-white/60" data-testid="lp-one-loading">
+              Getting this pool’s swap ready, so Review can compare it with Jupiter…
+            </p>
+          )}
           <p className="text-white/60" data-testid="lp-one-line">
             {ONE_COIN_LINE}
           </p>
