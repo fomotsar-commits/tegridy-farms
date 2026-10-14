@@ -76,6 +76,7 @@ import { useLpEmissionsPhase } from '../hooks/useLpEmissionsPhase';
 import { useTOWELIPriceOptional } from '../contexts/PriceContext';
 import { PageArtBackdrop } from '../components/PageArtBackdrop';
 import { CardArt } from '../components/ui/CardArt';
+import { FinePrint } from '../components/ui/FinePrint';
 import { LaunchGate } from '../components/LaunchGate';
 import { VenueLaunchLines } from '../components/launcher/VenueLaunchLines';
 import { notifyBirth } from '../lib/launcher/notifyBirth';
@@ -821,11 +822,13 @@ function LaunchStatusBanner({ status, attest, onAttest, schemaReady, onResetLaun
           farming today" for six weeks after the last emissions period ended 2026-06-15.
           ba4d3399 corrected this sentence to a static "period ended and is not currently
           funded"; the live read replaces it so a re-funded period needs no code change. */}
-      <p className="text-emerald-200/60 text-xs mt-3 leading-relaxed">
-        After the auction graduates into a V4 pool, this token can plug into the venue's day-2
-        economy — {dayTwoEconomyPhrase(lpPhase)}. Few launchers give a launch any day-2
-        economy at all.
-      </p>
+      <FinePrint summary="After graduation" className="mt-2">
+        <p>
+          After the auction graduates into a V4 pool, this token can plug into the venue's day-2
+          economy — {dayTwoEconomyPhrase(lpPhase)}. Few launchers give a launch any day-2
+          economy at all.
+        </p>
+      </FinePrint>
     </div>
   );
 }
@@ -952,9 +955,7 @@ function PostGraduationReattest({ prefillToken }: { prefillToken?: string }) {
       <CardArt pageId="launch" idx={59} />
       <h2 className="text-white font-semibold text-sm mb-1">Re-attest the real fees (post-graduation)</h2>
       <p className="text-white/55 text-xs leading-relaxed mb-3">
-        Once a launch graduates into its Uniswap V4 pool, its fee split becomes a live on-chain
-        stream. This reads the actual beneficiaries from Doppler&rsquo;s StreamableFeesLocker and
-        attests them — the fully-verifiable version of the launch-time disclosure.
+        For a graduated launch: read its live fee split and attest it.
       </p>
       <div className="flex flex-col sm:flex-row gap-2">
         <input
@@ -975,20 +976,16 @@ function PostGraduationReattest({ prefillToken }: { prefillToken?: string }) {
 
       {state.phase === 'not-graduated' && (
         <p className="mt-3 text-white/60 text-xs leading-relaxed break-words">
-          No fee stream for this token in Doppler&rsquo;s StreamableFeesLocker — it either hasn&rsquo;t graduated yet
-          (price discovery still running), or it wasn&rsquo;t launched through this rail. Re-attestation reads the
-          real split once the auction migrates to its V4 pool.
+          No fee stream for this token in Doppler&rsquo;s StreamableFeesLocker. Either it hasn&rsquo;t graduated yet,
+          or it wasn&rsquo;t launched through this rail.
         </p>
       )}
 
       {/* Deliberately says nothing about the token — the limitation is ours, not its. */}
       {state.phase === 'unsupported' && (
         <p className="mt-3 text-amber-300/80 text-xs leading-relaxed break-words">
-          Automatic re-attestation isn&rsquo;t available yet. The locker holding graduated-pool fees indexes
-          positions by their Uniswap V4 position id, and we can&rsquo;t yet map a token to that id on-chain — so
-          we can&rsquo;t read this token&rsquo;s split from here. <strong className="text-amber-200">This is a gap on
-          our side and says nothing about this token</strong> — it may well have graduated. If it launched
-          through this rail, the fee split it committed at launch is unaffected and still on-chain.
+          Automatic re-attestation isn&rsquo;t available yet. <strong className="text-amber-200">This is a gap on
+          our side and says nothing about this token.</strong>
         </p>
       )}
 
@@ -1035,6 +1032,26 @@ function PostGraduationReattest({ prefillToken }: { prefillToken?: string }) {
           </a>
         </div>
       )}
+
+      <FinePrint summary="How it works" className="mt-2">
+        <p>
+          Once a launch graduates into its Uniswap V4 pool, its fee split becomes a live on-chain
+          stream. This reads the actual beneficiaries from Doppler&rsquo;s StreamableFeesLocker and
+          attests them — the fully-verifiable version of the launch-time disclosure.
+        </p>
+        <p>
+          A token with no fee stream may still be in price discovery. Re-attestation reads the real split once the
+          auction migrates to its V4 pool.
+        </p>
+        {state.phase === 'unsupported' && (
+          <p>
+            The locker holding graduated-pool fees indexes positions by their Uniswap V4 position id, and we
+            can&rsquo;t yet map a token to that id on-chain — so we can&rsquo;t read this token&rsquo;s split from here.
+            It may well have graduated. If it launched through this rail, the fee split it committed at launch is
+            unaffected and still on-chain.
+          </p>
+        )}
+      </FinePrint>
     </div>
   );
 }
@@ -1515,8 +1532,8 @@ function StepFees({ w, set, sheet }: { w: WizardState; set: <K extends keyof Wiz
     <div>
       <h3 className="text-white font-semibold text-sm mb-1">Constitutional fee split</h3>
       <p className="text-white/50 text-xs mb-3">
-        Fixed at launch and published in the Fact Sheet — never a marketing dial. These shares divide the{' '}
-        <strong>graduated pool&apos;s {GRADUATED_FEE_PCT}% fee</strong>, not the {AUCTION_FEE_PCT}% auction fee — see Terms §7. You direct your pool below.
+        Splits the <strong>graduated pool&apos;s {GRADUATED_FEE_PCT}% fee</strong>, not the {AUCTION_FEE_PCT}% auction
+        fee (see Terms §7). Fixed at launch.
       </p>
       <div className="rounded-xl border border-white/12 overflow-hidden mb-6">
         {FEE_POOL_DISPLAY.map((l, i) => (
@@ -1529,8 +1546,7 @@ function StepFees({ w, set, sheet }: { w: WizardState; set: <K extends keyof Wiz
 
       <h3 className="text-white font-semibold text-sm mb-1">Attention beneficiaries <span className="text-white/40 font-normal">(optional)</span></h3>
       <p className="text-white/50 text-xs mb-2">
-        Direct part of your creator share to KOLs/community who bring buyers — the proven distribution
-        lever. Carved from your 80% pool; protocol + Doppler are untouched.
+        Share your creator cut with people who bring buyers. Carved from your 80% pool; protocol + Doppler are untouched.
       </p>
       <div className="rounded-xl border border-white/12 p-3 mb-6 space-y-2">
         {w.attentionSplits.map((row, i) => (
@@ -1553,7 +1569,7 @@ function StepFees({ w, set, sheet }: { w: WizardState; set: <K extends keyof Wiz
       </div>
 
       <h3 className="text-white font-semibold text-sm mb-1">Fact Sheet preview</h3>
-      <p className="text-white/50 text-xs mb-3">Exactly what buyers will see — generated by the same automated gate that attests it.</p>
+      <p className="text-white/50 text-xs mb-3">Exactly what buyers will see.</p>
       <FactSheetCard sheet={sheet} />
     </div>
   );
@@ -1615,21 +1631,23 @@ function StepReview({ w, sheet }: { w: WizardState; sheet: LaunchFactSheet }) {
         );
       })()}
       <FactSheetCard sheet={sheet} />
-      <p className="text-white/40 text-xs mt-4">
-        Launching submits a single Doppler <code className="text-white/60">create()</code> transaction on Ethereum
-        mainnet. Your token deploys from Doppler's audited template, the V4 auction opens, and on graduation liquidity
-        migrates to a V4 pool with fees locked to the constitution above.
-      </p>
       {/* The irreversible action is one button away, so surface the issuer terms HERE — a
           term nobody is shown is a weak term, and §8–§11 of the Terms are the issuer-side
           ones (you are the issuer; launches are permissionless and final). */}
-      <p className="text-white/40 text-xs mt-2">
+      <p className="text-white/40 text-xs mt-4">
         By launching you become the <span className="text-white/60">issuer</span> of this token and accept the{' '}
         <Link to="/terms" className="text-emerald-400/80 hover:text-emerald-300 underline transition-colors">
           Terms of Service
         </Link>
         , including the issuer, irreversibility and prohibited-use sections.
       </p>
+      <FinePrint summary="What launching does">
+        <p>
+          Launching submits a single Doppler <code className="text-white/90">create()</code> transaction on Ethereum
+          mainnet. Your token deploys from Doppler's audited template, the V4 auction opens, and on graduation liquidity
+          migrates to a V4 pool with fees locked to the constitution above.
+        </p>
+      </FinePrint>
     </div>
   );
 }
@@ -1658,9 +1676,11 @@ function FactSheetCard({ sheet }: { sheet: LaunchFactSheet }) {
         ))}
       </ul>
       <p className="text-white/35 text-[11px] mt-3 leading-relaxed">
-        Facts are point-in-time disclosures, not a safety endorsement. A tier reflects structural configuration, not
-        a judgement of the project.
+        Facts are point-in-time disclosures, not a safety endorsement.
       </p>
+      <FinePrint>
+        <p>A tier reflects structural configuration, not a judgement of the project.</p>
+      </FinePrint>
     </div>
   );
 }

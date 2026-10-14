@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { m, AnimatePresence } from 'framer-motion';
 import { formatCurrency } from '../../lib/formatting';
 import { CardArt } from '../ui/CardArt';
+import { FinePrint } from '../ui/FinePrint';
 
 /**
  * ⚠️ THE LABELS ARE PAIR-AGNOSTIC AS OF 2026-09-05, and that is a correctness
@@ -61,8 +62,7 @@ export function ILCalculator({ pairLabel }: { pairLabel?: string } = {}) {
             <CardArt pageId="il-calculator" idx={0} />
             <h4 className="text-white text-[14px] font-semibold mb-1">Impermanent Loss Calculator</h4>
             <p className="text-white text-[11px] mb-4">
-              Estimate how much you&apos;d lose vs. simply holding, based on the price change of{' '}
-              {token} against the other side of the pair.
+              Your loss vs. simply holding, if {token} moves against the other side.
             </p>
 
             {/* Price change slider */}
@@ -102,21 +102,18 @@ export function ILCalculator({ pairLabel }: { pairLabel?: string } = {}) {
             </div>
 
             <p className="text-white text-[10px] mt-3 text-center">
-              Based on $1,000 initial deposit. IL is offset by trading fees & farm rewards.
+              Based on $1,000 initial deposit.
             </p>
 
-            {/* What is IL tooltip */}
-            <details className="mt-3">
-              <summary className="text-[11px] text-white cursor-pointer hover:text-white transition-colors">
-                What is Impermanent Loss?
-              </summary>
-              <p className="text-white text-[11px] mt-2 leading-relaxed">
+            {/* What is IL: the shared small print, closed. */}
+            <FinePrint summary="What is IL?" className="mt-1">
+              <p>
                 When you provide liquidity to an AMM pool, the ratio of your tokens changes as the price moves.
                 If you had simply held the tokens instead, you might have more value — that difference is called
                 impermanent loss. It's "impermanent" because it reverses if prices return to their original ratio.
                 Farm rewards and trading fees can offset IL over time.
               </p>
-            </details>
+            </FinePrint>
           </m.div>
         )}
       </AnimatePresence>

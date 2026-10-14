@@ -25,6 +25,7 @@ import type { LaunchFactSheet, LaunchTier } from '../../lib/launcher/factSheet';
 import { DistributionReport } from './DistributionReport';
 import { BandDeltaPanel } from './BandDeltaPanel';
 import { CardArt } from '../ui/CardArt';
+import { FinePrint } from '../ui/FinePrint';
 
 const inputCls =
   'w-full px-2.5 py-1.5 rounded-lg bg-black/30 border border-white/12 text-white text-sm outline-none focus:border-emerald-500/60 transition';
@@ -227,10 +228,12 @@ function ProjectedFactSheet({ sheet }: { sheet: LaunchFactSheet }) {
           </li>
         ))}
       </ul>
-      <p className="text-white/35 text-[10px] mt-3 leading-relaxed">
-        A tier reflects structural configuration at a point in time, not a judgement of the project. This is a projection
-        of the config above — the live Fact Sheet is re-read from the deployed token.
-      </p>
+      <FinePrint className="mt-2">
+        <p>
+          A tier reflects structural configuration at a point in time, not a judgement of the project. This is a projection
+          of the config above — the live Fact Sheet is re-read from the deployed token.
+        </p>
+      </FinePrint>
     </div>
   );
 }
@@ -264,8 +267,7 @@ export function LaunchSimulator() {
             </span>
           </div>
           <p className="text-white/45 text-xs mb-3 leading-relaxed">
-            Enter who will hold what at launch. Amounts are relative — only the shares matter. Pools, treasuries and other
-            excluded categories are removed before the concentration math, exactly as on a live token.
+            Enter who will hold what at launch. Only the shares matter.
           </p>
 
           <div className="space-y-2">
@@ -310,6 +312,12 @@ export function LaunchSimulator() {
               ))}
             </div>
           </div>
+          <FinePrint>
+            <p>
+              Amounts are relative. Pools, treasuries and other excluded categories are removed before the
+              concentration math, exactly as on a live token.
+            </p>
+          </FinePrint>
         </section>
 
         <section className="relative isolate rounded-2xl border border-white/12 bg-[rgba(6,12,26,0.6)] p-5">
@@ -409,8 +417,7 @@ export function LaunchSimulator() {
             <CardArt pageId="launch-simulator" idx={3} />
             <div className="text-white/70 text-sm font-semibold">Nothing to measure yet</div>
             <p className="text-white/45 text-xs mt-2 max-w-sm mx-auto leading-relaxed">
-              Add at least one allocation with a non-zero amount (or load an example) to see the distribution band, the
-              full detection report, and what it takes to reach each band. No numbers are shown until there is real input.
+              Add an allocation with a non-zero amount, or load an example. No numbers until there is real input.
             </p>
           </div>
         ) : (

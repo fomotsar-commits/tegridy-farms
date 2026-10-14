@@ -8,6 +8,7 @@ import {
 } from '../../hooks/usePooledLendingVault';
 import { isPooledLendingLive } from '../../hooks/usePooledLendingConfig';
 import { CardArt } from '../ui/CardArt';
+import { FinePrint } from '../ui/FinePrint';
 
 // Pooled NFT lending (#61) — the lender side of the existing P2P desk, pooled.
 //
@@ -158,18 +159,28 @@ export function PooledLendingSection() {
           Pooled lending
         </h2>
         <p className="text-[12px] text-white/70 leading-relaxed" style={LABEL_STYLE}>
-          Deposit WETH into one collection&rsquo;s pool and borrowers draw against it instantly, instead of waiting for a
-          peer to write them an offer. One pool per collection: a loss on one collection reaches only the depositors who
-          chose it. The peer-to-peer desk on the NFT Lending tab is unchanged and is still where bespoke terms live.
+          Deposit WETH into one collection&rsquo;s pool; borrowers draw against it instantly.
         </p>
+        <FinePrint summary="How it works">
+          <p>
+            Deposit WETH into one collection&rsquo;s pool and borrowers draw against it instantly, instead of waiting for a
+            peer to write them an offer. One pool per collection: a loss on one collection reaches only the depositors who
+            chose it. The peer-to-peer desk on the NFT Lending tab is unchanged and is still where bespoke terms live.
+          </p>
+        </FinePrint>
       </div>
 
       <RiskBanner variant="warning" art={<CardArt pageId="nft-finance" idx={23} />}>
-        <span className="font-semibold">This is a small market and the surface will not pretend otherwise.</span>{' '}
-        NFT lending volume across the whole sector is down roughly 97% from its 2022 peak. These pools are cheap to run
-        on rails the venue already had; they are not a flagship, and any depth you see here is whatever depositors
-        actually put in. Collateral is illiquid: a default is settled by selling an NFT, and what it fetches is what the
-        pool recovers.
+        <span className="font-semibold">Small market, illiquid collateral.</span>
+        <FinePrint summary="Risks">
+          <p>
+            <span className="font-semibold">This is a small market and the surface will not pretend otherwise.</span>{' '}
+            NFT lending volume across the whole sector is down roughly 97% from its 2022 peak. These pools are cheap to run
+            on rails the venue already had; they are not a flagship, and any depth you see here is whatever depositors
+            actually put in. Collateral is illiquid: a default is settled by selling an NFT, and what it fetches is what the
+            pool recovers.
+          </p>
+        </FinePrint>
       </RiskBanner>
 
       {!anyLive && (
@@ -181,11 +192,13 @@ export function PooledLendingSection() {
           <p className="text-[13px] font-semibold text-amber-300 mb-1" style={LABEL_STYLE}>
             No pool is deployed.
           </p>
-          <p className="text-[12px] text-white/70 leading-relaxed" style={LABEL_STYLE}>
-            The pool contract is written and tested and has not been deployed to any chain. There is no address to call,
-            so there are no balances to show and nothing below is a measurement. Depositing and borrowing become
-            available if and when a deploy ceremony runs and an address lands in the app&rsquo;s constants.
-          </p>
+          <FinePrint summary="Details">
+            <p>
+              The pool contract is written and tested and has not been deployed to any chain. There is no address to call,
+              so there are no balances to show and nothing below is a measurement. Depositing and borrowing become
+              available if and when a deploy ceremony runs and an address lands in the app&rsquo;s constants.
+            </p>
+          </FinePrint>
         </div>
       )}
 

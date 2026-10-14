@@ -8,6 +8,7 @@ import {
 } from '../../lib/competitions/islandCup';
 import type { IslandCupStatus } from '../../hooks/useIslandCup';
 import { CardArt } from '../ui/CardArt';
+import { FinePrint } from '../ui/FinePrint';
 
 // WHAT WAS READ, BEFORE ANY RANK IS SHOWN.
 //
@@ -20,7 +21,8 @@ import { CardArt } from '../ui/CardArt';
 // So every pool gets a chip: how many fills it gave, or that its page was full
 // and where its coverage therefore starts, or that it was not read and why. The
 // two limits of the wash rule and the absence of any archive are printed here
-// too, next to the numbers they qualify, rather than behind a link.
+// too, next to the numbers they qualify, rather than behind a link; since
+// 2026-10-13 (owner: fewer words) they sit in this card's FinePrint.
 //
 // ── `data-unread-ledger`: THIS IS A REPORT OF A READ, NOT THE VENUE'S PROSE ──
 //
@@ -156,8 +158,10 @@ export function CupCoverageNotice({
         </ul>
       ) : null}
 
-      <p className="mt-2.5 text-[11px] leading-relaxed text-white/70">{CUP_WASH_LIMIT}</p>
-      <p className="mt-1 text-[11px] leading-relaxed text-white/70">{CUP_NO_ARCHIVE}</p>
+      <FinePrint summary="Limits" className="mt-1">
+        <p>{CUP_WASH_LIMIT}</p>
+        <p>{CUP_NO_ARCHIVE}</p>
+      </FinePrint>
     </div>
   );
 }

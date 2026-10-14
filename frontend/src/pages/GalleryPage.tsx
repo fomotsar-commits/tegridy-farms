@@ -5,6 +5,7 @@ import { GALLERY_ORDER, UNIQUE_GALLERY_COUNT } from '../lib/artConfig';
 import { getBungalowIdentity } from '../lib/bungalows';
 import { ArtLightbox } from '../components/ui/ArtLightbox';
 import { CardArt } from '../components/ui/CardArt';
+import { FinePrint } from '../components/ui/FinePrint';
 import { PageArtBackdrop } from '../components/PageArtBackdrop';
 import { safeSetItem } from '../lib/storage';
 import { usePageTitle } from '../hooks/usePageTitle';
@@ -111,9 +112,9 @@ export default function GalleryPage() {
           </p>
         </m.div>
 
-        <div className="rounded-lg px-3 py-2 mb-4 inline-block" style={{ background: 'var(--color-purple-75)', border: '1px solid var(--color-purple-75)' }}>
-          <p className="text-white text-[11px]">Votes are for fun only, stored locally in your browser and not on-chain.</p>
-        </div>
+        <FinePrint summary="About votes" className="mb-2">
+          <p>Votes are for fun only, stored locally in your browser and not on-chain.</p>
+        </FinePrint>
 
         {sortedPieces.length === 0 ? (
           <div className="relative isolate rounded-xl p-8 text-center" style={{ background: 'rgba(13, 21, 48, 0.6)', border: '1px solid var(--color-purple-12)' }}>

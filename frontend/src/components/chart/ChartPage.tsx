@@ -17,6 +17,7 @@ import { ETH_ADDRESS_RE, SOL_ADDRESS_RE } from '../../lib/scanner/scanner';
 import { PageArtBackdrop } from '../PageArtBackdrop';
 import { ArtCard } from '../ui/ArtCard';
 import { CardArt } from '../ui/CardArt';
+import { FinePrint } from '../ui/FinePrint';
 import { CandleChart } from './CandleChart';
 import { ChartStatus } from './ChartStatus';
 import { IndexedVenueChart } from './IndexedVenueChart';
@@ -127,9 +128,7 @@ export default function ChartPage() {
         <header className="mb-6">
           <h1 className="text-2xl font-semibold text-white sm:text-3xl">Pro Charting</h1>
           <p className="mt-2 max-w-2xl text-sm leading-relaxed text-white/70">
-            Candles for the island's pools, read from GeckoTerminal's own OHLCV feed and drawn by
-            this venue. A bucket the source did not return is drawn as a gap: this chart will never
-            draw a candle for a price that was not paid.
+            Candles for the island's pools. A missing bucket shows as a gap.
           </p>
         </header>
 
@@ -152,8 +151,7 @@ export default function ChartPage() {
             <h2 className="mb-1 text-xs font-semibold uppercase tracking-wider text-white/50">Pool</h2>
             <p className="mb-3 max-w-2xl text-xs leading-relaxed text-white/60">
               Every pool the island's own registry names: this venue's token and each resident's
-              primary pair. The list is a fact this page can read without asking anyone, so it is
-              complete here even when the price source is not answering.
+              primary pair.
             </p>
 
             {markets.length === 0 ? (
@@ -264,11 +262,7 @@ export default function ChartPage() {
                 computed or oracled by it.
               </li>
               {!isIndexerConfigured() ? (
-                <li>
-                  Indexed swaps: not configured on this deployment. Trade counts and per-swap
-                  ordering come only from that source; GeckoTerminal candles above do not carry
-                  them.
-                </li>
+                <li>Indexed swaps: not configured on this deployment.</li>
               ) : null}
             </ul>
 
@@ -292,6 +286,31 @@ export default function ChartPage() {
                 ) : null}
               </div>
             ) : null}
+
+            {/* Everything this page used to say in its header, under the pool
+                picker and in its footer: one fold, at the bottom of Sources. */}
+            <FinePrint summary="How it works" className="mt-2">
+              <p>
+                Candles for the island's pools, read from GeckoTerminal's own OHLCV feed and drawn by
+                this venue. A bucket the source did not return is drawn as a gap: this chart will never
+                draw a candle for a price that was not paid.
+              </p>
+              <p>
+                The pool list is a fact this page can read without asking anyone, so it is complete here
+                even when the price source is not answering.
+              </p>
+              {!isIndexerConfigured() ? (
+                <p>
+                  Trade counts and per-swap ordering come only from the indexed source; GeckoTerminal
+                  candles above do not carry them.
+                </p>
+              ) : null}
+              <p>
+                Prices are GeckoTerminal's per-bucket OHLC for this pool; this venue reads them, it does
+                not compute or oracle them. Nothing on this page refreshes on its own; there is no keeper
+                and no stream behind it.
+              </p>
+            </FinePrint>
           </section>
         </ArtCard>
 
@@ -299,12 +318,6 @@ export default function ChartPage() {
             where an indexer resolves; otherwise the Sources card above is the
             one place its absence is stated, rather than a second failed panel. */}
         {isIndexerConfigured() ? <IndexedVenueChart /> : null}
-
-        <p className="mt-6 text-[11px] leading-relaxed text-white/45">
-          Prices are GeckoTerminal's per-bucket OHLC for this pool; this venue reads them, it does
-          not compute or oracle them. Nothing on this page refreshes on its own; there is no keeper
-          and no stream behind it.
-        </p>
       </div>
     </div>
   );

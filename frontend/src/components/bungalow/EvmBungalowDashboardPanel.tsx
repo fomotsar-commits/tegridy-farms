@@ -161,8 +161,8 @@ export function EvmBungalowDashboardPanel({ bungalow }: { bungalow: Bungalow }) 
             </div>
           </div>
           <p className="text-[12px] text-white/70 mb-3">
-            Locks run 7 days to 4 years, earning a 0.40x to 4.00x share — the venue&apos;s standard lock
-            ladder. Staking, claiming and every exit live on the{' '}
+            Locks run 7 days to 4 years, earning a 0.40x to 4.00x share. Staking, claiming and every
+            exit live on the{' '}
             <Link to={`/earn/${bungalow.id}`} className="underline underline-offset-2 text-white hover:text-white/80">pool page</Link>.
           </p>
           <Link to={`/earn/${bungalow.id}`} className="btn-secondary px-5 py-2 text-[13px] inline-block">Manage at the lighthouse →</Link>

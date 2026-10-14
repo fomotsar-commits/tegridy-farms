@@ -241,8 +241,10 @@ describe('Add more liquidity is on a position', () => {
     expect(within(aside).queryByRole('button', { name: ADD_MORE })).toBeNull();
     // Owner ruling 2026-10-07: none of these lines calls the token "blocked". Each says what
     // this site does not do, and each is still a sentence where it stands.
-    expect(aside.querySelector('summary')).toHaveTextContent(
-      '3 other pool shares, set aside without their names: tokens this site does not open or add to pools for, pools that are not paired with SOL, USDC or BAYLA, or pools we could not confirm',
+    // The fold's label is short; why they are set aside is the first line inside it.
+    expect(aside.querySelector('summary')).toHaveTextContent(/^3 other pool shares, set aside$/);
+    expect(aside).toHaveTextContent(
+      'Set aside without their names: tokens this site does not open or add to pools for, pools that are not paired with SOL, USDC or BAYLA, or pools we could not confirm.',
     );
     const refusedRow = within(aside).getAllByTestId('lp-position').find((el) => el.getAttribute('data-pool') === ofBlocked.address)!;
     expect(refusedRow).toHaveTextContent('Set aside: this site does not open or add to pools for its token.');

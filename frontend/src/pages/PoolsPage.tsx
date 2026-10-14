@@ -8,6 +8,7 @@ import { useVenueStatus } from '../hooks/useVenueStatus';
 import { trackPageView } from '../lib/analytics';
 import { ArtImg } from '../components/ArtImg';
 import { CardArt } from '../components/ui/CardArt';
+import { FinePrint } from '../components/ui/FinePrint';
 import { ChainSwitch } from '../components/swap/ChainSwitch';
 import { VenueStatusCard } from '../components/solana/VenueStatusCard';
 import { VenueProgramCard } from '../components/solana/VenueProgramCard';
@@ -83,22 +84,9 @@ export default function PoolsPage() {
             Liquidity pools.
           </h1>
           <p className="text-white/85 text-[15px] max-w-xl leading-relaxed">
-            {liveConfig ? (
-              <>
-                Our own constant-product AMM on Solana.{' '}
-                {tierTakesPools
-                  ? 'Anyone can open a pool or provide liquidity on chain'
-                  : `Anyone can provide liquidity on chain (opening new pools on fee tier ${liveConfig.index} is switched off right now)`}
-                , and the trade fee is split between the LPs who funded it and the venue.{' '}
-                {HERO_LP_LINE[lpMode]}
-              </>
-            ) : (
-              <>
-                Our own constant-product AMM on Solana. No pool can be opened here yet. This
-                page shows a fee only after reading it from the chain, and the card below says
-                what the latest read found.
-              </>
-            )}
+            {liveConfig
+              ? 'Our own Solana AMM. LPs and the venue split each trade fee.'
+              : 'Our own Solana AMM. No pool can be opened here yet.'}
           </p>
           <p className="text-[13px] mt-2">
             {/* A finger-sized press area on a 19.5px line: 14px of padding above and below (47.5px).
@@ -108,6 +96,25 @@ export default function PoolsPage() {
               <span className="ring-words">{venueIsOpen ? SOLANA_LP_LINK[lpMode] : SOLANA_LP_LINK_NOT_OPEN}</span>
             </Link>
           </p>
+          <FinePrint summary="Details" className="max-w-xl">
+            <p>
+              {liveConfig ? (
+                <>
+                  Our own constant-product AMM on Solana.{' '}
+                  {tierTakesPools
+                    ? 'Anyone can open a pool or provide liquidity on chain'
+                    : `Anyone can provide liquidity on chain (opening new pools on fee tier ${liveConfig.index} is switched off right now)`}
+                  , and the trade fee is split between the LPs who funded it and the venue.{' '}
+                  {HERO_LP_LINE[lpMode]}
+                </>
+              ) : (
+                <>
+                  This page shows a fee only after reading it from the chain, and the card below says
+                  what the latest read found.
+                </>
+              )}
+            </p>
+          </FinePrint>
         </m.div>
 
         <VenueStatusCard status={status} onRefresh={refresh} lpMode={lpMode} />
@@ -154,31 +161,36 @@ export default function PoolsPage() {
             </div>
           )}
 
-          <p className="text-white/70 text-[13px] leading-relaxed">
-            {liveConfig ? (
-              <>
-                These are the live <code className="font-mono text-white/85">AmmConfig</code> rates
-                of fee tier {liveConfig.index}, where launches graduate, read from the chain when
-                this page loads, not copied into it. Retuning them on chain changes this card
-                without a deploy.{' '}
-                {charged && (
-                  <>
-                    A launch pool charges the creator fee on top of the trade fee and pays it to the
-                    token&rsquo;s creator: the launch program opens every launch pool with it switched
-                    on. A pool opened on this tier any other way charges only the trade fee.{' '}
-                  </>
-                )}
-                Pools opened from this site use the public fee tier instead; the fee tiers in the
-                pools section above are read live for both.
-              </>
-            ) : (
-              feesNotRead(status).line
-            )}
-          </p>
+          {status === null && <p className="text-white/70 text-[13px] leading-relaxed">{feesNotRead(status).line}</p>}
           {status?.kind === 'unreadable' && (
             <button type="button" onClick={retry} className="btn-secondary px-4 py-2 text-[12px] mt-3">
               Try again
             </button>
+          )}
+          {status !== null && (
+            <FinePrint summary={liveConfig ? 'How it works' : 'Why no fee'} className="mt-2">
+              <p>
+                {liveConfig ? (
+                  <>
+                    These are the live <code className="font-mono text-white/85">AmmConfig</code> rates
+                    of fee tier {liveConfig.index}, where launches graduate, read from the chain when
+                    this page loads, not copied into it. Retuning them on chain changes this card
+                    without a deploy.{' '}
+                    {charged && (
+                      <>
+                        A launch pool charges the creator fee on top of the trade fee and pays it to the
+                        token&rsquo;s creator: the launch program opens every launch pool with it switched
+                        on. A pool opened on this tier any other way charges only the trade fee.{' '}
+                      </>
+                    )}
+                    Pools opened from this site use the public fee tier instead; the fee tiers in the
+                    pools section above are read live for both.
+                  </>
+                ) : (
+                  feesNotRead(status).line
+                )}
+              </p>
+            </FinePrint>
           )}
         </section>
 
@@ -190,37 +202,45 @@ export default function PoolsPage() {
             <h2 className="heading-luxury text-lg text-white mb-3">
               {venueIsOpen ? 'Deposit a pair, hold the LP token' : 'How it works: deposit a pair, hold the LP token'}
             </h2>
-            {!venueIsOpen && (
-              <p className="text-white/60 text-[12px] leading-relaxed mb-3">
-                Depositing from this page waits on a live read of the venue. The status card
-                above says what the latest read found.
-              </p>
-            )}
-            <ul className="text-white/80 text-[13px] leading-relaxed space-y-2 list-disc pl-4">
-              <li>Deposit both sides of a pair and the pool mints you an <strong>LP token</strong> for your share.</li>
-              <li>Every trade adds its fee to the reserves, so your share is worth more each time the pool trades. There is nothing to claim.</li>
-              <li>Withdraw any time — burning the LP token returns your share of both sides. Pools have no lock.</li>
-              <li className="text-white/60">
-                Impermanent loss is real: a constant-product pool rebalances against you when
-                the price moves, and fees are what compensate for it. This page will never
-                quote you an APY it cannot read.
-              </li>
-            </ul>
+            <p className="text-white/80 text-[13px] leading-relaxed">
+              Fees grow your share as the pool trades. Nothing to claim; withdraw any time.
+            </p>
+            <FinePrint summary="How it works" className="mt-2">
+              {!venueIsOpen && (
+                <p>
+                  Depositing from this page waits on a live read of the venue. The status card
+                  above says what the latest read found.
+                </p>
+              )}
+              <ul className="space-y-2 list-disc pl-4">
+                <li>Deposit both sides of a pair and the pool mints you an <strong>LP token</strong> for your share.</li>
+                <li>Every trade adds its fee to the reserves, so your share is worth more each time the pool trades. There is nothing to claim.</li>
+                <li>Withdraw any time — burning the LP token returns your share of both sides. Pools have no lock.</li>
+                <li>
+                  Impermanent loss is real: a constant-product pool rebalances against you when
+                  the price moves, and fees are what compensate for it. This page will never
+                  quote you an APY it cannot read.
+                </li>
+              </ul>
+            </FinePrint>
           </section>
 
           <section className="relative isolate rounded-2xl p-6" style={CARD}>
             <CardArt pageId="venue-amm" idx={4} />
             <p className="text-[10px] uppercase tracking-wider mb-2" style={{ color: 'var(--color-kyle)' }}>How the swap routes</p>
             <h2 className="heading-luxury text-lg text-white mb-3">Our pools, side by side with Jupiter</h2>
-            <p className="text-white/80 text-[13px] leading-relaxed mb-3">
-              Every quote on the Solana swap also asks our own pools, and prints which one
-              pays the trader more and by how much. The trade goes where it pays more: to
-              our pool when ours pays at least as much as Jupiter, and through Jupiter
-              when it does not.
-            </p>
+            <p className="text-white/80 text-[13px] leading-relaxed mb-3">Each trade goes where it pays the trader more.</p>
             <Link to="/solana" className="btn-secondary px-4 py-2 text-[12px] inline-block">
               Go to the Solana swap
             </Link>
+            <FinePrint summary="How it works" className="mt-2">
+              <p>
+                Every quote on the Solana swap also asks our own pools, and prints which one
+                pays the trader more and by how much. The trade goes where it pays more: to
+                our pool when ours pays at least as much as Jupiter, and through Jupiter
+                when it does not.
+              </p>
+            </FinePrint>
           </section>
         </div>
 

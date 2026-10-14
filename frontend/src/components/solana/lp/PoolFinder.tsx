@@ -10,6 +10,7 @@ import { BUNGALOWS } from '../../../lib/bungalows';
 import { useActiveBungalowId } from '../../../hooks/useActiveBungalowId';
 import { Card, Field, Notice } from '../curve/ui';
 import { CardArt } from '../../ui/CardArt';
+import { FinePrint } from '../../ui/FinePrint';
 import { TOGGLE_CLS, inputCls, inputStyle } from '../curve/uiFormat';
 import { TokenSafetyCard } from './TokenSafetyCard';
 import { PoolCard, UnreadPoolCard } from './PoolCard';
@@ -80,15 +81,15 @@ function siteTokens(roomId: string | null): { id: string; symbol: string; mint: 
 
 const TASK_LABEL: Record<LpTask, string> = { create: 'Create a pool', add: 'Add liquidity', remove: 'Remove liquidity' };
 const TASK_LINE: Record<LpTask, string> = {
-  create: `Pick the token to open a pool for: you can pair it with ${QUOTE_COINS_OR}. The form opens under the token’s checks.`,
-  add: 'Pick the token to add liquidity for. If it has no pool yet, your deposit opens one.',
-  remove: 'Your pool shares are listed under Your positions. Each one that can be taken out has a Remove liquidity button.',
+  create: `Pick a token. You can pair it with ${QUOTE_COINS_OR}.`,
+  add: 'Pick a token. If it has no pool yet, your deposit opens one.',
+  remove: 'Shares you can take out have a Remove button under Your positions.',
 };
 /** Before a press, with a token already on the page: which token the first two buttons act on. */
-const TOKEN_HERE_LINE = 'A token is already on this page: its address is in the box below. Create a pool and Add liquidity open its form.';
+const TOKEN_HERE_LINE = 'Create a pool and Add liquidity act on the token in the box below.';
 /** The same, with a token already answered on the page: its form opens at once. */
 const TASK_LINE_HERE: Record<'create' | 'add', string> = {
-  create: 'The form opens under this token’s checks. Pick another token to change it.',
+  create: 'The form opens under this token’s checks.',
   add: 'The form opens under this token’s checks. If it has no pool yet, your deposit opens one.',
 };
 
@@ -390,7 +391,7 @@ export function PoolFinder({
                   ? TASK_LINE_HERE[task]
                   : TASK_LINE[task]
                 : !canAdd
-                  ? 'Adding liquidity and opening pools from this site are paused right now. Removing still works.'
+                  ? 'Adding and opening pools are paused here. Removing still works.'
                   : answered
                     ? TOKEN_HERE_LINE
                     : ''}
@@ -414,7 +415,6 @@ export function PoolFinder({
                 </button>
               ))}
             </div>
-            <p className="text-white/55 text-[11px]">Each is looked up by its address from this site’s own list, not by its name.</p>
           </div>
         )}
         <form
@@ -453,6 +453,11 @@ export function PoolFinder({
             )}
           </div>
         </form>
+        {tokens.length > 0 && (
+          <FinePrint summary="How lookup works" testId="lp-site-tokens-note">
+            <p>Each is looked up by its address from this site’s own list, not by its name.</p>
+          </FinePrint>
+        )}
       </Card>
 
       {/* Where a lookup the visitor asked for scrolls to. The page's scroll-padding
@@ -651,24 +656,13 @@ function IndexNote({ read }: { read: Extract<PoolSearchRead, { kind: 'ok' }> }) 
   return (
     <div className="text-white/55 text-[11px] leading-relaxed space-y-1" data-testid="lp-index-note">
       {index.kind === 'ok' ? (
-        <>
-          <p>
-            Pools are listed from our pool index and each one is then read and checked on chain. SOL pools first, then USDC, then
-            BAYLA, the deepest of each first. None of them is
-            “the” pool for this token: anyone can open one, at any price.
+        index.truncated && (
+          <p className="text-amber-300/90" data-testid="lp-index-truncated">
+            There may be more pools than are listed here.
           </p>
-          {index.truncated && (
-            <p className="text-amber-300/90" data-testid="lp-index-truncated">
-              Our pool index returned its maximum: for each coin, the pools holding the most of it. There may be more pools for this
-              token that are not listed here.
-            </p>
-          )}
-        </>
+        )
       ) : (
-        <p className="text-amber-300/90">
-          Our pool index could not be read ({index.detail}), so only the addresses we can work out ourselves were checked:
-          the launch pool and the standard address on each fee tier, for each coin a pool can pair with. There may be other pools.
-        </p>
+        <p className="text-amber-300/90">Our pool index was not read, so there may be other pools.</p>
       )}
       {squatted.length > 0 && (
         <p>
@@ -676,6 +670,28 @@ function IndexNote({ read }: { read: Extract<PoolSearchRead, { kind: 'ok' }> }) 
           address does not make it the right pool: check its price and open time below.
         </p>
       )}
+      <FinePrint summary="How pools are listed">
+        {index.kind === 'ok' ? (
+          <>
+            <p>
+              Pools are listed from our pool index and each one is then read and checked on chain. SOL pools first, then USDC, then
+              BAYLA, the deepest of each first. None of them is
+              “the” pool for this token: anyone can open one, at any price.
+            </p>
+            {index.truncated && (
+              <p>
+                Our pool index returned its maximum: for each coin, the pools holding the most of it. There may be more pools for this
+                token that are not listed here.
+              </p>
+            )}
+          </>
+        ) : (
+          <p>
+            Our pool index could not be read ({index.detail}), so only the addresses we can work out ourselves were checked:
+            the launch pool and the standard address on each fee tier, for each coin a pool can pair with. There may be other pools.
+          </p>
+        )}
+      </FinePrint>
     </div>
   );
 }

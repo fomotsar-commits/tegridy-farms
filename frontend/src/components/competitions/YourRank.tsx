@@ -10,6 +10,7 @@ import {
 } from '../../lib/competitions/islandCup';
 import { ShareCard } from './ShareCard';
 import { CardArt } from '../ui/CardArt';
+import { FinePrint } from '../ui/FinePrint';
 
 // FINDING YOURSELF, AND THE SENTENCE FOR WHEN YOU ARE NOT THERE.
 //
@@ -68,7 +69,7 @@ export function YourRank({ board, status, account }: YourRankProps) {
 
       {query === '' ? (
         <p className="mt-2.5 text-xs leading-relaxed text-white/70">
-          Connect a wallet or paste an address to look it up in this read.
+          Connect a wallet or paste an address.
         </p>
       ) : hit ? (
         <>
@@ -86,13 +87,20 @@ export function YourRank({ board, status, account }: YourRankProps) {
         </>
       ) : (
         <p className="mt-2.5 text-xs leading-relaxed text-white/75">
-          This wallet does not appear in this read — that is not a statement that it was idle. Only
-          the pools listed above were read, only over the window they all cover, and only fills the
-          feed priced are scored.
+          Not in this read. That does not mean it was idle.
         </p>
       )}
 
-      <p className="mt-3 text-[11px] leading-relaxed text-white/55">{CUP_SENDER}.</p>
+      <FinePrint className="mt-2">
+        {query !== '' && !hit ? (
+          <p>
+            This wallet does not appear in this read — that is not a statement that it was idle. Only
+            the pools listed above were read, only over the window they all cover, and only fills the
+            feed priced are scored.
+          </p>
+        ) : null}
+        <p>{CUP_SENDER}.</p>
+      </FinePrint>
     </section>
   );
 }

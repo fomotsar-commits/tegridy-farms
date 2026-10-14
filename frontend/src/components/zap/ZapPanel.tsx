@@ -23,6 +23,7 @@ import { zapVenues, type ZapVenueId } from '../../lib/zap/venues';
 import { useZapPlan } from '../../hooks/useZapPlan';
 import { useZapRun } from '../../hooks/useZapRun';
 import { CardArt } from '../ui/CardArt';
+import { FinePrint } from '../ui/FinePrint';
 import { ZapStepList } from './ZapStepList';
 
 const LOCK_CHOICES: { label: string; seconds: bigint }[] = [
@@ -118,16 +119,21 @@ export function ZapPanel() {
             )}
           </select>
           {/* An unavailable venue states its own reason. A greyed-out option with no
-              explanation is the shape that makes people think the app is broken. */}
-          {venues.flatMap((v) =>
-            v.available
-              ? []
-              : [
-                  <p key={v.id} className="mt-1 text-[11px] text-amber-200/80">
-                    {v.label}: {v.reason}
-                  </p>,
-                ],
-          )}
+              explanation is the shape that makes people think the app is broken, so
+              the option says "(unavailable)" and the reason is one press away. */}
+          {venues.some((v) => !v.available) ? (
+            <FinePrint summary="Why unavailable">
+              {venues.flatMap((v) =>
+                v.available
+                  ? []
+                  : [
+                      <p key={v.id} className="text-amber-200/80">
+                        {v.label}: {v.reason}
+                      </p>,
+                    ],
+              )}
+            </FinePrint>
+          ) : null}
         </div>
 
         <div className="grid gap-3 sm:grid-cols-2">
@@ -211,8 +217,7 @@ export function ZapPanel() {
           <h3 className="text-[13px] text-amber-200">This zap cannot be composed right now</h3>
           <p className="mt-1 text-[12px] text-amber-100/85">{result.detail}</p>
           <p className="mt-2 text-[12px] text-white/70">
-            Nothing is broken on your side — the steps are still available one at a time on the Trade page, the
-            Liquidity tab and the Farm page.
+            The steps still work one at a time: the Trade page, the Liquidity tab and the Farm page.
           </p>
         </section>
       ) : plan ? (
@@ -231,8 +236,8 @@ export function ZapPanel() {
 
           <p className="text-[11px] text-white/60">
             {canBatch
-              ? 'Your wallet can group each stage into one confirmation. The stages themselves are still separate — a zap is not atomic, and this page never pretends otherwise.'
-              : 'Your wallet signs each step on its own. If one stops, the ones after it are not sent and this page keeps the state so you can pick up where it stopped.'}
+              ? 'Your wallet can group each stage into one confirmation.'
+              : 'Your wallet signs each step on its own.'}
           </p>
 
           <dl className="text-[12px] space-y-1">
@@ -245,21 +250,29 @@ export function ZapPanel() {
               <dd className={`font-mono ${fee.unavailable ? 'text-amber-200' : 'text-white'}`}>{fee.value}</dd>
             </div>
           </dl>
-          <p className="text-[11px] text-white/55">{fee.note}</p>
-
-          <ul className="space-y-1">
-            {plan.notes.map((note) => (
-              <li key={note} className="text-[11px] text-white/60">
-                • {note}
-              </li>
-            ))}
-          </ul>
+          {/* A fee that could not be read is a warning about the signature in front
+              of the visitor, so its note stays out. Every other note is small print. */}
+          {fee.unavailable ? <p className="text-[11px] text-amber-200">{fee.note}</p> : null}
 
           {amountIn > 0n ? (
             <p className="text-[11px] text-white/45 font-mono">
               Input: {formatUnits(amountIn, inputToken.decimals)} {inputToken.symbol}
             </p>
           ) : null}
+
+          <FinePrint summary="Details">
+            <p>
+              {canBatch
+                ? 'The stages themselves are still separate — a zap is not atomic, and this page never pretends otherwise.'
+                : 'If one stops, the ones after it are not sent and this page keeps the state so you can pick up where it stopped.'}
+            </p>
+            {fee.unavailable ? null : <p>{fee.note}</p>}
+            <ul className="space-y-1">
+              {plan.notes.map((note) => (
+                <li key={note}>• {note}</li>
+              ))}
+            </ul>
+          </FinePrint>
         </section>
       ) : null}
 
@@ -306,8 +319,7 @@ export function ZapPanel() {
           </div>
           {!readout.isComplete ? (
             <p className="text-[11px] opacity-70">
-              Forgetting only clears this page's record. It does not undo anything already on-chain, and the steps
-              that did land stay landed.
+              Forgetting only clears this page's record. It undoes nothing on-chain.
             </p>
           ) : null}
         </section>
@@ -319,13 +331,17 @@ export function ZapPanel() {
           <h3 className="text-[13px] text-amber-200">An unfinished zap is saved for this wallet</h3>
           <p className="text-[12px] text-amber-100/90 font-mono break-words">{orphanedRun.summary}</p>
           <p className="text-[12px] text-white/70">
-            It is not shown above because the composer is set to a different zap. Put the amount and destination
-            back the way they were to pick it up, or forget it — forgetting clears this page&apos;s record only and
-            undoes nothing on-chain.
+            Put the amount and destination back to pick it up, or forget it. Forgetting undoes nothing on-chain.
           </p>
           <button type="button" className="btn-secondary px-4 py-2 text-[12px]" onClick={discard}>
             Forget the saved zap
           </button>
+          <FinePrint summary="Why here">
+            <p>
+              It is not shown above because the composer is set to a different zap. Forgetting clears this
+              page&apos;s record only.
+            </p>
+          </FinePrint>
         </section>
       ) : null}
 
@@ -351,10 +367,12 @@ export function ZapPanel() {
         </button>
       )}
       {!address ? null : (
-        <p className="text-[11px] text-white/45">
-          This zap has no contract of its own. Every step calls a venue contract this app already uses, at an address
-          compiled into the page.
-        </p>
+        <FinePrint summary="Contracts">
+          <p>
+            This zap has no contract of its own. Every step calls a venue contract this app already uses, at an address
+            compiled into the page.
+          </p>
+        </FinePrint>
       )}
     </div>
   );

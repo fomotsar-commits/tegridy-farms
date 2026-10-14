@@ -5,6 +5,7 @@ import { REVENUE_DISTRIBUTOR_ABI } from '../lib/contracts';
 import { REVENUE_DISTRIBUTOR_ADDRESS, CHAIN_ID, isDeployed } from '../lib/constants';
 import { useTOWELIPrice } from '../contexts/PriceContext';
 import { CardArt } from './ui/CardArt';
+import { FinePrint } from './ui/FinePrint';
 
 // The three stat tiles (idx 1-3; idx 0 is the unread / empty notice card).
 const YIELD_ART_SLOTS = 3;
@@ -105,10 +106,15 @@ export function RealYieldProof({ showWhenEmpty = false }: { showWhenEmpty?: bool
         <div className="relative isolate rounded-xl p-4" style={{ border: '1px solid var(--color-purple-75)', background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(2px)' }}>
           <CardArt pageId="real-yield-proof" idx={0} />
           <p className="text-[13px] leading-relaxed text-white" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>
-            The cumulative-distribution read has not returned, so this panel cannot say whether any
-            ETH has been paid out. That is a gap in what we can show you, not a figure of zero — the
-            Etherscan link above answers it directly in the meantime.
+            Not read yet. This is not a zero.
           </p>
+          <FinePrint summary="Details">
+            <p>
+              The cumulative-distribution read has not returned, so this panel cannot say whether any
+              ETH has been paid out. That is a gap in what we can show you, not a figure of zero — the
+              Etherscan link above answers it directly in the meantime.
+            </p>
+          </FinePrint>
         </div>
       ) : isEmpty ? (
         <div className="relative isolate rounded-xl p-4" style={{ border: '1px solid var(--color-purple-75)', background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(2px)' }}>
@@ -118,8 +124,13 @@ export function RealYieldProof({ showWhenEmpty = false }: { showWhenEmpty?: bool
               floor is RevenueDistributor.MIN_DISTRIBUTE_AMOUNT. The pool is live, so this
               must not say the ETH waits on it. */}
           <p className="text-[13px] leading-relaxed" style={{ color: '#22c55e', textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>
-            No ETH has been paid to stakers yet. After a referral share, the venue&apos;s swap fee is routed here on chain, and a payout round can open only after 1 ETH has arrived. This panel fills with the live total when the first round settles.
+            No ETH has been paid to stakers yet.
           </p>
+          <FinePrint summary="How it pays">
+            <p>
+              After a referral share, the venue&apos;s swap fee is routed here on chain, and a payout round can open only after 1 ETH has arrived. This panel fills with the live total when the first round settles.
+            </p>
+          </FinePrint>
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">

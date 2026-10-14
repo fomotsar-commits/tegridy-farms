@@ -2,6 +2,7 @@ import { TRUNCATED_NOTICE, type Standings } from '../../lib/competitions/scoring
 import { formatQuoteAmount } from '../../lib/copytrade/quoteTokens';
 import { formatTimeAgo, shortenAddress } from '../../lib/formatting';
 import { CardArt } from '../ui/CardArt';
+import { FinePrint } from '../ui/FinePrint';
 
 // The board itself.
 //
@@ -34,15 +35,15 @@ export function StandingsTable({ standings, account }: StandingsTableProps) {
           {standings.washedLegs} leg{standings.washedLegs === 1 ? '' : 's'} struck as round trips
         </p>
       </div>
-      <p className="mt-1.5 text-xs leading-relaxed text-white/70">{standings.season.blurb}</p>
       {standings.truncated ? (
-        <p className="mt-2 text-[11px] leading-relaxed text-amber-200">{TRUNCATED_NOTICE}</p>
+        <p className="mt-2 text-[11px] leading-relaxed text-amber-200">
+          Partial totals: the ranking is provisional.
+        </p>
       ) : null}
 
       {standings.rows.length === 0 ? (
         <p className="mt-4 text-xs text-white/70">
-          The read succeeded and found no venue-routed swaps inside this season's dates. That is a
-          measurement of this router over this window, and not a statement about trading elsewhere.
+          The read succeeded and found no venue-routed swaps inside this season's dates.
         </p>
       ) : (
         <div className="mt-4 overflow-x-auto">
@@ -92,6 +93,14 @@ export function StandingsTable({ standings, account }: StandingsTableProps) {
           </table>
         </div>
       )}
+
+      <FinePrint summary="What counts" className="mt-2">
+        <p>{standings.season.blurb}</p>
+        {standings.truncated ? <p>{TRUNCATED_NOTICE}</p> : null}
+        {standings.rows.length === 0 ? (
+          <p>That is a measurement of this router over this window, and not a statement about trading elsewhere.</p>
+        ) : null}
+      </FinePrint>
     </section>
   );
 }

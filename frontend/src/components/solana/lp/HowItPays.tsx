@@ -1,8 +1,11 @@
-import { PUBLIC_TIER_INDEX } from '../../../lib/solana/cpswap/program';
+import { PUBLIC_TIER_INDEX, type AmmConfigView } from '../../../lib/solana/cpswap/program';
+import { feeSplit } from '../../../lib/solana/cpswap/venue';
+import { feeRateText, pctText } from '../../../lib/solana/lp/format';
 import { SOLANA_FEE_ACCOUNT, SOLANA_PLATFORM_FEE_BPS, isSolanaFeeConfigured } from '../../../lib/solana';
 import { EARN_TITLES, howVenueEarns, howYouEarn, type JupiterFee } from '../../../lib/solana/lp/earnCopy';
 import type { FeeTierRead } from '../../../lib/solana/lp/poolFinder';
 import { Card, Notice } from '../curve/ui';
+import { FinePrint } from '../../ui/FinePrint';
 import { AddressRow } from './AddressRow';
 import { explorerOf } from './panelKit';
 import { useLpWrites } from './useLpWrites';
@@ -12,6 +15,17 @@ const BUILD_JUPITER_FEE: JupiterFee | null =
   isSolanaFeeConfigured() && SOLANA_PLATFORM_FEE_BPS > 0 ? { bps: SOLANA_PLATFORM_FEE_BPS, wallet: SOLANA_FEE_ACCOUNT } : null;
 
 const LINE = 'text-white/80 text-[12px]';
+
+/**
+ * The one line on earning, in plain sight (owner, 2026-10-09 and 2026-10-13): what a trade
+ * pays and who keeps which part, with the numbers earnCopy.ts prints from the same tier.
+ * No tier read, no number.
+ */
+function earnLine(tier: AmmConfigView | null): string {
+  if (!tier) return 'Each trade pays a fee, split between LPs and the venue.';
+  const split = feeSplit(tier);
+  return `In a public pool, each trade pays ${feeRateText(tier.tradeFeeRate)}: ${pctText(split.lpKeepsPct)} stays with LPs, ${pctText(split.venueTakesPct)} goes to the venue.`;
+}
 
 /**
  * Two short cards on the LP section: how a liquidity provider earns, and how the venue
@@ -29,16 +43,19 @@ export function HowItPays({ read, jupiterFee = BUILD_JUPITER_FEE }: { read: FeeT
     : read === null
       ? 'Reading the rates from the chain…'
       : read.kind === 'unread'
-        ? 'The fee tiers could not be read just now, so no rate is shown here.'
-        : 'There is no public fee tier to read yet, so no rate is shown here.';
+        ? 'The fee tiers could not be read, so no rate is shown.'
+        : 'No public fee tier yet, so no rate is shown.';
   return (
     <section data-testid="lp-how-it-pays" aria-label="How you earn, and how the venue earns" className="grid grid-cols-1 md:grid-cols-2 gap-4">
       <Card title={EARN_TITLES.you} testId="lp-how-you-earn">
-        {howYouEarn(tier).map((line) => (
-          <p key={line} className={LINE}>
-            {line}
-          </p>
-        ))}
+        <p className={LINE} data-testid="lp-earn-split">
+          {earnLine(tier)}
+        </p>
+        <FinePrint summary="Details">
+          {howYouEarn(tier).map((line) => (
+            <p key={line}>{line}</p>
+          ))}
+        </FinePrint>
       </Card>
       <Card title={EARN_TITLES.venue} testId="lp-how-venue-earns">
         <ul className={`list-disc pl-4 space-y-1 ${LINE}`}>
@@ -46,10 +63,14 @@ export function HowItPays({ read, jupiterFee = BUILD_JUPITER_FEE }: { read: FeeT
             <li key={line}>{line}</li>
           ))}
         </ul>
-        {venue.where && <p className={LINE}>{venue.where}</p>}
         {venue.wallets.map((w) => (
           <AddressRow key={w.address} label={w.label} value={w.address} explorerUrl={explorer(w.address)} />
         ))}
+        {venue.where && (
+          <FinePrint summary="Where it goes">
+            <p>{venue.where}</p>
+          </FinePrint>
+        )}
       </Card>
       {/* Said once, for both cards. */}
       {noRate && (

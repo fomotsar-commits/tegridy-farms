@@ -3,6 +3,7 @@ import type { IndexedStatus } from '../../hooks/useChartCandles';
 import type { CandleSeries } from '../../lib/chart/candles';
 import { NETWORK_LABELS, type ChartableMarket } from '../../lib/chart/markets';
 import { CardArt } from '../ui/CardArt';
+import { FinePrint } from '../ui/FinePrint';
 
 // What the chart is, in words, before a single candle is drawn.
 //
@@ -194,13 +195,22 @@ function Coverage({
   return <CoverageList lines={lines} />;
 }
 
+/** The count of what was read leads; every coverage caveat after it folds. */
 function CoverageList({ lines }: { lines: string[] }) {
+  const [first, ...rest] = lines;
   return (
-    <ul className="mt-1.5 space-y-1 text-xs leading-relaxed text-white/75">
-      {lines.map((line) => (
-        <li key={line}>{line}</li>
-      ))}
-    </ul>
+    <>
+      <p className="mt-1.5 text-xs leading-relaxed text-white/75">{first}</p>
+      {rest.length > 0 ? (
+        <FinePrint summary="Coverage">
+          <ul className="space-y-1">
+            {rest.map((line) => (
+              <li key={line}>{line}</li>
+            ))}
+          </ul>
+        </FinePrint>
+      ) : null}
+    </>
   );
 }
 

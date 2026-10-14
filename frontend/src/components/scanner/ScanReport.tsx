@@ -3,6 +3,7 @@ import { m } from 'framer-motion';
 import type { ScanOutcome } from '../../lib/scanner';
 import type { Band, ConfidenceLevel, HolderCategory } from '../../lib/detection';
 import { CardArt } from '../ui/CardArt';
+import { FinePrint } from '../ui/FinePrint';
 
 // Presentational render of a completed scan — the descriptive measurement, framed
 // as a measurement (disclosed method, components, exclusions, timestamp, correction
@@ -188,7 +189,7 @@ export function ScanReport({ outcome }: { outcome: ScanOutcome }) {
         <CardArt pageId="scanner" idx={8} />
         <h3 className="text-[13px] font-semibold text-text-primary mb-1">Hard-fact checks</h3>
         <p className="text-[11px] text-text-muted mb-3">
-          Facts that can override the distribution read. Unknown facts are shown but never counted against a token.
+          Facts that can override the read. Unknowns never count against a token.
         </p>
         <ul className="space-y-2">
           {analysis.gate.findings.map((f) => {
@@ -223,8 +224,7 @@ export function ScanReport({ outcome }: { outcome: ScanOutcome }) {
         <CardArt pageId="scanner" idx={9} />
         <h3 className="text-[13px] font-semibold text-text-primary mb-1">What was excluded before the math</h3>
         <p className="text-[11px] text-text-muted mb-3">
-          Pools, exchanges, bridges, burns, lockers and contracts are not people holding the token, so they are removed
-          before any concentration is computed. {pct(analysis.includedSupplyShareOfTotal)} of supply counts as person-held.
+          {pct(analysis.includedSupplyShareOfTotal)} of supply counts as person-held.
         </p>
         <div className="overflow-x-auto">
           <table className="w-full text-[12px]">
@@ -252,6 +252,12 @@ export function ScanReport({ outcome }: { outcome: ScanOutcome }) {
             </tbody>
           </table>
         </div>
+        <FinePrint summary="Why">
+          <p>
+            Pools, exchanges, bridges, burns, lockers and contracts are not people holding the token, so they are removed
+            before any concentration is computed.
+          </p>
+        </FinePrint>
       </div>
 
       {/* ── Data confidence ────────────────────────────────────────── */}
@@ -274,15 +280,17 @@ export function ScanReport({ outcome }: { outcome: ScanOutcome }) {
       {(outcome.coverageNotes.length > 0 || analysis.caveats.length > 0) && (
         <div className="glass-card relative isolate rounded-xl p-4">
           <CardArt pageId="scanner" idx={11} />
-          <h3 className="text-[13px] font-semibold text-text-primary mb-2">Read this with</h3>
-          <ul className="space-y-1.5">
-            {outcome.coverageNotes.map((n, i) => (
-              <li key={`c${i}`} className="text-[12px] text-text-secondary">• {n}</li>
-            ))}
-            {analysis.caveats.map((c, i) => (
-              <li key={`v${i}`} className="text-[12px] text-text-muted">• {c}</li>
-            ))}
-          </ul>
+          <h3 className="text-[13px] font-semibold text-text-primary">Read this with</h3>
+          <FinePrint summary="Caveats">
+            <ul className="space-y-1.5">
+              {outcome.coverageNotes.map((n, i) => (
+                <li key={`c${i}`} className="text-[12px] text-text-secondary">• {n}</li>
+              ))}
+              {analysis.caveats.map((c, i) => (
+                <li key={`v${i}`} className="text-[12px] text-text-muted">• {c}</li>
+              ))}
+            </ul>
+          </FinePrint>
         </div>
       )}
 

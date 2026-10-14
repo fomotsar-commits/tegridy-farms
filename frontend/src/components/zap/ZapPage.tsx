@@ -7,6 +7,7 @@
 
 import { usePageTitle } from '../../hooks/usePageTitle';
 import { PageArtBackdrop } from '../PageArtBackdrop';
+import { FinePrint } from '../ui/FinePrint';
 import { ZapPanel } from './ZapPanel';
 
 export default function ZapPage() {
@@ -19,14 +20,20 @@ export default function ZapPage() {
     <div className="relative mx-auto w-full max-w-2xl px-4 py-8 sm:py-12">
       <header className="mb-6">
         <h1 className="text-2xl font-semibold text-white">Zap</h1>
+        {/* One line: what it does, and the risk of depositing through it. */}
         <p className="mt-2 text-[13px] text-white/65">
-          Any asset into any position. The swap, the pairing and the deposit are composed for you and, on a wallet
-          that supports it, grouped into fewer confirmations.
+          Any asset into any position. Several transactions, so it can stop part-way.
         </p>
-        <p className="mt-2 text-[12px] text-white/50">
-          A zap is several transactions, not one. It can stop part-way, so this page keeps track of exactly which steps
-          landed, holds that state across a reload, and resumes without repeating anything already confirmed.
-        </p>
+        <FinePrint summary="How it works">
+          <p>
+            Any asset into any position. The swap, the pairing and the deposit are composed for you and, on a wallet
+            that supports it, grouped into fewer confirmations.
+          </p>
+          <p>
+            A zap is several transactions, not one. It can stop part-way, so this page keeps track of exactly which steps
+            landed, holds that state across a reload, and resumes without repeating anything already confirmed.
+          </p>
+        </FinePrint>
       </header>
       <ZapPanel />
     </div>

@@ -13,6 +13,7 @@ import { YourRank } from '../components/competitions/YourRank';
 import { SEASONS } from '../lib/competitions/season';
 import { PageArtBackdrop } from '../components/PageArtBackdrop';
 import { CardArt } from '../components/ui/CardArt';
+import { FinePrint } from '../components/ui/FinePrint';
 import { isIndexerConfigured } from '../lib/indexer/client';
 
 /** A season boundary as a calendar day, in UTC: the season table's own clock. */
@@ -52,6 +53,9 @@ const utcDay = (unix: number) =>
 //
 // NO CLOCK IS READ IN THIS FILE. Every time on screen is a block timestamp from
 // the data, or a season's own declared date.
+//
+// FEWER WORDS (owner, 2026-10-13). The header says what the boards are in one
+// line; the full description sits in the header's FinePrint, verbatim.
 
 export default function CompetitionsPage() {
   usePageTitle(
@@ -73,11 +77,16 @@ export default function CompetitionsPage() {
         <header>
           <h1 className="text-2xl font-bold text-white">Trading Competitions</h1>
           <p className="mt-2 max-w-3xl text-sm leading-relaxed text-white/75">
-            Two boards, each ranking activity and neither ranking profit. The volume board is scored
-            from the trade feeds of the island's own registered pools, over the widest window every
-            pool that answered can speak for. Season 1 is scored from the venue router's swaps,
-            whenever something is reading them. Nothing here pays anything, and nothing closes.
+            Ranked by volume, not profit. No prize: nothing here pays anything.
           </p>
+          <FinePrint summary="How it works" className="mt-1">
+            <p>
+              Two boards, each ranking activity and neither ranking profit. The volume board is scored
+              from the trade feeds of the island's own registered pools, over the widest window every
+              pool that answered can speak for. Season 1 is scored from the venue router's swaps,
+              whenever something is reading them. Nothing here pays anything, and nothing closes.
+            </p>
+          </FinePrint>
         </header>
 
         <div className="mt-6 grid grid-cols-1 gap-6">
@@ -115,8 +124,8 @@ export default function CompetitionsPage() {
           {!isIndexerConfigured() && season ? (
             <p className="relative isolate rounded-xl border border-white/15 bg-white/[0.02] p-4 text-xs leading-relaxed text-white/75">
               <CardArt pageId="competitions" idx={9} />
-              {season.name}, {utcDay(season.startsAt)} to {utcDay(season.endsAt)}: its standings open once
-              this deployment reads the venue&apos;s indexer. Nothing is being counted until then.
+              {season.name}, {utcDay(season.startsAt)} to {utcDay(season.endsAt)}: not counted until this
+              deployment reads the venue&apos;s indexer.
             </p>
           ) : (
             <>
@@ -132,9 +141,11 @@ export default function CompetitionsPage() {
               <CardArt pageId="competitions" idx={5} />
               <h2 className="text-sm font-semibold text-white">No season is declared</h2>
               <p className="mt-1.5 text-xs leading-relaxed text-white/75">
-                This build declares no router season, so there is nothing to score for one. That is
-                a statement about the configuration, not about the venue.
+                This build declares no router season, so there is nothing to score for one.
               </p>
+              <FinePrint className="mt-1">
+                <p>That is a statement about the configuration, not about the venue.</p>
+              </FinePrint>
             </section>
           )}
 

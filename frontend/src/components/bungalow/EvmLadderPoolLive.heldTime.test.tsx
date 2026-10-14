@@ -86,7 +86,8 @@ describe('the held-time line on the EVM ladder card', () => {
     const line = screen.getByText(UNREAD);
     expect(screen.queryByText(READ)).toBeNull();
     expect(statGrid().nextElementSibling).toBe(line);
-    const explainer = screen.getByText(/Longer locks earn a larger/);
+    // The short line and its "How it works" both say it; the first one is the visible line.
+    const explainer = screen.getAllByText(/Longer locks earn a larger/)[0]!;
     expect(line.compareDocumentPosition(explainer) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
