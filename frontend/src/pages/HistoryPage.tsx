@@ -14,6 +14,7 @@ import { shortenAddress, formatTimeAgo } from '../lib/formatting';
 import { Skeleton } from '../components/ui/Skeleton';
 import { usePageTitle } from '../hooks/usePageTitle';
 import { ArtImg } from '../components/ArtImg';
+import { IslandHum } from '../components/IslandSound';
 
 // Group by local calendar day. Returns stable sections in input order with
 // the first tx's date used for the label; "Today" / "Yesterday" are promoted
@@ -333,6 +334,7 @@ export default function HistoryPage() {
             <div className="p-8 text-center">
               <p className="text-white text-[13px]" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95), 0 0 10px rgba(0,0,0,0.9)' }}>No transactions found. Start trading or staking to see your history here.</p>
               <p className="text-white/85 text-[11px] mt-1" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95), 0 0 10px rgba(0,0,0,0.9)' }}>Swaps, stakes, claims, and governance actions will appear automatically.</p>
+              <IslandHum className="text-white/60 text-[11px] mt-3" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }} />
             </div>
           ) : (
             <table className="w-full">

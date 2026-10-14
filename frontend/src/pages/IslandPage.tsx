@@ -4,6 +4,7 @@ import { usePageTitle } from '../hooks/usePageTitle';
 import { ISLAND_SECTION } from '../lib/navConfig';
 import { VENUE } from '../lib/arrival';
 import { FlamesBoard } from '../components/FlamesBoard';
+import { IslandSoundLinks } from '../components/IslandSound';
 
 /**
  * The four-piece arrival film, on demand.
@@ -149,6 +150,10 @@ export default function IslandPage() {
           </Link>
         ))}
       </div>
+
+      <p className="mt-6 text-white/60 text-[12px]">
+        sound of the island · <IslandSoundLinks />
+      </p>
     </div>
   );
 }
