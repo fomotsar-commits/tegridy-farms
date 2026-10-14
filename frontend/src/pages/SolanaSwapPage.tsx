@@ -20,6 +20,7 @@ import { SolanaRouteLine } from '../components/swap/SolanaRouteLine';
 import { useSolanaRoute } from '../components/swap/useSolanaRoute';
 import { useVenueSwap } from '../components/swap/useVenueSwap';
 import { useReturnFocus, type OnSettled } from '../components/solana/curve/useTxFlow';
+import { holdReload } from '../lib/reloadHold';
 import { isSolanaFeeConfigured, isSolanaSwapLive, SOLANA_PLATFORM_FEE_BPS, SOL_MINT, USDC_MINT } from '../lib/solana';
 import {
   PAY_WITH_TOKENS,
@@ -853,8 +854,14 @@ function DcaTab({ payToken, buyToken, payUsd, shieldWarnings, needsAck, ack, set
   async function signSend(b64: string, repeatCost: string): Promise<string | null> {
     const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
     const tx = VersionedTransaction.deserialize(bytes);
-    const sig = await viaWallet(() => sendTransaction(tx, connection));
-    return (await confirmSent(connection, sig, repeatCost)) ? sig : null;
+    // From the wallet's turn to the answer the page does not reload itself (lib/staleBuild.ts).
+    const release = holdReload();
+    try {
+      const sig = await viaWallet(() => sendTransaction(tx, connection));
+      return (await confirmSent(connection, sig, repeatCost)) ? sig : null;
+    } finally {
+      release();
+    }
   }
 
   async function handlePlace() {
@@ -1114,8 +1121,14 @@ function LimitTab({ payToken, buyToken, shieldWarnings, needsAck, ack, setAck, o
   async function signSend(b64: string, repeatCost: string): Promise<string | null> {
     const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
     const tx = VersionedTransaction.deserialize(bytes);
-    const sig = await viaWallet(() => sendTransaction(tx, connection));
-    return (await confirmSent(connection, sig, repeatCost)) ? sig : null;
+    // From the wallet's turn to the answer the page does not reload itself (lib/staleBuild.ts).
+    const release = holdReload();
+    try {
+      const sig = await viaWallet(() => sendTransaction(tx, connection));
+      return (await confirmSent(connection, sig, repeatCost)) ? sig : null;
+    } finally {
+      release();
+    }
   }
 
   async function handlePlace() {
@@ -1997,6 +2010,8 @@ function SolanaSwapInner() {
     const press: { note: ((signature: string | null) => void) | null } = { note: null };
     const noteScope = swapPendingScope(publicKey.toBase58());
     setSwapping(true);
+    // Until this swap is answered the page does not reload itself (lib/staleBuild.ts).
+    const release = holdReload();
     try {
       // Re-quote right before building so the on-chain min-out + routing match
       // the live market (the displayed quote may be seconds-to-minutes stale).
@@ -2230,6 +2245,7 @@ function SolanaSwapInner() {
         });
       }
     } finally {
+      release();
       setSwapping(false);
     }
   }
