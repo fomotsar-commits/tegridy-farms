@@ -6,6 +6,10 @@ page keeps the newest thirty days.
 
 ## [Unreleased]
 
+### 2026-10-14
+
+- NFT collection owners: the owner panel now proposes a price, allowlist or auction change and carries it out 24 hours later (the one-step buttons it had always failed), shows what is waiting, and will not switch a live sale straight between a fixed price and an auction.
+
 ### 2026-10-10
 
 - Shared heat links: a memetics.finance/read link for a wallet the island reads now shows the island's painted card of that wallet when it is posted. A cold wallet, or one the island could not be asked about, keeps the venue's card.
