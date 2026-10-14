@@ -9,6 +9,7 @@ page keeps the newest thirty days.
 ### 2026-10-14
 
 - A link to one part of a page now lands on that part while the page is still loading, when its address is opened directly, and when the same link is pressed again. "The bungalows" on the Island page often left you at the top of the home page instead. "See what you'd earn" on the TOWELI farm now opens the estimate in the TOWELI room; it used to open the front page, which has no estimate.
+- After the site goes back to an earlier version, a page could stay broken for one browser: it had asked for a script or a stylesheet while the site did not have it, and kept the wrong answer for up to a year. The site's background worker no longer keeps that answer, and it asks the site again when the browser itself kept it. A browser that does not run the worker is not covered yet.
 
 ### 2026-10-10
 
