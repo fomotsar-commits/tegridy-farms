@@ -8,7 +8,7 @@ page keeps the newest thirty days.
 
 ### 2026-10-14
 
-- Solana LP: "Add with one coin" beside Add liquidity on our own pools. Step 1 swaps the right part of your coin for the other one, through Jupiter or the pool, whichever pays more, with the swap page's rules and fees and its review; step 2 adds both coins through the usual Add liquidity review. Two signatures. If step 2 is cancelled, step 1 stays done and step 2 is offered again for an hour.
+- Solana LP: "Add with one coin" beside Add liquidity on our own pools. Step 1 swaps the right part of your coin for the other one, through Jupiter or the pool, whichever pays more, with the swap page's rules and fees and its review; step 2 adds both coins through the usual Add liquidity review. Two signatures. If step 2 is cancelled, step 1 stays done and step 2 is offered again for an hour. Once step 1 lands, every other tab open on step 1 switches to step 2, and step 2 starts from what the swap actually paid.
 - Earn: the Referrals tab is gone. An old /referrals link opens Earn. A referral link (`/?ref=…`) still works anywhere on the site, and the TOWELI room's dashboard still shows your referral link and lets you claim what it earned.
 - A quiet nod to Jungle Bay's music: the footer, the island page and an empty History now link to the collective on Spotify and YouTube. Plain links only, nowhere near a trade, a stake or a warning.
 - Bayla bungalow: hand-picked art on 102 more surfaces, across Pools, Earn and the rest of the site, placed in the Bayla studio.

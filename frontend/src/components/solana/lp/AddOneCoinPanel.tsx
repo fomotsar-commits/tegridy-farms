@@ -51,6 +51,13 @@ const OWN_CHECK_MS = 4_000;
 const JUPITER = { getQuote, buildSwapTransaction, simulateSwap, swapCarriesPlatformFee };
 const notBuilt = (message: string): Prepared => ({ ok: false, outcome: { status: 'not-sent', stage: 'build', message } });
 const shortSig = (sig: string) => `${sig.slice(0, 6)}…${sig.slice(-4)}`;
+const floorOf = (q: JupiterQuote): bigint => {
+  try {
+    return BigInt(q.otherAmountThreshold);
+  } catch {
+    return 0n;
+  }
+};
 
 /** The swap page's speed setting, as it keeps it (SolanaSwapPage.tsx). */
 function speed(): PriorityLevel {
@@ -219,17 +226,30 @@ function OneCoinInner({
     [readPool, view, coin.decimals, decimals, writes],
   );
 
-  /** Step 1 landed: what it paid is read from the transaction itself; the least it could pay stands in when that read fails. */
+  /**
+   * Step 1 landed: what it paid is read from the transaction itself; `least`, the floor of
+   * the transaction that was sent, stands in when that read fails. The note is written
+   * before the read, so no tab offers step 1 again while it runs.
+   */
   const landed = async (p: Plan, signature: string, least: bigint) => {
     if (!ownerKey) return;
+    const floor: StepTwoNote = { pool: view.address, paid: p.paid, kept: p.total - p.swapIn, got: least, gotExact: false, bps: p.bps, signature, at: Date.now() };
+    saveStepTwo(ownerKey, floor);
     const outIsSol = p.paid === 'token' && coin.native;
     const got = await receivedBy(connection, signature, ownerKey, p.outputMint, outIsSol);
-    const gotExact = got !== null && got >= least;
-    const note: StepTwoNote = { pool: view.address, paid: p.paid, kept: p.total - p.swapIn, got: gotExact ? got : least, gotExact, bps: p.bps, signature, at: Date.now() };
-    saveStepTwo(ownerKey, note);
+    const note: StepTwoNote = got !== null && got >= least ? { ...floor, got, gotExact: true } : floor;
+    if (note.gotExact) saveStepTwo(ownerKey, note);
     setFactsNonce((n) => n + 1);
     writes.finished();
     await openStep2(note);
+  };
+
+  // Step 1 landed for this wallet on this pool (here, in another tab, before a reload): only step 2 is offered.
+  const owed = () => (ownerKey ? readStepTwo(ownerKey, view.address) : null);
+  const stepTwoOwed = () => {
+    const note = owed();
+    if (note) void openStep2(note);
+    return note !== null;
   };
 
   // A step 2 owed by this wallet on this pool (a reload, a trip away): offered again, never step 1.
@@ -298,6 +318,31 @@ function OneCoinInner({
   useEffect(() => {
     if (phase.kind === 'step2' && flowStep === 'outcome') resetOwn();
   }, [phase.kind, flowStep, resetOwn]);
+
+  // Step 1 landed in another tab: this one, open on step 1 and not sending, offers step 2
+  // instead (and takes the read figure once that tab has it).
+  const phaseNow = useRef(phase);
+  useEffect(() => {
+    phaseNow.current = phase;
+  }, [phase]);
+  useEffect(() => {
+    if (!ownerKey) return;
+    const onStorage = () => {
+      const note = readStepTwo(ownerKey, view.address);
+      const ph = phaseNow.current;
+      if (!note) return;
+      const onStepOne = ph.kind === 'form' || ph.kind === 'review' || (ph.kind === 'own' && (prevStep.current === 'idle' || prevStep.current === 'preparing' || prevStep.current === 'review'));
+      const readNow = ph.kind === 'step2' && !ph.done && ph.note.signature === note.signature && !ph.note.gotExact && note.gotExact;
+      if (!onStepOne && !readNow) return;
+      if (ph.kind === 'own') {
+        ownPlan.current = null;
+        resetOwn();
+      }
+      void openStep2(note);
+    };
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
+  }, [ownerKey, view.address, openStep2, resetOwn]);
 
   // One panel at a time (useLpWrites): busy while step 1 is on its way. Step 2's form reports its own.
   const busy =
@@ -379,6 +424,7 @@ function OneCoinInner({
     if (!owner || total === null || total < 2n || slippageBps === null) return;
     setSaid(keep);
     setOwnOffer(false);
+    if (stepTwoOwed()) return;
     setPhase({ kind: 'planning' });
     const read = await readPool();
     if (!read) {
@@ -404,6 +450,7 @@ function OneCoinInner({
       // Jupiter's figure for this very swap: the review compares like with like.
       const out = await ask(own.swapIn).then((q) => BigInt(q.outAmount), () => null);
       const seen: AggregatorSeen = out === null ? { kind: 'unreachable' } : force === 'refused' ? { kind: 'refused', out, ...(why ? { why } : {}) } : { kind: 'unchecked', out };
+      if (stepTwoOwed()) return;
       startOwn({ ...base, route: 'own', swapIn: own.swapIn, out: own.out, min: null, quote: null, poolOut: own.out, two: twoOf(own.after, own.swapIn, own.out) }, seen);
       return;
     }
@@ -416,6 +463,8 @@ function OneCoinInner({
     } catch (e) {
       jup = e instanceof NoRouteError ? 'no-route' : 'unread';
     }
+    // Step 1 may have landed in another tab while the prices were read.
+    if (stepTwoOwed()) return;
     if (typeof jup === 'object') {
       // What this pool pays for the same swap, said even when its swap cannot be sent from here.
       const at = candidate(v, read.now, inputMint, jup.swapIn);
@@ -458,6 +507,7 @@ function OneCoinInner({
   async function signJupiter(p: Plan) {
     if (!owner || !scope || !p.quote || slippageBps === null) return;
     setSaid(null);
+    if (stepTwoOwed()) return;
     setPhase({ kind: 'sending', plan: p });
     const end = await sendJupiterLeg(
       {
@@ -468,7 +518,8 @@ function OneCoinInner({
           const c = r ? candidate(r.view, r.now, p.inputMint, p.swapIn) : null;
           return ownPoolNowWins(async () => (c ? [c] : []), out);
         },
-        holdsNow: () => venueSwap.pending.holdsNow(scope),
+        // Read again right before the wallet: a swap still held, or a step 1 that landed in another tab.
+        holdsNow: () => venueSwap.pending.holdsNow(scope) || owed() !== null,
         hold: (n) => venueSwap.pending.hold({ kind: 'jupiter-swap', ...n }, scope),
         stillHeld: (n) => readPendingTrades(scope).some((x) => noteKey(x) === noteKey(n)),
         release: (sig) => venueSwap.pending.release(sig, scope),
@@ -489,6 +540,7 @@ function OneCoinInner({
       },
     );
     if (end.kind === 'not-sent') {
+      if (stepTwoOwed()) return;
       uncheckedRun.current = end.unchecked ? uncheckedRun.current + 1 : 0;
       const line: Said = { title: end.title, text: end.message, tone: 'warn' };
       if (end.refused && venueSwap.ready) {
@@ -510,7 +562,9 @@ function OneCoinInner({
       setPhase({ kind: 'form' });
       return;
     }
-    const least = p.min ?? 0n;
+    // The floor of the transaction that was sent (its fresh quote's), which can sit one
+    // slippage step under the review's. Unparseable: nothing is assumed.
+    const least = floorOf(end.quote);
     if (end.outcome === 'confirmed') return landed(p, end.signature, least);
     if (end.outcome === 'reverted') {
       setSaid({ title: 'Swap refused on chain', text: `${shortSig(end.signature)}. Only the network fee was spent. Nothing else changed.`, tone: 'bad' });
@@ -528,6 +582,8 @@ function OneCoinInner({
     const got = n.gotExact ? about(other(n.paid), n.got) : `at least ${exact(other(n.paid), n.got)} (what it paid could not be read)`;
     return (
       <AddLiquidityPanel
+        // Opened again on a figure read later (another tab's step 1): its form starts from that.
+        key={`${n.signature}:${n.got}`}
         view={phase.view}
         health={health}
         safety={safety}

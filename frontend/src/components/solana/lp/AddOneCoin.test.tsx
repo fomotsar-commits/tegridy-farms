@@ -6,12 +6,14 @@
 //   3. A step 2 owed by this wallet on this pool opens as step 2: step 1 is not offered.
 //   4. A swap this wallet sent that the chain has not answered for holds step 1, and a lost
 //      wallet answer says its own limit: 2 minutes at most (D1).
+//   5. What step 1 paid is held to the floor of the transaction sent, not the review's (m-1).
+//   6. Step 1 landed in another tab: this tab offers step 2, never step 1 again (m-2).
 //
 // Our own pool's swap code is a stub here that is not ready, so the route is Jupiter's,
 // whose quotes are a fake. Nothing here touches a chain.
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import type { PublicKey } from '@solana/web3.js';
 import { LpInner, type LpWritesOverrides } from './SolanaLpSection';
@@ -25,7 +27,8 @@ import { buildPool, key } from '../../../lib/solana/lp/testkit.fixture';
 import type { JupiterQuote } from '../../../lib/jupiter';
 import type { PendingTrade } from '../curve/pendingTrade';
 import { fakeLpApi, LP_PROGRAM, unusedGateRpc } from './fakeLpWriteApi.fixture';
-import { saveStepTwo } from './oneCoinSwap';
+import { readStepTwo, saveStepTwo, type StepTwoNote } from './oneCoinSwap';
+import { HELD_NOT_SENT } from '../../../lib/solana/swap/walletCopy';
 import { ONE_COIN_LINE } from './AddOneCoinPanel';
 
 const OWNER = key();
@@ -44,6 +47,18 @@ vi.mock('../SolanaConnectButton', () => ({ SolanaConnectButton: () => <button ty
 // Jupiter's quotes, set in beforeEach.
 const jup = vi.hoisted(() => ({ getQuote: undefined as unknown as (p: { amount: string; inputMint: string; outputMint: string }) => Promise<JupiterQuote> }));
 vi.mock('../../../lib/jupiter', async (orig) => ({ ...(await orig<typeof import('../../../lib/jupiter')>()), getQuote: (p: never) => jup.getQuote(p) }));
+
+// Step 1's Jupiter send and the read of what it paid: the real ones unless a test sets its own.
+type Leg = typeof import('./oneCoinSwap');
+const leg = vi.hoisted(() => ({ send: null as null | Leg['sendJupiterLeg'], received: null as null | Leg['receivedBy'] }));
+vi.mock('./oneCoinSwap', async (orig) => {
+  const real = await orig<Leg>();
+  return {
+    ...real,
+    sendJupiterLeg: (...a: Parameters<Leg['sendJupiterLeg']>) => (leg.send ?? real.sendJupiterLeg)(...a),
+    receivedBy: (...a: Parameters<Leg['receivedBy']>) => (leg.received ?? real.receivedBy)(...a),
+  };
+});
 
 // Our own pool's swap: not ready, with the notes the test puts in.
 const venue = vi.hoisted(() => ({ notes: [] as PendingTrade[] }));
@@ -160,6 +175,8 @@ beforeEach(() => {
   localStorage.clear();
   sessionStorage.clear();
   venue.notes.length = 0;
+  leg.send = null;
+  leg.received = null;
   wallet.publicKey = OWNER;
   wallet.signTransaction = vi.fn(async (t) => t);
   wallet.sendTransaction = vi.fn(async () => '5'.repeat(88));
@@ -224,5 +241,131 @@ describe('Add with one coin', () => {
     const panel = screen.getByTestId('lp-one-coin-panel');
     fireEvent.change(within(panel).getByLabelText('SOL to put in'), { target: { value: '1' } });
     expect(within(panel).getByRole('button', { name: 'Review: add with one coin' })).toBeDisabled();
+  });
+});
+
+// Money review 2026-10-14 (m-1, m-2). The review below swaps 0.505050505 SOL for 49,494,949
+// units, at least 48,999,999. The send takes a fresh quote: 49,000,000, at least 48,510,000.
+const SENT_SIG = '5'.repeat(88);
+const OTHER_SIG = '4'.repeat(88);
+const sentOn =
+  (out: string, floor: string): Leg['sendJupiterLeg'] =>
+  async (_d, a) => ({ kind: 'sent', signature: SENT_SIG, outcome: 'confirmed', quote: { ...a.shown, outAmount: out, otherAmountThreshold: floor }, feeWaived: false });
+const otherTab = (v: PoolView, over: Partial<StepTwoNote> = {}): StepTwoNote => ({
+  pool: v.address, paid: 'quote', kept: SOL / 2n, got: 49n * UNIT, gotExact: true, bps: 100n, signature: OTHER_SIG, at: Date.now(), ...over,
+});
+const tabWrote = () => fireEvent(window, new StorageEvent('storage', { key: `lp:one-coin:${OWNER.toBase58()}` }));
+
+async function toReview() {
+  const v = await openOneCoin();
+  const panel = await screen.findByTestId('lp-one-coin-panel');
+  await within(panel).findByText(/after both steps/);
+  fireEvent.change(within(panel).getByLabelText('SOL to put in'), { target: { value: '1' } });
+  fireEvent.click(within(panel).getByRole('button', { name: 'Review: add with one coin' }));
+  const review = await within(panel).findByTestId('lp-one-review');
+  return { v, sign: () => fireEvent.click(within(review).getByRole('button', { name: 'Sign in wallet' })) };
+}
+
+describe('Add with one coin: what step 1 paid', () => {
+  it('paid under the review’s floor but over the sent transaction’s: the figure read is kept, never "could not be read"', async () => {
+    const { v, sign } = await toReview();
+    leg.send = vi.fn(sentOn('49000000', '48510000'));
+    leg.received = vi.fn(async () => 48_700_000n);
+    sign();
+    const step2 = await screen.findByTestId('lp-one-step2');
+    expect(readStepTwo(OWNER.toBase58(), v.address)).toMatchObject({ got: 48_700_000n, gotExact: true });
+    expect(step2).not.toHaveTextContent('could not be read');
+  });
+
+  it('when what it paid cannot be read, step 2 starts from the sent transaction’s floor, not the review’s', async () => {
+    const { v, sign } = await toReview();
+    leg.send = vi.fn(sentOn('49000000', '48510000'));
+    leg.received = vi.fn(async () => null);
+    sign();
+    expect(await screen.findByTestId('lp-one-step2')).toHaveTextContent('at least');
+    expect(readStepTwo(OWNER.toBase58(), v.address)).toMatchObject({ got: 48_510_000n, gotExact: false });
+  });
+
+  it('is written down before what it paid is read, so no tab offers step 1 meanwhile', async () => {
+    const { v, sign } = await toReview();
+    let answer: (x: bigint | null) => void = () => {};
+    leg.send = vi.fn(sentOn('49000000', '48510000'));
+    leg.received = vi.fn(() => new Promise<bigint | null>((r) => (answer = r)));
+    sign();
+    await waitFor(() => expect(leg.received).toHaveBeenCalled());
+    expect(readStepTwo(OWNER.toBase58(), v.address)).toMatchObject({ signature: SENT_SIG, got: 48_510_000n, gotExact: false });
+    await act(async () => answer(48_700_000n));
+    await screen.findByTestId('lp-one-step2');
+    expect(readStepTwo(OWNER.toBase58(), v.address)).toMatchObject({ got: 48_700_000n, gotExact: true });
+  });
+});
+
+describe('Add with one coin: step 1 landed in another tab', () => {
+  it('turns this tab’s open form into step 2', async () => {
+    const v = await openOneCoin();
+    const panel = await screen.findByTestId('lp-one-coin-panel');
+    expect(within(panel).getByRole('button', { name: 'Review: add with one coin' })).toBeInTheDocument();
+    saveStepTwo(OWNER.toBase58(), otherTab(v));
+    tabWrote();
+    expect(await screen.findByTestId('lp-one-step2')).toHaveTextContent('444444…4444');
+    expect(screen.queryByRole('button', { name: 'Review: add with one coin' })).toBeNull();
+  });
+
+  it('Review reads it first: step 2 opens and Jupiter is not asked', async () => {
+    const v = await openOneCoin();
+    const panel = await screen.findByTestId('lp-one-coin-panel');
+    await within(panel).findByText(/after both steps/);
+    fireEvent.change(within(panel).getByLabelText('SOL to put in'), { target: { value: '1' } });
+    saveStepTwo(OWNER.toBase58(), otherTab(v));
+    fireEvent.click(within(panel).getByRole('button', { name: 'Review: add with one coin' }));
+    await screen.findByTestId('lp-one-step2');
+    expect(jup.getQuote).not.toHaveBeenCalled();
+  });
+
+  it('one that lands while Review reads the prices opens step 2, not a review', async () => {
+    const v = await openOneCoin();
+    const panel = await screen.findByTestId('lp-one-coin-panel');
+    await within(panel).findByText(/after both steps/);
+    fireEvent.change(within(panel).getByLabelText('SOL to put in'), { target: { value: '1' } });
+    const price = jup.getQuote;
+    jup.getQuote = vi.fn(async (p) => {
+      saveStepTwo(OWNER.toBase58(), otherTab(v));
+      return price(p);
+    });
+    fireEvent.click(within(panel).getByRole('button', { name: 'Review: add with one coin' }));
+    expect(await screen.findByTestId('lp-one-step2')).toHaveTextContent('444444…4444');
+    expect(screen.queryByTestId('lp-one-review')).toBeNull();
+  });
+
+  it('Sign reads it again: step 2 opens and nothing is sent', async () => {
+    const { v, sign } = await toReview();
+    leg.send = vi.fn(sentOn('49000000', '48510000'));
+    saveStepTwo(OWNER.toBase58(), otherTab(v));
+    sign();
+    expect(await screen.findByTestId('lp-one-step2')).toHaveTextContent('444444…4444');
+    expect(leg.send).not.toHaveBeenCalled();
+  });
+
+  it('one that lands while the press is on its way stops it right before the wallet', async () => {
+    const { v, sign } = await toReview();
+    leg.send = vi.fn<Leg['sendJupiterLeg']>(async (d, a) => {
+      saveStepTwo(OWNER.toBase58(), otherTab(v));
+      if (d.holdsNow()) return { kind: 'not-sent', title: 'Not sent', message: HELD_NOT_SENT };
+      return { kind: 'sent', signature: SENT_SIG, outcome: 'confirmed', quote: a.shown, feeWaived: false };
+    });
+    sign();
+    expect(await screen.findByTestId('lp-one-step2')).toHaveTextContent('444444…4444');
+    expect(readStepTwo(OWNER.toBase58(), v.address)?.signature).toBe(OTHER_SIG);
+  });
+
+  it('a tab that opened step 2 on the floor takes the figure once the other tab has read it', async () => {
+    const v = await openOneCoin();
+    await screen.findByTestId('lp-one-coin-panel');
+    saveStepTwo(OWNER.toBase58(), otherTab(v, { got: 48_510_000n, gotExact: false }));
+    tabWrote();
+    expect(await screen.findByTestId('lp-one-step2')).toHaveTextContent('could not be read');
+    saveStepTwo(OWNER.toBase58(), otherTab(v, { got: 48_700_000n, gotExact: true }));
+    tabWrote();
+    await waitFor(() => expect(screen.getByTestId('lp-one-step2')).not.toHaveTextContent('could not be read'));
   });
 });
