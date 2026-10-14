@@ -24,6 +24,8 @@ import {
 } from './ix';
 import { MAX_EARLY_EXIT_PENALTY_BPS } from './program';
 import { pollConfirm } from '../solana/confirm';
+import { readSendThrow } from '../solana/walletThrow';
+import { lostAnswerCopy } from '../solana/swap/walletCopy';
 
 /**
  * Sent and confirmed, or an honest reason. Never a bare boolean.
@@ -138,11 +140,11 @@ function isPreBroadcast(message: string): boolean {
 export function classifyWriteError(err: unknown, signature?: string): WriteResult {
   const msg = err instanceof Error ? err.message : String(err ?? '');
 
-  // A declined signature never reached the network. This is the one branch that
-  // may say "nothing moved" without qualification.
-  if (/reject|declin|denied|cancell?ed by user/i.test(msg)) {
-    return { ok: false, reason: 'You declined the signature. Nothing moved.' };
-  }
+  // With no signature yet, the wallet's throw is read as every Solana write reads it
+  // (lib/solana/walletThrow.ts): a cancel by code 4001 or by words, or a wallet that
+  // never signed, with its reason. Anything else may have been sent: read on.
+  const t = signature ? null : readSendThrow(err);
+  if (t && t.kind !== 'unsure') return { ok: false, reason: t.message };
 
   const code = anchorCode(msg);
   const known = code !== null ? LADDER_ERRORS[code] : undefined;
@@ -181,6 +183,10 @@ export function classifyWriteError(err: unknown, signature?: string): WriteResul
       reason: `The network refused this transaction before sending it. Nothing moved.${msg ? ` (${msg.slice(0, 160)})` : ''}`,
     };
   }
+
+  // The wallet's sign-and-send threw after it may have signed: the words every Solana
+  // write uses for that, never "did not go through".
+  if (t?.kind === 'unsure' && t.byWallet) return { ok: false, reason: lostAnswerCopy(t.reason, 'it was sent') };
 
   // ⚠️ EVERYTHING ELSE IS UNKNOWN, and is reported as unknown.
   //

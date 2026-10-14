@@ -18,6 +18,20 @@ page keeps the newest thirty days.
 - Swap (Ethereum and Solana): one Ethereum / Solana switch above the swap card. The second, fixed one that covered the top of the form and the review when you scrolled is gone.
 - Solana DCA: a recurring order with a Token-2022 token such as BAYLA, on either side, is refused with one sentence before anything is signed: Jupiter's recurring orders cannot run it. Cancel still works for orders already running.
 - Solana DCA: the hint now says Jupiter's real minimum, $50 per buy, and when the page has read the price it says what each buy is worth and holds Start below $50.
+- Solana swap: a swap you sent and that is not confirmed yet now holds Buy for that wallet, by either route, in every tab of the site and after a reload, with its signature and a link. Buy comes back when the network says it landed, failed or can no longer land, after 10 minutes, or when you turn it back on. Another wallet is not held.
+- Solana swap: a wallet whose answer did not come back now reads "Sent or not, we cannot tell" with what was pressed, and the amount is cleared. A price or transaction that could not be fetched at the press reads "Not sent" with the reason, and the form stays as it was. Neither says "Swap failed" any more.
+- Solana swap, DCA, limit orders, the BAYLA lock ladder and lighthouse staking: a cancel in the wallet reads the same everywhere, including Trust's cancel that carries only code 4001, and a wallet that was never asked says why.
+- Solana swap: a swap sent from the same wallet in another tab now also stops a press already under way here. An open review of a swap in our pool closes and shows the hold card, and a press through Jupiter is stopped just before the wallet. Either way the page says "Not sent" and your wallet is not asked.
+- Solana swap with site data blocked: switching to another wallet and back no longer turns Buy back on while the first wallet's swap may still land.
+- Solana swap: a wallet that cannot take Jupiter's kind of transaction, or a page with no wallet chosen, now reads "Not sent" with the reason, not "Sent or not, we cannot tell".
+- Lighthouse staking: if the wallet signed and the send then stopped, the page now says it cannot tell whether the stake, unstake or claim was sent, and asks you to check your wallet first. It no longer says "Nothing moved".
+- Solana swap: when your wallet's answer is lost before a signature comes back, Buy is now held for that wallet too, until the swap can no longer land (2 minutes at most) or you turn it back on. The card says no signature is known.
+- Solana swap through Jupiter: the hold of a sent swap now ends as soon as the swap's own blockhash can no longer land, read from the network, instead of waiting out a block-height estimate. The 10-minute limit stays.
+- Solana swap through Jupiter: when the test run cannot run twice in a row, the page says "This check keeps failing on our side. Nothing was sent." and, when one of our pools quotes the trade, offers its review.
+- Solana swap: the "Swap submitted" note no longer has a dash in it.
+- Solana DCA: at most one warning line shows at a time. A Token-2022 token comes first, then "Insufficient", then the under-$50 line.
+- Solana swap in our own pool: after a swap that is not confirmed, "I checked my wallet: start over" now turns Buy back on in one press. It still says this does not cancel the swap.
+- Lighthouse staking: the rescue that closes a position and gives up its unclaimed rewards now runs past a failed claim only when the network's own log names the reward program's error 6000. A message that only contains the number no longer counts.
 
 ### 2026-10-10
 

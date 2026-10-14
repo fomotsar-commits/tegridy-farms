@@ -593,6 +593,57 @@ describe('recheckOutcome', () => {
     chain.getSignatureStatuses = async () => ({ context: { slot: FakeChain.FINALIZED_SLOT }, value: [null] });
     expect((await recheckOutcome(W(chain), 'sig', { lastValidBlockHeight: 1_000 })).status).toBe('expired');
   });
+
+  // A Jupiter swap's note carries its own blockhash, seen valid at a confirmed slot (2026-10-14).
+  describe('with the transaction’s blockhash', () => {
+    const BH = { hash: 'GHtXQBsoZHVnNFa9YevAzFr17DJjgHXk3ycTKD5xD3Zi', validAt: 500 };
+    const withBlockhash = (answer: { context: { slot: number }; value: boolean } | Error) => {
+      const chain = new FakeChain() as FakeChain & { isBlockhashValid?: unknown };
+      const asked: unknown[] = [];
+      chain.isBlockhashValid = async (...a: unknown[]) => {
+        asked.push(a);
+        if (answer instanceof Error) throw answer;
+        return answer;
+      };
+      chain.getSignatureStatuses = async () => ({ context: { slot: 900 }, value: [null] });
+      return { chain, asked };
+    };
+
+    it('gone at a confirmed slot past the one it was valid at, and no record twice: expired, with no height at all', async () => {
+      const { chain, asked } = withBlockhash({ context: { slot: 800 }, value: false });
+      chain.getBlockHeight = async () => { throw new Error('height must not be needed'); };
+      expect((await recheckOutcome(W(chain), 'sig', { blockhash: BH })).status).toBe('expired');
+      // Asked of a server at or past the slot it was seen valid at.
+      expect(asked[0]).toEqual([BH.hash, { commitment: 'confirmed', minContextSlot: BH.validAt }]);
+    });
+
+    it('still valid: it can land, even where the height bound would have called it expired', async () => {
+      const { chain } = withBlockhash({ context: { slot: 800 }, value: true });
+      chain.getBlockHeight = async () => 2_000;
+      const o = await recheckOutcome(W(chain), 'sig', { blockhash: BH, lastValidBlockHeight: 1_000 });
+      expect(o.status).toBe('unknown');
+      neverFailed(o);
+    });
+
+    it('"not valid" from a server behind the slot it was seen valid at proves nothing', async () => {
+      const { chain } = withBlockhash({ context: { slot: 499 }, value: false });
+      const o = await recheckOutcome(W(chain), 'sig', { blockhash: BH });
+      expect(o.status).toBe('unknown');
+    });
+
+    it('gone, but a history read comes from a server behind that slot: not expired', async () => {
+      const { chain } = withBlockhash({ context: { slot: 800 }, value: false });
+      chain.getSignatureStatuses = async () => ({ context: { slot: 799 }, value: [null] });
+      expect((await recheckOutcome(W(chain), 'sig', { blockhash: BH })).status).toBe('unknown');
+    });
+
+    it('unread: the height bound still answers', async () => {
+      const { chain } = withBlockhash(new Error('503'));
+      chain.getBlockHeight = async () => 2_000;
+      chain.getSignatureStatuses = async () => ({ context: { slot: FakeChain.FINALIZED_SLOT }, value: [null] });
+      expect((await recheckOutcome(W(chain), 'sig', { blockhash: BH, lastValidBlockHeight: 1_000 })).status).toBe('expired');
+    });
+  });
 });
 
 

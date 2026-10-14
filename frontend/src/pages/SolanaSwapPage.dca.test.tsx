@@ -34,6 +34,8 @@ const { toast, connection, wallet, jup, prices } = vi.hoisted(() => ({
     createRecurringOrder: vi.fn(),
     getRecurringOrders: vi.fn(),
     cancelRecurringOrder: vi.fn(),
+    createTriggerOrder: vi.fn(),
+    getTriggerOrders: vi.fn(),
   },
   prices: { value: {} as Record<string, number> },
 }));
@@ -73,7 +75,10 @@ vi.mock('../lib/jupiter', async (importOriginal) => ({
   getShield: async () => ({}),
 }));
 
+import { WalletNotConnectedError, WalletSendTransactionError } from '@solana/wallet-adapter-base';
 import SolanaSwapPage from './SolanaSwapPage';
+import { DECLINED_IN_WALLET, LOST_ANSWER_TITLE, lostAnswerCopy } from '../lib/solana/swap/walletCopy';
+import { notSignedCopy } from '../lib/solana/walletThrow';
 
 vi.setConfig({ testTimeout: 30_000 });
 
@@ -95,6 +100,8 @@ beforeEach(() => {
   jup.createRecurringOrder.mockReset().mockResolvedValue('AAAA');
   jup.getRecurringOrders.mockReset().mockResolvedValue([]);
   jup.cancelRecurringOrder.mockReset().mockResolvedValue('AAAA');
+  jup.createTriggerOrder.mockReset().mockResolvedValue('AAAA');
+  jup.getTriggerOrders.mockReset().mockResolvedValue([]);
 });
 afterEach(() => {
   cleanup();
@@ -173,6 +180,55 @@ describe('DCA: a Token-2022 token on either side is refused before anything is s
   });
 });
 
+// One wallet behaviour, one wording (owner, 2026-10-13): the DCA and limit tabs send
+// through the wallet's sendTransaction, and read its throw as every Solana write does.
+describe('DCA and limit orders: the wallet’s throw is said for what it is', () => {
+  const trustDecline = () => new WalletSendTransactionError('4001', Object.assign(new Error('4001'), { code: 4001 }));
+  const lost = () => new WalletSendTransactionError('failed to send transaction: fetch failed', new TypeError('fetch failed'));
+
+  it('Trust’s code-only decline on Start is a cancel, not "Could not start the DCA"', async () => {
+    wallet.sendTransaction.mockRejectedValue(trustDecline());
+    await openDca(`?out=${USDC_MINT}`);
+    fireEvent.change(total('SOL'), { target: { value: '5' } });
+    fireEvent.click(await screen.findByRole('button', { name: 'Start the DCA' }));
+    await waitFor(() => expect(toast.info).toHaveBeenCalledWith('Not sent', { description: DECLINED_IN_WALLET }));
+    expect(toast.error).not.toHaveBeenCalled();
+    expect((total('SOL') as HTMLInputElement).value).toBe('5');
+  });
+
+  it('an answer that did not come back may have started it: "we cannot tell", and the form is cleared', async () => {
+    wallet.sendTransaction.mockRejectedValue(lost());
+    await openDca(`?out=${USDC_MINT}`);
+    fireEvent.change(total('SOL'), { target: { value: '5' } });
+    fireEvent.click(await screen.findByRole('button', { name: 'Start the DCA' }));
+    await waitFor(() => expect(toast.warning).toHaveBeenCalledWith(LOST_ANSWER_TITLE, { description: lostAnswerCopy('failed to send transaction: fetch failed', 'the DCA was started') }));
+    expect(toast.error).not.toHaveBeenCalled();
+    expect((total('SOL') as HTMLInputElement).value).toBe('');
+  });
+
+  it('a page no longer connected to the wallet: its reason, and nothing was sent', async () => {
+    wallet.sendTransaction.mockRejectedValue(new WalletNotConnectedError());
+    jup.getRecurringOrders.mockResolvedValue([{ orderKey: ORDER, inputMint: SOL_MINT, outputMint: USDC_MINT }]);
+    await openDca(`?out=${USDC_MINT}`);
+    fireEvent.click(await screen.findByRole('button', { name: 'Cancel' }));
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith('Not sent', { description: notSignedCopy('this page is no longer connected to it, so it was never asked') }));
+    expect(toast.error).not.toHaveBeenCalledWith('Could not cancel', expect.anything());
+  });
+
+  it('a limit order whose answer did not come back: "we cannot tell", and the form is cleared', async () => {
+    wallet.sendTransaction.mockRejectedValue(lost());
+    window.history.replaceState(null, '', `/solana?out=${USDC_MINT}`);
+    render(<SolanaSwapPage />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Limit order' }));
+    fireEvent.change(screen.getByLabelText('Amount of SOL to sell'), { target: { value: '1' } });
+    fireEvent.change(screen.getByLabelText('Target price in USDC'), { target: { value: '200' } });
+    fireEvent.click(await screen.findByRole('button', { name: 'Place limit order' }));
+    await waitFor(() => expect(toast.warning).toHaveBeenCalledWith(LOST_ANSWER_TITLE, { description: lostAnswerCopy('failed to send transaction: fetch failed', 'the order was placed') }));
+    expect(toast.error).not.toHaveBeenCalled();
+    expect((screen.getByLabelText('Amount of SOL to sell') as HTMLInputElement).value).toBe('');
+  });
+});
+
 describe('DCA: Jupiter asks for at least $50 per buy', () => {
   it('the hint names the per-buy minimum, not a total', async () => {
     await openDca(`?out=${USDC_MINT}`);
@@ -198,5 +254,28 @@ describe('DCA: Jupiter asks for at least $50 per buy', () => {
     fireEvent.change(total('SOL'), { target: { value: '1' } });
     await waitFor(() => expect(screen.getByRole('button', { name: 'Start the DCA' })).toBeEnabled());
     expect(screen.queryByText(/Each buy is about/)).toBeNull();
+  });
+});
+
+describe('DCA: at most one amber line at a time', () => {
+  /** Every amber line the tab draws (its warnings), by its words. */
+  const amberLines = () => [...document.querySelectorAll('p.text-amber-300')].map((p) => p.textContent);
+
+  it('a Token-2022 token outranks "Insufficient" and the under-$50 line', async () => {
+    // 2 SOL held, 3 SOL typed: short. At $10 a SOL, 4 buys of 0.75 SOL are $7.50 each: under $50.
+    prices.value = { [SOL_MINT]: 10 };
+    connection.getBalance.mockResolvedValue(2_000_000_000);
+    await openDca(`?out=${BAYLA_MINT}`);
+    fireEvent.change(total('SOL'), { target: { value: '3' } });
+    expect(await screen.findByText(REFUSED)).toBeInTheDocument();
+    await waitFor(() => expect(amberLines()).toEqual([REFUSED]));
+  });
+
+  it('with a plain pair, "Insufficient" outranks the under-$50 line', async () => {
+    prices.value = { [SOL_MINT]: 10 };
+    connection.getBalance.mockResolvedValue(2_000_000_000);
+    await openDca(`?out=${USDC_MINT}`);
+    fireEvent.change(total('SOL'), { target: { value: '3' } });
+    await waitFor(() => expect(amberLines()).toEqual(['Insufficient SOL balance.']));
   });
 });

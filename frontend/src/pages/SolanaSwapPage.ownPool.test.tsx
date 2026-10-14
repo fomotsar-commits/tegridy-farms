@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent, waitFor, cleanup, configure, within } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, cleanup, configure, within, act } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { PublicKey } from '@solana/web3.js';
 import type { ReactNode } from 'react';
@@ -183,8 +183,10 @@ import SolanaSwapPage from './SolanaSwapPage';
 import { getActivity } from '../lib/solanaActivity';
 import { OWN_ROUTE_COPY } from '../lib/solana/swap/ownPoolRoute';
 import { NOT_TEST_RUN_COPY, REFUSED_COPY } from '../lib/solana/swap/jupiterFeeRetry';
-import { SWAP_PENDING_SCOPE, readPendingTrades, savePendingTrade } from '../components/solana/curve/pendingTrade';
-import { DECLINED_IN_WALLET } from '../lib/solana/swap/walletCopy';
+import { readPendingTrades, savePendingTrade, swapPendingScope } from '../components/solana/curve/pendingTrade';
+import { CHECK_KEEPS_FAILING, DECLINED_IN_WALLET, HELD_NOT_SENT, HOLD_DISMISS_MEANS, OWN_POOL_REVIEW_OFFER } from '../lib/solana/swap/walletCopy';
+/** Where the connected wallet's notes of sent swaps live (every tab of the site reads them). */
+const MY_NOTES = swapPendingScope(USER.toBase58());
 
 // The first test here pays for the page's first render (see SolanaSwapPage.feeRetry.test.tsx).
 // In a whole run on a busy machine the page took over 3 s to offer Buy: every wait is
@@ -637,6 +639,31 @@ describe('our own pool pays one raw unit less: the trade is Jupiter’s', () => 
   });
 });
 
+// Jupiter's test run runs through our own RPC: when it cannot run press after press, the
+// fault is likely ours, and one of our pools that quotes the trade is offered (D2).
+describe('Jupiter’s test run cannot run twice in a row, and our pool quotes the trade', () => {
+  it('the second press offers our pool’s review; the review says why, and only "Sign in wallet" asks the wallet', async () => {
+    h.ownOut.value = 990_000n;
+    h.simulateSwap.mockRejectedValue(new Error('simulateTransaction: HTTP 429'));
+    const buy = await readyToBuy();
+    fireEvent.click(buy);
+    await waitFor(() => expect(h.toast.error).toHaveBeenLastCalledWith('Swap not checked', { description: NOT_TEST_RUN_COPY }));
+    expect(screen.queryByTestId('solana-own-offer')).toBeNull();
+    await waitFor(() => expect(buy).toBeEnabled());
+    fireEvent.click(buy);
+    await waitFor(() => expect(h.toast.error).toHaveBeenLastCalledWith('Swap not checked', { description: CHECK_KEEPS_FAILING }));
+    const offer = await screen.findByTestId('solana-own-offer');
+    expect(offer.textContent).toBe(OWN_POOL_REVIEW_OFFER);
+    expect(h.prepareVenueSwap).not.toHaveBeenCalled();
+    fireEvent.click(offer);
+    expect(await screen.findByText('Review your swap')).toBeInTheDocument();
+    expect((h.prepareVenueSwap.mock.calls[0]![2] as VenueSwapArgs).aggregator).toEqual({ kind: 'unchecked', out: 1_000_000n });
+    expect(await screen.findByText(/Jupiter quoted 1\.01% more, but its transaction for this trade could not be test-run on our side, so it was not sent/)).toBeInTheDocument();
+    expect(h.sendTransaction).not.toHaveBeenCalled();
+    expect(h.submitPrepared).not.toHaveBeenCalled();
+  });
+});
+
 describe('the route is held again when Buy is pressed', () => {
   it('our pool was shown, and Jupiter now pays more: nothing is built, one line says why, and the form shows the new route', async () => {
     const buy = await readyToBuy();
@@ -737,6 +764,9 @@ describe('a swap in our pool that was sent and not confirmed', () => {
     expect(await screen.findByText('Sent, not confirmed yet. Do not retry until you check.', {}, { timeout: 20_000 })).toBeInTheDocument();
     expect(h.toast.success).not.toHaveBeenCalled();
     expect(getActivity(USER.toBase58())[0]).toMatchObject({ sig: SIG, summary: 'Sent, not confirmed: ≈1.01 BAYLA with 0.1 SOL, in our own pool' });
+    // The note is the signing wallet's, where every tab of the site reads it.
+    expect(readPendingTrades(MY_NOTES)).toEqual([expect.objectContaining({ kind: 'venue-swap', signature: SIG })]);
+    expect(localStorage.getItem(MY_NOTES)).not.toBeNull();
 
     // A reload: the note is found, said, and Buy is held until it is checked.
     cleanup();
@@ -748,6 +778,76 @@ describe('a swap in our pool that was sent and not confirmed', () => {
     const again = await screen.findByRole('button', { name: 'Buy BAYLA' }, { timeout: 20_000 });
     await waitFor(() => expect(receive()).toBe('1.01'));
     expect(again).toBeDisabled();
+  });
+
+  it('"I checked my wallet: start over" also turns Buy back on, in one press, and says it does not cancel the swap', async () => {
+    h.submitPrepared.mockImplementation(async (_rpc: unknown, _signer: unknown, p: PreparedTx, deps?: SubmitDeps) => {
+      deps?.onSent?.(SIG, p.lastValidBlockHeight);
+      return { status: 'unknown', signature: SIG, message: 'The network has no record of it yet. It may still be landing.' };
+    });
+    fireEvent.click(await readyToBuy());
+    await signOnReview();
+    const startOver = await screen.findByRole('button', { name: 'I checked my wallet: start over' }, { timeout: 20_000 });
+    expect(screen.getByText(HOLD_DISMISS_MEANS)).toBeInTheDocument();
+    fireEvent.click(startOver);
+    await waitFor(() => expect(screen.queryByTestId('tx-outcome')).toBeNull());
+    // No hold card in its place: that would be a second press.
+    expect(screen.queryByTestId('venue-swap-pending')).toBeNull();
+    expect(readPendingTrades(MY_NOTES)).toEqual([]);
+    fireEvent.change(amountBox(), { target: { value: '0.1' } });
+    const buy = await screen.findByRole('button', { name: 'Buy BAYLA' }, { timeout: 20_000 });
+    await waitFor(() => expect(buy).toBeEnabled());
+  });
+});
+
+describe('a swap this wallet sends in another tab while a press here is under way', () => {
+  const OTHER_TAB_SIG = '4'.repeat(88);
+  /** Another tab sends from the same wallet: its note, and the event that tells this tab (unless it has not arrived yet). */
+  const otherTabSends = (o: { heard?: boolean } = {}) => {
+    savePendingTrade(MY_NOTES, { kind: 'jupiter-swap', signature: OTHER_TAB_SIG, lastValidBlockHeight: 99 });
+    if (o.heard !== false) act(() => { window.dispatchEvent(new StorageEvent('storage', { key: MY_NOTES })); });
+  };
+
+  it('a review of a swap in our pool, open here, closes: the hold card shows, and its Sign is gone', async () => {
+    const buy = await readyToBuy();
+    fireEvent.click(buy);
+    expect(await screen.findByText('Review your swap', {}, { timeout: 20_000 })).toBeInTheDocument();
+    otherTabSends();
+    expect(await screen.findByTestId('venue-swap-pending')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Sign in wallet' })).toBeNull();
+    expect(h.toast.info).toHaveBeenCalledWith('Not sent', { description: HELD_NOT_SENT });
+    expect(screen.getByRole('button', { name: 'Buy BAYLA' })).toBeDisabled();
+    expect(h.submitPrepared).not.toHaveBeenCalled();
+  });
+
+  it('a Sign pressed before this tab has heard of the other swap stops before the wallet', async () => {
+    const buy = await readyToBuy();
+    fireEvent.click(buy);
+    expect(await screen.findByText('Review your swap', {}, { timeout: 20_000 })).toBeInTheDocument();
+    otherTabSends({ heard: false });
+    fireEvent.click(screen.getByRole('button', { name: 'Sign in wallet' }));
+    await waitFor(() => expect(h.toast.info).toHaveBeenCalledWith('Not sent', { description: HELD_NOT_SENT }));
+    expect(h.submitPrepared).not.toHaveBeenCalled();
+    // Back on the form as typed, held by the other swap's card.
+    await waitFor(backOnTheForm);
+    expect(await screen.findByTestId('venue-swap-pending')).toBeInTheDocument();
+    expect(amountBox().value).toBe('0.1');
+  });
+
+  it('a press through Jupiter, between Buy and the wallet when the other swap is sent, never reaches the wallet', async () => {
+    h.ownOut.value = 990_000n;
+    const buy = await readyToBuy();
+    await waitFor(() => expect(routeLine()).toMatch(/Jupiter pays/));
+    let release: (v: string) => void = () => {};
+    h.buildSwapTransaction.mockImplementation(() => new Promise<string>((res) => { release = res; }));
+    fireEvent.click(buy);
+    await waitFor(() => expect(h.buildSwapTransaction).toHaveBeenCalledTimes(1));
+    otherTabSends();
+    expect(await screen.findByTestId('venue-swap-pending')).toBeInTheDocument();
+    await act(async () => { release(JUPITER_TX); });
+    await waitFor(() => expect(h.toast.info).toHaveBeenCalledWith('Not sent', { description: HELD_NOT_SENT }));
+    expect(h.sendTransaction).not.toHaveBeenCalled();
+    expect(amountBox().value).toBe('0.1');
   });
 });
 
@@ -891,7 +991,7 @@ describe('a venue read that failed, or has not answered yet, is not the page’s
 
 describe('a note found on arrival, with the swap code not loaded', () => {
   it('“Check again” answers: the status line says what became of the check, and the note stays', async () => {
-    savePendingTrade(SWAP_PENDING_SCOPE, { kind: 'venue-swap', signature: SIG, lastValidBlockHeight: 1_000 }, Date.now() - 5_000);
+    savePendingTrade(MY_NOTES, { kind: 'venue-swap', signature: SIG, lastValidBlockHeight: 1_000 }, Date.now() - 5_000);
     h.loadFails.value = true;
     render(<MemoryRouter><SolanaSwapPage /></MemoryRouter>);
     const card = await screen.findByTestId('venue-swap-pending');
@@ -2111,11 +2211,11 @@ describe('a note of a swap in our pool, sent and not confirmed, found on arrival
   it('on a pair with no pool of ours, it is checked at once; when the chain says it landed the note goes and Buy is live', async () => {
     h.recheckOutcome.mockImplementation(landed);
     h.quoteVenuePools.mockImplementation(() => ({ state: 'absent', candidates: [] }));
-    savePendingTrade(SWAP_PENDING_SCOPE, { kind: 'venue-swap', signature: SIG, lastValidBlockHeight: 1_000 });
+    savePendingTrade(MY_NOTES, { kind: 'venue-swap', signature: SIG, lastValidBlockHeight: 1_000 });
     render(<MemoryRouter><SolanaSwapPage /></MemoryRouter>);
     await waitFor(() => expect(h.recheckOutcome).toHaveBeenCalledWith(expect.anything(), SIG, { lastValidBlockHeight: 1_000 }));
     await waitFor(() => expect(screen.queryByTestId('venue-swap-pending')).toBeNull());
-    expect(readPendingTrades(SWAP_PENDING_SCOPE)).toEqual([]);
+    expect(readPendingTrades(MY_NOTES)).toEqual([]);
     fireEvent.change(amountBox(), { target: { value: '0.1' } });
     const buy = await screen.findByRole('button', { name: 'Buy BAYLA' }, { timeout: 20_000 });
     await waitFor(() => expect(h.quoteVenuePools).toHaveBeenCalled());
@@ -2125,11 +2225,11 @@ describe('a note of a swap in our pool, sent and not confirmed, found on arrival
   it('with swaps in our pools switched off, the note is still checked on arrival', async () => {
     h.on.value = false;
     h.recheckOutcome.mockImplementation(landed);
-    savePendingTrade(SWAP_PENDING_SCOPE, { kind: 'venue-swap', signature: SIG, lastValidBlockHeight: 1_000 });
+    savePendingTrade(MY_NOTES, { kind: 'venue-swap', signature: SIG, lastValidBlockHeight: 1_000 });
     render(<MemoryRouter><SolanaSwapPage /></MemoryRouter>);
     await waitFor(() => expect(h.recheckOutcome).toHaveBeenCalledWith(expect.anything(), SIG, { lastValidBlockHeight: 1_000 }));
     await waitFor(() => expect(screen.queryByTestId('venue-swap-pending')).toBeNull());
-    expect(readPendingTrades(SWAP_PENDING_SCOPE)).toEqual([]);
+    expect(readPendingTrades(MY_NOTES)).toEqual([]);
   });
 });
 
