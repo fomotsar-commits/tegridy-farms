@@ -622,14 +622,15 @@ body,
 /* ─── Accessibility: fixed chrome never covers what the browser scrolls to ───
  * The 56px top bar and, below 800px, the 65px BottomNav lie over the scrollport, so it
  * reserves their room for every focus, anchor and scrollIntoView (WCAG 2.4.11), plus the
- * safe-area inset each bar grows by. While RouteTabs is mounted it reserves the strip
- * too: it ends at 122px, and Safari lands a focused text field up to 15px above its line
- * of text. The TOWELI room band adds nothing: the strip is then inside room already left. */
+ * safe-area inset each bar grows by. Safari lands a focused text field up to 15px above
+ * its line, so the line is 18px past the bar's 56px (at 64px a field on /airdrop sat
+ * 2px under the bar). Safari ignores a field's scroll margin, so while a field has focus
+ * the line drops 28px more and the label above it (13px text, 8px gap) clears the bar. */
 html {
-  scroll-padding-top: calc(64px + env(safe-area-inset-top, 0px));
+  scroll-padding-top: calc(74px + env(safe-area-inset-top, 0px));
 }
-html.has-route-tabs {
-  scroll-padding-top: calc(140px + env(safe-area-inset-top, 0px));
+html:has(:is(input, select, textarea):focus) {
+  scroll-padding-top: calc(102px + env(safe-area-inset-top, 0px));
 }
 /* Tracks the BottomNav's own breakpoint (min-[800px]:hidden) — see index.css's
    safe-area-content-bottom note and TopNav.tsx. */

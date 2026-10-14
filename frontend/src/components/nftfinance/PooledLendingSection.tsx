@@ -71,14 +71,15 @@ function PoolCard({ state, slot }: { state: PooledVaultState; slot: number }) {
     <div className="relative isolate rounded-xl p-4" style={{ background: CARD_BG, border: `1px solid ${CARD_BORDER}` }}>
       <CardArt pageId="nft-finance" idx={POOL_ART_BASE + (slot % POOL_ART_SLOTS)} />
       <div className="flex items-start justify-between gap-3 mb-3">
-        <div>
+        {/* The address wraps and the badge keeps its one line: at 360px they ran 6px past the screen. */}
+        <div className="min-w-0">
           <h3 className="text-[14px] font-semibold text-white" style={LABEL_STYLE}>
             {pool.label}
           </h3>
-          <p className="text-[11px] text-white/50 font-mono">{pool.collection}</p>
+          <p className="text-[11px] text-white/50 font-mono break-all">{pool.collection}</p>
         </div>
         <span
-          className={`rounded-full text-[9px] font-semibold leading-none px-2 py-1 uppercase tracking-wide border ${
+          className={`shrink-0 whitespace-nowrap rounded-full text-[9px] font-semibold leading-none px-2 py-1 uppercase tracking-wide border ${
             status === 'live'
               ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
               : status === 'unreadable'

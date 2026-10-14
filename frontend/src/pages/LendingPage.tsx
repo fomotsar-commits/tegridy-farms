@@ -264,82 +264,14 @@ export default function LendingPage() {
           </p>
         </m.div>
 
-        {/* Intro Overview Cards — dismissible */}
-        <AnimatePresence>
-          {!introDismissed && (
-            <m.div
-              className="mb-6"
-              initial={{ opacity: 0, height: 0 }}
-              animate={{ opacity: 1, height: 'auto' }}
-              exit={{ opacity: 0, height: 0 }}
-              transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
-            >
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-2">
-                {introCards().map((card, i) => (
-                  <m.button
-                    key={card.key}
-                    onClick={() => handleSectionChange(card.key)}
-                    aria-label={`Open ${card.title}`}
-                    className={`relative text-left rounded-xl transition-all duration-300 group overflow-hidden ${
-                      section === card.key ? 'ring-1 ring-emerald-500/40' : ''
-                    }`}
-                    style={{
-                      border: `1px solid ${section === card.key ? 'rgba(16, 185, 129, 0.2)' : 'var(--color-purple-12)'}`,
-                    }}
-                    initial={{ opacity: 0, y: 8 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: i * 0.05, duration: 0.3 }}
-                  >
-                    <div className="absolute inset-0">
-                      <img src={card.art.src} {...artImgProps(card.art.src)} alt="" loading="lazy" className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.03]" style={artStyle(card.art)} />
-                    </div>
-                    <div className="relative z-10 p-4" style={{ background: 'rgba(6, 12, 26, 0.7)' }}>
-                    <div className="flex items-start gap-3">
-                      <div className="w-8 h-8 rounded-lg bg-purple-500/15 border border-purple-500/20 flex items-center justify-center flex-shrink-0">
-                        <svg className="w-4 h-4 text-purple-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                          <path strokeLinecap="round" strokeLinejoin="round" d={card.icon} />
-                        </svg>
-                      </div>
-                      <div>
-                        <h3 className="text-[13px] font-semibold text-white mb-1 flex items-center gap-1.5">
-                          {card.title}
-                          {SECTION_DEPLOYED[card.key] ? (
-                            <span className="rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[8px] font-semibold leading-none px-1.5 py-0.5 uppercase tracking-wide">
-                              Live
-                            </span>
-                          ) : (
-                            <span className="rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30 text-[8px] font-semibold leading-none px-1.5 py-0.5 uppercase tracking-wide">
-                              Soon
-                            </span>
-                          )}
-                        </h3>
-                        <p className="text-[11px] text-white/70 leading-relaxed">{card.desc}</p>
-                      </div>
-                    </div>
-                    </div>
-                  </m.button>
-                ))}
-              </div>
-              <div className="flex justify-center">
-                <button
-                  onClick={dismissIntro}
-                  className="text-[12px] text-white/60 hover:text-white transition-colors px-3 py-1 rounded-full bg-black/40 border border-white/10"
-                >
-                  Dismiss overview
-                </button>
-              </div>
-            </m.div>
-          )}
-        </AnimatePresence>
-
-        {/* Section tabs. Below a 1,143px window the row (about 1,095px from `md` up) is held
-            to the page and scrolls inside itself, scrollbar hidden, no scroll snap (it undoes
-            the reveal). A fade at the right edge (`--strip-fade`, also the end padding) shows
-            there is more; with a mouse, an arrow over each end with tabs past it moves the row.
-            `tabListRef` keeps the selected tab clear of the fade and the arrows. Fade and
-            padding come off at 1,143px. e2e/nft-finance-strip.spec.ts. */}
+        {/* Section tabs, above the overview: below it a phone's bottom bar covered part of the
+            row at 390x844 (e2e/phone-layout.spec.ts). Below a 1,143px window the row is held to
+            the page and scrolls inside itself, scrollbar hidden, no scroll snap. A fade at the
+            right edge (`--strip-fade`, also the end padding) shows there is more; with a mouse,
+            an arrow over each end with tabs past it moves the row. `tabListRef` keeps the
+            selected tab clear of the fade and the arrows. e2e/nft-finance-strip.spec.ts. */}
         <m.div
-          className="relative mb-10 mx-auto w-full md:w-fit max-w-full"
+          className="relative mb-6 mx-auto w-full md:w-fit max-w-full"
           initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.05, duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
@@ -403,6 +335,74 @@ export default function LendingPage() {
           {stripMore.prev && <StripArrow dir="prev" onPress={() => stripStep('prev')} />}
           {stripMore.next && <StripArrow dir="next" onPress={() => stripStep('next')} />}
         </m.div>
+
+        {/* Intro Overview Cards — dismissible */}
+        <AnimatePresence>
+          {!introDismissed && (
+            <m.div
+              className="mb-10"
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              exit={{ opacity: 0, height: 0 }}
+              transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
+            >
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-2">
+                {introCards().map((card, i) => (
+                  <m.button
+                    key={card.key}
+                    onClick={() => handleSectionChange(card.key)}
+                    aria-label={`Open ${card.title}`}
+                    className={`relative text-left rounded-xl transition-all duration-300 group overflow-hidden ${
+                      section === card.key ? 'ring-1 ring-emerald-500/40' : ''
+                    }`}
+                    style={{
+                      border: `1px solid ${section === card.key ? 'rgba(16, 185, 129, 0.2)' : 'var(--color-purple-12)'}`,
+                    }}
+                    initial={{ opacity: 0, y: 8 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: i * 0.05, duration: 0.3 }}
+                  >
+                    <div className="absolute inset-0">
+                      <img src={card.art.src} {...artImgProps(card.art.src)} alt="" loading="lazy" className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.03]" style={artStyle(card.art)} />
+                    </div>
+                    <div className="relative z-10 p-4" style={{ background: 'rgba(6, 12, 26, 0.7)' }}>
+                    <div className="flex items-start gap-3">
+                      <div className="w-8 h-8 rounded-lg bg-purple-500/15 border border-purple-500/20 flex items-center justify-center flex-shrink-0">
+                        <svg className="w-4 h-4 text-purple-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d={card.icon} />
+                        </svg>
+                      </div>
+                      <div>
+                        <h3 className="text-[13px] font-semibold text-white mb-1 flex items-center gap-1.5">
+                          {card.title}
+                          {SECTION_DEPLOYED[card.key] ? (
+                            <span className="rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[8px] font-semibold leading-none px-1.5 py-0.5 uppercase tracking-wide">
+                              Live
+                            </span>
+                          ) : (
+                            <span className="rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30 text-[8px] font-semibold leading-none px-1.5 py-0.5 uppercase tracking-wide">
+                              Soon
+                            </span>
+                          )}
+                        </h3>
+                        <p className="text-[11px] text-white/70 leading-relaxed">{card.desc}</p>
+                      </div>
+                    </div>
+                    </div>
+                  </m.button>
+                ))}
+              </div>
+              <div className="flex justify-center">
+                <button
+                  onClick={dismissIntro}
+                  className="text-[12px] text-white/60 hover:text-white transition-colors px-3 py-1 rounded-full bg-black/40 border border-white/10"
+                >
+                  Dismiss overview
+                </button>
+              </div>
+            </m.div>
+          )}
+        </AnimatePresence>
 
         {/* F299 / F300 / F313 (T7): the tabpanel always renders. Every section
             already shows its honest pre-deploy "being audited / not deployed"

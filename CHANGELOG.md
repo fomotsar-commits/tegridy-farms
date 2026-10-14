@@ -35,6 +35,19 @@ page keeps the newest thirty days.
 - Solana LP: a pool card is now headed by its pair and fee, for example "BAYLA / SOL · 1% tier", like your positions. What the pool has earned comes right under its price, before the fees and the deposit checks. Addresses show short, with the whole address, Copy and Explorer one press away. A token the site lists, such as BAYLA, is named in the amounts and the price instead of "tokens".
 - Venue AMM: the fee sheet now shows the public fee tier first, the one every pool opened from this site uses. On mainnet that is 1% a trade, of which liquidity providers keep 0.84% of each trade. The launch pools' tier is under it, as before.
 - NFT Finance in a narrow window with a mouse: small arrows now sit over each end of the row of section tabs that has more tabs past it, and a press moves the row along by one tab. They do not show on a phone or a tablet, where the row is swiped, and the keyboard still moves between the tabs themselves.
+- Home: the headline no longer jumps 44.5px down, or changes its letter spacing, when the page finishes loading on a phone.
+- Home and the TOWELI home: each chain pill (Solana, Ethereum, Base) can be pressed anywhere in an area 46.5px tall, up from 24.5px. The pills look the same.
+- Changelog: on a 360px phone, long lines (file paths like ".audit_101/...") wrap inside their card instead of being cut off at its edge.
+- NFT Finance, Pooled Lending: on a 360px phone the "Not deployed" badges stay on screen and the page no longer slides 6px sideways.
+- TOWELI room: Towelie's round button in the corner steps aside while a row of section tabs is under it, so it never covers a tab. It comes back when the tabs scroll away.
+- Launch: on a phone the four steps wrap onto a second line instead of being cut off at "Fees & disclo".
+- Heat card: "Post my number" and "How heat is earned" now have a 16px gap between them.
+- Solana positions: one transaction reads "The one transaction read on your shares is not a deposit" instead of "None of the 1 transaction". A busy network during "Find this share's pool on the chain" says "the network is busy; try again in a minute" instead of "HTTP 429".
+- Safari on pages without a tab row: a text field you tap no longer ends up 2px under the top bar. The page keeps 74px clear under the bar, up from 64px.
+- Safari: the label above a text field you tap (for example "Campaign address" on Airdrop) now shows below the top bar, not under it.
+- Pages with a row of section tabs (Pools, Earn, Launch, Check, the island's pages, Learn and the rest): the row now scrolls away with the page instead of staying pinned under the top bar, where it covered fields, buttons and links on 19 of the 21 pages measured once you scrolled.
+- NFT Finance: the row of section tabs now sits above the overview cards, so on a 390x844 phone it is whole on screen and no longer half under the bottom bar.
+- Home on a phone: the address field and the "Read Heat" button no longer grow from 37.5px to 44px tall, or the button's words from 13px to 14px, when the page finishes loading.
 
 ### 2026-10-10
 
