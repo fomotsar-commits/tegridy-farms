@@ -12,6 +12,7 @@ import { Link } from 'react-router-dom';
 import { usePoolTVL } from '../../hooks/usePoolTVL';
 import { useTOWELIPrice } from '../../contexts/PriceContext';
 import { lpFarmDeposit } from '../../lib/lpEmissions';
+import { rewardsEndDate } from '../../lib/rewardsEnded';
 
 type LPFarmHook = ReturnType<typeof useLPFarming>;
 
@@ -271,12 +272,13 @@ export function LPFarmingSection({ lpFarm, isConnected }: LPFarmingSectionProps)
             <div className="rounded-lg p-3" style={{ background: 'var(--color-purple-75)', border: '1px solid var(--color-purple-75)' }}>
               {/* The date already rendered an en-dash for a zero `periodFinish`, but the
                   LABEL and the amber both asserted "Period Ended" over it — the one half
-                  a failed read could not honestly say. */}
+                  a failed read could not honestly say. The UTC day, as the ended line says
+                  it: a local date put Jun 14 beside "Rewards ended Jun 15" west of UTC. */}
               <p className="text-white text-[10px] mb-0.5">
                 {lpFarm.statsUnread || lpFarm.isActive ? 'Period Ends' : 'Period Ended'}
               </p>
               <p className={`stat-value text-[14px] font-mono ${lpFarm.statsUnread || lpFarm.isActive ? 'text-white' : 'text-amber-300'}`}>
-                {!lpFarm.statsUnread && lpFarm.periodFinish > 0 ? new Date(lpFarm.periodFinish * 1000).toLocaleDateString() : '–'}
+                {!lpFarm.statsUnread && lpFarm.periodFinish > 0 ? rewardsEndDate(lpFarm.periodFinish) : '–'}
               </p>
             </div>
           </div>

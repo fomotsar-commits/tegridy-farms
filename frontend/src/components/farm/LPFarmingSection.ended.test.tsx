@@ -77,6 +77,8 @@ describe('LPFarmingSection: rewards ended', () => {
     expect(screen.getByTestId('lp-farming-ended')).toHaveTextContent(
       'Rewards ended Jun 15, 2026, so new stakes are closed. Withdraw and claim still work.',
     );
+    // The Period Ended tile says the same day as the line, wherever the visitor is.
+    expect(screen.getByText('Period Ended').parentElement).toHaveTextContent('Jun 15, 2026');
     expect(screen.queryByText('Stake LP')).toBeNull();
     expect(stakeButton()).toBeNull();
     // The first-time staker's risk line is for money going in; none can.
