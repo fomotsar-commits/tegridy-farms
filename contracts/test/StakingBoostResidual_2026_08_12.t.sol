@@ -422,8 +422,9 @@ contract StakingBoostResidual_2026_08_12_Test is Test {
     //                            callable while NOT expired.
     //   * `executeEmergencyExit` on its `earlyExit == true` branch.
     //
-    // Result: a holder exiting early during an under-funded window pays the 25%
-    // penalty AND silently forfeits already-earned rewards, with no recovery
+    // Result: a holder exiting early during an under-funded window pays the early-exit
+    // penalty (25% on the first deployment, 75% since the 2026-10-14 ruling) AND
+    // silently forfeits already-earned rewards, with no recovery
     // path. Same failure mode [M5] exists to prevent, on the sibling path.
     //
     // NOT FIXED IN THIS CHANGE-SET. TegridyStaking has 22 B of EIP-170 headroom

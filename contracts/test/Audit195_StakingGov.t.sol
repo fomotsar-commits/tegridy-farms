@@ -875,12 +875,12 @@ contract Audit195StakingGov is Test {
         uint256 balAfter = token.balanceOf(bob);
         uint256 treasuryAfter = token.balanceOf(treasury);
 
-        // Lock was still active, so 25% penalty applies
+        // Lock was still active, so the 75% penalty applies
         // Emergency exit now calls _getReward() so user receives principal - penalty + accrued rewards
-        uint256 expectedPenalty = (STAKE_AMT * 2500) / 10000;
+        uint256 expectedPenalty = (STAKE_AMT * 7500) / 10000;
         uint256 expectedUser = STAKE_AMT - expectedPenalty;
-        assertGe(balAfter - balBefore, expectedUser, "User should receive at least 75%");
-        assertEq(treasuryAfter - treasuryBefore, expectedPenalty, "Treasury should receive 25%");
+        assertGe(balAfter - balBefore, expectedUser, "User should receive at least 25%");
+        assertEq(treasuryAfter - treasuryBefore, expectedPenalty, "Treasury should receive 75%");
     }
 
     function test_executeEmergencyExit_noPenaltyIfLockExpired() public {
