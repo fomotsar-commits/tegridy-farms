@@ -1,11 +1,12 @@
 /**
- * The scroll math RouteTabs and the NFT Finance strip use to bring the selected
- * tab into view. jsdom lays nothing out, so the strip's boxes are given as
+ * The scroll math RouteTabs and the NFT Finance strip use to bring the selected tab
+ * into view, and to move the NFT Finance strip one tab along when an arrow over
+ * its end is pressed. jsdom lays nothing out, so the strip's boxes are given as
  * numbers here; the rendered behaviour is measured in e2e/tab-strip-scroll.spec.ts
  * and e2e/nft-finance-strip.spec.ts.
  */
 import { describe, it, expect } from 'vitest';
-import { STRIP_EDGE_PX, revealScrollLeft, revealSelectedTab } from './tabStripScroll';
+import { STRIP_EDGE_PX, moreTabs, revealScrollLeft, revealSelectedTab, stepScrollLeft } from './tabStripScroll';
 
 // A 382px strip over 600px of tabs: it can scroll 218px.
 const strip = (scrollLeft: number) => ({ scrollLeft, clientWidth: 382, scrollWidth: 600 });
@@ -191,5 +192,93 @@ describe('revealSelectedTab', () => {
     revealSelectedTab(s.list);
     expect(s.list.scrollLeft).toBe(0);
     s.cleanup();
+  });
+});
+
+describe('revealSelectedTab beside arrows', () => {
+  it('keeps the room it is asked for, clear of an arrow over the end, where the padding is less', () => {
+    // An arrow 44px wide over the right end, 8px more beside it: 52px, past the 32px fade.
+    const s = buildStrip({ ...PHONE, selected: 3 });
+    revealSelectedTab(s.list, 52);
+    expect(s.roomAtEnd()).toBeGreaterThanOrEqual(52);
+    expect(s.roomAtEnd()).toBeLessThanOrEqual(52 + 2);
+    s.cleanup();
+  });
+});
+
+// Six 90px tabs, 10px apart, from the strip's 4px padding to 594, in the 382px strip above.
+const TABS = [0, 1, 2, 3, 4, 5].map((i) => ({ start: 4 + i * 100, end: 94 + i * 100 }));
+const ROOM = { start: STRIP_EDGE_PX, end: STRIP_EDGE_PX };
+const ARROWS = { start: 52, end: 52 };
+
+describe('stepScrollLeft: one press of an arrow', () => {
+  it('brings the next tab whose middle is out of view whole into view', () => {
+    // From 0 the view ends at 358: the tab at 304-394 has its middle (349) in it, the one at 404-494 does not.
+    expect(stepScrollLeft('next', TABS, strip(0), ROOM)).toBe(494 - 382 + STRIP_EDGE_PX);
+  });
+
+  it('brings the previous tab whose middle is out of view whole into view', () => {
+    // From 218 the view starts at 242: the tab at 204-294 has its middle (249) in it, the one at 104-194 does not.
+    expect(stepScrollLeft('prev', TABS, strip(218), ROOM)).toBe(104 - STRIP_EDGE_PX);
+  });
+
+  it('goes to the end of the strip when every tab that way has its middle in view', () => {
+    expect(stepScrollLeft('next', TABS, strip(200), ROOM)).toBe(218);
+    expect(stepScrollLeft('prev', TABS, strip(20), ROOM)).toBe(0);
+  });
+
+  it('counts a tab under an arrow as out of view, and lands the next one clear of it', () => {
+    // With 52px kept clear the view ends at 330, so the tab at 304-394 (middle 349) is the next one.
+    expect(stepScrollLeft('next', TABS, strip(0), ARROWS)).toBe(394 - 382 + 52);
+    expect(stepScrollLeft('prev', TABS, strip(218), ARROWS)).toBe(204 - 52);
+  });
+
+  it.each([ROOM, ARROWS])('walks the strip end to end and back, every press moving it (room %o)', (room) => {
+    let at = 0;
+    let presses = 0;
+    for (; at < 218; presses++) {
+      const next = stepScrollLeft('next', TABS, strip(at), room);
+      expect(next, `press ${presses + 1} from ${at}`).toBeGreaterThan(at);
+      at = next;
+    }
+    expect(presses).toBeLessThanOrEqual(TABS.length);
+    for (presses = 0; at > 0; presses++) {
+      const next = stepScrollLeft('prev', TABS, strip(at), room);
+      expect(next, `press ${presses + 1} back from ${at}`).toBeLessThan(at);
+      at = next;
+    }
+    expect(presses).toBeLessThanOrEqual(TABS.length);
+  });
+
+  it('stays put on a strip with no tabs', () => {
+    expect(stepScrollLeft('prev', [], strip(0), ROOM)).toBe(0);
+    expect(stepScrollLeft('next', [], { scrollLeft: 0, clientWidth: 382, scrollWidth: 382 }, ROOM)).toBe(0);
+  });
+});
+
+describe('moreTabs: which ends get an arrow', () => {
+  it('the right end only at the start, both in the middle, the left only at the end', () => {
+    expect(moreTabs(TABS, strip(0))).toEqual({ prev: false, next: true });
+    expect(moreTabs(TABS, strip(100))).toEqual({ prev: true, next: true });
+    expect(moreTabs(TABS, strip(218))).toEqual({ prev: true, next: false });
+  });
+
+  it('neither on a strip that fits', () => {
+    expect(moreTabs(TABS.slice(0, 3), { scrollLeft: 0, clientWidth: 382, scrollWidth: 382 })).toEqual({ prev: false, next: false });
+  });
+
+  it('does not take the padding before the first tab for a tab out of view', () => {
+    expect(moreTabs(TABS, strip(4))).toEqual({ prev: false, next: true });
+    expect(moreTabs(TABS, strip(6))).toEqual({ prev: true, next: true });
+  });
+
+  it('keeps the right end until the strip is scrolled as far as it goes', () => {
+    // The last tab is inside the view from 212, but the strip's faded edge is still over it.
+    expect(moreTabs(TABS, strip(216))).toEqual({ prev: true, next: true });
+    expect(moreTabs(TABS, strip(217.5))).toEqual({ prev: true, next: false });
+  });
+
+  it('neither on a strip with no tabs', () => {
+    expect(moreTabs([], strip(0))).toEqual({ prev: false, next: false });
   });
 });

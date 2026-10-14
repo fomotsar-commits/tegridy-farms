@@ -42,7 +42,7 @@ import {
   isDeployed,
 } from '../lib/constants';
 import { useTabListKeys } from '../hooks/useTabListKeys';
-import { useRevealSelectedTab } from '../components/layout/tabStripScroll';
+import { STRIP_ARROW_PX, useTabStripArrows } from '../components/layout/tabStripScroll';
 import { isPooledLendingLive, isBnplLive } from '../hooks/usePooledLendingConfig';
 import { artImgProps } from '../lib/artSrcSet';
 
@@ -173,6 +173,36 @@ function sectionFromQuery(v: string | null): Section | null {
   return (VALID_SECTIONS as string[]).includes(v) ? (v as Section) : null;
 }
 
+/**
+ * An arrow laid over one end of the section strip, for a mouse: the keyboard walks the
+ * tabs themselves and a screen reader has the tablist, so it is no tab stop, is hidden
+ * from assistive tech, and a press does not take focus. Solid to the strip's edge, so no
+ * sliver of a tab shows beside it. STRIP_ARROW_PX wide, as tall as the strip.
+ */
+function StripArrow({ dir, onPress }: { dir: 'prev' | 'next'; onPress: () => void }) {
+  return (
+    <button
+      type="button"
+      tabIndex={-1}
+      aria-hidden="true"
+      data-strip-arrow={dir}
+      title={dir === 'prev' ? 'Earlier sections' : 'More sections'}
+      onMouseDown={(e) => e.preventDefault()}
+      onClick={onPress}
+      style={{ width: STRIP_ARROW_PX }}
+      className={`group absolute inset-y-px flex items-center justify-center bg-[#0d1530] ${
+        dir === 'prev' ? 'left-px rounded-l-[15px]' : 'right-px rounded-r-[15px]'
+      }`}
+    >
+      <span className="w-8 h-8 rounded-xl flex items-center justify-center border border-white/25 text-white/80 group-hover:text-white group-hover:border-white/50 transition-colors">
+        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d={dir === 'prev' ? 'M15.75 19.5L8.25 12l7.5-7.5' : 'M8.25 4.5l7.5 7.5-7.5 7.5'} />
+        </svg>
+      </span>
+    </button>
+  );
+}
+
 export default function LendingPage() {
   usePageTitle('NFT Finance', 'NFT-backed lending, fractional AMM, and launchpad.');
   const { isConnected, address } = useAccount();
@@ -192,7 +222,7 @@ export default function LendingPage() {
   };
   // T10 (F303): WAI-ARIA tabs roving-focus + arrow-key navigation.
   const tabKeys = useTabListKeys(VALID_SECTIONS, section, handleSectionChange);
-  const tabListRef = useRevealSelectedTab(section);
+  const { listRef: tabListRef, more: stripMore, step: stripStep } = useTabStripArrows(section);
   const [introDismissed, setIntroDismissed] = useState(() => {
     try { return localStorage.getItem(INTRO_DISMISSED_KEY) === '1'; } catch { return false; }
   });
@@ -293,70 +323,76 @@ export default function LendingPage() {
           )}
         </AnimatePresence>
 
-        {/* Section tabs. Below a 1,143px window the row (about 1,095px from `md` up)
-            is held to the page by `max-w-full` and scrolls inside itself. No scroll
-            snap: it undoes the reveal. The scrollbar is hidden, so a fade at the right
-            edge is the only sign of more tabs. `--strip-fade` is the fade's width and
-            the end padding, and `tabListRef` keeps the selected tab out of the padding,
-            so never under the fade. Both come off at 1,143px. e2e/nft-finance-strip.spec.ts. */}
+        {/* Section tabs. Below a 1,143px window the row (about 1,095px from `md` up) is held
+            to the page and scrolls inside itself, scrollbar hidden, no scroll snap (it undoes
+            the reveal). A fade at the right edge (`--strip-fade`, also the end padding) shows
+            there is more; with a mouse, an arrow over each end with tabs past it moves the row.
+            `tabListRef` keeps the selected tab clear of the fade and the arrows. Fade and
+            padding come off at 1,143px. e2e/nft-finance-strip.spec.ts. */}
         <m.div
-          ref={tabListRef}
-          className="flex overflow-x-auto gap-1.5 mb-10 p-1 [--strip-fade:2rem] pr-[var(--strip-fade)] min-[1143px]:pr-1 rounded-2xl mx-auto w-full md:w-fit max-w-full no-scrollbar [mask-image:linear-gradient(to_right,#000_calc(100%_-_var(--strip-fade)),transparent)] min-[1143px]:[mask-image:none]"
-          style={{ background: 'rgba(13,21,48,0.85)', border: '1px solid rgba(255,255,255,0.20)' }}
-          role="tablist"
-          aria-label="NFT Finance sections"
-          onKeyDown={tabKeys.onKeyDown}
+          className="relative mb-10 mx-auto w-full md:w-fit max-w-full"
           initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.05, duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
         >
-          {SECTIONS.map(({ key, label, subtitle }) => (
-            <button
-              key={key}
-              role="tab"
-              id={`nft-finance-tab-${key}`}
-              aria-selected={section === key}
-              aria-controls={`nft-finance-panel-${key}`}
-              tabIndex={tabKeys.tabIndex(key)}
-              ref={tabKeys.ref(key)}
-              /* A11Y-R07: same ~32px tab strip as /community; /swap's is 44px. */
-              className={`relative px-3 py-2 min-h-[44px] md:px-5 md:py-2.5 rounded-xl text-xs md:text-sm font-medium transition-all duration-300 whitespace-nowrap flex-shrink-0 ${
-                section === key
-                  ? 'text-white'
-                  : 'text-white/70 hover:text-white hover:bg-white/5'
-              }`}
-              onClick={() => handleSectionChange(key)}
-            >
-              {section === key && (
-                <m.div
-                  layoutId="nft-finance-tab"
-                  className="absolute inset-0 rounded-xl bg-emerald-600 shadow-lg shadow-emerald-600/20"
-                  transition={{ type: 'spring', stiffness: 400, damping: 30 }}
-                />
-              )}
-              {/* F309: surface the section subtitle on desktop — "Staking + Restake"
-                  under Token Lending is the only hint restaking lives here. */}
-              <span className="relative z-10 flex flex-col items-center leading-tight">
-                <span className="inline-flex items-center gap-1.5">
-                  {label}
-                  {SECTION_DEPLOYED[key] ? (
-                    <span className="rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[9px] font-semibold leading-none px-1.5 py-0.5 uppercase tracking-wide">
-                      Live
-                    </span>
-                  ) : (
-                    <span className="rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30 text-[9px] font-semibold leading-none px-1.5 py-0.5 uppercase tracking-wide">
-                      Soon
+          <div
+            ref={tabListRef}
+            className="flex overflow-x-auto gap-1.5 p-1 [--strip-fade:2rem] pr-[var(--strip-fade)] min-[1143px]:pr-1 rounded-2xl no-scrollbar [mask-image:linear-gradient(to_right,#000_calc(100%_-_var(--strip-fade)),transparent)] min-[1143px]:[mask-image:none]"
+            style={{ background: 'rgba(13,21,48,0.85)', border: '1px solid rgba(255,255,255,0.20)' }}
+            role="tablist"
+            aria-label="NFT Finance sections"
+            onKeyDown={tabKeys.onKeyDown}
+          >
+            {SECTIONS.map(({ key, label, subtitle }) => (
+              <button
+                key={key}
+                role="tab"
+                id={`nft-finance-tab-${key}`}
+                aria-selected={section === key}
+                aria-controls={`nft-finance-panel-${key}`}
+                tabIndex={tabKeys.tabIndex(key)}
+                ref={tabKeys.ref(key)}
+                /* A11Y-R07: same ~32px tab strip as /community; /swap's is 44px. */
+                className={`relative px-3 py-2 min-h-[44px] md:px-5 md:py-2.5 rounded-xl text-xs md:text-sm font-medium transition-all duration-300 whitespace-nowrap flex-shrink-0 ${
+                  section === key
+                    ? 'text-white'
+                    : 'text-white/70 hover:text-white hover:bg-white/5'
+                }`}
+                onClick={() => handleSectionChange(key)}
+              >
+                {section === key && (
+                  <m.div
+                    layoutId="nft-finance-tab"
+                    className="absolute inset-0 rounded-xl bg-emerald-600 shadow-lg shadow-emerald-600/20"
+                    transition={{ type: 'spring', stiffness: 400, damping: 30 }}
+                  />
+                )}
+                {/* F309: surface the section subtitle on desktop — "Staking + Restake"
+                    under Token Lending is the only hint restaking lives here. */}
+                <span className="relative z-10 flex flex-col items-center leading-tight">
+                  <span className="inline-flex items-center gap-1.5">
+                    {label}
+                    {SECTION_DEPLOYED[key] ? (
+                      <span className="rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[9px] font-semibold leading-none px-1.5 py-0.5 uppercase tracking-wide">
+                        Live
+                      </span>
+                    ) : (
+                      <span className="rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30 text-[9px] font-semibold leading-none px-1.5 py-0.5 uppercase tracking-wide">
+                        Soon
+                      </span>
+                    )}
+                  </span>
+                  {subtitle && (
+                    <span className={`hidden md:block text-[10px] font-normal ${section === key ? 'text-white/80' : 'text-white/50'}`}>
+                      {subtitle}
                     </span>
                   )}
                 </span>
-                {subtitle && (
-                  <span className={`hidden md:block text-[10px] font-normal ${section === key ? 'text-white/80' : 'text-white/50'}`}>
-                    {subtitle}
-                  </span>
-                )}
-              </span>
-            </button>
-          ))}
+              </button>
+            ))}
+          </div>
+          {stripMore.prev && <StripArrow dir="prev" onPress={() => stripStep('prev')} />}
+          {stripMore.next && <StripArrow dir="next" onPress={() => stripStep('next')} />}
         </m.div>
 
         {/* F299 / F300 / F313 (T7): the tabpanel always renders. Every section
