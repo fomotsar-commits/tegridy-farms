@@ -36,15 +36,15 @@ role use the venue's devnet key `GgE6AfEH2AVSrKGckyKMzC6mhtXWiAn39EzAikAsWq5a`.
 
 | Role | Raydium's address | Ours | What it can do |
 |---|---|---|---|
-| Program id | `CAMMCzo5…` | a placeholder, `RangePoo1PLACEHo1DER…` | Nothing: nobody holds its key and no release build accepts it |
-| Admin | `GThUX1At…` | vault | Make fee tiers, pause a pool, collect any fee to any account |
-| Protocol-fee owner | `projjosV…` | vault | Collect the protocol's share of swap fees |
-| Fund-fee owner | `FundHfY8…` | vault | Collect the fund's share of swap fees |
-| Spare-SOL collector | `Ray9LdYR…` | vault | Sweep SOL sent to a pool's accounts above what they need |
-| Limit-order keeper | `Ray8HHti…` | vault | Settle or close a user's limit order; the coins go to the order's owner only |
-| Permission admin | `RayzVBPm…` | vault | Say who may open a permission-only pool |
-| Support-mint owner | `RayVyjyJ…` | vault | Let in a coin with unusual Token-2022 features |
-| Frozen-NFT issuer list | `2Yq4T3mP…` (an outside coin issuer) | empty | Nothing: no position NFT is ever frozen |
+| Program id | `CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK` | a placeholder, `RangePoo1PLACEHo1DERnotDep1oyed111111111111` | Nothing: nobody holds its key and no release build accepts it |
+| Admin | `GThUX1Atko4tqhN2NaiTazWSeFWMuiUvfFnyJyUghFMJ` | vault | Make fee tiers, pause a pool, collect any fee to any account |
+| Protocol-fee owner | `projjosVCPQH49d5em7VYS7fJZzaqKixqKtus7yk416` | vault | Collect the protocol's share of swap fees |
+| Fund-fee owner | `FundHfY8oo8J9KYGyfXFFuQCHe7Z1VBNmsj84eMcdYs4` | vault | Collect the fund's share of swap fees |
+| Spare-SOL collector | `Ray9LdYRLXsHzL8pr3Ceahfiz8MsS2pZagzHo1ckdfJ` | vault | Sweep SOL sent to a pool's accounts above what they need |
+| Limit-order keeper | `Ray8HHtixhL9zvnokMyELCVGp622PDPJj96zcVC9RWp` | vault | Settle or close a user's limit order; the coins go to the order's owner only |
+| Permission admin | `RayzVBPm6p6xtG7fU3KX4k44UexK4NjewDk2QCwoLqa` | vault | Say who may open a permission-only pool |
+| Support-mint owner | `RayVyjyJQz9vAi126A4sGexKnSU1XeZaHTRcM1mZMPY` | vault | Let in a coin with unusual Token-2022 features |
+| Frozen-NFT issuer list | `2Yq4T3mPNfjtEyTxSbRjRKqLf1pwbTasuCQrWe6QpM7x` (an outside coin issuer) | empty | Nothing: no position NFT is ever frozen |
 
 Also replaced: the on-chain security text (now memetics.finance, our contact, no audit claim),
 the position NFT's name, symbol and link ("Memetics Range Position", "MEM-RANGE",
