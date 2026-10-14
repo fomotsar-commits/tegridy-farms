@@ -3,12 +3,17 @@ import { test, expect, type Page } from '@playwright/test';
 // A SECTION LINK LANDS ON ITS SECTION.
 // A link or an address naming #section brings that section to the top of the
 // screen once the page's code has drawn it, however long that takes. Back,
-// Forward and a reload are the browser's to place. Every scrollIntoView the
-// page makes is recorded, so "the venue made no jump" is a count, not a look.
+// Forward and a reload are the browser's to place. Every scrollIntoView and
+// window scroll the page makes is recorded, so "the venue made no jump" is a
+// count, not a look.
 
 /** The home page's own chunk: the one a link from another page waits on. */
 const HOME_CHUNK = /\/assets\/HomePage-[\w-]+\.js$/;
 
+/** Longer than the venue holds a landed section while the page settles (SECTION_SETTLE_MS). */
+const SETTLED_MS = 2_500;
+
+/** A scroll the page made: to an element by its id, or of the window ('window'). */
 interface Jump { id: string }
 type Recorded = Window & { __jumps: Jump[] };
 
@@ -26,6 +31,13 @@ async function prepare(page: Page) {
       jumps.push({ id: this.id });
       return real.apply(this, args);
     };
+    for (const name of ['scrollTo', 'scroll', 'scrollBy'] as const) {
+      const realScroll = window[name].bind(window) as (...args: unknown[]) => void;
+      window[name] = ((...args: unknown[]) => {
+        jumps.push({ id: 'window' });
+        return realScroll(...args);
+      }) as typeof window.scrollTo;
+    }
   });
 }
 
@@ -42,24 +54,34 @@ async function holdChunk(page: Page, chunk: RegExp) {
   return { asked: () => asked, release: () => release() };
 }
 
-const jumpsTo = (page: Page, id: string) =>
-  page.evaluate((id) => (window as unknown as Recorded).__jumps.filter((j) => j.id === id).length, id);
-
-const forgetJumps = (page: Page) => page.evaluate(() => { (window as unknown as Recorded).__jumps.length = 0; });
-
-/** 'landed' when the section's top is in the top half of the screen; otherwise where it is. */
+/**
+ * 'landed' when the section's top edge is in the top half of the screen and is
+ * what a finger there would touch, not the top bar; otherwise where it is.
+ */
 const placement = (page: Page, id: string) => page.evaluate((id) => {
   const section = document.getElementById(id);
   const screen = document.documentElement.clientHeight;
   if (!section) return `no #${id} in the document, window at ${Math.round(window.scrollY)}`;
-  const top = Math.round(section.getBoundingClientRect().top);
-  return top >= 0 && top <= screen / 2 ? 'landed' : `#${id} top at ${top} on a ${screen} px screen`;
+  const box = section.getBoundingClientRect();
+  const top = Math.round(box.top);
+  if (top < 0 || top > screen / 2) return `#${id} top at ${top} on a ${screen} px screen`;
+  const seen = document.elementFromPoint(box.left + box.width / 2, box.top + 4);
+  return seen && section.contains(seen) ? 'landed' : `#${id} top at ${top}, under ${seen?.tagName.toLowerCase() ?? 'nothing'}`;
 }, id);
 
+/** Lands, and is still there once the page has settled around it. */
 async function expectLanded(page: Page, id: string) {
   await expect.poll(() => placement(page, id), { message: `#${id} is at the top of the screen`, timeout: 20_000 })
     .toBe('landed');
+  await page.waitForTimeout(SETTLED_MS);
+  expect(await placement(page, id), `#${id} is still at the top of the screen once the page has settled`).toBe('landed');
 }
+
+/** Jumps to the section, and any scroll of the window, since the record was last cleared. */
+const jumpsTo = (page: Page, id: string) =>
+  page.evaluate((id) => (window as unknown as Recorded).__jumps.filter((j) => j.id === id || j.id === 'window').length, id);
+
+const forgetJumps = (page: Page) => page.evaluate(() => { (window as unknown as Recorded).__jumps.length = 0; });
 
 /** One frame after the next, so anything the last commit set off has run. */
 const twoFrames = (page: Page) =>
@@ -100,11 +122,27 @@ test.describe('a section link to another page', () => {
     await expect(page).toHaveURL((url) => url.hash === '#hall');
     await expect.poll(hold.asked, { message: 'the home page code was asked for, and is held' }).toBeGreaterThan(0);
     await page.waitForTimeout(1_000);
+    // The page change put the window at the top already; what counts is what follows the move.
+    await forgetJumps(page);
     await page.keyboard.press('PageDown');
     hold.release();
     await expect(page.locator('#hall')).toBeAttached({ timeout: 20_000 });
     await twoFrames(page);
     expect(await jumpsTo(page, 'hall'), 'jumps to the hall after the visitor moved the page').toBe(0);
+  });
+
+  test('a second tap while it loads does not stop the landing', async ({ page }) => {
+    await prepare(page);
+    const hold = await holdChunk(page, HOME_CHUNK);
+    await page.goto('/island');
+    await bungalowsLink(page).click();
+    await expect(page).toHaveURL((url) => url.hash === '#hall');
+    await expect.poll(hold.asked, { message: 'the home page code was asked for, and is held' }).toBeGreaterThan(0);
+    await page.waitForTimeout(1_000);
+    // On screen while the code is held: the home page's first frame. Its heading is no link.
+    await page.locator('main h1').first().click();
+    hold.release();
+    await expectLanded(page, 'hall');
   });
 });
 
@@ -124,10 +162,14 @@ test.describe('a section link on its own page', () => {
       await hold.click();
       await expect.poll(() => placement(page, 'hall'), { message: `press ${press} lands on the hall`, timeout: 10_000 })
         .toBe('landed');
+      // The scroll above is the test's, not a visitor's: let the landing settle first.
+      await page.waitForTimeout(SETTLED_MS);
     }
   });
 
-  test('a plain #section link lands', async ({ page }) => {
+  // The browser's own: a plain <a href="#provide"> is a POP the venue leaves alone.
+  // A guard that the venue still does, not a test of the fix.
+  test('a plain #section link is the browser\'s, and still lands', async ({ page }) => {
     await prepare(page);
     await page.goto('/liquidity');
     const provide = page.locator('a[href="#provide"]').first();
@@ -173,13 +215,19 @@ test.describe('a section address opened directly', () => {
 });
 
 test.describe('the estimate link on the TOWELI farm', () => {
-  test('"See what you\'d earn" lands on the estimate', async ({ page }) => {
+  test('"See what you\'d earn" lands on the estimate, its page shown from the top while it loads', async ({ page }) => {
     await prepare(page);
+    const hold = await holdChunk(page, HOME_CHUNK);
     await page.goto('/earn/toweli');
     const estimate = page.getByRole('link', { name: /See what you.d earn/ });
     await expect(estimate).toBeVisible({ timeout: 20_000 });
     await estimate.click();
     await expect(page).toHaveURL((url) => url.hash === '#yield-calculator');
+    await expect.poll(hold.asked, { message: 'the home page code was asked for, and is held' }).toBeGreaterThan(0);
+    // The link sits far down the farm page; the page it opens starts at its top.
+    await expect.poll(() => page.evaluate(() => Math.round(window.scrollY)), { message: 'the window, while the page loads' })
+      .toBe(0);
+    hold.release();
     await expectLanded(page, 'yield-calculator');
   });
 });

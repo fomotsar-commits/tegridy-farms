@@ -8,7 +8,7 @@ page keeps the newest thirty days.
 
 ### 2026-10-14
 
-- A link to one part of a page now lands on that part while the page is still loading, when its address is opened directly, and when the same link is pressed again. "The bungalows" on the Island page used to leave you at the top of the home page about a third of the time. "See what you'd earn" on the TOWELI farm now opens the estimate in the TOWELI room; it used to open the front page, which has no estimate.
+- A link to one part of a page now lands on that part while the page is still loading, when its address is opened directly, and when the same link is pressed again. "The bungalows" on the Island page often left you at the top of the home page instead. "See what you'd earn" on the TOWELI farm now opens the estimate in the TOWELI room; it used to open the front page, which has no estimate.
 
 ### 2026-10-10
 
