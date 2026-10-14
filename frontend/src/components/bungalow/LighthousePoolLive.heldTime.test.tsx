@@ -81,7 +81,7 @@ describe('the held-time line on the lighthouse pool card', () => {
     const line = await screen.findByText(READ);
     expect(screen.queryByText(UNREAD)).toBeNull();
     expect(screen.getAllByText(READ)).toHaveLength(1);
-    expect(figures().lastElementChild).toBe(line);
+    expect(figures().lastElementChild).toBe(line.closest('[data-held-time]'));
   });
 
   it('says the unread sentence in the same place when the registry does not read this pool', async () => {
@@ -89,7 +89,7 @@ describe('the held-time line on the lighthouse pool card', () => {
     render(<LighthousePoolLive bungalow={room(UNREAD_POOL, { ladderPool: LADDER })} />);
     const line = await screen.findByText(UNREAD);
     expect(screen.queryByText(READ)).toBeNull();
-    expect(figures().lastElementChild).toBe(line);
+    expect(figures().lastElementChild).toBe(line.closest('[data-held-time]'));
   });
 
   it('sits above the closed-deposits notice, never inside it', async () => {

@@ -506,11 +506,15 @@ export function SolanaLadderPoolCard({ bungalow }: { bungalow: Bungalow & { ladd
         {pool && !identityMismatch && (
           <>
             {pool.degraded && (
-              <p role="alert" className="text-[13px] rounded-lg p-3 m-0" style={{ background: 'rgba(240,178,107,0.10)', border: '1px solid rgba(240,178,107,0.4)', color: '#f0b26b' }}>
-                <strong>This pool has been declared degraded.</strong> It takes no new stakes. Every open
-                position still exits, and neither early exit nor the emergency hatch charges a penalty. The
-                deployed program has no instruction to switch it back.
-              </p>
+              <div role="alert" className="text-[13px] rounded-lg p-3" style={{ background: 'rgba(240,178,107,0.10)', border: '1px solid rgba(240,178,107,0.4)', color: '#f0b26b' }}>
+                <p className="m-0"><strong>This pool has been declared degraded.</strong> It takes no new stakes.</p>
+                <FinePrint summary="What still works">
+                  <p className="m-0">
+                    Every open position still exits, and neither early exit nor the emergency hatch charges a
+                    penalty. The deployed program has no instruction to switch it back.
+                  </p>
+                </FinePrint>
+              </div>
             )}
 
             {/* ── 1. THE METER, and you in this pool ────────────────────── */}
@@ -677,8 +681,10 @@ export function SolanaLadderPoolCard({ bungalow }: { bungalow: Bungalow & { ladd
             <section aria-label="Open a position" className="@container rounded-[14px] px-3 py-5 sm:p-6" style={{ background: PANEL_BG, border: `1px solid ${HAIR}` }}>
               <div className="grid grid-cols-1 gap-6 @min-[52rem]:grid-cols-12">
                 <div className="min-w-0 @min-[52rem]:col-span-7">
+                  {/* FEWER WORDS (owner, 2026-10-14): the label is the label; the sentence it
+                      carried, and the footer's, sit in the ledger's Notes, word for word. */}
                   <p className="text-[12px] mb-3 m-0" style={{ color: 'rgba(255,255,255,0.78)' }} id="ladder-rungs-label">
-                    Lock length: a longer lock carries more weight, and a larger share.
+                    Lock length
                   </p>
                   {/* TAP TARGETS (2026-09-21): seven rungs across a phone came out 40px
                       wide at 393px, under the 44px floor. On a narrow panel the rungs
@@ -734,7 +740,7 @@ export function SolanaLadderPoolCard({ bungalow }: { bungalow: Bungalow & { ladd
                   </div>
                   <div className="mt-2 pt-2 flex justify-end" style={{ borderTop: '1px solid rgba(255,255,255,0.1)' }}>
                     <p className="m-0 text-[11px] text-right" style={{ color: 'rgba(255,255,255,0.62)' }}>
-                      weight grows with lock length · capped at {MAX_LOCK_SECS / (365 * DAY)} years
+                      longer lock, bigger share
                       {!pool.degraded && ' · leaving early costs a penalty'}
                     </p>
                   </div>
@@ -797,14 +803,16 @@ export function SolanaLadderPoolCard({ bungalow }: { bungalow: Bungalow & { ladd
                               </li>
                             )}
                           </ul>
-                          <p className="text-[12px] m-0" style={{ color: 'rgba(255,255,255,0.72)' }}>
-                            This would carry a weight of{' '}
-                            <strong className="text-white">{fmtRaw(weightForStake(amountRaw, lockSecs), decimals)}</strong>{' '}
-                            and unlock in {humanDuration(lockSecs)}.{' '}
-                            {pool.degraded
-                              ? 'While the pool is degraded it accepts no new stakes.'
-                              : `Leaving straight away would forfeit ${penaltyPct(penaltyFor(amountRaw, BigInt(lockSecs), 0n), amountRaw)} of the principal; the penalty is the time left on the lock over four years, capped at ${MAX_EARLY_EXIT_PENALTY_BPS / 100}%, so it shrinks as the lock runs down.`}
-                          </p>
+                          <FinePrint summary="This lock">
+                            <p className="m-0">
+                              This would carry a weight of{' '}
+                              <strong className="text-white">{fmtRaw(weightForStake(amountRaw, lockSecs), decimals)}</strong>{' '}
+                              and unlock in {humanDuration(lockSecs)}.{' '}
+                              {pool.degraded
+                                ? 'While the pool is degraded it accepts no new stakes.'
+                                : `Leaving straight away would forfeit ${penaltyPct(penaltyFor(amountRaw, BigInt(lockSecs), 0n), amountRaw)} of the principal; the penalty is the time left on the lock over four years, capped at ${MAX_EARLY_EXIT_PENALTY_BPS / 100}%, so it shrinks as the lock runs down.`}
+                            </p>
+                          </FinePrint>
                         </>
                       )}
 
@@ -854,11 +862,17 @@ export function SolanaLadderPoolCard({ bungalow }: { bungalow: Bungalow & { ladd
                 {carriedRaw !== null && carriedRaw > 0n && (
                   <div className="rounded-[14px] p-4 flex flex-wrap items-center justify-between gap-3"
                     style={{ background: LEDGER_BG, border: '1px solid var(--color-kyle-40)' }}>
-                    <p className="text-white/85 text-[13px] m-0">
-                      <strong>{fmtRaw(carriedRaw, decimals)} {sym}</strong> carried from a closed position:
-                      rewards the reward vault could not cover when it closed, or that the emergency hatch set
-                      aside. They are still yours.
-                    </p>
+                    <div className="min-w-0">
+                      <p className="text-white/85 text-[13px] m-0">
+                        <strong>{fmtRaw(carriedRaw, decimals)} {sym}</strong> carried from a closed position. Still yours.
+                      </p>
+                      <FinePrint summary="Why">
+                        <p className="m-0">
+                          Rewards the reward vault could not cover when it closed, or that the emergency hatch set
+                          aside. They are still yours.
+                        </p>
+                      </FinePrint>
+                    </div>
                     <button type="button" disabled={!canWrite || !ctx}
                       onClick={() => ctx && void run('Claim carried', () => ladderClaimCarried(ctx))}
                       className="btn-secondary px-4 py-2.5 text-[12px] disabled:opacity-50">
@@ -973,6 +987,11 @@ export function SolanaLadderPoolCard({ bungalow }: { bungalow: Bungalow & { ladd
                 <li id={`${fid}-min`}>
                   <strong className="font-semibold" style={{ color: '#fff' }}>Minimum stake:</strong>{' '}
                   the deployed program has no setter for it.
+                </li>
+                <li>
+                  <strong className="font-semibold" style={{ color: '#fff' }}>Lock length:</strong>{' '}
+                  a longer lock carries more weight, and a larger share. Weight grows with lock length, capped
+                  at {MAX_LOCK_SECS / (365 * DAY)} years{!pool.degraded && ', and leaving early costs a penalty'}.
                 </li>
                 {fundingLine && <li>{fundingLine}</li>}
               </ul>
@@ -1197,11 +1216,6 @@ function PositionRow({
             open, so only the open one is offered. */}
         <ExitButton
           label={matured ? `Withdraw ${fmtRaw(normal.receivesRaw, decimals)} ${sym}` : `Exit early: keep ${fmtRaw(normal.receivesRaw, decimals)} ${sym}`}
-          detail={matured
-            ? `No penalty. ${rewardsPaid}`
-            : pool.degraded
-              ? `No penalty while the pool is degraded. ${rewardsPaid}`
-              : `${fmtRaw(normal.penaltyRaw, decimals)} ${sym} is retained. ${rewardsPaid}`}
           needsConfirm={!matured}
           confirmed={confirmFor === key('normal')}
           onArm={() => setConfirmFor(key('normal'))}
@@ -1218,7 +1232,6 @@ function PositionRow({
           label={hatch.penaltyRaw > 0n
             ? `Emergency withdraw: costs ${fmtRaw(hatch.penaltyRaw, decimals)} ${sym}`
             : 'Emergency withdraw: no penalty'}
-          detail={hatch.reason}
           needsConfirm
           confirmed={confirmFor === key('hatch')}
           onArm={() => setConfirmFor(key('hatch'))}
@@ -1229,15 +1242,27 @@ function PositionRow({
           tone="danger"
         />
       </div>
+      {/* What each door pays, one press away (owner, 2026-10-14: fewer words). The
+          sentences are the ones that sat under the buttons, word for word; the price
+          itself stays on the button. */}
+      <FinePrint summary="What each exit pays">
+        <p className="m-0">
+          {matured
+            ? `No penalty. ${rewardsPaid}`
+            : pool.degraded
+              ? `No penalty while the pool is degraded. ${rewardsPaid}`
+              : `${fmtRaw(normal.penaltyRaw, decimals)} ${sym} is retained. ${rewardsPaid}`}
+        </p>
+        <p className="m-0">{hatch.reason}</p>
+      </FinePrint>
     </li>
   );
 }
 
 function ExitButton({
-  label, detail, needsConfirm, confirmed, onArm, onCancel, onGo, disabled, busy, tone,
+  label, needsConfirm, confirmed, onArm, onCancel, onGo, disabled, busy, tone,
 }: {
   label: string;
-  detail: string;
   needsConfirm: boolean;
   confirmed: boolean;
   onArm: () => void;
@@ -1263,7 +1288,6 @@ function ExitButton({
             </button>
           )}
         </span>
-        <span className="text-white/60 text-[11px]">{detail}</span>
       </span>
     );
   }
@@ -1274,7 +1298,6 @@ function ExitButton({
         style={{ background: 'rgba(0,0,0,0.5)', border: `1px solid ${border}`, color: 'rgba(255,255,255,0.9)' }}>
         {label}
       </button>
-      <span className="text-white/60 text-[11px]">{detail}</span>
     </span>
   );
 }
