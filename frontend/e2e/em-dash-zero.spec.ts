@@ -53,26 +53,26 @@ const VENUE_VOICE_DEBT: Record<string, number> = {
   '/terms': 3,
   '/terminal': 2,
   '/solana': 1,
-  '/launch-simulator': 4,
+  '/launch-simulator': 2,
   '/leaderboard': 3,
   '/community': 2,
   '/liquidity': 5,
   '/privacy': 7,
-  '/trust': 7,
+  '/trust': 5,
   '/pools': 1,
   '/solana-lp': 0,
-  '/nft-finance': 10,
+  '/nft-finance': 7,
   '/developers': 10,
   '/risks': 3,
-  '/copy-trading': 11,
+  '/copy-trading': 10,
   '/tax': 13,
   '/curve-launch': 7,
-  '/eth-curve': 11,
-  '/alerts': 17,
+  '/eth-curve': 9,
+  '/alerts': 16,
   // ScoringRules' written paragraphs; the Cup's coverage notice is a data-unread-ledger.
   '/competitions': 3,
   '/yield': 21,
-  '/launch': 26,
+  '/launch': 24,
 
 };
 
@@ -238,8 +238,8 @@ test.describe('element I: em dashes in venue-voice prose', () => {
 const ROOM_VOICE_DEBT: Record<string, number> = {
   // The settled rooms are at 0 and fail on their first prose dash (roomProse.test.tsx guards
   // the same sources on every push). The TOWELI-skin doors carry the protocol cluster.
-  '/toweli': 20,
-  '/towelie': 20,
+  '/toweli': 13,
+  '/towelie': 13,
   '/bayla': 0,
   '/pepe': 0,
   '/qr': 0,
@@ -302,7 +302,7 @@ test.describe('element I: em dashes in the rooms', () => {
 // branch is walked in the next block. toweli's farm is its own room's prose, and nb1, not
 // yet live, goes to the venue's list.
 const ROOM_FARM_DEBT: Record<string, number> = {
-  toweli: 11,
+  toweli: 8,
   bayla: 0,
   bobo: 0,
   soy: 0,
