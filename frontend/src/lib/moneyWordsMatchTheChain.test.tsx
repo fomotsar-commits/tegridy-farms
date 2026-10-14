@@ -38,6 +38,11 @@ const SHAPES: { id: string; re: RegExp }[] = [
   { id: 'LPS_ON_FIVE_SIXTHS', re: /\bfive[- ]sixths\b|\b5\/6 (?:to|goes to|stays? with|for) (?:the )?(?:LPs?|liquidity|pool)/i },
   // "a 0.5% protocol fee that flows to TOWELI stakers"
   { id: 'FEE_FLOWS_TO_STAKERS', re: /\bfees?\b[^.]{0,40}\bflows? to (?:TOWELI )?stakers\b/i },
+  // "to stakers, the liquidity engine, and operations", "fees → stakers, liquidity & ops":
+  // the liquidity share of fees is 0 on chain (polShareBps() = 0, read 2026-10-10)
+  { id: 'FEES_TO_LIQUIDITY', re: /\bliquidity (?:engine|&(?:amp;)? ops)\b|\bstakers, (?:the )?liquidity\b/i },
+  // "swap fees route on-chain to stakers in ETH" with no word of the 20% referral share
+  { id: 'STAKERS_WITHOUT_REFERRAL', re: /\broutes? on-?chain to stakers\b(?![^.]{0,80}\breferral)/i },
 ];
 
 /** A file as a visitor could be shown it: comments out, and a sentence that JSX wraps
@@ -69,6 +74,9 @@ describe('no surface in src/ makes a money claim the chain contradicts', () => {
       'pages/TokenomicsPage.tsx',
       'pages/HomePage.tsx',
       'pages/RisksPage.tsx',
+      'components/layout/Footer.tsx',
+      'components/ProtocolStats.tsx',
+      'components/ui/OnboardingModal.tsx',
     ]) {
       expect(files.some((f) => f.endsWith(must)), `${must} is not being scanned`).toBe(true);
     }
@@ -81,6 +89,8 @@ describe('no surface in src/ makes a money claim the chain contradicts', () => {
       WAITS_ON_THE_POOL_STATE: 'fees reach stakers as soon as the native pool goes live',
       LPS_ON_FIVE_SIXTHS: 'providers earn five sixths of every fee',
       FEE_FLOWS_TO_STAKERS: 'the fee on each swap flows to stakers',
+      FEES_TO_LIQUIDITY: 'every fee is split between stakers, the liquidity reserve and the team',
+      STAKERS_WITHOUT_REFERRAL: 'all swap fees route onchain to stakers as ETH',
     };
     for (const s of SHAPES) {
       expect(samples[s.id], `no sample written for ${s.id}`).toBeTruthy();
@@ -92,6 +102,9 @@ describe('no surface in src/ makes a money claim the chain contradicts', () => {
       'The other 80% is routed toward TOWELI stakers as ETH.',
       'limit orders executed on our thin native pool',
       'it stays undeployed until the native pool is deep enough to support it',
+      'protocol swap fees route on-chain, after a referral share, to stakers in ETH',
+      'Protocol fees route on-chain to stakers, after the referral carve.',
+      'add liquidity, stake LP tokens, earn rewards',
     ];
     for (const line of legal) {
       const hit = SHAPES.find((s) => s.re.test(line));

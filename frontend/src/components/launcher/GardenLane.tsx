@@ -20,6 +20,7 @@
 
 import { useEffect, useState } from 'react';
 import { isCertified, isCertifiedState, type CertificationState } from '../../lib/heat/certification';
+import { FinePrint } from '../ui/FinePrint';
 
 export interface GardenLaneProps {
   /** The community this lane would certify. */
@@ -73,10 +74,12 @@ export function GardenLane({ community }: GardenLaneProps) {
         {state?.detail ?? 'Reading the island’s certification state…'}
       </p>
 
-      <p className="text-white/30 text-[10.5px] mt-2 leading-relaxed">
-        This venue cannot certify anyone. Certification is a fact the island publishes, or it is
-        not a fact at all.
-      </p>
+      <FinePrint>
+        <p>
+          This venue cannot certify anyone. Certification is a fact the island publishes, or it is
+          not a fact at all.
+        </p>
+      </FinePrint>
     </div>
   );
 }

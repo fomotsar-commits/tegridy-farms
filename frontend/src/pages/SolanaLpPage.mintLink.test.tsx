@@ -35,6 +35,7 @@ const LIVE = {
     createPoolFee: 0n, creatorFeeRate: 0n,
     protocolOwner: 'Own1', fundOwner: 'Own2',
   },
+  publicTier: { kind: 'not-asked' },
 } as const;
 
 function fakeReaders() {
@@ -82,7 +83,7 @@ function expectTopToBottom(named: [string, HTMLElement][]) {
 }
 
 const RISK_LINE =
-  'These pools run on a pool program whose admin-key changes have not had their own independent review yet. Put in only what you can afford to lose. The full notice is below your positions.';
+  'Admin-key changes not independently reviewed yet: put in only what you can afford to lose.';
 const LP_PARTS = ['lp-risk-line', 'lp-finder', 'lp-positions', 'lp-disclosure', 'fee-tiers'];
 
 beforeEach(() => { vi.clearAllMocks(); readVenue.mockResolvedValue(LIVE); });

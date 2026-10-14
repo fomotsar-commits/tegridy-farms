@@ -6,6 +6,8 @@ import type { Address, Hex } from 'viem';
 import { usePageTitle } from '../hooks/usePageTitle';
 import { PageArtBackdrop } from '../components/PageArtBackdrop';
 import { ArtImg } from '../components/ArtImg';
+import { CardArt } from '../components/ui/CardArt';
+import { FinePrint } from '../components/ui/FinePrint';
 import { shortenAddress, formatTimeAgo } from '../lib/formatting';
 import { collectTokenFacts, viemChainReader } from '../lib/launcher/collector';
 import { buildFactSheet } from '../lib/launcher/gate';
@@ -45,6 +47,9 @@ import {
 // renders as unreadable here: never as 0, never as a clean bill of health, and never
 // as an accusation. Classification lives in lib/launcher/tokenDossier.ts, where it is
 // pure and unit-tested; this file is presentation.
+//
+// launch-token art idx: 0 backdrop, 1 Fact Sheet strip, 2 loading card, 3 state cards,
+// 4-6 provenance / attestation / graduation, 7 the maker's allocation (EvmMakerPlates.tsx).
 
 interface Dossier {
   presence: TokenPresence;
@@ -156,7 +161,8 @@ export default function LaunchTokenPage() {
         <MakerPlatesCard client={publicClient} token={parsed.address} />
 
         {state.phase === 'loading' && (
-          <div className="glass-card rounded-xl p-6 text-center">
+          <div className="relative isolate glass-card rounded-xl p-6 text-center">
+            <CardArt pageId="launch-token" idx={2} />
             <p className="text-[13px] text-text-secondary animate-pulse">
               {/* A COLON, NOT A DASH, AND THE ROUTE IS WHY (element I, answer eight).
                   This line is only on screen while the reads are in flight, so it never
@@ -282,11 +288,6 @@ function DossierView({
           Read from Ethereum mainnet at {new Date(d.observedAt * 1000).toLocaleString()} (
           {formatTimeAgo(d.observedAt)}). Facts are point-in-time and can change.
         </p>
-        <p>
-          This page is a machine-generated disclosure, not an endorsement, a safety rating, or an
-          accusation. A tier reflects structural configuration only. Anything we could not read is
-          labelled as unread rather than guessed.
-        </p>
         <p className="break-words">
           Disclosure schema{' '}
           <a
@@ -299,6 +300,13 @@ function DossierView({
           </a>{' '}
           · token <span className="font-mono">{shortenAddress(address, 6)}</span>
         </p>
+        <FinePrint>
+          <p>
+            This page is a machine-generated disclosure, not an endorsement, a safety rating, or an
+            accusation. A tier reflects structural configuration only. Anything we could not read is
+            labelled as unread rather than guessed.
+          </p>
+        </FinePrint>
       </footer>
     </div>
   );
@@ -315,23 +323,27 @@ const PROVENANCE_TONE: Record<Provenance['kind'], 'good' | 'muted' | 'unknown'> 
 function ProvenanceCard({ p }: { p: Provenance }) {
   const tone = PROVENANCE_TONE[p.kind];
   return (
-    <section className="glass-card rounded-xl p-5">
+    <section className="relative isolate glass-card rounded-xl p-5">
+      <CardArt pageId="launch-token" idx={4} />
       <div className="flex items-start justify-between gap-3 flex-wrap">
         <h2 className="text-[14px] font-semibold text-text-primary">Provenance</h2>
         <Pill tone={tone}>{p.label}</Pill>
       </div>
       <p className="text-[12.5px] text-text-secondary leading-relaxed mt-2 break-words">{p.detail}</p>
-      <p className="text-[11px] text-text-muted mt-2">
-        Read directly from Doppler’s Airlock record for this asset — the only place a launch’s
-        integrator is recoverable. A token we did not launch is always said so plainly.
-      </p>
+      <FinePrint summary="Source">
+        <p>
+          Read directly from Doppler’s Airlock record for this asset — the only place a launch’s
+          integrator is recoverable. A token we did not launch is always said so plainly.
+        </p>
+      </FinePrint>
     </section>
   );
 }
 
 function AttestationCard({ lookup }: { lookup: AttestationLookup | null }) {
   return (
-    <section className="glass-card rounded-xl p-5">
+    <section className="relative isolate glass-card rounded-xl p-5">
+      <CardArt pageId="launch-token" idx={5} />
       <div className="flex items-start justify-between gap-3 flex-wrap">
         <h2 className="text-[14px] font-semibold text-text-primary">Disclosure attestation</h2>
         <Pill
@@ -357,8 +369,7 @@ function AttestationCard({ lookup }: { lookup: AttestationLookup | null }) {
 
       {lookup == null && (
         <p className="text-[12.5px] text-text-secondary leading-relaxed mt-2 animate-pulse">
-          Searching the Ethereum Attestation Service for a Fact Sheet attestation on this token. This
-          can take a while, and can fail — either way it will say which.
+          Searching the Ethereum Attestation Service for a Fact Sheet attestation on this token.
         </p>
       )}
 
@@ -390,26 +401,35 @@ function AttestationCard({ lookup }: { lookup: AttestationLookup | null }) {
       )}
 
       {lookup?.status === 'none' && (
-        <p className="text-[12.5px] text-text-secondary leading-relaxed mt-2">
-          No attestation for this token exists under our disclosure schema. That is not a mark
-          against the token — most tokens have never been attested, and an attestation is a
-          timestamped disclosure, not a warranty.
-        </p>
+        <>
+          <p className="text-[12.5px] text-text-secondary leading-relaxed mt-2">
+            No attestation for this token exists under our disclosure schema.
+          </p>
+          <FinePrint>
+            <p>
+              That is not a mark against the token — most tokens have never been attested, and an attestation is a
+              timestamped disclosure, not a warranty.
+            </p>
+          </FinePrint>
+        </>
       )}
 
       {lookup?.status === 'unverifiable' && (
         <>
           <p className="text-[12.5px] text-text-secondary leading-relaxed mt-2">
-            We could not determine whether this token has been attested. Ethereum mainnet has no EAS
-            indexer contract, and the public RPCs this app uses refuse the full-history log query
-            the lookup needs. Treat this as unknown — it says nothing either way about the token.
+            We could not determine whether this token has been attested. Treat it as unknown.
           </p>
           {/* Bounded: viem's error carries the entire JSON-RPC request body, which dumped a
               wall of hex onto the page. The leading sentence + URL is the diagnostic part. */}
           <p className="text-[11px] text-text-muted mt-2 break-words">Reason: {clip(lookup.reason)}</p>
-          <p className="text-[11px] text-text-muted mt-2">
-            You can check it yourself on the EAS explorer via the “Attestations on EAS” link above.
-          </p>
+          <FinePrint>
+            <p>
+              Ethereum mainnet has no EAS indexer contract, and the public RPCs this app uses refuse the
+              full-history log query the lookup needs. Treat this as unknown — it says nothing either way about the
+              token.
+            </p>
+            <p>You can check it yourself on the EAS explorer via the “Attestations on EAS” link above.</p>
+          </FinePrint>
         </>
       )}
     </section>
@@ -503,7 +523,8 @@ function FactSheetSection({
 function GraduationCard({ g }: { g: GraduationState }) {
   const pair = g.numeraire.toLowerCase() === TOWELI_NUMERAIRE.toLowerCase() ? 'token / TOWELI' : 'token / ETH';
   return (
-    <section className="glass-card rounded-xl p-5">
+    <section className="relative isolate glass-card rounded-xl p-5">
+      <CardArt pageId="launch-token" idx={6} />
       <div className="flex items-start justify-between gap-3 flex-wrap">
         <h2 className="text-[14px] font-semibold text-text-primary">Post-graduation state</h2>
         <Pill tone={g.kind === 'graduated' ? 'good' : g.kind === 'not-graduated' ? 'muted' : 'unknown'}>
@@ -584,7 +605,8 @@ function StateCard({
   const color =
     tone === 'danger' ? 'var(--color-danger)' : tone === 'warning' ? 'var(--color-warning)' : 'var(--color-text-muted)';
   return (
-    <div className="glass-card rounded-xl p-5" style={{ borderColor: color }}>
+    <div className="relative isolate glass-card rounded-xl p-5" style={{ borderColor: color }}>
+      <CardArt pageId="launch-token" idx={3} />
       <h2 className="text-[14px] font-semibold mb-1.5" style={{ color }}>
         {title}
       </h2>

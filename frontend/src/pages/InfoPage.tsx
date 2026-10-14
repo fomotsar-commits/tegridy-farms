@@ -73,7 +73,7 @@ export default function InfoPage() {
         onSelect={handleTab}
       />
 
-      {/* Contracts needs extra top padding to clear the sticky tab bar; the
+      {/* Contracts needs extra top padding to clear the tab bar over its top; the
           other three already carry their own. */}
       <div role="tabpanel" id="info-panel" aria-labelledby={tabDomId('info', tab)}>
         <Suspense fallback={<PageSkeleton />}>

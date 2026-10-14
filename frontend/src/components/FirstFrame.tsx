@@ -73,7 +73,9 @@ export function FirstFrame() {
       </div>
       <div className="ff-wrap">
         <div className="ff-col">
-          <h1 className="ff-h1">
+          {/* The hero's chain-pill row and letter-spacing, as in the static frame and a door's. */}
+          <div aria-hidden="true" style={{ height: 24.5, margin: '0 0 1.25rem' }} />
+          <h1 className="ff-h1" style={{ letterSpacing: '0.01em' }}>
             {VENUE.heroTitle}{' '}<br /><span>{VENUE.heroLine}</span>
           </h1>
           <p className="ff-plain">{VENUE.heroPlain}</p>

@@ -10,6 +10,8 @@ import { CREATOR_FEE_SWITCH } from '../../../lib/solana/cpswap/venue';
 import { QUOTE_COINS_OR, orList, otherSideLine, quoteCoin, searchedCoinsOr, type QuoteCoin } from '../../../lib/solana/lp/quotes';
 import { Notice } from '../curve/ui';
 import { CARD, CARD_STYLE, SHADOW } from '../curve/uiFormat';
+import { CardArt } from '../../ui/CardArt';
+import { FinePrint } from '../../ui/FinePrint';
 import type { CreateFacts, TierState } from '../curve/ports';
 import { CreatePoolPanel } from './CreatePoolPanel';
 import { MONEY_NOTE } from './LpDisclosures';
@@ -174,7 +176,7 @@ function CreateCard({
   return (
     <section
       ref={sectionRef}
-      className={CARD}
+      className={`${CARD} isolate`}
       style={CARD_STYLE}
       data-testid="lp-create"
       data-create={offer}
@@ -183,6 +185,7 @@ function CreateCard({
       aria-labelledby={headingId}
       aria-busy={reading}
     >
+      <CardArt pageId="solana-lp" idx={9} />
       <h3 id={headingId} ref={headingRef} tabIndex={-1} className="text-white font-semibold text-[13px] mb-2 outline-none" style={SHADOW}>
         Open a new pool
       </h3>
@@ -238,7 +241,6 @@ function CreateCard({
         )}
         {offer === 'offer' && (
           <>
-            <p className="text-white/60 text-[11px]">{MONEY_NOTE}</p>
             {/* Stays mounted while its panel is open, so focus can come back to it on Close. */}
             <button
               ref={openButton}
@@ -252,6 +254,9 @@ function CreateCard({
               Open a pool
             </button>
             {blockedByOther && <Notice>Finish or close the open liquidity panel first.</Notice>}
+            <FinePrint summary="How a pool earns">
+              <p>{MONEY_NOTE}</p>
+            </FinePrint>
           </>
         )}
         {/* An open panel stays mounted whatever the card says while its flow runs: its own
@@ -414,11 +419,13 @@ function OfferLines({
         const aPool = quoteCoin(safety.mint) ? `${searchedCoinsOr(safety.mint)} pool` : 'pool';
         return (
           <>
-            {/* With no pool anywhere there is nothing to press "Add liquidity" on: say that this is the way in. */}
-            <p>There is no {aPool} to add liquidity to yet. Opening one is how the first liquidity goes in.</p>
             <p>
               No {aPool} for this token yet. You can open the first one on the public fee tier: {terms} (read just now).
             </p>
+            {/* With no pool anywhere there is nothing to press "Add liquidity" on: say that this is the way in. */}
+            <FinePrint summary="Details">
+              <p>There is no {aPool} to add liquidity to yet. Opening one is how the first liquidity goes in.</p>
+            </FinePrint>
           </>
         );
       }
@@ -433,11 +440,13 @@ function OfferLines({
       const cleanTiers = tiersOf(elsewhere.filter((v) => !depositWarned(healths.get(v.address))));
       const warnedTiers = otherTiers.filter((t) => !cleanTiers.includes(t));
       const cutLine = cut && (
-        <p>
-          {pairs.length > 1
-            ? 'This token has more pools than our pool index lists. For each coin a pool can be paired with, the index lists the ones holding the most of that coin, so the ones left out hold no more of it than those. They were not read or checked here.'
-            : 'This token has more pools than our pool index lists. The index lists the ones holding the most SOL, so the ones left out hold no more SOL than those. They were not read or checked here.'}
-        </p>
+        <FinePrint summary="Pools not listed">
+          <p>
+            {pairs.length > 1
+              ? 'This token has more pools than our pool index lists. For each coin a pool can be paired with, the index lists the ones holding the most of that coin, so the ones left out hold no more of it than those. They were not read or checked here.'
+              : 'This token has more pools than our pool index lists. The index lists the ones holding the most SOL, so the ones left out hold no more SOL than those. They were not read or checked here.'}
+          </p>
+        </FinePrint>
       );
       const onPublicTier = otherTiers.length > 0 ? ' on the public fee tier' : '';
       const otherTierLine = otherTiers.length > 0 && (
@@ -468,7 +477,6 @@ function OfferLines({
       if (pointers.length === 0) {
         return (
           <>
-            {cutLine}
             <p>
               {cut ? 'None of the pools read for this token' : "None of this token's pools"}
               {onPublicTier} passes the checks above.{' '}
@@ -476,6 +484,7 @@ function OfferLines({
             </p>
             {noneYetLine}
             {otherTierLine}
+            {cutLine}
           </>
         );
       }
@@ -486,7 +495,6 @@ function OfferLines({
       const allMine = pointers.every((x) => x.kind === 'opened-here');
       return (
         <>
-          {cutLine}
           {pointers.map(({ coin, kind, pool, warned }) => {
             const aPool = several || !coin.native ? `a ${coin.symbol} pool` : 'a pool';
             return kind === 'opened-here' ? (
@@ -518,6 +526,7 @@ function OfferLines({
               : `You can still open your own on the public fee tier (${terms}). It will be a separate pool: it does not share ${several ? "the other pools'" : "the other pool's"} liquidity or fees.`}
           </p>
           {!allMine && otherTierLine}
+          {cutLine}
         </>
       );
     }

@@ -318,9 +318,12 @@ export function StepIndicator({
 export function RiskBanner({
   variant = 'warning',
   children,
+  art,
 }: {
   variant?: 'warning' | 'info' | 'danger';
   children: React.ReactNode;
+  /** A `<CardArt>` for a banner that stands alone; one nested in an art card passes none. */
+  art?: React.ReactNode;
 }) {
   const colors = {
     warning: {
@@ -343,9 +346,10 @@ export function RiskBanner({
 
   return (
     <div
-      className="flex items-start gap-2.5 px-3.5 py-3 rounded-xl text-[12px] text-white/80 leading-relaxed"
+      className={`${art ? 'relative isolate ' : ''}flex items-start gap-2.5 px-3.5 py-3 rounded-xl text-[12px] text-white/80 leading-relaxed`}
       style={{ background: c.bg, border: `1px solid ${c.border}` }}
     >
+      {art}
       <svg
         className={`w-4 h-4 flex-shrink-0 mt-0.5 ${c.icon}`}
         fill="none"
@@ -367,15 +371,16 @@ export function RiskBanner({
 /**
  * Inline transaction summary card shown above action buttons.
  */
-export function TxSummary({ children }: { children: React.ReactNode }) {
+export function TxSummary({ children, art }: { children: React.ReactNode; art?: React.ReactNode }) {
   return (
     <div
-      className="rounded-xl px-3.5 py-3 text-[12px] text-white/70 leading-relaxed"
+      className={`${art ? 'relative isolate ' : ''}rounded-xl px-3.5 py-3 text-[12px] text-white/70 leading-relaxed`}
       style={{
         background: 'rgba(16, 185, 129, 0.06)',
         border: '1px solid rgba(16, 185, 129, 0.15)',
       }}
     >
+      {art}
       {children}
     </div>
   );

@@ -12,6 +12,7 @@ import { CHAIN_ID } from '../../lib/constants';
 import { liquidityVenueOn } from '../../lib/chains/liquidityVenue';
 import { formatTokenAmount, formatNumber } from '../../lib/formatting';
 import { ArtImg } from '../ArtImg';
+import { FinePrint } from '../ui/FinePrint';
 
 type LiquidityMode = 'add' | 'remove';
 
@@ -291,8 +292,8 @@ export function LiquidityTab() {
 
         <p className="text-white/70 text-[11px] mb-4">
           {mode === 'add'
-            ? 'Pair two tokens, earn a cut of every swap that routes through your pool. LP goes to your wallet.'
-            : 'Withdraw your LP back into the two underlying tokens. Burn the LP, take the crop.'}
+            ? 'Earn a cut of every swap through your pool. LP goes to your wallet.'
+            : 'Burn your LP for the two underlying tokens.'}
         </p>
 
         {/* "Where did my LP go?" reassurance — shown whenever the user holds LP in this
@@ -300,9 +301,8 @@ export function LiquidityTab() {
             question: the position is a token in your wallet, not lost. */}
         {isConnected && liq.lpUnread && (
           <div className="mb-4 rounded-xl p-3 text-[11px] text-amber-300" style={{ background: 'rgba(255,178,55,0.10)', border: '1px solid rgba(255,178,55,0.35)' }}>
-            We could not read your LP balance for this pair just now. If you hold a
-            position it is still in your wallet as TGLP and still redeemable — this
-            panel failing to load says nothing about whether it is there.
+            Your LP balance could not be read. Any TGLP you hold is still in your
+            wallet and still redeemable.
           </div>
         )}
 
@@ -313,10 +313,10 @@ export function LiquidityTab() {
               <span className="text-white/70 text-[10px] font-mono">{formatTokenAmount(liq.lpBalanceFormatted)} TGLP</span>
             </div>
             <p className="text-white/75 text-[11px] leading-relaxed mb-2.5">
-              It lives in your wallet as a token called <span className="font-mono text-white">TGLP</span> — it didn't
-              disappear, wallets just hide tokens they don't recognize.
+              It&apos;s in your wallet as <span className="font-mono text-white">TGLP</span>. Wallets hide
+              tokens they don&apos;t recognize.
               {yourUnderlying && (
-                <> Redeemable right now for about{' '}
+                <> Redeemable now for about{' '}
                   <span className="text-white font-mono">{parseFloat(yourUnderlying.a).toFixed(4)} {tokenA.symbol}</span> +{' '}
                   <span className="text-white font-mono">{parseFloat(yourUnderlying.b).toFixed(2)} {tokenB.symbol}</span>,
                   and it earns a cut of every swap through the pool.</>
@@ -425,16 +425,15 @@ export function LiquidityTab() {
 
             {liq.reservesUnread && (
               <div className="mb-3 px-3 py-2 rounded-lg text-[11px] text-amber-300" style={{ background: 'rgba(255,178,55,0.10)', border: '1px solid rgba(255,178,55,0.35)' }}>
-                This pair exists but its reserves could not be read, so the price and your
-                share cannot be shown. Reload before adding — do not treat this as an empty pool.
+                This pair&apos;s reserves could not be read, so price and share are unknown.
+                Reload before adding; it is not an empty pool.
               </div>
             )}
 
             {(balanceAUnread || balanceBUnread) && (
               <div data-testid="liquidity-balance-unread" className="mb-3 px-3 py-2 rounded-lg text-[11px] text-amber-300" style={{ background: 'rgba(255,178,55,0.10)', border: '1px solid rgba(255,178,55,0.35)' }}>
                 Your {[balanceAUnread && tokenA.symbol, balanceBUnread && tokenB.symbol].filter(Boolean).join(' and ')} balance
-                could not be read — the network did not answer. This is not a statement that you
-                hold none; reload before adding.
+                could not be read. This is not a statement that you hold none; reload before adding.
               </div>
             )}
 
@@ -478,11 +477,15 @@ export function LiquidityTab() {
                 <p className="text-amber-300 font-semibold mb-0.5">Heads up — impermanent loss</p>
                 <p className="text-white/80">
                   LP positions lose value vs. just holding the two tokens when their
-                  price ratio diverges. A 2× move one way costs you ~5.7% vs. holding;
-                  a 4× move costs ~20%. Fees earned must outweigh this drift for the
-                  position to be net profitable. Don't LP volatile pairs with funds
-                  you need short-term.
+                  price ratio diverges.
                 </p>
+                <FinePrint summary="How much">
+                  <p>
+                    A 2× move one way costs you ~5.7% vs. holding; a 4× move costs ~20%.
+                    Fees earned must outweigh this drift for the position to be net
+                    profitable. Don&apos;t LP volatile pairs with funds you need short-term.
+                  </p>
+                </FinePrint>
               </div>
             )}
 
@@ -589,9 +592,8 @@ export function LiquidityTab() {
               </div>
             ) : liq.lpUnread ? (
               <div className="mb-3 px-3 py-2 rounded-lg text-[11px] text-amber-300" style={{ background: 'rgba(255,178,55,0.10)', border: '1px solid rgba(255,178,55,0.35)' }}>
-                Your LP balance could not be read — the network did not answer. This is not
-                a statement that you hold none. Reload before concluding anything about
-                this position; the controls stay disabled until the balance is known.
+                Your LP balance could not be read. This is not a statement that you hold
+                none. Reload; the controls stay disabled until the balance is known.
               </div>
             ) : !hasLP ? (
               <div className="mb-3 px-3 py-2 rounded-lg text-[11px] text-white/60" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.10)' }}>

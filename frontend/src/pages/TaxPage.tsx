@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { useAccount } from 'wagmi';
 import { usePageTitle } from '../hooks/usePageTitle';
 import { PageArtBackdrop } from '../components/PageArtBackdrop';
+import { CardArt } from '../components/ui/CardArt';
 import { CostBasisPicker } from '../components/tax/CostBasisPicker';
 import { LedgerStatusCard } from '../components/tax/LedgerStatusCard';
 import { TaxReportPanel } from '../components/tax/TaxReportPanel';
@@ -98,7 +99,8 @@ export default function TaxPage() {
 
         <div className="mt-6 grid gap-4 lg:grid-cols-[minmax(0,20rem)_1fr]">
           <div className="space-y-4">
-            <section className="rounded-xl border border-white/15 bg-white/[0.02] p-4">
+            <section className="relative isolate rounded-xl border border-white/15 bg-white/[0.02] p-4">
+              <CardArt pageId="tax" idx={1} />
               <label htmlFor="tax-year" className="text-[11px] uppercase tracking-wide text-white/55">
                 Period
                 <select
@@ -131,7 +133,8 @@ export default function TaxPage() {
 
             <CostBasisPicker method={method} onChange={setMethod} />
 
-            <section className="rounded-xl border border-white/15 bg-white/[0.02] p-4">
+            <section className="relative isolate rounded-xl border border-white/15 bg-white/[0.02] p-4">
+              <CardArt pageId="tax" idx={3} />
               <h2 className="text-sm font-semibold text-white">Bring your own lots</h2>
               <p className="mt-1 text-[12px] leading-relaxed text-white/60">
                 Trades this venue read are priced from their own counter-leg. Anything it could not read or

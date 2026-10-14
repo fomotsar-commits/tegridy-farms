@@ -4,6 +4,7 @@ import { useActiveCollection } from "../../contexts/CollectionContext";
 import { useToast } from "../../contexts/ToastContext";
 import { explorerAddressUrl, marketCollectionUrl } from "../../lib/venue";
 import useExternalCollection from "../../hooks/useExternalCollection";
+import { useOpensAtTheTop } from "../../../hooks/useOpensAtTheTop";
 import Background from "../Background";
 import Header from "../Header";
 import MobileNav from "../MobileNav";
@@ -38,9 +39,7 @@ export default function ExternalCollectionView({ tab, deepLinkTokenId, collectio
   const deepLinkId = collection.chain === "solana" ? null : deepLinkTokenId;
   const burnedDeepLink = deepLinkId != null && (collection.burnedIds || []).some((b) => String(b) === deepLinkId);
 
-  useEffect(() => {
-    window.scrollTo({ top: 0, behavior: "instant" });
-  }, [collectionSlug]);
+  useOpensAtTheTop(collectionSlug);
 
   useEffect(() => {
     const label = tab === "gallery" ? "" : ` - ${TAB_LABELS[tab] || "Not Found"}`;

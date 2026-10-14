@@ -14,6 +14,8 @@ import {
 import type { PoolFamily } from '../../lib/copytrade/tape';
 import { MIRROR_EXECUTION } from '../../lib/copytrade/mirror';
 import { shortenAddress } from '../../lib/formatting';
+import { CardArt } from '../ui/CardArt';
+import { FinePrint } from '../ui/FinePrint';
 
 // Adding a follow, and stating what a follow is not.
 //
@@ -23,9 +25,10 @@ import { shortenAddress } from '../../lib/formatting';
 // reason rather than rounded into something plausible: a cap this component
 // invented is a trade size the user did not choose.
 //
-// `MIRROR_EXECUTION` is rendered above the button rather than in a footnote.
-// "Follow" is a word that implies an automaton, and the honest correction has to
-// arrive before the click, not after it.
+// The correction to "Follow" (nothing trades for you) is the card's one visible
+// line, above the button: the word implies an automaton, and the correction has
+// to arrive before the click. `MIRROR_EXECUTION` itself, and each field's
+// longer note, sit in the card's FinePrint (owner, 2026-10-13: fewer words).
 //
 // ─── THE VENUE IS A CONTROL, NOT AN INFERENCE ────────────────────────────────
 //
@@ -114,9 +117,12 @@ export function FollowForm({
   }
 
   return (
-    <section className="rounded-xl border border-white/15 bg-white/[0.02] p-4">
+    <section className="relative isolate rounded-xl border border-white/15 bg-white/[0.02] p-4">
+      <CardArt pageId="copy-trading" idx={3} />
       <h2 className="text-sm font-semibold text-white">Follow an address</h2>
-      <p className="mt-1.5 text-xs leading-relaxed text-white/70">{MIRROR_EXECUTION}</p>
+      <p className="mt-1.5 text-xs leading-relaxed text-white/70">
+        Nothing trades for you. A follow is a note in this browser.
+      </p>
 
       <form className="mt-4 grid gap-3 sm:grid-cols-2" onSubmit={submit}>
         <div>
@@ -146,10 +152,6 @@ export function FollowForm({
             spellCheck={false}
             className="mt-1 min-h-11 w-full rounded-md border border-white/20 bg-black/40 px-2.5 py-1.5 font-mono text-xs text-white"
           />
-          <p className="mt-1 text-[10px] leading-snug text-white/55">
-            Addresses on the board are the ones that SENT each transaction. A bot or a relayer
-            appears under its own address, so following one follows the sender, not a person.
-          </p>
         </div>
 
         <div>
@@ -168,11 +170,6 @@ export function FollowForm({
               </option>
             ))}
           </select>
-          <p className="mt-1 text-[10px] leading-snug text-white/55">
-            Only fills that SPEND this token in a pool quoted in it are sized. A fill on another
-            chain, or against another quote asset, is shown and refused rather than converted —
-            there is no price here to convert with.
-          </p>
         </div>
 
         <div>
@@ -187,10 +184,6 @@ export function FollowForm({
             placeholder="0.05"
             className="mt-1 min-h-11 w-full rounded-md border border-white/20 bg-black/40 px-2.5 py-1.5 text-xs text-white"
           />
-          <p className="mt-1 text-[10px] leading-snug text-white/55">
-            A mirror is sized at the smaller of the leader's amount and this. It never scales up to
-            match them.
-          </p>
         </div>
 
         <div>
@@ -205,8 +198,7 @@ export function FollowForm({
             className="mt-1 min-h-11 w-full rounded-md border border-white/20 bg-black/40 px-2.5 py-1.5 text-xs text-white"
           />
           <p className="mt-1 text-[10px] leading-snug text-white/55">
-            {MIN_SLIPPAGE_BPS}–{MAX_SLIPPAGE_BPS} bps. Applied to a live quote when you confirm, not
-            to the leader's old fill.
+            {MIN_SLIPPAGE_BPS}–{MAX_SLIPPAGE_BPS} bps.
           </p>
         </div>
 
@@ -215,10 +207,7 @@ export function FollowForm({
             Save follow
           </button>
           {account ? null : (
-            <span className="text-[11px] text-white/60">
-              No wallet is connected. A follow can still be saved — it is a local note, not an
-              approval.
-            </span>
+            <span className="text-[11px] text-white/60">No wallet connected. You can still save a follow.</span>
           )}
         </div>
       </form>
@@ -234,10 +223,7 @@ export function FollowForm({
         Followed addresses ({follows.length})
       </h3>
       {follows.length === 0 ? (
-        <p className="mt-2 text-xs text-white/70">
-          Nothing is followed yet. This list lives in this browser only — it is never sent anywhere,
-          and it grants no permission over your wallet.
-        </p>
+        <p className="mt-2 text-xs text-white/70">Nothing is followed yet.</p>
       ) : (
         <ul className="mt-2 space-y-2">
           {follows.map((follow) => (
@@ -262,6 +248,35 @@ export function FollowForm({
           ))}
         </ul>
       )}
+
+      <FinePrint summary="How following works" className="mt-2">
+        <p>{MIRROR_EXECUTION}</p>
+        <p>
+          This list lives in this browser only — it is never sent anywhere, and it grants no
+          permission over your wallet.
+        </p>
+        <p>
+          <span className="text-white">Address to follow:</span> Addresses on the board are the ones
+          that SENT each transaction. A bot or a relayer appears under its own address, so following
+          one follows the sender, not a person.
+        </p>
+        <p>
+          <span className="text-white">Quote token:</span> Only fills that SPEND this token in a pool
+          quoted in it are sized. A fill on another chain, or against another quote asset, is shown
+          and refused rather than converted — there is no price here to convert with.
+        </p>
+        <p>
+          <span className="text-white">Per-trade cap:</span> A mirror is sized at the smaller of the
+          leader's amount and this. It never scales up to match them.
+        </p>
+        <p>
+          <span className="text-white">Slippage guard:</span> Applied to a live quote when you
+          confirm, not to the leader's old fill.
+        </p>
+        {account ? null : (
+          <p>No wallet is connected. A follow can still be saved — it is a local note, not an approval.</p>
+        )}
+      </FinePrint>
     </section>
   );
 }

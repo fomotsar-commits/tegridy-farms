@@ -323,7 +323,9 @@ export type AggregatorSeen =
   | { kind: 'quoted'; out: bigint; when: 'now' | 'earlier' }
   | { kind: 'no-route' }
   | { kind: 'unreachable' }
-  | { kind: 'refused'; out: bigint; earlier?: true; why?: string };
+  | { kind: 'refused'; out: bigint; earlier?: true; why?: string }
+  /** Its test run could not run on our side, press after press: it was not sent, and holds the pool to nothing. */
+  | { kind: 'unchecked'; out: bigint };
 
 /**
  * A swap in one of our pools, as the review shows it. The amounts are decoded from the

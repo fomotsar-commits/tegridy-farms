@@ -98,9 +98,11 @@ describe('SolanaSwapPage: the Earn rail names each staking token and prints no r
     fee.on = true;
     render(<SolanaSwapPage />);
     const text = rail().textContent ?? '';
-    // A rate is never among the percentages: the one figure is the platform fee.
+    // A rate is never among the percentages: the one figure is the platform fee. It is
+    // printed twice: on the rail's visible line and in its small print (FinePrint).
     const percentages = text.match(/\d+(?:\.\d+)?\s*%/g) ?? [];
-    expect(percentages).toEqual([`${SOLANA_PLATFORM_FEE_BPS / 100}%`]);
+    expect(percentages.length).toBeGreaterThan(0);
+    expect([...new Set(percentages)]).toEqual([`${SOLANA_PLATFORM_FEE_BPS / 100}%`]);
     expect(text).toContain(`A ${percentages[0]} fee applies when the buy goes through Jupiter.`);
     // A buy that goes to one of our pools pays no platform fee, so the fee is never said of every buy.
     expect(text).toContain("A buy in one of our pools pays that pool's own fee inside the quote, and no platform fee on top.");

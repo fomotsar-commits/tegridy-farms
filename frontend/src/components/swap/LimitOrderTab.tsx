@@ -10,6 +10,7 @@ import { DEFAULT_TOKENS } from '../../lib/tokenList';
 import { WETH_ADDRESS, CHAIN_ID } from '../../lib/constants';
 import { getTxUrl } from '../../lib/explorer';
 import { formatTokenAmount } from '../../lib/formatting';
+import { FinePrint } from '../ui/FinePrint';
 
 const EXPIRY_OPTIONS = [
   { label: '1 Hour', ms: 3600000 },
@@ -115,7 +116,7 @@ export function LimitOrderTab() {
 
   return (
     <div className="p-5">
-      <p className="text-white text-[12px] mb-4" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>Buy {toToken.symbol} automatically when it reaches your target price &mdash; a real on-chain order that fills even after you close the tab.</p>
+      <p className="text-white text-[12px] mb-4" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>Buy {toToken.symbol} when it reaches your target price.</p>
 
       {/* Amount */}
       <div className="mb-3">
@@ -171,7 +172,7 @@ export function LimitOrderTab() {
           the strictly-better path, so it gets the primary button; the browser-only
           watcher below keeps only its one real edge (native ETH, no wrap). */}
       <p className="text-emerald-300 text-[10px] mb-2 rounded px-2 py-1.5 border border-emerald-500/40" style={{ background: 'rgba(0,0,0,0.70)', textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>
-        &#10003; <strong>On-chain order via CoW Protocol</strong> &mdash; settles when your price is met, <strong>survives closing the tab</strong>, gasless to place, and MEV-protected. Sells <strong>WETH</strong>, so wrap your ETH first.
+        &#10003; Sells <strong>WETH</strong>, so wrap your ETH first.
       </p>
       {isConnected ? (
         <button type="button" onClick={handleCreateCow}
@@ -213,6 +214,13 @@ export function LimitOrderTab() {
           </div>
         </details>
       )}
+
+      <FinePrint summary="How it works" className="mt-2">
+        <p>
+          <strong>On-chain order via CoW Protocol</strong> &mdash; settles when your price is met,{' '}
+          <strong>survives closing the tab</strong>, gasless to place, and MEV-protected.
+        </p>
+      </FinePrint>
 
       {/* CoW Orders */}
       {cow.records.length > 0 && (

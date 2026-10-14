@@ -2,6 +2,8 @@ import { useEffect } from 'react';
 import { usePageTitle } from '../hooks/usePageTitle';
 import { trackPageView } from '../lib/analytics';
 import { PageArtBackdrop } from '../components/PageArtBackdrop';
+import { CardArt } from '../components/ui/CardArt';
+import { FinePrint } from '../components/ui/FinePrint';
 import { AlertsPanel } from '../components/notifications/AlertsPanel';
 
 /**
@@ -50,10 +52,7 @@ export default function AlertsPage() {
         <div className="mb-6">
           <h1 className="text-2xl font-bold text-white">Alerts</h1>
           <p className="text-white/60 text-sm mt-1 max-w-2xl leading-relaxed">
-            Rules over the same subjects the trust tools read on demand — a token, a wallet, a deployer, a pool —
-            checked on a loop and collected in an inbox. Every panel below reports its own state: whether your rules
-            reached this browser’s storage, whether anything has evaluated them, and where an alert can actually be
-            delivered.
+            Watch a token, wallet, deployer or pool. Alerts land in an inbox.
           </p>
         </div>
 
@@ -62,9 +61,16 @@ export default function AlertsPage() {
         <h2 className="sr-only">Your rules, inbox and delivery</h2>
         <AlertsPanel />
 
-        <div className="mt-10 rounded-2xl border border-white/10 bg-black/20 p-5">
-          <h2 className="text-white/80 font-semibold text-sm mb-2">What this page does and does not promise</h2>
-          <ul className="text-white/50 text-xs space-y-1.5 leading-relaxed list-disc pl-4 marker:text-white/25">
+        <div className="relative isolate mt-10 rounded-2xl border border-white/10 bg-black/20 p-5">
+          <CardArt pageId="alerts" idx={5} />
+          <h2 className="text-white/80 font-semibold text-sm mb-1">What this page does and does not promise</h2>
+          <p className="text-white/60 text-xs">Rules stay in this browser and run only while this page is open.</p>
+          <FinePrint>
+          <p>
+            Every panel above reports its own state: whether your rules reached this browser’s storage, whether
+            anything has evaluated them, and where an alert can actually be delivered.
+          </p>
+          <ul className="space-y-1.5 list-disc pl-4 marker:text-white/25">
             <li>
               Rules are saved in this browser and need no sign-in. Wallet sync and Telegram binding do need one, and
               this venue does not offer a sign-in yet — so rules do not follow you to another device.
@@ -82,6 +88,7 @@ export default function AlertsPage() {
               empty list — it still evaluates for this session, and the warning says it will not survive a reload.
             </li>
           </ul>
+          </FinePrint>
         </div>
       </div>
     </>

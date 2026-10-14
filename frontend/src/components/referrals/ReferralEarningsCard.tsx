@@ -1,5 +1,7 @@
 import { formatWei } from '../../lib/formatting';
 import type { ClaimVerdict } from '../../lib/referrals/qualification';
+import { CardArt } from '../ui/CardArt';
+import { FinePrint } from '../ui/FinePrint';
 
 // What ReferralSplitter actually holds for this wallet, and nothing else.
 //
@@ -79,17 +81,25 @@ export function ReferralEarningsCard({
 }: Props) {
   return (
     <section
-      className="rounded-xl p-4"
+      className="relative isolate rounded-xl p-4"
       style={{ background: '#000', border: '1px solid var(--color-purple-75)' }}
       aria-label="Your referral earnings"
     >
+      <CardArt pageId="referrals" idx={3} />
       <h3 className="text-white text-[13px] font-medium">What the splitter holds for you</h3>
 
       {!connected && (
-        <p className="mt-2 text-white/60 text-[12px] leading-relaxed">
-          Balances are per-wallet on-chain state. Connect a wallet and this reads it. Nothing is shown meanwhile
-          because nothing has been read.
-        </p>
+        <>
+          <p className="mt-2 text-white/60 text-[12px] leading-relaxed">
+            Connect a wallet to read your balance. Nothing is read yet.
+          </p>
+          <FinePrint summary="Details" className="mt-1">
+            <p>
+              Balances are per-wallet on-chain state. Connect a wallet and this reads it. Nothing is shown meanwhile
+              because nothing has been read.
+            </p>
+          </FinePrint>
+        </>
       )}
 
       {connected && isLoading && <p className="mt-2 text-white/60 text-[12px]">Reading the splitter…</p>}
@@ -122,23 +132,20 @@ export function ReferralEarningsCard({
 
             {claim.kind === 'nothing-pending' && (
               <p className="text-white/70 text-[12px] leading-relaxed">
-                The splitter answered: <strong className="text-white">0 ETH</strong> is claimable. That is a read, not a
-                failure — no referee fee has been credited to this wallet since its last claim.
+                The splitter answered: <strong className="text-white">0 ETH</strong> is claimable.
               </p>
             )}
 
             {claim.kind === 'never-registered' && (
               <p className="text-white/70 text-[12px] leading-relaxed">
-                No wallet has linked this address as their referrer yet, so the splitter holds no balance and the 7-day
-                claim clock has not started. Sharing a link is what starts it — but read the requirement above first.
+                No wallet has linked you as their referrer yet.
               </p>
             )}
 
             {claim.kind === 'too-recent' && (
               <p role="status" className="text-white/70 text-[12px] leading-relaxed">
-                Claiming is locked until <strong className="text-white">{unlockDate(claim.unlocksAt)}</strong>. The
-                splitter enforces a 7-day minimum age counted from when the first wallet linked you — not per fee and
-                not per claim — and a claim before then reverts. Any balance keeps accruing in the meantime.
+                Claiming is locked until <strong className="text-white">{unlockDate(claim.unlocksAt)}</strong>. Any
+                balance keeps accruing.
               </p>
             )}
 
@@ -172,11 +179,32 @@ export function ReferralEarningsCard({
             </div>
           </dl>
 
-          <p className="mt-3 text-white/50 text-[11px] leading-relaxed">
-            “Earned lifetime” is the splitter’s <span className="font-mono">totalEarned</span>, which counts credits that
-            were later forfeited to the treasury. “Forfeited” is that portion. Neither figure is an estimate and neither
-            is computed here.
-          </p>
+          <FinePrint summary="Details" className="mt-2">
+            {claim.kind === 'nothing-pending' && (
+              <p>
+                That is a read, not a
+                failure — no referee fee has been credited to this wallet since its last claim.
+              </p>
+            )}
+            {claim.kind === 'never-registered' && (
+              <p>
+                No wallet has linked this address as their referrer yet, so the splitter holds no balance and the 7-day
+                claim clock has not started. Sharing a link is what starts it — but read the requirement above first.
+              </p>
+            )}
+            {claim.kind === 'too-recent' && (
+              <p>
+                The
+                splitter enforces a 7-day minimum age counted from when the first wallet linked you — not per fee and
+                not per claim — and a claim before then reverts.
+              </p>
+            )}
+            <p>
+              “Earned lifetime” is the splitter’s <span className="font-mono">totalEarned</span>, which counts credits that
+              were later forfeited to the treasury. “Forfeited” is that portion. Neither figure is an estimate and neither
+              is computed here.
+            </p>
+          </FinePrint>
         </>
       )}
     </section>

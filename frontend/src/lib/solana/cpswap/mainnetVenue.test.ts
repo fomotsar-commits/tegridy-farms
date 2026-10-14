@@ -30,6 +30,19 @@ describe('the recorded mainnet venue, through the read path', () => {
       `getAccountInfo:${RECORDING.programData}`,
       `getAccountInfo:${RECORDING.tier0}`,
     ]);
+    // Not asked for, the public tier is not read.
+    expect(v.publicTier).toEqual({ kind: 'not-asked' });
+  });
+
+  it('readVenue asked for the public tier reads tier 1 in the same pass, the tier every pool opened from this site is on', async () => {
+    const calls: string[] = [];
+    const v = await readVenue(browserCurveRpc(recordedRpc(calls)), PROGRAM, 0, { publicTier: true });
+    expect(v.kind).toBe('live');
+    if (v.kind !== 'live') return;
+    expect(v.config).toEqual(recordedTier(0));
+    expect(v.publicTier).toEqual({ kind: 'ok', config: recordedTier(1) });
+    expect(calls.slice(0, 2)).toEqual([`getAccountInfo:${RECORDING.program}`, `getAccountInfo:${RECORDING.programData}`]);
+    expect([...calls.slice(2)].sort()).toEqual([`getAccountInfo:${RECORDING.tier0}`, `getAccountInfo:${RECORDING.tier1}`].sort());
   });
 
   it('readFeeTiers reads both tiers, and the rents it quotes for opening one', async () => {

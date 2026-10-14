@@ -73,10 +73,10 @@ because an unrecorded "fine" gets re-litigated.
    and chain-asserted by `.github/workflows/registry-onchain.yml`. The paragraph this
    replaces said "built but not yet deployed … still unclaimed on mainnet
    (`AccountNotFound`, checked 2026-09-20)" — true earlier that day, false by the end of it.
-   🔴 **Still open: the authority handover.** Both the ProgramData upgrade authority and
-   `pool.authority` are the deployer key `Fu7mNAv67sRbKynEp7gpPLaaEGHcE2R5Sq89AMTEtTb6`,
-   not the Squads vault this file's §1 and the runbook's identity table name as the target;
-   `pool.pendingAuthority` is unset, so the two-step has not been started.
+   ✅ **The authority handover ran 2026-09-30** (§D4 below): pool, upgrade and IDL authority
+   are all the Squads vault `GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd`, re-read
+   2026-10-13. Until then this item said both were still the deployer key
+   `Fu7mNAv67sRbKynEp7gpPLaaEGHcE2R5Sq89AMTEtTb6` and the two-step had not been started.
    The deployer rotation is
    **done** — `Fu7mNAv67sRbKynEp7gpPLaaEGHcE2R5Sq89AMTEtTb6` — and the superseded
    `fada8148d28644dc0fbc2a0fb6bbe66ca656e688d76634f08d39e3981b5c44a5` has been replaced by
@@ -197,7 +197,14 @@ the rebuild has not run", and both halves are now done: the deployer is
 `Fu7mNAv67sRbKynEp7gpPLaaEGHcE2R5Sq89AMTEtTb6` (registry id `bayla-ladder-deployer`), and the
 rebuild deployed from tag `bayla-ladder-mainnet`.
 
-🔴 **(D4) HAS NOT BEEN EXECUTED, AND IT WAS A BEFORE-ANY-FUNDS CONDITION.** It reads: the
+✅ **(D4) EXECUTED 2026-09-30, ten days after funds went in.** `pool.authority` was accepted by
+the Squads vault `GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd` at 2026-09-30T06:31:33Z, and
+the ProgramData upgrade authority and the IDL authority were set to the same vault at
+2026-09-30T14:05:22Z. Re-read 2026-10-13 at finalized slot 456,673,908: all three name the
+vault and `pool.pendingAuthority` is unset. The paragraph below is the 2026-09-21 record,
+kept as history; it said, in capitals, that D4 HAS NOT BEEN EXECUTED.
+
+🔴 *(History, 2026-09-21.)* **(D4) HAS NOT BEEN EXECUTED, AND IT WAS A BEFORE-ANY-FUNDS CONDITION.** It reads: the
 **pool authority is handed to a multisig before any funds** — the bound above says what a
 stolen authority key can take, not what it can do (`declare_degraded` is one-way and waives
 every early penalty, including on the thief's own locked positions). As of the chain read at

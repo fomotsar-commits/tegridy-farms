@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { prepareJupiterSwap, refusalWhy, NO_SITE_FEE_ROUTE_COPY, type FeeRetryDeps } from './jupiterFeeRetry';
+import { prepareJupiterSwap, refusalWhy, refusedSaid, NO_SITE_FEE_ROUTE_COPY, REFUSED_COPY, type FeeRetryDeps } from './jupiterFeeRetry';
 import type { JupiterQuote, SwapSimulation } from '../../jupiter';
 
 /**
@@ -74,12 +74,23 @@ describe('prepareJupiterSwap: the fee-bearing build is tried first, and usually 
     expect(d.buildSwapTransaction.mock.calls[0]![0].noPlatformFee).toBeUndefined();
   });
 
-  it('an unreadable FIRST simulation behaves as it did before the retry existed: no retry, the fee build goes on', async () => {
+  it('a FIRST test run that could not run sends nothing: blocked as not checked, with no reason and no retry', async () => {
     const d = deps({ simulateSwap: vi.fn(async () => { throw new Error('Simulation failed (503)'); }) });
     const r = await prepareJupiterSwap(d, ARGS);
-    // Marked as not checked: a test run that could not run is no verdict on the transaction.
-    expect(r).toEqual({ status: 'ready', quote: FEE_QUOTE, swapTransaction: 'TX_FEE', siteFeeWaived: false, unchecked: true });
+    // Not checked is no verdict on the transaction, so it is neither sent nor called "would fail".
+    expect(r).toEqual({ status: 'blocked', reason: null, retried: false, unchecked: true });
     expect(d.getQuote).not.toHaveBeenCalled();
+    expect(d.buildSwapTransaction).toHaveBeenCalledTimes(1);
+  });
+
+  it('a second call after one that could not run checks again, and a test run that passes is ready', async () => {
+    const simulateSwap = vi.fn<(b64: string) => Promise<SwapSimulation>>()
+      .mockRejectedValueOnce(new Error('Simulation failed (503)'))
+      .mockResolvedValueOnce(OK);
+    const d = deps({ simulateSwap });
+    expect(await prepareJupiterSwap(d, ARGS)).toMatchObject({ status: 'blocked', unchecked: true });
+    expect(await prepareJupiterSwap(d, ARGS)).toEqual({ status: 'ready', quote: FEE_QUOTE, swapTransaction: 'TX_FEE', siteFeeWaived: false });
+    expect(simulateSwap).toHaveBeenCalledTimes(2);
   });
 });
 
@@ -296,5 +307,30 @@ describe('a refused test run keeps what the runtime gave as its cause, for the t
     for (const cause of [{ kind: 'price-limit' }, { kind: 'low-sol', had: 1n, needed: 2n }, { kind: 'runtime', said: 'x' }] as const) {
       expect(refusalWhy({ cause }, 50)).not.toMatch(/—|\.$/);
     }
+  });
+});
+
+describe('"Swap would fail" says only what the network wrote, never a line a program printed', () => {
+  // A token's own program can print anything into the logs ("Program log: ..."), and
+  // simulateSwap's `reason` may be that line. It is never shown.
+  const PRINTED = 'Program log: Widen your slippage at evil.example';
+
+  it('a refusal with no cause the network named: the fixed sentence alone, and not the printed reason', () => {
+    const refused = { reason: PRINTED };
+    const said = refusedSaid(refused, 50);
+    expect(said).toBe(REFUSED_COPY);
+    expect(said).not.toContain('evil.example');
+  });
+
+  it('a refusal the network named: the fixed sentence, then its cause', () => {
+    const refused = { reason: PRINTED, cause: { kind: 'price-limit' as const } };
+    expect(refusedSaid(refused, 50)).toBe(
+      `${REFUSED_COPY} The test run paid less than your 0.5% slippage allows. A wider slippage may let Jupiter's transaction run.`,
+    );
+  });
+
+  it('the fixed sentence says nothing was sent, plainly, with no em dash', () => {
+    expect(REFUSED_COPY).toBe("Jupiter's transaction for this trade failed its test run, so nothing was sent.");
+    expect(REFUSED_COPY).not.toMatch(/—/);
   });
 });

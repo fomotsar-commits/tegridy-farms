@@ -18,7 +18,7 @@ import { installTestWallet, type TestWallet } from './fixtures/testWallet';
 import { installRpcGuard, type RpcGuard } from './fixtures/rpcGuard';
 import { installUploadStub, makePng, SVG_WITH_SCRIPT, type UploadStub } from './fixtures/uploadStub';
 import { installHeatStub, type HeatStub } from './fixtures/heatStub';
-import { LAUNCH_INDEX } from './fixtures/walletGuard';
+import { LAUNCH_INDEX, field } from './fixtures/walletGuard';
 import { PLANT_HALF, PLANT_TOTAL, TOKEN_2022, WORKSHOP_BAYLA_ACCOUNT, bayla, baylaAccount, baylaAmount, baylaMoves, baylaSupply, giveBayla } from './fixtures/bayla';
 import { ui, checkAtSizes, clickReal, connectWallet, expectConnected, signAndWait, tokensToInput } from './fixtures/ui';
 import { quoteBuyOnCurve, quoteSellOnCurve } from '../src/lib/launcher/solana/curve/math';
@@ -144,7 +144,7 @@ test('launch (reserve paid at create), trade, graduate and trade in the pool, al
     await expect.poll(() => creator.wallet.signed().length, { timeout: 60_000 }).toBe(1);
     const rec = creator.wallet.lastSigned();
     const create = creator.wallet.lastIx('create_launch');
-    mint = new Pk(create.accounts.mint);
+    mint = new Pk(field(create.accounts, 'mint'));
     await p.waitForURL(new RegExp(`/curve-launch/${mint.toBase58()}`), { timeout: 120_000 });
     const t = await landedOk(rec.signature, 'create');
     // The chain has it; the page must re-read and show it without being asked to.
@@ -155,8 +155,8 @@ test('launch (reserve paid at create), trade, graduate and trade in the pool, al
     // What was signed: one upload message, one transaction; the opening buy's floor is the exact quote.
     expect(creator.wallet.records.filter((r) => r.kind === 'message' && r.outcome === 'signed')).toHaveLength(1);
     const buy = creator.wallet.lastIx('buy');
-    expect(BigInt(buy.args.maxLamportsIn)).toBe(sol(0.05));
-    expect(BigInt(buy.args.minTokensOut), 'the opening buy has no slippage: nothing can trade before it').toBe(expected.tokensOut);
+    expect(BigInt(field(buy.args, 'maxLamportsIn'))).toBe(sol(0.05));
+    expect(BigInt(field(buy.args, 'minTokensOut')), 'the opening buy has no slippage: nothing can trade before it').toBe(expected.tokensOut);
     // With the plant the create no longer keeps 150 B for a wallet's own guard instructions:
     // the rule is that it fits. Measured 2026-10-02: 1,166 B (the form's worst case is 1,210).
     expect(rec.bytes, `create transaction is ${rec.bytes} B`).toBeLessThanOrEqual(TX_LIMIT);
@@ -172,7 +172,7 @@ test('launch (reserve paid at create), trade, graduate and trade in the pool, al
     expect(moved.net, '$BAYLA burned in the create transaction').toBe(-PLANT_HALF);
     const keys = txAccountKeys(t);
     const top = (t.transaction.message as unknown as { compiledInstructions?: { programIdIndex: number }[]; instructions?: { programIdIndex: number }[] });
-    const progs = (top.compiledInstructions ?? top.instructions ?? []).map((ix) => keys[ix.programIdIndex].toBase58());
+    const progs = (top.compiledInstructions ?? top.instructions ?? []).map((ix) => keys[ix.programIdIndex]?.toBase58() ?? `no account ${ix.programIdIndex}`);
     expect(progs.slice(-2)).toEqual([TOKEN_2022.toBase58(), TOKEN_2022.toBase58()]);
     // ...and on the chain after it: exact, to the base unit.
     expect(await baylaAmount(makerBayla)).toBe(baylaBefore.maker - PLANT_TOTAL);
@@ -261,7 +261,7 @@ test('launch (reserve paid at create), trade, graduate and trade in the pool, al
     expect(await signAndWait(p)).toBe('confirmed');
     const t = await landedOk(buyer.wallet.lastSigned().signature, 'buy');
     const signed = buyer.wallet.lastIx('buy');
-    const floor = BigInt(signed.args.minTokensOut);
+    const floor = BigInt(field(signed.args, 'minTokensOut'));
     expect(floor > 0n && floor <= q.value.tokensOut && floor >= (q.value.tokensOut * 95n) / 100n, `floor ${floor} within 5% of ${q.value.tokensOut}`).toBe(true);
     expect(await tokenAmount(ata(mint, buyer.kp.publicKey))).toBe(q.value.tokensOut);
     const creatorLeg = (q.value.feeLamports * c.curve.creatorFeeShareBps) / 10_000n;
@@ -283,8 +283,8 @@ test('launch (reserve paid at create), trade, graduate and trade in the pool, al
     await clickReal(ui.trade.reviewButton(p, 'sell'), 'Review sell');
     expect(await signAndWait(p)).toBe('confirmed');
     const t = await landedOk(buyer.wallet.lastSigned().signature, 'sell');
-    expect(BigInt(buyer.wallet.lastIx('sell').args.tokensIn)).toBe(half);
-    expect(BigInt(buyer.wallet.lastIx('sell').args.minLamportsOut) > 0n).toBe(true);
+    expect(BigInt(field(buyer.wallet.lastIx('sell').args, 'tokensIn'))).toBe(half);
+    expect(BigInt(field(buyer.wallet.lastIx('sell').args, 'minLamportsOut')) > 0n).toBe(true);
     expect(lamportDelta(t, buyer.kp.publicKey)).toBe(q.value.lamportsOut - BigInt(t.meta!.fee));
     expect(await tokenAmount(ata(mint, buyer.kp.publicKey))).toBe(held - half);
     await startOver(p);
@@ -379,7 +379,7 @@ test('launch (reserve paid at create), trade, graduate and trade in the pool, al
     await landedOk(buyer.wallet.lastSigned().signature, 'pool-buy');
     const got = (await tokenAmount(ata(mint, buyer.kp.publicKey)))! - tokBefore;
     expect(got).toBe(outBuy);
-    expect(got >= BigInt(buyer.wallet.lastIx('swap_base_input').args.minimumAmountOut)).toBe(true);
+    expect(got >= BigInt(field(buyer.wallet.lastIx('swap_base_input').args, 'minimumAmountOut'))).toBe(true);
     if (wsolBefore === null) expect(await tokenAmount(ata(WSOL, buyer.kp.publicKey)), 'the temporary WSOL account is closed').toBeNull();
     await startOver(p);
 

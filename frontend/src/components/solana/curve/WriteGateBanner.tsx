@@ -1,3 +1,4 @@
+import { CardArt } from '../../ui/CardArt';
 import { Card, Notice, Row } from './ui';
 import type { GateBlock } from './ports';
 import type { WriteGateState } from './useWriteGate';
@@ -23,7 +24,7 @@ const BLOCK_COPY: Record<GateBlock, string> = {
 export function WriteGateBanner({ state }: { state: WriteGateState }) {
   if (state.status === 'disabled') return null;
   return (
-    <Card title="Launch and trade" testId="write-gate-banner">
+    <Card title="Launch and trade" testId="write-gate-banner" art={<CardArt pageId="curve-launch" idx={13} />}>
       {state.status === 'loading' && <Notice>Checking the network before offering anything…</Notice>}
       {state.status === 'load-failed' && (
         <>

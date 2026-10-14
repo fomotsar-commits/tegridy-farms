@@ -19,6 +19,7 @@ import { InfoTooltip, StepIndicator } from '../ui/InfoTooltip';
 import { GOVERNANCE_COPY } from '../../lib/copy';
 import { pageArt } from '../../lib/artConfig';
 import { ArtImg } from '../ArtImg';
+import { CardArt } from '../ui/CardArt';
 import { artImgProps } from '../../lib/artSrcSet';
 import { noteReplacement } from '../../lib/txErrors';
 
@@ -146,9 +147,10 @@ function PersonaCards() {
     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
       <button
         onClick={() => scrollTo(DEPOSIT_CARD_ID)}
-        className="group text-left rounded-2xl p-5 relative overflow-hidden transition-all hover:scale-[1.01]"
+        className="group text-left rounded-2xl p-5 relative isolate overflow-hidden transition-all hover:scale-[1.01]"
         style={{ background: 'rgba(16,185,129,0.10)', border: '1px solid rgba(16,185,129,0.35)' }}
       >
+        <CardArt pageId="vote-incentives" idx={4} />
         <div className="flex items-start justify-between gap-3 mb-2">
           <span className="text-[10px] uppercase tracking-wider font-bold text-emerald-300">For projects</span>
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-emerald-300 group-hover:translate-x-0.5 transition-transform"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
@@ -163,9 +165,10 @@ function PersonaCards() {
 
       <button
         onClick={() => scrollTo(LEADERBOARD_ID)}
-        className="group text-left rounded-2xl p-5 relative overflow-hidden transition-all hover:scale-[1.01]"
+        className="group text-left rounded-2xl p-5 relative isolate overflow-hidden transition-all hover:scale-[1.01]"
         style={{ background: 'rgba(139,92,246,0.10)', border: '1px solid rgba(139,92,246,0.35)' }}
       >
+        <CardArt pageId="vote-incentives" idx={5} />
         <div className="flex items-start justify-between gap-3 mb-2">
           <span className="text-[10px] uppercase tracking-wider font-bold text-purple-300">For voters</span>
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-purple-300 group-hover:translate-x-0.5 transition-transform"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
@@ -191,8 +194,9 @@ function PendingFeeBanner({ current, pending, executeAt, now }: {
   const remaining = Math.max(0, executeAt - now);
   const direction = pending > current ? 'up' : 'down';
   return (
-    <div className="rounded-xl p-4 flex items-center justify-between flex-wrap gap-2"
+    <div className="relative isolate rounded-xl p-4 flex items-center justify-between flex-wrap gap-2"
       style={{ background: 'rgba(234,179,8,0.08)', border: '1px solid rgba(234,179,8,0.3)' }}>
+      <CardArt pageId="vote-incentives" idx={6} />
       <div>
         <p className="text-[10px] uppercase tracking-wider text-yellow-300 font-semibold">Pending Fee Change</p>
         <p className="text-white text-[13px]">
@@ -210,8 +214,9 @@ function PendingFeeBanner({ current, pending, executeAt, now }: {
 function CommitRevealBanner({ enabled, epochUsesCR }: { enabled: boolean; epochUsesCR: boolean }) {
   if (!enabled && !epochUsesCR) return null;
   return (
-    <div className="rounded-xl p-4"
+    <div className="relative isolate rounded-xl p-4"
       style={{ background: 'rgba(96,165,250,0.08)', border: '1px solid rgba(96,165,250,0.3)' }}>
+      <CardArt pageId="vote-incentives" idx={7} />
       <p className="text-[10px] uppercase tracking-wider text-blue-300 font-semibold mb-0.5">Commit-Reveal Voting Active</p>
       <p className="text-white text-[12.5px] leading-relaxed">
         {epochUsesCR
@@ -237,8 +242,9 @@ function RescueBanner({ firstDepositAt, rescueDelaySec, now }: {
   const remaining = rescueAt - now;
   if (remaining > RESCUE_WARN_THRESHOLD_SEC || remaining <= 0) return null;
   return (
-    <div className="rounded-xl p-4 flex items-center justify-between flex-wrap gap-2"
+    <div className="relative isolate rounded-xl p-4 flex items-center justify-between flex-wrap gap-2"
       style={{ background: 'rgba(234,179,8,0.08)', border: '1px solid rgba(234,179,8,0.3)' }}>
+      <CardArt pageId="vote-incentives" idx={8} />
       <div>
         <p className="text-[10px] uppercase tracking-wider text-amber-300 font-semibold">Orphaned-Bribe Refund Window</p>
         <p className="text-white text-[12.5px]">
@@ -419,8 +425,9 @@ function PendingWithdrawalsPanel({ pendingETH, tokens, onWithdrawETH, onWithdraw
   const tokenRefunds = tokens.filter(t => t.pendingWithdrawal > 0n);
   if (pendingETH === 0n && tokenRefunds.length === 0) return null;
   return (
-    <div className="rounded-xl p-4 space-y-2"
+    <div className="relative isolate rounded-xl p-4 space-y-2"
       style={{ background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.25)' }}>
+      <CardArt pageId="vote-incentives" idx={9} />
       <div className="flex items-center gap-2 mb-1">
         <p className="text-[10px] uppercase tracking-wider text-emerald-400 font-semibold">Pull-Pattern Refunds</p>
         <InfoTooltip text="If a claim ever fails to transfer (e.g. FoT / paused token), the amount is parked here. Click Withdraw to pull it to your wallet." />
@@ -476,8 +483,9 @@ function ClaimablesPanel({ claimables, gauges, onClaim, isBusy, isConnected, cur
 }) {
   if (!isConnected || claimables.length === 0) {
     return (
-      <div className="rounded-xl p-4"
+      <div className="relative isolate rounded-xl p-4"
         style={{ background: 'rgba(139,92,246,0.05)', border: '1px dashed rgba(139,92,246,0.25)' }}>
+        <CardArt pageId="vote-incentives" idx={10} />
         <p className="text-[10px] uppercase tracking-wider text-purple-300 font-semibold mb-0.5">Your Claimables</p>
         <p className="text-white/65 text-[12.5px]">
           {!isConnected
@@ -492,7 +500,8 @@ function ClaimablesPanel({ claimables, gauges, onClaim, isBusy, isConnected, cur
   const gaugeByAddr = new Map(gauges.map((g) => [g.pair.toLowerCase(), g]));
   const anyMulti = claimables.some((c) => c.epochs.length > 1);
   return (
-    <div className="rounded-xl p-4" style={{ background: 'rgba(139,92,246,0.08)', border: '1px solid rgba(139,92,246,0.25)' }}>
+    <div className="relative isolate rounded-xl p-4" style={{ background: 'rgba(139,92,246,0.08)', border: '1px solid rgba(139,92,246,0.25)' }}>
+      <CardArt pageId="vote-incentives" idx={10} />
       <div className="flex items-center justify-between flex-wrap gap-2 mb-3">
         <div>
           <p className="text-[10px] uppercase tracking-wider text-purple-300 font-semibold">Your Claimables</p>

@@ -103,7 +103,7 @@ export async function mintFacts(mint: PublicKey): Promise<MintFacts> {
   if (!a || !(classicOk || t22Ok)) throw new Error(`${mint.toBase58()} is not an SPL mint`);
   const d = a.data;
   const opt = (o: number) => (d.readUInt32LE(o) === 1 ? new PublicKey(d.subarray(o + 4, o + 36)) : null);
-  return { mintAuthority: opt(0), supply: d.readBigUInt64LE(36), decimals: d[44], freezeAuthority: opt(46) };
+  return { mintAuthority: opt(0), supply: d.readBigUInt64LE(36), decimals: d.readUInt8(44), freezeAuthority: opt(46) };
 }
 
 /** The program that owns an account; null when it does not exist. */
@@ -274,7 +274,10 @@ export function txAccountKeys(t: AnyTx): PublicKey[] {
 export function lamportDelta(t: AnyTx, pk: PublicKey): bigint {
   const i = txAccountKeys(t).findIndex((k) => k.equals(pk));
   if (i < 0 || !t.meta) throw new Error(`${pk.toBase58()} is not in the transaction`);
-  return BigInt(t.meta.postBalances[i]) - BigInt(t.meta.preBalances[i]);
+  const post = t.meta.postBalances[i];
+  const pre = t.meta.preBalances[i];
+  if (post === undefined || pre === undefined) throw new Error(`the transaction's meta has no balance for ${pk.toBase58()}`);
+  return BigInt(post) - BigInt(pre);
 }
 
 export const sol = (n: number) => BigInt(Math.round(n * LAMPORTS_PER_SOL));
@@ -286,8 +289,10 @@ export const sol = (n: number) => BigInt(Math.round(n * LAMPORTS_PER_SOL));
 
 export async function sendFromNode(ixs: TransactionInstruction[], signers: Keypair[], settle: 'confirmed' | 'finalized' = 'finalized'): Promise<string> {
   await assertLocalCluster();
+  const payer = signers[0];
+  if (!payer) throw new Error('sendFromNode needs at least one signer: the first pays the fee');
   const tx = new Transaction().add(...ixs);
-  tx.feePayer = signers[0].publicKey;
+  tx.feePayer = payer.publicKey;
   // FINALIZED, not confirmed: the page reads at the RPC's default (finalized) commitment, and
   // a fixture must be settled before the page under test looks at it. A push made DURING a
   // scenario may stop at confirmed: the LP pages and the pool index read at confirmed.

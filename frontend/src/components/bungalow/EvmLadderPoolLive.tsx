@@ -15,6 +15,8 @@ import { LOCK_DURATIONS } from '../../lib/copy';
 import { CopyButton } from '../ui/CopyButton';
 import { shortenAddress } from '../../lib/formatting';
 import { HeldTimeLine } from './HeldTimeLine';
+import { CardArt } from '../ui/CardArt';
+import { FinePrint } from '../ui/FinePrint';
 
 /**
  * The island's LOCKED EVM lighthouse card (LighthouseLadder.sol).
@@ -184,7 +186,8 @@ export function EvmLadderPoolLive({ bungalow }: { bungalow: Bungalow & { stakePo
   const unfunded = view.vaultRaw !== null && view.vaultRaw === 0n;
 
   return (
-    <div className="relative overflow-hidden rounded-2xl glass-card-animated" style={{ border: '1px solid var(--color-purple-75)' }}>
+    <div className="relative isolate overflow-hidden rounded-2xl glass-card-animated" style={{ border: '1px solid var(--color-purple-75)' }}>
+      <CardArt pageId="evm-ladder-pool-live" idx={0} scrim="transparent" />
       {/* ART VISIBILITY 2026-08-31 (owner): this scrim was 0.85 and the
           resident's art underneath was barely readable — a dark page scrim
           plus a dark card scrim stacked into near-black. Lightened hard.
@@ -223,11 +226,18 @@ export function EvmLadderPoolLive({ bungalow }: { bungalow: Bungalow & { stakePo
             {view.coreKnown && <HeldTimeLine chain={bungalow.chain} pool={bungalow.stakePool} className="mb-4" />}
 
             {view.everFunded === false ? (
-              <p className="text-[12px] mb-4 rounded-lg p-3" style={{ background: 'rgba(240,178,107,0.08)', border: '1px solid rgba(240,178,107,0.35)', color: '#f0b26b' }}>
-                No reward period has ever been started on this pool. Staking works and your principal is safe, but
-                nothing accrues until the distributor funds it and calls notify — tokens merely sent to the pool
-                earn no one anything.
-              </p>
+              <div className="text-[12px] mb-4 rounded-lg p-3" style={{ background: 'rgba(240,178,107,0.08)', border: '1px solid rgba(240,178,107,0.35)', color: '#f0b26b' }}>
+                <p className="m-0">
+                  No reward period has ever been started on this pool, so nothing accrues yet. Your principal is safe.
+                </p>
+                <FinePrint summary="Why">
+                  <p className="m-0">
+                    Staking works and your principal is safe, but
+                    nothing accrues until the distributor funds it and calls notify — tokens merely sent to the pool
+                    earn no one anything.
+                  </p>
+                </FinePrint>
+              </div>
             ) : unfunded && (
               <p className="text-[12px] mb-4 rounded-lg p-3" style={{ background: 'rgba(240,178,107,0.08)', border: '1px solid rgba(240,178,107,0.35)', color: '#f0b26b' }}>
                 The reward vault is empty, so the pool pays 0 today.
@@ -235,12 +245,7 @@ export function EvmLadderPoolLive({ bungalow }: { bungalow: Bungalow & { stakePo
             )}
 
             <p className="text-[11px] text-white/60 mb-4 leading-relaxed">
-              Longer locks earn a larger <em>share</em> — 0.40× at seven days up to 4.00× at four years, the
-              venue&apos;s standard lock ladder. Rewards are
-              never paid out of anyone&apos;s principal: the contract caps every payout at its surplus, so your
-              deposit can always come back. Leaving before your lock opens costs 25%, which stays in the pool for
-              the stakers who waited. <strong>Emergency withdraw is always open</strong> and needs nothing from the
-              reward side.
+              Longer locks earn a larger <em>share</em>. Leaving before your lock opens costs 25%.
             </p>
 
             {/* THE LADDER IS PUBLIC. Every pool on the venue shows its lock
@@ -263,10 +268,22 @@ export function EvmLadderPoolLive({ bungalow }: { bungalow: Bungalow & { stakePo
                 </button>
               ))}
             </div>
-            <p className="text-[11px] text-white/45 mb-4">
-              {boostLabel(chosen.secs)} for {chosen.sublabel} — {chosen.label}. Weight decides your share of the
-              pool&apos;s rate; it is not a multiplier on your own deposit.
+            <p className="text-[11px] text-white/45 mb-1">
+              {boostLabel(chosen.secs)} for {chosen.sublabel} — {chosen.label}.
             </p>
+            <FinePrint summary="How it works" className="mb-3">
+              <p className="m-0">
+                Longer locks earn a larger <em>share</em> — 0.40× at seven days up to 4.00× at four years, the
+                venue&apos;s standard lock ladder. Rewards are
+                never paid out of anyone&apos;s principal: the contract caps every payout at its surplus, so your
+                deposit can always come back. Leaving before your lock opens costs 25%, which stays in the pool for
+                the stakers who waited. <strong>Emergency withdraw is always open</strong> and needs nothing from the
+                reward side.
+              </p>
+              <p className="m-0">
+                Weight decides your share of the pool&apos;s rate; it is not a multiplier on your own deposit.
+              </p>
+            </FinePrint>
 
             {isConnected && user ? !onPoolChain ? (
               <button type="button" onClick={() => switchChain({ chainId: poolChainId })} className="btn-primary px-6 py-2.5 text-[13px]">
@@ -290,9 +307,11 @@ export function EvmLadderPoolLive({ bungalow }: { bungalow: Bungalow & { stakePo
                 <p className="text-[11px] text-white/50 mb-3">
                   Wallet: {fmtRaw(walletRaw, decimals)} {bungalow.symbol}
                   {belowMin && (
-                    <span className="text-amber-300/90">
-                      {' · '}minimum {fmtRaw(MIN_STAKE_RAW, decimals)} {bungalow.symbol} — smaller positions are
-                      refused because their lock weight would be small enough to distort every staker's share
+                    <span
+                      className="text-amber-300/90"
+                      title="Smaller positions are refused because their lock weight would be small enough to distort every staker's share."
+                    >
+                      {' · '}minimum {fmtRaw(MIN_STAKE_RAW, decimals)} {bungalow.symbol}
                     </span>
                   )}
                   {amountRaw !== null && amountRaw > 0n && (
@@ -310,14 +329,17 @@ export function EvmLadderPoolLive({ bungalow }: { bungalow: Bungalow & { stakePo
                 {depositsFrozen && (
                   <div className="rounded-xl p-3 mb-3 text-[12px]" style={{ background: 'rgba(120,20,20,0.30)', border: '1px solid rgba(255,120,120,0.40)' }}>
                     <p className="text-red-200/95">
-                      <strong>Deposits are closed on this pool.</strong> An internal audit found that this
-                      deployment can pay rewards out of other stakers&rsquo; principal, so we are not taking
-                      new stake into it. The fix is written and this pool is waiting to be redeployed;
-                      the page will re-open by itself once it points at the new contract.
+                      <strong>Deposits are closed on this pool.</strong> Nothing is stuck: claiming and
+                      withdrawing below are unaffected.
                     </p>
-                    <p className="text-red-200/70 mt-1.5">
-                      Nothing is stuck: claiming and withdrawing below are unaffected.
-                    </p>
+                    <FinePrint summary="Why">
+                      <p className="m-0">
+                        An internal audit found that this
+                        deployment can pay rewards out of other stakers&rsquo; principal, so we are not taking
+                        new stake into it. The fix is written and this pool is waiting to be redeployed;
+                        the page will re-open by itself once it points at the new contract.
+                      </p>
+                    </FinePrint>
                   </div>
                 )}
 
@@ -343,9 +365,8 @@ export function EvmLadderPoolLive({ bungalow }: { bungalow: Bungalow & { stakePo
                 {positionsUnread && (
                   <div className="rounded-xl p-3 text-[12px]" style={{ background: 'rgba(120,60,0,0.28)', border: '1px solid rgba(255,170,60,0.35)' }}>
                     <p className="text-amber-200/95">
-                      Your positions could not be read just now — the network did not answer.
-                      This is a display problem, not a loss: anything you have staked is still
-                      staked, and the contract is the record. Retry before acting on this panel.
+                      Your positions could not be read. Anything you staked is still staked.
+                      Retry before acting on this panel.
                     </p>
                     <button type="button" className="btn-secondary mt-2 px-4 py-1.5 text-[12px]" onClick={() => { void refetch(); }}>
                       Retry

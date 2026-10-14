@@ -1,6 +1,8 @@
 import { shortenAddress } from '../../lib/formatting';
 import { isSelfReferral } from '../../lib/referrals/attribution';
 import type { ReferralAttributionState } from '../../hooks/useReferralAttribution';
+import { CardArt } from '../ui/CardArt';
+import { FinePrint } from '../ui/FinePrint';
 
 // Who this browser is attributed to, why that did not change, and how to undo it.
 //
@@ -74,13 +76,21 @@ export function ReferralAttributionCard({
   // partial read failure — and setReferrer reverts AlreadyReferred with the gas
   // already spent.
   const canLink = !!onLink && !!attribution && !hasReferrer && !referrerUnread && !selfReferral && !!wallet;
+  // Whether the card's "Details" dropdown has anything to say in this state.
+  const hasDetails = Boolean(hasReferrer && onChainReferrer)
+    || (!attribution && codeResolution.phase !== 'failed')
+    || attribution?.source === 'legacy'
+    || (!!attribution && attribution.ignored.length > 0)
+    || (referrerUnread && !selfReferral)
+    || canLink;
 
   return (
     <section
-      className="rounded-xl p-4"
+      className="relative isolate rounded-xl p-4"
       style={{ background: '#000', border: '1px solid var(--color-purple-75)' }}
       aria-label="Who referred you"
     >
+      <CardArt pageId="referrals" idx={4} />
       <h3 className="text-white text-[13px] font-medium">Who referred you</h3>
 
       {/* The chain is the authority the moment it has an answer. */}
@@ -88,8 +98,7 @@ export function ReferralAttributionCard({
         <p className="mt-2 text-white/80 text-[12px] leading-relaxed">
           On-chain, this wallet is referred by{' '}
           <span className="font-mono text-purple-300">{shortenAddress(onChainReferrer)}</span>. That record is
-          permanent — the splitter refuses a second <span className="font-mono">setReferrer</span>, and changing it
-          needs <span className="font-mono">updateReferrer</span> after a 30-day cooldown.
+          permanent.
         </p>
       )}
 
@@ -108,8 +117,8 @@ export function ReferralAttributionCard({
       {!attribution && codeResolution.phase !== 'failed' && (
         <p className="mt-2 text-white/60 text-[12px] leading-relaxed">
           {hasReferrer
-            ? 'This browser is not carrying a referral link, which changes nothing — the on-chain record above is what pays.'
-            : 'This browser is not carrying a referral link. Arriving through one stores it here until you link it on-chain.'}
+            ? 'No referral link in this browser. The on-chain record above is what pays.'
+            : 'No referral link in this browser yet.'}
         </p>
       )}
 
@@ -125,13 +134,7 @@ export function ReferralAttributionCard({
                 on <span className="font-mono">{attribution.path}</span>
               </>
             ) : null}
-            .{' '}
-            {attribution.source === 'legacy' && (
-              <span className="text-white/50">
-                Stored before this page recorded capture details, so its arrival time is genuinely unknown rather than
-                missing.
-              </span>
-            )}
+            .
           </p>
 
           {/* ─── FIRST-TOUCH, SHOWN ────────────────────────────────────── */}
@@ -143,8 +146,7 @@ export function ReferralAttributionCard({
                   : `${attribution.ignored.length} later referral links were not applied`}
               </p>
               <p className="mt-1 text-white/60 text-[11px] leading-relaxed">
-                This page keeps the FIRST referrer a browser sees. A later link cannot overwrite it, because the
-                on-chain record it feeds is permanent and the second link is the one anybody can make you click.
+                This page keeps the FIRST referrer a browser sees.
               </p>
               <ul className="mt-2 space-y-1">
                 {attribution.ignored.map((entry) => (
@@ -154,10 +156,6 @@ export function ReferralAttributionCard({
                   </li>
                 ))}
               </ul>
-              <p className="mt-2 text-white/50 text-[11px] leading-relaxed">
-                If one of these is the person who actually recruited you, clear the attribution below and follow their
-                link again.
-              </p>
             </div>
           )}
 
@@ -173,8 +171,8 @@ export function ReferralAttributionCard({
               the precedent that a withheld button explains itself. */}
           {referrerUnread && !selfReferral && (
             <p role="alert" className="mt-2 text-[11px]" style={{ color: '#FFD37C' }}>
-              We could not read whether this wallet already has an on-chain referrer, so linking is held back for now —
-              that record is permanent and a second attempt reverts. Retry in a moment.
+              We could not read whether this wallet already has an on-chain referrer, so linking is held back. Retry in
+              a moment.
             </p>
           )}
 
@@ -200,12 +198,57 @@ export function ReferralAttributionCard({
 
           {canLink && (
             <p className="mt-2 text-white/50 text-[11px] leading-relaxed">
-              Linking is one permanent transaction. It costs you nothing beyond gas and gives you no discount — it
-              directs a share of the fees you would pay anyway to the wallet above, if that wallet clears the staking
-              threshold at the time each fee is recorded.
+              Linking is one permanent transaction.
             </p>
           )}
         </>
+      )}
+
+      {hasDetails && (
+      <FinePrint summary="Details" className="mt-1">
+        {hasReferrer && onChainReferrer && (
+          <p>
+            That record is
+            permanent — the splitter refuses a second <span className="font-mono">setReferrer</span>, and changing it
+            needs <span className="font-mono">updateReferrer</span> after a 30-day cooldown.
+          </p>
+        )}
+        {!attribution && codeResolution.phase !== 'failed' && (
+          <p>
+            {hasReferrer
+              ? 'This browser is not carrying a referral link, which changes nothing — the on-chain record above is what pays.'
+              : 'This browser is not carrying a referral link. Arriving through one stores it here until you link it on-chain.'}
+          </p>
+        )}
+        {attribution?.source === 'legacy' && (
+          <p>
+            Stored before this page recorded capture details, so its arrival time is genuinely unknown rather than
+            missing.
+          </p>
+        )}
+        {attribution && attribution.ignored.length > 0 && (
+          <>
+            <p>
+              This page keeps the FIRST referrer a browser sees. A later link cannot overwrite it, because the
+              on-chain record it feeds is permanent and the second link is the one anybody can make you click.
+            </p>
+            <p>
+              If one of these is the person who actually recruited you, clear the attribution below and follow their
+              link again.
+            </p>
+          </>
+        )}
+        {referrerUnread && !selfReferral && (
+          <p>That record is permanent and a second attempt reverts.</p>
+        )}
+        {canLink && (
+          <p>
+            Linking is one permanent transaction. It costs you nothing beyond gas and gives you no discount — it
+            directs a share of the fees you would pay anyway to the wallet above, if that wallet clears the staking
+            threshold at the time each fee is recorded.
+          </p>
+        )}
+      </FinePrint>
       )}
     </section>
   );

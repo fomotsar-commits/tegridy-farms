@@ -29,6 +29,8 @@ import { heatExampleLine, VENUE } from '../lib/arrival';
 import { injectedNetworks, readInjectedAddress, type FillNetwork } from '../lib/heat/walletFill';
 import { useSolanaSurface } from '../lib/solanaSurface';
 import { SITE_URL } from '../lib/constants';
+import { CardArt } from './ui/CardArt';
+import { FinePrint } from './ui/FinePrint';
 
 const TIER_COLOR: Record<HeatTier, string> = {
   Elder: '#f5e4b8',
@@ -288,7 +290,7 @@ export function HeatCard({
 
   return (
     <div
-      className={embedded ? '' : 'rounded-2xl p-5 md:p-6'}
+      className={embedded ? '' : 'relative isolate rounded-2xl p-5 md:p-6'}
       style={
         embedded
           ? undefined
@@ -300,6 +302,8 @@ export function HeatCard({
             }
       }
     >
+      {/* The panel variant is the card; the embedded one sits inside a host card that owns its own art. */}
+      {!embedded && <CardArt pageId="heat-card" idx={0} />}
       {/* THE ROOM'S HEADING, and it has to sit OUTSIDE the ready state.
           `embedded` deliberately drops the card's own title, which is right in
           the gate (the gate introduces itself). In a room it left a cold
@@ -311,27 +315,17 @@ export function HeatCard({
           <p className="text-[11px] uppercase tracking-[0.16em] text-white/55">
             Your held time in {scopeTo.symbol}
           </p>
-          <p className="text-white/55 text-[12px] mt-0.5">
-            Read any wallet. Held time is the island's, not this room's: the
-            same number the venue reads, answered for {scopeTo.symbol}.
-          </p>
+          <p className="text-white/55 text-[12px] mt-0.5">Read any wallet.</p>
         </div>
       )}
 
       {!embedded && (
-        <>
-          <div className="flex flex-wrap items-baseline justify-between gap-2 mb-1">
-            <h2 className="heading-luxury text-xl text-white tracking-tight">Heat</h2>
-            <span className="text-[10px] uppercase tracking-[0.16em] text-white/45">
-              Jungle Bay Island · held time
-            </span>
-          </div>
-          <p className="text-white/60 text-[12.5px] leading-relaxed mb-4 max-w-2xl">
-            {VENUE.heatPlain} It is not a venue score and it pays nothing: it is the island&apos;s own
-            instrument, read live. Price never enters it, a fresh bag starts near zero however big it is,
-            and trading in and out earns nothing.
-          </p>
-        </>
+        <div className="flex flex-wrap items-baseline justify-between gap-2 mb-4">
+          <h2 className="heading-luxury text-xl text-white tracking-tight">Heat</h2>
+          <span className="text-[10px] uppercase tracking-[0.16em] text-white/45">
+            Jungle Bay Island · held time
+          </span>
+        </div>
       )}
 
       {/* The free-text instrument. Suppressed when the card is pinned to one wallet —
@@ -438,6 +432,25 @@ export function HeatCard({
           </m.div>
         )}
       </AnimatePresence>
+
+      {/* What heat is, and what it is not, one press away at the foot of the card. */}
+      {scopeTo && (
+        <FinePrint className="mt-2">
+          <p>
+            Held time is the island's, not this room's: the same number the venue reads, answered
+            for {scopeTo.symbol}.
+          </p>
+        </FinePrint>
+      )}
+      {!embedded && (
+        <FinePrint summary="What heat is" className="mt-2">
+          <p>
+            {VENUE.heatPlain} It is not a venue score and it pays nothing: it is the island&apos;s own
+            instrument, read live. Price never enters it, a fresh bag starts near zero however big it is,
+            and trading in and out earns nothing.
+          </p>
+        </FinePrint>
+      )}
     </div>
   );
 }
@@ -744,13 +757,13 @@ function Reading({
 
       {/* The share: one button, under a WARM read only, since a cold wallet has nothing to
           post. It opens the composer with served numbers and the read link; nothing is
-          posted on the holder's behalf. */}
+          posted on the holder's behalf. mr-4 keeps it off "How heat is earned" on its line. */}
       {!reading.isCold && days !== null && (
         <a
           href={shareIntent}
           target="_blank"
           rel="noopener noreferrer"
-          className="inline-block mb-4 px-5 py-2 text-[13px] font-semibold rounded-lg transition-all hover:brightness-110"
+          className="inline-block mb-4 mr-4 px-5 py-2 text-[13px] font-semibold rounded-lg transition-all hover:brightness-110"
           style={{ background: 'rgba(0,0,0,0.72)', border: `1px solid ${color}`, color }}
         >
           Post my number
