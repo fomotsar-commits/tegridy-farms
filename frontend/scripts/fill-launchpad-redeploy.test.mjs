@@ -16,7 +16,7 @@ const SELF = ['frontend/scripts/fill-launchpad-redeploy.mjs', 'frontend/scripts/
 
 /** Tracked files that contain the marker, the helper and this test aside. */
 function filesWithMarker() {
-  let out = '';
+  let out;
   try {
     out = execFileSync('git', ['grep', '-l', '-F', MARKER], { cwd: REPO, encoding: 'utf-8' });
   } catch (e) {
