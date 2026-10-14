@@ -6,6 +6,10 @@ page keeps the newest thirty days.
 
 ## [Unreleased]
 
+### 2026-10-14
+
+- Pools and Earn, every tab: each page has a background and each card a picture, and both studios list them all, under the tab's own name (Pools · Add / Remove, Solana LP, Venue AMM, Zap; Earn · Staking, Pool rooms, NFT Loans, Referrals, Yield, Copy Trading, Competitions, Checkout). The same goes for every other tab's cards. Pictures rotate until a studio places one.
+
 ### 2026-10-10
 
 - Shared heat links: a memetics.finance/read link for a wallet the island reads now shows the island's painted card of that wallet when it is posted. A cold wallet, or one the island could not be asked about, keeps the venue's card.
