@@ -3,8 +3,8 @@ import { test, expect, type Page, type Route } from '@playwright/test';
 // A TAB LEFT OPEN ACROSS A DEPLOY runs a build the host no longer serves: the next file
 // it loads on demand is answered with the app's HTML page and status 200, which the
 // browser refuses as a script. lib/staleBuild.ts reloads the tab once when the host's
-// own page names another build. The deploy is played with two stubs: the lazy file
-// answers as a missing asset does, and /index.html names an entry this tab is not running.
+// own page names another build. The deploy is played with stubs: the lazy file answers
+// as a missing asset does, and the host's page names an entry this tab is not running.
 
 test.use({ serviceWorkers: 'block' });
 
@@ -49,24 +49,39 @@ async function openLiquidity(page: Page) {
   return tab;
 }
 
+/** Where this tab's build keeps its files: the host's own files under names the next build never uses. */
+const OLD_BUILD = '/assets/old/';
+const runningEntry = (page: Page) =>
+  page.evaluate(() => document.querySelector('script[type="module"][src^="/assets/"]')?.getAttribute('src') ?? null);
+
 test('the tab reloads once to the address it was going to, and the page is there', async ({ page }) => {
-  // Stale until the tab has read the host's page: the reload that follows gets the new build.
-  let stale = true;
-  await page.route(SOLANA_LP_CHUNK, (route: Route) => (stale ? route.fulfill(MISSING_ASSET) : route.continue()));
-  await page.route(HOST_PAGE, (route: Route) => {
-    if (!stale) return route.continue();
-    stale = false;
-    return route.fulfill(NEXT_BUILD_PAGE);
+  // The reloaded page must ask for names the tab never held, as after a real deploy: WebKit
+  // gives a reloaded page what it already holds for a name, so one name cannot fail, then load.
+  // The tab's first page names its files under OLD_BUILD; the host's real page names /assets/.
+  await page.route('**/liquidity', async (route: Route) => {
+    if (route.request().resourceType() !== 'document') return route.continue();
+    const served = await route.fetch();
+    const headers = { ...served.headers() };
+    delete headers['content-length'];
+    const body = (await served.text()).replace(/(src|href)="\/assets\//g, `$1="${OLD_BUILD}`);
+    return route.fulfill({ response: served, headers, body });
+  });
+  await page.route(`**${OLD_BUILD}**`, async (route: Route) => {
+    const url = route.request().url();
+    if (/\/SolanaLpPage-[^/]*\.js$/.test(url)) return route.fulfill(MISSING_ASSET);
+    return route.fulfill({ response: await route.fetch({ url: url.replace(OLD_BUILD, '/assets/') }) });
   });
   const seen = countLoads(page);
   const tab = await openLiquidity(page);
   expect(seen.loads).toBe(1);
+  expect(await runningEntry(page)).toMatch(/^\/assets\/old\/index-/);
 
   await tab.click();
 
   await expect(page.getByRole('heading', { level: 1, name: 'Solana liquidity.' })).toBeVisible({ timeout: 30_000 });
   await expect(page).toHaveURL(/\/solana-lp$/);
   expect(seen.loads).toBe(2);
+  expect(await runningEntry(page)).toMatch(/^\/assets\/index-/);
   await expect(page.getByText('Something went wrong')).toHaveCount(0);
 });
 
