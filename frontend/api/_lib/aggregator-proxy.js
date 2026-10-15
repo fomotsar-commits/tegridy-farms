@@ -345,7 +345,8 @@ export async function runProxy(req, res, cfg) {
     const fallback = target.fallback;
     if (fallback && fallback.onStatus.includes(upstreamRes.status)) {
       console.warn(`[${cfg.identifier}] upstream HTTP ${upstreamRes.status}; retrying once on ${fallback.upstreamBase}`);
-      try { upstreamRes.body?.cancel?.(); } catch { /* ignore */ }
+      // cancel() answers with a promise; a rejection there must not surface as unhandled.
+      Promise.resolve(upstreamRes.body?.cancel?.()).catch(() => {});
       upstreamRes = await send(fallback.upstreamBase, fallback.extraHeaders);
     }
   } catch (err) {

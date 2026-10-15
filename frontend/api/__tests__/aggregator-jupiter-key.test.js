@@ -162,7 +162,7 @@ describe("jupiter key — the 0.5% fee settings reach Jupiter unchanged on both 
 });
 
 describe("jupiter key — one fallback to lite-api, only when the gateway refused the call", () => {
-  for (const refused of [401, 403, 429]) {
+  for (const refused of [401, 403, 404, 429]) {
     it(`keyed ${refused}: the same GET once more on lite-api without the key, and its answer is returned`, async () => {
       process.env.JUPITER_API_KEY = KEY;
       globalThis.fetch = upstream({ status: refused, payload: { error: "refused" } }, { status: 200, payload: { from: "lite" } });

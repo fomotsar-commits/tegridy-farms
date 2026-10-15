@@ -165,8 +165,10 @@ const CONFIGS = {
     // Jupiter is retiring its keyless lite-api host. With the server-only
     // JUPITER_API_KEY set, every call goes to api.jup.ag (same paths, key in
     // `x-api-key`). A 401/403/429 there is Jupiter's gateway refusing the call
-    // before it ran (bad key, no permission, plan limit), so the same call is
-    // tried once on lite-api while that host still answers. Key unset or blank:
+    // before it ran (bad key, no permission, plan limit), and a 404 is a path the
+    // keyed host does not serve (Jupiter's docs no longer show ultra/v1/shield or
+    // trigger/v1 there), so the same call is tried once on lite-api while that
+    // host still answers. Key unset or blank:
     // lite-api with no key, exactly as before. Read per request, never cached.
     resolveUpstream: () => {
       const key = (process.env.JUPITER_API_KEY || "").trim();
@@ -174,7 +176,7 @@ const CONFIGS = {
       return {
         upstreamBase: "https://api.jup.ag",
         extraHeaders: { "x-api-key": key },
-        fallback: { upstreamBase: "https://lite-api.jup.ag", onStatus: [401, 403, 429] },
+        fallback: { upstreamBase: "https://lite-api.jup.ag", onStatus: [401, 403, 404, 429] },
       };
     },
     // Jupiter's HTTP 400 codes for "no market", seen live 2026-09-30 (an untradable

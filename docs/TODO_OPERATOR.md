@@ -102,8 +102,10 @@ made under "the rest", now settled and being built:
   pack is `phantom-flag-dispute.md`). If already filed, say so. [was O-1009-6]
 - ⬜ **Jupiter's verify form** for BAYLA (free, about 15 minutes; it signs in with X). [was O-1009-6]
 - ⬜ **A free Jupiter developer key** (free, about 10 minutes). `lite-api.jup.ag`, which the whole
-  Solana side uses, is being retired with no date given. A session cannot sign up for you.
-  [was O-1009-18]
+  Solana side uses, is being retired with no date given. A session cannot sign up for you. Make
+  the key at developers.jup.ag (portal), then paste it into Vercel → Settings → Environment
+  Variables as `JUPITER_API_KEY`, Production only, and redeploy. Never name it `VITE_…`: that
+  would publish it. Until it is set, the site keeps using the free host. [was O-1009-18]
 - ⬜ **Railway: check whether a Solana indexer service exists** (free, a look). Say what you see;
   a session takes it from there.
 - ⬜ **Who holds the key of the old fee wallet**
