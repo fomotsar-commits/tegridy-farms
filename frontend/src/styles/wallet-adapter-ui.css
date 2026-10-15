@@ -242,11 +242,13 @@
     color: #fff;
 }
 
-/* NOT upstream. A phone lists seven or eight wallets, and upstream's 184px
-   title block pushed the closing note off a 320x568 and a 360x640 screen.
-   Here the title starts where the rows do and sits beside the close button,
-   which moves into the corner. 64px on the right keeps every line of it 8px
-   clear of that button. e2e/solana-wallet-list-phone.spec.ts holds both sizes. */
+/* NOT upstream. A phone lists seven or eight wallets, under a note that every
+   row opens an app, and upstream's 184px title block pushed the closing note
+   off a small phone's screen. Here the title starts where the rows do
+   and sits beside the close button, which moves into the corner. 64px on the
+   right keeps every line of it 8px clear of that button. The rows are 44px,
+   the floor for a touch target, not upstream's 48px.
+   e2e/solana-wallet-list-phone.spec.ts holds both sizes. */
 @media (max-width: 480px) {
     .wallet-adapter-modal-button-close {
         top: max(12px, env(safe-area-inset-top));
@@ -257,12 +259,17 @@
         align-self: stretch;
         font-size: 20px;
         line-height: 28px;
-        padding: 20px 64px 8px 24px;
+        padding: 16px 64px 8px 24px;
         text-align: left;
     }
 
     .wallet-adapter-modal-wrapper .wallet-adapter-modal-note {
-        padding-bottom: 16px;
+        padding-bottom: 12px;
+    }
+
+    .wallet-adapter-modal-list .wallet-adapter-button {
+        height: 44px;
+        line-height: 44px;
     }
 }
 

@@ -10,7 +10,7 @@ page keeps the newest thirty days.
 
 - Solana wallet list on Android: the Phantom row opens this page inside the Phantom app, as it does on an iPhone. It used to say Install and open Phantom's website. The last row, which asks Android for any wallet app on the phone, is called "Any wallet app" instead of "Mobile Wallet Adapter", and if it cannot connect, the list comes back and says so.
 - Solana wallet list inside a wallet app's own browser: a wallet the page has detected is listed once. The second row under the same name, which sent you out of the browser you were already in, is gone.
-- Solana wallet list on a small phone: the whole list, closing note included, fits on a 320 by 568 screen without scrolling, and the close button is a full-size touch target.
+- Solana wallet list on a small phone: the whole list, closing note included, fits without scrolling on a 375 by 667 iPhone SE and a 360 by 640 Android screen, and the close button is a full-size touch target.
 
 ### 2026-10-14
 

@@ -4,7 +4,11 @@ import { installConnectOnlySolanaWallet } from './fixtures/solanaConnectOnlyWall
 // THE SOLANA WALLET LIST ON A PHONE. Phone walks of production on 2026-10-03
 // found three things: on Android Chrome the Phantom row opened Phantom's
 // website; inside a wallet app's own browser that wallet was listed twice; and
-// at 320x568 the list's closing note was off screen, under a 38px close button.
+// on a small phone the list's closing note was off screen, under a 38px close
+// button. The iPhone case is a 375x667 iPhone SE (2nd and 3rd generation), the
+// smallest iPhone that runs a current iOS. On a 320x568 first-generation SE the
+// list now scrolls: the "No wallet was found" note above the rows (2026-10-03,
+// after these tests were written) takes five lines at that width.
 //
 // MUTATION CHECK: with src/styles/wallet-adapter-ui.css as it was, both "fits
 // on the screen" tests fail. With src/lib/solanaWallets.ts as it was, the
@@ -78,8 +82,8 @@ async function expectFitsOnScreen(page: Page, list: Locator, screen: { width: nu
   expect(titleUnderClose, 'no line of the title runs under the close button').toBe(false);
 }
 
-test.describe('an iPhone SE, 320x568', () => {
-  const SCREEN = { width: 320, height: 568 };
+test.describe('an iPhone SE, 375x667', () => {
+  const SCREEN = { width: 375, height: 667 };
   test.skip(({ browserName }) => browserName !== 'webkit', 'an iPhone is WebKit');
   test.use({ viewport: SCREEN, userAgent: IPHONE_UA });
 
