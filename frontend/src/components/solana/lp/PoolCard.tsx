@@ -26,6 +26,7 @@ import { Notice, Row } from '../curve/ui';
 import { CARD, CARD_STYLE, DIVIDER, SHADOW } from '../curve/uiFormat';
 import { CardArt } from '../../ui/CardArt';
 import { AddLiquidityPanel } from './AddLiquidityPanel';
+import { AddOneCoinPanel } from './AddOneCoinPanel';
 import { AddressRow } from './AddressRow';
 import { depositOffer, lpHeld, type DepositOffer } from './offers';
 import { explorerOf } from './panelKit';
@@ -533,24 +534,43 @@ function DepositOfferBlock({
   const blockedByOther = writes.busy && !open;
   // An open panel stays mounted whatever the offer turns into while its flow runs: its
   // own sent deposit makes this pool `held`, and the outcome on screen must not vanish.
-  const panel = open ? <AddLiquidityPanel view={view} health={health} safety={safety} tokenDecimals={tokenDecimals} onClose={writes.close} /> : null;
+  // "Add with one coin" (AddOneCoinPanel.tsx): offered exactly where Add liquidity is, and held by the same lock.
+  const oneKey = `one:${view.address}`;
+  const oneOpen = writes.active?.key === oneKey;
+  const blockedOne = writes.busy && !oneOpen;
+  const panel = open ? (
+    <AddLiquidityPanel view={view} health={health} safety={safety} tokenDecimals={tokenDecimals} onClose={writes.close} />
+  ) : oneOpen ? (
+    <AddOneCoinPanel view={view} health={health} safety={safety} tokenDecimals={tokenDecimals} onClose={writes.close} />
+  ) : null;
   return (
     <div ref={blockRef} className="space-y-2 mt-2">
       <OfferLine offer={offer} health={health} />
       {offer === 'offer' && (
         <>
-          {/* Stays mounted while its panel is open, so focus can come back to it on Close. */}
-          <button
-            ref={addButton}
-            type="button"
-            className="btn-primary w-full sm:w-auto min-h-[44px] px-4 text-[13px] disabled:opacity-60"
-            disabled={blockedByOther}
-            aria-expanded={open}
-            onClick={(e) => writes.open('add', key, e.currentTarget)}
-          >
-            Add liquidity
-          </button>
-          {blockedByOther && <Notice>Finish or close the open liquidity panel first.</Notice>}
+          {/* Stay mounted while their panel is open, so focus can come back on Close. */}
+          <div className="flex flex-col sm:flex-row gap-2">
+            <button
+              ref={addButton}
+              type="button"
+              className="btn-primary w-full sm:w-auto min-h-[44px] px-4 text-[13px] disabled:opacity-60"
+              disabled={blockedByOther}
+              aria-expanded={open}
+              onClick={(e) => writes.open('add', key, e.currentTarget)}
+            >
+              Add liquidity
+            </button>
+            <button
+              type="button"
+              className="btn-secondary w-full sm:w-auto min-h-[44px] px-4 text-[13px] disabled:opacity-60"
+              disabled={blockedOne}
+              aria-expanded={oneOpen}
+              onClick={(e) => writes.open('add', oneKey, e.currentTarget)}
+            >
+              Add with one coin
+            </button>
+          </div>
+          {(blockedByOther || blockedOne) && <Notice>Finish or close the open liquidity panel first.</Notice>}
           <Notice>Checks run again on fresh reads when you press Review.</Notice>
         </>
       )}
