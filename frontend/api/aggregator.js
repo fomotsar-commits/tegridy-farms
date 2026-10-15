@@ -153,15 +153,30 @@ const CONFIGS = {
 
   // Jupiter Swap API (SOLANA) — GET /swap/v1/quote, POST /swap/v1/swap.
   // 2026-06-18: Solana fee-capture surface (Surface A — see
-  // docs/SOLANA_FEE_CAPTURE_PLAN.md). Keyless lite-api tier. The platform fee
-  // is taken via `platformFeeBps` (quote query) + `feeAccount` (a plain
-  // Tegridy-owned ATA in the swap POST body) — no Jupiter Referral Program
-  // needed since Jan 2025, and NO own on-chain program / NO bridge / TOWELI
-  // never touches Solana. Same hardening as the EVM aggregators: origin
-  // allowlist, per-IP rate limit, 32 KB body cap, response header stripping.
+  // docs/SOLANA_FEE_CAPTURE_PLAN.md). Keyless lite-api tier until a key is set
+  // (resolveUpstream below). The platform fee is taken via `platformFeeBps`
+  // (quote query) + `feeAccount` (a plain Tegridy-owned ATA in the swap POST
+  // body) — no Jupiter Referral Program needed since Jan 2025, and NO own
+  // on-chain program / NO bridge / TOWELI never touches Solana. Same hardening
+  // as the EVM aggregators: origin allowlist, per-IP rate limit, 32 KB body
+  // cap, response header stripping.
   jupiter: {
     identifier: "jupiter",
-    upstreamBase: "https://lite-api.jup.ag",
+    // Jupiter is retiring its keyless lite-api host. With the server-only
+    // JUPITER_API_KEY set, every call goes to api.jup.ag (same paths, key in
+    // `x-api-key`). A 401/403/429 there is Jupiter's gateway refusing the call
+    // before it ran (bad key, no permission, plan limit), so the same call is
+    // tried once on lite-api while that host still answers. Key unset or blank:
+    // lite-api with no key, exactly as before. Read per request, never cached.
+    resolveUpstream: () => {
+      const key = (process.env.JUPITER_API_KEY || "").trim();
+      if (!key) return { upstreamBase: "https://lite-api.jup.ag" };
+      return {
+        upstreamBase: "https://api.jup.ag",
+        extraHeaders: { "x-api-key": key },
+        fallback: { upstreamBase: "https://lite-api.jup.ag", onStatus: [401, 403, 429] },
+      };
+    },
     // Jupiter's HTTP 400 codes for "no market", seen live 2026-09-30 (an untradable
     // mint, and an amount no route fills). The proxy answers these as 404 NO_ROUTE
     // instead of 502, so the LP price check can tell "no market" from "Jupiter down".

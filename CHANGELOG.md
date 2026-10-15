@@ -8,6 +8,7 @@ page keeps the newest thirty days.
 
 ### 2026-10-15
 
+- Solana swaps and the pool price checks behind Add liquidity keep working when Jupiter retires its free host, once the venue's Jupiter key is set on the server; until then nothing changes. If Jupiter refuses the key or its limit is reached, that request is sent once more to the free host while it still answers. The swap fee setting reaches Jupiter the same way on both.
 - The bar reads Heat, Rooms, Lock, Launch and Swap, on a phone and on a wide screen. Pools, Check, the island, the records and Dashboard are in the menu, which now opens at every width; Pools still opens Solana LP. The footer is eight links. No bar or tab strip says Soon: a tab that is off is not listed.
 - Towelie in the corner: when a tab slides under him as you scroll, a press on that tab now opens the tab straight away. While he faded out of the way, a press there went to Towelie instead, and in Safari on an iPad it did even with motion turned down.
 - Launch token pages: the disclosure attestation line now gets a real answer, "Attested" or "No attestation", where it said "Cannot verify" on every token. When the check cannot run it says so in one plain sentence, and the technical error waits under Details.
