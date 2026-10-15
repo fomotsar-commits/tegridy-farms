@@ -146,9 +146,7 @@ export function BungalowMarket({ bungalow }: { bungalow: Bungalow }) {
       <FinePrint summary="Sources" className="mt-1">
         <p>
           Price, liquidity, volume and the trade split are read from GeckoTerminal for this
-          pool on read. Nothing here refreshes on its own. The venue keeps a short-lived copy
-          to stay inside GeckoTerminal's limits, and a copy older than a minute shows the time
-          it was read.
+          pool on read. Nothing here refreshes on its own.
         </p>
       </FinePrint>
     </section>
