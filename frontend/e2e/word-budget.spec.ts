@@ -27,7 +27,8 @@ import { gotoRoute, waitForQuiescence, gotoNakamigos, GECKO_EDGE_GLOB } from './
 const PHONE = 390;
 
 /** Measured 2026-10-14 after the fewer-words pass (desktop / phone): / 183 / 183,
- *  /earn 124 / 109, /liquidity 125 / 126, /solana-lp 210 / 205, /pools 339 / 336,
+ *  /earn 124 / 109, /liquidity 125 / 126, /solana-lp 199 / 194, /pools 264 / 260 (after the
+ *  duplicate fee cards went, owner 2026-10-14; 339 / 336 before),
  *  /zap 84 / 84, /nft-finance 246 / 233, /nakamigos 227 / 227, /bayla 288 / 288,
  *  /dashboard 201 / 201. Before the pass, on the phone: /pools 570, /solana-lp 390,
  *  /bayla 351, /nft-finance 320, /dashboard 246, /liquidity 176, /earn 160. */
@@ -35,9 +36,9 @@ const BUDGET: Record<string, { desktop: number; phone: number }> = {
   '/': { desktop: 200, phone: 200 },
   '/earn': { desktop: 140, phone: 125 },
   '/liquidity': { desktop: 140, phone: 140 },
-  '/solana-lp': { desktop: 235, phone: 230 },
-  // Still the heaviest page: the fee split is said on three cards (owner's call which to keep).
-  '/pools': { desktop: 375, phone: 370 },
+  '/solana-lp': { desktop: 220, phone: 215 },
+  // One Rates card and one Swap routes card since 2026-10-14 (four fee cards before).
+  '/pools': { desktop: 290, phone: 285 },
   '/zap': { desktop: 95, phone: 95 },
   '/nft-finance': { desktop: 275, phone: 260 },
   // Its landing counts live collection data (listings, floors): 227 and 265 on two runs.
