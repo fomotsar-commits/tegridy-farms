@@ -126,8 +126,9 @@ import type SignClientClass from '@walletconnect/sign-client';
  *     read "the wallet's signature doesn't match this transaction" on every
  *     write until a reload.
  *  9. Every card hears a session end or an account switch.
- *     /earn/bayla mounts two SolanaProviders, so two adapters hold
- *     ONE session on the one client. sign-client's own disconnect() emits
+ *     A page normally mounts one SolanaProviders (lib/solanaSurface.ts), but
+ *     if two are ever mounted, two adapters hold ONE session on the one
+ *     client. sign-client's own disconnect() emits
  *     nothing locally (deleteSession with emitEvent:false), so a Disconnect
  *     in one card, the wallet ending it, and the wallet's session_update are
  *     fanned out here to every adapter holding that topic — the update the

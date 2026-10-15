@@ -27,6 +27,13 @@
 // differs in ONE field: mainnet's mint authority is null, the stand-in's is a test key the
 // harness holds (baylaMintAuthority), so the e2e can give makers $BAYLA for the plant.
 //
+// ./golden/usdc-mint.mainnet.json is the same kind of read of the USDC mint EPjFWdd5…Dt1v
+// (classic token program, 82 B, 6 decimals, read 2026-10-03 at slot 453074668). Pools may
+// pair a token with USDC, so the LP e2e needs USDC on the chain. The stand-in differs in
+// ONE field: mainnet's mint authority is Circle's, the stand-in's is a test key the harness
+// holds (usdcMintAuthority), so the e2e can give wallets USDC. Its freeze authority stays
+// mainnet's: the token check says USDC's issuer can freeze, and nothing here can.
+//
 // The e2e GlobalConfig is the 1-SOL book the rehearsal initialised on the same binary
 // (run 3111 step c, and run 230): 1% fee split 50/50, 3.69% platform reserve, target
 // 1 SOL + 0.05 SOL migration reserve. The program itself accepted exactly these values
@@ -65,6 +72,17 @@ export const TOKEN_2022_PROGRAM = new PublicKey('TokenzQdBNbLqP5VEhdkAS6EPFLC1PH
 /** $BAYLA, at its real address. The plant (island ruling 2) burns and moves it. */
 export const BAYLA_MINT = new PublicKey('7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump');
 
+/** USDC, at its real address: a coin a pool may pair a token with. */
+export const USDC_MINT = new PublicKey('EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v');
+
+/**
+ * The stand-in USDC mint's authority: a TEST key from a fixed phrase, like $BAYLA's. It can
+ * mint only on a local validator: on mainnet the USDC mint authority is Circle's.
+ */
+export function usdcMintAuthority() {
+  return Keypair.fromSeed(crypto.createHash('sha256').update('tegridy e2e: local stand-in USDC mint authority').digest());
+}
+
 /**
  * The stand-in $BAYLA mint's authority: a TEST key, derived from a fixed phrase so every
  * genesis is the same and no key file exists. It can mint only on a local validator: on
@@ -81,6 +99,15 @@ export const PINNED_SHA256 = Object.freeze({
   'raydium_cp_swap.idl.json': '939bc040fa0f65b6639f07545be9d23fde0492e9b5fc3d90229a313b0fcf0262',
   'tegridy_launch.idl.json': 'cd9e173c666940f82222a2798dc1c5bc0cf30edf7b32450530e65aa523a3cb31',
 });
+
+/**
+ * The COMMITTED pool IDL (solana/tegridy-amm/idl/raydium_cp_swap.json). It is one instruction
+ * ahead of the release: the source has `create_lp_metadata` (it names a pool's share token),
+ * and the binary on mainnet does not until the owner upgrades it. The release's own copy keeps
+ * its pin above; src/lib/launcher/solana/write/idl.test.ts holds that this file with the one
+ * instruction taken out is that copy, byte for byte.
+ */
+export const PINNED_REPO_CPSWAP_IDL_SHA256 = '1e8fd7928c0fce6788b880703a1cbfc932e808ab5acadfd5217eb637d739f736';
 
 export function defaultArtifactsDir() {
   return process.env.TEGRIDY_RELEASE_ARTIFACTS || 'C:/Users/jimbo/solana-launch-release-2026-09-26/artifacts';
@@ -113,22 +140,25 @@ export function idlCandidates(artifactsDir = defaultArtifactsDir()) {
 
 /**
  * The two IDLs, from the first location that exists, each refused unless it hashes to
- * the release pin. Returns null when neither location has them (a machine without the
- * release and before the IDLs are committed); every caller must treat that as "cannot
- * check", never as a pass.
+ * the pin for THAT location (the repo's pool IDL and the release's differ by one
+ * instruction, see PINNED_REPO_CPSWAP_IDL_SHA256). Returns null when neither location has
+ * them (a machine without the release and before the IDLs are committed); every caller
+ * must treat that as "cannot check", never as a pass.
  */
 export function loadVerifiedIdls(artifactsDir = defaultArtifactsDir()) {
   const c = idlCandidates(artifactsDir);
-  const pick = (list, pin) => {
-    const file = list.find((f) => fs.existsSync(f));
-    if (!file) return null;
+  const pick = (list, pins) => {
+    const at = list.findIndex((f) => fs.existsSync(f));
+    if (at < 0) return null;
+    const file = list[at];
+    const pin = pins[at];
     const raw = fs.readFileSync(file);
     const actual = sha256(raw);
     if (actual !== pin) throw new Error(`${file} hashes to ${actual}, pinned ${pin}: refusing`);
     return { file, idl: JSON.parse(raw.toString('utf8')) };
   };
-  const l = pick(c.launch, PINNED_SHA256['tegridy_launch.idl.json']);
-  const p = pick(c.cp, PINNED_SHA256['raydium_cp_swap.idl.json']);
+  const l = pick(c.launch, [PINNED_SHA256['tegridy_launch.idl.json'], PINNED_SHA256['tegridy_launch.idl.json']]);
+  const p = pick(c.cp, [PINNED_REPO_CPSWAP_IDL_SHA256, PINNED_SHA256['raydium_cp_swap.idl.json']]);
   if (!l || !p) return null;
   if (l.idl.address !== LAUNCH_PROGRAM.toBase58()) throw new Error(`launch IDL address ${l.idl.address}`);
   if (p.idl.address !== CP_SWAP_PROGRAM.toBase58()) throw new Error(`cp-swap IDL address ${p.idl.address}`);
@@ -391,6 +421,23 @@ export function baylaMintStandIn(golden = readGolden('bayla-mint.mainnet.json'))
   return { pubkey: golden.pubkey, account: { ...golden.account, data: [out.toString('base64'), 'base64'], rentEpoch: 0 } };
 }
 
+/**
+ * The stand-in USDC mint: mainnet's bytes, lamports and owner, with ONLY the mint authority
+ * changed from Circle's to usdcMintAuthority(). Refuses a dump that is not the USDC mint as
+ * mainnet holds it (classic token program, 82 bytes, 6 decimals, a mint authority and a
+ * freeze authority both set).
+ */
+export function usdcMintStandIn(golden = readGolden('usdc-mint.mainnet.json')) {
+  const d = Buffer.from(golden.account.data[0], 'base64');
+  if (golden.pubkey !== USDC_MINT.toBase58() || golden.account.owner !== TOKEN_PROGRAM.toBase58()
+    || d.length !== 82 || d[44] !== 6 || d[45] !== 1 || d.readUInt32LE(0) !== 1 || d.readUInt32LE(46) !== 1) {
+    throw new Error('usdc-mint.mainnet.json is not the USDC mint as mainnet holds it');
+  }
+  const out = Buffer.from(d);
+  usdcMintAuthority().publicKey.toBuffer().copy(out, 4);
+  return { pubkey: golden.pubkey, account: { ...golden.account, data: [out.toString('base64'), 'base64'], rentEpoch: 0 } };
+}
+
 /** Everything the validator is started with, besides the programs. */
 export function buildGenesisAccounts({ launchIdl, cpIdl }) {
   const d = derived();
@@ -412,6 +459,7 @@ export function buildGenesisAccounts({ launchIdl, cpIdl }) {
     { file: 'vault.json', json: { pubkey: vault.pubkey, account: { ...vault.account, rentEpoch: 0 } } },
     { file: 'fee-ata.json', json: { pubkey: feeAta.pubkey, account: { ...feeAta.account, rentEpoch: 0 } } },
     { file: 'bayla-mint.json', json: baylaMintStandIn() },
+    { file: 'usdc-mint.json', json: usdcMintStandIn() },
   ];
 }
 

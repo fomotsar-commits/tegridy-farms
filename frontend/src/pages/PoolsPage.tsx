@@ -1,21 +1,28 @@
 // Polyfill MUST load before any @solana/* import — same rule as SolanaProviders.
 import '../lib/solanaPolyfill';
-import { lazy, Suspense, useCallback, useEffect, useState } from 'react';
+import { lazy, Suspense, useEffect } from 'react';
 import { m } from 'framer-motion';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { usePageTitle } from '../hooks/usePageTitle';
+import { useVenueStatus } from '../hooks/useVenueStatus';
 import { trackPageView } from '../lib/analytics';
 import { ArtImg } from '../components/ArtImg';
-import { CopyButton } from '../components/ui/CopyButton';
+import { CardArt } from '../components/ui/CardArt';
+import { FinePrint } from '../components/ui/FinePrint';
 import { ChainSwitch } from '../components/swap/ChainSwitch';
-import { browserCurveRpc } from '../lib/launcher/solana/curve/rpc';
-import { readVenue, type VenueStatus } from '../lib/solana/cpswap/read';
-import { SPENT_PROGRAM_ID, hasProgramId } from '../lib/solana/cpswap/program';
+import { VenueStatusCard } from '../components/solana/VenueStatusCard';
+import { VenueProgramCard } from '../components/solana/VenueProgramCard';
+import type { PublicTierRead, VenueStatus } from '../lib/solana/cpswap/read';
 import { lpWriteMode, type LpWriteMode } from '../lib/launcher/solana/lpWriteFlag';
 import {
+  CREATOR_FEE_SWITCH,
+  chargedCreatorFeeRate,
   feeSplit,
   solOf,
+  tradeCost,
 } from '../lib/solana/cpswap/venue';
+import { withMint } from '../lib/solana/lp/mintLink';
+import { feeRateText } from '../lib/solana/lp/format';
 
 // The LP finder, positions and fee tiers. Lazy: it brings the Solana wallet stack, which
 // only a live venue needs.
@@ -36,34 +43,34 @@ export default function PoolsPage() {
   );
   useEffect(() => { trackPageView('pools'); }, []);
 
-  const [status, setStatus] = useState<VenueStatus | null>(null);
-  const [reloadKey, setReloadKey] = useState(0);
-
-  useEffect(() => {
-    let cancelled = false;
-    readVenue(browserCurveRpc())
-      .then((s) => { if (!cancelled) setStatus(s); })
-      .catch(() => {
-        if (!cancelled) setStatus({ kind: 'unreadable', detail: 'the RPC proxy did not answer' });
-      });
-    return () => { cancelled = true; };
-  }, [reloadKey]);
-
-  const refresh = useCallback(() => setReloadKey((k) => k + 1), []);
-  // After a failed read, show "reading" again so a second failure is visibly a new answer.
-  const retry = useCallback(() => { setStatus(null); setReloadKey((k) => k + 1); }, []);
+  // The same live read as /solana-lp, with the public tier read in the same pass for the
+  // fee sheet. "Try again" uses `retry`, the card's Refresh `refresh`.
+  const { status, refresh, retry } = useVenueStatus({ publicTier: true });
 
   // Fees come only from a config the chain returned. With none, the sheet shows no number.
   const liveConfig = status?.kind === 'live' ? status.config : null;
+  const publicTier = status?.kind === 'live' && status.publicTier.kind !== 'not-asked' ? status.publicTier : null;
+  // Under the public tier's own heading, the launch tier's is a level down.
+  const LaunchHead = publicTier ? 'h3' : 'h2';
   const split = liveConfig ? feeSplit(liveConfig) : null;
+  // The sheet is about the pools that graduate onto this tier, and the launch program
+  // opens every one with its creator fee switched on: a trade there pays the trade fee
+  // AND the tier's creator fee, so that sum is what "trader pays" must say.
+  const cost = liveConfig ? tradeCost(liveConfig, chargedCreatorFeeRate(liveConfig, CREATOR_FEE_SWITCH.launchPool)) : null;
+  const charged = cost !== null && cost.creatorFeeRate > 0n;
 
   // Every capability claim on this page hangs off the live probe. A spent program
   // id must never be described in the present tense, and "still reading" is not a
-  // licence to assert either — so the conditional copy is the default and the
+  // licence to assert either, so the conditional copy is the default and the
   // present-tense copy is what the probe has to earn.
   const venueIsOpen = liveConfig !== null;
+  // "Anyone can open a pool" is a claim about the tier the probe read: cp-swap refuses
+  // every new pool on a tier whose `disable_create_pool` is set.
+  const tierTakesPools = liveConfig !== null && !liveConfig.disableCreatePool;
   // Fixed for the life of a build: a production build reads only the committed constant.
   const lpMode = lpWriteMode();
+  // The token being looked at (?mint=) follows the reader to the Solana LP tab.
+  const [params] = useSearchParams();
 
   return (
     <div className="relative min-h-screen">
@@ -81,20 +88,37 @@ export default function PoolsPage() {
             Liquidity pools.
           </h1>
           <p className="text-white/85 text-[15px] max-w-xl leading-relaxed">
-            {venueIsOpen ? (
-              <>
-                Our own constant-product AMM on Solana. Anyone can open a pool or provide
-                liquidity on chain, and the trade fee is split between the LPs who funded it
-                and the venue. {HERO_LP_LINE[lpMode]}
-              </>
-            ) : (
-              <>
-                Our own constant-product AMM on Solana. No pool can be opened here yet. This
-                page shows a fee only after reading it from the chain, and the card below says
-                what the latest read found.
-              </>
-            )}
+            {liveConfig
+              ? 'Our own Solana AMM. LPs and the venue split each trade fee.'
+              : 'Our own Solana AMM. No pool can be opened here yet.'}
           </p>
+          <p className="text-[13px] mt-2">
+            {/* A finger-sized press area on a 19.5px line: 14px of padding above and below (47.5px).
+                The negative margin takes 6px of each back, so the line keeps the 8px it always had.
+                The keyboard's ring goes round the words (`ring-on-words`, index.css). */}
+            <Link to={withMint('/solana-lp', params)} className="inline-block py-3.5 -my-1.5 underline underline-offset-2 text-white hover:text-white/80 ring-on-words">
+              <span className="ring-words">{venueIsOpen ? SOLANA_LP_LINK[lpMode] : SOLANA_LP_LINK_NOT_OPEN}</span>
+            </Link>
+          </p>
+          <FinePrint summary="Details" className="max-w-xl">
+            <p>
+              {liveConfig ? (
+                <>
+                  Our own constant-product AMM on Solana.{' '}
+                  {tierTakesPools
+                    ? 'Anyone can open a pool or provide liquidity on chain'
+                    : `Anyone can provide liquidity on chain (opening new pools on fee tier ${liveConfig.index} is switched off right now)`}
+                  , and the trade fee is split between the LPs who funded it and the venue.{' '}
+                  {HERO_LP_LINE[lpMode]}
+                </>
+              ) : (
+                <>
+                  This page shows a fee only after reading it from the chain, and the card below says
+                  what the latest read found.
+                </>
+              )}
+            </p>
+          </FinePrint>
         </m.div>
 
         <VenueStatusCard status={status} onRefresh={refresh} lpMode={lpMode} />
@@ -106,111 +130,130 @@ export default function PoolsPage() {
         )}
 
         {/* ── The fee sheet ───────────────────────────────────────────────── */}
-        <section className="rounded-2xl p-6 mt-6" style={CARD} aria-label="Fee sheet">
-          <div className="flex items-baseline justify-between gap-3 flex-wrap mb-1">
-            <p className="text-[10px] uppercase tracking-wider" style={{ color: 'var(--color-kyle)' }}>
-              {liveConfig
-                ? `Fees · tier ${liveConfig.index}, graduated launch pools · read from the chain`
-                : 'Fees · not read'}
-            </p>
-          </div>
-          <h2 className="heading-luxury text-xl text-white mb-4">
-            {split
-              ? `${split.traderPaysPct}% a trade, ${split.lpKeepsPct.toFixed(2)}% of it to you`
-              : feesNotRead(status).title}
-          </h2>
-
-          {liveConfig && split && (
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
-              <Stat label="Trader pays" value={`${split.traderPaysPct}%`} sub="of each trade" />
-              <Stat label="LPs keep" value={`${split.lpKeepsPct.toFixed(2)}%`} sub="of volume" tone="good" />
-              <Stat label="Venue takes" value={`${split.venueTakesPct.toFixed(2)}%`} sub={`${split.venueShareOfFeePct}% of the fee`} />
-              <Stat
-                label="Open a pool"
-                value={`${solOf(liveConfig.createPoolFee)} SOL`}
-                sub={`fee on tier ${liveConfig.index}; account deposits extra`}
-              />
+        <section className="relative isolate rounded-2xl p-6 mt-6" style={CARD} aria-label="Fee sheet">
+          <CardArt pageId="venue-amm" idx={2} />
+          {/* The public tier first: every pool opened from this site is on it. The launch tier,
+              where launches graduate, under it. */}
+          {publicTier && <PublicTierFees read={publicTier} />}
+          <div data-testid="fee-sheet-launch">
+            <div className="flex items-baseline justify-between gap-3 flex-wrap mb-1">
+              <p className="text-[10px] uppercase tracking-wider" style={{ color: 'var(--color-kyle)' }}>
+                {liveConfig
+                  ? `Fees · tier ${liveConfig.index}, graduated launch pools · read from the chain`
+                  : 'Fees · not read'}
+              </p>
             </div>
-          )}
+            <LaunchHead className="heading-luxury text-xl text-white mb-4">
+              {/* Names the pools it is about and whose part it is: this tier is the launch pools', and a pool
+                  opened from this site (the public tier, above) charges its own rate. */}
+              {split && cost
+                ? `A launch pool charges ${feeRateText(cost.totalRate)} a trade; its liquidity providers keep ${split.lpKeepsPct.toFixed(2)}% of each trade`
+                : feesNotRead(status).title}
+            </LaunchHead>
 
-          <p className="text-white/70 text-[13px] leading-relaxed">
-            {liveConfig ? (
-              <>
-                These are the live <code className="font-mono text-white/85">AmmConfig</code> rates
-                of fee tier {liveConfig.index}, where launches graduate, read from the chain on
-                load — not a copy in this page. Retuning them on chain changes this card without a
-                deploy. Pools opened from this site use the public fee tier instead; the fee tiers
-                in the pools section below are read live for both.
-              </>
-            ) : (
-              feesNotRead(status).line
+            {liveConfig && split && cost && (
+              <div className={`grid grid-cols-2 gap-3 mb-4 ${charged ? 'sm:grid-cols-3 md:grid-cols-5' : 'sm:grid-cols-4'}`}>
+                <Stat
+                  label="Trader pays"
+                  value={feeRateText(cost.totalRate)}
+                  sub={charged ? `${feeRateText(cost.tradeFeeRate)} trade fee + ${feeRateText(cost.creatorFeeRate)} creator fee` : 'of each trade'}
+                />
+                <Stat label="LPs keep" value={`${split.lpKeepsPct.toFixed(2)}%`} sub="of volume" tone="good" />
+                <Stat label="Venue takes" value={`${split.venueTakesPct.toFixed(2)}%`} sub={`${split.venueShareOfFeePct}% of the trade fee`} />
+                {charged && <Stat label="Creator gets" value={feeRateText(cost.creatorFeeRate)} sub="on top, to the token’s creator" />}
+                <Stat
+                  label="Open a pool"
+                  value={`${solOf(liveConfig.createPoolFee)} SOL`}
+                  sub={`fee on tier ${liveConfig.index}; account deposits extra`}
+                />
+              </div>
             )}
-          </p>
-          {status?.kind === 'unreadable' && (
-            <button type="button" onClick={retry} className="btn-secondary px-4 py-2 text-[12px] mt-3">
-              Try again
-            </button>
-          )}
+
+            {status === null && <p className="text-white/70 text-[13px] leading-relaxed">{feesNotRead(status).line}</p>}
+            {status?.kind === 'unreadable' && (
+              <button type="button" onClick={retry} className="btn-secondary px-4 py-2 text-[12px] mt-3">
+                Try again
+              </button>
+            )}
+            {status !== null && (
+              <FinePrint summary={liveConfig ? 'How it works' : 'Why no fee'} className="mt-2">
+                <p>
+                  {liveConfig ? (
+                    <>
+                      These are the live <code className="font-mono text-white/85">AmmConfig</code> rates
+                      of fee tier {liveConfig.index}, where launches graduate, read from the chain when
+                      this page loads, not copied into it. Retuning them on chain changes this card
+                      without a deploy.{' '}
+                      {charged && (
+                        <>
+                          A launch pool charges the creator fee on top of the trade fee and pays it to the
+                          token&rsquo;s creator: the launch program opens every launch pool with it switched
+                          on. A pool opened on this tier any other way charges only the trade fee.{' '}
+                        </>
+                      )}
+                      Pools opened from this site use the public fee tier instead; the fee tiers in the
+                      pools section above are read live for both.
+                    </>
+                  ) : (
+                    feesNotRead(status).line
+                  )}
+                </p>
+              </FinePrint>
+            )}
+          </div>
         </section>
 
         {/* ── How LPs earn ────────────────────────────────────────────────── */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6">
-          <section className="rounded-2xl p-6" style={CARD}>
+          <section className="relative isolate rounded-2xl p-6" style={CARD}>
+            <CardArt pageId="venue-amm" idx={3} />
             <p className="text-[10px] uppercase tracking-wider mb-2" style={{ color: 'var(--color-kyle)' }}>For liquidity providers</p>
             <h2 className="heading-luxury text-lg text-white mb-3">
               {venueIsOpen ? 'Deposit a pair, hold the LP token' : 'How it works: deposit a pair, hold the LP token'}
             </h2>
-            {!venueIsOpen && (
-              <p className="text-white/60 text-[12px] leading-relaxed mb-3">
-                Depositing from this page waits on a live read of the venue. The status card
-                above says what the latest read found.
-              </p>
-            )}
-            <ul className="text-white/80 text-[13px] leading-relaxed space-y-2 list-disc pl-4">
-              <li>Deposit both sides of a pair and the pool mints you an <strong>LP token</strong> for your share.</li>
-              <li>Every trade adds its fee to the reserves, so your share is worth more each time the pool trades. There is nothing to claim.</li>
-              <li>Withdraw any time — burning the LP token returns your share of both sides. Pools have no lock.</li>
-              <li className="text-white/60">
-                Impermanent loss is real: a constant-product pool rebalances against you when
-                the price moves, and fees are what compensate for it. This page will never
-                quote you an APY it cannot read.
-              </li>
-            </ul>
+            <p className="text-white/80 text-[13px] leading-relaxed">
+              Fees grow your share as the pool trades. Nothing to claim; withdraw any time.
+            </p>
+            <FinePrint summary="How it works" className="mt-2">
+              {!venueIsOpen && (
+                <p>
+                  Depositing from this page waits on a live read of the venue. The status card
+                  above says what the latest read found.
+                </p>
+              )}
+              <ul className="space-y-2 list-disc pl-4">
+                <li>Deposit both sides of a pair and the pool mints you an <strong>LP token</strong> for your share.</li>
+                <li>Every trade adds its fee to the reserves, so your share is worth more each time the pool trades. There is nothing to claim.</li>
+                <li>Withdraw any time — burning the LP token returns your share of both sides. Pools have no lock.</li>
+                <li>
+                  Impermanent loss is real: a constant-product pool rebalances against you when
+                  the price moves, and fees are what compensate for it. This page will never
+                  quote you an APY it cannot read.
+                </li>
+              </ul>
+            </FinePrint>
           </section>
 
-          <section className="rounded-2xl p-6" style={CARD}>
+          <section className="relative isolate rounded-2xl p-6" style={CARD}>
+            <CardArt pageId="venue-amm" idx={4} />
             <p className="text-[10px] uppercase tracking-wider mb-2" style={{ color: 'var(--color-kyle)' }}>How the swap routes</p>
             <h2 className="heading-luxury text-lg text-white mb-3">Our pools, side by side with Jupiter</h2>
-            <p className="text-white/80 text-[13px] leading-relaxed mb-3">
-              Every quote on the Solana swap also asks our own pools, and prints which one
-              pays the trader more and by how much. The trade itself still goes through
-              Jupiter: sending it to our pool when ours pays more is not switched on yet.
-            </p>
+            <p className="text-white/80 text-[13px] leading-relaxed mb-3">Each trade goes where it pays the trader more.</p>
             <Link to="/solana" className="btn-secondary px-4 py-2 text-[12px] inline-block">
               Go to the Solana swap
             </Link>
+            <FinePrint summary="How it works" className="mt-2">
+              <p>
+                Every quote on the Solana swap also asks our own pools, and prints which one
+                pays the trader more and by how much. The trade goes where it pays more: to
+                our pool when ours pays at least as much as Jupiter, and through Jupiter
+                when it does not.
+              </p>
+            </FinePrint>
           </section>
         </div>
 
-        {/* ── The program ─────────────────────────────────────────────────── */}
-        <section className="rounded-2xl p-6 mt-6" style={CARD}>
-          <p className="text-[10px] uppercase tracking-wider mb-2" style={{ color: 'var(--color-kyle)' }}>The program</p>
-          <h2 className="heading-luxury text-lg text-white mb-3">Raydium&rsquo;s CPMM, unmodified</h2>
-          <p className="text-white/80 text-[13px] leading-relaxed mb-3">
-            The AMM is a verbatim fork of <strong>raydium-cp-swap</strong>. CI clones the pinned
-            upstream commit, refuses any differing file outside two, and sha256-hashes the
-            remaining delta against a pinned value — currently 86 lines across three files,
-            all of it authority constants and comments. The curve, the swap, the deposit and
-            withdraw paths and the fee maths are Raydium&rsquo;s, not ours, and the quotes on
-            the swap page run that same maths client-side.
-          </p>
-          <p className="text-white/50 text-[12px] leading-relaxed">
-            A browser cannot list pools itself — <code className="font-mono">getProgramAccounts</code> stays
-            off our RPC proxy&rsquo;s allowlist as an unbounded scan. Our server runs that one scan,
-            filtered to pools holding the token you look up, and returns addresses only; this page
-            then reads and checks every one of those pools on chain itself.
-          </p>
-        </section>
+        <VenueProgramCard />
       </div>
     </div>
   );
@@ -227,11 +270,75 @@ const HERO_LP_LINE: Record<LpWriteMode, string> = {
   on: 'This site reads pools and shares, and below you can add liquidity to a pool whose checks pass, take yours out, or open a new pool on the public fee tier (the pools section says whether that can be done right now).',
   'withdraw-only': 'This site reads pools and shares. Adding liquidity and opening pools from here are paused; taking yours out still works.',
 };
-const VENUE_LP_LINE: Record<LpWriteMode, string> = {
-  off: 'This site only reads pools so far.',
-  on: 'This site can add and remove liquidity, and open new pools on the public fee tier (the pools section below says whether it can right now).',
-  'withdraw-only': 'This site can take liquidity out; adding liquidity and opening pools are paused.',
+// The hero's door to the Solana LP tab says what that tab can do, by the same switch,
+// and only once the venue reads live: until then the door claims nothing.
+const SOLANA_LP_LINK: Record<LpWriteMode, string> = {
+  off: 'Find a pool on the Solana LP tab',
+  on: 'Add or remove liquidity on the Solana LP tab',
+  'withdraw-only': 'Take your liquidity out on the Solana LP tab',
 };
+const SOLANA_LP_LINK_NOT_OPEN = 'Go to the Solana LP tab';
+
+/**
+ * The public fee tier's part of the fee sheet, from the same live read as the launch tier's.
+ * A pool opened from this site charges no creator fee (CREATOR_FEE_SWITCH.publicOpen), so
+ * "Trader pays" is the trade fee unless the tier and that switch say otherwise.
+ */
+function PublicTierFees({ read }: { read: PublicTierRead }) {
+  const config = read.kind === 'ok' ? read.config : null;
+  const split = config ? feeSplit(config) : null;
+  const cost = config ? tradeCost(config, chargedCreatorFeeRate(config, CREATOR_FEE_SWITCH.publicOpen)) : null;
+  const charged = cost !== null && cost.creatorFeeRate > 0n;
+  return (
+    <div data-testid="fee-sheet-public" className="pb-5 mb-5 border-b border-white/10">
+      <p className="text-[10px] uppercase tracking-wider mb-1" style={{ color: 'var(--color-kyle)' }}>
+        {config ? `Fees · tier ${config.index}, the public tier · read from the chain` : 'Fees · the public tier · not read'}
+      </p>
+      <h2 className="heading-luxury text-xl text-white mb-4">
+        {config && split && cost
+          ? `A pool on the public tier charges ${feeRateText(cost.totalRate)} a trade; its liquidity providers keep ${split.lpKeepsPct.toFixed(2)}% of each trade`
+          : read.kind === 'absent'
+            ? 'No public fee tier was read'
+            : 'The public fee tier could not be read just now'}
+      </h2>
+      {config && split && cost ? (
+        <>
+          <div className={`grid grid-cols-2 gap-3 mb-4 ${charged ? 'sm:grid-cols-3 md:grid-cols-5' : 'sm:grid-cols-4'}`}>
+            <Stat
+              label="Trader pays"
+              value={feeRateText(cost.totalRate)}
+              sub={charged ? `${feeRateText(cost.tradeFeeRate)} trade fee + ${feeRateText(cost.creatorFeeRate)} creator fee` : 'of each trade'}
+            />
+            <Stat label="LPs keep" value={`${split.lpKeepsPct.toFixed(2)}%`} sub="of volume" tone="good" />
+            <Stat label="Venue takes" value={`${split.venueTakesPct.toFixed(2)}%`} sub={`${split.venueShareOfFeePct}% of the trade fee`} />
+            {charged && <Stat label="Creator gets" value={feeRateText(cost.creatorFeeRate)} sub="on top, to the pool’s creator" />}
+            <Stat label="Open a pool" value={`${solOf(config.createPoolFee)} SOL`} sub={`fee on tier ${config.index}; account deposits extra`} />
+          </div>
+          <FinePrint summary="How it works" className="mt-2">
+            <p>
+              These are the live <code className="font-mono text-white/85">AmmConfig</code> rates of fee tier {config.index}, the
+              public tier, read from the chain when this page loads. Every pool opened from this site is on this tier.
+              {config.creatorFeeRate > 0n && !charged && (
+                <>
+                  {' '}A pool opened on it from elsewhere can switch on the tier&rsquo;s {feeRateText(config.creatorFeeRate)} creator fee
+                  as well: each pool&rsquo;s card says what that pool charges.
+                </>
+              )}
+            </p>
+          </FinePrint>
+        </>
+      ) : (
+        <FinePrint summary="Why no fee" className="mt-2">
+          <p>
+            {read.kind === 'absent'
+              ? 'There is no public fee tier on chain to read, so no rate is shown for it.'
+              : 'The chain did not answer for the public tier, so this page shows no rate for it rather than a guess.'}
+          </p>
+        </FinePrint>
+      )}
+    </div>
+  );
+}
 
 function Stat({ label, value, sub, tone }: { label: string; value: string; sub?: string; tone?: 'good' }) {
   return (
@@ -240,125 +347,6 @@ function Stat({ label, value, sub, tone }: { label: string; value: string; sub?:
       <p className="stat-value text-xl leading-tight" style={{ color: tone === 'good' ? '#4ade80' : '#ffffff' }}>{value}</p>
       {sub && <p className="text-[10px] text-white/50">{sub}</p>}
     </div>
-  );
-}
-
-/**
- * The venue's real state, from a live probe. Every branch names precisely what
- * is missing — "come back later" and "one instruction has not run" are
- * different facts and a reader deserves to know which one they are looking at.
- */
-function VenueStatusCard({ status, onRefresh, lpMode }: { status: VenueStatus | null; onRefresh: () => void; lpMode: LpWriteMode }) {
-  const amber = { background: 'rgba(28,21,6,0.92)', border: '1px solid rgba(227,179,65,0.45)' };
-  const green = { background: 'rgba(6,24,14,0.92)', border: '1px solid rgba(34,197,94,0.45)' };
-
-  if (status === null) {
-    return (
-      <section className="rounded-2xl p-6" style={CARD}>
-        <p className="text-white/70 text-[13px]">Reading the venue&rsquo;s status from the chain…</p>
-      </section>
-    );
-  }
-
-  if (status.kind === 'live') {
-    return (
-      <section className="rounded-2xl p-6" style={green} aria-label="Venue status">
-        <div className="flex items-center justify-between gap-3 flex-wrap mb-2">
-          <p className="text-[10px] uppercase tracking-wider" style={{ color: '#4ade80' }}>Venue · LIVE</p>
-          <button type="button" onClick={onRefresh} className="text-white/50 hover:text-white text-[11px] underline underline-offset-2">Refresh</button>
-        </div>
-        <h2 className="heading-luxury text-xl text-white mb-2">Pools are open</h2>
-        <p className="text-white/80 text-[13px] leading-relaxed mb-3">
-          The AMM is deployed and its config exists, so anyone can open a pool and provide
-          liquidity on chain. {VENUE_LP_LINE[lpMode]} Fees below are read from
-          that config.
-        </p>
-        <div className="flex flex-wrap gap-3 text-[12px]">
-          <Addr label="Program" value={status.programId} />
-          <Addr label="Config" value={status.config.address} />
-        </div>
-      </section>
-    );
-  }
-
-  const body = (() => {
-    switch (status.kind) {
-      case 'no-program-id':
-        return {
-          title: 'This page has no program id to read',
-          lines: [
-            'This build of the site was not given the AMM’s program id, so it has no program to read and shows no fees or pools. That says nothing about what is on chain.',
-            'The id the venue ran on until 2026-08-13 is closed and permanently spent, and this page never reads it.',
-          ],
-          spent: true,
-        };
-      case 'program':
-        return {
-          title: status.deployment.kind === 'closed'
-            ? 'That program id is closed'
-            : status.deployment.kind === 'not-a-program'
-              ? 'Something is at that address, but it is not a program'
-              : 'No program at the configured id',
-          lines: [
-            status.deployment.kind === 'closed'
-              ? 'Its bytecode account is gone, so nothing can run there and the id can never be reused. A configured id that reads as closed means the env var is pointing at a spent address.'
-              : status.deployment.kind === 'not-a-program'
-                ? `The account is owned by ${status.deployment.owner} and is not executable. A program id is a public address and anyone can send lamports to it.`
-                : 'The configured program id has no account at all.',
-          ],
-          spent: false,
-        };
-      case 'no-config':
-        return {
-          title: 'Deployed, one instruction from open',
-          lines: [
-            'The AMM is on chain, but its fee tier (AmmConfig index 0) has not been created, so there is no tier for a pool to belong to and every pool creation would fail. The missing instruction is create_amm_config, which only the program’s admin can run.',
-          ],
-          spent: false,
-        };
-      case 'unreadable':
-        return {
-          title: 'The chain could not be read',
-          lines: [`That is an outage on our side, not a statement about the venue: ${status.detail}`],
-          spent: false,
-        };
-    }
-  })();
-
-  return (
-    <section className="rounded-2xl p-6" style={amber} aria-label="Venue status">
-      <div className="flex items-center justify-between gap-3 flex-wrap mb-2">
-        <p className="text-[10px] uppercase tracking-wider" style={{ color: '#e3b341' }}>Venue status · live chain read</p>
-        <button type="button" onClick={onRefresh} className="text-white/50 hover:text-white text-[11px] underline underline-offset-2">Refresh</button>
-      </div>
-      <h2 className="heading-luxury text-xl text-white mb-2">{body.title}</h2>
-      {body.lines.map((l) => (
-        <p key={l.slice(0, 24)} className="text-white/80 text-[13px] leading-relaxed mb-2">{l}</p>
-      ))}
-
-      {body.spent && (
-        <div className="mt-3 text-[12px]">
-          <Addr label="Spent id" value={SPENT_PROGRAM_ID.toBase58()} />
-        </div>
-      )}
-
-      {!hasProgramId() && (
-        <p className="text-white/45 text-[11px] mt-3">
-          This site takes the id from <code className="font-mono">VITE_SOLANA_CPSWAP_PROGRAM</code> when
-          it is built.
-        </p>
-      )}
-    </section>
-  );
-}
-
-function Addr({ label, value }: { label: string; value: string }) {
-  return (
-    <span className="inline-flex items-center gap-2 rounded-lg px-2.5 py-1.5"
-      style={{ background: 'rgba(0,0,0,0.5)', border: '1px solid var(--color-kyle-40)' }}>
-      <span className="text-[10px] uppercase tracking-wider" style={{ color: 'var(--color-kyle)' }}>{label}</span>
-      <CopyButton text={value} display={`${value.slice(0, 4)}…${value.slice(-4)}`} className="font-mono text-[12px]" style={{ color: 'var(--color-kyle)' }} />
-    </span>
   );
 }
 

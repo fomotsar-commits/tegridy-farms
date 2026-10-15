@@ -1,5 +1,10 @@
 # Hosting liquidity pools on Solana — the client, the router, the surface (2026-08-29)
 
+> 2026-10-06: this is a dated record. Since it was written the fork's source gained one
+> instruction (`create_lp_metadata`, which names a pool's share token), so the fork is no longer
+> Raydium's code with only constants changed, and its delta is about 260 lines. See
+> `solana/tegridy-amm/TEGRIDY_FORK.md`.
+
 Operator ask, verbatim: *"we should showcase the fact that we can host liquidity
 pools on solana so people can provide lp and we can get fees. the swap should
 also route to our lps unless it is more efficient somewhere else… it shouldnt be
@@ -113,6 +118,8 @@ venue's real state precisely — no program id / closed / squatted / deployed bu
 no config / live — and shows the fee sheet with a `PROPOSAL` badge until an
 `AmmConfig` exists to read. In the `no-config` state it prints the exact missing
 instruction with its arguments.
+
+**Superseded 2026-10-03:** since #688 the page has no `PROPOSAL` badge and shows no fee it did not read (the `no-config` state names `create_amm_config` with no arguments), and mainnet's tiers 0 and 1 now exist, so it shows their live rates, creator fee included.
 
 The probe goes through `readDeployment`, **not** `getAccountInfo`: a closed
 upgradeable program's stub stays executable-flagged, so the naive check reports

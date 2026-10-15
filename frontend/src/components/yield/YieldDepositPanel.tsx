@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { formatUnits } from 'viem';
 import { useSwitchChain } from 'wagmi';
 import { ArtCard } from '../ui/ArtCard';
+import { FinePrint } from '../ui/FinePrint';
 import { getAddressUrl } from '../../lib/explorer';
 import { useYieldDeposit } from '../../hooks/useYieldDeposit';
 import { YIELD_CHAIN_ID, YIELD_NO_FEE_NOTE, YIELD_THIRD_PARTY_NOTE } from '../../lib/yield/deposit';
@@ -25,6 +26,11 @@ import type { YieldVenue } from '../../lib/yield/venues';
 //
 // THE DESTINATION IS SHOWN IN FULL, with an explorer link, because "non-custodial"
 // is a claim a reader should be able to check rather than take.
+//
+// FEWER WORDS (owner, 2026-10-13). What stays on the face: whose risk you take
+// (one sentence), every refusal and step, the Rocket Pool fee, the destination,
+// and one line on who takes what. The loss mode, the fee notes in full and the
+// read sources sit in the FinePrint at the bottom, verbatim.
 
 export interface YieldDepositPanelProps {
   venue: YieldVenue;
@@ -62,21 +68,18 @@ export function YieldDepositPanel({ venue, rocket, depositFee1e18, block }: Yiel
           to sign, and repeating them here costs nothing they have not chosen. */}
       <div className="rounded-lg p-3 mb-3" style={{ background: 'rgba(0,0,0,0.30)' }}>
         <p className="text-[10px] uppercase tracking-wider text-text-muted mb-1">Whose risk you take</p>
-        <p className="text-[12px] text-text-secondary leading-relaxed mb-1.5">{venue.counterparty}</p>
-        <p className="text-[12px] text-text-secondary leading-relaxed">{venue.riskNote}</p>
+        <p className="text-[12px] text-text-secondary leading-relaxed">{venue.counterparty}</p>
       </div>
 
       {venue.id === 'etherfi-weeth' && (
         <p className="text-[11px] text-amber-300/90 leading-relaxed mb-2">
-          Three signatures. You hold eETH after the first one and may stop there — that is already a real staked
-          position. A wei of eETH dust may remain after the wrap.
+          Three signatures. You hold eETH after the first, and may stop there.
         </p>
       )}
 
       {venue.id === 'rocketpool-reth' && depositFee1e18 != null && (
         <p className="text-[11px] text-text-secondary leading-relaxed mb-2">
-          Rocket Pool charges a {(Number(depositFee1e18) / 1e16).toFixed(2)}% deposit fee, read from
-          RocketDAOProtocolSettingsDeposit at block {block ?? 'unknown'}.
+          Rocket Pool deposit fee: {(Number(depositFee1e18) / 1e16).toFixed(2)}%.
           {rocket?.maxPoolSize != null && rocket.poolBalance != null && (
             <>
               {' '}
@@ -110,9 +113,9 @@ export function YieldDepositPanel({ venue, rocket, depositFee1e18, block }: Yiel
       </div>
       <p id={`${inputId}-balance`} className="text-[11px] text-text-muted mb-3 leading-snug">
         {heldRaw === null
-          ? `Your ${movingAsset} balance could not be read, so nothing below assumes one.`
+          ? `Your ${movingAsset} balance could not be read.`
           : `You hold ${formatUnits(heldRaw, assetDecimals)} ${movingAsset}.`}
-        {route.kind !== 'erc20-supply' && ' Leave some ETH behind for gas — this page cannot spend your whole balance.'}
+        {route.kind !== 'erc20-supply' && ' Leave some ETH for gas.'}
       </p>
 
       {steps.length > 0 && (
@@ -137,8 +140,7 @@ export function YieldDepositPanel({ venue, rocket, depositFee1e18, block }: Yiel
           {formatUnits(deposit.receiptBalances.before, deposit.receiptBalances.decimals)} at block{' '}
           {deposit.receiptBalances.beforeBlock} →{' '}
           {formatUnits(deposit.receiptBalances.after, deposit.receiptBalances.decimals)} at block{' '}
-          {deposit.receiptBalances.afterBlock}. That difference includes any rebase or interest accrued between those
-          two blocks.
+          {deposit.receiptBalances.afterBlock}.
         </p>
       )}
       {deposit.explorerUrl !== null && (
@@ -150,7 +152,7 @@ export function YieldDepositPanel({ venue, rocket, depositFee1e18, block }: Yiel
       )}
 
       <p className="text-[11px] text-text-muted mt-3 leading-relaxed">
-        Non-custodial: this transaction goes from your wallet to {venue.issuer} at{' '}
+        Goes from your wallet to {venue.issuer} at{' '}
         <a
           href={getAddressUrl(YIELD_CHAIN_ID, venue.depositTarget)}
           target="_blank"
@@ -159,11 +161,33 @@ export function YieldDepositPanel({ venue, rocket, depositFee1e18, block }: Yiel
         >
           {venue.depositTarget}
         </a>
-        . Nothing on this page holds, forwards or can recover it.
+        . Nothing here holds or can recover it.
       </p>
       <p className="text-[11px] text-text-muted mt-1.5 leading-relaxed">
-        {YIELD_NO_FEE_NOTE} {YIELD_THIRD_PARTY_NOTE}
+        No venue fee. The protocol takes its own cut of the yield; Ethereum takes gas.
       </p>
+
+      <FinePrint summary="Risks and fees" className="mt-1">
+        <p>{venue.riskNote}</p>
+        {venue.id === 'etherfi-weeth' && (
+          <p>
+            Three signatures. You hold eETH after the first one and may stop there — that is already a real staked
+            position. A wei of eETH dust may remain after the wrap.
+          </p>
+        )}
+        {venue.id === 'rocketpool-reth' && depositFee1e18 != null && (
+          <p>Read from RocketDAOProtocolSettingsDeposit at block {block ?? 'unknown'}.</p>
+        )}
+        {heldRaw === null && <p>Your {movingAsset} balance could not be read, so nothing below assumes one.</p>}
+        {route.kind !== 'erc20-supply' && <p>Leave some ETH behind for gas — this page cannot spend your whole balance.</p>}
+        {deposit.receiptBalances !== null && (
+          <p>That difference includes any rebase or interest accrued between those two blocks.</p>
+        )}
+        <p>
+          Non-custodial: nothing on this page holds, forwards or can recover it. {YIELD_NO_FEE_NOTE}{' '}
+          {YIELD_THIRD_PARTY_NOTE}
+        </p>
+      </FinePrint>
     </ArtCard>
   );
 }
@@ -201,10 +225,7 @@ function PlanControl({
     case 'unroutable':
       return disabled(venue.route.kind === 'none' ? venue.label : 'Unavailable', plan.reason);
     case 'no-wallet':
-      return disabled(
-        'Connect a wallet to continue',
-        'Nothing can be signed without a wallet. Use the Connect control in the header — this page never asks for a key.',
-      );
+      return disabled('Connect a wallet to continue', 'Use Connect in the header. This page never asks for a key.');
     case 'wrong-chain':
       return (
         <>
@@ -212,8 +233,7 @@ function PlanControl({
             Switch to Ethereum mainnet
           </button>
           <p className="text-[11px] text-text-muted mt-1.5 leading-snug">
-            Every venue on this page is on Ethereum mainnet. Your wallet is on another chain, where these contracts do
-            not exist.
+            These venues are on Ethereum mainnet. Your wallet is on another chain.
           </p>
         </>
       );
@@ -245,12 +265,12 @@ function PlanControl({
     case 'venue-full':
       return disabled(
         'The deposit pool is full',
-        `Rocket Pool's deposit pool has room for ${formatUnits(plan.roomWei, 18)} ETH right now, read from the chain — less than this deposit.`,
+        `Rocket Pool's deposit pool has room for ${formatUnits(plan.roomWei, 18)} ETH right now, less than this deposit.`,
       );
     case 'below-minimum':
       return disabled(
         'Below the protocol minimum',
-        `Rocket Pool will not accept less than ${formatUnits(plan.minimum, 18)} ETH, read from RocketDAOProtocolSettingsDeposit.`,
+        `Rocket Pool will not accept less than ${formatUnits(plan.minimum, 18)} ETH.`,
       );
     case 'needs-approval':
       return (
@@ -259,8 +279,7 @@ function PlanControl({
             {busy ? 'Waiting for your wallet…' : `Step 1 of 2 — approve ${formatUnits(plan.amount, plan.asset.decimals)} ${plan.asset.symbol}`}
           </button>
           <p className="text-[11px] text-text-muted mt-1.5 leading-snug">
-            This approval is for exactly this amount and no more, and it only lets {plan.spender} move that much. It
-            does not deposit anything — the deposit is the second signature.
+            Lets {plan.spender} move exactly this amount, no more. The deposit is the second signature.
           </p>
         </>
       );
@@ -271,8 +290,7 @@ function PlanControl({
             {busy ? 'Waiting for confirmation…' : (venue.route.kind === 'none' ? 'Deposit' : venue.route.cta)}
           </button>
           <p className="text-[11px] text-text-muted mt-1.5 leading-snug">
-            No amount is quoted back to you before you sign, because this page cannot know what the protocol will mint
-            — the balance read afterwards is the only figure it will show you.
+            No amount is quoted before you sign. Your balance is read afterwards.
           </p>
         </>
       );

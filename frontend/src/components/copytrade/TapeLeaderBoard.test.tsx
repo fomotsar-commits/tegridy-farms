@@ -83,7 +83,7 @@ function renderBoard(tape: IslandTape) {
 }
 
 describe('TapeLeaderBoard', () => {
-  it('prints the return refusal and the sender caveat in full, above the table', () => {
+  it('prints the return refusal and the sender caveat in full', () => {
     renderBoard(tapeOf([fill()]));
     expect(screen.getByText(/No wallet on this board is ranked by profit/)).toBeTruthy();
     expect(screen.getByText(/activity, not skill and not outcome/)).toBeTruthy();
@@ -126,7 +126,10 @@ describe('TapeLeaderBoard', () => {
 
   it('says the lag is not measured rather than showing a zero', () => {
     renderBoard(tapeOf([fill()]));
-    expect(screen.getByText(/Not measured — you have no matched mirror/)).toBeTruthy();
+    // The cell says it in two words; what that means sits once, under the table.
+    const row = screen.getByRole('row', { name: /0xaaaa/i });
+    expect(within(row).getByText('Not measured')).toBeTruthy();
+    expect(screen.getByText(/Not measured: you have no matched mirror of this address/)).toBeInTheDocument();
   });
 
   it('gives every button a 44px target', () => {

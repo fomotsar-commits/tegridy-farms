@@ -3,7 +3,7 @@ import { act, cleanup, fireEvent, render, renderHook, screen, waitFor } from '@t
 import { WriteGateBanner } from './WriteGateBanner';
 import { GraduationPanel, type GraduationPanelProps } from './GraduationPanel';
 import { PoolSwapPanel, type PoolSwapPanelProps } from './PoolSwapPanel';
-import { useWriteGate } from './useWriteGate';
+import { GATE_RETRY_MS, useWriteGate } from './useWriteGate';
 import {
   CREATOR,
   KEY,
@@ -19,7 +19,7 @@ import {
   prepared,
 } from './fakeWriteApi.fixture';
 import type { CurveSignerState } from './useCurveSigner';
-import type { GateRpc, LaunchPool, WriteApi, WriteRpc } from './ports';
+import type { GateRpc, LaunchPool, TxSummary, WriteApi, WriteRpc } from './ports';
 import type { PoolStateView } from '../../../lib/solana/cpswap/program';
 import {
   PLATFORM_TREASURY_VAULT,
@@ -38,6 +38,20 @@ const ready: CurveSignerState = {
   signMessage: null,
 };
 const NONE = { create: false, buy: false, sell: false, migrate: false, poolSwap: false };
+
+/** A block height five short of the fixture's last valid one (1234): too late to sign it. */
+const NEARLY_OVER = { getBlockHeight: async () => 1234 - 5 } as unknown as WriteRpc;
+
+/** An api whose `prepare` answers twice with `summary`, the second time on a later blockhash, and whose send confirms. */
+function twice(prepare: 'prepareMigrate' | 'preparePoolSwap', summary: TxSummary): WriteApi {
+  return fakeApi({
+    [prepare]: vi
+      .fn()
+      .mockResolvedValueOnce({ ok: true, prepared: prepared(summary) })
+      .mockResolvedValueOnce({ ok: true, prepared: prepared(summary, { lastValidBlockHeight: 5_000 }) }),
+    submitPrepared: vi.fn(async () => ({ status: 'confirmed' as const, signature: SIG, slot: 1 })),
+  });
+}
 
 // ---------------------------------------------------------------------------
 // The banner and the hook behind it
@@ -101,6 +115,37 @@ describe('useWriteGate', () => {
     const { result } = renderHook(() => useWriteGate(rpc, { enabled: true, load }));
     await waitFor(() => expect(result.current.status).toBe('ready'));
     expect(api.readWriteGate).toHaveBeenCalledWith(rpc, openGate().cfg);
+  });
+
+  // The launch pages have no Refresh for the gate: without this, one failed answer at
+  // page load is the page's answer until it is reloaded. The body is pinned in useLpGate.test.tsx.
+  it('an unread gate is read again by itself; a gate that was read and is closed is not', async () => {
+    vi.useFakeTimers();
+    try {
+      const wait = (ms: number) =>
+        act(async () => {
+          await vi.advanceTimersByTimeAsync(ms);
+        });
+      const unread = { kind: 'blocked' as const, reason: 'unreadable' as const, detail: 'HTTP 503' };
+      const api = fakeApi({ readWriteGate: vi.fn().mockResolvedValueOnce(unread).mockResolvedValue(openGate()) });
+      // One loader for the hook's life: a new function each render would read the gate each render.
+      const load = async () => api;
+      const { result } = renderHook(() => useWriteGate(rpc, { enabled: true, load }));
+      await wait(0);
+      expect(result.current.status === 'ready' && result.current.gate).toEqual(unread);
+      await wait(GATE_RETRY_MS);
+      expect(result.current.status === 'ready' && result.current.gate.kind).toBe('open');
+
+      const closed = fakeApi({ readWriteGate: vi.fn(async () => ({ kind: 'blocked' as const, reason: 'protocol-not-initialized' as const, detail: '' })) });
+      const loadClosed = async () => closed;
+      renderHook(() => useWriteGate(rpc, { enabled: true, load: loadClosed }));
+      // One period at a time: a try is armed only once an answer has been drawn.
+      await wait(0);
+      for (let i = 0; i < 4; i++) await wait(GATE_RETRY_MS);
+      expect(closed.readWriteGate).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 
@@ -242,6 +287,22 @@ describe('graduation panel', () => {
     expect(document.activeElement).toBe(screen.getByRole('heading', { level: 2, name: 'Graduated' }));
   });
 
+  // Preparing a graduation only reads the chain, so a review too old to sign is prepared
+  // again when Sign is pressed (useTxFlow).
+  it('a review too old to sign is prepared again, and the wallet gets the fresh transaction', async () => {
+    const api = twice('prepareMigrate', { kind: 'migrate', mint: MINT, pool: KEY(40) });
+    renderGrad({ api, rpc: NEARLY_OVER });
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Review: finish graduation' }));
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Sign in wallet' }));
+    });
+    expect(screen.getByText(/Done\. The network confirmed it\./)).toBeInTheDocument();
+    expect(api.prepareMigrate).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(api.submitPrepared).mock.calls.map((c) => c[2].lastValidBlockHeight)).toEqual([5_000]);
+  });
+
   it('renders nothing while the curve is still bonding', () => {
     const c = bondingCurve();
     const { container } = render(
@@ -318,6 +379,44 @@ describe('pool swap panel', () => {
       p.gate,
       expect.objectContaining({ owner: CREATOR, mint: MINT, side: 'buy', amountIn: SOL, slippageBps: 100n }),
     );
+  });
+
+  // Preparing a pool swap only reads the chain, so a review too old to sign is prepared
+  // again when Sign is pressed (useTxFlow).
+  it('a review too old to sign is prepared again, and the wallet gets the fresh transaction', async () => {
+    const quote = {
+      poolAddress: KEY(40).toBase58(), outAmount: 900n, reserveIn: 1n, reserveOut: 1n, priceImpact: 0.01, creatorFeeOnInput: true,
+      result: { outputAmount: 900n, tradeFee: 2_500_000n, protocolFee: 300_000n, fundFee: 0n, creatorFee: 0n, newInputVaultAmount: 0n, newOutputVaultAmount: 0n },
+    };
+    const api = twice('preparePoolSwap', { kind: 'pool-buy', mint: MINT, pool: KEY(40), amountIn: SOL, minimumAmountOut: 800n, quote, unwrapsWsol: true });
+    renderPool({ api, rpc: NEARLY_OVER });
+    fireEvent.change(screen.getByLabelText('Pay (SOL)'), { target: { value: '1' } });
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Review pool buy' }));
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Sign in wallet' }));
+    });
+    expect(screen.getByText(/Done\. The network confirmed it\./)).toBeInTheDocument();
+    expect(api.preparePoolSwap).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(api.submitPrepared).mock.calls.map((c) => c[2].lastValidBlockHeight)).toEqual([5_000]);
+  });
+
+  // UX-1: a phone set to a comma-decimal region has "," and no "." on this keypad.
+  it('reads a comma typed in the amount as the decimal point; a pasted "68,066" is refused, never 68.066', async () => {
+    const p = renderPool();
+    const amount = screen.getByLabelText('Pay (SOL)') as HTMLInputElement;
+    fireEvent.change(amount, { target: { value: '68,066' } });
+    expect(amount).toHaveValue('68,066');
+    expect(amount).toHaveAttribute('aria-invalid', 'true');
+    expect(screen.getByRole('button', { name: 'Review pool buy' })).toBeDisabled();
+    fireEvent.change(amount, { target: { value: '' } });
+    for (const k of '0,5') fireEvent.change(amount, { target: { value: amount.value + k } });
+    expect(amount).toHaveValue('0.5');
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Review pool buy' }));
+    });
+    expect(p.api.preparePoolSwap).toHaveBeenCalledWith(p.rpc, p.gate, expect.objectContaining({ side: 'buy', amountIn: SOL / 2n }));
   });
 
   // F7/UX5: the pool's sell side had no balance and no Max either.

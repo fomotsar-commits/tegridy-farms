@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { renderHook } from '@testing-library/react';
+import { renderHook, waitFor } from '@testing-library/react';
 import { wagmiMock } from '../test-utils/wagmi-mocks';
 
 // Sonner: hook doesn't call toast directly, but stub for safety in case
@@ -482,6 +482,34 @@ describe('useToweliPrice', () => {
     // No reads, default fetch stub returns no price.
     const { result } = renderHook(() => useToweliPrice());
     expect(result.current.priceUnavailable).toBe(true);
+  });
+
+  // priceSettled: "still loading" and "could not be read" are different answers ──
+  //
+  // priceUnavailable is true from the first frame, before anything has been asked,
+  // so a caller that only has it cannot stop showing a placeholder. priceSettled
+  // turns true once the API leg has answered or failed, with or without a price.
+  it('is not settled while the API leg has yet to answer', () => {
+    globalThis.fetch = vi.fn().mockReturnValue(new Promise(() => {})) as unknown as typeof fetch;
+    const { result } = renderHook(() => useToweliPrice());
+    expect(result.current.priceSettled).toBe(false);
+    expect(result.current.priceInUsd).toBe(0);
+  });
+
+  it('is settled, with no price, once the API leg has failed', async () => {
+    globalThis.fetch = vi.fn().mockRejectedValue(new Error('network down')) as unknown as typeof fetch;
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const { result } = renderHook(() => useToweliPrice());
+    await waitFor(() => expect(result.current.priceSettled).toBe(true));
+    expect(result.current.priceInUsd).toBe(0);
+    expect(result.current.priceUnavailable).toBe(true);
+  });
+
+  it('is settled, with a price, once the API leg has answered', async () => {
+    stubGeckoTerminalFetch(0.00007);
+    const { result } = renderHook(() => useToweliPrice());
+    await waitFor(() => expect(result.current.priceSettled).toBe(true));
+    expect(result.current.priceInUsd).toBeGreaterThan(0);
   });
 
   // R080: the API leg is untrusted input to the site-wide display price ───

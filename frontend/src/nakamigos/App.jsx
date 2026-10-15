@@ -2,6 +2,7 @@ import { useState, useCallback, useEffect, useMemo, useRef, lazy, Suspense } fro
 import { useLocation, useNavigate } from "react-router-dom";
 import { MotionConfig } from "framer-motion";
 import { fetchTokensByIds } from "./api";
+import { holdReload } from "../lib/reloadHold";
 // CSS imported eagerly in main.tsx to avoid Vite CSS preload errors on lazy chunks
 import { ThemeProvider, useTheme } from "./contexts/ThemeContext";
 import { TradingModeProvider, useTradingMode, LITE_HIDDEN_ALL } from "./contexts/TradingModeContext";
@@ -44,6 +45,7 @@ import useSound from "./hooks/useSound";
 import useHolderStatus from "./hooks/useHolderStatus.jsx";
 import useDmUnread from "./hooks/useDmUnread";
 import useIncomingTrades from "./hooks/useIncomingTrades";
+import { useOpensAtTheTop } from "../hooks/useOpensAtTheTop";
 // Lazy-imported to avoid pulling @supabase/supabase-js into the initial bundle.
 // These are only needed after wallet connect / user interaction.
 const getUserdata = () => import("./lib/userdata");
@@ -216,11 +218,9 @@ function AppInner() {
   });
 
   // Landing page: set title and scroll to top
+  useOpensAtTheTop(isLanding ? "landing" : null);
   useEffect(() => {
-    if (isLanding) {
-      document.title = "Tradermigos | NFT Collections";
-      window.scrollTo({ top: 0, behavior: "instant" });
-    }
+    if (isLanding) document.title = "Tradermigos | NFT Collections";
   }, [isLanding]);
 
   // 404 page: set title
@@ -462,9 +462,9 @@ function CollectionView({ tab, deepLinkTokenId, collectionSlug, themeName, cycle
   // On mount (and collection switch — key={collectionSlug} forces remount),
   // update the page title and scroll to top.
   // All React state resets are handled by the remount itself (useState initializers).
+  useOpensAtTheTop(collectionSlug);
   useEffect(() => {
     document.title = `${collection.name} | Tradermigos`;
-    window.scrollTo({ top: 0, behavior: "instant" });
   }, [collectionSlug, collection.name]);
 
   // ═══ Deep link: /:collection/nft/:id — auto-open modal ═══
@@ -1184,6 +1184,10 @@ function CollectionView({ tab, deepLinkTokenId, collectionSlug, themeName, cycle
 // App.css — do not reintroduce an external stylesheet.
 
 export default function App() {
+  // The marketplace signs through its own wallet code, which the site's records of an
+  // open transaction do not see. While it is on screen the page never reloads itself
+  // (lib/staleBuild.ts); its boundary offers the reload as a button.
+  useEffect(() => holdReload(), []);
   return (
     <ErrorBoundary title="App initialization error" onReset={() => window.location.href = '/nakamigos'}>
       <WalletProvider>

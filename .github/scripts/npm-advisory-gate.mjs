@@ -1,34 +1,10 @@
 #!/usr/bin/env node
-// Advisory gate for the repo's npm projects.
-//
-// `npm audit` has never failed a build here. Dependabot raises version-drift
-// PRs, which is a different question: drift asks "is there a newer release",
-// an advisory asks "is the version you ship known-exploitable". At arming time
-// this repo carried 40 advisories in frontend/ and 15 in indexer/, including a
-// bigint-buffer heap overflow reachable through @solana/spl-token — in an
-// application that signs transactions.
-//
-// WHY THIS IS NOT A PLAIN `npm audit --audit-level=high`:
-//
-// A gate that is red on the day it is armed is deleted within a week, and the
-// 10 high advisories inherited on 2026-08-18 cannot all be fixed in the commit
-// that arms it (@solana/spl-token's only fix is a semver-major downgrade to
-// 0.1.8). So inherited debt is recorded — every GHSA id, verbatim, from the
-// arming measurement — under a BASELINE that carries a hard expiry date. New
-// advisories are blocking from the first run; inherited ones become blocking
-// on the baseline's expiry whether or not anyone looked at them.
-//
-// Two suppression mechanisms, deliberately not one:
-//   * `baseline`  — "this was already here." No judgement claimed, no reason
-//                   invented. Expires as a block.
-//   * `accepted`  — "we looked at this and decided to carry it." Requires a
-//                   written reason and its own expiry.
-// Collapsing them into one list would mean writing a fabricated rationale for
-// 32 advisories nobody has triaged, which is the exact shape of dishonesty the
-// house forbids.
-//
-// The unit of suppression is the GHSA id, never the package name. Suppressing
-// "axios" would silently absorb next quarter's axios advisory too.
+// Advisory gate for the repo's npm projects: a high or critical advisory blocks unless a list
+// forgives it. The unit is the GHSA id, never the package, so the next advisory in the same
+// package still blocks. Two lists forgive, both per project and both dated:
+//   baseline  "this was already here": no reason claimed, one shared expiry.
+//   accepted  "we looked and decided to carry it": a written reason, its own expiry, and the
+//             projects the reason was judged for. It counts in those projects and no other.
 
 import { appendFileSync, readFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
@@ -101,10 +77,29 @@ function isExpired(expires, now) {
 }
 
 /**
- * Every entry in `blocking` carries `why` — the sentence the summary and the
- * `::error` annotation print, and the thing the tests assert on. It was declared
- * `object[]`, which is true but says nothing: reading `.why` off it is an error,
- * so the gate's own reason strings were unreachable from a typed caller.
+ * The projects an acceptance was judged for. A reason is about one dependency tree, so an
+ * entry with no `projects` list was judged for none and forgives nothing.
+ */
+function scopeOf(entry) {
+  return Array.isArray(entry?.projects) ? entry.projects : [];
+}
+
+/**
+ * Why an advisory blocks when no list forgives it here: an acceptance may exist for another
+ * project, or for none.
+ */
+function whyUnforgiven(entries, ghsa) {
+  const sameId = entries.filter((e) => e.ghsa === ghsa);
+  if (sameId.length === 0) return 'new high/critical advisory';
+  const elsewhere = sameId.flatMap(scopeOf);
+  return elsewhere.length > 0
+    ? `accepted for ${elsewhere.join(', ')} only, not judged for this project`
+    : 'accepted without a `projects` list, so for no project';
+}
+
+/**
+ * Every entry in `blocking` carries `why`: the sentence the summary and the `::error`
+ * annotation print, and the thing the tests assert on.
  *
  * @typedef {{ghsa: string, package: string, severity: string, title: string, url: string, fixAvailable: boolean}} Advisory
  * @returns {{blocking: (Advisory & {why: string})[], accepted: (Advisory & {reason: string, expires: string})[], baselined: (Advisory & {expires: string})[], stale: string[], suppressedTotal: number}}
@@ -113,7 +108,9 @@ export function evaluate({ report, allowlist, project, now = new Date() }) {
   assertUsableReport(report, `npm audit (${project})`);
   const found = collectAdvisories(report).filter((a) => BLOCKING_SEVERITIES.has(a.severity));
 
-  const accepted = new Map((allowlist?.accepted ?? []).map((e) => [e.ghsa, e]));
+  // Only this project's acceptances exist from here on: for suppressing and for the stale report.
+  const entries = allowlist?.accepted ?? [];
+  const accepted = new Map(entries.filter((e) => scopeOf(e).includes(project)).map((e) => [e.ghsa, e]));
   const baseline = allowlist?.baseline ?? {};
   const baselineIds = new Set(baseline.projects?.[project] ?? []);
   const baselineDead = isExpired(baseline.expires, now);
@@ -144,10 +141,10 @@ export function evaluate({ report, allowlist, project, now = new Date() }) {
       out.baselined.push({ ...adv, expires: baseline.expires });
       continue;
     }
-    out.blocking.push({ ...adv, why: 'new high/critical advisory' });
+    out.blocking.push({ ...adv, why: whyUnforgiven(entries, adv.ghsa) });
   }
 
-  // Suppressions for advisories that are gone. Reported, never fatal: a
+  // This project's suppressions whose advisory is gone from it. Reported, never fatal: a
   // dependency bump that fixes something must not turn the build red.
   const present = new Set(found.map((a) => a.ghsa));
   for (const id of baselineIds) if (!present.has(id)) out.stale.push(id);
@@ -182,7 +179,12 @@ export function renderSummary(project, result) {
     lines.push('', '</details>');
   }
   if (result.stale.length > 0) {
-    lines.push('', `Suppressions no longer matching any advisory (prune them): ${result.stale.join(', ')}`);
+    // "For this project": an acceptance may name other projects that still need it.
+    lines.push(
+      '',
+      `Suppressions no longer matching any advisory in \`${project}\` (prune them for this project): ` +
+        result.stale.join(', '),
+    );
   }
   return lines.join('\n');
 }
@@ -227,8 +229,9 @@ function main(argv) {
   if (result.blocking.length > 0) {
     console.error(
       `::error title=Blocking npm advisories in ${project}::${result.blocking.length} high/critical advisor` +
-        `${result.blocking.length === 1 ? 'y' : 'ies'} are neither baselined nor accepted. Upgrade the dependency, or ` +
-        'add a dated entry with a written reason to .github/npm-advisory-allowlist.json in the same PR.',
+        `${result.blocking.length === 1 ? 'y' : 'ies'} are neither baselined nor accepted for this project. Upgrade the ` +
+        'dependency, or add a dated entry with a written reason, naming this project, to ' +
+        '.github/npm-advisory-allowlist.json in the same PR.',
     );
     return 1;
   }

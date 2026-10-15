@@ -415,6 +415,17 @@ export const ROUTES: readonly RouteSpec[] = [
       'until its chain read returns a config, not a placeholder.',
     knownViolations: [],
   },
+  {
+    path: '/solana-lp',
+    voice: 'venue',
+    owner: 'pages/SolanaLpPage.tsx',
+    tabOf: 'PoolsHostPage · solana-lp',
+    gate: null,
+    why:
+      'The LP section mounts only once the venue read returns live, which in this suite depends on the ' +
+      'preview proxy reaching Solana; with no answer it audits the hero, the status card and the program card alone.',
+    knownViolations: [],
+  },
   { path: '/curve-launch', voice: 'venue', owner: 'pages/CurveLaunchPage.tsx',
     tabOf: 'LaunchHubPage · curve-launch', gate: null, knownViolations: [] },
   // One launch on the Solana curve. With writes off (every build but the owner's flip and
@@ -843,17 +854,11 @@ export const ROUTES: readonly RouteSpec[] = [
   },
   {
     path: '/referrals',
-    voice: 'toweli',
-    owner: 'pages/ReferralsPage.tsx',
-    tabOf: 'EarnPage · referrals',
-    gate: null,
-    why:
-      'Audited with no wallet, which is the disconnected branch: the earning requirement is stated in full ' +
-      '(it is deliberately unconditional — a visitor deciding whether to join is exactly who the staking ' +
-      'threshold surprises), and the link, balance and attribution cards each say they have no wallet to ' +
-      'read rather than rendering an empty figure. The verdict states (qualified / below-threshold / ' +
-      'unknown), the claim states and the code-store states need a connected wallet and a server answer ' +
-      'this sweep cannot produce; they are covered by unit tests instead.',
+    voice: null,
+    owner: 'App.tsx',
+    gate: 'redirect',
+    why: 'Referrals left the Earn tabs on 2026-10-14 (owner); the claim and share box stays on the TOWELI room dashboard.',
+    redirectsTo: '/earn',
     knownViolations: [],
   },
   {

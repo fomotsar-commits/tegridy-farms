@@ -212,6 +212,11 @@ jobs:
             echo "::error title=No chain read happened::verify-addresses.mjs --onchain produced no chain section. A green run here would mean 'nothing was checked', not 'nothing is wrong'."
             exit 1
           }
+          # Who holds each authority and what each fee tier charges (check 3d).
+          grep -q 'field read: [1-9][0-9]* accounts considered' /tmp/onchain.txt || {
+            echo "::error title=No authority read happened::verify-addresses.mjs --onchain did not read who holds our Solana authorities. Green here would mean 'nothing was checked'."
+            exit 1
+          }
 
           # Second belt, for the case the first one cannot see. The script now
           # SKIPS addresses the RPC did not answer for — the right call, because a

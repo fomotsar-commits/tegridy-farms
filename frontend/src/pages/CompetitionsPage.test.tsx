@@ -68,9 +68,9 @@ describe('CompetitionsPage with no feed and no indexer', () => {
     await waitFor(() => expect(screen.getByText(/outage of the trade feed/i)).toBeInTheDocument());
     // Wave seven, row Q: with no indexer, the season card, its read notice and
     // its table are one line that says what opens and when, and that nothing
-    // is being counted in the meantime.
-    expect(screen.getByText(/its standings open once this deployment reads the venue's indexer/i)).toBeInTheDocument();
-    expect(screen.getByText(/nothing is being counted until then/i)).toBeInTheDocument();
+    // is being counted in the meantime. (Shortened 2026-10-13, owner: fewer
+    // words; the line still names the season's dates and says it is not counted.)
+    expect(screen.getByText(/not counted until this deployment reads the venue's indexer/i)).toBeInTheDocument();
     expect(screen.queryByText(/counting now/i)).toBeNull();
   });
 
@@ -121,7 +121,7 @@ describe('CompetitionsPage with an indexer configured, and no feed', () => {
     renderPage();
     await waitFor(() => expect(screen.getByText(/the standings could not be read/i)).toBeInTheDocument());
     expect(screen.getByText(/no source in this build is reading this season/i)).toBeInTheDocument();
-    expect(screen.queryByText(/its standings open once this deployment reads the venue's indexer/i)).toBeNull();
+    expect(screen.queryByText(/not counted until this deployment reads the venue's indexer/i)).toBeNull();
     expect(screen.queryByRole('table')).toBeNull();
   });
 });

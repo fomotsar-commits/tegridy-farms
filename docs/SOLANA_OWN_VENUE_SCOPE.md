@@ -19,10 +19,15 @@ launched tokens **graduate into a venue we own**.
 - **The entire delta from upstream is four authority/identity constants across two files.**
   All swap, curve, and fee math is byte-identical to upstream. `solana-ci.yml` has a
   `diff-guard` job that enforces this automatically.
+  *(Since 2026-10-06 the delta also has one added instruction, `create_lp_metadata`, which
+  gives a pool's lp token a name record so wallets can show it, and the program's own name
+  and contact text. See `solana/tegridy-amm/TEGRIDY_FORK.md`. Every "four constants" line
+  below predates both.)*
 - Protocol fee is **config-driven, not hardcoded** — `amm_config.protocol_fee_rate` set at
   `create_config`, collected by `protocol_owner`. So the venue economics need no code change.
 - Ships with `AUDIT_RFQ.md`, `MAINNET_RUNBOOK.md`, `SECURITY.md`, and a devnet deploy script.
-- **Status: Phase 0. Devnet. NOT audited. NOT on mainnet. Holds no real funds.**
+- **Status (corrected 2026-10-06): NOT audited. Live on mainnet since 2026-09-29, and it
+  holds funded pools.** When this was written it was Phase 0: devnet only, with no funds held.
 
 **The bonding curve now EXISTS.** ⚠️ Corrected 2026-08-02: this section previously read *"What
 does NOT exist: the bonding curve. `programs/` contains only `cp-swap`."* That was written

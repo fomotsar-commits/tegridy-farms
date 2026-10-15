@@ -36,12 +36,6 @@ export interface SectionHostProps {
   ariaLabel: string;
   /** Panel component per `item.to`. Every item in the section needs one. */
   panels: Record<string, ComponentType>;
-  /**
-   * Routes whose page already pulls itself up under the header (`-mt-14` +
-   * its own large `pt-`), so the host must NOT add the standard clearance.
-   * Everything else is wrapped in `pt-14` to clear the fixed strip.
-   */
-  fullBleed?: readonly string[];
 }
 
 /**
@@ -56,7 +50,7 @@ function matchesRoute(pathname: string, to: string): boolean {
   return pathname === to || pathname.startsWith(`${to}/`);
 }
 
-export function SectionHost({ section, idPrefix, ariaLabel, panels, fullBleed = [] }: SectionHostProps) {
+export function SectionHost({ section, idPrefix, ariaLabel, panels }: SectionHostProps) {
   const location = useLocation();
   const navigate = useNavigate();
   const items = section.items;
@@ -90,14 +84,12 @@ export function SectionHost({ section, idPrefix, ariaLabel, panels, fullBleed = 
         aria-labelledby={tabDomId(idPrefix, active)}
       >
         <Suspense fallback={<PageSkeleton />}>
-          {Panel &&
-            (fullBleed.includes(active) ? (
+          {/* pt-14: the strip lies over this padding, then scrolls away with it. */}
+          {Panel && (
+            <div className="pt-14">
               <Panel />
-            ) : (
-              <div className="pt-14">
-                <Panel />
-              </div>
-            ))}
+            </div>
+          )}
         </Suspense>
       </div>
     </>

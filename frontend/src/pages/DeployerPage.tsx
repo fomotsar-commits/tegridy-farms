@@ -15,6 +15,8 @@ import { isDeployerAddress } from '../lib/detection/deployerLaunches';
 import { METHOD_VERSION, type ConfidenceLevel } from '../lib/detection';
 import { shortenAddress, formatTimeAgo } from '../lib/formatting';
 import { PageArtBackdrop } from '../components/PageArtBackdrop';
+import { CardArt } from '../components/ui/CardArt';
+import { FinePrint } from '../components/ui/FinePrint';
 
 // DEPLOYER REPUTATION GRAPH — paste a deployer address, see the tokens it deployed
 // DIRECTLY and each one's CURRENT market state. Shareable via ?address=… .
@@ -62,7 +64,8 @@ function formatEthShort(n: number | null): string {
 
 function TokenCard({ t }: { t: LaunchTrajectory }) {
   return (
-    <div className="glass-card rounded-xl p-4">
+    <div className="glass-card relative isolate rounded-xl p-4">
+      <CardArt pageId="deployer" idx={6} />
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
@@ -104,7 +107,16 @@ function TokenCard({ t }: { t: LaunchTrajectory }) {
           <div className="text-[13px] font-semibold text-text-primary tabular-nums">{formatEthShort(t.liquidityEth)}</div>
         </div>
       </div>
-      <p className="text-[12px] text-text-secondary leading-relaxed mt-2">{t.note}</p>
+      {/* The no-market note is a long caveat ("not evidence of a rug…"): the
+          pill already says "No live market", so the why folds. Every other note
+          is short, and the unread one is a failed read, so they stay visible. */}
+      {t.status === 'no-market' ? (
+        <FinePrint className="mt-1">
+          <p>{t.note}</p>
+        </FinePrint>
+      ) : (
+        <p className="text-[12px] text-text-secondary leading-relaxed mt-2">{t.note}</p>
+      )}
     </div>
   );
 }
@@ -133,7 +145,8 @@ function ReputationReport({ rep }: { rep: DeployerReputation }) {
   return (
     <div className="space-y-4">
       {/* Summary */}
-      <div className="glass-card rounded-xl p-5">
+      <div className="glass-card relative isolate rounded-xl p-5">
+        <CardArt pageId="deployer" idx={5} />
         <div className="flex items-center justify-between gap-2 mb-3">
           <span
             className="text-[11px] uppercase tracking-wider"
@@ -178,25 +191,32 @@ function ReputationReport({ rep }: { rep: DeployerReputation }) {
       </div>
 
       {/* Loud gap disclosures */}
-      <div className="glass-card rounded-xl p-5" style={{ borderColor: 'var(--color-warning)' }}>
-        <h3 className="text-[12px] font-semibold uppercase tracking-wider mb-2" style={{ color: 'var(--color-warning)' }}>
+      <div className="glass-card relative isolate rounded-xl p-5" style={{ borderColor: 'var(--color-warning)' }}>
+        <CardArt pageId="deployer" idx={7} />
+        <h3 className="text-[12px] font-semibold uppercase tracking-wider mb-1" style={{ color: 'var(--color-warning)' }}>
           What this can and can't tell you
         </h3>
-        <ul className="space-y-2">
-          {rep.disclosures.map((d, i) => (
-            <li key={i} className="text-[12px] text-text-secondary leading-relaxed">
-              • {d}
-            </li>
-          ))}
-        </ul>
+        <p className="text-[12px] text-text-secondary">Direct deploys and current markets only. Not a full track record.</p>
+        <FinePrint summary="Limits">
+          <ul className="space-y-2">
+            {rep.disclosures.map((d, i) => (
+              <li key={i} className="text-[12px] text-text-secondary leading-relaxed">
+                • {d}
+              </li>
+            ))}
+          </ul>
+        </FinePrint>
       </div>
 
       {/* Method + correction path */}
       <footer className="pt-4 border-t border-white/10 text-text-muted text-[11px] leading-relaxed space-y-1">
         <p>
-          Method {METHOD_VERSION} · read on {observed.toLocaleString()}. {rep.method.description}
+          Method {METHOD_VERSION} · read on {observed.toLocaleString()}.
         </p>
-        <p>{rep.correctionPath}</p>
+        <FinePrint summary="Method">
+          <p>{rep.method.description}</p>
+          <p>{rep.correctionPath}</p>
+        </FinePrint>
       </footer>
     </div>
   );
@@ -258,16 +278,14 @@ export default function DeployerPage() {
           Deployer Reputation Graph
         </h1>
         <p className="text-[14px] text-text-secondary max-w-[660px]">
-          Paste a wallet address to see the tokens it{' '}
-          <span className="text-text-primary font-medium">deployed directly</span> and where each one stands right now.
-          It is a <span className="text-text-primary font-medium">descriptive measurement</span> of current on-chain
-          state. Not a verdict on anyone&apos;s intent, and not a full track record (the limits are shown with every
-          result).
+          Paste a wallet to see the tokens it{' '}
+          <span className="text-text-primary font-medium">deployed directly</span>, and where each stands now.
         </p>
       </m.div>
 
       {/* Address form */}
-      <form onSubmit={submit} className="glass-card rounded-xl p-4 mb-4">
+      <form onSubmit={submit} className="glass-card relative isolate rounded-xl p-4 mb-4">
+        <CardArt pageId="deployer" idx={1} />
         <label htmlFor="deployer-address" className="block text-[11px] uppercase tracking-wider text-text-muted mb-2">
           Deployer address
         </label>
@@ -302,6 +320,13 @@ export default function DeployerPage() {
             </button>
           )}
         </div>
+        <FinePrint summary="How it works">
+          <p>
+            It is a <span className="text-text-primary font-medium">descriptive measurement</span> of current on-chain
+            state. Not a verdict on anyone&apos;s intent, and not a full track record (the limits are shown with every
+            result).
+          </p>
+        </FinePrint>
       </form>
 
       {/* Result states */}
@@ -314,7 +339,8 @@ export default function DeployerPage() {
       )}
 
       {rep.status === 'loading' && (
-        <div className="glass-card rounded-xl p-6 text-center">
+        <div className="glass-card relative isolate rounded-xl p-6 text-center">
+          <CardArt pageId="deployer" idx={4} />
           <p className="text-[13px] text-text-secondary animate-pulse">
             Reading contract-creation history and current market state…
           </p>
@@ -353,17 +379,21 @@ export default function DeployerPage() {
 
 function IdleHint() {
   return (
-    <div className="glass-card rounded-xl p-5">
-      <h2 className="text-[14px] font-semibold text-text-primary mb-2">What you&apos;ll get</h2>
-      <ul className="space-y-1.5 text-[12.5px] text-text-secondary">
-        <li>• Every token the address deployed <span className="text-text-primary">directly</span> (its own contract-creation transactions).</li>
-        <li>• Each token&apos;s <span className="text-text-primary">current</span> market: an active pool, a thin pool, or no live market found.</li>
-        <li>• A plain-English summary, a data-confidence flag, and a timestamp.</li>
-        <li>• The gaps stated loudly: factory-launched tokens are invisible here, and without launch-time baselines a strict &ldquo;survived / dumped / rugged&rdquo; outcome can&apos;t be computed.</li>
-      </ul>
-      <p className="text-[11px] text-text-muted mt-3">
-        This tool never invents a track record. When something can&apos;t be measured it says so rather than guessing.
-      </p>
+    <div className="glass-card relative isolate rounded-xl p-5">
+      <CardArt pageId="deployer" idx={2} />
+      <h2 className="text-[14px] font-semibold text-text-primary mb-1">What you&apos;ll get</h2>
+      <p className="text-[12.5px] text-text-secondary">Each token it deployed, and whether a live market is active, thin or not found.</p>
+      <FinePrint>
+        <ul className="space-y-1.5">
+          <li>• Every token the address deployed <span className="text-text-primary">directly</span> (its own contract-creation transactions).</li>
+          <li>• Each token&apos;s <span className="text-text-primary">current</span> market: an active pool, a thin pool, or no live market found.</li>
+          <li>• A plain-English summary, a data-confidence flag, and a timestamp.</li>
+          <li>• The gaps stated loudly: factory-launched tokens are invisible here, and without launch-time baselines a strict &ldquo;survived / dumped / rugged&rdquo; outcome can&apos;t be computed.</li>
+        </ul>
+        <p>
+          This tool never invents a track record. When something can&apos;t be measured it says so rather than guessing.
+        </p>
+      </FinePrint>
     </div>
   );
 }
@@ -380,7 +410,8 @@ function StateCard({
   const color =
     tone === 'danger' ? 'var(--color-danger)' : tone === 'warning' ? 'var(--color-warning)' : 'var(--color-text-muted)';
   return (
-    <div className="glass-card rounded-xl p-5" style={{ borderColor: color }}>
+    <div className="glass-card relative isolate rounded-xl p-5" style={{ borderColor: color }}>
+      <CardArt pageId="deployer" idx={3} />
       <h2 className="text-[14px] font-semibold mb-1.5" style={{ color }}>
         {title}
       </h2>

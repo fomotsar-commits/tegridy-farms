@@ -6,7 +6,9 @@
 // The IDLs are the ones emitted with the exact mainnet binaries
 // (C:\Users\jimbo\solana-launch-release-2026-09-26\artifacts), committed under
 // solana/tegridy-amm/idl/ and pinned here by sha256 against that release's
-// SHA256SUMS. For each instruction a transaction can carry we check, position by
+// SHA256SUMS. One exception since 2026-10-06: the pool IDL also lists
+// `create_lp_metadata`, which the source has and mainnet does not run yet (see SHA256
+// below). The site sends no such instruction. For each instruction a transaction can carry we check, position by
 // position: the account's IDL name maps to the address we put there, and its signer
 // and writable flags equal the IDL's. Discriminators and argument layouts too.
 // An account list that only agrees with itself is how this repo shipped two
@@ -63,11 +65,18 @@ const IDL_DIR = resolve(HERE, '../../../../../../solana/tegridy-amm/idl');
 const LAUNCH_IDL_PATH = resolve(IDL_DIR, 'tegridy_launch.json');
 const CPSWAP_IDL_PATH = resolve(IDL_DIR, 'raydium_cp_swap.json');
 
-/** From the release's artifacts/SHA256SUMS. */
+/**
+ * `launch` and `cpswapRelease` are from the release's artifacts/SHA256SUMS: the IDLs of the
+ * binaries mainnet runs. `cpswap` is the committed pool IDL, which is one instruction AHEAD of
+ * that release: the source now has `create_lp_metadata` (it names a pool's share token), and
+ * mainnet does not run it until the owner upgrades the pool program. The test below holds the
+ * two together: take that one instruction out and the file is the release's, byte for byte.
+ */
 const SHA256 = {
   // The reserve-at-create build (artifacts/SHA256SUMS; d987fafe, the reserve-held build, is superseded).
   launch: 'cd9e173c666940f82222a2798dc1c5bc0cf30edf7b32450530e65aa523a3cb31',
-  cpswap: '939bc040fa0f65b6639f07545be9d23fde0492e9b5fc3d90229a313b0fcf0262',
+  cpswap: '1e8fd7928c0fce6788b880703a1cbfc932e808ab5acadfd5217eb637d739f736',
+  cpswapRelease: '939bc040fa0f65b6639f07545be9d23fde0492e9b5fc3d90229a313b0fcf0262',
 };
 
 interface IdlAccount {
@@ -93,15 +102,44 @@ const load = (p: string): { raw: Buffer; idl: Idl } => {
   return { raw, idl: JSON.parse(raw.toString('utf8')) as Idl };
 };
 
-describe('the committed IDLs are the release artifacts', () => {
+describe('the committed IDLs are the pinned ones', () => {
   // Not a skip: a missing IDL means these guards are not running, and that must fail.
   it('both files exist', () => {
     expect(existsSync(LAUNCH_IDL_PATH), LAUNCH_IDL_PATH).toBe(true);
     expect(existsSync(CPSWAP_IDL_PATH), CPSWAP_IDL_PATH).toBe(true);
   });
-  it('hash to the release SHA256SUMS', () => {
+  it('hash to their pins', () => {
     expect(createHash('sha256').update(load(LAUNCH_IDL_PATH).raw).digest('hex')).toBe(SHA256.launch);
     expect(createHash('sha256').update(load(CPSWAP_IDL_PATH).raw).digest('hex')).toBe(SHA256.cpswap);
+  });
+  it('the pool IDL is the release IDL plus create_lp_metadata, and nothing else', () => {
+    const { idl } = load(CPSWAP_IDL_PATH);
+    expect(idl.instructions.filter((i) => i.name === 'create_lp_metadata')).toHaveLength(1);
+    // The IDL tool writes two-space JSON with no final newline, which is what this re-emits.
+    const without = { ...idl, instructions: idl.instructions.filter((i) => i.name !== 'create_lp_metadata') };
+    expect(createHash('sha256').update(JSON.stringify(without, null, 2)).digest('hex')).toBe(SHA256.cpswapRelease);
+  });
+  it('create_lp_metadata takes no argument and names nine accounts, with only the payer signing', () => {
+    const ix = load(CPSWAP_IDL_PATH).idl.instructions.find((i) => i.name === 'create_lp_metadata');
+    if (!ix) throw new Error('create_lp_metadata is not in the pool IDL');
+    // No argument at all: a caller cannot hand the program a name, a symbol or a link.
+    expect(ix.args).toEqual([]);
+    expect(ix.discriminator).toEqual([...createHash('sha256').update('global:create_lp_metadata').digest().subarray(0, 8)]);
+    expect(ix.accounts.map((a) => a.name)).toEqual([
+      'payer', 'authority', 'pool_state', 'lp_mint', 'metadata', 'update_authority', 'metadata_program', 'system_program', 'rent',
+    ]);
+    expect(ix.accounts.filter((a) => a.signer).map((a) => a.name)).toEqual(['payer']);
+    // Only the payer and the new record are written. The pool, its share mint and the
+    // authority that also owns every vault are read-only.
+    expect(ix.accounts.filter((a) => a.writable).map((a) => a.name)).toEqual(['payer', 'metadata']);
+    const fixed = Object.fromEntries(ix.accounts.filter((a) => a.address).map((a) => [a.name, a.address]));
+    expect(fixed).toEqual({
+      // The record's editor is the vault, the address that signs for the multisig. Never the multisig account.
+      update_authority: VAULT.toBase58(),
+      metadata_program: 'metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s',
+      system_program: '11111111111111111111111111111111',
+      rent: 'SysvarRent111111111111111111111111111111111',
+    });
   });
   it('name the registered program ids', () => {
     expect(load(LAUNCH_IDL_PATH).idl.address).toBe(LAUNCH.toBase58());

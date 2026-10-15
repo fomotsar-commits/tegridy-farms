@@ -1,11 +1,15 @@
-import { useLayoutEffect, useRef } from 'react';
 import { useTabListKeys } from '../../hooks/useTabListKeys';
 import type { NavItem } from '../../lib/navConfig';
 import { tabDomId } from './routeTabId';
-import { revealScrollLeft } from './tabStripScroll';
+import { useRevealSelectedTab } from './tabStripScroll';
 
 /**
- * The sticky pill tab strip shared by every route-navigating tabbed host.
+ * The pill tab strip shared by every route-navigating tabbed host.
+ *
+ * IN THE PAGE'S FLOW, NEVER PINNED (2026-10-14). Fixed under the top bar, it covered
+ * fields, buttons and links on 19 pages once they scrolled. It now hangs from a
+ * zero-height anchor where the page starts, below the header or a TOWELI room's band,
+ * over the panel's own top padding, and scrolls away with the page.
  *
  * WHY IT EXISTS. LearnPage, InfoPage and ActivityPage each carry their own
  * hand-copied version of this markup — same fixed shell, same frosted pill row,
@@ -77,37 +81,14 @@ function TabLabel({ item }: { item: NavItem }) {
 export function RouteTabs({ idPrefix, ariaLabel, items, active, onSelect }: RouteTabsProps) {
   const keys = items.map((i) => i.to);
   const tabKeys = useTabListKeys(keys, active, onSelect);
-  const listRef = useRef<HTMLDivElement>(null);
-  const keyList = keys.join(' ');
-
-  /* A strip that scrolls shows the selected tab whole: on landing, on a new
-     selection, and when the strip or a tab resizes (web fonts, rotation). It
-     moves only the strip's own scrollLeft, before paint, never the page. */
-  useLayoutEffect(() => {
-    const list = listRef.current;
-    if (!list) return;
-    const reveal = () => {
-      const tab = list.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]');
-      if (!tab) return;
-      const box = tab.getBoundingClientRect();
-      const start = box.left - list.getBoundingClientRect().left - list.clientLeft + list.scrollLeft;
-      const next = revealScrollLeft({ start, end: start + box.width }, list);
-      if (Math.abs(next - list.scrollLeft) > 0.5) list.scrollLeft = next;
-    };
-    reveal();
-    if (typeof ResizeObserver === 'undefined') return;
-    const ro = new ResizeObserver(reveal);
-    ro.observe(list);
-    for (const tab of list.children) ro.observe(tab);
-    return () => ro.disconnect();
-  }, [active, keyList]);
+  const listRef = useRevealSelectedTab(active, keys.join(' '));
 
   return (
-    <div
-      className="fixed left-0 right-0 z-30 px-4 md:px-6 pointer-events-none"
-      style={{ top: 'calc(56px + var(--room-band-h, 0px))' }}
-    >
-      <div className="max-w-[900px] mx-auto pt-3 pointer-events-auto">
+    /* The anchor takes no room, so the panel starts where it did; z-30 keeps the strip
+       above the panel's padding it lies over. flow-root: a panel's -mt-14 would else
+       collapse through the empty anchor and lift the strip 56px, under the top bar. */
+    <div data-route-tabs className="relative z-30 h-0 flow-root">
+      <div className="absolute inset-x-4 md:inset-x-6 top-0 max-w-[900px] mx-auto pt-3">
         <div
           ref={listRef}
           role="tablist"

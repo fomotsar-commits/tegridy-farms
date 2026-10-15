@@ -25,9 +25,8 @@ import { maxUint256, type Address, type Hex } from 'viem';
 import { toast } from 'sonner';
 import { ERC20_ABI } from '../lib/contracts';
 import { CHAIN_ID } from '../lib/constants';
-import { getTxUrl } from '../lib/explorer';
-import { surfaceUnconfirmedTx } from '../lib/txErrors';
-import { COW_VAULT_RELAYER_ADDRESS } from '../lib/cowProtocol';
+import { surfaceReceiptNotice, waitForReceiptOutcome } from '../lib/txErrors';
+import { COW_APPROVE_REPEAT_COST, COW_VAULT_RELAYER_ADDRESS } from '../lib/cowProtocol';
 import {
   COMPOSABLE_COW_ADDRESS,
   COMPOSABLE_COW_CREATE_ABI,
@@ -148,9 +147,15 @@ export function useCowTwap() {
           // AUDIT (receipt-status, 2026-08-24): waitForTransactionReceipt
           // RESOLVES for reverted txs. A reverted approve means every TWAP part
           // fails to settle — refuse to register on top of it.
-          const approveReceipt = await publicClient.waitForTransactionReceipt({ hash: approveHash });
-          if (approveReceipt.status !== 'success') {
+          const approval = await waitForReceiptOutcome(publicClient, approveHash);
+          if (approval.kind === 'reverted') {
             throw new Error('Token approval reverted on-chain — the TWAP was not registered.');
+          }
+          if (approval.kind !== 'success') {
+            // Unread, or the wallet put another transaction at its nonce (a cancel's
+            // receipt says success): nothing is signed on an allowance nobody has seen.
+            surfaceReceiptNotice(toast, approval, { hash: approveHash, chainId: CHAIN_ID, repeatCost: COW_APPROVE_REPEAT_COST });
+            return null;
           }
         }
 
@@ -165,28 +170,28 @@ export function useCowTwap() {
           functionName: 'create',
           args: [{ handler: TWAP_HANDLER_ADDRESS, salt, staticInput }, true],
         });
-        let createReceipt;
-        try {
-          createReceipt = await publicClient.waitForTransactionReceipt({ hash: txHash });
-        } catch {
-          // viem RETURNS a reverted receipt (checked below), so this catch only
-          // means the receipt could not be read: a timeout, a node that has not
-          // indexed it, or a Safe that returned a queue hash not mined yet. The
-          // TWAP may be registered, so this is never "failed": the generic catch
-          // below used to say it in red with the form still armed, and one more
-          // click registered a second one.
-          surfaceUnconfirmedTx(toast, {
+        const created = await waitForReceiptOutcome(publicClient, txHash);
+        if (created.kind === 'reverted') {
+          throw new Error('Registration reverted on-chain — the TWAP is NOT active.');
+        }
+        if (created.kind !== 'success') {
+          // viem RETURNS a reverted receipt, so 'unreadable' only means the receipt
+          // could not be read: a timeout, a node that has not indexed it, or a Safe
+          // that returned a queue hash not mined yet. The TWAP may be registered,
+          // so this is never "failed": the generic catch below used to say it in red
+          // with the form still armed, and one more click registered a second one.
+          // 'replaced' is a cancel (whose receipt says success) or another call at
+          // its nonce: nothing was registered, so it is never called registered.
+          surfaceReceiptNotice(toast, created, {
             hash: txHash,
-            explorerUrl: getTxUrl(CHAIN_ID, txHash),
+            chainId: CHAIN_ID,
             repeatCost: 'registering again sets up a second TWAP that sells the same total again. From a Safe, check its transaction queue too.',
           });
           return null;
         }
-        if (createReceipt.status !== 'success') {
-          throw new Error('Registration reverted on-chain — the TWAP is NOT active.');
-        }
         toast.success('TWAP registered on CoW — parts settle on schedule, MEV-protected.');
-        return { txHash, salt };
+        // The hash that mined: a sped-up registration confirmed under a new one.
+        return { txHash: created.replacement?.hash ?? txHash, salt };
       } catch (e) {
         const msg = e instanceof Error ? e.message : 'Failed to register TWAP';
         if (/reject|denied|user denied|user rejected/i.test(msg)) {

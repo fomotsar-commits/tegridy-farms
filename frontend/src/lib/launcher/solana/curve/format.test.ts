@@ -7,6 +7,7 @@ import { describe, it, expect } from 'vitest';
 import {
   LAUNCH_ERROR_COPY,
   buyBlockedReason,
+  decimalCommaToPoint,
   formatSol,
   formatTokenAmount,
   isTradablePhase,
@@ -87,6 +88,76 @@ describe('formatTokenAmount', () => {
   it('falls back to base units for a decimals value that cannot be real', () => {
     for (const d of [-1, 9.5, 99]) {
       expect(formatTokenAmount(1_234_567_890n, d).isBaseUnits).toBe(true);
+    }
+  });
+
+  it('never renders a non-zero amount as 0, at any decimals and any precision', () => {
+    // 0.00005 of an 8-decimal token priced in hundreds of SOL is real money, and the
+    // money rows printed it as "0 tokens" beside a SOL figure that had its floor.
+    expect(formatTokenAmount(5_000n, 8, 4).text).not.toBe('0');
+    for (let d = 0; d <= 18; d++) {
+      for (let shown = 0; shown <= d; shown++) {
+        for (const raw of [1n, 9n, 10n ** BigInt(d) - 1n, 10n ** BigInt(d)]) {
+          if (raw === 0n) continue;
+          const { text } = formatTokenAmount(raw, d, shown);
+          expect(/[1-9]/.test(text), `${raw} at ${d} decimals, ${shown} shown: "${text}"`).toBe(true);
+        }
+      }
+    }
+    // Nothing is still nothing, and an amount the column can show is shown, not floored.
+    expect(formatTokenAmount(0n, 8, 4).text).toBe('0');
+    expect(formatTokenAmount(10_000n, 8, 4).text).toBe('0.0001');
+  });
+
+  it('floors exactly as formatSol does, so the two halves of a money row read alike', () => {
+    for (const raw of [1n, 99_999n, 100_000n, 123_456_789n]) {
+      for (const shown of [0, 2, 4, 9]) expect(formatTokenAmount(raw, 9, shown).text).toBe(formatSol(raw, shown));
+    }
+  });
+});
+
+describe('decimalCommaToPoint', () => {
+  const parse = (text: string) => parseDecimalToBaseUnits(text, 9);
+  /** What the box holds after each key of `keys`, typed into an empty box. */
+  const typed = (keys: string) => [...keys].reduce((box, k) => decimalCommaToPoint(box + k, box), '');
+  const pasted = (text: string) => decimalCommaToPoint(text, '');
+
+  it('reads a typed comma as the decimal point: a comma-region phone keypad has no "."', () => {
+    expect(parse(typed('0,5'))).toBe(500_000_000n);
+    expect(parse(typed(',5'))).toBe(500_000_000n);
+    // Three decimals typed one key at a time are a fraction, not thousands.
+    expect(parse(typed('68,066'))).toBe(68_066_000_000n);
+    expect(typed('0.5')).toBe('0.5');
+  });
+
+  it('never reads a pasted thousands separator as a decimal point', () => {
+    // The page prints "68,066.397104" and "1,393,591". Each means what it says or is
+    // refused; "68,066" is never 68.066 and "1,234.5" is never 1.2345.
+    const means: Record<string, bigint> = {
+      '68,066': 68_066n * SOL,
+      '68,066.397104': 68_066_397_104_000n,
+      '1,393,591': 1_393_591n * SOL,
+      '1,234.5': 1_234_500_000_000n,
+      '1.234,5': 1_234_500_000_000n,
+    };
+    for (const [text, exact] of Object.entries(means)) expect([null, exact], text).toContain(parse(pasted(text)));
+  });
+
+  it('reads a pasted comma that can only be a decimal point', () => {
+    expect(parse(pasted('0,5'))).toBe(500_000_000n);
+    expect(parse(pasted('12,25'))).toBe(12_250_000_000n);
+  });
+
+  it('never re-reads a comma already in the box, so fixing a refused paste cannot shrink it', () => {
+    // "1,393,591" pasted and refused, then its second comma deleted: not 1.393591.
+    expect(parse(decimalCommaToPoint('1,393591', '1,393,591'))).toBeNull();
+    expect(parse(decimalCommaToPoint('68,06', '68,066'))).toBeNull();
+    expect(parse(decimalCommaToPoint('1393591', '1,393591'))).toBe(1_393_591n * SOL);
+  });
+
+  it('changes nothing but that one comma', () => {
+    for (const next of ['', '1', '1.5', 'abc', '1e9', '-1', ' 0,5', '0,5x', '1,2,3', ',,', '1,5']) {
+      for (const prev of ['', '1', '1,']) expect([next, next.replace(',', '.')]).toContain(decimalCommaToPoint(next, prev));
     }
   });
 });

@@ -12,6 +12,8 @@ import {
 } from '../../lib/copytrade/tapeReconcile';
 import { formatQuoteAmount } from '../../lib/copytrade/quoteTokens';
 import { shortenAddress } from '../../lib/formatting';
+import { CardArt } from '../ui/CardArt';
+import { FinePrint } from '../ui/FinePrint';
 
 // Your own mirrors: how late you were, and whether the mirror happened at all.
 //
@@ -35,6 +37,9 @@ import { shortenAddress } from '../../lib/formatting';
 // offer and none is faked. What the reconciliation needs is a string to look for
 // the reader's own fills under; it is validated as a real 32-byte key before it
 // is stored, and it grants nothing.
+//
+// FEWER WORDS (owner, 2026-10-13). The three measurement notes and the per-row
+// "awaiting" explanation are said once, in full, in the card's FinePrint.
 
 export interface FollowerRecordProps {
   outcomes: readonly TapeOutcomeRow[];
@@ -72,11 +77,10 @@ export function FollowerRecord({
   const hasIdentity = Boolean(account) || solanaAddress !== null;
 
   return (
-    <section className="rounded-xl border border-white/15 bg-white/[0.02] p-4">
+    <section className="relative isolate rounded-xl border border-white/15 bg-white/[0.02] p-4">
+      <CardArt pageId="copy-trading" idx={4} />
       <h2 className="text-sm font-semibold text-white">Your mirrors, as they actually went</h2>
-      <p className="mt-1.5 text-xs leading-relaxed text-white/80">{FOLLOWER_RETURN_UNMEASURABLE}</p>
-      <p className="mt-1.5 text-[11px] leading-relaxed text-white/60">{MATCH_BASIS}</p>
-      <p className="mt-1.5 text-[11px] leading-relaxed text-white/60">{TAPE_MATCH_LIMIT}</p>
+      <p className="mt-1.5 text-xs leading-relaxed text-white/80">Whether each mirror filled, and how late. No profit or loss.</p>
 
       <SolanaIdentityField
         address={solanaAddress}
@@ -94,19 +98,16 @@ export function FollowerRecord({
 
       {!hasIdentity ? (
         <p className="mt-4 text-xs leading-relaxed text-white/70">
-          No address is available, so there is nothing to look for fills under. Nothing here is a
-          statement about mirrors you may have placed.
+          No address given, so your fills were not looked up.
         </p>
       ) : loggedCount === 0 ? (
         <p className="mt-4 text-xs leading-relaxed text-white/70">
-          You have logged no mirrors from this browser. The log lives here and nowhere else, so a
-          different browser or a cleared cache starts this record over.
+          You have logged no mirrors from this browser.
         </p>
       ) : !readable ? (
         <p className="mt-4 text-xs leading-relaxed text-white/70">
-          The island tape could not be read, so none of the {loggedCount} mirror
-          {loggedCount === 1 ? '' : 's'} you logged can be shown to have filled — or to have failed.
-          Unread is not unfilled.
+          The island tape could not be read, so your {loggedCount} logged mirror
+          {loggedCount === 1 ? ' is' : 's are'} unchecked. Unread is not unfilled.
         </p>
       ) : (
         <>
@@ -156,10 +157,7 @@ export function FollowerRecord({
                       {row.state === 'filled' ? (
                         <span className="text-emerald-200">Matched a fill</span>
                       ) : row.state === 'awaiting' ? (
-                        <span className="text-white/70">
-                          Inside the {Math.round(FILL_MATCH_WINDOW_SECONDS / 60)}-minute window —{' '}
-                          {TAPE_AWAITING}
-                        </span>
+                        <span className="text-white/70">Awaiting the next read</span>
                       ) : row.state === 'unverifiable' ? (
                         <span className="text-white/70">
                           Unverifiable — {row.unverifiableBecause}
@@ -183,6 +181,26 @@ export function FollowerRecord({
           </div>
         </>
       )}
+
+      <FinePrint summary="How it’s measured" className="mt-2">
+        <p>{FOLLOWER_RETURN_UNMEASURABLE}</p>
+        <p>{MATCH_BASIS}</p>
+        <p>{TAPE_MATCH_LIMIT}</p>
+        {hasIdentity && loggedCount > 0 && readable && outcomes.some((o) => o.state === 'awaiting') ? (
+          <p>
+            Awaiting the next read: inside the {Math.round(FILL_MATCH_WINDOW_SECONDS / 60)}-minute
+            window. {TAPE_AWAITING}
+          </p>
+        ) : null}
+        <p>
+          Your Solana address is used only to look for your own fills on the Solana pools. This page
+          mounts no Solana wallet and asks for no signature.
+        </p>
+        {!hasIdentity ? <p>Nothing here is a statement about mirrors you may have placed.</p> : null}
+        {hasIdentity && loggedCount === 0 ? (
+          <p>The log lives here and nowhere else, so a different browser or a cleared cache starts this record over.</p>
+        ) : null}
+      </FinePrint>
     </section>
   );
 }
@@ -202,7 +220,7 @@ function SolanaIdentityField({
   return (
     <div className="mt-3 rounded-lg border border-white/10 bg-black/20 px-3 py-2.5">
       <label htmlFor="copy-solana-self" className="block text-[11px] font-medium uppercase tracking-wide text-white/60">
-        Your Solana wallet (read-only, pasted — nothing is signed)
+        Your Solana wallet (read-only, nothing is signed)
       </label>
       {address ? (
         <div className="mt-1 flex flex-wrap items-center gap-2">
@@ -238,10 +256,6 @@ function SolanaIdentityField({
           </button>
         </div>
       )}
-      <p className="mt-1 text-[10px] leading-snug text-white/55">
-        Used only to look for your own fills on the Solana pools. This page mounts no Solana wallet
-        and asks for no signature.
-      </p>
       {error ? (
         <p className="mt-1 text-[11px] text-amber-200" role="alert">
           {error}

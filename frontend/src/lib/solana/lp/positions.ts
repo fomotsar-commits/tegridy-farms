@@ -1,11 +1,13 @@
 import { PublicKey } from '@solana/web3.js';
 import type { SolanaRpc } from '../../launcher/solana/curve/rpc';
 import { clipDetail } from '../../launcher/solana/curve/read';
+import { detailOf } from './ledger';
 import { deriveAuthority, deriveLpMint } from '../cpswap/program';
 import { lpWithdrawValue } from '../cpswap/read';
 import { getMultipleAccounts, getTokenAccountsByOwner, type RawAccount } from './accounts';
 import { readPoolIndex } from './poolIndex';
 import { readPools, type PoolEntry, type ReadPoolsOptions } from './poolFinder';
+import { QUOTE_COINS } from './quotes';
 import { TOKEN_PROGRAM, decodeMintAccount } from './tokenSafety';
 
 /**
@@ -14,21 +16,27 @@ import { TOKEN_PROGRAM, decodeMintAccount } from './tokenSafety';
  *
  * A pool share (LP token) is a classic SPL token whose mint authority is the pool
  * program's authority PDA. So: list the wallet's token accounts, keep the ones with a
- * balance, read their mints, keep the ones minted by our pool program. That identifies
- * a share without trusting anything but the chain. Which POOL it belongs to is looked up
- * in the server index by LP mint, and then PROVEN here: the pool's LP mint must be the
- * one the program derives from the pool's own address, and the pool account must say so.
+ * balance, read their mints, keep the ones whose mint authority is that PDA. That finds
+ * every share, but it does not prove one: anyone can make a mint, hand its authority to
+ * that PDA and send it to a wallet. Which POOL a share belongs to is looked up in the
+ * server index by LP mint, and then PROVEN here: the pool's LP mint must be the one the
+ * program derives from the pool's own address, and the pool account must say so.
  *
  * A share never silently disappears from this list:
  *   - one we cannot place (the index did not answer, or has no pool for it) is still
  *     listed, with its amount;
  *   - placing costs one index lookup per share MINT, so at most `limit` are placed per
- *     read, and `totalShares` says how many the wallet holds. A proven placement is kept
- *     for the session (`placedPools`), so "more" and "read again" only spend lookups on
- *     shares not placed yet. The page shows the rest as "N
- *     more" and can place them next. Anyone can send pool shares of junk pools to any
- *     wallet, so the order is stable (by share mint) rather than "whatever the RPC
- *     returned", and the placed ones are listed most valuable first.
+ *     read, and `totalShares` says how many the wallet holds. The page shows the rest as
+ *     "N more" and can place them next.
+ *
+ * Junk must not starve a real share (audit 2026-10-03, ATK-2). Proven shares are listed
+ * first and cost no lookup (`placedPools`); the rest are in a stable order (by share
+ * mint), never "whatever the RPC returned". A miss is not asked again for a minute
+ * (`missedAt`), so "more" and "read again" spend lookups on shares not asked yet, and
+ * lookups go a few at a time with those first, so the index's per-IP limit lands on
+ * junk already asked about. The placed ones are listed by pairing coin (SOL, USDC,
+ * BAYLA) and, within a coin, the one worth the most of it first: amounts of different
+ * coins are never compared.
  */
 
 export interface Position {
@@ -72,12 +80,24 @@ export const MAX_POSITIONS = 20;
 /**
  * `${program}:${lpMint}` → its pool, kept for the session, with how it was found. An LP
  * mint is a PDA of its pool (deriveLpMint), so a placement once proven can never change.
- * Only proven matches are kept: a miss or an unread answer is asked again next time.
+ * Only proven matches are kept here: an unread answer is asked again next time.
  * Without this every "more" and "read again" re-spent one rate-limited lookup per share
  * (review 2026-09-30). A share placed from its chain history is kept too, so a re-read
  * while our index is still down keeps its pool, and the way out stays offered.
  */
 const placedPools = new Map<string, { pool: string; via: 'found' | 'chain' }>();
+
+/**
+ * `${program}:${lpMint}` → when the index last said it has no pool for this share. For
+ * MISS_KEPT_MS that answer stands and is not asked again; after that it is, behind the
+ * shares never asked, because a new pool can reach the index late (the row says "read
+ * again in a minute"). An unread answer is never kept.
+ */
+const missedAt = new Map<string, number>();
+export const MISS_KEPT_MS = 60_000;
+
+/** Index lookups in flight at once. In order, so a rate limit lands on the last ones asked. */
+export const LOOKUPS_AT_ONCE = 4;
 
 /**
  * The share of a pool this page just opened (a confirmed `lp-create`), placed for the
@@ -94,10 +114,20 @@ type Placement = Pick<Position, 'placement' | 'placementDetail'> & { pool: strin
 
 const toBase58 = (b: Uint8Array) => new PublicKey(b).toBase58();
 
-/** The SOL side of what a position pays out now, for ordering; -1 when it has no value read. */
-export function positionSolValue(p: Position): bigint {
+/**
+ * The pairing-coin side of what a position pays out now, in that coin's own base units,
+ * for ordering WITHIN one coin; -1 when it has no value read.
+ */
+export function positionQuoteValue(p: Position): bigint {
   if (!p.value || p.pool?.kind !== 'pool') return -1n;
-  return p.pool.view.solIsToken0 ? p.value.token0 : p.value.token1;
+  return p.pool.view.quoteIsToken0 ? p.value.token0 : p.value.token1;
+}
+
+/** A position's pairing coin's rank (SOL 0, USDC 1, BAYLA 2); past them all when it has no value read. */
+function positionCoinRank(p: Position): number {
+  if (!p.value || p.pool?.kind !== 'pool') return QUOTE_COINS.length;
+  const mint = p.pool.view.quote.mint;
+  return QUOTE_COINS.findIndex((q) => q.mint === mint);
 }
 
 export async function readPositions(
@@ -129,32 +159,53 @@ export async function readPositions(
     const d = decodeMintAccount(a.owner, a.data);
     if (d.ok && d.value.program === 'spl-token' && d.value.mintAuthority === authority) lpMints.add(m);
   });
+  const program = opts.programId.toBase58();
+  const keyOf = (lpMint: string) => `${program}:${lpMint}`;
+  // Proven shares first, then by share mint: junk sent to the wallet cannot push a
+  // share already placed off the first page, whatever its mint sorts as.
+  const unproven = (lpMint: string) => (placedPools.has(keyOf(lpMint)) ? 0 : 1);
   const allShares = held
     .filter((t) => lpMints.has(t.mint))
-    .sort((a, b) => (a.mint !== b.mint ? (a.mint < b.mint ? -1 : 1) : a.address < b.address ? -1 : a.address > b.address ? 1 : 0));
+    .sort(
+      (a, b) =>
+        unproven(a.mint) - unproven(b.mint) || (a.mint !== b.mint ? (a.mint < b.mint ? -1 : 1) : a.address < b.address ? -1 : a.address > b.address ? 1 : 0),
+    );
   if (!allShares.length) return { kind: 'ok', positions: [], chainNow: null, totalShares: 0 };
   const shares = allShares.slice(0, limit);
 
   // Place each share: index lookup by LP mint, then the derivation proves the match.
-  // One lookup per distinct mint, and none for a mint already proven this session.
-  const program = opts.programId.toBase58();
-  const lookups = new Map<string, Promise<Placement>>();
-  const place = async (lpMint: string): Promise<Placement> => {
-    const known = placedPools.get(`${program}:${lpMint}`);
-    if (known) return { pool: known.pool, placement: known.via, placementDetail: null };
+  // One lookup per distinct mint, and none for a mint proven this session or missed
+  // within the last minute.
+  const now = Date.now();
+  const placements = new Map<string, Placement>();
+  const toAsk: string[] = [];
+  for (const lpMint of new Set(shares.map((s) => s.mint))) {
+    const known = placedPools.get(keyOf(lpMint));
+    const missed = missedAt.get(keyOf(lpMint));
+    if (known) placements.set(lpMint, { pool: known.pool, placement: known.via, placementDetail: null });
+    else if (missed !== undefined && now - missed < MISS_KEPT_MS) placements.set(lpMint, { pool: null, placement: 'not-found', placementDetail: null });
+    else toAsk.push(lpMint);
+  }
+  // Shares never asked go before misses that have aged out, oldest miss first.
+  toAsk.sort((a, b) => (missedAt.get(keyOf(a)) ?? 0) - (missedAt.get(keyOf(b)) ?? 0));
+  const ask = async (lpMint: string): Promise<void> => {
     const idx = await readPoolIndex({ lpMint }, program, opts.fetchImpl);
-    if (idx.kind !== 'ok') return { pool: null, placement: 'index-unread', placementDetail: idx.detail };
+    if (idx.kind !== 'ok') {
+      placements.set(lpMint, { pool: null, placement: 'index-unread', placementDetail: idx.detail });
+      return;
+    }
     const match = idx.pools.find((p) => deriveLpMint(opts.programId, new PublicKey(p)).toBase58() === lpMint) ?? null;
-    if (match) placedPools.set(`${program}:${lpMint}`, { pool: match, via: 'found' });
-    return { pool: match, placement: match ? 'found' : 'not-found', placementDetail: null };
+    if (match) placedPools.set(keyOf(lpMint), { pool: match, via: 'found' });
+    else missedAt.set(keyOf(lpMint), Date.now());
+    placements.set(lpMint, { pool: match, placement: match ? 'found' : 'not-found', placementDetail: null });
   };
-  const placed = await Promise.all(
-    shares.map(async (s) => {
-      let p = lookups.get(s.mint);
-      if (!p) lookups.set(s.mint, (p = place(s.mint)));
-      return { share: s, ...(await p) };
+  let next = 0;
+  await Promise.all(
+    Array.from({ length: Math.min(LOOKUPS_AT_ONCE, toAsk.length) }, async () => {
+      while (next < toAsk.length) await ask(toAsk[next++]!);
     }),
   );
+  const placed = shares.map((s) => ({ share: s, ...placements.get(s.mint)! }));
 
   const poolAddrs = [...new Set(placed.map((p) => p.pool).filter((p): p is string => p !== null))];
   const read = poolAddrs.length ? await readPools(rpc, poolAddrs, opts) : ({ kind: 'ok', entries: [], chainNow: null } as const);
@@ -177,11 +228,15 @@ export async function readPositions(
     }
     return { lpMint: share.mint, lpAccount: share.address, lpAmount: share.amount, placement, placementDetail, pool: entry, value, tooSmall };
   });
-  // Most SOL first; shares with no value keep their stable order after them.
+  // By pairing coin, then the most of that coin first; shares with no value keep their
+  // stable order after them. A USDC amount is never weighed against a SOL amount.
   const order = new Map(positions.map((p, i) => [p, i]));
   positions.sort((a, b) => {
-    const va = positionSolValue(a);
-    const vb = positionSolValue(b);
+    const ra = positionCoinRank(a);
+    const rb = positionCoinRank(b);
+    if (ra !== rb) return ra - rb;
+    const va = positionQuoteValue(a);
+    const vb = positionQuoteValue(b);
     if (va !== vb) return va > vb ? -1 : 1;
     return order.get(a)! - order.get(b)!;
   });
@@ -256,11 +311,11 @@ export async function placeShareOnChain(rpc: SolanaRpc, opts: ReadPoolsOptions, 
         // Only one address can derive this LP mint, so this is the only candidate there
         // will ever be: read it, and it is the pool or there is none.
         const read = await readPools(rpc, [candidate], opts);
-        if (read.kind === 'unread') return { kind: 'unread', detail: read.detail };
+        if (read.kind === 'unread') return { kind: 'unread', detail: detailOf(read.detail) };
         const entry = read.entries[0];
         // A pool whose vaults could not be read is a failed read, not an answer: say
         // "try again", never "not on the chain".
-        if (entry?.kind === 'unread') return { kind: 'unread', detail: entry.detail };
+        if (entry?.kind === 'unread') return { kind: 'unread', detail: detailOf(entry.detail) };
         if (entry?.kind !== 'pool' || entry.view.snapshot.pool.lpMint !== share.lpMint) return { kind: 'not-found' };
         placedPools.set(`${program}:${share.lpMint}`, { pool: candidate, via: 'chain' });
         return { kind: 'placed', entry };
@@ -268,6 +323,7 @@ export async function placeShareOnChain(rpc: SolanaRpc, opts: ReadPoolsOptions, 
     }
     return { kind: 'not-found' };
   } catch (e) {
-    return { kind: 'unread', detail: clipDetail(e) };
+    // "HTTP 429" is said in words, as the earnings view says it.
+    return { kind: 'unread', detail: detailOf(e) };
   }
 }

@@ -13,9 +13,9 @@
 // ── CONFIRMATION IS POLLED, NOT SUBSCRIBED ──────────────────────────────────
 // `connection.confirmTransaction` opens a websocket subscription. The browser
 // talks to `/api/solrpc`, which is HTTPS-only — there is no wss origin, and the
-// CSP has no entry for one. So confirmation polls `getSignatureStatuses`, exactly
-// as SolanaSwapPage.tsx:114 has done since the swap shipped; the proxy's own rate
-// limit is written around that cadence (api/solrpc.js:172).
+// CSP has no entry for one. So confirmation polls `getSignatureStatuses`
+// (lib/solana/confirm.ts, shared with the swap page); the proxy's own rate limit is
+// written around that cadence (api/solrpc.js:172).
 import { Connection, PublicKey, Transaction, type TransactionInstruction } from '@solana/web3.js';
 import type { SignerWalletAdapter } from '@solana/wallet-adapter-base';
 import {
@@ -23,6 +23,10 @@ import {
   type PoolAccounts,
 } from './ix';
 import { MAX_EARLY_EXIT_PENALTY_BPS } from './program';
+import { holdReload } from '../reloadHold';
+import { pollConfirm } from '../solana/confirm';
+import { readSendThrow } from '../solana/walletThrow';
+import { lostAnswerCopy } from '../solana/swap/walletCopy';
 
 /**
  * Sent and confirmed, or an honest reason. Never a bare boolean.
@@ -137,11 +141,11 @@ function isPreBroadcast(message: string): boolean {
 export function classifyWriteError(err: unknown, signature?: string): WriteResult {
   const msg = err instanceof Error ? err.message : String(err ?? '');
 
-  // A declined signature never reached the network. This is the one branch that
-  // may say "nothing moved" without qualification.
-  if (/reject|declin|denied|cancell?ed by user/i.test(msg)) {
-    return { ok: false, reason: 'You declined the signature. Nothing moved.' };
-  }
+  // With no signature yet, the wallet's throw is read as every Solana write reads it
+  // (lib/solana/walletThrow.ts): a cancel by code 4001 or by words, or a wallet that
+  // never signed, with its reason. Anything else may have been sent: read on.
+  const t = signature ? null : readSendThrow(err);
+  if (t && t.kind !== 'unsure') return { ok: false, reason: t.message };
 
   const code = anchorCode(msg);
   const known = code !== null ? LADDER_ERRORS[code] : undefined;
@@ -181,6 +185,10 @@ export function classifyWriteError(err: unknown, signature?: string): WriteResul
     };
   }
 
+  // The wallet's sign-and-send threw after it may have signed: the words every Solana
+  // write uses for that, never "did not go through".
+  if (t?.kind === 'unsure' && t.byWallet) return { ok: false, reason: lostAnswerCopy(t.reason, 'it was sent') };
+
   // ⚠️ EVERYTHING ELSE IS UNKNOWN, and is reported as unknown.
   //
   // Once a signature exists the transaction is on the network; a timeout, a dropped
@@ -201,45 +209,6 @@ export function classifyWriteError(err: unknown, signature?: string): WriteResul
 }
 
 /* ─────────────────────────── submit ─────────────────────────── */
-
-/**
- * Confirm by polling, never by subscribing — see the file header.
- *
- * Returns the outcome rather than throwing on a revert, so the caller can attach
- * the signature to whichever answer it gives.
- *
- * A FAILED POLL IS NOT A FAILED TRANSACTION. One RPC hiccup mid-flight must not be
- * reported as a revert; it keeps polling and the outcome is only unknown when the
- * clock runs out.
- */
-async function pollConfirm(
-  conn: Connection,
-  signature: string,
-  timeoutMs: number,
-  sleep: (ms: number) => Promise<void>,
-  now: () => number,
-): Promise<{ outcome: 'confirmed' | 'reverted' | 'unknown'; slot: number | null }> {
-  const start = now();
-  for (;;) {
-    const status = await (async () => {
-      try {
-        const r = await conn.getSignatureStatuses([signature]);
-        return r?.value?.[0] ?? null;
-      } catch {
-        return null;
-      }
-    })();
-    if (status) {
-      if (status.err) return { outcome: 'reverted', slot: null };
-      if (status.confirmationStatus === 'confirmed' || status.confirmationStatus === 'finalized') {
-        const slot = typeof status.slot === 'number' && Number.isSafeInteger(status.slot) ? status.slot : null;
-        return { outcome: 'confirmed', slot };
-      }
-    }
-    if (now() - start >= timeoutMs) return { outcome: 'unknown', slot: null };
-    await sleep(2_000);
-  }
-}
 
 export interface SubmitDeps {
   /** Injected so tests neither sleep nor depend on the wall clock. */
@@ -270,6 +239,8 @@ export async function submitLadder(
   if (!owner) return { ok: false, reason: 'Connect a wallet first.' };
 
   let signature: string | undefined;
+  // Until this write is answered the page does not reload itself (lib/staleBuild.ts).
+  const release = holdReload();
   try {
     const { blockhash } = await conn.getLatestBlockhash('confirmed');
     const tx = new Transaction();
@@ -304,6 +275,8 @@ export async function submitLadder(
     };
   } catch (err) {
     return classifyWriteError(err, signature);
+  } finally {
+    release();
   }
 }
 

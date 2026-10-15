@@ -160,18 +160,23 @@ export async function preparePoolSwap(
           maxSolOut: a.amountIn + (tokenExists ? 0n : rents.tokenAccount) + wsolRent,
           tokens: [
             { account: tokenAta, mint: a.mint, minDelta: minimumAmountOut, maxDelta: 2n ** 64n },
-            // Whatever was wrapped in is swapped out: the WSOL balance ends where it began
-            // (kept: plus exactly what the wrap's sync credits from lamports it already held).
-            { account: wsolAta, mint: WSOL_MINT, minDelta: kept, maxDelta: kept },
+            // Whatever was wrapped in is swapped out. Closed: the WSOL balance ends where it
+            // began. Kept: at least what the wrap's sync credits from lamports it already
+            // held, so the person's own wrapped SOL is never spent. No upper bound on a kept
+            // account: wrapped SOL a stranger sends in after the balance read must not block the buy.
+            { account: wsolAta, mint: WSOL_MINT, minDelta: kept, maxDelta: unwrapsWsol ? 0n : 2n ** 64n },
           ],
         };
       }
+      // A sale: at most the tokens it names may leave (the bytes pin the exact number).
+      // No upper bound: the balance is read a slot or more before the test run, and a
+      // token a stranger sends in between must not block the sale.
       return unwrapsWsol
         ? {
             maxSolOut: 0n,
             minSolIn: minimumAmountOut,
             tokens: [
-              { account: tokenAta, mint: a.mint, minDelta: -a.amountIn, maxDelta: -a.amountIn },
+              { account: tokenAta, mint: a.mint, minDelta: -a.amountIn, maxDelta: 2n ** 64n },
               // The close pays out everything in the account. It held nothing when the
               // builder read it; wrapped SOL that arrived since makes this negative,
               // and is blocked rather than unwrapped.
@@ -181,7 +186,7 @@ export async function preparePoolSwap(
         : {
             maxSolOut: wsolRent,
             tokens: [
-              { account: tokenAta, mint: a.mint, minDelta: -a.amountIn, maxDelta: -a.amountIn },
+              { account: tokenAta, mint: a.mint, minDelta: -a.amountIn, maxDelta: 2n ** 64n },
               { account: wsolAta, mint: WSOL_MINT, minDelta: minimumAmountOut, maxDelta: 2n ** 64n },
             ],
           };

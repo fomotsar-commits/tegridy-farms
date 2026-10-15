@@ -3,6 +3,7 @@ import NftImage from "./NftImage";
 import { fetchWalletNfts } from "../api";
 import { alchemyGet } from "../lib/proxy";
 import { createTradeOffer, MAX_ITEMS_PER_SIDE } from "../lib/trades";
+import { toastTxNotice } from "../lib/txOutcome";
 import { estimateTokenValue, tradeDelta } from "../lib/valuation";
 import { lockScroll, unlockScroll } from "../lib/scrollLock";
 import { VENUE_COLLECTIONS } from "../lib/venue";
@@ -265,7 +266,7 @@ export default function TradeWindow({ wallet, counterparty: initialCounterparty,
         addToast?.(boardMode ? "Posted to the trade board!" : counterOf ? "Counter-offer sent!" : "Trade offer sent!", "success");
         onCreated?.(result.trade);
         onClose();
-      } else if (result.error !== "rejected") {
+      } else if (result.error !== "rejected" && !toastTxNotice(addToast, result)) {
         addToast?.(result.message || "Trade failed", "error");
       }
     } finally {

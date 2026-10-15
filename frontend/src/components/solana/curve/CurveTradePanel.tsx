@@ -4,6 +4,7 @@ import {
   LAUNCH_ERROR_COPY,
   applySlippage,
   buyBlockedReason,
+  decimalCommaToPoint,
   formatSol,
   formatTokenAmount,
   parseDecimalToBaseUnits,
@@ -13,6 +14,7 @@ import {
   type CurveAccount,
   type LaunchState,
 } from '../../../lib/launcher/solana/curve';
+import { CardArt } from '../../ui/CardArt';
 import { Card, Field, ImpactRows, Notice, Row, SlippagePicker } from './ui';
 import { DEFAULT_SLIPPAGE_BPS, TOGGLE_CLS, feeSplitLabel, inputCls, inputStyle } from './uiFormat';
 import { TxFlowView } from './TxFlowView';
@@ -120,11 +122,11 @@ export function CurveTradePanel({
   const review = () => {
     if (!signer || raw === null || slippageBps === null) return;
     if (side === 'buy') {
-      void flow.prepare(() =>
-        api.prepareCurveBuy(rpc, gate, { trader: signer.publicKey, mint, curve, lamportsIn: raw, slippageBps }),
-      );
+      const build = () =>
+        api.prepareCurveBuy(rpc, gate, { trader: signer.publicKey, mint, curve, lamportsIn: raw, slippageBps });
+      void flow.prepare(build, { repeatable: true });
     } else if (rentFloor !== null) {
-      void flow.prepare(() =>
+      const build = () =>
         api.prepareCurveSell(rpc, gate, {
           trader: signer.publicKey,
           mint,
@@ -132,13 +134,13 @@ export function CurveTradePanel({
           curveRentFloor: rentFloor,
           tokensIn: raw,
           slippageBps,
-        }),
-      );
+        });
+      void flow.prepare(build, { repeatable: true });
     }
   };
 
   return (
-    <Card title="Trade on the curve" testId="curve-trade-panel" headingRef={headingRef}>
+    <Card title="Trade on the curve" testId="curve-trade-panel" headingRef={headingRef} art={<CardArt pageId="curve-launch" idx={19} />}>
       {flow.state.step !== 'idle' ? (
         <TxFlowView flow={flow} api={api} cluster={gate.cfg.cluster} decimals={decimals} signer={signer} />
       ) : (
@@ -182,7 +184,8 @@ export function CurveTradePanel({
                 className={`${inputCls} disabled:opacity-50`}
                 style={inputStyle}
                 value={amount}
-                onChange={(e) => setAmount(e.target.value)}
+                // A comma typed on a phone keypad with no "." is the decimal point.
+                onChange={(e) => setAmount(decimalCommaToPoint(e.target.value, amount))}
                 placeholder="0.0"
                 inputMode="decimal"
                 spellCheck={false}

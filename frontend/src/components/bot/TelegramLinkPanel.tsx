@@ -8,6 +8,7 @@ import {
   type LinkStoreResult,
   type TelegramLink,
 } from './botLinkClient';
+import { CardArt } from '../ui/CardArt';
 
 // The browser half of the Telegram link, and the only place a binding can be created.
 //
@@ -129,21 +130,21 @@ export function TelegramLinkPanel({ fetchImpl }: Props) {
 
   return (
     <section
-      className="rounded-xl p-4"
+      className="relative isolate rounded-xl p-4"
       style={{ background: '#000', border: '1px solid var(--color-purple-75)' }}
       aria-label="Telegram"
     >
+      <CardArt pageId="alerts" idx={6} />
       <h3 className="text-white text-[13px] font-medium">Telegram</h3>
 
       <p className="mt-2 text-white/70 text-[11px] leading-snug">
-        Link a Telegram chat to this wallet and the bot can answer read-only questions there — your standing, your
-        venue-routed swaps, a token scan. It is a <strong>read</strong> grant and nothing more.
+        Link a chat to ask the bot read-only questions about this wallet.
       </p>
 
+      {/* Kept visible: it is the anti-phishing line. */}
       <p className="mt-2 text-white/70 text-[11px] leading-snug">
-        The bot holds no key and can sign nothing. Anything that would move value comes back to you as a link you open
-        and sign in your own wallet, here. It will never ask you for a recovery phrase, a private key or a password —
-        anything that does is not us, whatever it is called.
+        The bot holds no key and can sign nothing. It will never ask you for a recovery phrase, a private key or a
+        password — anything that does is not us, whatever it is called.
       </p>
 
       {pendingCode.length > 0 && (
@@ -240,6 +241,13 @@ export function TelegramLinkPanel({ fetchImpl }: Props) {
       <details className="mt-3">
         <summary className="text-white/60 text-[11px] cursor-pointer">Where the bot runs, and what it cannot do</summary>
         <ul className="mt-2 space-y-1 list-disc pl-4">
+          <li className="text-white/50 text-[11px] leading-snug">
+            Link a Telegram chat to this wallet and the bot can answer read-only questions there — your standing, your
+            venue-routed swaps, a token scan. It is a <strong>read</strong> grant and nothing more.
+          </li>
+          <li className="text-white/50 text-[11px] leading-snug">
+            Anything that would move value comes back to you as a link you open and sign in your own wallet, here.
+          </li>
           <li className="text-white/50 text-[11px] leading-snug">
             The bot is built and hosted nowhere. Until an operator brings it up, no chat will answer — see
             <code className="ml-1">bot/DEPLOY.md</code>. Linking a chat before then is harmless and simply waits.

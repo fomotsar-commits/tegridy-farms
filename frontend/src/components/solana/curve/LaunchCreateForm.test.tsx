@@ -7,6 +7,7 @@ import { readPendingLaunch, savePendingLaunch } from './pendingLaunch';
 import type { CreateLaunchInput, OpenGate, TxOutcome, TxSummary, UploadInput, WriteApi, WriteRpc } from './ports';
 import type { CurveSignerState } from './useCurveSigner';
 import { IPFS_STEP_TIMEOUT_MS, ipfsGatewayUrls } from '../../../lib/ipfsGateways';
+import { CREATED_ON } from '../../../lib/launchMetadata/validate.js';
 import { assertMayLaunch } from '../../../lib/heat/launchGate';
 import { WORKSHOP_WALLET } from '../../../lib/launcher/solana/write/plant';
 
@@ -37,7 +38,7 @@ function renderForm(api: WriteApi = fakeApi(), signerState: CurveSignerState = r
   return renderFormView(api, signerState).api;
 }
 
-function renderFormView(api: WriteApi = fakeApi(), signerState: CurveSignerState = ready, gate: OpenGate = openGate()) {
+function renderFormView(api: WriteApi = fakeApi(), signerState: CurveSignerState = ready, gate: OpenGate = openGate(), rpc = {} as WriteRpc) {
   const view = render(
     <MemoryRouter initialEntries={['/curve-launch']}>
       <Routes>
@@ -46,7 +47,7 @@ function renderFormView(api: WriteApi = fakeApi(), signerState: CurveSignerState
           element={
             <LaunchCreateForm
               api={api}
-              rpc={{} as WriteRpc}
+              rpc={rpc}
               gate={gate}
               actions={{ create: true, buy: false, sell: false, migrate: false, poolSwap: false }}
               signerState={signerState}
@@ -73,7 +74,7 @@ function createApi(over: Partial<WriteApi> = {}) {
       description: i.description,
       image: 'https://ipfs.io/ipfs/bafkreigh2akiscaildcqabsyg3dfr6chu3fgpregiymsck7e7aqa4s52zy',
       mint: i.mint,
-      createdOn: 'https://tegridyfarms.xyz',
+      createdOn: CREATED_ON,
     },
     reuseUntil: Date.now() + 60_000,
   }));
@@ -400,6 +401,24 @@ describe('launch form: review and send', () => {
     expect(vi.mocked(api.prepareCreateLaunch).mock.calls[0]![2].openingBuy).toEqual({ lamportsIn: SOL / 10n, slippageBps: 0n });
   });
 
+  // UX-1: a phone set to a comma-decimal region has "," and no "." on this keypad.
+  it('the opening buy reads a typed comma as the decimal point; a pasted "68,066" is refused, never 68.066', async () => {
+    const api = renderForm(createApi());
+    await fillValid();
+    fireEvent.click(screen.getByRole('checkbox'));
+    const buy = screen.getByLabelText('Opening buy (SOL)') as HTMLInputElement;
+    fireEvent.change(buy, { target: { value: '68,066' } });
+    expect(buy).toHaveValue('68,066');
+    expect(buy).toHaveAttribute('aria-invalid', 'true');
+    fireEvent.change(buy, { target: { value: '' } });
+    for (const k of '0,1') fireEvent.change(buy, { target: { value: buy.value + k } });
+    expect(buy).toHaveValue('0.1');
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Review launch' }));
+    });
+    expect(vi.mocked(api.prepareCreateLaunch).mock.calls[0]![2].openingBuy).toEqual({ lamportsIn: SOL / 10n, slippageBps: 0n });
+  });
+
   it('pressing Review again with the same details reuses the upload and the mint, so the wallet is asked once', async () => {
     const api = renderForm(createApi());
     await fillValid();
@@ -475,6 +494,28 @@ describe('launch form: review and send', () => {
     const mint = vi.mocked(api.prepareCreateLaunch).mock.calls[0]![2].mint.publicKey.toBase58();
     await waitFor(() => expect(screen.getByText(`launch page ${mint}`)).toBeInTheDocument());
     expect(readPendingLaunch(mint)).toMatchObject({ signature: SIG, lastValidBlockHeight: 1234 });
+  });
+
+  // Every other panel prepares a stale review again when Sign is pressed (useTxFlow). The
+  // launch does not: preparing it reads the door, asks the wallet to sign the upload
+  // request and uploads, and none of that may happen behind a press of Sign in wallet.
+  it('a review too old to sign is NOT prepared again: nothing is uploaded or asked of the wallet twice', async () => {
+    const api = createApi({ submitPrepared: vi.fn(async () => ({ status: 'confirmed' as const, signature: SIG, slot: 1 })) });
+    // Five blocks short of the fixture's last valid height (1234): too late to sign it.
+    renderFormView(api, ready, openGate(), { getBlockHeight: async () => 1234 - 5 } as unknown as WriteRpc);
+    await fillValid();
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Review launch' }));
+    });
+    await act(async () => {
+      fireEvent.click(await screen.findByRole('button', { name: 'Sign in wallet' }));
+    });
+    expect(screen.getByRole('alert')).toHaveTextContent('This quote is too old to sign: the network would soon refuse it. Start over for a fresh one.');
+    expect(screen.getByRole('button', { name: 'Sign in wallet' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Start over' })).toBeInTheDocument();
+    expect(api.prepareCreateLaunch).toHaveBeenCalledTimes(1);
+    expect(api.meta.uploadLaunchMetadata).toHaveBeenCalledTimes(1);
+    expect(api.submitPrepared).not.toHaveBeenCalled();
   });
 
   // UXR11: the wallet opened for the upload request while the screen said only

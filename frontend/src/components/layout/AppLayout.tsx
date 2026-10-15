@@ -47,6 +47,7 @@ import { WalletConnectWatchdog } from '../ui/WalletConnectWatchdog';
 import { SeasonalEventBanner } from '../SeasonalEvent';
 import { isToweliVoice, OPEN_VENUE_WELCOME_EVENT } from '../../lib/arrival';
 import { useActiveBungalowId } from '../../hooks/useActiveBungalowId';
+import { useReferralAttribution } from '../../hooks/useReferralAttribution';
 
 const NAV_ORDER = [
   '/', '/dashboard', '/earn', '/swap', '/nft-finance', '/gallery', '/tokenomics',
@@ -97,51 +98,11 @@ export function AppLayout() {
   const location = useLocation();
   // Everything below that reads the skin re-renders when a door switches it.
   useActiveBungalowId();
-
-  /* WAVE SEVEN, answer eight, ruling 1: THE BAND IS NEVER COVERED.
-   *
-   * The band is in flow, first inside main, and element E forbids it from
-   * being sticky or fixed. RouteTabs is `position: fixed` at the header's
-   * 56px, so on the six room paths the tab bar painted straight over it: the
-   * island read "You are in the TOWE" with the tabs covering the rest, and the
-   * band's own "TOWELI room" link sat under the strip's pointer-events column,
-   * unclickable as well as unreadable.
-   *
-   * So the tabs move down instead, by however much of the band is still below
-   * the header. MEASURED, not assumed: the band is `flex-wrap`, one line at
-   * 1280 and two at 390, and it scrolls away with the page, so the offset
-   * shrinks back to zero as it goes. The var defaults to 0px, which is why no
-   * route without a band moves at all.
-   */
-  const contentRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    const host = contentRef.current;
-    if (!host) return;
-    const band = document.querySelector<HTMLElement>('[data-room="toweli"]');
-    if (!band) {
-      host.style.removeProperty('--room-band-h');
-      return;
-    }
-    let frame = 0;
-    const measure = () => {
-      frame = 0;
-      host.style.setProperty('--room-band-h', `${Math.max(0, Math.round(band.getBoundingClientRect().bottom - 56))}px`);
-    };
-    const schedule = () => {
-      if (!frame) frame = requestAnimationFrame(measure);
-    };
-    measure();
-    const ro = new ResizeObserver(schedule);
-    ro.observe(band);
-    window.addEventListener('scroll', schedule, { passive: true });
-    return () => {
-      if (frame) cancelAnimationFrame(frame);
-      ro.disconnect();
-      window.removeEventListener('scroll', schedule);
-      host.style.removeProperty('--room-band-h');
-    };
-  }, [location.pathname]);
-
+  // A `?ref=0x…` or `?r=<code>` link is captured on whatever route the app is entered
+  // on, once per load. Its only mount was the /referrals page until that left Earn
+  // (2026-10-14), so a short link or a `/swap?ref=` link was credited only to a
+  // visitor who later opened that page.
+  useReferralAttribution();
 
   // True when the current path IS a settled (not-live) resident's door — the
   // landing page speaks for that token, so every other voice stays outside.
@@ -248,7 +209,6 @@ export function AppLayout() {
           (calc(3.5rem + env(safe-area-inset-top))) so nothing tucks under the
           fixed header on a notched standalone launch. */}
       <div
-        ref={contentRef}
         className="min-h-screen relative z-10 pb-20 min-[800px]:pb-0 safe-area-content-bottom"
         style={{ paddingTop: 'calc(3.5rem + env(safe-area-inset-top, 0px))' }}
       >

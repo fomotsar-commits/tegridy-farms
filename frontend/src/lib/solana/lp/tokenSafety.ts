@@ -3,34 +3,52 @@ import type { SolanaRpc } from '../../launcher/solana/curve/rpc';
 import { clipDetail } from '../../launcher/solana/curve/read';
 import { decodeTokenMetadata } from '../../launcher/solana/discover/metadata';
 import { METAPLEX_TOKEN_METADATA_ID, metadataPda } from '../../launcher/solana/write/metaplex';
+import { foldForCompare, foldedForms, impersonatesAll } from '../../launchMetadata/validate';
 import { getMultipleAccounts, type RawAccount } from './accounts';
 
 /**
- * Is this token safe to put in a pool? Read from the mint itself, never from a name.
+ * May this token go in a pool here, and what must its holder be told first? Read from the
+ * mint itself, never from a name.
  *
- * WHAT THE POOL PROGRAM ALLOWS vs WHAT THIS SITE ALLOWS. cp-swap (utils/token.rs:208-237)
- * accepts every classic SPL token, even one whose creator can still freeze accounts or
- * mint more, and Token-2022 tokens with transfer fees, interest or scaled amounts, plus
- * four stablecoins by name that carry a permanent delegate. The SITE is stricter, because
- * each of those lets one person take money out of a pool:
+ * THE RULE (owner ruling 2026-10-04). Any token may have a pool. What could go wrong is
+ * said as a WARNING, on the token, in the form and again on the review, and the visitor
+ * may go on. Only three kinds of token are BLOCKED:
  *
- *   - a live FREEZE authority can freeze the pool's own token vault, and then nobody can
- *     withdraw the SOL beside it (blocked, except USDC and USDT, whose issuers hold one);
- *   - a PERMANENT DELEGATE can move tokens out of any account, the pool's included
- *     (blocked, including the four Raydium lets through by name);
- *   - any Token-2022 extension but the two metadata ones is blocked: a transfer fee its
- *     authority can raise to 100%, a transfer hook that can refuse or redirect, a default
- *     frozen state, and the ones not listed here that nobody has checked yet;
- *   - a live MINT authority can mint without limit and drain the SOL side (warned);
- *   - metadata that can still change means the name and picture can change (warned).
+ *   - what is not a token a pool can hold: an address that is not a mint, a mint that was
+ *     never set up, and wrapped SOL itself (it is the other side of a pool);
+ *   - what the POOL PROGRAM rejects. cp-swap (utils/token.rs `is_supported_mint`) takes
+ *     every classic SPL token, and a Token-2022 token only when each of its extensions is
+ *     a transfer fee, a metadata pointer, token metadata, interest-bearing amounts or
+ *     scaled amounts. Any other (a transfer hook, a default frozen state, a permanent
+ *     delegate, a close authority, a pause switch, one nobody has listed yet) makes the
+ *     opening fail on chain, so nothing is built for it;
+ *   - what this site cannot let back OUT. The pool program also takes a transfer fee, and
+ *     four stablecoins by name that carry a permanent delegate. This site cannot build an
+ *     exact deposit or withdrawal for those, and nobody is let in who cannot be let out
+ *     (the leave rule), so it opens and adds to no pool for them. That is this site's
+ *     limit, not a judgement of the token, and the block says so.
  *
- * An unread mint is `unread`, never a verdict. A name or symbol is shown as the token's
- * own claim and nothing more; the mint address is the only identity.
+ * WARNED, and allowed:
+ *
+ *   - a live FREEZE authority can freeze any account that holds the token, a pool's own
+ *     vault and the holder's own account included, and while a pool's vault is frozen
+ *     nobody can take liquidity out of that pool (USDC and USDT keep one by design, which
+ *     is said in its own words);
+ *   - INTEREST-BEARING and SCALED amounts: the amount a wallet displays changes over
+ *     time, while this site shows and moves raw token units;
+ *   - a live MINT authority can mint without limit and drain the other side of a pool;
+ *   - metadata that can still change means the name and picture can change;
+ *   - a name copied from a well-known token, or written in look-alike letters.
+ *
+ * An unread mint is `unread`: never a verdict, and never a warning. A name or symbol is
+ * shown as the token's own claim and nothing more; the mint address is the only identity.
  */
 
 export const TOKEN_PROGRAM = 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA';
 export const TOKEN_2022_PROGRAM = 'TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb';
 export const WSOL_MINT = 'So11111111111111111111111111111111111111112';
+/** SOL under the Token-2022 program (spl-token `NATIVE_MINT_2022`, pinned by a test). Never a pool's token here. */
+export const TOKEN_2022_NATIVE_MINT = '9pan9bMn5HatX4EJdBwg9VgCa7Uz5HL8N1m5D3NdXejP';
 export const USDC_MINT = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
 export const USDT_MINT = 'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB';
 
@@ -43,8 +61,8 @@ export const BAYLA_MINT = '7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump';
  * Solana (TOWELI lives on Ethereum only), so every claim is a copy.
  *
  * The island's tokens that have ONE real Solana mint in the island canon (bungalows.ts)
- * are listed, so "open the first BOBO pool here" with a look-alike BOBO is refused by
- * name: Jupiter would price the copy, so the price check alone cannot catch it. Each
+ * are listed, so "open the first BOBO pool here" with a look-alike BOBO is warned about
+ * by name: Jupiter would price the copy, so the price check alone cannot catch it. Each
  * mint is pinned by a test to its bungalows.ts entry.
  *
  * Launch tickers are still not listed: anyone can launch the same ticker on our
@@ -63,31 +81,34 @@ export const WELL_KNOWN_NAMES: readonly { label: string; mint: string | null; na
   { label: 'RIZZ', mint: '5ad4puH6yDBoeCcrQfwV5s9bxvPnAeWDoYDj3uLyBS8k', names: ['RIZZ'] },
 ];
 
-/** Letters that look like Latin ones, folded to them, so "USDС" (a Cyrillic С) still reads as USDC. */
-const LOOKALIKES: Record<string, string> = {
-  а: 'a', в: 'b', е: 'e', к: 'k', м: 'm', н: 'h', о: 'o', р: 'p', с: 'c', т: 't', у: 'y', х: 'x', ѕ: 's', і: 'i', ј: 'j', ԁ: 'd', ԛ: 'q', ԝ: 'w',
-  α: 'a', β: 'b', ε: 'e', ι: 'i', κ: 'k', ν: 'v', ο: 'o', ρ: 'p', τ: 't', υ: 'u', χ: 'x', ζ: 'z', η: 'n', μ: 'u',
-};
+// Names are compared with the launcher's own rules (launchMetadata/validate.js), never
+// a second copy of them: its skeleton reads "S0L", "SoIana" and "TOWELl" as SOL, Solana
+// and TOWELI, and its brand rule finds BAYLA inside "BAYLA Token" and "BAYLA2". The
+// LIST is this page's own (WELL_KNOWN_NAMES): a word the launcher refuses but that has
+// no entry here (ETH, BONK, TEGRIDY) is not called a copy on this page.
+const WELL_KNOWN_FOLDED = WELL_KNOWN_NAMES.flatMap((k) => k.names.map((n) => ({ folded: foldForCompare(n), known: k })));
 
-/** A name folded for comparison: compatibility forms, lookalikes, case, and everything but letters and digits removed. */
-export function foldName(s: string): string {
-  const base = s.normalize('NFKD').replace(/[̀-ͯ]/g, '').toLowerCase();
-  let out = '';
-  for (const ch of base) out += LOOKALIKES[ch] ?? ch;
-  return out.replace(/[^a-z0-9]/g, '');
-}
-
-const WELL_KNOWN_FOLDED = WELL_KNOWN_NAMES.flatMap((k) => k.names.map((n) => ({ folded: foldName(n), known: k })));
-
-/** The well-known token `name`/`symbol` claims to be, when `mint` is not that token; else null. */
-export function copiedWellKnownName(mint: string, name: string | null, symbol: string | null): (typeof WELL_KNOWN_NAMES)[number] | null {
-  const claims = [name, symbol].filter((x): x is string => !!x).map(foldName).filter(Boolean);
-  for (const c of claims) {
-    const hit = WELL_KNOWN_FOLDED.find((k) => k.folded === c);
+/**
+ * The well-known token any of `claims` (every name and symbol read for the mint) says
+ * it is, when `mint` is not that token; else null.
+ */
+export function copiedWellKnownName(mint: string, claims: readonly string[]): (typeof WELL_KNOWN_NAMES)[number] | null {
+  for (const claim of claims) {
+    // The claim itself, and EVERY word the launcher's lists say it would be mistaken
+    // for: its first answer for "BAYLA by Tegridy" is TEGRIDY, which is not on this list.
+    const said = [...foldedForms(claim), ...impersonatesAll(claim).map(foldForCompare)];
+    const hit = WELL_KNOWN_FOLDED.find((k) => said.includes(k.folded));
     if (hit && hit.known.mint !== mint) return hit.known;
   }
   return null;
 }
+
+/**
+ * A letter or digit that is not plain A-Z or 0-9 once accents are taken off: Cyrillic,
+ * Greek, small capitals, Cherokee and many more have letters shaped like Latin ones, and
+ * no table lists them all. A warning, never a block: most such names copy nothing.
+ */
+const hasLookalikeLetters = (s: string) => /(?!\p{ASCII})[\p{L}\p{N}]/u.test(s.normalize('NFKD'));
 
 /** USDC and USDT keep a freeze authority by design; the site accepts that and says so. */
 export const FREEZE_AUTHORITY_ACCEPTED = new Set([USDC_MINT, USDT_MINT]);
@@ -126,12 +147,12 @@ export const EXTENSION = {
 } as const;
 
 const EXTENSION_PLAIN: Record<number, string> = {
-  1: 'a transfer fee, which its owner can raise as high as 100%',
+  1: 'a transfer-fee setting, which lets the token take a fee out of every transfer',
   3: 'a close authority, which can delete the token entirely',
   4: 'confidential transfers, which hide balances',
   6: 'a default account state, which can make new accounts start frozen',
   9: 'non-transferable, so it cannot move in or out of a pool',
-  10: 'interest-bearing amounts, which pool maths does not follow',
+  10: 'interest-bearing amounts, so the amount a wallet displays for it grows over time',
   12: 'a permanent delegate, which can take tokens out of any account, the pool’s included',
   14: 'a transfer hook, a program that runs on every transfer and can refuse or redirect it',
   16: 'confidential transfer fees',
@@ -140,12 +161,25 @@ const EXTENSION_PLAIN: Record<number, string> = {
   22: 'a group member pointer',
   23: 'group membership',
   24: 'confidential minting and burning',
-  25: 'scaled amounts, which pool maths does not follow',
+  25: 'scaled amounts, so the amount a wallet displays for it changes when its issuer changes the scale',
   26: 'a pause switch, which can stop every transfer',
 };
 
-/** The only Token-2022 extensions this site accepts: the two that carry the token's name. */
-export const SITE_ALLOWED_EXTENSIONS: ReadonlySet<number> = new Set([EXTENSION.MetadataPointer, EXTENSION.TokenMetadata]);
+/**
+ * The Token-2022 extensions this site builds for: the two that carry the token's name, and
+ * the two whose raw amounts stay exact (interest-bearing and scaled amounts only change
+ * what a wallet DISPLAYS). ONE set on purpose. The verdict below, the size of a pool's
+ * vault, and all three builders (open a pool, add, remove) read this same set, so the
+ * site lets in exactly what it can let out. Every one is on the pool program's own list;
+ * a transfer fee is on that list too, and is left out here because this site cannot
+ * build an exact withdrawal for it.
+ */
+export const BUILDABLE_EXTENSIONS: ReadonlySet<number> = new Set([
+  EXTENSION.MetadataPointer,
+  EXTENSION.TokenMetadata,
+  EXTENSION.InterestBearingConfig,
+  EXTENSION.ScaledUiAmountConfig,
+]);
 
 export function extensionPlain(type: number): string {
   return EXTENSION_PLAIN[type] ?? `an extension this site does not know (type ${type})`;
@@ -277,13 +311,17 @@ export interface SafetyReason {
     | 'freeze-authority'
     | 'freeze-authority-accepted'
     | 'permanent-delegate-whitelist'
+    | 'transfer-fee'
     | 'extension'
+    | 'interest-bearing'
+    | 'scaled-amount'
     | 'mint-authority'
     | 'metadata-mutable'
     | 'no-metadata'
     | 'metadata-elsewhere'
     | 'metadata-unreadable'
-    | 'copies-known-name';
+    | 'copies-known-name'
+    | 'lookalike-letters';
   text: string;
 }
 
@@ -343,46 +381,68 @@ export function classifyToken(mint: string, mintAccount: RawAccount | null, meta
     if (FREEZE_AUTHORITY_ACCEPTED.has(mint)) {
       warnings.push({
         code: 'freeze-authority-accepted',
-        text: `Its issuer can freeze accounts (${f.freezeAuthority}). That is normal for ${mint === USDC_MINT ? 'USDC' : 'USDT'} and accepted here.`,
+        text: `Its issuer can freeze any account that holds it (freeze authority ${f.freezeAuthority}), a pool’s own vault and your own account included. While a pool’s vault is frozen, nobody can take liquidity out of that pool. That is how ${mint === USDC_MINT ? 'USDC' : 'USDT'} is built.`,
       });
     } else {
-      blocks.push({
+      warnings.push({
         code: 'freeze-authority',
-        text: `Its creator can still freeze token accounts (freeze authority ${f.freezeAuthority}). That includes a pool's own vault, which would trap the SOL beside it.`,
+        text: `Its creator can freeze any account that holds it (freeze authority ${f.freezeAuthority}), a pool’s own vault and your own account included. While a pool’s vault is frozen, nobody can take liquidity out of that pool.`,
       });
     }
   }
 
-  if (RAYDIUM_WHITELISTED_MINTS.has(mint)) {
+  // The four stablecoins the pool program takes by name, whatever their extensions.
+  const takenByName = RAYDIUM_WHITELISTED_MINTS.has(mint);
+  if (takenByName) {
     blocks.push({
       code: 'permanent-delegate-whitelist',
-      text: 'This stablecoin has a permanent delegate that can move tokens out of any account, a pool’s included. The pool program lets it in by name; this site does not.',
+      text: 'This stablecoin has a permanent delegate, which can move tokens out of any account, a pool’s included. The pool program accepts it by name, but this site cannot build exact deposits and withdrawals for it, so it does not open or add to pools for it.',
     });
   }
 
   for (const e of f.extensions) {
-    if (!SITE_ALLOWED_EXTENSIONS.has(e)) {
-      blocks.push({ code: 'extension', text: `It uses ${extensionPlain(e)}. This site only accepts tokens whose only extras are their name and picture.` });
+    // The one set decides what may go in. Inside it, only the two that change what a
+    // wallet displays need saying; a name and a picture need nothing.
+    if (BUILDABLE_EXTENSIONS.has(e)) {
+      if (e === EXTENSION.InterestBearingConfig || e === EXTENSION.ScaledUiAmountConfig) {
+        warnings.push({
+          code: e === EXTENSION.InterestBearingConfig ? 'interest-bearing' : 'scaled-amount',
+          text: `It uses ${extensionPlain(e)}. This site shows and moves raw token units, so an amount here can differ from the one your wallet shows.`,
+        });
+      }
+    } else if (e === EXTENSION.TransferFeeConfig) {
+      // The pool program takes a transfer fee. The limit is this site's, and the words say so.
+      blocks.push({
+        code: 'transfer-fee',
+        text: `It uses ${extensionPlain(e)}. This site cannot build exact deposits and withdrawals for a token with one, so it does not open or add to pools for it.`,
+      });
+    } else if (!takenByName) {
+      // Never said of the four stablecoins: the pool program takes those by name.
+      blocks.push({ code: 'extension', text: `It uses ${extensionPlain(e)}. The pool program does not accept tokens with it.` });
     }
   }
 
   if (f.mintAuthority) {
     warnings.push({
       code: 'mint-authority',
-      text: `Its creator can still mint more of it (mint authority ${f.mintAuthority}). New tokens sold into a pool take SOL out of it.`,
+      text: `Its creator can still mint more of it (mint authority ${f.mintAuthority}). New tokens sold into a pool take out what it is paired with (SOL, USDC or BAYLA).`,
     });
   }
 
-  // The name: Token-2022's own metadata when the mint carries it, else Metaplex.
+  // The name: Token-2022's own metadata when the mint carries it, else Metaplex. A mint
+  // can carry both, and a wallet may show either, so `claims` keeps every one read.
   let name: string | null = null;
   let symbol: string | null = null;
   let source: 'token-2022' | 'metaplex' | 'none' = 'none';
   let anyMutable = false;
+  const claims: string[] = [];
+  let recordRead: string | null = null;
   const t22 = f.tokenMetadata && f.tokenMetadata.mint === mint ? f.tokenMetadata : null;
   if (t22) {
     name = t22.name;
     symbol = t22.symbol;
     source = 'token-2022';
+    claims.push(t22.name, t22.symbol);
     if (t22.updateAuthority) anyMutable = true;
   }
   // Whoever controls the pointer can point the token at a different name record.
@@ -400,28 +460,42 @@ export function classifyToken(mint: string, mintAccount: RawAccount | null, meta
           symbol = d.value.symbol;
           source = 'metaplex';
         }
+        claims.push(d.value.name, d.value.symbol);
+        recordRead = metaplexAccount.address;
         if (d.value.isMutable) anyMutable = true;
       }
     }
   }
-  if (source === 'none') {
-    const elsewhere = f.metadataPointer?.metadataAddress && f.metadataPointer.metadataAddress !== mint;
-    warnings.push(
-      elsewhere
-        ? { code: 'metadata-elsewhere', text: `Its name is kept at another account (${f.metadataPointer!.metadataAddress}) that this page does not read. Go by the mint address.` }
-        : { code: 'no-metadata', text: 'It has no name on chain. Only its mint address identifies it.' },
-    );
+  // A pointer to a name record this page did not read is said whether or not another
+  // name was read. (The pointer may name the Metaplex record itself, which was read.)
+  const pointsTo = f.metadataPointer?.metadataAddress ?? null;
+  const elsewhere = pointsTo !== mint && pointsTo !== recordRead ? pointsTo : null;
+  if (elsewhere) {
+    warnings.push({
+      code: 'metadata-elsewhere',
+      text:
+        source === 'none'
+          ? `Its name is kept at another account (${elsewhere}) that this page does not read. Go by the mint address.`
+          : `It also points to a name record at another account (${elsewhere}) that this page does not read, so a wallet may show a different name. Go by the mint address.`,
+    });
+  } else if (source === 'none') {
+    warnings.push({ code: 'no-metadata', text: 'It has no name on chain. Only its mint address identifies it.' });
   }
   if (anyMutable) {
     warnings.push({ code: 'metadata-mutable', text: 'Its name, symbol and picture can still be changed by whoever controls them.' });
   }
-  const copied = copiedWellKnownName(mint, name, symbol);
+  const copied = copiedWellKnownName(mint, claims);
   if (copied) {
     warnings.push({
       code: 'copies-known-name',
       text: copied.mint
         ? `It calls itself ${copied.label}, but it is NOT the real ${copied.label} (whose mint is ${copied.mint}). It is a different token that copied the name.`
         : `It calls itself ${copied.label}, but there is no real ${copied.label} on Solana. It is a different token that copied the name.`,
+    });
+  } else if (claims.some(hasLookalikeLetters)) {
+    warnings.push({
+      code: 'lookalike-letters',
+      text: 'Its name or symbol uses letters or digits that are not plain A to Z or 0 to 9. Some of those look the same as plain ones, so it may be copying another token’s name. Go by the mint address.',
     });
   }
   return done(f, name, symbol, source);

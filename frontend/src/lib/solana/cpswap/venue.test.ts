@@ -20,7 +20,7 @@ describe('feeSplit', () => {
   it('reads a 0.25% tier with a 20% venue share as 0.20% to LPs and 0.05% to the venue', () => {
     // Shaped like mainnet config 0 on 2026-10-01: trade 2500, protocol 200000, fund 0.
     const s = feeSplit({ tradeFeeRate: 2_500n, protocolFeeRate: 200_000n, fundFeeRate: 0n });
-    expect(s.traderPaysPct).toBeCloseTo(0.25, 10);
+    expect(s.tradeFeePct).toBeCloseTo(0.25, 10);
     expect(s.venueShareOfFeePct).toBeCloseTo(20, 10);
     expect(s.venueTakesPct).toBeCloseTo(0.05, 10);
     expect(s.lpKeepsPct).toBeCloseTo(0.2, 10);
@@ -33,7 +33,7 @@ describe('feeSplit', () => {
     expect(s.lpKeepsPct).toBeCloseTo(0.21, 10);
   });
 
-  it('always accounts for every basis point — LP + venue == what the trader paid', () => {
+  it('always accounts for every basis point of the trade fee: LP + venue == the trade fee', () => {
     for (const c of [
       { tradeFeeRate: 2_500n, protocolFeeRate: 200_000n, fundFeeRate: 0n },
       { tradeFeeRate: 10_000n, protocolFeeRate: 160_000n, fundFeeRate: 0n },
@@ -42,7 +42,7 @@ describe('feeSplit', () => {
       { tradeFeeRate: 0n, protocolFeeRate: 120_000n, fundFeeRate: 40_000n },
     ]) {
       const s = feeSplit(c);
-      expect(s.lpKeepsPct + s.venueTakesPct).toBeCloseTo(s.traderPaysPct, 10);
+      expect(s.lpKeepsPct + s.venueTakesPct).toBeCloseTo(s.tradeFeePct, 10);
     }
   });
 

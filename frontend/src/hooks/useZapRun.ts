@@ -20,6 +20,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useAccount, useChainId, usePublicClient } from 'wagmi';
 import type { Address } from 'viem';
 import { ERC20_ABI } from '../lib/contracts';
+import { readReceiptOutcome, waitForReceiptOutcome } from '../lib/txErrors';
 import { CHAIN_ID, TEGRIDY_LP_ADDRESS, TOWELI_ADDRESS } from '../lib/constants';
 import {
   callsId,
@@ -88,11 +89,9 @@ export interface UseZapRun {
   discard: () => void;
 }
 
-interface PublicClientLike {
+type PublicClientLike = {
   readContract(args: { address: Address; abi: unknown; functionName: string; args?: unknown[] }): Promise<unknown>;
-  waitForTransactionReceipt(args: { hash: `0x${string}` }): Promise<{ status: string }>;
-  getTransactionReceipt(args: { hash: `0x${string}` }): Promise<{ status: string } | null>;
-}
+} & Parameters<typeof waitForReceiptOutcome>[0] & Parameters<typeof readReceiptOutcome>[0];
 
 function isRejection(error: unknown): boolean {
   const e = error as { code?: unknown; message?: unknown } | null;
@@ -388,26 +387,41 @@ export function useZapRun(plan: ZapPlan | null): UseZapRun {
           });
           return false;
         }
-        try {
-          const receipt = await publicClient.waitForTransactionReceipt({ hash });
-          if (receipt.status === 'success') {
-            emit({ type: 'confirmed', steps: [index], txHash: hash, at: Date.now() });
-          } else {
-            emit({
-              type: 'reverted',
-              steps: [index],
-              txHash: hash,
-              detail: 'The transaction reverted on-chain.',
-              at: Date.now(),
-            });
-            return false;
-          }
-        } catch (error) {
+        const outcome = await waitForReceiptOutcome(publicClient, hash);
+        if (outcome.kind === 'unreadable') {
           // The hash is out there and the receipt did not arrive. This is the case the
           // whole `unknown` status exists for — never recorded as a failure.
-          emit({ type: 'lost', steps: [index], detail: describeError(error), at: Date.now() });
+          emit({ type: 'lost', steps: [index], detail: describeError(outcome.error), at: Date.now() });
           return false;
         }
+        if (outcome.kind === 'replaced') {
+          // A cancel's receipt says success, and used to be recorded as this leg
+          // confirming, so the next leg was sent on top of an approval that never ran.
+          const { hash: took, reason } = outcome.replacement;
+          emit({
+            type: 'replaced',
+            steps: [index],
+            txHash: hash,
+            detail:
+              reason === 'cancelled'
+                ? `Cancelled in your wallet: an empty transaction (${took}) confirmed in its place.`
+                : `Your wallet sent a different transaction (${took}) in its place.`,
+            at: Date.now(),
+          });
+          return false;
+        }
+        if (outcome.kind === 'reverted') {
+          emit({
+            type: 'reverted',
+            steps: [index],
+            txHash: hash,
+            detail: 'The transaction reverted on-chain.',
+            at: Date.now(),
+          });
+          return false;
+        }
+        // A speed-up is the same call: confirmed, under the hash that actually mined.
+        emit({ type: 'confirmed', steps: [index], txHash: outcome.replacement?.hash ?? hash, at: Date.now() });
       }
       return true;
     },
@@ -521,20 +535,17 @@ export function useZapRun(plan: ZapPlan | null): UseZapRun {
       if (!state || !publicClient) return;
       const step = state.steps[index];
       if (!step?.txHash) return;
-      try {
-        const receipt = await publicClient.getTransactionReceipt({ hash: step.txHash as `0x${string}` });
-        if (!receipt) return;
-        emit({
-          type: 'observed',
-          step: index,
-          outcome: receipt.status === 'success' ? 'confirmed' : 'reverted',
-          txHash: step.txHash,
-          at: Date.now(),
-        });
-      } catch {
-        // Still unread. The leg stays `unknown` and the resume stays blocked, which is
-        // the correct outcome of a failed lookup — not a licence to assume anything.
-      }
+      const outcome = await readReceiptOutcome(publicClient, step.txHash as `0x${string}`);
+      // Still unread. The leg stays `unknown` and the resume stays blocked, which is
+      // the correct outcome of a failed lookup — not a licence to assume anything.
+      if (outcome.kind === 'unreadable') return;
+      emit({
+        type: 'observed',
+        step: index,
+        outcome: outcome.kind === 'success' ? 'confirmed' : 'reverted',
+        txHash: step.txHash,
+        at: Date.now(),
+      });
     },
     [emit, publicClient],
   );

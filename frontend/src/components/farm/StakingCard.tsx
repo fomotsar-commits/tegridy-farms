@@ -4,11 +4,12 @@ import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { Link } from 'react-router-dom';
 import { formatTokenAmount, sanitizeDecimalInput } from '../../lib/formatting';
 import { AnimatedCounter } from '../AnimatedCounter';
-import { PENALTY_COPY } from '../../lib/copy';
+import { CONNECT_ETHEREUM_WALLET, PENALTY_COPY } from '../../lib/copy';
 import type { useFarmActions } from '../../hooks/useFarmActions';
 import type { useUserPosition } from '../../hooks/useUserPosition';
 import type { useNFTBoost } from '../../hooks/useNFTBoost';
 import { ArtImg } from '../ArtImg';
+import { FinePrint } from '../ui/FinePrint';
 import { useReadContract } from 'wagmi';
 import { formatEther, parseEther } from 'viem';
 import { TEGRIDY_STAKING_ABI } from '../../lib/contracts';
@@ -156,9 +157,8 @@ export function StakingCard({
               >
                 <p className="font-semibold mb-1">Staking is paused.</p>
                 <p>
-                  Claim, Withdraw and every other action on this card revert until it is
-                  unpaused, so they are switched off. Your stake is not stuck: the exit at the
-                  bottom of this card works during a pause.
+                  Claim and Withdraw are off until it is unpaused. Your stake is not stuck: the
+                  exit at the bottom of this card still works.
                 </p>
               </div>
             )}
@@ -168,11 +168,16 @@ export function StakingCard({
                 data-testid="staking-paused-unread"
               >
                 <p>
-                  We could not read whether staking is paused just now - the network did not
-                  answer. That is not a statement that staking is running normally: if it is
-                  paused, Claim and Withdraw revert, and the exit that works during a pause
-                  appears here only once this read lands. Retry before acting on this card.
+                  We could not read whether staking is paused. Retry before acting on this card.
                 </p>
+                <FinePrint summary="Details">
+                  <p>
+                    We could not read whether staking is paused just now - the network did not
+                    answer. That is not a statement that staking is running normally: if it is
+                    paused, Claim and Withdraw revert, and the exit that works during a pause
+                    appears here only once this read lands. Retry before acting on this card.
+                  </p>
+                </FinePrint>
                 <button
                   type="button"
                   className="btn-secondary mt-2 px-4 py-1.5 text-[12px]"
@@ -547,12 +552,12 @@ export function StakingCard({
           </div>
         ) : !isConnected ? (
           <div className="text-center py-8">
-            <p className="text-white text-[13px] mb-4">Connect wallet to start staking</p>
+            <p className="text-white text-[13px] mb-4">Connect an Ethereum wallet to start staking</p>
             <ConnectButton.Custom>
               {({ openConnectModal, mounted }) => (
                 <div {...(!mounted && { style: { opacity: 0, pointerEvents: 'none' } })}>
                   <button onClick={openConnectModal} className="btn-primary px-7 py-2.5 text-[14px]">
-                    Connect Wallet
+                    {CONNECT_ETHEREUM_WALLET}
                   </button>
                 </div>
               )}
@@ -568,10 +573,8 @@ export function StakingCard({
             data-testid="staking-position-unread"
           >
             <p>
-              Your staking position could not be read just now - the network did not
-              answer. This is not a statement that you have nothing staked: anything
-              you staked is still staked, and the contract is the record. Retry before
-              acting on this card.
+              Your staking position could not be read. Anything you staked is still staked.
+              Retry before acting on this card.
             </p>
             <button
               type="button"
@@ -614,15 +617,22 @@ export function StakingCard({
               {/* The unread branch of the three the cap now has: still-checking
                   (dash, no notice), unread (this), read (the figure above). */}
               {capUnread && (
-                <p
+                <div
                   className="text-[11px] mt-1"
                   data-testid="stake-cap-unread"
                   style={{ color: '#e3b341', opacity: 0.85 }}>
-                  We could not read the per-wallet cap just now &mdash; the network did not
-                  answer. That is not a statement that there is no cap: staking against a
-                  number nobody read can revert on-chain and spend your gas for nothing.
-                  Reload and try again.
-                </p>
+                  <p>
+                    We could not read the per-wallet cap. A stake now could revert. Reload and try again.
+                  </p>
+                  <FinePrint summary="Details">
+                    <p>
+                      We could not read the per-wallet cap just now &mdash; the network did not
+                      answer. That is not a statement that there is no cap: staking against a
+                      number nobody read can revert on-chain and spend your gas for nothing.
+                      Reload and try again.
+                    </p>
+                  </FinePrint>
+                </div>
               )}
             </div>
 

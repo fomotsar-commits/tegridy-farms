@@ -1,4 +1,6 @@
 import { Link } from 'react-router-dom';
+import { CardArt } from '../ui/CardArt';
+import { FinePrint } from '../ui/FinePrint';
 // FROM ./registry, NOT the ../../lib/chains barrel — deliberate, and the same
 // import the repo already uses in ContractsPage and CurveTokenPage. The barrel
 // re-exports viemChains (index.ts:23), which imports `fallback` from wagmi, so
@@ -43,21 +45,19 @@ export function ChainSwapAvailability({ chainId }: { chainId: number | undefined
 
   return (
     <div
-      className="mb-4 rounded-xl border p-4"
+      className="relative isolate mb-4 rounded-xl border p-4"
       style={{
         background: 'rgba(245, 158, 11, 0.08)',
         borderColor: 'rgba(245, 158, 11, 0.30)',
       }}
       role="status"
     >
+      <CardArt pageId="trade" idx={5} />
       <p className="text-amber-200 text-[13px] font-semibold mb-1">
         Swapping is not live on {config.name} yet
       </p>
       <p className="text-white/70 text-[12px] leading-relaxed">
-        The venue&rsquo;s router and factory are deployed on {config.name}, but no pair has been
-        created here yet — so there is nothing to quote a price against. This form reads
-        Ethereum only, which is why it stays empty rather than showing you a number it cannot
-        fill.
+        This form reads Ethereum only, so it stays empty here.
       </p>
       <div className="mt-3 flex flex-wrap gap-3 text-[12px]">
         <Link to={curveHref} className="text-emerald-300 hover:text-emerald-200 underline">
@@ -67,6 +67,14 @@ export function ChainSwapAvailability({ chainId }: { chainId: number | undefined
           Switch your wallet to Ethereum to swap
         </Link>
       </div>
+      <FinePrint summary="Why">
+        <p>
+          The venue&rsquo;s router and factory are deployed on {config.name}, but no pair has been
+          created here yet — so there is nothing to quote a price against. This form reads
+          Ethereum only, which is why it stays empty rather than showing you a number it cannot
+          fill.
+        </p>
+      </FinePrint>
     </div>
   );
 }

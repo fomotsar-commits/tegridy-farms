@@ -198,7 +198,7 @@ export function useToweliPrice() {
   const pairAddr = TEGRIDY_LP_ADDRESS; // RELAUNCH: native Venue DEX pair (was external Uniswap LP)
   const hasPair = checkDeployed(pairAddr);
 
-  const { data: reserves } = useReadContract({
+  const { data: reserves, isLoading: reservesLoading } = useReadContract({
     address: pairAddr,
     abi: UNISWAP_V2_PAIR_ABI,
     chainId: CHAIN_ID,
@@ -247,6 +247,8 @@ export function useToweliPrice() {
   // localStorage cache is display-only with staleness tracking.
   const [apiFallbackPrice, setApiFallbackPrice] = useState<number>(0);
   const [apiPriceStale, setApiPriceStale] = useState(false);
+  // The API leg has answered or failed at least once this session.
+  const [apiSettled, setApiSettled] = useState(false);
 
   // R075: load cached price via versioned-cache reader.
   useEffect(() => {
@@ -299,7 +301,10 @@ export function useToweliPrice() {
             console.warn('[useToweliPrice] fallback price fetch failed:', err?.message ?? err);
           }
         })
-        .finally(() => clearTimeout(timeout));
+        .finally(() => {
+          clearTimeout(timeout);
+          if (!cancelled) setApiSettled(true);
+        });
     };
 
     fetchPrice();
@@ -441,6 +446,12 @@ export function useToweliPrice() {
     ethUsdForLaunch,
     ethUsdForDisplay,
     isLoaded,
+    /**
+     * Every price leg has answered or failed at least once. Before this a missing
+     * price is still loading; after it, a missing price could not be read. Without it
+     * a caller cannot tell the two apart and shows a placeholder forever.
+     */
+    priceSettled: apiSettled && !reservesLoading,
     oracleStale,
     priceChange: sessionPriceChange,
     priceUnavailable,

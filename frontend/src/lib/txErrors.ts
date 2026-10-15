@@ -20,6 +20,7 @@
  *   catch (err) { surfaceTxError(err, toast, { component: 'StakingCard' }); }
  */
 import { UserRejectedRequestError, type ReplacementReason } from 'viem';
+import { getTxUrl } from './explorer';
 
 // R080: exported so test mocks can be typed against the same shape. Tests
 // pass vitest mocks (a callable + constructor intersection) which match
@@ -356,4 +357,100 @@ export function surfaceReplacedTx(
     action: { label: 'Check on Explorer', onClick: () => window.open(opts.explorerUrl, '_blank') },
     duration: 30_000,
   });
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// A DIRECT RECEIPT WAIT NEEDS THE SAME SPLIT AS THE HOOK.
+//
+// `publicClient.waitForTransactionReceipt` (viem, called directly rather than
+// through wagmi's hook) differs from the hook once and matches it once:
+//
+//   - It RETURNS a reverted receipt, where wagmi's action throws it. So its promise
+//     rejects only when no receipt was read (its 180s timeout, a receipt the node has
+//     not indexed, a transport error), and then nothing at all is known.
+//   - A replaced transaction RESOLVES it with the replacement's receipt, exactly as
+//     through the hook, and only `onReplaced` says why. A wallet cancel's receipt
+//     says success.
+//
+// So the two helpers below are the only direct receipt calls in src (pinned by
+// hooks/receiptConsumers.guard.test.ts). Both pass the receipt through
+// receiptOutcome(), and every caller gets one of four answers.
+// ─────────────────────────────────────────────────────────────────────────
+
+/** What a direct wait or re-read found. */
+export type DirectReceiptOutcome<R> =
+  /** The sent transaction's own receipt, or a speed-up's (`replacement` set): the call ran. */
+  | { kind: 'success'; receipt: R; replacement: ReceiptReplacement | null }
+  | { kind: 'reverted'; receipt: R }
+  /** Another transaction took its nonce (a cancel, or a different call): what was sent never ran. */
+  | { kind: 'replaced'; receipt: R; replacement: ReceiptReplacement }
+  /** No receipt was read. Nothing is known: never "failed", never "succeeded". */
+  | { kind: 'unreadable'; error: unknown };
+
+type DirectReceipt = { status: string; transactionHash: string };
+
+function directOutcome<R extends DirectReceipt>(receipt: R, hash: `0x${string}`): DirectReceiptOutcome<R> {
+  const o = receiptOutcome({ data: receipt, isSuccess: true, isError: false }, hash);
+  if (o.isReverted) return { kind: 'reverted', receipt };
+  if (o.isReplaced && o.replacement) return { kind: 'replaced', receipt, replacement: o.replacement };
+  return { kind: 'success', receipt, replacement: o.replacement };
+}
+
+/** The receipt wait every direct caller uses: with `onReplaced`, and checked against `hash`. */
+export async function waitForReceiptOutcome<R extends DirectReceipt>(
+  client: { waitForTransactionReceipt(args: { hash: `0x${string}`; onReplaced: typeof noteReplacement }): Promise<R> },
+  hash: `0x${string}`,
+): Promise<DirectReceiptOutcome<R>> {
+  let receipt: R;
+  try {
+    receipt = await client.waitForTransactionReceipt({ hash, onReplaced: noteReplacement });
+  } catch (error) {
+    return { kind: 'unreadable', error };
+  }
+  return directOutcome(receipt, hash);
+}
+
+/**
+ * Read `hash`'s receipt once more, without waiting. Not mined yet, or a read that
+ * failed, is 'unreadable'. This reads only `hash`'s own receipt, so it never finds a
+ * replacement: a transaction replaced after the live wait gave up stays unreadable.
+ */
+export async function readReceiptOutcome<R extends DirectReceipt>(
+  client: { getTransactionReceipt(args: { hash: `0x${string}` }): Promise<R | null | undefined> },
+  hash: `0x${string}`,
+): Promise<DirectReceiptOutcome<R>> {
+  let receipt: R | null | undefined;
+  try {
+    receipt = await client.getTransactionReceipt({ hash });
+  } catch (error) {
+    return { kind: 'unreadable', error };
+  }
+  if (!receipt) return { kind: 'unreadable', error: null };
+  return directOutcome(receipt, hash);
+}
+
+/**
+ * The two warnings a direct wait owes, worded as `useReceiptOutcome` words them for the
+ * hook: "we couldn't confirm this" for an unread receipt, and "cancelled" or "replaced"
+ * for a receipt that was another transaction's. Nothing for a success or a revert:
+ * those words belong to the surface.
+ */
+export function surfaceReceiptNotice(
+  toast: UnconfirmedToastLike,
+  outcome: DirectReceiptOutcome<unknown>,
+  opts: { hash: `0x${string}`; chainId: number; repeatCost: string },
+): void {
+  if (outcome.kind === 'unreadable') {
+    surfaceUnconfirmedTx(toast, {
+      hash: opts.hash,
+      explorerUrl: getTxUrl(opts.chainId, opts.hash),
+      repeatCost: opts.repeatCost,
+    });
+  } else if (outcome.kind === 'replaced') {
+    surfaceReplacedTx(toast, {
+      hash: opts.hash,
+      replacement: outcome.replacement,
+      explorerUrl: getTxUrl(opts.chainId, outcome.replacement.hash),
+    });
+  }
 }

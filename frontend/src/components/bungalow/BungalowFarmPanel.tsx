@@ -36,6 +36,8 @@ import { BackToEarn } from '../farm/BackToEarn';
 import { CopyButton } from '../ui/CopyButton';
 import { shortenAddress } from '../../lib/formatting';
 import { ArtImg } from '../ArtImg';
+import { CardArt } from '../ui/CardArt';
+import { FinePrint } from '../ui/FinePrint';
 
 /**
  * The Farm while a room with its own token is active. The room's pool cards lead, picked
@@ -66,9 +68,9 @@ export function BungalowFarmPanel({ bungalow }: { bungalow: Bungalow }) {
     bungalow.chain === 'solana'
       ? isSolanaFeeConfigured()
         ? 'the Solana swap surface captures a platform fee, and a share of it can route here.'
-        : 'the Solana swap surface is live here, but it takes no platform fee today, so there is nothing to share until one is switched on.'
+        : 'the Solana swap surface is live but takes no platform fee today.'
       : bungalow.chain === 'ethereum'
-        ? `the ${chainLabel} swap surface takes a platform fee only when a trade fills in the venue's own pools, and no share of it routes here today.`
+        ? `the ${chainLabel} swap surface takes a fee only on fills in the venue's own pools; none of it routes here today.`
         : `the venue runs no swap on ${chainLabel}, so there is no swap fee to share.`;
   // Row 2 holds the lighthouse pool and the funding card side by side. With a ladder and
   // no lighthouse card (none, or members-only in the ladder's row), funding spans it.
@@ -94,30 +96,18 @@ export function BungalowFarmPanel({ bungalow }: { bungalow: Bungalow }) {
           Stake {bungalow.symbol}.
         </h1>
         <p className="text-white/85 text-[15px] max-w-lg leading-relaxed">
-          {poolIsLive ? (
-            <>
-              {bungalow.tagline} {liveName} is live for {bungalow.symbol} on{' '}
-              {chainLabel}, created on-chain and readable by anyone. The numbers below
-              are read straight from the pool.
-            </>
-          ) : (
-            <>
-              {bungalow.tagline} The lighthouse pool is being built for {bungalow.symbol} on{' '}
-              {chainLabel}. Until it is deployed and verified, this page makes no
-              promises and asks for nothing.
-            </>
-          )}
+          {poolIsLive
+            ? <>{liveName} is live for {bungalow.symbol} on {chainLabel}.</>
+            : <>The lighthouse pool is being built for {bungalow.symbol} on {chainLabel}.</>}
         </p>
-        {/* The top bar's Connect is EVM only (RainbowKit), and on this page it is
-            the most visible one. A Trust wallet connected there showed "only the
-            EVM chains" while every card here still asked for Solana, and Jupiter,
-            Solana only, can never be in that list (owner, 2026-09-30). */}
-        {poolIsLive && bungalow.chain === 'solana' && (
-          <p className="text-white/70 text-[13px] max-w-lg leading-relaxed mt-3">
-            This pool is on Solana: connect your wallet on the pool card below. The Connect button
-            at the top of the page does not connect Solana.
+        <FinePrint summary="About" className="max-w-lg">
+          <p>
+            {bungalow.tagline}{' '}
+            {poolIsLive
+              ? 'It was created on-chain and is readable by anyone. The numbers below are read straight from the pool.'
+              : 'Until it is deployed and verified, this page makes no promises and asks for nothing.'}
           </p>
-        )}
+        </FinePrint>
       </div>
 
       {/* THE LIVE POOL LEADS (2026-09-20): the ladder comes first in the DOM and spans
@@ -170,17 +160,21 @@ export function BungalowFarmPanel({ bungalow }: { bungalow: Bungalow }) {
           <div className="relative z-10 p-6">
             <p className="text-[10px] uppercase tracking-wider mb-2" style={{ color: 'var(--color-kyle)' }}>Pool status</p>
             <h2 className="heading-luxury text-xl text-white mb-3">Not deployed yet</h2>
-            <p className="text-white/85 text-[13px] leading-relaxed mb-4">
-              No {bungalow.symbol} staking program exists on-chain today. There is no
-              pool address, so nothing on this page can take a deposit. That is the
-              point. When the pool ships it appears here with its address, its verified
-              program, and the funded reward balance, in that order.
-            </p>
             <p className="text-white/85 text-[13px] leading-relaxed">
-              The shape it takes: stake {bungalow.symbol}, earn from a reward pool
-              whose vault balance is always shown as it is. An unfunded pool reads
-              as a real, labeled zero, never as a promise.
+              No {bungalow.symbol} staking program exists on-chain today.
             </p>
+            <FinePrint summary="Details">
+              <p>
+                There is no pool address, so nothing on this page can take a deposit. That is the
+                point. When the pool ships it appears here with its address, its verified
+                program, and the funded reward balance, in that order.
+              </p>
+              <p>
+                The shape it takes: stake {bungalow.symbol}, earn from a reward pool
+                whose vault balance is always shown as it is. An unfunded pool reads
+                as a real, labeled zero, never as a promise.
+              </p>
+            </FinePrint>
           </div>
         </div>
         )}
@@ -207,14 +201,15 @@ export function BungalowFarmPanel({ bungalow }: { bungalow: Bungalow }) {
                 <strong>Venue swap fees</strong>: {swapFeeLine}
               </li>
               {/* Names the mechanism, never another resident. */}
-              <li><strong>Community top-ups</strong>: direct, visible transfers into the reward pool, the same way every pool here is seeded.</li>
+              <li><strong>Community top-ups</strong>: visible transfers into the reward pool, as every pool here is seeded.</li>
             </ul>
           </div>
         </div>
       </div>
 
       {/* While-you-wait: the live surfaces. */}
-      <div className="mt-6 rounded-2xl p-6" style={{ background: 'rgba(4,9,18,0.72)', border: '1px solid var(--color-purple-25)' }}>
+      <div className="relative isolate mt-6 rounded-2xl p-6" style={{ background: 'rgba(4,9,18,0.72)', border: '1px solid var(--color-purple-25)' }}>
+        <CardArt pageId="bungalow-farm" idx={3} />
         <p className="text-[10px] uppercase tracking-wider mb-3" style={{ color: 'var(--color-kyle)' }}>Live today</p>
         <div className="flex flex-wrap items-center gap-3">
           {(() => {

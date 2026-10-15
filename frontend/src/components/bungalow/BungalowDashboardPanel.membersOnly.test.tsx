@@ -69,6 +69,7 @@ vi.mock('../ArtImg', () => ({ ArtImg: () => null }));
 vi.mock('./HeatCard', () => ({ HeatCard: () => null }));
 vi.mock('./BungalowMarket', () => ({ BungalowMarket: () => null }));
 vi.mock('./BungalowHolders', () => ({ BungalowHolders: () => null }));
+vi.mock('./BungalowBurn', () => ({ BungalowBurn: () => null }));
 vi.mock('../../lib/bungalowStaking', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../lib/bungalowStaking')>()),
   readPool: vi.fn(async () => ({ ok: true as const, pool: fixtures.pool })),

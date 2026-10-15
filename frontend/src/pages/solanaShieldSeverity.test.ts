@@ -43,7 +43,9 @@ describe('Shield severity is decided in one place', () => {
 
   it('every shield warning row routes through shieldIsAlarming', () => {
     const rows = code.match(/text-red-300'\s*:\s*'text-white\/50'/g) ?? [];
-    const routed = code.match(/shieldIsAlarming\(w, w\.mint\)/g) ?? [];
+    // The helper decides each row's colour pair itself. (It is also what picks which
+    // lines are drawn at all, so a bare count of its calls is more than the rows.)
+    const routed = code.match(/shieldIsAlarming\(w, w\.mint\)\s*\?\s*'text-red-300'\s*:\s*'text-white\/50'/g) ?? [];
     expect(rows.length).toBeGreaterThan(0);
     expect(routed.length).toBe(rows.length);
   });

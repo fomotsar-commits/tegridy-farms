@@ -3,11 +3,13 @@ import type { PublicKey } from '@solana/web3.js';
 import {
   WSOL_MINT,
   applySlippage,
+  decimalCommaToPoint,
   formatSol,
   formatTokenAmount,
   parseDecimalToBaseUnits,
 } from '../../../lib/launcher/solana/curve';
 import { quoteOwnPool } from '../../../lib/solana/cpswap/read';
+import { CardArt } from '../../ui/CardArt';
 import { Card, Field, ImpactRows, Notice, Row, SlippagePicker } from './ui';
 import { DEFAULT_SLIPPAGE_BPS, TOGGLE_CLS, fractionToBps, inputCls, inputStyle } from './uiFormat';
 import { PoolCreatorFeeRow, TxFlowView } from './TxFlowView';
@@ -104,14 +106,14 @@ export function PoolSwapPanel({
 
   if (pool === null) {
     return (
-      <Card title="Trade in the pool" testId="pool-swap-panel">
+      <Card title="Trade in the pool" testId="pool-swap-panel" art={<CardArt pageId="curve-launch" idx={22} />}>
         <Notice>Reading the pool…</Notice>
       </Card>
     );
   }
   if (pool.kind !== 'ok' || !p) {
     return (
-      <Card title="Trade in the pool" testId="pool-swap-panel">
+      <Card title="Trade in the pool" testId="pool-swap-panel" art={<CardArt pageId="curve-launch" idx={22} />}>
         <Notice tone="warn">{pool.kind === 'ok' ? 'The pool could not be read.' : poolProblem(pool)}</Notice>
       </Card>
     );
@@ -127,7 +129,7 @@ export function PoolSwapPanel({
   const creatorPpm = p.snapshot.pool.enableCreatorFee ? p.ammConfig.creatorFeeRate : 0n;
 
   return (
-    <Card title="Trade in the pool" testId="pool-swap-panel" headingRef={headingRef}>
+    <Card title="Trade in the pool" testId="pool-swap-panel" headingRef={headingRef} art={<CardArt pageId="curve-launch" idx={22} />}>
       {flow.state.step !== 'idle' ? (
         <TxFlowView flow={flow} api={api} cluster={gate.cfg.cluster} decimals={decimals} signer={signer} />
       ) : (
@@ -166,7 +168,8 @@ export function PoolSwapPanel({
                 className={`${inputCls} disabled:opacity-50`}
                 style={inputStyle}
                 value={amount}
-                onChange={(e) => setAmount(e.target.value)}
+                // A comma typed on a phone keypad with no "." is the decimal point.
+                onChange={(e) => setAmount(decimalCommaToPoint(e.target.value, amount))}
                 placeholder="0.0"
                 inputMode="decimal"
                 spellCheck={false}
@@ -213,8 +216,9 @@ export function PoolSwapPanel({
               signer &&
               raw !== null &&
               slippageBps !== null &&
-              void flow.prepare(() =>
-                api.preparePoolSwap(rpc, gate, { owner: signer.publicKey, mint, pool: p, side, amountIn: raw, slippageBps }),
+              void flow.prepare(
+                () => api.preparePoolSwap(rpc, gate, { owner: signer.publicKey, mint, pool: p, side, amountIn: raw, slippageBps }),
+                { repeatable: true },
               )
             }
           >

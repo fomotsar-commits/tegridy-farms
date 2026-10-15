@@ -4,12 +4,14 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom';
 import { Keypair, PublicKey } from '@solana/web3.js';
 import {
+  decimalCommaToPoint,
   describeTreasury,
   formatSol,
   formatTokenAmount,
   parseDecimalToBaseUnits,
   type Read,
 } from '../../../lib/launcher/solana/curve';
+import { CardArt } from '../../ui/CardArt';
 import { Card, Field, Notice, Row } from './ui';
 import {
   DIVIDER,
@@ -582,7 +584,7 @@ export function LaunchCreateForm({ api, rpc, gate, actions, signerState }: Launc
 
   if (flow.state.step !== 'idle') {
     return (
-      <Card title="Launch a token" testId="launch-create-form" headingRef={headingRef}>
+      <Card title="Launch a token" testId="launch-create-form" headingRef={headingRef} art={<CardArt pageId="curve-launch" idx={11} />}>
         <TxFlowView
           flow={flow}
           api={api}
@@ -635,7 +637,7 @@ export function LaunchCreateForm({ api, rpc, gate, actions, signerState }: Launc
   // Who the reserve goes to, from the settings read from chain. A multisig only when it is the known vault.
   const treasury = describeTreasury(g.feeRecipient);
   return (
-    <Card title="Launch a token" testId="launch-create-form" headingRef={headingRef}>
+    <Card title="Launch a token" testId="launch-create-form" headingRef={headingRef} art={<CardArt pageId="curve-launch" idx={11} />}>
       {!actions.create && (
         <Notice tone="warn">{gate.paused ? 'New launches are paused right now.' : 'Launching is not available right now.'}</Notice>
       )}
@@ -841,7 +843,8 @@ export function LaunchCreateForm({ api, rpc, gate, actions, signerState }: Launc
                 className={inputCls}
                 style={inputStyle}
                 value={buySol}
-                onChange={(e) => setBuySol(e.target.value)}
+                // A comma typed on a phone keypad with no "." is the decimal point.
+                onChange={(e) => setBuySol(decimalCommaToPoint(e.target.value, buySol))}
                 inputMode="decimal"
                 placeholder="0.0"
                 {...a11y}

@@ -26,6 +26,11 @@ export const STEP_STATUS_COPY: Record<ZapStepStatus, StepStatusCopy> = {
   submitted: { label: 'Sent', meaning: 'It is on-chain; the receipt has not been read yet.', tone: 'progress' },
   confirmed: { label: 'Confirmed', meaning: 'This step landed on-chain.', tone: 'good' },
   reverted: { label: 'Reverted', meaning: 'The chain rejected it, so it had no effect. Gas was still spent.', tone: 'warn' },
+  replaced: {
+    label: 'Replaced',
+    meaning: 'Your wallet sent another transaction in its place (a cancel, or a different one), so this step can never run. It had no effect.',
+    tone: 'warn',
+  },
   rejected: { label: 'Not signed', meaning: 'It never reached the chain, so it had no effect.', tone: 'warn' },
   unknown: {
     label: 'Outcome unread',

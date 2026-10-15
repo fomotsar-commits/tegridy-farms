@@ -5,6 +5,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import {
+  CREATED_ON,
   LIMITS,
   checkContentUri,
   checkDescription,
@@ -15,6 +16,8 @@ import {
   displaySafe,
   foldForCompare,
   hasEmbeddedMetadata,
+  impersonates,
+  impersonatesAll,
   impersonationWarning,
   isPubkeyString,
   parseLaunchMetadataJson,
@@ -26,6 +29,7 @@ import {
 } from './validate.js';
 import { PNG_1X1, SVG, gif, jpeg, png, webpVp8, webpVp8l, webpVp8x } from './testImages.fixture';
 import { cspAllows } from '../../test/csp';
+import { SITE_URL } from '../constants';
 import { ipfsGatewayUrls } from '../ipfsGateways';
 
 const MINT = 'So11111111111111111111111111111111111111112';
@@ -87,9 +91,52 @@ describe('checkName', () => {
     (raw) => refused(checkName(raw)),
   );
 
+  // ATK-5 (audit 2026-10-03): the pool pages compare names with these same rules, so the
+  // spellings their own, older check caught are caught here too.
+  it.each([
+    ['an accent on a letter', 'Sölana'],
+    ['a ticker written with its $', '$SOL'],
+    ['a brand word written with its $ inside a longer name', 'Official $BAYLA'],
+    ['a Greek lower-case upsilon for the u', 'υsdc'],
+    ['a Greek lower-case mu for the u', 'μsdt'],
+  ])('refuses a reserved name spelled with %s', (_l, raw) => refused(checkName(raw)));
+
+  // A short brand word is looked for word by word, so the words must be the ones a
+  // reader sees. A mark drawn on a letter, or a character drawn as nothing, is not a gap.
+  it.each([
+    ['a combining mark that has no single-letter form', 'B\u0358ayla Token'],
+    ['an invisible combining joiner', 'BA\u034FYLA Token'],
+    ['a variation selector', 'BA\uFE0FYLA Token'],
+  ])('refuses a brand word with %s inside it', (_l, raw) => refused(checkName(raw)));
+
+  it('reads a brand word through characters that are not shown, in text any client wrote', () => {
+    // zero-width space, soft hyphen, word joiner, private use, braille blank
+    for (const hidden of ['\u200B', '\u00AD', '\u2060', '\uE000', '\u2800']) {
+      const text = `Bay${hidden}la Token`;
+      expect(displaySafe(text, 32), JSON.stringify(text)).toBe('Bayla Token');
+      expect(impersonates(text), JSON.stringify(text)).toBe('BAYLA');
+    }
+    // A gap a reader can see is still a gap.
+    expect(impersonates('Bay la Token')).toBeNull();
+    expect(impersonates('Bay\tla Token')).toBeNull();
+  });
+
+  it('names every reserved word a text copies, and `impersonates` is the first of them', () => {
+    expect(impersonatesAll('Bayla by Tegridy')).toEqual(['TEGRIDY', 'BAYLA']);
+    expect(impersonates('Bayla by Tegridy')).toBe('TEGRIDY');
+    expect(impersonatesAll('Official $TOWELI BAYLA2')).toEqual(['TOWELI', 'BAYLA']);
+    expect(impersonatesAll('$SOL')).toEqual(['SOL']);
+    expect(impersonatesAll('Pepe')).toEqual([]);
+    expect(impersonatesAll('')).toEqual([]);
+    for (const text of ['Solana', 'S0L', 'Tegridy Farms', 'BaylaCoin', 'Pepe', '...']) {
+      expect(impersonates(text), text).toBe(impersonatesAll(text)[0] ?? null);
+    }
+  });
+
   it('does not refuse a name that merely contains the letters of a short brand word', () => {
     expect(checkName('Bay Lagoon').ok).toBe(true);
     expect(checkName('Solar Cat').ok).toBe(true);
+    expect(checkName('Cash $ Carry').ok).toBe(true);
   });
 });
 
@@ -118,6 +165,7 @@ describe('checkSymbol', () => {
     expect(foldForCompare('S0L')).toBe(foldForCompare('SOL'));
     expect(foldForCompare('ЅOL')).toBe(foldForCompare('SOL'));
     expect(foldForCompare('U$DC')).toBe(foldForCompare('USDC'));
+    expect(foldForCompare('Sölana')).toBe(foldForCompare('Solana'));
   });
 });
 
@@ -393,7 +441,31 @@ describe('parseLaunchMetadataJson (a file ANY client may have written)', () => {
 
   it('warns about lookalikes on read', () => {
     expect(impersonationWarning({ name: 'Solana', symbol: 'S0L' })).toMatch(/SOL/);
+    expect(impersonationWarning({ name: 'Pepe', symbol: '$SOL' })).toMatch(/SOL/);
     expect(impersonationWarning({ name: 'Pepe', symbol: 'PEPE' })).toBeNull();
+  });
+});
+
+// validate.js cannot import SITE_URL (a Vercel lambda cannot import a .ts module), so it
+// types the host out and this test holds the two equal. The file is pinned to IPFS and the
+// launch locks its link, so a wrong host here can never be corrected afterwards.
+describe('where a launch made on this site says it was made', () => {
+  const input = { name: 'Pepe', symbol: 'PEPE', description: '', imageUri: `ipfs://bafkrei${'a'.repeat(52)}`, links: {}, mint: MINT };
+
+  it('is the canonical host, SITE_URL, in the constant and in the file that gets pinned', () => {
+    expect(CREATED_ON).toBe(SITE_URL);
+    expect(buildMetadataJson(input).createdOn).toBe(SITE_URL);
+  });
+
+  it('is never checked on read, so a file stamped by any site, or by none, reads the same', () => {
+    const { createdOn: _stamp, ...unstamped } = buildMetadataJson(input);
+    const read = (file: object) => parseLaunchMetadataJson(JSON.stringify(file), MINT);
+    const ours = read({ ...unstamped, createdOn: SITE_URL });
+    expect(ours).toMatchObject({ kind: 'ok', mintMatches: true, issues: [] });
+    for (const createdOn of ['https://memetic.fun', 'https://pump.fun', 'javascript:alert(1)', 7]) {
+      expect(read({ ...unstamped, createdOn }), String(createdOn)).toEqual(ours);
+    }
+    expect(read(unstamped)).toEqual(ours);
   });
 });
 

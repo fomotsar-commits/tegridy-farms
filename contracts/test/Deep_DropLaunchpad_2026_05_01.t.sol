@@ -68,6 +68,8 @@ contract Deep_DropLaunchpad_Test is Test {
         p.dutchStartTime = block.timestamp + 1 hours;
         p.dutchDuration = 12 hours;
         p.initialPhase = TegridyDropV2.MintPhase.DUTCH_AUCTION;
+        // F1: a drop that opens on the dutch curve carries no fixed price.
+        p.mintPrice = 0;
         drop.initialize(p);
 
         // AUDIT FIX: V2-DROP-03 — `configureDutchAuction` is now a deprecated
@@ -267,6 +269,8 @@ contract Deep_DropLaunchpad_Test is Test {
         p.dutchStartTime = block.timestamp + 1;
         p.dutchDuration = 12 hours;
         p.initialPhase = TegridyDropV2.MintPhase.DUTCH_AUCTION;
+        // F1: a drop that opens on the dutch curve carries no fixed price.
+        p.mintPrice = 0;
         drop.initialize(p);
 
         vm.warp(block.timestamp + 2);
