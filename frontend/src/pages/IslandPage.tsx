@@ -88,7 +88,7 @@ export default function IslandPage() {
           The island
         </h1>
         <p className="text-white/75 text-[14px] md:text-[15px] leading-relaxed max-w-[62ch]">
-          The place itself: its art, its people, its score and its money.
+          The place itself: its art, its people and its money.
         </p>
       </header>
 
