@@ -76,7 +76,7 @@ export default function SolanaLpPage() {
         {venueIsOpen && (
           <div className="mb-6">
             <Suspense fallback={<p className="text-white/60 text-[13px]">Loading the pool finder…</p>}>
-              <SolanaLpSection finderFirst />
+              <SolanaLpSection />
             </Suspense>
             <p className="text-[13px] mt-4">{venueAmmLink}</p>
           </div>

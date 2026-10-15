@@ -772,7 +772,7 @@ export const SURFACES: Surface[] = [
   { group: 'Pools · Solana LP', pageId: 'swap', idx: 0, label: 'Page background (Solana LP and Venue AMM tabs)' },
   { group: 'Pools · Solana LP', pageId: 'pending-trade', idx: 0, label: 'Transaction may still be landing (a sent transaction is not confirmed yet)' },
   { group: 'Pools · Solana LP', pageId: 'solana-lp', idx: 0, label: 'Before you provide liquidity (venue live)' },
-  { group: 'Pools · Solana LP', pageId: 'solana-lp', idx: 1, label: 'Fee tiers card (venue live)' },
+  { group: 'Pools · Solana LP', pageId: 'solana-lp', idx: 1, label: 'Rates card (venue live, both Pools tabs)' },
   { group: 'Pools · Solana LP', pageId: 'solana-lp', idx: 2, label: 'Create, add or remove liquidity (venue live)' },
   { group: 'Pools · Solana LP', pageId: 'solana-lp', idx: 3, label: 'Your positions card (venue live)' },
   { group: 'Pools · Solana LP', pageId: 'solana-lp', idx: 4, label: 'Adding and removing liquidity notice (liquidity writes blocked or not loaded)' },
@@ -782,15 +782,12 @@ export const SURFACES: Surface[] = [
   { group: 'Pools · Solana LP', pageId: 'solana-lp', idx: 8, label: 'Pool not read card (after a lookup, a pool that could not be r…)' },
   { group: 'Pools · Solana LP', pageId: 'solana-lp', idx: 9, label: 'Open a new pool card (after a lookup, liquidity writes on)' },
   { group: 'Pools · Solana LP', pageId: 'solana-lp', idx: 10, label: 'Risk line above the forms' },
-  { group: 'Pools · Solana LP', pageId: 'solana-lp', idx: 11, label: 'How you earn card' },
-  { group: 'Pools · Solana LP', pageId: 'solana-lp', idx: 12, label: 'How the venue earns card' },
   { group: 'Pools · Solana LP', pageId: 'venue-amm', idx: 0, label: 'Venue status card' },
   { group: 'Pools · Solana LP', pageId: 'venue-amm', idx: 1, label: 'The program card' },
 
   // Pools · Venue AMM
-  { group: 'Pools · Venue AMM', pageId: 'venue-amm', idx: 2, label: 'Fee sheet card' },
   { group: 'Pools · Venue AMM', pageId: 'venue-amm', idx: 3, label: 'For liquidity providers card' },
-  { group: 'Pools · Venue AMM', pageId: 'venue-amm', idx: 4, label: 'How the swap routes card' },
+  { group: 'Pools · Venue AMM', pageId: 'venue-amm', idx: 4, label: 'Swap routes card (both Pools tabs)' },
 
   // Pools · Zap
   { group: 'Pools · Zap', pageId: 'zap', idx: 0, label: 'Page background' },

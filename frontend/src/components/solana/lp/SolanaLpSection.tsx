@@ -4,13 +4,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { SolanaProviders } from '../SolanaProviders';
-import { CREATOR_FEE_SWITCH, chargedCreatorFeeRate, feeSplit, solOf, tradeCost } from '../../../lib/solana/cpswap/venue';
-import type { AmmConfigView } from '../../../lib/solana/cpswap/program';
-import { feeRateText, solText, tradeCostText } from '../../../lib/solana/lp/format';
 import type { FeeTierRead } from '../../../lib/solana/lp/poolFinder';
 import { lpWriteMode, type LpWriteMode } from '../../../lib/launcher/solana/lpWriteFlag';
 import { isLpKind } from '../../../lib/launcher/solana/write/lpKinds';
-import { Card, Notice, Row } from '../curve/ui';
+import { Card, Row } from '../curve/ui';
 import { CardArt } from '../../ui/CardArt';
 import { FinePrint } from '../../ui/FinePrint';
 import { PendingTradeCard } from '../curve/PendingTradeCard';
@@ -18,35 +15,29 @@ import type { GateRpc, LpKind, LpWriteApi } from '../curve/ports';
 import { PoolFinder, type PoolFinderHandle } from './PoolFinder';
 import { parseMintInput } from '../../../lib/solana/lp/mintInput';
 import { YourPositions } from './YourPositions';
-import { HowItPays } from './HowItPays';
+import { Rates, Routes } from './RatesAndRoutes';
 import { LpGateBanner } from './LpGateBanner';
 import { RISK_SHORT } from './LpDisclosures';
 import { LpWritesProvider, useLpWrites } from './useLpWrites';
 import { browserLpReaders, type LpReaders } from './readers';
 
 /**
- * The Solana LP section on /pools and /solana-lp: a plain disclosure, how a provider and
- * the venue earn, the fee tiers read from the chain, the pool finder and the wallet's own
- * positions. Adding, removing and opening pools follow LP's own switch (lpWriteFlag.ts):
+ * The Solana LP section on /pools and /solana-lp, in one order on both (owner, 2026-10-14:
+ * "the actions people need to take spotlighted and their positions and the rates and
+ * routes getting the attention"): the risk line and the earn line, the three actions
+ * (the finder), the wallet's positions, the rates read from the chain, where a swap goes,
+ * and the full notice last. Adding, removing and opening pools follow LP's own switch (lpWriteFlag.ts):
  * with it 'off' no write code is fetched and nothing here can sign; otherwise
  * LpWritesProvider loads it and offers.ts decides each button. `?mint=<address>` opens the
  * finder on a token; nothing else is ever read from the URL (no amount, side, percent,
  * slippage or open panel).
  */
-export default function SolanaLpSection({ readers: given, finderFirst = false }: {
-  readers?: LpReaders;
-  /**
-   * /solana-lp: the finder comes first, under a one-line risk notice, then the positions,
-   * the two earning cards, the full disclosure and the fee tiers. Without it the order is
-   * /pools' own.
-   */
-  finderFirst?: boolean;
-}) {
+export default function SolanaLpSection({ readers: given }: { readers?: LpReaders }) {
   const readers = useMemo(() => given ?? browserLpReaders(), [given]);
   if (!readers) return null;
   return (
     <SolanaProviders>
-      <LpInner readers={readers} finderFirst={finderFirst} />
+      <LpInner readers={readers} />
     </SolanaProviders>
   );
 }
@@ -58,14 +49,14 @@ export interface LpWritesOverrides {
   gateRpc?: GateRpc;
 }
 
-export function LpInner({ readers, writes, finderFirst = false }: { readers: LpReaders; writes?: LpWritesOverrides; finderFirst?: boolean }) {
+export function LpInner({ readers, writes }: { readers: LpReaders; writes?: LpWritesOverrides }) {
   // Fixed for the life of a build: a production build reads only the committed constant.
   const mode = writes?.mode ?? lpWriteMode();
   // Bumped when a liquidity flow goes back to idle after an outcome: the finder and the
   // positions read again, keeping what they show until the new answer arrives.
   const [reloadKey, setReloadKey] = useState(0);
   const finished = useCallback(() => setReloadKey((k) => k + 1), []);
-  const body = <LpBody readers={readers} mode={mode} reloadKey={reloadKey} finderFirst={finderFirst} />;
+  const body = <LpBody readers={readers} mode={mode} reloadKey={reloadKey} />;
   if (mode === 'off') return body;
   return (
     <LpWritesProvider readers={readers} mode={mode} load={writes?.load} gateRpc={writes?.gateRpc} onFinished={finished}>
@@ -74,7 +65,7 @@ export function LpInner({ readers, writes, finderFirst = false }: { readers: LpR
   );
 }
 
-function LpBody({ readers, mode, reloadKey, finderFirst }: { readers: LpReaders; mode: LpWriteMode; reloadKey: number; finderFirst: boolean }) {
+function LpBody({ readers, mode, reloadKey }: { readers: LpReaders; mode: LpWriteMode; reloadKey: number }) {
   const [params, setParams] = useSearchParams();
   const raw = params.get('mint');
   const parsed = raw ? parseMintInput(raw) : null;
@@ -93,12 +84,10 @@ function LpBody({ readers, mode, reloadKey, finderFirst }: { readers: LpReaders;
   );
   const { publicKey } = useWallet();
 
-  const disclosure = <LpDisclosure programId={readers.programId} mode={mode} riskAbove={finderFirst} />;
+  // The risk line above the actions says RISK_SHORT, so the notice says it again only in its small print.
+  const disclosure = <LpDisclosure programId={readers.programId} mode={mode} riskAbove />;
   const writesTop = mode !== 'off' && <LpWritesTop />;
   const tierRead = useFeeTiers(readers);
-  const tiers = <FeeTiers read={tierRead} />;
-  // How a provider earns and how the venue does, beside the tiers their numbers come from.
-  const howItPays = <HowItPays read={tierRead} />;
   // Remove liquidity (the finder's third button) brings the positions onto the screen:
   // that is where every Remove button is. The section takes focus, so a keyboard and a
   // screen reader land there too.
@@ -129,31 +118,18 @@ function LpBody({ readers, mode, reloadKey, finderFirst }: { readers: LpReaders;
   );
   const positions = <YourPositions readers={readers} owner={publicKey ?? null} reloadKey={reloadKey} sectionRef={positionsRef} onAddMore={addMore} />;
 
-  // Finder first sits right under the page's hero, which already leaves the gap above it:
-  // only the risk line and the one line on earning stand before it.
-  // The earning cards come straight after the positions, before the long notice.
-  if (finderFirst) {
-    return (
-      <div className="flex flex-col gap-4" data-testid="lp-section" data-lp-mode={mode}>
-        <LpRiskLine />
-        <LpEarnLine />
-        {writesTop}
-        {finder}
-        {positions}
-        {howItPays}
-        {disclosure}
-        {tiers}
-      </div>
-    );
-  }
+  // Actions first, under the one risk line and the one line on earning; then what you hold;
+  // then the rates and the routes; the long notice last.
   return (
-    <div className="space-y-4 mt-6" data-testid="lp-section" data-lp-mode={mode}>
-      {disclosure}
+    <div className="flex flex-col gap-4" data-testid="lp-section" data-lp-mode={mode}>
+      <LpRiskLine />
+      <LpEarnLine />
       {writesTop}
-      {howItPays}
-      {tiers}
       {finder}
       {positions}
+      <Rates read={tierRead} />
+      <Routes />
+      {disclosure}
     </div>
   );
 }
@@ -280,30 +256,7 @@ export function LpDisclosure({ programId, mode = 'off', riskAbove = false }: {
   );
 }
 
-/**
- * What opening a pool costs: the tier's fee, plus the account deposits (rent) the pool
- * program takes for the pool, its price record, its LP mint and its vaults, which are
- * never refunded. "No fee" is never "free".
- */
-function openingCost(fee: bigint, deposits: bigint | null): string {
-  const feeText = fee > 0n ? `${solOf(fee)} SOL fee` : 'No fee';
-  return deposits === null
-    ? `${feeText}, plus account deposits that are never refunded (their amount could not be read)`
-    : `${feeText}, plus about ${solText(deposits)} of account deposits that are never refunded`;
-}
-
-/**
- * What a trade on a tier costs. A tier with a creator rate charges it only in the pools
- * whose own switch is on, which are the launch program's (CREATOR_FEE_SWITCH): a launch
- * pool costs both fees, a pool anyone opens costs the trade fee alone. Both are said.
- */
-function tierCostText(config: AmmConfigView): string {
-  if (config.creatorFeeRate === 0n) return tradeCostText(config, CREATOR_FEE_SWITCH.publicOpen);
-  const launch = tradeCost(config, chargedCreatorFeeRate(config, CREATOR_FEE_SWITCH.launchPool));
-  return `${feeRateText(launch.totalRate)} a trade in launch pools (${feeRateText(launch.tradeFeeRate)} trade fee, ${feeRateText(launch.creatorFeeRate)} creator fee); ${feeRateText(config.tradeFeeRate)} in a pool anyone opens`;
-}
-
-/** The section's one read of the fee tiers: the Fee tiers card and the two earning cards print the same answer. */
+/** The section's one read of the fee tiers: the Rates card prints it. */
 function useFeeTiers(readers: LpReaders): FeeTierRead | null {
   const [read, setRead] = useState<FeeTierRead | null>(null);
   useEffect(() => {
@@ -321,75 +274,4 @@ function useFeeTiers(readers: LpReaders): FeeTierRead | null {
     };
   }, [readers]);
   return read;
-}
-
-/**
- * A tier's rates as one row of numbers (owner, 2026-10-14: the numbers in a row, the
- * sentences one press away). A tier with a creator rate says it as the part on top: the
- * trade fee is what LPs and the venue split, and launch pools charge the creator's part
- * besides it (tierCostText, in the small print, says which pools).
- */
-function tierRow(config: AmmConfigView): string {
-  const split = feeSplit(config);
-  const fee = config.creatorFeeRate > 0n ? `Fee ${feeRateText(config.tradeFeeRate)} + ${feeRateText(config.creatorFeeRate)} creator` : `Fee ${feeRateText(config.tradeFeeRate)}`;
-  return `${fee} · LPs ${split.lpKeepsPct.toFixed(3)}% · venue ${split.venueTakesPct.toFixed(3)}%`;
-}
-
-function FeeTiers({ read }: { read: FeeTierRead | null }) {
-  return (
-    <section data-testid="fee-tiers" aria-label="Fee tiers">
-      <Card title="Fee tiers" art={<CardArt pageId="solana-lp" idx={1} />}>
-        {!read ? (
-          <p>Reading the fee tiers…</p>
-        ) : read.kind === 'unread' ? (
-          <Notice tone="warn">The fee tiers could not be read ({read.detail}).</Notice>
-        ) : (
-          <ul className="space-y-2">
-            {read.tiers.map((t) => (
-              <li key={t.index} data-testid="fee-tier" data-index={t.index} data-state={t.state}>
-                {t.state === 'live' && t.config ? (
-                  <>
-                    <Row
-                      label={`Tier ${t.index}${t.index === 0 ? ' · launch pools' : t.index === 1 ? ' · public pools' : ''}`}
-                      value={tierRow(t.config)}
-                      mono={false}
-                    />
-                    {/* The same tier in sentences: read from the chain, which pools pay what, what opening a pool
-                        costs (the venue's card above says the fee) and what a deposit never gives back. */}
-                    <FinePrint summary="Details">
-                      <p>Read from the chain when this page loads.</p>
-                      <Row
-                        label={`Tier ${t.index}${t.index === 0 ? ' (graduated launches)' : t.index === 1 ? ' (public pools)' : ''}`}
-                        value={tierCostText(t.config)}
-                        mono={false}
-                      />
-                      <Row
-                        label="Split"
-                        value={`LPs ${feeSplit(t.config).lpKeepsPct.toFixed(3)}%, venue ${feeSplit(t.config).venueTakesPct.toFixed(3)}% of each trade`}
-                        mono={false}
-                      />
-                      {t.config.creatorFeeRate > 0n && (
-                        <Row
-                          label="Creator fee"
-                          value={`${feeRateText(t.config.creatorFeeRate)} a trade on top of the trade fee, in launch pools only; it goes to the token's creator, not to LPs`}
-                          mono={false}
-                        />
-                      )}
-                      <Row
-                        label="To open a pool"
-                        value={t.config.disableCreatePool ? 'switched off' : openingCost(t.config.createPoolFee, read.openingDeposits)}
-                        mono={false}
-                      />
-                    </FinePrint>
-                  </>
-                ) : (
-                  <Row label={`Tier ${t.index}`} value={t.state === 'absent' ? 'not created yet' : 'the account there is not a fee tier'} mono={false} />
-                )}
-              </li>
-            ))}
-          </ul>
-        )}
-      </Card>
-    </section>
-  );
 }

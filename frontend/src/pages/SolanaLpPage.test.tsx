@@ -10,7 +10,7 @@ vi.mock('../lib/solana/cpswap/read', () => ({ readVenue: (...a: unknown[]) => re
 vi.mock('../lib/launcher/solana/curve/rpc', () => ({ browserCurveRpc: () => ({}), browserRpc: () => ({}) }));
 vi.mock('../lib/analytics', () => ({ trackPageView: vi.fn() }));
 vi.mock('../components/solana/lp/SolanaLpSection', () => ({
-  default: ({ finderFirst = false }: { finderFirst?: boolean }) => <div data-testid="lp-section" data-finder-first={String(finderFirst)} />,
+  default: () => <div data-testid="lp-section" />,
 }));
 const lp = vi.hoisted(() => ({ mode: 'on' as 'off' | 'on' | 'withdraw-only' }));
 vi.mock('../lib/launcher/solana/lpWriteFlag', async (importOriginal) => ({
@@ -77,7 +77,6 @@ describe('when the venue reads live', () => {
   it('mounts the LP section finder-first right under the hero, then the status card, then "The program"', async () => {
     await mount();
     const section = await screen.findByTestId('lp-section');
-    expect(section).toHaveAttribute('data-finder-first', 'true');
     const card = screen.getByRole('region', { name: 'Venue status' });
     expect(card).toHaveTextContent(/Pools are open/);
     const { hero, after } = column();

@@ -501,15 +501,15 @@ test.describe('element I: /pools, once its venue reads', () => {
     ).toEqual([]);
     // The live branch, from the recording: the venue card, the sheet's figures and both tiers.
     await expect(page.getByRole('region', { name: 'Venue status' }), 'the venue did not read').toContainText('Pools are open');
-    const sheet = page.getByRole('region', { name: 'Fee sheet' });
-    await expect(sheet, 'the fee sheet did not read').toContainText('read from the chain when this page loads');
-    // One per tier the sheet shows: the public tier first, then the launch tier.
-    const paid = await sheet.getByText('Trader pays', { exact: true }).evaluateAll((els) => els.map((el) => el.nextElementSibling?.textContent ?? ''));
-    expect(paid, 'the sheet shows the public tier and the launch tier').toHaveLength(2);
-    for (const figure of paid) expect(figure, 'Trader pays is a figure it read').toMatch(/^\d+(\.\d+)?%$/);
+    // The one rates card (owner, 2026-10-14: the duplicate fee cards dropped), its small print folded.
+    const rates = page.getByRole('region', { name: 'Rates' });
+    await expect(rates, 'the rates did not read').toContainText('Read from the chain when this page loads');
+    await expect(page.locator('[data-testid="fee-tier"][data-state="live"]'), 'the fee tiers did not read').toHaveCount(2);
+    // One row per tier: the public tier first, then the launch tier, each with the trade fee it read.
+    const paid = await rates.locator('[data-testid="fee-tier"] td:first-of-type .stat-value').allTextContents();
+    expect(paid, 'the rates show the public tier and the launch tier').toHaveLength(2);
+    for (const figure of paid) expect(figure, 'the trade fee is a figure it read').toMatch(/^\d+(\.\d+)?%$/);
     const traderPays = paid.join(' on the public tier, ') + ' on the launch tier';
-    await expect(page.getByTestId('fee-tier'), 'the fee tiers did not read').toHaveCount(2);
-    await expect(page.locator('[data-testid="fee-tier"][data-state="live"]')).toHaveCount(2);
     test.info().annotations.push({ type: 'venue', description: `recorded at slot ${MAINNET_VENUE_RECORDING.slot}: trader pays ${traderPays}` });
 
     const hits = await proseDashes(page);
