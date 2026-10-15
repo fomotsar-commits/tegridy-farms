@@ -29,6 +29,118 @@ stop and say so — a surprise is information.
 
 ---
 
+## 🔴 2026-10-14: what merged today, what is settled, and your list as it now stands
+
+Where this section and the 2026-10-09 list below disagree, this one is newer. Your list here
+replaces "Only you can do these" below; the old ids are kept in brackets so nothing is lost.
+
+### Merged on 2026-10-14
+
+- ✅ **Train #809** (11:03 UTC). It carried eleven pull requests, each now marked merged:
+  #797 (a page is at the top before it is drawn), #807 (a section link lands on its section),
+  #794 (the offline worker never stores the page under an asset's name), #798 (Pools, Earn and
+  their tabs can be dressed in the studio), #803 (fewer words; small print in drop-downs),
+  #805 (every swap in our own pool stops on its review; an unchecked Jupiter test run sends
+  nothing; the DCA tab refuses Token-2022 coins), #806 (a sent swap holds Buy in every tab; no
+  "Swap failed" for a lost answer), #804 (the Solana pool card reads like a pool), #802 (nine
+  phone layout faults), #801 (the daily registry check reads who holds our Solana authorities;
+  stale lines corrected) and #799 (the four open audit findings fixed in source; the deployed
+  contracts still owe a redeploy, see the money list).
+- ✅ **#811** (11:05 UTC): your art placements on 102 more surfaces, Pools and Earn included.
+- ✅ **#810** (11:09 UTC): the Jungle Bay music nod in the footer, island page and empty History.
+- Still open: #800 (range program phase 0; red on "Scan for secrets" with two false positives),
+  #793 (a tab left open across a deploy reloads once; its own new test fails on both Safari
+  projects), #808 (Earn and Liquidity buttons on a phone, another session's), and #776 (upgrade
+  day only: do not merge).
+
+### Settled: your rulings of 2026-10-13, and the calls made for you
+
+Your words, 2026-10-13: always show the review for a swap in our own pool; audit findings are
+fixed, never accepted ("we cannot have bad code ever"); fix every bug found; range pools only on
+our own program, and no money to Raydium ever; the best VWAP, our own if it saves money; use as
+few words as possible, with disclaimers in drop-downs; for the rest, do what is best. The calls
+made under "the rest", now settled and being built:
+
+- ✅ **D1:** when a wallet's answer is lost, Buy is held until the transaction's blockhash dies
+  (2 minutes at most), with a "Turn Buy back on now" button. Built in #806.
+- ✅ **D2:** two unchecked Jupiter test runs in a row offer our own pool's review instead. Built
+  in #805.
+- ✅ **D3:** the staking boost rounds up.
+- ✅ **D5:** the DCA tab's $50 minimum check holds Start until it passes.
+- ✅ **D6:** a pending-swap hold ends after 10 minutes at most. Built in #806.
+- ✅ **D8:** fewer words wins everywhere, except what stays visible: how you earn and what the
+  venue takes, one risk line where money goes in, warnings about an action in progress, and
+  "not read" under a dash. Built in #803.
+- ✅ **D9:** the range program uses Token-2022 position NFTs only; its keeper is the vault;
+  anyone may open a pool; the issuer list is empty; BAYLA's liquidity stays where it is.
+  Being built in #800.
+- ✅ **D10:** add-with-one-coin swaps half as an ordinary swap, with the swap page's ordinary
+  rules and fees, said in one line. This answers O-1009-15 below.
+- ✅ **D11:** a farm or pool that no longer pays rewards is not offered for new deposits. It says
+  it ended, with the date a read returned, and withdraw and claim keep working.
+
+### Your list: free clicks, no money
+
+- ⬜ **GitHub security switches** (free, about 5 minutes, Settings, Advanced Security). The
+  Dependency graph, Dependabot alerts, secret scanning and push protection are all off.
+  Dependabot stopped on 2026-09-21 because the graph is off. [was O-1009-20]
+- ⬜ **GitHub branch protection** (free, about 10 minutes). `mvp-launch` has none, and its one
+  ruleset, "121", is disabled. Draft #776 keeps three checks red on purpose until upgrade day;
+  pick the required checks knowing that. [was O-1009-7]
+- ⬜ **Vercel: delete the stale `tegridyfarms` project** (free, about 5 minutes). It has no Git
+  repository connected; confirm on its Domains tab that it is the one behind
+  `tegridyfarms-three` first. [was O-1009-12 and O-1009-21]
+- ⬜ **Vercel: fix `VITE_SWAP_FEE_RECIPIENT`** (free, a few minutes, then a redeploy). It points at
+  an Ethereum address with no contract. A session can tell you the right value once you say
+  which account should receive that fee.
+- ⬜ **Supabase migrations 024, 025 and 026** (free, about 15 minutes, before 2026-10-16). Paste
+  them by hand in the SQL editor, in that order, in one sitting; never `supabase db push`. 027 is
+  optional and deletes older analytics on its first run. [was O-1009-2]
+- ⬜ **Phantom's review form** for the "could be malicious" warning (free, about 15 minutes; the
+  pack is `phantom-flag-dispute.md`). If already filed, say so. [was O-1009-6]
+- ⬜ **Jupiter's verify form** for BAYLA (free, about 15 minutes; it signs in with X). [was O-1009-6]
+- ⬜ **A free Jupiter developer key** (free, about 10 minutes). `lite-api.jup.ag`, which the whole
+  Solana side uses, is being retired with no date given. A session cannot sign up for you.
+  [was O-1009-18]
+- ⬜ **Railway: check whether a Solana indexer service exists** (free, a look). Say what you see;
+  a session takes it from there.
+- ⬜ **Who holds the key of the old fee wallet**
+  `DVGiHe98CzEf7VuCS6YpVDFnp38ubJmKNLt6aMJwAyER`? One sentence from you. If nobody does,
+  anything still sent there is lost to the venue.
+
+### Your list: items that cost money
+
+- ⬜ **The TOWELI staking top-up** you decided on 2026-09-17. Not sent when last read
+  (2026-10-09); about 2.45M TOWELI short then. Say which wallet; a session re-reads the numbers
+  before and after. [was O-1009-1]
+- ⬜ **The pool-program upgrade:** 3.90 SOL in the deploy wallet
+  `CqcVvaMvesrSKrUSbqBqr9mLjKLJuYqhaXg1gXpR41cg`, about 3.68 SOL of it comes back, so it costs
+  about 0.22 SOL. Both multisig members sign on the pack's own page. #776 goes out in the same
+  hour. [was O-1009-4]
+- ⬜ **Name the staking receipt:** about 0.00024 SOL. Steps 3 and 4 of the 2026-10-07 section
+  below. [was O-1009-5]
+- ⬜ **BAYLA ladder rewards stop 2026-12-23T15:32Z** unless reloaded. Decide the amount and the
+  source by mid-November; the multisig's own BAYLA account is funded first, then both members
+  sign. [was O-1009-10]
+- ⬜ **Deploy the range program** (after #800 and its later phases): about 7.74 SOL of rent locked
+  while the program exists, and about 15.48 SOL in hand during the deploy (half of it comes back
+  at the end), plus about 0.01 SOL of fees. Figures from `docs/RANGE_POOLS_PLAN.md` on #800's
+  branch, at the rent rate read 2026-10-14.
+- ⬜ **The range fee tiers** proposed in `docs/RANGE_POOLS_PLAN.md` (#800): 1% and 0.25%, liquidity
+  providers keep 84% of each fee and the venue 16%. They need the vault's signature, about
+  0.0012 SOL of rent each. A tier, once made, cannot be removed.
+- ⬜ **An outside review of the range program.** No quote yet.
+- ⬜ **The Ethereum contract redeploys** that the audit fixes in #799 owe (gas from
+  `docs/audits/audit_101/OPEN_FINDINGS_FIXED_IN_SOURCE_2026_10_14.md`, at 0.0636 gwei read
+  2026-10-14, and at 10 gwei): staking, nine contracts and about 25 wiring calls, 23,182,403 gas,
+  0.00147 ETH (0.23 ETH at 10 gwei), or 32,958,433 gas, 0.00210 ETH (0.33 ETH) if
+  `GaugeController` and `VoteIncentives` are kept and replaced too; the referral splitter alone,
+  3,848,482 gas, 0.00024 ETH (0.038 ETH); the NFT launchpad, 7,057,673 gas, 0.00045 ETH
+  (0.071 ETH). One key, `0x14898258122C0740106391E6e8E4F17F3b6d456E`, owns every contract and
+  signs each step. The old staking contract keeps its 16 positions; holders move themselves.
+
+---
+
 ## 🔴 2026-10-09: one list of everything open, from every session
 
 Written after a read-only sweep of all 43 open pull requests, every recent session and the
@@ -47,6 +159,9 @@ merged or changed by the sweep. Where an older section below disagrees, this one
 - ✅ The venue builds its own VWAP (this answers O-1009-17).
 
 ### Only you can do these, soonest first
+
+2026-10-14: the open items here are carried into "Your list" in the 2026-10-14 section
+above, with what each costs. That list is the one to work from.
 
 - ⬜ **O-1009-1: send the TOWELI staking top-up** you decided on 2026-09-17. It had not been sent
   when read on 2026-10-09. Say which wallet it comes from; a session re-reads the numbers after.
@@ -190,7 +305,9 @@ by design. Only one proven range program may lawfully be copied, Raydium's CLMM 
 Orca's licence forbids it since 2025-02-27, Meteora's range program is not published. All BAYLA
 markets together trade under $2,000 a day, so none of this creates volume.
 
-- ⬜ **O-1009-15: "add with one coin" on our own pools.** Website only, about a week: the site
+- ✅ **O-1009-15: "add with one coin" on our own pools.** Settled 2026-10-14 as D10 (see the
+  2026-10-14 section): the swapped half is an ordinary swap with the swap page's rules and
+  fees. The question as it was put: Website only, about a week: the site
   swaps about half by the best-price rule, then adds both. Two calls are yours: always the
   cheapest route for the person (recommended), and whether to waive the site's 0.5% on the
   swapped half.
@@ -207,10 +324,10 @@ markets together trade under $2,000 a day, so none of this creates volume.
   uses is being retired, with no date given. A session cannot sign up for the key.
 - ⬜ **O-1009-19: one real small order from each Jupiter tab.** A $10 BAYLA limit order, watched to
   a fill. Jupiter is winding down the older order system both tabs use.
-- ⬜ **C-1009-11: the DCA tab offers a BAYLA order that cannot work** (the program rejects
+- ✅ **C-1009-11: the DCA tab offers a BAYLA order that cannot work** (the program rejects
   Token-2022 tokens, buying and selling). Say so before signing, and fix the minimum it quotes.
-  You started this as its own session on 2026-10-10. No pull request for it was open when this
-  line was written.
+  Built: PR #805 (the tab refuses Token-2022 coins), merged in train #809 on 2026-10-14. The
+  $50 minimum check holding Start is D5.
 - ⬜ **C-1009-12: our pool program is about three Raydium releases behind.** It still has a
   four-token bypass list Raydium deleted in September. Assess it read-only; do not touch the
   ready upgrade pack. You started this as its own session on 2026-10-10. No pull request for it

@@ -1,3 +1,5 @@
+import { REWARDS_END_UNREAD_LINE, rewardsEndedLine, rewardsHaveEnded } from './rewardsEnded';
+
 /**
  * Is the TegridyLPFarming reward period actually running?
  *
@@ -12,6 +14,29 @@
  * "boosted LP farming today" off the back of it.
  */
 export type LpEmissionsPhase = 'unknown' | 'running' | 'ended';
+
+/**
+ * Whether the site offers a NEW stake into the LP farm. Withdraw, claim and exit
+ * never ask this. `periodFinishSec` is null when the read did not land: then no
+ * date is said and the stake waits, because a stake into an unread farm may be a
+ * stake into an ended one. A landed 0 is a farm never funded: open, not ended.
+ */
+export type LpFarmDeposit =
+  | { open: true }
+  | { open: false; reason: 'ended'; endedAtSec: number; line: string }
+  | { open: false; reason: 'unread' | 'checking'; line: string };
+
+export const LP_FARM_CHECKING_LINE = 'Checking whether this farm still pays rewards.';
+
+export function lpFarmDeposit(periodFinishSec: number | null, nowMs: number = Date.now()): LpFarmDeposit {
+  if (periodFinishSec === null || !Number.isFinite(periodFinishSec)) {
+    return { open: false, reason: 'unread', line: REWARDS_END_UNREAD_LINE };
+  }
+  if (rewardsHaveEnded(periodFinishSec, Math.floor(nowMs / 1000))) {
+    return { open: false, reason: 'ended', endedAtSec: periodFinishSec, line: rewardsEndedLine(periodFinishSec) };
+  }
+  return { open: true };
+}
 
 /**
  * @param periodFinishSec  `periodFinish()` in unix seconds; 0/NaN when the read failed.

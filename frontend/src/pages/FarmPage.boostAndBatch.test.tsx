@@ -26,6 +26,8 @@ const hooks = vi.hoisted(() => ({
   approve: vi.fn(),
   stake: vi.fn(),
   allowance: 0n,
+  /** The LP farm's periodFinish as the hook reads it; undefined = the mock's old shape. */
+  lpPeriodFinish: undefined as number | undefined,
   /** Captured from the last StakingCard render. */
   lastComputed: null as null | { stakeNeedsApproval: boolean },
   lastHandleStake: null as null | (() => void),
@@ -57,7 +59,10 @@ vi.mock('../hooks/useOneClickStake', () => ({
 }));
 
 vi.mock('../hooks/useLPFarming', () => ({
-  useLPFarming: () => ({ refreshBoost: hooks.refreshBoost, isPending: false, isConfirming: false }),
+  useLPFarming: () => ({
+    refreshBoost: hooks.refreshBoost, isPending: false, isConfirming: false,
+    periodFinish: hooks.lpPeriodFinish, periodFinishUnread: false,
+  }),
 }));
 
 vi.mock('../hooks/useFarmActions', () => ({
@@ -158,6 +163,7 @@ function enterAmount(value = '100') {
 
 beforeEach(() => {
   hooks.needsRefresh = false;
+  hooks.lpPeriodFinish = undefined;
   hooks.canBatch = false;
   hooks.allowance = 0n;
   hooks.refreshBoost.mockReset();
@@ -214,6 +220,13 @@ describe('stale LP boost (AUDIT F-7)', () => {
     expect(screen.getByText(/unboosted rate/i)).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: /refresh boost/i }));
     expect(hooks.refreshBoost).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not ask for gas to "earn the boosted rate" once the farm rewards have ended', () => {
+    hooks.needsRefresh = true;
+    hooks.lpPeriodFinish = 1_781_493_095; // 2026-06-15T03:11:35Z, landed
+    renderFarm();
+    expect(screen.queryByRole('button', { name: /refresh boost/i })).toBeNull();
   });
 });
 

@@ -153,9 +153,9 @@ jobs:
           rm -f "$SO"
           build() {
             if [ "$CLUSTER" = "devnet" ]; then
-              cargo build-sbf --features devnet 2>&1 | tee -a /tmp/build.log
+              cargo build-sbf --features devnet -- --locked 2>&1 | tee -a /tmp/build.log
             else
-              cargo build-sbf 2>&1 | tee -a /tmp/build.log
+              cargo build-sbf -- --locked 2>&1 | tee -a /tmp/build.log
             fi
           }
           : > /tmp/build.log

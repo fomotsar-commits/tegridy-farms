@@ -35,7 +35,6 @@ export const TOWELI_ROOM_PATHS: ReadonlySet<string> = new Set([
   '/treasury',
   '/premium',
   '/lore',
-  '/referrals',
   '/zap',
   '/earn/toweli',
 ]);
