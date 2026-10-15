@@ -20,6 +20,7 @@ import {
   TOWELI_ADDRESS,
   isDeployed,
 } from '../constants';
+import type { LpFarmDeposit } from '../lpEmissions';
 
 /**
  * The ERC-4626 auto-compounder, zero-address-gated until an operator deploys it.
@@ -85,11 +86,16 @@ const COMPOUNDER_VAULT: ZapVenue = {
  * token itself, and the destination that takes it. Reporting one available on the strength
  * of its destination alone would offer a zap whose middle leg has nowhere to go.
  */
-export function zapVenues(): ZapVenueAvailability[] {
-  return [venueAvailability('staking-lock'), venueAvailability('lp-farm'), venueAvailability('compounder-vault')];
+export function zapVenues(lpFarm?: LpFarmDeposit): ZapVenueAvailability[] {
+  return [venueAvailability('staking-lock'), venueAvailability('lp-farm', lpFarm), venueAvailability('compounder-vault')];
 }
 
-export function venueAvailability(id: ZapVenueId): ZapVenueAvailability {
+/**
+ * `lpFarm` is the farm's reward-period read (useLpFarmDeposit). The panel and
+ * useZapPlan pass it, so the LP farm is not offered once its rewards have ended or
+ * while that is unread. The pure planner omits it: it runs after useZapPlan's check.
+ */
+export function venueAvailability(id: ZapVenueId, lpFarm?: LpFarmDeposit): ZapVenueAvailability {
   if (id === 'staking-lock') {
     if (!isDeployed(TEGRIDY_STAKING_ADDRESS)) {
       return {
@@ -124,6 +130,9 @@ export function venueAvailability(id: ZapVenueId): ZapVenueAvailability {
       label: venue.label,
       reason: `This build has no address for ${missing.join(', ')}.`,
     };
+  }
+  if (id === 'lp-farm' && lpFarm && !lpFarm.open) {
+    return { available: false, id, label: venue.label, reason: lpFarm.line };
   }
   return { available: true, venue };
 }
