@@ -9,6 +9,7 @@ page keeps the newest thirty days.
 ### 2026-10-15
 
 - Towelie in the corner: when a tab slides under him as you scroll, a press on that tab now opens the tab straight away. While he faded out of the way, a press there went to Towelie instead, and in Safari on an iPad it did even with motion turned down.
+- Launch token pages: the disclosure attestation line now gets a real answer, "Attested" or "No attestation", where it said "Cannot verify" on every token. When the check cannot run it says so in one plain sentence, and the technical error waits under Details.
 
 ### 2026-10-14
 
