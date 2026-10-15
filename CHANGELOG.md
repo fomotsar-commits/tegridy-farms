@@ -6,10 +6,20 @@ page keeps the newest thirty days.
 
 ## [Unreleased]
 
-### 2026-10-14
+### 2026-10-15
 
 - Towelie in the corner: when a tab slides under him as you scroll, a press on that tab now opens the tab straight away. While he faded out of the way, a press there went to Towelie instead, and in Safari on an iPad it did even with motion turned down.
+
+### 2026-10-14
+
+- Earn: a farm or pool whose rewards have ended is no longer offered for new stakes. The TOWELI/ETH LP farm, which stopped paying on Jun 15, 2026, now says so in one line with that date and shows no Stake box; Withdraw, Claim and Exit still work. The Zap page no longer offers that farm as a destination. The lock-ladder and lighthouse pools on the bungalows do the same the day their reward period ends. When the end date cannot be read, Stake waits and no date is shown.
+- Bungalows: a lock-ladder or lighthouse pool that pays 0 rewards now, because it was never funded or its rate is 0, no longer takes new stakes. All six Ethereum and Base ladders (PEPE, QR, MFER, BNKR, DRB, JBM) read a rate of 0 on Oct 14, 2026, and nobody is staked in them. Each says so in one line; claim and exit still work, and Stake comes back by itself once a pool is funded.
+- NFT owner panel: plain wording in place of the dashes in its notices.
+- Bayla lighthouse staking: when a claim or an unstake fails, the reason is read from the program that failed, never from numbers in the error's text. A claim the reward program can never pay could be called "vault short" when a compute count in the error happened to read 6012, which stopped the rescue that frees your stake; and a lock that had not opened could be called "vault short" too.
+- Solana LP: "Add with one coin" beside Add liquidity on our own pools. Step 1 swaps the right part of your coin for the other one, through Jupiter or the pool, whichever pays more, with the swap page's rules and fees and its review; step 2 adds both coins through the usual Add liquidity review. Two signatures. If step 2 is cancelled, step 1 stays done and step 2 is offered again for an hour. Once step 1 lands, every other tab open on step 1 switches to step 2, and step 2 starts from what the swap actually paid.
+- A tab left open while the site is updated now refreshes itself once, to the same address, the next time you open a page it has not loaded yet. It used to show "Something went wrong". It never refreshes while a transaction is at your wallet or on its way: it says the site was updated and gives you a Refresh button.
 - Earn: the Referrals tab is gone. An old /referrals link opens Earn. A referral link (`/?ref=…`) still works anywhere on the site, and the TOWELI room's dashboard still shows your referral link and lets you claim what it earned.
+- Solana swap: one line under the form, and the same on our pool's review, gives the pair's 24h average traded price (weighted by volume, worked out by the site) and how far your trade's price is above or below it. How it is worked out is in a drop-down. When the pair traded too little it says so, and a failed read says "could not be read". It never holds a trade.
 - A quiet nod to Jungle Bay's music: the footer, the island page and an empty History now link to the collective on Spotify and YouTube. Plain links only, nowhere near a trade, a stake or a warning.
 - Bayla bungalow: hand-picked art on 102 more surfaces, across Pools, Earn and the rest of the site, placed in the Bayla studio.
 - A link to one part of a page now lands on that part while the page is still loading, when its address is opened directly, and when the same link is pressed again. "The bungalows" on the Island page often left you at the top of the home page instead. "See what you'd earn" on the TOWELI farm now opens the estimate in the TOWELI room; it used to open the front page, which has no estimate.

@@ -107,9 +107,15 @@ const h = vi.hoisted(() => ({
   /** What the price service answers, and the chain's block height (a review goes stale past it). */
   prices: { value: {} as Record<string, number> },
   height: { value: 10 },
+  /** The 24h average read; unset, it answers "could not be read". */
+  pairAverage: vi.fn(),
 }));
 
 vi.mock('sonner', () => ({ toast: h.toast }));
+vi.mock('../lib/solana/swap/pairAverage', async (orig) => ({
+  ...(await orig<typeof import('../lib/solana/swap/pairAverage')>()),
+  fetchPairAverage: async (...args: unknown[]) => (await h.pairAverage(...args)) ?? { kind: 'unread' },
+}));
 vi.mock('../lib/analytics', () => ({ trackPageView: vi.fn() }));
 vi.mock('../hooks/usePageTitle', () => ({ usePageTitle: vi.fn() }));
 vi.mock('../components/ArtImg', () => ({ ArtImg: () => null }));
@@ -2565,5 +2571,37 @@ describe('the token picker tells the venue’s BAYLA from its copies', () => {
     fireEvent.change(screen.getByLabelText('Search tokens'), { target: { value: 'bayla' } });
     await waitFor(() => expect(rows(dialog).map((r) => r.getAttribute('data-token-row'))).toEqual([BAYLA_MINT]));
     expect(dialog.textContent).toMatch(/Search is unavailable just now/);
+  });
+});
+
+describe('the 24h average line (owner, 2026-10-13: "we want the best vwap")', () => {
+  // 0.09 SOL a BAYLA on average; the form's trade is 0.1 SOL for 1.01 BAYLA (our pool), 10.0% above.
+  beforeEach(() => {
+    h.pairAverage.mockImplementation(async () => ({ kind: 'ok', baseMint: BAYLA_MINT, quoteMint: SOL_MINT, price: 0.09 }));
+  });
+  afterEach(() => {
+    h.pairAverage.mockReset();
+  });
+  const line = (id = 'pair-average-line') => screen.getByTestId(id).textContent;
+
+  it('on the form: the average and this trade against it, in one line; and the same line on the review', async () => {
+    const buy = await readyToBuy();
+    await waitFor(() => expect(line()).toBe('BAYLA 24h average: 0.09 SOL · this trade 10.0% above'));
+    fireEvent.click(buy);
+    expect(await screen.findByText('Review your swap', {}, { timeout: 20_000 })).toBeInTheDocument();
+    // The review's figures are its own transaction's: 0.1 SOL in, 1.01 BAYLA quoted.
+    await waitFor(() => expect(line('review-pair-average-line')).toBe('BAYLA 24h average: 0.09 SOL · this trade 10.0% above'));
+    // A reference only: Sign is not held by it.
+    expect(screen.getByRole('button', { name: 'Sign in wallet' })).toBeEnabled();
+  });
+
+  it('a quote for another amount is never compared: the average stands alone until this amount is quoted', async () => {
+    h.ownOut.value = null; // Jupiter's route, whose answer is always for 0.1 SOL here.
+    await readyToBuy();
+    await waitFor(() => expect(line()).toBe('BAYLA 24h average: 0.09 SOL · this trade 11.1% above'));
+    fireEvent.change(amountBox(), { target: { value: '0.2' } });
+    await waitFor(() => expect(h.getQuote).toHaveBeenCalledWith(expect.objectContaining({ amount: '200000000' })));
+    await new Promise((r) => setTimeout(r, 100));
+    expect(line()).toBe('BAYLA 24h average: 0.09 SOL');
   });
 });
