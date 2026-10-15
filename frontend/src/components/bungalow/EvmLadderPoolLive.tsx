@@ -38,12 +38,10 @@ const CHAIN_IDS: Record<string, number> = { ethereum: 1, base: 8453 };
 const CHAIN_LABEL: Record<number, string> = { 1: 'Ethereum', 8453: 'Base' };
 const PLACEHOLDER = '0x0000000000000000000000000000000000000001' as const;
 const DAY = 86_400n;
-// The venue's OWN lock tiers, straight from lib/copy.ts — the same six rungs,
-// the same names, that the TOWELI farm has always shown. A staker meets one
-// ladder across the whole island.
-const RUNGS: { label: string; sublabel: string; secs: bigint }[] = LOCK_DURATIONS.map((d) => ({
-  label: d.label,
-  sublabel: d.sublabel,
+// The same six rungs the TOWELI farm uses (lib/copy.ts), named by their plain length
+// only: the farm's own names stay in the farm's room (island, answer seventeen item 3).
+const RUNGS: { length: string; secs: bigint }[] = LOCK_DURATIONS.map((d) => ({
+  length: d.sublabel,
   secs: BigInt(d.days) * DAY,
 }));
 
@@ -266,21 +264,20 @@ export function EvmLadderPoolLive({ bungalow }: { bungalow: Bungalow & { stakePo
             <p className="text-[10px] uppercase tracking-wider text-white/50 mb-2">Lock duration</p>
             <div className="grid grid-cols-3 gap-2 mb-3">
               {RUNGS.map((r, i) => (
-                <button key={r.label} type="button" onClick={() => setRung(i)}
+                <button key={r.length} type="button" onClick={() => setRung(i)}
                   className="rounded-lg px-2 py-2 text-[12px] border transition-colors"
                   style={{
                     background: i === rung ? 'rgba(127,224,176,0.14)' : 'rgba(0,0,0,0.4)',
                     borderColor: i === rung ? accent : 'rgba(255,255,255,0.12)',
                     color: i === rung ? '#fff' : 'rgba(255,255,255,0.75)',
                   }}>
-                  {r.sublabel}
+                  {r.length}
                   <span className="block text-[10px] text-white/50">{boostLabel(r.secs)}</span>
-                  <span className="block text-[9px] text-white/35 truncate">{r.label}</span>
                 </button>
               ))}
             </div>
             <p className="text-[11px] text-white/45 mb-1">
-              {boostLabel(chosen.secs)} for {chosen.sublabel} — {chosen.label}.
+              {boostLabel(chosen.secs)} for {chosen.length}.
             </p>
             <FinePrint summary="How it works" className="mb-3">
               <p className="m-0">
@@ -366,7 +363,7 @@ export function EvmLadderPoolLive({ bungalow }: { bungalow: Bungalow & { stakePo
                     <button type="button" disabled={busy !== null || !amountRaw || amountRaw === 0n || belowMin || (walletRaw !== null && amountRaw > walletRaw)}
                       className="btn-primary px-5 py-2 text-[13px] disabled:opacity-50"
                       onClick={() => send('stake', () => writeContractAsync({ ...poolC, functionName: 'stake', args: [amountRaw ?? 0n, chosen.secs] }))}>
-                      {busy === 'stake' ? 'Staking…' : belowMin ? `Minimum ${fmtRaw(MIN_STAKE_RAW, decimals, 0)} ${bungalow.symbol}` : walletRaw !== null && amountRaw !== null && amountRaw > walletRaw ? 'More than your balance' : `Stake for ${chosen.label}`}
+                      {busy === 'stake' ? 'Staking…' : belowMin ? `Minimum ${fmtRaw(MIN_STAKE_RAW, decimals, 0)} ${bungalow.symbol}` : walletRaw !== null && amountRaw !== null && amountRaw > walletRaw ? 'More than your balance' : `Stake for ${chosen.length}`}
                     </button>
                   )}
                   <button type="button" disabled={busy !== null || earnedRaw === null || earnedRaw === 0n} className="btn-secondary px-5 py-2 text-[13px] disabled:opacity-50"

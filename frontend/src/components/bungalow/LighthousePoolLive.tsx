@@ -551,7 +551,9 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
             unit: ratePercent ? 'APR' : `per ${bungalow.symbol}/yr`,
             tone: payingNow > 0 ? 'good' as const : 'muted' as const,
           },
-          {
+          // Island, answer seventeen item 3 (owner, 2026-10-03): no configured APR over
+          // an empty vault, on any door. "Paying now" above already says 0.
+          ...(vaultDry ? [] : [{
             key: 'configured',
             label: 'Configured',
             value: !ratePercent
@@ -561,7 +563,7 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
                 : pct(configuredRate),
             unit: ratePercent ? 'APR' : `per ${bungalow.symbol}/yr`,
             note: weighted ? `${labelForDays(minDays)} → ${labelForDays(maxDays)}.` : undefined,
-          },
+          }]),
         ]),
     ...(weighted
       ? [{
@@ -713,8 +715,7 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
                 </p>
                 <FinePrint summary="Why">
                   <p className="m-0">
-                    {ratePercent ? `A configured ${pct(rateAtMax)} tops out at nothing` : 'A configured rate pays nothing'}{' '}
-                    until someone tops it up.
+                    A configured rate pays nothing until someone tops it up.
                   </p>
                   <p className="m-0">
                     Deposits stay closed on purpose: while accrued rewards exceed the vault
@@ -872,7 +873,9 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
                               {weighted && `${stakeWeight(pool, opt.seconds).toFixed(2)}×`}
                               {dynamicPool
                                 ? (weighted ? ' share' : '—')
-                                : `${weighted ? ' · ' : ''}${ratePercent ? pct(optRate) : optRate.toLocaleString(undefined, { maximumFractionDigits: 3 })}`}
+                                : vaultDry
+                                  ? (weighted ? '' : '—')
+                                  : `${weighted ? ' · ' : ''}${ratePercent ? pct(optRate) : optRate.toLocaleString(undefined, { maximumFractionDigits: 3 })}`}
                             </span>
                           </button>
                         );
@@ -982,10 +985,10 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
                       welded on. Renders even at zero, because "0" IS the answer
                       today and hiding it would be the softer lie. FIXED pools
                       only: a dynamic pool has no rate to project from. */}
-                  {!dynamicPool && amountRaw !== null && amountRaw > 0n && primaryRp && (
+                  {!dynamicPool && !vaultDry && amountRaw !== null && amountRaw > 0n && primaryRp && (
                     <div className="rounded-lg p-4 mb-4" style={{ background: 'rgba(16,185,129,0.06)', border: '1px solid rgba(16,185,129,0.15)' }}>
                       <p className="text-emerald-400 text-[11px] font-semibold mb-2 uppercase tracking-wider">
-                        {vaultDry ? 'What it would earn once funded' : 'Projected rewards'}
+                        Projected rewards
                       </p>
                       <div className="grid grid-cols-3 gap-3">
                         {[
@@ -1004,7 +1007,7 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
                                   whose text is duplicated in an aria-label. */}
                               <p className="text-white/40 text-[11px] uppercase mb-0.5">{label}</p>
                               <p className="stat-value text-white text-[13px]">
-                                {vaultDry ? '0' : projected < 0.01 ? '<0.01' : projected.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                                {projected < 0.01 ? '<0.01' : projected.toLocaleString(undefined, { maximumFractionDigits: 2 })}
                               </p>
                               <p className="text-white/30 text-[11px]">
                                 {bungalow.symbol}{held < d ? ` · ${held}d locked` : ''}
@@ -1014,20 +1017,8 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
                         })}
                       </div>
                       <p className="text-white/35 text-[11px] mt-2 text-center leading-relaxed">
-                        {vaultDry ? (
-                          <>
-                            Zero, because the vault is empty. At the configured{' '}
-                            {ratePercent ? pct(configuredRate) : `${configuredRate.toFixed(3)} per ${bungalow.symbol}`} a
-                            year it would be{' '}
-                            {(toNum(amountRaw, decimals) * configuredRate).toLocaleString(undefined, { maximumFractionDigits: 2 })}{' '}
-                            {bungalow.symbol} over a year — once someone funds it.
-                          </>
-                        ) : (
-                          <>
-                            At the configured {ratePercent ? pct(configuredRate) : 'rate'}. Rewards stop the moment
-                            the vault empties; nothing here assumes a top-up.
-                          </>
-                        )}
+                        At the configured {ratePercent ? pct(configuredRate) : 'rate'}. Rewards stop the moment
+                        the vault empties; nothing here assumes a top-up.
                       </p>
                     </div>
                   )}

@@ -335,3 +335,23 @@ describe("a member's position when the pool read failed", () => {
     }
   });
 });
+
+// Island, answer seventeen item 3: no configured APR over an empty vault, on any door.
+// The open pool's card keeps the vault and says it pays nothing; the rate goes.
+describe('an open pool whose reward vault is empty', () => {
+  it('shows the vault and no configured rate', async () => {
+    const rp = fixtures.pool.rewardPools[0]!;
+    const funded = rp.fundedRaw;
+    rp.fundedRaw = 0n;
+    try {
+      fixtures.walletKey = null;
+      mount(OPEN);
+      expect(await screen.findByText('Reward vault')).toBeTruthy();
+      expect(screen.queryByText('Configured rate')).toBeNull();
+      expect(pageText()).toMatch(/The vault is empty, so it pays nothing until someone funds it\./);
+      expect(pageText()).not.toMatch(/% APR/);
+    } finally {
+      rp.fundedRaw = funded;
+    }
+  });
+});
