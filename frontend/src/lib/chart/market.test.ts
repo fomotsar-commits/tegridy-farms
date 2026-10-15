@@ -170,3 +170,36 @@ describe('readChartCandles spends the shared GeckoTerminal budget once', () => {
     expect(fetchImpl).toHaveBeenCalledTimes(CHART_CANDLES_CACHE_MAX + 2);
   });
 });
+
+// 2026-10-15: the chart asks the edge for its last good copy when GeckoTerminal
+// refuses, so the age has to travel with the bars or the chart would draw an old
+// copy as if it were live.
+describe('readChartCandles carries the age of what it read', () => {
+  beforeEach(() => {
+    __resetChartCandleCacheForTests();
+  });
+
+  function stampedResponse(body: unknown, fetchedAt: number, stale: boolean): Response {
+    const headers = new Headers({ 'X-Gecko-Fetched-At': String(fetchedAt) });
+    if (stale) headers.set('X-Gecko-Stale', '1');
+    return { ok: true, status: 200, headers, json: async () => body } as unknown as Response;
+  }
+
+  it('asks the edge for a kept copy, and returns when it was read and whether it is one', async () => {
+    const fetchImpl = vi.fn(async () => stampedResponse(OK_BODY, 1_792_000_000_000, true));
+    const read = await readChartCandles(TOWELI_MARKET, '1d', { fetchImpl: fetchImpl as unknown as typeof fetch });
+
+    const init = (fetchImpl.mock.calls[0] as unknown as [string, RequestInit])[1];
+    expect(new Headers(init.headers).get('X-Gecko-Stale-Ok')).toBe('1');
+    if (!read.ok) throw new Error('expected bars');
+    expect(read.freshness).toEqual({ fetchedAt: 1_792_000_000_000, stale: true });
+  });
+
+  it('does not cache a kept copy, so the next switch asks again', async () => {
+    const fetchImpl = vi.fn(async () => stampedResponse(OK_BODY, 1_792_000_000_000, true));
+    const opts = { fetchImpl: fetchImpl as unknown as typeof fetch };
+    await readChartCandles(TOWELI_MARKET, '1d', opts);
+    await readChartCandles(TOWELI_MARKET, '1d', opts);
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+});

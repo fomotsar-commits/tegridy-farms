@@ -6,6 +6,11 @@ page keeps the newest thirty days.
 
 ## [Unreleased]
 
+### 2026-10-15
+
+- Bungalows: clicking through several in a row no longer ends in "rate-limiting, try again" on the price chart and the trades. The site keeps its GeckoTerminal reads under GeckoTerminal's limit, and when GeckoTerminal is busy it shows the last copy it read, with the time it was read. Any of these figures more than a minute old says its time, and a bungalow no longer shows the last one's price or trades while its own load.
+- Solana swap: token pictures hosted on Irys show again. The image service we use for token pictures started refusing Irys, so those tokens showed letters instead; they now load from Irys directly.
+
 ### 2026-10-14
 
 - Earn: a farm or pool whose rewards have ended is no longer offered for new stakes. The TOWELI/ETH LP farm, which stopped paying on Jun 15, 2026, now says so in one line with that date and shows no Stake box; Withdraw, Claim and Exit still work. The Zap page no longer offers that farm as a destination. The lock-ladder and lighthouse pools on the bungalows do the same the day their reward period ends. When the end date cannot be read, Stake waits and no date is shown.

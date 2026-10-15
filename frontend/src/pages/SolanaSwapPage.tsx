@@ -313,7 +313,8 @@ function dangerousShield(warnings: ShieldWarning[], mint: string): boolean {
 export type MintedShieldWarning = ShieldWarning & { mint: string };
 
 // Token icon via the CSP-safe weserv proxy, falling back to an initials avatar
-// on missing/broken images (we never load arbitrary token-image hosts directly).
+// on missing/broken images (we never load arbitrary token-image hosts directly;
+// the one exception, Irys, is named in iconSrc and in img-src).
 function TokenAvatar({ token, size = 28 }: { token: SolToken; size?: number }) {
   const [errored, setErrored] = useState(false);
   const src = errored ? '' : iconSrc(token.logoURI);
@@ -324,6 +325,7 @@ function TokenAvatar({ token, size = 28 }: { token: SolToken; size?: number }) {
         src={src}
         alt=""
         loading="lazy"
+        referrerPolicy="no-referrer"
         onError={() => setErrored(true)}
         className="rounded-full flex-shrink-0 object-cover"
         style={{ width: px, height: px, background: 'var(--color-purple-25)' }}

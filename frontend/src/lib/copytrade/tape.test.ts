@@ -221,6 +221,7 @@ describe('toTapeFills', () => {
   it('drops an undated row instead of dating it zero, and counts it', () => {
     const read = toTapeFills(ethPool, {
       status: 'read',
+      stale: false,
       fetchedAt: 1_000,
       trades: [trade(), trade({ at: 'not a date' })],
     });
@@ -235,7 +236,7 @@ describe('toTapeFills', () => {
   });
 
   it('keeps a null USD null and never zero', () => {
-    const read = toTapeFills(ethPool, { status: 'read', fetchedAt: 1, trades: [trade({ usd: null })] });
+    const read = toTapeFills(ethPool, { status: 'read', stale: false, fetchedAt: 1, trades: [trade({ usd: null })] });
     if (read.status !== 'read') throw new Error('expected a read');
     expect(read.fills[0]!.usd).toBeNull();
   });
@@ -243,6 +244,7 @@ describe('toTapeFills', () => {
   it('nulls a wallet that is not an address on this family', () => {
     const bad = toTapeFills(ethPool, {
       status: 'read',
+      stale: false,
       fetchedAt: 1,
       trades: [
         trade({ wallet: 'not-an-address' }),
@@ -261,7 +263,7 @@ describe('toTapeFills', () => {
   });
 
   it('nulls a tx hash it would refuse to link', () => {
-    const read = toTapeFills(ethPool, { status: 'read', fetchedAt: 1, trades: [trade({ txHash: 'garbage' })] });
+    const read = toTapeFills(ethPool, { status: 'read', stale: false, fetchedAt: 1, trades: [trade({ txHash: 'garbage' })] });
     if (read.status !== 'read') throw new Error('expected a read');
     expect(read.fills[0]!.txHash).toBeNull();
   });
@@ -269,6 +271,7 @@ describe('toTapeFills', () => {
   it('takes the quote leg from the DERIVED side, and none at all when unclassified', () => {
     const buy = toTapeFills(ethPool, {
       status: 'read',
+      stale: false,
       fetchedAt: 1,
       trades: [
         trade({
@@ -286,6 +289,7 @@ describe('toTapeFills', () => {
 
     const sell = toTapeFills(ethPool, {
       status: 'read',
+      stale: false,
       fetchedAt: 1,
       trades: [
         trade({
@@ -300,7 +304,7 @@ describe('toTapeFills', () => {
     if (sell.status !== 'read') throw new Error('expected a read');
     expect(sell.fills[0]!.quoteAmount).toBe('0.4');
 
-    const unknown = toTapeFills(ethPool, { status: 'read', fetchedAt: 1, trades: [trade()] });
+    const unknown = toTapeFills(ethPool, { status: 'read', stale: false, fetchedAt: 1, trades: [trade()] });
     if (unknown.status !== 'read') throw new Error('expected a read');
     expect(unknown.fills[0]!.side).toBe('unclassified');
     expect(unknown.fills[0]!.quoteAmount).toBeNull();
@@ -309,11 +313,13 @@ describe('toTapeFills', () => {
   it('reports capped exactly when the response filled the cap', () => {
     const under = toTapeFills(ethPool, {
       status: 'read',
+      stale: false,
       fetchedAt: 1,
       trades: Array.from({ length: TAPE_CAP - 1 }, () => trade()),
     });
     const at = toTapeFills(ethPool, {
       status: 'read',
+      stale: false,
       fetchedAt: 1,
       trades: Array.from({ length: TAPE_CAP }, () => trade()),
     });
