@@ -142,9 +142,9 @@ export function StakingCard({
           <ArtImg pageId="staking-card" idx={0} fallbackPosition="center 40%" alt="" loading="lazy" className="w-full h-full object-cover" />
         </div>
         <div className="relative z-10 p-6">
-        <h3 className="heading-luxury text-white text-[20px] mb-5">
+        <h2 className="heading-luxury text-white text-[20px] mb-5">
           {pos.hasPosition || pos.positionUnread ? 'Your Position' : 'Stake TOWELI'}
-        </h3>
+        </h2>
 
         {pos.hasPosition ? (
           /* Existing position display */
