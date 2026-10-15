@@ -99,8 +99,6 @@ export default function LiquidityPage() {
 
       <VenuePoolTable poolData={poolData} />
 
-      <LiquidityPrimer />
-
       {/* The form. `id` so the table's "Provide liquidity" buttons can jump to
           it without a route change — the pool is already the venue's only pair,
           so a navigation would land the visitor back on this same page. */}
@@ -111,6 +109,9 @@ export default function LiquidityPage() {
         </FinePrint>
         <LiquidityTab />
       </section>
+
+      {/* The four answers for a first-timer, after the form (owner, 2026-10-14: the actions first). */}
+      <LiquidityPrimer />
 
       {/* PROMOTED FROM /farm, 2026-09-05. It is the same component; what changed
           is that it is now in front of the person making the decision it is
