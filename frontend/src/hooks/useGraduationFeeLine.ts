@@ -15,6 +15,7 @@ import { usePublicClient } from 'wagmi';
 import type { Address } from 'viem';
 import { readFeeLine, type FeeLineRead } from '../lib/launcher/graduation';
 import { readOurLaunches } from '../lib/launcher/ourLaunches';
+import { cohortLogClient } from '../lib/launcher/cohortLogSource';
 import { allowedNumeraires } from '../lib/launcher/config';
 import { CHAIN_ID } from '../lib/constants';
 
@@ -51,8 +52,13 @@ export function useGraduationFeeLine(enabled: boolean): UseGraduationFeeLineResu
       setError(null);
       try {
         // `readOurLaunches` never throws; `complete` is the only real failure signal,
-        // and it is false whenever the log scan could not finish.
-        const { baselines, complete } = await readOurLaunches({ client: publicClient, signal: ac.signal });
+        // and it is false whenever the log scan could not finish. The logs come from our
+        // backend, as on the Launch page: every RPC the browser can reach refuses the
+        // Airlock's Create history, so the raw client failed this scan on every visit.
+        const { baselines, complete } = await readOurLaunches({
+          client: cohortLogClient(publicClient, { signal: ac.signal }),
+          signal: ac.signal,
+        });
         if (ac.signal.aborted || runIdRef.current !== runId) return;
 
         const seen = new Set<string>();
