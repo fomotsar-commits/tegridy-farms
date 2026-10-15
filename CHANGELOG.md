@@ -6,6 +6,10 @@ page keeps the newest thirty days.
 
 ## [Unreleased]
 
+### 2026-10-15
+
+- Launched token pages (/launch and /eth-curve): "The maker's allocation" and the maker's create-buy said a real launch receipt "could not be found" when the first public host kept no copy of it. The page now asks other named hosts, and says the receipt "could not be read" only when none of them has it.
+
 ### 2026-10-14
 
 - Earn: a farm or pool whose rewards have ended is no longer offered for new stakes. The TOWELI/ETH LP farm, which stopped paying on Jun 15, 2026, now says so in one line with that date and shows no Stake box; Withdraw, Claim and Exit still work. The Zap page no longer offers that farm as a destination. The lock-ladder and lighthouse pools on the bungalows do the same the day their reward period ends. When the end date cannot be read, Stake waits and no date is shown.
