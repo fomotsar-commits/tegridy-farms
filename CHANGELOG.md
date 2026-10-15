@@ -17,6 +17,8 @@ page keeps the newest thirty days.
 - Solana LP: every pool on the venue is now listed under the finder as soon as the page opens (pair, fee tier, what it holds, price), with no token to search first. View opens that token's pools. When there are more pools than the list holds, it says so and the search finds the rest.
 - Launched token pages (/launch and /eth-curve): "The maker's allocation" and the maker's create-buy said a real launch receipt "could not be found" when the first public host kept no copy of it. The page now asks other named hosts, and says the receipt "could not be read" only when none of them has it.
 - Swap (Ethereum): the venue's swap fee is now only ever addressed to the venue's own Safe on the chain of the trade. The address set for Ethereum is the Base Safe, which nobody controls on Ethereum, so until that setting is changed the Ethereum swap fee is off, ParaSwap price checks no longer name that address, and a trigger order's fee note says the fee is switched off. No fee was ever taken to that address.
+- Bungalows: clicking through several in a row no longer ends in "rate-limiting, try again" on the price chart and the trades. The site keeps its GeckoTerminal reads under GeckoTerminal's limit, and when GeckoTerminal is busy it shows the last copy it read, with the time it was read. Any of these figures more than a minute old says its time, and a bungalow no longer shows the last one's price or trades while its own load.
+- Solana swap: token pictures hosted on Irys show again. The image service we use for token pictures started refusing Irys, so those tokens showed letters instead; they now load from Irys directly.
 
 ### 2026-10-14
 

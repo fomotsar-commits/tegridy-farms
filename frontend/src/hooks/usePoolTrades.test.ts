@@ -82,3 +82,43 @@ describe('usePoolTrades', () => {
     expect(spy).not.toHaveBeenCalled();
   });
 });
+
+// 2026-10-15: a visitor clicking through bungalows reuses this hook with a new
+// pool. The last pool's fills must never sit under the next pool's ticker, not
+// while the new read is pending and not after it fails.
+describe('usePoolTrades across a pool switch', () => {
+  it('drops the previous pool\'s tape the moment the pool changes', async () => {
+    vi.stubGlobal('fetch', mockFetch({ data: [trade('buy', '522.26', '0.0003')] }));
+    const { result, rerender } = renderHook(({ pool }) => usePoolTrades('solana', pool), {
+      initialProps: { pool: 'poolA' },
+    });
+    await waitFor(() => expect(result.current.trades.length).toBe(1));
+
+    // Pool B's read never answers.
+    vi.stubGlobal('fetch', vi.fn(() => new Promise<Response>(() => {})));
+    rerender({ pool: 'poolB' });
+    await waitFor(() => expect(result.current.isLoading).toBe(true));
+    expect(result.current.trades, 'pool A\'s fills under pool B\'s ticker').toEqual([]);
+  });
+
+  it('asks for a kept copy and passes its age through', async () => {
+    const spy = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      headers: new Headers({ 'X-Gecko-Fetched-At': '1792000000000', 'X-Gecko-Stale': '1' }),
+      json: async () => ({ data: [trade('sell', '10', '0.1')] }),
+    } as unknown as Response);
+    vi.stubGlobal('fetch', spy);
+    const { result } = renderHook(() => usePoolTrades('solana', 'pool'));
+    await waitFor(() => expect(result.current.trades.length).toBe(1));
+    expect(new Headers((spy.mock.calls[0] as [string, RequestInit])[1].headers).get('X-Gecko-Stale-Ok')).toBe('1');
+    expect(result.current.freshness).toEqual({ fetchedAt: 1_792_000_000_000, stale: true });
+  });
+
+  it('says the feed is busy on a refusal, rather than calling it an outage', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 429, json: async () => ({}) } as Response));
+    const { result } = renderHook(() => usePoolTrades('solana', 'pool'));
+    await waitFor(() => expect(result.current.error).toBeTruthy());
+    expect(result.current.error).toMatch(/busy/i);
+  });
+});
