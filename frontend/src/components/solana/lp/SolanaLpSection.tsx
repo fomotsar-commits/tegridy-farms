@@ -18,6 +18,7 @@ import type { GateRpc, LpKind, LpWriteApi } from '../curve/ports';
 import { PoolFinder, type PoolFinderHandle } from './PoolFinder';
 import { parseMintInput } from '../../../lib/solana/lp/mintInput';
 import { YourPositions } from './YourPositions';
+import { VenuePoolList } from './VenuePoolList';
 import { HowItPays } from './HowItPays';
 import { LpGateBanner } from './LpGateBanner';
 import { RISK_SHORT } from './LpDisclosures';
@@ -115,6 +116,9 @@ function LpBody({ readers, mode, reloadKey, finderFirst }: { readers: LpReaders;
   // brings its answer onto the screen, as for any lookup the visitor asked for.
   const finderRef = useRef<PoolFinderHandle | null>(null);
   const addMore = useCallback((tokenMint: string, pool: string) => finderRef.current?.addTo(tokenMint, pool), []);
+  // Every pool, under the finder: a View there is a lookup in the finder, like a picked token.
+  const view = useCallback((tokenMint: string) => finderRef.current?.show(tokenMint), []);
+  const allPools = <VenuePoolList readers={readers} reloadKey={reloadKey} onView={view} />;
   const finder = (
     <PoolFinder
       ref={finderRef}
@@ -139,6 +143,7 @@ function LpBody({ readers, mode, reloadKey, finderFirst }: { readers: LpReaders;
         <LpEarnLine />
         {writesTop}
         {finder}
+        {allPools}
         {positions}
         {howItPays}
         {disclosure}
@@ -153,6 +158,7 @@ function LpBody({ readers, mode, reloadKey, finderFirst }: { readers: LpReaders;
       {howItPays}
       {tiers}
       {finder}
+      {allPools}
       {positions}
     </div>
   );

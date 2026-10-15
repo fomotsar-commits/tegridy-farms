@@ -19,13 +19,10 @@ import {
   paraSwapResponseSchema,
 } from './schemas/aggregator';
 
-// AUDIT R045 H1: aggregator was hard-coded to chainId 1 (Ethereum mainnet). On
-// any other chain the wallet would still display "best route" results from
-// mainnet token addresses, biasing UI to fictional liquidity. Renamed the
-// constant to make the meaning explicit (the chain this codebase has wired
-// contracts for) and now require an explicit `chainId` argument from callers.
-// The meta-aggregator short-circuits with an empty result when chainId is
-// unsupported, so no aggregator HTTP calls go out for an L2 wallet.
+// AUDIT R045 H1: the one chain this codebase has wired contracts for. Callers pass an
+// explicit `chainId`, and the meta-aggregator returns an empty result for any other
+// chain, so no aggregator request goes out for an L2 wallet and no mainnet route is
+// shown as if it were liquidity on the wallet's chain.
 export const SUPPORTED_CHAIN_ID = 1;
 
 // AUDIT R045 M1: every aggregator that takes a slippage param had a different
@@ -70,21 +67,16 @@ export interface AggregatorQuote {
   /** AUDIT R045 H1: chain the quote was fetched against; defense-in-depth filter. */
   chainId: number;
   /**
-   * AUDIT R045 M1: the slippage tolerance the quote was fetched with.
-   *  - number: forwarded to the aggregator at quote time
-   *  - null:   aggregator does not accept slippage at quote time (CowSwap,
-   *            Kyber routes, OpenOcean /quote, ParaSwap /prices). Slippage is
-   *            consumed at signing/build time instead, and the quoted
-   *            `amountOut` is unaffected, so ranking stays apples-to-apples.
+   * AUDIT R045 M1: the slippage tolerance the quote was fetched with, or null when the
+   * aggregator takes slippage only at signing/build time (CowSwap, Kyber routes,
+   * OpenOcean /quote, ParaSwap /prices). Null leaves `amountOut` unaffected, so ranking
+   * stays apples-to-apples.
    */
   maxSlippagePct: number | null;
   /**
-   * F3: the venue fee, in bps, that was ACTUALLY attached to this provider's request.
-   *
-   * 0 both when the fee is disabled and when this provider's leg is withheld (see
-   * PROVIDER_FEE_LEGS), which are different reasons for the same true statement: this
-   * quote carries no venue fee. A surface must display THIS number rather than the
-   * policy's, or it will advertise a fee the provider never saw.
+   * F3: the venue fee, in bps, ACTUALLY attached to this provider's request. 0 when the
+   * fee is off, withheld for this provider, or not collectable on this chain. Surfaces
+   * display THIS number, never the policy's.
    */
   venueFeeBps: number;
 }
@@ -113,7 +105,7 @@ async function getSwapApiQuote(
     });
     // F3: no fee leg. `swapFeeBps` names a rate but nothing in this repo names the
     // recipient parameter it must travel with — see PROVIDER_FEE_LEGS.swapapi.
-    const fee = providerFeeAttachment('swapapi');
+    const fee = providerFeeAttachment('swapapi', opts.chainId);
     if (fee) for (const [k, v] of Object.entries(fee.params)) params.set(k, v);
     // AUDIT FIX FE-HIGH-3: SwapAPI was the only aggregator in this file fetched
     // directly cross-origin. That leaked the user wallet (`sender`) + IP +
@@ -151,7 +143,7 @@ async function getOdosQuote(
     const outAddr = normalizeTokenAddress(tokenOut, 'zero');
     // F3: no fee leg. Odos rates a referral code registered on its own side, so the
     // rate is not ours to send — see PROVIDER_FEE_LEGS.odos.
-    const fee = providerFeeAttachment('odos');
+    const fee = providerFeeAttachment('odos', opts.chainId);
     const body = {
       chainId: opts.chainId,
       inputTokens: [{ tokenAddress: inAddr, amount }],
@@ -199,7 +191,7 @@ async function getCowSwapQuote(
     const buyToken = normalizeTokenAddress(tokenOut, 'weth');
     // F3: no fee leg. CoW's partner fee rides the appData document, whose JSON and
     // pinned hash live in cowProtocol.ts — see PROVIDER_FEE_LEGS.cowswap.
-    const fee = providerFeeAttachment('cowswap');
+    const fee = providerFeeAttachment('cowswap', opts.chainId);
     const body = {
       sellToken, buyToken,
       from: sender,
@@ -254,7 +246,7 @@ async function getLiFiQuote(
     });
     // F3: no fee leg. `fee` is documented by name but not by unit, and the recipient
     // is bound to a registered `integrator` — see PROVIDER_FEE_LEGS.lifi.
-    const fee = providerFeeAttachment('lifi');
+    const fee = providerFeeAttachment('lifi', opts.chainId);
     if (fee) for (const [k, v] of Object.entries(fee.params)) params.set(k, v);
     const res = await fetch(`/api/lifi/v1/quote?${params}`, { signal: opts.signal });
     if (!res.ok) return null;
@@ -288,7 +280,7 @@ async function getKyberSwapQuote(
     });
     // F3: no fee leg. `feeAmount` is an absolute token amount unless a flag this repo
     // cannot name marks it as bps — see PROVIDER_FEE_LEGS.kyberswap.
-    const fee = providerFeeAttachment('kyberswap');
+    const fee = providerFeeAttachment('kyberswap', opts.chainId);
     if (fee) for (const [k, v] of Object.entries(fee.params)) params.set(k, v);
     const res = await fetch(`/api/kyber/ethereum/api/v1/routes?${params}`, {
       headers: { 'X-Client-Id': 'tegridy-farms' },
@@ -334,7 +326,7 @@ async function getOpenOceanQuote(
     });
     // F3: no fee leg. `referrerFee`'s unit is unconfirmed and a bps count read as a
     // percent is a 100× overcharge — see PROVIDER_FEE_LEGS.openocean.
-    const fee = providerFeeAttachment('openocean');
+    const fee = providerFeeAttachment('openocean', opts.chainId);
     if (fee) for (const [k, v] of Object.entries(fee.params)) params.set(k, v);
     const res = await fetch(`/api/openocean/v4/eth/quote?${params}`, { signal: opts.signal });
     if (!res.ok) return null;
@@ -370,7 +362,7 @@ async function getParaSwapQuote(
     // F3: the one confirmed leg — `partnerFeeBps` carries its unit in its name and
     // `partnerAddress` names the recipient in the request. Inert until an operator
     // sets both dials AND api/aggregator.js admits these two names.
-    const fee = providerFeeAttachment('paraswap');
+    const fee = providerFeeAttachment('paraswap', opts.chainId);
     if (fee) for (const [k, v] of Object.entries(fee.params)) params.set(k, v);
     const res = await fetch(`/api/paraswap/prices?${params}`, { signal: opts.signal });
     if (!res.ok) return null;
