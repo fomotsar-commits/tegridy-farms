@@ -2,6 +2,7 @@ import type { Bungalow } from '../../lib/bungalows';
 import { useEffect, useState } from 'react';
 import { usePoolTrades, type PoolTrade } from '../../hooks/usePoolTrades';
 import { fetchTapeNames, isNamed, type TapeName, type TapeNames } from '../../lib/heat/tapeNames';
+import { geckoAsOfLine } from '../../lib/geckoTerminal/edge';
 
 /**
  * The bungalow's trade tape — the last fills on its own pool.
@@ -17,7 +18,7 @@ import { fetchTapeNames, isNamed, type TapeName, type TapeNames } from '../../li
  */
 export function BungalowTrades({ bungalow }: { bungalow: Bungalow }) {
   const market = bungalow.market ?? null;
-  const { trades, isLoading, error, refresh } = usePoolTrades(
+  const { trades, isLoading, error, freshness, refresh } = usePoolTrades(
     market?.network ?? null,
     market?.pool ?? null,
   );
@@ -46,6 +47,7 @@ export function BungalowTrades({ bungalow }: { bungalow: Bungalow }) {
   }, [wallets]);
 
   if (!market) return null;
+  const asOf = geckoAsOfLine(freshness);
 
   return (
     <div className="mt-5">
@@ -62,6 +64,11 @@ export function BungalowTrades({ bungalow }: { bungalow: Bungalow }) {
           {isLoading ? 'Reading…' : 'Refresh'}
         </button>
       </div>
+
+      {/* The tape's age, when it is not fresh or is a kept copy (usePoolTrades asks for one). */}
+      {!error && trades.length > 0 && asOf && (
+        <p className="text-[10px] text-white/55 mb-2" data-testid="trades-as-of">{asOf}</p>
+      )}
 
       {error ? (
         <p className="text-[12px]" style={{ color: '#f0b26b' }}>{error}</p>

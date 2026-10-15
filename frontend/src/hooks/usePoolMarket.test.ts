@@ -4,7 +4,7 @@
 // number nobody funded.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { renderHook, waitFor } from '@testing-library/react';
+import { act, renderHook, waitFor } from '@testing-library/react';
 import { usePoolMarket } from './usePoolMarket';
 
 // A trimmed copy of the real BAYLA/SOL response, read 2026-08-28. Note
@@ -119,5 +119,51 @@ describe('usePoolMarket', () => {
     vi.stubGlobal('fetch', spy);
     renderHook(() => usePoolMarket(null, null));
     expect(spy).not.toHaveBeenCalled();
+  });
+});
+
+// 2026-10-15: "leave the previous values alone on a failed read" was written for
+// a refresh of the SAME pool. A visitor clicking through bungalows reuses this
+// hook with a new pool, and a refused read then left the last bungalow's price
+// under the next one's ticker.
+describe('usePoolMarket across a pool switch', () => {
+  it('never shows the previous pool\'s figures under the next pool', async () => {
+    const { result, rerender } = renderHook(({ pool }) => usePoolMarket('solana', pool), {
+      initialProps: { pool: 'poolA' },
+    });
+    await waitFor(() => expect(result.current.market).toBeTruthy());
+
+    vi.stubGlobal('fetch', mockFetch({}, false));
+    rerender({ pool: 'poolB' });
+    await waitFor(() => expect(result.current.error).toBeTruthy());
+    expect(result.current.market, 'pool A\'s price under pool B\'s ticker').toBeNull();
+  });
+
+  it('keeps the same pool\'s figures through a failed refresh', async () => {
+    const { result } = renderHook(() => usePoolMarket('solana', 'pool'));
+    await waitFor(() => expect(result.current.market).toBeTruthy());
+    vi.stubGlobal('fetch', mockFetch({}, false));
+    act(() => result.current.refresh());
+    await waitFor(() => expect(result.current.error).toBeTruthy());
+    expect(result.current.market).not.toBeNull();
+  });
+
+  it('asks for a kept copy, passes its age through, and calls a refusal busy', async () => {
+    const spy = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      headers: new Headers({ 'X-Gecko-Fetched-At': '1792000000000', 'X-Gecko-Stale': '1' }),
+      json: async () => BAYLA_POOL,
+    } as unknown as Response);
+    vi.stubGlobal('fetch', spy);
+    const { result } = renderHook(() => usePoolMarket('solana', 'pool'));
+    await waitFor(() => expect(result.current.market).toBeTruthy());
+    expect(new Headers((spy.mock.calls[0] as [string, RequestInit])[1].headers).get('X-Gecko-Stale-Ok')).toBe('1');
+    expect(result.current.freshness).toEqual({ fetchedAt: 1_792_000_000_000, stale: true });
+
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 429, json: async () => ({}) } as Response));
+    const busy = renderHook(() => usePoolMarket('solana', 'other'));
+    await waitFor(() => expect(busy.result.current.error).toBeTruthy());
+    expect(busy.result.current.error).toMatch(/busy/i);
   });
 });

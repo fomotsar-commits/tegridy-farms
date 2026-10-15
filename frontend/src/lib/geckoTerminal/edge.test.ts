@@ -19,7 +19,7 @@
 
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { isAllowedPath } from '../../../api/_lib/gecko-read.js';
-import { GECKO_EDGE_RESOURCE, geckoEdgeUrl } from './edge';
+import { GECKO_EDGE_RESOURCE, geckoAsOfLine, geckoEdgeUrl, readGeckoFreshness } from './edge';
 import { geckoPoolsUrl, geckoPoolsMultiUrl } from './pools';
 import { poolTradesUrl } from './poolTrades';
 import { ohlcvUrlFor, GECKO_TIMEFRAME_IDS } from '../chart/ohlcv';
@@ -138,4 +138,37 @@ describe('every GeckoTerminal URL the browser builds is served by our own edge',
 
 afterEach(() => {
   vi.unstubAllGlobals();
+});
+
+// 2026-10-15: the edge can answer with its last good copy when GeckoTerminal
+// refuses. These pin how a page reads that copy's age and what it says about it.
+describe('how old an edge answer is', () => {
+  const NOW = Date.parse('2026-10-15T12:00:00Z');
+
+  it('reads the stamps, and reads a response with no headers as "not said"', () => {
+    const headers = new Headers({ 'X-Gecko-Fetched-At': String(NOW - 5_000), 'X-Gecko-Stale': '1' });
+    expect(readGeckoFreshness({ headers })).toEqual({ fetchedAt: NOW - 5_000, stale: true });
+    expect(readGeckoFreshness({})).toEqual({ fetchedAt: null, stale: false });
+    expect(readGeckoFreshness({ headers: new Headers({ 'X-Gecko-Fetched-At': 'soon' }) }))
+      .toEqual({ fetchedAt: null, stale: false });
+  });
+
+  it('says nothing about an answer under a minute old', () => {
+    expect(geckoAsOfLine({ fetchedAt: NOW - 30_000, stale: false }, NOW)).toBeNull();
+    expect(geckoAsOfLine({ fetchedAt: null, stale: false }, NOW)).toBeNull();
+  });
+
+  it('names the time of an older answer, and says plainly when it is a kept copy', () => {
+    const old = geckoAsOfLine({ fetchedAt: NOW - 5 * 60_000, stale: false }, NOW);
+    expect(old).toMatch(/^As of .+\.$/);
+    expect(old).not.toMatch(/last copy/);
+
+    // A kept copy is ALWAYS labelled, however young.
+    const kept = geckoAsOfLine({ fetchedAt: NOW - 10_000, stale: true }, NOW);
+    expect(kept).toMatch(/^As of /);
+    expect(kept).toMatch(/last copy we read/);
+    expect(geckoAsOfLine({ fetchedAt: null, stale: true }, NOW)).toMatch(/earlier copy/i);
+
+    for (const line of [old, kept]) expect(line).not.toMatch(/\u2014/);
+  });
 });
