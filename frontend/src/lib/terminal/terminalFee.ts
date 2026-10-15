@@ -1,26 +1,13 @@
-// What the terminal charges, and where that number comes from.
-//
-// THERE IS NO FEE MECHANISM IN THIS FILE. Every figure below is read out of
-// lib/fees/swapFee.ts — the venue's single fee dial — so the terminal inherits
-// its off-by-default state rather than acquiring one of its own. A second rate
-// living here would be a second thing to turn off, and the two would drift the
-// first time one of them moved.
-//
-// The number displayed is the number ATTACHED, not the number configured.
-// `providerFeeAttachment` returns null for a provider whose leg is withheld even
-// while the dial is on, and this module passes that through: a row that
-// advertised a fee the request never carried would be a fabricated charge, which
-// is the same class of lie as a fabricated balance and lands on somebody's money.
-//
-// The one-click buy submits through the EXISTING in-app swap path (useSwap →
-// SwapFeeRouter / UniswapV2Router), which is not an aggregator and carries no
-// venue fee leg at all. So `source: null` is the honest description of what a
-// terminal buy does today, and it reports None. When the F3 fee-on-top router
-// lands, the executing route gains a source and this module reports it without
-// a change here.
+// What the terminal charges. NO FEE MECHANISM LIVES HERE: every figure is read from
+// lib/fees/swapFee.ts, the single venue dial, and the number shown is the number
+// ATTACHED to the request, never the number configured.
+// A terminal buy submits through the in-app swap path (useSwap: SwapFeeRouter or
+// UniswapV2Router on CHAIN_ID), which has no aggregator fee leg, so `source: null`
+// reports None. The fee is asked about on CHAIN_ID because that is where it executes.
 
 import type { AggregatorSource } from '../aggregator';
 import { AGGREGATOR_NAMES } from '../aggregator';
+import { CHAIN_ID } from '../constants';
 import { providerFeeAttachment, swapFeePolicy } from '../fees/swapFee';
 
 const THIRD_PARTY_NOTE =
@@ -50,14 +37,14 @@ function formatBpsPct(bps: number): string {
 }
 
 export function terminalFeeDisclosure(route: TerminalRoute): TerminalFeeDisclosure {
-  const attachment = route.source === null ? null : providerFeeAttachment(route.source);
+  const attachment = route.source === null ? null : providerFeeAttachment(route.source, CHAIN_ID);
   const bps = attachment?.bps ?? 0;
 
   if (bps <= 0) {
     // Two different situations share this branch and the note tells them apart,
     // because "the venue charges nothing" and "the venue's fee could not be
     // attached to this route" are different promises about the next trade.
-    const dialOn = swapFeePolicy().enabled;
+    const dialOn = swapFeePolicy(CHAIN_ID).enabled;
     const note =
       route.source !== null && dialOn
         ? `The venue fee is configured but is not attached to ${AGGREGATOR_NAMES[route.source]} on this build, so it is not charged here. ${THIRD_PARTY_NOTE}`

@@ -6,6 +6,10 @@ page keeps the newest thirty days.
 
 ## [Unreleased]
 
+### 2026-10-15
+
+- Swap (Ethereum): the venue's swap fee is now only ever addressed to the venue's own Safe on the chain of the trade. The address set for Ethereum is the Base Safe, which nobody controls on Ethereum, so until that setting is changed the Ethereum swap fee is off, ParaSwap price checks no longer name that address, and a trigger order's fee note says the fee is switched off. No fee was ever taken to that address.
+
 ### 2026-10-14
 
 - Earn: a farm or pool whose rewards have ended is no longer offered for new stakes. The TOWELI/ETH LP farm, which stopped paying on Jun 15, 2026, now says so in one line with that date and shows no Stake box; Withdraw, Claim and Exit still work. The Zap page no longer offers that farm as a destination. The lock-ladder and lighthouse pools on the bungalows do the same the day their reward period ends. When the end date cannot be read, Stake waits and no date is shown.
