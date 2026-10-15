@@ -8,6 +8,7 @@ page keeps the newest thirty days.
 
 ### 2026-10-15
 
+- A shared link to the site now unfurls as the home page's own first picture, Bayla at the door, on X, Discord and Telegram. It used to be a text card. A page with its own picture keeps it. X keeps an old card for about a week per link.
 - Solana adds, removals, pool openings and swaps: taking your time on the review no longer shuts the wallet. Before, a review read for more than 30 seconds was built again at Sign, and any line that moved, even the outside price check, kept the wallet shut, so on a phone a holder could press Sign again and again without the wallet opening. Now the wallet opens unless something you would sign for changed: the pool, the token, the amounts and limits, your share, or the transaction itself. A price check or fee that moved is listed while the wallet is open. A new warning, or a price that moved more than 3 points further off, still stops it and shows you why. The two risk notes now show once during a review, not again under the Sign button.
 
 ### 2026-10-14

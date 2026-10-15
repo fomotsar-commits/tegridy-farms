@@ -77,20 +77,20 @@
          hero no longer claims a fixed "100% to stakers"; crawlers read this
          static HTML, so it must match). -->
     <meta property="og:description" content="The venue of Jungle Bay Island. Bungalows for meme communities, launches that open on Heat instead of hype, and every fee routed on-chain where you can read it. Ethereum, Base and Solana." />
-    <!-- Purpose-built social preview — see docs/SOCIAL_PREVIEW_SPEC.md.
-         PNG is the primary for crawler compatibility (Discord/Slack/
-         Facebook image proxies only accept raster). SVG is served as
-         secure_url for modern crawlers that want sharpness. Both are
-         regenerated via `node scripts/render-og-png.mjs`. -->
-    <meta property="og:image" content="https://memetics.finance/og.png" />
-    <!-- R077: secure_url must declare a raster URL so Facebook/Discord
-         crawlers don't reject the SVG fallback for failing to match
-         og:image:type. Both are functionally identical PNGs. -->
-    <meta property="og:image:secure_url" content="https://memetics.finance/og.png" />
-    <meta property="og:image:type" content="image/png" />
+    <!-- The social preview is the home page's own first picture, Bayla at the door
+         (island, answer nineteen §3): public/og.jpg is art/door-home.jpg scaled to
+         1280 wide with the middle 640 kept, no words on it. Raster on purpose:
+         Discord/Slack/Facebook image proxies only accept raster. This is the
+         default only; a door or a page with its own image keeps it. The old text
+         card (og.png, from og.svg via scripts/render-og-png.mjs) is still served
+         for links that already point at it. -->
+    <meta property="og:image" content="https://memetics.finance/og.jpg" />
+    <!-- R077: secure_url must declare the same raster URL, matching og:image:type. -->
+    <meta property="og:image:secure_url" content="https://memetics.finance/og.jpg" />
+    <meta property="og:image:type" content="image/jpeg" />
     <meta property="og:image:width" content="1280" />
     <meta property="og:image:height" content="640" />
-    <meta property="og:image:alt" content="MEMETICS.FINANCE — the venue of Jungle Bay Island, where held time counts" />
+    <meta property="og:image:alt" content="Bayla at the door. Held time counts here." />
     <meta property="og:type" content="website" />
     <meta property="og:url" content="https://memetics.finance/" />
     <meta property="og:site_name" content="MEMETICS.FINANCE" />
@@ -98,8 +98,8 @@
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content="MEMETICS.FINANCE | Memetic Finance on Jungle Bay Island" />
     <meta name="twitter:description" content="The venue of Jungle Bay Island. Bungalows for meme communities, Heat-gated launches, verifiable staking and swaps on Ethereum, Base and Solana." />
-    <meta name="twitter:image" content="https://memetics.finance/og.png" />
-    <meta name="twitter:image:alt" content="MEMETICS.FINANCE — the venue of Jungle Bay Island" />
+    <meta name="twitter:image" content="https://memetics.finance/og.jpg" />
+    <meta name="twitter:image:alt" content="Bayla at the door. Held time counts here." />
     <meta name="twitter:url" content="https://memetics.finance/" />
     <!-- Preconnect to NFT image CDNs for faster loading -->
     <link rel="preconnect" href="https://assets.mgxs.co" crossorigin>
