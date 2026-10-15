@@ -78,7 +78,7 @@ describe('the signing surface discloses the venue fee', () => {
     // cowProtocol.ts's appData at the same time, and this test is the tripwire.
     expect(PROVIDER_FEE_LEGS.cowswap.status).toBe('blocked');
     vi.stubEnv('VITE_SWAP_FEE_BPS', '25');
-    vi.stubEnv('VITE_SWAP_FEE_RECIPIENT', '0x6d5791A660e79175F74C6D639584C98422d5956E');
+    vi.stubEnv('VITE_SWAP_FEE_RECIPIENT', '0x7D2620243EdAd69Ec81A53c4A063B07995A4Bd7d');
     renderPanel();
     await waitFor(() => expect(screen.getByText('None')).toBeInTheDocument(), { timeout: 3000 });
     expect(screen.queryByText(/0\.25%/)).toBeNull();
