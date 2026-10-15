@@ -148,6 +148,8 @@ describe('useLPFarming', () => {
 
   it('stake succeeds when lpAllowance >= requested amount', () => {
     wagmiMock.setReadResult({ functionName: 'allowance', result: parseEther('1000') });
+    // A paying period: an ended or unread one refuses (the two tests below).
+    wagmiMock.setReadResult({ functionName: 'periodFinish', result: BigInt(Math.floor(Date.now() / 1000) + 86_400) });
     const { result } = renderHook(() => useLPFarming());
     act(() => result.current.stake('5'));
     const write = wagmiMock.writeContract();
@@ -157,6 +159,36 @@ describe('useLPFarming', () => {
       functionName: 'stake',
     });
     expect(write.mock.calls[0][0].args).toEqual([parseEther('5')]);
+  });
+
+  it('stake refuses a farm whose rewards ended (a landed past periodFinish), with the read date', async () => {
+    const { toast } = await import('sonner');
+    wagmiMock.setReadResult({ functionName: 'allowance', result: parseEther('1000') });
+    wagmiMock.setReadResult({ functionName: 'periodFinish', result: 1_781_493_095n });
+    const { result } = renderHook(() => useLPFarming());
+    act(() => result.current.stake('5'));
+    expect(wagmiMock.writeContract()).not.toHaveBeenCalled();
+    expect(toast.error).toHaveBeenCalledWith(
+      'Rewards ended Jun 15, 2026, so new stakes are closed. Withdraw and claim still work.',
+    );
+  });
+
+  it('stake refuses while periodFinish is unread, and the hook says it is unread', () => {
+    wagmiMock.setReadResult({ functionName: 'allowance', result: parseEther('1000') });
+    wagmiMock.setReadResult({ functionName: 'periodFinish', result: undefined, status: 'failure' });
+    const { result } = renderHook(() => useLPFarming());
+    expect(result.current.periodFinishUnread).toBe(true);
+    act(() => result.current.stake('5'));
+    expect(wagmiMock.writeContract()).not.toHaveBeenCalled();
+  });
+
+  it('withdraw still goes out on an ended farm', () => {
+    wagmiMock.setReadResult({ functionName: 'periodFinish', result: 1_781_493_095n });
+    const { result } = renderHook(() => useLPFarming());
+    expect(result.current.periodFinishUnread).toBe(false);
+    act(() => result.current.withdraw('1'));
+    expect(wagmiMock.writeContract()).toHaveBeenCalledTimes(1);
+    expect(wagmiMock.writeContract().mock.calls[0][0]).toMatchObject({ functionName: 'withdraw' });
   });
 
   it('stake blocks on wrong network', () => {

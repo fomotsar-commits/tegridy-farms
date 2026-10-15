@@ -12,6 +12,7 @@ import { CopyButton } from '../ui/CopyButton';
 import { shortenAddress } from '../../lib/formatting';
 import { CardArt } from '../ui/CardArt';
 import { FinePrint } from '../ui/FinePrint';
+import { rewardsEndedLine, rewardsHaveEnded, rewardsZeroLine } from '../../lib/rewardsEnded';
 
 import { PositionMark, positionHost } from '../ui/PositionMark';
 /**
@@ -29,8 +30,9 @@ import { PositionMark, positionHost } from '../ui/PositionMark';
  *    principal only — an empty vault can never hold an exit hostage. (The
  *    Solana lighthouse HAS locks and its 6012 class; do not copy that copy
  *    here, and say the difference out loud.)
- *  - staking while unfunded is allowed (it is safe — exits are free) but the
- *    card says plainly that it earns nothing until funding lands.
+ *  - staking while the vault is empty and a rate runs is allowed (exits are
+ *    free) and the card says it earns nothing until funding lands; a rate of 0
+ *    or an ended period takes no new stake (owner, 2026-10-14).
  */
 
 const CHAIN_IDS: Record<string, number> = { ethereum: 1, base: 8453 };
@@ -181,6 +183,14 @@ export function EvmLighthousePoolLive({ bungalow }: { bungalow: Bungalow & { sta
 
   const unfunded = view.vaultRaw !== null && view.vaultRaw === 0n;
   const notPaying = view.payingNowRawPerSec !== null && view.payingNowRawPerSec === 0n;
+  // A landed periodFinish in the past, or a pool paying 0 now (never funded, or a
+  // rate of 0): no new stake (owner, 2026-10-14), and that outranks the unfunded
+  // note, which invites a stake. Withdraw, claim and exit stay. An unread end or
+  // rate holds Stake.
+  const periodFinishRaw = big(3);
+  const rewardsEnded = rewardsHaveEnded(periodFinishRaw, nowSecs);
+  const paysNothing = !rewardsEnded && notPaying;
+  const stakeClosed = rewardsEnded || paysNothing || periodFinishRaw === null || big(2) === null;
 
   return (
     <div className={positionHost('relative isolate overflow-hidden rounded-2xl glass-card-animated', userStakedRaw !== null && userStakedRaw > 0n)} style={{ border: '1px solid var(--color-purple-75)' }}>
@@ -242,24 +252,25 @@ export function EvmLighthousePoolLive({ bungalow }: { bungalow: Bungalow & { sta
               />
             </div>
 
-            {unfunded && (
+            {rewardsEnded && periodFinishRaw !== null ? (
+              <p className="text-[12px] mb-4" style={{ color: '#f0b26b' }} data-testid="lighthouse-rewards-ended">
+                {rewardsEndedLine(periodFinishRaw)}
+              </p>
+            ) : paysNothing ? (
+              <p className="text-[12px] mb-4" style={{ color: '#f0b26b' }} data-testid="lighthouse-rewards-zero">
+                {rewardsZeroLine(periodFinishRaw === 0n)}
+              </p>
+            ) : unfunded && (
               <div className="text-[12px] mb-4 rounded-lg p-3" style={{ background: 'rgba(240,178,107,0.08)', border: '1px solid rgba(240,178,107,0.35)', color: '#f0b26b' }}>
                 <p className="m-0">The reward vault is unfunded, so staking earns nothing yet.</p>
                 <FinePrint summary="Why">
                   <p className="m-0">
-                    The reward vault is unfunded: staking works but earns nothing until funding
+                    The reward vault is unfunded, so staking works but earns nothing until funding
                     lands. Unlike the Solana lighthouse, your principal is NEVER at the vault&apos;s
                     mercy here: withdraw is free at any time and moves principal only.
                   </p>
                 </FinePrint>
               </div>
-            )}
-            {!unfunded && notPaying && (
-              <p className="text-[12px] mb-4 text-white/70">
-                The last reward period has ended, so the pool is paying 0 until the next
-                funding. Configured rate from the last notify:{' '}
-                {view.configuredRawPerSec === null ? '—' : `${fmtRaw(view.configuredRawPerSec * 86_400n, decimals)} ${bungalow.symbol}/day`}.
-              </p>
             )}
 
             <p className="text-[11px] text-white/55 mb-1">
@@ -305,7 +316,7 @@ export function EvmLighthousePoolLive({ bungalow }: { bungalow: Bungalow & { sta
                     </button>
                   </div>
                   <div className="flex flex-wrap gap-2">
-                    {needsApproval ? (
+                    {stakeClosed ? null : needsApproval ? (
                       <button type="button" disabled={busy !== null || !amountRaw} onClick={() => send('approve')} className="btn-primary px-5 py-2 text-[13px] disabled:opacity-50">
                         {busy === 'approve' ? 'Approving…' : `Approve ${bungalow.symbol}`}
                       </button>

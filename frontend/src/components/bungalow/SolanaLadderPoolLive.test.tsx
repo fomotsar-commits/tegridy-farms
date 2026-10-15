@@ -1362,3 +1362,28 @@ describe("the ladder line: the real pool's ledger says where its rewards came fr
     expect(document.body.textContent).not.toMatch(/Workshop|of this ladder's rewards/);
   });
 });
+
+/* ────────── an ended reward window takes no new stake (owner, 2026-10-14) ────────── */
+
+describe('an ended reward window offers no new lock', () => {
+  it('says it ended with the read date, and shows no amount field or Lock button; claim and exits stay', async () => {
+    reads.pool = { ok: true, value: poolView({ rewardRate: 1_000_000n, periodFinish: BigInt(NOW - 2 * DAY) }) };
+    draw();
+    // NOW - 2 days is 2027-01-13 UTC.
+    expect(await screen.findByTestId('ladder-window-ended')).toHaveTextContent(
+      'Rewards ended Jan 13, 2027, so new stakes are closed. Withdraw and claim still work.',
+    );
+    expect(screen.queryByLabelText('Amount')).toBeNull();
+    expect(screen.queryByRole('button', { name: /Lock BAYLA/ })).toBeNull();
+    expect(await screen.findByRole('button', { name: /Claim rewards/ })).toBeTruthy();
+    expect(screen.getByRole('button', { name: /Emergency withdraw/ })).toBeTruthy();
+  });
+
+  it('a live window keeps the form (negative control)', async () => {
+    reads.pool = { ok: true, value: poolView({ rewardRate: 1_000_000n }) };
+    draw();
+    expect(await screen.findByLabelText('Amount')).toBeTruthy();
+    expect(screen.getByRole('button', { name: /Lock BAYLA/ })).toBeTruthy();
+    expect(screen.queryByTestId('ladder-window-ended')).toBeNull();
+  });
+});

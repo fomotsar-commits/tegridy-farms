@@ -18,6 +18,7 @@ import { shortenAddress } from '../../lib/formatting';
 import { HeldTimeLine } from './HeldTimeLine';
 import { CardArt } from '../ui/CardArt';
 import { FinePrint } from '../ui/FinePrint';
+import { rewardsEndedLine, rewardsHaveEnded, rewardsZeroLine } from '../../lib/rewardsEnded';
 
 import { PositionMark, positionHost } from '../ui/PositionMark';
 /**
@@ -186,6 +187,14 @@ export function EvmLadderPoolLive({ bungalow }: { bungalow: Bungalow & { stakePo
   }
 
   const unfunded = view.vaultRaw !== null && view.vaultRaw === 0n;
+  // A landed periodFinish in the past, or a pool paying 0 now (never funded, or a
+  // rate of 0): no new stake (owner, 2026-10-14), as a lock of up to 4 years would
+  // earn nothing and leaving early costs 25%. Claim and every position exit stay.
+  // An unread end or rate holds Stake.
+  const periodFinishRaw = big(4);
+  const rewardsEnded = rewardsHaveEnded(periodFinishRaw, nowSecs);
+  const paysNothing = !rewardsEnded && view.payingNowRawPerSec === 0n;
+  const stakeClosed = depositsFrozen || rewardsEnded || paysNothing || periodFinishRaw === null || big(3) === null;
 
   return (
     <div className={positionHost('relative isolate overflow-hidden rounded-2xl glass-card-animated', positions.length > 0)} style={{ border: '1px solid var(--color-purple-75)' }}>
@@ -228,18 +237,17 @@ export function EvmLadderPoolLive({ bungalow }: { bungalow: Bungalow & { stakePo
             </div>
             {view.coreKnown && <HeldTimeLine chain={bungalow.chain} pool={bungalow.stakePool} className="mb-4" />}
 
-            {view.everFunded === false ? (
-              <div className="text-[12px] mb-4 rounded-lg p-3" style={{ background: 'rgba(240,178,107,0.08)', border: '1px solid rgba(240,178,107,0.35)', color: '#f0b26b' }}>
-                <p className="m-0">
-                  Not funded yet, so nothing accrues. Your principal is safe.
-                </p>
+            {rewardsEnded && periodFinishRaw !== null ? (
+              <p className="text-[12px] mb-4" style={{ color: '#f0b26b' }} data-testid="ladder-rewards-ended">
+                {rewardsEndedLine(periodFinishRaw)}
+              </p>
+            ) : paysNothing ? (
+              <div className="text-[12px] mb-4 rounded-lg p-3" style={{ background: 'rgba(240,178,107,0.08)', border: '1px solid rgba(240,178,107,0.35)', color: '#f0b26b' }} data-testid="ladder-rewards-zero">
+                <p className="m-0">{rewardsZeroLine(view.everFunded === false)}</p>
                 <FinePrint summary="Why">
                   <p className="m-0">
-                    No reward period has ever been started on this pool, so nothing accrues yet. Your principal is safe.
-                  </p>
-                  <p className="m-0">
-                    Staking works and your principal is safe, but
-                    nothing accrues until the distributor funds it and calls notify. Tokens merely sent to the pool
+                    A lock here would earn nothing, and leaving before it opens costs 25%. Staking opens again
+                    by itself once the pool is funded and pays a reward rate. Tokens merely sent to the pool
                     earn no one anything.
                   </p>
                 </FinePrint>
@@ -321,6 +329,7 @@ export function EvmLadderPoolLive({ bungalow }: { bungalow: Bungalow & { stakePo
                 </div>
 
 
+                {!rewardsEnded && !paysNothing && (<>
                 <div className="flex items-center gap-2 mb-2">
                   <input value={amount} onChange={(e) => setAmount(e.target.value)} inputMode="decimal"
                     placeholder={`Amount (${bungalow.symbol})`} aria-label={`Amount of ${bungalow.symbol} to stake`}
@@ -349,6 +358,7 @@ export function EvmLadderPoolLive({ bungalow }: { bungalow: Bungalow & { stakePo
                     </>
                   )}
                 </p>
+                </>)}
 
                 {depositsFrozen && (
                   <div className="rounded-xl p-3 mb-3 text-[12px]" style={{ background: 'rgba(120,20,20,0.30)', border: '1px solid rgba(255,120,120,0.40)' }}>
@@ -368,7 +378,7 @@ export function EvmLadderPoolLive({ bungalow }: { bungalow: Bungalow & { stakePo
                 )}
 
                 <div className="flex flex-wrap gap-2 mb-4">
-                  {depositsFrozen ? null : needsApproval ? (
+                  {stakeClosed ? null : needsApproval ? (
                     <button type="button" disabled={busy !== null || !amountRaw} className="btn-primary px-5 py-2 text-[13px] disabled:opacity-50"
                       onClick={() => send('approve', () => writeContractAsync({ ...tokenC, functionName: 'approve', args: [pool, amountRaw ?? 0n] }))}>
                       {busy === 'approve' ? 'Approving…' : `Approve ${bungalow.symbol}`}

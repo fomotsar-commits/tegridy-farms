@@ -76,7 +76,9 @@ describe('the pool card reads like a pool', () => {
     const v = view();
     const card = mount(v);
     for (const whole of [v.address, v.tokenMint, v.snapshot.pool.poolCreator]) {
-      expect(whole).toHaveLength(44);
+      // A whole address: 32 bytes in base58 run 32 to 44 characters (a random key is 43 about 1 time in 17).
+      expect(whole.length).toBeGreaterThanOrEqual(32);
+      expect(whole.length).toBeLessThanOrEqual(44);
       expect(card.textContent).not.toContain(whole);
     }
     const pool = within(card).getByRole('group', { name: 'Pool address' });

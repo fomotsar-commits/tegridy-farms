@@ -23,6 +23,7 @@ import {
   type PoolAccounts,
 } from './ix';
 import { MAX_EARLY_EXIT_PENALTY_BPS } from './program';
+import { holdReload } from '../reloadHold';
 import { pollConfirm } from '../solana/confirm';
 import { readSendThrow } from '../solana/walletThrow';
 import { lostAnswerCopy } from '../solana/swap/walletCopy';
@@ -238,6 +239,8 @@ export async function submitLadder(
   if (!owner) return { ok: false, reason: 'Connect a wallet first.' };
 
   let signature: string | undefined;
+  // Until this write is answered the page does not reload itself (lib/staleBuild.ts).
+  const release = holdReload();
   try {
     const { blockhash } = await conn.getLatestBlockhash('confirmed');
     const tx = new Transaction();
@@ -272,6 +275,8 @@ export async function submitLadder(
     };
   } catch (err) {
     return classifyWriteError(err, signature);
+  } finally {
+    release();
   }
 }
 

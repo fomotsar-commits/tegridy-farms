@@ -21,6 +21,7 @@ import { planZap, type ZapDescriptor, type ZapPlanResult, type ZapSwapRoute, typ
 import { venueAvailability, type ZapVenueId } from '../lib/zap/venues';
 import { swapSpenderFor } from '../lib/swapRouting';
 import { useSwapQuote } from './useSwapQuote';
+import { useLpFarmDeposit } from './useLpEmissionsPhase';
 
 const TOWELIE_TOKEN: TokenInfo =
   DEFAULT_TOKENS.find((t) => t.address.toLowerCase() === TOWELI_ADDRESS.toLowerCase()) ?? {
@@ -117,6 +118,9 @@ export function useZapPlan({
   const routerFeeBps =
     !routerFeeError && typeof routerFee === 'bigint' && routerFee <= 10_000n ? Number(routerFee) : null;
 
+  // The LP farm's reward period, read: no zap lands in a farm that stopped paying.
+  const lpFarm = useLpFarmDeposit();
+
   const needsToweliLeg = toweliLegAmount > 0n;
   const needsEthLeg = ethLegAmount > 0n;
   const isQuoting =
@@ -136,7 +140,7 @@ export function useZapPlan({
   const result = useMemo<ZapPlanResult | null>(() => {
     if (!address || !inputToken || amountIn <= 0n) return null;
     // A venue this build cannot reach is reported before a quote is even attempted.
-    const availability = venueAvailability(venueId);
+    const availability = venueAvailability(venueId, lpFarm);
     if (!availability.available) {
       return { ok: false, code: 'venue-unavailable', detail: availability.reason };
     }
@@ -170,6 +174,7 @@ export function useZapPlan({
     toweliRoute,
     ethRoute,
     isQuoting,
+    lpFarm,
   ]);
 
   const fee = useMemo(() => {

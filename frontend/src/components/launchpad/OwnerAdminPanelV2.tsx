@@ -253,7 +253,7 @@ export function OwnerAdminPanelV2({ dropAddress, deployed }: {
   // "submitted" toast with no word that nothing was applied.
   useEffect(() => {
     if (isReverted) {
-      toast.error('Transaction reverted on-chain — no admin change was applied.');
+      toast.error('Transaction reverted on-chain. No admin change was applied.');
     }
   }, [isReverted]);
 
@@ -308,7 +308,7 @@ export function OwnerAdminPanelV2({ dropAddress, deployed }: {
       {
         onSuccess: (hash) => {
           submittedRef.current = { hash, fn, onConfirmed: opts?.onConfirmed };
-          toast.info(`${fn} submitted — confirming on-chain…`);
+          toast.info(`${fn} submitted. Confirming on-chain…`);
         },
         onError: (e) => toast.error(e.message.slice(0, 80)),
       },
@@ -350,7 +350,7 @@ export function OwnerAdminPanelV2({ dropAddress, deployed }: {
             <div className="space-y-5 pt-4">
               {!deployed && (
                 <p className="text-amber-400/70 text-xs text-center py-2 rounded-lg bg-amber-500/5 border border-amber-500/10">
-                  Contract Not Deployed — Admin actions disabled
+                  Contract not deployed, so admin actions are off.
                 </p>
               )}
 
@@ -403,7 +403,7 @@ export function OwnerAdminPanelV2({ dropAddress, deployed }: {
                 <p className="text-[10px] text-white/60 mt-2">
                   {currentPhaseNum >= 0
                     ? `Contract is currently in ${PHASE_LABELS[currentPhaseNum] ?? 'an unknown phase'}.`
-                    : 'Current phase not read yet — the selection below is not confirmed against the contract.'}
+                    : 'Current phase not read yet, so the selection below is not confirmed against the contract.'}
                 </p>
                 {rules === 'needs-new-price' && (
                   <p className="text-[10px] text-white/60 mt-1" data-testid="needs-new-price">
@@ -512,7 +512,7 @@ export function OwnerAdminPanelV2({ dropAddress, deployed }: {
                   />
                   {mintPrice !== '' && mintPriceWei === null && (
                     <p role="alert" className="mt-1 text-[11px] text-red-400">
-                      Enter a plain decimal amount — no exponent notation, at most 18 decimals.
+                      Enter a plain decimal amount: no exponent notation, at most 18 decimals.
                     </p>
                   )}
                   {/* proposeMintPrice takes a proposal only while CLOSED, and
@@ -686,7 +686,7 @@ export function OwnerAdminPanelV2({ dropAddress, deployed }: {
                   canWithdraw
                     ? 'Withdraw mint proceeds (creator + platform split)'
                     : soldOut
-                      ? 'Sold out — withdraw available'
+                      ? 'Sold out, so withdraw is available'
                       : 'Close the mint (phase → CLOSED) or wait until sold out before withdrawing.'
                 }
                 onClick={() => exec('withdraw')}
