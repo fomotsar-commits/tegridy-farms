@@ -6,6 +6,9 @@
 //                                           first, then USDC's, then BAYLA's, deepest first
 //                                           within a coin
 //   GET /api/pools?lpMint=<LP mint>      → the address of the pool whose share this is
+//   GET /api/pools?all=1                 → every pool on the program paired with a coin,
+//                                           for the list shown before a token is picked:
+//                                           the same coin order and the same ranking
 //
 // WHY A SERVER FUNCTION. The browser cannot list pools: `getProgramAccounts` stays OFF
 // the /api/solrpc proxy (an open scan against a keyed RPC is the hole audit L-1 closed).
@@ -286,7 +289,66 @@ async function scanPair(mint, coin, fetchImpl) {
  * never leaves an answer that looks whole.
  */
 async function scanPools(mint, coins, fetchImpl) {
-  const scans = await Promise.all(coins.map((coin) => scanPair(mint, coin, fetchImpl)));
+  return rankDeepestFirst(await Promise.all(coins.map((coin) => scanPair(mint, coin, fetchImpl))), fetchImpl);
+}
+
+/**
+ * Every pool on the program paired with a coin, one list per coin in `QUOTE_COINS`
+ * order, deepest first. Two scans per coin (the coin in the token0 slot, then in the
+ * token1 slot). A pool belongs to the highest-ranked coin it holds, the browser's
+ * `readPair` rule (a BAYLA/SOL pool is a SOL pool), so a pool already found under a
+ * higher coin is skipped. A pool pairing two tokens that are not coins is never asked
+ * for, so a pile of TOKEN/JUNK pools costs this answer nothing.
+ */
+async function scanAllPools(fetchImpl) {
+  const slots = [OFFSETS.token0Mint, OFFSETS.token1Mint];
+  const results = await Promise.all(
+    QUOTE_COINS.flatMap((coin) =>
+      slots.map((offset) =>
+        rpc(
+          "getProgramAccounts",
+          [
+            CP_SWAP_PROGRAM,
+            {
+              encoding: "base64",
+              commitment: "confirmed",
+              dataSlice: { offset: OFFSETS.token0Vault, length: 64 },
+              filters: poolFilters([{ memcmp: { offset, bytes: coin.mint } }]),
+            },
+          ],
+          fetchImpl,
+        ),
+      ),
+    ),
+  );
+  const seen = new Set();
+  const scans = QUOTE_COINS.map((coin, c) => {
+    const pools = [];
+    slots.forEach((_, s) => {
+      const result = results[c * slots.length + s];
+      if (!Array.isArray(result)) throw new Error("upstream answer carried no result list");
+      for (const item of result) {
+        const address = parseKey(item && item.pubkey);
+        if (!address) throw new Error("upstream answer carried an invalid address");
+        const slice = base64Of(item.account);
+        if (slice.length !== 64) throw new Error("upstream answer carried a wrong-sized slice");
+        if (seen.has(address)) continue;
+        seen.add(address);
+        pools.push({ address, vault: base58.encode(Uint8Array.from(slice.subarray(s === 0 ? 0 : 32, s === 0 ? 32 : 64))), program: coin.program, depth: -1n });
+      }
+    });
+    if (pools.length > MAX_SCANNED) throw new Error(`more than ${MAX_SCANNED} ${coin.symbol} pools on the program`);
+    return pools;
+  });
+  return rankDeepestFirst(scans, fetchImpl);
+}
+
+/**
+ * `scans` (one list of `{ address, vault, program, depth }` per coin) as one list of
+ * addresses per coin, deepest first: every pool's vault for its coin is read to rank it.
+ * Throws when any vault read failed.
+ */
+async function rankDeepestFirst(scans, fetchImpl) {
   // Vault reads for all the coins share the calls (100 keys each, 8 calls at a time): an
   // ordinary answer is ranked by ONE read, however many coins were scanned.
   const all = scans.flat();
@@ -339,6 +401,11 @@ export async function handlePoolIndex(req, res, fetchImpl = fetch) {
   const q = { ...(req.query || {}) };
   delete q.resource;
   const keys = Object.keys(q);
+  // `all=1`: every pool, for the list shown before a token is picked.
+  if (keys.length === 1 && keys[0] === "all") {
+    if (q.all !== "1") return res.status(400).json({ error: "all takes only 1" });
+    return answerAll(req, res, fetchImpl);
+  }
   const which = keys.length === 1 && (keys[0] === "mint" || keys[0] === "lpMint") ? keys[0] : null;
   const key = which ? parseKey(q[which]) : null;
   if (!which || !key) {
@@ -397,7 +464,43 @@ export async function handlePoolIndex(req, res, fetchImpl = fetch) {
     remember(cacheKey, { payload });
   }
 
+  return sendPayload(res, payload);
+}
+
+function sendPayload(res, payload) {
   res.setHeader("Content-Type", "application/json; charset=utf-8");
   res.setHeader("Cache-Control", "public, max-age=0, s-maxage=30, stale-while-revalidate=30");
   return res.status(200).json(payload);
+}
+
+/**
+ * `?all=1`: every pool paired with a coin, each coin's deepest first, the coins sharing
+ * MAX_POOLS by promise (`shareSlots`), exactly as a `?mint=` answer is. One cache key for
+ * everyone, so the scans run at most once per CACHE_TTL_MS per instance. Charged to the
+ * scan budget once per scan. Any failed scan or vault read is a 502, never a short list.
+ */
+async function answerAll(req, res, fetchImpl) {
+  const hit = cache.get("all");
+  if (hit && hit.payload && Date.now() - hit.at < CACHE_TTL_MS) return sendPayload(res, hit.payload);
+  if (!(await checkRateLimit(req, res, RATE))) return;
+  for (let i = 0; i < QUOTE_COINS.length * 2; i++) {
+    if (!(await checkGlobalLimit(res, GLOBAL))) return;
+  }
+  let lists;
+  try {
+    lists = await scanAllPools(fetchImpl);
+  } catch (err) {
+    console.error("[pools] scan of all pools failed:", logSafe(err));
+    return res.status(502).json({ error: "The pool index could not read the chain" });
+  }
+  const given = shareSlots(lists.map((l) => l.length));
+  const payload = {
+    all: true,
+    program: CP_SWAP_PROGRAM,
+    pools: lists.flatMap((l, i) => l.slice(0, given[i])),
+    truncated: lists.some((l, i) => l.length > given[i]),
+    readAt: new Date().toISOString(),
+  };
+  remember("all", { payload });
+  return sendPayload(res, payload);
 }

@@ -15,6 +15,7 @@ import type { GateRpc, LpKind, LpWriteApi } from '../curve/ports';
 import { PoolFinder, type PoolFinderHandle } from './PoolFinder';
 import { parseMintInput } from '../../../lib/solana/lp/mintInput';
 import { YourPositions } from './YourPositions';
+import { VenuePoolList } from './VenuePoolList';
 import { Rates, Routes } from './RatesAndRoutes';
 import { LpGateBanner } from './LpGateBanner';
 import { RISK_SHORT } from './LpDisclosures';
@@ -25,7 +26,7 @@ import { browserLpReaders, type LpReaders } from './readers';
  * The Solana LP section on /pools and /solana-lp, in one order on both (owner, 2026-10-14:
  * "the actions people need to take spotlighted and their positions and the rates and
  * routes getting the attention"): the risk line and the earn line, the three actions
- * (the finder), the wallet's positions, the rates read from the chain, where a swap goes,
+ * (the finder), every pool, the wallet's positions, the rates read from the chain, where a swap goes,
  * and the full notice last. Adding, removing and opening pools follow LP's own switch (lpWriteFlag.ts):
  * with it 'off' no write code is fetched and nothing here can sign; otherwise
  * LpWritesProvider loads it and offers.ts decides each button. `?mint=<address>` opens the
@@ -104,6 +105,9 @@ function LpBody({ readers, mode, reloadKey }: { readers: LpReaders; mode: LpWrit
   // brings its answer onto the screen, as for any lookup the visitor asked for.
   const finderRef = useRef<PoolFinderHandle | null>(null);
   const addMore = useCallback((tokenMint: string, pool: string) => finderRef.current?.addTo(tokenMint, pool), []);
+  // Every pool, under the finder: a View there is a lookup in the finder, like a picked token.
+  const view = useCallback((tokenMint: string) => finderRef.current?.show(tokenMint), []);
+  const allPools = <VenuePoolList readers={readers} reloadKey={reloadKey} onView={view} />;
   const finder = (
     <PoolFinder
       ref={finderRef}
@@ -118,14 +122,15 @@ function LpBody({ readers, mode, reloadKey }: { readers: LpReaders; mode: LpWrit
   );
   const positions = <YourPositions readers={readers} owner={publicKey ?? null} reloadKey={reloadKey} sectionRef={positionsRef} onAddMore={addMore} />;
 
-  // Actions first, under the one risk line and the one line on earning; then what you hold;
-  // then the rates and the routes; the long notice last.
+  // Actions first, under the one risk line and the one line on earning; then every pool;
+  // then what you hold; then the rates and the routes; the long notice last.
   return (
     <div className="flex flex-col gap-4" data-testid="lp-section" data-lp-mode={mode}>
       <LpRiskLine />
       <LpEarnLine />
       {writesTop}
       {finder}
+      {allPools}
       {positions}
       <Rates read={tierRead} />
       <Routes />

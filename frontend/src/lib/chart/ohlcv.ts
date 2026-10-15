@@ -29,7 +29,7 @@ import { z } from 'zod';
 import { geckoTerminalOhlcvSchema, parseOrNull } from '../schemas/geckoTerminal';
 import { interleaveGaps, type Candle, type CandleSeries } from './candles';
 import type { ChartableMarket } from './markets';
-import { geckoEdgeUrl } from '../geckoTerminal/edge';
+import { geckoEdgeUrl, readGeckoFreshness, type GeckoFreshness } from '../geckoTerminal/edge';
 
 export const GECKO_TIMEFRAME_IDS = ['5m', '15m', '1h', '4h', '1d'] as const;
 
@@ -150,6 +150,8 @@ export type OhlcvRead =
       duplicates: number;
       /** Bars that failed this file's own sanity check. Dropped, never repaired. */
       rejected: number;
+      /** When the edge read these bars from GeckoTerminal, and whether it is a kept copy. */
+      freshness: GeckoFreshness;
     }
   | { ok: false; reason: OhlcvUnreadReason; httpStatus: number | null; detail: string };
 
@@ -223,10 +225,16 @@ export async function readOhlcvBars(
   url: string,
   fetchFn: typeof fetch,
   signal?: AbortSignal,
+  // Only a surface that prints the bars' age passes GECKO_STALE_OK_HEADERS here
+  // (see geckoTerminal/edge.ts). Everything else leaves it out.
+  extraHeaders?: Readonly<Record<string, string>>,
 ): Promise<OhlcvRead> {
   let res: Response;
   try {
-    res = await fetchFn(url, { headers: { Accept: 'application/json' }, ...(signal ? { signal } : {}) });
+    res = await fetchFn(url, {
+      headers: { ...extraHeaders, Accept: 'application/json' },
+      ...(signal ? { signal } : {}),
+    });
   } catch (err) {
     // An abort is the caller's own decision and is re-thrown so the hook can
     // ignore it; anything else is a read that did not happen.
@@ -295,7 +303,15 @@ export async function readOhlcvBars(
     bars.push(bar);
   }
 
-  return { ok: true, bars, meta: readMeta(json), httpStatus: res.status, duplicates, rejected };
+  return {
+    ok: true,
+    bars,
+    meta: readMeta(json),
+    httpStatus: res.status,
+    duplicates,
+    rejected,
+    freshness: readGeckoFreshness(res),
+  };
 }
 
 /**

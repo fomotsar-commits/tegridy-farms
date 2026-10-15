@@ -288,3 +288,45 @@ describe('readPoolTrades — the deadline', () => {
     expect(read.detail).toMatch(/not an empty tape/);
   });
 });
+
+// 2026-10-15: the edge stamps every answer with when it read GeckoTerminal, and
+// can hand back its last good copy when GeckoTerminal refuses, but only to a
+// caller that asks. The tape's "read at" must be that stamp, not arrival time.
+describe('readPoolTrades and the age of a tape', () => {
+  const READ_AT = 1_792_000_000_000;
+  const stamped = (stale: boolean) =>
+    vi.fn(async () => new Response(JSON.stringify({ data: [trade('buy', '1', '1')] }), {
+      status: 200,
+      headers: stale
+        ? { 'X-Gecko-Fetched-At': String(READ_AT), 'X-Gecko-Stale': '1' }
+        : { 'X-Gecko-Fetched-At': String(READ_AT) },
+    }));
+  const sentHeaders = (fetchImpl: ReturnType<typeof stamped>) =>
+    new Headers((fetchImpl.mock.calls[0] as unknown as [string, RequestInit])[1].headers);
+
+  it('uses the edge\'s read time, not the moment the answer arrived', async () => {
+    const read = await readPoolTrades('solana', 'pool', { fetchImpl: stamped(false), now: () => READ_AT + 90_000 });
+    if (read.status !== 'read') throw new Error('expected a read');
+    expect(read.fetchedAt).toBe(READ_AT);
+    expect(read.stale).toBe(false);
+  });
+
+  it('asks for a kept copy only when told to, and reports one when it gets it', async () => {
+    const plain = stamped(false);
+    await readPoolTrades('solana', 'pool', { fetchImpl: plain });
+    expect(sentHeaders(plain).get('X-Gecko-Stale-Ok')).toBeNull();
+
+    const asking = stamped(true);
+    const read = await readPoolTrades('solana', 'pool', { fetchImpl: asking, acceptStale: true });
+    expect(sentHeaders(asking).get('X-Gecko-Stale-Ok')).toBe('1');
+    if (read.status !== 'read') throw new Error('expected a read');
+    expect(read.stale).toBe(true);
+  });
+
+  it('does not cache a kept copy', async () => {
+    const fetchImpl = stamped(true);
+    await readPoolTradesCached('solana', 'pool', { fetchImpl, acceptStale: true });
+    await readPoolTradesCached('solana', 'pool', { fetchImpl, acceptStale: true });
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+});

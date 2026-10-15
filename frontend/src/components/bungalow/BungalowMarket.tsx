@@ -5,6 +5,7 @@ import { ErrorBoundary } from '../ui/ErrorBoundary';
 import { CardArt } from '../ui/CardArt';
 import { FinePrint } from '../ui/FinePrint';
 import { BungalowTrades } from './BungalowTrades';
+import { geckoAsOfLine } from '../../lib/geckoTerminal/edge';
 
 // The chart pulls in lightweight-charts; keep it out of the bungalow's first
 // paint the same way the classic dashboard does.
@@ -35,7 +36,7 @@ const PriceChart = lazy(() =>
  */
 export function BungalowMarket({ bungalow }: { bungalow: Bungalow }) {
   const market = bungalow.market ?? null;
-  const { market: data, isLoading, error, refresh } = usePoolMarket(
+  const { market: data, isLoading, error, freshness, refresh } = usePoolMarket(
     market?.network ?? null,
     market?.pool ?? null,
   );
@@ -48,6 +49,8 @@ export function BungalowMarket({ bungalow }: { bungalow: Bungalow }) {
   if (!market || !chartMarket) return null;
 
   const change = data?.change24hPct ?? null;
+  // The strip's age, when it is not fresh or is a kept copy (usePoolMarket asks for one).
+  const asOf = data ? geckoAsOfLine(freshness) : null;
   const changeColor =
     change === null ? 'rgba(255,255,255,0.55)' : change >= 0 ? '#22c55e' : '#ef4444';
 
@@ -101,6 +104,10 @@ export function BungalowMarket({ bungalow }: { bungalow: Bungalow }) {
           }
         />
       </div>
+
+      {asOf && (
+        <p className="text-[10px] text-white/55 -mt-3 mb-4" data-testid="market-as-of">{asOf}</p>
+      )}
 
       {error && (
         <p className="text-[12px] mb-4" style={{ color: '#f0b26b' }}>{error}</p>

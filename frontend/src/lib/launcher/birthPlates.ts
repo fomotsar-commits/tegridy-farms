@@ -4,7 +4,19 @@
 // launcher, Doppler's Airlock or the token itself, about this token). A read that fails comes
 // back as `unreadable` with a reason, never as 0. The words live in makerPlatesCopy.ts.
 
-import { decodeEventLog, getAddress, parseAbi, toEventSelector, type Abi, type Address, type Hex } from 'viem';
+import {
+  TransactionReceiptNotFoundError,
+  createPublicClient,
+  decodeEventLog,
+  getAddress,
+  http,
+  parseAbi,
+  toEventSelector,
+  type Abi,
+  type Address,
+  type Hex,
+} from 'viem';
+import { fetchWholeBody } from '../fetchWholeBody';
 import { CURVE_LAUNCHER_ABI } from './curve';
 import { DOPPLER_MAINNET } from './doppler.constants';
 import { AIRLOCK_CREATE_EVENT } from './ourLaunches';
@@ -103,6 +115,39 @@ const why = (e: unknown) => (e instanceof Error ? e.message : String(e)).split('
 
 type ReceiptRead = { kind: 'receipt'; receipt: BirthReceipt } | { kind: 'none' } | { kind: 'unreadable'; detail: string };
 
+/**
+ * Hosts asked by name, one at a time, when the page's own reader says a receipt does not exist.
+ * We hold the hash, so "no such receipt" only means the host that answered keeps no copy: on
+ * 2026-10-14 ethereum-rpc.publicnode.com answered null for two Doppler births eth.drpc.org
+ * returned. viem's fallback moves to its next host on an error, never on a null, so it never
+ * asks (NOTES.md, 2026-10-14). Each host is on chains/viemChains.ts's roster and in vercel.json's
+ * connect-src; birthPlates.test.ts pins both. Robinhood Chain has one public host: none to add.
+ */
+export const RECEIPT_HOSTS: Readonly<Record<number, readonly string[]>> = {
+  1: ['https://eth.drpc.org', 'https://ethereum-rpc.publicnode.com'],
+  8453: ['https://base.drpc.org', 'https://mainnet.base.org', 'https://base-rpc.publicnode.com'],
+};
+
+/** One host on its own, outside any fallback, so its answer is its own. */
+const hostReader = (url: string): PlatesReadClient => createPublicClient({ transport: http(url, { fetchFn: fetchWholeBody }) });
+
+type HostAnswer = { kind: 'receipt'; receipt: BirthReceipt } | { kind: 'no-copy' } | { kind: 'failed'; detail: string };
+
+/** One host's answer. "Not found" says what that host holds, never whether the transaction ran. */
+async function askHost(reader: PlatesReadClient, hash: Hex): Promise<HostAnswer> {
+  if (typeof reader.getTransactionReceipt !== 'function') return { kind: 'failed', detail: 'no chain reader is available' };
+  let raw: unknown;
+  try {
+    raw = await reader.getTransactionReceipt({ hash });
+  } catch (e) {
+    const noCopy = e instanceof TransactionReceiptNotFoundError || (e as { name?: unknown } | null)?.name === 'TransactionReceiptNotFoundError';
+    return noCopy ? { kind: 'no-copy' } : { kind: 'failed', detail: why(e) };
+  }
+  if (raw == null) return { kind: 'no-copy' };
+  const receipt = asBirthReceipt(raw);
+  return receipt ? { kind: 'receipt', receipt } : { kind: 'failed', detail: 'it came back in a shape we cannot read' };
+}
+
 async function birthReceipt(
   client: PlatesReadClient | undefined | null,
   rail: 'curve' | 'doppler',
@@ -118,12 +163,17 @@ async function birthReceipt(
     return unreadable(`its launch transaction could not be looked up: ${why(e)}`);
   }
   if (hash === null) return { kind: 'none' };
-  try {
-    const receipt = asBirthReceipt(await client.getTransactionReceipt({ hash }));
-    return receipt ? { kind: 'receipt', receipt } : unreadable('its launch transaction came back in a shape we cannot read');
-  } catch (e) {
-    return unreadable(`its launch transaction could not be read: ${why(e)}`);
+  const first = await askHost(client, hash);
+  if (first.kind === 'receipt') return first;
+  if (first.kind === 'failed') return unreadable(`its launch transaction could not be read: ${first.detail}`);
+  const heard = ['our usual host had no copy'];
+  for (const url of RECEIPT_HOSTS[chainId] ?? []) {
+    const next = await askHost(hostReader(url), hash);
+    if (next.kind === 'receipt') return next;
+    const host = new URL(url).host;
+    heard.push(next.kind === 'no-copy' ? `${host} had no copy` : `${host} failed (${next.detail})`);
   }
+  return unreadable(`its launch receipt could not be read: ${heard.join(', ')}`);
 }
 
 // ──────────────────────────── the Memetics Curve (/eth-curve) ────────────────────────────

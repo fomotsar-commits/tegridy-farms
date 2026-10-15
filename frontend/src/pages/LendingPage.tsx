@@ -163,9 +163,8 @@ const DEFAULT_SECTION: Section = 'nftlending';
 // drained native pool does not clear; Pooled Lending and Pay in Instalments
 // (#61/#62) have had no deploy ceremony at all.
 //
-// This map drives the amber "Soon" chips on the tab row
-// + intro cards so visitors can see which surfaces are gated before clicking in;
-// each chip flips off automatically when a real address lands in constants.ts.
+// This map drives the Live chips on the tab row and the intro cards' chips; each
+// flips on by itself when a real address lands in constants.ts.
 const SECTION_DEPLOYED: Record<Section, boolean> = {
   lending: isDeployed(TEGRIDY_LENDING_ADDRESS),
   nftlending: isDeployed(TEGRIDY_NFT_LENDING_ADDRESS),
@@ -313,13 +312,10 @@ export default function LendingPage() {
                 <span className="relative z-10 flex flex-col items-center leading-tight">
                   <span className="inline-flex items-center gap-1.5">
                     {label}
-                    {SECTION_DEPLOYED[key] ? (
+                    {/* No tab strip says Soon (docs/FACE_LAWS.md, law 23): an undeployed panel says so itself. */}
+                    {SECTION_DEPLOYED[key] && (
                       <span className="rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[9px] font-semibold leading-none px-1.5 py-0.5 uppercase tracking-wide">
                         Live
-                      </span>
-                    ) : (
-                      <span className="rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30 text-[9px] font-semibold leading-none px-1.5 py-0.5 uppercase tracking-wide">
-                        Soon
                       </span>
                     )}
                   </span>

@@ -22,14 +22,10 @@ interface Props {
 const QUOTE_DEBOUNCE_MS = 700;
 
 /**
- * Opt-in "Swap via CoW" panel for the Swap tab. Routes the same trade through
- * CoW Protocol's batch auction instead of the public mempool: one gasless
- * signature, no sandwich surface, and an unfilled order costs nothing.
- *
- * Self-gating & honest-framing: it only shows a CoW quote when one actually
- * comes back (never a fabricated number), sells ERC-20s only (prompts the user
- * to wrap ETH), and shows the live CoW quote next to the on-chain quote so the
- * choice is transparent.
+ * Opt-in "Swap via CoW" panel: the same trade through CoW's batch auction instead of
+ * the public mempool (one gasless signature, no sandwich, an unfilled order costs
+ * nothing). Shows a CoW quote only when one comes back, sells ERC-20s only, and sits
+ * next to the on-chain quote so the choice is visible.
  */
 export function CowSwapPanel({ fromToken, toToken, inputAmount, slippage, onChainOutputFormatted }: Props) {
   const { isConnected } = useAccount();
@@ -166,7 +162,7 @@ export function CowSwapPanel({ fromToken, toToken, inputAmount, slippage, onChai
                   rides the appData document in cowProtocol.ts), so this reads 0 today
                   and cannot start reading otherwise without that module changing too. */}
               <VenueFeeLine
-                quote={{ source: 'cowswap', venueFeeBps: providerFeeAttachment('cowswap')?.bps ?? 0 }}
+                quote={{ source: 'cowswap', venueFeeBps: providerFeeAttachment('cowswap', CHAIN_ID)?.bps ?? 0 }}
                 executes
               />
             </div>
