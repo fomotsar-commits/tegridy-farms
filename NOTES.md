@@ -15,6 +15,22 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-10-15: a NavLink lights itself, so two words that open one page both light
+
+**Believed:** a bar word pointing at `/#hall` lights only on the hall, and a `NavLink` whose
+`className` is a plain string carries only the classes it was given.
+
+**Measured** (react-router 7.18.3, `NavLink` in `dist/development`, and the bar's own unit test):
+a string `className` gets ` active` appended, and `aria-current="page"` is set, whenever
+`isActive`, and `isActive` compares the pathname alone. So `/` and `/#hall` are both active on
+`/`: Heat and Rooms lit together on the home. A second trap in the same drawer: index.css makes
+`.nav-link` `inline-flex` under its touch media queries, unlayered, so it beats Tailwind's
+`flex` and two bare drawer links shared a line at 390 and 820 (a Playwright box check, red on
+that build).
+
+**Do:** a word that shares a pathname with another is a plain `Link` with `aria-current` from
+its own rule; give each drawer row its own block (`<li>`).
+
 ## 2026-10-14: an element fading out with `visibility` still takes presses, and WebKit can call it hidden while it does
 
 **Believed:** a control hidden with `opacity-0 invisible` and a `transition-[opacity,visibility]`

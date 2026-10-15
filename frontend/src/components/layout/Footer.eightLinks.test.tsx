@@ -1,0 +1,70 @@
+// The footer is eight links on one screen (the island's venue review, item 1; owner 2026-10-03).
+// The drawer carries what the footer used to (navReach.test.tsx proves nothing is stranded), and
+// the collective's signature keeps its two music links (IslandSound.test.tsx). The one-screen
+// height is measured in a browser: e2e/nav-five-words.spec.ts.
+import { describe, it, expect, afterEach } from 'vitest';
+import { render, within } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
+import { Footer } from './Footer';
+
+const EIGHT = ['FAQ', 'Security', 'Risks', 'Terms', 'Privacy', 'For your AI', 'Twitter / X', 'Discord'];
+
+function footerAt(path: string) {
+  const { container } = render(
+    <MemoryRouter initialEntries={[path]}>
+      <Footer />
+    </MemoryRouter>,
+  );
+  return container.querySelector('footer')!;
+}
+
+/** A link's visible name, with the new-tab arrow dropped. */
+const name = (a: Element) => (a.textContent ?? '').replace('↗', '').trim();
+
+afterEach(() => {
+  localStorage.clear();
+});
+
+describe('the footer', () => {
+  it.each(['/', '/swap', '/earn', '/launch', '/trust'])('lists eight links on %s, in this order', (path) => {
+    const list = within(footerAt(path)).getByRole('navigation', { name: 'Footer' });
+    expect(within(list).getAllByRole('link').map(name)).toEqual(EIGHT);
+  });
+
+  it('has no other link on a venue route but the collective’s two music links', () => {
+    const footer = footerAt('/swap');
+    const outside = within(footer)
+      .getAllByRole('link')
+      .filter((a) => !a.closest('nav'))
+      .map(name);
+    expect(outside).toEqual(['spotify', 'youtube']);
+  });
+
+  it('opens each page link where it says, and the AI file as a plain link', () => {
+    const list = within(footerAt('/')).getByRole('navigation', { name: 'Footer' });
+    const href = (n: string) => within(list).getByRole('link', { name: new RegExp(`^${n}`) }).getAttribute('href');
+    expect(href('FAQ')).toBe('/faq');
+    expect(href('Security')).toBe('/security');
+    expect(href('Risks')).toBe('/risks');
+    expect(href('Terms')).toBe('/terms');
+    expect(href('Privacy')).toBe('/privacy');
+    expect(href('For your AI')).toBe('/llms.txt');
+  });
+
+  it('carries no room button and no column headings: Rooms is a word on the bar', () => {
+    const footer = footerAt('/');
+    expect(within(footer).queryByRole('button', { name: /Bungalows/ })).toBeNull();
+    for (const heading of ['Product', 'Resources', 'Community', 'Legal', 'Trust & Safety']) {
+      expect(within(footer).queryByRole('heading', { name: heading }), heading).toBeNull();
+    }
+  });
+
+  it('keeps the farm’s market links in its own room, beside its contract card', () => {
+    const footer = footerAt('/toweli');
+    for (const market of ['Trade on Uniswap', 'Etherscan', 'GeckoTerminal']) {
+      expect(within(footer).getByRole('link', { name: new RegExp(market) })).toBeInTheDocument();
+    }
+    const list = within(footer).getByRole('navigation', { name: 'Footer' });
+    expect(within(list).getAllByRole('link').map(name), 'the room adds to the eight, never into them').toEqual(EIGHT);
+  });
+});

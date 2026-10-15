@@ -174,19 +174,13 @@ test.describe('a11y — shared chrome', () => {
     // second time and reporting a pass.
     await hamburger.or(bar).first().waitFor({ state: 'visible', timeout: ROUTE_MOUNT_TIMEOUT });
 
-    if (!(await hamburger.isVisible())) {
-      // DESKTOP: no disclosure exists. The six words are always rendered, so
-      // the real assertion is that they are there and reachable without one.
-      await expect(bar.getByRole('link').first()).toBeVisible({ timeout: ROUTE_MOUNT_TIMEOUT });
-      expect(
-        await bar.getByRole('link').count(),
-        'the desktop bar rendered fewer than the six section words',
-      ).toBeGreaterThanOrEqual(6);
-      return;
-    }
+    // The bar carries the five words at every width (Heat · Rooms · Lock · Launch · Swap),
+    // and the drawer carries the rest at every width, so both are asserted everywhere.
+    const visibleBar = page.locator('nav[aria-label="Main navigation"]:visible');
+    await expect(visibleBar.getByRole('link').first()).toBeVisible({ timeout: ROUTE_MOUNT_TIMEOUT });
+    expect(await visibleBar.getByRole('link').count(), 'the bar rendered other than its five words').toBe(5);
+    await expect(hamburger, 'the drawer has no button at this width').toBeVisible();
 
-    // PHONE / narrow tablet: the drawer is the whole nav, so it is the thing
-    // that has to audit clean.
     await hamburger.click();
     const panel = page.getByRole('dialog', { name: 'Navigation menu' });
     await panel.waitFor({ state: 'visible', timeout: ROUTE_MOUNT_TIMEOUT });

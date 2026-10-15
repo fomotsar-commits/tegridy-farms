@@ -8,6 +8,7 @@ page keeps the newest thirty days.
 
 ### 2026-10-15
 
+- The bar reads Heat, Rooms, Lock, Launch and Swap, on a phone and on a wide screen. Pools, Check, the island, the records and Dashboard are in the menu, which now opens at every width; Pools still opens Solana LP. The footer is eight links. No bar or tab strip says Soon: a tab that is off is not listed.
 - Towelie in the corner: when a tab slides under him as you scroll, a press on that tab now opens the tab straight away. While he faded out of the way, a press there went to Towelie instead, and in Safari on an iPad it did even with motion turned down.
 - Launch token pages: the disclosure attestation line now gets a real answer, "Attested" or "No attestation", where it said "Cannot verify" on every token. When the check cannot run it says so in one plain sentence, and the technical error waits under Details.
 - Launch: the graduation fee line, and the integrator fees on Admin, now count the fees held in launched tokens as well as in ETH and TOWELI. They asked the browser's network connection for the full launch history, which every free provider refuses, so they always warned "only base pairs were checked". They now read it from the site, as the launch list already does.
