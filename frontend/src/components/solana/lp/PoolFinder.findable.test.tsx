@@ -198,6 +198,12 @@ describe("the site's own tokens are picked by a press, in any room", () => {
     expect(within(await finder()).getByTestId('lp-site-tokens-note')).toHaveTextContent('looked up by its address from this site’s own list, not by its name');
   });
 
+  // A copied name is how a fake token gets in, so the warning is on screen at the field, not folded away.
+  it('warns at the address field, on screen, that anyone can copy a name', async () => {
+    mount();
+    expect(within(await finder()).getByText('The token’s address, not its name: anyone can copy a name.')).toBeVisible();
+  });
+
   it("puts the visitor's own room first, and offers no token that is not on Solana", async () => {
     const last = SITE[SITE.length - 1]!;
     window.localStorage.setItem(BUNGALOW_STORAGE_KEY, last.id);

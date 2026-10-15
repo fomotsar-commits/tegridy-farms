@@ -298,6 +298,15 @@ describe('always', () => {
     expect(screen.queryByText(/verbatim fork/i)).toBeNull();
   });
 
+  // The team's vault can switch withdrawals off on any pool (update_pool_status, admin only),
+  // so the page may not promise a removal "any time"; it says the pause on screen instead.
+  it('never promises withdrawing any time, and says on screen that the vault can pause removing', async () => {
+    await mount();
+    await waitFor(() => expect(screen.getByText(/can pause removing/i)).toBeVisible());
+    expect(document.body.textContent).not.toMatch(/withdraw any ?time/i);
+    expect(screen.getByText(/can switch removing off on a pool/i)).toBeInTheDocument();
+  });
+
   it('says the browser cannot list pools itself, and how the server index fills that gap', async () => {
     await mount();
     await waitFor(() => expect(screen.getByText(/A browser cannot list pools itself/i)).toBeInTheDocument());

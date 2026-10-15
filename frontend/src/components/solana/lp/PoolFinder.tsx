@@ -432,8 +432,8 @@ export function PoolFinder({
           }}
         >
           {tokens.length > 0 && <p className="text-white/75 text-[12px] mb-1.5">Or by address:</p>}
-          {/* The hint on names sits in the small print under the form, with the rest of how lookup works. */}
-          <Field label="Token mint address" error={error}>
+          {/* The warning on names stays on screen at the field: a copied name is how a fake token gets in. */}
+          <Field label="Token mint address" hint="The token’s address, not its name: anyone can copy a name." error={error}>
             {(a11y) => (
               <input
                 {...a11y}
@@ -462,12 +462,11 @@ export function PoolFinder({
             )}
           </div>
         </form>
-        <FinePrint summary="Details" testId="lp-site-tokens-note">
-          <p>The token’s address, not its name: anyone can copy a name.</p>
-          {tokens.length > 0 && (
+        {tokens.length > 0 && (
+          <FinePrint summary="Details" testId="lp-site-tokens-note">
             <p>The buttons are the tokens with a room on this site. Each is looked up by its address from this site’s own list, not by its name.</p>
-          )}
-        </FinePrint>
+          </FinePrint>
+        )}
       </Card>
 
       {/* Where a lookup the visitor asked for scrolls to. The page's scroll-padding

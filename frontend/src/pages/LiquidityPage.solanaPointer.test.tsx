@@ -49,6 +49,14 @@ describe('/liquidity points a Solana visitor at the Solana LP tab', () => {
     expect(before(link, screen.getByTestId('pool-table'))).toBe(true);
   });
 
+  // How the venue earns stays on screen (owner, 2026-10-09): its cut of the pool fee is off,
+  // but swaps routed through this site still pay it a fee of its own.
+  it('says on screen that the venue cut is off and that swaps through this site pay the venue a separate fee', () => {
+    mount();
+    expect(screen.getByText(/Venue cut: off/)).toBeVisible();
+    expect(screen.getByText(/Swaps made through this site pay the venue a separate fee/)).toBeVisible();
+  });
+
   it.each<[LpWriteMode, string, RegExp]>([
     ['withdraw-only', 'On Solana? Take liquidity out on the Solana LP tab', /create|add/i],
     ['off', 'On Solana? Find a pool on the Solana LP tab', /create|add|remove|take/i],

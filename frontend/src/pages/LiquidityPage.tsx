@@ -82,6 +82,7 @@ export default function LiquidityPage() {
             under it, and the primer below, say who holds it and how to check it). */}
         <p className="text-white/75 text-[14px] md:text-[15px] leading-relaxed max-w-[62ch]">
           Ethereum pools. Swap fee 0.3%, all to the pool. Venue cut: off (read 10 October 2026).
+          Swaps made through this site pay the venue a separate fee.
         </p>
         <FinePrint summary="How it works">
           <p>
