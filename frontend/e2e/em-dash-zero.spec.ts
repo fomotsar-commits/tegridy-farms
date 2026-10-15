@@ -302,7 +302,7 @@ test.describe('element I: em dashes in the rooms', () => {
 // branch is walked in the next block. toweli's farm is its own room's prose, and nb1, not
 // yet live, goes to the venue's list.
 const ROOM_FARM_DEBT: Record<string, number> = {
-  toweli: 8,
+  toweli: 6,
   bayla: 0,
   bobo: 0,
   soy: 0,

@@ -19,8 +19,8 @@ import { PublicKey } from '@solana/web3.js';
  * "deployed" for a spent id.
  *
  * WHAT THIS PROGRAM IS: a fork of raydium-cp-swap @ 78f254e1023751e7…
- * CI's `diff-guard` clones upstream, refuses any differing file outside two,
- * and sha256-hashes the remaining delta against a pinned value: about 260
+ * CI's `diff-guard` holds every other file of the package to upstream's hash
+ * and sha256-hashes the reviewed delta against a pinned value: about 260
  * lines across `lib.rs`, `create_support_mint_associated.rs` and `Cargo.toml`,
  * all of it authority constants, the program's own name and contact text,
  * comments and ONE added instruction, `create_lp_metadata` (it names a pool's

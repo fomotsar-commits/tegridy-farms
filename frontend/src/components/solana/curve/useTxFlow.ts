@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { clipDetail } from '../../../lib/launcher/solana/curve';
 import { isLpKind } from '../../../lib/launcher/solana/write/lpKinds';
 import { sameToSign } from '../../../lib/launcher/solana/write/sameToSign';
+import { holdReload } from '../../../lib/reloadHold';
 import type { Prepared, PreparedTx, TxOutcome, TxSigner, WriteApi, WriteRpc } from './ports';
 import type { ReviewText } from './reviewLines';
 
@@ -364,6 +365,9 @@ export function useTxFlow(
         if (compared.moved.now.length > 0 || compared.moved.gone.length > 0) moved = compared.moved;
       }
       setState(moved ? { step: 'submitting', prepared, moved } : { step: 'submitting', prepared });
+      // From the wallet's turn to the answer the page does not reload itself
+      // (lib/staleBuild.ts), whether or not this panel is still on screen.
+      const release = holdReload();
       let sentSignature: string | null = null;
       let outcome: TxOutcome;
       try {
@@ -388,6 +392,8 @@ export function useTxFlow(
           signature: sentSignature ?? '',
           message: `We lost track of this transaction (${clipDetail(e)}). Check your wallet's activity before trying again.`,
         };
+      } finally {
+        release();
       }
       busy.current = false;
       setState({ step: 'outcome', outcome, prepared, rechecking: false, checks: 0 });

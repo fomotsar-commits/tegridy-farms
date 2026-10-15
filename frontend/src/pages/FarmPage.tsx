@@ -52,6 +52,7 @@ import { ArtImg } from '../components/ArtImg';
 import { CardArt } from '../components/ui/CardArt';
 import { PageArtBackdrop } from '../components/PageArtBackdrop';
 import { FinePrint } from '../components/ui/FinePrint';
+import { lpFarmDeposit } from '../lib/lpEmissions';
 
 /**
  * Earn's Staking tab. `/earn` is the list of every pool (VenueEarn) whatever
@@ -174,6 +175,10 @@ function ToweliFarm() {
   // refreshBoost is a transaction, so the user confirms it rather than having a
   // signature request appear on page load.
   const lpBoost = useAutoRefreshBoost({ onRefreshNeeded: lpFarm.refreshBoost });
+  // A refresh earns nothing once the farm's rewards have ended (a landed periodFinish
+  // in the past), so the prompt to pay gas for "the boosted rate" is not shown then.
+  const lpDeposit = lpFarmDeposit(lpFarm.periodFinishUnread ? null : lpFarm.periodFinish);
+  const lpRewardsEnded = !lpDeposit.open && lpDeposit.reason === 'ended';
 
   // EIP-5792: collapse approve + stake into one confirmation on wallets that
   // advertise atomic batching. Support is never assumed — `canBatch` stays false
@@ -533,7 +538,7 @@ function ToweliFarm() {
         {/* AUDIT F-7: staked before acquiring the JBAC → the farm is still paying
             the unboosted rate. Permissionless on-chain, so the user can fix it
             here in one transaction. */}
-        {lpBoost.needsRefresh && (
+        {lpBoost.needsRefresh && !lpRewardsEnded && (
           <div
             className="relative isolate mb-4 px-4 py-3 rounded-xl flex flex-col sm:flex-row sm:items-center gap-3"
             style={{ background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.25)' }}

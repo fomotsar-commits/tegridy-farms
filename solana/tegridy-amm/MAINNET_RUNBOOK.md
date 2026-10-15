@@ -993,7 +993,8 @@ and burning the LP does not protect a pool from any of them:
   Every graduation then fails `MigrationPermissionMissing` (6021) until it is re-created.
 - **Change `create_pool_fee`** — `update_config` param 5, with no bound. Migration pays that
   fee out of each curve's migration reserve, which was snapshotted at creation, so a fee above
-  `migration_reserve − 42,156,720` bricks the graduation of **every pending curve** at once.
+  `migration_reserve` minus the pool accounts' rent (30,769,560 at today's rate, 42,156,720 at
+  the old one, §5b) bricks the graduation of **every pending curve** at once.
   (`create-amm-config` checks this ceiling at creation; nothing checks it on a later update.)
 - **Disable pool creation** — `update_config` param 6 sets `disable_create_pool`, and
   `initialize_with_permission` then refuses every pool, so every graduation fails until it is
@@ -1148,13 +1149,20 @@ estimate). Only policy stops that now: publish the rule (the EVM intent is LP in
 bounties and bribes), or lock the reserves. The recipient is the Squads vault, a 2-of-2
 today (§0), so both keys are needed to move any of it.
 
-### ⚠️ `migration_reserve_lamports` — minimum **192,156,720** (~0.1922 SOL)
+### ⚠️ `migration_reserve_lamports` — minimum **180,769,560** (~0.1808 SOL) at today's rent
 
 Raised from traders on top of the target, and it pays cp-swap's costs at migration:
-0.15 SOL `create_pool_fee` plus 42,156,720 lamports of rent for the five accounts
-cp-swap creates (`observation_state` alone is 29.25M — 70% of the rent). Derived
-from cp-swap's own `LEN` constants, not estimated. **Recommended: 0.25 SOL** for
-headroom.
+0.15 SOL `create_pool_fee` plus 30,769,560 lamports of rent for the accounts cp-swap
+creates, at today's `(bytes + 128) × 5,080` (read 2026-10-14, slot 456,823,210;
+`observation_state` alone is 21.35M, 69% of the rent). Derived from cp-swap's own `LEN`
+constants, not estimated; the table is in `programs/tegridy-launch/MIGRATE_DESIGN.md`.
+At the old rate of 6,960 a byte this section said 192,156,720 (42,156,720 of rent).
+**Recommended: 0.25 SOL** for headroom.
+
+**The program's floor is a constant, still at the old rate.** `MIN_MIGRATION_RESERVE_LAMPORTS`
+is 42,156,720 (`programs/tegridy-launch/src/state.rs`), so `initialize_global` refuses a
+reserve below that even though today's rent is 30,769,560. That only makes it stricter; the
+practical minimum above clears it. Changing the constant needs a program upgrade.
 
 > ⚠️ **Corrected 2026-08-08 — the previous advice made a real leak bigger.**
 > This used to read *"the surplus is swept back to whoever calls migration, so

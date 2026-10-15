@@ -20,6 +20,9 @@ import { BUNGALOWS, getActiveBungalow } from './lib/bungalows';
 import { useSectionLink } from './hooks/useSectionLink';
 import { BungalowDoor, VENUE_ID } from './components/bungalow/BungalowDoor';
 import { EARN_PATH, isEarnPoolId, legacyFarmTarget } from './lib/earnRoutes';
+import { lazyLoadFailed } from './lib/staleBuild';
+import { holdReloadWhileWalletWorks } from './lib/reloadHold';
+import { StaleBuildFallback } from './components/StaleBuildFallback';
 
 const HomePage = lazy(() => import('./pages/HomePage'));
 const DashboardPage = lazy(() => import('./pages/DashboardPage'));
@@ -69,12 +72,12 @@ const VestingPage = lazy(() => import('./pages/VestingPage'));
 const OnboardingFlow = lazy(() => import('./components/onboarding/OnboardingFlow'));
 
 // Error boundary catches render errors in lazy-loaded pages and prevents white-screen crashes
-class RouteErrorBoundary extends Component<{ children: ReactNode; resetKey?: string }, { hasError: boolean }> {
+class RouteErrorBoundary extends Component<{ children: ReactNode; resetKey?: string }, { hasError: boolean; error?: unknown }> {
   constructor(props: { children: ReactNode; resetKey?: string }) {
     super(props);
     this.state = { hasError: false };
   }
-  static getDerivedStateFromError() { return { hasError: true }; }
+  static getDerivedStateFromError(error: unknown) { return { hasError: true, error }; }
   componentDidCatch(error: Error, info: ErrorInfo) {
     console.error('Route render error:', error, info.componentStack);
   }
@@ -87,7 +90,7 @@ class RouteErrorBoundary extends Component<{ children: ReactNode; resetKey?: str
   }
   render() {
     if (this.state.hasError) {
-      return (
+      const generic = (
         <div className="min-h-[60vh] flex items-center justify-center px-6">
           <div className="text-center max-w-sm">
             <h1 className="heading-luxury text-3xl text-white mb-3">Something went wrong</h1>
@@ -103,6 +106,8 @@ class RouteErrorBoundary extends Component<{ children: ReactNode; resetKey?: str
           </div>
         </div>
       );
+      // As in ui/ErrorBoundary: a lazy load that failed may be a deploy, not a fault.
+      return lazyLoadFailed(this.state.error) ? <StaleBuildFallback>{generic}</StaleBuildFallback> : generic;
     }
     return this.props.children;
   }
@@ -117,6 +122,10 @@ const queryClient = new QueryClient({
     },
   },
 });
+
+// While a wagmi write, signature or receipt wait is open on this client, the page never
+// reloads itself (lib/staleBuild.ts).
+holdReloadWhileWalletWorks(queryClient);
 
 function NotFoundPage() {
   // No canonical (a soft-404 served 200) and noindex. A colon, not an em dash: AppLayout
@@ -364,7 +373,9 @@ function AnimatedRoutes() {
         <Route path="terminal" element={<Suspense fallback={<PageSkeleton />}><TrustPage /></Suspense>} />
         <Route path="chart" element={<Suspense fallback={<PageSkeleton />}><TrustPage /></Suspense>} />
         <Route path="alerts" element={<Suspense fallback={<PageSkeleton />}><TrustPage /></Suspense>} />
-        <Route path="referrals" element={<Suspense fallback={<PageSkeleton />}><EarnPage /></Suspense>} />
+        {/* Referrals left Earn on 2026-10-14 (owner). A referral link is `/?ref=` and is read
+            site-wide; the claim and share box stays on the TOWELI room's dashboard. */}
+        <Route path="referrals" element={<Navigate to="/earn" replace />} />
         <Route path="checkout" element={<Suspense fallback={<PageSkeleton />}><EarnPage /></Suspense>} />
         <Route path="tax" element={<Suspense fallback={<PageSkeleton />}><StatsPage /></Suspense>} />
         <Route path="developers" element={<Suspense fallback={<PageSkeleton />}><DeveloperPage /></Suspense>} />

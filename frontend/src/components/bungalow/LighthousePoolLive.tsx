@@ -48,6 +48,7 @@ import {
 } from '../../lib/bungalowStaking';
 import { sharePct } from '../../lib/ladder/program';
 import { basisBehindWrite, FENCE_RETRY_MS, type WriteFence } from '../../lib/ladder/writeFence';
+import { holdReload } from '../../lib/reloadHold';
 
 /**
  * The lighthouse pool, LIVE — rendered by BungalowFarmPanel when the
@@ -158,6 +159,16 @@ function humanDuration(secs: number): string {
   const h = Math.floor(secs / 3600);
   if (h >= 1) return `${h}h`;
   return `${Math.max(1, Math.floor(secs / 60))}m`;
+}
+
+/** Until a write is answered the page does not reload itself (lib/staleBuild.ts). */
+async function held<T>(fn: () => Promise<T>): Promise<T> {
+  const release = holdReload();
+  try {
+    return await fn();
+  } finally {
+    release();
+  }
 }
 
 /** A write fence, plus the signature it belongs to (so a late slot lands on its own write). */
@@ -493,7 +504,7 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
 
   const run = async (label: string, fn: () => Promise<{ ok: true; txId: string } | { ok: false; reason: string }>) => {
     setAction({ busy: label });
-    const res = await fn();
+    const res = await held(fn);
     if (res.ok) {
       setStaleEntries(latestEntriesRead.current);
       setWriteFence({ key: walletKey, slot: null, sig: res.txId });
@@ -1469,7 +1480,7 @@ export function LighthouseClaimStrip({ bungalow }: { bungalow: Bungalow & { stak
     const key = walletKey;
     setRescueFor(null);
     setAction({ key, busy: label });
-    const res = await fn();
+    const res = await held(fn);
     setAction(res.ok ? { key, note: `${label} confirmed.`, tx: res.txId } : { key, note: res.reason });
     reread();
   };

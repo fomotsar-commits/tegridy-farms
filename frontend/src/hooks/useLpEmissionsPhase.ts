@@ -1,7 +1,25 @@
+import { useMemo } from 'react';
 import { useReadContract } from 'wagmi';
 import { LP_FARMING_ABI } from '../lib/contracts';
 import { LP_FARMING_ADDRESS, CHAIN_ID, isDeployed } from '../lib/constants';
-import { lpEmissionsPhase, type LpEmissionsPhase } from '../lib/lpEmissions';
+import {
+  lpEmissionsPhase,
+  lpFarmDeposit,
+  LP_FARM_CHECKING_LINE,
+  type LpEmissionsPhase,
+  type LpFarmDeposit,
+} from '../lib/lpEmissions';
+
+/** One read of `periodFinish`, shared by every caller below (same query key). */
+function usePeriodFinishRead() {
+  return useReadContract({
+    address: LP_FARMING_ADDRESS,
+    abi: LP_FARMING_ABI,
+    functionName: 'periodFinish',
+    chainId: CHAIN_ID,
+    query: { enabled: isDeployed(LP_FARMING_ADDRESS), staleTime: 300_000 },
+  });
+}
 
 /**
  * Does the LP farm have a funded emissions period right now?
@@ -16,12 +34,21 @@ import { lpEmissionsPhase, type LpEmissionsPhase } from '../lib/lpEmissions';
  * degrades to 'unknown', never to 'running'.
  */
 export function useLpEmissionsPhase(): LpEmissionsPhase {
-  const { data } = useReadContract({
-    address: LP_FARMING_ADDRESS,
-    abi: LP_FARMING_ABI,
-    functionName: 'periodFinish',
-    chainId: CHAIN_ID,
-    query: { enabled: isDeployed(LP_FARMING_ADDRESS), staleTime: 300_000 },
-  });
+  const { data } = usePeriodFinishRead();
   return lpEmissionsPhase(typeof data === 'bigint' ? Number(data) : 0);
+}
+
+/**
+ * Whether a surface other than the farm card (the zap) may offer a new LP farm stake.
+ * Memoised on the read, so a plan built on it keeps its identity between renders.
+ */
+export function useLpFarmDeposit(): LpFarmDeposit {
+  const { data, isLoading } = usePeriodFinishRead();
+  const periodFinish = typeof data === 'bigint' ? Number(data) : null;
+  return useMemo<LpFarmDeposit>(
+    () => (isLoading
+      ? { open: false, reason: 'checking', line: LP_FARM_CHECKING_LINE }
+      : lpFarmDeposit(periodFinish)),
+    [isLoading, periodFinish],
+  );
 }

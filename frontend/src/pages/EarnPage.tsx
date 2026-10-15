@@ -2,13 +2,6 @@ import { lazy } from 'react';
 import { SectionHost } from './SectionHost';
 import { EARN_SECTION } from '../lib/navConfig';
 
-// Referral links, the staking threshold that decides whether sharing one earns
-// anything at all, and the on-chain claim. NOT flag-gated and not pilled: the
-// splitter is deployed and the long-form `/?ref=0x…` link resolves in the browser
-// with no server, so the surface is live. Only the optional short `/?r=code` form
-// needs `019_referral_codes.sql`, and the share card prints that store's own answer
-// rather than gating the page on it.
-const ReferralsPage = lazy(() => import('./ReferralsPage'));
 // Yield routing (#32 / #21 / #34) — a comparison of THIRD-PARTY liquid staking and
 // stablecoin lending venues. This venue issues nothing here and deploys no contract:
 // every figure is read live from Ethereum mainnet over the public RPC roster, and each
@@ -66,7 +59,6 @@ export default function EarnPage() {
       panels={{
         '/earn': FarmPage,
         '/nft-finance': LendingPage,
-        '/referrals': ReferralsPage,
         '/yield': YieldPage,
         '/copy-trading': CopyTradingPage,
         '/competitions': CompetitionsPage,
