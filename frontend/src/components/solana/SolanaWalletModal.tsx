@@ -17,8 +17,10 @@ import { Cuer } from 'cuer';
 import { WalletReadyState } from '@solana/wallet-adapter-base';
 import { useWallet, type Wallet } from '@solana/wallet-adapter-react';
 import { WalletModalContext, useWalletModal } from '@solana/wallet-adapter-react-ui';
+import { toast } from 'sonner';
 import {
   PHONE_WALLET_ROW,
+  opensInWalletApp,
   orderWallets,
   rowStatus,
   scansForWallet,
@@ -26,7 +28,7 @@ import {
   walletLabel,
 } from '../../lib/solanaWalletOrder';
 import { WalletConnectWalletAdapter, type WalletConnectPairing } from '../../lib/solanaWalletConnect';
-import { shortSolanaAddress } from '../../lib/solanaSurface';
+import { markSolanaHandoff, shortSolanaAddress } from '../../lib/solanaSurface';
 import { useWalletResync } from './useWalletResync';
 import { usePhoneWalletFailure, type PhoneWalletFailure } from './usePhoneWalletFailure';
 
@@ -96,13 +98,19 @@ import { usePhoneWalletFailure, type PhoneWalletFailure } from './usePhoneWallet
  *     — not the extension's install page. Both phone apps scan it
  *     (solanaWalletOrder.ts SCANNABLE_WALLETS). The connection is the
  *     WalletConnect row's: the same adapter, saved under the same name.
- *  8. A wallet detected in this browser is listed once: a row of ours under
+ *  8. An "Open app" row (a phone browser) says where the connect went, and
+ *     the page it opens inside the wallet's app connects by itself
+ *     (lib/solanaSurface.ts markSolanaHandoff). Before, that page looked like
+ *     the start again and the same three presses had to be repeated.
+ *  9. A wallet detected in this browser is listed once: a row of ours under
  *     the same label is dropped (solanaWalletOrder.ts orderWallets).
- *  9. The row WalletProvider adds on Android Chrome is named in plain words,
+ * 10. The row WalletProvider adds on Android Chrome is named in plain words,
  *     and its failed connect brings this list back (usePhoneWalletFailure.ts).
  */
 
 const FADE_MS = 150;
+/** How long the page left behind by an "Open app" press says where the connect went. */
+const HANDOFF_NOTICE_MS = 20_000;
 
 /** The wallet a QR was opened for (change 7): its row label and its install page. */
 interface ScanFor {
@@ -156,6 +164,12 @@ function SolanaWalletModal({ phoneWallet }: { phoneWallet: PhoneWalletFailure })
   const pairing = useWalletConnectPairing(walletConnect);
   const pairingActive = pairing.phase === 'starting' || pairing.phase === 'scan';
   const connectedAs = connected && publicKey ? shortSolanaAddress(publicKey.toBase58()) : null;
+  // A phone's own browser has no wallet in it: every row then leaves for a wallet app.
+  // Said once, above the rows, so the list does not read as seven dead ends.
+  const opensApps =
+    connectedAs === null &&
+    !ordered.some((w) => w.readyState === WalletReadyState.Installed) &&
+    ordered.some((w) => rowStatus(w.readyState, w.adapter.name, walletConnectWallet !== null) === 'Open app');
   // The wallet a connect is still waiting on: a locked wallet, or an approval
   // window nobody saw, answers late or never, and until 2026-10-03 nothing
   // named it. WalletConnect's own wait is its QR, or its saved session's restore.
@@ -255,6 +269,22 @@ function SolanaWalletModal({ phoneWallet }: { phoneWallet: PhoneWalletFailure })
         }
         // Change 7: Trust or Jupiter, not in this browser — the QR its phone app scans.
         wallet = walletConnectWallet;
+      }
+      // Change 8: an "Open app" row reopens this page inside the wallet's app.
+      // The address it is handed carries a marker, so the page that opens
+      // there asks the wallet to connect by itself (lib/solanaSurface.ts), and
+      // the page left behind here says where the connect went.
+      if (opensInWalletApp(clicked.readyState, clicked.adapter.name)) {
+        const label = walletLabel(clicked.adapter.name);
+        // Not carried where tab storage is blocked: the page in the app then waits for a press.
+        const carried = markSolanaHandoff();
+        // Long, because the wallet's app covers this page a moment after the press.
+        toast(
+          carried
+            ? `Opening ${label}. This site opens again inside the ${label} app, and connects there.`
+            : `Opening ${label}. This site opens again inside the ${label} app. Press Connect there.`,
+          { duration: HANDOFF_NOTICE_MS },
+        );
       }
       setScanFor(
         wallet === clicked ? null : { label: walletLabel(clicked.adapter.name), installUrl: clicked.adapter.url },
@@ -388,6 +418,12 @@ function SolanaWalletModal({ phoneWallet }: { phoneWallet: PhoneWalletFailure })
                   <button type="button" onClick={handleDisconnect} className="underline font-semibold text-white">
                     Disconnect
                   </button>
+                </p>
+              )}
+              {opensApps && (
+                <p className="wallet-adapter-modal-note" data-testid="wallet-opens-apps">
+                  No wallet was found in this browser. Open app hands you to that wallet’s own app to connect; most
+                  load this page inside it. The app has to be installed on this device.
                 </p>
               )}
               {waitingFor && (

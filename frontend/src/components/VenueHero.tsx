@@ -5,6 +5,7 @@ import { heatExampleLine, VENUE, OPEN_VENUE_WELCOME_EVENT } from '../lib/arrival
 import { heatLaunchFloor } from '../lib/heat/heatGateConfig';
 import { tierAtFloor } from '../lib/heat/heatOracle';
 import { HeatCard } from './HeatCard';
+import { FinePrint } from './ui/FinePrint';
 
 /**
  * The venue's arrival hero, shown when no bungalow is entered. It claims no yield and no
@@ -25,7 +26,7 @@ export function VenueHero() {
 
   return (
     <>
-      <h1 className="heading-luxury text-3xl md:text-6xl text-white leading-[1.1] tracking-tight mb-4">
+      <h1 className="heading-luxury text-[clamp(1.25rem,7.4vw,1.875rem)] md:text-6xl text-white leading-[1.1] tracking-tight mb-4">
         {/* A real space before the break: a <br> is not text, so without it a screen
             reader or an unfurl reads "MEMETICS.FINANCEHeld". */}
         {VENUE.heroTitle}{' '}<br /><span className="text-white">{VENUE.heroLine}</span>
@@ -49,27 +50,28 @@ export function VenueHero() {
           focusField={typedBeforeReact.focused}
         />
 
-        {/* The island's sentence on linked wallets, then its door to link them. */}
-        <p className="text-white/70 text-[12px] leading-relaxed mt-3">{VENUE.heatOnePerson}</p>
-        <p className="text-white/70 text-[12px] leading-relaxed mt-2">
-          Hold in several wallets?{' '}
-          <a
-            href="https://memetics.wtf/register"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="underline underline-offset-4"
-            style={{ color: 'var(--color-kyle)' }}
-          >
-            Bring them together at the island&apos;s door
-          </a>{' '}
-          and every one of them reads your whole flame.
-        </p>
-
-        {/* The definition stays with the instrument; both come from lib/arrival.ts. */}
-        <p className="text-white/60 text-[12px] leading-relaxed mt-3">{VENUE.heatPlain}</p>
-        <p className="text-[12px] leading-relaxed mt-1" style={{ color: 'var(--color-kyle)' }}>
-          {heatExampleLine(launchFloor, tierAtFloor(launchFloor))}
-        </p>
+        {/* The definition, the launch floor and the linked-wallet sentence stay with the
+            instrument, one press away; all of them come from lib/arrival.ts. */}
+        <FinePrint summary="How heat works" className="mt-2">
+          <p>{VENUE.heatPlain}</p>
+          <p style={{ color: 'var(--color-kyle)' }}>
+            {heatExampleLine(launchFloor, tierAtFloor(launchFloor))}
+          </p>
+          <p>{VENUE.heatOnePerson}</p>
+          <p>
+            Hold in several wallets?{' '}
+            <a
+              href="https://memetics.wtf/register"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="underline underline-offset-4"
+              style={{ color: 'var(--color-kyle)' }}
+            >
+              Bring them together at the island&apos;s door
+            </a>{' '}
+            and every one of them reads your whole flame.
+          </p>
+        </FinePrint>
       </div>
 
       {/* The venue never opens its welcome by itself: this pill is the door to the tour. */}

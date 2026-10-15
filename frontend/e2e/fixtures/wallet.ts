@@ -153,15 +153,16 @@ export async function expectTxReceipt(
       const hash = href ? /0x[0-9a-fA-F]{64}/.exec(href)?.[0]?.toLowerCase() : undefined;
       if (hash) hashes.push(hash);
     }
-    if (hashes.length === 0) return 'NO VISIBLE RECEIPT LINK ON THE PAGE AT ALL';
+    const first = hashes[0];
+    if (first === undefined) return 'NO VISIBLE RECEIPT LINK ON THE PAGE AT ALL';
     if (wantHash) {
       if (!hashes.includes(wantHash)) return `ONLY RECEIPTS FOR OTHER TRANSACTIONS (${hashes.join(', ')})`;
       matched = wantHash;
-    } else {
-      if (hashes[0] === notHash) return `STILL THE PREVIOUS STEP'S RECEIPT (${hashes[0]})`;
-      matched = hashes[0];
+      return wantHash;
     }
-    return matched;
+    if (first === notHash) return `STILL THE PREVIOUS STEP'S RECEIPT (${first})`;
+    matched = first;
+    return first;
   };
 
   await expect

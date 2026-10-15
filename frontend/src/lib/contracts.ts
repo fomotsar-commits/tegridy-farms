@@ -556,19 +556,44 @@ export const TEGRIDY_DROP_V2_ABI = [
   // V2-only: ERC-7572 contractURI surface
   { type: 'function', name: 'contractURI', inputs: [], outputs: [{ name: '', type: 'string' }], stateMutability: 'view' },
   { type: 'function', name: 'setContractURI', inputs: [{ name: 'uri', type: 'string' }], outputs: [], stateMutability: 'nonpayable' },
-  // Admin setters
+  // Admin setters. setMerkleRoot, setMintPrice and configureDutchAuction are not
+  // here: the contract (deployed template and source alike) reverts on all three.
+  // Those changes go through a 24-hour propose / execute / cancel.
   { type: 'function', name: 'setMintPhase', inputs: [{ name: 'phase', type: 'uint8' }], outputs: [], stateMutability: 'nonpayable' },
-  { type: 'function', name: 'setMerkleRoot', inputs: [{ name: 'root', type: 'bytes32' }], outputs: [], stateMutability: 'nonpayable' },
-  { type: 'function', name: 'setMintPrice', inputs: [{ name: 'price', type: 'uint256' }], outputs: [], stateMutability: 'nonpayable' },
   { type: 'function', name: 'setMaxPerWallet', inputs: [{ name: 'max', type: 'uint256' }], outputs: [], stateMutability: 'nonpayable' },
   { type: 'function', name: 'setBaseURI', inputs: [{ name: 'uri', type: 'string' }], outputs: [], stateMutability: 'nonpayable' },
   { type: 'function', name: 'reveal', inputs: [{ name: 'revealURI', type: 'string' }], outputs: [], stateMutability: 'nonpayable' },
-  { type: 'function', name: 'configureDutchAuction', inputs: [
+  { type: 'function', name: 'proposeMintPrice', inputs: [{ name: 'newPrice', type: 'uint256' }], outputs: [], stateMutability: 'nonpayable' },
+  { type: 'function', name: 'executeMintPrice', inputs: [{ name: 'expectedPrice', type: 'uint256' }, { name: 'expectedExecuteAfter', type: 'uint256' }], outputs: [], stateMutability: 'nonpayable' },
+  { type: 'function', name: 'cancelMintPrice', inputs: [], outputs: [], stateMutability: 'nonpayable' },
+  { type: 'function', name: 'pendingMintPrice', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
+  { type: 'function', name: 'proposeDutchAuction', inputs: [
     { name: 'startPrice', type: 'uint256' },
     { name: 'endPrice', type: 'uint256' },
     { name: 'startTime', type: 'uint256' },
     { name: 'duration', type: 'uint256' },
   ], outputs: [], stateMutability: 'nonpayable' },
+  { type: 'function', name: 'executeDutchAuction', inputs: [
+    { name: 'expectedStartPrice', type: 'uint256' },
+    { name: 'expectedEndPrice', type: 'uint256' },
+    { name: 'expectedStartTime', type: 'uint256' },
+    { name: 'expectedDuration', type: 'uint256' },
+    { name: 'expectedExecuteAfter', type: 'uint256' },
+  ], outputs: [], stateMutability: 'nonpayable' },
+  { type: 'function', name: 'cancelDutchAuction', inputs: [], outputs: [], stateMutability: 'nonpayable' },
+  { type: 'function', name: 'pendingDutchConfig', inputs: [], outputs: [
+    { name: 'startPrice', type: 'uint256' },
+    { name: 'endPrice', type: 'uint256' },
+    { name: 'startTime', type: 'uint256' },
+    { name: 'duration', type: 'uint256' },
+  ], stateMutability: 'view' },
+  { type: 'function', name: 'proposeMerkleRoot', inputs: [{ name: 'newRoot', type: 'bytes32' }], outputs: [], stateMutability: 'nonpayable' },
+  { type: 'function', name: 'executeMerkleRoot', inputs: [{ name: 'expectedRoot', type: 'bytes32' }, { name: 'expectedExecuteAfter', type: 'uint256' }], outputs: [], stateMutability: 'nonpayable' },
+  { type: 'function', name: 'cancelMerkleRoot', inputs: [], outputs: [], stateMutability: 'nonpayable' },
+  { type: 'function', name: 'pendingMerkleRoot', inputs: [], outputs: [{ name: '', type: 'bytes32' }], stateMutability: 'view' },
+  { type: 'function', name: 'proposalExecuteAfter', inputs: [{ name: 'key', type: 'bytes32' }], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
+  // Only on the template with the 2026-10-14 fixes (lib/dropRules.ts tells which one a drop runs).
+  { type: 'function', name: 'fixedPriceNeedsProposal', inputs: [], outputs: [{ name: '', type: 'bool' }], stateMutability: 'view' },
   { type: 'function', name: 'pause', inputs: [], outputs: [], stateMutability: 'nonpayable' },
   { type: 'function', name: 'unpause', inputs: [], outputs: [], stateMutability: 'nonpayable' },
   { type: 'function', name: 'withdraw', inputs: [], outputs: [], stateMutability: 'nonpayable' },

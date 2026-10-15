@@ -1,5 +1,6 @@
-// THE POOLS PAGE'S ONLY WAY INTO THE WRITE LAYER (the other loader is
-// components/solana/curve/writeApi.ts, the launch page's).
+// THE POOLS PAGE'S ONLY WAY INTO THE WRITE LAYER (the other loaders are
+// components/solana/curve/writeApi.ts, the launch page's, and
+// components/swap/venueSwapApi.ts, the swap page's).
 //
 // Everything is a dynamic import, called only once LP's own switch
 // (lib/launcher/solana/lpWriteFlag.ts) is not 'off'. A production build with the
@@ -43,6 +44,7 @@ async function build(): Promise<LpWriteApi> {
     submitPrepared: submit.submitPrepared,
     recheckOutcome: (rpc, signature, opts) => submit.recheckOutcome(rpc, signature, opts ?? {}),
     explorerTxUrl: config.explorerTxUrl,
+    explorerAddressUrl: config.explorerAddressUrl,
     meta: { displaySafe: validate.displaySafe },
   };
   return api;

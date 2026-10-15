@@ -152,32 +152,16 @@ describe('SectionHost — a page under a tab', () => {
 });
 
 describe('SectionHost — top clearance', () => {
-  // The strip is `position: fixed` under the 56px header, so a page that does not
-  // already pull itself up under the header needs padding or its own heading
-  // renders behind the tabs. `fullBleed` opts a page out of that.
-  it('pads a normal page and leaves a full-bleed one alone', async () => {
-    const { container, unmount } = render(
+  // The strip takes no room in the flow and lies over the panel's top padding, so the
+  // panel keeps that padding or its own heading starts under the tabs.
+  it('pads the panel by the strip', async () => {
+    const { container } = render(
       <MemoryRouter initialEntries={['/launch']}>
         <SectionHost section={SECTION} idPrefix="launch" ariaLabel="Launch sections" panels={PANELS} />
       </MemoryRouter>,
     );
     await screen.findByText('launchpad panel');
     expect(container.querySelector('#launch-panel > .pt-14')).toBeTruthy();
-    unmount();
-
-    render(
-      <MemoryRouter initialEntries={['/launch']}>
-        <SectionHost
-          section={SECTION}
-          idPrefix="launch"
-          ariaLabel="Launch sections"
-          panels={PANELS}
-          fullBleed={['/launch']}
-        />
-      </MemoryRouter>,
-    );
-    await screen.findByText('launchpad panel');
-    expect(document.querySelector('#launch-panel > .pt-14')).toBeFalsy();
   });
 });
 

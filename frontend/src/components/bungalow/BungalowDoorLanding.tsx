@@ -13,6 +13,8 @@ import { CopyButton } from '../ui/CopyButton';
 import { shortenAddress } from '../../lib/formatting';
 import { artImgProps } from '../../lib/artSrcSet';
 import { ArtImg } from '../ArtImg';
+import { CardArt } from '../ui/CardArt';
+import { FinePrint } from '../ui/FinePrint';
 import { HeatCard } from './HeatCard';
 import { BungalowMarket } from './BungalowMarket';
 
@@ -92,7 +94,7 @@ export function BungalowDoorLanding({ bungalow }: { bungalow: Bungalow }) {
           <p className="text-white/70 text-[11px] uppercase tracking-[0.2em] mb-2">
             Jungle Bay Island · {bungalow.status}
           </p>
-          <h1 className="heading-luxury text-3xl md:text-6xl text-white leading-[1.1] tracking-tight mb-3">
+          <h1 className="heading-luxury text-[clamp(1.25rem,7.4vw,1.875rem)] md:text-6xl text-white leading-[1.1] tracking-tight mb-3">
             {hasToken ? `${bungalow.symbol}.` : OPEN_LOT_HERO.heroTitle}{' '}
             <br />
             <span className="text-white">{hasToken ? 'This bungalow is settled.' : lot}</span>
@@ -101,10 +103,7 @@ export function BungalowDoorLanding({ bungalow }: { bungalow: Bungalow }) {
             {hasToken ? (
               <>
                 {bungalow.tagline}{' '}
-                {bungalow.name} lives on {CHAIN_LABEL[bungalow.chain]} and holds a spot on the
-                island. The door is open today — contract, trade route and heat below. The full
-                skin (this venue dressed in {bungalow.name}&apos;s own art) opens when its
-                community brings the art drop.
+                Contract, trade route and heat below.
               </>
             ) : (
               // The island's harbor heading, linked to the harbor itself.
@@ -124,7 +123,8 @@ export function BungalowDoorLanding({ bungalow }: { bungalow: Bungalow }) {
         {hasToken && (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {/* Contract + live surfaces */}
-            <div className="relative overflow-hidden rounded-2xl glass-card-animated" style={{ border: '1px solid var(--color-purple-75)' }}>
+            <div className="relative isolate overflow-hidden rounded-2xl glass-card-animated" style={{ border: '1px solid var(--color-purple-75)' }}>
+              <CardArt pageId="bungalow-door" idx={2} scrim="transparent" />
               <div className="absolute inset-0" style={{ background: 'rgba(4,9,18,0.82)' }} />
               <div className="relative z-10 p-6">
                 <p className="text-[10px] uppercase tracking-wider mb-2" style={{ color: accent }}>Live today</p>
@@ -187,19 +187,23 @@ export function BungalowDoorLanding({ bungalow }: { bungalow: Bungalow }) {
               <div className="relative z-10 p-6">
                 <p className="text-[10px] uppercase tracking-wider mb-2" style={{ color: accent }}>The skin</p>
                 <h2 className="heading-luxury text-xl text-white mb-3">Opens with the art drop</h2>
-                <p className="text-white/85 text-[13px] leading-relaxed mb-4">
-                  Every live bungalow dresses this whole venue in its community&apos;s art —
-                  15–30 pieces and a blessing is all it takes. Until {bungalow.name}&apos;s
-                  people bring theirs, the classic island art holds the wall and this address
-                  keeps working exactly as it does today.
-                </p>
                 <p className="text-white/85 text-[13px] leading-relaxed">
-                  See the living demo: the{' '}
-                  <Link to="/bayla" className="underline underline-offset-2 text-white hover:text-white/80">
-                    BAYLA bungalow
-                  </Link>{' '}
-                  is a full token-first home — hero, farm, gallery wing, the works.
+                  Every live bungalow dresses this whole venue in its community&apos;s art.
                 </p>
+                <FinePrint className="mt-1">
+                  <p>
+                    15–30 pieces and a blessing is all it takes. Until {bungalow.name}&apos;s
+                    people bring theirs, the classic island art holds the wall and this address
+                    keeps working exactly as it does today.
+                  </p>
+                  <p>
+                    See the living demo: the{' '}
+                    <Link to="/bayla" className="underline underline-offset-2 text-white hover:text-white/80">
+                      BAYLA bungalow
+                    </Link>{' '}
+                    is a full token-first home — hero, farm, gallery wing, the works.
+                  </p>
+                </FinePrint>
               </div>
             </div>
           </div>

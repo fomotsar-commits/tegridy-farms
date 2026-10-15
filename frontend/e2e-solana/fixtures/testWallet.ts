@@ -106,14 +106,23 @@ export async function installTestWallet(context: BrowserContext, keypair: Keypai
     const vt = VersionedTransaction.deserialize(bytes);
     // Sign EXACTLY the message we were given: re-serializing must not change a byte.
     const nSigs = bytes[0]; // compact-u16; < 128 signatures, so one byte
+    if (nSigs === undefined || nSigs >= 0x80) {
+      rec.reason = `a signature count this wallet does not read (${nSigs})`;
+      throw new Error(`E2E wallet refused to sign: ${rec.reason}`);
+    }
     const given = Buffer.from(bytes.subarray(1 + 64 * nSigs));
     if (!Buffer.from(vt.message.serialize()).equals(given)) {
       rec.reason = 'the message did not round-trip byte for byte';
       throw new Error(`E2E wallet refused to sign: ${rec.reason}`);
     }
     vt.sign([keypair]);
+    const feePayerSig = vt.signatures[0];
+    if (!feePayerSig) {
+      rec.reason = 'the transaction has no signature slot for its fee payer';
+      throw new Error(`E2E wallet refused to sign: ${rec.reason}`);
+    }
     rec.outcome = 'signed';
-    rec.signature = base58(vt.signatures[0]);
+    rec.signature = base58(feePayerSig);
     return Buffer.from(vt.serialize()).toString('base64');
   });
 
@@ -156,7 +165,11 @@ export async function installTestWallet(context: BrowserContext, keypair: Keypai
       });
       const emit = () => { for (const l of listeners) l({ accounts: connected ? [account] : [] }); };
       // Looked up per call, not captured: the binding is Playwright's to install.
-      const call = (b: string, arg: string) => (window as unknown as Record<string, (a: string) => Promise<string>>)[b](arg);
+      const call = (b: string, arg: string) => {
+        const bound = (window as unknown as Record<string, ((a: string) => Promise<string>) | undefined>)[b];
+        if (!bound) throw new Error(`e2e wallet: the ${b} binding is not installed`);
+        return bound(arg);
+      };
       const sign = (tx: string) => call(binding, tx);
       const wallet = {
         version: '1.0.0',
@@ -207,14 +220,14 @@ export async function installTestWallet(context: BrowserContext, keypair: Keypai
     setMode(m) { mode = m; },
     signed: () => records.filter((r) => r.kind === 'transaction' && r.outcome === 'signed'),
     lastSigned() {
-      const s = records.filter((r) => r.kind === 'transaction' && r.outcome === 'signed');
-      if (!s.length) throw new Error('the wallet has signed nothing');
-      return s[s.length - 1];
+      const last = records.filter((r) => r.kind === 'transaction' && r.outcome === 'signed').at(-1);
+      if (!last) throw new Error('the wallet has signed nothing');
+      return last;
     },
     lastIx(ixName: string) {
-      for (let i = records.length - 1; i >= 0; i--) {
-        if (records[i].kind !== 'transaction' || records[i].outcome !== 'signed') continue;
-        const ix = records[i].instructions.find((x) => x.name === ixName);
+      for (const r of [...records].reverse()) {
+        if (r.kind !== 'transaction' || r.outcome !== 'signed') continue;
+        const ix = r.instructions.find((x) => x.name === ixName);
         if (ix) return ix;
       }
       throw new Error(`no signed transaction carried ${ixName}`);

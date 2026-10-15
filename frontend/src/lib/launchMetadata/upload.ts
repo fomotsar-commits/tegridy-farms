@@ -292,6 +292,8 @@ export async function uploadLaunchMetadata(
   const ctl = new AbortController();
   const timer = setTimeout(() => ctl.abort(), UPLOAD_TIMEOUT_MS);
   let res: Response;
+  let body = {} as Record<string, unknown>;
+  let unparsed = false;
   try {
     res = await fetchImpl(UPLOAD_ENDPOINT, {
       method: 'POST',
@@ -307,6 +309,16 @@ export async function uploadLaunchMetadata(
       }),
       signal: ctl.signal,
     });
+    // Read before the timer is cleared: a service that stops part-way was not reached.
+    // An abort here can come back as a parse error, so the signal says which it was.
+    if (isJson(res)) {
+      try {
+        body = (await res.json()) as Record<string, unknown>;
+      } catch (e) {
+        if (ctl.signal.aborted) throw e;
+        unparsed = true;
+      }
+    }
   } catch {
     return fail('Could not reach the upload service. Nothing was launched. Try again.', true);
   } finally {
@@ -317,10 +329,7 @@ export async function uploadLaunchMetadata(
     // An HTML page here is the SPA fallback: the route does not exist on this deployment.
     return fail('Picture upload is not available here. Paste a metadata link instead.', false, { notConfigured: true });
   }
-  let body: Record<string, unknown>;
-  try {
-    body = (await res.json()) as Record<string, unknown>;
-  } catch {
+  if (unparsed) {
     return fail('The upload service sent an answer this page could not read. Nothing was launched. Try again.', true);
   }
   const serverSays = typeof body?.error === 'string' ? displaySafe(body.error, 200) : '';

@@ -1,15 +1,8 @@
-// public/sw.js, executed.
-//
-// The worker ships as a static file, so no import can reach it and no type
-// checker looks at it — it is the one piece of this slice that could rot in
-// silence while every other test stayed green. It is therefore loaded from disk
-// and run against a stubbed service-worker global here, and the assertions are
-// about the property that makes it safe to ship at all: it must never be able to
+// public/sw.js, executed. The worker ships as a static file: no import reaches it and
+// no type checker reads it. So it is loaded from disk and run against a stubbed
+// service-worker global. The assertions are about behaviour: which requests it takes
+// over, what it stores, and what it returns when the network is gone. It must never
 // hand back a cached answer to a question about the chain.
-//
-// A source-text grep would have been cheaper and would prove nothing. What
-// matters is behaviour: which requests it takes over, what it stores, and what
-// it returns when the network is gone.
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
@@ -19,20 +12,6 @@ const SW_SOURCE = readFileSync(join(process.cwd(), 'public', 'sw.js'), 'utf-8');
 
 const ORIGIN = 'https://app.test';
 
-class StubResponse {
-  body: string;
-  status: number;
-  type: string;
-  constructor(body = '', init: { status?: number; type?: string; headers?: Record<string, string> } = {}) {
-    this.body = body;
-    this.status = init.status ?? 200;
-    this.type = init.type ?? 'basic';
-  }
-  clone() {
-    return new StubResponse(this.body, { status: this.status, type: this.type });
-  }
-}
-
 class StubHeaders {
   private readonly map: Map<string, string>;
   constructor(init: Record<string, string> = {}) {
@@ -41,6 +20,32 @@ class StubHeaders {
   has(key: string) {
     return this.map.has(key.toLowerCase());
   }
+  get(key: string) {
+    return this.map.get(key.toLowerCase()) ?? null;
+  }
+}
+
+class StubResponse {
+  body: string;
+  status: number;
+  type: string;
+  headers: StubHeaders;
+  private readonly headerInit: Record<string, string>;
+  constructor(body = '', init: { status?: number; type?: string; headers?: Record<string, string> } = {}) {
+    this.body = body;
+    this.status = init.status ?? 200;
+    this.type = init.type ?? 'basic';
+    this.headerInit = init.headers ?? {};
+    this.headers = new StubHeaders(this.headerInit);
+  }
+  clone() {
+    return new StubResponse(this.body, { status: this.status, type: this.type, headers: this.headerInit });
+  }
+}
+
+/** The second argument the worker may pass to fetch(). */
+interface StubFetchInit {
+  cache?: string;
 }
 
 class StubRequest {
@@ -75,11 +80,14 @@ class StubCache {
   async put(request: StubRequest, response: StubResponse) {
     this.entries.set(request.url, response);
   }
+  async delete(request: StubRequest) {
+    return this.entries.delete(request.url);
+  }
 }
 
 function makeWorker() {
   const listeners = new Map<string, (event: unknown) => void>();
-  const fetchMock = vi.fn<(req: StubRequest) => Promise<StubResponse>>();
+  const fetchMock = vi.fn<(req: StubRequest, init?: StubFetchInit) => Promise<StubResponse>>();
   const stores = new Map<string, StubCache>();
 
   const caches = {
@@ -228,6 +236,127 @@ describe('immutable build assets', () => {
 
     const cached = [...worker.stores.values()].flatMap((c) => [...c.entries.keys()]);
     expect(cached.some((url) => url.includes('partial.js') || url.includes('opaque.js'))).toBe(false);
+  });
+});
+
+// The host answers a name it does not have with the app's page, status 200
+// (frontend/vercel.json's last rewrite), and with the year-long cache header, which is
+// keyed on the path. A build asset is never HTML.
+describe('a name the host does not have', () => {
+  const MISSING = '/assets/SolanaLpPage-AbC123xy.js';
+  const PAGE = '<!doctype html>';
+
+  const page = (contentType = 'text/html; charset=utf-8') =>
+    new StubResponse(PAGE, { headers: { 'Content-Type': contentType } });
+  const file = (body: string) =>
+    new StubResponse(body, { headers: { 'Content-Type': 'application/javascript; charset=utf-8' } });
+
+  async function ask(path: string) {
+    const event = fetchEvent(new StubRequest(path));
+    await fire(worker, 'fetch', event);
+    if (!event.responded) throw new Error(`the worker left ${path} to the browser`);
+    return event.responded;
+  }
+
+  /** What the worker holds under a path, in every cache it has. */
+  function held(path: string) {
+    return [...worker.stores.values()].flatMap((cache) => {
+      const entry = cache.entries.get(`${ORIGIN}${path}`);
+      return entry ? [entry.body] : [];
+    });
+  }
+
+  /** The cache the worker keeps build assets in, found by what it stores and not by name. */
+  async function assetCache() {
+    const seed = '/assets/seed-000000.js';
+    await ask(seed);
+    const cache = [...worker.stores.values()].find((c) => c.entries.has(`${ORIGIN}${seed}`));
+    if (!cache) throw new Error('the worker stored no build asset');
+    worker.fetchMock.mockClear();
+    return cache;
+  }
+
+  /** The second argument of every fetch() the worker made for a path, in order. */
+  const asked = (path: string) =>
+    worker.fetchMock.mock.calls.filter(([request]) => request.url === `${ORIGIN}${path}`).map(([, init]) => init);
+
+  // Vercel's header, vite preview's, and one in another case.
+  for (const contentType of ['text/html; charset=utf-8', 'text/html', 'Text/HTML;charset=UTF-8']) {
+    it(`does not store the page it is answered with (${contentType})`, async () => {
+      await install(worker);
+      worker.fetchMock.mockImplementation(async () => page(contentType));
+
+      const response = await ask(MISSING);
+
+      // The page is passed on, as it would be with no worker, and kept nowhere.
+      expect(response.body).toBe(PAGE);
+      expect(held(MISSING)).toEqual([]);
+    });
+  }
+
+  it('does not store it under /fonts/ either', async () => {
+    await install(worker);
+    worker.fetchMock.mockImplementation(async () => page());
+    await ask('/fonts/inter-latin.woff2');
+    expect(held('/fonts/inter-latin.woff2')).toEqual([]);
+  });
+
+  it('asks the host itself, past the browser cache, when the first answer is a page', async () => {
+    await install(worker);
+    // The browser's own cache still answers with the page; the host has the file again.
+    worker.fetchMock.mockImplementation(async (_request, init) => (init?.cache === 'reload' ? file('the file') : page()));
+
+    const response = await ask(MISSING);
+
+    expect(response.body).toBe('the file');
+    expect(asked(MISSING)).toEqual([undefined, { cache: 'reload' }]);
+    expect(held(MISSING)).toEqual(['the file']);
+  });
+
+  it('asks the host once more and no more while the name is still missing', async () => {
+    await install(worker);
+    worker.fetchMock.mockImplementation(async () => page());
+
+    const response = await ask(MISSING);
+
+    expect(response.body).toBe(PAGE);
+    expect(asked(MISSING)).toEqual([undefined, { cache: 'reload' }]);
+    expect(held(MISSING)).toEqual([]);
+  });
+
+  it('asks once, and through the browser cache, for an asset that arrives as one', async () => {
+    await install(worker);
+    worker.fetchMock.mockImplementation(async () => file('the file'));
+
+    await ask(MISSING);
+
+    expect(asked(MISSING)).toEqual([undefined]);
+    expect(held(MISSING)).toEqual(['the file']);
+  });
+
+  it('drops a page an earlier worker stored, and loads the file the host has again', async () => {
+    await install(worker);
+    const cache = await assetCache();
+    cache.entries.set(`${ORIGIN}${MISSING}`, page());
+    worker.fetchMock.mockImplementation(async () => file('the file'));
+
+    const response = await ask(MISSING);
+
+    expect(response.body).toBe('the file');
+    expect(asked(MISSING)).toEqual([undefined]);
+    expect(held(MISSING)).toEqual(['the file']);
+  });
+
+  it('drops such a page while the name is still missing, too', async () => {
+    await install(worker);
+    const cache = await assetCache();
+    cache.entries.set(`${ORIGIN}${MISSING}`, page());
+    worker.fetchMock.mockImplementation(async () => page());
+
+    const response = await ask(MISSING);
+
+    expect(response.body).toBe(PAGE);
+    expect(held(MISSING)).toEqual([]);
   });
 });
 

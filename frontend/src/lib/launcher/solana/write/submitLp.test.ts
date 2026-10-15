@@ -6,6 +6,7 @@
 // landed refusal, and Check again). The launch-program kinds are pinned, unedited,
 // in submit.test.ts and prepare.test.ts.
 import { describe, it, expect } from 'vitest';
+import { WalletSignTransactionError } from '@solana/wallet-adapter-base';
 import { Keypair, Transaction, TransactionInstruction } from '@solana/web3.js';
 import { TOKEN_PROGRAM_ID, WSOL_MINT } from '../curve/program';
 import { associatedTokenAddress } from '../curve/ix';
@@ -16,6 +17,8 @@ import { LIGHTHOUSE_PROGRAM_ID } from './intent';
 import { recheckOutcome, submitPrepared } from './submit';
 import { AMM_CONFIG, CPSWAP, FakeChain, cfgLocal } from './testkit.fixture';
 import type { PoolIntent, PoolPins, PreparedTx, TxSigner, WriteRpc } from './types';
+import { SOL_QUOTE } from '../../../solana/lp/quotes';
+import { DECLINED_IN_WALLET } from '../../../solana/swap/walletCopy';
 
 const W = (c: FakeChain) => c as unknown as WriteRpc;
 
@@ -37,7 +40,7 @@ function pinsFor(): PoolPins {
     token0Mint: token0, token1Mint: token1, token0Program: TOKEN_PROGRAM_ID, token1Program: TOKEN_PROGRAM_ID,
     vault0: deriveVault(CPSWAP, address, token0), vault1: deriveVault(CPSWAP, address, token1),
     lpMint, observation: deriveObservation(CPSWAP, address),
-    tokenMint, tokenProgram: TOKEN_PROGRAM_ID, solIsToken0: token0.equals(WSOL_MINT),
+    tokenMint, tokenProgram: TOKEN_PROGRAM_ID, quote: SOL_QUOTE, quoteIsToken0: token0.equals(WSOL_MINT),
     lpAccount: associatedTokenAddress(lpMint, ME),
   };
 }
@@ -77,9 +80,9 @@ async function preparedWithdraw(o: { failWith?: number; finalOnly?: boolean } = 
       steps.some((s) => s.kind === 'pool-withdraw')
         ? {
             kind: 'lp-withdraw', pool: pins.address, origin: 'standard', config: null, tokenMint: pins.tokenMint,
-            tokenDecimals: 6, solIsToken0: pins.solIsToken0, lpAccount: pins.lpAccount, lpAmount: 1_000n, lpDecimals: 9,
-            heldBefore: 1_000n, all: true, keep: 0n, quoted: { sol: 10n, token: 10n }, min: { sol: 5n, token: 7n },
-            tokenAccount: associatedTokenAddress(pins.tokenMint, ME), tokenAccountRent: 0n, unwrapsWsol: true, notices: [],
+            tokenDecimals: 6, quote: SOL_QUOTE, quoteIsToken0: pins.quoteIsToken0, lpAccount: pins.lpAccount, lpAmount: 1_000n, lpDecimals: 9,
+            heldBefore: 1_000n, all: true, keep: 0n, quoted: { quote: 10n, token: 10n }, min: { quote: 5n, token: 7n },
+            tokenAccount: associatedTokenAddress(pins.tokenMint, ME), tokenAccountRent: 0n, quoteAccount: null, unwrapsWsol: true, notices: [],
           }
         : 'no withdrawal',
   });
@@ -151,6 +154,30 @@ describe('a liquidity withdrawal through the shared pipeline', () => {
     expect(o).toMatchObject({ status: 'not-sent', stage: 'sign' });
     if (o.status === 'not-sent') expect(o.message).toMatch(/pays out to an account that is not yours/);
     expect(chain.calls).not.toContain('sendRawTransaction');
+  });
+
+  // One sign step for every kind: a wallet that fails before its prompt is quoted on a
+  // withdrawal as it is on a trade (submit.test.ts), and only a real "no" is a cancel.
+  it('a wallet that fails before its prompt is quoted, not called a cancel; a real "no" still is', async () => {
+    const failing = (inner: Error): TxSigner => ({
+      publicKey: ME,
+      signTransaction: async () => {
+        throw new WalletSignTransactionError(inner.message, inner);
+      },
+    });
+    const broke = await ready();
+    const o = await submitPrepared(W(broke.chain), failing(new Error("This wallet didn't allow transaction signing over WalletConnect")), broke.p, deps);
+    expect(o).toEqual({
+      status: 'not-sent',
+      stage: 'sign',
+      message: "Your wallet did not sign this (This wallet didn't allow transaction signing over WalletConnect). Nothing was sent.",
+    });
+    expect(broke.chain.calls).not.toContain('sendRawTransaction');
+
+    const said = await ready();
+    const no = await submitPrepared(W(said.chain), failing(Object.assign(new Error('4001'), { code: 4001 })), said.p, deps);
+    expect(no).toEqual({ status: 'not-sent', stage: 'sign', message: DECLINED_IN_WALLET });
+    expect(said.chain.calls).not.toContain('sendRawTransaction');
   });
 
   it('a first send the network turns away is said in the withdrawal’s words', async () => {

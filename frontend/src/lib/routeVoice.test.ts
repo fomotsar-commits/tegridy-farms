@@ -4,7 +4,7 @@ import { BUNGALOWS } from './bungalows';
 
 describe('routeVoice (wave seven, row Q)', () => {
   it('puts TOWELI protocol pages and TOWELI doors in the TOWELI room', () => {
-    for (const p of ['/tokenomics', '/treasury', '/premium', '/lore', '/referrals', '/zap', '/earn/toweli', '/toweli', '/towelie']) {
+    for (const p of ['/tokenomics', '/treasury', '/premium', '/lore', '/zap', '/earn/toweli', '/toweli', '/towelie']) {
       expect(routeVoice(p), p).toBe('toweli');
     }
   });
@@ -27,13 +27,15 @@ describe('routeVoice (wave seven, row Q)', () => {
     expect(routeVoice('/tokenomics/')).toBe('toweli');
     expect(isToweliRoomPage('/tokenomics/')).toBe(true);
     expect(isToweliRoomPage('/toweli')).toBe(false);
-    expect(TOWELI_ROOM_PATHS.size).toBe(7);
+    expect(TOWELI_ROOM_PATHS.size).toBe(6);
   });
 });
 
 describe("isSolanaPage: where the top bar's Connect connects Solana", () => {
   it("is true for the venue's Solana pages, with or without a trailing slash", () => {
-    for (const p of ['/solana', '/pools', '/pools/', '/curve-launch', '/curve-launch/', '/curve-launch/So11111111111111111111111111111111111111112']) {
+    // /solana-lp mounts the same Solana section as /pools: left out, the top bar
+    // mounted its own connection there and the page then took it away mid-approval.
+    for (const p of ['/solana', '/pools', '/pools/', '/solana-lp', '/solana-lp/', '/curve-launch', '/curve-launch/', '/curve-launch/So11111111111111111111111111111111111111112']) {
       expect(isSolanaPage(p), p).toBe(true);
     }
   });
@@ -44,6 +46,31 @@ describe("isSolanaPage: where the top bar's Connect connects Solana", () => {
     expect(solanaRooms.map((b) => b.id)).toContain('bayla');
     for (const b of BUNGALOWS) {
       expect(isSolanaPage(`/earn/${b.id}`), b.id).toBe(solanaRooms.includes(b));
+    }
+  });
+
+  // The router matches these whatever their case and decodes them, and the page
+  // then draws its Solana section. Read as "not a Solana page", the top bar
+  // mounted its own connection under the page's.
+  it('is true for those routes written in another case or percent-encoded, as the router matches them', () => {
+    for (const p of ['/Earn/bayla', '/EARN/bayla', '/earn/%62ayla', '/Curve-Launch/So11111111111111111111111111111111111111112']) {
+      expect(isSolanaPage(p), p).toBe(true);
+    }
+    expect(isSolanaPage('/Dashboard', { chain: 'solana' })).toBe(true);
+    expect(isSolanaPage('/Dashboard', { chain: 'ethereum' })).toBe(false);
+    // The pool id and the mint are read as written by the pages themselves.
+    expect(isSolanaPage('/earn/BAYLA')).toBe(false);
+    // The four tabs match exactly: /POOLS draws the Ethereum tab.
+    expect(isSolanaPage('/POOLS')).toBe(false);
+    expect(isSolanaPage('/Solana-LP')).toBe(false);
+    // A malformed escape is judged as written, and throws nothing.
+    expect(isSolanaPage('/earn/%E0%A4%A')).toBe(false);
+  });
+
+  // That page draws "Not a token address" and mounts no wallet section.
+  it('is false for a launch page whose address is not an address', () => {
+    for (const p of ['/curve-launch/nope', '/curve-launch/0xabc', '/curve-launch/So1111111111111111111111111111111111111111O', '/curve-launch/So11111111111111111111111111111111111111112/x']) {
+      expect(isSolanaPage(p), p).toBe(false);
     }
   });
 

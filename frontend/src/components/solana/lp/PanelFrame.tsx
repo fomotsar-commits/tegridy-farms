@@ -17,8 +17,11 @@ export function PanelFrame({
   useEffect(() => {
     const h = headingRef.current;
     if (!h) return;
-    h.focus();
-    h.scrollIntoView?.({ block: 'nearest' });
+    h.focus({ preventScroll: true });
+    // The top of the panel goes to the top of the screen. The page's scroll-padding
+    // (index.css) keeps it clear of the fixed bar and the tab strip. On a phone 'nearest'
+    // left the heading at the bottom edge and the form itself below the screen.
+    h.scrollIntoView?.({ block: 'start' });
     // Once, on open.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

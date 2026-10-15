@@ -96,7 +96,7 @@ into the 404.
 | `airdrop` | `_lib/airdrop.js` | Airdrop manifest store: one claimant's own leaf + a server-generated proof; creator publish |
 | `referrals` | `_lib/referrals.js` | Short-code store for `/?r=code` referral links: one code in, at most one wallet out |
 | `commerce` | `_lib/commerce.js` | Merchant invoice store + settlement record behind `/checkout`: one id in, one invoice out. OPTIONAL short-link enrichment only — the signed `#i=` payment link is verified in the buyer's browser and needs none of it, so this resource is not on the path that moves money |
-| `pools` | `_lib/pool-index.js` | The Solana pool index behind `/api/pools` (a rewrite): one filtered `getProgramAccounts` on the cp-swap program per token or LP mint, cached 30 s, ADDRESSES ONLY. The browser reads and checks every address itself, so this can at worst leave a pool out; it exists so `/api/solrpc` never has to allow a program scan |
+| `pools` | `_lib/pool-index.js` | The Solana pool index behind `/api/pools` (a rewrite): filtered `getProgramAccounts` scans of the cp-swap program, one per pairing coin (SOL, USDC, BAYLA) for a token and one for an LP mint, cached 30 s, ADDRESSES ONLY. The browser reads and checks every address itself, so this can at worst leave a pool out; it exists so `/api/solrpc` never has to allow a program scan |
 | `bot-link` | `_lib/botLink.js` | Telegram chat ↔ wallet binding: the bot's only server surface, and the reason it never holds a key |
 
 `airdrop` is the one resource here whose absent branch is the security property. It has no

@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, it, expect } from 'vitest';
-import { describeFailure, explainFailure } from './errors';
+import { LP_SHORT_OF_EITHER, describeFailure, explainFailure } from './errors';
 import { computeLimitFromSimulation, maxPriceForCap, percentile75, priorityLamports } from './budget';
 import { CPSWAP, LAUNCH, cfgLocal } from './testkit.fixture';
 
@@ -48,9 +48,12 @@ describe('whose error, in plain English', () => {
     expect(r.message).not.toMatch(/\u2014/);
     // Another Token-2022 code is not the plant's shortfall.
     expect(explainFailure({ InstructionError: [8, { Custom: 4 }] }, [failed('TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb', '4')], cfgLocal, 'create').message).toMatch(/error 4/);
-    // Nor is a liquidity transaction's: its pool token can be a Token-2022 token.
+    // Nor is a liquidity transaction's: its pool token can be a Token-2022 token, and so
+    // can its coin (BAYLA). It is said for what that kind spends, never as the plant.
     for (const kind of ['lp-deposit', 'lp-withdraw', 'lp-create'] as const) {
-      expect(explainFailure({ InstructionError: [8, { Custom: 1 }] }, [failed('TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb', '1')], cfgLocal, kind).message).toBe('You do not hold that many tokens.');
+      const said = explainFailure({ InstructionError: [8, { Custom: 1 }] }, [failed('TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb', '1')], cfgLocal, kind).message;
+      expect(said, kind).toBe(kind === 'lp-withdraw' ? 'You do not hold that many tokens.' : LP_SHORT_OF_EITHER);
+      expect(said, kind).not.toMatch(/BAYLA|plant/);
     }
   });
 
@@ -133,17 +136,31 @@ describe('liquidity failures, in the words of what the person was doing', () => 
     expect(say(CP, 2506, 'lp-deposit')).toBe('A Solana program refused this transaction (error 2506).');
   });
 
+  // A pool has two sides, and the log of a frozen account does not say which one it was:
+  // on a USDC pool it may be USDC's issuer that froze it. The words cover both sides.
   it('a frozen account (either token program, 17) and a reassigned account (associated-token program, 0), for both kinds', () => {
     const frozen =
-      "The token's issuer has frozen an account this needs (the pool's vault or your token account), so nothing can move. That is the issuer's doing, not the pool program's.";
+      "The issuer of the token, or of what it is paired with, has frozen an account this needs (one of the pool's vaults, or your own account for either), so nothing can move. That is the issuer's doing, not the pool program's.";
     const reassigned = 'One of your token accounts now belongs to another wallet, so this was stopped before anything moved.';
     for (const kind of ['lp-deposit', 'lp-withdraw'] as const) {
       expect(say('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA', 17, kind)).toBe(frozen);
       expect(say('TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb', 17, kind)).toBe(frozen);
       expect(say('ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL', 0, kind)).toBe(reassigned);
-      // "Not enough tokens" is the same for every kind.
-      expect(say('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA', 1, kind)).toBe('You do not hold that many tokens.');
     }
+    // No coin is named: the sentence is true of a SOL, a USDC and a BAYLA pool alike.
+    expect(frozen).not.toMatch(/SOL|USDC|BAYLA/);
+  });
+
+  // Adding spends the token AND what it is paired with, and the token program's "insufficient
+  // funds" does not say which ran short. Said as "tokens", a wallet short of USDC was told
+  // about the wrong side.
+  it('"not enough" while adding may be either side of the pool, and is said as that', () => {
+    for (const id of ['TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA', 'TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb']) {
+      expect(say(id, 1, 'lp-deposit')).toBe('You do not hold that much of the token, or of what it is paired with.');
+      // Taking out spends pool shares only: its words are the general ones.
+      expect(say(id, 1, 'lp-withdraw')).toBe('You do not hold that many tokens.');
+    }
+    expect(LP_SHORT_OF_EITHER).toBe('You do not hold that much of the token, or of what it is paired with.');
   });
 
   it('the swap and curve kinds, and no kind at all, keep the general copy for the same codes', () => {
@@ -152,6 +169,8 @@ describe('liquidity failures, in the words of what the person was doing', () => 
       expect(say(CP, 6005, kind)).toBe('The price moved past your limit before this landed. Get a new quote and try again.');
       expect(say('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA', 17, kind)).toBe('A Solana program refused this transaction (error 17).');
       expect(say('ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL', 0, kind)).toBe('A Solana program refused this transaction (error 0).');
+      // These kinds have no pairing coin: a shortfall is the token's, in the words it always had.
+      expect(say('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA', 1, kind)).toBe('You do not hold that many tokens.');
     }
   });
 

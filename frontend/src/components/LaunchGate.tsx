@@ -12,6 +12,7 @@ import type { GateDecision } from '../lib/heat/heatOracle';
 import type { GateAuditRow } from '../lib/heat/gateAudit';
 import { HeatCard } from './HeatCard';
 import { GateAuditPanel } from './heat/GateAuditPanel';
+import { CardArt } from './ui/CardArt';
 import { shortenAddress } from '../lib/formatting';
 
 /**
@@ -187,11 +188,16 @@ function Door({ rail, address, signProof, onOpen, connect, below, launchingOff, 
 
           {/* The card reads a pasted address, as VenueHero mounts it. It reads; it does not
               open: the lane opens for the connected wallet, and the launch call re-reads
-              that wallet at submit. On Solana an empty draft keeps it from filling in the
-              Ethereum wallet, which this door never reads. With launching off the card gives
-              the reading without its "can launch" line. */}
+              that wallet at submit. The wallet fill asks the door's own network only. The
+              Solana door never reads the Ethereum wallet, so an empty draft also keeps the
+              connected one out of the field. With launching off there is no "can launch" line. */}
           <div className="mt-4 pt-4" style={{ borderTop: '1px solid rgba(255,255,255,0.08)' }}>
-            <HeatCard variant="embedded" showEligibility={!launchingOff} initialDraft={rail === 'solana' ? '' : null} />
+            <HeatCard
+              variant="embedded"
+              showEligibility={!launchingOff}
+              initialDraft={rail === 'solana' ? '' : null}
+              fillFrom={rail}
+            />
             <p className="text-[12px] text-white/45 mt-3">
               {launchingOff
                 ? `A reading is not a key. ${launchingOff}`
@@ -335,9 +341,11 @@ function Frame({ children, state }: { children: React.ReactNode; state?: GateDec
     // thing that decides whether the wizard leads anywhere.
     <section
       aria-label="Who may plant"
-      className="rounded-2xl p-5 md:p-6"
+      className="relative isolate rounded-2xl p-5 md:p-6"
       style={{ background: 'rgba(6,12,26,0.78)', border: `1px solid ${border}`, backdropFilter: 'blur(10px)', WebkitBackdropFilter: 'blur(10px)' }}
     >
+      {/* One surface for the door on every rail and route that mounts it (/launch, /eth-curve, /curve-launch). */}
+      <CardArt pageId="launch-gate" idx={0} />
       {children}
     </section>
   );

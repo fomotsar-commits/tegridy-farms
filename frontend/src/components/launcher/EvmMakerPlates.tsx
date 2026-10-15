@@ -10,6 +10,7 @@ import {
   type PlatesReadClient,
 } from '../../lib/launcher/birthPlates';
 import { getTxUrl } from '../../lib/explorer';
+import { CardArt } from '../ui/CardArt';
 import {
   ALLOCATION_READING,
   ALLOCATION_UNREADABLE,
@@ -76,7 +77,8 @@ export function CurveMakerCreateBuyView({
   const lines = read?.kind === 'ok' ? curveCreateBuyLines(read.value) : null;
   const { status, retry } = useRetry(onRetry);
   return (
-    <div className="rounded-2xl p-4 space-y-1.5 text-[12.5px] leading-relaxed" style={curveCard} data-testid="curve-maker-create-buy">
+    <div className="relative isolate rounded-2xl p-4 space-y-1.5 text-[12.5px] leading-relaxed" style={curveCard} data-testid="curve-maker-create-buy">
+      <CardArt pageId="eth-curve" idx={14} />
       <div ref={status} role="status" tabIndex={-1} className="space-y-1.5 outline-none">
         {read === null && <p className="text-white/60 animate-pulse">{CURVE_READING}</p>}
         {read?.kind === 'unreadable' && (
@@ -144,7 +146,8 @@ export function MakerPlatesView({ plates, onRetry }: { plates: DopplerPlates | n
   const lines = plates?.kind === 'read' ? dopplerPlatesLines(plates) : null;
   const { status, retry } = useRetry(onRetry);
   return (
-    <section className="glass-card rounded-xl p-5 mb-4" data-testid="maker-plates">
+    <section className="relative isolate glass-card rounded-xl p-5 mb-4" data-testid="maker-plates">
+      <CardArt pageId="launch-token" idx={7} />
       <h2 className="text-[14px] font-semibold text-text-primary">The maker&apos;s allocation</h2>
       <div ref={status} role="status" tabIndex={-1} className="mt-2 space-y-1.5 text-[12.5px] text-text-secondary leading-relaxed outline-none">
         {plates === null && <p className="animate-pulse">{ALLOCATION_READING}</p>}

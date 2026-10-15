@@ -113,11 +113,15 @@ test.describe('Android Chrome, 360x640', () => {
     // Recorded and stopped: this suite never leaves for phantom.app.
     await page.route(/^https:\/\/phantom\.(app|com)\//, (route) => route.abort('aborted'));
     const list = await openList(page);
-    const here = page.url();
+    // The address Phantom is handed carries the hand-off marker, so the page that
+    // opens inside Phantom connects by itself (src/lib/solanaSurface.ts SOLANA_HANDOFF_PARAM).
+    const here = new URL(page.url());
+    const handedOver = new URL(here);
+    handedOver.searchParams.set('solana-connect', '1');
     const hop = page.waitForRequest(/^https:\/\/phantom\.app\//, { timeout: 15_000 });
     await list.getByRole('button', { name: /^Phantom/ }).click();
     expect((await hop).url()).toBe(
-      `https://phantom.app/ul/browse/${encodeURIComponent(here)}?ref=${encodeURIComponent(new URL(here).origin)}`,
+      `https://phantom.app/ul/browse/${encodeURIComponent(handedOver.href)}?ref=${encodeURIComponent(here.origin)}`,
     );
     expect(await page.evaluate(() => (window as unknown as { __opened: string[] }).__opened)).toEqual([]);
   });

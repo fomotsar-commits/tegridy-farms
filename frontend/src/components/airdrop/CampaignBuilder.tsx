@@ -15,6 +15,7 @@ import {
   type CampaignManifest,
   type PublishResult,
 } from '../../lib/merkle';
+import { CardArt } from '../ui/CardArt';
 
 /**
  * Campaign creation: CSV in, merkle root out, hosting, funding last.
@@ -178,7 +179,8 @@ export function CampaignBuilder() {
   return (
     <div className="space-y-5">
       {/* ─── Token ─── */}
-      <section className="rounded-2xl border border-white/10 bg-black/20 p-5">
+      <section className="relative isolate rounded-2xl border border-white/10 bg-black/20 p-5">
+        <CardArt pageId="airdrop" idx={6} />
         <label htmlFor="airdrop-token" className="block text-white/70 text-[13px] font-semibold mb-2">
           Token to distribute
         </label>
@@ -199,7 +201,8 @@ export function CampaignBuilder() {
       </section>
 
       {/* ─── Allocation list ─── */}
-      <section className="rounded-2xl border border-white/10 bg-black/20 p-5">
+      <section className="relative isolate rounded-2xl border border-white/10 bg-black/20 p-5">
+        <CardArt pageId="airdrop" idx={7} />
         <label htmlFor="airdrop-csv" className="block text-white/70 text-[13px] font-semibold mb-2">
           Allocations (CSV: address, amount)
         </label>
@@ -264,14 +267,16 @@ export function CampaignBuilder() {
 
       {/* ─── Root preview ─── */}
       {built?.error && (
-        <div className="rounded-xl border border-rose-500/30 bg-rose-500/[0.06] p-4">
+        <div className="relative isolate rounded-xl border border-rose-500/30 bg-rose-500/[0.06] p-4">
+          <CardArt pageId="airdrop" idx={8} />
           <p className="text-rose-200/90 text-[13px] font-semibold">The list could not be turned into a tree</p>
           <p className="text-white/60 text-[12px] mt-1">{built.error}</p>
         </div>
       )}
 
       {manifest && (
-        <section className="rounded-2xl border border-emerald-500/20 bg-emerald-500/[0.04] p-5">
+        <section className="relative isolate rounded-2xl border border-emerald-500/20 bg-emerald-500/[0.04] p-5">
+          <CardArt pageId="airdrop" idx={9} />
           <h2 className="text-white/85 font-semibold text-sm mb-3">Root preview</h2>
           <dl className="space-y-2 text-[13px]">
             <div>
@@ -311,7 +316,8 @@ export function CampaignBuilder() {
 
       {/* ─── Hosting ─── */}
       {manifest && (
-        <section className="rounded-2xl border border-white/10 bg-black/20 p-5">
+        <section className="relative isolate rounded-2xl border border-white/10 bg-black/20 p-5">
+          <CardArt pageId="airdrop" idx={10} />
           <h2 className="text-white/85 font-semibold text-sm mb-1">Host the claim list</h2>
           <p className="text-white/45 text-[12px] leading-relaxed">
             Stores the list with us so claimants fetch their own leaf and proof instead of being handed the whole
@@ -427,7 +433,8 @@ export function CampaignBuilder() {
       )}
 
       {/* ─── Funding ─── */}
-      <section className="rounded-2xl border border-white/10 bg-black/20 p-5">
+      <section className="relative isolate rounded-2xl border border-white/10 bg-black/20 p-5">
+        <CardArt pageId="airdrop" idx={11} />
         <h2 className="text-white/85 font-semibold text-sm mb-3">Fund the campaign</h2>
 
         {!factory.deployed ? (

@@ -12,9 +12,10 @@
 
 Both, and the distinction is worth thirty seconds.
 
-**memetics.finance** (also served at **memetic.fun**) is the venue: a hall of thirteen
-bungalows on Jungle Bay Island, one per resident token, each with its own walls, market and
-staking lighthouse. That is what you land on.
+**memetics.finance** is the venue: a hall of thirteen bungalows on Jungle Bay Island, one
+per resident token, each with its own walls, market and staking lighthouse. That is what you
+land on. `memetic.fun` is not this venue: since 2026-09-20 it serves the Island Lab, a
+separate project.
 
 **Tegridy Farms** is the protocol and its code — this repository, the Solidity contracts,
 and the TOWELI token. Since 2026-08-31 the venue no longer speaks in that name; the classic

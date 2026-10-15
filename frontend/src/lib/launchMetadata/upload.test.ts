@@ -16,6 +16,7 @@ import {
 import { buildMetadataJson, sha256Hex } from './validate.js';
 import { PNG_1X1, SVG, gif, jpeg, png, webpVp8x } from './testImages.fixture';
 import { IPFS_GATEWAYS } from '../ipfsGateways';
+import { neverAnswered, stalledBody, watch } from '../../test/quietHost';
 
 const MINT = 'So11111111111111111111111111111111111111112';
 const CREATOR = '4k3Dyjzvzp8eMZWUXbBCjEvwSkkk59S5iCNLY3QrkX6R';
@@ -203,6 +204,45 @@ describe('uploadLaunchMetadata', () => {
     expect(r).toMatchObject({ ok: false, retryable: false, field: 'image', reason: 'Bad picture' });
     expect(await uploadLaunchMetadata(input(), vi.fn(async () => { throw new TypeError('offline'); }) as unknown as typeof fetch))
       .toMatchObject({ ok: false, retryable: true });
+  });
+
+  // The 60 s cover the whole answer: a service that sends its headers and half a body is
+  // one we could not reach, and "an answer this page could not read" would blame the answer.
+  describe('an answer that stops part-way', () => {
+    const NOT_REACHED = { ok: false, reason: 'Could not reach the upload service. Nothing was launched. Try again.', retryable: true, notConfigured: false };
+
+    /** How it ended, and how long after the request left (the picture is hashed first, off the fake clock). */
+    async function upload(answer: (signal: AbortSignal) => Promise<Response>) {
+      vi.useFakeTimers();
+      try {
+        const start = Date.now();
+        let askedAfterMs = -1;
+        const f = ((_url: string, init: RequestInit) => {
+          askedAfterMs = Date.now() - start;
+          return answer(init.signal as AbortSignal);
+        }) as unknown as typeof fetch;
+        const ended = await watch(() => uploadLaunchMetadata(input(), f), 180_000, 500);
+        return ended && { value: ended.value, afterAskMs: ended.afterMs - askedAfterMs };
+      } finally {
+        vi.useRealTimers();
+      }
+    }
+
+    it('is given up after 60 s as a failed request, not as a bad answer', async () => {
+      const ended = await upload((signal) => Promise.resolve(stalledBody(signal)));
+      expect(ended, 'still pending after 180 s').not.toBeNull();
+      expect(ended).toEqual({ value: NOT_REACHED, afterAskMs: 60_000 });
+    });
+
+    it('ends at the same moment, with the same words, as a service that never answers', async () => {
+      expect(await upload((signal) => neverAnswered(signal))).toEqual({ value: NOT_REACHED, afterAskMs: 60_000 });
+    });
+
+    it('a whole answer that is not JSON is still called unreadable', async () => {
+      const whole = () => new Response('{"metadataUri":', { status: 200, headers: { 'content-type': 'application/json' } });
+      expect(await uploadLaunchMetadata(input(), fetchReturning(whole())))
+        .toMatchObject({ ok: false, retryable: true, reason: expect.stringMatching(/could not read/) });
+    });
   });
 });
 

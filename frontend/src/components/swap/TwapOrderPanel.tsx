@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { useAccount } from 'wagmi';
 import { parseUnits, formatUnits } from 'viem';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
+import { CONNECT_ETHEREUM_WALLET } from '../../lib/copy';
 import { useCowTwap } from '../../hooks/useCowTwap';
 import { planTwap, twapDataFromPlan, TWAP_MAX_PARTS, TWAP_MIN_PARTS } from '../../lib/composableCow';
 import { DEFAULT_TOKENS } from '../../lib/tokenList';
@@ -9,6 +10,7 @@ import { WETH_ADDRESS } from '../../lib/constants';
 import { formatTokenAmountGrouped } from '../../lib/formatting';
 import { Link } from 'react-router-dom';
 import { TWAP_IDLE_NOTE } from '../../lib/yield/dcaYield';
+import { FinePrint } from '../ui/FinePrint';
 
 const INTERVAL_OPTIONS = [
   { label: '5 min', seconds: 300 },
@@ -114,8 +116,7 @@ export function TwapOrderPanel() {
           </span>
         </div>
         <p className="text-white/75 text-[11px] mb-3" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>
-          Spread a large WETH → {toToken.symbol} buy into equal parts that fill on a schedule through CoW’s
-          solver auction. Sells <strong>WETH</strong> (wrap ETH first).
+          Sells <strong>WETH</strong> (wrap ETH first).
         </p>
 
         {/* Inputs */}
@@ -225,16 +226,19 @@ export function TwapOrderPanel() {
                 )}
                 {/* Sits with the plan rather than in a footnote because the
                     question it answers ("can I earn on the part that hasn't
-                    sold?") is one a reader asks while looking at the schedule. */}
-                <p className="text-white/60 text-[10px] leading-snug mt-2">{TWAP_IDLE_NOTE}</p>
-                <p className="text-white/60 text-[10px] leading-snug mt-1">
-                  A{' '}
-                  <Link to="/swap" className="underline hover:text-white/80 transition-colors">DCA schedule</Link>{' '}
-                  signs each buy separately, so its unspent budget is not pinned this way — the DCA tab shows how much
-                  that is, and{' '}
-                  <Link to="/yield" className="underline hover:text-white/80 transition-colors">Yield Routing</Link>{' '}
-                  lists where it could go.
-                </p>
+                    sold?") is one a reader asks while looking at the schedule.
+                    One press away, so the plan's figures stay the first read. */}
+                <FinePrint summary="Unsold WETH" className="mt-1">
+                  <p>{TWAP_IDLE_NOTE}</p>
+                  <p>
+                    A{' '}
+                    <Link to="/swap" className="underline hover:text-white transition-colors">DCA schedule</Link>{' '}
+                    signs each buy separately, so its unspent budget is not pinned this way — the DCA tab shows how much
+                    that is, and{' '}
+                    <Link to="/yield" className="underline hover:text-white transition-colors">Yield Routing</Link>{' '}
+                    lists where it could go.
+                  </p>
+                </FinePrint>
               </>
             ) : (
               <p className="text-amber-300">{plan.error}</p>
@@ -247,7 +251,7 @@ export function TwapOrderPanel() {
           <ConnectButton.Custom>
             {({ openConnectModal, mounted }) => (
               <div {...(!mounted && { style: { opacity: 0, pointerEvents: 'none' } })}>
-                <button onClick={openConnectModal} className="btn-primary w-full py-3 text-[13px]">Connect Wallet</button>
+                <button onClick={openConnectModal} className="btn-primary w-full py-3 text-[13px]">{CONNECT_ETHEREUM_WALLET}</button>
               </div>
             )}
           </ConnectButton.Custom>
@@ -271,7 +275,6 @@ export function TwapOrderPanel() {
             </button>
             <p className="mt-2 text-[9px] text-white/50 leading-snug">
               Your Safe must have CoW’s ComposableCoW fallback handler enabled (the CoW Swap app sets this up).
-              One transaction registers the whole schedule; CoW’s watchtower posts each part on time.
             </p>
             {plan.valid && (
               <button
@@ -291,6 +294,14 @@ export function TwapOrderPanel() {
             )}
           </>
         )}
+
+        <FinePrint summary="How it works" className="mt-2">
+          <p>
+            Spread a large WETH → {toToken.symbol} buy into equal parts that fill on a schedule through CoW’s
+            solver auction.
+          </p>
+          <p>One transaction registers the whole schedule; CoW’s watchtower posts each part on time.</p>
+        </FinePrint>
       </div>
     </div>
   );

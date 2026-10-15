@@ -19,6 +19,7 @@ import { useCountdown } from '../../hooks/useCountdown';
 import { useTabListKeys } from '../../hooks/useTabListKeys';
 import { useReceiptOutcome } from '../../hooks/useReceiptOutcome';
 import { InfoTooltip, HowItWorks, StepIndicator, RiskBanner, TxSummary } from '../ui/InfoTooltip';
+import { FinePrint } from '../ui/FinePrint';
 import { artImgProps } from '../../lib/artSrcSet';
 import { noteReplacement } from '../../lib/txErrors';
 
@@ -1955,7 +1956,12 @@ export function LendingSection({ address: _propAddress }: { address?: string }) 
       {!deployed && (
         <ArtPanel art={pageArt('lending-section', 14)} opacity={1} overlay="none">
           <div className="px-4 py-3 text-center text-[13px] text-amber-400/80">
-            Token Lending is not deployed. It is gated on the TWAP price oracle, which cannot start while the native TOWELI/WETH pool sits below its reserve floor — not on review time. Explore the interface below. <Link to="/security" className="underline hover:text-amber-300 transition-colors">View security details</Link>
+            <p>Token Lending is not deployed. Explore the interface below.</p>
+            <FinePrint summary="Why" className="text-left">
+              <p>
+                It is gated on the TWAP price oracle, which cannot start while the native TOWELI/WETH pool sits below its reserve floor — not on review time. <Link to="/security" className="underline hover:text-amber-300 transition-colors">View security details</Link>
+              </p>
+            </FinePrint>
           </div>
         </ArtPanel>
       )}

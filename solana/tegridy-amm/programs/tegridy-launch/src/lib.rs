@@ -82,8 +82,8 @@
 //!
 //! - **This must stay a SEPARATE program from `cp-swap`.** `solana-ci.yml`'s
 //!   `diff-guard` asserts `programs/cp-swap/src` differs from audited upstream in
-//!   exactly two authority files. Folding launch logic in there breaks that and
-//!   turns a cheap four-constant diff-audit into a full from-scratch AMM audit.
+//!   exactly two files. Folding launch logic in there breaks that and turns a cheap diff-audit
+//!   (four constants, one instruction that names lp tokens) into a from-scratch AMM audit.
 //! - **No TOWELI on Solana.** Standing doctrine, untouched by the own-venue
 //!   decision. Nothing here mints, bridges, or references TOWELI.
 //!

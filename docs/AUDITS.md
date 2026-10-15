@@ -175,7 +175,7 @@ Each pass narrowed scope; March passes inventoried broadly, April passes tracked
 
 Found something not listed? Report privately:
 
-- **Contact:** fomotsar@gmail.com (see `/.well-known/security.txt` on memetic.fun)
+- **Contact:** fomotsar@gmail.com (see <https://memetics.finance/.well-known/security.txt>)
 - **Bounty:** no paid bug-bounty program is live yet — when one launches it will be
   linked here and in security.txt. (An earlier revision linked an Immunefi page
   that never existed; removed 2026-08-24.)

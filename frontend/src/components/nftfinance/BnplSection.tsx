@@ -6,6 +6,8 @@ import { useBnplDesk, BNPL_WRITTEN_TERMS } from '../../hooks/useBnplDesk';
 import { useBnplQuote } from '../../hooks/useBnplQuote';
 import { usePooledLendingVaults } from '../../hooks/usePooledLendingVault';
 import { isBnplLive, POOLED_VAULT_WRITTEN_TERMS } from '../../hooks/usePooledLendingConfig';
+import { CardArt } from '../ui/CardArt';
+import { FinePrint } from '../ui/FinePrint';
 
 // Buy-now-pay-later at the point of sale (#62).
 //
@@ -124,44 +126,59 @@ export function BnplSection() {
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.3, ease: EASE }}
     >
-      <div className="rounded-xl p-4" style={{ background: CARD_BG, border: `1px solid ${CARD_BORDER}` }}>
+      <div className="relative isolate rounded-xl p-4" style={{ background: CARD_BG, border: `1px solid ${CARD_BORDER}` }}>
+        <CardArt pageId="nft-finance" idx={12} />
         <h2 className="text-[16px] font-semibold text-white mb-1" style={LABEL_STYLE}>
           Pay in instalments
         </h2>
         <p className="text-[12px] text-white/70 leading-relaxed" style={LABEL_STYLE}>
-          A buyer puts a deposit down, the lending pool fronts the rest, and the seller is paid in full immediately. The
-          token sits in the pool&rsquo;s escrow until the plan is cleared. There is no promotional rate and no interest-free
-          window: the financed part is a loan from the pool and it costs what the pool charges.
+          Pay a deposit; the pool lends the rest at what the pool charges.
         </p>
+        <FinePrint summary="How it works">
+          <p>
+            A buyer puts a deposit down, the lending pool fronts the rest, and the seller is paid in full immediately. The
+            token sits in the pool&rsquo;s escrow until the plan is cleared. There is no promotional rate and no interest-free
+            window: the financed part is a loan from the pool and it costs what the pool charges.
+          </p>
+        </FinePrint>
       </div>
 
-      <RiskBanner variant="danger">
-        <span className="font-semibold">Missing a payment costs you the token.</span> If an instalment goes unpaid past
-        its grace period, anyone may wind the plan up: the escrowed token is sold through the pool&rsquo;s liquidation route,
-        the pool is repaid first, and only what is left over comes back to you. Payments you have already made reduce
-        the debt, so they sit inside that leftover rather than being lost ahead of it — but a sale below the debt returns
-        nothing. Nothing here reminds you or pays for you; this venue runs no keeper, and a due date passes whether or
-        not anything notices.
+      <RiskBanner variant="danger" art={<CardArt pageId="nft-finance" idx={24} />}>
+        <span className="font-semibold">Missing a payment costs you the token.</span>
+        <FinePrint summary="Risks">
+          <p>
+            If an instalment goes unpaid past
+            its grace period, anyone may wind the plan up: the escrowed token is sold through the pool&rsquo;s liquidation route,
+            the pool is repaid first, and only what is left over comes back to you. Payments you have already made reduce
+            the debt, so they sit inside that leftover rather than being lost ahead of it — but a sale below the debt returns
+            nothing. Nothing here reminds you or pays for you; this venue runs no keeper, and a due date passes whether or
+            not anything notices.
+          </p>
+        </FinePrint>
       </RiskBanner>
 
       {!live && (
         <div
-          className="rounded-xl p-4"
+          className="relative isolate rounded-xl p-4"
           style={{ background: 'rgba(234,179,8,0.06)', border: '1px solid rgba(234,179,8,0.2)' }}
         >
+          <CardArt pageId="nft-finance" idx={13} />
           <p className="text-[13px] font-semibold text-amber-300 mb-1" style={LABEL_STYLE}>
             The instalment desk is not deployed.
           </p>
-          <p className="text-[12px] text-white/70 leading-relaxed" style={LABEL_STYLE}>
-            {desk.detail} No listing can be made and no plan can be opened. The estimator below runs entirely in your
-            browser against the terms written in the contract source, so you can see what a plan would cost — it is not
-            a quote from a live desk, and no live desk exists to give one.
-          </p>
+          <FinePrint summary="Details">
+            <p>
+              {desk.detail} No listing can be made and no plan can be opened. The estimator below runs entirely in your
+              browser against the terms written in the contract source, so you can see what a plan would cost — it is not
+              a quote from a live desk, and no live desk exists to give one.
+            </p>
+          </FinePrint>
         </div>
       )}
 
       {/* ── Cost-of-credit estimator ───────────────────────────────── */}
-      <div className="rounded-xl p-4" style={{ background: CARD_BG, border: `1px solid ${CARD_BORDER}` }}>
+      <div className="relative isolate rounded-xl p-4" style={{ background: CARD_BG, border: `1px solid ${CARD_BORDER}` }}>
+        <CardArt pageId="nft-finance" idx={14} />
         <div className="flex items-center gap-1 mb-2">
           <h3 className="text-[14px] font-semibold text-white" style={LABEL_STYLE}>
             What a plan would cost

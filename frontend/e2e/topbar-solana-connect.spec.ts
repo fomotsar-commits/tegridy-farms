@@ -14,7 +14,7 @@ import {
 // borrows the page's own Solana connection (src/lib/solanaSurface.ts).
 //
 // MUTATION CHECK: in TopNav.tsx make `solanaPage` false. The first, second and
-// fourth tests must fail (RainbowKit opens); the third must still pass.
+// fourth tests must fail (the network sheet opens instead); the third must still pass.
 
 test.use({ serviceWorkers: 'block' });
 
@@ -86,14 +86,17 @@ test('a tap before the page\'s Solana code has loaded waits for it, and never op
   expect(held, 'the Solana chunk was held, so the tap really was early').toBeGreaterThan(0);
 });
 
-test('on an Ethereum page, the top bar Connect is still the Ethereum list', async ({ page }) => {
+// Off the Solana pages the button asks which network first (topbar-wallet-sheet.spec.ts);
+// it is never the Solana page's direct Connect there.
+test('on an Ethereum page, the top bar Connect is not the Solana one, and Ethereum is one row away', async ({ page }) => {
   await page.goto('/swap');
   const connect = page.getByRole('banner').getByRole('button', { name: 'Connect wallet' });
   await expect(connect).toBeVisible({ timeout: 30_000 });
+  await expect(topBarSolanaConnect(page)).toHaveCount(0);
   await connect.click();
+  await page.getByRole('dialog').getByRole('button', { name: /^Ethereum, Base, Robinhood Chain/ }).click();
   await expect(ethereumList(page)).toBeVisible({ timeout: 30_000 });
   await expect(solanaList(page)).toHaveCount(0);
-  await expect(topBarSolanaConnect(page)).toHaveCount(0);
 });
 
 test.describe('connected from the top bar', () => {

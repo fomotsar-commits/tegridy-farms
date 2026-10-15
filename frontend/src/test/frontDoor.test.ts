@@ -131,6 +131,54 @@ describe('the root is a front door', () => {
   });
 });
 
+describe('no doc gives the venue a second address', () => {
+  // memetic.fun has served another project since 2026-09-20. An old plan may name it as it
+  // was then; no markdown file says the venue is also there. Read a paragraph at a time,
+  // because the claim wraps across lines.
+  const SECOND_ADDRESS = /\b(?:also|aka|alias(?:ed)?|mirror(?:ed)?)\b[^.;]{0,40}?\bmemetic\.fun\b/i;
+  const paragraphs = (): { at: string; text: string }[] =>
+    tracked()
+      .filter((f) => f.endsWith('.md'))
+      .flatMap((f) =>
+        read(...f.split('/'))
+          .split(/\r?\n[ \t]*\r?\n/)
+          .map((p) => ({ at: f, text: p.replace(/\s+/g, ' ').trim() })),
+      );
+
+  it('reads the docs the README sends a newcomer to (guards the guard)', () => {
+    const files = new Set(paragraphs().map((p) => p.at));
+    expect(files.size).toBeGreaterThan(100);
+    for (const must of ['README.md', 'docs/FAQ.md', 'docs/QUICKSTART.md']) {
+      expect(files, `${must} is not being read`).toContain(must);
+    }
+  });
+
+  it('finds the claim however it is worded, and passes a line that disowns the host', () => {
+    for (const claim of [
+      'The app is live at memetics.finance (also **memetic.fun**).',
+      'memetics.finance, also served at memetic.fun, is the venue',
+      'the venue, aka memetic.fun',
+      'mirrored at https://memetic.fun for old links',
+    ]) {
+      expect(SECOND_ADDRESS.test(claim), claim).toBe(true);
+    }
+    for (const honest of [
+      '`memetic.fun` is not this venue: it serves the Island Lab, a separate project.',
+      'a plain 200 on an alias is itself the outage; and `memetic.fun` does not serve this venue',
+      'The contact link points at memetic.fun/trust, which is now another project.',
+    ]) {
+      expect(SECOND_ADDRESS.test(honest), honest).toBe(false);
+    }
+  });
+
+  it('says in no paragraph that the venue is also at memetic.fun', () => {
+    const claims = paragraphs()
+      .filter((p) => SECOND_ADDRESS.test(p.text))
+      .map((p) => `${p.at}: ${SECOND_ADDRESS.exec(p.text)![0]}`);
+    expect(claims, 'these docs give the venue a second address it does not have').toEqual([]);
+  });
+});
+
 describe('one to-do list', () => {
   const PLAN = /(PLAN|TODO|NEXT|ROADMAP|LEFT|UNFINISHED|WHAT_I_NEED)/;
   const plans = (): string[] =>

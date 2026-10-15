@@ -1,0 +1,6 @@
+{
+  "name": "Memetics Pool Share",
+  "symbol": "MEM-LP",
+  "description": "A share of a pool on memetics.finance. Remove liquidity there and it comes back as the two tokens in the pool. Do not burn it.",
+  "image": "https://memetics.finance/mint/img/pool-share-93eea003.png"
+}

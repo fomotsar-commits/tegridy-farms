@@ -2,9 +2,14 @@ import { displaySafe } from '../../../lib/launchMetadata/validate';
 import type { TokenSafety } from '../../../lib/solana/lp/tokenSafety';
 import { CopyButton } from '../../ui/CopyButton';
 import { Card, Notice, Row } from '../curve/ui';
+import { CardArt } from '../../ui/CardArt';
+import { FinePrint } from '../../ui/FinePrint';
 
+// A token this site will not open or add to a pool for is not accused of anything: the
+// title says what THIS SITE does not do, and the reason lines under it say why (owner
+// ruling 2026-10-07). The internal name stays `blocked`.
 const VERDICT_TITLE: Record<'blocked' | 'warn' | 'ok', string> = {
-  blocked: 'Blocked on this site',
+  blocked: 'This site does not open or add to pools for this token',
   warn: 'Allowed, with warnings',
   ok: 'No problems found',
 };
@@ -17,7 +22,7 @@ export function TokenSafetyCard({ mint, safety }: { mint: string; safety: TokenS
   const verdict = safety.kind === 'read' ? safety.verdict : safety.kind;
   return (
     <div data-testid="token-safety" data-verdict={verdict}>
-      <Card title="The token">
+      <Card title="The token" art={<CardArt pageId="solana-lp" idx={5} />}>
         <Row label="Mint address" value={mint} />
         <div>
           <CopyButton text={mint} display="Copy the mint address" className="min-h-[44px] underline text-white/70 text-[12px]" />
@@ -54,8 +59,12 @@ export function TokenSafetyCard({ mint, safety }: { mint: string; safety: TokenS
             {safety.warnings.map((w) => (
               <Notice key={w.code + w.text} tone="warn">{w.text}</Notice>
             ))}
-            <Notice>Names and tickers can be copied by anyone. Check the mint address above against a source you trust.</Notice>
           </>
+        )}
+        {safety.kind === 'read' && (
+          <FinePrint summary="Check the address">
+            <p>Names and tickers can be copied by anyone. Check the mint address above against a source you trust.</p>
+          </FinePrint>
         )}
       </Card>
     </div>

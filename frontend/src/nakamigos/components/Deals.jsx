@@ -5,6 +5,7 @@ import { fulfillSeaportOrder, getProvider } from "../api";
 import { fulfillNativeOrder } from "../lib/orderbook";
 import { recordTransaction } from "../lib/transactions";
 import { validateOrderQuick } from "../lib/orderValidator";
+import { toastTxNotice } from "../lib/txOutcome";
 import { Eth } from "./Icons";
 import NftImage from "./NftImage";
 
@@ -711,7 +712,7 @@ export default function Deals({
         });
       } else if (result.error === "rejected") {
         addToast("Transaction rejected", "info");
-      } else {
+      } else if (!toastTxNotice(addToast, result)) {
         addToast(result.message || "Purchase failed", "error");
       }
     } catch {

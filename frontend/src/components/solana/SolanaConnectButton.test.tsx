@@ -33,7 +33,8 @@ vi.mock('@solana/wallet-adapter-react-ui', () => ({
   useWalletModal: () => ({ setVisible: state.setVisible }),
 }));
 
-import { SolanaConnectButton, SOLANA_CONNECT_WAIT_NOTICE_MS } from './SolanaConnectButton';
+import { SolanaConnectButton } from './SolanaConnectButton';
+import { SOLANA_CONNECT_WAIT_NOTICE_MS } from '../../lib/solanaSurface';
 
 const phantom = () => ({ readyState: WalletReadyState.Installed, adapter: { name: 'Phantom', url: 'https://phantom.app' } });
 

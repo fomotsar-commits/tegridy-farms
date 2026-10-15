@@ -213,7 +213,7 @@ test.describe('Stake surface', () => {
 
     await receipt.getByRole('button', { name: /share to x/i }).click();
     await expect.poll(() => intents.length, { timeout: 15_000, message: 'Share to X opened no X window' }).toBeGreaterThan(0);
-    const text = new URL(intents[0]).searchParams.get('text') ?? '';
+    const text = new URL(intents[0] ?? '').searchParams.get('text') ?? '';
     expect(text).toContain('MEMETICS.FINANCE');
     expect(text).toMatch(/^Amount: 100\.0000 TOWELI$/m);
     expect(text).toMatch(/^Tx: https?:\/\/\S+\/tx\/0x[0-9a-f]{64}$/m);

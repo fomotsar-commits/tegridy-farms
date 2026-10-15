@@ -24,9 +24,12 @@ import { usePageTitle } from '../../hooks/usePageTitle';
 import { CopyButton } from '../ui/CopyButton';
 import { shortenAddress } from '../../lib/formatting';
 import { ArtImg } from '../ArtImg';
+import { CardArt } from '../ui/CardArt';
+import { FinePrint } from '../ui/FinePrint';
 import { HeatCard } from './HeatCard';
 import { BungalowMarket } from './BungalowMarket';
 import { BungalowHolders } from './BungalowHolders';
+import { BungalowBurn } from './BungalowBurn';
 
 /**
  * The bungalow dashboard (Bayla) — "your standing on the island".
@@ -302,8 +305,7 @@ function Inner({ bungalow }: { bungalow: Bungalow & { identity: BungalowIdentity
             {bungalow.symbol} Dashboard.
           </h1>
           <p className="text-white/85 text-[15px] max-w-lg leading-relaxed">
-            What you hold, what you have staked, and how long you&rsquo;ve held it — the
-            island counts all three.
+            What you hold, what you have staked, and how long you&rsquo;ve held it.
           </p>
         </div>
 
@@ -322,13 +324,18 @@ function Inner({ bungalow }: { bungalow: Bungalow & { identity: BungalowIdentity
                   <h2 className="heading-luxury text-lg text-white mb-2">Connect to see your {bungalow.symbol}</h2>
                   <p className="text-white/80 text-[12px] leading-relaxed mb-4">
                     {membersOnly ? 'Your balance and your heat' : 'Your balance, your lighthouse position and your heat'}, read
-                    straight off the chain. Connecting signs nothing and moves nothing: every deposit is
-                    a separate signature you make on the {' '}
-                    <Link to={`/earn/${bungalow.id}`} className="underline underline-offset-2 hover:text-white">pool page</Link>.
+                    straight off the chain.
                   </p>
                   <button type="button" onClick={openConnect} className="btn-primary px-5 py-2.5 text-[13px] mt-auto self-start">
                     Connect Solana Wallet
                   </button>
+                  <FinePrint className="mt-2">
+                    <p>
+                      Connecting signs nothing and moves nothing: every deposit is a separate signature
+                      you make on the{' '}
+                      <Link to={`/earn/${bungalow.id}`} className="underline underline-offset-2 hover:text-white">pool page</Link>.
+                    </p>
+                  </FinePrint>
                 </>
               ) : (
                 <>
@@ -361,18 +368,24 @@ function Inner({ bungalow }: { bungalow: Bungalow & { identity: BungalowIdentity
 
           {/* Lighthouse position */}
           {stakePool && !membersOnly && (
-            <div className="rounded-2xl p-5" style={CARD}>
+            <div className="relative isolate rounded-2xl p-5" style={CARD}>
+              <CardArt pageId="bungalow-dashboard" idx={2} />
               <p className="text-[10px] uppercase tracking-wider mb-2" style={{ color: 'var(--color-kyle)' }}>At the lighthouse</p>
               {!publicKey ? (
                 <>
                   <h2 className="heading-luxury text-lg text-white mb-2">The pool is live</h2>
                   <p className="text-white/80 text-[12px] leading-relaxed mb-3">
-                    {bungalow.symbol} staking runs on an audited Streamflow pool, non-custodial
-                    and readable by anyone. Connect above and your position appears here.
-                    {ladderPool ? ' There is a lock-ladder pool too; the pool page covers both.' : ''}
+                    Connect above and your position appears here.
                   </p>
                   <PoolFacts facts={poolFacts} failed={poolReadFailed} onRetry={retryReads} symbol={bungalow.symbol} />
                   <Link to={`/earn/${bungalow.id}`} className="btn-secondary px-4 py-2 text-[12px] inline-block">See the pool</Link>
+                  <FinePrint className="mt-2">
+                    <p>
+                      {bungalow.symbol} staking runs on an audited Streamflow pool, non-custodial
+                      and readable by anyone.
+                      {ladderPool ? ' There is a lock-ladder pool too; the pool page covers both.' : ''}
+                    </p>
+                  </FinePrint>
                 </>
               ) : stakeLoading ? (
                 <p className="text-white/70 text-[13px]">Reading your position…</p>
@@ -390,22 +403,27 @@ function Inner({ bungalow }: { bungalow: Bungalow & { identity: BungalowIdentity
                     {ladderPool ? 'Nothing in the lighthouse pool' : 'Nothing staked yet'}
                   </h2>
                   <p className="text-white/80 text-[12px] leading-relaxed mb-3">
-                    {ladderPool ? (
-                      <>
-                        You have no open stake in the lighthouse pool. This card reads that pool
-                        only — {bungalow.symbol} also has a lock-ladder pool, and anything you hold
-                        there is shown on the pool page, not here.
-                      </>
-                    ) : (
-                      <>
-                        You hold {bungalow.symbol} but have no open stake. The pool page shows every
-                        lock length, what each one is configured to pay, and what the reward vault
-                        actually holds today.
-                      </>
-                    )}
+                    {ladderPool
+                      ? 'You have no open stake in the lighthouse pool.'
+                      : `You hold ${bungalow.symbol} but have no open stake.`}
                   </p>
                   <PoolFacts facts={poolFacts} failed={poolReadFailed} onRetry={retryReads} symbol={bungalow.symbol} />
                   <Link to={`/earn/${bungalow.id}`} className="btn-primary px-4 py-2 text-[12px] inline-block">Stake {bungalow.symbol}</Link>
+                  <FinePrint className="mt-2">
+                    <p>
+                      {ladderPool ? (
+                        <>
+                          This card reads that pool only — {bungalow.symbol} also has a lock-ladder
+                          pool, and anything you hold there is shown on the pool page, not here.
+                        </>
+                      ) : (
+                        <>
+                          The pool page shows every lock length, what each one is configured to pay,
+                          and what the reward vault actually holds today.
+                        </>
+                      )}
+                    </p>
+                  </FinePrint>
                 </>
               ) : (
                 position
@@ -417,7 +435,8 @@ function Inner({ bungalow }: { bungalow: Bungalow & { identity: BungalowIdentity
               everyone else, loading and disconnected included, gets the ladder card,
               so a non-member never sees the old pool flash up. */}
           {membersOnly && (openEntries.length > 0 ? (
-            <div className="rounded-2xl p-5" style={CARD}>
+            <div className="relative isolate rounded-2xl p-5" style={CARD}>
+              <CardArt pageId="bungalow-dashboard" idx={3} />
               <p className="text-[10px] uppercase tracking-wider mb-2" style={{ color: 'var(--color-kyle)' }}>The lighthouse pool · retired</p>
               <p className="text-white/60 text-[11px] leading-relaxed mb-3">
                 This pool takes no new stakes. Claims and withdrawals are on the pool page,
@@ -426,7 +445,8 @@ function Inner({ bungalow }: { bungalow: Bungalow & { identity: BungalowIdentity
               {position}
             </div>
           ) : (
-            <div className="rounded-2xl p-5" style={CARD}>
+            <div className="relative isolate rounded-2xl p-5" style={CARD}>
+              <CardArt pageId="bungalow-dashboard" idx={4} />
               <p className="text-[10px] uppercase tracking-wider mb-2" style={{ color: 'var(--color-kyle)' }}>Staking</p>
               <h2 className="heading-luxury text-lg text-white mb-2">The lock ladder</h2>
               <p className="text-white/80 text-[12px] leading-relaxed mb-3">
@@ -445,7 +465,8 @@ function Inner({ bungalow }: { bungalow: Bungalow & { identity: BungalowIdentity
           ))}
 
           {/* Where to go next + the contract, which this page never showed. */}
-          <div className="rounded-2xl p-5" style={CARD}>
+          <div className="relative isolate rounded-2xl p-5" style={CARD}>
+            <CardArt pageId="bungalow-dashboard" idx={5} />
             <p className="text-[10px] uppercase tracking-wider mb-3" style={{ color: 'var(--color-kyle)' }}>Live surfaces</p>
             <div className="flex flex-wrap gap-2 mb-4">
               {trade && ('to' in trade ? (
@@ -487,6 +508,13 @@ function Inner({ bungalow }: { bungalow: Bungalow & { identity: BungalowIdentity
         {bungalow.market && (
           <div className="mt-6">
             <BungalowMarket bungalow={bungalow} />
+          </div>
+        )}
+
+        {/* The burn follows the market wherever a live bungalow shows its market. */}
+        {bungalow.address && (
+          <div className="mt-6">
+            <BungalowBurn bungalow={bungalow} />
           </div>
         )}
 

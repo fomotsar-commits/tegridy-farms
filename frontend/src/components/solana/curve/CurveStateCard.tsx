@@ -10,6 +10,8 @@ import {
   type LaunchPhase,
   type TreasuryDescription,
 } from '../../../lib/launcher/solana/curve';
+import { CardArt } from '../../ui/CardArt';
+import { FinePrint } from '../../ui/FinePrint';
 import { Card, Row } from './ui';
 import { feeSplitLabel } from './uiFormat';
 
@@ -76,7 +78,7 @@ export function CurveStateCard({
   const notYet = !lookedUp && phase.kind === 'unreadable';
   const p = notYet ? NOT_LOOKED_UP : PHASE_COPY[phase.kind];
   return (
-    <Card title="Curve state">
+    <Card title="Curve state" art={<CardArt pageId="curve-launch" idx={3} />}>
       <div className="flex flex-wrap items-center gap-2">
         <span className="text-white/90 text-[12px] font-medium">{p.label}</span>
         {paused === true && (
@@ -221,10 +223,12 @@ function CurveNumbers({
         </p>
       )}
       <Row label="Spot price" value={spot === null ? '—' : `${spot.value} ${spot.unit}`} />
-      <p className="text-white/35 text-[10px] leading-relaxed">
-        This is the price right now. Any trade moves it, so the review shows what you actually get. There is no market
-        cap, volume or holder count here: the program does not record them.
-      </p>
+      <FinePrint>
+        <p>
+          This is the price right now. Any trade moves it, so the review shows what you actually get. There is no market
+          cap, volume or holder count here: the program does not record them.
+        </p>
+      </FinePrint>
     </div>
   );
 }

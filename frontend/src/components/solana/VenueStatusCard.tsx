@@ -2,11 +2,23 @@
 import '../../lib/solanaPolyfill';
 import type { Ref } from 'react';
 import { CopyButton } from '../ui/CopyButton';
+import { CardArt } from '../ui/CardArt';
+import { FinePrint } from '../ui/FinePrint';
 import type { VenueStatus } from '../../lib/solana/cpswap/read';
 import { SPENT_PROGRAM_ID, hasProgramId } from '../../lib/solana/cpswap/program';
 import type { LpWriteMode } from '../../lib/launcher/solana/lpWriteFlag';
 
 const CARD = { background: 'rgba(4,9,18,0.90)', border: '1px solid var(--color-purple-25)' } as const;
+
+// A finger-sized press area that leaves the card the height it was: padding around the
+// small text, taken back by the same negative margin. Refresh is one 16.5px line, so
+// 14px above and below makes 44.5px (and 8px each side makes it 56px wide); a copy
+// button is one 18px line, so the same 14px makes 46px. Growing the buttons themselves
+// to 44px made the card 55px taller on a phone and 41px on a desktop. The keyboard's ring
+// goes round the words (`ring-on-words`, index.css), not round that area: there it stood
+// 9px out of a chip on each side and touched the heading under Refresh.
+const REFRESH = 'px-2 -mx-2 py-3.5 -my-3.5 text-white/50 hover:text-white text-[11px] underline underline-offset-2 ring-on-words';
+const COPY_PRESS = 'py-3.5 -my-3.5 ring-on-words';
 
 // What this site can do with the pools follows LP's own switch (lpWriteFlag.ts). Whether
 // the public fee tier takes new pools is said only by the create card's live read.
@@ -35,12 +47,14 @@ export function VenueStatusCard({ status, onRefresh, lpMode, feeSheetBelow = tru
 }) {
   const amber = { background: 'rgba(28,21,6,0.92)', border: '1px solid rgba(227,179,65,0.45)' };
   const green = { background: 'rgba(6,24,14,0.92)', border: '1px solid rgba(34,197,94,0.45)' };
-  // A card that is scrolled to stops clear of the fixed header and the tab strip under it.
-  const frame = ref ? 'rounded-2xl p-6 scroll-mt-24' : 'rounded-2xl p-6';
+  // A card that is scrolled to stops with air above it. The page's scroll-padding
+  // (index.css) is what clears the fixed header and the tab strip.
+  const frame = ref ? 'relative isolate rounded-2xl p-6 scroll-mt-5' : 'relative isolate rounded-2xl p-6';
 
   if (status === null) {
     return (
       <section ref={ref} className={frame} style={CARD}>
+        <CardArt pageId="venue-amm" idx={0} />
         <p className="text-white/70 text-[13px]">Reading the venue&rsquo;s status from the chain…</p>
       </section>
     );
@@ -51,22 +65,28 @@ export function VenueStatusCard({ status, onRefresh, lpMode, feeSheetBelow = tru
   if (status.kind === 'live') {
     return (
       <section ref={ref} className={frame} style={green} aria-label="Venue status">
+        <CardArt pageId="venue-amm" idx={0} />
         <div className="flex items-center justify-between gap-3 flex-wrap mb-2">
           <p className="text-[10px] uppercase tracking-wider" style={{ color: '#4ade80' }}>Venue · LIVE</p>
-          <button type="button" onClick={onRefresh} className="text-white/50 hover:text-white text-[11px] underline underline-offset-2">Refresh</button>
+          <button type="button" onClick={onRefresh} className={REFRESH}><span className="ring-words">Refresh</span></button>
         </div>
         <h2 className="heading-luxury text-xl text-white mb-2">Pools are open</h2>
-        <p className="text-white/80 text-[13px] leading-relaxed mb-3">
-          {status.config.disableCreatePool
-            ? `The AMM is deployed and its config exists, but opening new pools on fee tier ${status.config.index} is switched off by the pool program’s admin, so on chain anyone can only provide liquidity to pools that already exist.`
-            : 'The AMM is deployed and its config exists, so anyone can open a pool and provide liquidity on chain.'}{' '}
-          {VENUE_LP_LINE[lpMode](lpSection)}
-          {feeSheetBelow && ' Fees below are read from that config.'}
-        </p>
+        {status.config.disableCreatePool && (
+          <p className="text-white/80 text-[13px] leading-relaxed mb-2">New pools on fee tier {status.config.index} are switched off.</p>
+        )}
         <div className="flex flex-wrap gap-3 text-[12px]">
           <Addr label="Program" value={status.programId} />
           <Addr label="Config" value={status.config.address} />
         </div>
+        <FinePrint summary="Details" className="mt-2">
+          <p>
+            {status.config.disableCreatePool
+              ? `The AMM is deployed and its config exists, but opening new pools on fee tier ${status.config.index} is switched off by the pool program’s admin, so on chain anyone can only provide liquidity to pools that already exist.`
+              : 'The AMM is deployed and its config exists, so anyone can open a pool and provide liquidity on chain.'}{' '}
+            {VENUE_LP_LINE[lpMode](lpSection)}
+            {feeSheetBelow && ' Fees below are read from that config.'}
+          </p>
+        </FinePrint>
       </section>
     );
   }
@@ -117,14 +137,12 @@ export function VenueStatusCard({ status, onRefresh, lpMode, feeSheetBelow = tru
 
   return (
     <section ref={ref} className={frame} style={amber} aria-label="Venue status">
+      <CardArt pageId="venue-amm" idx={0} />
       <div className="flex items-center justify-between gap-3 flex-wrap mb-2">
         <p className="text-[10px] uppercase tracking-wider" style={{ color: '#e3b341' }}>Venue status · live chain read</p>
-        <button type="button" onClick={onRefresh} className="text-white/50 hover:text-white text-[11px] underline underline-offset-2">Refresh</button>
+        <button type="button" onClick={onRefresh} className={REFRESH}><span className="ring-words">Refresh</span></button>
       </div>
       <h2 className="heading-luxury text-xl text-white mb-2">{body.title}</h2>
-      {body.lines.map((l) => (
-        <p key={l.slice(0, 24)} className="text-white/80 text-[13px] leading-relaxed mb-2">{l}</p>
-      ))}
 
       {body.spent && (
         <div className="mt-3 text-[12px]">
@@ -132,12 +150,17 @@ export function VenueStatusCard({ status, onRefresh, lpMode, feeSheetBelow = tru
         </div>
       )}
 
-      {!hasProgramId() && (
-        <p className="text-white/45 text-[11px] mt-3">
-          This site takes the id from <code className="font-mono">VITE_SOLANA_CPSWAP_PROGRAM</code> when
-          it is built.
-        </p>
-      )}
+      <FinePrint summary="Details" className="mt-2">
+        {body.lines.map((l) => (
+          <p key={l.slice(0, 24)}>{l}</p>
+        ))}
+        {!hasProgramId() && (
+          <p>
+            This site takes the id from <code className="font-mono">VITE_SOLANA_CPSWAP_PROGRAM</code> when
+            it is built.
+          </p>
+        )}
+      </FinePrint>
     </section>
   );
 }
@@ -147,7 +170,7 @@ function Addr({ label, value }: { label: string; value: string }) {
     <span className="inline-flex items-center gap-2 rounded-lg px-2.5 py-1.5"
       style={{ background: 'rgba(0,0,0,0.5)', border: '1px solid var(--color-kyle-40)' }}>
       <span className="text-[10px] uppercase tracking-wider" style={{ color: 'var(--color-kyle)' }}>{label}</span>
-      <CopyButton text={value} display={`${value.slice(0, 4)}…${value.slice(-4)}`} className="font-mono text-[12px]" style={{ color: 'var(--color-kyle)' }} />
+      <CopyButton text={value} display={`${value.slice(0, 4)}…${value.slice(-4)}`} className={`font-mono text-[12px] ${COPY_PRESS}`} wordsClassName="ring-words" style={{ color: 'var(--color-kyle)' }} />
     </span>
   );
 }

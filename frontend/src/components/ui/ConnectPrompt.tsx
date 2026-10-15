@@ -16,6 +16,7 @@ import { m } from 'framer-motion';
 import { pageArt } from '../../lib/artConfig';
 import { OpenInPhantom } from './OpenInPhantom';
 import { artImgProps } from '../../lib/artSrcSet';
+import { CONNECT_ETHEREUM_WALLET } from '../../lib/copy';
 
 type Surface = 'farm' | 'trade' | 'lending' | 'governance' | 'dashboard' | 'generic';
 
@@ -25,47 +26,41 @@ interface ConnectPromptProps {
   description?: string;
 }
 
-const DEFAULTS: Record<Surface, { title: string; description: string; cta: string }> = {
+const DEFAULTS: Record<Surface, { title: string; description: string }> = {
   farm: {
     title: 'Connect to farm with held time',
     description:
       // F109: softened from a hardcoded "100% of protocol swap fees" to a claim
       // that can't drift if governance retunes the on-chain staker fee-share. The
       // live percentage is surfaced on the Farm page's Fee Share chip.
-      'Lock TOWELI for up to 4 years, earn the protocol’s swap-fee share, and boost your LP rewards. Your staking position is an ERC-721 NFT — portable, collateralizable, yours.',
-    cta: 'Start Farming',
+      'Lock TOWELI up to 4 years for a share of swap fees. Your staking position is an ERC-721 NFT.',
   },
   trade: {
     title: 'Connect to swap on the native DEX',
     description:
       // Was "Every basis point of fees routes to stakers" — false. ReferralSplitter
       // carves 20% off the top before anything is credited to the staker rail.
-      'After the 20% referral carve, every remaining basis point is earmarked for stakers. Trade here to support the yield flywheel — or use Uniswap if you want Uniswap to keep the fees instead.',
-    cta: 'Swap TOWELI',
+      'After the 20% referral carve, the swap fee is earmarked for stakers.',
   },
   lending: {
     title: 'Connect to borrow or lend',
     description:
-      'Lend ETH against staked-TOWELI position NFTs, borrow against your staking NFT, or use JBAC / Nakamigos / GNSS NFTs as collateral. 1-hour grace period, no liquidation auctions — peer-to-peer.',
-    cta: 'Open Lending',
+      'Borrow or lend ETH against NFTs, peer to peer. 1-hour grace period, no liquidation auctions.',
   },
   governance: {
     title: 'Connect to vote with held time',
     description:
-      'Stakers direct where LP farming emissions flow. Your locked TOWELI is your voting power. Bribers pay you to vote their way — totally not bribes, just donations.',
-    cta: 'Open Governance',
+      'Locked TOWELI votes where LP rewards flow. Bribers pay you: totally not bribes, just donations.',
   },
   dashboard: {
-    title: 'Connect Wallet',
+    title: 'Connect an Ethereum wallet',
     description:
-      'View your portfolio, positions, and earnings. Track staking rewards, LP value, loans, and unclaimed yield in one place.',
-    cta: 'Connect Wallet',
+      'Your positions, earnings and unclaimed yield in one place.',
   },
   generic: {
     title: 'Connect your wallet',
     description:
-      'This surface requires a connected wallet. Your wallet address is used to read your on-chain positions and submit transactions. No sign-up, no password, no email.',
-    cta: 'Connect Wallet',
+      'Your address reads your positions and signs your transactions. No sign-up, no password, no email.',
   },
 };
 
@@ -137,9 +132,12 @@ export function ConnectPrompt({ surface = 'generic', title, description }: Conne
               onClick={openConnectModal}
               disabled={!mounted}
               className="btn-primary px-7 py-2.5 text-[14px]"
-              aria-label="Open wallet connection modal"
             >
-              Connect Wallet
+              {/* Every page that shows this prompt acts on Ethereum (TOWELI staking,
+                  its dashboard, the wallet-exposure scan), and this opens the
+                  Ethereum list. Its name is its words: it carried an aria-label
+                  that said neither. */}
+              {CONNECT_ETHEREUM_WALLET}
             </button>
           )}
         </ConnectButton.Custom>

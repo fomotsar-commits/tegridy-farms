@@ -90,3 +90,30 @@ describe('venueAvailability', () => {
     expect(staking.venue.target.toLowerCase()).toBe(TEGRIDY_STAKING_ADDRESS.toLowerCase());
   });
 });
+
+describe('venueAvailability: the LP farm after its rewards ended (owner, 2026-10-14)', () => {
+  const ended = {
+    open: false as const,
+    reason: 'ended' as const,
+    endedAtSec: 1_781_493_095,
+    line: 'Rewards ended Jun 15, 2026, so new stakes are closed. Withdraw and claim still work.',
+  };
+
+  it('is not offered once a read says its rewards ended, and says why', () => {
+    const farm = venueAvailability('lp-farm', ended);
+    expect(farm.available).toBe(false);
+    if (!farm.available) expect(farm.reason).toBe(ended.line);
+    const listed = zapVenues(ended).find((v) => (v.available ? v.venue.id : v.id) === 'lp-farm');
+    expect(listed?.available).toBe(false);
+  });
+
+  it('is not offered while the end is unread or being checked', () => {
+    expect(venueAvailability('lp-farm', { open: false, reason: 'unread', line: 'x' }).available).toBe(false);
+    expect(venueAvailability('lp-farm', { open: false, reason: 'checking', line: 'y' }).available).toBe(false);
+  });
+
+  it('a paying farm is offered (negative control), and the staking lock never asks', () => {
+    expect(venueAvailability('lp-farm', { open: true }).available).toBe(venueAvailability('lp-farm').available);
+    expect(venueAvailability('staking-lock', ended).available).toBe(venueAvailability('staking-lock').available);
+  });
+});

@@ -24,20 +24,31 @@ export function WalletNeeded({ state }: { state: CurveSignerState }) {
       </div>
     );
   }
-  const here = typeof window !== 'undefined' ? window.location.href : '';
   return (
     <div className="space-y-2">
       <SolanaConnectButton />
-      <p className="text-white/40 text-[10px] leading-relaxed">
-        On an iPhone or iPad without a wallet extension: open this page inside your wallet app&apos;s own browser
-        (Phantom, Solflare or Backpack), then connect there.
-        {here && (
-          <>
-            {' '}
-            <CopyButton text={here} display="Copy this page's link" className="underline text-white/60" />
-          </>
-        )}
-      </p>
+      <WalletAppHint />
     </div>
+  );
+}
+
+/**
+ * Under a Connect button, for a phone or tablet whose own browser has no wallet in it:
+ * what to do, and this page's link to carry into the wallet app.
+ */
+export function WalletAppHint() {
+  const here = typeof window !== 'undefined' ? window.location.href : '';
+  return (
+    <p className="text-white/40 text-[10px] leading-relaxed">
+      On a phone or tablet with no wallet in this browser: open this page inside your wallet app&apos;s own browser
+      (Phantom, Solflare or Backpack), then connect there.
+      {here && (
+        <>
+          {' '}
+          {/* A 44px press target: as a bare word in the sentence it was 16px tall on a phone (local-chain suite, 2026-10-04). */}
+          <CopyButton text={here} display="Copy this page's link" className="underline text-white/60 min-h-[44px]" />
+        </>
+      )}
+    </p>
   );
 }

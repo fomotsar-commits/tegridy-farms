@@ -63,6 +63,7 @@ import type {
   GraduationReadiness,
   LpGate,
   SolanaCluster,
+  SwapGate,
   TierState,
   WriteGate,
 } from './types';
@@ -422,6 +423,23 @@ export async function readLpGate(rpc: GateRpc, cfg: CurveWriteConfig | null, mod
     };
   }
   return { kind: 'open', cfg, mode };
+}
+
+// ── the swap page's own-pool route: LP's gate, without LP's switch ───────────
+
+/**
+ * The write configuration for a swap in one of our pools from the swap page: exactly
+ * `curveWriteConfig` with the curve's flag forced on, as for liquidity, so every
+ * production id check applies. No switch of LP's or the launch page's closes it.
+ */
+export function swapWriteConfig(env: Env = viteEnv(), committed: CommittedWriteIds = COMMITTED_WRITE_IDS): CurveWriteConfig | null {
+  return curveWriteConfig(env, { ...committed, enabled: true });
+}
+
+/** The same two reads as `readLpGate`: the cluster, and that the pool program is deployed. */
+export async function readSwapGate(rpc: GateRpc, cfg: CurveWriteConfig | null): Promise<SwapGate> {
+  const g = await readLpGate(rpc, cfg, 'on');
+  return g.kind === 'open' ? { kind: 'open', cfg: g.cfg } : g;
 }
 
 // ── opening a pool: the public fee tier and the fee account ──────────────────

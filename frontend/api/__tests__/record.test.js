@@ -19,6 +19,7 @@ import { buildBirthRecord } from "../_lib/record-core.js";
 import { SELECTORS, ASSET_DATA_WORDS, AIRLOCK, DOPPLER_ERC20_V1_IMPL } from "../_lib/record-evm.js";
 import { decodeAbiString, decodeUint, decodeAddress, decodeUint8, wordAt } from "../_lib/abi-decode.js";
 import { decodeMintAccount } from "../_lib/record-solana.js";
+import { stalledBody, watch } from "../../src/test/quietHost";
 
 const FE = process.cwd();
 const CA = "0x279e7cff2dbc93ff1f5cae6cbd072f98d75987ca";
@@ -603,6 +604,34 @@ describe("REGRESSION: bytes alone must not make an account a mint", () => {
     const res = mockRes();
     await handleRecord(req({ chain: "solana", ca: "So11111111111111111111111111111111111111112" }), res);
     expect(res.statusCode).toBe(404);
+  });
+});
+
+// The Solana read's 6 s cover the whole answer. A host that sends a 200, its headers and
+// half a body held the route open until the platform killed it.
+describe("a Solana host that stops part-way through its answer", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("is given up after 6 s, and the route answers 502 with nothing cached", async () => {
+    vi.useFakeTimers();
+    const start = Date.now();
+    let askedAfterMs = -1;
+    vi.stubGlobal("fetch", (_url, init) => {
+      askedAfterMs = Date.now() - start;
+      return Promise.resolve(stalledBody(init.signal));
+    });
+    const res = mockRes();
+    const ended = await watch(
+      () => handleRecord(req({ chain: "solana", ca: "So11111111111111111111111111111111111111112" }), res),
+      60_000,
+    );
+    expect(ended, "still pending after 60 s").not.toBeNull();
+    // Measured from the request: the Solana reader is imported first, off the fake clock.
+    expect(ended.afterMs - askedAfterMs).toBe(6_000);
+    expect(res.statusCode).toBe(502);
+    expect(res.headers["Cache-Control"]).toBe("no-store");
   });
 });
 
