@@ -754,6 +754,7 @@ export const SURFACES: Surface[] = [
   { group: 'Pools · Solana LP', pageId: 'solana-lp', idx: 10, label: 'Risk line above the forms' },
   { group: 'Pools · Solana LP', pageId: 'solana-lp', idx: 11, label: 'How you earn card' },
   { group: 'Pools · Solana LP', pageId: 'solana-lp', idx: 12, label: 'How the venue earns card' },
+  { group: 'Pools · Solana LP', pageId: 'solana-lp', idx: 13, label: 'All pools card (every pool on the venue, before a lookup)' },
   { group: 'Pools · Solana LP', pageId: 'venue-amm', idx: 0, label: 'Venue status card' },
   { group: 'Pools · Solana LP', pageId: 'venue-amm', idx: 1, label: 'The program card' },
 

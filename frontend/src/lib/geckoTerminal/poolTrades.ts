@@ -19,7 +19,7 @@
 // price API would red the suite. Every throw is caught here and named.
 
 import { geckoTerminalTradesSchema, parseOrNull } from '../schemas/geckoTerminal';
-import { geckoEdgeUrl } from './edge';
+import { GECKO_STALE_OK_HEADERS, geckoEdgeUrl, readGeckoFreshness } from './edge';
 
 /** One fill on one pool, as the app renders it. */
 export interface PoolTrade {
@@ -68,7 +68,18 @@ export type PoolTradesUnreadReason =
 export const POOL_TRADES_TIMEOUT_MS = 8000;
 
 export type PoolTradesRead =
-  | { status: 'read'; trades: PoolTrade[]; fetchedAt: number }
+  | {
+      status: 'read';
+      trades: PoolTrade[];
+      /**
+       * When this tape was read from GeckoTerminal: the edge's own stamp when it
+       * sent one (an edge-cached tape can be a minute or two old), else this
+       * page's clock at arrival.
+       */
+      fetchedAt: number;
+      /** True when GeckoTerminal refused and this is the edge's last good copy. Only with `acceptStale`. */
+      stale: boolean;
+    }
   | { status: 'unread'; reason: PoolTradesUnreadReason; detail: string };
 
 export interface ReadPoolTradesOptions {
@@ -83,6 +94,11 @@ export interface ReadPoolTradesOptions {
   now?: () => number;
   /** Overrides POOL_TRADES_TIMEOUT_MS. Tests pass a small value; nothing else should. */
   timeoutMs?: number;
+  /**
+   * Ask the edge for its last good copy when GeckoTerminal refuses. ONLY for a
+   * surface that prints `fetchedAt` next to the tape (see geckoTerminal/edge.ts).
+   */
+  acceptStale?: boolean;
 }
 
 /**
@@ -173,7 +189,7 @@ export async function readPoolTrades(
   let res: Response;
   try {
     res = await doFetch(poolTradesUrl(network, pool), {
-      headers: { Accept: 'application/json' },
+      headers: { ...(opts.acceptStale ? GECKO_STALE_OK_HEADERS : {}), Accept: 'application/json' },
       signal: ac.signal,
     });
   } catch (err) {
@@ -238,7 +254,8 @@ export async function readPoolTrades(
     };
   });
 
-  return { status: 'read', trades, fetchedAt: clock() };
+  const freshness = readGeckoFreshness(res);
+  return { status: 'read', trades, fetchedAt: freshness.fetchedAt ?? clock(), stale: freshness.stale };
 }
 
 // ─── Cache ───────────────────────────────────────────────────────────────────
@@ -291,7 +308,9 @@ export async function readPoolTradesCached(
   if (hit && performance.now() - hit.storedAt < ttlMs) return hit.value;
 
   const result = await readPoolTrades(network, pool, readOpts);
-  if (result.status === 'read') cache.set(key, { storedAt: performance.now(), value: result });
+  // A kept copy (GeckoTerminal refused) is returned but not cached: it is
+  // already a stand-in, and the next read should try for the real thing.
+  if (result.status === 'read' && !result.stale) cache.set(key, { storedAt: performance.now(), value: result });
   return result;
 }
 

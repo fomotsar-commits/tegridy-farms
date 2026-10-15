@@ -232,11 +232,16 @@ test.describe('element I: em dashes in venue-voice prose', () => {
 // Element I in the rooms: a second table, owed by different people. Fourteen doors, the
 // thirteen registry ids plus the /towelie alias. On /toweli and /towelie TOWELI's protocol
 // copy counts, because in its own room it is that room's prose.
+// The reads are sealed, as on the farms below: TOWELI's home has cards that show or drop a
+// dashed line on what Ethereum answers ("Don't trust, verify" shows only once a read lands;
+// the fixed-supply card leaves when four live stats fill the row), so unsealed the count
+// moved with the runner's RPC: 13 on most CI runs, 12 on three PRs on 2026-10-14 that never
+// touch the page. Sealed, it is 12 on every machine.
 const ROOM_VOICE_DEBT: Record<string, number> = {
   // The settled rooms are at 0 and fail on their first prose dash (roomProse.test.tsx guards
   // the same sources on every push). The TOWELI-skin doors carry the protocol cluster.
-  '/toweli': 13,
-  '/towelie': 13,
+  '/toweli': 12,
+  '/towelie': 12,
   '/bayla': 0,
   '/pepe': 0,
   '/qr': 0,
@@ -264,6 +269,8 @@ test.describe('element I: em dashes in the rooms', () => {
           localStorage.setItem('tegridy-bungalow', 'venue');
         } catch { /* private mode */ }
       });
+      await page.route('**/api/**', (r) => r.abort());
+      await page.route((url) => url.hostname !== 'localhost', (r) => r.abort());
       await settle(page, path);
 
       const hits = await proseDashes(page);

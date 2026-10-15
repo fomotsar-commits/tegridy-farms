@@ -55,3 +55,58 @@ export function geckoEdgeUrl(path: string, params: GeckoEdgeParams = {}): string
   }
   return url;
 }
+
+// ─── How old an answer is (2026-10-15) ───────────────────────────────────────
+//
+// The edge (api/_lib/gecko-upstream.js) keeps GeckoTerminal under its keyless
+// limit, and when GeckoTerminal refuses it can hand back the LAST GOOD COPY of a
+// read instead of an error. It only does that for a caller that sends the header
+// below, and every caller that sends it MUST print the copy's age: an old number
+// that looks new is the one outcome worse than a refusal. A surface with nowhere
+// to print an age (an alert, a display price) does not send it, and keeps
+// getting the refusal.
+
+/** Request headers that ask the edge for its last good copy when GeckoTerminal refuses. */
+export const GECKO_STALE_OK_HEADERS: Readonly<Record<string, string>> = { 'X-Gecko-Stale-Ok': '1' };
+
+export interface GeckoFreshness {
+  /** When the edge read this answer from GeckoTerminal (epoch ms). Null when the response did not say. */
+  fetchedAt: number | null;
+  /** True when GeckoTerminal refused and this is the last good copy the edge kept. */
+  stale: boolean;
+}
+
+export const GECKO_FRESHNESS_UNKNOWN: GeckoFreshness = { fetchedAt: null, stale: false };
+
+/**
+ * The age stamps on one edge response. Tolerates a response with no headers at
+ * all (test doubles, a dev server with no edge), which reads as "not said".
+ */
+export function readGeckoFreshness(res: { headers?: Pick<Headers, 'get'> | null } | null | undefined): GeckoFreshness {
+  const headers = res?.headers;
+  const get = (name: string): string | null =>
+    headers && typeof headers.get === 'function' ? headers.get(name) : null;
+  const raw = Number(get('X-Gecko-Fetched-At'));
+  return {
+    fetchedAt: Number.isFinite(raw) && raw > 0 ? raw : null,
+    stale: get('X-Gecko-Stale') === '1',
+  };
+}
+
+/** Younger than this, an answer is as live as anything else on the page and needs no line. */
+export const GECKO_AS_OF_AFTER_MS = 60_000;
+
+/**
+ * The line a surface prints under a GeckoTerminal figure, or null when none is
+ * needed. It names a CLOCK TIME, not "N min ago": a relative age is true only at
+ * the moment it renders and goes on saying the same number while the page sits.
+ */
+export function geckoAsOfLine(f: GeckoFreshness, now: number = Date.now()): string | null {
+  const old = f.fetchedAt !== null && now - f.fetchedAt >= GECKO_AS_OF_AFTER_MS;
+  if (!f.stale && !old) return null;
+  const when =
+    f.fetchedAt === null
+      ? 'An earlier copy, time not known.'
+      : `As of ${new Date(f.fetchedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}.`;
+  return f.stale ? `${when} The live feed is busy, so this is the last copy we read.` : when;
+}

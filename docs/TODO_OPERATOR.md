@@ -90,9 +90,11 @@ made under "the rest", now settled and being built:
 - ⬜ **Vercel: delete the stale `tegridyfarms` project** (free, about 5 minutes). It has no Git
   repository connected; confirm on its Domains tab that it is the one behind
   `tegridyfarms-three` first. [was O-1009-12 and O-1009-21]
-- ⬜ **Vercel: fix `VITE_SWAP_FEE_RECIPIENT`** (free, a few minutes, then a redeploy). It points at
-  an Ethereum address with no contract. A session can tell you the right value once you say
-  which account should receive that fee.
+- ⬜ **Vercel: fix `VITE_SWAP_FEE_RECIPIENT`** (free, a few minutes, then a redeploy). It holds the
+  Base treasury Safe `0x796c22ff58F24e4a5d07683d8A5c03Ec54dB38C0`, which has no contract on
+  Ethereum. Set Production to the Ethereum treasury Safe `0x7D2620243EdAd69Ec81A53c4A063B07995A4Bd7d`.
+  Once `fix/swap-fee-recipient-chain-bound` ships the code refuses any other address on Ethereum,
+  so until then the Ethereum swap fee stays off (it has never been collected).
 - ⬜ **Supabase migrations 024, 025 and 026** (free, about 15 minutes, before 2026-10-16). Paste
   them by hand in the SQL editor, in that order, in one sitting; never `supabase db push`. 027 is
   optional and deletes older analytics on its first run. [was O-1009-2]
@@ -2574,7 +2576,9 @@ number does not exist. One column makes all three real.
 ## 2.4 Fee dials — a flag and a price are two decisions
 
 Nothing charges anything today. Each needs both halves:
-- **Swap/trigger/terminal:** `VITE_SWAP_FEE_BPS` + `VITE_SWAP_FEE_RECIPIENT`
+- **Swap/trigger/terminal:** `VITE_SWAP_FEE_BPS` + `VITE_SWAP_FEE_RECIPIENT`. The recipient must be
+  the treasury Safe of the chain the fee is collected on (Ethereum: `0x7D2620243EdAd69Ec81A53c4A063B07995A4Bd7d`);
+  the code refuses any other address there, so a wrong one leaves the fee off rather than misdirected.
 - ~~**Heat-tier launch pricing:** `VITE_LAUNCH_TIER_PRICING=on` + a **full five-tier** bps table (all
   five tier words, or it refuses to apply — a partial table would silently price someone at a
   default they never chose)~~ **Struck 2026-09-30:** the island rules "Same price for everyone."

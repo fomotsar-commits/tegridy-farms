@@ -48,6 +48,8 @@ export interface PoolFinderHandle {
    * so there is one lookup and one set of checks, whichever button started it.
    */
   addTo(mint: string, pool: string): void;
+  /** Look `mint` up as a press in the finder does, ending in no form: a View in the list of every pool. */
+  show(mint: string): void;
 }
 
 /** Is this pool in the lookup's answer, read or not? A lookup that failed lists nothing. */
@@ -301,6 +303,11 @@ export function PoolFinder({
         // The first card says what the page is now doing, not what was pressed there before.
         setTask('add');
         lookUp(next, 'add', pool);
+      },
+      show(next) {
+        setInput(next);
+        setError(null);
+        lookUp(next, null);
       },
     }),
     [lookUp],
