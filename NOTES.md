@@ -348,6 +348,42 @@ run time, so one page reads fine for one visitor and fails for the next.
 has no record" and ask a named second host before saying anything. The Solana form of this trap
 is the 2026-10-10 entry "a public RPC host can answer 200 with a history it does not have".
 
+## 2026-10-14: a page's visible words are a number a test can hold, and the first pass only looks finished
+
+**Believed:** once the explanations sit in closed drop-downs, a page stays short; a second
+"fewer words" pass finds little.
+
+**Measured** on the production build (Chromium, `vite preview`, Bayla skin, words of
+`main.innerText`, which excludes a closed details element's body): six days after the
+first pass, the phone showed /pools at 570 words, /solana-lp 390, /bayla 351,
+/nft-finance 320, /dashboard 246, /liquidity 176, /earn 160, and the marketplace landing
+675 behind a splash that stayed up to 12 s with no visible way in. The same fee split was
+on /pools four times. One pass by six builders took them to 295 / 206 / 290 / 233 / 203 /
+126 / 109 / 227, with every card, control and art surface kept and every moved sentence
+in the DOM; the Open button on /earn moved from off the right edge of a 520 px table to
+the first screen, and the TOWELI room's Connect from the eighth screen to the first.
+`e2e/word-budget.spec.ts` now pins a ceiling per route and width, about a tenth above the
+measurement (a count moves with the chain: the marketplace read 227 and 265 on two runs).
+
+**Do:** count, do not read; pin the number so it can only go down; walk the phone and
+look at where the first control is, not whether it exists. Two measuring traps: a
+Playwright `addInitScript` runs before `document.documentElement` exists, so observe
+`document`; and a count taken before a chain read lands is the loading state, so wait for
+the section (a Streamflow pool is ~13 sequential RPCs; the LP section ~20 s).
+
+## 2026-10-14: `vite preview` listens on `localhost` only, and a Bash pipeline commits on grep's exit code
+
+**Believed:** `127.0.0.1:4173` and `localhost:4173` are the same server; `test | grep
+summary && git commit` commits only on a green test.
+
+**Measured:** `vite preview --port 4173` on this machine binds `::1`; `127.0.0.1` is
+refused (Playwright's baseURL says `localhost`, which is why the suite never noticed).
+And one commit went in with a red test because the pipeline's status was grep's (0, it
+matched a line), not vitest's.
+
+**Do:** address the preview by `localhost`. Run the test alone, or capture its status in
+a variable, before the commit in the same chain.
+
 ## 2026-10-10: a scroll reset in `useEffect` lands after the page is drawn, on every page change, and a test can see it without losing a race
 
 **Believed:** scrolling to the top in `useEffect` on a route change is the standard pattern
