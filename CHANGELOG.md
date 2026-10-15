@@ -6,6 +6,10 @@ page keeps the newest thirty days.
 
 ## [Unreleased]
 
+### 2026-10-15
+
+- Towelie in the corner: when a tab slides under him as you scroll, a press on that tab now opens the tab straight away. While he faded out of the way, a press there went to Towelie instead, and in Safari on an iPad it did even with motion turned down.
+
 ### 2026-10-14
 
 - Earn: a farm or pool whose rewards have ended is no longer offered for new stakes. The TOWELI/ETH LP farm, which stopped paying on Jun 15, 2026, now says so in one line with that date and shows no Stake box; Withdraw, Claim and Exit still work. The Zap page no longer offers that farm as a destination. The lock-ladder and lighthouse pools on the bungalows do the same the day their reward period ends. When the end date cannot be read, Stake waits and no date is shown.

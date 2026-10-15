@@ -15,6 +15,41 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-10-14: an element fading out with `visibility` still takes presses, and WebKit can call it hidden while it does
+
+**Believed:** a control hidden with `opacity-0 invisible` and a `transition-[opacity,visibility]`
+stops taking presses when it is hidden, and `checkVisibility()` returning false means a press
+there cannot reach it.
+
+**Measured** (Playwright 1.62, production build, the Towelie corner over /nft-finance's tabs):
+a `visibility` transition keeps the element `visible` until it ends, so for the whole 200ms
+fade it is hit-tested. With motion on, Chromium's press on the tab under it landed on the
+corner at opacity 0.98. With reduced motion every e2e project shortens the fade to 0.01ms, and
+Chromium passed; CI's iPad WebKit failed every attempt with `checkVisibility()` false and
+`elementFromPoint` returning the corner's own picture, on the one scroll step where the class
+had just landed. The press point sat on the rim of the round picture, and only the DPR 2
+device counted the rim.
+
+**Do:** take presses away with something that is not transitioned (`inert`, or
+`pointer-events-none`) in the same render that starts the fade, and test the press with motion
+on, at the first frame the opacity drops below 1. Name the control a stray press lands in
+(`closest('[aria-label]')`), not just its tag: "lands on img" cost a trace dig.
+
+## 2026-10-14: four loads of one heavy page in one WebKit tab is where the iPhone project fails to load
+
+**Believed:** a test that sets a width and reloads the same route four times in one page is
+the same as four tests.
+
+**Measured:** seven full E2E runs on 2026-10-14 held four flakes of the one such test on
+WebKit (`tab-strip-scroll.spec.ts`), all on `iphone-safari` (DPR 3), on four routes, every one
+inside the load: a 60s wait for `load`, "WebKit encountered an internal error", and a page that
+never mounted after a 2.3s load where the first two loads took 0.16 to 0.28s. No other test
+flaked on a WebKit project in those runs. The retry passed each time.
+
+**Do:** read the failing step before calling a flake a race in the page. Give each load its own
+test, as the sibling width specs do; whether that alone ends this flake was not yet shown when
+this was written.
+
 ## 2026-10-14: a wallet send error that is not a "cancel" can still mean the swap was sent
 
 **Believed:** when `sendTransaction` from the Solana wallet adapter throws, nothing left the
