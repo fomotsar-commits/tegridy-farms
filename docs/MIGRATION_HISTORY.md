@@ -25,7 +25,8 @@ deployed and unpaused; the zero means "not surfaced", not "not deployed". The fu
 
 | Address | Status | Migration reason |
 |---|---|---|
-| `0xcaDc93E96De58EA554c71ca609974625615E046D` | **CANONICAL** | Relaunch deployment, 2026-06-06 `DeployMVP`. Read back: `paused() == false`, `treasury() == 0x7D26…Bd7d`. Sisters: `TegridyStakingAdmin 0x4B134C08aAF86B6e2A8E097D1039C4e7638806f3`, `TegridyStakingJbacVault 0x28317bF362d43B40fcECebF2390C43dB558c3F14`, `StakingMonitorView 0xbE1E75124C7F07d5B681839C42d8e751f0d0fcfC`. |
+| `0xPENDING_REDEPLOY_STAKING` | **CANONICAL** | Staking release 1, PENDING_REDEPLOY_DATE `DeployStakingRelease1`: early exit costs 75% (`EARLY_WITHDRAWAL_PENALTY_BPS() == 7500`, read back by `frontend/scripts/fill-staking-release.mjs`). Sisters: `TegridyStakingAdmin 0xPENDING_REDEPLOY_STAKING_ADMIN`, `TegridyStakingJbacVault 0xPENDING_REDEPLOY_JBAC_VAULT`, `StakingMonitorView 0xPENDING_REDEPLOY_MONITOR_VIEW`, `TegridyTokenURIReader 0xPENDING_REDEPLOY_TOKEN_URI_READER`. Every new stake goes here. |
+| `0xcaDc93E96De58EA554c71ca609974625615E046D` | Superseded for new stakes, **exits only**, still live | Relaunch deployment, 2026-06-06 `DeployMVP`. Its positions keep their terms (25% early exit) and claim and leave there through `<OldStakingCard />`. Do not pause it. Read back: `paused() == false`, `treasury() == 0x7D26…Bd7d`. Sisters: `TegridyStakingAdmin 0x4B134C08aAF86B6e2A8E097D1039C4e7638806f3`, `TegridyStakingJbacVault 0x28317bF362d43B40fcECebF2390C43dB558c3F14`, `StakingMonitorView 0xbE1E75124C7F07d5B681839C42d8e751f0d0fcfC`. |
 | `0x626644523d34B84818df602c991B4a06789C4819` | Legacy — **WITHDRAW-ONLY** | Pre-relaunch vault. **Was previously listed here as CANONICAL, which it is not.** Still holds user positions and is **unpaused**, so it will accept a deposit — never route stake/approve traffic to it. Exit only, via `<LegacyStakingExit />`. |
 | `0x044A925839ac3CEC0bccC93d00230f39FFbeEe44` | Legacy — **WITHDRAW-ONLY** | Same: holds positions, unpaused, exit only. |
 | `0x65D8b87917c59a0B33009493fB236bCccF1Ea421` | Deprecated, paused | v1 contract paused after Spartan C-01 finding (ABI mismatch exploiting boost calculation). Users migrated manually. Do not interact. |
@@ -56,10 +57,12 @@ deployed and unpaused; the zero means "not surfaced", not "not deployed". The fu
 
 | Address | Status | Migration reason |
 |---|---|---|
-| RevenueDistributor `0xF993316E2fC079de4358c489A935E01e03E23E17` | **CANONICAL** | Relaunch 2026-06-06. |
+| RevenueDistributor `0xPENDING_REDEPLOY_REVENUE_DISTRIBUTOR` | **CANONICAL** | Staking release 1, PENDING_REDEPLOY_DATE. The swap router pays it after the 48-hour re-point. |
+| RevenueDistributor `0xF993316E2fC079de4358c489A935E01e03E23E17` | Superseded by staking release 1 | Relaunch 2026-06-06. Still pays the first staking contract's positions; the LockerClaimer forwards here for ever. |
 | SwapFeeRouter `0x6d5791A660e79175F74C6D639584C98422d5956E` | **CANONICAL** | Relaunch 2026-06-06. Read back: `feeBps() == 50`, `stakerShareBps() == 10000`, `polShareBps() == 0`. **Has collected fee ETH and distributed none** — the take is parked in `ReferralSplitter` behind an uncalled `recoverCallerCredit()` (corrected 2026-08-12; this row previously said no fee had ever accrued). Admin sister `SwapFeeRouterAdmin 0xa517A1cEfd961c0DDE8155a0Fa870aEE5bb0D060`. |
 | POLAccumulator `0x2A5f65f4C74b1e49e77aE9A57e20fBDb0cED11D2` | Deployed, **not wired** | Relaunch 2026-06-06, but `SwapFeeRouter.polAccumulator()` still reads `0x0…0`. |
-| ReferralSplitter `0x6B3442dAcB62d40BA39fCe9b3CDa350FEa6f7e4c` | **CANONICAL** | Relaunch 2026-06-06. |
+| ReferralSplitter `0xPENDING_REDEPLOY_REFERRAL_SPLITTER` | **CANONICAL** | Staking release 1, PENDING_REDEPLOY_DATE. The swap router records here after the 48-hour re-point. |
+| ReferralSplitter `0x6B3442dAcB62d40BA39fCe9b3CDa350FEa6f7e4c` | Superseded by staking release 1 | Relaunch 2026-06-06. |
 | LockerClaimer `0xD2Ac3dC13c6fd09855F0e4a077826983Aa66E6C7` | **CANONICAL** | Deployed 2026-08-01 to give the pull-based Doppler fee locker a `msg.sender` it can actually pay. No admin surface; destinations immutable. |
 | RevenueDistributor `0x332aaE555b1164eA45c2291fD7eDfa97aAA264D8` | Deprecated | Pre-relaunch. |
 | RevenueDistributor `0xf00964d5f5fb0a4d4afea0999843da31bbe9a7af` | Deprecated | DeployAuditFixes batch; superseded. |
@@ -111,7 +114,8 @@ unpaused with `owner() == 0x14898258122C0740106391E6e8E4F17F3b6d456E`.
 |---|---|---|
 | `0x89BeB6cc0255B7465c01aA38a6f937efd345f14F` | TegridyNFTLending | **CANONICAL** (2026-07-16; admin sister `0x693787831e9C36A98afeDaD39F8728491f580a9C`) |
 | `0xbB8E49Ba4e3A85E2B8B70e00208770F429B56F5B` | TegridyNFTPoolFactory | **CANONICAL** (2026-07-16; `owner()` = `0xA360…b7F8`, a 2-of-3 Safe — unlike the rest of the batch) |
-| `0x5cfEe751eAf274F68b05267012b85a867dfCd326` | TegridyTokenURIReader | **CANONICAL** (relaunch 2026-06-06) |
+| `0xPENDING_REDEPLOY_TOKEN_URI_READER` | TegridyTokenURIReader | **CANONICAL** (staking release 1, PENDING_REDEPLOY_DATE) |
+| `0x5cfEe751eAf274F68b05267012b85a867dfCd326` | TegridyTokenURIReader | Superseded by staking release 1 (relaunch 2026-06-06) |
 | `0xdFdd6D72539A425dC917F49FB834901105cA98c9` | TegridyTWAP | **CANONICAL** (relaunch 2026-06-06) |
 | `0xa6149B4d05138A4073902A0Ca0345c2d0E470dF7` | TegridyLaunchpadV2 | **CANONICAL** (2026-07-16) — the "compiled, not yet deployed" note in earlier revisions of this file is obsolete |
 | _none_ | TegridyLending | **NOT DEPLOYED** — `TEGRIDY_LENDING_ADDRESS` is `0x0…0`; not redeployed after the relaunch |
@@ -131,7 +135,8 @@ unpaused with `owner() == 0x14898258122C0740106391E6e8E4F17F3b6d456E`.
 
 | Address | Contract | Status |
 |---|---|---|
-| `0x1171268AE5B69791c47Fd589b7825932c957e149` | TegridyLPFarming | **CANONICAL** (2026-06-08 `DeployTegridyLPFarming`). Read back: `stakingToken()` = `0x5587…a481`, `rewardToken()` = TOWELI, `MAX_BOOST_BPS_CEILING() == 45000`. |
+| `0xPENDING_REDEPLOY_LP_FARMING` | TegridyLPFarming | **CANONICAL** (staking release 1, PENDING_REDEPLOY_DATE). Pays nothing until it is funded. |
+| `0x1171268AE5B69791c47Fd589b7825932c957e149` | TegridyLPFarming | Superseded by staking release 1; withdraw only on the site (2026-06-08 `DeployTegridyLPFarming`). Read back: `stakingToken()` = `0x5587…a481`, `rewardToken()` = TOWELI, `MAX_BOOST_BPS_CEILING() == 45000`. |
 | `0xa7EF711Be3662B9557634502032F98944eC69ec1` | TegridyLPFarming (Wave 0) | Deprecated — staked against the pre-relaunch pair |
 | `0xa5AB522C99F86dEd9F429766872101c75517D77c` | TegridyLPFarming (pre-C-01) | Deprecated |
 | `0xB6cfeaCf243E218B0ef32B26E1dA1e13a2670044` | TegridyFeeHook | On chain since 2026-04-18, **owner stranded** — `owner()` reads `0x4e59b448…`, the Arachnid CREATE2 proxy, so every admin function is unreachable. Source patched to accept `_owner`; redeploy pending. Do not rely on its admin functions. |

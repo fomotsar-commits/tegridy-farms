@@ -136,7 +136,7 @@ export function BoostScheduleTable({ selectedLockLabel, aprNum }: BoostScheduleT
                 Enable auto-max lock to keep maximum boost (4.0x) perpetually — enabling
                 immediately sets a full 4-year lock, and it re-extends on every claim.
                 Disabling stops future re-extensions, but the current 4-year lock stays;
-                exiting before it ends always costs the 25% early-withdrawal penalty.
+                exiting before it ends always costs the {EARLY_WITHDRAWAL_PENALTY_PCT}% early-withdrawal penalty.
               </p>
             </FinePrint>
           </div>

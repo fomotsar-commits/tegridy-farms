@@ -80,12 +80,18 @@ on top of the 75% fee. Fund before the site sends anyone here, and keep it ahead
 If 7 days pass after the ready time, the proposals expire: `cancelRevenueDistributor()` /
 `cancelReferralSplitterChange()`, propose again, wait another 48 hours.
 
-## Step 4: the site (separate PR, not built here)
+## Step 4: the site (on this branch, filled after steps 1 and 2)
 
-Must ship together with this one: `frontend/src/lib/llmsTxt.test.ts` and
-`frontend/src/lib/docsAddressTruth.test.ts` compare the site's `EARLY_WITHDRAWAL_PENALTY_BPS` and the FAQ /
-TOKENOMICS wording with `TegridyStaking.sol`, so they fail on this branch until the site moves.
-The full list is in the PR description.
+The site side is built on the same branch. Every new address is a placeholder until the deploy:
+`frontend/scripts/fill-staking-release.mjs` reads all ten from the step-1 receipt, checks every link
+above on chain (and that step 2 put reward TOWELI in), then writes them into `constants.ts`,
+`addresses.json`, `CONTRACTS.md`, `MIGRATION_HISTORY.md`, `TOKENOMICS.md` and `README.md`.
+`frontend/scripts/fill-staking-release.test.mjs` and `verify-addresses.mjs` stay red until it has run.
+From `frontend/`, in the checkout the deploy ran from: `node scripts/fill-staking-release.mjs`.
+
+The first contract keeps a card on the Farm page (claim, its ETH share, withdraw, early exit at
+its 25%, the pause exits, Auto-Max off; no stake), and every fee shown comes from the contract
+it belongs to (`STAKING_CONTRACT` / `OLD_STAKING_CONTRACT` in `constants.ts`).
 
 ## Owner decisions this release does NOT take
 

@@ -112,10 +112,14 @@ rails are genuinely different and the app never blurs them:
 
 ## What happens if I unstake early?
 
-On TOWELI staking: a **flat 25% penalty on the principal you withdraw**, transferred in full to
+On TOWELI staking: a **flat 75% penalty on the principal you withdraw**, transferred in full to
 the protocol treasury. It does not shrink as your lock matures and it is **not** recycled to the
-stakers who stayed (`EARLY_WITHDRAWAL_PENALTY_BPS = 2500`). If your lock has already expired,
-use `withdraw()` — that path charges nothing.
+stakers who stayed (`EARLY_WITHDRAWAL_PENALTY_BPS = 7500`). Your rewards are paid first, but only
+what the reward pool holds: if it is short, you can lose the rest and still pay the 75%. If your
+lock has already expired, use `withdraw()`, which charges nothing.
+
+A position opened before staking release 1 stays on the first relaunch contract and keeps its
+own terms: leaving early there costs **25%**, also paid to the treasury.
 
 Also worth knowing: **Auto-Max Lock is not reversible.** Enabling it sets your lock end to
 four years from that instant, and disabling it does not restore your original duration.
