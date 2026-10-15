@@ -115,7 +115,7 @@ const PEPE_RECORDING = (): Erc20Recording => ({
 const burnCard = (page: Page, symbol: string) => page.locator(`section[aria-label="${symbol} burn"]`);
 /** The headline percent, exactly: a substring match would pass "under 0.0001%" for "0.0001%". */
 const headline = (page: Page, symbol: string) => burnCard(page, symbol).locator('p > span').first();
-const OUTAGE = (symbol: string) => `The ${symbol} burn could not be read right now. That is an outage, not a zero.`;
+const OUTAGE = (symbol: string) => `The ${symbol} burn could not be read. An outage, not a zero.`;
 
 /**
  * Does every ledger figure fit its row? Measured on the TEXT, with a Range: the value cell

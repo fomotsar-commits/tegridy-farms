@@ -720,8 +720,9 @@ export const ROUTES: readonly RouteSpec[] = [
     voice: 'venue',
     owner: 'pages/LendingPage.tsx',
     gate: null,
-    knownViolations: ['aria-valid-attr-value', 'form-field-label', 'heading-order'],
-    connectedViolations: ['aria-valid-attr-value', 'form-field-label', 'heading-order'],
+    // heading-order left with the fewer-words pass (2026-10-14): no heading skips a level now.
+    knownViolations: ['aria-valid-attr-value', 'form-field-label'],
+    connectedViolations: ['aria-valid-attr-value', 'form-field-label'],
   },
   {
     path: '/lending',
