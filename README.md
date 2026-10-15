@@ -356,7 +356,7 @@ Go to [memetics.finance/earn/toweli](https://memetics.finance/earn/toweli) and p
 | 2 years | ~3.0× | In It For The Kids |
 | 4 years | 4.0× | Till Death Do Us Farm |
 
-Hold a [JBAC NFT](https://etherscan.io/address/0xd37264c71e9af940e49795F0d3a8336afAaFDdA9) for a **+0.5× bonus** (ceiling 4.5×). **Early exit costs 25%** (the "DEA Raid Tax") — the penalty goes to the **protocol treasury**, *not* to other stakers.
+Hold a [JBAC NFT](https://etherscan.io/address/0xd37264c71e9af940e49795F0d3a8336afAaFDdA9) for a **+0.5× bonus** (ceiling 4.5×). **Early exit costs 75%** (the "DEA Raid Tax") — the penalty goes to the **protocol treasury**, *not* to other stakers. Positions on the first relaunch staking contract keep its 25%.
 
 ### 4. Earn, farm, (soon) vote
 - **ETH rewards are paid per epoch, and no epoch has ever opened.** An epoch needs ≥ 1 ETH
@@ -545,7 +545,7 @@ token, ever). Solana is fee-capture, staking, and a venue we intend to own.
 - **Total supply:** 1,000,000,000 TOWELI. **Fixed** — `mint(address,uint256)` is not in the live bytecode. `burn(uint256)` and `burnFrom(address,uint256)` **are**: any holder can destroy their own TOWELI, so supply is a ceiling, not a constant. The protocol itself burns nothing. See [TOKENOMICS.md](docs/TOKENOMICS.md) for the on-chain capability read.
 - **Engagement season:** Season 3 (2026-06-07 → 2026-09-05) — an engagement/leaderboard window. LP-farm reward rate, total funded, and period-end are read **live from the contract**; nothing here renders a number the chain can't back.
 - **Revenue flow (wiring, not history):** the 0.5% smart-front-door fee → `SwapFeeRouter` (collected in ETH) → `ReferralSplitter` (**20% off the top, unremovable**; the rest parked as `callerCredit` awaiting a permissionless `recoverCallerCredit()`) → back to `SwapFeeRouter` → `RevenueDistributor` → stakers claim their share **per epoch** (each epoch needs ≥ 1 ETH pooled and ≥ 4h since the last — it's discrete, not a continuous drip). **Zero epochs have opened.** The native pair's separate 0.3% grows the pool for LPs.
-- **Penalty flow:** 25% early-exit penalty → the **treasury** (`safeTransfer(treasury, penalty)`, emitting `PenaltySentToTreasury`). The penalty-recycle split was removed for EIP-170 size; it does *not* redistribute to stakers.
+- **Penalty flow:** 75% early-exit penalty (25% on the first relaunch contract) → the **treasury** (`safeTransfer(treasury, penalty)`, emitting `PenaltySentToTreasury`). The penalty-recycle split was removed for EIP-170 size; it does *not* redistribute to stakers.
 - **Treasury take:** the native pair's ⅙ slice of its 0.3% accrues to `feeTo` as **LP tokens** (a treasury asset — *not* staker ETH); the front-door's 0.5% is the leg pointed at stakers, and `stakerShareBps` (default `10000`, floor `5000`) governs the share of what survives the referral split, not of the fee. Lending / launchpad / NFT-pool / premium fees join the same staker stream once those surfaces un-gate — none of them do today.
 
 Full detail: **[TOKENOMICS.md](docs/TOKENOMICS.md)** · **[REVENUE_ANALYSIS.md](docs/archive/REVENUE_ANALYSIS.md)** (honest fee-lever benchmarks).
@@ -739,10 +739,11 @@ every push — see the note at the end of this section.
 | Contract | Address |
 |---|---|
 | TOWELI Token (vanity `0x42069`) | [`0x42069…78F9D`](https://etherscan.io/address/0x420698CFdEDdEa6bc78D59bC17798113ad278F9D) |
-| TegridyStaking | [`0xcaDc9…046D`](https://etherscan.io/address/0xcaDc93E96De58EA554c71ca609974625615E046D) |
-| TegridyStakingAdmin | [`0x4B134…806f3`](https://etherscan.io/address/0x4B134C08aAF86B6e2A8E097D1039C4e7638806f3) |
-| TegridyStakingJbacVault | [`0x2831…3f14`](https://etherscan.io/address/0x28317bf362d43b40fcecebf2390c43db558c3f14) |
-| StakingMonitorView (read-only) | [`0xbE1E7…0fcfC`](https://etherscan.io/address/0xbE1E75124C7F07d5B681839C42d8e751f0d0fcfC) |
+| TegridyStaking | [`0xPENDING_REDEPLOY_STAKING`](https://etherscan.io/address/0xPENDING_REDEPLOY_STAKING) |
+| TegridyStaking, first relaunch contract (exits only, 25%) | [`0xcaDc93E96De58EA554c71ca609974625615E046D`](https://etherscan.io/address/0xcaDc93E96De58EA554c71ca609974625615E046D) |
+| TegridyStakingAdmin | [`0xPENDING_REDEPLOY_STAKING_ADMIN`](https://etherscan.io/address/0xPENDING_REDEPLOY_STAKING_ADMIN) |
+| TegridyStakingJbacVault | [`0xPENDING_REDEPLOY_JBAC_VAULT`](https://etherscan.io/address/0xPENDING_REDEPLOY_JBAC_VAULT) |
+| StakingMonitorView (read-only) | [`0xPENDING_REDEPLOY_MONITOR_VIEW`](https://etherscan.io/address/0xPENDING_REDEPLOY_MONITOR_VIEW) |
 
 #### Native DEX
 | Contract | Address |
@@ -756,16 +757,18 @@ every push — see the note at the end of this section.
 |---|---|
 | SwapFeeRouter | [`0x6d579…5956E`](https://etherscan.io/address/0x6d5791A660e79175F74C6D639584C98422d5956E) |
 | SwapFeeRouterAdmin | [`0xa517A…0D060`](https://etherscan.io/address/0xa517A1cEfd961c0DDE8155a0Fa870aEE5bb0D060) |
-| RevenueDistributor | [`0xF9933…3E17`](https://etherscan.io/address/0xF993316E2fC079de4358c489A935E01e03E23E17) |
+| RevenueDistributor | [`0xPENDING_REDEPLOY_REVENUE_DISTRIBUTOR`](https://etherscan.io/address/0xPENDING_REDEPLOY_REVENUE_DISTRIBUTOR) |
+| RevenueDistributor, first relaunch (pays the first staking contract; LockerClaimer forwards here) | [`0xF993316E2fC079de4358c489A935E01e03E23E17`](https://etherscan.io/address/0xF993316E2fC079de4358c489A935E01e03E23E17) |
 | POLAccumulator | [`0x2A5f6…D11D2`](https://etherscan.io/address/0x2A5f65f4C74b1e49e77aE9A57e20fBDb0cED11D2) |
-| TegridyLPFarming (deployed 2026-06-08) | [`0x11712…e149`](https://etherscan.io/address/0x1171268AE5B69791c47Fd589b7825932c957e149) |
-| ReferralSplitter | [`0x6B344…7e4c`](https://etherscan.io/address/0x6B3442dAcB62d40BA39fCe9b3CDa350FEa6f7e4c) |
+| TegridyLPFarming | [`0xPENDING_REDEPLOY_LP_FARMING`](https://etherscan.io/address/0xPENDING_REDEPLOY_LP_FARMING) |
+| TegridyLPFarming, first (2026-06-08; rewards ended, withdraw only) | [`0x1171268AE5B69791c47Fd589b7825932c957e149`](https://etherscan.io/address/0x1171268AE5B69791c47Fd589b7825932c957e149) |
+| ReferralSplitter | [`0xPENDING_REDEPLOY_REFERRAL_SPLITTER`](https://etherscan.io/address/0xPENDING_REDEPLOY_REFERRAL_SPLITTER) |
 
 #### Oracle & NFT rendering
 | Contract | Address |
 |---|---|
 | TegridyTWAP (bootstrap pending) | [`0xdFdd6…98c9`](https://etherscan.io/address/0xdFdd6D72539A425dC917F49FB834901105cA98c9) |
-| TegridyTokenURIReader | [`0x5cfEe…d326`](https://etherscan.io/address/0x5cfEe751eAf274F68b05267012b85a867dfCd326) |
+| TegridyTokenURIReader | [`0xPENDING_REDEPLOY_TOKEN_URI_READER`](https://etherscan.io/address/0xPENDING_REDEPLOY_TOKEN_URI_READER) |
 
 #### Treasury & external references
 | Contract | Address |

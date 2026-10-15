@@ -16,6 +16,8 @@ import {
   WETH_ADDRESS,
   TEGRIDY_STAKING_ADDRESS,
   LEGACY_STAKING_ADDRESSES,
+  OLD_TEGRIDY_STAKING_ADDRESS,
+  OLD_LP_FARMING_ADDRESS,
   TEGRIDY_LP_ADDRESS,
   LP_FARMING_ADDRESS,
 } from './constants';
@@ -483,6 +485,11 @@ export function collectHeldThrough(opts: CollectOptions = {}): HeldThroughBody {
   chains.ethereum.push(
     evm('tegridy-staking', 'TOWELI staking (TegridyStaking)', 'tegridy-staking', TEGRIDY_STAKING_ADDRESS, 'open',
       [toweli], stakingRead(false)),
+    // STAKING RELEASE 1: the first relaunch contract takes no new stakes, and its
+    // positions claim and leave there on their own terms. Built from an earlier source,
+    // so only `amount` (the first word) is promised.
+    evm('tegridy-staking-first', 'TOWELI staking, first relaunch contract', 'tegridy-staking', OLD_TEGRIDY_STAKING_ADDRESS,
+      'deposits-closed', [toweli], stakingRead(true)),
     ...LEGACY_STAKING_ADDRESSES.map((a, i) =>
       evm(`legacy-staking-v${i + 1}`, `TOWELI staking, earlier build v${i + 1}`, 'tegridy-staking-legacy', a,
         'withdraw-only', [toweli], stakingRead(true))),
@@ -490,6 +497,8 @@ export function collectHeldThrough(opts: CollectOptions = {}): HeldThroughBody {
       pairTokens(), pairRead()),
     evm('lp-farming', 'TegridyLP farm', 'tegridy-lp-farming', LP_FARMING_ADDRESS, 'open',
       pairTokens(), farmRead('tegridy-lp-native')),
+    evm('lp-farming-first', 'TegridyLP farm, first relaunch farm', 'tegridy-lp-farming', OLD_LP_FARMING_ADDRESS,
+      'withdraw-only', pairTokens(), farmRead('tegridy-lp-native')),
   );
 
   return {

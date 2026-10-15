@@ -295,9 +295,9 @@ contract TegridyStakingTest is Test {
         staking.withdraw(tokenId);
     }
 
-    // ===== EARLY WITHDRAW WITH 25% PENALTY =====
+    // ===== EARLY WITHDRAW WITH 75% PENALTY (owner ruling 2026-10-14; was 25%) =====
 
-    function test_earlyWithdraw_25pctPenalty() public {
+    function test_earlyWithdraw_75pctPenalty() public {
         vm.prank(bob);
         staking.stake(500_000 ether, 365 days);
 
@@ -308,8 +308,8 @@ contract TegridyStakingTest is Test {
         staking.earlyWithdraw(tokenId);
 
         uint256 received = token.balanceOf(bob) - balBefore;
-        assertApproxEqAbs(received, 375_000 ether, 100 ether);
-        assertEq(staking.totalPenaltiesCollected(), 125_000 ether);
+        assertApproxEqAbs(received, 125_000 ether, 100 ether);
+        assertEq(staking.totalPenaltiesCollected(), 375_000 ether);
         // V2: totalPenaltiesRedistributed removed
         // assertEq(staking.totalPenaltiesRedistributed(), 125_000 ether);
     }
@@ -328,7 +328,7 @@ contract TegridyStakingTest is Test {
 
         // V2: totalPenaltiesRedistributed removed
         // assertEq(staking.totalPenaltiesRedistributed(), 25_000 ether);
-        assertEq(token.balanceOf(treasury) - treasuryBefore, 25_000 ether);
+        assertEq(token.balanceOf(treasury) - treasuryBefore, 75_000 ether);
     }
 
     function test_earlyWithdraw_burnsPosition() public {

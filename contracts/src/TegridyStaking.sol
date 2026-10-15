@@ -89,14 +89,15 @@ interface ITegridyStakingJbacVault {
 ///         2. JBAC NFT holders get +0.5x bonus boost
 ///         3. Each staking position is an ERC721 NFT — tradeable on secondary markets
 ///         4. Auto-max-lock: opt in to keep max boost perpetually
-///         5. Early withdrawal: 25% penalty (always available), sent to treasury
+///         5. Early withdrawal: 75% penalty on principal (always available), sent to
+///            treasury; the holder keeps 25% of principal plus the rewards paid first
 ///         6. Voting power = amount × boost (for governance)
 ///
 ///         NFT Positions:
 ///         - Each stake mints an NFT to the staker
 ///         - Transferring the NFT transfers the entire staking position
 ///         - Buyer of an NFT inherits the lock, boost, and rewards
-///         - This means users can sell their locked position instead of paying the 25% penalty
+///         - This means users can sell their locked position instead of paying the 75% penalty
 // SLITHER 2026-09-04: `locked-ether`. Surfaced for the first time by anchoring
 // `filter_paths` (it was masked while `src/lib/` was silently excluded). The payable
 // functions are Solady's ERC721 `approve` / `transferFrom` / `safeTransferFrom`, which
@@ -124,7 +125,14 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
     ///      claw back ~30B of auto-getter bytecode. Equal to BPS; no external
     ///      reader exists.
     uint256 internal constant BOOST_PRECISION = 10000;
-    uint256 public constant EARLY_WITHDRAWAL_PENALTY_BPS = 2500; // 25%
+    /// @notice Share of PRINCIPAL taken on an exit before `lockEnd`, sent whole to `treasury`.
+    ///         75% since the owner's ruling of 2026-10-14 (was 2500 = 25% on the first mainnet
+    ///         deployment, 0xcaDc93E96De58EA554c71ca609974625615E046D, which keeps 25% for its
+    ///         own positions: a deployed constant cannot change). Rewards are paid first and
+    ///         the penalty never touches them, but only what the reward pool can cover is
+    ///         paid: an early exit while the pool is short forfeits the uncovered part
+    ///         (test/StakingBoostResidual_2026_08_12.t.sol). Keep the pool funded.
+    uint256 public constant EARLY_WITHDRAWAL_PENALTY_BPS = 7500; // 75%
     uint256 public constant JBAC_BONUS_BPS = 5000; // +0.5x
     /// @dev AUDIT FIX (pass-8 batch-14): visibility lowered to `internal`. The
     ///      one external reader (TegridyStakingAdmin's BPS check) now hardcodes
@@ -1203,7 +1211,7 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
     ///         disable, the position still cannot be withdrawn until four years
     ///         after the moment you enabled.
     ///
-    ///         Every exit before then costs the 25% penalty. Verified path by path
+    ///         Every exit before then costs the 75% penalty. Verified path by path
     ///         2026-08-12: `withdraw` reverts `LockNotExpired`;
     ///         `emergencyExitPosition` reverts `LockStillActive`;
     ///         `executeEmergencyExit` DOES complete but charges
@@ -1222,7 +1230,7 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
     ///         chain is the fact and the copy is the lie. Suggested replacement:
     ///         "Enabling extends your lock to the full 4 years immediately.
     ///         Disabling stops the auto-renew but does NOT shorten the lock —
-    ///         withdrawing before it ends costs the 25% early-exit penalty."
+    ///         withdrawing before it ends costs the 75% early-exit penalty."
     ///
     /// @dev    NOTE: the extend-lock fee (AUDIT C5) that previously applied on enable
     ///         was removed for EIP-170 size. Its bps defaulted to 0 (no fee at
@@ -1536,12 +1544,13 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
         emit Withdrawn(msg.sender, tokenId, amount);
     }
 
-    /// @notice Early withdrawal — 25% penalty sent to treasury.
+    /// @notice Early withdrawal — 75% penalty on principal sent to treasury; the caller gets
+    ///         the position's rewards first, then the other 25% of principal.
     /// @dev AUDIT FIX L-23: Corrected comment — penalty goes to treasury, not redistributed to stakers.
     /// @param tokenId The NFT token ID of the staking position to early-withdraw
     function earlyWithdraw(uint256 tokenId) external nonReentrant whenNotPaused updateReward {
         Position storage p = _ownedPosition(tokenId, msg.sender);
-        // SECURITY FIX H-3: Prevent accidental 25% penalty on already-unlockable positions.
+        // SECURITY FIX H-3: Prevent accidental 75% penalty on already-unlockable positions.
         // Users with expired locks should use withdraw() (no penalty) instead.
         if (block.timestamp >= p.lockEnd) revert MustUseWithdraw();
 
@@ -1572,7 +1581,7 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
     ///      `boostedAmount` (and decrements `totalBoostedStake`). Pre-fix, the
     ///      autoMaxLock branch then advanced `lockEnd` to MAX without restoring
     ///      `boostedAmount`, leaving the position locked forward but earning zero
-    ///      forever — exit-able only via the 25% earlyWithdraw penalty. The fix
+    ///      forever — exit-able only via the earlyWithdraw penalty. The fix
     ///      re-applies the max boost when autoMaxLock fires on a freshly-decayed
     ///      position, preserving the documented "set and forget — keep max boost
     ///      perpetually" semantic. `_applyNewBoost` handles the (now-zero)

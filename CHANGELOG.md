@@ -6,6 +6,10 @@ page keeps the newest thirty days.
 
 ## [Unreleased]
 
+### 2026-10-15
+
+- TOWELI staking moves to a new contract: new stakes go there, and leaving a lock early costs 75% of the stake, paid to the treasury. Rewards are paid first, but only what the reward pot holds; the stake form and the early-exit confirm both say that a short pot can cost you rewards on top of the 75%. A position on the first contract stays there on its own terms, 25% early exit included: the Farm page shows it in its own card (claim, the ETH fee share, withdraw, leave early at 25%, the pause exits, Auto-Max off), the Dashboard points to it, and History, Portfolio and the FAQ, Risks, Terms and docs give each contract its own fee. LP left in the first LP farm (rewards ended Jun 15, 2026) has a Withdraw button on the Farm page.
+
 ### 2026-10-14
 
 - Earn: a farm or pool whose rewards have ended is no longer offered for new stakes. The TOWELI/ETH LP farm, which stopped paying on Jun 15, 2026, now says so in one line with that date and shows no Stake box; Withdraw, Claim and Exit still work. The Zap page no longer offers that farm as a destination. The lock-ladder and lighthouse pools on the bungalows do the same the day their reward period ends. When the end date cannot be read, Stake waits and no date is shown.

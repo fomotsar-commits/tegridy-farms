@@ -4,6 +4,8 @@
  *  answer:   what Towelie says back, in voice (slacker towel).
  *  priority: optional tiebreaker bump for ambiguous questions. */
 
+import { EARLY_WITHDRAWAL_PENALTY_BPS, OLD_EARLY_WITHDRAWAL_PENALTY_BPS } from './constants';
+
 export interface KnowledgeEntry {
   keywords: string[];
   answer: string;
@@ -65,10 +67,11 @@ export const KNOWLEDGE_BASE: KnowledgeEntry[] = [
   },
   {
     // AUDIT R073: prior copy said the early-withdrawal penalty "scales with
-    // distance from unlock". Actual on-chain constant is a flat 25% on the
+    // distance from unlock". Actual on-chain constant is a flat share of the
     // staked principal regardless of how much lock time is left.
     keywords: ['unstake', 'withdraw', 'exit'],
-    answer: "Withdraw early = flat 25% penalty on your stake, no matter how close you are to unlock. The penalty goes to the protocol treasury — not to other stakers. Wait it out for the full payout.",
+    // Per contract since the 2026-10 staking release: each deployed contract has its own.
+    answer: `Withdraw early = flat ${EARLY_WITHDRAWAL_PENALTY_BPS / 100}% penalty on your stake (${OLD_EARLY_WITHDRAWAL_PENALTY_BPS / 100}% if it sits on the old staking contract), no matter how close you are to unlock. It goes to the protocol treasury, not to other stakers. Wait it out for the full payout.`,
   },
   {
     keywords: ['extend', 'top', 'increase', 'add', 'position'],

@@ -13,10 +13,7 @@ import { FinePrint } from '../ui/FinePrint';
 import { useReadContract } from 'wagmi';
 import { formatEther, parseEther } from 'viem';
 import { TEGRIDY_STAKING_ABI } from '../../lib/contracts';
-import { TEGRIDY_STAKING_ADDRESS, CHAIN_ID, LOCK_OPTIONS, EARLY_WITHDRAWAL_PENALTY_BPS, MAX_LOCK_DURATION, TEGRIDY_RESTAKING_ADDRESS, isDeployed } from '../../lib/constants';
-
-// Derive from the canonical constant so the penalty label + math track one source.
-const EARLY_WITHDRAWAL_PENALTY_PCT = EARLY_WITHDRAWAL_PENALTY_BPS / 100;
+import { STAKING_CONTRACT, CHAIN_ID, LOCK_OPTIONS, MAX_LOCK_DURATION, TEGRIDY_RESTAKING_ADDRESS, isDeployed, type StakingContractSet } from '../../lib/constants';
 
 export interface ConfirmState {
   withdraw: boolean;
@@ -43,7 +40,8 @@ interface StakingCardProps {
   isConnected: boolean;
   pos: ReturnType<typeof useUserPosition>;
   actions: ReturnType<typeof useFarmActions>;
-  nft: ReturnType<typeof useNFTBoost>;
+  /** Only the stake form reads it, so the old contract's card leaves it out. */
+  nft?: ReturnType<typeof useNFTBoost>;
   input: StakeInputState;
   confirms: ConfirmState;
   setConfirm: (key: keyof ConfirmState, val: boolean) => void;
@@ -59,15 +57,27 @@ interface StakingCardProps {
   lastActionRef: React.MutableRefObject<string | null>;
   /** F106: submit-time snapshot of the claim/unstake amount (avoids "claimed 0"). */
   submittedAmountRef: React.MutableRefObject<string | null>;
+  /**
+   * The contract this card's position lives on. Its fee is the one quoted, never a global
+   * figure. Defaults to the contract that takes new stakes.
+   */
+  contract?: StakingContractSet;
 }
 
 export function StakingCard({
   isConnected, pos, actions, nft,
   input, confirms, setConfirm, pool, computed,
   handleStake, lastActionRef, submittedAmountRef,
+  contract = STAKING_CONTRACT,
 }: StakingCardProps) {
   const { amount: stakeAmount, setAmount: setStakeAmount, lock: selectedLock, setLock: setSelectedLock, extendLockDuration, setExtendLockDuration } = input;
   const { boostDisplay, amtNum, effectiveStake, stakeNeedsApproval, totalBoostBps } = computed;
+  // THIS contract's early-exit fee. The first contract charges 25% and the current one 75%,
+  // and a deployed constant cannot change, so the figure always comes with the contract.
+  const EARLY_WITHDRAWAL_PENALTY_PCT = contract.penaltyBps / 100;
+  // The old contract only lets its positions leave: no new stake, and nothing that commits
+  // a position there for longer (extend, enable Auto-Max, revalidate).
+  const exitOnly = !contract.acceptsStakes;
   // Tick once per minute so the boost-expiry countdown stays fresh without
   // calling Date.now() during render (which React Compiler treats as impure).
   const [nowSec, setNowSec] = useState(() => Math.floor(Date.now() / 1000));
@@ -81,10 +91,11 @@ export function StakingCard({
   // so it auto-updates when governance raises it (testing-phase 50,000 → later) — no
   // frontend redeploy needed. MIN_STAKE mirrors TegridyStaking.MIN_STAKE (100e18).
   const { data: maxStakeRaw, isLoading: maxStakeLoading } = useReadContract({
-    address: TEGRIDY_STAKING_ADDRESS,
+    address: contract.staking,
     abi: TEGRIDY_STAKING_ABI,
     functionName: 'maxStakePerUser',
     chainId: CHAIN_ID,
+    query: { enabled: !exitOnly },
   });
   const MIN_STAKE_TOWELI = 100;
   // OUTAGE-AS-ZERO. `?? 0n` asserted "this wallet's cap is zero" on every read
@@ -140,9 +151,17 @@ export function StakingCard({
           <ArtImg pageId="staking-card" idx={0} fallbackPosition="center 40%" alt="" loading="lazy" className="w-full h-full object-cover" />
         </div>
         <div className="relative z-10 p-6">
-        <h3 className="heading-luxury text-white text-[20px] mb-5">
-          {pos.hasPosition || pos.positionUnread ? 'Your Position' : 'Stake TOWELI'}
+        <h3 className={`heading-luxury text-white text-[20px] ${exitOnly ? 'mb-1' : 'mb-5'}`}>
+          {exitOnly ? 'Your position on the old contract' : pos.hasPosition || pos.positionUnread ? 'Your Position' : 'Stake TOWELI'}
         </h3>
+        {exitOnly && (
+          /* How this position earns and what the venue takes, in one visible line
+             (feedback_say_how_money_moves). The fee is THIS contract's. */
+          <p className="text-white/80 text-[12px] mb-4" data-testid="old-staking-money-line">
+            Earns TOWELI from this contract&rsquo;s reward pot. Leaving before your lock ends
+            costs {EARLY_WITHDRAWAL_PENALTY_PCT}% of your stake, sent to the treasury.
+          </p>
+        )}
 
         {pos.hasPosition ? (
           /* Existing position display */
@@ -200,7 +219,7 @@ export function StakingCard({
                     (!pos.isLocked) rendered this button exactly and only in
                     the one state where every click burned gas and reverted.
                     It belongs on ACTIVE locks, where the call can succeed. */}
-                {pos.hasPosition && pos.isLocked && pos.boostMultiplier > 1 && (
+                {!exitOnly && pos.hasPosition && pos.isLocked && pos.boostMultiplier > 1 && (
                   <button
                     onClick={() => { lastActionRef.current = null; actions.revalidateBoost(pos.tokenId); }}
                     disabled={controlDisabled}
@@ -270,7 +289,7 @@ export function StakingCard({
                     </p>
                   );
                 })()}
-                {pos.hasPosition && pos.isLocked && !confirms.extendLock && (
+                {!exitOnly && pos.hasPosition && pos.isLocked && !confirms.extendLock && (
                   <button
                     onClick={() => setConfirm('extendLock', true)}
                     disabled={controlDisabled}
@@ -278,7 +297,7 @@ export function StakingCard({
                     Extend Lock
                   </button>
                 )}
-                {pos.hasPosition && pos.isLocked && confirms.extendLock && (
+                {!exitOnly && pos.hasPosition && pos.isLocked && confirms.extendLock && (
                   <div className="mt-2">
                     {/* A11Y-R02: this picker chooses from the same LOCK_OPTIONS as
                         the STAKE form's, so it carries the same contract that one
@@ -384,6 +403,15 @@ export function StakingCard({
                     <div className="rounded-lg p-2.5 mb-2" style={{ background: 'rgba(239,68,68,0.05)', border: '1px solid rgba(239,68,68,0.10)' }}>
                       <p className="text-danger/80 text-[11px] mb-1">Penalty: <span className="font-mono font-semibold">{penaltyAmt.toFixed(2)} TOWELI</span> will be sent to treasury</p>
                       <p className="text-white/80 text-[11px]">You will receive: <span className="font-mono font-semibold">{receiveAmt.toFixed(2)} TOWELI</span></p>
+                      {/* The dry-pot trap, said where the money moves: rewards are paid
+                          first but only from what the pot holds, and the fee does not
+                          shrink when they are not paid (TegridyStaking.sol, the
+                          EARLY_WITHDRAWAL_PENALTY_BPS note; StakingBoostResidual test). */}
+                      <p className="text-danger/90 text-[11px] mt-1 font-semibold" data-testid="early-exit-pot-warning">
+                        {pool?.isDry
+                          ? `The reward pot is empty right now: leaving early pays you no rewards, and you still pay the ${EARLY_WITHDRAWAL_PENALTY_PCT}%.`
+                          : `Rewards are paid first, but only what the reward pot holds. If it is short, you can lose the rest, and you still pay the ${EARLY_WITHDRAWAL_PENALTY_PCT}%.`}
+                      </p>
                     </div>
                     <div className="flex gap-2">
                       <button onClick={() => setConfirm('earlyWithdraw', false)}
@@ -425,14 +453,14 @@ export function StakingCard({
                     Disable Auto-Lock
                   </button>
                 )}
-                {!pos.autoMaxLock && !confirms.autoMaxLock && (
+                {!exitOnly && !pos.autoMaxLock && !confirms.autoMaxLock && (
                   <button onClick={() => setConfirm('autoMaxLock', true)}
                     disabled={controlDisabled}
                     className="btn-secondary w-full py-2.5 text-[13px] disabled:opacity-70">
                     Enable Auto-Max Lock
                   </button>
                 )}
-                {!pos.autoMaxLock && confirms.autoMaxLock && (
+                {!exitOnly && !pos.autoMaxLock && confirms.autoMaxLock && (
                   <div className="col-span-2 rounded-lg p-3" style={{ background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.15)' }}>
                     <p className="text-danger text-[12px] font-semibold mb-2">
                       This locks your {pos.stakedFormatted} TOWELI until{' '}
@@ -539,7 +567,7 @@ export function StakingCard({
                   zeroed, so FarmPage's restaking section never renders. Advertising
                   "bonus yield" with a link back to this same page was a live CTA for
                   a dead feature; show an honest status label until it deploys. */}
-              {isDeployed(TEGRIDY_RESTAKING_ADDRESS) ? (
+              {exitOnly ? null : isDeployed(TEGRIDY_RESTAKING_ADDRESS) ? (
                 <Link to="/earn/toweli" className="text-center text-white/60 text-[12px] hover:text-white transition-colors mt-1">
                   Restake for bonus yield &#8594;
                 </Link>
@@ -584,6 +612,10 @@ export function StakingCard({
               Retry
             </button>
           </div>
+        ) : exitOnly ? (
+          /* A contract that takes no new stakes never shows the stake form, even if a
+             parent mounts this card for a wallet with nothing there. */
+          null
         ) : (
           /* New stake form */
           <div>
@@ -671,7 +703,7 @@ export function StakingCard({
                   bonus (plain stake(); the +0.5x requires stakeWithBoost's
                   NFT deposit, which this UI doesn't drive) — so the preview
                   states that instead of advertising a boost it won't deliver. */}
-              {nft.holdsJBAC && (
+              {nft?.holdsJBAC && (
                 <div className="flex items-start justify-between gap-3 mb-2">
                   <span className="text-white/70 text-[11px]">JBAC bonus (+0.5x)</span>
                   <span className="text-white/70 text-[11px] text-right">not applied — requires NFT-deposit staking</span>
@@ -748,8 +780,10 @@ export function StakingCard({
                 : `Stake & Lock for ${selectedLock.label}`}
             </button>
 
-            <p className="text-white text-[10px] text-center mt-3">
-              Early exit available — {EARLY_WITHDRAWAL_PENALTY_PCT}% {PENALTY_COPY.earlyExitLabel} sent to the treasury
+            {/* The risk line where money goes in: the fee AND the dry-pot trap, visible. */}
+            <p className="text-white text-[11px] text-center mt-3" data-testid="stake-exit-risk-line">
+              Leave before your lock ends and you pay {EARLY_WITHDRAWAL_PENALTY_PCT}% of your stake to the
+              treasury ({PENALTY_COPY.earlyExitLabel}), and can lose rewards the pot cannot cover.
             </p>
           </div>
         )}
