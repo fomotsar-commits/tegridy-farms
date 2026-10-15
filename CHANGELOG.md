@@ -6,6 +6,10 @@ page keeps the newest thirty days.
 
 ## [Unreleased]
 
+### 2026-10-15
+
+- Solana adds, removals, pool openings and swaps: taking your time on the review no longer shuts the wallet. Before, a review read for more than 30 seconds was built again at Sign, and any line that moved, even the outside price check, kept the wallet shut, so on a phone a holder could press Sign again and again without the wallet opening. Now the wallet opens unless something you would sign for changed: the pool, the token, the amounts and limits, your share, or the transaction itself. A price check or fee that moved is listed while the wallet is open. A new warning, or a price that moved more than 3 points further off, still stops it and shows you why. The two risk notes now show once during a review, not again under the Sign button.
+
 ### 2026-10-14
 
 - Earn: a farm or pool whose rewards have ended is no longer offered for new stakes. The TOWELI/ETH LP farm, which stopped paying on Jun 15, 2026, now says so in one line with that date and shows no Stake box; Withdraw, Claim and Exit still work. The Zap page no longer offers that farm as a destination. The lock-ladder and lighthouse pools on the bungalows do the same the day their reward period ends. When the end date cannot be read, Stake waits and no date is shown.
