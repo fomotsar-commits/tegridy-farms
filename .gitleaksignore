@@ -20,3 +20,8 @@
 #     list cannot be edited unnoticed. A hash of a public file is not a secret.
 c7f8f33b2a3fe593de41317f8a80548be07dfdbf:frontend/src/test/solanaGuardTampers.test.ts:generic-api-key:38
 c7f8f33b2a3fe593de41317f8a80548be07dfdbf:solana/guards/provenance.mjs:generic-api-key:26
+#
+# 2026-10-15, PR #839. A made-up Jupiter key used as test data, in a variable named
+# KEY ("test-jup-key-…", no real account). The variable is renamed FAKE_JUP in the
+# commit that adds this line, so the rule has nothing to read on the branch head.
+448e1e7d20e37792f73cbf81d741151e6fcb9027:frontend/api/__tests__/aggregator-jupiter-key.test.js:generic-api-key:15

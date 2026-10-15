@@ -12,7 +12,7 @@ vi.mock("../_lib/ratelimit.js", () => ({ checkRateLimit: vi.fn(async () => true)
 const AGG_HANDLER = "../aggregator.js";
 const LITE = "https://lite-api.jup.ag";
 const KEYED = "https://api.jup.ag";
-const KEY = "test-jup-key-0b4d2e6f9a";
+const FAKE_JUP = "fake-jupiter-test-value";
 
 const QUOTE_QUERY = {
   inputMint: "So11111111111111111111111111111111111111112",
@@ -115,19 +115,19 @@ describe("jupiter key — host and header", () => {
   });
 
   it("key set: api.jup.ag with x-api-key carrying the exact (trimmed) key", async () => {
-    process.env.JUPITER_API_KEY = `  ${KEY}\n`;
+    process.env.JUPITER_API_KEY = `  ${FAKE_JUP}\n`;
     globalThis.fetch = upstream({ status: 200, payload: { ok: 1 } });
     const { statusSpy } = await run(quoteReq());
     expect(statusSpy).toHaveBeenCalledWith(200);
     expect(globalThis.fetch).toHaveBeenCalledTimes(1);
     expect(String(globalThis.fetch.mock.calls[0][0])).toBe(`${KEYED}/swap/v1/quote?${QUOTE_SEARCH}`);
-    expect(callHeaders(globalThis.fetch, 0)).toEqual({ Accept: "application/json", "x-api-key": KEY });
+    expect(callHeaders(globalThis.fetch, 0)).toEqual({ Accept: "application/json", "x-api-key": FAKE_JUP });
   });
 
   it("reads the key per request, not once at import", async () => {
     globalThis.fetch = upstream({ status: 200, payload: { ok: 1 } });
     await run(quoteReq());
-    process.env.JUPITER_API_KEY = KEY;
+    process.env.JUPITER_API_KEY = FAKE_JUP;
     await run(quoteReq());
     delete process.env.JUPITER_API_KEY;
     await run(quoteReq());
@@ -139,7 +139,7 @@ describe("jupiter key — the 0.5% fee settings reach Jupiter unchanged on both 
   it("platformFeeBps in the quote query string", async () => {
     globalThis.fetch = upstream({ status: 200, payload: { ok: 1 } });
     await run(quoteReq());
-    process.env.JUPITER_API_KEY = KEY;
+    process.env.JUPITER_API_KEY = FAKE_JUP;
     await run(quoteReq());
     const [lite, keyed] = [callUrl(globalThis.fetch, 0), callUrl(globalThis.fetch, 1)];
     expect([lite.origin, keyed.origin]).toEqual([LITE, KEYED]);
@@ -151,7 +151,7 @@ describe("jupiter key — the 0.5% fee settings reach Jupiter unchanged on both 
   it("feeAccount in the POST /swap/v1/swap body, byte-identical", async () => {
     globalThis.fetch = upstream({ status: 200, payload: { swapTransaction: "tx" } });
     await run(swapReq());
-    process.env.JUPITER_API_KEY = KEY;
+    process.env.JUPITER_API_KEY = FAKE_JUP;
     await run(swapReq());
     expect([callUrl(globalThis.fetch, 0).origin, callUrl(globalThis.fetch, 1).origin]).toEqual([LITE, KEYED]);
     const [liteBody, keyedBody] = [callBody(globalThis.fetch, 0), callBody(globalThis.fetch, 1)];
@@ -164,7 +164,7 @@ describe("jupiter key — the 0.5% fee settings reach Jupiter unchanged on both 
 describe("jupiter key — one fallback to lite-api, only when the gateway refused the call", () => {
   for (const refused of [401, 403, 404, 429]) {
     it(`keyed ${refused}: the same GET once more on lite-api without the key, and its answer is returned`, async () => {
-      process.env.JUPITER_API_KEY = KEY;
+      process.env.JUPITER_API_KEY = FAKE_JUP;
       globalThis.fetch = upstream({ status: refused, payload: { error: "refused" } }, { status: 200, payload: { from: "lite" } });
       const { statusSpy, sendSpy } = await run(quoteReq());
       expect(globalThis.fetch).toHaveBeenCalledTimes(2);
@@ -183,7 +183,7 @@ describe("jupiter key — one fallback to lite-api, only when the gateway refuse
   }
 
   it("a POST refused with 401 is retried once with the same body", async () => {
-    process.env.JUPITER_API_KEY = KEY;
+    process.env.JUPITER_API_KEY = FAKE_JUP;
     globalThis.fetch = upstream({ status: 401, payload: { error: "bad key" } }, { status: 200, payload: { signature: "sig" } });
     const body = { signedTransaction: "AQID", requestId: "req-1" };
     const { statusSpy } = await run(makeReq({ method: "POST", query: { provider: "jupiter", path: ["trigger", "v1", "execute"] }, body }));
@@ -196,7 +196,7 @@ describe("jupiter key — one fallback to lite-api, only when the gateway refuse
   });
 
   it("a POST answered 500 is NOT retried (it may have been processed)", async () => {
-    process.env.JUPITER_API_KEY = KEY;
+    process.env.JUPITER_API_KEY = FAKE_JUP;
     globalThis.fetch = upstream({ status: 500, payload: { error: "boom" } }, { status: 200, payload: {} });
     const { statusSpy, jsonSpy } = await run(makeReq({ method: "POST", query: { provider: "jupiter", path: ["trigger", "v1", "execute"] }, body: { signedTransaction: "AQID" } }));
     expect(globalThis.fetch).toHaveBeenCalledTimes(1);
@@ -206,7 +206,7 @@ describe("jupiter key — one fallback to lite-api, only when the gateway refuse
   });
 
   it("keyed 500 on a GET: no retry, 502 as today", async () => {
-    process.env.JUPITER_API_KEY = KEY;
+    process.env.JUPITER_API_KEY = FAKE_JUP;
     globalThis.fetch = upstream({ status: 500, payload: { error: "boom" } }, { status: 200, payload: {} });
     const { statusSpy } = await run(quoteReq());
     expect(globalThis.fetch).toHaveBeenCalledTimes(1);
@@ -218,7 +218,7 @@ describe("jupiter key — one fallback to lite-api, only when the gateway refuse
     const timeout = new Error("The operation was aborted due to timeout");
     timeout.name = "TimeoutError";
     for (const err of [new TypeError("fetch failed"), timeout]) {
-      process.env.JUPITER_API_KEY = KEY;
+      process.env.JUPITER_API_KEY = FAKE_JUP;
       globalThis.fetch = upstream(err, { status: 200, payload: {} });
       const { statusSpy, jsonSpy } = await run(quoteReq());
       expect(globalThis.fetch).toHaveBeenCalledTimes(1);
@@ -229,7 +229,7 @@ describe("jupiter key — one fallback to lite-api, only when the gateway refuse
   });
 
   it("only one fallback: a refused retry is a 502, not a third call", async () => {
-    process.env.JUPITER_API_KEY = KEY;
+    process.env.JUPITER_API_KEY = FAKE_JUP;
     globalThis.fetch = upstream({ status: 429, payload: {} }, { status: 429, payload: {} }, { status: 200, payload: {} });
     const { statusSpy } = await run(quoteReq());
     expect(globalThis.fetch).toHaveBeenCalledTimes(2);
@@ -239,7 +239,7 @@ describe("jupiter key — one fallback to lite-api, only when the gateway refuse
 
 describe("jupiter key — the key never leaves the server", () => {
   it("is sent to Jupiter, and appears in no response body, response header or log line", async () => {
-    process.env.JUPITER_API_KEY = KEY;
+    process.env.JUPITER_API_KEY = FAKE_JUP;
     const scenarios = [
       () => upstream({ status: 200, payload: { ok: 1 } }),
       () => upstream({ status: 401, payload: { error: "bad key" } }, { status: 200, payload: { ok: 1 } }),
@@ -253,21 +253,21 @@ describe("jupiter key — the key never leaves the server", () => {
         globalThis.fetch = scenario();
         const { headerSpy, jsonSpy, sendSpy } = await run(req);
         const out = JSON.stringify([headerSpy.mock.calls, jsonSpy.mock.calls, sendSpy.mock.calls]);
-        expect(out).not.toContain(KEY);
+        expect(out).not.toContain(FAKE_JUP);
         // The key did go upstream: this is not passing because the key was never used.
-        expect(callHeaders(globalThis.fetch, 0)["x-api-key"]).toBe(KEY);
+        expect(callHeaders(globalThis.fetch, 0)["x-api-key"]).toBe(FAKE_JUP);
       }
     }
     const logged = JSON.stringify(consoleSpies.map((s) => s.mock.calls));
     expect(console.warn).toHaveBeenCalled();
     expect(console.error).toHaveBeenCalled();
-    expect(logged).not.toContain(KEY);
+    expect(logged).not.toContain(FAKE_JUP);
   });
 });
 
 describe("jupiter key — other providers are untouched", () => {
   it("odos: same host, same headers, and a 401 is a plain 502 with no retry", async () => {
-    process.env.JUPITER_API_KEY = KEY;
+    process.env.JUPITER_API_KEY = FAKE_JUP;
     const body = { chainId: 1, inputTokens: [], outputTokens: [] };
     const req = () => makeReq({ method: "POST", query: { provider: "odos", path: ["sor", "quote", "v2"] }, body });
     globalThis.fetch = upstream({ status: 200, payload: { ok: 1 } });
@@ -285,7 +285,7 @@ describe("jupiter key — other providers are untouched", () => {
   });
 
   it("kyber: its own fixed header and nothing else", async () => {
-    process.env.JUPITER_API_KEY = KEY;
+    process.env.JUPITER_API_KEY = FAKE_JUP;
     globalThis.fetch = upstream({ status: 429, payload: {} }, { status: 200, payload: {} });
     await run(makeReq({ method: "GET", query: { provider: "kyber", path: ["ethereum", "api", "v1", "routes"], tokenIn: "0xeee", tokenOut: "0xeee", amountIn: "1" } }));
     expect(globalThis.fetch).toHaveBeenCalledTimes(1);
