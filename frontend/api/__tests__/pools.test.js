@@ -634,6 +634,148 @@ describe("api/pools: the pairing coins", () => {
   });
 });
 
+/**
+ * A fake chain for `?all=1`: each scan filters ONE mint slot on one coin. `pools`:
+ * [{ address, mints: [a, b], vaults: [va, vb], amounts: [na, nb] }], put in byte order
+ * here as the pool program stores them. `failScan` / `failRank`: a coin whose scans, or
+ * whose vault reads, error.
+ */
+function allChain({ pools = [], failScan = null, failRank = null } = {}) {
+  const down = { ok: false, status: 500, headers: { get: () => null }, body: null, text: async () => "" };
+  const stored = pools.map((p) => {
+    const flip = byteOrder(p.mints[0], p.mints[1])[0] !== p.mints[0];
+    const o = (arr) => (flip ? [arr[1], arr[0]] : arr);
+    return { address: p.address, mints: o(p.mints), vaults: o(p.vaults), amounts: o(p.amounts) };
+  });
+  const byVault = new Map(stored.flatMap((p) => p.vaults.map((v, i) => [v, { mint: p.mints[i], amount: p.amounts[i] }])));
+  return vi.fn(async (_url, init) => {
+    const { method, params } = JSON.parse(init.body);
+    if (method === "getProgramAccounts") {
+      const m = params[1].filters.filter((f) => f.memcmp && f.memcmp.offset !== 0).map((f) => f.memcmp);
+      if (m.length !== 1) throw new Error("an all-pools scan filters exactly one mint slot");
+      const slot = m[0].offset === 168 ? 0 : m[0].offset === 200 ? 1 : -1;
+      if (failScan === m[0].bytes) return down;
+      return reply(stored.filter((p) => p.mints[slot] === m[0].bytes).map((p) => ({
+        pubkey: p.address,
+        account: { data: [b64(Uint8Array.from([...base58.decode(p.vaults[0]), ...base58.decode(p.vaults[1])])), "base64"], owner: "x", lamports: 1 },
+      })));
+    }
+    if (method === "getMultipleAccounts") {
+      const asked = params[0].map((v) => byVault.get(v));
+      if (failRank && asked.some((a) => a && a.mint === failRank)) return down;
+      return reply({ context: { slot: 1 }, value: asked.map((a) => (a ? { owner: COIN_PROGRAM[a.mint] ?? TOKEN, lamports: 1, data: [b64(u64(a.amount)), "base64"] } : null)) });
+    }
+    throw new Error(`unexpected ${method}`);
+  });
+}
+/** A pool of `token` with `coin`, holding `amount` of the coin. `first` chooses where its keys sort. */
+const pairPool = (token, coin, amount, i, first) => ({ address: k(i, first), mints: [token, coin], vaults: [k(i, first + 1), k(i, first + 2)], amounts: [1, amount] });
+
+describe("api/pools?all=1: every pool, before a token is picked", () => {
+  it("lists every pool paired with a coin, SOL's first, then USDC's, then BAYLA's, deepest first in each, each pool once", async () => {
+    const solShallow = pairPool(TOKEN_X, WSOL, 5, 1, 10);
+    const solDeep = pairPool(JUNK, WSOL, 9, 2, 10);
+    // BAYLA/SOL is a SOL pool (BAYLA is its token), and USDC/SOL is too: listed once, under SOL.
+    const baylaSol = pairPool(BAYLA, WSOL, 7, 3, 10);
+    const usdcSol = pairPool(USDC, WSOL, 1, 4, 10);
+    const usdc = pairPool(TOKEN_X, USDC, 10n ** 15n, 1, 20);
+    const baylaUsdc = pairPool(BAYLA, USDC, 3, 2, 20);
+    const bayla = pairPool(TOKEN_X, BAYLA, 4, 1, 30);
+    // TOKEN/JUNK: no coin on either side, so no scan asks for it.
+    const junk = { address: k(1, 40), mints: [TOKEN_X, JUNK], vaults: [k(1, 41), k(1, 42)], amounts: [10n ** 18n, 10n ** 18n] };
+    const f = allChain({ pools: [junk, bayla, baylaUsdc, usdc, usdcSol, baylaSol, solShallow, solDeep] });
+    const res = await ask({ all: "1" }, f);
+    expect(res.statusCode).toBe(200);
+    expect(res.body.pools).toEqual([solDeep, baylaSol, solShallow, usdcSol, usdc, baylaUsdc, bayla].map((p) => p.address));
+    expect(res.body.truncated).toBe(false);
+    // Two scans per coin, one per mint slot, every one filtered to pool accounts.
+    const scans = calls(f, "getProgramAccounts");
+    expect(scans).toHaveLength(6);
+    expect(scans.map((s) => s.params[1].filters.find((x) => x.memcmp && x.memcmp.offset !== 0).memcmp).sort((a, b) => (a.bytes + a.offset < b.bytes + b.offset ? -1 : 1))).toEqual(
+      COINS.flatMap((bytes) => [{ offset: 168, bytes }, { offset: 200, bytes }]).sort((a, b) => (a.bytes + a.offset < b.bytes + b.offset ? -1 : 1)),
+    );
+    for (const s of scans) {
+      expect(s.params[0]).toBe(mod.CP_SWAP_PROGRAM);
+      expect(s.params[1].filters).toContainEqual({ dataSize: 637 });
+      expect(s.params[1].filters).toContainEqual({ memcmp: { offset: 0, bytes: mod.POOL_DISCRIMINATOR_B58 } });
+      expect(s.params[1].dataSlice).toEqual({ offset: 72, length: 64 });
+    }
+    // No mint check: there is no key to check.
+    expect(calls(f, "getAccountInfo")).toHaveLength(0);
+  });
+
+  it("ranks each pool by ITS coin's vault, on whichever side the coin sits", async () => {
+    // Same coin, opposite slots: the vault read must be the coin's, not the token's.
+    const lowSide = pairPool(k(1, 1), WSOL, 100, 1, 50);
+    const highSide = pairPool(k(1, 250), WSOL, 200, 2, 50);
+    const res = await ask({ all: "1" }, allChain({ pools: [lowSide, highSide] }));
+    expect(res.body.pools).toEqual([highSide.address, lowSide.address]);
+    const flipped = await (async () => {
+      mod.__resetPoolIndexCache();
+      return ask({ all: "1" }, allChain({ pools: [{ ...lowSide, amounts: [1, 300] }, highSide] }));
+    })();
+    expect(flipped.body.pools).toEqual([lowSide.address, highSide.address]);
+  });
+
+  it("shares the list between the coins: hundreds of junk SOL pools leave the USDC and BAYLA pools in it, and say truncated", async () => {
+    const flood = Array.from({ length: 200 }, (_, i) => pairPool(k(i, 60), WSOL, 1 + i, i, 70));
+    const usdc = pairPool(TOKEN_X, USDC, 1, 1, 20);
+    const bayla = pairPool(TOKEN_X, BAYLA, 1, 1, 30);
+    const res = await ask({ all: "1" }, allChain({ pools: [...flood, usdc, bayla] }));
+    expect(res.statusCode).toBe(200);
+    expect(res.body.pools).toHaveLength(mod.MAX_POOLS);
+    expect(res.body.pools.slice(-2)).toEqual([usdc.address, bayla.address]);
+    expect(res.body.pools[0]).toBe(flood[199].address);
+    expect(res.body.truncated).toBe(true);
+  });
+
+  it("any scan or vault read failing is a 502, never a short list, and is not remembered", async () => {
+    const pools = [pairPool(TOKEN_X, WSOL, 1, 1, 10), pairPool(TOKEN_X, USDC, 1, 1, 20), pairPool(TOKEN_X, BAYLA, 1, 1, 30)];
+    for (const what of ["failScan", "failRank"]) {
+      for (const coin of COINS) {
+        mod.__resetPoolIndexCache();
+        const res = await ask({ all: "1" }, allChain({ pools, [what]: coin }));
+        expect(res.statusCode, `${what} ${coin}`).toBe(502);
+        expect(res.body.pools).toBeUndefined();
+        const again = await ask({ all: "1" }, allChain({ pools }));
+        expect(again.statusCode).toBe(200);
+        expect(again.body.pools).toEqual(pools.map((p) => p.address));
+      }
+    }
+  });
+
+  it("is cached for everyone, charges the scan budget once per scan before any scan, and the visitor once", async () => {
+    const f = allChain({ pools: [pairPool(TOKEN_X, WSOL, 1, 1, 10)] });
+    const res = await ask({ all: "1" }, f);
+    expect(budgetCharges()).toEqual(["pools", "pools", "pools", "pools", "pools", "pools"]);
+    expect(rate.checkRateLimit).toHaveBeenCalledTimes(1);
+    const n = f.mock.calls.length;
+    const again = await ask({ all: "1" }, f);
+    expect(again.body).toEqual(res.body);
+    expect(f.mock.calls.length).toBe(n);
+    expect(rate.checkRateLimit).toHaveBeenCalledTimes(1);
+
+    mod.__resetPoolIndexCache();
+    rate.checkGlobalLimit.mockImplementationOnce(async () => true).mockImplementationOnce(async (r) => { r.status(503).json({ error: "busy" }); return false; });
+    const g = allChain({ pools: [pairPool(TOKEN_X, WSOL, 1, 1, 10)] });
+    const shed = await ask({ all: "1" }, g);
+    expect(shed.statusCode).toBe(503);
+    expect(calls(g, "getProgramAccounts")).toHaveLength(0);
+  });
+
+  it("answers { all, program, pools, truncated, readAt } and takes only all=1, alone", async () => {
+    const res = await ask({ all: "1" }, allChain({ pools: [pairPool(TOKEN_X, WSOL, 1, 1, 10)] }));
+    expect(Object.keys(res.body).sort()).toEqual(["all", "pools", "program", "readAt", "truncated"]);
+    expect(res.body).toMatchObject({ all: true, program: mod.CP_SWAP_PROGRAM, truncated: false });
+    for (const q of [{ all: "2" }, { all: "" }, { all: "1", mint: TOKEN_X }, { all: ["1", "1"] }]) {
+      const f = allChain();
+      const bad = await ask(q, f);
+      expect(bad.statusCode, JSON.stringify(q)).toBe(400);
+      expect(f).not.toHaveBeenCalled();
+    }
+  });
+});
+
 describe("routing: /api/pools costs no function of its own", () => {
   it("is rewritten to the catchall, above the SPA fallback", () => {
     const rewrites = JSON.parse(readFileSync(join(API_DIR, "..", "vercel.json"), "utf8")).rewrites;
