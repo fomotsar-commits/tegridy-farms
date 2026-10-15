@@ -33,8 +33,14 @@ async function settle(page: Page, path: string, size = PHONE): Promise<void> {
 const SCROLLED_PAGES = ['/liquidity', '/zap', '/leaderboard', '/launch', '/nft-finance', '/scan', '/faq'];
 const SCREENS = [{ width: 390, height: 844 }, { width: 1280, height: 800 }];
 
-for (const size of SCREENS) {
+// A page must scroll to be measured. /scan, the Check page with a field, scrolls only 100px
+// in a 1280x800 window since the footer became eight links (2026-10-15), so its laptop is a
+// shorter window, 1280x600, where it scrolls 300px.
+const LAPTOP_HEIGHT: Record<string, number> = { '/scan': 600 };
+
+for (const screen of SCREENS) {
   for (const path of SCROLLED_PAGES) {
+    const size = screen.width >= 800 && LAPTOP_HEIGHT[path] ? { ...screen, height: LAPTOP_HEIGHT[path] } : screen;
     test(`${path} at ${size.width}x${size.height}: as the page scrolls, the tab strip covers no field, button or link`, async ({ page, walletMock: _w }) => {
       test.setTimeout(120_000);
       await settle(page, path, size);
