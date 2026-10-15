@@ -6,6 +6,10 @@ page keeps the newest thirty days.
 
 ## [Unreleased]
 
+### 2026-10-15
+
+- A shared link to the site now unfurls as the home page's own first picture, Bayla at the door, on X, Discord and Telegram. It used to be a text card. A page with its own picture keeps it. X keeps an old card for about a week per link.
+
 ### 2026-10-14
 
 - Earn: a farm or pool whose rewards have ended is no longer offered for new stakes. The TOWELI/ETH LP farm, which stopped paying on Jun 15, 2026, now says so in one line with that date and shows no Stake box; Withdraw, Claim and Exit still work. The Zap page no longer offers that farm as a destination. The lock-ladder and lighthouse pools on the bungalows do the same the day their reward period ends. When the end date cannot be read, Stake waits and no date is shown.
