@@ -4,6 +4,7 @@
 // leaves behind. The write layer is a fake; nothing touches a chain.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { RISK_SHORT } from './LpDisclosures';
 import { act, render, screen, waitFor, within, fireEvent } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { PublicKey } from '@solana/web3.js';
@@ -758,6 +759,10 @@ describe('the review and a confirmed opening', () => {
     expect(disclosure).toHaveTextContent(/have not had their own independent review yet/);
     expect(disclosure).toHaveTextContent(/change the public fee tier's rates and its fee to open a pool at once/);
     expect(disclosure).toHaveTextContent("Jupiter does not send trades to our pools. This site's own swap sends a trade to a pool only when that pool pays the trader at least as much as Jupiter does.");
+    // The two risk notices stand once, above the rows (island, answer eighteen).
+    expect(within(panel).getAllByText(/have not had their own independent review yet/)).toHaveLength(1);
+    expect(within(panel).getAllByText(/change the public fee tier's rates and its fee to open a pool at once/)).toHaveLength(1);
+    expect(within(panel).getAllByText(RISK_SHORT)).toHaveLength(1);
     expect(isCreatedPool(pool.toBase58())).toBe(false);
     await act(async () => {
       fireEvent.click(within(panel).getByRole('button', { name: 'Sign in wallet' }));
