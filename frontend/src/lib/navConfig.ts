@@ -185,8 +185,6 @@ export const NAV_SECTIONS: NavSection[] = [
       // "Staking", not "Pools": Pools is the top-bar word for providing liquidity.
       { to: '/earn', label: 'Staking' },
       ...(NFT_FINANCE_LIVE ? [{ to: '/nft-finance', label: 'Borrow on NFTs', tabLabel: 'NFT Loans' }] : []),
-      // Unpilled: the splitter is deployed and a `/?ref=0x…` link needs no server.
-      { to: '/referrals', label: 'Referrals' },
       // Pilled only while no venue carries an on-chain-verified deposit target.
       { to: '/yield', label: 'Yield Routing', tabLabel: 'Yield', soon: !hasRoutableYieldVenue() },
       // Both read the island tape; each pill clears when a readable pool is registered,

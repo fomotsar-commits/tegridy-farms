@@ -518,8 +518,9 @@ the tests is `1_000_000_000_000_000`).
 | 184 | 1 | `paused` | bool | |
 | 185 | 1 | `bump` | u8 | |
 
-`8 + InitSpace(178) = 186`. Rent exemption ≈ `(128 + 186) × 6960 = 2_185_440` lamports —
-but call `getMinimumBalanceForRentExemption(186)` rather than hardcoding.
+`8 + InitSpace(178) = 186`. Rent exemption on mainnet is `(128 + 186) × 5,080 = 1,595,120`
+lamports (read 2026-10-14; it was 2,185,440 at the old rate of 6,960 a byte), but call
+`getMinimumBalanceForRentExemption(186)` rather than hardcoding: the rate moves.
 
 **Zero `cp_swap_program` / `amm_config` is a real, expected state**, not a read failure:
 the AmmConfig is created by a cp-swap admin action *after* deploy (lib.rs:184-187). Render
@@ -544,8 +545,9 @@ as an error.
 | 129 | 32 | `pool` | Pubkey | **all-zero until migration** (state.rs:159-163) |
 | 161 | 1 | `bump` | u8 | |
 
-`8 + InitSpace(154) = 162`. Rent exemption ≈ `(128 + 162) × 6960 = 2_018_400` lamports —
-again, prefer `getMinimumBalanceForRentExemption(162)`.
+`8 + InitSpace(154) = 162`. Rent exemption on mainnet is `(128 + 162) × 5,080 = 1,473,200`
+lamports (read 2026-10-14; it was 2,018,400 at the old rate), but again, prefer
+`getMinimumBalanceForRentExemption(162)`.
 
 **The snapshot rule is a correctness requirement, not trivia.** `trade_fee_bps`,
 `graduation_target_lamports` and `migration_reserve_lamports` are copied from `global`

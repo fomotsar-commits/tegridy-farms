@@ -6,7 +6,7 @@
  * "<fn> succeeded" there and cleared the field the operator had typed, so a
  * write still waiting to be mined, or one that went on to revert, read as
  * applied, and the typed URI or root was gone before anyone knew. The submit
- * now says "submitted — confirming on-chain…"; "<fn> succeeded" and the field
+ * now says "submitted. Confirming on-chain…"; "<fn> succeeded" and the field
  * reset wait for a confirmed receipt, once per hash.
  *
  * The shared wagmi mock hands back fresh `refetch` fns on every render, so an
@@ -75,7 +75,7 @@ describe('OwnerAdminPanelV2: a submitted write is not a confirmed one', () => {
     fireEvent.click(screen.getByText('Update contractURI'));
     rerender();
 
-    expect(toast.info).toHaveBeenCalledWith('setContractURI submitted — confirming on-chain…');
+    expect(toast.info).toHaveBeenCalledWith('setContractURI submitted. Confirming on-chain…');
     expect(toast.success).not.toHaveBeenCalled();
     expect(contractUriField().value).toBe(URI);
   });

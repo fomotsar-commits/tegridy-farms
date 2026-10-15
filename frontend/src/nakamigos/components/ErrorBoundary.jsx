@@ -23,25 +23,8 @@ export default class ErrorBoundary extends React.Component {
 
   componentDidCatch(error, errorInfo) {
     console.error("ErrorBoundary caught:", error, errorInfo);
-
-    // Auto-reload on chunk load failures (stale deployment cache) — max 3 attempts
-    try {
-      if (isChunkLoadError(error)) {
-        const reloadKey = "app_chunk_reload";
-        const countKey = "app_chunk_reload_count";
-        const lastReload = sessionStorage.getItem(reloadKey);
-        const reloadCount = parseInt(sessionStorage.getItem(countKey) || "0", 10);
-        const now = Date.now();
-        if (reloadCount < 3 && (!lastReload || now - parseInt(lastReload, 10) > 30000)) {
-          sessionStorage.setItem(reloadKey, String(now));
-          sessionStorage.setItem(countKey, String(reloadCount + 1));
-          window.location.reload();
-          return;
-        }
-      }
-    } catch {
-      // sessionStorage unavailable (mobile private mode)
-    }
+    // No reload from here: the marketplace cannot tell when a wallet prompt is open
+    // (App.jsx holds the page). A chunk that failed gets the Reload button below.
   }
 
   render() {

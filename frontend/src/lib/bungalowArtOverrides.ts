@@ -140,7 +140,6 @@ export const BUNGALOW_ART_OVERRIDES: Record<string, ArtOverride> = {
   "bayla|pending-trade:0": { artId: "bayla-13", objectPosition: "50% 39%" },
   "bayla|premium:0": { artId: "bayla-15", objectPosition: "57% 68%" },
   "bayla|privacy:0": { artId: "bayla-04", objectPosition: "34% 72%" },
-  "bayla|referrals:0": { artId: "11522340-489A-477E-A3F5-D18F04BDBDFD", objectPosition: "50% 4%" },
   "bayla|scanner:0": { artId: "bayla-11", objectPosition: "50% 0%" },
   "bayla|security:0": { artId: "bayla-12", objectPosition: "45% 63%" },
   "bayla|solana-ladder-pool-live:0": { artId: "B8BDFFBB-1E6C-4908-8E34-387984764D63", objectPosition: "50% 38%" },
