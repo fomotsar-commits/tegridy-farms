@@ -21,7 +21,6 @@ import { isCurveWriteEnabled } from './launcher/solana/curveWriteFlag';
 // below reads a rail this build already carries, so it is a computed fact.
 import { hasChartableMarket } from './chart/markets';
 import { hasCopyTapeSource } from './copytrade/tape';
-import { hasScoreableBoard } from './competitions/availability';
 import { hasPaymentLinkChain } from './commerce/settleTokens';
 
 export interface NavItem {
@@ -148,7 +147,6 @@ export const NAV_SECTIONS: NavSection[] = [
       // Mounted outside AppLayout (App.tsx), so it could never render in a host's panel.
       { to: '/nakamigos',   label: 'Marketplace' },
       ...(COMMUNITY_LIVE ? [{ to: '/community', label: 'Community' }] : []),
-      { to: '/leaderboard', label: 'Venue Score' },
       // NUMBERS_TABS[0]; StatsPage hosts /tokenomics, /treasury and /tax. The test keeps the two equal.
       { to: '/tokenomics',  label: 'Treasury & numbers', tabLabel: 'Numbers' },
     ],
@@ -191,7 +189,6 @@ export const NAV_SECTIONS: NavSection[] = [
       // never on a live read. Neither promises execution or a payout.
       // CT on phones and iPads: "Copy Trading" is wider than its tab there.
       { to: '/copy-trading', label: 'Copy Trading', compactTabLabel: 'CT', soon: !hasCopyTapeSource() },
-      { to: '/competitions', label: 'Competitions', soon: !hasScoreableBoard() },
       // Browser-only (signed invoice in the URL fragment); pilled only while no served
       // chain has a verified settlement asset.
       { to: '/checkout', label: 'Checkout', soon: !hasPaymentLinkChain() },

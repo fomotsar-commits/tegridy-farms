@@ -30,7 +30,7 @@ import { useRevealSelectedTab } from './tabStripScroll';
  * The per-host quirks all survived the move, because none of them live in the
  * strip: a host still owns its own path→tab derivation and its own panel. The
  * sharp one is ActivityPage, which filters the Gold Card tab out of `items`
- * entirely while PREMIUM_ACCESS is dark and passes `active="/leaderboard"` when
+ * entirely while PREMIUM_ACCESS is dark and passes `active="/history"` when
  * the URL says `/premium` — this component simply renders the list and the
  * active route it is handed, and has no opinion about either.
  *

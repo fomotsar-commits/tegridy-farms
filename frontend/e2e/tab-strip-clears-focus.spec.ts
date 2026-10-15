@@ -30,7 +30,7 @@ async function settle(page: Page, path: string, size = PHONE): Promise<void> {
 }
 
 // One page per tabbed host, the TOWELI room's band included, on a phone and a laptop.
-const SCROLLED_PAGES = ['/liquidity', '/zap', '/leaderboard', '/launch', '/nft-finance', '/scan', '/faq'];
+const SCROLLED_PAGES = ['/liquidity', '/zap', '/history', '/launch', '/nft-finance', '/scan', '/faq'];
 const SCREENS = [{ width: 390, height: 844 }, { width: 1280, height: 800 }];
 
 for (const size of SCREENS) {

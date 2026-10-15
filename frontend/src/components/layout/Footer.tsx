@@ -36,7 +36,6 @@ const PRODUCT_LINKS: { to: string; label: string }[] = [
   // Governance is not duplicated here — it has a dedicated entry in the
   // Community column below (both gate on COMMUNITY_LIVE).
   ...(PREMIUM_LIVE ? [{ to: '/premium', label: 'Gold Card' }] : []),
-  { to: '/leaderboard', label: 'Points' },
   { to: '/nakamigos', label: 'Marketplace' },
 ];
 

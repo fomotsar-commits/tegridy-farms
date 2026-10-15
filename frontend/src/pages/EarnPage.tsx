@@ -10,15 +10,15 @@ import { EARN_SECTION } from '../lib/navConfig';
 // structural refusals (a venue with no on-chain growth rate, or no market leg, says so)
 // are as much the product as the routing.
 const YieldPage = lazy(() => import('./YieldPage'));
-// Copy trading (#7) and trading competitions (#50). Both read the ISLAND TAPE —
+// Copy trading (#7). It reads the ISLAND TAPE —
 // GeckoTerminal's pool-trade feed for the registry's resident pools plus the venue's
-// own TOWELI/WETH pool — so neither needs an env var, a key or a proxy. NOT flag-gated,
-// and the refusals rather than the feed are what make routing them right: no wallet on
-// either board carries a profit figure (a pool fill is one leg of a trade), nothing
-// executes for you because this venue runs no keeper, and no season pays or settles.
-// A read that fails is named by each page's own ledger, not flattened into an empty table.
+// own TOWELI/WETH pool — so it needs no env var, key or proxy. NOT flag-gated,
+// and the refusals rather than the feed are what make routing it right: no wallet on
+// the board carries a profit figure (a pool fill is one leg of a trade) and nothing
+// executes for you because this venue runs no keeper. A read that fails is named by
+// the page's own ledger, not flattened into an empty table. The trading competitions
+// that sat beside it were deleted 2026-10-15 (the owner; island item 4: no seasons).
 const CopyTradingPage = lazy(() => import('./CopyTradingPage'));
-const CompetitionsPage = lazy(() => import('./CompetitionsPage'));
 // Merchant checkout + recurring billing (#68 / #69). NOT flag-gated, because the
 // states it can be in are the product: the buyer is shown the exact amount and the
 // exact settlement asset before signing, and no signature is offered at all when the
@@ -41,11 +41,11 @@ const LendingPage = lazy(() => import('./LendingPage'));
 /**
  * EarnPage — the Earn section as ONE page with tabs.
  *
- * What these five share is the visitor's job: turn attention, capital or a
+ * What these share is the visitor's job: turn attention, capital or a
  * customer into income. What they do NOT share is a contract, a feed or a
  * counterparty, which is why each keeps its own route, its own gating predicate
  * and its own disclosures — /yield's venues are other people's protocols,
- * /copy-trading and /competitions read a third-party tape and settle nothing,
+ * /copy-trading reads a third-party tape and settles nothing,
  * /checkout is a browser-signed transfer. The tab strip carries each entry's
  * SOON pill straight from navConfig so collapsing the menu cannot quietly
  * un-disclose a gated one.
@@ -61,7 +61,6 @@ export default function EarnPage() {
         '/nft-finance': LendingPage,
         '/yield': YieldPage,
         '/copy-trading': CopyTradingPage,
-        '/competitions': CompetitionsPage,
         '/checkout': CheckoutPage,
       }}
     />

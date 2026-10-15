@@ -24,7 +24,6 @@ import { Skeleton } from '../components/ui/Skeleton';
 import { AnimatedCounter } from '../components/AnimatedCounter';
 import { Sparkline } from '../components/Sparkline';
 import { PulseDot } from '../components/PulseDot';
-import { TegridyScoreMini } from '../components/TegridyScoreMini';
 import { PositionHealth } from '../components/PositionHealth';
 import { usePriceHistory } from '../hooks/usePriceHistory';
 import { FlashValue } from '../components/FlashValue';
@@ -407,9 +406,6 @@ function ToweliDashboard() {
               )}
             </div>
             <div className="flex items-center gap-3">
-              <Link to="/leaderboard" className="text-[12px] text-white/70 hover:text-white transition-colors">
-                Points &#8594;
-              </Link>
               <Link to="/history" className="text-[12px] text-white/70 hover:text-white transition-colors">
                 History &#8594;
               </Link>
@@ -539,20 +535,6 @@ function ToweliDashboard() {
         {tab === 'overview' && (
           <m.div role="tabpanel" id="dash-panel-overview" aria-labelledby="dash-tab-overview" tabIndex={0} className="outline-none" key="overview"
             initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.25 }}>
-            {/* Venue Score */}
-            <m.div className="relative overflow-hidden rounded-xl glass-card-animated mb-6" style={{ border: '1px solid var(--color-purple-75)' }}
-              initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05 }}>
-              <div className="absolute inset-0">
-                <ArtImg pageId="dashboard" idx={6} alt="" loading="lazy" className="w-full h-full object-cover" />
-              </div>
-              <div className="relative z-10 m-2 md:m-3 rounded-lg p-3 md:p-4 flex items-center justify-between flex-wrap gap-2" style={{ background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(2px)', border: '1px solid rgba(255,255,255,0.08)' }}>
-                <TegridyScoreMini />
-                <Link to="/leaderboard" className="text-[11px] text-white/70 hover:text-white transition-colors">
-                  View Breakdown &#8594;
-                </Link>
-              </div>
-            </m.div>
-
             {/* DCA Due Alerts */}
             {dca.dueSchedules.length > 0 && (
               <m.div className="relative overflow-hidden rounded-xl glass-card-animated mb-5" style={{ border: '1px solid var(--color-purple-75)' }}
