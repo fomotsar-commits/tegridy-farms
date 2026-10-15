@@ -238,7 +238,8 @@ describe('the nav entries describe what the pages can actually do', () => {
       'no cup pool is registered, so no board can be scored',
     ).toBeGreaterThan(0);
 
-    for (const path of ['/copy-trading', '/competitions']) {
+    // /competitions left the nav on 2026-10-15 (owner: the competitions are deleted).
+    for (const path of ['/copy-trading']) {
       const entry = ALL_NAV.find((n) => n.to === path);
       expect(entry, `${path} missing from nav`).toBeTruthy();
       expect(
@@ -253,7 +254,7 @@ describe('the nav entries describe what the pages can actually do', () => {
   // (its predicate is an OR), but its absence must not pill the entry.
   it('neither pill tracks the indexer', () => {
     expect(isIndexerConfigured(), 'no indexer should be configured in tests').toBe(false);
-    for (const path of ['/copy-trading', '/competitions']) {
+    for (const path of ['/copy-trading']) {
       expect(ALL_NAV.find((n) => n.to === path)?.soon).toBeFalsy();
     }
   });

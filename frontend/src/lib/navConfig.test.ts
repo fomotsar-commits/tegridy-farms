@@ -174,6 +174,19 @@ describe('navConfig', () => {
     expect(MORE_NAV.map((n) => n.to)).toContain('/community');
   });
 
+  // Owner, 2026-10-15: the points program and the trading competitions are deleted. No bar,
+  // drawer, strip or lobby lists either; Competitions stays off until its page is removed.
+  it('lists neither the points board nor the competitions', () => {
+    const shown = ALL_NAV.filter((n) => !n.soon);
+    for (const path of ['/leaderboard', '/competitions']) {
+      expect(shown.map((n) => n.to), path).not.toContain(path);
+    }
+    for (const label of ['Venue Score', 'Points', 'Competitions']) {
+      expect(shown.map((n) => n.label), label).not.toContain(label);
+    }
+    expect(ALL_NAV.find((n) => n.to === '/competitions')?.soon, 'off, so its strip leaves it out').toBe(true);
+  });
+
   // "Trade" beside "Marketplace" gave no clue which sold tokens and which sold art.
   it('files the art Marketplace on the Island, not beside the token swap', () => {
     const island = NAV_SECTIONS.find((sec) => sec.heading === 'Island');

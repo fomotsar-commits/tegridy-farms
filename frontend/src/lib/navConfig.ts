@@ -21,7 +21,6 @@ import { isCurveWriteEnabled } from './launcher/solana/curveWriteFlag';
 // below reads a rail this build already carries, so it is a computed fact.
 import { hasChartableMarket } from './chart/markets';
 import { hasCopyTapeSource } from './copytrade/tape';
-import { hasScoreableBoard } from './competitions/availability';
 import { hasPaymentLinkChain } from './commerce/settleTokens';
 
 export interface NavItem {
@@ -127,8 +126,9 @@ export const NAV_SECTIONS: NavSection[] = [
     ],
   },
   {
-    // A lobby of cards, not a tab strip: /community, /leaderboard and /tokenomics
-    // each own a strip already, and a route renders one. One row per tabbed host.
+    // A lobby of cards, not a tab strip: /community and /tokenomics each own a strip
+    // already, and a route renders one. One row per tabbed host. No points, no score
+    // (owner, 2026-10-15: the points program and the competitions are deleted).
     heading: 'Island',
     hub: '/island',
     items: [
@@ -137,7 +137,6 @@ export const NAV_SECTIONS: NavSection[] = [
       // Mounted outside AppLayout (App.tsx), so it could never render in a host's panel.
       { to: '/nakamigos',   label: 'Marketplace' },
       ...(COMMUNITY_LIVE ? [{ to: '/community', label: 'Community' }] : []),
-      { to: '/leaderboard', label: 'Venue Score' },
       // NUMBERS_TABS[0]; StatsPage hosts /tokenomics, /treasury and /tax. The test keeps the two equal.
       { to: '/tokenomics',  label: 'Treasury & numbers', tabLabel: 'Numbers' },
     ],
@@ -173,11 +172,13 @@ export const NAV_SECTIONS: NavSection[] = [
       ...(NFT_FINANCE_LIVE ? [{ to: '/nft-finance', label: 'Borrow on NFTs', tabLabel: 'NFT Loans' }] : []),
       // Off only while no venue carries an on-chain-verified deposit target.
       { to: '/yield', label: 'Yield Routing', tabLabel: 'Yield', soon: !hasRoutableYieldVenue() },
-      // Both read the island tape; each comes on when a readable pool is registered,
-      // never on a live read. Neither promises execution or a payout.
+      // Reads the island tape; on when a readable pool is registered, never on a live
+      // read. It promises no execution and no payout.
       // CT on phones and iPads: "Copy Trading" is wider than its tab there.
       { to: '/copy-trading', label: 'Copy Trading', compactTabLabel: 'CT', soon: !hasCopyTapeSource() },
-      { to: '/competitions', label: 'Competitions', soon: !hasScoreableBoard() },
+      // Deleted with the points program (owner, 2026-10-15): off, so no strip lists it. Its
+      // page opens by URL until it is removed.
+      { to: '/competitions', label: 'Competitions', soon: true },
       // Browser-only (signed invoice in the URL fragment); off only while no served
       // chain has a verified settlement asset.
       { to: '/checkout', label: 'Checkout', soon: !hasPaymentLinkChain() },
