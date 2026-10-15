@@ -967,7 +967,9 @@ test.describe('group B (chromium only)', () => {
     await expect(poolCard(p, B.a1.address)).toHaveAttribute('data-add', 'offer', { timeout: 60_000 });
     const page = (await p.locator('body').innerText()).replace(/\s+/g, ' ');
     for (const bad of [/takes (whichever|the one)/i, /unless elsewhere is better/i, /whichever is better/i]) expect(page).not.toMatch(bad);
-    expect(page).toContain('to our pool when ours pays at least as much as Jupiter, and through Jupiter when it does not.');
+    // The routing sentence is in the Swap routes card's small print (textContent reads it folded).
+    const routes = ((await p.getByTestId('lp-routes').textContent()) ?? '').replace(/\s+/g, ' ');
+    expect(routes).toContain('to our pool when ours pays at least as much as Jupiter, and through Jupiter when it does not.');
     expect(page).not.toContain('still goes through Jupiter');
     expect(page).not.toContain('adding and removing liquidity from here is not switched on yet');
 

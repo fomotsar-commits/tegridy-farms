@@ -1,12 +1,13 @@
 // The held-time line: one sentence per staking card, chosen by the pool registry.
 // The card passes its chain and pool; the registry decides which sentence shows.
 import { describe, it, expect } from 'vitest';
-import { render } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { HeldTimeLine } from './HeldTimeLine';
 
 const READ = 'Staking keeps your held time.';
+const UNREAD_SHORT = 'Not counted as held time yet. Your clock is not reset.';
 const UNREAD =
   'Heat reads wallets today. A bag locked here is not counted until the island reads this pool. Your clock is not reset.';
 
@@ -28,13 +29,17 @@ describe('the held-time line', () => {
     }
   });
 
-  it('says the unread sentence, exactly, on a pool the island does not read', () => {
+  it('says the short unread line, with the full sentence exactly, one press away, on a pool the island does not read', () => {
     const cases: [ 'ethereum' | 'solana', string ][] = [['ethereum', PEPE_LADDER], ['solana', BOBO_LIGHTHOUSE]];
     for (const [chain, pool] of cases) {
       const { container, unmount } = render(<HeldTimeLine chain={chain} pool={pool} />);
       const line = lineOf(container);
-      expect(line.textContent).toBe(UNREAD);
       expect(line.getAttribute('data-held-time')).toBe('unread');
+      expect(line.querySelector('p')!.textContent).toBe(UNREAD_SHORT);
+      const fold = line.querySelector('details')!;
+      expect(fold.open).toBe(false);
+      expect(fold.querySelector('p')!.textContent).toBe(UNREAD);
+      expect(screen.queryByText(READ)).toBeNull();
       unmount();
     }
   });
@@ -43,11 +48,15 @@ describe('the held-time line', () => {
     for (const pool of [LADDER, PEPE_LADDER]) {
       const { container, unmount } = render(<HeldTimeLine chain={pool.startsWith('0x') ? 'ethereum' : 'solana'} pool={pool} />);
       const line = lineOf(container);
-      expect(line.tagName).toBe('P');
-      expect(line.getAttribute('role')).toBeNull();
-      expect(line.getAttribute('aria-live')).toBeNull();
+      // The visible line is a paragraph; the unread case wraps it with its fold.
+      const visible = line.tagName === 'P' ? line : line.querySelector('p')!;
+      expect(visible.tagName).toBe('P');
+      for (const el of [line, visible]) {
+        expect(el.getAttribute('role')).toBeNull();
+        expect(el.getAttribute('aria-live')).toBeNull();
+        expect(el.getAttribute('style') ?? '').not.toMatch(/f0b26b|fca5a5|239,\s*68,\s*68|240,\s*178,\s*107/i);
+      }
       expect(line.closest('[role="dialog"],dialog')).toBeNull();
-      expect(line.getAttribute('style') ?? '').not.toMatch(/f0b26b|fca5a5|239,\s*68,\s*68|240,\s*178,\s*107/i);
       expect(line.textContent).not.toMatch(/\u2014/);
       unmount();
     }

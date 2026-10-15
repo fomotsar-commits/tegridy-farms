@@ -28,7 +28,12 @@ export function VenuePoolList({ readers, reloadKey = 0, onView }: { readers: LpR
         {read === null ? (
           <p className="text-white/70 text-[13px]">Reading the pools from the chain…</p>
         ) : read.kind === 'unread' ? (
-          <Notice tone="warn">The list of pools could not be read just now ({read.detail}). That does not mean there are none: search a token above.</Notice>
+          <>
+            <Notice tone="warn">The list of pools could not be read just now. That does not mean there are none: search a token above.</Notice>
+            <FinePrint summary="Why">
+              <p>{read.detail}</p>
+            </FinePrint>
+          </>
         ) : (
           <PoolRows list={read.list} onView={onView} />
         )}

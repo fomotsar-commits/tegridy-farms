@@ -544,6 +544,17 @@ body {
   overflow: hidden;
   animation: border-glow 4s ease-in-out infinite;
 }
+/* ─── Your position: the card you have money in wears a steady green ring ───
+   Owner 2026-10-14: "a glow around the staking or lp card position if a person
+   has staked so its easier to spot". Every card pulses purple, so this one does
+   not: a still ring in the venue's green, on desktop and phone alike (the phone
+   rule below only stops animations). Paired with the PositionMark pill, so the
+   state is also said in words. */
+.position-glow {
+  animation: none;
+  border-color: var(--color-kyle-60) !important;
+  box-shadow: 0 0 0 1px var(--color-kyle-40), 0 0 18px var(--color-kyle-40), 0 0 44px var(--color-kyle-20);
+}
 /* A card carrying CardArt is its own stacking context (`isolate`), so a tooltip
    or menu that opens past its edge would be painted under the NEXT such card.
    Lift the card while the pointer or focus is inside it. */

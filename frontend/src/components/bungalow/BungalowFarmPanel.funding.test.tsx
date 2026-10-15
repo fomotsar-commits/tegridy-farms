@@ -31,9 +31,10 @@ describe("a room's farm offers no creator-fee route", () => {
           <BungalowFarmPanel bungalow={b} />
         </MemoryRouter>,
       );
-      const card = screen.getByRole('heading', { name: 'Routes under evaluation' }).parentElement!;
+      const card = screen.getByRole('heading', { name: 'How the pool gets funded' }).parentElement!;
+      // The routes sit in a closed Details, so they are read as hidden.
       const routes = within(card)
-        .getAllByRole('listitem')
+        .getAllByRole('listitem', { hidden: true })
         .map((li) => li.querySelector('strong')?.textContent);
       expect(routes).toEqual(['Venue swap fees', 'Community top-ups']);
       expect(card.textContent).not.toMatch(/creator.fee|pump\.fun/i);
