@@ -442,6 +442,21 @@ describe('prepareLpDeposit', () => {
     ]);
   });
 
+  // The card's check may have read the edge's 30-second copy of Jupiter's answer
+  // (outsidePrice.ts). Review's says "fresh reads" (PoolCard.tsx), so it asks Jupiter itself.
+  it('the outside price at Review is asked fresh, never the copy the edge shares', async () => {
+    const w = world();
+    const asked: [string, number, { fresh?: boolean } | undefined][] = [];
+    const reads: LpPrepareReads = {
+      outsidePrice: async (mint, decimals, opts) => {
+        asked.push([mint, decimals, opts]);
+        return { kind: 'ok', solPerToken: 0.01, source: 'Jupiter' };
+      },
+    };
+    ok(await deposit(w, {}, reads));
+    expect(asked).toEqual([[w.mint.toBase58(), 6, { fresh: true }]]);
+  });
+
   it('the estimated loss never decides anything: a pool 50% off still builds, and the transaction is the one a pool at the market gets', async () => {
     const at = async (reads: LpPrepareReads) => ok(await deposit(world(), {}, reads));
     const fair = await at(priced(0.01));

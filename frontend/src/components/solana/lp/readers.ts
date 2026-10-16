@@ -34,7 +34,11 @@ export interface LpReaders {
    * Optional: a reader without it shows no list, and every existing fake still fits.
    */
   listPools?(): Promise<PoolListRead>;
-  outsidePrice(mint: string, decimals: number): Promise<OutsidePrice>;
+  /**
+   * `fresh`: ask Jupiter itself, not the copy the edge shares for 30 seconds
+   * (outsidePrice.ts). The check run again at Review, and a visitor's own Read again.
+   */
+  outsidePrice(mint: string, decimals: number, opts?: { fresh?: boolean }): Promise<OutsidePrice>;
   /** `limit`: how many pool shares to place (each costs one index lookup). */
   positions(owner: PublicKey, limit?: number): Promise<PositionsRead>;
   feeTiers(): Promise<FeeTierRead>;
@@ -88,7 +92,7 @@ export function browserLpReaders(): LpReaders | null {
     safety: (mints) => readTokenSafety(rpc, mints),
     findPools: (mint, also) => findPools(rpc, mint, also?.length ? { ...indexOpts, also } : indexOpts),
     listPools: () => listPools(rpc, indexOpts),
-    outsidePrice: (mint, decimals) => readOutsidePrice(mint, decimals, { rpc, programId: programId.toBase58() }, jupiter),
+    outsidePrice: (mint, decimals, o) => readOutsidePrice(mint, decimals, { rpc, programId: programId.toBase58() }, jupiter, undefined, o),
     positions: (owner, limit) => readPositions(rpc, owner, { ...indexOpts, limit }),
     feeTiers: () => readFeeTiers(rpc, programId),
     wallet: (owner, tokenMint, tokenProgram, lpMint, o) => readWalletFacts(rpc, walletArgs(owner, tokenMint, tokenProgram, lpMint, o)),
