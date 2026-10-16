@@ -56,6 +56,17 @@ describe('/liquidity on the picked chain', () => {
     expect(screen.getByTestId('form')).toHaveTextContent('1');
   });
 
+  it('keeps the Ethereum header and table for a wallet on a chain we run no venue on', () => {
+    wallet.isConnected = true;
+    wallet.chainId = 42161;
+    at('/liquidity');
+    expect(screen.getByText('Native pools · Ethereum')).toBeInTheDocument();
+    expect(screen.getByTestId('pool-table')).toBeInTheDocument();
+    expect(screen.queryByText(/one-sixth cut/)).toBeNull();
+    // The form gets the wallet's chain and refuses it there, as before.
+    expect(screen.getByTestId('form')).toHaveTextContent('42161');
+  });
+
   it("ignores ?c= once a wallet is connected: the wallet's chain is the one that signs", () => {
     wallet.isConnected = true;
     wallet.chainId = 4663;

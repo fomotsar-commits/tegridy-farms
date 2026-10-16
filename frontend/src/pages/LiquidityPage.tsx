@@ -6,6 +6,7 @@ import { LiquidityTab } from '../components/swap/LiquidityTab';
 import { useLiquidityChainId } from '../hooks/useLiquidityChainId';
 import { CHAIN_ID } from '../lib/constants';
 import { getChainConfig } from '../lib/chains/registry';
+import { liquidityVenueOn } from '../lib/chains/liquidityVenue';
 import { ILCalculator } from '../components/farm/ILCalculator';
 import { LiquidityPrimer } from '../components/liquidity/LiquidityPrimer';
 import { VenuePoolTable } from '../components/liquidity/VenuePoolTable';
@@ -62,8 +63,11 @@ export default function LiquidityPage() {
   const poolData = usePoolTVL();
   // The network drop-down's pick (`?c=`) while no wallet is connected; the wallet's chain once one is.
   const liquidityChainId = useLiquidityChainId();
-  const onMainnet = liquidityChainId === CHAIN_ID;
-  const chainName = getChainConfig(liquidityChainId)?.name ?? 'Ethereum';
+  // The header speaks for a chain we run a venue on. A wallet on any other chain keeps
+  // Ethereum's header and table, as before; the form below refuses that chain itself.
+  const headerChainId = liquidityVenueOn(liquidityChainId) ? liquidityChainId : CHAIN_ID;
+  const onMainnet = headerChainId === CHAIN_ID;
+  const chainName = getChainConfig(headerChainId)?.name ?? 'Ethereum';
 
   return (
     <>
