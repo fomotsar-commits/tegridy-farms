@@ -6,6 +6,10 @@ page keeps the newest thirty days.
 
 ## [Unreleased]
 
+### 2026-10-16
+
+- Solana LP and Pools: opening a pool has one name, "Open a pool", on the first button, the card and its button. Above that button the card now says the whole cost, read from the chain: the fee that goes to the venue plus the account setup you do not get back (about 0.04 SOL today), or "amount not read" when that read fails. Where the card points to a pool that already exists, its button reads "Go to that pool" and opens that pool's own Add form. The card's "Read again" is now "Refresh", and a short address opens with "Show full address" and closes with "Hide".
+
 ### 2026-10-15
 
 - Solana swaps and the pool price checks behind Add liquidity keep working when Jupiter retires its free host, once the venue's Jupiter key is set on the server; until then nothing changes. If Jupiter refuses the key, its limit is reached or it does not serve that path, the request is sent once more to the free host while it still answers. The swap fee setting reaches Jupiter the same way on both.

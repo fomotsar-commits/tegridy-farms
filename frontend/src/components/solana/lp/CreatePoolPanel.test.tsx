@@ -708,7 +708,7 @@ describe('what a trade on the new pool costs', () => {
     const summary = lpCreateSummary(key(), MINT, { config: tier });
     mount(readers(), { api: { readCreateFacts: vi.fn(async () => readyFacts(tier)), prepareLpCreate: vi.fn(async () => ({ ok: true as const, prepared: prepared(summary) })) } });
     const { card, panel } = await openPanel();
-    expect(card).toHaveTextContent('You can open the first one on the public fee tier: 1% a trade, 0.15 SOL to open (read just now).');
+    expect(card).toHaveTextContent('You can open the first one on the public fee tier (read just now): 1% a trade.');
     expect(tierRow(panel)).toEqual(['1: traders pay 1% a trade; LPs keep 0.840% of each trade']);
     fireEvent.change(sol(panel), { target: { value: '1' } });
     fireEvent.click(matchButton(panel));
@@ -724,7 +724,7 @@ describe('what a trade on the new pool costs', () => {
     const summary = lpCreateSummary(key(), MINT, { config: tier });
     mount(readers(), { api: { readCreateFacts: vi.fn(async () => readyFacts(tier)), prepareLpCreate: vi.fn(async () => ({ ok: true as const, prepared: prepared(summary) })) } });
     const { card, panel } = await openPanel();
-    expect(card).toHaveTextContent('You can open the first one on the public fee tier: 1% a trade (no creator fee), 0.15 SOL to open (read just now).');
+    expect(card).toHaveTextContent('You can open the first one on the public fee tier (read just now): 1% a trade (no creator fee).');
     expect(card).not.toHaveTextContent(/1\.05%/);
     expect(tierRow(panel)).toEqual(['1: traders pay 1% a trade (no creator fee); LPs keep 0.840% of each trade']);
     fireEvent.change(sol(panel), { target: { value: '1' } });

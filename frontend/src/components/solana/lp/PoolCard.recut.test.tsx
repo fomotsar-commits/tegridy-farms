@@ -82,12 +82,12 @@ describe('the pool card reads like a pool', () => {
       expect(card.textContent).not.toContain(whole);
     }
     const pool = within(card).getByRole('group', { name: 'Pool address' });
-    fireEvent.click(within(pool).getByRole('button', { name: `${shortAddress(v.address)} Show whole` }));
+    fireEvent.click(within(pool).getByRole('button', { name: `${shortAddress(v.address)} Show full address` }));
     expect(rowValue(pool, 'Pool address')).toBe(v.address);
     for (const label of ['Token', 'Opened by']) {
       const group = within(card).getByRole('group', { name: label });
       expect(within(card).getByTestId('lp-pool-more')).toContainElement(group);
-      fireEvent.click(within(group).getByRole('button', { name: /Show whole/ }));
+      fireEvent.click(within(group).getByRole('button', { name: /Show full address/ }));
       expect(rowValue(group, label)).toBe(label === 'Token' ? v.tokenMint : v.snapshot.pool.poolCreator);
     }
   });

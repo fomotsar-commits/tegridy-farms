@@ -3,7 +3,7 @@ import { PublicKey } from '@solana/web3.js';
 import { parseMintInput } from '../../../lib/solana/lp/mintInput';
 import { assessPools, type PoolHealth } from '../../../lib/solana/lp/poolHealth';
 import type { TokenSafety } from '../../../lib/solana/lp/tokenSafety';
-import type { PoolSearchRead } from '../../../lib/solana/lp/poolFinder';
+import type { FeeTierRead, PoolSearchRead } from '../../../lib/solana/lp/poolFinder';
 import type { OutsidePrice } from '../../../lib/solana/lp/outsidePrice';
 import { QUOTE_COINS_OR, otherSideLine, quoteCoin, quotesFor, searchedCoinsOr } from '../../../lib/solana/lp/quotes';
 import { BUNGALOWS } from '../../../lib/bungalows';
@@ -81,14 +81,15 @@ function siteTokens(roomId: string | null): { id: string; symbol: string; mint: 
   return [...all.filter((t) => t.id === roomId), ...all.filter((t) => t.id !== roomId)];
 }
 
-const TASK_LABEL: Record<LpTask, string> = { create: 'Create a pool', add: 'Add liquidity', remove: 'Remove liquidity' };
+// "Open a pool": the one name the site gives opening a pool, on this button, the card and its button.
+const TASK_LABEL: Record<LpTask, string> = { create: 'Open a pool', add: 'Add liquidity', remove: 'Remove liquidity' };
 const TASK_LINE: Record<LpTask, string> = {
   create: `Pick a token. You can pair it with ${QUOTE_COINS_OR}.`,
   add: 'Pick a token. If it has no pool yet, your deposit opens one.',
   remove: 'Shares you can take out have a Remove button under Your positions.',
 };
 /** Before a press, with a token already on the page: which token the first two buttons act on. */
-const TOKEN_HERE_LINE = 'Create a pool and Add liquidity act on the token in the box below.';
+const TOKEN_HERE_LINE = 'Open a pool and Add liquidity act on the token in the box below.';
 /** The same, with a token already answered on the page: its form opens at once. */
 const TASK_LINE_HERE: Record<'create' | 'add', string> = {
   create: 'The form opens under this token’s checks.',
@@ -186,6 +187,7 @@ export function PoolFinder({
   linkError = null,
   reloadKey = 0,
   wantOutside = false,
+  feeTiers = null,
   onRemove,
   ref,
 }: {
@@ -202,6 +204,8 @@ export function PoolFinder({
    * its price against Jupiter's. Only when opening pools can be offered (LP mode 'on').
    */
   wantOutside?: boolean;
+  /** The section's one read of the fee tiers, or null while it reads: the Open a pool card says the opening's account deposits from it. */
+  feeTiers?: FeeTierRead | null;
   /** Remove liquidity was pressed: the section brings the visitor's positions onto the screen. */
   onRemove?: () => void;
 }) {
@@ -486,7 +490,14 @@ export function PoolFinder({
         </div>
       )}
       {state.status === 'done' && (
-        <SearchResults state={state} readers={readers} onReread={reread} wish={wish && !state.refreshing && wish.mint === state.mint ? wish : null} onActed={spent} />
+        <SearchResults
+          state={state}
+          readers={readers}
+          feeTiers={feeTiers}
+          onReread={reread}
+          wish={wish && !state.refreshing && wish.mint === state.mint ? wish : null}
+          onActed={spent}
+        />
       )}
     </section>
   );
@@ -517,6 +528,7 @@ function announce(s: Extract<SearchState, { status: 'done' }>): string {
 function SearchResults({
   state,
   readers,
+  feeTiers,
   onReread,
   wish,
   onActed,
@@ -524,6 +536,7 @@ function SearchResults({
   state: Extract<SearchState, { status: 'done' }>;
   /** For each pool card's own past, read on a press. */
   readers: LpReaders;
+  feeTiers: FeeTierRead | null;
   onReread: () => void;
   wish: LpWish | null;
   /** A card acted on wish number `n`: it is spent. */
@@ -532,7 +545,7 @@ function SearchResults({
   const { safety, pools, outside, coins, outsideAt, mint } = state;
   const writes = useLpWrites();
   const decimals = safety.kind === 'read' ? safety.facts?.decimals ?? null : null;
-  // One check per pool, shared by its card and by the "Open a new pool" card. All of them
+  // One check per pool, shared by its card and by the "Open a pool" card. All of them
   // together (`assessPools`): the launch pool this search read is the other pools'
   // reference when Jupiter has no route.
   const healths = useMemo(() => {
@@ -542,7 +555,7 @@ function SearchResults({
   }, [pools, decimals, outside, coins, safety]);
   // Where a wish ends. Adding goes to the first pool in the list (the deepest of its coin)
   // that offers it with no price warning; with none, and for creating, it goes to the
-  // "Open a new pool" card, which opens its form or says why not.
+  // "Open a pool" card, which opens its form or says why not.
   // A pool whose price is off, or was compared with nothing, takes deposits now (owner
   // ruling 2026-10-04), and the list is deepest first. So "the first that offers it" sent
   // the visitor, by itself, into a deep pool at a wrong price while the Open card on the
@@ -650,6 +663,7 @@ function SearchResults({
         healths={healths}
         outside={outside}
         outsideAt={outsideAt}
+        feeTiers={feeTiers}
         onReread={onReread}
         refreshing={state.refreshing === true}
         openNow={openCreate}

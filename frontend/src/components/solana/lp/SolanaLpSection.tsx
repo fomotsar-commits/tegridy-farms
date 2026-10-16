@@ -117,6 +117,7 @@ function LpBody({ readers, mode, reloadKey }: { readers: LpReaders; mode: LpWrit
       linkError={linkError}
       reloadKey={reloadKey}
       wantOutside={mode === 'on'}
+      feeTiers={tierRead}
       onRemove={toPositions}
     />
   );
@@ -261,7 +262,7 @@ export function LpDisclosure({ programId, mode = 'off', riskAbove = false }: {
   );
 }
 
-/** The section's one read of the fee tiers: the Rates card prints it. */
+/** The section's one read of the fee tiers: the Rates card prints it, and the Open a pool card says its account deposits. */
 function useFeeTiers(readers: LpReaders): FeeTierRead | null {
   const [read, setRead] = useState<FeeTierRead | null>(null);
   useEffect(() => {

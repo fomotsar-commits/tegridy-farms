@@ -288,7 +288,7 @@ describe('what a trade costs, on the tiers mainnet holds (recorded)', () => {
     // The wallet the creator fee goes to stays in view on a pool that charges one, short, with the whole address a press away.
     const openedBy = within(card).getByRole('group', { name: 'Opened by' });
     expect(within(card).getByTestId('lp-pool-more')).not.toContainElement(openedBy);
-    fireEvent.click(within(openedBy).getByRole('button', { name: /Show whole/ }));
+    fireEvent.click(within(openedBy).getByRole('button', { name: /Show full address/ }));
     expect(rowValue(openedBy, 'Opened by')).toBe(v.snapshot.pool.poolCreator);
   });
 
@@ -559,7 +559,7 @@ describe('the rates: what a trade pays, what stays in the pool, what the venue t
     expect(wallet.closest('details')).not.toBeNull();
     expect(wallet).toHaveTextContent('GRMt…8osd');
     expect(wallet).not.toHaveTextContent(VAULT);
-    fireEvent.click(within(wallet).getByRole('button', { name: /Show whole/ }));
+    fireEvent.click(within(wallet).getByRole('button', { name: /Show full address/ }));
     expect(within(rates).getByRole('group', { name: 'Team’s shared wallet' })).toHaveTextContent(VAULT);
     // One read of the tiers feeds every number on the card.
     expect(r.feeTiers).toHaveBeenCalledTimes(1);
