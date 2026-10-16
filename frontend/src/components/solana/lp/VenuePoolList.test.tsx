@@ -42,7 +42,10 @@ function search(mint: string, views: PoolView[]): PoolSearchRead {
   };
 }
 
-const ok = (pools: PoolView[], o: { unread?: number; truncated?: boolean } = {}): PoolListRead => ({ kind: 'ok', list: { pools, unread: o.unread ?? 0, truncated: o.truncated ?? false } });
+const ok = (pools: PoolView[], o: { unread?: number; truncated?: boolean; chainNow?: bigint | null } = {}): PoolListRead => ({
+  kind: 'ok',
+  list: { pools, unread: o.unread ?? 0, truncated: o.truncated ?? false, chainNow: o.chainNow ?? null },
+});
 
 function readers(o: Partial<LpReaders> = {}): LpReaders {
   const corn = view(CORN);
@@ -143,6 +146,20 @@ describe('All pools: every pool on the venue, before a token is picked', () => {
     const list = screen.getByTestId('lp-all-pools');
     expect(screen.getByTestId('lp-finder').compareDocumentPosition(list) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(list.compareDocumentPosition(screen.getByTestId('lp-positions')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('each row shows its warning tags from what the list read, and a row with nothing to warn about shows none', async () => {
+    const off = viewOf(buildPool({ plain: true, mint: key(), configIndex: 1, quoteReserve: 10n ** 8n, tokenReserve: 10n ** 9n, status: 4 | 1 }), { sol: 10n ** 8n, tok: 10n ** 9n });
+    const deep = view(CORN);
+    mount(readers({ listPools: vi.fn(async () => ok([deep, off], { chainNow: 1_000n })) }));
+    const rows = await screen.findAllByTestId('lp-all-pools-row');
+    expect(within(rows[0]!).queryAllByTestId('lp-all-pools-tag')).toHaveLength(0);
+    const tags = within(rows[1]!).getAllByTestId('lp-all-pools-tag').map((t) => t.textContent);
+    expect(tags).toEqual(['Trading off', 'Adding off', 'Little money in pool']);
+    expect(within(rows[1]!).getByRole('list', { name: /: warnings$/ })).toBeInTheDocument();
+    // What each tag means, and the threshold, are one press away.
+    expect(screen.getByTestId('lp-all-pools')).toHaveTextContent('Little money in pool: under 1 SOL or 100 USDC on its coin side');
+    expect(screen.getByTestId('lp-all-pools')).toHaveTextContent('a row with no tag is not a pool that passed');
   });
 
   it('a reader without listPools shows no list', () => {

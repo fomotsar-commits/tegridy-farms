@@ -20,6 +20,11 @@ import type { QuoteCoin } from './quotes';
  * the sell price on the other; their geometric mean cancels both, leaving the mid price.
  * No platform fee is asked for (no `platformFeeBps`), so our own fee does not bend it.
  *
+ * SHARED FOR 30 SECONDS. Every quote here carries `priceCheck=1`, and our proxy lets
+ * Vercel's edge keep a successful answer to exactly that shape for 30 seconds
+ * (api/aggregator.js `edgeCache`), so visitors share one Jupiter read per pool. The
+ * swap page's quotes never carry it and are never kept. Jupiter never sees the marker.
+ *
  * NOT OUR OWN POOLS. Jupiter does not route through our pool program today, but if it
  * ever lists it, a pushed pool of ours could supply its own "outside" price and agree
  * with itself. So every pool a quote goes through (`routePlan[].swapInfo.ammKey`) is
@@ -98,6 +103,8 @@ async function quote(
     slippageBps: '50',
     swapMode: 'ExactIn',
     restrictIntermediateTokens: 'true',
+    // Marks this read as the price check's, the one shape the edge may share (header above).
+    priceCheck: '1',
   });
   const res = await fetchImpl(`${JUPITER_PROXY_BASE}/quote?${qs.toString()}`, { headers: { Accept: 'application/json' }, signal });
   // Only our proxy's fixed answer is "no route". Any other 404 (a path off its

@@ -3,11 +3,13 @@
 // The list of every pool, shown before a token is picked: the index names addresses, the
 // browser reads and checks each one, and an index that did not answer is never "no pools".
 import { describe, it, expect } from 'vitest';
-import { Keypair } from '@solana/web3.js';
-import { listPools } from './poolList';
+import { Keypair, type PublicKey } from '@solana/web3.js';
+import { LITTLE_MONEY_TEXT, QUIET_SECS, listPools, poolTags } from './poolList';
 import { readPoolIndex } from './poolIndex';
-import { CLOCK, LAUNCH, PROGRAM, buildPool, clockAccount, fakeRpc, key, type FakeAccount } from './testkit.fixture';
-import { BAYLA_QUOTE, USDC_QUOTE } from './quotes';
+import { CLOCK, LAUNCH, PROGRAM, buildPool, clockAccount, fakeRpc, key, observationBytes, viewOf, type FakeAccount } from './testkit.fixture';
+import { BAYLA_QUOTE, USDC_QUOTE, type QuoteCoin } from './quotes';
+import { decodeObservationState } from './ownPrice';
+import type { PoolView } from './poolFinder';
 
 /** A fetch for `/api/pools?all=1` answering `pools`; `calls` collects each URL asked. */
 function allIndex(pools: string[], o: { status?: number; program?: string; truncated?: boolean; all?: unknown; calls?: string[] } = {}): typeof fetch {
@@ -65,8 +67,16 @@ describe('listPools', () => {
   it('an index that answered with no pools is an empty list, read without asking the chain', async () => {
     const calls: [string, unknown[]][] = [];
     const r = await listPools(fakeRpc({}, { calls }), opts(allIndex([])));
-    expect(r).toEqual({ kind: 'ok', list: { pools: [], unread: 0, truncated: false } });
+    expect(r).toEqual({ kind: 'ok', list: { pools: [], unread: 0, truncated: false, chainNow: null } });
     expect(calls).toHaveLength(0);
+  });
+
+  it('carries the chain clock it read with the pools, for the row tags; null when the clock did not decode', async () => {
+    const b = buildPool({ mint: key(), address: at(), quoteReserve: 10n ** 9n, tokenReserve: 10n ** 9n });
+    const read = await listPools(fakeRpc({ ...b.accounts, [CLOCK]: clockAccount(1_234n) }), opts(allIndex([b.address.toBase58()])));
+    expect(read.kind === 'ok' && read.list.chainNow).toBe(1_234n);
+    const noClock = await listPools(fakeRpc(b.accounts), opts(allIndex([b.address.toBase58()])));
+    expect(noClock.kind === 'ok' && noClock.list.chainNow).toBeNull();
   });
 
   it('a chain that did not answer is unread', async () => {
@@ -83,5 +93,73 @@ describe('readPoolIndex({ all: true })', () => {
     // An answer about one token is not an answer about every pool.
     const aboutOne = (async () => new Response(JSON.stringify({ mint: a, program: PROGRAM.toBase58(), pools: [a], truncated: false }))) as unknown as typeof fetch;
     expect((await readPoolIndex({ all: true }, PROGRAM.toBase58(), aboutOne)).kind).toBe('unread');
+  });
+});
+
+describe('poolTags: warnings on a row, from what the list already read', () => {
+  const NOW = 10_000_000n;
+  const DAY = 24n * 3600n;
+  /** The pool's own trade record: its last trade at `last`, or never traded when null. */
+  const record = (pool: PublicKey, last: bigint | null): PoolView['history'] => ({
+    kind: 'ok',
+    obs: decodeObservationState(observationBytes({ pool, initialized: last !== null, lastUpdate: last ?? 0n }))!,
+  });
+  /** A pool with plenty in it, every switch on, open, and traded a day ago, unless told otherwise. */
+  function row(o: { quote?: QuoteCoin; reserve?: bigint; status?: number; openTime?: bigint; frozen?: boolean; last?: bigint | null; history?: PoolView['history'] } = {}): PoolView {
+    const reserve = o.reserve ?? 50n * 10n ** 9n;
+    const b = buildPool({ mint: key(), quote: o.quote, address: at(), quoteReserve: reserve, tokenReserve: 10n ** 9n, status: o.status, openTime: o.openTime });
+    return viewOf(b, { sol: reserve, tok: 10n ** 9n, frozen: o.frozen, history: o.history ?? record(b.address, o.last === undefined ? NOW - DAY : o.last) });
+  }
+  const texts = (v: PoolView, now: bigint | null = NOW) => poolTags(v, now).map((t) => t.text);
+
+  it('a pool with nothing to warn about gets no tag at all (never a reassuring one)', () => {
+    expect(poolTags(row(), NOW)).toEqual([]);
+  });
+
+  it('the pool’s own switches: Trading off, Adding off, Removing off, each from its own bit', () => {
+    expect(texts(row({ status: 4 }))).toEqual(['Trading off']);
+    expect(texts(row({ status: 1 }))).toEqual(['Adding off']);
+    expect(texts(row({ status: 2 }))).toEqual(['Removing off']);
+    expect(poolTags(row({ status: 7 }), NOW)).toEqual([
+      { text: 'Trading off', tone: 'bad' },
+      { text: 'Adding off', tone: 'bad' },
+      { text: 'Removing off', tone: 'bad' },
+    ]);
+  });
+
+  it('a frozen vault is Frozen', () => {
+    expect(poolTags(row({ frozen: true }), NOW)).toEqual([{ text: 'Frozen', tone: 'bad' }]);
+  });
+
+  it('an open time still ahead by the chain clock is Trading not open yet; with no clock read, nothing is said', () => {
+    expect(poolTags(row({ openTime: NOW + 1n }), NOW)).toEqual([{ text: 'Trading not open yet', tone: 'warn' }]);
+    expect(texts(row({ openTime: NOW }))).toEqual([]);
+    expect(texts(row({ openTime: NOW + 1n }), null)).toEqual([]);
+    // Trading switched off already says the worse thing.
+    expect(texts(row({ status: 4, openTime: NOW + 1n }))).toEqual(['Trading off']);
+  });
+
+  it(`Little money in pool: ${LITTLE_MONEY_TEXT} on the coin side, and never for a BAYLA pool`, () => {
+    expect(LITTLE_MONEY_TEXT).toBe('under 1 SOL or 100 USDC');
+    expect(poolTags(row({ reserve: 10n ** 9n - 1n }), NOW)).toEqual([{ text: 'Little money in pool', tone: 'warn' }]);
+    expect(texts(row({ reserve: 10n ** 9n }))).toEqual([]);
+    expect(texts(row({ quote: USDC_QUOTE, reserve: 100n * 10n ** 6n - 1n }))).toEqual(['Little money in pool']);
+    expect(texts(row({ quote: USDC_QUOTE, reserve: 100n * 10n ** 6n }))).toEqual([]);
+    expect(texts(row({ quote: BAYLA_QUOTE, reserve: 1n }))).toEqual([]);
+    // An empty coin side is little money too: the row already says it has no price.
+    expect(texts(row({ reserve: 0n }))).toEqual(['Little money in pool']);
+  });
+
+  it('No trades yet and No trades in 7 days come from the pool’s own record, read; unread says nothing', () => {
+    expect(poolTags(row({ last: null }), NOW)).toEqual([{ text: 'No trades yet', tone: 'warn' }]);
+    // A record that says "never traded" needs no clock.
+    expect(texts(row({ last: null }), null)).toEqual(['No trades yet']);
+    expect(poolTags(row({ last: NOW - QUIET_SECS }), NOW)).toEqual([{ text: 'No trades in 7 days', tone: 'warn' }]);
+    expect(texts(row({ last: NOW - QUIET_SECS + 1n }))).toEqual([]);
+    // How long ago needs the clock: without it, nothing.
+    expect(texts(row({ last: 1n }), null)).toEqual([]);
+    // A record not read, or not usable, gives no tag, never "traded" and never "quiet".
+    expect(texts(row({ history: { kind: 'unread', detail: 'its price record account is missing' } }))).toEqual([]);
+    expect(texts(row({ history: { kind: 'not-read' } }))).toEqual([]);
   });
 });
