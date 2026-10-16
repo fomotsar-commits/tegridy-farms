@@ -135,3 +135,11 @@ describe('Auto-Max Lock confirm gate', () => {
     expect(toggleAutoMaxLock).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('StakingCard — the position ring', () => {
+  it('wears the ring and says you are in on an open position', () => {
+    const { container } = render(<StakingCard {...baseProps()} />);
+    expect(screen.getByTestId('position-mark')).toBeInTheDocument();
+    expect(container.querySelector('.position-glow')).not.toBeNull();
+  });
+});

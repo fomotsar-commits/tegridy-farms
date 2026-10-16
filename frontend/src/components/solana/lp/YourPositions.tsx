@@ -27,6 +27,7 @@ import { useLpWrites, type LpWrites } from './useLpWrites';
 import { WholeDates } from './WholeDates';
 import type { LpReaders } from './readers';
 
+import { PositionMark, positionHost } from '../../ui/PositionMark';
 type State =
   | { status: 'loading' }
   /** `refreshing`: this is the last answer for the same wallet, shown while it is read again. */
@@ -161,20 +162,24 @@ export function YourPositions({
     if (report && !owner) report(null);
   }, [report, owner]);
   const readAgain = useCallback(() => setNonce((n) => n + 1), []);
+  // A complete read that found a share: never while loading or unread.
+  const inPosition = Boolean(owner) && state?.status === 'done' && state.read.kind !== 'unread' && state.read.positions.length > 0;
   return (
     <section ref={sectionRef} tabIndex={sectionRef ? -1 : undefined} className="outline-none" data-testid="lp-positions" aria-label="Your positions">
-      <Card title="Your positions" art={<CardArt pageId="solana-lp" idx={3} />}>
+      <Card title="Your positions" art={<CardArt pageId="solana-lp" idx={3} />} className={positionHost('', inPosition).trim() || undefined}>
+        <PositionMark inPosition={inPosition} />
         {/* One live region for the whole section, always mounted: only its text changes. */}
         <p role="status" aria-live="polite" className="sr-only" data-testid="lp-positions-status">
           {statusText(owner, state)}
         </p>
         {!owner ? (
           <>
-            <p>Connect a Solana wallet to see the pool shares it holds.</p>
+            <p>Connect a wallet to see your pool shares.</p>
             <SolanaConnectButton />
-            {/* A phone's own browser has no wallet in it: the same way on the forms give. */}
-            <WalletAppHint />
-            <FinePrint summary="Details">
+            {/* A phone's own browser has no wallet in it: the same way on the forms give, one press
+                away, under a door named for that visitor (owner, 2026-10-14: fewer words). */}
+            <FinePrint summary="No wallet here?">
+              <WalletAppHint />
               <p>Reading them sends nothing and signs nothing.</p>
               {writes && <p>Removing liquidity starts here: each share that can be taken out gets a Remove liquidity button.</p>}
             </FinePrint>

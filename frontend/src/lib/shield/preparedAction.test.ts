@@ -68,7 +68,7 @@ describe('the user is the executor, structurally', () => {
 
   it('says in the disclosure that the wallet sends it', () => {
     expect(ok().disclosure).toMatch(/sends the repayment from your wallet/i);
-    expect(ok().disclosure).toMatch(/you execute this yourself/i);
+    expect(ok().disclosure).toMatch(/you repay it yourself/i);
   });
 });
 

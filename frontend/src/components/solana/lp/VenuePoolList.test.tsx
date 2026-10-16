@@ -60,8 +60,8 @@ function readers(o: Partial<LpReaders> = {}): LpReaders {
   };
 }
 
-function mount(r: LpReaders, finderFirst = true) {
-  return render(<MemoryRouter initialEntries={['/solana-lp']}><LpInner readers={r} writes={{ mode: 'off' }} finderFirst={finderFirst} /></MemoryRouter>);
+function mount(r: LpReaders) {
+  return render(<MemoryRouter initialEntries={['/solana-lp']}><LpInner readers={r} writes={{ mode: 'off' }} /></MemoryRouter>);
 }
 
 beforeEach(() => { wallet.publicKey = null; });
@@ -110,14 +110,17 @@ describe('All pools: every pool on the venue, before a token is picked', () => {
   it('a list that could not be read says so, and never says there are no pools', async () => {
     mount(readers({ listPools: vi.fn(async () => ({ kind: 'unread' as const, detail: 'the pool index answered HTTP 502' })) }));
     const list = screen.getByTestId('lp-all-pools');
-    await waitFor(() => expect(list).toHaveTextContent('The list of pools could not be read just now (the pool index answered HTTP 502)'));
+    await waitFor(() => expect(list).toHaveTextContent('The list of pools could not be read just now. That does not mean there are none'));
+    // The reason is one press away, under Why: what the read answered, word for word.
+    expect(within(list).getByText('the pool index answered HTTP 502')).toBeInTheDocument();
     expect(screen.queryByTestId('lp-all-pools-none')).toBeNull();
     expect(screen.queryByTestId('lp-all-pools-row')).toBeNull();
   });
 
   it('a thrown read is unread too', async () => {
     mount(readers({ listPools: vi.fn(async () => { throw new Error('boom'); }) }));
-    await waitFor(() => expect(screen.getByTestId('lp-all-pools')).toHaveTextContent('could not be read just now (boom)'));
+    await waitFor(() => expect(screen.getByTestId('lp-all-pools')).toHaveTextContent('could not be read just now.'));
+    expect(within(screen.getByTestId('lp-all-pools')).getByText('boom')).toBeInTheDocument();
     expect(screen.queryByTestId('lp-all-pools-none')).toBeNull();
   });
 
@@ -135,14 +138,11 @@ describe('All pools: every pool on the venue, before a token is picked', () => {
     expect(await screen.findByTestId('lp-all-pools-truncated')).toHaveTextContent('There are more pools than this list holds. Search a token above to find the rest.');
   });
 
-  it('sits under the finder and above the positions, on both tabs', async () => {
-    for (const finderFirst of [true, false]) {
-      const { unmount } = mount(readers(), finderFirst);
-      const list = screen.getByTestId('lp-all-pools');
-      expect(screen.getByTestId('lp-finder').compareDocumentPosition(list) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-      expect(list.compareDocumentPosition(screen.getByTestId('lp-positions')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-      unmount();
-    }
+  it('sits under the finder and above the positions (both tabs draw the section in one order)', async () => {
+    mount(readers());
+    const list = screen.getByTestId('lp-all-pools');
+    expect(screen.getByTestId('lp-finder').compareDocumentPosition(list) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(list.compareDocumentPosition(screen.getByTestId('lp-positions')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it('a reader without listPools shows no list', () => {

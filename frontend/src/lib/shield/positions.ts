@@ -45,7 +45,7 @@ export const QUOTE_UNREADABLE_DETAIL =
   'The repayment amount could not be read from the lending contract for this loan.';
 
 export const IDLE_DETAIL =
-  'Connect the borrowing wallet on Ethereum Mainnet to read its loans. Nothing is being watched until then.';
+  'Connect the borrowing wallet on Ethereum to read its loans. Nothing is watched until then.';
 
 export const LOADING_DETAIL = 'Reading this wallet’s loans from the lending contract.';
 

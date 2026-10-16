@@ -39,9 +39,10 @@ test('/nft-finance?section=pooled at 360px: the "Not deployed" badges stay on sc
 });
 
 test('in the TOWELI room at 390px, the corner steps aside from a section tab instead of covering it', async ({ page, walletMock: _w }) => {
-  // The NFT AMM's own tabs ("My Pools") pass under the corner as the page scrolls. The
-  // section row no longer does: it sits under the heading (2026-10-14).
-  await settle(page, '/nft-finance?section=amm&bungalow=toweli', { width: 390, height: 844 });
+  // Token Lending's own tabs ("My Loans") pass under the corner as the page scrolls. The
+  // section row no longer does: it sits under the heading (2026-10-14). Nor do the NFT
+  // AMM's: the fewer-words pass lifted them above the corner's line on a first screen.
+  await settle(page, '/nft-finance?section=lending&bungalow=toweli', { width: 390, height: 844 });
   // By CSS: a corner that has stepped aside is hidden, so no role query finds it.
   await expect(page.locator('button[aria-label="Towelie says hi"]')).toHaveCount(1, { timeout: 15_000 });
   const scan = await page.evaluate(async () => {
@@ -79,10 +80,11 @@ test('in the TOWELI room at 390px, the corner steps aside from a section tab ins
 
 test('in the TOWELI room at 390px with motion on, a press on a tab sliding under the corner lands on the tab while the corner fades', async ({ page, walletMock: _w }) => {
   // The corner takes 200ms to fade aside, and a fading element still takes presses: the
-  // first step that brought "My Pools" under it pressed Towelie (2026-10-14). The other
-  // tests run with motion reduced, where only WebKit's fade lasts long enough to see.
+  // first step that brought a tab ("My Pools", then) under it pressed Towelie (2026-10-14).
+  // Token Lending's "My Loans" is the tab that passes under it now. The other tests run
+  // with motion reduced, where only WebKit's fade lasts long enough to see.
   await page.emulateMedia({ reducedMotion: 'no-preference' });
-  await settle(page, '/nft-finance?section=amm&bungalow=toweli', { width: 390, height: 844 });
+  await settle(page, '/nft-finance?section=lending&bungalow=toweli', { width: 390, height: 844 });
   await expect(page.locator('button[aria-label="Towelie says hi"]')).toHaveCount(1, { timeout: 15_000 });
   const scan = await page.evaluate(async () => {
     const frame = () => new Promise((r) => requestAnimationFrame(() => r(null)));
