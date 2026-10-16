@@ -46,6 +46,12 @@ export interface SolanaSurfaceState {
   /** A page's own Solana section is mounted. */
   readonly page: boolean;
   /**
+   * Every page section mounted sits on a page that connects Ethereum too (the home's
+   * cards, owner 2026-10-16): the top bar keeps its wallet sheet, Solana or Ethereum,
+   * and its Solana row opens that section's connection. Still one connection per page.
+   */
+  readonly mixed: boolean;
+  /**
    * The top bar's own connection is wanted where the page has none: the
    * visitor asked for Solana there, or a Solana wallet is connected or saved.
    * Never true on a first visit, so a visitor who never touches Solana never
@@ -63,11 +69,12 @@ const EMPTY: SolanaSurfaceState = {
   surface: null,
   openPending: false,
   page: false,
+  mixed: false,
   ownWanted: false,
   ownFailed: false,
 };
 
-const surfaces = new Map<object, { readonly surface: SolanaSurface; readonly own: boolean }>();
+const surfaces = new Map<object, { readonly surface: SolanaSurface; readonly own: boolean; readonly mixed: boolean }>();
 const listeners = new Set<() => void>();
 let pending = false;
 let ownWanted = false;
@@ -78,20 +85,21 @@ function announce(): void {
   const all = [...surfaces.values()];
   const pages = all.filter((entry) => !entry.own);
   const surface = (pages[pages.length - 1] ?? all[all.length - 1])?.surface ?? null;
-  state = { surface, openPending: pending, page: pages.length > 0, ownWanted, ownFailed };
+  state = { surface, openPending: pending, page: pages.length > 0, mixed: pages.length > 0 && pages.every((entry) => entry.mixed), ownWanted, ownFailed };
   for (const listener of [...listeners]) listener();
 }
 
 /**
  * A SolanaProviders reports (or, with null, withdraws) its connection. `own`
- * marks the top bar's own. A connected wallet makes the top bar's own wanted
- * for the rest of the tab, so the address follows the visitor to pages with
+ * marks the top bar's own; `mixed`, a page section on a page that connects
+ * Ethereum too. A connected wallet makes the top bar's own wanted for the
+ * rest of the tab, so the address follows the visitor to pages with
  * no Solana section; that costs no download, the code is already loaded.
  */
-export function setSolanaSurface(owner: object, surface: SolanaSurface | null, own = false): void {
+export function setSolanaSurface(owner: object, surface: SolanaSurface | null, own = false, mixed = false): void {
   if (surface) {
     const wasConnected = Boolean(surfaces.get(owner)?.surface.address);
-    surfaces.set(owner, { surface, own });
+    surfaces.set(owner, { surface, own, mixed });
     // A mounted connection proves the Solana code loads.
     ownFailed = false;
     if (surface.address) {

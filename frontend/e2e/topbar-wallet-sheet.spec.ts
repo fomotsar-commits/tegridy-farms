@@ -15,7 +15,7 @@ import {
 //
 // MUTATION CHECKS
 //  - TopBarSolana.tsx: drop `!ownWanted ||` from its guard. The first test must
-//    fail: the Solana code is then downloaded on a first visit to `/`.
+//    fail: the Solana code is then downloaded on a first visit to `/earn`.
 //  - TopNav.tsx: wire the Connect button back to `openConnectModal`. The first
 //    three tests must fail.
 
@@ -61,12 +61,14 @@ async function answerLadderFromRecording(page: Page) {
   });
 }
 
-test('on the home page a first visit downloads no Solana code; Connect, then Solana, opens the Solana wallet list', async ({ page }, testInfo) => {
+// Not the home since 2026-10-16: its cards stake BAYLA and add SOL + BAYLA, so it loads the
+// Solana code by the owner's ask (components/HomeModules.tsx). The Earn list has no Solana section.
+test('on a page with no Solana section a first visit downloads no Solana code; Connect, then Solana, opens the Solana wallet list', async ({ page }, testInfo) => {
   const solanaCode: string[] = [];
   page.on('request', (request) => {
     if (/\/assets\/vendor-solana[^/]*\.js/.test(request.url())) solanaCode.push(request.url());
   });
-  await page.goto('/');
+  await page.goto('/earn');
   await expect(topBarConnect(page)).toBeVisible({ timeout: 30_000 });
   // Past the moment a saved wallet would be restored (TopBarSolana RESTORE_DELAY_MS): none is saved.
   await page.waitForTimeout(2_500);
@@ -107,6 +109,23 @@ test('on the home page a first visit downloads no Solana code; Connect, then Sol
   // Safari does not focus a button when it is tapped, so there focus was never
   // on Connect to be handed back.
   if (!testInfo.project.name.includes('safari')) await expect(topBarConnect(page)).toBeFocused();
+});
+
+// THE HOME'S CARDS (owner, 2026-10-16) bring their own Solana connection to a page that connects
+// Ethereum too. The top bar keeps asking which network, and its Solana row opens the cards' list:
+// one connection, so a wallet connected in either place is connected in both.
+// MUTATION CHECK: TopNav.tsx, drop `&& !solanaMixed`. This must fail (the top bar turns Solana-only).
+test('on the home page the top bar still asks which network, and Solana opens the cards’ wallet list', async ({ page }) => {
+  await page.goto('/');
+  await expect(page.getByTestId('home-modules')).toBeVisible({ timeout: 30_000 });
+  await topBarConnect(page).click();
+  await expect(connectSheet(page).getByRole('listitem')).toHaveText([/^Solana/, /^Ethereum, Base, Robinhood Chain/]);
+  await solanaRow(page).click();
+  await expect(solanaList(page)).toBeVisible({ timeout: 30_000 });
+  await expect(solanaList(page).getByText('Trust Wallet')).toBeVisible();
+  await solanaList(page).getByRole('button', { name: 'Close' }).click();
+  await expect(solanaList(page)).toHaveCount(0);
+  await expect(topBarConnect(page)).toBeVisible();
 });
 
 test('where the Solana wallets cannot be loaded, the sheet says so instead of loading for ever', async ({ page }) => {

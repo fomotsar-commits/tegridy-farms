@@ -14,13 +14,17 @@ import { BUNGALOWS } from '../lib/bungalows';
 const venue = vi.hoisted(() => ({ status: null as VenueStatus | null }));
 // The ladder's address comes from the build's env (VITE_BAYLA_LADDER_POOL), empty under test.
 const LADDER = vi.hoisted(() => 'LadderPoo1111111111111111111111111111111111');
+const ladderOn = vi.hoisted(() => ({ value: true }));
 vi.mock('../lib/bungalows', async (orig) => {
   const m = await orig<typeof import('../lib/bungalows')>();
-  return { ...m, BUNGALOWS: m.BUNGALOWS.map((b) => (b.id === 'bayla' ? { ...b, ladderPool: LADDER } : b)) };
+  const withLadder = m.BUNGALOWS.map((b) => (b.id === 'bayla' ? { ...b, ladderPool: LADDER } : b));
+  return { ...m, get BUNGALOWS() { return ladderOn.value ? withLadder : m.BUNGALOWS; } };
 });
 vi.mock('../hooks/useVenueStatus', () => ({ useVenueStatus: () => ({ status: venue.status, refresh: () => {}, retry: () => {} }) }));
 vi.mock('./solana/SolanaProviders', () => ({
-  SolanaProviders: ({ children }: { children: ReactNode }) => <div data-testid="solana-providers">{children}</div>,
+  SolanaProviders: ({ children, mixed }: { children: ReactNode; mixed?: boolean }) => (
+    <div data-testid="solana-providers" data-mixed={String(Boolean(mixed))}>{children}</div>
+  ),
 }));
 vi.mock('./bungalow/SolanaLadderPoolLive', () => ({
   SolanaLadderPoolCard: ({ bungalow }: { bungalow: { id: string; ladderPool: string } }) => (
@@ -41,6 +45,7 @@ const readers = { programId: 'x' } as unknown as LpReaders;
 
 beforeEach(() => {
   venue.status = { kind: 'live' } as VenueStatus;
+  ladderOn.value = true;
 });
 
 describe('the home cards', () => {
@@ -48,6 +53,8 @@ describe('the home cards', () => {
     render(<HomeModules readers={readers} />);
     const providers = screen.getAllByTestId('solana-providers');
     expect(providers).toHaveLength(1);
+    // The home connects Ethereum too: the top bar keeps its sheet (lib/solanaSurface.ts `mixed`).
+    expect(providers[0]).toHaveAttribute('data-mixed', 'true');
     expect(providers[0]).toContainElement(screen.getByTestId('ladder-card'));
     expect(screen.getByTestId('ladder-card')).toHaveAttribute('data-pool', LADDER);
     // Her closed pool's members keep their claim strip, as on /earn/bayla.
@@ -70,5 +77,15 @@ describe('the home cards', () => {
     expect(screen.queryByRole('heading', { name: 'Add SOL + BAYLA' })).toBeNull();
     // The stake card does not wait on the venue: it reads its own program.
     expect(screen.getByTestId('ladder-card')).toBeInTheDocument();
+  });
+
+  // It is the top bar's Solana connection on the home (hasMixedSolanaSection): the top bar
+  // mounts none of its own there, so this one is mounted with no card to draw too.
+  it('mounts its Solana connection with no card to draw, and draws no empty box', () => {
+    ladderOn.value = false;
+    venue.status = null;
+    render(<HomeModules readers={readers} />);
+    expect(screen.getByTestId('solana-providers')).toHaveAttribute('data-mixed', 'true');
+    expect(screen.queryByTestId('home-modules')).toBeNull();
   });
 });
