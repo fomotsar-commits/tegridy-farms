@@ -10,3 +10,14 @@ describe('the FAQ counts bungalows the way the island does', () => {
     expect(answer).toContain(`There are ${BUNGALOW_COUNT} today.`);
   });
 });
+
+// Ethereum pairs never gate burn(), but the Solana pool program lets the team's vault switch
+// withdrawals off on a pool (update_pool_status), so "any time" holds for one chain only.
+describe('the FAQ says where removing can be paused', () => {
+  it('promises removing any time only for Ethereum pools, and names the Solana pause', () => {
+    const answer = venueFaq(80).flatMap((s) => s.items).find((i) => i.q === 'How does providing liquidity work?')?.a ?? '';
+    expect(answer).not.toMatch(/withdraw any ?time/i);
+    expect(answer).toContain('On Ethereum pools you can remove any time');
+    expect(answer).toContain("the team's vault can pause removing");
+  });
+});

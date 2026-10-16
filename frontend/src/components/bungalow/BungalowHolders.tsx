@@ -54,10 +54,8 @@ export function BungalowHolders({ bungalow }: { bungalow: Bungalow }) {
     >
       <CardArt pageId="bungalow-holders" idx={0} />
       <div className="flex items-center gap-3 flex-wrap mb-4">
-        <p className="text-[10px] uppercase tracking-wider" style={{ color: 'var(--color-kyle)' }}>
-          Who holds her
-        </p>
-        <h2 className="heading-luxury text-xl text-white">Distribution</h2>
+        {/* One heading, in plain words (owner, 2026-10-14): the kicker and "Distribution" became this. */}
+        <h2 className="heading-luxury text-xl text-white">Who holds {bungalow.symbol}</h2>
         <div className="flex-1" />
         <Link
           to={bungalowScanRoute(bungalow) ?? `/scan?token=${address}`}
@@ -70,7 +68,7 @@ export function BungalowHolders({ bungalow }: { bungalow: Bungalow }) {
           disabled={status === 'loading'}
           className="text-[11px] px-3 py-1 rounded border border-white/10 bg-white/5 text-white/70 hover:text-white disabled:opacity-50"
         >
-          {status === 'loading' ? 'Reading…' : armed ? 'Refresh' : 'Read distribution'}
+          {status === 'loading' ? 'Reading…' : armed ? 'Refresh' : 'Read holders'}
         </button>
       </div>
 
@@ -98,7 +96,7 @@ export function BungalowHolders({ bungalow }: { bungalow: Bungalow }) {
           </div>
 
           <p className="text-[10px] text-white/40 mt-3">
-            Read from {outcome.source} — {outcome.enumeratedHolders} accounts
+            Read from {outcome.source}, {outcome.enumeratedHolders} accounts
             {outcome.holderCoverage === 'top-n' ? ' (largest only, so these shares are an upper bound)' : ''}.
           </p>
 
@@ -115,17 +113,12 @@ export function BungalowHolders({ bungalow }: { bungalow: Bungalow }) {
       ) : status === 'loading' ? (
         <p className="text-[12px] text-white/55">Reading holders…</p>
       ) : !armed ? (
-        <>
-          <p className="text-[12px] text-white/55">
-            Reads the largest {bungalow.symbol} accounts on demand.
+        <FinePrint className="mt-1">
+          <p>
+            Reads the largest {bungalow.symbol} accounts on demand. It measures concentration with
+            the venue's own scanner. Not run automatically. It is a real chain scan.
           </p>
-          <FinePrint className="mt-1">
-            <p>
-              It measures concentration with the venue's own scanner. Not run automatically. It is a
-              real chain scan.
-            </p>
-          </FinePrint>
-        </>
+        </FinePrint>
       ) : (
         <p className="text-[12px]" style={{ color: '#f0b26b' }}>
           {errorMessage ?? 'Holders could not be read right now. That is an outage, not a distribution.'}

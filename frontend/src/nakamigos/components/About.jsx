@@ -7,6 +7,7 @@ import JungleBayShowcase from "./JungleBayShowcase";
 import { SHORTCUTS_FLAT } from "../lib/shortcuts";
 import { chainLabel, descriptionSourceLabel, explorerAddressUrl } from "../lib/venue";
 import { formatPrice } from "../lib/formatPrice";
+import { FinePrint } from "../../components/ui/FinePrint";
 
 function formatVol(n) {
   if (n == null) return null;
@@ -144,11 +145,13 @@ export default function About({ stats, onNavigateGallery, onFilterGallery }) {
           marginBottom: 28, borderRadius: 2,
         }} />
 
-        {/* Origin Story */}
+        {/* Origin Story. Word for word, in the small print: the page is the
+            name, the tagline, the numbers (owner 2026-10-14). */}
         <div style={{
           fontFamily: "var(--display)", fontSize: 15, color: "var(--text-dim)",
           lineHeight: 1.9, display: "flex", flexDirection: "column", gap: 20, maxWidth: 700,
         }}>
+          <FinePrint summary="The story">
           {isNakamigos && (
             <>
               <p>On October 31, 2022 -- the anniversary of Satoshi Nakamoto's Bitcoin whitepaper -- HiFo Labs deployed a smart contract to Ethereum. Five months later, the first Nakamigos were claimed for free by holders of the End of Sartoshi pass. Within four days, Nakamigos surpassed Bored Ape Yacht Club in lifetime trades -- 52,000 sales totaling 7,562 ETH ($13M).</p>
@@ -181,6 +184,7 @@ export default function About({ stats, onNavigateGallery, onFilterGallery }) {
               </figure>
             ) : <p>{collection.description}</p>
           )}
+          </FinePrint>
 
           {collection.tags?.length > 0 && (
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
@@ -369,17 +373,18 @@ export default function About({ stats, onNavigateGallery, onFilterGallery }) {
         ))}
       </div>
 
-      {/* Keyboard shortcuts */}
+      {/* Keyboard shortcuts: a reference, so it opens on request. */}
       <div className="about-shortcuts">
-        <SectionHeading>KEYBOARD SHORTCUTS</SectionHeading>
-        <div className="shortcuts-grid">
-          {SHORTCUTS_FLAT.map(([key, desc]) => (
-            <div key={key} className="shortcut-item">
-              <kbd className="shortcut-key">{key}</kbd>
-              <span className="shortcut-desc">{desc}</span>
-            </div>
-          ))}
-        </div>
+        <FinePrint summary="Keyboard shortcuts">
+          <div className="shortcuts-grid">
+            {SHORTCUTS_FLAT.map(([key, desc]) => (
+              <div key={key} className="shortcut-item">
+                <kbd className="shortcut-key">{key}</kbd>
+                <span className="shortcut-desc">{desc}</span>
+              </div>
+            ))}
+          </div>
+        </FinePrint>
       </div>
     </section>
   );

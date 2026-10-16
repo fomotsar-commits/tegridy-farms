@@ -398,8 +398,9 @@ export function PoolFinder({
 
   return (
     <section data-testid="lp-finder" aria-label="Find pools for a token" className="space-y-4">
+      {/* Named for a visitor, not for the buttons under it, which say what each does. */}
       <Card
-        title={tasks.length > 0 ? 'Create a pool, add or remove liquidity' : 'Find pools for a token'}
+        title={tasks.length > 0 ? 'Start here' : 'Find a pool'}
         art={<CardArt pageId="solana-lp" idx={2} />}
       >
         {tasks.length > 0 && (
@@ -434,7 +435,7 @@ export function PoolFinder({
         )}
         {tokens.length > 0 && (
           <div data-testid="lp-site-tokens" className="space-y-1.5">
-            <p className="text-white/75 text-[12px]">{canAdd ? 'Then pick a token with a room on this site' : 'Tokens with a room on this site'}</p>
+            <p className="text-white/75 text-[12px]">{canAdd ? 'Then pick a token' : 'Tokens on this site'}</p>
             <div className="flex flex-wrap gap-2" role="group" aria-label="Tokens with a room on this site">
               {tokens.map((t) => (
                 <button
@@ -457,7 +458,8 @@ export function PoolFinder({
             submit();
           }}
         >
-          {tokens.length > 0 && <p className="text-white/75 text-[12px] mb-1.5">Or any other token, by its address:</p>}
+          {tokens.length > 0 && <p className="text-white/75 text-[12px] mb-1.5">Or by address:</p>}
+          {/* The warning on names stays on screen at the field: a copied name is how a fake token gets in. */}
           <Field label="Token mint address" hint="The token’s address, not its name: anyone can copy a name." error={error}>
             {(a11y) => (
               <input
@@ -488,8 +490,8 @@ export function PoolFinder({
           </div>
         </form>
         {tokens.length > 0 && (
-          <FinePrint summary="How lookup works" testId="lp-site-tokens-note">
-            <p>Each is looked up by its address from this site’s own list, not by its name.</p>
+          <FinePrint summary="Details" testId="lp-site-tokens-note">
+            <p>The buttons are the tokens with a room on this site. Each is looked up by its address from this site’s own list, not by its name.</p>
           </FinePrint>
         )}
       </Card>

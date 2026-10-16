@@ -29,6 +29,52 @@ stop and say so — a surprise is information.
 
 ---
 
+## 🔴 2026-10-16: done tonight, and what changed on your list
+
+Newer than the 2026-10-15 section below. That section's lists still stand, except where an item
+is ticked here or there.
+
+### Done on 2026-10-16
+
+- ✅ **#841** (02:05 UTC): this list's 2026-10-15 section. **#840** (02:05 UTC): the /scan browser
+  test is measured in a window where the page scrolls, and trunk's tests are green again.
+  **#822** (04:36 UTC, its own session): the front-end pass, with #808 inside it.
+- ✅ **Supabase migrations 024, 025 and 026** (02:51 to 02:52 UTC). Each was pasted from the repo
+  after a read-only preflight, and each wrote its row into `public.schema_migrations`:
+  - 024: the "Anyone can read" rules on `user_watchlist` and `user_favorites` are gone; the
+    "Owner reads" rules stay.
+  - 025: the public (anon) key can no longer insert, update or delete on `user_profiles`,
+    `user_favorites`, `user_watchlist` and `votes`. Signed-in writes keep all twelve rights.
+  - 026: `error_events` exists, with row-level security on, no public access, and only the
+    server key able to write and delete.
+- ✅ **Migration 023** (02:55 UTC): `prune_revoked_jwts()` can now be called only with the server
+  key. Before, the public and signed-in keys could call it and clear revoked sign-ins. Its only
+  caller, the sign-out code, already uses the server key.
+- ✅ **Error reports are on.** Vercel Production `VITE_ERROR_ENDPOINT=/api/errors`, redeployed and
+  read back from the live code (03:04 UTC). The operator check in the 2026-10-02 section answered
+  `accepted: 1`. Its one test row clears with the 30-day delete, or remove it now with
+  `delete from error_events where message = 'operator check';`.
+- ✅ **Vercel build costs cut.** This billing cycle (Oct 3 to Nov 3) stood at $57.04 after 13 days,
+  $45.28 of it build time, because every branch push built a preview on an 8-CPU machine. Now:
+  Ignored Build Step is **Only build production**, the build machine is **Standard** (4 CPUs,
+  8 GB) instead of Elastic, and builds run **one per branch** instead of skipping the queue.
+  Speed Insights Plus ($10 a month) stays on, as you chose.
+
+### What changed on your list
+
+- ⬜ **Migration 022** (`native_orders` and `trade_offers`: close public reads) is still not
+  applied. Its header asks for your decision first.
+- ⬜ **Watch the first live build on the Standard machine** (the #822 deploy). If a build ever runs
+  out of memory, set the build machine back to Enhanced in Vercel's Build and Deployment settings.
+- **A pull request's "Vercel" check now shows as skipped.** Branches no longer build a preview.
+  That is expected, not a failure: GitHub's own Build and E2E jobs still build and test every pull
+  request.
+- ⬜ **Two bills not looked at yet:** Alchemy and Upstash (Chrome was not signed in to either).
+  Both services answer on the live site. Supabase is on the Pro plan; Railway is on its $5 plan
+  with $1.78 used this cycle; the domain is paid to 2027-08-02.
+
+---
+
 ## 🔴 2026-10-15: what merged today, what to know about money, and your list as it now stands
 
 Where this section and the 2026-10-14 list below disagree, this one is newer. "Your list" here
@@ -77,7 +123,7 @@ nothing is lost.
 
 ### Your list: free, no money (soonest first)
 
-- ⬜ ⏰ **Supabase migrations 024, 025 and 026, before 2026-10-16.** Paste them by hand in the SQL
+- ✅ **Done 2026-10-16, with 023 too (see the section above).** **Supabase migrations 024, 025 and 026, before 2026-10-16.** Paste them by hand in the SQL
   editor, in that order, in one sitting; never `supabase db push`. [was O-1009-2]
 - ⬜ **Migration 027, then #695** (analytics kept 90 days). First run
   `select to_regclass('public.analytics_events');` and `select to_regclass('public.schema_migrations');`
@@ -220,15 +266,17 @@ made under "the rest", now settled and being built:
   Ethereum. Set Production to the Ethereum treasury Safe `0x7D2620243EdAd69Ec81A53c4A063B07995A4Bd7d`.
   Once `fix/swap-fee-recipient-chain-bound` ships the code refuses any other address on Ethereum,
   so until then the Ethereum swap fee stays off (it has never been collected).
-- ⬜ **Supabase migrations 024, 025 and 026** (free, about 15 minutes, before 2026-10-16). Paste
+- ✅ **Done 2026-10-16 (see that day's section).** **Supabase migrations 024, 025 and 026** (free, about 15 minutes, before 2026-10-16). Paste
   them by hand in the SQL editor, in that order, in one sitting; never `supabase db push`. 027 is
   optional and deletes older analytics on its first run. [was O-1009-2]
 - ⬜ **Phantom's review form** for the "could be malicious" warning (free, about 15 minutes; the
   pack is `phantom-flag-dispute.md`). If already filed, say so. [was O-1009-6]
 - ⬜ **Jupiter's verify form** for BAYLA (free, about 15 minutes; it signs in with X). [was O-1009-6]
 - ⬜ **A free Jupiter developer key** (free, about 10 minutes). `lite-api.jup.ag`, which the whole
-  Solana side uses, is being retired with no date given. A session cannot sign up for you.
-  [was O-1009-18]
+  Solana side uses, is being retired with no date given. A session cannot sign up for you. Make
+  the key at developers.jup.ag (portal), then paste it into Vercel → Settings → Environment
+  Variables as `JUPITER_API_KEY`, Production only, and redeploy. Never name it `VITE_…`: that
+  would publish it. Until it is set, the site keeps using the free host. [was O-1009-18]
 - ⬜ **Railway: check whether a Solana indexer service exists** (free, a look). Say what you see;
   a session takes it from there.
 - ⬜ **Who holds the key of the old fee wallet**
@@ -531,6 +579,9 @@ run the generator, and only the JSON files change.
 ---
 
 ## 🔴 2026-10-02: turn on error reports (PR #466), in this order
+
+✅ **Done 2026-10-16** (see that day's section): 026 applied, the four server variables present,
+Error Retention green, `VITE_ERROR_ENDPOINT` set and redeployed, and the operator check accepted.
 
 Approved by the owner on 2026-10-02, with two decisions: **reports are kept 30 days, then
 deleted automatically**, and **nothing is sent or stored before 2026-10-16**, because the Privacy
