@@ -94,7 +94,7 @@ const BUNGALOW = {
  * transient "reading your stakes…" (the entries read, then the same-slot basis read).
  */
 const shareNote = async () => {
-  const el = await screen.findByText('Your share —');
+  const el = await screen.findByText('Your share:');
   await waitFor(() => expect(el.parentElement!.textContent).not.toMatch(/reading your stakes/));
   return el.parentElement!.textContent ?? '';
 };

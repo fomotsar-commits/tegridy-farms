@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import { COLLECTIONS, COLLECTION_LORE, JB_LEGENDARIES, TRAIT_LORE } from "../constants";
 import { canTradeOnVenue, chainLabel, standardLabel, supplyLabel } from "../lib/venue";
+import { FinePrint } from "../../components/ui/FinePrint";
 
 // ═══ CATEGORY LABELS FOR LEGENDARIES ═══
 const LEGENDARY_CATEGORIES = {
@@ -168,8 +169,14 @@ function LegendaryGallery({ onFindInGallery }) {
               }}>
                 {category.toUpperCase()}
               </span>
-              <div style={{ fontFamily: "var(--display)", fontSize: 10, color: "var(--text-dim)", lineHeight: 1.6, flex: 1 }}>
-                {description}
+              {/* The lore sits in the small print: a card is its name, its
+                  category and its control (owner 2026-10-14). */}
+              <div style={{ flex: 1 }}>
+                <FinePrint summary="About">
+                  <div style={{ fontFamily: "var(--display)", fontSize: 10, color: "var(--text-dim)", lineHeight: 1.6 }}>
+                    {description}
+                  </div>
+                </FinePrint>
               </div>
               <button
                 onClick={() => onFindInGallery(name)}

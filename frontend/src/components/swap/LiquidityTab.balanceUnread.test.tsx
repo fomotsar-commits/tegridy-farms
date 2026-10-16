@@ -150,7 +150,7 @@ describe('LiquidityTab — balance GENUINE', () => {
     stubToweli(parseEther('1000'));
     renderAndType('0.1', '100');
 
-    expect(cta()).toHaveTextContent('Grow the Crop');
+    expect(cta()).toHaveTextContent('Add liquidity');
     expect(cta()).toBeEnabled();
   });
 });

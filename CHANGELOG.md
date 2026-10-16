@@ -6,9 +6,13 @@ page keeps the newest thirty days.
 
 ## [Unreleased]
 
-### 2026-10-15
+### 2026-10-16
 
 - Heat is the only number a person has here now. Points, the Venue Score, the Bronze, Silver and Gold tiers and the trading competitions are gone, with their pages, tabs and cards. An old /leaderboard link opens History and an old /competitions link opens Earn. A room whose reward vault is empty no longer prints a rate: it shows the vault and says it pays nothing until someone funds it. The lock lengths on the Ethereum rooms read 7 days to 4 years, without the farm's names.
+
+### 2026-10-15
+
+- Solana swaps and the pool price checks behind Add liquidity keep working when Jupiter retires its free host, once the venue's Jupiter key is set on the server; until then nothing changes. If Jupiter refuses the key, its limit is reached or it does not serve that path, the request is sent once more to the free host while it still answers. The swap fee setting reaches Jupiter the same way on both.
 - The bar reads Heat, Rooms, Lock, Launch and Swap, on a phone and on a wide screen. Pools, Check, the island, the records and Dashboard are in the menu, which now opens at every width; Pools still opens Solana LP. The footer is eight links. No bar or tab strip says Soon: a tab that is off is not listed.
 - Towelie in the corner: when a tab slides under him as you scroll, a press on that tab now opens the tab straight away. While he faded out of the way, a press there went to Towelie instead, and in Safari on an iPad it did even with motion turned down.
 - Launch token pages: the disclosure attestation line now gets a real answer, "Attested" or "No attestation", where it said "Cannot verify" on every token. When the check cannot run it says so in one plain sentence, and the technical error waits under Details.
@@ -24,6 +28,7 @@ page keeps the newest thirty days.
 
 ### 2026-10-14
 
+- Pools: Create, Add and Remove come first, then your positions, one Rates card (trade fee, to the pool, to the venue) and one Swap routes card. Four cards that repeated the fee split are now that one table. Ethereum Add / Remove says Add and Remove, not "Grow the Crop" and "Pull Crop Out".
 - Earn: a farm or pool whose rewards have ended is no longer offered for new stakes. The TOWELI/ETH LP farm, which stopped paying on Jun 15, 2026, now says so in one line with that date and shows no Stake box; Withdraw, Claim and Exit still work. The Zap page no longer offers that farm as a destination. The lock-ladder and lighthouse pools on the bungalows do the same the day their reward period ends. When the end date cannot be read, Stake waits and no date is shown.
 - Bungalows: a lock-ladder or lighthouse pool that pays 0 rewards now, because it was never funded or its rate is 0, no longer takes new stakes. All six Ethereum and Base ladders (PEPE, QR, MFER, BNKR, DRB, JBM) read a rate of 0 on Oct 14, 2026, and nobody is staked in them. Each says so in one line; claim and exit still work, and Stake comes back by itself once a pool is funded.
 - NFT owner panel: plain wording in place of the dashes in its notices.
@@ -32,6 +37,13 @@ page keeps the newest thirty days.
 - A tab left open while the site is updated now refreshes itself once, to the same address, the next time you open a page it has not loaded yet. It used to show "Something went wrong". It never refreshes while a transaction is at your wallet or on its way: it says the site was updated and gives you a Refresh button.
 - Earn: the Referrals tab is gone. An old /referrals link opens Earn. A referral link (`/?ref=…`) still works anywhere on the site, and the TOWELI room's dashboard still shows your referral link and lets you claim what it earned.
 - Solana swap: one line under the form, and the same on our pool's review, gives the pair's 24h average traded price (weighted by volume, worked out by the site) and how far your trade's price is above or below it. How it is worked out is in a drop-down. When the pair traded too little it says so, and a failed read says "could not be read". It never holds a trade.
+- Staking and pools: the card you have money in now wears a steady green ring and a "You’re in" mark, on every staking card, lock ladder, LP farm, your Solana pool shares and the dashboard, so your position is the first thing you see. Cards you are not in keep their purple pulse.
+- Fewer words again, on Pools, Earn and every pool room, NFT Finance, the Marketplace and the Bayla bungalow: each page is a heading and a line, each card its numbers and buttons, and everything that explains sits one press away under "Details" or "How it works". Visible words on a phone: Pools 570 to 220, Solana LP 390 to 194, Bayla 351 to 288, NFT Finance 320 to 233, Dashboard 246 to 201, Earn 160 to 109. A guard now fails a page that grows wordy again.
+- Earn on a phone: the Open button for every pool is on the first screen; before, it sat off the right edge of the list. In the TOWELI room, Connect wallet is on the first screen instead of eight screens down.
+- NFT Finance: Lend, Borrow and My Loans and the form are one screen down instead of three and a half; the four-step explanations and the shield’s small print fold away.
+- Marketplace: the opening animation has an Enter button from the first moment and leaves on its own after about three seconds; the first screen then shows Browse, Buy, Sell / List and Make offer. The marketplace is now in the bungalow studios as "Island · Marketplace", so a skin can dress its backdrop and cards.
+- Bayla bungalow: two more doors, Marketplace and NFT loans, on the front page and the dashboard. The studio’s NFT group is now called "NFT Finance".
+- Earn and Liquidity on a phone: each pool's Open or Provide button now sits on the screen beside the pool's name. It used to sit past the right edge of the list, reachable only by swiping the list sideways, with nothing to say so. The pool's chain and terms (on Liquidity, its TVL and routed volume) now show under its name.
 - A quiet nod to Jungle Bay's music: the footer, the island page and an empty History now link to the collective on Spotify and YouTube. Plain links only, nowhere near a trade, a stake or a warning.
 - Bayla bungalow: hand-picked art on 102 more surfaces, across Pools, Earn and the rest of the site, placed in the Bayla studio.
 - A link to one part of a page now lands on that part while the page is still loading, when its address is opened directly, and when the same link is pressed again. "The bungalows" on the Island page often left you at the top of the home page instead. "See what you'd earn" on the TOWELI farm now opens the estimate in the TOWELI room; it used to open the front page, which has no estimate.

@@ -15,6 +15,20 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-10-15: a shorter footer is a change to every page's scroll room
+
+**Believed:** cutting the footer from about 30 links to 8 (#838) touches only the footer's own
+specs.
+
+**Measured:** trunk CI went red in all four projects on `e2e/tab-strip-clears-focus.spec.ts`,
+whose precondition is that a page scrolls more than 200px. /scan at 1280x800 scrolled 100px
+once the footer was 250px tall (read with `scrollHeight - innerHeight` on the production
+build). The local runs before merge had not included that spec.
+
+**Do:** when shared chrome changes height (footer, header, bars), run every spec that reads
+`scrollHeight - innerHeight` or asserts a page scrolls: today `tab-strip-clears-focus`,
+`tab-target-size` and `phone-layout`.
+
 ## 2026-10-15: a NavLink lights itself, so two words that open one page both light
 
 **Believed:** a bar word pointing at `/#hall` lights only on the hall, and a `NavLink` whose
@@ -479,6 +493,34 @@ folder ignored by git as `*.local`, holding copies of `dist`, turned a clean lin
 
 **Do:** filter by `name\.spec`, never by a bare name a branch or folder may share. Keep
 scratch builds outside `frontend/`, or move the scratch folder out before the lint gate.
+## 2026-10-14: a button past a table's right edge passes every check that scrolls to it
+
+**Believed:** a phone test that finds a row's button, lets Playwright scroll it into view and
+clicks it shows a visitor can tap it.
+
+**Measured:** /earn, trunk 08596661 production build, iPhone 15 WebKit and Pixel 5 Chromium.
+Every pool's Open button sat at x 394 to 521 on a 393px screen, inside the table's own
+`overflow-x-auto` box. `toBeVisible` passed (the box is not empty), the page itself was not too
+wide (`scrollWidth` 393, so a page-width check passes), and `click()` on "Open TOWELI" reached
+the pool: Playwright scrolled the TABLE sideways first, which no visitor knew to do.
+
+**Do:** scroll the page down only (`window.scrollTo`), then in one evaluate read the button's
+rect against `documentElement.clientWidth` and ask `elementFromPoint` at its centre.
+`e2e/pool-open-buttons.spec.ts` does this.
+
+## 2026-10-14: a see-through bar in a Windows WebKit screenshot can be a blur that browser never draws
+
+**Believed:** page text readable behind the fixed top bar in a Playwright iPhone screenshot
+means the bar lets text through on an iPhone.
+
+**Measured:** /earn, same build, the bar's own contents hidden, brightest pixel inside the bar.
+Playwright WebKit on Windows: 31/255 with `backdrop-filter: blur(20px)` on and 31 with it off,
+while `CSS.supports` said yes to both spellings. Pixel 5 Chromium: 8 on, 31 off. Bar made
+opaque: 0. The Windows WebKit build reports the blur and paints none of it.
+
+**Do:** before calling a glass surface see-through from a WebKit screenshot, switch its blur
+off and compare. Identical pixels mean the test browser; check in Chromium or on a real phone.
+
 ## 2026-10-10: `origin/<trunk>` moves under a long job, and without your fetch
 
 **Believed:** the trunk commit named at the start of a job holds for the job, and

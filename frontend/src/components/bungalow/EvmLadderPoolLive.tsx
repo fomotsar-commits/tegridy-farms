@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useAccount, useChainId, useReadContracts, useSwitchChain, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
 import { parseUnits } from 'viem';
 import { toast } from 'sonner';
+import { ConnectButton } from '@rainbow-me/rainbowkit';
 import type { Bungalow } from '../../lib/bungalows';
 import { LIGHTHOUSE_LADDER_ABI, ERC20_ABI } from '../../lib/contracts';
 import {
@@ -19,6 +20,7 @@ import { CardArt } from '../ui/CardArt';
 import { FinePrint } from '../ui/FinePrint';
 import { rewardsEndedLine, rewardsHaveEnded, rewardsZeroLine } from '../../lib/rewardsEnded';
 
+import { PositionMark, positionHost } from '../ui/PositionMark';
 /**
  * The island's LOCKED EVM lighthouse card (LighthouseLadder.sol).
  *
@@ -193,7 +195,8 @@ export function EvmLadderPoolLive({ bungalow }: { bungalow: Bungalow & { stakePo
   const stakeClosed = depositsFrozen || rewardsEnded || paysNothing || periodFinishRaw === null || big(3) === null;
 
   return (
-    <div className="relative isolate overflow-hidden rounded-2xl glass-card-animated" style={{ border: '1px solid var(--color-purple-75)' }}>
+    <div className={positionHost('relative isolate overflow-hidden rounded-2xl glass-card-animated', positions.length > 0)} style={{ border: '1px solid var(--color-purple-75)' }}>
+      <PositionMark inPosition={positions.length > 0} />
       <CardArt pageId="evm-ladder-pool-live" idx={0} scrim="transparent" />
       {/* ART VISIBILITY 2026-08-31 (owner): this scrim was 0.85 and the
           resident's art underneath was barely readable — a dark page scrim
@@ -214,13 +217,13 @@ export function EvmLadderPoolLive({ bungalow }: { bungalow: Bungalow & { stakePo
 
         {identityMismatch ? (
           <p className="text-[13px] rounded-lg p-3" style={{ background: 'rgba(239,68,68,0.10)', border: '1px solid rgba(239,68,68,0.4)', color: '#fca5a5' }}>
-            This pool does not stake {bungalow.symbol} — it reports {shortenAddress(poolToken ?? '', 6)} as its staking
+            This pool does not stake {bungalow.symbol}. It reports {shortenAddress(poolToken ?? '', 6)} as its staking
             token. That is a configuration error, not a network problem, so no figures are shown and nothing here
             will send a transaction.
           </p>
         ) : !view.coreKnown && !isLoading ? (
           <p className="text-[13px]" style={{ color: '#f0b26b' }}>
-            The pool could not be read just now — figures are withheld rather than shown as zeros.
+            The pool could not be read just now. Figures are withheld rather than shown as zeros.
           </p>
         ) : (
           <>
@@ -257,6 +260,24 @@ export function EvmLadderPoolLive({ bungalow }: { bungalow: Bungalow & { stakePo
               Longer locks earn a larger <em>share</em>. Leaving before your lock opens costs 25%.
             </p>
 
+            {/* THE WAY IN, above the ladder (owner, 2026-10-14: "see the stuff they are to
+                interact with"). The rungs stay public below it; only the amount and the
+                buttons need a wallet. */}
+            {!(isConnected && user) && (
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-2 mb-4">
+                <ConnectButton.Custom>
+                {({ openConnectModal, mounted }) => (
+                  <button type="button" onClick={openConnectModal} disabled={!mounted} className="btn-primary px-6 py-2.5 text-[13px] disabled:opacity-50">
+                    Connect wallet
+                  </button>
+                )}
+              </ConnectButton.Custom>
+                <p className="text-[12px] text-white/60 m-0">
+                  Connect a wallet to stake. The figures above are live either way.
+                </p>
+              </div>
+            )}
+
             {/* THE LADDER IS PUBLIC. Every pool on the venue shows its lock
                 tiers to every visitor, connected or not — a ladder you must
                 connect a wallet to even SEE is a ladder nobody climbs. Only the
@@ -276,12 +297,12 @@ export function EvmLadderPoolLive({ bungalow }: { bungalow: Bungalow & { stakePo
                 </button>
               ))}
             </div>
-            <p className="text-[11px] text-white/45 mb-1">
-              {boostLabel(chosen.secs)} for {chosen.length}.
-            </p>
             <FinePrint summary="How it works" className="mb-3">
               <p className="m-0">
-                Longer locks earn a larger <em>share</em> — 0.40× at seven days up to 4.00× at four years, the
+                {boostLabel(chosen.secs)} for {chosen.length}.
+              </p>
+              <p className="m-0">
+                Longer locks earn a larger <em>share</em>: 0.40× at seven days up to 4.00× at four years, the
                 venue&apos;s standard lock ladder. Rewards are
                 never paid out of anyone&apos;s principal: the contract caps every payout at its surplus, so your
                 deposit can always come back. Leaving before your lock opens costs 25%, which stays in the pool for
@@ -327,9 +348,9 @@ export function EvmLadderPoolLive({ bungalow }: { bungalow: Bungalow & { stakePo
                     <>
                       {' · '}at {boostLabel(chosen.secs)}
                       {soloPool
-                        ? ' — you would be the only staker, so you would earn the whole rate whatever you lock'
+                        ? ', you would be the only staker, so you would earn the whole rate whatever you lock'
                         : projected !== null && projected > 0n
-                          ? ` — about ${fmtRaw(projected * 86_400n, decimals)} ${bungalow.symbol}/day at today's total weight`
+                          ? `, about ${fmtRaw(projected * 86_400n, decimals)} ${bungalow.symbol}/day at today's total weight`
                           : ''}
                     </>
                   )}
@@ -458,11 +479,7 @@ export function EvmLadderPoolLive({ bungalow }: { bungalow: Bungalow & { stakePo
                   </p>
                 )}
               </>
-            ) : (
-              <p className="text-[12px] text-white/60">
-                Connect a wallet to stake. The figures above are live either way.
-              </p>
-            )}
+            ) : null}
           </>
         )}
       </div>

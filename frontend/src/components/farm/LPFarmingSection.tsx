@@ -14,6 +14,7 @@ import { useTOWELIPrice } from '../../contexts/PriceContext';
 import { lpFarmDeposit } from '../../lib/lpEmissions';
 import { rewardsEndDate } from '../../lib/rewardsEnded';
 
+import { PositionMark, positionHost } from '../ui/PositionMark';
 type LPFarmHook = ReturnType<typeof useLPFarming>;
 
 interface LPFarmingSectionProps {
@@ -97,7 +98,7 @@ export function LPFarmingSection({ lpFarm, isConnected }: LPFarmingSectionProps)
         <div className="flex items-center justify-between mb-5">
           <div>
             <h2 className="heading-luxury text-white text-[22px] tracking-tight">LP Farming</h2>
-            <p className="text-white text-[13px] mt-0.5">Stake LP tokens &middot; earn TOWELI rewards</p>
+            <p className="text-white text-[13px] mt-0.5">Stake LP, earn TOWELI rewards.</p>
           </div>
         </div>
         <div className="rounded-xl p-6" style={{ background: 'rgba(0,0,0,0.35)', border: '1px solid var(--color-purple-15)' }}>
@@ -123,7 +124,7 @@ export function LPFarmingSection({ lpFarm, isConnected }: LPFarmingSectionProps)
         <div className="flex items-center justify-between mb-5">
           <div>
             <h2 className="heading-luxury text-white text-[22px] tracking-tight" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>LP Farming</h2>
-            <p className="text-white/85 text-[13px] mt-0.5" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>Stake LP tokens &middot; earn TOWELI rewards</p>
+            <p className="text-white/85 text-[13px] mt-0.5" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>Stake LP, earn TOWELI rewards.</p>
           </div>
           <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-500/20 text-amber-300 border border-amber-500/30">SOON</span>
         </div>
@@ -149,12 +150,13 @@ export function LPFarmingSection({ lpFarm, isConnected }: LPFarmingSectionProps)
       <div className="flex items-center justify-between mb-5">
         <div>
           <h2 className="heading-luxury text-white text-[22px] tracking-tight">LP Farming</h2>
-          <p className="text-white text-[13px] mt-0.5">Stake LP tokens &middot; earn TOWELI rewards</p>
+          <p className="text-white text-[13px] mt-0.5">Stake LP, earn TOWELI rewards.</p>
         </div>
         {lpFarm.isActive && <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-green-500/20 text-green-400 border border-green-500/30">LIVE</span>}
       </div>
 
-      <div className="relative overflow-hidden rounded-xl glass-card-animated" style={{ border: '1px solid var(--color-purple-75)' }}>
+      <div className={positionHost('relative overflow-hidden rounded-xl glass-card-animated', isConnected && lpFarm.stakedBalance > 0n)} style={{ border: '1px solid var(--color-purple-75)' }}>
+        <PositionMark inPosition={isConnected && lpFarm.stakedBalance > 0n} />
         <div className="absolute inset-0">
           <ArtImg pageId="lp-farming" idx={1} fallbackPosition="center 30%" alt="" loading="lazy" className="w-full h-full object-cover" />
         </div>

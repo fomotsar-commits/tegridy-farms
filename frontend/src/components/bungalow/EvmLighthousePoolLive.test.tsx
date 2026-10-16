@@ -22,6 +22,13 @@ const wagmiState = vi.hoisted(() => ({
 
 const keyOf = (q: Query) => `${q.functionName}:${(q.args ?? []).map(String).join(',')}`;
 
+// The connect button is RainbowKit's; the card only needs its render prop.
+vi.mock('@rainbow-me/rainbowkit', () => ({
+  ConnectButton: {
+    Custom: ({ children }: { children: (p: { openConnectModal: () => void; mounted: boolean }) => unknown }) =>
+      children({ openConnectModal: () => {}, mounted: true }),
+  },
+}));
 vi.mock('wagmi', () => ({
   useAccount: () => ({ address: undefined, isConnected: false }),
   useChainId: () => 8453,

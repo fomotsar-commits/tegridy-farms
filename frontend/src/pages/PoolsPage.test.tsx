@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, beforeEach, vi } from 'vitest';
-import { render, screen, waitFor, fireEvent, within } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { RECORDING, recordedTier } from '../lib/solana/cpswap/mainnetVenueReplay.fixture';
 
@@ -13,10 +13,10 @@ const readVenue = vi.fn();
 vi.mock('../lib/solana/cpswap/read', () => ({ readVenue: (...a: unknown[]) => readVenue(...a) }));
 vi.mock('../lib/launcher/solana/curve/rpc', () => ({ browserCurveRpc: () => ({}), browserRpc: () => ({}) }));
 vi.mock('../lib/analytics', () => ({ trackPageView: vi.fn() }));
-// The LP section has its own tests (components/solana/lp); here only WHEN it mounts matters,
-// and that this tab asks for the section's own order, never the Solana LP tab's finder-first.
+// The LP section has its own tests (components/solana/lp), its Rates and Swap routes cards
+// included; here only WHEN and WHERE it mounts matters.
 vi.mock('../components/solana/lp/SolanaLpSection', () => ({
-  default: ({ finderFirst = false }: { finderFirst?: boolean }) => <div data-testid="lp-section" data-finder-first={String(finderFirst)} />,
+  default: () => <div data-testid="lp-section" />,
 }));
 // LP's own switch, steerable per test (spec addendum D24): the page's words about what this
 // site can do with the pools follow it. Every other test sees 'off' (the reads-only page),
@@ -28,8 +28,6 @@ vi.mock('../lib/launcher/solana/lpWriteFlag', async (importOriginal) => ({
 }));
 
 const PROGRAM = '3ZvZXEBr21Kz7JeWFCeKv8Hyy8AzHqCSXNjif8QHPM9y';
-/** The routing card's sentence: where the swap sends a trade. */
-const SWAP_ROUTES = /to\s+our pool when ours pays at least as much as Jupiter, and through Jupiter\s+when it does not\./i;
 
 const LIVE = {
   kind: 'live',
@@ -115,7 +113,6 @@ describe('when this build has no program id', () => {
     await mount();
     await settled();
     expectNoFeeNumbers();
-    expect(screen.getByText(/no fee tier was read/i)).toBeInTheDocument();
   });
 
   it('never claims in the present tense that a pool can be opened', async () => {
@@ -164,46 +161,35 @@ describe('when the venue is live', () => {
     expect(await screen.findByTestId('lp-section')).toBeInTheDocument();
   });
 
-  it('keeps the status card above the LP section, and the section in its own order', async () => {
+  // Owner, 2026-10-14: the actions first. Nothing stands between the hero and the section;
+  // the status card follows it, after what holding a share means.
+  it('puts the LP section right under the hero, and the status card after it', async () => {
     await mount();
     const section = await screen.findByTestId('lp-section');
-    expect(section).toHaveAttribute('data-finder-first', 'false');
+    const h1 = screen.getByRole('heading', { level: 1 });
+    expect(h1.parentElement!.nextElementSibling).toContainElement(section);
     const card = screen.getByRole('region', { name: 'Venue status' });
-    expect(section.previousElementSibling).toBe(card);
-    // The card is this tab's own: nothing the Solana LP tab asks of it (a scroll margin) is on it.
+    expect(section.compareDocumentPosition(card) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     // `relative isolate` is what its CardArt layer needs, on both tabs.
     expect(card.className).toBe('relative isolate rounded-2xl p-6');
   });
 
-  it('drops the PROPOSAL badge and reads the fees from the chain', async () => {
+  // Owner, 2026-10-14: "drop the duplicate fee cards". The section's Rates card is the one
+  // place a rate is printed, from its own read, so no second figure can disagree with it.
+  it('drops the PROPOSAL badge, and prints no fee card or figure of its own', async () => {
     await mount();
     await waitFor(() => expect(screen.getByText(/Pools are open/i)).toBeInTheDocument());
     expect(screen.queryByText('PROPOSAL')).not.toBeInTheDocument();
-    // 0.3% paid, 25% of the fee to the venue → 0.075% venue / 0.225% LPs.
-    expect(screen.getByText('0.3%')).toBeInTheDocument();
-    // 0.225 and 0.075 exactly — formed from bigints, not by subtracting floats
-    // (0.3 - 0.075 is 0.22499999999999998 in doubles and would display 0.22).
-    expect(screen.getByText('0.23%')).toBeInTheDocument();
-    expect(screen.getByText('0.07%')).toBeInTheDocument();
-    expect(screen.getByText('0.3 SOL')).toBeInTheDocument();
-    // Said for each tier the sheet shows: the public one, and the launch one under it.
-    expect(screen.getAllByText(/read from the chain when this page loads/i)).toHaveLength(2);
-    // The live card points at the fee sheet, which this tab has.
-    expect(screen.getByRole('region', { name: 'Venue status' })).toHaveTextContent(/Fees below are read from that config\./);
+    expect(screen.queryByRole('region', { name: 'Fee sheet' })).toBeNull();
+    expect(document.body.textContent).not.toMatch(/\d\s*%/);
+    // The live card no longer points at a fee sheet below it.
+    expect(screen.getByRole('region', { name: 'Venue status' })).not.toHaveTextContent(/Fees below are read from that config\./);
   });
 
   it('says it in prose with no em dash', async () => {
     await mount();
     await waitFor(() => expect(screen.getByText(/Pools are open/i)).toBeInTheDocument());
-    expect(screen.getByRole('region', { name: 'Fee sheet' }).textContent).not.toContain('—');
-    expect(screen.getByRole('region', { name: 'Venue status' }).textContent).not.toContain('—');
-  });
-
-  it('a tier that charges no creator fee shows no creator line', async () => {
-    await mount();
-    await waitFor(() => expect(screen.getByText(/Pools are open/i)).toBeInTheDocument());
-    const sheet = screen.getByRole('region', { name: 'Fee sheet' });
-    expect(sheet).not.toHaveTextContent(/creator/i);
+    expect(document.body.textContent).not.toContain('—');
   });
 });
 
@@ -216,39 +202,6 @@ describe('on tier 0 as mainnet holds it (recorded)', () => {
     readVenue.mockResolvedValue({ kind: 'live', programId: RECORDING.program, config: recordedTier(0), publicTier: { kind: 'ok', config: recordedTier(1) } });
   });
 
-  it('says a trade on a launch pool costs 0.3%, never the 0.25% trade fee alone', async () => {
-    await mount();
-    await waitFor(() => expect(screen.getByText(/Pools are open/i)).toBeInTheDocument());
-    const sheet = within(screen.getByRole('region', { name: 'Fee sheet' })).getByTestId('fee-sheet-launch');
-    const stat = (label: string) => within(sheet).getByText(label).nextElementSibling?.textContent;
-    expect(stat('Trader pays')).toBe('0.3%');
-    // The heading names the pools it is about (this tier is the launch pools'; a pool opened
-    // from the site is on the public tier, at another rate) and says the providers' part as a
-    // part of the TRADE: "0.20% of it" read as a fifth of a percent of the fee, and "to you"
-    // as the reader's own pool.
-    // Under the public tier's heading, the launch tier's is a level down.
-    const heading = within(sheet).getByRole('heading', { level: 3 });
-    expect(heading).toHaveTextContent('A launch pool charges 0.3% a trade; its liquidity providers keep 0.20% of each trade');
-    expect(heading).not.toHaveTextContent(/of it\b|to you\b/);
-    expect(sheet).toHaveTextContent('0.25% trade fee + 0.05% creator fee');
-    expect(sheet).not.toHaveTextContent(/0\.25% a trade/);
-  });
-
-  it('shows the creator fee as its own line, and who gets it', async () => {
-    await mount();
-    await waitFor(() => expect(screen.getByText(/Pools are open/i)).toBeInTheDocument());
-    const sheet = within(screen.getByRole('region', { name: 'Fee sheet' })).getByTestId('fee-sheet-launch');
-    const creator = within(sheet).getByText('Creator gets');
-    expect(creator.nextElementSibling?.textContent).toBe('0.05%');
-    expect(creator.parentElement).toHaveTextContent(/to the token.s creator/);
-    // LPs and the venue split the trade fee; the creator's part is on top of it.
-    expect(within(sheet).getByText('LPs keep').nextElementSibling?.textContent).toBe('0.20%');
-    expect(within(sheet).getByText('Venue takes').nextElementSibling?.textContent).toBe('0.05%');
-    expect(sheet).toHaveTextContent(/20% of the trade fee/);
-    expect(sheet).toHaveTextContent(/the launch program opens every launch pool with it switched on/);
-    expect(sheet).toHaveTextContent(/A pool opened on this tier any other way charges only the trade fee/);
-  });
-
   it('says anyone can open a pool, which tier 0 allows', async () => {
     await mount();
     await waitFor(() => expect(screen.getByText(/Pools are open/i)).toBeInTheDocument());
@@ -257,66 +210,14 @@ describe('on tier 0 as mainnet holds it (recorded)', () => {
   });
 });
 
-// The fee sheet read only the launch tier, which no pool opened from this site is on. The
-// public tier (1% on mainnet, 0.84% to LPs) comes first now, from the same read.
-describe('the public tier comes first on the fee sheet, from the same read', () => {
-  const live = (publicTier: unknown) => ({ kind: 'live', programId: RECORDING.program, config: recordedTier(0), publicTier });
-
-  it('asks the one venue read for the public tier too', async () => {
-    readVenue.mockResolvedValue(live({ kind: 'ok', config: recordedTier(1) }));
+// The rates are the LP section's own read (both tiers), so the venue read asks for the venue alone.
+describe('the venue read asks for the venue alone', () => {
+  it('one read, and no public tier asked of it', async () => {
+    readVenue.mockResolvedValue({ kind: 'live', programId: RECORDING.program, config: recordedTier(0), publicTier: { kind: 'not-asked' } });
     await mount();
     await waitFor(() => expect(readVenue).toHaveBeenCalled());
     expect(readVenue).toHaveBeenCalledTimes(1);
-    expect(readVenue.mock.calls[0]![3]).toEqual({ publicTier: true });
-  });
-
-  it('heads the sheet with the public tier as mainnet holds it: 1% a trade, 0.84% to LPs, 0.16% to the venue, 0.15 SOL to open', async () => {
-    readVenue.mockResolvedValue(live({ kind: 'ok', config: recordedTier(1) }));
-    await mount();
-    await waitFor(() => expect(screen.getByText(/Pools are open/i)).toBeInTheDocument());
-    const sheet = screen.getByRole('region', { name: 'Fee sheet' });
-    const headings = within(sheet).getAllByRole('heading');
-    expect(headings[0]).toHaveTextContent('A pool on the public tier charges 1% a trade; its liquidity providers keep 0.84% of each trade');
-    expect(headings[0]!.tagName).toBe('H2');
-    expect(headings[1]).toHaveTextContent('A launch pool charges 0.3% a trade');
-    const pub = within(sheet).getByTestId('fee-sheet-public');
-    const stat = (label: string) => within(pub).getByText(label).nextElementSibling?.textContent;
-    expect(stat('Trader pays')).toBe('1%');
-    expect(stat('LPs keep')).toBe('0.84%');
-    expect(stat('Venue takes')).toBe('0.16%');
-    expect(stat('Open a pool')).toBe('0.15 SOL');
-    expect(pub).toHaveTextContent('tier 1, the public tier');
-    expect(pub).toHaveTextContent('Every pool opened from this site is on this tier.');
-    // Fewer words: the rates stay on the card, how they are read sits in a closed drop-down.
-    const how = within(pub).getByText(/Every pool opened from this site is on this tier\./);
-    expect(how.closest('details')).not.toBeNull();
-    expect(how).not.toBeVisible();
-    expect(within(pub).getByText('Trader pays')).toBeVisible();
-    // Tier 1 charges no creator fee, so the public part says nothing about one.
-    expect(pub).not.toHaveTextContent(/creator/i);
-    expect(pub.compareDocumentPosition(within(sheet).getByTestId('fee-sheet-launch')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(sheet.textContent).not.toContain('—');
-  });
-
-  it('a public tier that could not be read shows no rate for it, says so, and the launch tier still shows', async () => {
-    readVenue.mockResolvedValue(live({ kind: 'unreadable', detail: 'HTTP 502' }));
-    await mount();
-    await waitFor(() => expect(screen.getByText(/Pools are open/i)).toBeInTheDocument());
-    const pub = within(screen.getByRole('region', { name: 'Fee sheet' })).getByTestId('fee-sheet-public');
-    expect(pub).toHaveTextContent('The public fee tier could not be read just now');
-    expect(within(pub).getByRole('heading', { name: 'The public fee tier could not be read just now' })).toBeVisible();
-    expect(within(pub).getByText(/rather than a guess/).closest('details')).not.toBeNull();
-    expect(pub.textContent).not.toMatch(/\d\s*%|\d\s*SOL\b/);
-    expect(screen.getByText('0.3%')).toBeInTheDocument();
-  });
-
-  it('a public tier with no account says none was read, and shows no rate', async () => {
-    readVenue.mockResolvedValue(live({ kind: 'absent' }));
-    await mount();
-    await waitFor(() => expect(screen.getByText(/Pools are open/i)).toBeInTheDocument());
-    const pub = within(screen.getByRole('region', { name: 'Fee sheet' })).getByTestId('fee-sheet-public');
-    expect(pub).toHaveTextContent('No public fee tier was read');
-    expect(pub.textContent).not.toMatch(/\d\s*%|\d\s*SOL\b/);
+    expect(readVenue.mock.calls[0]![3]).toEqual({ publicTier: false });
   });
 });
 
@@ -334,26 +235,14 @@ describe('when the tier it reads is closed to new pools', () => {
     expect(screen.getByRole('region', { name: 'Venue status' })).toHaveTextContent(/opening new pools on fee tier 0 is switched off/i);
   });
 
-  // The page also offers "Open a pool" on the public tier, which charges its own fee. This card
-  // reads the graduation tier only, so it must say which tier it is, or its "Open a pool" figure
-  // reads as the price of opening a pool here.
-  it('names the tier it reads, and says pools opened here use the public tier', async () => {
-    await mount();
-    await waitFor(() => expect(screen.getByText(/Pools are open/i)).toBeInTheDocument());
-    const sheet = screen.getByRole('region', { name: 'Fee sheet' });
-    expect(sheet).toHaveTextContent(/tier 0, graduated launch pools/);
-    expect(sheet).toHaveTextContent(/fee on tier 0/);
-    expect(sheet).toHaveTextContent(/Pools opened from this site use the public fee tier/);
-  });
 });
 
 describe('when the chain cannot be read', () => {
   beforeEach(() => { readVenue.mockResolvedValue({ kind: 'unreadable', detail: 'proxy timed out' }); });
 
-  it('says plainly that the fee tiers could not be read just now', async () => {
+  it('says plainly that the chain could not be read, and that it is an outage', async () => {
     await mount();
-    await waitFor(() =>
-      expect(screen.getByText(/fee tiers could not be read just now/i)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/The chain could not be read/i)).toBeInTheDocument());
     expect(screen.getByText(/outage on our side/i)).toBeInTheDocument();
   });
 
@@ -375,16 +264,16 @@ describe('when the chain cannot be read', () => {
     expect(screen.queryByText(/redeployed program will run/i)).not.toBeInTheDocument();
   });
 
-  it('reads again on "Try again", and shows the fees once the chain answers', async () => {
+  it('reads again on Refresh, and mounts the actions once the chain answers', async () => {
     readVenue
       .mockResolvedValueOnce({ kind: 'unreadable', detail: 'proxy timed out' })
       .mockResolvedValueOnce(LIVE);
     await mount();
-    const retry = await screen.findByRole('button', { name: /try again/i });
-    fireEvent.click(retry);
-    await waitFor(() => expect(screen.getByText('0.3%')).toBeInTheDocument());
+    await screen.findByText(/outage on our side/i);
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh' }));
+    expect(await screen.findByTestId('lp-section')).toBeInTheDocument();
     expect(readVenue).toHaveBeenCalledTimes(2);
-    expect(screen.queryByText(/could not be read just now/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/outage on our side/i)).not.toBeInTheDocument();
   });
 });
 
@@ -401,15 +290,21 @@ describe('while the first read is in flight', () => {
 describe('always', () => {
   beforeEach(() => { readVenue.mockResolvedValue({ kind: 'no-program-id' }); });
 
-  // The card says what the swap DOES. While every Solana swap executed through Jupiter it
-  // had to say so (review 2026-09-30); the swap now sends each trade where it pays more.
-  it('says the swap compares our pools and sends the trade where it pays more, and that the AMM is Raydium with one added instruction', async () => {
+  // Where a swap goes is the LP section's Swap routes card (its own tests); this page says what the AMM is.
+  it('says the AMM is Raydium with one added instruction', async () => {
     await mount();
-    await waitFor(() => expect(screen.getByText(/side by side with Jupiter/i)).toBeInTheDocument());
-    expect(screen.getByText(SWAP_ROUTES)).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText(/one added instruction/i)).toBeInTheDocument());
     expect(screen.queryByText(/still goes through\s+Jupiter|sending it to our pool/i)).toBeNull();
-    expect(screen.getByText(/one added instruction/i)).toBeInTheDocument();
     expect(screen.queryByText(/verbatim fork/i)).toBeNull();
+  });
+
+  // The team's vault can switch withdrawals off on any pool (update_pool_status, admin only),
+  // so the page may not promise a removal "any time"; it says the pause on screen instead.
+  it('never promises withdrawing any time, and says on screen that the vault can pause removing', async () => {
+    await mount();
+    await waitFor(() => expect(screen.getByText(/can pause removing/i)).toBeVisible());
+    expect(document.body.textContent).not.toMatch(/withdraw any ?time/i);
+    expect(screen.getByText(/can switch removing off on a pool/i)).toBeInTheDocument();
   });
 
   it('says the browser cannot list pools itself, and how the server index fills that gap', async () => {
@@ -469,8 +364,8 @@ describe('always', () => {
     expect(program).toHaveTextContent(/It cannot move pool funds\. Whoever calls it pays a small one-time fee for the record\./);
     expect(program).not.toHaveTextContent(/takes nothing from its caller|moves no funds/i);
     expect(program).toHaveTextContent(/A browser cannot list pools itself/i);
-    const sheet = screen.getByRole('region', { name: 'Fee sheet' });
-    expect(sheet.compareDocumentPosition(program) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const status = screen.getByRole('region', { name: 'Venue status' });
+    expect(status.compareDocumentPosition(program) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 });
 
@@ -499,7 +394,6 @@ describe("what this site can do with the pools follows LP's own switch", () => {
     expect(screen.getByText(/adding and removing\s+liquidity from here is not switched on yet/i)).toBeInTheDocument();
     expect(screen.getByText(/This site only reads pools so far\./)).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Find a pool on the Solana LP tab' })).toHaveAttribute('href', '/solana-lp');
-    expect(screen.getByText(SWAP_ROUTES)).toBeInTheDocument();
   });
 
   it("'on': says what the section below can do, and never that it is not switched on", async () => {
@@ -512,7 +406,7 @@ describe("what this site can do with the pools follows LP's own switch", () => {
       screen.getByText(/below you can add liquidity to a pool whose checks pass, take yours out, or open a new pool on the public fee tier \(the pools section says whether that can be done right now\)\./i),
     ).toBeInTheDocument();
     expect(
-      screen.getByText(/This site can add and remove liquidity, and open new pools on the public fee tier \(the pools section below says whether it can right now\)\./),
+      screen.getByText(/This site can add and remove liquidity, and open new pools on the public fee tier \(the pools section above says whether it can right now\)\./),
     ).toBeInTheDocument();
     expect(document.body.textContent).not.toMatch(/once (the public fee tier|that tier) exists/i);
     expect(screen.getByRole('link', { name: 'Add or remove liquidity on the Solana LP tab' })).toHaveAttribute('href', '/solana-lp');
@@ -520,8 +414,6 @@ describe("what this site can do with the pools follows LP's own switch", () => {
     // The swap's routing card has no switch of its own to speak of; this is the LP one.
     expect(screen.queryByText(/adding and removing\s+liquidity from here is not switched on yet/i)).toBeNull();
     expect(screen.queryByText(/only reads pools so far/i)).toBeNull();
-    // The swap's own routing is a different matter, and reads the same in every LP mode.
-    expect(screen.getByText(SWAP_ROUTES)).toBeInTheDocument();
   });
 
   it("'withdraw-only': adding is paused, taking liquidity out still works", async () => {
