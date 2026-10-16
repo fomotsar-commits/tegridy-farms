@@ -119,7 +119,7 @@ export const ui = {
     findOnChain: (s: Page | Locator) => s.getByRole('button', { name: "Find this share's pool on the chain", exact: true }),
     /** The LP note sent from this tab before a reload, not answered yet. */
     pending: (p: Page) => p.getByTestId('lp-pending'),
-    /** "Open a new pool" (CreatePoolCard / CreatePoolPanel). Everything after `openButton` is inside the panel. */
+    /** "Open a pool" (CreatePoolCard / CreatePoolPanel). Everything after `openButton` is inside the panel. */
     create: {
       card: (p: Page) => p.getByTestId('lp-create'),
       openButton: (p: Page) => p.getByTestId('lp-create').getByRole('button', { name: 'Open a pool', exact: true }),

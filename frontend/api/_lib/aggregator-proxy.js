@@ -235,8 +235,9 @@ function extractCatchAllPath(query) {
  * @param {object} [cfg.extraHeaders]     — extra request headers (e.g. kyber X-Client-Id).
  * @param {number} [cfg.rateLimit=60]     — req/window limit.
  * @param {number} [cfg.rateWindowSec=60] — window size.
- * @param {string} [cfg.cacheControl]     — Cache-Control to set on success
- *   (defaults to private, no-store).
+ * @param {(segments: string[], query: object) => string | null} [cfg.edgeCache]
+ *   — the Cache-Control for a read the edge may share, or null. Asked only for a
+ *   200 answer to a GET; every other answer is private, no-store.
  */
 export async function runProxy(req, res, cfg) {
   setCors(req, res);
@@ -378,8 +379,10 @@ export async function runProxy(req, res, cfg) {
   res.setHeader("Content-Type", "application/json; charset=utf-8");
   res.setHeader("X-Content-Type-Options", "nosniff");
   // AUDIT FE-CRIT-01: explicitly DO NOT forward Set-Cookie or Authorization
-  // headers. Default cache header is private, no-store unless caller overrides.
-  res.setHeader("Cache-Control", cfg.cacheControl || "private, no-store");
+  // headers. Cache header is private, no-store, except a 200 answer to a GET the
+  // provider names as shareable (cfg.edgeCache). An error is never kept at the edge.
+  const shared = upstreamRes.ok && req.method === "GET" && cfg.edgeCache ? cfg.edgeCache(segments, req.query || {}) : null;
+  res.setHeader("Cache-Control", shared || "private, no-store");
 
   if (!upstreamRes.ok) {
     // Log real upstream status server-side; surface a generic 502 to clients.

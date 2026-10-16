@@ -63,7 +63,7 @@ test('a chain read that never answers ends in "could not read" with Read again; 
   await expect(ui.lp.noPools(p)).toHaveCount(0);
   await expect(ui.lp.pools(p)).toHaveCount(0);
 
-  // The finder form's own button: the Create-a-pool card also carries a Read again while the pools are unread.
+  // The finder form's own button: the Open a pool card carries its own Refresh while the pools are unread.
   const again = ui.lp.finder(p).locator('form').getByRole('button', { name: 'Read again', exact: true });
   await expectClickable(again, 'Read again');
   await expectNoSidewaysScroll(p);

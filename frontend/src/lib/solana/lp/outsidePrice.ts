@@ -10,7 +10,7 @@ import type { QuoteCoin } from './quotes';
  * deposits into it.
  *
  * Why it matters: anyone can open a pool for any token at any price. Depositing into a
- * pool whose price is off hands the difference to the first arbitrage bot. So a pool
+ * pool whose price is off loses part of the deposit to the first arbitrage bot. So a pool
  * more than 3% away from the outside price is warned about, with what the gap is
  * estimated to cost (poolHealth.ts), and a pool whose outside price could not be read is
  * "unchecked", never "fine" and never a warning.
@@ -19,6 +19,13 @@ import type { QuoteCoin } from './quotes';
  * tokens back into SOL. The buy price includes the route's fees and impact on one side,
  * the sell price on the other; their geometric mean cancels both, leaving the mid price.
  * No platform fee is asked for (no `platformFeeBps`), so our own fee does not bend it.
+ *
+ * SHARED FOR 30 SECONDS. A quote here carries `priceCheck=1`, and our proxy lets
+ * Vercel's edge keep a successful answer to exactly that shape for 30 seconds
+ * (api/aggregator.js `edgeCache`), so visitors share one Jupiter read per pool. The
+ * swap page's quotes never carry it and are never kept. Jupiter never sees the marker.
+ * A `fresh` read carries no marker and asks Jupiter itself: the check run again at
+ * Review (its words: "fresh reads"), and a visitor's own Read again.
  *
  * NOT OUR OWN POOLS. Jupiter does not route through our pool program today, but if it
  * ever lists it, a pushed pool of ours could supply its own "outside" price and agree
@@ -89,7 +96,8 @@ async function quote(
   outputMint: string,
   amount: bigint,
   fetchImpl: typeof fetch,
-  signal?: AbortSignal,
+  signal: AbortSignal | undefined,
+  fresh: boolean,
 ): Promise<{ out: bigint; pools: string[] }> {
   const qs = new URLSearchParams({
     inputMint,
@@ -99,6 +107,8 @@ async function quote(
     swapMode: 'ExactIn',
     restrictIntermediateTokens: 'true',
   });
+  // Marks this read as the price check's, the one shape the edge may share (header above).
+  if (!fresh) qs.set('priceCheck', '1');
   const res = await fetchImpl(`${JUPITER_PROXY_BASE}/quote?${qs.toString()}`, { headers: { Accept: 'application/json' }, signal });
   // Only our proxy's fixed answer is "no route". Any other 404 (a path off its
   // allowlist, an unknown provider, a platform rewrite gone wrong) is a failed read.
@@ -127,7 +137,9 @@ export async function readOutsidePrice(
   guard: OwnPoolGuard,
   fetchImpl: typeof fetch = fetch,
   signal?: AbortSignal,
+  opts: { fresh?: boolean } = {},
 ): Promise<OutsidePrice> {
+  const fresh = opts.fresh === true;
   if (mint === SOL_MINT) return { kind: 'unread', detail: 'SOL has no price in SOL' };
   if (!Number.isInteger(tokenDecimals) || tokenDecimals < 0 || tokenDecimals > 18) {
     return { kind: 'unread', detail: 'the token’s decimals were not read' };
@@ -138,14 +150,14 @@ export async function readOutsidePrice(
   const failed = (e: unknown): OutsidePrice => ({ kind: 'unread', detail: e instanceof Error ? e.message : String(e) });
   let buy: { out: bigint; pools: string[] };
   try {
-    buy = await quote(SOL_MINT, mint, PROBE_LAMPORTS, fetchImpl, signal);
+    buy = await quote(SOL_MINT, mint, PROBE_LAMPORTS, fetchImpl, signal, fresh);
   } catch (e) {
     // "No route" counts only on the BUY: Jupiter answered that it cannot reach this token.
     if (e instanceof NoRoute) return { kind: 'no-route', detail: e.message };
     return failed(e);
   }
   try {
-    const sell = await quote(mint, SOL_MINT, buy.out, fetchImpl, signal);
+    const sell = await quote(mint, SOL_MINT, buy.out, fetchImpl, signal, fresh);
     tokensOut = buy.out;
     lamportsBack = sell.out;
     pools = [...new Set([...buy.pools, ...sell.pools])];

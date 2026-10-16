@@ -132,9 +132,9 @@ for (const path of ['/solana-lp', `/solana-lp?mint=${A_MINT}`]) {
 }
 
 /**
- * /solana-lp opens on what a visitor can DO: Create a pool, Add liquidity and Remove
+ * /solana-lp opens on what a visitor can DO: Open a pool, Add liquidity and Remove
  * liquidity are whole inside the first screen, above the phone's bottom bar where there is
- * one, and under nothing. Pressing Create a pool brings the site's own tokens and the token
+ * one, and under nothing. Pressing Open a pool brings the site's own tokens and the token
  * address field onto the screen under them, so a second press reaches a form.
  *
  * It used to pin the address field alone in the first screen (it had been 1,506px down a
@@ -165,7 +165,7 @@ async function bottomBarHeight(page: Page): Promise<number> {
 }
 
 for (const vp of FIRST_SCREENS) {
-  test(`/solana-lp shows Create a pool, Add liquidity and Remove liquidity in the first screen at ${vp.name}`, async ({ page, walletMock: _w }) => {
+  test(`/solana-lp shows Open a pool, Add liquidity and Remove liquidity in the first screen at ${vp.name}`, async ({ page, walletMock: _w }) => {
     await page.setViewportSize(vp.size);
     await settledSolanaLp(page, '/solana-lp', { gateOpen: true });
     await expect(page.getByTestId('lp-gate-banner'), 'the played LP gate did not open').toHaveCount(0);
@@ -200,9 +200,9 @@ for (const vp of FIRST_SCREENS) {
 
     const finder = page.getByTestId('lp-finder');
     const tasks = finder.getByTestId('lp-tasks');
-    await expect(tasks.getByRole('button')).toHaveText(['Create a pool', 'Add liquidity', 'Remove liquidity']);
+    await expect(tasks.getByRole('button')).toHaveText(['Open a pool', 'Add liquidity', 'Remove liquidity']);
     let firstButtonTop = Infinity;
-    for (const name of ['Create a pool', 'Add liquidity', 'Remove liquidity']) {
+    for (const name of ['Open a pool', 'Add liquidity', 'Remove liquidity']) {
       const box = await onFirstScreen(tasks.getByRole('button', { name, exact: true }), name);
       firstButtonTop = Math.min(firstButtonTop, box.y);
     }
@@ -217,7 +217,7 @@ for (const vp of FIRST_SCREENS) {
 
     // One press, and what comes next is on the screen: a site token to press, and the
     // address field for any other token. Polled: the page scrolls them up under the buttons.
-    await tasks.getByRole('button', { name: 'Create a pool', exact: true }).click();
+    await tasks.getByRole('button', { name: 'Open a pool', exact: true }).click();
     const token = finder.getByTestId('lp-site-tokens').getByRole('button').first();
     const field = finder.getByLabel(/Token mint address/);
     const seen = (target: Locator) =>
@@ -226,8 +226,8 @@ for (const vp of FIRST_SCREENS) {
         const hit = document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2);
         return b.top >= 0 && Math.round(b.bottom) <= ends && !!hit && (hit === el || el.contains(hit));
       }, screenEnds);
-    await expect.poll(() => seen(token), 'after Create a pool, the first site token is on screen and under nothing').toBe(true);
-    await expect.poll(() => seen(field), 'after Create a pool, the token address field is on screen and under nothing').toBe(true);
+    await expect.poll(() => seen(token), 'after Open a pool, the first site token is on screen and under nothing').toBe(true);
+    await expect.poll(() => seen(field), 'after Open a pool, the token address field is on screen and under nothing').toBe(true);
 
     await expectNoSidewaysScroll(page);
   });

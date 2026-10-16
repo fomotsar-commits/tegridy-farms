@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type Ref } from 'react';
 import type { PoolView } from '../../../lib/solana/lp/poolFinder';
-import type { PoolListRead } from '../../../lib/solana/lp/poolList';
+import { LITTLE_MONEY_TEXT, poolTags, type PoolListRead } from '../../../lib/solana/lp/poolList';
 import { poolPricePerToken } from '../../../lib/solana/lp/poolHealth';
 import { priceText, quoteText, tokenText } from '../../../lib/solana/lp/format';
 import { pairLabel, registryToken } from '../../../lib/solana/lp/identity';
@@ -15,8 +15,10 @@ import { useActiveBungalowId } from '../../../hooks/useActiveBungalowId';
 /**
  * Every pool on the venue, listed before a token is picked, so nobody has to search one
  * token at a time to see what is here. Each row's View looks its token up in the finder,
- * where the pool's checks and its Add and Remove buttons are. When there are more pools
- * than the index returns, the list says so and the finder's search finds the rest.
+ * where the pool's checks and its Add and Remove buttons are. A row's tags are warnings
+ * from what the list already read (poolList.ts `poolTags`): nothing is read per row.
+ * When there are more pools than the index returns, the list says so and the finder's
+ * search finds the rest.
  *
  * A list that could not be read says that, never "no pools". A reader without
  * `listPools` (every component test's fake) renders nothing.
@@ -26,17 +28,20 @@ export function VenuePoolList({
   reloadKey = 0,
   onView,
   onAdd,
+  sectionRef,
 }: {
   readers: LpReaders;
   reloadKey?: number;
   onView: (tokenMint: string) => void;
   /** A row's Add (the LP door): that pool's Add form in one press. Left out, rows have View only. */
   onAdd?: (tokenMint: string, pool: string, quoteMint: string) => void;
+  /** Set by the section: "Add to another pool" after a withdrawal scrolls here and sends focus here. */
+  sectionRef?: Ref<HTMLElement>;
 }) {
   const read = usePoolList(readers, reloadKey);
   if (!readers.listPools) return null;
   return (
-    <section data-testid="lp-all-pools" aria-label="All pools">
+    <section ref={sectionRef} tabIndex={sectionRef ? -1 : undefined} className="outline-none" data-testid="lp-all-pools" aria-label="All pools">
       <Card title="All pools" art={<CardArt pageId="solana-lp" idx={13} />}>
         {read === null ? (
           <p className="text-white/70 text-[13px]">Reading the pools from the chain…</p>
@@ -57,6 +62,13 @@ export function VenuePoolList({
             rest.
           </p>
           <p>Anyone can open a pool, at any price. View one to see its checks before adding to it.</p>
+          <p>
+            The tags on a row come from what the list read. Trading off, Adding off and Removing off: the pool has that switched off. Frozen:
+            a coin’s issuer froze one of the pool’s accounts, so nothing moves in or out. Trading not open yet: its trading starts later,
+            maybe years from now. Little money in pool: it holds {LITTLE_MONEY_TEXT} (a pool priced in BAYLA never gets this tag). No
+            trades yet, and No trades in 7 days: from the pool’s own trade record. Anything not read gives no tag, and a row with no tag is
+            not a pool that passed: its price is checked only when you View it.
+          </p>
         </FinePrint>
       </Card>
     </section>
@@ -72,7 +84,7 @@ function PoolRows({
   onView: (tokenMint: string) => void;
   onAdd?: (tokenMint: string, pool: string, quoteMint: string) => void;
 }) {
-  const { pools: listed, unread, truncated } = list;
+  const { pools: listed, unread, truncated, chainNow } = list;
   // A reader in a Solana room sees that coin's pools first (the LP door, island answer twenty); the rest keep the list's order.
   const roomId = useActiveBungalowId();
   const roomMint = BUNGALOWS.find((b) => b.id === roomId && b.chain === 'solana')?.address ?? null;
@@ -83,7 +95,7 @@ function PoolRows({
       {pools.length > 0 && (
         <ul className="space-y-2" aria-label="All pools: SOL pools first, then USDC, then BAYLA, the deepest of each first">
           {pools.map((view) => (
-            <PoolRow key={view.address} view={view} onView={onView} onAdd={onAdd} />
+            <PoolRow key={view.address} view={view} chainNow={chainNow} onView={onView} onAdd={onAdd} />
           ))}
         </ul>
       )}
@@ -97,13 +109,14 @@ function PoolRows({
   );
 }
 
-function PoolRow({ view, onView, onAdd }: { view: PoolView; onView: (tokenMint: string) => void; onAdd?: (tokenMint: string, pool: string, quoteMint: string) => void }) {
+function PoolRow({ view, chainNow, onView, onAdd }: { view: PoolView; chainNow: bigint | null; onView: (tokenMint: string) => void; onAdd?: (tokenMint: string, pool: string, quoteMint: string) => void }) {
   const { pool } = view.snapshot;
   const tokenDecimals = view.quoteIsToken0 ? pool.mint1Decimals : pool.mint0Decimals;
   // Named only by an address this site knows: a room's token, or a pairing coin (USDC in USDC / SOL).
   const symbol = registryToken(view.tokenMint)?.symbol ?? quoteCoin(view.tokenMint)?.symbol ?? null;
   const price = poolPricePerToken(view.snapshot, view.tokenMint, tokenDecimals);
   const label = pairLabel(view);
+  const tags = poolTags(view, chainNow);
   return (
     <li
       data-testid="lp-all-pools-row"
@@ -118,6 +131,21 @@ function PoolRow({ view, onView, onAdd }: { view: PoolView; onView: (tokenMint: 
           Holds {quoteText(view.quoteReserve, view.quote)} and {tokenText(view.tokenReserve, tokenDecimals, symbol ?? 'tokens')}
         </p>
         <p className="text-white/75 text-[12.5px] [overflow-wrap:anywhere]">{price === null ? 'No price: one side is empty' : priceText(price, view.quote, symbol ?? 'token')}</p>
+        {tags.length > 0 && (
+          <ul className="flex flex-wrap gap-1.5 pt-1" aria-label={`${label}: warnings`}>
+            {tags.map((t) => (
+              <li
+                key={t.text}
+                data-testid="lp-all-pools-tag"
+                className={`px-2 py-0.5 rounded-full text-[11px] font-semibold border ${
+                  t.tone === 'bad' ? 'bg-rose-500/15 text-rose-300 border-rose-500/30' : 'bg-amber-500/15 text-amber-300 border-amber-500/30'
+                }`}
+              >
+                {t.text}
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
       <div className="flex gap-2">
         {onAdd && (

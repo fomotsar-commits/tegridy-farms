@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState, type ReactNode, type RefObject } from 'react';
 import { isCreatedPool, type PoolEntry, type PoolView } from '../../../lib/solana/lp/poolFinder';
-import { PRICE_TOLERANCE, formatWhen, vaultFreezer, type PoolHealth, type PriceReference, type WithdrawalsState } from '../../../lib/solana/lp/poolHealth';
+import { REFERENCE_NAME, formatWhen, vaultFreezer, type PoolHealth, type PriceReference, type WithdrawalsState } from '../../../lib/solana/lp/poolHealth';
 import { feeRateText, priceText, quoteText, tokenText, tradeCostText } from '../../../lib/solana/lp/format';
 import { pairLabel, registryToken } from '../../../lib/solana/lp/identity';
 import type { QuoteCoin } from '../../../lib/solana/lp/quotes';
@@ -155,12 +155,12 @@ function PriceRows({ price, quote, unit }: { price: PoolHealth['price']; quote: 
             value={priceText(price.reference, quote, unit)}
             mono={false}
           />
-          {/* Further apart than the check allows is a warning (listed with the deposit checks, lower on the card), not a refusal: the row says which side of the line it is. */}
-          <Row
-            label="Difference"
-            value={`${differenceText(price.diff)}${price.state === 'disagrees' ? `. That is more than ${Math.round(PRICE_TOLERANCE * 100)}% apart: see the warning below.` : ''}`}
-            mono={false}
-          />
+          {/* Further apart than the check allows is a warning, not a refusal: the value is in the warning colour and names what it is off from; its cost is listed with the deposit checks. */}
+          {price.state === 'disagrees' ? (
+            <Row label="Difference" value={`${differenceText(price.diff)} ${REFERENCE_NAME[price.against]}`} mono={false} tone="warn" />
+          ) : (
+            <Row label="Difference" value={differenceText(price.diff)} mono={false} />
+          )}
         </>
       );
   }

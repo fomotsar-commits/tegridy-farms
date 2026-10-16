@@ -148,7 +148,8 @@ export const LP_COPY = {
 
 /** What prepare needs that the outside world answers: the outside price. `LpReaders` satisfies it. */
 export interface LpPrepareReads {
-  outsidePrice(mint: string, decimals: number): Promise<OutsidePrice>;
+  /** Asked `fresh` here: Jupiter itself, never the copy the edge shares for 30 seconds (outsidePrice.ts). */
+  outsidePrice(mint: string, decimals: number, opts?: { fresh?: boolean }): Promise<OutsidePrice>;
 }
 
 export interface WriteSnapshot {
@@ -670,10 +671,11 @@ export async function prepareLpDeposit(rpc: WriteRpc, gate: LpOpenGate, reads: L
   if (outsideSet !== undefined) return notSent('build', LP_COPY.tokenBlocked(`It uses ${extensionPlain(outsideSet)}.`));
 
   // 6. The outside price, read again: the token's, and the pairing coin's own when the
-  // pool is not paired with SOL (its price is checked in that coin: poolHealth.ts).
+  // pool is not paired with SOL (its price is checked in that coin: poolHealth.ts). Fresh
+  // from Jupiter: the card's own read may be the edge's 30-second copy.
   const readPrice = async (mint: string, d: number): Promise<OutsidePrice> => {
     try {
-      return await reads.outsidePrice(mint, d);
+      return await reads.outsidePrice(mint, d, { fresh: true });
     } catch (e) {
       return { kind: 'unread', detail: e instanceof Error ? e.message : String(e) };
     }

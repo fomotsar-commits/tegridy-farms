@@ -80,7 +80,7 @@ describe('when the venue reads live', () => {
     const card = screen.getByRole('region', { name: 'Venue status' });
     expect(card).toHaveTextContent(/Pools are open/);
     const { hero, after } = column();
-    expect(hero).toHaveTextContent(/Create a pool, add liquidity or take it out/);
+    expect(hero).toHaveTextContent(/Open a pool, add liquidity or take it out/);
     expect(after).toHaveLength(3);
     expect(after[0]!.firstElementChild).toBe(section);
     expect(after[1]).toBe(card);
@@ -93,7 +93,7 @@ describe('when the venue reads live', () => {
     const section = await screen.findByTestId('lp-section');
     const { hero, after } = column();
     expect(within(hero).queryByRole('link')).toBeNull();
-    expect(hero.lastElementChild).toHaveTextContent(/^Create a pool, add liquidity or take it out/);
+    expect(hero.lastElementChild).toHaveTextContent(/^Open a pool, add liquidity or take it out/);
     const link = venueAmmLink();
     expect(link).toHaveAttribute('href', `/pools?mint=${M}`);
     expect(after[0]).toContainElement(link);
@@ -117,7 +117,7 @@ describe('when the venue reads live', () => {
     expect(document.title).toMatch(/^Solana liquidity/);
     // The venue read alone does not say each can be done right now: the section's own reads do.
     expect(
-      screen.getByText(/^Create a pool, add liquidity or take it out\.$/),
+      screen.getByText(/^Open a pool, add liquidity or take it out\.$/),
     ).toBeInTheDocument();
   });
 
