@@ -1670,8 +1670,9 @@ describe('liquidity reviews', () => {
     expect(value('Estimated cost of that gap')).toBe('could not be worked out');
     expect(within(screen.getByTestId('tx-review-warnings')).getByText(UNKNOWN)).toBeInTheDocument();
     // No figure is put in its place anywhere on the review. (The gap's own warning says its
-    // cost as a share of what goes in, which needs no amounts: that is not this figure.)
-    expect(screen.getByTestId('tx-review').textContent).not.toMatch(/would take up to about/);
+    // cost as a share of what goes in, which needs no amounts: that is not this figure, and
+    // only that warning is taken out before looking.)
+    expect(screen.getByTestId('tx-review').textContent!.split(GAP).join('')).not.toMatch(/up to about/);
   });
 
   it('adding to a pool with no market price: the row says it was checked against nothing', async () => {
