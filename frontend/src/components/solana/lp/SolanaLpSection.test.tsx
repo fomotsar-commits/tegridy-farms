@@ -524,6 +524,7 @@ describe('the order of the section', () => {
       'needs 2 of its 2 keys to sign, has no waiting period (a time lock of 0 seconds), and only those 2 keys, together, can change its rules',
       'The vault can switch off adding, removing or trading on any pool.',
       'replace the program',
+      'Every pool’s coins sit in accounts that program controls, so a replacement could move them.',
       'you could not take your money out of that pool until it switched removing back on',
     ]) {
       expect(small).toHaveTextContent(fact);
