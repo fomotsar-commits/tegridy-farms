@@ -3,6 +3,9 @@ import { usePageTitle } from '../hooks/usePageTitle';
 import { PageArtBackdrop } from '../components/PageArtBackdrop';
 import { usePoolTVL } from '../hooks/usePoolTVL';
 import { LiquidityTab } from '../components/swap/LiquidityTab';
+import { useLiquidityChainId } from '../hooks/useLiquidityChainId';
+import { CHAIN_ID } from '../lib/constants';
+import { getChainConfig } from '../lib/chains/registry';
 import { ILCalculator } from '../components/farm/ILCalculator';
 import { LiquidityPrimer } from '../components/liquidity/LiquidityPrimer';
 import { VenuePoolTable } from '../components/liquidity/VenuePoolTable';
@@ -57,6 +60,10 @@ export default function LiquidityPage() {
     'Provide liquidity on memetics.finance native pools and earn a share of every swap that routes through them.',
   );
   const poolData = usePoolTVL();
+  // The network drop-down's pick (`?c=`) while no wallet is connected; the wallet's chain once one is.
+  const liquidityChainId = useLiquidityChainId();
+  const onMainnet = liquidityChainId === CHAIN_ID;
+  const chainName = getChainConfig(liquidityChainId)?.name ?? 'Ethereum';
 
   return (
     <>
@@ -67,7 +74,7 @@ export default function LiquidityPage() {
     <div className="relative mx-auto w-full max-w-[900px] px-4 py-8 sm:py-10">
       <header className="mb-6">
         <p className="text-[11px] uppercase tracking-wider label-pill mb-2" style={{ color: 'var(--color-stan)' }}>
-          Native pools · Ethereum
+          Native pools · {chainName}
         </p>
         <h1 className="heading-luxury text-3xl md:text-4xl text-white leading-tight mb-3">
           Liquidity
@@ -82,10 +89,21 @@ export default function LiquidityPage() {
         {/* One line: how a provider earns and what the venue takes. The venue's
             one-sixth cut is a switch, so its state carries the date it was read
             (the primer below says who holds it and how to check it). */}
-        <p className="text-white/75 text-[14px] md:text-[15px] leading-relaxed max-w-[62ch]">
-          Providers split the whole 0.3% swap fee by pool share (the venue&apos;s optional cut was
-          off when read on 10 October 2026). The venue earns its own fee on swaps routed here.
-        </p>
+        {onMainnet ? (
+          <p className="text-white/75 text-[14px] md:text-[15px] leading-relaxed max-w-[62ch]">
+            Providers split the whole 0.3% swap fee by pool share (the venue&apos;s optional cut was
+            off when read on 10 October 2026). The venue earns its own fee on swaps routed here.
+          </p>
+        ) : (
+          /* Base and Robinhood Chain: the same pair contract, but each factory's feeTo was
+             SET when read (2026-10-15) to the venue's FEE_REMITTANCE Safe 0xfc5D…fbf1 (Safe
+             code on both chains), so the one-sixth cut is on there. Our swap does not route on
+             either chain, so no venue swap fee is earned there. */
+          <p className="text-white/75 text-[14px] md:text-[15px] leading-relaxed max-w-[62ch]">
+            Providers split the 0.3% swap fee by pool share, less the venue&apos;s one-sixth cut, which
+            was on when read on 15 October 2026 and goes to the venue&apos;s fee Safe.
+          </p>
+        )}
         <FinePrint summary="How it works">
           <p>
             Pair two tokens into a pool and every swap that routes through it pays you a share of
@@ -96,7 +114,8 @@ export default function LiquidityPage() {
         </FinePrint>
       </header>
 
-      <VenuePoolTable poolData={poolData} />
+      {/* The table lists Ethereum's pools; on another chain the form below reads that chain's pair. */}
+      {onMainnet && <VenuePoolTable poolData={poolData} />}
 
       <LiquidityPrimer />
 
@@ -108,7 +127,7 @@ export default function LiquidityPage() {
         <p className="text-white/60 text-[12.5px] mb-4">
           Both sides, priced off the pool&apos;s current reserves.
         </p>
-        <LiquidityTab />
+        <LiquidityTab chainId={liquidityChainId} />
       </section>
 
       {/* PROMOTED FROM /farm, 2026-09-05. It is the same component; what changed

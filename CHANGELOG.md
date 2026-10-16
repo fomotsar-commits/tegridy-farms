@@ -8,6 +8,8 @@ page keeps the newest thirty days.
 
 ### 2026-10-15
 
+- Swap, Pools and Launch: one network drop-down, as on Uniswap, lists Ethereum, Base, Robinhood Chain and Solana, and switches the page to that network. Pools now offers add and remove on Base and Robinhood Chain, where our pool contracts are deployed. A network with nothing there stays listed, greyed, with the reason. With a wallet connected on another network, a pick asks the wallet to switch.
+- Lock: inside a bungalow, Lock opens that bungalow's own pool instead of the list of every pool. "Every pool" at the top of each pool opens the full list, which is still what a visitor sees before choosing a bungalow.
 - The bar reads Heat, Rooms, Lock, Launch and Swap, on a phone and on a wide screen. Pools, Check, the island, the records and Dashboard are in the menu, which now opens at every width; Pools still opens Solana LP. The footer is eight links. No bar or tab strip says Soon: a tab that is off is not listed.
 - Towelie in the corner: when a tab slides under him as you scroll, a press on that tab now opens the tab straight away. While he faded out of the way, a press there went to Towelie instead, and in Safari on an iPad it did even with motion turned down.
 - Launch token pages: the disclosure attestation line now gets a real answer, "Attested" or "No attestation", where it said "Cannot verify" on every token. When the check cannot run it says so in one plain sentence, and the technical error waits under Details.

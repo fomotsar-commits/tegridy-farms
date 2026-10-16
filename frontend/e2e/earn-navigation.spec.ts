@@ -1,8 +1,10 @@
 import { test, expect, type Page } from '@playwright/test';
 
-// The bar's Lock word always leads back to the list of every pool (owner, 2026-09-30: from
-// inside a pool the word "stays on the same page"). /earn is the list and /earn/<id> one pool;
-// the word was Earn until the bar became Heat · Rooms · Lock · Launch · Swap (2026-10-15).
+// Lock shows the bungalow selected (owner, 2026-10-15): inside a room, /earn opens that room's
+// pool at /earn/<id>. With no room chosen /earn is the list of every pool, and from inside any
+// room the list is /earn?pools=all, one press away on every pool (owner, 2026-09-30: from inside
+// a pool there was no way back to the list). The word was Earn until the bar became
+// Heat · Rooms · Lock · Launch · Swap (2026-10-15).
 
 test.use({ serviceWorkers: 'block' });
 
@@ -20,32 +22,40 @@ function earnWord(page: Page) {
   return page.locator('nav[aria-label="Main navigation"]:visible a', { hasText: /^Lock$/ }).first();
 }
 
-test('the Lock word, clicked from inside a pool, goes to the list', async ({ page }) => {
-  await page.goto('/earn/bayla');
-  await expect(page.getByRole('heading', { level: 1, name: 'Stake BAYLA.' })).toBeVisible({ timeout: 30_000 });
-  await expect(earnWord(page)).toHaveAttribute('href', '/earn');
-  await earnWord(page).click();
-  await expect(page).toHaveURL(/\/earn$/);
-  await expect(page.getByRole('heading', { level: 1, name: 'Earn' })).toBeVisible({ timeout: 30_000 });
-  await expect(page.getByRole('link', { name: 'Open BAYLA' })).toBeVisible();
-});
-
-test("the lit Staking tab, clicked from inside a pool, goes to the list", async ({ page }) => {
-  await page.goto('/earn/bayla');
-  const staking = page.getByRole('tab', { name: 'Staking' });
-  await expect(staking).toHaveAttribute('aria-selected', 'true', { timeout: 30_000 });
-  await staking.click();
-  await expect(page).toHaveURL(/\/earn$/);
-  await expect(page.getByRole('heading', { level: 1, name: 'Earn' })).toBeVisible({ timeout: 30_000 });
-});
-
-test('a stored room does not turn the list into that pool', async ({ page }) => {
+test('Lock inside a room opens that room\'s pool, and only that one', async ({ page }) => {
   await page.addInitScript(() => {
     try { localStorage.setItem('tegridy-bungalow', 'bayla'); } catch { /* private mode */ }
   });
   await page.goto('/earn');
+  await expect(page).toHaveURL(/\/earn\/bayla$/);
+  await expect(page.getByRole('heading', { level: 1, name: 'Stake BAYLA.' })).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByRole('link', { name: 'Open PEPE' })).toHaveCount(0);
+  // The word and the lit Staking tab keep the visitor on the room's pool.
+  await expect(earnWord(page)).toHaveAttribute('href', '/earn');
+  await earnWord(page).click();
+  await expect(page).toHaveURL(/\/earn\/bayla$/);
+  const staking = page.getByRole('tab', { name: 'Staking' });
+  await expect(staking).toHaveAttribute('aria-selected', 'true', { timeout: 30_000 });
+  await staking.click();
+  await expect(page).toHaveURL(/\/earn\/bayla$/);
+  await expect(page.getByRole('heading', { level: 1, name: 'Stake BAYLA.' })).toBeVisible();
+});
+
+test('with no room chosen, /earn is the list of every pool', async ({ page }) => {
+  await page.goto('/earn');
+  await expect(page).toHaveURL(/\/earn$/);
   await expect(page.getByRole('heading', { level: 1, name: 'Earn' })).toBeVisible({ timeout: 30_000 });
-  await expect(page.getByRole('heading', { level: 1, name: 'Stake BAYLA.' })).toHaveCount(0);
+  await expect(page.getByRole('link', { name: 'Open BAYLA' })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Open PEPE' })).toBeVisible();
+});
+
+test('from inside a pool, Every pool opens the list, and the list stays put', async ({ page }) => {
+  await page.goto('/earn/bayla');
+  await expect(page.getByRole('heading', { level: 1, name: 'Stake BAYLA.' })).toBeVisible({ timeout: 30_000 });
+  await page.getByRole('link', { name: 'Every pool' }).click();
+  await expect(page).toHaveURL(/\/earn\?pools=all$/);
+  await expect(page.getByRole('heading', { level: 1, name: 'Earn' })).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByRole('link', { name: 'Open PEPE' })).toBeVisible();
 });
 
 test.describe('an old /farm link keeps its meaning', () => {

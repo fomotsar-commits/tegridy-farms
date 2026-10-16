@@ -14,6 +14,11 @@ vi.mock('../lib/launcher/solana/lpWriteFlag', async (orig) => ({
   ...(await orig<typeof import('../lib/launcher/solana/lpWriteFlag')>()),
   lpWriteMode: () => lp.mode,
 }));
+vi.mock('wagmi', () => ({
+  useAccount: () => ({ isConnected: false }),
+  useChainId: () => 1,
+  useSwitchChain: () => ({ switchChain: vi.fn() }),
+}));
 vi.mock('../hooks/usePageTitle', () => ({ usePageTitle: () => {} }));
 vi.mock('../hooks/usePoolTVL', () => ({ usePoolTVL: () => ({}) }));
 vi.mock('../components/swap/LiquidityTab', () => ({ LiquidityTab: () => null }));

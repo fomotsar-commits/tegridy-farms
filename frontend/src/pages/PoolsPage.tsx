@@ -9,7 +9,6 @@ import { trackPageView } from '../lib/analytics';
 import { ArtImg } from '../components/ArtImg';
 import { CardArt } from '../components/ui/CardArt';
 import { FinePrint } from '../components/ui/FinePrint';
-import { ChainSwitch } from '../components/swap/ChainSwitch';
 import { VenueStatusCard } from '../components/solana/VenueStatusCard';
 import { VenueProgramCard } from '../components/solana/VenueProgramCard';
 import type { PublicTierRead, VenueStatus } from '../lib/solana/cpswap/read';
@@ -80,8 +79,6 @@ export default function PoolsPage() {
       </div>
 
       <div className="relative z-10 max-w-[900px] mx-auto px-4 md:px-6 pt-8 pb-16">
-        <ChainSwitch />
-
         <m.div className="mb-6" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
           <p className="text-white/70 text-[11px] uppercase tracking-[0.2em] mb-2">Venue AMM · Solana</p>
           <h1 className="heading-luxury text-3xl md:text-5xl text-white tracking-tight mb-3">

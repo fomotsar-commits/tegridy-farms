@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { m } from 'framer-motion';
 import { useAccount } from 'wagmi';
-import { Link, useParams } from 'react-router-dom';
+import { Link, Navigate, useLocation, useParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import { CURRENT_SEASON, LOCK_OPTIONS } from '../lib/constants';
 import { parseEventLogs, formatEther } from 'viem';
@@ -33,6 +33,7 @@ import { ErrorBoundary } from '../components/ui/ErrorBoundary';
 import { ConnectPrompt } from '../components/ui/ConnectPrompt';
 
 import { BUNGALOWS, DEFAULT_BUNGALOW_ID } from '../lib/bungalows';
+import { earnPoolPath, isEarnPoolId, wantsAllPools } from '../lib/earnRoutes';
 import { useActiveBungalowId } from '../hooks/useActiveBungalowId';
 import { BungalowFarmPanel } from '../components/bungalow/BungalowFarmPanel';
 import { VenuePoolIndex } from '../components/farm/VenuePoolIndex';
@@ -55,8 +56,9 @@ import { FinePrint } from '../components/ui/FinePrint';
 import { lpFarmDeposit } from '../lib/lpEmissions';
 
 /**
- * Earn's Staking tab. `/earn` is the list of every pool (VenueEarn) whatever
- * room is active, so the top-bar word and the tab always lead back to it.
+ * Earn's Staking tab. `/earn` inside a room opens that room's pool at its own address
+ * (owner, 2026-10-15: "only show the bungalow selected"); with no room, and at
+ * `/earn?pools=all` from any room, it is the list of every pool (VenueEarn).
  * `/earn/<id>` is one pool, its room already entered (App.tsx EarnPoolRoute):
  * a room with its own token gets its self-gating farm panel, and the TOWELI
  * room gets the classic farm. Until 2026-09-30 the ROOM picked the pool on a
@@ -65,8 +67,14 @@ import { lpFarmDeposit } from '../lib/lpEmissions';
  * and it re-reads when the skin switches in place.
  */
 export default function FarmPage() {
-  useActiveBungalowId();
+  const roomId = useActiveBungalowId();
   const { poolId } = useParams();
+  const { search, hash } = useLocation();
+  // A redirect, not the pool drawn at /earn: the pool keeps its own address, where the room's
+  // words and footer belong (docs/FACE_LAWS.md, law 21), and /earn stays the venue's.
+  if (!poolId && roomId && isEarnPoolId(roomId) && !wantsAllPools(search)) {
+    return <Navigate to={`${earnPoolPath(roomId)}${search}${hash}`} replace />;
+  }
   const bungalow = poolId ? BUNGALOWS.find((b) => b.id === poolId && b.live) : undefined;
   // The venue speaks for the whole island, not for one resident.
   if (!bungalow) return <VenueEarn />;

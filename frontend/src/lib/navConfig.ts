@@ -162,8 +162,8 @@ export const NAV_SECTIONS: NavSection[] = [
     ],
   },
   {
-    // /earn is ALWAYS the list of every pool and one pool is /earn/<id> (App.tsx), so the
-    // word and this tab lead back to the list from inside any pool (owner, 2026-09-30).
+    // Inside a room /earn opens that room's pool at /earn/<id> (owner, 2026-10-15); with no
+    // room it is the list, and /earn?pools=all is the list from any room (earnRoutes.ts).
     heading: 'Lock',
     hub: '/earn',
     items: [

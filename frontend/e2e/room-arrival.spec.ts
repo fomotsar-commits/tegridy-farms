@@ -99,7 +99,7 @@ test.describe('a door walked inside the app', () => {
     expect(docs.n - before).toBe(0);
   });
 
-  test('"Open" on the Earn list opens that pool at its own address, in place, and Earn leads back', async ({ page }) => {
+  test('"Open" on the Earn list opens that pool at its own address, in place, and Every pool leads back', async ({ page }) => {
     const docs = countDocuments(page);
     await page.goto('/earn');
     const open = page.getByRole('link', { name: 'Open PEPE' });
@@ -111,9 +111,11 @@ test.describe('a door walked inside the app', () => {
     expect(await page.evaluate(() => localStorage.getItem('tegridy-bungalow'))).toBe('pepe');
     expect(docs.n - before, 'opening a room loaded a new document').toBe(0);
     // The owner's report (2026-09-30): from inside a pool there was no way
-    // back to the list. The pool's own link goes back, still in place.
-    await page.getByRole('link', { name: 'Back to Earn' }).click();
-    await expect(page).toHaveURL(/\/earn$/);
+    // back to the list. The pool's own link goes back, still in place. Plain
+    // /earn now opens the room's pool (owner, 2026-10-15), so the list has its
+    // own address.
+    await page.getByRole('link', { name: 'Every pool' }).click();
+    await expect(page).toHaveURL(/\/earn\?pools=all$/);
     await expect(page.getByRole('link', { name: 'Open PEPE' })).toBeVisible({ timeout: 20_000 });
     expect(docs.n - before, 'going back to Earn loaded a new document').toBe(0);
   });
