@@ -1165,6 +1165,15 @@
       }
     },
     {
+      "id": "ladder-pepe-retired",
+      "address": "0xdC0B34cE782029f30382F42097f6b33F0544329c",
+      "role": "RETIRED 2026-09-05 by #433, which repinned ladder-pepe to the redeployed pool. The first PEPE ladder, deployed 2026-08-30 from the pre-fix LighthouseLadder build that carries C1: a reward payout could spend other stakers' principal (docs/LIGHTHOUSE_AUDIT_2026_09_01.md). Read 2026-10-16: 6,098 bytes of code, totalBoosted() answers and MIN_STAKE() reverts (the pre-fix build), totalSupply, rewardRate and periodFinish all 0, so it was never funded and holds no stake. Nothing in the app routes here; never send a deposit to it.",
+      "status": "retired",
+      "expect": {
+        "type": "contract"
+      }
+    },
+    {
       "$comment": "── /yield: the eight third-party DeFi protocols the surface reads, plus the seven canonical permissionless deposits it wires. None of these is ours, and one of them is where a visitor’s ETH goes when they press a button, so an address remembered slightly wrong is money handed to a stranger. They all live in frontend/src/lib/yield/protocols.ts — a file check 5 did NOT scan until this change, which is exactly the one-directional hole rule 4 exists to warn about, with live mainnet addresses on the wrong side of it. Check 5 now walks protocols.ts as well as constants.ts, so every one of these must stay registered. Each `evidence` line below is the verbatim output of frontend/scripts/verify-yield-protocols.mjs at mainnet block 25893998 (2026-09-03 UTC), which sees bytecode AND reads a canonical view off each address — symbol(), description(), asset(), baseToken(), eETH(), ezETH(), getPool(), getChainId() — so identity here is read, never remembered. That run reported failures, and all of them were HTTP 429 from GeckoTerminal on an off-chain market-depth lookup that touches none of these addresses — every on-chain read passed. Having to write that sentence WAS the bug: the script gave a third party's rate limit the same exit code as a canonical read returning the wrong symbol, so its red had to be explained away by hand, and a genuinely wrong address would have arrived wearing the same colour. The script now separates the two structurally — a source that did not answer is named and counted and exits 2, an address that answered wrongly exits 1, and a run that established nothing exits 3 rather than looking clean — and the market-depth lookup, which was discovering liquidity context nothing consumes for a surface that deliberately shows none, is deleted. The evidence lines below are from the re-run at mainnet block 25894845: 31 verified, 0 wrong, 0 unchecked."
     },
     {
@@ -1922,10 +1931,28 @@
       }
     },
     {
+      "id": "ladder-qr-retired",
+      "address": "0xdcc3a95A0921b83326157132B17770f02094c8E3",
+      "role": "RETIRED 2026-09-05 by #433, which repinned ladder-qr to the redeployed pool. The first QR ladder, deployed 2026-08-30 from the pre-fix LighthouseLadder build that carries C1: a reward payout could spend other stakers' principal (docs/LIGHTHOUSE_AUDIT_2026_09_01.md). Read 2026-10-16: 6,098 bytes of code, totalBoosted() answers and MIN_STAKE() reverts (the pre-fix build), totalSupply, rewardRate and periodFinish all 0, so it was never funded and holds no stake. Nothing in the app routes here; never send a deposit to it.",
+      "status": "retired",
+      "expect": {
+        "type": "contract"
+      }
+    },
+    {
       "id": "ladder-mfer",
       "address": "0xeCB3C54488A2A0dF764444f67B2Df6b8Ad4EaDd6",
       "role": "MFER lighthouse LADDER — LighthouseLadder.sol, 7d..4y locks at 0.4x..4.0x (TOWELI parity), 25% early-exit penalty retained in-pool, always-open emergency hatch, reward payouts capped at balance-minus-principal. Notifier = fee-remittance-safe; no owner role exists.",
       "status": "live",
+      "expect": {
+        "type": "contract"
+      }
+    },
+    {
+      "id": "ladder-mfer-retired",
+      "address": "0x7288DbF43D3BDBfC439B6E8a47Aef225D4816273",
+      "role": "RETIRED 2026-09-05 by #433, which repinned ladder-mfer to the redeployed pool. The first MFER ladder, deployed 2026-08-30 from the pre-fix LighthouseLadder build that carries C1: a reward payout could spend other stakers' principal (docs/LIGHTHOUSE_AUDIT_2026_09_01.md). Read 2026-10-16: 6,098 bytes of code, totalBoosted() answers and MIN_STAKE() reverts (the pre-fix build), totalSupply, rewardRate and periodFinish all 0, so it was never funded and holds no stake. Nothing in the app routes here; never send a deposit to it.",
+      "status": "retired",
       "expect": {
         "type": "contract"
       }
@@ -1940,6 +1967,15 @@
       }
     },
     {
+      "id": "ladder-bnkr-retired",
+      "address": "0xe0A152EBC21891FD47a7Dcd6018cfE3a64363178",
+      "role": "RETIRED 2026-09-05 by #433, which repinned ladder-bnkr to the redeployed pool. The first BNKR ladder, deployed 2026-08-30 from the pre-fix LighthouseLadder build that carries C1: a reward payout could spend other stakers' principal (docs/LIGHTHOUSE_AUDIT_2026_09_01.md). Read 2026-10-16: 6,098 bytes of code, totalBoosted() answers and MIN_STAKE() reverts (the pre-fix build), totalSupply, rewardRate and periodFinish all 0, so it was never funded and holds no stake. Nothing in the app routes here; never send a deposit to it.",
+      "status": "retired",
+      "expect": {
+        "type": "contract"
+      }
+    },
+    {
       "id": "ladder-drb",
       "address": "0x0aCB93fcFD5b1950D94064998017a2601b36D7bB",
       "role": "DRB lighthouse LADDER — LighthouseLadder.sol, 7d..4y locks at 0.4x..4.0x (TOWELI parity), 25% early-exit penalty retained in-pool, always-open emergency hatch, reward payouts capped at balance-minus-principal. Notifier = fee-remittance-safe; no owner role exists.",
@@ -1949,10 +1985,28 @@
       }
     },
     {
+      "id": "ladder-drb-retired",
+      "address": "0xB62BaD165997E95C503044787b2Dcc85DC6D83F1",
+      "role": "RETIRED 2026-09-05 by #433, which repinned ladder-drb to the redeployed pool. The first DRB ladder, deployed 2026-08-30 from the pre-fix LighthouseLadder build that carries C1: a reward payout could spend other stakers' principal (docs/LIGHTHOUSE_AUDIT_2026_09_01.md). Read 2026-10-16: 6,098 bytes of code, totalBoosted() answers and MIN_STAKE() reverts (the pre-fix build), totalSupply, rewardRate and periodFinish all 0, so it was never funded and holds no stake. Nothing in the app routes here; never send a deposit to it.",
+      "status": "retired",
+      "expect": {
+        "type": "contract"
+      }
+    },
+    {
       "id": "ladder-jbm",
       "address": "0x3C339692ec7B3b96ad6F8fbEb5F5202164b44465",
       "role": "JBM lighthouse LADDER — LighthouseLadder.sol, 7d..4y locks at 0.4x..4.0x (TOWELI parity), 25% early-exit penalty retained in-pool, always-open emergency hatch, reward payouts capped at balance-minus-principal. Notifier = fee-remittance-safe; no owner role exists.",
       "status": "live",
+      "expect": {
+        "type": "contract"
+      }
+    },
+    {
+      "id": "ladder-jbm-retired",
+      "address": "0xA0D43eF39C4940e68b2f81d51E6316a45C136D93",
+      "role": "RETIRED 2026-09-05 by #433, which repinned ladder-jbm to the redeployed pool. The first JBM ladder, deployed 2026-08-30 from the pre-fix LighthouseLadder build that carries C1: a reward payout could spend other stakers' principal (docs/LIGHTHOUSE_AUDIT_2026_09_01.md). Read 2026-10-16: 6,098 bytes of code, totalBoosted() answers and MIN_STAKE() reverts (the pre-fix build), totalSupply, rewardRate and periodFinish all 0, so it was never funded and holds no stake. Nothing in the app routes here; never send a deposit to it.",
+      "status": "retired",
       "expect": {
         "type": "contract"
       }
