@@ -7,7 +7,8 @@ import { keccak256, toBytes, toFunctionSelector, type Address, type Hex } from '
  *    Opening an auction sets the fixed price to 0, and an allowlist or public sale
  *    cannot open again until a new price has waited its 24 hours
  *    (`fixedPriceNeedsProposal`).
- *  - 'instant-switch': the template deployed today, 0xA35ec3e20C4361144b0D99573DEa00B67873e872.
+ *  - 'instant-switch': the template of the launchpad replaced on PENDING_REDEPLOY_DATE,
+ *    0xA35ec3e20C4361144b0D99573DEa00B67873e872 (it made 0 collections).
  *    Price, allowlist and auction changes wait 24 hours, but the phase can switch a
  *    sale between a fixed price and an auction in one step.
  *
@@ -15,8 +16,8 @@ import { keccak256, toBytes, toFunctionSelector, type Address, type Hex } from '
  */
 export type DropRules = 'needs-new-price' | 'instant-switch';
 
-/** The template the live launchpad clones today (read on chain 2026-10-14, 21,554 bytes). */
-export const DEPLOYED_DROP_TEMPLATE: Address = '0xA35ec3e20C4361144b0D99573DEa00B67873e872';
+/** The template the live launchpad clones: TEGRIDY_LAUNCHPAD_V2_ADDRESS's dropTemplate(), with the F1 fix. */
+export const DEPLOYED_DROP_TEMPLATE: Address = '0xPENDING_REDEPLOY_DROP_TEMPLATE';
 
 /** Timelock keys, as the contract computes them (TegridyDropV2.sol, the same on the deployed template). */
 export const DROP_TIMELOCK_KEYS = {

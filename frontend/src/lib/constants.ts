@@ -109,9 +109,12 @@ export const TEGRIDY_TWAP_ADDRESS = '0xdFdd6D72539A425dC917F49FB834901105cA98c9'
 export const TEGRIDY_FEE_HOOK_ADDRESS = '0xB6cfeaCf243E218B0ef32B26E1dA1e13a2670044' as const;
 
 // Launchpad V2 — click-deploy flow with single-tx createCollection + contractURI.
-// RELAUNCH 2026-07-16 gated batch (DeployLaunchpadV2; DropV2 template 0xA35ec3e2…873e872;
-// fee 500bps → treasury 0x7D26…Bd7d baked into every clone).
-export const TEGRIDY_LAUNCHPAD_V2_ADDRESS = '0xa6149B4d05138A4073902A0Ca0345c2d0E470dF7' as const;
+// REDEPLOYED PENDING_REDEPLOY_DATE for audit finding F1 (DeployLaunchpadV2; its DropV2
+// template is 0xPENDING_REDEPLOY_DROP_TEMPLATE; fee 500bps → treasury 0x7D26…Bd7d baked
+// into every clone). Written by scripts/fill-launchpad-redeploy.mjs from the deploy
+// receipt and an on-chain read-back.
+// Prev (2026-07-16, template has F1, 0 collections): 0xa6149B4d05138A4073902A0Ca0345c2d0E470dF7
+export const TEGRIDY_LAUNCHPAD_V2_ADDRESS = '0xPENDING_REDEPLOY_LAUNCHPAD' as const;
 
 // Uniswap V2 (external routing fallback)
 export const UNISWAP_V2_ROUTER = '0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D' as const;

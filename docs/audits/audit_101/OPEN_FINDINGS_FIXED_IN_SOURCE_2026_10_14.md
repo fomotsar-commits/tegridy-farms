@@ -45,7 +45,8 @@ The site's owner panel does not explain this yet. No collection exists today.
 ## What a redeploy takes
 
 Three separate releases. Each needs new contracts, the site's addresses changed, and a
-production deploy. Nothing below has been done.
+production deploy. Release 3 was deployed on PENDING_REDEPLOY_DATE (below); 1 and 2 have not
+been done.
 
 **1. Staking (M-S6 and M-S7).** The staking contract links its library at deploy time, and
 seven deployed contracts the site uses store the staking address permanently (`immutable`
@@ -70,7 +71,10 @@ router as a caller, finish setup, then point the router at it through `SwapFeeRo
 treasury share. Release 1 replaces this splitter anyway.
 
 **3. NFT launchpad (F1).** Deploy a new `TegridyLaunchpadV2`; its constructor deploys the
-fixed template. No collection exists, so nothing moves.
+fixed template. No collection exists, so nothing moves. **Done PENDING_REDEPLOY_DATE:** launchpad
+`0xPENDING_REDEPLOY_LAUNCHPAD`, template `0xPENDING_REDEPLOY_DROP_TEMPLATE` (receipt
+`contracts/broadcast/DeployLaunchpadV2.s.sol/1/PENDING_REDEPLOY_RECEIPT`, block PENDING_REDEPLOY_BLOCK).
+The 2026-07-16 launchpad above is retired; the site points at the new one.
 
 **Who signs:** every deployed contract above is owned by `0x14898258122C0740106391E6e8E4F17F3b6d456E`
 (read 2026-10-14), which has no contract code: a single key. The same key deployed them all.

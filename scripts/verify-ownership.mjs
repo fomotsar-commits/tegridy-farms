@@ -96,7 +96,7 @@ const CONTRACTS = [
   ['VoteIncentives',        '0x6e1dCB7EBD16E09edb574F414aDc664B2A5E21AF', 'two-step'],
   ['VoteIncentivesAdmin',   '0xf87Ec231BA7FA3975619309bc16C698B2ea3B300', 'two-step'],
   ['CommunityGrants',       '0xebc3aaf48297b8ccfa8272d9e68c1545eb9cd471', 'two-step'],
-  ['LaunchpadV2',           '0xa6149b4d05138a4073902a0ca0345c2d0e470df7', 'two-step'],
+  ['LaunchpadV2',           '0xPENDING_REDEPLOY_LAUNCHPAD', 'two-step'], // redeployed PENDING_REDEPLOY_DATE (F1)
   ['MemeBountyBoard',       '0x6d2c6ec29d97fe8b6d1471091deee36baf69d890', 'two-step'],
   ['PremiumAccess',         '0x9dc2675b2017687dd9768c63d15f0ad5194fa3f5', 'two-step'],
   ['TegridyLPFarming',      '0x1171268AE5B69791c47Fd589b7825932c957e149', 'two-step'],

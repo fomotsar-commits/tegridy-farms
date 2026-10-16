@@ -113,7 +113,8 @@ unpaused with `owner() == 0x14898258122C0740106391E6e8E4F17F3b6d456E`.
 | `0xbB8E49Ba4e3A85E2B8B70e00208770F429B56F5B` | TegridyNFTPoolFactory | **CANONICAL** (2026-07-16; `owner()` = `0xA360…b7F8`, a 2-of-3 Safe — unlike the rest of the batch) |
 | `0x5cfEe751eAf274F68b05267012b85a867dfCd326` | TegridyTokenURIReader | **CANONICAL** (relaunch 2026-06-06) |
 | `0xdFdd6D72539A425dC917F49FB834901105cA98c9` | TegridyTWAP | **CANONICAL** (relaunch 2026-06-06) |
-| `0xa6149B4d05138A4073902A0Ca0345c2d0E470dF7` | TegridyLaunchpadV2 | **CANONICAL** (2026-07-16) — the "compiled, not yet deployed" note in earlier revisions of this file is obsolete |
+| `0xPENDING_REDEPLOY_LAUNCHPAD` | TegridyLaunchpadV2 | **CANONICAL** (redeployed PENDING_REDEPLOY_DATE for audit finding F1; template `0xPENDING_REDEPLOY_DROP_TEMPLATE`) |
+| `0xa6149B4d05138A4073902A0Ca0345c2d0E470dF7` | TegridyLaunchpadV2 | Superseded PENDING_REDEPLOY_DATE (2026-07-16 deploy; its template `0xA35ec3e20C4361144b0D99573DEa00B67873e872` has F1; 0 collections, nothing moved) |
 | _none_ | TegridyLending | **NOT DEPLOYED** — `TEGRIDY_LENDING_ADDRESS` is `0x0…0`; not redeployed after the relaunch |
 | `0xd471e5675EaDbD8C192A5dA2fF44372D5713367f` | TegridyLending | Deprecated (pre-relaunch) |
 | `0x05409880aDFEa888F2c93568B8D88c7b4aAdB139` | TegridyNFTLending | Deprecated (pre-relaunch, Wave 0) |
