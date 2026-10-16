@@ -65,12 +65,14 @@ export function ThreePaths() {
             }}
           >
             <CardArt pageId="three-paths" idx={0 + (i % PATH_ART_SLOTS)} />
-            <h3
+            {/* h2, not h3: since answer twenty the paths sit directly under the hero's h1,
+                above the hall's own h2, and axe's heading-order fails a skipped level. */}
+            <h2
               className="text-[13px] uppercase tracking-[0.16em] font-semibold mb-2"
               style={{ color: p.accent }}
             >
               {p.title}
-            </h3>
+            </h2>
             <p className="text-white/80 text-[13.5px] leading-relaxed">{p.line}</p>
           </Link>
         ))}
