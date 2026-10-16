@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type Ref } from 'react';
 import type { PoolView } from '../../../lib/solana/lp/poolFinder';
 import type { PoolListRead } from '../../../lib/solana/lp/poolList';
 import { poolPricePerToken } from '../../../lib/solana/lp/poolHealth';
@@ -19,11 +19,22 @@ import type { LpReaders } from './readers';
  * A list that could not be read says that, never "no pools". A reader without
  * `listPools` (every component test's fake) renders nothing.
  */
-export function VenuePoolList({ readers, reloadKey = 0, onView }: { readers: LpReaders; reloadKey?: number; onView: (tokenMint: string) => void }) {
+export function VenuePoolList({
+  readers,
+  reloadKey = 0,
+  onView,
+  sectionRef,
+}: {
+  readers: LpReaders;
+  reloadKey?: number;
+  onView: (tokenMint: string) => void;
+  /** Set by the section: "Add to another pool" after a withdrawal scrolls here and sends focus here. */
+  sectionRef?: Ref<HTMLElement>;
+}) {
   const read = usePoolList(readers, reloadKey);
   if (!readers.listPools) return null;
   return (
-    <section data-testid="lp-all-pools" aria-label="All pools">
+    <section ref={sectionRef} tabIndex={sectionRef ? -1 : undefined} className="outline-none" data-testid="lp-all-pools" aria-label="All pools">
       <Card title="All pools" art={<CardArt pageId="solana-lp" idx={13} />}>
         {read === null ? (
           <p className="text-white/70 text-[13px]">Reading the pools from the chain…</p>

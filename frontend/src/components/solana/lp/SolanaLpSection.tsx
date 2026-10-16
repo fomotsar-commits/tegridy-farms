@@ -107,7 +107,17 @@ function LpBody({ readers, mode, reloadKey }: { readers: LpReaders; mode: LpWrit
   const addMore = useCallback((tokenMint: string, pool: string) => finderRef.current?.addTo(tokenMint, pool), []);
   // Every pool, under the finder: a View there is a lookup in the finder, like a picked token.
   const view = useCallback((tokenMint: string) => finderRef.current?.show(tokenMint), []);
-  const allPools = <VenuePoolList readers={readers} reloadKey={reloadKey} onView={view} />;
+  // "Add to another pool", under a confirmed withdrawal, brings that list onto the screen
+  // and sends focus there, as Remove liquidity does for the positions. Offered only where
+  // the list can be drawn.
+  const allPoolsRef = useRef<HTMLElement | null>(null);
+  const toAllPools = useCallback(() => {
+    const el = allPoolsRef.current;
+    if (!el) return;
+    el.focus({ preventScroll: true });
+    el.scrollIntoView?.({ block: 'start' });
+  }, []);
+  const allPools = <VenuePoolList readers={readers} reloadKey={reloadKey} onView={view} sectionRef={allPoolsRef} />;
   const finder = (
     <PoolFinder
       ref={finderRef}
@@ -121,7 +131,16 @@ function LpBody({ readers, mode, reloadKey }: { readers: LpReaders; mode: LpWrit
       onRemove={toPositions}
     />
   );
-  const positions = <YourPositions readers={readers} owner={publicKey ?? null} reloadKey={reloadKey} sectionRef={positionsRef} onAddMore={addMore} />;
+  const positions = (
+    <YourPositions
+      readers={readers}
+      owner={publicKey ?? null}
+      reloadKey={reloadKey}
+      sectionRef={positionsRef}
+      onAddMore={addMore}
+      onAllPools={readers.listPools ? toAllPools : undefined}
+    />
+  );
 
   // Actions first, under the one risk line and the one line on earning; then every pool;
   // then what you hold; then the rates and the routes; the long notice last.
