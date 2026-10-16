@@ -544,11 +544,11 @@ describe('each answer has its own line, and only `offer` has the button', () => 
       expect(card).toHaveAttribute('data-deposits', 'allowed');
       expect(within(card).getByText('Deposits: the checks pass, with warnings')).toBeInTheDocument();
       expect(within(card).getByTestId('lp-pool-warnings')).toHaveTextContent(
-        'Its price is 900.0% above the launch pool’s price. A deposit here would hand that gap to the first arbitrage trade.',
+        'Its price is 900.0% above the launch pool’s price. If you add now, whoever trades it back takes up to about 42.5% of what you add (about $42.50 per $100).',
       );
       expect(row(card, 'Price here')).toBe('1 token = 0.1 SOL');
       expect(row(card, 'The launch pool’s price')).toBe('1 token = 0.01 SOL');
-      expect(row(card, 'Difference')).toBe('900.0% above. That is more than 3% apart: see the warning below.');
+      expect(row(card, 'Difference')).toBe('900.0% above the launch pool’s price');
       // Nothing on it says its price was compared with nothing.
       expect(card).not.toHaveTextContent('Jupiter has no market price');
       // The launch pool keeps its own check.

@@ -147,7 +147,7 @@ describe('assessPool: a pool paired with USDC or BAYLA', () => {
     expect(h.price.state).toBe('disagrees');
     // 0.025 USDC a token against a market of 5 USDC a token: said, in the pool's own coin.
     expect(h.price.state === 'disagrees' && h.price.reference).toBeCloseTo(5, 9);
-    expect(h.deposits.warnings).toEqual(['Its price is 99.5% below the outside price. A deposit here would hand that gap to the first arbitrage trade.']);
+    expect(h.deposits.warnings).toEqual(['Its price is 99.5% below the outside price. If you add now, whoever trades it back takes up to about 85.9% of what you add (about $85.93 per $100).']);
   });
 
   // UNREAD IS STILL REFUSED. A coin price that was not asked for, or whose read FAILED, is
@@ -240,7 +240,7 @@ describe('assessPool: a pool paired with USDC or BAYLA', () => {
     // The token at 0.0045 SOL is 225 BAYLA: the pool's 200 is 11.1% below, and that is said.
     const off = assessPool({ ...base, view: v, outside: ok(0.0045), coinOutside: ok(0.00002) });
     expect(off.deposits.verdict).toBe('allowed');
-    expect(off.deposits.warnings).toEqual(['Its price is 11.1% below the outside price. A deposit here would hand that gap to the first arbitrage trade.']);
+    expect(off.deposits.warnings).toEqual(['Its price is 11.1% below the outside price. If you add now, whoever trades it back takes up to about 0.2% of what you add (about $0.17 per $100).']);
   });
 
   it('a SOL pool ignores the coin’s price entirely, whatever it says', () => {

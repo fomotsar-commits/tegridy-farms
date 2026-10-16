@@ -6,6 +6,10 @@ page keeps the newest thirty days.
 
 ## [Unreleased]
 
+### 2026-10-16
+
+- Solana LP: a pool whose price is more than 3% off now says what that costs you, as a share of what you add. 19.6% below the outside price costs up to about 0.6% of what you add (about $0.59 per $100), where it said the whole gap went to the first trade. On the pool card the Difference row shows the gap in the warning colour and names the price it is off from. The pool stays open to deposits.
+
 ### 2026-10-15
 
 - Solana swaps and the pool price checks behind Add liquidity keep working when Jupiter retires its free host, once the venue's Jupiter key is set on the server; until then nothing changes. If Jupiter refuses the key, its limit is reached or it does not serve that path, the request is sent once more to the free host while it still answers. The swap fee setting reaches Jupiter the same way on both.

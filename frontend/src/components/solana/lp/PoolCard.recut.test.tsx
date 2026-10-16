@@ -120,10 +120,17 @@ describe('the pool card reads like a pool', () => {
     ]);
   });
 
-  it('a price too far from the outside one points down to its warning, which is now under it', () => {
+  it('a price too far from the outside one is said in the warning colour, against what it is off from, with its warning under it', () => {
     const card = mount(view(), 0.000006);
-    expect(rowValue(card, 'Difference')).toMatch(/apart: see the warning below\.$/);
+    const value = within(card).getByText('Difference', { exact: true }).nextElementSibling!;
+    expect(value.textContent).toMatch(/^\d+\.\d% below the outside price$/);
+    expect(value).toHaveClass('text-amber-300/90');
     expect(follows(within(card).getByText('Difference'), within(card).getByTestId('lp-pool-warnings'))).toBe(true);
+    // A price that agrees stays a plain figure.
+    cleanup();
+    const plain = within(mount(view())).getByText('Difference', { exact: true }).nextElementSibling!;
+    expect(plain.textContent).toMatch(/^\d+\.\d% (above|below)$/);
+    expect(plain).not.toHaveClass('text-amber-300/90');
   });
 
   it('a pool that pays a creator fee keeps the wallet it pays in view, below the fee row that names it', () => {

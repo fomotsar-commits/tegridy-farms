@@ -437,7 +437,7 @@ describe('prepareLpDeposit', () => {
     // About 0.1 SOL at 4% off costs about 0.00002 SOL, never more than what goes in.
     expect(loss).toBeLessThan(s.quoted.quote / 1_000n);
     expect(s.warnings).toEqual([
-      'Its price is 4.0% above the outside price. A deposit here would hand that gap to the first arbitrage trade.',
+      'Its price is 4.0% above the outside price. If you add now, whoever trades it back takes up to about 0.02% of what you add (about $0.02 per $100).',
       `At these amounts, a move back to the outside price would take up to about ${(Number(loss) / 1e9).toFixed(9).replace(/0+$/, '')} SOL of what you put in. That is an estimate.`,
     ]);
   });
@@ -698,7 +698,7 @@ describe('prepareLpDeposit', () => {
     expect(s.priceGap!.lossQuote).toBe(loss);
     expect(loss).toBeGreaterThan(0n);
     expect(s.warnings).toEqual([
-      'Its price is 99.4% above its own average over the last half hour. Someone may have just pushed it; a deposit now would pay for that.',
+      'Its price is 99.4% above its own average over the last half hour. Someone may have just pushed it; if you add now, whoever trades it back takes up to about 5.7% of what you add (about $5.68 per $100).',
       `At these amounts, a move back to its own average would take up to about ${(Number(loss) / 1e9).toFixed(9).replace(/0+$/, '')} SOL of what you put in. That is an estimate.`,
     ]);
     // Nothing here names a market this token does not have.
@@ -734,7 +734,7 @@ describe('prepareLpDeposit', () => {
       };
       return asked;
     }
-    const GAP = 'Its price is 900.0% above the launch pool’s price. A deposit here would hand that gap to the first arbitrage trade.';
+    const GAP = 'Its price is 900.0% above the launch pool’s price. If you add now, whoever trades it back takes up to about 42.5% of what you add (about $42.50 per $100).';
     const summaryOf = async (w: World, r: LpPrepareReads = answering(NO_ROUTE)) => ok(await deposit(w, {}, r)).summary as LpDepositSummary;
 
     it('at ten times the launch price it builds as off-price: the gap and the estimated loss, against the launch pool read just now', async () => {

@@ -398,7 +398,7 @@ describe('prepareLpDeposit: a pool paired with USDC or BAYLA', () => {
       expect(s.price.state === 'disagrees' && s.price.reference).toBeCloseTo(4, 9);
       expect(s.priceGap!.diff).toBeCloseTo(-0.5, 9);
       expect(s.warnings).toHaveLength(2);
-      expect(s.warnings[0]).toBe('Its price is 50.0% below the launch pool’s price. A deposit here would hand that gap to the first arbitrage trade.');
+      expect(s.warnings[0]).toBe('Its price is 50.0% below the launch pool’s price. If you add now, whoever trades it back takes up to about 5.7% of what you add (about $5.72 per $100).');
       expect(s.warnings[1]).toMatch(new RegExp(`^At these amounts, a move back to the launch pool’s price would take up to about 1[67]\\.\\d+ ${quote.symbol} of what you put in\\. That is an estimate\\.$`));
       expect(s.warnings.join(' ')).not.toMatch(/\bSOL\b/);
     });
@@ -429,7 +429,7 @@ describe('prepareLpDeposit: a pool paired with USDC or BAYLA', () => {
     expect(loss).toBeGreaterThan(16.5);
     expect(loss).toBeLessThan(17.5);
     expect(s.warnings).toHaveLength(2);
-    expect(s.warnings[0]).toBe('Its price is 50.0% below the outside price. A deposit here would hand that gap to the first arbitrage trade.');
+    expect(s.warnings[0]).toBe('Its price is 50.0% below the outside price. If you add now, whoever trades it back takes up to about 5.7% of what you add (about $5.72 per $100).');
     expect(s.warnings[1]).toMatch(new RegExp(`^At these amounts, a move back to the outside price would take up to about 1[67]\\.\\d+ ${quote.symbol} of what you put in\\. That is an estimate\\.$`));
     expect(s.warnings.join(' ')).not.toMatch(/\bSOL\b/);
   });
