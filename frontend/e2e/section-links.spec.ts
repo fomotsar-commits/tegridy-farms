@@ -153,10 +153,11 @@ test.describe('a section link on its own page', () => {
     const hold = page.locator('section[aria-label="Three paths"] a[href="/#hall"]');
     await expect(hold).toBeVisible({ timeout: 20_000 });
     for (const press of [1, 2, 3]) {
-      // Past the hall, with the link that names it at the top of the screen.
+      // Past the hall. Since answer twenty the three paths stand ABOVE the hall, so the link
+      // that names it is above the screen too; the press brings it back into view first.
       await page.evaluate(() => {
-        const paths = document.querySelector('section[aria-label="Three paths"]');
-        if (paths) window.scrollTo(0, window.scrollY + paths.getBoundingClientRect().top);
+        const hall = document.getElementById('hall');
+        if (hall) window.scrollTo(0, window.scrollY + hall.getBoundingClientRect().bottom + 10);
       });
       expect(await placement(page, 'hall'), `before press ${press}, the hall is above the screen`).toMatch(/^#hall top at -/);
       await hold.click();
@@ -199,10 +200,11 @@ test.describe('a section address opened directly', () => {
   test('Back to it is the browser\'s to place: the venue makes no jump', async ({ page }) => {
     await prepare(page);
     await page.goto('/#hall');
-    const toPools = page.locator('section[aria-label="Three paths"] a[href="/liquidity"]');
+    // Provide LP opens every Solana pool since answer twenty (the Ethereum form inside an Ethereum room).
+    const toPools = page.locator('section[aria-label="Three paths"] a[href="/solana-lp"]');
     await expect(toPools).toBeVisible({ timeout: 20_000 });
     await toPools.click();
-    await expect(page.locator('#provide')).toBeAttached({ timeout: 20_000 });
+    await expect(page.getByRole('heading', { name: 'Solana liquidity.' })).toBeVisible({ timeout: 20_000 });
     const poolsTitle = await page.title();
     await forgetJumps(page);
     await page.goBack();

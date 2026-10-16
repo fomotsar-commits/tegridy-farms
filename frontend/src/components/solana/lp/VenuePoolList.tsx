@@ -9,6 +9,8 @@ import { Card, Notice } from '../curve/ui';
 import { CardArt } from '../../ui/CardArt';
 import { FinePrint } from '../../ui/FinePrint';
 import type { LpReaders } from './readers';
+import { BUNGALOWS } from '../../../lib/bungalows';
+import { useActiveBungalowId } from '../../../hooks/useActiveBungalowId';
 
 /**
  * Every pool on the venue, listed before a token is picked, so nobody has to search one
@@ -19,7 +21,18 @@ import type { LpReaders } from './readers';
  * A list that could not be read says that, never "no pools". A reader without
  * `listPools` (every component test's fake) renders nothing.
  */
-export function VenuePoolList({ readers, reloadKey = 0, onView }: { readers: LpReaders; reloadKey?: number; onView: (tokenMint: string) => void }) {
+export function VenuePoolList({
+  readers,
+  reloadKey = 0,
+  onView,
+  onAdd,
+}: {
+  readers: LpReaders;
+  reloadKey?: number;
+  onView: (tokenMint: string) => void;
+  /** A row's Add (the LP door): that pool's Add form in one press. Left out, rows have View only. */
+  onAdd?: (tokenMint: string, pool: string, quoteMint: string) => void;
+}) {
   const read = usePoolList(readers, reloadKey);
   if (!readers.listPools) return null;
   return (
@@ -35,7 +48,7 @@ export function VenuePoolList({ readers, reloadKey = 0, onView }: { readers: LpR
             </FinePrint>
           </>
         ) : (
-          <PoolRows list={read.list} onView={onView} />
+          <PoolRows list={read.list} onView={onView} onAdd={onAdd} />
         )}
         <FinePrint summary="How this list works">
           <p>
@@ -50,15 +63,27 @@ export function VenuePoolList({ readers, reloadKey = 0, onView }: { readers: LpR
   );
 }
 
-function PoolRows({ list, onView }: { list: Extract<PoolListRead, { kind: 'ok' }>['list']; onView: (tokenMint: string) => void }) {
-  const { pools, unread, truncated } = list;
+function PoolRows({
+  list,
+  onView,
+  onAdd,
+}: {
+  list: Extract<PoolListRead, { kind: 'ok' }>['list'];
+  onView: (tokenMint: string) => void;
+  onAdd?: (tokenMint: string, pool: string, quoteMint: string) => void;
+}) {
+  const { pools: listed, unread, truncated } = list;
+  // A reader in a Solana room sees that coin's pools first (the LP door, island answer twenty); the rest keep the list's order.
+  const roomId = useActiveBungalowId();
+  const roomMint = BUNGALOWS.find((b) => b.id === roomId && b.chain === 'solana')?.address ?? null;
+  const pools = roomMint ? [...listed.filter((v) => v.tokenMint === roomMint), ...listed.filter((v) => v.tokenMint !== roomMint)] : listed;
   return (
     <div className="space-y-3">
       {pools.length === 0 && unread === 0 && !truncated && <p data-testid="lp-all-pools-none">No pools yet.</p>}
       {pools.length > 0 && (
         <ul className="space-y-2" aria-label="All pools: SOL pools first, then USDC, then BAYLA, the deepest of each first">
           {pools.map((view) => (
-            <PoolRow key={view.address} view={view} onView={onView} />
+            <PoolRow key={view.address} view={view} onView={onView} onAdd={onAdd} />
           ))}
         </ul>
       )}
@@ -72,7 +97,7 @@ function PoolRows({ list, onView }: { list: Extract<PoolListRead, { kind: 'ok' }
   );
 }
 
-function PoolRow({ view, onView }: { view: PoolView; onView: (tokenMint: string) => void }) {
+function PoolRow({ view, onView, onAdd }: { view: PoolView; onView: (tokenMint: string) => void; onAdd?: (tokenMint: string, pool: string, quoteMint: string) => void }) {
   const { pool } = view.snapshot;
   const tokenDecimals = view.quoteIsToken0 ? pool.mint1Decimals : pool.mint0Decimals;
   // Named only by an address this site knows: a room's token, or a pairing coin (USDC in USDC / SOL).
@@ -94,9 +119,16 @@ function PoolRow({ view, onView }: { view: PoolView; onView: (tokenMint: string)
         </p>
         <p className="text-white/75 text-[12.5px] [overflow-wrap:anywhere]">{price === null ? 'No price: one side is empty' : priceText(price, view.quote, symbol ?? 'token')}</p>
       </div>
-      <button type="button" className="btn-secondary min-h-[44px] px-4 text-[13px]" aria-label={`View ${label}`} onClick={() => onView(view.tokenMint)}>
-        View
-      </button>
+      <div className="flex gap-2">
+        {onAdd && (
+          <button type="button" className="btn-primary min-h-[44px] px-4 text-[13px]" aria-label={`Add to ${label}`} onClick={() => onAdd(view.tokenMint, view.address, view.quote.mint)}>
+            Add
+          </button>
+        )}
+        <button type="button" className="btn-secondary min-h-[44px] px-4 text-[13px]" aria-label={`View ${label}`} onClick={() => onView(view.tokenMint)}>
+          View
+        </button>
+      </div>
     </li>
   );
 }

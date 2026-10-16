@@ -38,6 +38,17 @@ export interface LpWish {
    * to the pool they are already in, not to whichever pool is deepest today.
    */
   pool?: string;
+  /** The form an 'add' wish opens: 'one' is Add with one coin (the LP door, island answer twenty). Absent: Add liquidity. */
+  form?: 'one';
+  /** An 'add' wish with no `pool` goes to the deepest pool paired with this coin (a mint), and to no other. */
+  quote?: string;
+}
+
+/** How the LP door asks for an Add form (`openAdd`). */
+export interface AddAsk {
+  pool?: string;
+  quote?: string;
+  form?: 'one';
 }
 
 /** What the section can ask of the finder from outside it. */
@@ -50,6 +61,12 @@ export interface PoolFinderHandle {
   addTo(mint: string, pool: string): void;
   /** Look `mint` up as a press in the finder does, ending in no form: a View in the list of every pool. */
   show(mint: string): void;
+  /**
+   * The LP door: look `mint` up as a press does and end in an Add form, of the pool named
+   * (`ask.pool`, to that pool or to nowhere) or of the deepest pool paired with `ask.quote`.
+   * `ask.form` 'one' opens Add with one coin. The same lookup and checks as every other press.
+   */
+  openAdd(mint: string, ask: AddAsk): void;
 }
 
 /** Is this pool in the lookup's answer, read or not? A lookup that failed lists nothing. */
@@ -280,12 +297,16 @@ export function PoolFinder({
   // then Forward reopened a form the visitor had closed (review, 2026-10-03).
   const spent = useCallback((n: number) => setWish((w) => (w?.n === n ? null : w)), []);
   const lookUp = useCallback(
-    (next: string, want: LpWish['task'] | null, pool?: string) => {
+    (next: string, want: LpWish['task'] | null, pool?: string, ask: Omit<AddAsk, 'pool'> = {}) => {
       asked.current = true;
       wishes.current += 1;
       setUnfound(null);
       if (pool) setExtra({ mint: next, pool });
-      setWish(want ? { task: want, mint: next, n: wishes.current, ...(pool ? { pool } : {}) } : null);
+      setWish(
+        want
+          ? { task: want, mint: next, n: wishes.current, ...(pool ? { pool } : {}), ...(ask.form ? { form: ask.form } : {}), ...(ask.quote ? { quote: ask.quote } : {}) }
+          : null,
+      );
       if (next === mint) setNonce((n) => n + 1);
       else onMint(next);
     },
@@ -308,6 +329,12 @@ export function PoolFinder({
         setInput(next);
         setError(null);
         lookUp(next, null);
+      },
+      openAdd(next, ask) {
+        setInput(next);
+        setError(null);
+        setTask('add');
+        lookUp(next, 'add', ask.pool, { form: ask.form, quote: ask.quote });
       },
     }),
     [lookUp],
@@ -559,8 +586,10 @@ function SearchResults({
   const addTo = useMemo(() => {
     if (wish?.task !== 'add' || pools.kind !== 'ok' || !notes) return null;
     let warned: string | null = null;
+    const quote = named === null ? wish.quote ?? null : null;
     for (const p of pools.search.pools) {
       if (p.kind !== 'pool' || (named !== null && p.view.address !== named)) continue;
+      if (quote !== null && p.view.quote.mint !== quote) continue;
       const health = healths.get(p.view.address);
       if (!health || depositOffer({ mode, gate, health, held: lpHeld(notes, p.view.address, 'add') }) !== 'offer') continue;
       if (!priceWarned(health)) return p.view.address;
@@ -622,6 +651,7 @@ function SearchResults({
                     readers={readers}
                     health={healths.get(p.view.address)!}
                     openNow={wish && addTo === p.view.address ? wish.n : 0}
+                    openForm={wish && addTo === p.view.address ? wish.form : undefined}
                     showNow={named === p.view.address ? showNamed : 0}
                     onActed={onActed}
                   />
