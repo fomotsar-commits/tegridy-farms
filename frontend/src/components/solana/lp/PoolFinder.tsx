@@ -517,7 +517,7 @@ export function PoolFinder({
       <div ref={answerRef} data-testid="lp-answer" />
 
       <p role="status" aria-live="polite" className="sr-only" data-testid="lp-status">
-        {state.status === 'loading' ? 'Reading the token and its pools.' : state.status === 'done' ? `${announce(state)}${unfoundLine ? ` ${unfoundLine}` : ''}` : ''}
+        {state.status === 'loading' ? 'Reading the token and its pools.' : state.status === 'done' ? `${only ? announceOne(state, only) : announce(state)}${unfoundLine ? ` ${unfoundLine}` : ''}` : ''}
       </p>
 
       {state.status === 'loading' && <p className="text-white/70 text-[13px]">Reading the token and its pools from the chain…</p>}
@@ -544,6 +544,15 @@ export function PoolFinder({
 }
 
 const count = (n: number, one: string, many: string) => (n === 1 ? `One ${one}` : `${n} ${many}`);
+
+/** The home card's line: it shows one pool, so it speaks of that one, never of a count it does not show. */
+function announceOne(s: Extract<SearchState, { status: 'done' }>, only: string): string {
+  const read = s.pools.kind === 'ok' && s.pools.search.pools.some((p) => p.kind === 'pool' && p.view.address === only);
+  const parts = [read ? 'The pool was read.' : 'The pool could not be read.'];
+  if (s.safety.kind !== 'read') parts.push('The token could not be read.');
+  else if (s.safety.verdict === 'blocked') parts.push('This site does not open or add to pools for this token.');
+  return parts.join(' ');
+}
 
 function announce(s: Extract<SearchState, { status: 'done' }>): string {
   if (s.pools.kind === 'unread') return 'The pools could not be read.';

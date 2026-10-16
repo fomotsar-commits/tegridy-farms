@@ -187,6 +187,8 @@ describe('the home card', () => {
     const card = await waitFor(() => cardOf(sol.address));
     await within(card).findByRole('button', { name: 'Add with one coin' });
     expect(screen.getAllByTestId('lp-pool')).toHaveLength(1);
+    // A screen reader hears of the one pool shown, not "2 pools found".
+    expect(screen.getByTestId('lp-status')).toHaveTextContent(/^The pool was read\.$/);
     expect(within(card).getByRole('button', { name: 'Add liquidity' })).toBeInTheDocument();
     // Its pool is read with the lookup, whatever the index lists.
     expect(r.findPools).toHaveBeenCalledWith(expect.anything(), [sol.address]);
@@ -251,6 +253,7 @@ describe('the home card', () => {
     const usdc = view({ quote: USDC_QUOTE });
     mountHome(readers([usdc]), '/', key().toBase58());
     expect(await screen.findByTestId('lp-only-unread')).toHaveTextContent('This pool did not read just now');
+    expect(screen.getByTestId('lp-status')).toHaveTextContent(/^The pool could not be read\.$/);
     expect(screen.queryByTestId('lp-pool')).toBeNull();
   });
 });
