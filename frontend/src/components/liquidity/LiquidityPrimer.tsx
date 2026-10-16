@@ -34,7 +34,7 @@ export function LiquidityPrimer() {
         {/* Inside the summary on purpose: a closed <details> renders nothing
             else. It still fills the whole card, which is the positioned box. */}
         <CardArt pageId="liquidity" idx={2} />
-        <span>New to this? What a liquidity pool is, in four answers</span>
+        <span>New to pools? Four answers</span>
         <svg
           width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4"
           strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"

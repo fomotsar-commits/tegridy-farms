@@ -89,6 +89,7 @@ into the 404.
 | `launch-cohort` | `_lib/launch-cohort.js` | Airlock `Create` enumeration |
 | `curve-birth` | `_lib/evm-birth.js` | ONE Memetics Curve launch's birth transaction (its `LaunchCreated` log), from keyless Blockscout on Ethereum and Base and the Robinhood RPC in 10,000,000-block windows. A HINT only: the browser reads that receipt and checks every log before it shows the maker's create-buy |
 | `doppler-birth` | `_lib/evm-birth.js` | ONE Doppler token's birth transaction (its own first mint, a `Transfer` from the zero address) from keyless `eth.blockscout.com`, for the maker's allocation and lock on `/launch/:token`. Same hint rule |
+| `eas-attested` | `_lib/eas-attested.js` | ONE token's EAS `Attested` logs under the Fact Sheet disclosure schema (the only schema it accepts), from keyless `eth.blockscout.com`, for the attestation line on `/launch/:token`. Same hint rule: the browser re-reads each uid with `getAttestation` |
 | `heat` | `_lib/heat.js` | Jungle Bay Island held-time oracle (CORS-forced, not an optimisation) |
 | `births` | `_lib/births.js` | HMAC-signed birth notify to the island's enrollment socket |
 | `record` | `_lib/record.js` | A token's birth certificate as JSON, derived from chain on read |

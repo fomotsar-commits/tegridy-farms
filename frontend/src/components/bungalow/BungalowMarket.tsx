@@ -5,6 +5,7 @@ import { ErrorBoundary } from '../ui/ErrorBoundary';
 import { CardArt } from '../ui/CardArt';
 import { FinePrint } from '../ui/FinePrint';
 import { BungalowTrades } from './BungalowTrades';
+import { geckoAsOfLine } from '../../lib/geckoTerminal/edge';
 
 // The chart pulls in lightweight-charts; keep it out of the bungalow's first
 // paint the same way the classic dashboard does.
@@ -35,7 +36,7 @@ const PriceChart = lazy(() =>
  */
 export function BungalowMarket({ bungalow }: { bungalow: Bungalow }) {
   const market = bungalow.market ?? null;
-  const { market: data, isLoading, error, refresh } = usePoolMarket(
+  const { market: data, isLoading, error, freshness, refresh } = usePoolMarket(
     market?.network ?? null,
     market?.pool ?? null,
   );
@@ -48,6 +49,8 @@ export function BungalowMarket({ bungalow }: { bungalow: Bungalow }) {
   if (!market || !chartMarket) return null;
 
   const change = data?.change24hPct ?? null;
+  // The strip's age, when it is not fresh or is a kept copy (usePoolMarket asks for one).
+  const asOf = data ? geckoAsOfLine(freshness) : null;
   const changeColor =
     change === null ? 'rgba(255,255,255,0.55)' : change >= 0 ? '#22c55e' : '#ef4444';
 
@@ -59,9 +62,6 @@ export function BungalowMarket({ bungalow }: { bungalow: Bungalow }) {
     >
       <CardArt pageId="bungalow-market" idx={0} />
       <div className="flex items-center gap-3 flex-wrap mb-4">
-        <p className="text-[10px] uppercase tracking-wider" style={{ color: 'var(--color-kyle)' }}>
-          The market
-        </p>
         <h2 className="heading-luxury text-xl text-white">{bungalow.symbol} price</h2>
         <span className="text-[11px] text-white/45">{market.label}</span>
         <div className="flex-1" />
@@ -105,6 +105,10 @@ export function BungalowMarket({ bungalow }: { bungalow: Bungalow }) {
         />
       </div>
 
+      {asOf && (
+        <p className="text-[10px] text-white/55 -mt-3 mb-4" data-testid="market-as-of">{asOf}</p>
+      )}
+
       {error && (
         <p className="text-[12px] mb-4" style={{ color: '#f0b26b' }}>{error}</p>
       )}
@@ -134,12 +138,13 @@ export function BungalowMarket({ bungalow }: { bungalow: Bungalow }) {
       <BungalowTrades bungalow={bungalow} />
 
       <p className="text-[10px] text-white/40 mt-3">
-        A dash means the figure could not be read, not that it is zero.
+        A dash means the figure could not be read.
       </p>
       <FinePrint summary="Sources" className="mt-1">
         <p>
-          Price, liquidity, volume and the trade split are read from GeckoTerminal for this
-          pool on read. Nothing here refreshes on its own.
+          A dash means the figure could not be read, not that it is zero. Price, liquidity,
+          volume and the trade split are read from GeckoTerminal for this pool on read.
+          Nothing here refreshes on its own.
         </p>
       </FinePrint>
     </section>

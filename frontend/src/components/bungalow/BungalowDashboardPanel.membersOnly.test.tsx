@@ -335,3 +335,19 @@ describe("a member's position when the pool read failed", () => {
     }
   });
 });
+
+// Owner, 2026-10-14: the room's dashboard shows the marketplace and NFT loans doors too,
+// in the quick-links row beside Trade and the pool.
+describe('the quick links carry the marketplace and NFT loans doors', () => {
+  it.each([
+    ['a members-only pool', MEMBERS_ONLY],
+    ['an open pool', OPEN],
+  ])('%s: Marketplace goes to /nakamigos and NFT loans to /nft-finance', async (_label, b) => {
+    fixtures.walletKey = null;
+    mount(b);
+    expect(screen.getByRole('link', { name: 'Marketplace' }).getAttribute('href')).toBe('/nakamigos');
+    expect(screen.getByRole('link', { name: 'NFT loans' }).getAttribute('href')).toBe('/nft-finance');
+    expect(screen.getByRole('link', { name: `Trade ${b.symbol}` })).toBeTruthy();
+    await settle();
+  });
+});

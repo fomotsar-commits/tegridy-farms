@@ -16,10 +16,10 @@ export function AddressRow({ label, value, explorerUrl }: { label: string; value
   const toggle = (
     <button type="button" aria-expanded={whole} onClick={() => setWhole((w) => !w)} className={whole ? PRESS : `${PRESS} sm:ml-auto`}>
       {whole ? (
-        'Show less'
+        'Hide'
       ) : (
         <>
-          <span className="font-mono">{shortAddress(value)}</span> <span className="text-white/60">Show whole</span>
+          <span className="font-mono">{shortAddress(value)}</span> <span className="text-white/60">Show full address</span>
         </>
       )}
     </button>

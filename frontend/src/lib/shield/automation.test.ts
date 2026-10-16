@@ -172,8 +172,8 @@ describe('the shield never claims an execution nobody performs', () => {
   });
 
   it('names the user as the executor, in those words', () => {
-    expect(EXECUTION_IS_YOURS).toMatch(/you execute this yourself/i);
-    expect(EXECUTION_IS_YOURS).toMatch(/nothing signs for you/i);
+    expect(EXECUTION_IS_YOURS).toMatch(/you repay it yourself/i);
+    expect(EXECUTION_IS_YOURS).toMatch(/nothing watches or signs for you/i);
   });
 
   it('states that monitoring stops when the tab does', () => {
