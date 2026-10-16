@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type Ref } from 'react';
+import { m } from 'framer-motion';
 import type { PublicKey } from '@solana/web3.js';
 import { displaySafe } from '../../../lib/launchMetadata/validate';
 import { MAX_POSITIONS, type PositionsRead, type Position } from '../../../lib/solana/lp/positions';
@@ -224,6 +225,16 @@ function PositionsList({
   const aside = read.positions.filter((p) => setAsideReason(p, safetyOf(p)) !== null);
   const autoLedger = new Set(main.filter((p) => p.pool?.kind === 'pool').slice(0, AUTO_LEDGER_ROWS).map((p) => p.lpAccount));
   const more = read.totalShares - read.positions.length;
+  // THE LANDING (island, answer twenty): a share that is new, or larger than on the read before,
+  // rises into place once. Only a read after an earlier one can land anything, so opening the page
+  // moves nothing; MotionConfig reducedMotion="user" (App.tsx) stills it for anyone who asked.
+  const [last, setLast] = useState<{ read: typeof read; landed: Set<string>; held: Map<string, bigint> } | null>(null);
+  if (last?.read !== read) {
+    const landed = new Set<string>();
+    if (last) for (const p of read.positions) if (!last.held.has(p.lpAccount) || p.lpAmount > last.held.get(p.lpAccount)!) landed.add(p.lpAccount);
+    setLast({ read, landed, held: new Map(read.positions.map((p) => [p.lpAccount, p.lpAmount])) });
+  }
+  const landedNow = last?.read === read ? last.landed : null;
   if (read.totalShares === 0) {
     return (
       <>
@@ -250,6 +261,7 @@ function PositionsList({
               readers={readers}
               onReadAgain={onReadAgain}
               onAddMore={onAddMore}
+              landed={landedNow?.has(p.lpAccount) ?? false}
             />
           ))}
         </ul>
@@ -320,6 +332,7 @@ function PositionRow({
   readers,
   onReadAgain,
   onAddMore,
+  landed = false,
 }: {
   p: Position;
   owner: PublicKey;
@@ -331,6 +344,8 @@ function PositionRow({
   readers: LpReaders;
   onReadAgain: () => void;
   onAddMore?: AddMore;
+  /** New, or grown since the read before (THE LANDING): rises into place once. */
+  landed?: boolean;
 }) {
   const view = p.pool?.kind === 'pool' ? p.pool.view : null;
   const decimals = safety?.kind === 'read' ? safety.facts?.decimals ?? null : null;
@@ -377,10 +392,18 @@ function PositionRow({
     </>
   );
   return (
-    <li
+    <m.li
+      initial={landed ? { opacity: 0, y: 24, scale: 0.97 } : false}
+      animate={{ opacity: 1, y: 0, scale: 1 }}
+      transition={{ type: 'spring', stiffness: 260, damping: 22 }}
       className="rounded-lg p-3 space-y-1.5"
-      style={{ background: 'rgba(0,0,0,0.35)', border: '1px solid rgba(255,255,255,0.08)' }}
+      style={{
+        background: 'rgba(0,0,0,0.35)',
+        border: landed ? '1px solid rgba(49,208,170,0.65)' : '1px solid rgba(255,255,255,0.08)',
+        boxShadow: landed ? '0 0 24px rgba(49,208,170,0.25)' : undefined,
+      }}
       data-testid="lp-position"
+      data-landed={landed ? 'true' : undefined}
       data-pool={view?.address ?? ''}
       data-lp-mint={p.lpMint}
       data-placement={p.placement}
@@ -472,7 +495,7 @@ function PositionRow({
           )}
         </div>
       </details>
-    </li>
+    </m.li>
   );
 }
 

@@ -17,6 +17,7 @@ import { PendingTradeCard } from '../curve/PendingTradeCard';
 import type { GateRpc, LpKind, LpWriteApi } from '../curve/ports';
 import { PoolFinder, type PoolFinderHandle } from './PoolFinder';
 import { parseMintInput } from '../../../lib/solana/lp/mintInput';
+import { SOL_MINT } from '../../../lib/solana';
 import { YourPositions } from './YourPositions';
 import { VenuePoolList } from './VenuePoolList';
 import { HowItPays } from './HowItPays';
@@ -118,7 +119,30 @@ function LpBody({ readers, mode, reloadKey, finderFirst }: { readers: LpReaders;
   const addMore = useCallback((tokenMint: string, pool: string) => finderRef.current?.addTo(tokenMint, pool), []);
   // Every pool, under the finder: a View there is a lookup in the finder, like a picked token.
   const view = useCallback((tokenMint: string) => finderRef.current?.show(tokenMint), []);
-  const allPools = <VenuePoolList readers={readers} reloadKey={reloadKey} onView={view} />;
+  // A row's Add: that pool's Add form, Add with one coin when it is paired with SOL.
+  const addFromList = useCallback(
+    (tokenMint: string, pool: string, quoteMint: string) => finderRef.current?.openAdd(tokenMint, { pool, ...(quoteMint === SOL_MINT ? { form: 'one' as const } : {}) }),
+    [],
+  );
+  const allPools = <VenuePoolList readers={readers} reloadKey={reloadKey} onView={view} onAdd={addFromList} />;
+  // The LP door (island, answer twenty): ?mint=<token>&task=add[&pool=<address>] ends in Add with
+  // one coin, of the pool named or of the token's deepest SOL pool. Asked once, then dropped from the
+  // address, so a reload or Back does not open the form again over what the visitor did since.
+  const doorTask = params.get('task');
+  const doorPool = params.get('pool');
+  useEffect(() => {
+    if (doorTask !== 'add' || !mint || !finderRef.current) return;
+    finderRef.current.openAdd(mint, { form: 'one', ...(doorPool ? { pool: doorPool } : { quote: SOL_MINT }) });
+    setParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        next.delete('task');
+        next.delete('pool');
+        return next;
+      },
+      { replace: true },
+    );
+  }, [doorTask, doorPool, mint, setParams]);
   const finder = (
     <PoolFinder
       ref={finderRef}
