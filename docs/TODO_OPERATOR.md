@@ -1827,6 +1827,8 @@ GUARD bug, not a chain fact. It is fixed and merged; the guard now reads **6/6
 technique is still the right one whenever a guard reports UNREADABLE:
 
 ```powershell
+# RETIRED pools: the pre-fix five as measured 2026-09-05. For the live pools, use the
+# ladder-* entries in frontend/scripts/addresses.json.
 $pools = @{ QR='0xdcc3a95A0921b83326157132B17770f02094c8E3'; MFER='0x7288DbF43D3BDBfC439B6E8a47Aef225D4816273'; BNKR='0xe0A152EBC21891FD47a7Dcd6018cfE3a64363178'; DRB='0xB62BaD165997E95C503044787b2Dcc85DC6D83F1'; JBM='0xA0D43eF39C4940e68b2f81d51E6316a45C136D93' }
 foreach ($k in $pools.Keys) {
   $body = @{ jsonrpc='2.0'; id=1; method='eth_call'; params=@(@{ to=$pools[$k]; data='0x18160ddd' }, 'latest') } | ConvertTo-Json -Depth 5 -Compress
@@ -1854,7 +1856,7 @@ setter and no undo. Do **QR first** as the cheap rehearsal, then the other four
 Base pools, then PEPE on mainnet last. Add `--broadcast --interactive` to the
 Phase A2 line, changing only `STAKING_TOKEN`:
 
-| # | Pool | Chain | `STAKING_TOKEN` | replaces `stakePool` |
+| # | Pool | Chain | `STAKING_TOKEN` | replaced `stakePool` (RETIRED 2026-09-05) |
 |---|------|-------|-----------------|----------------------|
 | 1 | QR   | Base 8453 | `0x2b5050f01d64fbb3e4ac44dc07f0732bfb5ecadf` | `0xdcc3a95A0921b83326157132B17770f02094c8E3` |
 | 2 | MFER | Base 8453 | `0xe3086852a4b125803c815a158249ae468a3254ca` | `0x7288DbF43D3BDBfC439B6E8a47Aef225D4816273` |
