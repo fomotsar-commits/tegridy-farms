@@ -21,7 +21,7 @@ import type { PoolView } from '../../../lib/solana/lp/poolFinder';
 import type { PoolHealth } from '../../../lib/solana/lp/poolHealth';
 import { quoteCoin } from '../../../lib/solana/lp/quotes';
 import type { TokenSafety } from '../../../lib/solana/lp/tokenSafety';
-import { prepareJupiterSwap, type PreparedJupiterSwap } from '../../../lib/solana/swap/jupiterFeeRetry';
+import { NO_SITE_FEE_ROUTE_COPY, prepareJupiterSwap, type PreparedJupiterSwap } from '../../../lib/solana/swap/jupiterFeeRetry';
 import { OWN_ROUTE_COPY, freshDecision, ownPoolNowWins, prepareOwnPoolSwap, within } from '../../../lib/solana/swap/ownPoolRoute';
 import type { VenuePoolCandidate } from '../../../lib/solana/swap/venuePools';
 import { CHECK_KEEPS_FAILING, LOST_ANSWER_TITLE, LOST_NO_SIGNATURE, OWN_POOL_REVIEW_OFFER } from '../../../lib/solana/swap/walletCopy';
@@ -33,14 +33,14 @@ import { noteKey, readPendingTrades, swapPendingScope } from '../curve/pendingTr
 import type { Prepared } from '../curve/ports';
 import { TxFlowView } from '../curve/TxFlowView';
 import { Field, Notice, Row, SlippagePicker } from '../curve/ui';
-import { DEFAULT_SLIPPAGE_BPS, TOGGLE_CLS, baseUnitsToInput, inputCls, inputStyle } from '../curve/uiFormat';
+import { DEFAULT_SLIPPAGE_BPS, TOGGLE_CLS, baseUnitsToInput, impactWarning, inputCls, inputStyle } from '../curve/uiFormat';
 import { useReturnFocus, type OnSettled } from '../curve/useTxFlow';
 import { WalletNeeded } from '../curve/WalletNeeded';
 import { AddLiquidityPanel } from './AddLiquidityPanel';
 import { RISK_SHORT } from './LpDisclosures';
 import { PercentPicker } from './PercentPicker';
 import { tick } from '../../../lib/tick';
-import { clearStepTwo, readStepTwo, receivedBy, saveStepTwo, sendJupiterLeg, stepOneLanded, type StepTwoNote } from './oneCoinSwap';
+import { clearStepTwo, priceChangeOf, readStepTwo, receivedBy, saveStepTwo, sendJupiterLeg, stepOneLanded, type StepTwoNote } from './oneCoinSwap';
 import { PanelFrame } from './PanelFrame';
 import { coinAbout, coinExact, solExact, unitsExact, useWalletFacts } from './panelKit';
 import { useLpWrites, type LpWrites } from './useLpWrites';
@@ -709,11 +709,24 @@ function OneCoinInner({
           <Row label="You pay" value={exact(plan_.paid, plan_.swapIn)} mono={false} />
           <Row label="You receive (quoted)" value={about(other(plan_.paid), plan_.out)} mono={false} />
           {plan_.min !== null && <Row label="You receive at least" value={exact(other(plan_.paid), plan_.min)} mono={false} />}
+          {plan_.quote && <PriceChangeRows quote={plan_.quote} />}
           <Row
             label="Site fee"
-            value={plan_.quote && quoteHasPlatformFee(plan_.quote) ? `${((plan_.quote.platformFee?.feeBps ?? 0) / 100).toFixed(2)}%, inside the quote` : 'none on this route'}
+            value={
+              plan_.quote && quoteHasPlatformFee(plan_.quote)
+                ? `${((plan_.quote.platformFee?.feeBps ?? 0) / 100).toFixed(2)}%, inside the quote`
+                : swapCarriesPlatformFee(plan_.inputMint, plan_.outputMint)
+                  ? 'none on this route'
+                  : 'none on this pair'
+            }
             mono={false}
           />
+          {/* A pair that carries the fee, on a route whose transaction cannot take it (the 6014 retry): said as the swap page says it. */}
+          {plan_.quote && !quoteHasPlatformFee(plan_.quote) && swapCarriesPlatformFee(plan_.inputMint, plan_.outputMint) && (
+            <div data-testid="lp-one-no-fee">
+              <Notice tone="warn">{NO_SITE_FEE_ROUTE_COPY}</Notice>
+            </div>
+          )}
           <Row label="This pool would pay" value={plan_.poolOut === null ? 'could not be read' : about(other(plan_.paid), plan_.poolOut)} mono={false} />
           <StepTwoRows plan={plan_} about={about} quoteIsToken0={view.quoteIsToken0} lpDecimals={pool.lpMintDecimals} />
           <Notice>Two transactions, two signatures. Step 2 has its own review.</Notice>
@@ -895,6 +908,18 @@ function OneCoinInner({
 /** The share bar's words: two decimals, and never a zero for a share that is not one. */
 function shareText(pct: number): string {
   return pct < 0.01 ? 'under 0.01%' : `${pct.toFixed(2)}%`;
+}
+
+/** What step 1 costs in price, from Jupiter's own figure, and the swap page's warning when it is large. */
+function PriceChangeRows({ quote }: { quote: JupiterQuote }) {
+  const change = priceChangeOf(quote);
+  const w = change ? impactWarning(change.bps) : null;
+  return (
+    <>
+      <Row label="Price change" value={change?.text ?? 'could not be read'} mono={false} />
+      {w && <Notice tone={w.tone}>{w.text}</Notice>}
+    </>
+  );
 }
 
 /** Step 2 as the review of step 1 expects it, and what stays in the wallet. */

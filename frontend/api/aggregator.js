@@ -183,6 +183,17 @@ const CONFIGS = {
     // mint, and an amount no route fills). The proxy answers these as 404 NO_ROUTE
     // instead of 502, so the LP price check can tell "no market" from "Jupiter down".
     noRouteErrorCodes: ["TOKEN_NOT_TRADABLE", "NO_ROUTES_FOUND", "COULD_NOT_FIND_ANY_ROUTE"],
+    // The LP price check's quotes (src/lib/solana/lp/outsidePrice.ts) are kept at the
+    // edge for 30 seconds, so every visitor looking at a pool shares one Jupiter read
+    // instead of each spending the key's 60 a minute; an unread check holds a pool's Add
+    // back. Only those quotes: they carry `priceCheck=1`, which nothing else sends and
+    // which never reaches Jupiter (it is not in allowedQuery). A quote with a platform
+    // fee is a trade being built and is never shared. runProxy asks this for a 200 GET
+    // only, so an error or a "no route" answer stays private, no-store.
+    edgeCache: (segments, query) =>
+      segments.join("/") === "swap/v1/quote" && query.priceCheck === "1" && query.platformFeeBps == null
+        ? "s-maxage=30, stale-while-revalidate=15"
+        : null,
     // swap/v1/{quote,swap} (trade) + tokens/v2/search (any-pair token search +
     // paste-a-mint resolve). Exact segment matches only — keep the surface narrow.
     matchPath: (segments) => {

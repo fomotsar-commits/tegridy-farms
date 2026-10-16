@@ -261,7 +261,7 @@ describe('a pairing coin looked up as the token: the page names the coins that w
     expect(said(screen.getByTestId('lp-no-pools'))).toBe(`No pools pairing this token with SOL found. ${OTHER_SIDE}`);
     expect(status()).toBe(`No pools pairing this token with SOL found. ${OTHER_SIDE}`);
     expect(card).toHaveTextContent('There is no SOL pool to add liquidity to yet. Opening one is how the first liquidity goes in.');
-    expect(card).toHaveTextContent('No SOL pool for this token yet. You can open the first one on the public fee tier: 1% a trade, 0.15 SOL to open (read just now).');
+    expect(card).toHaveTextContent('No SOL pool for this token yet. You can open the first one on the public fee tier (read just now): 1% a trade.');
     expect(said(within(card).getByTestId('lp-create-other-side'))).toBe(OTHER_SIDE);
     // Nothing says a pair that was never looked for has no pool.
     expect(document.body).not.toHaveTextContent('SOL, USDC or BAYLA found');
@@ -298,7 +298,7 @@ describe('a pairing coin looked up as the token: the page names the coins that w
     expect(said(screen.getByTestId('lp-no-pools'))).toBe('No pools pairing this token with SOL or USDC found.');
     expect(status()).toBe('No pools pairing this token with SOL or USDC found.');
     expect(card).toHaveTextContent('There is no SOL or USDC pool to add liquidity to yet. Opening one is how the first liquidity goes in.');
-    expect(card).toHaveTextContent('No SOL or USDC pool for this token yet. You can open the first one on the public fee tier:');
+    expect(card).toHaveTextContent('No SOL or USDC pool for this token yet. You can open the first one on the public fee tier (read just now):');
     expect(document.body).not.toHaveTextContent('from the other side');
   });
 
@@ -308,7 +308,7 @@ describe('a pairing coin looked up as the token: the page names the coins that w
     expect(said(screen.getByTestId('lp-no-pools'))).toBe('No pools pairing this token with SOL, USDC or BAYLA found.');
     expect(status()).toBe('No pools found for this token.');
     expect(card).toHaveTextContent('There is no pool to add liquidity to yet. Opening one is how the first liquidity goes in.');
-    expect(card).toHaveTextContent('No pool for this token yet. You can open the first one on the public fee tier: 1% a trade, 0.15 SOL to open (read just now).');
+    expect(card).toHaveTextContent('No pool for this token yet. You can open the first one on the public fee tier (read just now): 1% a trade.');
     expect(document.body).not.toHaveTextContent('from the other side');
   });
 });
@@ -558,6 +558,28 @@ describe('the market price in the coin', () => {
     // 0.01 SOL a token over 0.005 SOL a USDC.
     await waitFor(() => expect(market(panel)).toHaveTextContent(/^Market price \(Jupiter, read \d\d:\d\d:\d\d\): 1 token = 2 USDC\.$/));
   });
+
+  // The first look may take the edge's 30-second copy of Jupiter's answer (outsidePrice.ts).
+  // Read again must read again: both prices are then asked of Jupiter itself.
+  it('Read the market price again asks Jupiter itself, for the token and the coin; the first look does not', async () => {
+    const r = readers();
+    mount(r);
+    const { panel } = await openPanel();
+    await pair(panel, 'USDC');
+    await waitFor(() => expect(market(panel)).toHaveTextContent('1 token = 2 USDC.'));
+    const calls = vi.mocked(r.outsidePrice).mock.calls;
+    expect(calls).toEqual([
+      [M, 6],
+      [USDC, 6],
+    ]);
+    fireEvent.click(within(panel).getByRole('button', { name: 'Read the market price again' }));
+    await waitFor(() => expect(within(panel).getByTestId('lp-create-market-again')).toHaveTextContent('Read again just now: the same answer.'));
+    expect(calls.slice(2)).toHaveLength(2);
+    expect(calls.slice(2)).toEqual(expect.arrayContaining([
+      [M, 6, { fresh: true }],
+      [USDC, 6, { fresh: true }],
+    ]));
+  }, LONG);
 
   it('while the coin’s price is still being read: Review is off and the form says which price is missing', async () => {
     let release!: (p: OutsidePrice) => void;
@@ -809,7 +831,7 @@ describe('the pool to add to first is the chosen coin’s (advice, never a block
     );
     // The card names the way to it before the form is open: the owner could not see how to open a BAYLA/USDC pool.
     expect(within(card).getByTestId('lp-create-none-yet')).toHaveTextContent('This token has no USDC pool yet. Open a pool lets you choose what to pair it with.');
-    expect(within(card).getByRole('button', { name: 'Add liquidity to that pool' })).toBeEnabled();
+    expect(within(card).getByRole('button', { name: 'Go to that pool' })).toBeEnabled();
     expect(within(card).getByRole('button', { name: 'Open a pool' })).toBeEnabled();
 
     // The form, on SOL: the pool that exists is said.
@@ -853,14 +875,14 @@ describe('the pool to add to first is the chosen coin’s (advice, never a block
     expect(refers[1]).toHaveTextContent(`This token already has a USDC pool on the public fee tier that passes the checks (above). The biggest is ${usdcPool.address}, holding 2,000 USDC.`);
     expect(within(card).getByTestId('lp-create-none-yet')).toHaveTextContent('This token has no BAYLA pool yet.');
     expect(within(card).getByTestId('lp-create-still')).toHaveTextContent(
-      "You can still open your own on the public fee tier (1% a trade, 0.15 SOL to open). It will be a separate pool: it does not share the other pools' liquidity or fees.",
+      "You can still open your own on the public fee tier, at 1% a trade. It will be a separate pool: it does not share the other pools' liquidity or fees.",
     );
     // With more than one, each button says its coin: "that pool" would be a guess.
-    expect(within(card).queryByRole('button', { name: 'Add liquidity to that pool' })).toBeNull();
-    expect(within(card).getByRole('button', { name: 'Add liquidity to the SOL pool' })).toBeEnabled();
+    expect(within(card).queryByRole('button', { name: 'Go to that pool' })).toBeNull();
+    expect(within(card).getByRole('button', { name: 'Go to the SOL pool' })).toBeEnabled();
     expect(within(card).getByRole('button', { name: 'Open a pool' })).toBeEnabled();
     // The USDC button opens the USDC pool's own Add form, in that pool's card.
-    fireEvent.click(within(card).getByRole('button', { name: 'Add liquidity to the USDC pool' }));
+    fireEvent.click(within(card).getByRole('button', { name: 'Go to the USDC pool' }));
     const add = await screen.findByTestId('lp-add-panel');
     const usdcCard = screen.getAllByTestId('lp-pool').find((c) => c.getAttribute('data-pool') === usdcPool.address)!;
     expect(usdcCard).toContainElement(add);
@@ -885,7 +907,7 @@ describe('the pool to add to first is the chosen coin’s (advice, never a block
     expect(refer).toHaveAttribute('data-coin', 'USDC');
     expect(refer).toHaveTextContent(`This token already has a USDC pool on the public fee tier that passes the checks (above). The biggest is ${usdcPool.address}, holding 2,000 USDC.`);
     expect(within(card).getByTestId('lp-create-none-yet')).toHaveTextContent('This token has no SOL or BAYLA pool yet.');
-    expect(within(card).getByRole('button', { name: 'Add liquidity to that pool' })).toBeEnabled();
+    expect(within(card).getByRole('button', { name: 'Go to that pool' })).toBeEnabled();
     // On SOL (where the form starts) no pool exists, and the SOL form adds no line of its own.
     expect(within(panel).queryByTestId('lp-create-advice')).toBeNull();
     expect(within(panel).queryByTestId('lp-create-first')).toBeNull();
@@ -916,7 +938,7 @@ describe('the pool to add to first is the chosen coin’s (advice, never a block
       `This token already has a USDC pool on the public fee tier that takes deposits, with a warning (above). The biggest is ${usdcPool.address}, holding 2,000 USDC. Jupiter has no price for USDC right now, so that pool’s price in USDC was not checked against anything. Adding to it keeps liquidity in one place; a pool of your own starts at the price you set.`,
     );
     expect(card).not.toHaveTextContent(/no market price for this token|passes the checks|We suggest adding to it/);
-    expect(within(card).getByRole('button', { name: 'Add liquidity to that pool' })).toBeEnabled();
+    expect(within(card).getByRole('button', { name: 'Go to that pool' })).toBeEnabled();
     expect(within(card).getByRole('button', { name: 'Open a pool' })).toBeEnabled();
   });
 
@@ -938,14 +960,14 @@ describe('the pool to add to first is the chosen coin’s (advice, never a block
     expect(card).not.toHaveTextContent(/no market price for this token/);
   }, LONG);
 
-  it('Create a pool on the first screen lands on the card, not in the form, when ANY coin has a pool to add to', async () => {
+  it('Open a pool on the first screen lands on the card, not in the form, when ANY coin has a pool to add to', async () => {
     const usdcPool = view({ quote: USDC_QUOTE });
     mount(readers({ findPools: vi.fn(async () => search([usdcPool])) }));
     const card = await offered();
-    fireEvent.click(within(screen.getByTestId('lp-finder')).getByRole('button', { name: 'Create a pool' }));
+    fireEvent.click(within(screen.getByTestId('lp-tasks')).getByRole('button', { name: 'Open a pool' }));
     await act(async () => {});
     expect(card).toHaveAttribute('data-advice', 'exists');
-    expect(within(card).getByRole('button', { name: 'Add liquidity to that pool' })).toBeEnabled();
+    expect(within(card).getByRole('button', { name: 'Go to that pool' })).toBeEnabled();
     expect(screen.queryByTestId('lp-create-panel')).toBeNull();
   });
 
@@ -956,7 +978,7 @@ describe('the pool to add to first is the chosen coin’s (advice, never a block
     const card = await offered();
     expect(card).toHaveAttribute('data-advice', 'none');
     expect(within(card).getByTestId('lp-create-none-yet')).toHaveTextContent('This token has no SOL or BAYLA pool yet.');
-    fireEvent.click(within(screen.getByTestId('lp-finder')).getByRole('button', { name: 'Create a pool' }));
+    fireEvent.click(within(screen.getByTestId('lp-tasks')).getByRole('button', { name: 'Open a pool' }));
     const panel = await screen.findByTestId('lp-create-panel');
     // USDC has a pool, so a USDC opening is not called the first; it passes no check, so it is not pointed to.
     await pair(panel, 'USDC');
@@ -974,7 +996,7 @@ describe('the pool to add to first is the chosen coin’s (advice, never a block
     expect(opened).toHaveAttribute('data-coin', 'USDC');
     expect(opened).toHaveTextContent(`You opened a USDC pool for this token just now (${mine.address}). Your share is under 'Your positions'. Adding to it keeps your liquidity in one place.`);
     expect(within(card).getByTestId('lp-create-still')).toHaveTextContent(
-      'You can still open another on the public fee tier (1% a trade, 0.15 SOL to open). It will be a separate pool, and the fee to open is paid again.',
+      'You can still open another on the public fee tier, at 1% a trade. It will be a separate pool, and the fee to open is paid again.',
     );
     expect(within(panel).queryByTestId('lp-create-advice')).toBeNull();
     await pair(panel, 'USDC');
@@ -1484,7 +1506,7 @@ describe('the card, per coin (round 3)', () => {
 
   // F6: the card's "same answer" key covered the first coin only. A read that changes
   // only what a later coin has must say the answer is new.
-  it('Read again says the answer is new when only a coin after the first changed, and the same when nothing did', async () => {
+  it('Refresh says the answer is new when only a coin after the first changed, and the same when nothing did', async () => {
     const unread: OutsidePrice = { kind: 'unread', detail: 'Jupiter did not give a price (HTTP 502)' };
     const usdcPool = view({ quote: USDC_QUOTE });
     // Between the first read and the second, someone opens a USDC pool. SOL has none throughout.
@@ -1493,23 +1515,23 @@ describe('the card, per coin (round 3)', () => {
     const card = await screen.findByTestId('lp-create');
     await waitFor(() => expect(card).toHaveAttribute('data-create', 'price-unread'));
     const reread = within(card).getByTestId('lp-create-reread');
-    fireEvent.click(within(card).getByRole('button', { name: 'Read again' }));
-    await waitFor(() => expect(reread).toHaveTextContent('Read again just now: the answer above is new.'));
+    fireEvent.click(within(card).getByRole('button', { name: 'Refresh' }));
+    await waitFor(() => expect(reread).toHaveTextContent('Refreshed just now: the answer above is new.'));
     expect(card).toHaveAttribute('data-create', 'price-unread');
-    fireEvent.click(within(card).getByRole('button', { name: 'Read again' }));
+    fireEvent.click(within(card).getByRole('button', { name: 'Refresh' }));
     await waitFor(() => expect(findPools).toHaveBeenCalledTimes(3));
-    await waitFor(() => expect(reread).toHaveTextContent('Read again just now: the same answer.'));
+    await waitFor(() => expect(reread).toHaveTextContent('Refreshed just now: the same answer.'));
   }, LONG);
 
   // F1: the card's Add button is a second, recommended way into the Add form. That form
   // once typed SOL for every pool: a typed 1 was handed over as 1,000 USDC. This pins the
   // whole way from the card to the builder, so no merge order can bring that back.
-  it('"Add liquidity to that pool" on a USDC pool opens a form that types USDC: a typed 1 is 1,000,000 of its smallest unit', async () => {
+  it('"Go to that pool" on a USDC pool opens a form that types USDC: a typed 1 is 1,000,000 of its smallest unit', async () => {
     const usdcPool = view({ quote: USDC_QUOTE });
     const prepareLpDeposit = notBuilt();
     mount(readers({ findPools: vi.fn(async () => search([usdcPool])) }), { api: { prepareLpDeposit } });
     const card = await offered();
-    fireEvent.click(await within(card).findByRole('button', { name: 'Add liquidity to that pool' }));
+    fireEvent.click(await within(card).findByRole('button', { name: 'Go to that pool' }));
     const add = await screen.findByTestId('lp-add-panel');
     await within(add).findByRole('button', { name: 'Max USDC' });
     expect(within(add).queryByLabelText('SOL to add')).toBeNull();

@@ -197,7 +197,7 @@ describe('the door’s link', () => {
 describe('the list of every pool', () => {
   it('each row has Add: one press to that pool’s Add with one coin', async () => {
     const sol = view();
-    mount(readers([sol], { kind: 'ok', list: { pools: [sol], unread: 0, truncated: false } }), '/solana-lp');
+    mount(readers([sol], { kind: 'ok', list: { pools: [sol], unread: 0, truncated: false, chainNow: null } }), '/solana-lp');
     const [row] = await screen.findAllByTestId('lp-all-pools-row');
     fireEvent.click(within(row!).getByRole('button', { name: /^Add to / }));
     const panel = await screen.findByTestId('lp-one-coin-panel');

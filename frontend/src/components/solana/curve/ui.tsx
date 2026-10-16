@@ -78,17 +78,20 @@ export function Row({
   mono = true,
   words = false,
   line,
+  tone,
 }: {
   label: string;
   value: string;
   mono?: boolean;
   words?: boolean;
   line?: 'market' | 'fee';
+  /** A value that is a warning, in `Notice`'s warning colour. */
+  tone?: 'warn';
 }) {
   return (
     <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5 text-white/75" data-review-line={line}>
       <span className="break-words">{label}</span>
-      <span className={`text-right min-w-0 ${mono ? (words ? 'font-mono [overflow-wrap:anywhere]' : 'font-mono break-all') : '[overflow-wrap:anywhere]'}`}>{value}</span>
+      <span className={`text-right min-w-0 ${tone === 'warn' ? 'text-amber-300/90 ' : ''}${mono ? (words ? 'font-mono [overflow-wrap:anywhere]' : 'font-mono break-all') : '[overflow-wrap:anywhere]'}`}>{value}</span>
     </div>
   );
 }
