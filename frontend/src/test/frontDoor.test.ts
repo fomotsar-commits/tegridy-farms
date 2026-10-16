@@ -114,6 +114,7 @@ describe('the root is a front door', () => {
     'frontend',
     'indexer',
     'indexer-solana',
+    'keeper',
     'package-lock.json',
     'package.json',
     'scripts',
