@@ -15,6 +15,20 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-10-15: a shorter footer is a change to every page's scroll room
+
+**Believed:** cutting the footer from about 30 links to 8 (#838) touches only the footer's own
+specs.
+
+**Measured:** trunk CI went red in all four projects on `e2e/tab-strip-clears-focus.spec.ts`,
+whose precondition is that a page scrolls more than 200px. /scan at 1280x800 scrolled 100px
+once the footer was 250px tall (read with `scrollHeight - innerHeight` on the production
+build). The local runs before merge had not included that spec.
+
+**Do:** when shared chrome changes height (footer, header, bars), run every spec that reads
+`scrollHeight - innerHeight` or asserts a page scrolls: today `tab-strip-clears-focus`,
+`tab-target-size` and `phone-layout`.
+
 ## 2026-10-15: a NavLink lights itself, so two words that open one page both light
 
 **Believed:** a bar word pointing at `/#hall` lights only on the hall, and a `NavLink` whose
