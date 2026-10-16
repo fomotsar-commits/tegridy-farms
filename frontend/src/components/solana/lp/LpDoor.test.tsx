@@ -143,7 +143,7 @@ function mount(r: LpReaders, path: string) {
   render(
     <MemoryRouter initialEntries={[path]}>
       <Where />
-      <LpInner readers={r} writes={writes} finderFirst />
+      <LpInner readers={r} writes={writes} />
     </MemoryRouter>,
   );
 }
