@@ -890,7 +890,7 @@ describe('a review too old to sign when Sign in wallet is pressed', () => {
 // figures, and the two ways on (the swap, opened on the token; the All pools list). Only the
 // Remove panel's confirmed card says this: the shared outcome card is otherwise unchanged.
 describe('after a confirmed withdrawal', () => {
-  const listed = { listPools: vi.fn(async () => ({ kind: 'ok' as const, list: { pools: [], unread: 0, truncated: false } })) };
+  const listed = { listPools: vi.fn(async () => ({ kind: 'ok' as const, list: { pools: [], unread: 0, truncated: false, chainNow: null } })) };
   const confirmed = () => vi.fn(async (): Promise<TxOutcome> => ({ status: 'confirmed', signature: SIG, slot: 1 }));
 
   async function removeHalf(o: Partial<LpReaders> = {}, where: () => Promise<HTMLElement> = () => screen.findByTestId('lp-position')) {
