@@ -204,7 +204,9 @@ function lossOrNull(a: LossInput): number | null {
  * base units, rounded UP. For an opening those are its two sides. For a DEPOSIT into a
  * pool whose price is off they are what the deposit puts in: a deposit goes in at the
  * pool's own price, so the same sum holds for its share, with `marketPricePerToken` the
- * price the pool was checked against.
+ * price the pool was checked against. Over the deposit's value at that price it is
+ * `gapCostFraction` (poolHealth.ts), the cost a pool's price warning says before any
+ * amount is typed.
  *
  * An ESTIMATE and an upper bound (the trade fee is ignored). Display only: it must never
  * decide anything. Null when it cannot be worked out from these numbers (a price that is

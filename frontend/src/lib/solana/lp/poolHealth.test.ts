@@ -39,20 +39,48 @@ describe('assessPool', () => {
 
   // Owner ruling 2026-10-04: a price that is off is a warning, and the visitor may go on.
   it('a price more than 3% off, either way, is allowed with a warning that names the gap and what it costs', () => {
-    const cases: Array<[number, RegExp]> = [
-      [0.01 / (1 + PRICE_TOLERANCE + 0.001), /^Its price is 3\.1% above the outside price\. A deposit here would hand that gap to the first arbitrage trade\.$/],
-      [0.01 / (1 - PRICE_TOLERANCE - 0.001), /^Its price is 3\.1% below the outside price\. A deposit here would hand that gap to the first arbitrage trade\.$/],
+    // The cost is what a deposit at the pool's price loses when it is traded back
+    // (gapCostFraction), far below the gap itself: never "that gap" handed over whole.
+    const cases: Array<[number, string]> = [
+      [
+        0.01 / (1 + PRICE_TOLERANCE + 0.001),
+        'Its price is 3.1% above the outside price. If you add now, whoever trades it back takes up to about 0.01% of what you add (about $0.01 per $100).',
+      ],
+      [
+        0.01 / (1 - PRICE_TOLERANCE - 0.001),
+        'Its price is 3.1% below the outside price. If you add now, whoever trades it back takes up to about 0.01% of what you add (about $0.01 per $100).',
+      ],
+      [0.01 / 0.804, 'Its price is 19.6% below the outside price. If you add now, whoever trades it back takes up to about 0.6% of what you add (about $0.59 per $100).'],
+      [0.001, 'Its price is 900.0% above the outside price. If you add now, whoever trades it back takes up to about 42.5% of what you add (about $42.50 per $100).'],
     ];
     for (const [p, says] of cases) {
       const h = assessPool({ ...base, view: view(), outside: outside(p) });
       expect(h.price.state).toBe('disagrees');
       expect(h.deposits.verdict).toBe('allowed');
       expect(h.deposits.reasons).toEqual([]);
-      expect(h.deposits.warnings).toHaveLength(1);
-      expect(h.deposits.warnings[0]).toMatch(says);
+      expect(h.deposits.warnings).toEqual([says]);
     }
     // Inside the 3% there is nothing to warn of.
     expect(assessPool({ ...base, view: view(), outside: outside(0.0101) }).deposits.warnings).toEqual([]);
+  });
+
+  it('a gap and its cost that only grew keep the same words, numbers aside', () => {
+    // A review built again compares warnings with their numbers taken out (useTxFlow.ts
+    // `wordsOf`): a cost that crosses a dollar, or 1%, is not a new warning.
+    const wordsOf = (line: string) => line.replace(/\d[\d,.]*/g, '#');
+    const said = [0.96, 0.9, 0.7, 0.3, 0.01, 1.04, 1.5, 4, 100].map((r) => assessPool({ ...base, view: view(), outside: outside(0.01 / r) }).deposits.warnings);
+    for (const w of said) expect(w).toHaveLength(1);
+    expect(new Set(said.map(([w]) => wordsOf(w!.replace(/above|below/, '')))).size).toBe(1);
+  });
+
+  it('a gap whose cost cannot be worked out says so, never 0, and the pool stays open', () => {
+    // An outside price so small that the pool's price over it is not a finite number.
+    const h = assessPool({ ...base, view: view(), outside: outside(Number.MIN_VALUE) });
+    expect(h.price.state).toBe('disagrees');
+    expect(h.deposits.verdict).toBe('allowed');
+    expect(h.deposits.warnings).toHaveLength(1);
+    expect(h.deposits.warnings[0]).toMatch(/ the outside price\. If you add now, whoever trades it back takes part of what you add \(how much could not be worked out\)\.$/);
+    expect(h.deposits.warnings[0]).not.toMatch(/ 0(\.0+)?%|0¢/);
   });
 
   it('a squatted pool: open time far ahead → swaps blocked, deposits refused, and it says so', () => {
@@ -144,7 +172,7 @@ describe('assessPool', () => {
       verdict: 'allowed',
       reasons: [],
       warnings: [
-        'Jupiter has no market price for this token, so this pool’s price was not checked against anything. If it is off, a deposit here hands the difference to whoever trades it back.',
+        'Jupiter has no market price for this token, so this pool’s price was not checked against anything. If it is off, whoever trades it back takes part of what you add.',
       ],
     });
   });
@@ -231,7 +259,7 @@ describe('assessPool: a launch pool is checked against its own recent average', 
       verdict: 'allowed',
       reasons: [],
       // 99.4%, not 100%: the last ten seconds of the average are already at the pushed price.
-      warnings: ['Its price is 99.4% above its own average over the last half hour. Someone may have just pushed it; a deposit now would pay for that.'],
+      warnings: ['Its price is 99.4% above its own average over the last half hour. Someone may have just pushed it; if you add now, whoever trades it back takes up to about 5.7% of what you add (about $5.68 per $100).'],
     });
   });
 
@@ -365,7 +393,7 @@ describe('assessPool: a launch pool is checked against its own recent average', 
       expect(h.deposits).toEqual({
         verdict: 'allowed',
         reasons: [],
-        warnings: ['Its price is 900.0% above the launch pool’s price. A deposit here would hand that gap to the first arbitrage trade.'],
+        warnings: ['Its price is 900.0% above the launch pool’s price. If you add now, whoever trades it back takes up to about 42.5% of what you add (about $42.50 per $100).'],
       });
       // The same pool with no launch pool handed in is what it was before: compared with nothing.
       expect(assessPool({ ...now, view: TEN_TIMES, outside: noOutside }).price.state).toBe('no-market');
@@ -467,7 +495,7 @@ describe('assessPool: a launch pool is checked against its own recent average', 
         expect(fair.price.reference).toBeCloseTo(2, 9);
         const off = at(20_000n);
         expect(off.price).toMatchObject({ state: 'disagrees', against: 'launch-pool' });
-        expect(off.deposits.warnings).toEqual(['Its price is 900.0% above the launch pool’s price. A deposit here would hand that gap to the first arbitrage trade.']);
+        expect(off.deposits.warnings).toEqual(['Its price is 900.0% above the launch pool’s price. If you add now, whoever trades it back takes up to about 42.5% of what you add (about $42.50 per $100).']);
       });
 
       it('with USDC’s own price unread it is unchecked, and says which comparison could not be made', () => {
@@ -496,7 +524,7 @@ describe('assessPool: a launch pool is checked against its own recent average', 
           expect(h.deposits).toEqual({
             verdict: 'allowed',
             reasons: [],
-            warnings: ['Jupiter has no price for USDC right now, so this pool’s price in USDC was not checked against anything. If it is off, a deposit here hands the difference to whoever trades it back.'],
+            warnings: ['Jupiter has no price for USDC right now, so this pool’s price in USDC was not checked against anything. If it is off, whoever trades it back takes part of what you add.'],
           });
         }
         // Nothing is lifted beside it: the same pool with withdrawals off is still refused.
@@ -588,7 +616,7 @@ describe('assessPool: token warnings that a deposit must carry', () => {
   it('every warning that applies is carried, the token’s first and the price last', () => {
     const h = assessPool({ ...base, safety: safetyWith('copies-known-name', 'freeze-authority'), view: view(), outside: outside(0.02) });
     expect(h.deposits.verdict).toBe('allowed');
-    expect(h.deposits.warnings).toEqual([COPY_DEPOSIT, FREEZE_DEPOSIT, 'Its price is 50.0% below the outside price. A deposit here would hand that gap to the first arbitrage trade.']);
+    expect(h.deposits.warnings).toEqual([COPY_DEPOSIT, FREEZE_DEPOSIT, 'Its price is 50.0% below the outside price. If you add now, whoever trades it back takes up to about 5.7% of what you add (about $5.72 per $100).']);
   });
 
   // USDC or USDT looked up as the TOKEN: its issuer can freeze a pool's vault like any

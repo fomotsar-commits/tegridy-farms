@@ -20,10 +20,14 @@ import { LOCKED_SHARES_TEXT, solAbout, solExact } from './panelKit';
 const FORK_LINE =
   "Our pool program is Raydium's, with only its admin keys changed. Those changes have not had their own independent review yet. Put in only what you can afford to lose.";
 /**
- * FORK_LINE's risk in one visible sentence (owner, 2026-10-13: fewer words, the rest one
- * press away). The same day as FORK_LINE, reword this one too.
+ * The risk in one visible line (owner, 2026-10-13: fewer words, the rest one press away):
+ * what the team's vault can do with no waiting period, and that no outside firm has
+ * checked our changes. Read on chain 2026-10-16; LpDisclosure's small print
+ * (SolanaLpSection.tsx) says it in full, with the addresses. It names no change to the
+ * program, so the pool program's upgrade does not make it false.
  */
-export const RISK_SHORT = 'Admin-key changes not independently reviewed yet: put in only what you can afford to lose.';
+export const RISK_SHORT =
+  "The team's vault (2 of 2 keys, no waiting period) can pause removing, change fees or replace the program. No outside firm has checked our changes. Only add what you can afford to lose.";
 const VAULT_LINE =
   "The team's vault (a Squads multisig, two signatures) can switch off deposits, withdrawals or swaps on this pool, change its fee rates at once, and upgrade the program. If it switched off withdrawals, you could not take your money out until it switched them back on.";
 const LAUNCH_POOL_LINE =

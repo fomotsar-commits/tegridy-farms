@@ -85,7 +85,7 @@ function LpBody({ readers, mode, reloadKey }: { readers: LpReaders; mode: LpWrit
   );
   const { publicKey } = useWallet();
 
-  // The risk line above the actions says RISK_SHORT, so the notice says it again only in its small print.
+  // The risk line above the actions says RISK_SHORT, so the notice says that risk only in full, in its small print.
   const disclosure = <LpDisclosure programId={readers.programId} mode={mode} riskAbove />;
   const writesTop = mode !== 'off' && <LpWritesTop />;
   const tierRead = useFeeTiers(readers);
@@ -107,7 +107,17 @@ function LpBody({ readers, mode, reloadKey }: { readers: LpReaders; mode: LpWrit
   const addMore = useCallback((tokenMint: string, pool: string) => finderRef.current?.addTo(tokenMint, pool), []);
   // Every pool, under the finder: a View there is a lookup in the finder, like a picked token.
   const view = useCallback((tokenMint: string) => finderRef.current?.show(tokenMint), []);
-  const allPools = <VenuePoolList readers={readers} reloadKey={reloadKey} onView={view} />;
+  // "Add to another pool", under a confirmed withdrawal, brings that list onto the screen
+  // and sends focus there, as Remove liquidity does for the positions. Offered only where
+  // the list can be drawn.
+  const allPoolsRef = useRef<HTMLElement | null>(null);
+  const toAllPools = useCallback(() => {
+    const el = allPoolsRef.current;
+    if (!el) return;
+    el.focus({ preventScroll: true });
+    el.scrollIntoView?.({ block: 'start' });
+  }, []);
+  const allPools = <VenuePoolList readers={readers} reloadKey={reloadKey} onView={view} sectionRef={allPoolsRef} />;
   const finder = (
     <PoolFinder
       ref={finderRef}
@@ -117,10 +127,20 @@ function LpBody({ readers, mode, reloadKey }: { readers: LpReaders; mode: LpWrit
       linkError={linkError}
       reloadKey={reloadKey}
       wantOutside={mode === 'on'}
+      feeTiers={tierRead}
       onRemove={toPositions}
     />
   );
-  const positions = <YourPositions readers={readers} owner={publicKey ?? null} reloadKey={reloadKey} sectionRef={positionsRef} onAddMore={addMore} />;
+  const positions = (
+    <YourPositions
+      readers={readers}
+      owner={publicKey ?? null}
+      reloadKey={reloadKey}
+      sectionRef={positionsRef}
+      onAddMore={addMore}
+      onAllPools={readers.listPools ? toAllPools : undefined}
+    />
+  );
 
   // Actions first, under the one risk line and the one line on earning; then every pool;
   // then what you hold; then the rates and the routes; the long notice last.
@@ -225,8 +245,8 @@ export function LpDisclosure({ programId, mode = 'off', riskAbove = false }: {
   mode?: LpWriteMode;
   /**
    * The page already shows RISK_SHORT above the finder (LpRiskLine, finder first): the
-   * card then says it once more only in its small print. Said once per page, visibly
-   * (owner, 2026-10-14).
+   * card then does not say it again. Said once per page visibly (owner, 2026-10-14), and
+   * once in full, with the addresses, in the small print below.
    */
   riskAbove?: boolean;
 }) {
@@ -237,7 +257,6 @@ export function LpDisclosure({ programId, mode = 'off', riskAbove = false }: {
         {!riskAbove && <p className="text-white/80">{RISK_SHORT}</p>}
         <Row label="Pool program" value={programId} />
         <FinePrint summary="Risks">
-          {riskAbove && <p>{RISK_SHORT}</p>}
           {/* True of the pool program RUNNING on mainnet, built before the source gained create_lp_metadata.
               It goes false the day that program is upgraded: reword it in the same release as the upgrade
               (src/test/poolProgramCopy.test.ts fails that release until you do, and holds the wording). */}
@@ -245,9 +264,22 @@ export function LpDisclosure({ programId, mode = 'off', riskAbove = false }: {
             Our pool program is Raydium’s constant-product pool; we changed only its admin keys (see “The program” below).{' '}
             <strong>Those changes have not had their own independent review yet.</strong> Put in only what you can afford to lose.
           </p>
+          {/* Read on chain 2026-10-16. The vault's powers are the pool program's admin instructions (update_pool_status,
+              update_amm_config, create_amm_config, collect_protocol_fee, collect_fund_fee) and its upgrade authority. */}
           <p>
-            The team’s shared wallet (a Squads vault, two signatures needed) controls the program. It can switch off deposits,
-            withdrawals or swaps on any pool, change the fee rates of a fee tier, and upgrade the program.
+            Read on chain 2026-10-16: one key is both the admin of pool program{' '}
+            <span className="font-mono break-all">EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT</span> and the only key that can replace it.
+            That key is the team’s vault <span className="font-mono break-all">GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd</span>, vault 0
+            of the Squads multisig <span className="font-mono break-all">EVGSnRZFWqjCaWR7z2xKbSXnuddY8upevEQK5HFmj6NK</span>. The multisig
+            needs 2 of its 2 keys to sign, has no waiting period (a time lock of 0 seconds), and only those 2 keys, together, can change
+            its rules.
+          </p>
+          <p>
+            The vault can switch off adding, removing or trading on any pool. It can change any fee tier’s fees, and who collects the
+            venue’s share, at once, and that applies to pools already open. It can add fee tiers, collect the venue’s share of trading
+            fees, and replace the program. Every pool’s coins sit in accounts that program controls, so a replacement could move
+            them. If it switched off removing on a pool, you could not take your money out of that pool until it switched removing
+            back on.
           </p>
           <p>
             Anyone can open a pool for any token, at any price. Jupiter does not send trades to these pools yet, so a pool earns fees
@@ -261,7 +293,7 @@ export function LpDisclosure({ programId, mode = 'off', riskAbove = false }: {
   );
 }
 
-/** The section's one read of the fee tiers: the Rates card prints it. */
+/** The section's one read of the fee tiers: the Rates card prints it, and the Open a pool card says its account deposits. */
 function useFeeTiers(readers: LpReaders): FeeTierRead | null {
   const [read, setRead] = useState<FeeTierRead | null>(null);
   useEffect(() => {

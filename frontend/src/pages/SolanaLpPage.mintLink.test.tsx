@@ -83,7 +83,7 @@ function expectTopToBottom(named: [string, HTMLElement][]) {
 }
 
 const RISK_LINE =
-  'Admin-key changes not independently reviewed yet: put in only what you can afford to lose.';
+  "The team's vault (2 of 2 keys, no waiting period) can pause removing, change fees or replace the program. No outside firm has checked our changes. Only add what you can afford to lose.";
 const LP_PARTS = ['lp-risk-line', 'lp-finder', 'lp-positions', 'fee-tiers', 'lp-routes', 'lp-disclosure'];
 
 beforeEach(() => { vi.clearAllMocks(); readVenue.mockResolvedValue(LIVE); });
@@ -144,7 +144,7 @@ describe('/solana-lp opens on the pool finder', () => {
     expect(screen.getByTestId('fee-tiers').nextElementSibling).toBe(screen.getByTestId('lp-routes'));
     expect(screen.getByTestId('lp-routes').nextElementSibling).toBe(full);
     expect(full).toHaveTextContent(/have not had their own independent review yet/);
-    expect(full).toHaveTextContent(/It can switch off deposits,\s+withdrawals or swaps on any pool/);
+    expect(full).toHaveTextContent(/The vault can switch off adding, removing or trading on any pool/);
     expect(full).toHaveTextContent(PROGRAM);
     expect(screen.getAllByTestId('lp-disclosure')).toHaveLength(1);
   });
