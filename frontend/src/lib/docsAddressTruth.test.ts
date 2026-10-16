@@ -1,35 +1,9 @@
-// DOCS ADDRESS-TRUTH GUARD.
-//
-// Why this test exists
-// --------------------
-// `CONTRACTS.md` named `0xb93264aB…` as the canonical, *Live* GaugeController.
-// That address is a Wave-0 (pre-relaunch) deployment whose `pairToGauge(address)`
-// REVERTS — verified on mainnet 2026-08-06:
-//
-//   cast call 0xb93264aB0AF377F7C0485E64406bE9a9b1df0Fdb \
-//     "pairToGauge(address)(address)" <weth>   -> execution reverted
-//   cast call 0x6c79522D47Cf6d1051Cb474E81d9b6f3996c1054 \
-//     "pairToGauge(address)(address)" <weth>   -> 0x0000…0000  (OK, no gauge yet)
-//
-// `VoteIncentives.setGaugeController` is a ONE-SHOT (contracts/src/VoteIncentives.sol:
-// `if (gaugeController != address(0)) revert GaugeControllerAlreadySet();`) and its only
-// sanity check is `code.length > 0 && code.length != 23`. The dead controller HAS code, so
-// the guard passes, the setter latches forever, and every subsequent bribe deposit reverts
-// inside `_requireGaugedPair` -> `IGaugeControllerPairs(gc).pairToGauge(pair)`. An operator
-// following the doc bricks VoteIncentives permanently. On-chain today
-// `VoteIncentives.gaugeController()` is still `address(0)`, so the hazard is live.
-//
-// The invariant this pins is not "the doc contains string X". It is:
-//
-//   **No protocol doc may present a superseded address as the canonical / live one.**
-//
-// The doc is the operator's runbook. A stale address in it is an on-chain action.
-//
-// Provenance for every address below: `contracts/broadcast/<Script>.s.sol/1/run-latest.json`
-// (chain 1) cross-checked with `cast code` / `cast call` on mainnet, 2026-08-06.
-// NOTE: the broadcast JSON committed in *this* tree is itself stale for the 2026-07-16
-// batch (the refreshed run-latest files are still uncommitted in the operator checkout),
-// which is why the expected values are pinned here rather than parsed from it.
+// No protocol doc may present a superseded address as the canonical / live one. The doc is
+// the operator's runbook, so a stale address in it is an on-chain action: the Wave-0
+// GaugeController 0xb93264aB0AF377F7C0485E64406bE9a9b1df0Fdb has code but its pairToGauge
+// REVERTS, and VoteIncentives.setGaugeController is one-shot, so wiring it bricks bribes.
+// Expected addresses are pinned below or read from the app's own wiring (constants.ts,
+// bungalows.ts), never from the committed broadcast JSON, which is stale.
 
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
@@ -47,6 +21,7 @@ const DOCS: Record<string, string> = {
 };
 
 const constantsSrc = readFileSync(join(process.cwd(), 'src', 'lib', 'constants.ts'), 'utf8');
+const bungalowsSrc = readFileSync(join(process.cwd(), 'src', 'lib', 'bungalows.ts'), 'utf8');
 const swapFeeRouterSrc = doc('contracts', 'src', 'SwapFeeRouter.sol');
 const stakingSrc = doc('contracts', 'src', 'TegridyStaking.sol');
 
@@ -55,6 +30,15 @@ function constant(name: string): string {
   const m = constantsSrc.match(new RegExp(`export const ${name} = '(0x[0-9a-fA-F]{40})'`));
   if (!m) throw new Error(`constants.ts has no ${name}`);
   return m[1].toLowerCase();
+}
+
+/** The `stakePool` of every `poolKind: 'ladder'` row in bungalows.ts (one row per line). */
+function ladderPools(): string[] {
+  return bungalowsSrc
+    .split('\n')
+    .filter((l) => l.includes("poolKind: 'ladder'"))
+    .map((l) => /\bstakePool:\s*'(0x[0-9a-fA-F]{40})'/.exec(l)?.[1])
+    .filter((a): a is string => !!a);
 }
 
 /** Reads a `uint256 public constant NAME = 1_234;` out of a Solidity source. */
@@ -79,6 +63,13 @@ const SUPERSEDED: Record<string, string> = {
   '0x626644523d34b84818df602c991b4a06789c4819': 'legacy staking — WITHDRAW-ONLY (constants.ts LEGACY_STAKING_ADDRESSES)',
   '0xa5ab522c99f86ded9f429766872101c75517d77c': 'pre-C-01 TegridyLPFarming',
   '0xa7ef711be3662b9557634502032f98944ec69ec1': 'Wave-0 TegridyLPFarming',
+  // Bungalow ladders: the pre-fix (C1) build, retired 2026-09-05.
+  '0xdc0b34ce782029f30382f42097f6b33f0544329c': 'retired PEPE ladder (pre-fix C1 build)',
+  '0xdcc3a95a0921b83326157132b17770f02094c8e3': 'retired QR ladder (pre-fix C1 build)',
+  '0x7288dbf43d3bdbfc439b6e8a47aef225d4816273': 'retired MFER ladder (pre-fix C1 build)',
+  '0xe0a152ebc21891fd47a7dcd6018cfe3a64363178': 'retired BNKR ladder (pre-fix C1 build)',
+  '0xb62bad165997e95c503044787b2dcc85dc6d83f1': 'retired DRB ladder (pre-fix C1 build)',
+  '0xa0d43ef39c4940e68b2f81d51e6316a45c136d93': 'retired JBM ladder (pre-fix C1 build)',
   // Core / DEX / revenue — all superseded by the 2026-06-06 DeployMVP relaunch.
   '0x8b786163aa3beb97822d480a0c306dfd6debdcb6': 'pre-relaunch TegridyFactory',
   '0xcbcf6acc4697ca3a7d7658cd2051606a09c9863f': 'pre-relaunch TegridyRouter',
@@ -179,6 +170,18 @@ describe('CONTRACTS.md names the addresses that are actually deployed', () => {
   for (const [label, key] of FROM_CONSTANTS) {
     it(`lists the ${label} address that constants.ts wires`, () => {
       expect(DOCS['CONTRACTS.md'].toLowerCase()).toContain(constant(key));
+    });
+  }
+
+  // From bungalows.ts, so a ladder redeploy cannot leave the doc naming the retired pools.
+  const ladders = ladderPools();
+  it('reads the ladder pools bungalows.ts ships', () => {
+    expect(ladders.length).toBeGreaterThanOrEqual(6);
+  });
+
+  for (const addr of ladders) {
+    it(`lists the ladder pool ${addr} that bungalows.ts ships`, () => {
+      expect(DOCS['CONTRACTS.md'].toLowerCase()).toContain(addr.toLowerCase());
     });
   }
 });

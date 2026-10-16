@@ -3,7 +3,7 @@ import { PublicKey } from '@solana/web3.js';
 import { parseMintInput } from '../../../lib/solana/lp/mintInput';
 import { assessPools, type PoolHealth } from '../../../lib/solana/lp/poolHealth';
 import type { TokenSafety } from '../../../lib/solana/lp/tokenSafety';
-import type { PoolSearchRead } from '../../../lib/solana/lp/poolFinder';
+import type { FeeTierRead, PoolSearchRead } from '../../../lib/solana/lp/poolFinder';
 import type { OutsidePrice } from '../../../lib/solana/lp/outsidePrice';
 import { QUOTE_COINS_OR, otherSideLine, quoteCoin, quotesFor, searchedCoinsOr } from '../../../lib/solana/lp/quotes';
 import { BUNGALOWS } from '../../../lib/bungalows';
@@ -81,14 +81,15 @@ function siteTokens(roomId: string | null): { id: string; symbol: string; mint: 
   return [...all.filter((t) => t.id === roomId), ...all.filter((t) => t.id !== roomId)];
 }
 
-const TASK_LABEL: Record<LpTask, string> = { create: 'Create a pool', add: 'Add liquidity', remove: 'Remove liquidity' };
+// "Open a pool": the one name the site gives opening a pool, on this button, the card and its button.
+const TASK_LABEL: Record<LpTask, string> = { create: 'Open a pool', add: 'Add liquidity', remove: 'Remove liquidity' };
 const TASK_LINE: Record<LpTask, string> = {
   create: `Pick a token. You can pair it with ${QUOTE_COINS_OR}.`,
   add: 'Pick a token. If it has no pool yet, your deposit opens one.',
   remove: 'Shares you can take out have a Remove button under Your positions.',
 };
 /** Before a press, with a token already on the page: which token the first two buttons act on. */
-const TOKEN_HERE_LINE = 'Create a pool and Add liquidity act on the token in the box below.';
+const TOKEN_HERE_LINE = 'Open a pool and Add liquidity act on the token in the box below.';
 /** The same, with a token already answered on the page: its form opens at once. */
 const TASK_LINE_HERE: Record<'create' | 'add', string> = {
   create: 'The form opens under this token’s checks.',
@@ -153,10 +154,10 @@ function usePoolSearch(readers: LpReaders, mint: string | null, nonce: number, r
       // pool here. (An opening priced in a coin reads that coin's price in its own panel.)
       const paired = new Set(pools.kind === 'ok' ? pools.search.pools.flatMap((p) => (p.kind === 'pool' ? [p.view.quote.mint] : [])) : []);
       const wanted = ask ? quotesFor(mint).filter((q) => !q.native && paired.has(q.mint)) : [];
-      const [outside, ...coinPrices] = await Promise.all([
-        ask ? readers.outsidePrice(mint, decimals) : null,
-        ...wanted.map((q) => readers.outsidePrice(q.mint, q.decimals)),
-      ]);
+      // A visitor's own Read again (`nonce`) asks Jupiter itself; the first look may take
+      // the copy the edge shares for 30 seconds (outsidePrice.ts).
+      const price = (m: string, d: number) => (nonce > 0 ? readers.outsidePrice(m, d, { fresh: true }) : readers.outsidePrice(m, d));
+      const [outside, ...coinPrices] = await Promise.all([ask ? price(mint, decimals) : null, ...wanted.map((q) => price(q.mint, q.decimals))]);
       const coins: Record<string, OutsidePrice> = {};
       wanted.forEach((q, i) => {
         coins[q.mint] = coinPrices[i]!;
@@ -169,7 +170,7 @@ function usePoolSearch(readers: LpReaders, mint: string | null, nonce: number, r
     return () => {
       live = false;
     };
-  }, [readers, mint, key, wantOutside, also]);
+  }, [readers, mint, key, nonce, wantOutside, also]);
   if (!mint || !key) return { status: 'idle' };
   if (answer?.key === key) return answer.value;
   return answer?.value.mint === mint ? { ...answer.value, refreshing: true } : { status: 'loading', mint };
@@ -186,6 +187,7 @@ export function PoolFinder({
   linkError = null,
   reloadKey = 0,
   wantOutside = false,
+  feeTiers,
   onRemove,
   ref,
 }: {
@@ -202,6 +204,12 @@ export function PoolFinder({
    * its price against Jupiter's. Only when opening pools can be offered (LP mode 'on').
    */
   wantOutside?: boolean;
+  /**
+   * The section's one read of the fee tiers, or null while it reads: the Open a pool card
+   * says the opening's account deposits from it. Required: left out, the card would say
+   * "reading" for good.
+   */
+  feeTiers: FeeTierRead | null;
   /** Remove liquidity was pressed: the section brings the visitor's positions onto the screen. */
   onRemove?: () => void;
 }) {
@@ -371,8 +379,9 @@ export function PoolFinder({
 
   return (
     <section data-testid="lp-finder" aria-label="Find pools for a token" className="space-y-4">
+      {/* Named for a visitor, not for the buttons under it, which say what each does. */}
       <Card
-        title={tasks.length > 0 ? 'Create a pool, add or remove liquidity' : 'Find pools for a token'}
+        title={tasks.length > 0 ? 'Start here' : 'Find a pool'}
         art={<CardArt pageId="solana-lp" idx={2} />}
       >
         {tasks.length > 0 && (
@@ -407,7 +416,7 @@ export function PoolFinder({
         )}
         {tokens.length > 0 && (
           <div data-testid="lp-site-tokens" className="space-y-1.5">
-            <p className="text-white/75 text-[12px]">{canAdd ? 'Then pick a token with a room on this site' : 'Tokens with a room on this site'}</p>
+            <p className="text-white/75 text-[12px]">{canAdd ? 'Then pick a token' : 'Tokens on this site'}</p>
             <div className="flex flex-wrap gap-2" role="group" aria-label="Tokens with a room on this site">
               {tokens.map((t) => (
                 <button
@@ -430,7 +439,8 @@ export function PoolFinder({
             submit();
           }}
         >
-          {tokens.length > 0 && <p className="text-white/75 text-[12px] mb-1.5">Or any other token, by its address:</p>}
+          {tokens.length > 0 && <p className="text-white/75 text-[12px] mb-1.5">Or by address:</p>}
+          {/* The warning on names stays on screen at the field: a copied name is how a fake token gets in. */}
           <Field label="Token mint address" hint="The token’s address, not its name: anyone can copy a name." error={error}>
             {(a11y) => (
               <input
@@ -461,8 +471,8 @@ export function PoolFinder({
           </div>
         </form>
         {tokens.length > 0 && (
-          <FinePrint summary="How lookup works" testId="lp-site-tokens-note">
-            <p>Each is looked up by its address from this site’s own list, not by its name.</p>
+          <FinePrint summary="Details" testId="lp-site-tokens-note">
+            <p>The buttons are the tokens with a room on this site. Each is looked up by its address from this site’s own list, not by its name.</p>
           </FinePrint>
         )}
       </Card>
@@ -484,7 +494,14 @@ export function PoolFinder({
         </div>
       )}
       {state.status === 'done' && (
-        <SearchResults state={state} readers={readers} onReread={reread} wish={wish && !state.refreshing && wish.mint === state.mint ? wish : null} onActed={spent} />
+        <SearchResults
+          state={state}
+          readers={readers}
+          feeTiers={feeTiers}
+          onReread={reread}
+          wish={wish && !state.refreshing && wish.mint === state.mint ? wish : null}
+          onActed={spent}
+        />
       )}
     </section>
   );
@@ -515,6 +532,7 @@ function announce(s: Extract<SearchState, { status: 'done' }>): string {
 function SearchResults({
   state,
   readers,
+  feeTiers,
   onReread,
   wish,
   onActed,
@@ -522,6 +540,7 @@ function SearchResults({
   state: Extract<SearchState, { status: 'done' }>;
   /** For each pool card's own past, read on a press. */
   readers: LpReaders;
+  feeTiers: FeeTierRead | null;
   onReread: () => void;
   wish: LpWish | null;
   /** A card acted on wish number `n`: it is spent. */
@@ -530,7 +549,7 @@ function SearchResults({
   const { safety, pools, outside, coins, outsideAt, mint } = state;
   const writes = useLpWrites();
   const decimals = safety.kind === 'read' ? safety.facts?.decimals ?? null : null;
-  // One check per pool, shared by its card and by the "Open a new pool" card. All of them
+  // One check per pool, shared by its card and by the "Open a pool" card. All of them
   // together (`assessPools`): the launch pool this search read is the other pools'
   // reference when Jupiter has no route.
   const healths = useMemo(() => {
@@ -540,7 +559,7 @@ function SearchResults({
   }, [pools, decimals, outside, coins, safety]);
   // Where a wish ends. Adding goes to the first pool in the list (the deepest of its coin)
   // that offers it with no price warning; with none, and for creating, it goes to the
-  // "Open a new pool" card, which opens its form or says why not.
+  // "Open a pool" card, which opens its form or says why not.
   // A pool whose price is off, or was compared with nothing, takes deposits now (owner
   // ruling 2026-10-04), and the list is deepest first. So "the first that offers it" sent
   // the visitor, by itself, into a deep pool at a wrong price while the Open card on the
@@ -648,6 +667,7 @@ function SearchResults({
         healths={healths}
         outside={outside}
         outsideAt={outsideAt}
+        feeTiers={feeTiers}
         onReread={onReread}
         refreshing={state.refreshing === true}
         openNow={openCreate}

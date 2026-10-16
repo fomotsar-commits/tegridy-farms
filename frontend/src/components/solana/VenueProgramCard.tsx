@@ -13,7 +13,9 @@ export function VenueProgramCard() {
     <section className="relative isolate rounded-2xl p-6 mt-6" style={CARD} aria-label="The program">
       <CardArt pageId="venue-amm" idx={1} />
       <p className="text-[10px] uppercase tracking-wider mb-2" style={{ color: 'var(--color-kyle)' }}>The program</p>
-      <h2 className="heading-luxury text-lg text-white mb-3">Raydium&rsquo;s CPMM, with one addition</h2>
+      {/* True of the program running today and of the source: both carry our authority constants. The
+          added instruction is the source's alone until the upgrade, so the small print names it. */}
+      <h2 className="heading-luxury text-lg text-white mb-3">Raydium&rsquo;s CPMM, with our keys</h2>
       <p className="text-white/80 text-[13px] leading-relaxed mb-1">
         A pinned fork of <strong>raydium-cp-swap</strong>; the trading maths are Raydium&rsquo;s.
       </p>

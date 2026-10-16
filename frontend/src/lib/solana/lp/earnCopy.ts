@@ -29,6 +29,11 @@ export interface VenueEarns {
   where: string | null;
   /** The wallets `where` speaks of, as addresses anyone can check. */
   wallets: { label: string; address: string }[];
+  /**
+   * True when the tier sends the venue's cut of a trade to a wallet that is not the team's
+   * shared wallet. Said in plain sight, in bold, never folded (owner, 2026-10-10).
+   */
+  elsewhere: boolean;
 }
 
 const VAULT_CAN = 'which needs two signatures and can change the pool rates';
@@ -38,7 +43,7 @@ export function howVenueEarns(tier: AmmConfigView | null, jupiter: JupiterFee | 
   const swap = jupiter
     ? `${pctText(jupiter.bps / 100)} of a swap sent through Jupiter, where the route allows it.`
     : 'No fee on a swap sent through Jupiter: none is set up.';
-  if (!tier) return { sources: ['A cut of each trade in its pools.', 'A fee when a public pool is opened.', swap], where: null, wallets: [] };
+  if (!tier) return { sources: ['A cut of each trade in its pools.', 'A fee when a public pool is opened.', swap], where: null, wallets: [], elsewhere: false };
 
   const opening = tier.createPoolFee > 0n ? `${solOf(tier.createPoolFee)} SOL when a public pool is opened.` : 'No fee when a public pool is opened.';
   const sources = [`${pctText(feeSplit(tier).venueTakesPct)} of each trade in a public pool.`, opening, swap];
@@ -60,6 +65,7 @@ export function howVenueEarns(tier: AmmConfigView | null, jupiter: JupiterFee | 
         ? `The pool fees go to the team’s shared wallet, ${VAULT_CAN}. The swap fee goes to its own wallet.`
         : `It goes to the team’s shared wallet, ${VAULT_CAN}.`,
       wallets,
+      elsewhere: false,
     };
   }
   show('Wallet this fee tier names', tier.protocolOwner);
@@ -76,5 +82,5 @@ export function howVenueEarns(tier: AmmConfigView | null, jupiter: JupiterFee | 
     }
   }
   const named = takers.length === 1 ? 'the wallet this fee tier names' : 'the two wallets this fee tier names';
-  return { sources, where: `The cut of each trade goes to ${named}. The team’s shared wallet, ${VAULT_CAN}, is the program’s admin.${swapTo}`, wallets };
+  return { sources, where: `The cut of each trade goes to ${named}. The team’s shared wallet, ${VAULT_CAN}, is the program’s admin.${swapTo}`, wallets, elsewhere: true };
 }

@@ -998,6 +998,7 @@ export function TxOutcomeCard({
   checks = 0,
   kind,
   resetMeans,
+  confirmedNext,
 }: {
   outcome: TxOutcome;
   /** `null` when there is no signature to link. */
@@ -1015,6 +1016,8 @@ export function TxOutcomeCard({
   kind?: TxKind;
   /** Under "I checked my wallet: start over" on a sent, unconfirmed one: what that press does and does not do. */
   resetMeans?: string;
+  /** Under "Done" on a confirmed one: what landed and where to go next, from a panel that says so. */
+  confirmedNext?: ReactNode;
 }) {
   // Done is news; everything else needs the user to read it before acting.
   const a11y = {
@@ -1028,6 +1031,7 @@ export function TxOutcomeCard({
       return (
         <div {...a11y} data-testid="tx-outcome" data-status="confirmed">
           <Notice tone="good">Done. The network confirmed it.</Notice>
+          {confirmedNext}
           <SignatureRow signature={outcome.signature} />
           {explorerUrl && <ExplorerLink href={explorerUrl} />}
           <button type="button" onClick={onReset} className="btn-secondary min-h-[44px] w-full py-2 text-[12px] mt-1">
@@ -1136,6 +1140,7 @@ export function TxFlowView({
   preparingText,
   onOutcomeReset,
   resetMeans,
+  afterConfirmed,
 }: {
   flow: TxFlow;
   /** `WriteApi` and `LpWriteApi` both satisfy it. */
@@ -1151,6 +1156,11 @@ export function TxFlowView({
   onOutcomeReset?: () => void;
   /** Passed to TxOutcomeCard. */
   resetMeans?: string;
+  /**
+   * Opt-in: drawn under "Done" when the flow's transaction is confirmed, from what was
+   * signed. Only a panel that passes it changes; every other confirmed card is as it was.
+   */
+  afterConfirmed?: (prepared: PreparedTx | null) => ReactNode;
 }) {
   const s = flow.state;
   // One focus target per step. Moving focus both keeps keyboard users in place (the
@@ -1274,6 +1284,7 @@ export function TxFlowView({
       checks={s.checks ?? 0}
       kind={s.prepared?.kind}
       resetMeans={resetMeans}
+      confirmedNext={s.outcome.status === 'confirmed' && afterConfirmed ? afterConfirmed(s.prepared) : undefined}
     />
   );
 }

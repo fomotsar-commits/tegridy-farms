@@ -138,7 +138,7 @@ describe('the held-time line on the lock ladder card', () => {
     const line = await screen.findByText(READ);
     expect(screen.queryByText(UNREAD)).toBeNull();
     expect(screen.getAllByText(READ)).toHaveLength(1);
-    expect(earnings().lastElementChild).toBe(line);
+    expect(earnings().lastElementChild).toBe(line.closest('[data-held-time]'));
     expect(line.compareDocumentPosition(staircase()) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
@@ -147,7 +147,7 @@ describe('the held-time line on the lock ladder card', () => {
     render(<SolanaLadderPoolLive bungalow={UNREAD_ROOM} />);
     const line = await screen.findByText(UNREAD);
     expect(screen.queryByText(READ)).toBeNull();
-    expect(earnings().lastElementChild).toBe(line);
+    expect(earnings().lastElementChild).toBe(line.closest('[data-held-time]'));
     expect(line.compareDocumentPosition(staircase()) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 

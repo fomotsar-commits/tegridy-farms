@@ -37,22 +37,26 @@ beforeEach(() => {
 describe('/liquidity on the picked chain', () => {
   it('is Ethereum by default, with its pool table and its own money line', () => {
     at('/liquidity');
-    expect(screen.getByText('Native pools · Ethereum')).toBeInTheDocument();
+    expect(screen.getByText(/^Ethereum pools\./)).toBeInTheDocument();
     expect(screen.getByTestId('pool-table')).toBeInTheDocument();
     expect(screen.getByTestId('form')).toHaveTextContent('1');
   });
 
   it('follows ?c= with no wallet: Base names Base, hides the Ethereum table and says where the venue cut goes', () => {
     at('/liquidity?c=8453');
-    expect(screen.getByText('Native pools · Base')).toBeInTheDocument();
+    // The chain is named in the money line, not an eyebrow (owner, 2026-10-14).
+    expect(screen.getByText(/^Base pools\./)).toHaveTextContent(/to the pool after a one-sixth venue cut, which goes to the venue's fee Safe \(cut on/);
+    expect(screen.queryByText(/Venue cut: off/)).toBeNull();
     expect(screen.queryByTestId('pool-table')).toBeNull();
     expect(screen.getByTestId('form')).toHaveTextContent('8453');
-    expect(screen.getByText(/one-sixth cut.*fee Safe/)).toBeInTheDocument();
+    // ...and the fine print under it says the same, not Ethereum's "optional cut was off".
+    expect(screen.getByText(/less the venue's one-sixth cut, which was on/)).toBeInTheDocument();
+    expect(screen.queryByText(/optional cut was off/)).toBeNull();
   });
 
   it('refuses a ?c= with no venue on it', () => {
     at('/liquidity?c=42161');
-    expect(screen.getByText('Native pools · Ethereum')).toBeInTheDocument();
+    expect(screen.getByText(/^Ethereum pools\./)).toBeInTheDocument();
     expect(screen.getByTestId('form')).toHaveTextContent('1');
   });
 
@@ -60,7 +64,7 @@ describe('/liquidity on the picked chain', () => {
     wallet.isConnected = true;
     wallet.chainId = 42161;
     at('/liquidity');
-    expect(screen.getByText('Native pools · Ethereum')).toBeInTheDocument();
+    expect(screen.getByText(/^Ethereum pools\./)).toBeInTheDocument();
     expect(screen.getByTestId('pool-table')).toBeInTheDocument();
     expect(screen.queryByText(/one-sixth cut/)).toBeNull();
     // The form gets the wallet's chain and refuses it there, as before.
@@ -71,7 +75,7 @@ describe('/liquidity on the picked chain', () => {
     wallet.isConnected = true;
     wallet.chainId = 4663;
     at('/liquidity?c=8453');
-    expect(screen.getByText('Native pools · Robinhood Chain')).toBeInTheDocument();
+    expect(screen.getByText(/^Robinhood Chain pools\./)).toBeInTheDocument();
     expect(screen.getByTestId('form')).toHaveTextContent('4663');
   });
 });

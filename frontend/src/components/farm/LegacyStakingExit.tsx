@@ -191,9 +191,12 @@ export function LegacyStakingExit() {
         Legacy staking position found
       </div>
       <p className="text-white/70 text-[13px] mb-1">
-        This wallet has TOWELI in a retired staking contract. Withdraw it below.
+        TOWELI in a retired contract. Withdraw it below.
       </p>
       <FinePrint summary="Details" className="mb-2">
+        <p>
+          This wallet has TOWELI in a retired staking contract. Withdraw it below.
+        </p>
         <p>
           This wallet has TOWELI in a retired staking contract from before the relaunch. That
           contract is no longer part of the app — withdraw your funds below (they stay yours either
@@ -221,7 +224,7 @@ export function LegacyStakingExit() {
                 </a>
                 {!p.canWithdraw && (
                   <div className="text-amber-300/80 text-[11px] mt-0.5">
-                    Locked until {new Date(Number(p.lockEnd) * 1000).toLocaleDateString()} — early
+                    Locked until {new Date(Number(p.lockEnd) * 1000).toLocaleDateString()}, early
                     withdrawal pays {p.penaltyBps === null
                       ? 'a penalty whose rate could not be read just now'
                       : `a ${(Number(p.penaltyBps) / 100).toFixed(0)}% penalty`}
@@ -248,7 +251,7 @@ export function LegacyStakingExit() {
                   {busy
                     ? 'Confirming…'
                     : p.penaltyBps === null
-                      ? 'Penalty unknown — reload'
+                      ? 'Penalty unknown, reload'
                       : `Confirm −${(Number(p.penaltyBps) / 100).toFixed(0)}% penalty`}
                 </button>
               ) : (

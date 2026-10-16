@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type Ref } from 'react';
 import type { PoolView } from '../../../lib/solana/lp/poolFinder';
-import type { PoolListRead } from '../../../lib/solana/lp/poolList';
+import { LITTLE_MONEY_TEXT, poolTags, type PoolListRead } from '../../../lib/solana/lp/poolList';
 import { poolPricePerToken } from '../../../lib/solana/lp/poolHealth';
 import { priceText, quoteText, tokenText } from '../../../lib/solana/lp/format';
 import { pairLabel, registryToken } from '../../../lib/solana/lp/identity';
@@ -13,22 +13,40 @@ import type { LpReaders } from './readers';
 /**
  * Every pool on the venue, listed before a token is picked, so nobody has to search one
  * token at a time to see what is here. Each row's View looks its token up in the finder,
- * where the pool's checks and its Add and Remove buttons are. When there are more pools
- * than the index returns, the list says so and the finder's search finds the rest.
+ * where the pool's checks and its Add and Remove buttons are. A row's tags are warnings
+ * from what the list already read (poolList.ts `poolTags`): nothing is read per row.
+ * When there are more pools than the index returns, the list says so and the finder's
+ * search finds the rest.
  *
  * A list that could not be read says that, never "no pools". A reader without
  * `listPools` (every component test's fake) renders nothing.
  */
-export function VenuePoolList({ readers, reloadKey = 0, onView }: { readers: LpReaders; reloadKey?: number; onView: (tokenMint: string) => void }) {
+export function VenuePoolList({
+  readers,
+  reloadKey = 0,
+  onView,
+  sectionRef,
+}: {
+  readers: LpReaders;
+  reloadKey?: number;
+  onView: (tokenMint: string) => void;
+  /** Set by the section: "Add to another pool" after a withdrawal scrolls here and sends focus here. */
+  sectionRef?: Ref<HTMLElement>;
+}) {
   const read = usePoolList(readers, reloadKey);
   if (!readers.listPools) return null;
   return (
-    <section data-testid="lp-all-pools" aria-label="All pools">
+    <section ref={sectionRef} tabIndex={sectionRef ? -1 : undefined} className="outline-none" data-testid="lp-all-pools" aria-label="All pools">
       <Card title="All pools" art={<CardArt pageId="solana-lp" idx={13} />}>
         {read === null ? (
           <p className="text-white/70 text-[13px]">Reading the pools from the chain…</p>
         ) : read.kind === 'unread' ? (
-          <Notice tone="warn">The list of pools could not be read just now ({read.detail}). That does not mean there are none: search a token above.</Notice>
+          <>
+            <Notice tone="warn">The list of pools could not be read just now. That does not mean there are none: search a token above.</Notice>
+            <FinePrint summary="Why">
+              <p>{read.detail}</p>
+            </FinePrint>
+          </>
         ) : (
           <PoolRows list={read.list} onView={onView} />
         )}
@@ -39,6 +57,13 @@ export function VenuePoolList({ readers, reloadKey = 0, onView }: { readers: LpR
             rest.
           </p>
           <p>Anyone can open a pool, at any price. View one to see its checks before adding to it.</p>
+          <p>
+            The tags on a row come from what the list read. Trading off, Adding off and Removing off: the pool has that switched off. Frozen:
+            a coin’s issuer froze one of the pool’s accounts, so nothing moves in or out. Trading not open yet: its trading starts later,
+            maybe years from now. Little money in pool: it holds {LITTLE_MONEY_TEXT} (a pool priced in BAYLA never gets this tag). No
+            trades yet, and No trades in 7 days: from the pool’s own trade record. Anything not read gives no tag, and a row with no tag is
+            not a pool that passed: its price is checked only when you View it.
+          </p>
         </FinePrint>
       </Card>
     </section>
@@ -46,14 +71,14 @@ export function VenuePoolList({ readers, reloadKey = 0, onView }: { readers: LpR
 }
 
 function PoolRows({ list, onView }: { list: Extract<PoolListRead, { kind: 'ok' }>['list']; onView: (tokenMint: string) => void }) {
-  const { pools, unread, truncated } = list;
+  const { pools, unread, truncated, chainNow } = list;
   return (
     <div className="space-y-3">
       {pools.length === 0 && unread === 0 && !truncated && <p data-testid="lp-all-pools-none">No pools yet.</p>}
       {pools.length > 0 && (
         <ul className="space-y-2" aria-label="All pools: SOL pools first, then USDC, then BAYLA, the deepest of each first">
           {pools.map((view) => (
-            <PoolRow key={view.address} view={view} onView={onView} />
+            <PoolRow key={view.address} view={view} chainNow={chainNow} onView={onView} />
           ))}
         </ul>
       )}
@@ -67,13 +92,14 @@ function PoolRows({ list, onView }: { list: Extract<PoolListRead, { kind: 'ok' }
   );
 }
 
-function PoolRow({ view, onView }: { view: PoolView; onView: (tokenMint: string) => void }) {
+function PoolRow({ view, chainNow, onView }: { view: PoolView; chainNow: bigint | null; onView: (tokenMint: string) => void }) {
   const { pool } = view.snapshot;
   const tokenDecimals = view.quoteIsToken0 ? pool.mint1Decimals : pool.mint0Decimals;
   // Named only by an address this site knows: a room's token, or a pairing coin (USDC in USDC / SOL).
   const symbol = registryToken(view.tokenMint)?.symbol ?? quoteCoin(view.tokenMint)?.symbol ?? null;
   const price = poolPricePerToken(view.snapshot, view.tokenMint, tokenDecimals);
   const label = pairLabel(view);
+  const tags = poolTags(view, chainNow);
   return (
     <li
       data-testid="lp-all-pools-row"
@@ -88,6 +114,21 @@ function PoolRow({ view, onView }: { view: PoolView; onView: (tokenMint: string)
           Holds {quoteText(view.quoteReserve, view.quote)} and {tokenText(view.tokenReserve, tokenDecimals, symbol ?? 'tokens')}
         </p>
         <p className="text-white/75 text-[12.5px] [overflow-wrap:anywhere]">{price === null ? 'No price: one side is empty' : priceText(price, view.quote, symbol ?? 'token')}</p>
+        {tags.length > 0 && (
+          <ul className="flex flex-wrap gap-1.5 pt-1" aria-label={`${label}: warnings`}>
+            {tags.map((t) => (
+              <li
+                key={t.text}
+                data-testid="lp-all-pools-tag"
+                className={`px-2 py-0.5 rounded-full text-[11px] font-semibold border ${
+                  t.tone === 'bad' ? 'bg-rose-500/15 text-rose-300 border-rose-500/30' : 'bg-amber-500/15 text-amber-300 border-amber-500/30'
+                }`}
+              >
+                {t.text}
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
       <button type="button" className="btn-secondary min-h-[44px] px-4 text-[13px]" aria-label={`View ${label}`} onClick={() => onView(view.tokenMint)}>
         View

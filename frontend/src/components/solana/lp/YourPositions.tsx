@@ -27,6 +27,7 @@ import { useLpWrites, type LpWrites } from './useLpWrites';
 import { WholeDates } from './WholeDates';
 import type { LpReaders } from './readers';
 
+import { PositionMark, positionHost } from '../../ui/PositionMark';
 type State =
   | { status: 'loading' }
   /** `refreshing`: this is the last answer for the same wallet, shown while it is read again. */
@@ -131,6 +132,7 @@ export function YourPositions({
   reloadKey = 0,
   sectionRef,
   onAddMore,
+  onAllPools,
 }: {
   readers: LpReaders;
   owner: PublicKey | null;
@@ -139,6 +141,8 @@ export function YourPositions({
   sectionRef?: Ref<HTMLElement>;
   /** Set by the section: without it no position offers "Add more liquidity". */
   onAddMore?: AddMore;
+  /** Set by the section: a confirmed withdrawal's "Add to another pool" goes to the All pools list. */
+  onAllPools?: () => void;
 }) {
   const [nonce, setNonce] = useState(0);
   const [limit, setLimit] = useState(MAX_POSITIONS);
@@ -161,20 +165,24 @@ export function YourPositions({
     if (report && !owner) report(null);
   }, [report, owner]);
   const readAgain = useCallback(() => setNonce((n) => n + 1), []);
+  // A complete read that found a share: never while loading or unread.
+  const inPosition = Boolean(owner) && state?.status === 'done' && state.read.kind !== 'unread' && state.read.positions.length > 0;
   return (
     <section ref={sectionRef} tabIndex={sectionRef ? -1 : undefined} className="outline-none" data-testid="lp-positions" aria-label="Your positions">
-      <Card title="Your positions" art={<CardArt pageId="solana-lp" idx={3} />}>
+      <Card title="Your positions" art={<CardArt pageId="solana-lp" idx={3} />} className={positionHost('', inPosition).trim() || undefined}>
+        <PositionMark inPosition={inPosition} />
         {/* One live region for the whole section, always mounted: only its text changes. */}
         <p role="status" aria-live="polite" className="sr-only" data-testid="lp-positions-status">
           {statusText(owner, state)}
         </p>
         {!owner ? (
           <>
-            <p>Connect a Solana wallet to see the pool shares it holds.</p>
+            <p>Connect a wallet to see your pool shares.</p>
             <SolanaConnectButton />
-            {/* A phone's own browser has no wallet in it: the same way on the forms give. */}
-            <WalletAppHint />
-            <FinePrint summary="Details">
+            {/* A phone's own browser has no wallet in it: the same way on the forms give, one press
+                away, under a door named for that visitor (owner, 2026-10-14: fewer words). */}
+            <FinePrint summary="No wallet here?">
+              <WalletAppHint />
               <p>Reading them sends nothing and signs nothing.</p>
               {writes && <p>Removing liquidity starts here: each share that can be taken out gets a Remove liquidity button.</p>}
             </FinePrint>
@@ -195,6 +203,7 @@ export function YourPositions({
             onReadAgain={readAgain}
             readers={readers}
             onAddMore={onAddMore}
+            onAllPools={onAllPools}
           />
         )}
       </Card>
@@ -210,6 +219,7 @@ function PositionsList({
   onReadAgain,
   readers,
   onAddMore,
+  onAllPools,
 }: {
   read: Extract<PositionsRead, { kind: 'ok' }>;
   safety: Map<string, TokenSafety>;
@@ -218,6 +228,7 @@ function PositionsList({
   onReadAgain: () => void;
   readers: LpReaders;
   onAddMore?: AddMore;
+  onAllPools?: () => void;
 }) {
   const safetyOf = (p: Position) => (p.pool?.kind === 'pool' ? safety.get(p.pool.view.tokenMint) ?? null : null);
   const main = read.positions.filter((p) => setAsideReason(p, safetyOf(p)) === null);
@@ -250,6 +261,7 @@ function PositionsList({
               readers={readers}
               onReadAgain={onReadAgain}
               onAddMore={onAddMore}
+              onAllPools={onAllPools}
             />
           ))}
         </ul>
@@ -275,6 +287,7 @@ function PositionsList({
                 readers={readers}
                 onReadAgain={onReadAgain}
                 onAddMore={onAddMore}
+                onAllPools={onAllPools}
               />
             ))}
           </ul>
@@ -320,6 +333,7 @@ function PositionRow({
   readers,
   onReadAgain,
   onAddMore,
+  onAllPools,
 }: {
   p: Position;
   owner: PublicKey;
@@ -331,6 +345,7 @@ function PositionRow({
   readers: LpReaders;
   onReadAgain: () => void;
   onAddMore?: AddMore;
+  onAllPools?: () => void;
 }) {
   const view = p.pool?.kind === 'pool' ? p.pool.view : null;
   const decimals = safety?.kind === 'read' ? safety.facts?.decimals ?? null : null;
@@ -454,6 +469,7 @@ function PositionRow({
         readers={readers}
         onReadAgain={onReadAgain}
         onAddMore={onAddMore}
+        onAllPools={onAllPools}
       />
       <details className="rounded-lg" style={{ border: '1px solid rgba(255,255,255,0.08)' }}>
         <summary className="min-h-[44px] flex items-center px-3 cursor-pointer text-white/75">More about this share</summary>
@@ -702,6 +718,7 @@ function RemoveBlock({
   readers,
   onReadAgain,
   onAddMore,
+  onAllPools,
 }: {
   offer: WithdrawOffer;
   writes: LpWrites | null;
@@ -714,6 +731,7 @@ function RemoveBlock({
   readers: LpReaders;
   onReadAgain: () => void;
   onAddMore?: AddMore;
+  onAllPools?: () => void;
 }) {
   const key = `remove:${p.lpAccount}`;
   const open = writes?.active?.key === key;
@@ -756,7 +774,16 @@ function RemoveBlock({
   // own sent withdrawal makes this pool `held`, and the outcome must stay on screen.
   const panel =
     open && writes && view ? (
-      <RemoveLiquidityPanel position={p} view={view} safety={safety} tokenDecimals={decimals} chainNow={chainNow} setAside={setAside} onClose={writes.close} />
+      <RemoveLiquidityPanel
+        position={p}
+        view={view}
+        safety={safety}
+        tokenDecimals={decimals}
+        chainNow={chainNow}
+        setAside={setAside}
+        onClose={writes.close}
+        onAllPools={onAllPools}
+      />
     ) : null;
 
   const removeButton =

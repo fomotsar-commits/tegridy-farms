@@ -45,13 +45,21 @@ afterEach(() => {
 describe('/liquidity points a Solana visitor at the Solana LP tab', () => {
   it('with a link in its header, before the paragraph and the pool table', () => {
     mount();
-    const link = screen.getByRole('link', { name: 'On Solana? Create a pool, add or remove liquidity on the Solana LP tab' });
+    const link = screen.getByRole('link', { name: 'On Solana? Create, add or remove on the Solana LP tab' });
     expect(link).toHaveAttribute('href', '/solana-lp');
     const header = screen.getByRole('heading', { level: 1, name: 'Liquidity' }).parentElement!;
     expect(header).toContainElement(link);
     const before = (a: Element, b: Element) => !!(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
     expect(before(link, screen.getByText(/Pair two tokens into a pool/))).toBe(true);
     expect(before(link, screen.getByTestId('pool-table'))).toBe(true);
+  });
+
+  // How the venue earns stays on screen (owner, 2026-10-09): its cut of the pool fee is off,
+  // but swaps routed through this site still pay it a fee of its own.
+  it('says on screen that the venue cut is off and that swaps through this site pay the venue a separate fee', () => {
+    mount();
+    expect(screen.getByText(/Venue cut: off/)).toBeVisible();
+    expect(screen.getByText(/Swaps made through this site pay the venue a separate fee/)).toBeVisible();
   });
 
   it.each<[LpWriteMode, string, RegExp]>([

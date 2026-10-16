@@ -15,7 +15,7 @@ import { lpWriteMode, type LpWriteMode } from '../lib/launcher/solana/lpWriteFla
 
 /** What the Solana LP tab can do follows LP's own switch, so the pointer never promises more. */
 const SOLANA_POINTER: Record<LpWriteMode, string> = {
-  on: 'On Solana? Create a pool, add or remove liquidity on the Solana LP tab',
+  on: 'On Solana? Create, add or remove on the Solana LP tab',
   'withdraw-only': 'On Solana? Take liquidity out on the Solana LP tab',
   off: 'On Solana? Find a pool on the Solana LP tab',
 };
@@ -77,9 +77,7 @@ export default function LiquidityPage() {
         trap LiquidityTab's token picker (z-[100]) under the tab strip (z-30). */}
     <div className="relative mx-auto w-full max-w-[900px] px-4 py-8 sm:py-10">
       <header className="mb-6">
-        <p className="text-[11px] uppercase tracking-wider label-pill mb-2" style={{ color: 'var(--color-stan)' }}>
-          Native pools · {chainName}
-        </p>
+        {/* One heading, no eyebrow over it (owner, 2026-10-14): the chain is in the line under it. */}
         <h1 className="heading-luxury text-3xl md:text-4xl text-white leading-tight mb-3">
           Liquidity
         </h1>
@@ -90,25 +88,37 @@ export default function LiquidityPage() {
             {SOLANA_POINTER[lpWriteMode()]}
           </Link>
         </p>
-        {/* One line: how a provider earns and what the venue takes. The venue's
-            one-sixth cut is a switch, so its state carries the date it was read
-            (the primer below says who holds it and how to check it). */}
+        {/* One line: how a provider earns and what the venue takes, as numbers, on the chain
+            the form is on. The venue's one-sixth cut is a switch, so its state carries the date
+            it was read (the sentence under it, and the primer below, say who holds it and how to
+            check it). */}
         {onMainnet ? (
           <p className="text-white/75 text-[14px] md:text-[15px] leading-relaxed max-w-[62ch]">
-            Providers split the whole 0.3% swap fee by pool share (the venue&apos;s optional cut was
-            off when read on 10 October 2026). The venue earns its own fee on swaps routed here.
+            Ethereum pools. Swap fee 0.3%, all to the pool. Venue cut: off (read 10 October 2026).
+            Swaps made through this site pay the venue a separate fee.
           </p>
         ) : (
           /* Base and Robinhood Chain: the same pair contract, but each factory's feeTo was
              SET when read (2026-10-15) to the venue's FEE_REMITTANCE Safe 0xfc5D…fbf1 (Safe
              code on both chains), so the one-sixth cut is on there. Our swap does not route on
-             either chain, so no venue swap fee is earned there. */
+             either chain, so no venue swap fee is earned there, and the line claims none. */
           <p className="text-white/75 text-[14px] md:text-[15px] leading-relaxed max-w-[62ch]">
-            Providers split the 0.3% swap fee by pool share, less the venue&apos;s one-sixth cut, which
-            was on when read on 15 October 2026 and goes to the venue&apos;s fee Safe.
+            {chainName} pools. Swap fee 0.3%, to the pool after a one-sixth venue cut, which goes
+            to the venue&apos;s fee Safe (cut on, read 15 October 2026).
           </p>
         )}
         <FinePrint summary="How it works">
+          {onMainnet ? (
+            <p>
+              Providers split the whole 0.3% swap fee by pool share (the venue&apos;s optional cut was
+              off when read on 10 October 2026). The venue earns its own fee on swaps routed here.
+            </p>
+          ) : (
+            <p>
+              Providers split the 0.3% swap fee by pool share, less the venue&apos;s one-sixth cut, which
+              was on when read on 15 October 2026 and goes to the venue&apos;s fee Safe.
+            </p>
+          )}
           <p>
             Pair two tokens into a pool and every swap that routes through it pays you a share of
             its fee, in proportion to how much of the pool is yours. Your position is an ERC-20
@@ -121,18 +131,19 @@ export default function LiquidityPage() {
       {/* The table lists Ethereum's pools; on another chain the form below reads that chain's pair. */}
       {onMainnet && <VenuePoolTable poolData={poolData} />}
 
-      <LiquidityPrimer />
-
       {/* The form. `id` so the table's "Provide liquidity" buttons can jump to
           it without a route change — the pool is already the venue's only pair,
           so a navigation would land the visitor back on this same page. */}
       <section id="provide" className="mt-8 scroll-mt-5">
         <h2 className="text-white text-lg font-semibold mb-1">Add or remove liquidity</h2>
-        <p className="text-white/60 text-[12.5px] mb-4">
-          Both sides, priced off the pool&apos;s current reserves.
-        </p>
+        <FinePrint summary="Details" className="mb-2">
+          <p>Both sides, priced off the pool&apos;s current reserves.</p>
+        </FinePrint>
         <LiquidityTab chainId={liquidityChainId} />
       </section>
+
+      {/* The four answers for a first-timer, after the form (owner, 2026-10-14: the actions first). */}
+      <LiquidityPrimer />
 
       {/* PROMOTED FROM /farm, 2026-09-05. It is the same component; what changed
           is that it is now in front of the person making the decision it is
@@ -141,7 +152,7 @@ export default function LiquidityPage() {
       <section className="mt-10">
         <h2 className="text-white text-lg font-semibold mb-1">What could go wrong?</h2>
         <p className="text-white/60 text-[12.5px] mb-2">
-          An LP can end up worth less than simply holding both tokens.
+          You can end up worth less than simply holding both tokens.
         </p>
         <ILCalculator />
         <FinePrint summary="Impermanent loss" className="mt-2">
