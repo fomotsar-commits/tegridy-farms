@@ -350,13 +350,6 @@ page keeps the newest thirty days.
 - The launchpad no longer arms Mint or names a sale phase from an unread sale state.
 - The token picker and token detail dialogs keep focus and scroll lock steady while the page re-renders.
 
-### 2026-09-15
-
-- Four buttons that said "Connect Wallet" and were disabled for saying it now open the wallet modal.
-- The venue's icons carry their version in the path, so clients stuck on the old Nakamigos mark update.
-- The BAYLA lighthouse card keeps its Connect button now that deposits are closed.
-- Trust Wallet connects on the Solana side of the venue.
-
 ## Earlier
 
 The long form lives in git. `git show 531813e6:CHANGELOG.md` is this file as it stood before
