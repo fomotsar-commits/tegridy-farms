@@ -7,13 +7,14 @@ import { jupiterLastValidAtMost } from '../../../lib/solana/swap/jupiterNote';
 import { OWN_ROUTE_COPY } from '../../../lib/solana/swap/ownPoolRoute';
 import { CHECK_KEEPS_FAILING, HELD_NOT_SENT, lostAnswerCopy, nothingSentCopy } from '../../../lib/solana/swap/walletCopy';
 import { readSendThrow } from '../../../lib/solana/walletThrow';
-import { DEFAULT_SLIPPAGE_BPS } from '../curve/uiFormat';
+import { DEFAULT_SLIPPAGE_BPS, fractionToBps } from '../curve/uiFormat';
 
 /**
  * Step 1 of "Add with one coin" when Jupiter pays more: the swap page's Buy press, rule
  * for rule (pages/SolanaSwapPage.tsx handleSwap). A fresh quote held to the one reviewed;
  * our own pool takes the trade if it now pays at least as much; build and test run with
- * the one no-fee retry (jupiterFeeRetry.ts); a note this wallet holds stops it right
+ * the one no-fee retry (jupiterFeeRetry.ts), sent only when its site fee, or none, is what
+ * the review said; a note this wallet holds stops it right
  * before the wallet; the note is written on the signature, or with none for a lost answer.
  */
 
@@ -68,6 +69,7 @@ const thrownWords = (err: unknown): string => {
 };
 
 const FEE_BACK_COPY = 'The site fee can be taken on this route now, so you receive slightly less. Nothing was sent. Review the new figures and press again.';
+const FEE_GONE_COPY = 'The site fee cannot be taken on this route, so the figures changed. Nothing was sent. Review the new figures and press again.';
 const movedCopy = (bps: number) => `The quote dropped beyond your ${(bps / 100).toFixed(2)}% slippage. Nothing was sent. Review the new figures and press again.`;
 
 export async function sendJupiterLeg(d: JupiterLegDeps, a: JupiterLegArgs): Promise<JupiterLegEnd> {
@@ -122,8 +124,11 @@ export async function sendJupiterLeg(d: JupiterLegDeps, a: JupiterLegArgs): Prom
   if (prepared.status === 'moved') return { kind: 'not-sent', title: 'Price moved', message: movedCopy(a.slippageBps), replan: true };
   const sent = prepared.quote;
   if (carriesFee && (await d.ownPoolWins(BigInt(sent.outAmount)))) return routeChanged;
-  // Reviewed with no site fee, and the fee can be taken now: that pays less than the review said.
-  if (shownWaived && !prepared.siteFeeWaived) return { kind: 'not-sent', title: 'Quote changed', message: FEE_BACK_COPY, replan: true };
+  // The review says what goes out, the site fee included. Reviewed with no site fee and the
+  // fee can be taken now: that pays less than the review said. Reviewed with the fee and
+  // this route's transaction goes out with none (the 6014 retry): the review said a fee that
+  // is not taken. Either way it is reviewed again on the figures that would be sent.
+  if (shownWaived !== prepared.siteFeeWaived) return { kind: 'not-sent', title: 'Quote changed', message: shownWaived ? FEE_BACK_COPY : FEE_GONE_COPY, replan: true };
   // A swap this wallet sent in another tab meanwhile holds this one. Nothing is awaited from here to the wallet.
   if (d.holdsNow()) return { kind: 'not-sent', title: 'Not sent', message: HELD_NOT_SENT };
 
@@ -207,6 +212,19 @@ export async function receivedBy(
   } catch {
     return null;
   }
+}
+
+/**
+ * How far a Jupiter quote moves the price, said as the swap page says it ("1.23%", "<0.01%"),
+ * and in basis points for its warning. Null when the quote's field is missing or not a
+ * number: never "0%".
+ */
+export function priceChangeOf(q: JupiterQuote): { text: string; bps: bigint | null } | null {
+  const raw: unknown = q.priceImpactPct;
+  if (typeof raw !== 'string' || raw.trim() === '') return null;
+  const pct = Math.abs(Number(raw) * 100);
+  if (!Number.isFinite(pct)) return null;
+  return { text: `${pct < 0.01 ? '<0.01' : pct.toFixed(2)}%`, bps: fractionToBps(pct / 100) };
 }
 
 /** "≈12.5 BAYLA with 0.1 SOL", the swap page's words for a trade. */

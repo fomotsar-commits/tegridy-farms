@@ -6,6 +6,11 @@ page keeps the newest thirty days.
 
 ## [Unreleased]
 
+### 2026-10-16
+
+- Solana LP, "Add with one coin": the swap step's review now shows its price change. On a route where the site fee cannot be taken (BAYLA's pump.fun route), it no longer says 0.50%: the first Sign sends nothing and shows the review again with "No site fee on this route", and the next Sign sends exactly that.
+- Solana LP, Remove liquidity: once a withdrawal is confirmed, the card says what you got (about this much SOL and this much of the token) and offers Swap it, which opens the Solana swap on that token, and Add to another pool, which brings the All pools list up. Close is still there.
+
 ### 2026-10-15
 
 - Solana swaps and the pool price checks behind Add liquidity keep working when Jupiter retires its free host, once the venue's Jupiter key is set on the server; until then nothing changes. If Jupiter refuses the key, its limit is reached or it does not serve that path, the request is sent once more to the free host while it still answers. The swap fee setting reaches Jupiter the same way on both.

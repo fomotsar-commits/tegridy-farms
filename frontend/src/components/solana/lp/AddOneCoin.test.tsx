@@ -9,6 +9,9 @@
 //   5. What step 1 paid is held to the floor of the transaction sent, not the review's (m-1).
 //   6. Step 1 landed in another tab: this tab offers step 2, never step 1 again (m-2).
 //   7. A new deploy never reloads the page while step 1 is with the wallet (#793's hold).
+//   8. Step 1's review says the price change, and the site fee that is really taken: a route
+//      whose transaction goes out with none (the 6014 retry) is reviewed again, saying so,
+//      before the wallet is asked.
 //
 // Our own pool's swap code is a stub here that is not ready, so the route is Jupiter's,
 // whose quotes are a fake. Nothing here touches a chain.
@@ -25,7 +28,8 @@ import type { PoolSearchRead, PoolView } from '../../../lib/solana/lp/poolFinder
 import { decodeAmmConfig, decodePoolState } from '../../../lib/solana/cpswap/program';
 import type { WalletFacts } from '../../../lib/solana/lp/walletFacts';
 import { buildPool, key } from '../../../lib/solana/lp/testkit.fixture';
-import type { JupiterQuote } from '../../../lib/jupiter';
+import type { JupiterQuote, SwapSimulation } from '../../../lib/jupiter';
+import { NO_SITE_FEE_ROUTE_COPY } from '../../../lib/solana/swap/jupiterFeeRetry';
 import type { PendingTrade } from '../curve/pendingTrade';
 import { fakeLpApi, LP_PROGRAM, unusedGateRpc } from './fakeLpWriteApi.fixture';
 import { readStepTwo, saveStepTwo, type StepTwoNote } from './oneCoinSwap';
@@ -46,9 +50,25 @@ const conn = vi.hoisted(() => ({ connection: { rpcEndpoint: 'fake' } }));
 vi.mock('@solana/wallet-adapter-react', () => ({ useWallet: () => wallet, useConnection: () => conn }));
 vi.mock('../SolanaConnectButton', () => ({ SolanaConnectButton: () => <button type="button">Connect Solana Wallet</button> }));
 
-// Jupiter's quotes, set in beforeEach.
-const jup = vi.hoisted(() => ({ getQuote: undefined as unknown as (p: { amount: string; inputMint: string; outputMint: string }) => Promise<JupiterQuote> }));
-vi.mock('../../../lib/jupiter', async (orig) => ({ ...(await orig<typeof import('../../../lib/jupiter')>()), getQuote: (p: never) => jup.getQuote(p) }));
+// Jupiter's quotes, set in beforeEach. The send path's build and test run are the real ones
+// unless a test sets its own; the pair carries the site fee only where a test says so.
+type QuoteAsk = { amount: string; inputMint: string; outputMint: string; noPlatformFee?: boolean };
+const jup = vi.hoisted(() => ({
+  getQuote: undefined as unknown as (p: QuoteAsk) => Promise<JupiterQuote>,
+  build: null as null | ((p: { noPlatformFee?: boolean }) => Promise<string>),
+  simulate: null as null | ((b64: string) => Promise<SwapSimulation>),
+  carries: false,
+}));
+vi.mock('../../../lib/jupiter', async (orig) => {
+  const real = await orig<typeof import('../../../lib/jupiter')>();
+  return {
+    ...real,
+    getQuote: (p: never) => jup.getQuote(p),
+    buildSwapTransaction: (p: Parameters<typeof real.buildSwapTransaction>[0]) => (jup.build ?? real.buildSwapTransaction)(p),
+    simulateSwap: (b64: string) => (jup.simulate ?? real.simulateSwap)(b64),
+    swapCarriesPlatformFee: () => jup.carries,
+  };
+});
 
 // Step 1's Jupiter send and the read of what it paid: the real ones unless a test sets its own.
 type Leg = typeof import('./oneCoinSwap');
@@ -179,6 +199,9 @@ beforeEach(() => {
   venue.notes.length = 0;
   leg.send = null;
   leg.received = null;
+  jup.build = null;
+  jup.simulate = null;
+  jup.carries = false;
   wallet.publicKey = OWNER;
   wallet.signTransaction = vi.fn(async (t) => t);
   wallet.sendTransaction = vi.fn(async () => '5'.repeat(88));
@@ -387,5 +410,71 @@ describe('Add with one coin: a new deploy never reloads the page under step 1', 
     await act(async () => answer());
     await screen.findByTestId('lp-one-step2');
     expect(reloadHeld()).toBe(false);
+  });
+});
+
+describe('Add with one coin: step 1’s review says what is sent', () => {
+  it('says the price change from Jupiter’s quote, as the swap page does', async () => {
+    const priced = jup.getQuote;
+    jup.getQuote = vi.fn(async (p: QuoteAsk) => ({ ...(await priced(p)), priceImpactPct: '0.0123' }));
+    await toReview();
+    const review = screen.getByTestId('lp-one-review');
+    expect(within(review).getByText('Price change').nextElementSibling).toHaveTextContent(/^1\.23%$/);
+    expect(review).not.toHaveTextContent('This trade moves the price');
+  });
+
+  it('a large price change carries the swap page’s warning', async () => {
+    const priced = jup.getQuote;
+    jup.getQuote = vi.fn(async (p: QuoteAsk) => ({ ...(await priced(p)), priceImpactPct: '0.08' }));
+    await toReview();
+    const review = screen.getByTestId('lp-one-review');
+    expect(within(review).getByText('Price change').nextElementSibling).toHaveTextContent(/^8\.00%$/);
+    expect(review).toHaveTextContent('This trade moves the price by 8.00%. You get noticeably less than the current price suggests.');
+  });
+
+  it('a price change Jupiter did not give is "could not be read", never 0%', async () => {
+    const priced = jup.getQuote;
+    jup.getQuote = vi.fn(async (p: QuoteAsk) => ({ ...(await priced(p)), priceImpactPct: 'n/a' }));
+    await toReview();
+    expect(within(screen.getByTestId('lp-one-review')).getByText('Price change').nextElementSibling).toHaveTextContent(/^could not be read$/);
+  });
+
+  describe('on a route whose transaction cannot take the site fee (BAYLA’s pump.fun route, the 6014 retry)', () => {
+    // An empty v0 transaction, as Jupiter's build hands one back (made under node: web3 cannot serialize under jsdom).
+    const NO_FEE_TX =
+      'AQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACAAQAAAQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcAAA==';
+    const SIXTY_FOURTEEN: SwapSimulation = { ok: false, reason: 'custom program error: 0x177e', jupiterIncorrectTokenProgram: true };
+    beforeEach(() => {
+      jup.carries = true;
+      // The site's 0.5% inside every quote, unless one with no fee is asked for.
+      const priced = jup.getQuote;
+      jup.getQuote = vi.fn(async (p: QuoteAsk) => {
+        const q = await priced(p);
+        if (p.noPlatformFee) return q;
+        const out = (BigInt(q.outAmount) * 995n) / 1000n;
+        return { ...q, outAmount: out.toString(), otherAmountThreshold: ((out * 99n) / 100n).toString(), platformFee: { amount: '1', feeBps: 50 } };
+      });
+      // The fee-bearing transaction fails its test run with Jupiter's 6014; the no-fee one passes.
+      jup.build = vi.fn(async (p: { noPlatformFee?: boolean }) => (p.noPlatformFee ? NO_FEE_TX : 'fee-bearing'));
+      jup.simulate = vi.fn(async (b64: string) => (b64 === NO_FEE_TX ? { ok: true, reason: null, jupiterIncorrectTokenProgram: false } : SIXTY_FOURTEEN));
+    });
+
+    it('a review that said 0.50% is made again, saying no site fee, and the wallet is not asked', async () => {
+      const { sign } = await toReview();
+      const first = screen.getByTestId('lp-one-review');
+      expect(within(first).getByText('Site fee').nextElementSibling).toHaveTextContent('0.50%, inside the quote');
+      expect(within(first).queryByTestId('lp-one-no-fee')).toBeNull();
+      sign();
+      const panel = screen.getByTestId('lp-one-coin-panel');
+      const noFee = await within(panel).findByTestId('lp-one-no-fee');
+      expect(noFee).toHaveTextContent(NO_SITE_FEE_ROUTE_COPY);
+      expect(within(panel).getByTestId('lp-one-said')).toHaveTextContent('Quote changed: The site fee cannot be taken on this route, so the figures changed. Nothing was sent.');
+      const again = screen.getByTestId('lp-one-review');
+      expect(within(again).getByText('Site fee').nextElementSibling).toHaveTextContent('none on this route');
+      // The review made again is the no-fee quote, which is what the next Sign sends.
+      expect(jup.getQuote).toHaveBeenLastCalledWith(expect.objectContaining({ noPlatformFee: true }));
+      expect(wallet.sendTransaction).not.toHaveBeenCalled();
+      expect(within(again).getByRole('button', { name: 'Sign in wallet' })).toBeEnabled();
+    });
   });
 });
