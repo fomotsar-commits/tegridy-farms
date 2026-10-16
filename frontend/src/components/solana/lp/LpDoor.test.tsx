@@ -164,6 +164,53 @@ beforeEach(() => {
   }));
 });
 
+// THE HOME CARD (owner, 2026-10-16: "stake with the module and provide lp with the module so
+// people can right away do these things"). The same section on '/', already on the token, ending
+// in the same Add with one coin, and the home's address is not the Pools tab's to write.
+describe('the home card', () => {
+  function mountHome(r: LpReaders, path: string, pool: string) {
+    const writes: LpWritesOverrides = { mode: 'on', load: vi.fn(async () => fakeLpApi()), gateRpc: unusedGateRpc };
+    render(
+      <MemoryRouter initialEntries={[path]}>
+        <Where />
+        <LpInner readers={r} writes={writes} home={{ mint: M, pool }} />
+      </MemoryRouter>,
+    );
+  }
+
+  it('opens Add with one coin on its pool by itself, and writes nothing in the address', async () => {
+    const sol = view();
+    mountHome(readers([sol]), '/', sol.address);
+    const panel = await screen.findByTestId('lp-one-coin-panel');
+    expect(cardOf(sol.address)).toContainElement(panel);
+    await new Promise((r) => setTimeout(r, 50));
+    expect(where).toBe('');
+  });
+
+  it('reads no token or task from the address', async () => {
+    const sol = view();
+    const r = readers([sol]);
+    const other = key().toBase58();
+    mountHome(r, `/?mint=${other}&task=add`, sol.address);
+    await screen.findByTestId('lp-one-coin-panel');
+    const looked = vi.mocked(r.findPools).mock.calls.map((c) => c[0].toBase58());
+    expect(looked.length).toBeGreaterThan(0);
+    expect(looked.every((m) => m === M)).toBe(true);
+    expect(where).toBe(`?mint=${other}&task=add`);
+  });
+
+  it('keeps the actions and leaves every pool, the rates and the routes to the tabs', async () => {
+    const sol = view();
+    mountHome(readers([sol], { kind: 'ok', list: { pools: [sol], unread: 0, truncated: false, chainNow: null } }), '/', sol.address);
+    await screen.findByTestId('lp-one-coin-panel');
+    expect(screen.getByTestId('lp-risk-line')).toHaveTextContent(RISK_SHORT);
+    expect(screen.getByTestId('lp-disclosure')).toBeInTheDocument();
+    expect(screen.queryByTestId('lp-all-pools')).toBeNull();
+    expect(screen.queryByTestId('fee-tiers')).toBeNull();
+    expect(screen.queryByTestId('lp-routes')).toBeNull();
+  });
+});
+
 describe('the door’s link', () => {
   it('?task=add&pool= opens Add with one coin on that pool by itself, then leaves the address', async () => {
     const sol = view();

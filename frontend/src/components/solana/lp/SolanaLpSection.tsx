@@ -51,14 +51,25 @@ export interface LpWritesOverrides {
   gateRpc?: GateRpc;
 }
 
-export function LpInner({ readers, writes }: { readers: LpReaders; writes?: LpWritesOverrides }) {
+/**
+ * The home's LP card (owner, 2026-10-16): the finder already on `mint`, opening Add with one
+ * coin on `pool` as the LP door does. It reads and writes nothing in the address (the home
+ * is not the Pools tab), and keeps only the actions: the risk and earn lines, the finder,
+ * your positions and the notice. Every pool, the rates and the routes stay on the tabs.
+ */
+export interface LpHome {
+  mint: string;
+  pool: string;
+}
+
+export function LpInner({ readers, writes, home }: { readers: LpReaders; writes?: LpWritesOverrides; home?: LpHome }) {
   // Fixed for the life of a build: a production build reads only the committed constant.
   const mode = writes?.mode ?? lpWriteMode();
   // Bumped when a liquidity flow goes back to idle after an outcome: the finder and the
   // positions read again, keeping what they show until the new answer arrives.
   const [reloadKey, setReloadKey] = useState(0);
   const finished = useCallback(() => setReloadKey((k) => k + 1), []);
-  const body = <LpBody readers={readers} mode={mode} reloadKey={reloadKey} />;
+  const body = <LpBody readers={readers} mode={mode} reloadKey={reloadKey} home={home} />;
   if (mode === 'off') return body;
   return (
     <LpWritesProvider readers={readers} mode={mode} load={writes?.load} gateRpc={writes?.gateRpc} onFinished={finished}>
@@ -67,14 +78,22 @@ export function LpInner({ readers, writes }: { readers: LpReaders; writes?: LpWr
   );
 }
 
-function LpBody({ readers, mode, reloadKey }: { readers: LpReaders; mode: LpWriteMode; reloadKey: number }) {
+function LpBody({ readers, mode, reloadKey, home }: { readers: LpReaders; mode: LpWriteMode; reloadKey: number; home?: LpHome }) {
   const [params, setParams] = useSearchParams();
-  const raw = params.get('mint');
+  const homeMint = home?.mint ?? null;
+  const homePool = home?.pool ?? null;
+  // On the home the token lives here, not in the address.
+  const [heldMint, setHeldMint] = useState<string | null>(homeMint);
+  const raw = homeMint ? null : params.get('mint');
   const parsed = raw ? parseMintInput(raw) : null;
-  const mint = parsed?.ok ? parsed.mint : null;
+  const mint = homeMint ? heldMint : parsed?.ok ? parsed.mint : null;
   const linkError = raw && parsed && !parsed.ok ? { raw, reason: parsed.reason } : null;
   const onMint = useCallback(
     (m: string | null) => {
+      if (homeMint) {
+        setHeldMint(m);
+        return;
+      }
       setParams((prev) => {
         const next = new URLSearchParams(prev);
         if (m) next.set('mint', m);
@@ -82,12 +101,12 @@ function LpBody({ readers, mode, reloadKey }: { readers: LpReaders; mode: LpWrit
         return next;
       });
     },
-    [setParams],
+    [homeMint, setParams],
   );
   const { publicKey } = useWallet();
 
   // The risk line above the actions says RISK_SHORT, so the notice says that risk only in full, in its small print.
-  const disclosure = <LpDisclosure programId={readers.programId} mode={mode} riskAbove />;
+  const disclosure = <LpDisclosure programId={readers.programId} mode={mode} riskAbove programBelow={!homeMint} />;
   const writesTop = mode !== 'off' && <LpWritesTop />;
   const tierRead = useFeeTiers(readers);
   // Remove liquidity (the finder's third button) brings the positions onto the screen:
@@ -116,8 +135,15 @@ function LpBody({ readers, mode, reloadKey }: { readers: LpReaders; mode: LpWrit
   // The LP door (island, answer twenty): ?mint=<token>&task=add[&pool=<address>] ends in Add with
   // one coin, of the pool named or of the token's deepest SOL pool. Asked once, then dropped from the
   // address, so a reload or Back does not open the form again over what the visitor did since.
-  const doorTask = params.get('task');
+  const doorTask = homeMint ? null : params.get('task');
   const doorPool = params.get('pool');
+  // The home asks the same once, on its own pool, when the card first draws.
+  const homeAsked = useRef(false);
+  useEffect(() => {
+    if (!homeMint || !homePool || homeAsked.current || !finderRef.current) return;
+    homeAsked.current = true;
+    finderRef.current.openAdd(homeMint, { form: 'one', pool: homePool });
+  }, [homeMint, homePool]);
   useEffect(() => {
     if (doorTask !== 'add' || !mint || !finderRef.current) return;
     finderRef.current.openAdd(mint, { form: 'one', ...(doorPool ? { pool: doorPool } : { quote: SOL_MINT }) });
@@ -162,9 +188,22 @@ function LpBody({ readers, mode, reloadKey }: { readers: LpReaders; mode: LpWrit
       reloadKey={reloadKey}
       sectionRef={positionsRef}
       onAddMore={addMore}
-      onAllPools={readers.listPools ? toAllPools : undefined}
+      onAllPools={readers.listPools && !homeMint ? toAllPools : undefined}
     />
   );
+
+  if (homeMint) {
+    return (
+      <div className="flex flex-col gap-4" data-testid="lp-section" data-lp-mode={mode} data-lp-home="">
+        <LpRiskLine />
+        <LpEarnLine />
+        {writesTop}
+        {finder}
+        {positions}
+        {disclosure}
+      </div>
+    );
+  }
 
   // Actions first, under the one risk line and the one line on earning; then every pool;
   // then what you hold; then the rates and the routes; the long notice last.
@@ -264,9 +303,11 @@ const DISCLOSURE_NOTICE: Record<LpWriteMode, string> = {
     'Adding liquidity from this site is paused right now. Removing it still works, and each removal is checked and test-run before your wallet is asked to sign.',
 };
 
-export function LpDisclosure({ programId, mode = 'off', riskAbove = false }: {
+export function LpDisclosure({ programId, mode = 'off', riskAbove = false, programBelow = true }: {
   programId: string;
   mode?: LpWriteMode;
+  /** "The program" card is below on this page (the Pools tabs); the home has none, so it points at the tab. */
+  programBelow?: boolean;
   /**
    * The page already shows RISK_SHORT above the finder (LpRiskLine, finder first): the
    * card then does not say it again. Said once per page visibly (owner, 2026-10-14), and
@@ -285,7 +326,8 @@ export function LpDisclosure({ programId, mode = 'off', riskAbove = false }: {
               It goes false the day that program is upgraded: reword it in the same release as the upgrade
               (src/test/poolProgramCopy.test.ts fails that release until you do, and holds the wording). */}
           <p>
-            Our pool program is Raydium’s constant-product pool; we changed only its admin keys (see “The program” below).{' '}
+            Our pool program is Raydium’s constant-product pool; we changed only its admin keys (see “The program”{' '}
+            {programBelow ? 'below' : 'on the Solana LP tab'}).{' '}
             <strong>Those changes have not had their own independent review yet.</strong> Put in only what you can afford to lose.
           </p>
           {/* Read on chain 2026-10-16. The vault's powers are the pool program's admin instructions (update_pool_status,

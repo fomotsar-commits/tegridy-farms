@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { lazy, Suspense, useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { clearFirstFrameDraft, peekFirstFrameDraft } from '../lib/firstFrameDraft';
 import { heatExampleLine, VENUE, OPEN_VENUE_WELCOME_EVENT } from '../lib/arrival';
@@ -6,6 +6,19 @@ import { heatLaunchFloor } from '../lib/heat/heatGateConfig';
 import { tierAtFloor } from '../lib/heat/heatOracle';
 import { HeatCard } from './HeatCard';
 import { FinePrint } from './ui/FinePrint';
+import { ErrorBoundary } from './ui/ErrorBoundary';
+
+const HomeModules = lazy(() => import('./HomeModules'));
+
+/** The two pages the home's cards come from, when the cards' code did not load. */
+function ModulesUnloaded() {
+  return (
+    <p className="mb-6 flex flex-wrap gap-x-4 text-[13px]">
+      <Link to="/earn/bayla" className="underline underline-offset-4" style={{ color: 'var(--color-kyle)' }}>Stake BAYLA</Link>
+      <Link to="/solana-lp" className="underline underline-offset-4" style={{ color: 'var(--color-kyle)' }}>Add liquidity</Link>
+    </p>
+  );
+}
 
 /**
  * The venue's arrival hero, shown when no bungalow is entered. It claims no yield and no
@@ -32,16 +45,8 @@ export function VenueHero() {
         {VENUE.heroTitle}{' '}<br /><span className="text-white">{VENUE.heroLine}</span>
       </h1>
 
-      {/* Plain language first: what the site does, before the lore. */}
-      <p className="text-white text-base md:text-lg mb-3 max-w-md leading-relaxed font-semibold">
-        {VENUE.heroPlain}
-      </p>
-
-      <p className="text-base md:text-lg mb-3 max-w-md leading-relaxed font-semibold" style={{ color: 'var(--color-kyle)' }}>
-        {VENUE.heroHook}
-      </p>
-
-      {/* The instrument answers the hook, always open and wallet-free; its Read is the hero's only filled button. */}
+      {/* The instrument, always open and wallet-free; its Read is the hero's only filled button.
+          The two sentences that stood above it are in How heat works (owner, 2026-10-16: fewer words). */}
       <div className="mb-6 max-w-md">
         <HeatCard
           lpDoors
@@ -54,6 +59,8 @@ export function VenueHero() {
         {/* The definition, the launch floor and the linked-wallet sentence stay with the
             instrument, one press away; all of them come from lib/arrival.ts. */}
         <FinePrint summary="How heat works" className="mt-2">
+          <p>{VENUE.heroPlain}</p>
+          <p>{VENUE.heroHook}</p>
           <p>{VENUE.heatPlain}</p>
           <p style={{ color: 'var(--color-kyle)' }}>
             {heatExampleLine(launchFloor, tierAtFloor(launchFloor))}
@@ -75,7 +82,14 @@ export function VenueHero() {
         </FinePrint>
       </div>
 
-      {/* The venue never opens its welcome by itself: this pill is the door to the tour. */}
+      {/* Stake BAYLA and add SOL + BAYLA liquidity right here (owner, 2026-10-16). Lazy: the
+          Solana wallet stack loads after the hero has painted. If its code cannot load, the
+          two pages it comes from are linked instead. */}
+      <ErrorBoundary fallback={() => <ModulesUnloaded />}>
+        <Suspense fallback={null}>
+          <HomeModules />
+        </Suspense>
+      </ErrorBoundary>
       <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1">
         <button
           type="button"

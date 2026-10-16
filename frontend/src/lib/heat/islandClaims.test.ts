@@ -234,7 +234,7 @@ describe('the guards below read what a reader is shown', () => {
     // prose() loses this item: its block strip starts at the `/*` in '/splash/*.png'.
     expect(shown(join(SRC, 'pages', 'ChangelogPage.tsx'))).toContain('Added reentrancy tests for NFT Pool contracts');
     expect(shown(join(SRC, 'pages', 'SecurityPage.tsx'))).toContain("the venue's record");
-    expect(shown(join(ROOT, 'index.html'))).toContain('Your heat already exists.');
+    expect(shown(join(ROOT, 'index.html'))).toContain('Read Heat');
     expect(shown(join(ROOT, 'middleware.js'))).toContain('Held time counts here.');
     expect(shown(join(SRC, 'components', 'HeatCard.tsx'))).not.toContain('VENUE.heatParagraph');
   });
