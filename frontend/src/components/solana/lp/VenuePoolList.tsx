@@ -49,7 +49,7 @@ export function VenuePoolList({ readers, reloadKey = 0, onView }: { readers: LpR
           <p>
             The tags on a row come from what the list read. Trading off, Adding off and Removing off: the pool has that switched off. Frozen:
             a coin’s issuer froze one of the pool’s accounts, so nothing moves in or out. Trading not open yet: its trading starts later,
-            maybe years from now. Little money in pool: {LITTLE_MONEY_TEXT} on its coin side (a BAYLA pool is never tagged this way). No
+            maybe years from now. Little money in pool: it holds {LITTLE_MONEY_TEXT} (a pool priced in BAYLA never gets this tag). No
             trades yet, and No trades in 7 days: from the pool’s own trade record. Anything not read gives no tag, and a row with no tag is
             not a pool that passed: its price is checked only when you View it.
           </p>

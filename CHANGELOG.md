@@ -8,7 +8,7 @@ page keeps the newest thirty days.
 
 ### 2026-10-16
 
-- Solana LP: each row of All pools now carries short warning tags from what the list already read: Trading off, Adding off, Removing off, Frozen, Trading not open yet, Little money in pool (under 1 SOL or 100 USDC), No trades yet and No trades in 7 days. Nothing not read gives a tag. The price check behind a pool's Add button is now shared by everyone looking at that pool for 30 seconds, so busy moments no longer hold Add back while Jupiter is asked again for each visitor. Swap quotes are never shared.
+- Solana LP: each row of All pools now carries short warning tags from what the list already read: Trading off, Adding off, Removing off, Frozen, Trading not open yet, Little money in pool (under 1 SOL or 100 USDC), No trades yet and No trades in 7 days. Nothing not read gives a tag. The price check behind a pool's Add button is now shared by everyone looking at that pool for 30 seconds, so busy moments no longer hold Add back while Jupiter is asked again for each visitor. Review, and pressing Read again, still ask Jupiter itself. Swap quotes are never shared.
 
 ### 2026-10-15
 

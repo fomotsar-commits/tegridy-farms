@@ -153,10 +153,10 @@ function usePoolSearch(readers: LpReaders, mint: string | null, nonce: number, r
       // pool here. (An opening priced in a coin reads that coin's price in its own panel.)
       const paired = new Set(pools.kind === 'ok' ? pools.search.pools.flatMap((p) => (p.kind === 'pool' ? [p.view.quote.mint] : [])) : []);
       const wanted = ask ? quotesFor(mint).filter((q) => !q.native && paired.has(q.mint)) : [];
-      const [outside, ...coinPrices] = await Promise.all([
-        ask ? readers.outsidePrice(mint, decimals) : null,
-        ...wanted.map((q) => readers.outsidePrice(q.mint, q.decimals)),
-      ]);
+      // A visitor's own Read again (`nonce`) asks Jupiter itself; the first look may take
+      // the copy the edge shares for 30 seconds (outsidePrice.ts).
+      const price = (m: string, d: number) => (nonce > 0 ? readers.outsidePrice(m, d, { fresh: true }) : readers.outsidePrice(m, d));
+      const [outside, ...coinPrices] = await Promise.all([ask ? price(mint, decimals) : null, ...wanted.map((q) => price(q.mint, q.decimals))]);
       const coins: Record<string, OutsidePrice> = {};
       wanted.forEach((q, i) => {
         coins[q.mint] = coinPrices[i]!;
@@ -169,7 +169,7 @@ function usePoolSearch(readers: LpReaders, mint: string | null, nonce: number, r
     return () => {
       live = false;
     };
-  }, [readers, mint, key, wantOutside, also]);
+  }, [readers, mint, key, nonce, wantOutside, also]);
   if (!mint || !key) return { status: 'idle' };
   if (answer?.key === key) return answer.value;
   return answer?.value.mint === mint ? { ...answer.value, refreshing: true } : { status: 'loading', mint };

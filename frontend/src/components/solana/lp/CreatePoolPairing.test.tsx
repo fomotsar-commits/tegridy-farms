@@ -559,6 +559,28 @@ describe('the market price in the coin', () => {
     await waitFor(() => expect(market(panel)).toHaveTextContent(/^Market price \(Jupiter, read \d\d:\d\d:\d\d\): 1 token = 2 USDC\.$/));
   });
 
+  // The first look may take the edge's 30-second copy of Jupiter's answer (outsidePrice.ts).
+  // Read again must read again: both prices are then asked of Jupiter itself.
+  it('Read the market price again asks Jupiter itself, for the token and the coin; the first look does not', async () => {
+    const r = readers();
+    mount(r);
+    const { panel } = await openPanel();
+    await pair(panel, 'USDC');
+    await waitFor(() => expect(market(panel)).toHaveTextContent('1 token = 2 USDC.'));
+    const calls = vi.mocked(r.outsidePrice).mock.calls;
+    expect(calls).toEqual([
+      [M, 6],
+      [USDC, 6],
+    ]);
+    fireEvent.click(within(panel).getByRole('button', { name: 'Read the market price again' }));
+    await waitFor(() => expect(within(panel).getByTestId('lp-create-market-again')).toHaveTextContent('Read again just now: the same answer.'));
+    expect(calls.slice(2)).toHaveLength(2);
+    expect(calls.slice(2)).toEqual(expect.arrayContaining([
+      [M, 6, { fresh: true }],
+      [USDC, 6, { fresh: true }],
+    ]));
+  }, LONG);
+
   it('while the coin’s price is still being read: Review is off and the form says which price is missing', async () => {
     let release!: (p: OutsidePrice) => void;
     const outsidePrice = vi.fn((mint: string) => (mint === USDC ? new Promise<OutsidePrice>((res) => (release = res)) : Promise.resolve(priceOf(mint))));

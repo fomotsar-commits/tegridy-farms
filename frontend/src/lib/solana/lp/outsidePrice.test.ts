@@ -72,6 +72,23 @@ describe('readOutsidePrice', () => {
     expect(new URL(swap.mock.calls[1]![0], 'http://x').search).toBe(unmarked.search);
   });
 
+  // Review's check runs "on fresh reads" (PoolCard.tsx), and Read again must read again: a
+  // fresh read carries no mark, so the edge never answers it with its 30-second copy.
+  it('a fresh read marks neither quote, and is otherwise the same read', async () => {
+    const shared = jupiter(0.0042, 0.01);
+    const fresh = jupiter(0.0042, 0.01);
+    expect((await readOutsidePrice(MINT, 6, guard(), shared as unknown as typeof fetch)).kind).toBe('ok');
+    expect((await readOutsidePrice(MINT, 6, guard(), fresh as unknown as typeof fetch, undefined, { fresh: true })).kind).toBe('ok');
+    expect(fresh).toHaveBeenCalledTimes(2);
+    fresh.mock.calls.forEach(([url], i) => {
+      const u = new URL(url, 'http://x');
+      expect(u.searchParams.has('priceCheck')).toBe(false);
+      const marked = new URL(shared.mock.calls[i]![0], 'http://x');
+      marked.searchParams.delete('priceCheck');
+      expect(u.pathname + u.search).toBe(marked.pathname + marked.search);
+    });
+  });
+
   it('no price is "unread", never a number: HTTP error, wrong trade, zero out, thrown fetch', async () => {
     const bad = [
       async () => new Response('{}', { status: 502 }),

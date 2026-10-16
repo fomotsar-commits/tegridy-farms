@@ -65,7 +65,8 @@ export interface PoolTag {
 
 /**
  * Under this much on its coin side, a pool is "Little money in pool". BAYLA has no fixed
- * worth to measure a pool by, so a BAYLA pool is never tagged this way.
+ * worth to measure a pool by, so a pool priced in BAYLA is never tagged this way. BAYLA /
+ * SOL is priced in SOL, and is measured like any SOL pool.
  */
 export const LITTLE_MONEY: readonly { quote: QuoteCoin; under: bigint }[] = [
   { quote: SOL_QUOTE, under: 1_000_000_000n },

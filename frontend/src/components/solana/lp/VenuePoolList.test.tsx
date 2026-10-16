@@ -158,7 +158,8 @@ describe('All pools: every pool on the venue, before a token is picked', () => {
     expect(tags).toEqual(['Trading off', 'Adding off', 'Little money in pool']);
     expect(within(rows[1]!).getByRole('list', { name: /: warnings$/ })).toBeInTheDocument();
     // What each tag means, and the threshold, are one press away.
-    expect(screen.getByTestId('lp-all-pools')).toHaveTextContent('Little money in pool: under 1 SOL or 100 USDC on its coin side');
+    // Said by the price line every row shows: BAYLA / SOL is priced in SOL and can get the tag.
+    expect(screen.getByTestId('lp-all-pools')).toHaveTextContent('Little money in pool: it holds under 1 SOL or 100 USDC (a pool priced in BAYLA never gets this tag).');
     expect(screen.getByTestId('lp-all-pools')).toHaveTextContent('a row with no tag is not a pool that passed');
   });
 

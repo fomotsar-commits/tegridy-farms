@@ -142,6 +142,13 @@ describe("nothing else is ever kept at the edge", () => {
     }
   });
 
+  it("a POST to the quote path, marker and all, is never shared even on a 200", async () => {
+    globalThis.fetch = upstream({ status: 200, payload: {} });
+    const { statusSpy, headerSpy } = await run(jupiter(["swap", "v1", "quote"], PRICE_CHECK, "POST", {}));
+    expect(statusSpy).toHaveBeenCalledWith(200);
+    expect(cacheHeaders(headerSpy)).toEqual([PRIVATE]);
+  });
+
   it("another Jupiter path carrying the marker is not shared", async () => {
     for (const [path, query] of [
       [["price", "v3"], { ids: "So11111111111111111111111111111111111111112", priceCheck: "1" }],

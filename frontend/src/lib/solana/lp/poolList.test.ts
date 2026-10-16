@@ -3,7 +3,7 @@
 // The list of every pool, shown before a token is picked: the index names addresses, the
 // browser reads and checks each one, and an index that did not answer is never "no pools".
 import { describe, it, expect } from 'vitest';
-import { Keypair, type PublicKey } from '@solana/web3.js';
+import { Keypair, PublicKey } from '@solana/web3.js';
 import { LITTLE_MONEY_TEXT, QUIET_SECS, listPools, poolTags } from './poolList';
 import { readPoolIndex } from './poolIndex';
 import { CLOCK, LAUNCH, PROGRAM, buildPool, clockAccount, fakeRpc, key, observationBytes, viewOf, type FakeAccount } from './testkit.fixture';
@@ -105,9 +105,9 @@ describe('poolTags: warnings on a row, from what the list already read', () => {
     obs: decodeObservationState(observationBytes({ pool, initialized: last !== null, lastUpdate: last ?? 0n }))!,
   });
   /** A pool with plenty in it, every switch on, open, and traded a day ago, unless told otherwise. */
-  function row(o: { quote?: QuoteCoin; reserve?: bigint; status?: number; openTime?: bigint; frozen?: boolean; last?: bigint | null; history?: PoolView['history'] } = {}): PoolView {
+  function row(o: { mint?: PublicKey; quote?: QuoteCoin; reserve?: bigint; status?: number; openTime?: bigint; frozen?: boolean; last?: bigint | null; history?: PoolView['history'] } = {}): PoolView {
     const reserve = o.reserve ?? 50n * 10n ** 9n;
-    const b = buildPool({ mint: key(), quote: o.quote, address: at(), quoteReserve: reserve, tokenReserve: 10n ** 9n, status: o.status, openTime: o.openTime });
+    const b = buildPool({ mint: o.mint ?? key(), quote: o.quote, address: at(), quoteReserve: reserve, tokenReserve: 10n ** 9n, status: o.status, openTime: o.openTime });
     return viewOf(b, { sol: reserve, tok: 10n ** 9n, frozen: o.frozen, history: o.history ?? record(b.address, o.last === undefined ? NOW - DAY : o.last) });
   }
   const texts = (v: PoolView, now: bigint | null = NOW) => poolTags(v, now).map((t) => t.text);
@@ -139,13 +139,17 @@ describe('poolTags: warnings on a row, from what the list already read', () => {
     expect(texts(row({ status: 4, openTime: NOW + 1n }))).toEqual(['Trading off']);
   });
 
-  it(`Little money in pool: ${LITTLE_MONEY_TEXT} on the coin side, and never for a BAYLA pool`, () => {
+  it(`Little money in pool: ${LITTLE_MONEY_TEXT} on the coin side, and never for a pool priced in BAYLA`, () => {
     expect(LITTLE_MONEY_TEXT).toBe('under 1 SOL or 100 USDC');
     expect(poolTags(row({ reserve: 10n ** 9n - 1n }), NOW)).toEqual([{ text: 'Little money in pool', tone: 'warn' }]);
     expect(texts(row({ reserve: 10n ** 9n }))).toEqual([]);
     expect(texts(row({ quote: USDC_QUOTE, reserve: 100n * 10n ** 6n - 1n }))).toEqual(['Little money in pool']);
     expect(texts(row({ quote: USDC_QUOTE, reserve: 100n * 10n ** 6n }))).toEqual([]);
     expect(texts(row({ quote: BAYLA_QUOTE, reserve: 1n }))).toEqual([]);
+    // BAYLA / SOL is priced in SOL: measured like any SOL pool, as the fine print says.
+    const baylaSol = row({ mint: new PublicKey(BAYLA_QUOTE.mint), reserve: 10n ** 9n - 1n });
+    expect(baylaSol.quote.symbol).toBe('SOL');
+    expect(texts(baylaSol)).toEqual(['Little money in pool']);
     // An empty coin side is little money too: the row already says it has no price.
     expect(texts(row({ reserve: 0n }))).toEqual(['Little money in pool']);
   });
