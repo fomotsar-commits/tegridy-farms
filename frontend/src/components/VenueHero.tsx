@@ -7,11 +7,16 @@ import { tierAtFloor } from '../lib/heat/heatOracle';
 import { HeatCard } from './HeatCard';
 import { FinePrint } from './ui/FinePrint';
 import { ErrorBoundary } from './ui/ErrorBoundary';
+import { noteOwnSolanaFailed } from '../lib/solanaSurface';
 
 const HomeModules = lazy(() => import('./HomeModules'));
 
 /** The two pages the home's cards come from, when the cards' code did not load. */
 function ModulesUnloaded() {
+  // The cards' connection is the top bar's Solana one on the home: its wallet sheet says the load failed.
+  useEffect(() => {
+    noteOwnSolanaFailed();
+  }, []);
   return (
     <p className="mb-6 flex flex-wrap gap-x-4 text-[13px]">
       <Link to="/earn/bayla" className="underline underline-offset-4" style={{ color: 'var(--color-kyle)' }}>Stake BAYLA</Link>

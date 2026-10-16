@@ -202,14 +202,17 @@ export function SolanaSurfaceBridge({ own = false, mixed = false }: { own?: bool
  * restore is a full connect (Trust's injected provider) prompt with no press
  * (skeptic, 2026-10-03). Mounted by the visitor's own press on the Solana row,
  * it restores as before. A page's own connection keeps the plain rule: it is
- * mounted by the page, never by a link.
+ * mounted by the page, never by a link. A `mixed` one (the home's cards) takes
+ * this rule: the home is where a hand-off lands, and it kept this rule before
+ * the cards brought their own connection (owner, 2026-10-16).
  */
 const restoreOwn = async () => !solanaHandoffPending() || solanaWasConnectedHere();
 
 /**
  * `own` marks the top bar's own connection (TopBarSolanaProviders below), the
  * one mounted where the page has no Solana section. Every page site leaves it
- * unset.
+ * unset. `mixed` marks a page section on a page that connects Ethereum too
+ * (lib/solanaSurface.ts): the top bar keeps its wallet sheet there.
  */
 export function SolanaProviders({ children, own = false, mixed = false }: { children: ReactNode; own?: boolean; mixed?: boolean }) {
   const endpoint = useMemo(() => solanaRpcEndpoint(), []);
@@ -233,7 +236,7 @@ export function SolanaProviders({ children, own = false, mixed = false }: { chil
   );
   return (
     <ConnectionProvider endpoint={endpoint} config={{ commitment: 'confirmed' }}>
-      <WalletProvider wallets={wallets} autoConnect={own ? restoreOwn : true}>
+      <WalletProvider wallets={wallets} autoConnect={own || mixed ? restoreOwn : true}>
         <SolanaWalletModalProvider>
           <SolanaSurfaceBridge own={own} mixed={mixed} />
           {children}

@@ -137,7 +137,8 @@ test('where the Solana wallets cannot be loaded, the sheet says so instead of lo
     aborted += 1;
     return route.abort();
   });
-  await page.goto('/');
+  // A page with no Solana section: the top bar's own connection loads on the press.
+  await page.goto('/earn');
   await expect(topBarConnect(page)).toBeVisible({ timeout: 30_000 });
   await topBarConnect(page).click();
   await solanaRow(page).click();
@@ -146,6 +147,19 @@ test('where the Solana wallets cannot be loaded, the sheet says so instead of lo
   await expect(solanaRow(page)).toContainText('Couldn’t load Solana wallets. Tap to reload the page.', { timeout: 8_000 });
   await expect(solanaList(page)).toHaveCount(0);
   expect(aborted, "the provider's stylesheet was asked for, and refused").toBeGreaterThan(0);
+});
+
+// On the home the cards' code is the top bar's Solana connection: when it cannot load, the
+// cards' two pages are linked in their place, and the sheet says so before any press.
+test('on the home, where the cards cannot load, their pages are linked and the sheet says the wallets did not load', async ({ page }) => {
+  await page.route(/\/assets\/SolanaProviders-[^/]*\.css(\?.*)?$/, (route) => route.abort());
+  await page.goto('/');
+  const main = page.locator('#main-content');
+  await expect(main.getByRole('link', { name: 'Stake BAYLA' })).toHaveAttribute('href', '/earn/bayla', { timeout: 30_000 });
+  await expect(main.getByRole('link', { name: 'Add liquidity' })).toHaveAttribute('href', '/solana-lp');
+  await topBarConnect(page).click();
+  await expect(solanaRow(page)).toContainText('Couldn’t load Solana wallets. Tap to reload the page.');
+  await expect(ethereumRow(page)).toBeVisible();
 });
 
 test('Connect, then Ethereum, is still the Ethereum wallet list', async ({ page }) => {
