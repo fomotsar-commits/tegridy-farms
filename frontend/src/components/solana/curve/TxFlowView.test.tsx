@@ -8,7 +8,7 @@ import { CREATOR, KEY, PLANT_SUMMARY, SIG, buySummary, fakeApi, prepared } from 
 import { lpCreateSummary, lpDepositSummary, lpWithdrawSummary } from '../lp/fakeLpWriteApi.fixture';
 import type { Prepared, PreparedTx, TxOutcome, TxSigner, TxSummary, WriteApi, WriteRpc } from './ports';
 import { SOL_QUOTE } from '../../../lib/solana/lp/quotes';
-import { PRICE_TOLERANCE, TOO_NEW_WARNING, noPriceClause } from '../../../lib/solana/lp/poolHealth';
+import { PRICE_TOLERANCE, TOO_NEW_WARNING, gapCostFraction, noPriceClause } from '../../../lib/solana/lp/poolHealth';
 import { TOO_NEW_WHY } from '../../../lib/solana/lp/ownPrice';
 
 const SOL_1 = 1_000_000_000n;
@@ -1134,7 +1134,7 @@ describe('the stale review on screen', () => {
   // The price can move while a review is read. A deposit built again that now carries a
   // warning it did not carry before must never go straight to the wallet.
   it('a deposit built again with a warning it did not have: the warning is listed as new, and nothing is signed unread', async () => {
-    const NEW = 'Its price is 10.0% above the outside price. A deposit here would hand that gap to the first arbitrage trade.';
+    const NEW = 'Its price is 10.0% above the outside price. If you add now, whoever trades it back takes up to about 0.1% of what you add (about $0.11 per $100).';
     const first = lpDepositSummary(KEY(30), KEY(31));
     const fresh = again(lpDepositSummary(KEY(30), KEY(31), { warnings: [NEW] }));
     const api = confirmedApi();
@@ -1175,8 +1175,11 @@ describe('the stale review on screen', () => {
 type Deposit = Extract<TxSummary, { kind: 'lp-deposit' }>;
 const deposit = (over: Partial<Deposit> = {}) => lpDepositSummary(KEY(30), KEY(31), over);
 const priced = (state: 'agrees' | 'disagrees', diff: number): Deposit['price'] => ({ state, pool: 0.01, reference: 0.01 / (1 + diff), against: 'outside', diff });
-/** The builder's warning for a price that is off, with its figure. */
-const offBy = (pct: string) => `Its price is ${pct}% above the outside price. A deposit here would hand that gap to the first arbitrage trade.`;
+/** The builder's warning for a price that is off, with its figures: the gap, and what it costs (poolHealth.ts `gapCostFraction`). */
+const offBy = (pct: string) => {
+  const cost = gapCostFraction(1 + Number(pct) / 100, 1)! * 100;
+  return `Its price is ${pct}% above the outside price. If you add now, whoever trades it back takes up to about ${cost.toPrecision(1)}% of what you add (about $${cost.toFixed(2)} per $100).`;
+};
 const offDeposit = (diff: number, loss: bigint) =>
   deposit({ price: priced('disagrees', diff), priceGap: { diff, lossQuote: loss }, warnings: [offBy((diff * 100).toFixed(1))] });
 /** The cap every real prepare carries (intent.ts refuses a fee above it). */
@@ -1615,7 +1618,7 @@ describe('liquidity reviews', () => {
   // or has no market price, or whose token copies a name or can be frozen. The builder puts
   // what must be read on the summary (`warnings`), and the review says every sentence of it
   // FIRST: before the rows, and so well above the Sign button.
-  const GAP = 'Its price is 10.0% above the outside price. A deposit here would hand that gap to the first arbitrage trade.';
+  const GAP = 'Its price is 10.0% above the outside price. If you add now, whoever trades it back takes up to about 0.1% of what you add (about $0.11 per $100).';
   const COST = 'At these amounts, a move back to the outside price would take up to about 0.0045 SOL of what you put in. That is an estimate.';
   const COPY = 'It calls itself by a well-known token’s name but has a different mint, so it is not that token. If the copy turns out to be worth nothing, so is your share of this pool.';
   const off = (over: Partial<Extract<TxSummary, { kind: 'lp-deposit' }>> = {}) =>
@@ -1666,8 +1669,10 @@ describe('liquidity reviews', () => {
     await review(off({ warnings: [GAP, UNKNOWN], priceGap: { diff: 0.1, lossQuote: null } }));
     expect(value('Estimated cost of that gap')).toBe('could not be worked out');
     expect(within(screen.getByTestId('tx-review-warnings')).getByText(UNKNOWN)).toBeInTheDocument();
-    // No figure is put in its place anywhere on the review.
-    expect(screen.getByTestId('tx-review').textContent).not.toMatch(/up to about/);
+    // No figure is put in its place anywhere on the review. (The gap's own warning says its
+    // cost as a share of what goes in, which needs no amounts: that is not this figure, and
+    // only that warning is taken out before looking.)
+    expect(screen.getByTestId('tx-review').textContent!.split(GAP).join('')).not.toMatch(/up to about/);
   });
 
   it('adding to a pool with no market price: the row says it was checked against nothing', async () => {

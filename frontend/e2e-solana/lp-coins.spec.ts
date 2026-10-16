@@ -32,7 +32,7 @@ import {
   actor, closeAll, connect, esc, openAdd, openPools, openRemove, poolCard, positionRow, press, reviewDeposit, reviewRows, sidesOf, signConfirmed, signedSol,
   signedTok, SOL, solExact, tok, units, waitPoolOpenByWallClock, withdrawPlan, type Actor, type Prices,
 } from './fixtures/lpPage';
-import { lossAtMarketUp, marketIn, matchAtMarket, priceOf } from './fixtures/market';
+import { gapCostOf, lossAtMarketUp, marketIn, matchAtMarket, priceOf } from './fixtures/market';
 import { ui, expectPressableAtSizes, tokensToInput } from './fixtures/ui';
 import { USDC_MINT, giveUsdc, usdc, usdcAccount, usdcAmount } from './fixtures/usdc';
 import { parseDecimalToBaseUnits } from '../src/lib/launcher/solana/curve/format';
@@ -796,7 +796,9 @@ test.describe('one opening each (chromium only)', () => {
     const card = poolCard(p, pool);
     await expect(card).toHaveAttribute('data-price', 'disagrees', { timeout: 60_000 });
     await expect(card).toHaveAttribute('data-deposits', 'allowed');
-    await expect(ui.lp.poolWarnings(card)).toContainText(`Its price is ${gap} the outside price. A deposit here would hand that gap to the first arbitrage trade.`);
+    await expect(ui.lp.poolWarnings(card)).toContainText(
+      `Its price is ${gap} the outside price. If you add now, ${gapCostOf(priceOf(coinIn, tokenIn, DEC, SOL_COIN), market)}.`,
+    );
     expect(a.wallet.signed()).toHaveLength(1);
     expect(a.rpc.violations).toEqual([]);
     await a.ctx.close();

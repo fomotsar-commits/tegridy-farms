@@ -9,6 +9,7 @@ page keeps the newest thirty days.
 ### 2026-10-16
 
 - Solana pools: the risk line above the pool finder, and on every add, open and review, now says what the team's vault can do. With 2 of its 2 keys and no waiting period it can pause removing, change fees or replace the pool program, and no outside firm has checked our changes. Under Risks, the notice below your positions names the program, the vault and its multisig in full, read on chain 2026-10-16. "The program" card's heading now says the fork has our keys, not one addition the running program does not have yet.
+- Solana LP: a pool whose price is more than 3% off now says what that costs you, as a share of what you add. 19.6% below the outside price costs up to about 0.6% of what you add (about $0.59 per $100), where it said the whole gap went to the first trade. On the pool card the Difference row shows the gap in the warning colour and names the price it is off from. A pool with no outside price to check against now says whoever trades it back takes part of what you add, where it said the whole difference. The pool stays open to deposits.
 
 ### 2026-10-15
 
