@@ -179,7 +179,7 @@ describe('assessPool: a pool paired with USDC or BAYLA', () => {
       verdict: 'allowed',
       reasons: [],
       warnings: [
-        `Jupiter has no price for ${symbol} right now, so this pool’s price in ${symbol} was not checked against anything. If it is off, a deposit here hands the difference to whoever trades it back.`,
+        `Jupiter has no price for ${symbol} right now, so this pool’s price in ${symbol} was not checked against anything. If it is off, whoever trades it back takes part of what you add.`,
       ],
     });
     // The token HAS a price: nothing here may say it has none.
@@ -227,7 +227,7 @@ describe('assessPool: a pool paired with USDC or BAYLA', () => {
     expect(h.deposits.verdict).toBe('allowed');
     expect(h.deposits.reasons).toEqual([]);
     expect(h.deposits.warnings).toEqual([
-      'Jupiter has no market price for this token, so this pool’s price was not checked against anything. If it is off, a deposit here hands the difference to whoever trades it back.',
+      'Jupiter has no market price for this token, so this pool’s price was not checked against anything. If it is off, whoever trades it back takes part of what you add.',
     ]);
   });
 

@@ -184,7 +184,7 @@ describe.each(COINS)('adding to a pool paired with $symbol: the review', (coin) 
   // deposit. The token HAS a price then, so the review's price row names the coin, and
   // nothing on it says "Jupiter has no market price for this token".
   it('adding to a pool whose coin Jupiter has no price for: the warning first, and the row names the coin, never "this token"', async () => {
-    const WARNING = `Jupiter has no price for ${C} right now, so this pool’s price in ${C} was not checked against anything. If it is off, a deposit here hands the difference to whoever trades it back.`;
+    const WARNING = `Jupiter has no price for ${C} right now, so this pool’s price in ${C} was not checked against anything. If it is off, whoever trades it back takes part of what you add.`;
     await review(deposit(coin, { price: { state: 'no-market', of: 'coin', pool: 2, detail: `Jupiter has no route for ${C}` }, warnings: [WARNING] }));
     expect(value('Price check')).toBe(`not checked against anything: Jupiter has no price for ${C} right now`);
     // The same clause as every other screen (poolHealth.ts `noPriceClause`).

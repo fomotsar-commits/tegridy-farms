@@ -10,7 +10,7 @@ import type { QuoteCoin } from './quotes';
  * deposits into it.
  *
  * Why it matters: anyone can open a pool for any token at any price. Depositing into a
- * pool whose price is off hands the difference to the first arbitrage bot. So a pool
+ * pool whose price is off loses part of the deposit to the first arbitrage bot. So a pool
  * more than 3% away from the outside price is warned about, with what the gap is
  * estimated to cost (poolHealth.ts), and a pool whose outside price could not be read is
  * "unchecked", never "fine" and never a warning.

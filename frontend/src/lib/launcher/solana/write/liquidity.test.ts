@@ -88,7 +88,7 @@ function nameToken(chain: FakeChain, mint: PublicKey, name: string, symbol: stri
 }
 
 const NO_MARKET_DEPOSIT =
-  'Jupiter has no market price for this token, so this pool’s price was not checked against anything. If it is off, a deposit here hands the difference to whoever trades it back.';
+  'Jupiter has no market price for this token, so this pool’s price was not checked against anything. If it is off, whoever trades it back takes part of what you add.';
 const COPY_DEPOSIT =
   'It calls itself by a well-known token’s name but has a different mint, so it is not that token. If the copy turns out to be worth nothing, so is your share of this pool.';
 const FREEZE_DEPOSIT =

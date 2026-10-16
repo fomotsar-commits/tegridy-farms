@@ -194,7 +194,7 @@ async function openAdd(c: HTMLElement, coin: QuoteCoin) {
 const HEAD = 'Read these before you review. You can still add, and each one is a risk to what you put in:';
 const PRICE_10_ABOVE = 'Its price is 10.0% above the outside price. If you add now, whoever trades it back takes up to about 0.1% of what you add (about $0.11 per $100).';
 const NO_MARKET =
-  'Jupiter has no market price for this token, so this pool’s price was not checked against anything. If it is off, a deposit here hands the difference to whoever trades it back.';
+  'Jupiter has no market price for this token, so this pool’s price was not checked against anything. If it is off, whoever trades it back takes part of what you add.';
 const TYPE_FIRST = 'Type an amount to see about how much that could cost you.';
 
 /**
@@ -351,7 +351,7 @@ describe.each([
   ['BAYLA', BAYLA_QUOTE],
 ] as const)('a %s pool, when Jupiter has no price for the coin itself', (symbol, coin) => {
   const COIN_NO_ROUTE: OutsidePrice = { kind: 'no-route', detail: 'Jupiter has no route for this token' };
-  const NO_COIN_PRICE = `Jupiter has no price for ${symbol} right now, so this pool’s price in ${symbol} was not checked against anything. If it is off, a deposit here hands the difference to whoever trades it back.`;
+  const NO_COIN_PRICE = `Jupiter has no price for ${symbol} right now, so this pool’s price in ${symbol} was not checked against anything. If it is off, whoever trades it back takes part of what you add.`;
 
   it('is open with a warning that names the coin: on the card, above Review on the form, and Review is on', async () => {
     const api = mount(readers(view(coin), { coin: COIN_NO_ROUTE }));

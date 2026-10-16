@@ -172,7 +172,7 @@ describe('assessPool', () => {
       verdict: 'allowed',
       reasons: [],
       warnings: [
-        'Jupiter has no market price for this token, so this pool’s price was not checked against anything. If it is off, a deposit here hands the difference to whoever trades it back.',
+        'Jupiter has no market price for this token, so this pool’s price was not checked against anything. If it is off, whoever trades it back takes part of what you add.',
       ],
     });
   });
@@ -524,7 +524,7 @@ describe('assessPool: a launch pool is checked against its own recent average', 
           expect(h.deposits).toEqual({
             verdict: 'allowed',
             reasons: [],
-            warnings: ['Jupiter has no price for USDC right now, so this pool’s price in USDC was not checked against anything. If it is off, a deposit here hands the difference to whoever trades it back.'],
+            warnings: ['Jupiter has no price for USDC right now, so this pool’s price in USDC was not checked against anything. If it is off, whoever trades it back takes part of what you add.'],
           });
         }
         // Nothing is lifted beside it: the same pool with withdrawals off is still refused.

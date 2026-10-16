@@ -429,8 +429,8 @@ export function assessPool(input: {
     warnings.push(
       // The coin's (owner ruling 2026-10-07) names the coin: the token has a price, so "this token" would be wrong.
       price.of === 'coin'
-        ? `Jupiter has no price for ${view.quote.symbol} right now, so this pool’s price in ${view.quote.symbol} was not checked against anything. If it is off, a deposit here hands the difference to whoever trades it back.`
-        : 'Jupiter has no market price for this token, so this pool’s price was not checked against anything. If it is off, a deposit here hands the difference to whoever trades it back.',
+        ? `Jupiter has no price for ${view.quote.symbol} right now, so this pool’s price in ${view.quote.symbol} was not checked against anything. If it is off, whoever trades it back takes part of what you add.`
+        : 'Jupiter has no market price for this token, so this pool’s price was not checked against anything. If it is off, whoever trades it back takes part of what you add.',
     );
   }
   if (price.state === 'too-new') warnings.push(TOO_NEW_WARNING);

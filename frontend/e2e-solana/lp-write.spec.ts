@@ -913,7 +913,7 @@ test.describe('group B (chromium only)', () => {
     const p = a.page;
     const owner = B.creator18.publicKey;
     const noMarket =
-      'Jupiter has no market price for this token, so this pool’s price was not checked against anything. If it is off, a deposit here hands the difference to whoever trades it back.';
+      'Jupiter has no market price for this token, so this pool’s price was not checked against anything. If it is off, whoever trades it back takes part of what you add.';
     // No route: allowed, with the warning on the card.
     await openPools(p, B.tu);
     const unpriced = poolCard(p, B.pu.address);
