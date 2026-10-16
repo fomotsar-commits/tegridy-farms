@@ -6,6 +6,10 @@ page keeps the newest thirty days.
 
 ## [Unreleased]
 
+### 2026-10-16
+
+- Solana pools: the risk line above the pool finder, and on every add, open and review, now says what the team's vault can do. With 2 of its 2 keys and no waiting period it can pause removing, change fees or replace the pool program, and no outside firm has checked our changes. Under Risks, the notice below your positions names the program, the vault and its multisig in full, read on chain 2026-10-16. "The program" card's heading now says the fork has our keys, not one addition the running program does not have yet.
+
 ### 2026-10-15
 
 - Solana swaps and the pool price checks behind Add liquidity keep working when Jupiter retires its free host, once the venue's Jupiter key is set on the server; until then nothing changes. If Jupiter refuses the key, its limit is reached or it does not serve that path, the request is sent once more to the free host while it still answers. The swap fee setting reaches Jupiter the same way on both.
