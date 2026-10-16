@@ -1,0 +1,26 @@
+[package]
+name = "memetics-jupiter-sdk"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85.0"
+description = "Jupiter Amm for the Memetics constant-product pools (program EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT): state decoding and ExactIn quotes only"
+license = "Apache-2.0"
+publish = false
+
+# Its own workspace. Without this table cargo folds the crate into ../Cargo.toml, the pool
+# program's workspace, whose manifest and lock CI pins byte for byte (solana/guards).
+[workspace]
+
+[dependencies]
+# Jupiter's interface is pinned to the commit its test kit ships with: the published
+# 0.6.1 on crates.io predates `AccountProvider` and `Swap::Placeholder`, which the kit uses.
+jupiter-amm-interface = { git = "https://github.com/jup-ag/jupiter-amm-interface", rev = "95bd18485e580625a39eb92a0c0ad2061579daad" }
+rust_decimal = "1.36.0"
+solana-account = "4"
+solana-instruction = "3"
+solana-pubkey = "4"
+
+[dev-dependencies]
+jupiter-amm-test-kit = { git = "https://github.com/jup-ag/jupiter-amm-interface", rev = "95bd18485e580625a39eb92a0c0ad2061579daad" }
+serde_json = "1"
+sha2 = "0.10"
