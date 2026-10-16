@@ -6,6 +6,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { alertsFor, cycle, line, makeContext } from '../src/watch.js';
 import { decode } from '../src/base58.js';
+import { snapshotFrom } from '../src/pool.js';
 import { readEnv, BAYLA_MINT, PUMP_AMM_PROGRAM, PUMP_BAYLA_POOL, SOL_MINT, USDC_MINT, UNREAD_ALERT_MS, VENUE_VAULT } from '../src/config.js';
 
 const FIX = JSON.parse(readFileSync(new URL('./fixtures/mainnet.json', import.meta.url)));
@@ -13,9 +14,15 @@ const RPC = 'http://rpc.test';
 const LABELS = { [PUMP_AMM_PROGRAM]: 'Pump.fun Amm', CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK: 'Raydium CLMM', whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc: 'Whirlpool' };
 const WHIRL_POOL = 'Czfq3xZZDmsdGdUyrNLtRhGc47cXcZtLG4crryfu44zE'; // any valid address standing in for a SOL/USDC pool
 
-/** pump.fun stand-in: 333 SOL against enough BAYLA to price it 4% above our BAYLA/SOL pool. */
+/** pump.fun stand-in: 333 SOL against enough BAYLA to price it 4% above our BAYLA/SOL pool as recorded. */
 const X = 333_000_000_000n;
-const Y = 54_400_000_000_000n;
+const recorded = (() => {
+  const p = FIX.pools['BAYLA/SOL'];
+  return snapshotFrom({ address: p.addresses[0], slot: 1, accounts: p.answer.value });
+})();
+const solIs0 = recorded.mint0 === SOL_MINT;
+const ourLamportsPerUnit = Number(solIs0 ? recorded.reserve0 : recorded.reserve1) / Number(solIs0 ? recorded.reserve1 : recorded.reserve0);
+const Y = BigInt(Math.round(Number(X) / (ourLamportsPerUnit * 1.04)));
 const cpmm = (x, rin, rout) => {
   const xin = (x * 9_900n) / 10_000n;
   return (rout * xin) / (rin + xin);

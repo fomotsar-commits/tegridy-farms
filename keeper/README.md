@@ -149,5 +149,10 @@ Ethereum (0.19% off, and the EVM side is frozen).
 node --test "keeper/test/*.test.mjs"
 ```
 
-Recorded mainnet answers (`keeper/scripts/record-fixtures.mjs` writes them) and stand-in
-fetches; no network. CI runs them in the "Price keeper unit tests" step.
+Recorded mainnet answers and stand-in fetches; no network. CI runs them in the "Price
+keeper unit tests" step. To record fresh answers (the recorder checks every value and
+prints only what passed; it never writes a file itself):
+
+```bash
+node keeper/scripts/record-fixtures.mjs > keeper/test/fixtures/mainnet.json
+```

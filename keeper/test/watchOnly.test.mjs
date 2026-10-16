@@ -20,8 +20,8 @@ import { readFileSync, readdirSync, statSync, existsSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { ALLOWED_METHODS, makeRpc } from '../src/rpc.js';
-import { READ_METHODS } from '../scripts/record-fixtures.mjs';
 import { readEnv } from '../src/config.js';
+import { pathToFileURL } from 'node:url';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const REPO = resolve(ROOT, '..');
@@ -136,6 +136,10 @@ test('network calls come only from the four files allowed to make them, to four 
     for (const m of src.matchAll(/https?:\/\/([a-z0-9.-]+)/gi)) if (!hosts.has(m[1])) hits.push(`${relative(REPO, f)} names host ${m[1]}`);
   }
   assert.deepEqual(hits, []);
+  // Only the watch's own log writes a file. The fixture recorder PRINTS what it checked
+  // (CodeQL js/http-to-file-access): network data reaches disk only by the operator's redirect.
+  const writers = reached().filter((f) => /\b(writeFile|appendFile|createWriteStream|copyFile|rename)(Sync)?\s*\(/.test(readFileSync(f, 'utf8')));
+  assert.deepEqual(writers.map((f) => relative(ROOT, f).replace(/\\/g, '/')), ['src/watch.js']);
   // On Jupiter, only the three read paths; on Telegram, only sendMessage.
   const jup = readFileSync(join(ROOT, 'src', 'jupiter.js'), 'utf8');
   const paths = new Set([...jup.matchAll(/\/swap\/v\d\/[\w-]+/g)].map((m) => m[0]));
@@ -154,8 +158,12 @@ test('the keeper ships no npm dependency at all', () => {
 
 test('both RPC clients can only read, and refuse a write before anything leaves', async () => {
   assert.deepEqual([...ALLOWED_METHODS].sort(), ['getAccountInfo', 'getMultipleAccounts', 'getSlot']);
-  assert.deepEqual([...READ_METHODS].sort(), ['getAccountInfo', 'getMultipleAccounts', 'getSignaturesForAddress', 'getTransaction']);
+  // The recorder is read as text, never imported here: it is a script that talks to mainnet.
   const recorder = readFileSync(join(ROOT, 'scripts', 'record-fixtures.mjs'), 'utf8');
+  const list = recorder.match(/export const READ_METHODS = Object\.freeze\(\[([^\]]*)\]\)/);
+  assert.ok(list, 'the recorder no longer declares READ_METHODS');
+  const methods = [...list[1].matchAll(/'([^']+)'/g)].map((m) => m[1]).sort();
+  assert.deepEqual(methods, ['getAccountInfo', 'getMultipleAccounts', 'getSignaturesForAddress', 'getTransaction']);
   assert.match(recorder, /if \(!READ_METHODS\.includes\(method\)\) throw/);
   let sent = 0;
   const rpc = makeRpc('http://unused', { fetchImpl: async () => { sent++; return new Response('{}'); } });
@@ -163,6 +171,27 @@ test('both RPC clients can only read, and refuse a write before anything leaves'
     await assert.rejects(rpc(m, []), /does not call/);
   }
   assert.equal(sent, 0);
+});
+
+test('loading any keeper file makes no network call: tests and imports stay off the network', async () => {
+  // The fixture recorder once ran in full when this file imported it, so every test
+  // run re-recorded mainnet. Every module under src/ and scripts/ is loaded here with
+  // fetch switched off; only starting a script on purpose may reach the network.
+  const real = globalThis.fetch;
+  let calls = 0;
+  globalThis.fetch = async () => {
+    calls++;
+    throw new Error('no network while loading');
+  };
+  try {
+    for (const f of [...files(join(ROOT, 'src'), CODE), ...files(join(ROOT, 'scripts'), CODE)]) {
+      await import(`${pathToFileURL(f).href}?load-only`);
+    }
+    await new Promise((r) => setTimeout(r, 50)); // let any stray top-level promise start
+  } finally {
+    globalThis.fetch = real;
+  }
+  assert.equal(calls, 0);
 });
 
 test('the keeper reads no key from its environment', () => {
