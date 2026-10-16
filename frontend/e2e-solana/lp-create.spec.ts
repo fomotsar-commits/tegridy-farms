@@ -325,8 +325,10 @@ test.describe('group A (chromium and mobile-chrome)', () => {
     const tier = await tierView(1);
     await expect(createCard(p)).toHaveAttribute('data-create', 'offer', { timeout: 60_000 });
     await expect(createCard(p)).toContainText(
-      `No pool for this token yet. You can open the first one on the public fee tier: ${tradeCostText(tier, CREATOR_FEE_SWITCH.publicOpen)}, ${formatSol(tier.createPoolFee, 9)} SOL to open (read just now).`,
+      `No pool for this token yet. You can open the first one on the public fee tier (read just now): ${tradeCostText(tier, CREATOR_FEE_SWITCH.publicOpen)}.`,
     );
+    // The fee to open is said once, in the cost line right above the button.
+    await expect(createCard(p).getByTestId('lp-create-cost')).toContainText(`Opening a pool costs ${formatSol(tier.createPoolFee, 9)} SOL to the venue plus about `);
     await expect(createCard(p)).toContainText(MONEY);
     await openCreate(p);
     const market = stubMarket(FAIR);
@@ -766,7 +768,7 @@ test.describe('group B (chromium only)', () => {
     await openPools(p, B.t8);
     await connect(p);
     await expect(createCard(p)).toHaveAttribute('data-create', 'offer', { timeout: 60_000 });
-    await expect(createCard(p)).toContainText(`${formatSol(lie, 9)} SOL to open`);
+    await expect(createCard(p).getByTestId('lp-create-cost')).toContainText(`Opening a pool costs ${formatSol(lie, 9)} SOL to the venue`);
     const panel = await openCreate(p);
     await expect(panel).toContainText(`${formatSol(lie, 9)} SOL, paid to the team's vault (read just now)`);
     await solThenMatch(p, '0.2');

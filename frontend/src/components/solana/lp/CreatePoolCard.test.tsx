@@ -970,7 +970,7 @@ describe('Open a pool: one name, and the whole cost above its button', () => {
   it('read: the fee to the venue and the setup, in one line, right above the button', async () => {
     mount(readers({ feeTiers: tiers(DEPOSITS) }));
     const c = await settled('offer');
-    await waitFor(() => expect(said(cost(c))).toBe('Costs 0.15 SOL to the venue plus about 0.0401 SOL account setup you do not get back.'));
+    await waitFor(() => expect(said(cost(c))).toBe('Opening a pool costs 0.15 SOL to the venue plus about 0.0401 SOL account setup you do not get back.'));
     expect(cost(c).nextElementSibling).toBe(within(c).getByRole('button', { name: 'Open a pool' }));
     // Said once: the line above no longer carries the fee as well.
     expect(c.textContent?.split('0.15 SOL').length).toBe(2);
@@ -985,7 +985,7 @@ describe('Open a pool: one name, and the whole cost above its button', () => {
   ])('the setup %s: "amount not read", never 0', async (_l, over) => {
     mount(readers(over));
     const c = await settled('offer');
-    await waitFor(() => expect(said(cost(c))).toBe('Costs 0.15 SOL to the venue plus account setup you do not get back (amount not read).'));
+    await waitFor(() => expect(said(cost(c))).toBe('Opening a pool costs 0.15 SOL to the venue plus account setup you do not get back (amount not read).'));
     expect(cost(c)).not.toHaveTextContent(/\b0 SOL|about 0\b/);
     expect(within(c).getByRole('button', { name: 'Open a pool' })).toBeEnabled();
   });
@@ -993,7 +993,14 @@ describe('Open a pool: one name, and the whole cost above its button', () => {
   it('while the fee tiers are still being read, it says so', async () => {
     mount(readers({ feeTiers: vi.fn(() => new Promise<never>(() => {})) }));
     const c = await settled('offer');
-    expect(said(cost(c))).toBe('Costs 0.15 SOL to the venue plus account setup you do not get back (reading the amount…).');
+    expect(said(cost(c))).toBe('Opening a pool costs 0.15 SOL to the venue plus account setup you do not get back (reading the amount…).');
+  });
+
+  it('a tier with no fee to open says nothing goes to the venue, and still says the setup', async () => {
+    mount(readers({ feeTiers: tiers(DEPOSITS) }), { createFacts: readyFacts({ createPoolFee: 0n }) });
+    const c = await settled('offer');
+    await waitFor(() => expect(said(cost(c))).toBe('Opening a pool costs nothing to the venue plus about 0.0401 SOL account setup you do not get back.'));
+    expect(cost(c)).not.toHaveTextContent(/\b0 SOL/);
   });
 
   it('beside a pool to add to, the cost belongs to Open a pool alone: Go to that pool comes first', async () => {
@@ -1004,6 +1011,8 @@ describe('Open a pool: one name, and the whole cost above its button', () => {
     const open = within(c).getByRole('button', { name: 'Open a pool' });
     expect(go.compareDocumentPosition(cost(c)) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(cost(c).nextElementSibling).toBe(open);
+    // Right under Go to that pool, the line names what costs: going to a pool costs nothing.
+    expect(said(cost(c))).toBe('Opening a pool costs 0.15 SOL to the venue plus about 0.0401 SOL account setup you do not get back.');
     expect(within(c).getByTestId('lp-create-still')).toHaveTextContent(
       "You can still open your own on the public fee tier, at 1% a trade. It will be a separate pool: it does not share the other pool's liquidity or fees.",
     );

@@ -307,7 +307,7 @@ test.describe('a BAYLA/USDC pool (chromium only)', () => {
     // it, and the card names them: "no SOL or USDC pool", never a bare "no pool" (a pair
     // that was not looked for is not said to have none).
     await expect(ui.lp.create.card(p)).toContainText('There is no SOL or USDC pool to add liquidity to yet. Opening one is how the first liquidity goes in.');
-    await expect(ui.lp.create.card(p)).toContainText('No SOL or USDC pool for this token yet. You can open the first one on the public fee tier:');
+    await expect(ui.lp.create.card(p)).toContainText('No SOL or USDC pool for this token yet. You can open the first one on the public fee tier (read just now):');
     await expect(ui.lp.noPools(p)).toHaveText('No pools pairing this token with SOL or USDC found.');
 
     const panel = await openCreateForm(p, USDC_COIN);

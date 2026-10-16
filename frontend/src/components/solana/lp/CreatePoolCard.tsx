@@ -29,10 +29,11 @@ const solFee = (lamports: bigint) => formatSol(lamports, 9);
  * venue: cp-swap's `create_pool_fee_reveiver` is the team vault's wrapped-SOL account
  * (write/config.ts `CP_CREATE_POOL_FEE_RECEIVER`), and the opening's test run must show it
  * arrive there. `feeTiers` is the section's one read: null while it reads. A deposit
- * figure that was not read is said so, never 0.
+ * figure that was not read is said so, never 0. It names what costs: beside a pool to
+ * add to, the line sits right under Go to that pool, which costs nothing.
  */
 function costLine(fee: bigint, feeTiers: FeeTierRead | null): string {
-  const venue = `Costs ${fee > 0n ? `${solFee(fee)} SOL` : 'nothing'} to the venue plus`;
+  const venue = `Opening a pool costs ${fee > 0n ? `${solFee(fee)} SOL` : 'nothing'} to the venue plus`;
   const deposits = feeTiers?.kind === 'ok' ? feeTiers.openingDeposits : null;
   if (deposits !== null) return `${venue} about ${solAbout(deposits)} account setup you do not get back.`;
   return `${venue} account setup you do not get back (${feeTiers === null ? 'reading the amount…' : 'amount not read'}).`;

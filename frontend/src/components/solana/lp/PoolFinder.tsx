@@ -187,7 +187,7 @@ export function PoolFinder({
   linkError = null,
   reloadKey = 0,
   wantOutside = false,
-  feeTiers = null,
+  feeTiers,
   onRemove,
   ref,
 }: {
@@ -204,8 +204,12 @@ export function PoolFinder({
    * its price against Jupiter's. Only when opening pools can be offered (LP mode 'on').
    */
   wantOutside?: boolean;
-  /** The section's one read of the fee tiers, or null while it reads: the Open a pool card says the opening's account deposits from it. */
-  feeTiers?: FeeTierRead | null;
+  /**
+   * The section's one read of the fee tiers, or null while it reads: the Open a pool card
+   * says the opening's account deposits from it. Required: left out, the card would say
+   * "reading" for good.
+   */
+  feeTiers: FeeTierRead | null;
   /** Remove liquidity was pressed: the section brings the visitor's positions onto the screen. */
   onRemove?: () => void;
 }) {
