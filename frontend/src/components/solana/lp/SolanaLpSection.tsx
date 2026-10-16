@@ -277,8 +277,9 @@ export function LpDisclosure({ programId, mode = 'off', riskAbove = false }: {
           <p>
             The vault can switch off adding, removing or trading on any pool. It can change any fee tier’s fees, and who collects the
             venue’s share, at once, and that applies to pools already open. It can add fee tiers, collect the venue’s share of trading
-            fees, and replace the program. If it switched off removing on a pool, you could not take your money out of that pool until
-            it switched removing back on.
+            fees, and replace the program. Every pool’s coins sit in accounts that program controls, so a replacement could move
+            them. If it switched off removing on a pool, you could not take your money out of that pool until it switched removing
+            back on.
           </p>
           <p>
             Anyone can open a pool for any token, at any price. Jupiter does not send trades to these pools yet, so a pool earns fees
