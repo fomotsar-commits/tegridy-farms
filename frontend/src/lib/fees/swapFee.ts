@@ -1,51 +1,35 @@
-// Venue swap-fee policy — the single place the meta-router's fee rate, its
-// recipient, and the per-provider legs that carry it are decided.
-//
-// SHIPS OFF. Default is 0 bps with no recipient, and it stays that way until an
-// operator sets BOTH dials. A rate without a recipient is not a smaller fee, it is a
-// fee paid to whoever the provider decides — so there is deliberately no constant
-// here to fall back to, and none may be added.
-//
-// Structured like heat/heatGateConfig.ts: every value is read through a function
-// rather than exported as a constant, so a caller cannot capture one at module-init
-// and drift from a redeployed dial, and a nonsense override is IGNORED rather than
-// obeyed. The failure mode this guards is not a stuck gate but a surprise charge on
-// somebody else's money, so the parse is stricter than the heat gate's: anything that
-// is not a whole, positive, in-range bps count disables the fee outright.
-//
-// The number a caller SENDS and the number a surface DISPLAYS both come from
-// `providerFeeAttachment` — one call, one object, per provider per quote. Nothing
-// else may compute a fee figure.
+// Venue swap-fee policy: the one place the fee rate, its recipient and the per-provider
+// legs that carry it are decided. SHIPS OFF, and stays off until an operator sets BOTH
+// dials. There is no fallback recipient and none may be added.
+// Values are read through functions, never exported constants, and anything that does
+// not parse cleanly disables the fee rather than charging a surprise.
+// Displayed and sent figures both come from `providerFeeAttachment`, and nothing else.
 
 import type { AggregatorSource } from '../aggregator';
+import { contractOn } from '../chains/registry';
 
 /**
- * Hard ceiling on the venue fee, in basis points.
- *
- * docs/BATTLE_PLAN.md #3 sets the intended rate at 25 bps (50 bps on the gasless CoW
- * path). The ceiling sits at 1% so a fat-fingered `2500` lands at 100 rather than
- * charging a quarter of the trade — over-max is clamped, not ignored, because an
- * operator who typed a too-large number still meant "charge the maximum".
+ * Hard ceiling on the venue fee, in basis points. docs/BATTLE_PLAN.md #3 intends 25 bps.
+ * Over-max CLAMPS rather than disabling: an operator who typed 2500 meant "the maximum",
+ * not a quarter of the trade.
  */
 export const MAX_SWAP_FEE_BPS = 100;
 
 const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000';
 
 export interface SwapFeePolicy {
-  /** True only when a usable rate AND a usable recipient are both configured. */
+  /** True only when a usable rate AND a usable recipient ON THIS CHAIN are configured. */
   enabled: boolean;
   /** Effective rate in bps. Always 0 when `enabled` is false — never the raw override. */
   bps: number;
-  /** Checksum-agnostic 20-byte address, or null when the fee is off. */
+  /** The recipient on the chain asked about, or null when the fee is off there. */
   recipient: `0x${string}` | null;
 }
 
 /**
- * `VITE_SWAP_FEE_BPS` → an effective bps count.
- *
- * A fractional value (12.5) is rejected rather than rounded: no provider parameter in
- * the table below can express it, so rounding would make the sent fee differ from the
- * configured one. Everything non-numeric, negative or zero disables. Over-max clamps.
+ * `VITE_SWAP_FEE_BPS` → an effective bps count. A fraction (12.5) is rejected, not
+ * rounded, since no provider parameter can express it. Non-numeric, negative or zero
+ * disables; over-max clamps.
  */
 function feeBpsEnv(raw: string | undefined): number {
   const t = raw?.trim();
@@ -56,10 +40,8 @@ function feeBpsEnv(raw: string | undefined): number {
 }
 
 /**
- * `VITE_SWAP_FEE_RECIPIENT` → an address, or null.
- *
- * The zero address is rejected explicitly: several providers treat it as "no partner"
- * and silently keep the fee, which would read on our side as revenue we never earned.
+ * `VITE_SWAP_FEE_RECIPIENT` → an address, or null. The zero address is rejected: several
+ * providers read it as "no partner" and keep the fee.
  */
 function feeRecipientEnv(raw: string | undefined): `0x${string}` | null {
   const t = raw?.trim();
@@ -68,10 +50,24 @@ function feeRecipientEnv(raw: string | undefined): `0x${string}` | null {
   return t as `0x${string}`;
 }
 
-/** The venue's current fee policy. Read it; do not cache it. */
-export function swapFeePolicy(): SwapFeePolicy {
+/**
+ * The configured recipient, accepted on `chainId` only if it IS the venue's treasury Safe
+ * on that chain. A Safe exists per chain: Base's has no code on Ethereum, and ParaSwap
+ * credits partner fees to a vault that only the partner address can withdraw from.
+ * Any other address leaves the fee off there; it never picks a different destination.
+ */
+function feeRecipientOn(chainId: number, raw: string | undefined): `0x${string}` | null {
+  const configured = feeRecipientEnv(raw);
+  if (configured === null) return null;
+  const treasury = contractOn(chainId, 'treasury');
+  if (treasury.status !== 'deployed') return null;
+  return configured.toLowerCase() === treasury.address.toLowerCase() ? treasury.address : null;
+}
+
+/** The venue's fee policy on `chainId`, the chain the fee would be collected on. Do not cache it. */
+export function swapFeePolicy(chainId: number): SwapFeePolicy {
   const bps = feeBpsEnv(import.meta.env.VITE_SWAP_FEE_BPS as string | undefined);
-  const recipient = feeRecipientEnv(import.meta.env.VITE_SWAP_FEE_RECIPIENT as string | undefined);
+  const recipient = feeRecipientOn(chainId, import.meta.env.VITE_SWAP_FEE_RECIPIENT as string | undefined);
   if (bps <= 0 || recipient === null) return { enabled: false, bps: 0, recipient: null };
   return { enabled: true, bps, recipient };
 }
@@ -83,13 +79,9 @@ interface EnabledSwapFeePolicy {
 }
 
 /**
- * Per-provider fee leg.
- *
- * `blocked` is not "this provider has no fee mechanism" — it is "the mechanism is not
- * pinned down well enough to send". `params` records the parameter names the repo's own
- * plan (docs/BATTLE_PLAN.md F3 and #3) attributes to the provider; `mustConfirm` records
- * what is still missing. A leg moves to `ready` by confirming that against the
- * provider's live API, not by assuming.
+ * Per-provider fee leg. `blocked` means the mechanism is not pinned down well enough to
+ * send, not that the provider has none. A leg moves to `ready` by confirming `params`
+ * against the provider's live API, never by assuming.
  */
 export type ProviderFeeLeg =
   | {
@@ -104,21 +96,12 @@ export type ProviderFeeLeg =
     };
 
 /**
- * The table. A provider is `ready` only when BOTH the parameter names AND the unit the
- * provider reads them in are established — a correct name carrying the wrong unit is
- * the worse bug of the two, because the fee still goes out and no surface can tell.
- *
- * The recipient must also be nameable in the request. A rate parameter with no
- * accompanying recipient parameter does not mean the fee is unclaimed; it means the
- * provider decides who gets it, which is the one outcome this module exists to prevent.
- *
- * Third condition for `ready`, easy to miss: the provider must quote NET of the fee.
- * The meta-router ranks raw amountOut, so a provider that reports a gross figure while
- * charging us on top would win comparisons it should lose, by exactly our own margin.
+ * `ready` needs all three: the parameter names AND their unit are established, the
+ * recipient is named in the request (else the provider picks who is paid), and the
+ * provider quotes NET of the fee (else it wins rankings by exactly our own margin).
  */
 export const PROVIDER_FEE_LEGS: Record<AggregatorSource, ProviderFeeLeg> = {
-  // The only leg whose unit is not a matter of interpretation: `partnerFeeBps` states
-  // its unit in its own name, and `partnerAddress` names the recipient in the request.
+  // `partnerFeeBps` states its unit in its name, and `partnerAddress` names the recipient.
   paraswap: {
     status: 'ready',
     params: ['partnerAddress', 'partnerFeeBps'],
@@ -153,8 +136,7 @@ export const PROVIDER_FEE_LEGS: Record<AggregatorSource, ProviderFeeLeg> = {
       'the parameter that names the fee RECIPIENT (0x-style APIs pair swapFeeBps with a recipient and a fee token). Without it the rate is a donation to the provider',
   },
 
-  // Odos prices the fee against a referral code registered on Odos's side; the rate is
-  // not a request parameter at all, so this module cannot be its source of truth.
+  // Odos prices the fee off a referral code registered on its side, not a request rate.
   odos: {
     status: 'blocked',
     params: ['referralCode'],
@@ -162,9 +144,7 @@ export const PROVIDER_FEE_LEGS: Record<AggregatorSource, ProviderFeeLeg> = {
       'a registered Odos referral code, and how its Odos-side rate is reconciled with VITE_SWAP_FEE_BPS — two independent rates would make the displayed figure a guess',
   },
 
-  // CoW carries a partner fee in the appData document, whose JSON and pinned keccak256
-  // hash live in src/lib/cowProtocol.ts. Changing the document changes the hash the
-  // solver re-derives, so the leg cannot be added from here without that module.
+  // CoW's fee rides the appData document, whose hash is pinned in src/lib/cowProtocol.ts.
   cowswap: {
     status: 'blocked',
     params: ['appData.metadata.partnerFee'],
@@ -183,14 +163,15 @@ export interface ProviderFeeAttachment {
 }
 
 /**
- * The fee leg for one provider, or null when nothing is to be attached.
- *
- * Callers must take the displayed rate from the returned object rather than from
- * `swapFeePolicy()`: a blocked provider yields null while the policy is enabled, and a
- * surface reading the policy directly would advertise a fee that provider never saw.
+ * The fee leg for one provider's request on `chainId`, or null when nothing is attached.
+ * Display the rate from THIS object, never from `swapFeePolicy()`: a blocked provider
+ * yields null while the policy is enabled.
  */
-export function providerFeeAttachment(source: AggregatorSource): ProviderFeeAttachment | null {
-  const policy = swapFeePolicy();
+export function providerFeeAttachment(
+  source: AggregatorSource,
+  chainId: number,
+): ProviderFeeAttachment | null {
+  const policy = swapFeePolicy(chainId);
   if (!policy.enabled || policy.recipient === null) return null;
   const leg = PROVIDER_FEE_LEGS[source];
   if (!leg || leg.status !== 'ready') return null;
@@ -208,16 +189,9 @@ export function blockedFeeLegs(): { source: AggregatorSource; params: readonly s
 }
 
 /**
- * Query parameters each ready leg emits, keyed by the provider id used in
- * `frontend/api/aggregator.js`.
- *
- * That proxy allowlists query parameters per provider and DROPS anything else, so a leg
- * marked ready here is still inert until its names appear in `CONFIGS[<id>].allowedQuery`
- * — and inert in the worst way: the request loses the fee while this module still reports
- * one. Enabling the fee without widening the allowlist first breaks display==sent.
- *
- * Keys are the PROXY's provider ids, which are not the AggregatorSource ids everywhere:
- * `kyberswap` proxies as `kyber` and `cowswap` as `cow`.
+ * Query names each ready leg emits, keyed by `frontend/api/aggregator.js` provider id
+ * (`kyber`, `cow`, not the AggregatorSource ids). That proxy DROPS unlisted parameters,
+ * so a ready leg is inert, and display != sent, until its names are in `allowedQuery`.
  */
 export const PROXY_ALLOWLIST_ADDITIONS: Partial<Record<string, readonly string[]>> = {
   paraswap: PROVIDER_FEE_LEGS.paraswap.params,

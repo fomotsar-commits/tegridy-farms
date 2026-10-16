@@ -58,7 +58,7 @@ export function venueFaq(floor: number): FAQSection[] {
       items: [
         {
           q: 'How does providing liquidity work?',
-          a: "Deposit both sides of a pair and hold the LP token. Fees add to the pool as it trades. Withdraw any time; no lock. The pools page shows the venue's live status, read from the chain.",
+          a: "Deposit both sides of a pair and hold the LP token. Fees add to the pool as it trades. There is no lock. On Ethereum pools you can remove any time; on our Solana pools the team's vault can pause removing on a pool. The pools page shows the venue's live status, read from the chain.",
         },
         {
           q: 'What can go wrong?',

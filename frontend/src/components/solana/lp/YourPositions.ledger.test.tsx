@@ -184,7 +184,7 @@ describe('the row, top to bottom', () => {
     expect(within(pool).queryByText(v.address)).toBeNull();
     expect(within(pool).getByRole('button', { name: 'Copy' })).toHaveClass('min-h-[44px]');
     // The whole address is one press away.
-    fireEvent.click(within(pool).getByRole('button', { name: /Show whole/ }));
+    fireEvent.click(within(pool).getByRole('button', { name: /Show full address/ }));
     expect(within(pool).getByText(v.address)).toBeInTheDocument();
     expect(value(li, 'Worth now')).toBe(`1 SOL and 100 ${SHORT}`);
     expect(value(li, 'Pool swaps')).toBe('open');

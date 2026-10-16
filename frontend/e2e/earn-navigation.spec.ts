@@ -1,10 +1,8 @@
 import { test, expect, type Page } from '@playwright/test';
 
-// EARN ALWAYS LEADS BACK TO THE LIST (owner, 2026-09-30): "when you are in
-// Staking of an asset there is no way to go back to the main Earn page to choose
-// another asset. When I click on Earn on the top bar it stays on the same page.
-// Also earn link is Farm on URL." The word pointed at /farm, which drew whatever
-// pool the stored room named. Now /earn is the list and /earn/<id> one pool.
+// The bar's Lock word always leads back to the list of every pool (owner, 2026-09-30: from
+// inside a pool the word "stays on the same page"). /earn is the list and /earn/<id> one pool;
+// the word was Earn until the bar became Heat · Rooms · Lock · Launch · Swap (2026-10-15).
 
 test.use({ serviceWorkers: 'block' });
 
@@ -17,12 +15,12 @@ test.beforeEach(async ({ page }) => {
   });
 });
 
-/** The Earn word in whichever nav this viewport shows. */
+/** The Lock word in whichever bar this viewport shows. */
 function earnWord(page: Page) {
-  return page.locator('nav[aria-label="Main navigation"]:visible a', { hasText: /^Earn$/ }).first();
+  return page.locator('nav[aria-label="Main navigation"]:visible a', { hasText: /^Lock$/ }).first();
 }
 
-test('the Earn word, clicked from inside a pool, goes to the list', async ({ page }) => {
+test('the Lock word, clicked from inside a pool, goes to the list', async ({ page }) => {
   await page.goto('/earn/bayla');
   await expect(page.getByRole('heading', { level: 1, name: 'Stake BAYLA.' })).toBeVisible({ timeout: 30_000 });
   await expect(earnWord(page)).toHaveAttribute('href', '/earn');

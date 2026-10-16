@@ -15,6 +15,71 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-10-15: a shorter footer is a change to every page's scroll room
+
+**Believed:** cutting the footer from about 30 links to 8 (#838) touches only the footer's own
+specs.
+
+**Measured:** trunk CI went red in all four projects on `e2e/tab-strip-clears-focus.spec.ts`,
+whose precondition is that a page scrolls more than 200px. /scan at 1280x800 scrolled 100px
+once the footer was 250px tall (read with `scrollHeight - innerHeight` on the production
+build). The local runs before merge had not included that spec.
+
+**Do:** when shared chrome changes height (footer, header, bars), run every spec that reads
+`scrollHeight - innerHeight` or asserts a page scrolls: today `tab-strip-clears-focus`,
+`tab-target-size` and `phone-layout`.
+
+## 2026-10-15: a NavLink lights itself, so two words that open one page both light
+
+**Believed:** a bar word pointing at `/#hall` lights only on the hall, and a `NavLink` whose
+`className` is a plain string carries only the classes it was given.
+
+**Measured** (react-router 7.18.3, `NavLink` in `dist/development`, and the bar's own unit test):
+a string `className` gets ` active` appended, and `aria-current="page"` is set, whenever
+`isActive`, and `isActive` compares the pathname alone. So `/` and `/#hall` are both active on
+`/`: Heat and Rooms lit together on the home. A second trap in the same drawer: index.css makes
+`.nav-link` `inline-flex` under its touch media queries, unlayered, so it beats Tailwind's
+`flex` and two bare drawer links shared a line at 390 and 820 (a Playwright box check, red on
+that build).
+
+**Do:** a word that shares a pathname with another is a plain `Link` with `aria-current` from
+its own rule; give each drawer row its own block (`<li>`).
+
+## 2026-10-14: an element fading out with `visibility` still takes presses, and WebKit can call it hidden while it does
+
+**Believed:** a control hidden with `opacity-0 invisible` and a `transition-[opacity,visibility]`
+stops taking presses when it is hidden, and `checkVisibility()` returning false means a press
+there cannot reach it.
+
+**Measured** (Playwright 1.62, production build, the Towelie corner over /nft-finance's tabs):
+a `visibility` transition keeps the element `visible` until it ends, so for the whole 200ms
+fade it is hit-tested. With motion on, Chromium's press on the tab under it landed on the
+corner at opacity 0.98. With reduced motion every e2e project shortens the fade to 0.01ms, and
+Chromium passed; CI's iPad WebKit failed every attempt with `checkVisibility()` false and
+`elementFromPoint` returning the corner's own picture, on the one scroll step where the class
+had just landed. The press point sat on the rim of the round picture, and only the DPR 2
+device counted the rim.
+
+**Do:** take presses away with something that is not transitioned (`inert`, or
+`pointer-events-none`) in the same render that starts the fade, and test the press with motion
+on, at the first frame the opacity drops below 1. Name the control a stray press lands in
+(`closest('[aria-label]')`), not just its tag: "lands on img" cost a trace dig.
+
+## 2026-10-14: four loads of one heavy page in one WebKit tab is where the iPhone project fails to load
+
+**Believed:** a test that sets a width and reloads the same route four times in one page is
+the same as four tests.
+
+**Measured:** seven full E2E runs on 2026-10-14 held four flakes of the one such test on
+WebKit (`tab-strip-scroll.spec.ts`), all on `iphone-safari` (DPR 3), on four routes, every one
+inside the load: a 60s wait for `load`, "WebKit encountered an internal error", and a page that
+never mounted after a 2.3s load where the first two loads took 0.16 to 0.28s. No other test
+flaked on a WebKit project in those runs. The retry passed each time.
+
+**Do:** read the failing step before calling a flake a race in the page. Give each load its own
+test, as the sibling width specs do; whether that alone ends this flake was not yet shown when
+this was written.
+
 ## 2026-10-14: a wallet send error that is not a "cancel" can still mean the swap was sent
 
 **Believed:** when `sendTransaction` from the Solana wallet adapter throws, nothing left the
@@ -296,6 +361,83 @@ a tab that really is hidden it never returns. A headed window opens on the deskt
 whoever is at the machine: in the one headed run here the page was already on the new
 build before the scripted press, by nothing the script did, and the run was thrown away.
 
+## 2026-10-14: viem's `fallback` moves to the next RPC on an error, never on a `null`
+
+**Believed:** over `fallback([publicnode, drpc])`, a receipt the first host lacks is read from
+the second.
+
+**Measured:** for an Ethereum transaction in block 25,038,892, `ethereum-rpc.publicnode.com`
+answered `eth_getTransactionReceipt` with HTTP 200 and `"result": null`, while `eth.drpc.org` and
+`eth-mainnet.public.blastapi.io` returned it with 28 logs. A viem client over publicnode then drpc
+threw `TransactionReceiptNotFoundError` ("could not be found. The Transaction may not be processed
+on a block yet."); the same two hosts in the other order returned the receipt. A `null` is an
+answer, so the fallback never asks the second host. A ranked transport picks the first host at
+run time, so one page reads fine for one visitor and fails for the next.
+
+**Do:** for a historical read through a fallback, treat "not found" as "the host that answered
+has no record" and ask a named second host before saying anything. The Solana form of this trap
+is the 2026-10-10 entry "a public RPC host can answer 200 with a history it does not have".
+
+## 2026-10-14: a page's visible words are a number a test can hold, and the first pass only looks finished
+
+**Believed:** once the explanations sit in closed drop-downs, a page stays short; a second
+"fewer words" pass finds little.
+
+**Measured** on the production build (Chromium, `vite preview`, Bayla skin, words of
+`main.innerText`, which excludes a closed details element's body): six days after the
+first pass, the phone showed /pools at 570 words, /solana-lp 390, /bayla 351,
+/nft-finance 320, /dashboard 246, /liquidity 176, /earn 160, and the marketplace landing
+675 behind a splash that stayed up to 12 s with no visible way in. The same fee split was
+on /pools four times. One pass by six builders took them to 295 / 206 / 290 / 233 / 203 /
+126 / 109 / 227, with every card, control and art surface kept and every moved sentence
+in the DOM; the Open button on /earn moved from off the right edge of a 520 px table to
+the first screen, and the TOWELI room's Connect from the eighth screen to the first.
+`e2e/word-budget.spec.ts` now pins a ceiling per route and width, about a tenth above the
+measurement (a count moves with the chain: the marketplace read 227 and 265 on two runs).
+
+**Do:** count, do not read; pin the number so it can only go down; walk the phone and
+look at where the first control is, not whether it exists. Two measuring traps: a
+Playwright `addInitScript` runs before `document.documentElement` exists, so observe
+`document`; and a count taken before a chain read lands is the loading state, so wait for
+the section (a Streamflow pool is ~13 sequential RPCs; the LP section ~20 s).
+
+## 2026-10-14: `vite preview` listens on `localhost` only, and a Bash pipeline commits on grep's exit code
+
+**Believed:** `127.0.0.1:4173` and `localhost:4173` are the same server; `test | grep
+summary && git commit` commits only on a green test.
+
+**Measured:** `vite preview --port 4173` on this machine binds `::1`; `127.0.0.1` is
+refused (Playwright's baseURL says `localhost`, which is why the suite never noticed).
+And one commit went in with a red test because the pipeline's status was grep's (0, it
+matched a line), not vitest's.
+
+**Do:** address the preview by `localhost`. Run the test alone, or capture its status in
+a variable, before the commit in the same chain.
+
+## 2026-10-14: a rebuilt review compared line for line shuts on lines that move by themselves
+
+**Believed:** when a stale review is built again before signing, requiring every rendered
+line to read the same is the safe rule: nothing the reader did not see can reach the wallet.
+
+**Found** (island, answer eighteen: a holder could not get a 1 SOL add signed from a phone).
+Some lines move with nothing in the transaction changed. A price checked against an outside
+market moves every few seconds. A gap estimate printed to the lamport moves with it. A
+priority fee re-read from recent fees moves block to block, and its "share of this trade"
+text with it. In unit tests on the review, a 0.1 SOL add read 0.01% at 12,000 lamports and
+0.03% at 30,000. A review read at phone speed outlives the blockhash, so the rebuild ran on
+almost every press, one of those lines had always moved, and the wallet never opened. The
+rule that was meant to be strict kept a careful reader from ever signing.
+
+**Do instead:** sort the lines by what can move them (mark the element; treat an unknown
+mark as the transaction's own). Hold the transaction's own lines and its instruction bytes
+to equality. Let market and fee lines move, and show what moved while the wallet is open.
+Shut on what is news: a warning in words the reader has not seen, or a move past the
+page's own warning gap. When it does shut, list every line that differs, market lines
+included, so "every other line reads as it did" stays true. Measuring a fee move needs the
+lamports: the review prints SOL to 0.0001, so a few thousand lamports leave the printed
+SOL change unchanged. (`frontend/src/components/solana/curve/useTxFlow.ts` `compare`,
+`reviewLines.ts`.)
+
 ## 2026-10-10: a scroll reset in `useEffect` lands after the page is drawn, on every page change, and a test can see it without losing a race
 
 **Believed:** scrolling to the top in `useEffect` on a route change is the standard pattern
@@ -351,6 +493,34 @@ folder ignored by git as `*.local`, holding copies of `dist`, turned a clean lin
 
 **Do:** filter by `name\.spec`, never by a bare name a branch or folder may share. Keep
 scratch builds outside `frontend/`, or move the scratch folder out before the lint gate.
+## 2026-10-14: a button past a table's right edge passes every check that scrolls to it
+
+**Believed:** a phone test that finds a row's button, lets Playwright scroll it into view and
+clicks it shows a visitor can tap it.
+
+**Measured:** /earn, trunk 08596661 production build, iPhone 15 WebKit and Pixel 5 Chromium.
+Every pool's Open button sat at x 394 to 521 on a 393px screen, inside the table's own
+`overflow-x-auto` box. `toBeVisible` passed (the box is not empty), the page itself was not too
+wide (`scrollWidth` 393, so a page-width check passes), and `click()` on "Open TOWELI" reached
+the pool: Playwright scrolled the TABLE sideways first, which no visitor knew to do.
+
+**Do:** scroll the page down only (`window.scrollTo`), then in one evaluate read the button's
+rect against `documentElement.clientWidth` and ask `elementFromPoint` at its centre.
+`e2e/pool-open-buttons.spec.ts` does this.
+
+## 2026-10-14: a see-through bar in a Windows WebKit screenshot can be a blur that browser never draws
+
+**Believed:** page text readable behind the fixed top bar in a Playwright iPhone screenshot
+means the bar lets text through on an iPhone.
+
+**Measured:** /earn, same build, the bar's own contents hidden, brightest pixel inside the bar.
+Playwright WebKit on Windows: 31/255 with `backdrop-filter: blur(20px)` on and 31 with it off,
+while `CSS.supports` said yes to both spellings. Pixel 5 Chromium: 8 on, 31 off. Bar made
+opaque: 0. The Windows WebKit build reports the blur and paints none of it.
+
+**Do:** before calling a glass surface see-through from a WebKit screenshot, switch its blur
+off and compare. Identical pixels mean the test browser; check in Chromium or on a real phone.
+
 ## 2026-10-10: `origin/<trunk>` moves under a long job, and without your fetch
 
 **Believed:** the trunk commit named at the start of a job holds for the job, and

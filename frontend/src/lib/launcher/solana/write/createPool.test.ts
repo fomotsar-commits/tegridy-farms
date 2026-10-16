@@ -269,6 +269,21 @@ describe('prepareLpCreate: a clean opening at the standard address', () => {
     expect(p.steps.filter((x) => x.kind === 'pool-create')).toHaveLength(1);
   });
 
+  // The panel's market price may be the edge's 30-second copy of Jupiter's answer
+  // (outsidePrice.ts). The opening check at Review asks Jupiter itself.
+  it('the market price at Review is asked fresh, never the copy the edge shares', async () => {
+    const w = world();
+    const asked: [string, number, { fresh?: boolean } | undefined][] = [];
+    const reads: LpPrepareReads = {
+      outsidePrice: async (mint, decimals, opts) => {
+        asked.push([mint, decimals, opts]);
+        return { kind: 'ok', solPerToken: 0.01, source: 'Jupiter' };
+      },
+    };
+    ok(await create(w, {}, reads));
+    expect(asked).toEqual([[w.mint.toBase58(), 6, { fresh: true }]]);
+  });
+
   it('the bytes: open time 0, slot 1 is tier 1, slot 12 is the pool program’s fee account', async () => {
     const p = ok(await create(world()));
     const ix = p.tx.instructions.find((i) => i.programId.equals(CPSWAP))!;

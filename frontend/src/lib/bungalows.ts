@@ -250,10 +250,11 @@ export const BUNGALOWS: Bungalow[] = [
       lore: {
         title: 'The muse of Jungle Bay Island',
         paragraphs: [
+          // Trimmed to 41 words (owner, 2026-10-14: fewer words); the map line went.
           'An island in a sea of rugs, built by the memes: bungalows for token ' +
           'communities, an artist economy, and time held is what counts. Bayla is ' +
           'its muse: brought to light by the Jungle Bay Artists Collective, seated ' +
-          'at the lighthouse, the newest name on the island map.',
+          'at the lighthouse.',
           'Her pull reaches every kind of maker. The work is yours. The light is ' +
           'hers. Dank Memes + Time = Memetic Finance.',
         ],

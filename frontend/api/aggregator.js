@@ -153,19 +153,47 @@ const CONFIGS = {
 
   // Jupiter Swap API (SOLANA) — GET /swap/v1/quote, POST /swap/v1/swap.
   // 2026-06-18: Solana fee-capture surface (Surface A — see
-  // docs/SOLANA_FEE_CAPTURE_PLAN.md). Keyless lite-api tier. The platform fee
-  // is taken via `platformFeeBps` (quote query) + `feeAccount` (a plain
-  // Tegridy-owned ATA in the swap POST body) — no Jupiter Referral Program
-  // needed since Jan 2025, and NO own on-chain program / NO bridge / TOWELI
-  // never touches Solana. Same hardening as the EVM aggregators: origin
-  // allowlist, per-IP rate limit, 32 KB body cap, response header stripping.
+  // docs/SOLANA_FEE_CAPTURE_PLAN.md). Keyless lite-api tier until a key is set
+  // (resolveUpstream below). The platform fee is taken via `platformFeeBps`
+  // (quote query) + `feeAccount` (a plain Tegridy-owned ATA in the swap POST
+  // body) — no Jupiter Referral Program needed since Jan 2025, and NO own
+  // on-chain program / NO bridge / TOWELI never touches Solana. Same hardening
+  // as the EVM aggregators: origin allowlist, per-IP rate limit, 32 KB body
+  // cap, response header stripping.
   jupiter: {
     identifier: "jupiter",
-    upstreamBase: "https://lite-api.jup.ag",
+    // Jupiter is retiring its keyless lite-api host. With the server-only
+    // JUPITER_API_KEY set, every call goes to api.jup.ag (same paths, key in
+    // `x-api-key`). A 401/403/429 there is Jupiter's gateway refusing the call
+    // before it ran (bad key, no permission, plan limit), and a 404 is a path the
+    // keyed host does not serve (Jupiter's docs no longer show ultra/v1/shield or
+    // trigger/v1 there), so the same call is tried once on lite-api while that
+    // host still answers. Key unset or blank:
+    // lite-api with no key, exactly as before. Read per request, never cached.
+    resolveUpstream: () => {
+      const key = (process.env.JUPITER_API_KEY || "").trim();
+      if (!key) return { upstreamBase: "https://lite-api.jup.ag" };
+      return {
+        upstreamBase: "https://api.jup.ag",
+        extraHeaders: { "x-api-key": key },
+        fallback: { upstreamBase: "https://lite-api.jup.ag", onStatus: [401, 403, 404, 429] },
+      };
+    },
     // Jupiter's HTTP 400 codes for "no market", seen live 2026-09-30 (an untradable
     // mint, and an amount no route fills). The proxy answers these as 404 NO_ROUTE
     // instead of 502, so the LP price check can tell "no market" from "Jupiter down".
     noRouteErrorCodes: ["TOKEN_NOT_TRADABLE", "NO_ROUTES_FOUND", "COULD_NOT_FIND_ANY_ROUTE"],
+    // The LP price check's quotes (src/lib/solana/lp/outsidePrice.ts) are kept at the
+    // edge for 30 seconds, so every visitor looking at a pool shares one Jupiter read
+    // instead of each spending the key's 60 a minute; an unread check holds a pool's Add
+    // back. Only those quotes: they carry `priceCheck=1`, which nothing else sends and
+    // which never reaches Jupiter (it is not in allowedQuery). A quote with a platform
+    // fee is a trade being built and is never shared. runProxy asks this for a 200 GET
+    // only, so an error or a "no route" answer stays private, no-store.
+    edgeCache: (segments, query) =>
+      segments.join("/") === "swap/v1/quote" && query.priceCheck === "1" && query.platformFeeBps == null
+        ? "s-maxage=30, stale-while-revalidate=15"
+        : null,
     // swap/v1/{quote,swap} (trade) + tokens/v2/search (any-pair token search +
     // paste-a-mint resolve). Exact segment matches only — keep the surface narrow.
     matchPath: (segments) => {
@@ -339,6 +367,12 @@ export default async function handler(req, res) {
   if (req.query.resource === "doppler-birth") {
     const { handleDopplerBirth } = await import("./_lib/evm-birth.js");
     return handleDopplerBirth(req, res);
+  }
+  // `?resource=eas-attested` lists one token's EAS attestations under the disclosure schema
+  // (keyless Blockscout) for /launch/:token, which re-reads each uid. See _lib/eas-attested.js.
+  if (req.query.resource === "eas-attested") {
+    const { handleEasAttested } = await import("./_lib/eas-attested.js");
+    return handleEasAttested(req, res);
   }
 
   // `?resource=heat` proxies Jungle Bay Island's held-time oracle at memetics.wtf.

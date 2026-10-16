@@ -25,8 +25,8 @@ import { MIN_HISTORY_TEXT } from './ownPrice';
  *   - the token itself is blocked (tokenSafety.ts).
  *
  * A deposit is WARNED ABOUT, and allowed (owner ruling 2026-10-04), when:
- *   - its price is more than 3% from the reference price: the difference goes to the
- *     first arbitrage trade, paid out of the depositor's share;
+ *   - its price is more than 3% from the reference price: the trade that moves it back
+ *     takes part of the depositor's share, said as `gapCostFraction` of what goes in;
  *   - Jupiter ANSWERED that the token has no market, the pool is one anyone could open,
  *     and no launch pool gives a reference: its price was checked against nothing
  *     (`no-market`);
@@ -79,7 +79,8 @@ export type PriceReference = 'outside' | 'own-average' | 'launch-pool';
 
 /**
  * What a price was checked against, as the words after "a move back to" in the estimated
- * loss line (the form's and the review's). A Record, so a new reference must say.
+ * loss line (the form's and the review's), and after "4.0% above" in the pool card's
+ * Difference row when it is off. A Record, so a new reference must say.
  */
 export const REFERENCE_NAME: Readonly<Record<PriceReference, string>> = {
   outside: 'the outside price',
@@ -87,12 +88,47 @@ export const REFERENCE_NAME: Readonly<Record<PriceReference, string>> = {
   'launch-pool': 'the launch pool’s price',
 };
 
-/** The warning for a price more than 3% off, by what it was checked against. `gap` is "4.0% above". */
-const GAP_WARNING: Readonly<Record<PriceReference, (gap: string) => string>> = {
-  outside: (gap) => `Its price is ${gap} the outside price. A deposit here would hand that gap to the first arbitrage trade.`,
-  'own-average': (gap) => `Its price is ${gap} its own average over the last half hour. Someone may have just pushed it; a deposit now would pay for that.`,
-  'launch-pool': (gap) => `Its price is ${gap} the launch pool’s price. A deposit here would hand that gap to the first arbitrage trade.`,
+/**
+ * The warning for a price more than 3% off, by what it was checked against. `gap` is "4.0%
+ * above"; `cost` is what a deposit loses when it is traded back (`gapCostWords`).
+ */
+const GAP_WARNING: Readonly<Record<PriceReference, (gap: string, cost: string) => string>> = {
+  outside: (gap, cost) => `Its price is ${gap} the outside price. If you add now, ${cost}.`,
+  'own-average': (gap, cost) => `Its price is ${gap} its own average over the last half hour. Someone may have just pushed it; if you add now, ${cost}.`,
+  'launch-pool': (gap, cost) => `Its price is ${gap} the launch pool’s price. If you add now, ${cost}.`,
 };
+
+/**
+ * What a deposit at the pool's own price loses when a trade moves that price to the
+ * reference, as a fraction of what it puts in, valued at the reference:
+ * `(√r − 1)² / (r + 1)`, with `r` the pool's price over the reference. It is
+ * `estimatedLoss` (opening.ts) over the deposit's value, so it does not depend on the
+ * deposit's size: 19.6% below costs about 0.59%, not 19.6%. The trade fee is ignored, so it
+ * is an upper bound. Display only. Null when either price, or their ratio, is not a
+ * positive finite number.
+ */
+export function gapCostFraction(poolPrice: number, referencePrice: number): number | null {
+  const r = poolPrice / referencePrice;
+  if (!(poolPrice > 0) || !(referencePrice > 0) || !(r > 0) || !Number.isFinite(r)) return null;
+  const gap = Math.sqrt(r) - 1;
+  return (gap * gap) / (r + 1);
+}
+
+/**
+ * `gapCostFraction` as the warning says it: "whoever trades it back takes up to about 0.6%
+ * of what you add (about $0.59 per $100)". Never below the smallest step it shows (0.01%,
+ * $0.01), so a real cost is never rounded to nothing; a cost that cannot be worked out is
+ * said as such, never as 0. Always in dollars, never "59¢": a review built again compares
+ * warnings with their numbers taken out (useTxFlow.ts `wordsOf`), so a cost that only
+ * grew must keep the same words.
+ */
+function gapCostWords(fraction: number | null): string {
+  if (fraction === null) return 'whoever trades it back takes part of what you add (how much could not be worked out)';
+  const pct = fraction * 100;
+  const pctText = pct >= 1 ? pct.toFixed(1) : Math.max(pct, 0.01).toPrecision(1);
+  // Dollars per $100 are the percent itself.
+  return `whoever trades it back takes up to about ${pctText}% of what you add (about $${Math.max(pct, 0.01).toFixed(2)} per $100)`;
+}
 
 export type PriceCheck =
   | { state: 'agrees'; pool: number; reference: number; against: PriceReference; diff: number }
@@ -385,14 +421,16 @@ export function assessPool(input: {
   unchecked.push(...token.unchecked);
   warnings.push(...token.warned);
   if (price.state === 'disagrees') {
-    warnings.push(GAP_WARNING[price.against](`${(Math.abs(price.diff) * 100).toFixed(1)}% ${price.diff > 0 ? 'above' : 'below'}`));
+    warnings.push(
+      GAP_WARNING[price.against](`${(Math.abs(price.diff) * 100).toFixed(1)}% ${price.diff > 0 ? 'above' : 'below'}`, gapCostWords(gapCostFraction(price.pool, price.reference))),
+    );
   }
   if (price.state === 'no-market') {
     warnings.push(
       // The coin's (owner ruling 2026-10-07) names the coin: the token has a price, so "this token" would be wrong.
       price.of === 'coin'
-        ? `Jupiter has no price for ${view.quote.symbol} right now, so this pool’s price in ${view.quote.symbol} was not checked against anything. If it is off, a deposit here hands the difference to whoever trades it back.`
-        : 'Jupiter has no market price for this token, so this pool’s price was not checked against anything. If it is off, a deposit here hands the difference to whoever trades it back.',
+        ? `Jupiter has no price for ${view.quote.symbol} right now, so this pool’s price in ${view.quote.symbol} was not checked against anything. If it is off, whoever trades it back takes part of what you add.`
+        : 'Jupiter has no market price for this token, so this pool’s price was not checked against anything. If it is off, whoever trades it back takes part of what you add.',
     );
   }
   if (price.state === 'too-new') warnings.push(TOO_NEW_WARNING);

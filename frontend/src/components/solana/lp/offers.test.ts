@@ -456,7 +456,7 @@ describe('createOffer', () => {
         const off = health(bigOff().view);
         expect(off.deposits.verdict).toBe('allowed');
         expect(off.price.state).toBe('disagrees');
-        expect(off.deposits.warnings).toEqual(['Its price is 300.0% above the outside price. A deposit here would hand that gap to the first arbitrage trade.']);
+        expect(off.deposits.warnings).toEqual(['Its price is 300.0% above the outside price. If you add now, whoever trades it back takes up to about 20.0% of what you add (about $20.00 per $100).']);
         const fair = health(atMarket().view);
         expect(fair.deposits).toEqual({ verdict: 'allowed', reasons: [], warnings: [] });
         expect(fair.price.state).toBe('agrees');

@@ -198,11 +198,21 @@ export function BnplSection() {
           />
         </label>
 
-        <p className="text-[11px] text-white/50 mt-2 leading-relaxed" style={LABEL_STYLE}>
-          {TERMS_PROVENANCE[termsSource]}{' '}
+        {/* The numbers stay visible. Where they came from is one press away, unless a
+            contract could not be read: that line must never fold into looking fine. */}
+        <p className="text-[12px] text-white/80 mt-2 leading-relaxed" style={LABEL_STYLE}>
           Deposit {(terms.depositBps / 100).toFixed(2)}%, APR {(terms.aprBps / 100).toFixed(2)}%,{' '}
           {terms.instalments} payments {Math.round(terms.instalmentIntervalSeconds / 86400)} days apart.
         </p>
+        {termsSource === 'desk-unreadable' || termsSource === 'pool-unavailable' ? (
+          <p className="text-[11px] text-amber-300 mt-1 leading-relaxed" style={LABEL_STYLE}>
+            {TERMS_PROVENANCE[termsSource]}
+          </p>
+        ) : (
+          <FinePrint summary={termsSource === 'live' ? 'Where these terms come from' : 'Written terms, not a live quote'}>
+            <p>{TERMS_PROVENANCE[termsSource]}</p>
+          </FinePrint>
+        )}
 
         {priceInput.trim() !== '' && priceWei === null && (
           <p className="text-[12px] text-amber-300 mt-3" style={LABEL_STYLE}>
@@ -235,9 +245,17 @@ export function BnplSection() {
               className="rounded-lg p-3"
               style={{ background: 'rgba(234,179,8,0.06)', border: '1px solid rgba(234,179,8,0.2)' }}
             >
-              <p className="text-[11px] uppercase tracking-wide text-amber-300 mb-1.5" style={LABEL_STYLE}>
-                What still has to be true for this plan to open
+              {/* The verdict in one line; the two conditions, in full, are one press away. */}
+              <p className="text-[12px] text-amber-300" style={LABEL_STYLE}>
+                {financedCeilingWei !== null && quote.financedWei > financedCeilingWei
+                  ? `The pool would lend at most ${eth(financedCeilingWei)} on one token, so this price would be refused.`
+                  : !poolTermCoversPlan
+                    ? 'The pool term is shorter than the plan, so the desk would refuse it.'
+                    : financedCeilingWei === null
+                      ? 'Not a confirmation: the pool cap could not be checked from here.'
+                      : 'The pool cap and term cover this plan.'}
               </p>
+              <FinePrint summary="What still has to be true for this plan to open">
               <ul className="space-y-1.5 text-[11.5px] leading-relaxed text-white/70" style={LABEL_STYLE}>
                 <li>
                   <span className="text-white/85 font-semibold">The pool has to be willing to lend {eth(quote.financedWei)}.</span>{' '}
@@ -266,6 +284,7 @@ export function BnplSection() {
                     : 'That does not cover it, and the desk refuses the purchase rather than letting the loan mature mid-schedule and cost a paying buyer the token.'}
                 </li>
               </ul>
+              </FinePrint>
             </div>
 
             <div className="rounded-lg p-3" style={{ background: 'rgba(255,255,255,0.04)' }}>
@@ -276,7 +295,7 @@ export function BnplSection() {
                 {quote.instalmentsWei.map((amount, i) => (
                   <li key={i} className="flex justify-between text-[12px] text-white/75" style={LABEL_STYLE}>
                     <span>
-                      Payment {i + 1} &mdash; day {Math.round(((i + 1) * terms.instalmentIntervalSeconds) / 86400)}
+                      Payment {i + 1}, day {Math.round(((i + 1) * terms.instalmentIntervalSeconds) / 86400)}
                     </span>
                     <span className="text-white font-semibold">{eth(amount)}</span>
                   </li>
@@ -287,6 +306,9 @@ export function BnplSection() {
         )}
       </div>
 
+      {/* How it works, one press away (owner, 2026-10-13: how-it-works goes in a closed
+          drop-down). The five-step strip and its art sit inside, word for word. */}
+      <FinePrint summary="How it works" testId="bnpl-how">
       <HowItWorks
         storageKey="tegridy-bnpl-how"
         title="How an instalment purchase works"
@@ -294,7 +316,7 @@ export function BnplSection() {
           {
             label: 'The seller states an on-chain intent',
             description:
-              'A price and an expiry, with an approval granted to the instalment contract alone. The marketplace listing approval is never reused for this — a permission to sell at a signed price must not double as a permission to move a token for nothing.',
+              'A price and an expiry, with an approval granted to the instalment contract alone. The marketplace listing approval is never reused for this. A permission to sell at a signed price must not double as a permission to move a token for nothing.',
           },
           {
             label: 'The buyer pays the deposit',
@@ -304,7 +326,7 @@ export function BnplSection() {
           {
             label: 'The pool fronts the rest and holds the token',
             description:
-              'The financed part is an ordinary loan from the collection’s lending pool, and the token sits in that pool’s escrow — one escrow and one liquidation path, not a second copy of the same machinery.',
+              'The financed part is an ordinary loan from the collection’s lending pool, and the token sits in that pool’s escrow: one escrow and one liquidation path, not a second copy of the same machinery.',
           },
           {
             label: 'Each payment retires principal plus accrued interest',
@@ -318,6 +340,7 @@ export function BnplSection() {
           },
         ]}
       />
+      </FinePrint>
     </m.div>
   );
 }

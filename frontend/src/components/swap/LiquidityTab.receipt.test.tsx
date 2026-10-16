@@ -86,7 +86,7 @@ function openAdd() {
 
 function openRemove() {
   const view = render(<LiquidityTab />);
-  fireEvent.click(screen.getByRole('button', { name: 'Pull Crop Out' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Remove' }));
   fireEvent.click(screen.getByRole('button', { name: '100%' }));
   return view;
 }
@@ -146,7 +146,7 @@ describe('LiquidityTab: an approval is not a confirmation', () => {
     expect(ROUTER).not.toBe(ROUTER.toLowerCase());
     w.allowance = 2n ** 256n - 1n;
     const { rerender } = openAdd();
-    expect(screen.getByTestId('liquidity-submit')).toHaveTextContent('Grow the Crop');
+    expect(screen.getByTestId('liquidity-submit')).toHaveTextContent('Add liquidity');
 
     const sent = sendAndConfirm(rerender);
     expect(sent.address).toBe(ROUTER);
@@ -159,7 +159,7 @@ describe('LiquidityTab: an approval is not a confirmation', () => {
     w.allowance = 2n ** 256n - 1n;
     w.lpBalance = 10n ** 18n;
     const { rerender } = openRemove();
-    expect(screen.getByTestId('liquidity-submit')).toHaveTextContent('Pull Crop Out');
+    expect(screen.getByTestId('liquidity-submit')).toHaveTextContent('Remove liquidity');
 
     const sent = sendAndConfirm(rerender);
     expect(sent.address).toBe(ROUTER);

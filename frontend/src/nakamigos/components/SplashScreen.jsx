@@ -716,43 +716,38 @@ export default function SplashScreen({ onComplete }) {
     return () => clearTimeout(t);
   }, []);
 
+  // The unskipped play is capped (2026-10-14): the loading beat runs
+  // LOADING_MS and then the splash leaves on its own, so a visitor who presses
+  // nothing is on the landing within LOADING_MS + EXIT_MS (3.2 s), under the
+  // 4 s ceiling. The old 4 s bar waited for a click afterwards and, with no
+  // visible way in, held a visitor on the splash indefinitely.
+  const LOADING_MS = 1800;
+
   useEffect(() => {
     const start = Date.now();
-    const TOTAL_DURATION = 4000; // 4 seconds total splash
     const iv = setInterval(() => {
       const elapsed = Date.now() - start;
-      const pct = Math.min((elapsed / TOTAL_DURATION) * 100, 100);
+      const pct = Math.min((elapsed / LOADING_MS) * 100, 100);
       setProgress(pct);
       if (pct >= 100) clearInterval(iv);
     }, 30);
     return () => clearInterval(iv);
   }, []);
 
-  useEffect(() => {
-    if (progress >= 100 && phase === "loading") {
-      setTimeout(() => setPhase("ready"), 400);
-    }
-  }, [progress, phase]);
-
-  // Safety timeout — force ready after 8 seconds no matter what
-  useEffect(() => {
-    const timeout = setTimeout(() => {
-      if (phase === "loading") {
-        setProgress(100);
-        setPhase("ready");
-      }
-    }, 8000);
-    return () => clearTimeout(timeout);
-  }, [phase]);
-
   const [exitPhase, setExitPhase] = useState("none"); // none | glitch | cover | flash | collapse
   const [clickPos, setClickPos] = useState({ x: "50%", y: "50%" });
+  // One entry only: the Enter button's click also bubbles to the root's
+  // onClick, and an Enter keypress on the button fires both its click and the
+  // root's onKeyDown. Without this guard the exit timers would run twice and
+  // onComplete would fire twice.
+  const enteredRef = useRef(false);
 
-  const handleEnter = (e) => {
+  const handleEnter = useCallback((e) => {
     // F696: allow click/key skip from second 0 — during the loading phase too,
     // not only once `ready`. First-time visitors and deep-links aren't held for
-    // the full ~4-12s intro. Already-exiting phases are ignored. Art unchanged.
-    if (phase !== "ready" && phase !== "loading") return;
+    // the full intro. Already-exiting phases are ignored. Art unchanged.
+    if (enteredRef.current) return;
+    enteredRef.current = true;
     // Capture click position for shockwave origin
     const rect = containerRef.current?.getBoundingClientRect();
     if (rect && e && e.clientX != null) {
@@ -760,10 +755,9 @@ export default function SplashScreen({ onComplete }) {
     }
     setPhase("reveal");
 
-    // Glitch phase — CSS animation on the container
-    // Mobile: faster transitions for snappy feel
-    const t = IS_MOBILE ? { glitch: 400, flash: 100, cover: 600, collapse: 300 }
-                        : { glitch: 900, flash: 150, cover: 1200, collapse: 400 };
+    // Glitch phase: CSS animation on the container. One tempo on every device
+    // (the old desktop exit alone ran 2.65 s); EXIT_MS = 1400.
+    const t = { glitch: 450, flash: 100, cover: 600, collapse: 250 };
     setExitPhase("glitch");
     setTimeout(() => {
       setExitPhase("flash");
@@ -775,12 +769,24 @@ export default function SplashScreen({ onComplete }) {
         }, t.cover);
       }, t.flash);
     }, t.glitch);
-  };
+  }, [onComplete]);
+
+  // The bar is full: leave on its own. No "ready" wait, no click required.
+  useEffect(() => {
+    if (progress >= 100 && phase === "loading") handleEnter();
+  }, [progress, phase, handleEnter]);
+
+  // Safety timeout: leave after 6 s no matter what (a throttled tab's
+  // interval can stall the bar).
+  useEffect(() => {
+    const timeout = setTimeout(() => handleEnter(), 6000);
+    return () => clearTimeout(timeout);
+  }, [handleEnter]);
 
   // Keyboard/AT entry: the splash is a click-only gate on a non-focusable div,
   // which hard-blocks keyboard and switch-access users from the whole sub-app
-  // (F527). Enter/Space triggers the same handleEnter (which itself no-ops until
-  // phase === "ready"). The center container is the focus target below.
+  // (F527). Enter/Space triggers the same handleEnter (guarded against a second
+  // entry). The center container is the focus target below.
   const handleKeyDown = (e) => {
     if (e.key === "Enter" || e.key === " " || e.key === "Spacebar") {
       e.preventDefault();
@@ -850,7 +856,7 @@ export default function SplashScreen({ onComplete }) {
       onKeyDown={handleKeyDown}
       role="button"
       tabIndex={0}
-      aria-label={phase === "ready" ? "Enter Tradermigos" : "Skip intro and enter Tradermigos"}
+      aria-label="Enter Tradermigos"
     >
       {/* Shockwave ripple from click point */}
       {(exitPhase === "glitch" || exitPhase === "flash") && (
@@ -1390,7 +1396,7 @@ export default function SplashScreen({ onComplete }) {
                 <m.span key={i}
                   initial={{ opacity: 0, y: 80, scale: 0.3, rotateX: 90 }}
                   animate={showContent ? { opacity: 1, y: 0, scale: 1, rotateX: 0 } : undefined}
-                  transition={{ type: "spring", stiffness: 180, damping: 15, delay: 0.3 + i * 0.08 }}
+                  transition={{ type: "spring", stiffness: 180, damping: 15, delay: 0.15 + i * 0.06 }}
                   style={{
                     fontFamily: "var(--pixel)", fontSize: "clamp(32px, 7vw, 64px)",
                     color: colors[i % colors.length], display: "inline-block",
@@ -1403,7 +1409,7 @@ export default function SplashScreen({ onComplete }) {
             <m.div
               initial={{ x: "-140%" }}
               animate={showContent ? { x: "280%" } : undefined}
-              transition={{ delay: 1.5, duration: 0.8, ease: [0.4, 0, 0.2, 1] }}
+              transition={{ delay: 0.9, duration: 0.6, ease: [0.4, 0, 0.2, 1] }}
               style={{
                 position: "absolute", top: -6, left: 0,
                 width: "35%", height: "calc(100% + 12px)",
@@ -1418,7 +1424,7 @@ export default function SplashScreen({ onComplete }) {
         <m.div
           initial={{ opacity: 0, letterSpacing: "1em" }}
           animate={showContent ? { opacity: isMobile ? 0.92 : 0.7, letterSpacing: isMobile ? "0.25em" : "0.4em" } : undefined}
-          transition={{ type: "spring", stiffness: 100, damping: 18, delay: 1.2 }}
+          transition={{ type: "spring", stiffness: 100, damping: 18, delay: 0.6 }}
           style={{
             // Floor raised from 8px to 10px so the subtitle stays legible at
             // 390px and doesn't get lost in the title glow (F840).
@@ -1432,7 +1438,7 @@ export default function SplashScreen({ onComplete }) {
         <m.div
           initial={{ opacity: 0, scaleX: 0.5 }}
           animate={showContent ? { opacity: 1, scaleX: 1 } : undefined}
-          transition={{ type: "spring", stiffness: 120, damping: 16, delay: 1.5 }}
+          transition={{ type: "spring", stiffness: 120, damping: 16, delay: 0.3 }}
           style={{ width: "clamp(220px, 35vw, 420px)", marginBottom: 16 }}
         >
           <div style={{
@@ -1458,59 +1464,57 @@ export default function SplashScreen({ onComplete }) {
           </div>
         </m.div>
 
+        {/* The way in, visible from second 0. The root already accepted a
+            click or Enter from the start (F696), but nothing said so: a
+            visitor saw a loading bar and no control. The old "TAP TO ENTER"
+            line only appeared once the bar was full. */}
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); handleEnter(e); }}
+          aria-label="Enter Tradermigos"
+          style={{
+            pointerEvents: "auto", cursor: "pointer",
+            fontFamily: "var(--pixel)", fontSize: 12, letterSpacing: "0.3em",
+            color: "#ffdd00", background: "rgba(0,0,0,0.45)",
+            border: "1px solid rgba(255,221,0,0.55)", borderRadius: 0,
+            padding: "12px 28px 12px 32px", minHeight: 44, marginBottom: 18,
+            textShadow: "0 0 20px rgba(255,221,0,0.6), 0 0 40px rgba(255,221,0,0.3)",
+            boxShadow: "0 0 24px rgba(255,221,0,0.18)", imageRendering: "pixelated",
+          }}
+        >
+          {isMobile ? "TAP TO ENTER" : "ENTER"}
+        </button>
+
         {/* Status text */}
         <m.div
           initial={{ opacity: 0 }}
           animate={showContent ? { opacity: 1 } : undefined}
-          transition={{ delay: 1.8 }}
+          transition={{ delay: 0.7 }}
           style={{
             fontFamily: "var(--pixel)", fontSize: 10, letterSpacing: "0.15em",
             imageRendering: "pixelated", marginBottom: 32, textAlign: "center",
           }}
         >
-          {phase === "ready" ? (
-            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8 }}>
-              <m.span
-                initial={{ opacity: 0, y: 8 }}
-                animate={{ opacity: [0.5, 1, 0.5], y: 0 }}
-                transition={{ opacity: { duration: 2, repeat: Infinity, ease: "easeInOut" }, y: { duration: 0.4 } }}
-                style={{
-                  color: "#ffdd00",
-                  textShadow: "0 0 20px rgba(255,221,0,0.6), 0 0 40px rgba(255,221,0,0.3)",
-                  fontSize: 12, letterSpacing: "0.3em", cursor: "pointer", pointerEvents: "auto",
-                }}
-              >{isMobile ? "TAP TO ENTER" : "CLICK TO ENTER"}</m.span>
-              {/* Keyboard skip affordance — repeat visitors and AT users get an
-                  explicit fast path that pairs with the Enter/Space handler (F559). */}
-              {!isMobile && (
-                <span style={{
-                  fontFamily: "var(--pixel)", fontSize: 7, letterSpacing: "0.2em",
-                  color: "rgba(255,255,255,0.4)",
-                }}>OR PRESS ENTER TO SKIP</span>
-              )}
-            </div>
-          ) : (
-            <m.span
-              animate={{ color: ["#ff2244", "#ffdd00", "#44ddff", "#ff44ff", "#00ff66", "#ff2244"] }}
-              transition={{ duration: 4, repeat: Infinity, ease: "linear" }}
-            >
-              {(() => {
-                if (progress >= 100) return "WELCOME";
-                // Only the destination collection's loading copy (F546), or the
-                // generic lines for a collection that has none.
-                const msgs = splashLoadingLines(splashSlug);
-                if (msgs.length === 0) return progress < 50 ? "LOADING..." : "ALMOST THERE...";
-                return msgs[Math.floor((progress / 100) * (msgs.length - 1))].toUpperCase();
-              })()}
-            </m.span>
-          )}
+          <m.span
+            animate={{ color: ["#ff2244", "#ffdd00", "#44ddff", "#ff44ff", "#00ff66", "#ff2244"] }}
+            transition={{ duration: 4, repeat: Infinity, ease: "linear" }}
+          >
+            {(() => {
+              if (progress >= 100) return "WELCOME";
+              // Only the destination collection's loading copy (F546), or the
+              // generic lines for a collection that has none.
+              const msgs = splashLoadingLines(splashSlug);
+              if (msgs.length === 0) return progress < 50 ? "LOADING..." : "ALMOST THERE...";
+              return msgs[Math.floor((progress / 100) * (msgs.length - 1))].toUpperCase();
+            })()}
+          </m.span>
         </m.div>
 
         {/* Stats plaque */}
         <m.div
           initial={{ opacity: 0, y: 20 }}
           animate={showContent ? { opacity: 1, y: 0 } : undefined}
-          transition={{ type: "spring", stiffness: 100, damping: 16, delay: 2.0 }}
+          transition={{ type: "spring", stiffness: 100, damping: 16, delay: 0.9 }}
           style={{
             display: "flex", gap: 32, padding: "8px 24px",
             background: "rgba(0,0,0,0.4)", border: "1px solid rgba(0,255,255,0.15)",
@@ -1522,7 +1526,7 @@ export default function SplashScreen({ onComplete }) {
             <m.div key={i}
               initial={{ opacity: 0 }}
               animate={showContent ? { opacity: 1 } : undefined}
-              transition={{ delay: 2.1 + i * 0.1 }}
+              transition={{ delay: 1.0 + i * 0.08 }}
               style={{ textAlign: "center" }}
             >
               <div style={{

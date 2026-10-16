@@ -10,7 +10,7 @@
 // opened began with two screens of notes before its first amount box.
 //
 // So, pinned here:
-//   1. Create a pool, Add liquidity and Remove liquidity are buttons on the finder card.
+//   1. Open a pool, Add liquidity and Remove liquidity are buttons on the finder card.
 //   2. The tokens with a room on this site are picked by a press, by address, in any room.
 //   3. A lookup asked for that way ENDS in a form: the panel opens by itself, once.
 //   4. Remove liquidity goes to the positions, which say what an empty list means.
@@ -134,7 +134,7 @@ const scrolled = vi.fn();
 /** What was scrolled to, in order. */
 const scrolledTo = () => scrolled.mock.contexts as Element[];
 const finder = () => screen.findByTestId('lp-finder');
-const task = async (name: string) => within(await finder()).getByRole('button', { name });
+const task = async (name: string) => within(within(await finder()).getByTestId('lp-tasks')).getByRole('button', { name });
 const chip = async (symbol: string) => within(within(await finder()).getByTestId('lp-site-tokens')).getByRole('button', { name: symbol });
 
 beforeEach(() => {
@@ -149,25 +149,25 @@ afterEach(() => {
 });
 
 describe('what a visitor can do is on the first card, as buttons', () => {
-  it('Create a pool, Add liquidity and Remove liquidity, before anything is looked up', async () => {
+  it('Open a pool, Add liquidity and Remove liquidity, before anything is looked up', async () => {
     mount();
     const tasks = within(await finder()).getByTestId('lp-tasks');
-    expect(within(tasks).getAllByRole('button').map((b) => b.textContent)).toEqual(['Create a pool', 'Add liquidity', 'Remove liquidity']);
+    expect(within(tasks).getAllByRole('button').map((b) => b.textContent)).toEqual(['Open a pool', 'Add liquidity', 'Remove liquidity']);
     // Nothing is chosen for them, and the card is named for what it does.
     for (const b of within(tasks).getAllByRole('button')) expect(b).toHaveAttribute('aria-pressed', 'false');
-    expect(await finder()).toHaveTextContent('Create a pool, add or remove liquidity');
+    expect(await finder()).toHaveTextContent('Start here');
     // No helper line until one is pressed: on a phone it would push the tokens off the first screen.
     expect(within(tasks).getByTestId('lp-task-line')).toBeEmptyDOMElement();
-    expect(within(await finder()).getByTestId('lp-site-tokens')).toHaveTextContent('Then pick a token with a room on this site');
+    expect(within(await finder()).getByTestId('lp-site-tokens')).toHaveTextContent('Then pick a token');
   });
 
   it('a pressed one says what happens next', async () => {
     mount();
-    fireEvent.click(await task('Create a pool'));
-    expect(await task('Create a pool')).toHaveAttribute('aria-pressed', 'true');
+    fireEvent.click(await task('Open a pool'));
+    expect(await task('Open a pool')).toHaveAttribute('aria-pressed', 'true');
     expect(screen.getByTestId('lp-task-line')).toHaveTextContent('Pick a token. You can pair it with SOL, USDC or BAYLA.');
     fireEvent.click(await task('Add liquidity'));
-    expect(await task('Create a pool')).toHaveAttribute('aria-pressed', 'false');
+    expect(await task('Open a pool')).toHaveAttribute('aria-pressed', 'false');
     expect(screen.getByTestId('lp-task-line')).toHaveTextContent('If it has no pool yet, your deposit opens one.');
   });
 
@@ -182,7 +182,7 @@ describe('what a visitor can do is on the first card, as buttons', () => {
     mount('/solana-lp', 'off');
     const f = await finder();
     expect(within(f).queryByTestId('lp-tasks')).toBeNull();
-    expect(f).toHaveTextContent('Find pools for a token');
+    expect(f).toHaveTextContent('Find a pool');
     // The site's tokens are still a press away: looking a token up signs nothing.
     expect(within(f).getByTestId('lp-site-tokens')).toBeTruthy();
   });
@@ -196,6 +196,12 @@ describe("the site's own tokens are picked by a press, in any room", () => {
     expect(within(chips).getAllByRole('button').map((b) => b.textContent)).toEqual(SITE.map((t) => t.symbol));
     // How they are looked up is one press away, at the foot of the card.
     expect(within(await finder()).getByTestId('lp-site-tokens-note')).toHaveTextContent('looked up by its address from this site’s own list, not by its name');
+  });
+
+  // A copied name is how a fake token gets in, so the warning is on screen at the field, not folded away.
+  it('warns at the address field, on screen, that anyone can copy a name', async () => {
+    mount();
+    expect(within(await finder()).getByText('The token’s address, not its name: anyone can copy a name.')).toBeVisible();
   });
 
   it("puts the visitor's own room first, and offers no token that is not on Solana", async () => {
@@ -220,9 +226,9 @@ describe("the site's own tokens are picked by a press, in any room", () => {
 });
 
 describe('a lookup asked for with a button ends in a form', () => {
-  it('Create a pool, then a token: the form opens by itself, at the top of the screen', async () => {
+  it('Open a pool, then a token: the form opens by itself, at the top of the screen', async () => {
     mount();
-    fireEvent.click(await task('Create a pool'));
+    fireEvent.click(await task('Open a pool'));
     fireEvent.click(await chip('BAYLA'));
     const panel = await screen.findByTestId('lp-create-panel');
     // Nobody pressed Open a pool: the card's own button is still there, and now says it is open.
@@ -260,27 +266,27 @@ describe('a lookup asked for with a button ends in a form', () => {
     expect(screen.getByTestId('lp-add-panel')).toBeInTheDocument();
   });
 
-  it('Create a pool on that same token opens the Open-a-pool form, and not the Add form', async () => {
+  it('Open a pool on that same token opens the Open-a-pool form, and not the Add form', async () => {
     const v = poolView();
     mount('/solana-lp', 'on', {
       findPools: vi.fn(async (mint: PublicKey) => onePool(mint.toBase58(), v)),
       outsidePrice: vi.fn(async () => ({ kind: 'ok' as const, solPerToken: 0.01, source: 'Jupiter' as const })),
     });
-    fireEvent.click(await task('Create a pool'));
+    fireEvent.click(await task('Open a pool'));
     fireEvent.click(await chip('BAYLA'));
     expect(await screen.findByTestId('lp-create-panel')).toBeInTheDocument();
     expect(screen.queryByTestId('lp-add-panel')).toBeNull();
   });
 
   // The first BAYLA pool was opened on mainnet on 2026-10-03, while this was being built:
-  // from then on "Create a pool" then BAYLA ended on a card with nothing to press.
-  it('Create a pool on a token that already has a pool on the public tier: the card says so, on the screen, with a button that opens that pool\'s Add form', async () => {
+  // from then on "Open a pool" then BAYLA ended on a card with nothing to press.
+  it('Open a pool on a token that already has a pool on the public tier: the card says so, on the screen, with a button that opens that pool\'s Add form', async () => {
     const v = poolView(true);
     mount('/solana-lp', 'on', {
       findPools: vi.fn(async (mint: PublicKey) => onePool(mint.toBase58(), v)),
       outsidePrice: vi.fn(async () => ({ kind: 'ok' as const, solPerToken: 0.01, source: 'Jupiter' as const })),
     });
-    fireEvent.click(await task('Create a pool'));
+    fireEvent.click(await task('Open a pool'));
     fireEvent.click(await chip('BAYLA'));
     const card = await screen.findByTestId('lp-create');
     // The card points to that pool (owner ruling 2026-10-03: an existing pool is advice,
@@ -295,22 +301,22 @@ describe('a lookup asked for with a button ends in a form', () => {
     expect(screen.queryByTestId('lp-create-panel')).toBeNull();
     expect(screen.queryByTestId('lp-add-panel')).toBeNull();
     await waitFor(() => expect(scrolledTo()).toContain(card));
-    fireEvent.click(within(card).getByRole('button', { name: 'Add liquidity to that pool' }));
+    fireEvent.click(within(card).getByRole('button', { name: 'Go to that pool' }));
     const panel = await screen.findByTestId('lp-add-panel');
     expect(screen.getByTestId('lp-pool')).toHaveAttribute('data-pool', v.address);
     expect(screen.getByTestId('lp-pool')).toContainElement(panel);
   });
 
-  it('a second press on Create a pool with its form already open brings the form back onto the screen', async () => {
+  it('a second press on Open a pool with its form already open brings the form back onto the screen', async () => {
     mount();
-    fireEvent.click(await task('Create a pool'));
+    fireEvent.click(await task('Open a pool'));
     fireEvent.click(await chip('BAYLA'));
     const panel = await screen.findByTestId('lp-create-panel');
     const heading = within(panel).getByRole('heading', { name: 'Open a pool for this token' });
     await waitFor(() => expect(scrolledTo()[scrolledTo().length - 1]).toBe(heading));
     scrolled.mockClear();
     fireEvent.click(await task('Add liquidity'));
-    fireEvent.click(await task('Create a pool'));
+    fireEvent.click(await task('Open a pool'));
     await waitFor(() => expect(scrolledTo()[scrolledTo().length - 1]).toBe(heading));
     expect(screen.getByTestId('lp-create-panel')).toBe(panel);
   });
@@ -323,7 +329,7 @@ describe('a lookup asked for with a button ends in a form', () => {
 
   it('a typed address goes to the chosen form too', async () => {
     mount();
-    fireEvent.click(await task('Create a pool'));
+    fireEvent.click(await task('Open a pool'));
     fireEvent.change(within(await finder()).getByLabelText('Token mint address'), { target: { value: OTHER } });
     fireEvent.click(within(await finder()).getByRole('button', { name: 'Find pools' }));
     expect(await screen.findByTestId('lp-create-panel')).toHaveTextContent(OTHER);
@@ -338,12 +344,12 @@ describe('a lookup asked for with a button ends in a form', () => {
     expect(screen.queryByTestId('lp-create-panel')).toBeNull();
   });
 
-  it('with a token already on the page (a link from a wallet app), Create a pool opens its form at once, reading nothing again', async () => {
+  it('with a token already on the page (a link from a wallet app), Open a pool opens its form at once, reading nothing again', async () => {
     const r = mount(`/solana-lp?mint=${BAYLA}`);
     await within(await screen.findByTestId('lp-create')).findByRole('button', { name: 'Open a pool' });
     expect(screen.queryByTestId('lp-create-panel')).toBeNull();
     const reads = (r.findPools as ReturnType<typeof vi.fn>).mock.calls.length;
-    fireEvent.click(await task('Create a pool'));
+    fireEvent.click(await task('Open a pool'));
     expect(await screen.findByTestId('lp-create-panel')).toHaveTextContent(BAYLA);
     expect((r.findPools as ReturnType<typeof vi.fn>).mock.calls.length).toBe(reads);
     expect(screen.getByTestId('lp-task-line')).toHaveTextContent('The form opens under this token’s checks.');
@@ -353,17 +359,17 @@ describe('a lookup asked for with a button ends in a form', () => {
     mount(`/solana-lp?mint=${BAYLA}`);
     await screen.findByTestId('lp-create');
     expect(screen.getByTestId('lp-task-line')).toHaveTextContent(
-      'Create a pool and Add liquidity act on the token in the box below.',
+      'Open a pool and Add liquidity act on the token in the box below.',
     );
     expect(within(await finder()).getByLabelText('Token mint address')).toHaveValue(BAYLA);
   });
 
-  it('Create a pool pressed while the linked token is still being read: the form opens when the answer arrives', async () => {
+  it('Open a pool pressed while the linked token is still being read: the form opens when the answer arrives', async () => {
     let release!: () => void;
     const held = new Promise<PoolSearchRead>((res) => (release = () => res(noPools(BAYLA))));
     mount(`/solana-lp?mint=${BAYLA}`, 'on', { findPools: vi.fn(() => held) });
     await finder();
-    fireEvent.click(await task('Create a pool'));
+    fireEvent.click(await task('Open a pool'));
     expect(screen.queryByTestId('lp-create-panel')).toBeNull();
     await act(async () => release());
     expect(await screen.findByTestId('lp-create-panel')).toHaveTextContent(BAYLA);
@@ -378,7 +384,7 @@ describe('a lookup asked for with a button ends in a form', () => {
 
   it('acts once: a form the visitor closed is not opened again by a re-read', async () => {
     const r = mount();
-    fireEvent.click(await task('Create a pool'));
+    fireEvent.click(await task('Open a pool'));
     fireEvent.click(await chip('BAYLA'));
     const panel = await screen.findByTestId('lp-create-panel');
     fireEvent.click(within(panel).getByRole('button', { name: 'Close' }));
@@ -419,7 +425,7 @@ describe('a lookup asked for with a button ends in a form', () => {
 
   it('Back then Forward does not reopen a form the visitor closed', async () => {
     mount();
-    fireEvent.click(await task('Create a pool'));
+    fireEvent.click(await task('Open a pool'));
     fireEvent.click(await chip('BAYLA'));
     const panel = await screen.findByTestId('lp-create-panel');
     fireEvent.click(within(panel).getByRole('button', { name: 'Close' }));
@@ -433,7 +439,7 @@ describe('a lookup asked for with a button ends in a form', () => {
 
   it('Back while the form is open, then Forward: the page comes back without a form', async () => {
     mount();
-    fireEvent.click(await task('Create a pool'));
+    fireEvent.click(await task('Open a pool'));
     fireEvent.click(await chip('BAYLA'));
     await screen.findByTestId('lp-create-panel');
     await act(async () => go(-1));
@@ -458,7 +464,7 @@ describe('a lookup asked for with a button ends in a form', () => {
 describe('the form starts with what a phone needs', () => {
   it('the wallet button and the amount boxes come before the long notes', async () => {
     mount();
-    fireEvent.click(await task('Create a pool'));
+    fireEvent.click(await task('Open a pool'));
     fireEvent.click(await chip('BAYLA'));
     const panel = await screen.findByTestId('lp-create-panel');
     const before = (a: Element, b: Element) => !!(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
