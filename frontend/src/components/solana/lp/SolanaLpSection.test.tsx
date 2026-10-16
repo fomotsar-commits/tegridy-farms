@@ -14,6 +14,7 @@ import { ExplorerLink, Row } from '../curve/ui';
 import { buildPool, key } from '../../../lib/solana/lp/testkit.fixture';
 import { fakeLpApi, unusedGateRpc } from './fakeLpWriteApi.fixture';
 import { recordedFeeTiers, recordedTier } from '../../../lib/solana/cpswap/mainnetVenueReplay.fixture';
+import { CP_SWAP_PROGRAM_ID, PLATFORM_TREASURY_MULTISIG, PLATFORM_TREASURY_VAULT } from '../../../lib/launcher/solana/curve/program';
 
 const wallet = vi.hoisted(() => ({ publicKey: null as null | { toBase58(): string } }));
 // useConnection is only reached with LP's mode 'on' (the last describe below).
@@ -95,7 +96,7 @@ describe('the LP section', () => {
     mount(readers(), '/pools');
     const d = screen.getByTestId('lp-disclosure');
     expect(d).toHaveTextContent(/have not had their own independent review yet/);
-    expect(d).toHaveTextContent(/switch off deposits, withdrawals or swaps on any pool/);
+    expect(d).toHaveTextContent(/switch off adding, removing or trading on any pool/);
     expect(d).toHaveTextContent(/only reads/);
     // Both tabs that mount this section end with "The program", so the pointer is plain text.
     expect(d).toHaveTextContent('(see “The program” below)');
@@ -455,7 +456,7 @@ describe('your positions: a share too small to take out', () => {
 // earn line, the three actions, the positions, the rates, the routes, the full notice last.
 describe('the order of the section', () => {
   const RISK_LINE =
-    'Admin-key changes not independently reviewed yet: put in only what you can afford to lose.';
+    "The team's vault (2 of 2 keys, no waiting period) can pause removing, change fees or replace the program. No outside firm has checked our changes. Only add what you can afford to lose.";
   const ORDER = ['lp-risk-line', 'lp-earn-line', 'lp-finder', 'lp-positions', 'fee-tiers', 'lp-routes', 'lp-disclosure'];
   const parts = () => [...screen.getByTestId('lp-section').children].map((c) => c.getAttribute('data-testid'));
   // A gate that could not be read: its banner is the top of the section's write half.
@@ -487,14 +488,46 @@ describe('the order of the section', () => {
     expect(line.textContent).not.toContain('—');
   });
 
-  it('the risk line says exactly this, in plain sight once; the full notice below the positions repeats it only in its small print', () => {
+  // The vault's powers, read on chain 2026-10-16: the pool program's admin and its upgrade
+  // authority are both vault 0 of a 2-of-2 Squads multisig with a time lock of 0 seconds.
+  it('the risk line names what the team’s vault can do, with how many keys and no wait, and keeps the afford-to-lose clause', () => {
+    mount(readers(), '/solana-lp');
+    const line = screen.getByTestId('lp-risk-line').textContent ?? '';
+    expect(line).toContain('(2 of 2 keys, no waiting period)');
+    expect(line).toContain('can pause removing');
+    expect(line).toContain('change fees');
+    expect(line).toContain('replace the program');
+    expect(line).toContain('No outside firm has checked our changes.');
+    expect(line).toMatch(/Only add what you can afford to lose\.$/);
+    // The line it replaced did not say that removing can be paused; it is gone from the page.
+    expect(screen.getByTestId('lp-section')).not.toHaveTextContent(/Admin-key changes|independently reviewed/);
+    // One line, under the word budget the first screen has room for (e2e/word-budget.spec.ts).
+    expect(line.split(/\s+/).length).toBeLessThan(35);
+    expect(line).not.toContain('—');
+  });
+
+  it('the risk line says exactly this, in plain sight once; the full notice below the positions says it in full, with the addresses, only in its small print', () => {
     mount(readers(), '/pools');
     expect(screen.getByTestId('lp-risk-line').textContent).toBe(RISK_LINE);
     const full = screen.getByTestId('lp-disclosure');
     expect(screen.getByTestId('lp-positions').compareDocumentPosition(full) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(full).toHaveTextContent(/have not had their own independent review yet/);
-    expect(full).toHaveTextContent(/switch off deposits, withdrawals or swaps on any pool/);
-    expect(within(full).getByText(RISK_LINE).closest('details')).not.toBeNull();
+    // Once visibly, once in full: the notice does not repeat the short line.
+    expect(screen.getAllByText(RISK_LINE)).toHaveLength(1);
+    expect(within(full).queryByText(RISK_LINE)).toBeNull();
+    const small = full.querySelector('details');
+    expect(small).not.toBeNull();
+    expect(small).toHaveTextContent(/have not had their own independent review yet/);
+    for (const fact of [
+      'Read on chain 2026-10-16',
+      `one key is both the admin of pool program ${CP_SWAP_PROGRAM_ID.toBase58()} and the only key that can replace it`,
+      `That key is the team’s vault ${PLATFORM_TREASURY_VAULT.toBase58()}, vault 0 of the Squads multisig ${PLATFORM_TREASURY_MULTISIG.toBase58()}`,
+      'needs 2 of its 2 keys to sign, has no waiting period (a time lock of 0 seconds), and only those 2 keys, together, can change its rules',
+      'The vault can switch off adding, removing or trading on any pool.',
+      'replace the program',
+      'you could not take your money out of that pool until it switched removing back on',
+    ]) {
+      expect(small).toHaveTextContent(fact);
+    }
   });
 
   // Where a pool's fees come from is said as the routes that exist, and no more. Every trade
