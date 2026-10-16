@@ -27,6 +27,8 @@ export interface SectionHostProps {
    * strip lists that network's tabs (lib/sectionChains.ts). Off for single-network sections.
    */
   chains?: SectionChainCopy & { label: string };
+  /** Where a tab's press goes, when not its own `to` (Lock's Staking tab follows the room). */
+  tabTo?: (to: string) => string;
 }
 
 /** Does `pathname` belong to `to`? A segment test: a prefix test lights /launch for /launch-simulator. */
@@ -34,7 +36,7 @@ function matchesRoute(pathname: string, to: string): boolean {
   return pathname === to || pathname.startsWith(`${to}/`);
 }
 
-export function SectionHost({ section, idPrefix, ariaLabel, panels, chains }: SectionHostProps) {
+export function SectionHost({ section, idPrefix, ariaLabel, panels, chains, tabTo }: SectionHostProps) {
   const location = useLocation();
   const navigate = useNavigate();
   const items = section.items;
@@ -45,8 +47,9 @@ export function SectionHost({ section, idPrefix, ariaLabel, panels, chains }: Se
   // A no-op only ON the tab's own address. Under it (/earn/<id> lights the
   // /earn tab) a click goes back up to it: that tab is the way out of a pool.
   const handleTab = (to: string) => {
-    if (location.pathname === to) return;
-    navigate(to, { replace: false });
+    const target = tabTo ? tabTo(to) : to;
+    if (location.pathname === target) return;
+    navigate(target, { replace: false });
   };
 
   const Panel = panels[active];

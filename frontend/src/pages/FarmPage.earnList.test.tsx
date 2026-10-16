@@ -7,10 +7,8 @@
  * whatever pool the STORED room named — so from inside a pool, the word, the
  * Staking tab and a reload all drew that same pool again.
  *
- * Then /earn was the list whatever room was stored, and /earn/<id> one pool
- * with a link back. Since 2026-10-15 (owner: Lock shows "only the bungalow
- * selected") /earn inside a room opens that room's pool at /earn/<id>, and the
- * list has its own address, /earn?pools=all, linked from every pool.
+ * Now /earn is the list whatever room is stored, and /earn/<id> is one pool
+ * with a link back. Both halves were seen to fail against the /farm wrapper.
  */
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
@@ -58,9 +56,9 @@ describe('Earn always leads back to the list', () => {
   it.each([
     ['a resident pool', () => room.id],
     ["TOWELI's room", () => DEFAULT_BUNGALOW_ID],
-  ])('/earn?pools=all lists every pool while %s is the stored room', (_, id) => {
+  ])('/earn lists every pool while %s is the stored room', (_, id) => {
     window.localStorage.setItem(BUNGALOW_STORAGE_KEY, id());
-    at('/earn?pools=all');
+    at('/earn');
     expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(/^Earn$/);
     const opens = screen.getAllByRole('link', { name: /^Open [A-Z]/ });
     expect(opens.length, 'the list is a dead end with fewer than three pools').toBeGreaterThanOrEqual(3);
@@ -70,7 +68,7 @@ describe('Earn always leads back to the list', () => {
   it('a pool page names its pool and links back to the list', async () => {
     at(`/earn/${room.id}`);
     expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(`Stake ${room.symbol}.`);
-    expect(screen.getByRole('link', { name: /every pool/i })).toHaveAttribute('href', '/earn?pools=all');
+    expect(screen.getByRole('link', { name: /back to earn/i })).toHaveAttribute('href', '/earn');
   });
 
   it('an unknown pool id renders the list, not some other pool', () => {

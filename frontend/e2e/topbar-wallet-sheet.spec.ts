@@ -172,8 +172,8 @@ test('a Solana wallet connected from the Earn list follows the visitor into a So
   await expect(page.locator('main').getByRole('button', { name: 'Connect a Solana wallet' })).toHaveCount(0);
 
   // Back to the list: the top bar's own connection returns with the same wallet.
-  await page.getByRole('link', { name: /Every pool/ }).first().click();
-  await expect(page).toHaveURL(/\/earn\?pools=all$/);
+  await page.getByRole('link', { name: /Back to Earn/ }).first().click();
+  await expect(page).toHaveURL(/\/earn$/);
   await expect(walletsChip(page)).toHaveText(SHORT, { timeout: 30_000 });
 
   // The sheet now lists both networks, and the Solana row leads to switch or disconnect.

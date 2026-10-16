@@ -1,22 +1,13 @@
 import { BUNGALOWS, DEFAULT_BUNGALOW_ID } from './bungalows';
 
 /**
- * Earn's addresses (2026-09-30). `/earn/<id>` is one pool, by registry id. `/earn` opens the
- * active room's pool (owner, 2026-10-15: Lock shows the bungalow selected, not every
- * bungalow), and is the list of every pool for the venue itself, with no room chosen.
- * `/earn?pools=all` is the list from inside any room: each pool links there, so the list is
- * always one press away (the owner's 2026-09-30 report: from inside a pool there was no way
- * back to it).
+ * Earn's addresses (2026-09-30). `/earn` is the list of every pool, whatever
+ * room is active; `/earn/<id>` is one pool, by registry id. Until then both
+ * were one address, /farm, and the active ROOM picked what it showed — so a
+ * visitor inside one pool could not get back to the list: the Earn word, the
+ * Staking tab and a reload all landed on the same pool.
  */
 export const EARN_PATH = '/earn';
-
-/** The list of every pool, whatever room is active. */
-export const ALL_POOLS_PATH = `${EARN_PATH}?pools=all`;
-
-/** Is this `/earn` query the list of every pool? */
-export function wantsAllPools(search: string): boolean {
-  return new URLSearchParams(search).get('pools') === 'all';
-}
 
 /** One pool's page. `id` is a registry id: 'toweli', 'bayla', … */
 export function earnPoolPath(id: string): string {
