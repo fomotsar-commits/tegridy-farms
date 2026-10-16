@@ -697,7 +697,13 @@ function OneCoinInner({
           {plan_.quote && <PriceChangeRows quote={plan_.quote} />}
           <Row
             label="Site fee"
-            value={plan_.quote && quoteHasPlatformFee(plan_.quote) ? `${((plan_.quote.platformFee?.feeBps ?? 0) / 100).toFixed(2)}%, inside the quote` : 'none on this route'}
+            value={
+              plan_.quote && quoteHasPlatformFee(plan_.quote)
+                ? `${((plan_.quote.platformFee?.feeBps ?? 0) / 100).toFixed(2)}%, inside the quote`
+                : swapCarriesPlatformFee(plan_.inputMint, plan_.outputMint)
+                  ? 'none on this route'
+                  : 'none on this pair'
+            }
             mono={false}
           />
           {/* A pair that carries the fee, on a route whose transaction cannot take it (the 6014 retry): said as the swap page says it. */}

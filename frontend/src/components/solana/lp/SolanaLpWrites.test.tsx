@@ -941,6 +941,19 @@ describe('after a confirmed withdrawal', () => {
     expect(within(outcome).getByRole('button', { name: 'Add to another pool' })).toBeInTheDocument();
   });
 
+  it('a token whose symbol copies a well-known one is not named by it', async () => {
+    const copy = {
+      ...okToken,
+      name: 'USD Coin',
+      symbol: 'USDC',
+      verdict: 'warn',
+      warnings: [{ code: 'copies-known-name', text: 'It calls itself USDC, but it is not USDC.' }],
+    } as TokenSafety;
+    const { outcome } = await removeHalf({ ...listed, safety: vi.fn(async () => new Map([[M, copy]])) });
+    expect(within(outcome).getByTestId('lp-removed')).toHaveTextContent(/^You got about 0\.05 SOL and 5 tokens\./);
+    expect(within(outcome).getByTestId('lp-removed')).not.toHaveTextContent('USDC');
+  });
+
   it('a confirmed deposit says none of it', async () => {
     const v = view();
     const summary = lpDepositSummary(new PublicKey(v.address), MINT);

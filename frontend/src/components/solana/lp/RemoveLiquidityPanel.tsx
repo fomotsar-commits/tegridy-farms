@@ -226,10 +226,13 @@ function RemoveInner({
     : null;
 
   // The token by name on the confirmed card: a pairing coin's own symbol, or the symbol it
-  // gives itself once read and not blocked, on a row that is not set aside. Else "tokens".
+  // gives itself once read and not blocked, on a row that is not set aside. A symbol that
+  // copies a well-known one or is written in look-alike letters is never said as the
+  // name ("5 USDC" from a copy). Else "tokens".
+  const copiesAName = safety?.kind === 'read' && safety.warnings.some((w) => w.code === 'copies-known-name' || w.code === 'lookalike-letters');
   const tokenName =
     quoteCoin(view.tokenMint)?.symbol ??
-    (!setAside && safety?.kind === 'read' && safety.verdict !== 'blocked' && safety.symbol ? displaySafe(safety.symbol, 12) : null);
+    (!setAside && !copiesAName && safety?.kind === 'read' && safety.verdict !== 'blocked' && safety.symbol ? displaySafe(safety.symbol, 12) : null);
   // What came out, from the transaction that was signed: "about", as the review said it
   // (the pool read when it was built). Nothing is said without that summary.
   const removed = (prepared: PreparedTx | null) => {

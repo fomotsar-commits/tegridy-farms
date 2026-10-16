@@ -476,5 +476,32 @@ describe('Add with one coin: step 1’s review says what is sent', () => {
       expect(wallet.sendTransaction).not.toHaveBeenCalled();
       expect(within(again).getByRole('button', { name: 'Sign in wallet' })).toBeEnabled();
     });
+
+    it('the next Sign sends what that review said: the no-fee transaction, to the wallet once', async () => {
+      const real = await vi.importActual<Leg>('./oneCoinSwap');
+      // The real send path; only the chain reads after the wallet are stood in for.
+      const rpc = { getBlockHeight: async () => 1_000, getSignatureStatuses: async () => ({ context: { slot: 1 }, value: [null] }) };
+      leg.send = vi.fn<Leg['sendJupiterLeg']>((d, a) => real.sendJupiterLeg({ ...d, rpc: rpc as never, confirm: async () => 'confirmed' }, a));
+      leg.received = vi.fn(async () => 50_000_000n);
+      const { sign } = await toReview();
+      sign();
+      const again = await screen.findByTestId('lp-one-no-fee');
+      expect(wallet.sendTransaction).not.toHaveBeenCalled();
+      fireEvent.click(within(again.closest('[data-testid="lp-one-review"]') as HTMLElement).getByRole('button', { name: 'Sign in wallet' }));
+      await screen.findByTestId('lp-one-step2');
+      expect(wallet.sendTransaction).toHaveBeenCalledTimes(1);
+      // What reached the wallet is the one no-fee rebuild, after its test run passed.
+      expect(jup.build).toHaveBeenLastCalledWith(expect.objectContaining({ noPlatformFee: true }));
+      expect(jup.simulate).toHaveBeenLastCalledWith(NO_FEE_TX);
+      expect(leg.send).toHaveBeenCalledTimes(2);
+      expect(leg.send).toHaveBeenLastCalledWith(expect.anything(), expect.objectContaining({ shown: expect.objectContaining({ platformFee: null }) }));
+    });
+  });
+
+  it('a pair that carries no site fee says "none on this pair", with no no-fee line', async () => {
+    await toReview();
+    const review = screen.getByTestId('lp-one-review');
+    expect(within(review).getByText('Site fee').nextElementSibling).toHaveTextContent(/^none on this pair$/);
+    expect(within(review).queryByTestId('lp-one-no-fee')).toBeNull();
   });
 });
