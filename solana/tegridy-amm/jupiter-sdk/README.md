@@ -32,7 +32,8 @@ cargo test
 | Test | What it holds |
 |---|---|
 | `tests/parity.rs` | Jupiter's test kit: each quote equals what the deployed program pays when it runs the swap in LiteSVM. Both BAYLA pools, both directions, 12 swaps. |
-| `tests/quote_vectors.rs` | 29 fixed swaps and 12 on the live snapshots (`tests/fixtures/quote_vectors.json`). The site's own quote must give the same numbers: `frontend/src/lib/solana/cpswap/jupiterSdkParity.test.ts`. |
+| `tests/fee_paths.rs` | The same check on copies of the BAYLA/SOL snapshot with a creator fee (each way it can be charged), a fund fee, and fees booked to both. The live pools charge neither, so `parity.rs` never runs those paths. |
+| `tests/quote_vectors.rs` | 31 fixed swaps and 12 on the live snapshots (`tests/fixtures/quote_vectors.json`). The site's own quote must give the same numbers: `frontend/src/lib/solana/cpswap/jupiterSdkParity.test.ts`. Two of the fixed swaps are what the deployed program paid in `fee_paths.rs`. |
 | `tests/ours.rs` | Every key in the SDK's source is the venue's or a token program's; the live fee tiers pay only the venue's vault; a swap touches only the pool, the trader and ours. |
 | `tests/refusals.rs` | No quote for a transfer-fee token, ExactOut, a pair the pool does not hold, or token accounts that are not the pool's. |
 | `tests/layout.rs` | Every byte offset read here is recomputed from the program's source. It reads `../programs/cp-swap`, so it runs inside this repository. |

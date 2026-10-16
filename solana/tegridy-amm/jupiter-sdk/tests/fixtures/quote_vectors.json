@@ -1,5 +1,5 @@
 {
-  "about": "Quote vectors for the pool program's swap_base_input path. Two readers must reproduce every one: the Jupiter SDK (tests/quote_vectors.rs) and the site's own quote, quoteOwnPool in frontend/src/lib/solana/cpswap/read.ts (jupiterSdkParity.test.ts). `out` is what the curve pays; `refusal` names the program error that refuses the swap, or is null. A ZeroAmountOut refusal has out 0: the site quotes 0 there and its builders refuse it as too small. `live` swaps read the snapshots in accounts/<pool>/, the same files the LiteSVM parity test (tests/parity.rs) runs on. Amounts are raw token units, as decimal strings.",
+  "about": "Quote vectors for the pool program's swap_base_input path. Two readers must reproduce every one: the Jupiter SDK (tests/quote_vectors.rs) and the site's own quote, quoteOwnPool in frontend/src/lib/solana/cpswap/read.ts (jupiterSdkParity.test.ts). `out` is what the curve pays; `refusal` names the program error that refuses the swap, or is null. A ZeroAmountOut refusal has out 0: the site quotes 0 there and its builders refuse it as too small. `live` swaps read the snapshots in accounts/<pool>/, the same files the LiteSVM parity test (tests/parity.rs) runs on. The two `fee_paths token-0 copy` cases are what the deployed program paid in tests/fee_paths.rs, which checks them. Amounts are raw token units, as decimal strings.",
   "synthetic": [
     {
       "name": "tier 1, SOL in, the venue cut booked in the SOL vault",
@@ -287,6 +287,78 @@
       "inputIsToken0": false,
       "amountIn": "31337",
       "out": "15613",
+      "refusal": null
+    },
+    {
+      "name": "fee_paths token-0 copy, SOL in: what the deployed program paid",
+      "pool": {
+        "status": 0,
+        "openTime": "1791055084",
+        "creatorFeeOn": 1,
+        "enableCreatorFee": true,
+        "protocolFees": [
+          "8006334",
+          "0"
+        ],
+        "fundFees": [
+          "1000000",
+          "0"
+        ],
+        "creatorFees": [
+          "0",
+          "1000000000"
+        ]
+      },
+      "config": {
+        "tradeFeeRate": "10000",
+        "protocolFeeRate": "160000",
+        "fundFeeRate": "40000",
+        "creatorFeeRate": "5000"
+      },
+      "vaults": [
+        "34367758993",
+        "5486481706516"
+      ],
+      "now": "1792127545",
+      "inputIsToken0": true,
+      "amountIn": "123456789",
+      "out": "19346135128",
+      "refusal": null
+    },
+    {
+      "name": "fee_paths token-0 copy, BAYLA in: what the deployed program paid",
+      "pool": {
+        "status": 0,
+        "openTime": "1791055084",
+        "creatorFeeOn": 1,
+        "enableCreatorFee": true,
+        "protocolFees": [
+          "8006334",
+          "0"
+        ],
+        "fundFees": [
+          "1000000",
+          "0"
+        ],
+        "creatorFees": [
+          "0",
+          "1000000000"
+        ]
+      },
+      "config": {
+        "tradeFeeRate": "10000",
+        "protocolFeeRate": "160000",
+        "fundFeeRate": "40000",
+        "creatorFeeRate": "5000"
+      },
+      "vaults": [
+        "34367758993",
+        "5486481706516"
+      ],
+      "now": "1792127545",
+      "inputIsToken0": false,
+      "amountIn": "987654321123",
+      "out": "5171887154",
       "refusal": null
     },
     {
