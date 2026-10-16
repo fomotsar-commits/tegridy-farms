@@ -52,10 +52,12 @@ export interface LpWritesOverrides {
 }
 
 /**
- * The home's LP card (owner, 2026-10-16): the finder already on `mint`, opening Add with one
- * coin on `pool` as the LP door does. It reads and writes nothing in the address (the home
- * is not the Pools tab), and keeps only the actions: the risk and earn lines, the finder,
- * your positions and the notice. Every pool, the rates and the routes stay on the tabs.
+ * The home's LP card (owner, 2026-10-16): `pool`'s card alone, short, with its Add buttons.
+ * No form opens by itself: an open form takes focus and the screen, and the home's first
+ * screen is the heat reader's. It reads and writes nothing
+ * in the address (the home is not the Pools tab), and keeps only the actions: the risk and
+ * earn lines, the pool, your positions (and its Connect) and the notice. The
+ * finder's controls, every pool, Open a pool, the rates and the routes stay on the tabs.
  */
 export interface LpHome {
   mint: string;
@@ -137,13 +139,6 @@ function LpBody({ readers, mode, reloadKey, home }: { readers: LpReaders; mode: 
   // address, so a reload or Back does not open the form again over what the visitor did since.
   const doorTask = homeMint ? null : params.get('task');
   const doorPool = params.get('pool');
-  // The home asks the same once, on its own pool, when the card first draws.
-  const homeAsked = useRef(false);
-  useEffect(() => {
-    if (!homeMint || !homePool || homeAsked.current || !finderRef.current) return;
-    homeAsked.current = true;
-    finderRef.current.openAdd(homeMint, { form: 'one', pool: homePool });
-  }, [homeMint, homePool]);
   useEffect(() => {
     if (doorTask !== 'add' || !mint || !finderRef.current) return;
     finderRef.current.openAdd(mint, { form: 'one', ...(doorPool ? { pool: doorPool } : { quote: SOL_MINT }) });
@@ -179,6 +174,7 @@ function LpBody({ readers, mode, reloadKey, home }: { readers: LpReaders; mode: 
       wantOutside={mode === 'on'}
       feeTiers={tierRead}
       onRemove={toPositions}
+      only={homePool ?? undefined}
     />
   );
   const positions = (
@@ -199,6 +195,7 @@ function LpBody({ readers, mode, reloadKey, home }: { readers: LpReaders; mode: 
         <LpEarnLine />
         {writesTop}
         {finder}
+        {/* Its Connect is the card's only one: the Add panels ask for a wallet and offer none. */}
         {positions}
         {disclosure}
       </div>

@@ -206,6 +206,7 @@ export function PoolFinder({
   wantOutside = false,
   feeTiers,
   onRemove,
+  only,
   ref,
 }: {
   /** For the section: a position's "Add more liquidity" starts its lookup here. */
@@ -229,6 +230,12 @@ export function PoolFinder({
   feeTiers: FeeTierRead | null;
   /** Remove liquidity was pressed: the section brings the visitor's positions onto the screen. */
   onRemove?: () => void;
+  /**
+   * The home card (owner, 2026-10-16): this one pool's card, short, and nothing to search
+   * with. No buttons, tokens or address field, no other pool, no Open a pool card. A token
+   * check that found anything still shows, and so does every line about a read that failed.
+   */
+  only?: string;
 }) {
   const [input, setInput] = useState(mint ?? linkError?.raw ?? '');
   const [error, setError] = useState<string | null>(linkError?.reason ?? null);
@@ -238,7 +245,8 @@ export function PoolFinder({
   // kept, so a later re-read (after a deposit, say) never drops the card an open form sits
   // on, and it is only ever read with its own token's lookups.
   const [extra, setExtra] = useState<{ mint: string; pool: string } | null>(null);
-  const state = usePoolSearch(readers, mint, nonce, reloadKey, wantOutside, extra && extra.mint === mint ? extra.pool : null);
+  // The home card's pool is read with every lookup, as a position's pool is from its press on.
+  const state = usePoolSearch(readers, mint, nonce, reloadKey, wantOutside, extra && extra.mint === mint ? extra.pool : only ?? null);
   const reread = useCallback(() => setNonce((n) => n + 1), []);
   // A new ?mint= (a link, or back/forward) fills the field: adjusted during render, the
   // React way to follow a prop, rather than in an effect.
@@ -407,7 +415,7 @@ export function PoolFinder({
   return (
     <section data-testid="lp-finder" aria-label="Find pools for a token" className="space-y-4">
       {/* Named for a visitor, not for the buttons under it, which say what each does. */}
-      <Card
+      {!only && <Card
         title={tasks.length > 0 ? 'Start here' : 'Find a pool'}
         art={<CardArt pageId="solana-lp" idx={2} />}
       >
@@ -502,7 +510,7 @@ export function PoolFinder({
             <p>The buttons are the tokens with a room on this site. Each is looked up by its address from this site’s own list, not by its name.</p>
           </FinePrint>
         )}
-      </Card>
+      </Card>}
 
       {/* Where a lookup the visitor asked for scrolls to. The page's scroll-padding
           (index.css) keeps it clear of the fixed bar and the tabs. */}
@@ -528,6 +536,7 @@ export function PoolFinder({
           onReread={reread}
           wish={wish && !state.refreshing && wish.mint === state.mint ? wish : null}
           onActed={spent}
+          only={only}
         />
       )}
     </section>
@@ -563,7 +572,10 @@ function SearchResults({
   onReread,
   wish,
   onActed,
+  only,
 }: {
+  /** The home card's one pool (PoolFinder `only`). */
+  only?: string;
   state: Extract<SearchState, { status: 'done' }>;
   /** For each pool card's own past, read on a press. */
   readers: LpReaders;
@@ -626,10 +638,20 @@ function SearchResults({
   // is. The list said "SOL, USDC or BAYLA" whatever was searched: for USDC that told a
   // pair nobody looked for as "none", and USDC with USDC is no pair at all.
   const searched = searchedCoinsOr(mint);
-  const otherSide = otherSideLine(mint);
+  const otherSide = only ? null : otherSideLine(mint);
+  // The home card: its one pool, read or not, and a pool a position's Add more liquidity named.
+  const listed =
+    pools.kind === 'ok'
+      ? pools.search.pools.filter((p) => {
+          const at = p.kind === 'pool' ? p.view.address : p.address;
+          return !only || at === only || at === named;
+        })
+      : [];
+  // The token's card stays whenever its check found anything, or could not run.
+  const tokenClean = safety.kind === 'read' && safety.verdict === 'ok' && safety.warnings.length === 0;
   return (
     <div className="space-y-4">
-      <TokenSafetyCard mint={mint} safety={safety} />
+      {(!only || !tokenClean) && <TokenSafetyCard mint={mint} safety={safety} />}
       {pools.kind === 'unread' ? (
         <Card title="Pools" art={<CardArt pageId="solana-lp" idx={6} />}>
           <Notice tone="warn">
@@ -638,8 +660,12 @@ function SearchResults({
         </Card>
       ) : (
         <div data-testid="lp-pools" className="space-y-3">
-          <IndexNote read={pools} />
-          {pools.search.pools.length === 0 ? (
+          {!only && <IndexNote read={pools} />}
+          {only && listed.length === 0 ? (
+            <div data-testid="lp-only-unread">
+              <Notice tone="warn">This pool did not read just now, so it cannot be added to here. Try again in a minute, or on the Solana LP tab.</Notice>
+            </div>
+          ) : pools.search.pools.length === 0 ? (
             <Card title="Pools" art={<CardArt pageId="solana-lp" idx={6} />}>
               <p data-testid="lp-no-pools">
                 {pools.search.index.kind !== 'ok'
@@ -656,11 +682,12 @@ function SearchResults({
               )}
             </Card>
           ) : (
-            <ul className="space-y-3" aria-label="Pools: SOL pools first, then USDC, then BAYLA, the deepest of each first">
-              {pools.search.pools.map((p) =>
+            <ul className="space-y-3" aria-label={only ? 'The pool' : 'Pools: SOL pools first, then USDC, then BAYLA, the deepest of each first'}>
+              {listed.map((p) =>
                 p.kind === 'pool' ? (
                   <PoolCard
                     key={p.view.address}
+                    compact={only !== undefined}
                     view={p.view}
                     tokenDecimals={decimals}
                     safety={safety}
@@ -678,7 +705,7 @@ function SearchResults({
               )}
             </ul>
           )}
-          {pools.search.pools.length > 0 && pools.search.otherPairs > 0 && (
+          {!only && pools.search.pools.length > 0 && pools.search.otherPairs > 0 && (
             <Notice>{pools.search.otherPairs} more pool(s) pair this token with something other than {QUOTE_COINS_OR} and are not shown.</Notice>
           )}
           {/* With pools listed there is no "no pools" sentence to carry it, so it is said under the list. */}
@@ -689,7 +716,7 @@ function SearchResults({
           )}
         </div>
       )}
-      <CreatePoolCard
+      {!only && <CreatePoolCard
         mint={mint}
         safety={safety}
         decimals={decimals}
@@ -702,7 +729,7 @@ function SearchResults({
         refreshing={state.refreshing === true}
         openNow={openCreate}
         onActed={onActed}
-      />
+      />}
     </div>
   );
 }
