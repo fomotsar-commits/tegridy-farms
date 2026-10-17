@@ -1,0 +1,17 @@
+{
+  "name": "tegridy-keeper",
+  "version": "0.1.0",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "description": "Price keeper for the venue's own Solana pools. Week 1 is WATCH-ONLY: it reads our pools and the outside market, logs what a correction would have made, and alerts. It holds no key, signs nothing and sends nothing.",
+  "engines": {
+    "node": "24.x"
+  },
+  "scripts": {
+    "watch": "node src/watch.js",
+    "once": "node src/watch.js --once",
+    "report": "node src/report.js",
+    "test": "node --test \"test/*.test.mjs\""
+  }
+}
