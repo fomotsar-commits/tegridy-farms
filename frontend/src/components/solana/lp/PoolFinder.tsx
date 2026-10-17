@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, type Ref } from 'react';
+import { Link } from 'react-router-dom';
 import { PublicKey } from '@solana/web3.js';
 import { parseMintInput } from '../../../lib/solana/lp/mintInput';
 import { assessPools, type PoolHealth } from '../../../lib/solana/lp/poolHealth';
@@ -248,6 +249,20 @@ export function PoolFinder({
   // The home card's pool is read with every lookup, as a position's pool is from its press on.
   const state = usePoolSearch(readers, mint, nonce, reloadKey, wantOutside, extra && extra.mint === mint ? extra.pool : only ?? null);
   const reread = useCallback(() => setNonce((n) => n + 1), []);
+  // The home card reads again by itself when a read failed, a few times and spaced out: a busy
+  // RPC answers a later ask more often than not, and the card has no field to press Find in.
+  // Each try is a fresh lookup. After the last, Read again and the Solana LP tab stay on screen.
+  const autoTries = useRef(0);
+  const onlyFailed =
+    Boolean(only) && state.status === 'done' && !state.refreshing && (state.pools.kind !== 'ok' || state.safety.kind === 'unread' || !listsPool(state.pools, only!));
+  useEffect(() => {
+    if (!onlyFailed || autoTries.current >= ONLY_RETRY_MS.length) return;
+    const t = setTimeout(() => {
+      autoTries.current += 1;
+      setNonce((n) => n + 1);
+    }, ONLY_RETRY_MS[autoTries.current]);
+    return () => clearTimeout(t);
+  }, [onlyFailed, state]);
   // A new ?mint= (a link, or back/forward) fills the field: adjusted during render, the
   // React way to follow a prop, rather than in an effect.
   const linkKey = mint ?? (linkError ? `bad:${linkError.raw}` : null);
@@ -537,6 +552,7 @@ export function PoolFinder({
           wish={wish && !state.refreshing && wish.mint === state.mint ? wish : null}
           onActed={spent}
           only={only}
+          onRetry={reread}
         />
       )}
     </section>
@@ -582,9 +598,12 @@ function SearchResults({
   wish,
   onActed,
   only,
+  onRetry,
 }: {
   /** The home card's one pool (PoolFinder `only`). */
   only?: string;
+  /** The home card's Read again. */
+  onRetry?: () => void;
   state: Extract<SearchState, { status: 'done' }>;
   /** For each pool card's own past, read on a press. */
   readers: LpReaders;
@@ -662,13 +681,19 @@ function SearchResults({
     <div className="space-y-4">
       {only && safety.kind === 'unread' ? (
         // The home card: a token that could not be read is one line, not a card. Nothing is called checked.
-        <div data-testid="token-safety" data-verdict="unread">
+        <div data-testid="token-safety" data-verdict="unread" className="space-y-2">
           <Notice tone="warn">This token could not be read just now, so nothing on this card counts as checked.</Notice>
+          <OnlyWayOn mint={mint} pool={only} onRetry={onRetry} />
         </div>
       ) : (
         (!only || !tokenClean) && <TokenSafetyCard mint={mint} safety={safety} />
       )}
-      {pools.kind === 'unread' ? (
+      {pools.kind === 'unread' && only ? (
+        <div data-testid="lp-only-unread" className="space-y-2">
+          <Notice tone="warn">The pool could not be read just now.</Notice>
+          <OnlyWayOn mint={mint} pool={only} onRetry={onRetry} />
+        </div>
+      ) : pools.kind === 'unread' ? (
         <Card title="Pools" art={<CardArt pageId="solana-lp" idx={6} />}>
           <Notice tone="warn">
             We could not read the pools ({pools.detail}). That is a problem on our side; it does not mean there are none.
@@ -678,8 +703,9 @@ function SearchResults({
         <div data-testid="lp-pools" className="space-y-3">
           {!only && <IndexNote read={pools} />}
           {only && listed.length === 0 ? (
-            <div data-testid="lp-only-unread">
-              <Notice tone="warn">This pool did not read just now, so it cannot be added to here. Try again in a minute, or on the Solana LP tab.</Notice>
+            <div data-testid="lp-only-unread" className="space-y-2">
+              <Notice tone="warn">The pool could not be read just now.</Notice>
+              <OnlyWayOn mint={mint} pool={only} onRetry={onRetry} />
             </div>
           ) : pools.search.pools.length === 0 ? (
             <Card title="Pools" art={<CardArt pageId="solana-lp" idx={6} />}>
@@ -746,6 +772,32 @@ function SearchResults({
         openNow={openCreate}
         onActed={onActed}
       />}
+    </div>
+  );
+}
+
+/** How long the home card waits before each read it tries again by itself (PoolFinder `only`). */
+const ONLY_RETRY_MS = [2_000, 6_000, 15_000] as const;
+
+/**
+ * The home card's way on when a read failed: read again here, or add on the Solana LP tab,
+ * where the LP door opens Add with one coin on this pool (SolanaLpSection, `task=add`).
+ */
+function OnlyWayOn({ mint, pool, onRetry }: { mint: string; pool: string; onRetry?: () => void }) {
+  return (
+    <div className="flex flex-wrap items-center gap-2" data-testid="lp-only-way-on">
+      {onRetry && (
+        <button type="button" onClick={onRetry} className="btn-secondary min-h-[44px] px-4 text-[13px]">
+          Read again
+        </button>
+      )}
+      <Link
+        to={`/solana-lp?mint=${mint}&task=add&pool=${pool}`}
+        className="inline-flex items-center min-h-[44px] px-1 text-[13px] underline underline-offset-4"
+        style={{ color: 'var(--color-kyle)' }}
+      >
+        Add on the Solana LP tab
+      </Link>
     </div>
   );
 }

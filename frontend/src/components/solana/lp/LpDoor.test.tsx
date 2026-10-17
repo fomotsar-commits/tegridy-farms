@@ -269,10 +269,36 @@ describe('the home card', () => {
     expect(screen.queryByText('Copy the mint address')).toBeNull();
   });
 
+  // Owner, 2026-10-16: "the add lp doesnt even show how to add". A failed read never strands the card.
+  it('a pool read that failed tries again by itself, and offers Read again and the Solana LP tab meanwhile', async () => {
+    const sol = view();
+    const r = readers([sol]);
+    const ok = search([sol]);
+    let calls = 0;
+    r.findPools = vi.fn(async () => (++calls === 1 ? { kind: 'unread' as const, detail: 'HTTP 429', index: { kind: 'unread' as const, detail: 'HTTP 429' } } : ok)) as LpReaders['findPools'];
+    mountHome(r, '/', sol.address);
+    const stuck = await screen.findByTestId('lp-only-unread');
+    expect(within(stuck).getByRole('button', { name: 'Read again' })).toBeInTheDocument();
+    expect(within(stuck).getByRole('link', { name: 'Add on the Solana LP tab' })).toHaveAttribute('href', `/solana-lp?mint=${M}&task=add&pool=${sol.address}`);
+    // No press: the card reads again on its own and its Add buttons arrive.
+    const card = await screen.findByTestId('lp-pool', {}, { timeout: 6_000 });
+    expect(await within(card).findByRole('button', { name: 'Add with one coin' })).toBeInTheDocument();
+    expect(screen.queryByTestId('lp-only-unread')).toBeNull();
+  }, 15_000);
+
+  it('Read again reads again at once', async () => {
+    const sol = view();
+    const r = readers([sol]);
+    r.findPools = vi.fn(async () => ({ kind: 'unread' as const, detail: 'HTTP 429', index: { kind: 'unread' as const, detail: 'HTTP 429' } })) as LpReaders['findPools'];
+    mountHome(r, '/', sol.address);
+    fireEvent.click(within(await screen.findByTestId('lp-only-unread')).getByRole('button', { name: 'Read again' }));
+    await waitFor(() => expect(vi.mocked(r.findPools).mock.calls.length).toBeGreaterThanOrEqual(2));
+  });
+
   it('a pool that did not read says so, and shows no other pool in its place', async () => {
     const usdc = view({ quote: USDC_QUOTE });
     mountHome(readers([usdc]), '/', key().toBase58());
-    expect(await screen.findByTestId('lp-only-unread')).toHaveTextContent('This pool did not read just now');
+    expect(await screen.findByTestId('lp-only-unread')).toHaveTextContent('The pool could not be read just now.');
     expect(screen.getByTestId('lp-status')).toHaveTextContent(/^The pool could not be read\.$/);
     expect(screen.queryByTestId('lp-pool')).toBeNull();
   });
