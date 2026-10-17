@@ -210,10 +210,19 @@ function notOpenedWhy(offer: DepositOffer, health: PoolHealth): string {
 
 /** The wish number this card was last shown for (`useShownOnce`), kept after the wish is spent. */
 function useShownFor(showNow: number): number {
-  const [shownFor, setShownFor] = useState(0);
+  return useShownWish(showNow, false).shownFor;
+}
+
+/**
+ * The same, with whether that wish came from the LP door, latched with it: the wish is spent
+ * once the card acts on it, and its `door` with it, while the line stays on the card. Read
+ * from the live wish, a door's line turned back into "your position's pool" a moment later.
+ */
+function useShownWish(showNow: number, fromDoor: boolean): { shownFor: number; door: boolean } {
+  const [shown, setShown] = useState({ shownFor: 0, door: false });
   // Adjusted during render, so the line is on the page before the heading takes focus.
-  if (showNow && showNow !== shownFor) setShownFor(showNow);
-  return shownFor;
+  if (showNow && showNow !== shown.shownFor) setShown({ shownFor: showNow, door: fromDoor });
+  return shown;
 }
 
 function WishWhy({ id, why, fromDoor = false }: { id: string; why: string; fromDoor?: boolean }) {
@@ -260,7 +269,7 @@ export function PoolCard({
   const cardRef = useRef<HTMLLIElement | null>(null);
   const headingRef = useRef<HTMLHeadingElement | null>(null);
   useShownOnce(showNow, onActed, cardRef, headingRef);
-  const shownFor = useShownFor(showNow);
+  const { shownFor, door: shownFromDoor } = useShownWish(showNow, fromDoor);
   const whyId = useId();
   const writes = useLpWrites();
   const offer: DepositOffer = writes
@@ -370,7 +379,7 @@ export function PoolCard({
       <h3 ref={headingRef} tabIndex={-1} aria-describedby={why ? whyId : undefined} className="text-white font-semibold text-[15px] mb-1 outline-none [overflow-wrap:anywhere]" style={SHADOW}>
         {pairLabel(view)}
       </h3>
-      {why && <WishWhy id={whyId} why={why} fromDoor={fromDoor} />}
+      {why && <WishWhy id={whyId} why={why} fromDoor={shownFromDoor} />}
       {isCreatedPool(view.address) && (
         <p className="text-emerald-300/90 text-[12px] mt-2" data-testid="lp-opened-here">
           You opened this pool just now. Your share is under &apos;Your positions&apos;.

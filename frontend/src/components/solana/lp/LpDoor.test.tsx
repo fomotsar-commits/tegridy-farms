@@ -472,6 +472,10 @@ describe('the door names no position', () => {
     mount(r, `/solana-lp?mint=${M}&task=add&pool=${sol.address}`);
     // Waited for: the reason settles once the gate and the pool's checks have both answered.
     await waitFor(() => expect(screen.getByTestId('lp-wish-why')).toHaveTextContent(/^This pool’s Add form was not opened:/), { timeout: 8_000 });
+    // And after the card has spent the wish (CI, 2026-10-17: the line flipped back to "your
+    // position's pool" once the live wish was gone): the line keeps where it came from.
+    await new Promise((res) => setTimeout(res, 600));
+    expect(screen.getByTestId('lp-wish-why')).toHaveTextContent(/^This pool’s Add form was not opened:/);
     expect(screen.getByTestId('lp-wish-why')).not.toHaveTextContent(/your position/);
   });
 
