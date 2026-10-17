@@ -69,11 +69,28 @@ describe('the launch floor is read, never typed', () => {
 });
 
 describe('the doors', () => {
-  it('offers exactly three, to the hall, liquidity and launch', () => {
+  it('offers exactly three, to the hall, every Solana pool and launch', () => {
     mount();
     const links = screen.getAllByRole('link');
     expect(links).toHaveLength(3);
-    expect(links.map((l) => l.getAttribute('href'))).toEqual(['/#hall', '/liquidity', '/launch']);
+    expect(links.map((l) => l.getAttribute('href'))).toEqual(['/#hall', '/solana-lp', '/launch']);
+  });
+
+  // Island, answer twenty: Provide LP opens THE LIST (/solana-lp), and follows the room's
+  // chain as Swap does: an Ethereum or Base room gets the Ethereum form.
+  it.each([
+    ['bayla', '/solana-lp'],
+    ['bobo', '/solana-lp'],
+    ['pepe', '/liquidity'],
+    ['qr', '/liquidity'],
+  ])('in the %s room, Provide LP opens %s', (room, href) => {
+    localStorage.setItem('tegridy-bungalow', room);
+    try {
+      mount();
+      expect(screen.getByRole('link', { name: /Provide LP/ }).getAttribute('href')).toBe(href);
+    } finally {
+      localStorage.removeItem('tegridy-bungalow');
+    }
   });
 
   it('states each requirement at the point of intent', () => {

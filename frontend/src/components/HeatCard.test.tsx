@@ -1458,3 +1458,41 @@ describe('the days the island counts down', () => {
     expect(await screen.findByText('Resident in 14 days.')).toBeTruthy();
   });
 });
+
+// THE LP DOOR after a read (island, answer twenty): on the venue's home, one line per Solana
+// room coin the wallet holds whose SOL pool is on the venue, the wallet's deepest rooms first,
+// three at most. Every other surface that mounts the card shows none.
+describe('the LP door line after a read', () => {
+  const BAYLA = '7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump';
+  const BOBO = '4nV5gNwwP68zUDat26ySChREqVaQaLudfJBkSgEzpump';
+  const row = (token_address: string, symbol: string, heat_degrees: number, retired = false) => ({
+    token_address, chain: 'solana', name: symbol, symbol, heat_degrees, first_seen_at_unix: HELD_SINCE, retired,
+  });
+  const mountWith = (lpDoors: boolean) =>
+    render(
+      <MemoryRouter>
+        <HeatCard address={ADDR} variant="embedded" lpDoors={lpDoors} />
+      </MemoryRouter>,
+    );
+
+  it('names a held coin whose pool is on the venue, and opens its door', async () => {
+    h.fetchHeat.mockResolvedValue(wireReading({ breakdown: [row(BOBO, 'BOBO', 900), row(BAYLA, 'BAYLA', 40)] }));
+    mountWith(true);
+    const doors = await screen.findByTestId('heat-lp-doors');
+    // BOBO has no pool on the venue: no line for it, only BAYLA's.
+    expect(doors.textContent).toBe('You hold BAYLA. Earn from every BAYLA trade: Add SOL + BAYLA');
+    expect(screen.getByRole('link', { name: 'Add SOL + BAYLA' }).getAttribute('href')).toContain(`/solana-lp?mint=${BAYLA}&task=add`);
+  });
+
+  it('a retired row, a coin with no pool, or a card without the door shows no line', async () => {
+    h.fetchHeat.mockResolvedValue(wireReading({ breakdown: [row(BAYLA, 'BAYLA', 40, true), row(BOBO, 'BOBO', 900)] }));
+    const { unmount } = mountWith(true);
+    await awaitRead();
+    expect(screen.queryByTestId('heat-lp-doors')).toBeNull();
+    unmount();
+    h.fetchHeat.mockResolvedValue(wireReading({ breakdown: [row(BAYLA, 'BAYLA', 40)] }));
+    mountWith(false);
+    await awaitRead();
+    expect(screen.queryByTestId('heat-lp-doors')).toBeNull();
+  });
+});

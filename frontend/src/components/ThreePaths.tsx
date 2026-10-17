@@ -4,12 +4,19 @@
 // enforces, read at render and never typed.
 
 import { Link } from 'react-router-dom';
+import { getActiveBungalow } from '../lib/bungalows';
 import { heatLaunchFloor } from '../lib/heat/heatGateConfig';
 import { tierAtFloor } from '../lib/heat/heatOracle';
 import { CardArt } from './ui/CardArt';
 
 // The three cards; a path added later reuses a registered art surface (idx wraps).
 const PATH_ART_SLOTS = 3;
+
+/** Where Provide LP goes: the Ethereum form inside an Ethereum or Base room, else every Solana pool. */
+function lpRoute(): string {
+  const chain = getActiveBungalow()?.chain;
+  return chain === 'ethereum' || chain === 'base' ? '/liquidity' : '/solana-lp';
+}
 
 export function ThreePaths() {
   const floor = heatLaunchFloor();
@@ -24,7 +31,10 @@ export function ThreePaths() {
       accent: 'var(--color-kyle)',
     },
     {
-      to: '/liquidity',
+      // THE LIST (island, answer twenty): every live Solana pool, each row one press to its
+      // Add form. A visitor whose room is an Ethereum or Base coin gets the Ethereum form,
+      // as Swap follows the room's chain.
+      to: lpRoute(),
       title: 'Provide LP',
       // Lifted from LiquidityPage's own truths rather than written fresh, so the
       // promise on the door and the behaviour behind it cannot drift.
@@ -55,12 +65,14 @@ export function ThreePaths() {
             }}
           >
             <CardArt pageId="three-paths" idx={0 + (i % PATH_ART_SLOTS)} />
-            <h3
+            {/* h2, not h3: since answer twenty the paths sit directly under the hero's h1,
+                above the hall's own h2, and axe's heading-order fails a skipped level. */}
+            <h2
               className="text-[13px] uppercase tracking-[0.16em] font-semibold mb-2"
               style={{ color: p.accent }}
             >
               {p.title}
-            </h3>
+            </h2>
             <p className="text-white/80 text-[13.5px] leading-relaxed">{p.line}</p>
           </Link>
         ))}

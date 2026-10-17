@@ -724,20 +724,20 @@ export default function HomePage() {
           </div>
         )}
 
+        {/* WAVE SEVEN, element C: THE THREE PATHS, on the same gate. This is where
+            the hero's three CTAs went. Since answer twenty they stand on the second
+            screen, directly under the hero's number and ABOVE the hall: providing
+            liquidity was tucked away on the fourth screen. Each card states its own
+            requirement at the point of intent, and the launch floor is read from the
+            same config the gate enforces with, never typed. */}
+        {!bungalowIdentity && !isToweliArrival && <ThreePaths />}
+
         {/* ARRIVAL IDENTITY 2026-08-31: THE HALL OF DOORS. The venue arrival
             opens onto the island itself — every bungalow door in one hall,
             the open ones lit and the settled ones greyed while their people
             move in. Venue voice only: toweli keeps the classic home whole,
             an identity bungalow keeps its token-first home. */}
         {!bungalowIdentity && !isToweliArrival && <VenueDoors />}
-
-        {/* WAVE SEVEN, element C: THE THREE PATHS, on the same gate and directly
-            after the hall. This is where the hero's three CTAs went. A visitor
-            reaches it having already read one number and seen thirteen doors, so
-            the choice is made with context instead of before it. Each card states
-            its own requirement at the point of intent, and the launch floor is
-            read from the same config the gate enforces with, never typed. */}
-        {!bungalowIdentity && !isToweliArrival && <ThreePaths />}
 
         {/* WAVE SEVEN, element G: THE ISLAND'S BOARD, on the venue. Five named flames,
             so a stranger sees held time attached to people before they are asked to

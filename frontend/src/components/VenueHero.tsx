@@ -44,6 +44,7 @@ export function VenueHero() {
       {/* The instrument answers the hook, always open and wallet-free; its Read is the hero's only filled button. */}
       <div className="mb-6 max-w-md">
         <HeatCard
+          lpDoors
           variant="embedded"
           initialAddress={initialAddress}
           initialDraft={typedBeforeReact.value}
