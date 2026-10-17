@@ -15,8 +15,8 @@ const CHAINS = ['solana:mainnet'];
 // A plain square; Wallet Standard requires a data: URI icon.
 const ICON = `data:image/svg+xml;base64,${Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="6" fill="#3b7a57"/></svg>').toString('base64')}`;
 
-/** Register the wallet in every page of `context`. */
-export async function installConnectOnlySolanaWallet(context: BrowserContext): Promise<void> {
+/** Register the wallet in every page of `context`, under `name` (a wallet app's own, to play its browser). */
+export async function installConnectOnlySolanaWallet(context: BrowserContext, name = CONNECT_ONLY_WALLET_NAME): Promise<void> {
   await context.addInitScript(
     ({ name, address, chains, icon }) => {
       type Listener = (props: { accounts?: unknown[] }) => void;
@@ -57,6 +57,6 @@ export async function installConnectOnlySolanaWallet(context: BrowserContext): P
       try { window.dispatchEvent(new RegisterWalletEvent(callback)); } catch (e) { console.error('e2e wallet: register failed', e); }
       try { window.addEventListener('wallet-standard:app-ready', ((ev: CustomEvent) => callback(ev.detail)) as EventListener); } catch (e) { console.error('e2e wallet: app-ready failed', e); }
     },
-    { name: CONNECT_ONLY_WALLET_NAME, address: CONNECT_ONLY_WALLET_ADDRESS, chains: CHAINS, icon: ICON },
+    { name, address: CONNECT_ONLY_WALLET_ADDRESS, chains: CHAINS, icon: ICON },
   );
 }
