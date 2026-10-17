@@ -1,6 +1,7 @@
 import { lazy } from 'react';
 import { SectionHost } from './SectionHost';
-import { LOCK_SECTION } from '../lib/navConfig';
+import { LOCK_SECTION, lockRoute } from '../lib/navConfig';
+import { EARN_PATH } from '../lib/earnRoutes';
 
 // Yield routing compares THIRD-PARTY staking and lending venues: the venue deploys nothing,
 // every figure is read live from mainnet, and each route deposits straight into that
@@ -30,6 +31,8 @@ export default function EarnPage() {
       section={LOCK_SECTION}
       idPrefix="earn"
       ariaLabel="Earn sections"
+      // Staking opens the room's own pool, as the Lock word does (owner, 2026-10-15).
+      tabTo={(to) => (to === EARN_PATH ? lockRoute() : to)}
       panels={{
         '/earn': FarmPage,
         '/nft-finance': LendingPage,

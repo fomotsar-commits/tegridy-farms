@@ -339,8 +339,8 @@ export default function HomePage() {
                 fee-share: that mechanic is wired on-chain but has distributed 0 ETH
                 until the native pool opens, so a present-tense yield claim would
                 overclaim (and "100% of fees to stakers" is flat wrong: the router's fee
-                pays a 20% referral share first, and the pool's one-sixth protocol cut
-                has never been switched on, read 2026-10-10). What IS true, and
+                pays a 20% referral share first, and the pool's one-sixth protocol cut,
+                on since 2026-10-16, goes to the treasury). What IS true, and
                 became materially truer today, is verifiability: every core contract
                 is now Etherscan source-verified and /contracts proves it with live
                 per-address badges. So the headline leads with the one differentiator

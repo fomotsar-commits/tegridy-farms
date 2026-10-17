@@ -15,6 +15,7 @@ import {
   COMMUNITY_LIVE,
   COMMUNITY_ADDRESSES_LIVE,
   tradeRoute,
+  lockRoute,
   litWord,
 } from './navConfig';
 import { readFileSync } from 'node:fs';
@@ -425,5 +426,35 @@ describe('tradeRoute', () => {
       if (id) window.localStorage.setItem('tegridy-bungalow', id);
       expect(swapSection().items.map((i) => i.to), String(id)).toContain(tradeRoute());
     }
+  });
+});
+
+// Lock shows the bungalow selected (owner, 2026-10-15): the word opens the room's own pool,
+// read at render as Swap's is. With no room, and for the venue sentinel, it opens the list.
+describe('lockRoute', () => {
+  afterEach(() => {
+    window.localStorage.clear();
+  });
+
+  const lockWord = () => BAR_NAV.find((w) => w.label === 'Lock');
+
+  it("opens the room's pool, and follows the skin with no module reload", () => {
+    expect(lockRoute()).toBe('/earn');
+    expect(lockWord()?.to).toBe('/earn');
+
+    window.localStorage.setItem('tegridy-bungalow', 'bayla');
+    expect(lockRoute(), "BAYLA's room opens BAYLA's pool, not every pool").toBe('/earn/bayla');
+    expect(lockWord()?.to).toBe('/earn/bayla');
+
+    window.localStorage.setItem('tegridy-bungalow', 'toweli');
+    expect(lockWord()?.to, "TOWELI's room opens the classic farm").toBe('/earn/toweli');
+
+    window.localStorage.setItem('tegridy-bungalow', 'venue');
+    expect(lockWord()?.to, 'the venue sentinel is no room').toBe('/earn');
+  });
+
+  it('stays lit on the pool it opens', () => {
+    window.localStorage.setItem('tegridy-bungalow', 'pepe');
+    expect(lockWord()?.lit('/earn/pepe', '')).toBe(true);
   });
 });
