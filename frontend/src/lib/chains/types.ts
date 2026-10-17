@@ -83,6 +83,11 @@ export interface ChainCapabilities {
    * this flag is necessary but NOT sufficient — wiring a chain whose factory
    * holds no pairs produces a page that quotes nothing, which is the same
    * silence in a new costume.
+   *
+   * 2026-10-17: ON for Base and Robinhood Chain. The swap stack now reads each
+   * chain's venue (lib/chains/swapVenue.ts) and compares our pools with that
+   * chain's Uniswap V2, so a chain whose own factory is still empty quotes
+   * Uniswap V2 instead of nothing (read on chain the same day: 0 pairs on both).
    */
   readonly ammSwap: boolean;
 }

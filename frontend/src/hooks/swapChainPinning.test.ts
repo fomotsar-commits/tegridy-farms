@@ -142,22 +142,45 @@ describe('swap stack chain pinning', () => {
     expect(seen, 'no publicClient found — the exemption above is now unguarded').toBeGreaterThan(0);
   });
 
-  it('the two money paths still refuse a wrong chain', () => {
-    // These are what stop a wrong-chain wallet reaching the writes at all. The
-    // refactor will replace them with a per-chain resolve; until it does,
-    // deleting one is how the collision hazard goes live.
+  // STRICTER since the swap went multi-chain (2026-10-17), as the note above asked:
+  // a call must not merely name A chain, it must name the chain of the ONE venue
+  // object its addresses came from (lib/chains/swapVenue.ts). A bare CHAIN_ID next
+  // to a venue address is exactly "one chain's address, another chain's id".
+  const VENUE_CHAIN: Record<string, { name: string; from: RegExp }> = {
+    'hooks/useSwap.ts': { name: 'swapChain', from: /const swapChain = venue\?\.chainId \?\? CHAIN_ID;/ },
+    'hooks/useSwapQuote.ts': { name: 'quoteChainId', from: /const quoteChainId = venue\?\.chainId \?\? walletChainId;/ },
+    'hooks/useSwapAllowance.ts': { name: 'venueChainId', from: /const venueChainId = venue\?\.chainId \?\? CHAIN_ID;/ },
+  };
+
+  it.each(Object.keys(VENUE_CHAIN))('%s takes every call\'s chain from its venue', (rel) => {
+    const { text } = sources.find((s) => s.rel === rel)!;
+    const { name, from } = VENUE_CHAIN[rel]!;
+    expect(from.test(text), `${rel} no longer derives \`${name}\` from its venue`).toBe(true);
+    const wrong: string[] = [];
+    let calls = 0;
+    for (const call of CALLS) {
+      for (const literal of objectLiteralsAfter(text, call)) {
+        calls++;
+        const value = /\bchainId\s*:\s*([A-Za-z_$][\w$]*)/.exec(literal)?.[1];
+        if (value !== name) wrong.push(`${call}: chainId ${value ?? '(none)'}`);
+      }
+    }
+    expect(calls, `${rel}: no contract calls found — the selectors drifted`).toBeGreaterThan(0);
+    expect(wrong, `${rel} has calls whose chain is not the venue's (${name}):\n  ${wrong.join('\n  ')}`).toEqual([]);
+  });
+
+  it('the two money paths still refuse a wrong chain, and a chain with no venue', () => {
+    // These are what stop a wrong-chain wallet reaching the writes at all.
     const { text } = sources.find((s) => s.rel === 'hooks/useSwap.ts')!;
-    // There are FOUR `chainId !== CHAIN_ID` gates, not two — I assumed two and
-    // this test corrected me. The other two guard custom-token verification and
-    // token import. So assert the two that stand in front of MONEY (approve and
-    // swap), by their refusal, rather than a raw total that a legitimate fifth
-    // gate would break.
-    const refusals = text.match(/Please switch to Ethereum Mainnet/g) ?? [];
+    // Approve and swap each refuse a wallet on another chain than the venue's...
+    const refusals = text.match(/toast\.error\(switchMessage\)/g) ?? [];
     expect(
       refusals.length,
       'useSwap lost a wrong-chain refusal — the approve path and the swap path each need one',
     ).toBe(2);
-    const gates = text.match(/if \(chainId !== CHAIN_ID\)/g) ?? [];
+    const gates = text.match(/if \(chainId !== swapChain\)/g) ?? [];
     expect(gates.length, 'the wrong-chain gates vanished entirely').toBeGreaterThanOrEqual(2);
+    // ...and the swap refuses outright where no venue resolves.
+    expect(text).toMatch(/if \(!venue\) \{ toast\.error\('Swaps are not available on this network'\); return; \}/);
   });
 });

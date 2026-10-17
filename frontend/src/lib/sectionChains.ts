@@ -58,7 +58,7 @@ function evmWhere(test: (chainId: number) => boolean): VenueChain[] {
 /** Which networks a section tab serves, by its route. */
 export function tabChains(to: string): TabChains {
   switch (to) {
-    // The swap stack is wired for one chain: every quote and write pins CHAIN_ID (registry `ammSwap`).
+    // The swap runs wherever a swap venue resolves (registry `ammSwap`; lib/chains/swapVenue.ts).
     case '/swap':
       return evmWhere((id) => getChainConfig(id)?.capabilities.ammSwap === true);
     // Add / remove follows the wallet's chain wherever our router, factory and WETH are deployed.

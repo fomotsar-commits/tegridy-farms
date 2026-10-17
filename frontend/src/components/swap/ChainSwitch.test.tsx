@@ -12,8 +12,8 @@ import { ChainSwitch } from './ChainSwitch';
 
 /**
  * Swap's network drop-down. The URL is the only thing these tests give it: the page names the
- * network, so the drop-down cannot say Solana over the Ethereum form. Base and Robinhood Chain
- * are listed and greyed, because the swap stack trades on mainnet only.
+ * network, so the drop-down cannot say Solana over the Ethereum form. Since 2026-10-17 Base and
+ * Robinhood Chain swap too, on the same /swap page (`?c=` names the chain with no wallet).
  */
 function Where() {
   const { pathname, search } = useLocation();
@@ -39,20 +39,25 @@ describe('ChainSwitch, the Swap network drop-down', () => {
     expect(screen.getByRole('button', { name: 'Swap network: Ethereum' })).toBeInTheDocument();
   });
 
-  it('lists all four networks, says where each routes, and greys the two with no swap', () => {
+  it('names Base when a visitor with no wallet opens /swap?c=8453', () => {
+    mount('/swap?c=8453');
+    expect(screen.getByRole('button', { name: 'Swap network: Base' })).toBeInTheDocument();
+  });
+
+  it('lists all four networks, says where each routes, and greys none', () => {
     mount('/solana');
     fireEvent.click(screen.getByRole('button', { name: 'Swap network: Solana' }));
     expect(screen.getByRole('option', { name: /Ethereum.*Uniswap \/ CoW/ })).not.toHaveAttribute('aria-disabled', 'true');
     expect(screen.getByRole('option', { name: /Solana.*Our pools \+ Jupiter/ })).toHaveAttribute('aria-selected', 'true');
-    expect(screen.getByRole('option', { name: /Base.*No swap here/ })).toHaveAttribute('aria-disabled', 'true');
-    expect(screen.getByRole('option', { name: /Robinhood Chain.*No swap here/ })).toHaveAttribute('aria-disabled', 'true');
+    expect(screen.getByRole('option', { name: /Base.*Our pools \+ Uniswap/ })).not.toHaveAttribute('aria-disabled', 'true');
+    expect(screen.getByRole('option', { name: /Robinhood Chain.*Our pools \+ Uniswap/ })).not.toHaveAttribute('aria-disabled', 'true');
   });
 
   it('goes to the other swap and back, so neither is a dead end', () => {
     mount('/solana?out=7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump');
     fireEvent.click(screen.getByRole('button', { name: 'Swap network: Solana' }));
     fireEvent.click(screen.getByRole('option', { name: /Ethereum/ }));
-    expect(screen.getByTestId('where')).toHaveTextContent(/^\/swap$/);
+    expect(screen.getByTestId('where')).toHaveTextContent(/^\/swap\?c=1$/);
     fireEvent.click(screen.getByRole('button', { name: 'Swap network: Ethereum' }));
     fireEvent.click(screen.getByRole('option', { name: /Solana/ }));
     expect(screen.getByTestId('where')).toHaveTextContent(/^\/solana$/);
