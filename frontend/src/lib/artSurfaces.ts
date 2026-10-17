@@ -623,9 +623,9 @@ export const SURFACES: Surface[] = [
   { group: 'Home', pageId: 'bungalow-market', idx: 0, label: 'Market card (room with a market pool)' },
   { group: 'Home', pageId: 'flames-board', idx: 0, label: 'The board card (venue home and /island, when the island bo…)' },
   { group: 'Home', pageId: 'home', idx: 18, label: 'Your held time card (room with a token)' },
-  { group: 'Home', pageId: 'three-paths', idx: 0, label: 'Three paths card 1' },
-  { group: 'Home', pageId: 'three-paths', idx: 1, label: 'Three paths card 2' },
-  { group: 'Home', pageId: 'three-paths', idx: 2, label: 'Three paths card 3' },
+  { group: 'Home', pageId: 'three-paths', idx: 0, label: 'Three paths card 1 (NFT Finance)' },
+  { group: 'Home', pageId: 'three-paths', idx: 1, label: 'Three paths card 2 (Marketplace)' },
+  { group: 'Home', pageId: 'three-paths', idx: 2, label: 'Three paths card 3 (Launch)' },
   { group: 'Home', pageId: 'venue-doors', idx: 0, label: 'Hall of doors panel (venue home)' },
   { group: 'Home', pageId: 'yield-calculator', idx: 0, label: 'Yield calculator (TOWELI room, not connected)' },
 
