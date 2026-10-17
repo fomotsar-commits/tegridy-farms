@@ -216,10 +216,10 @@ function useShownFor(showNow: number): number {
   return shownFor;
 }
 
-function WishWhy({ id, why }: { id: string; why: string }) {
+function WishWhy({ id, why, fromDoor = false }: { id: string; why: string; fromDoor?: boolean }) {
   return (
     <div id={id} data-testid="lp-wish-why" className="mb-2 text-[12px] leading-relaxed">
-      <Notice tone="warn">This is your position’s pool. Its Add form was not opened: {why}</Notice>
+      <Notice tone="warn">{fromDoor ? 'This pool’s' : 'This is your position’s pool. Its'} Add form was not opened: {why}</Notice>
     </div>
   );
 }
@@ -235,7 +235,10 @@ export function PoolCard({
   openForm,
   showNow = 0,
   onActed,
+  fromDoor = false,
 }: {
+  /** The wish this card shows a reason for came from the LP door, not a position (LpWish `door`). */
+  fromDoor?: boolean;
   view: PoolView;
   health: PoolHealth;
   tokenDecimals: number | null;
@@ -367,7 +370,7 @@ export function PoolCard({
       <h3 ref={headingRef} tabIndex={-1} aria-describedby={why ? whyId : undefined} className="text-white font-semibold text-[15px] mb-1 outline-none [overflow-wrap:anywhere]" style={SHADOW}>
         {pairLabel(view)}
       </h3>
-      {why && <WishWhy id={whyId} why={why} />}
+      {why && <WishWhy id={whyId} why={why} fromDoor={fromDoor} />}
       {isCreatedPool(view.address) && (
         <p className="text-emerald-300/90 text-[12px] mt-2" data-testid="lp-opened-here">
           You opened this pool just now. Your share is under &apos;Your positions&apos;.

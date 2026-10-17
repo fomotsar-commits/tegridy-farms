@@ -85,6 +85,16 @@ export function tradeRoute(): string {
  * selected", BAYLA's pool in BAYLA's room), else the list of every pool. Read at render, like
  * tradeRoute. `/earn` itself stays the list, so each pool's "Back to Earn" still reaches it.
  */
+/**
+ * Where Pools opens: in a Solana room with a coin, the Solana LP tab already on that coin
+ * (owner, 2026-10-17: "the wiring for the pages inside the bayla bungalow is off"); with no
+ * room, the tab as it opens for anyone.
+ */
+export function poolsRoute(): string {
+  const active = getActiveBungalow();
+  return active && active.chain === 'solana' && active.address ? `/solana-lp?mint=${active.address}` : '/solana-lp';
+}
+
 export function lockRoute(): string {
   const active = getActiveBungalow();
   return active && isEarnPoolId(active.id) ? earnPoolPath(active.id) : EARN_PATH;
@@ -123,9 +133,12 @@ export const NAV_SECTIONS: NavSection[] = [
     // Providing liquidity: add/remove, Solana LP, the venue's own Solana AMM, and zap in.
     heading: 'Pools',
     hub: '/liquidity',
-    // Owner, 2026-10-03: "pools land on solana lp". The drawer row opens the Solana LP tab;
-    // the strip keeps its order, so the Ethereum form is the tab to its left.
-    primaryTo: '/solana-lp',
+    // Owner, 2026-10-03: "pools land on solana lp". The drawer row opens the Solana LP tab,
+    // on the room's coin inside a Solana room; the strip keeps its order, so the Ethereum
+    // form is the tab to its left.
+    get primaryTo() {
+      return poolsRoute();
+    },
     items: [
       { to: '/liquidity', label: 'Liquidity', tabLabel: 'Add / Remove' },
       // Ungated, like /pools: the page mounts its LP section only once the venue reads live.

@@ -43,6 +43,11 @@ export interface LpWish {
   form?: 'one';
   /** An 'add' wish with no `pool` goes to the deepest pool paired with this coin (a mint), and to no other. */
   quote?: string;
+  /**
+   * Asked by the LP door (a room's Add SOL + coin, or ?task=add), not by a position: its
+   * lines say "this pool", never "your position's pool", to someone who may hold none.
+   */
+  door?: true;
 }
 
 /** How the LP door asks for an Add form (`openAdd`). */
@@ -82,7 +87,12 @@ function listsPool(pools: PoolSearchRead, address: string): boolean {
  * answered and that address did not hold a pool for this token. Both end in the press
  * that works: the wish is spent, so Read again alone opens nothing.
  */
-function unfoundText(pools: PoolSearchRead, pool: string): string {
+function unfoundText(pools: PoolSearchRead, pool: string, door = false): string {
+  if (door) {
+    return pools.kind !== 'ok'
+      ? `This token’s pools could not be read just now, so the Add form for this pool (${pool}) was not opened. Try again in a minute.`
+      : `This pool (${pool}) did not read as a pool for this token just now, so its Add form was not opened, and no other pool’s was opened in its place.`;
+  }
   return pools.kind !== 'ok'
     ? `This token’s pools could not be read just now, so the Add form for your position’s pool (${pool}) was not opened. Press Add more liquidity on your position again.`
     : `Your position’s pool (${pool}) did not read as a pool for this token just now, so its Add form was not opened, and no other pool’s was opened in its place. Press Add more liquidity on your position again in a minute.`;
@@ -276,7 +286,7 @@ export function PoolFinder({
   // the line the page keeps in its place (`unfoundText`). It is about one lookup of one
   // token: the next thing the visitor asks for, or the page moving to another token,
   // takes it away.
-  const [unfound, setUnfound] = useState<{ mint: string; pool: string } | null>(null);
+  const [unfound, setUnfound] = useState<{ mint: string; pool: string; door?: true } | null>(null);
   if (linkKey !== shownLink) {
     setShownLink(linkKey);
     if (wish && wish.mint !== mint) setWish(null);
@@ -295,11 +305,11 @@ export function PoolFinder({
   // A later answer that does list the pool takes the line away again.
   if (state.status === 'done' && !state.refreshing) {
     if (wish?.pool && wish.mint === state.mint && !listsPool(state.pools, wish.pool)) {
-      setUnfound({ mint: wish.mint, pool: wish.pool });
+      setUnfound({ mint: wish.mint, pool: wish.pool, ...(wish.door ? { door: true as const } : {}) });
       setWish(null);
     } else if (unfound && unfound.mint === state.mint && listsPool(state.pools, unfound.pool)) setUnfound(null);
   }
-  const unfoundLine = unfound && state.status === 'done' && unfound.mint === state.mint ? unfoundText(state.pools, unfound.pool) : null;
+  const unfoundLine = unfound && state.status === 'done' && unfound.mint === state.mint ? unfoundText(state.pools, unfound.pool, unfound.door) : null;
 
   // A lookup the visitor asked for is brought onto the screen. On a phone the answer
   // begins below the fold, so a press on Find pools looked as if it had done nothing
@@ -329,14 +339,14 @@ export function PoolFinder({
   // then Forward reopened a form the visitor had closed (review, 2026-10-03).
   const spent = useCallback((n: number) => setWish((w) => (w?.n === n ? null : w)), []);
   const lookUp = useCallback(
-    (next: string, want: LpWish['task'] | null, pool?: string, ask: Omit<AddAsk, 'pool'> = {}) => {
+    (next: string, want: LpWish['task'] | null, pool?: string, ask: Omit<AddAsk, 'pool'> & { door?: true } = {}) => {
       asked.current = true;
       wishes.current += 1;
       setUnfound(null);
       if (pool) setExtra({ mint: next, pool });
       setWish(
         want
-          ? { task: want, mint: next, n: wishes.current, ...(pool ? { pool } : {}), ...(ask.form ? { form: ask.form } : {}), ...(ask.quote ? { quote: ask.quote } : {}) }
+          ? { task: want, mint: next, n: wishes.current, ...(pool ? { pool } : {}), ...(ask.form ? { form: ask.form } : {}), ...(ask.quote ? { quote: ask.quote } : {}), ...(ask.door ? { door: true as const } : {}) }
           : null,
       );
       if (next === mint) setNonce((n) => n + 1);
@@ -366,7 +376,7 @@ export function PoolFinder({
         setInput(next);
         setError(null);
         setTask('add');
-        lookUp(next, 'add', ask.pool, { form: ask.form, quote: ask.quote });
+        lookUp(next, 'add', ask.pool, { form: ask.form, quote: ask.quote, door: true });
       },
     }),
     [lookUp],
@@ -740,6 +750,7 @@ function SearchResults({
                     openNow={wish && addTo === p.view.address ? wish.n : 0}
                     openForm={wish && addTo === p.view.address ? wish.form : undefined}
                     showNow={named === p.view.address ? showNamed : 0}
+                    fromDoor={named === p.view.address && wish?.door === true}
                     onActed={onActed}
                   />
                 ) : (

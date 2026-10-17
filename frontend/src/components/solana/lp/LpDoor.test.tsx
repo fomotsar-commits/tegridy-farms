@@ -461,3 +461,26 @@ describe('the landing', () => {
     expect(card).not.toHaveAttribute('data-landed');
   });
 });
+
+// A door visitor may hold nothing (owner, 2026-10-17, walking the BAYLA room): when the door's
+// pool cannot open its form, the card says "this pool", never "your position's pool".
+describe('the door names no position', () => {
+  it('a door whose pool cannot open its form says why without calling it your position', async () => {
+    const sol = view();
+    const r = readers([sol]);
+    r.outsidePrice = vi.fn(async () => ({ kind: 'unread' as const, detail: 'HTTP 429' })) as LpReaders['outsidePrice'];
+    mount(r, `/solana-lp?mint=${M}&task=add&pool=${sol.address}`);
+    // Waited for: the reason settles once the gate and the pool's checks have both answered.
+    await waitFor(() => expect(screen.getByTestId('lp-wish-why')).toHaveTextContent(/^This pool’s Add form was not opened:/), { timeout: 8_000 });
+    expect(screen.getByTestId('lp-wish-why')).not.toHaveTextContent(/your position/);
+  });
+
+  it('a door to a pool that did not read says "this pool", not your position', async () => {
+    const usdc = view({ quote: USDC_QUOTE });
+    const missing = key().toBase58();
+    mount(readers([usdc]), `/solana-lp?mint=${M}&task=add&pool=${missing}`);
+    const line = await screen.findByTestId('lp-wish-unfound');
+    expect(line).toHaveTextContent(`This pool (${missing}) did not read as a pool for this token just now`);
+    expect(line).not.toHaveTextContent(/your position/i);
+  });
+});

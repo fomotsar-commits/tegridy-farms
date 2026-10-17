@@ -16,9 +16,11 @@ import {
   COMMUNITY_ADDRESSES_LIVE,
   tradeRoute,
   lockRoute,
+  poolsRoute,
   litWord,
 } from './navConfig';
 import { readFileSync } from 'node:fs';
+import { BUNGALOWS } from './bungalows';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { isIndexerConfigured } from './indexer/client';
@@ -456,5 +458,26 @@ describe('lockRoute', () => {
   it('stays lit on the pool it opens', () => {
     window.localStorage.setItem('tegridy-bungalow', 'pepe');
     expect(lockWord()?.lit('/earn/pepe', '')).toBe(true);
+  });
+});
+
+// Pools follows the room as Lock does (owner, 2026-10-17: "the wiring for the pages inside the
+// bayla bungalow is off"): in a Solana room with a coin it opens the Solana LP tab on that coin.
+describe('poolsRoute', () => {
+  afterEach(() => {
+    window.localStorage.clear();
+  });
+
+  it("opens on the room's coin in a Solana room, and as for anyone elsewhere", () => {
+    expect(poolsRoute()).toBe('/solana-lp');
+    expect(POOLS_SECTION.primaryTo).toBe('/solana-lp');
+
+    window.localStorage.setItem('tegridy-bungalow', 'bayla');
+    const bayla = BUNGALOWS.find((b) => b.id === 'bayla')!;
+    expect(poolsRoute(), "BAYLA's room opens on BAYLA").toBe(`/solana-lp?mint=${bayla.address}`);
+    expect(POOLS_SECTION.primaryTo).toBe(`/solana-lp?mint=${bayla.address}`);
+
+    window.localStorage.setItem('tegridy-bungalow', 'toweli');
+    expect(poolsRoute(), 'an Ethereum room keeps the tab as it opens for anyone').toBe('/solana-lp');
   });
 });
