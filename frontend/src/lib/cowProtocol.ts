@@ -69,8 +69,9 @@ export const COW_ORDER_TYPES = {
 // `volumeBps`, not the legacy `bps` that CoW still parses but no longer documents.
 // With the rate at 0 the swap document IS the fee-free one, byte for byte, so the
 // rate is the only thing a switch-on edits: the doc and hash re-derive together.
-// Before switching on: one canary order on the live orderbook (see the PR).
-export const COW_PARTNER_FEE_BPS = 0;
+// 0.50% is the owner's rate (2026-10-17): parity with the venue's own-pool swaps.
+// Merge only after the canary order on the live orderbook passes (see the PR).
+export const COW_PARTNER_FEE_BPS = 50;
 /** Treasury Safe. Named here (not imported) to keep this module dependency-light;
  *  equals TREASURY_ADDRESS in constants.ts — the addresses.json registry pins both. */
 export const COW_PARTNER_FEE_RECIPIENT = '0x7D2620243EdAd69Ec81A53c4A063B07995A4Bd7d';
