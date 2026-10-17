@@ -731,7 +731,6 @@ function SearchResults({
                 p.kind === 'pool' ? (
                   <PoolCard
                     key={p.view.address}
-                    compact={only !== undefined}
                     view={p.view}
                     tokenDecimals={decimals}
                     safety={safety}

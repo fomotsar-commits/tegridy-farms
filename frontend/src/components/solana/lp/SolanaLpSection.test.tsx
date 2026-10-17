@@ -285,7 +285,7 @@ describe('what a trade costs, on the tiers mainnet holds (recorded)', () => {
     const card = await screen.findByTestId('lp-pool');
     expect(rowValue(card, 'Fee tier 0')).toBe('Traders pay 0.3% a trade (0.25% trade fee, 0.05% creator fee)');
     expect(rowValue(card, 'Of that fee')).toBe("LPs keep 0.200% of each trade, the venue 0.050%, the pool's creator 0.050%");
-    expect(rowValue(card, 'Creator fee')).toBe("0.05% a trade on top of the trade fee, paid to the wallet that opened this pool (Opened by, below), not to LPs");
+    expect(rowValue(card, 'Creator fee')).toBe("0.05% a trade on top of the trade fee, paid to the wallet that opened this pool (Opened by, on this card), not to LPs");
     // The wallet the creator fee goes to stays in view on a pool that charges one, short, with the whole address a press away.
     const openedBy = within(card).getByRole('group', { name: 'Opened by' });
     expect(within(card).getByTestId('lp-pool-more')).not.toContainElement(openedBy);

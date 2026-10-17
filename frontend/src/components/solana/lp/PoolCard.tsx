@@ -235,14 +235,7 @@ export function PoolCard({
   openForm,
   showNow = 0,
   onActed,
-  compact = false,
 }: {
-  /**
-   * The home card (owner, 2026-10-16): the pool's name, what LPs keep and the venue takes,
-   * then trading, deposits and the Add button. Its price, what it earned, what a trade pays
-   * and its address are under More about this pool, word for word.
-   */
-  compact?: boolean;
   view: PoolView;
   health: PoolHealth;
   tokenDecimals: number | null;
@@ -333,7 +326,7 @@ export function PoolCard({
               {creatorRate > 0n && (
                 <Row
                   label="Creator fee"
-                  value={`${feeRateText(creatorRate)} a trade on top of the trade fee, paid to the wallet that opened this pool (Opened by, below), not to LPs`}
+                  value={`${feeRateText(creatorRate)} a trade on top of the trade fee, paid to the wallet that opened this pool (Opened by, on this card), not to LPs`}
                   mono={false}
                 />
               )}
@@ -346,14 +339,14 @@ export function PoolCard({
           {pool.enableCreatorFee && (
             <Row label="Creator’s fee, not collected yet" value={`${quoteText(quoteFees[1]!, view.quote)} and ${tokenText(tokFees[1]!, tokenDecimals, unit.many)}`} mono={false} />
           )}
-          {creatorRate > 0n && openedBy}
         </Part>
     </>
   );
 
-  // In the order a visitor asks: which pool, its price, what it has earned, what a trade
-  // pays and to whom, whether it can be used, then its accounts. Compact (the home): which
-  // pool, how its fee splits, whether it can be used; the rest a press away.
+  // In the order a visitor asks, and only that in view (owner, 2026-10-17: "i dont want people
+  // to see too much text unless they want to"): which pool, how its fee splits (what LPs keep,
+  // what the venue takes), whether it can be used, and Add. Its price, what it earned, what a
+  // trade pays and its address are under More about this pool, word for word.
   return (
     <li
       ref={cardRef}
@@ -380,20 +373,17 @@ export function PoolCard({
           You opened this pool just now. Your share is under &apos;Your positions&apos;.
         </p>
       )}
-      {!compact && address}
       <div className="text-white/60 text-[11px] leading-relaxed space-y-3">
-        {compact ? (
-          // How LPs earn and what the venue takes stays in view (owner, 2026-10-09).
-          <p data-testid="lp-pool-split" className="text-white/85 text-[12px]">
-            {splitText ? `${splitText}.` : 'This pool’s fee settings could not be read.'}
-          </p>
-        ) : (
-          facts
-        )}
+        {/* How LPs earn and what the venue takes stays in view (owner, 2026-10-09). */}
+        <p data-testid="lp-pool-split" className="text-white/85 text-[12px]">
+          {splitText ? `${splitText}.` : 'This pool’s fee settings could not be read.'}
+        </p>
+        {/* A creator fee goes to a third party: the wallet it is paid to stays in view (owner, 2026-10-10). */}
+        {creatorRate > 0n && openedBy}
 
         <Part title="Trading and deposits">
-          {compact && swaps.tone === 'good' && health.withdrawals === 'open' ? (
-            // Both as they should be: one line (the home's card). Anything else gets its own row.
+          {swaps.tone === 'good' && health.withdrawals === 'open' ? (
+            // Both as they should be: one line. Anything else gets its own row.
             <p data-testid="lp-pool-open" className="text-white/70 text-[12px]">Swaps and withdrawals open</p>
           ) : (
             <>
@@ -418,7 +408,7 @@ export function PoolCard({
             {!writes && health.deposits.verdict === 'allowed' && (
               <Notice>Adding liquidity here is not switched on yet.</Notice>
             )}
-            {writes && <DepositOfferBlock writes={writes} offer={offer} view={view} health={health} safety={safety} tokenDecimals={tokenDecimals} openNow={openNow} openForm={openForm} onActed={onActed} compact={compact} />}
+            {writes && <DepositOfferBlock writes={writes} offer={offer} view={view} health={health} safety={safety} tokenDecimals={tokenDecimals} openNow={openNow} openForm={openForm} onActed={onActed} />}
           </div>
         </Part>
 
@@ -426,12 +416,10 @@ export function PoolCard({
         <details data-testid="lp-pool-more" className="rounded-lg" style={{ border: '1px solid rgba(255,255,255,0.08)' }}>
           <summary className="min-h-[44px] flex items-center px-3 cursor-pointer text-white/75 text-[12px]">More about this pool</summary>
           <div className="space-y-2 px-3 pb-3">
-            {compact && (
-              <div className="space-y-3 pb-1">
-                {address}
-                {facts}
-              </div>
-            )}
+            <div className="space-y-3 pb-1">
+              {address}
+              {facts}
+            </div>
             <p>{ORIGIN_LABEL[view.origin]}</p>
             {!writes && health.deposits.verdict === 'allowed' && <p>These checks will run again before any deposit.</p>}
             <AddressRow label="Token" value={view.tokenMint} explorerUrl={explorer(view.tokenMint)} />
@@ -544,10 +532,7 @@ function DepositOfferBlock({
   openNow,
   openForm,
   onActed,
-  compact = false,
 }: {
-  /** The home's card: the reassurance under the buttons is left to the Review step, where the checks run. */
-  compact?: boolean;
   writes: LpWrites;
   offer: DepositOffer;
   view: PoolView;
@@ -623,7 +608,7 @@ function DepositOfferBlock({
             </button>
           </div>
           {(blockedByOther || blockedOne) && <Notice>Finish or close the open liquidity panel first.</Notice>}
-          {!compact && <Notice>Checks run again on fresh reads when you press Review.</Notice>}
+          {/* The checks run again at Review, where they are said; nothing about them here (owner, 2026-10-17). */}
         </>
       )}
       {panel}
