@@ -58,7 +58,7 @@ export function BungalowHero({ bungalow }: { bungalow: Bungalow & { identity: Bu
         {/* One filled button, the rule VenueHero keeps too: Trade, the action any visitor
             can complete. Stake is an outline in the same kyle green, and Scan wears
             --color-stan, the trust hue, so the two secondary actions differ by meaning.
-            The LP door wears the pool teal the home's Provide LP card wears. */}
+            The LP door wears the pool teal. */}
         {lpDoor && (
           <Link
             to={lpDoor.to}

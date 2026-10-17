@@ -1,22 +1,16 @@
-// The three paths: the whole venue as three things a stranger can do, one line each.
-// Every card states its own cost of entry before the click: LP says there is no lock,
-// and LAUNCH says the floor. The floor is heatLaunchFloor(), the value the launch gate
+// The three paths: NFT Finance, Marketplace and Launch, one line each (owner, 2026-10-17:
+// "instead of these three buttons we should show nft finance, marketplace and launch").
+// The first two lines are lifted from their own pages, so the door cannot promise more
+// than the room. LAUNCH says the floor: heatLaunchFloor(), the value the launch gate
 // enforces, read at render and never typed.
 
 import { Link } from 'react-router-dom';
-import { getActiveBungalow } from '../lib/bungalows';
 import { heatLaunchFloor } from '../lib/heat/heatGateConfig';
 import { tierAtFloor } from '../lib/heat/heatOracle';
 import { CardArt } from './ui/CardArt';
 
 // The three cards; a path added later reuses a registered art surface (idx wraps).
 const PATH_ART_SLOTS = 3;
-
-/** Where Provide LP goes: the Ethereum form inside an Ethereum or Base room, else every Solana pool. */
-function lpRoute(): string {
-  const chain = getActiveBungalow()?.chain;
-  return chain === 'ethereum' || chain === 'base' ? '/liquidity' : '/solana-lp';
-}
 
 export function ThreePaths() {
   const floor = heatLaunchFloor();
@@ -25,21 +19,19 @@ export function ThreePaths() {
 
   const paths = [
     {
-      to: '/#hall',
-      title: 'Hold',
-      line: 'Your clock on a token starts at your first hold. Pick a bungalow.',
-      accent: 'var(--color-kyle)',
+      to: '/nft-finance',
+      title: 'NFT Finance',
+      // LendingPage's own line under its heading.
+      line: 'Borrow against your NFT, lend to others, or trade NFTs in a pool.',
+      accent: '#34d399',
     },
     {
-      // THE LIST (island, answer twenty): every live Solana pool, each row one press to its
-      // Add form. A visitor whose room is an Ethereum or Base coin gets the Ethereum form,
-      // as Swap follows the room's chain.
-      to: lpRoute(),
-      title: 'Provide LP',
-      // Lifted from LiquidityPage's own truths rather than written fresh, so the
-      // promise on the door and the behaviour behind it cannot drift.
-      line: 'Deposit a pair. Withdraw any time. No lock.',
-      accent: '#31d0aa',
+      // The Island section's Marketplace (navConfig), routed outside AppLayout.
+      to: '/nakamigos',
+      title: 'Marketplace',
+      // The marketplace landing's own line under TRADERMIGOS.
+      line: 'Browse. Buy. Sell. Make offers.',
+      accent: '#6fa8dc',
     },
     {
       to: '/launch',
