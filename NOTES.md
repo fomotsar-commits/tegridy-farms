@@ -41,6 +41,55 @@ document. To learn whether a document ever reached CoW, read
 accepted. A fee taken on a filled order shows in `GET /api/v1/trades?orderUid=<uid>` as
 `executedProtocolFees`.
 
+## 2026-10-16: a Solana card on a page makes the top bar Solana-only, even where the page connects Ethereum too
+
+**Believed:** mounting `SolanaProviders` for the home's two Solana cards (stake BAYLA, add
+SOL + BAYLA, #858) adds Solana to the home and leaves the top bar as it was.
+
+**Measured** (#858 `9d3fa054`, on the branch build): any page-level `SolanaProviders` reports
+`page` to `lib/solanaSurface.ts`, and TopNav reads that as "a Solana page". Its Connect became
+the Solana-only button ("Connect a Solana wallet") and Ethereum left the top bar. On the same
+page, a Connect then Solana pressed before the lazy cards loaded mounted the top bar's own
+connection (`TopBarSolana`), which steps aside when a page's connection arrives and took the
+open wallet list with it: its buttons stayed detached for 30 s in the e2e walk.
+
+**Do:** on a page that connects Ethereum too, mount `<SolanaProviders mixed>` and list the path
+in `hasMixedSolanaSection` (`lib/routeVoice.ts`). `mixed` keeps the Solana-or-Ethereum sheet;
+the path rule stops the top bar mounting a connection of its own while the page's is on its
+way. Still one Solana connection per page.
+
+## 2026-10-16: an LP form opened by code moves whatever page it is mounted on
+
+**Believed:** the LP door's auto-open (Add with one coin on the room's pool) could be reused on
+the home: its LP card asked for the same form once, when it first drew.
+
+**Measured** (#858 `8f5312c3`, the first walk of the branch build): the home scrolled itself
+about 2,000px down to the card. Two effects do it, both right on the LP tab, where a press or a
+door link asked for the form. An Add panel (`PanelFrame`) focuses its heading and calls
+`scrollIntoView({ block: 'start' })` when it mounts. `PoolFinder` scrolls to a lookup's answer
+when `asked` is set, and every `lookUp`, so every `openAdd`, sets it.
+
+**Do:** where a page that is not the LP tab mounts LP cards, show the Add buttons and open a
+form only on a press. Pin it the way `LpDoor.test.tsx` does: mock
+`Element.prototype.scrollIntoView` and assert it was never called.
+
+## 2026-10-16: a word-budget pass can come from a run where the cards it budgets for never drew
+
+**Believed:** `e2e/word-budget.spec.ts` passing on `/` means the home, cards and all, fits its
+ceiling.
+
+**Measured** (#858): a local run with other specs in parallel passed `/` while the home's lazily
+loaded Solana cards never drew (the public RPC answered 429). The spec cannot tell:
+`waitForQuiescence` resolves silently at its 12 s cap, the cards are a `lazy()` import, and the
+LP card is drawn only once a chain read says the venue is `live`. The same build with the
+ceiling set to 1 failed at 373 words, and its longest blocks showed what was on screen,
+including the LP card's "2 pools found for this token" (a screen-reader line: sr-only text is
+counted too), which #858 then fixed.
+
+**Do:** to read a route's real count, set its ceiling to 1 for one run: the failure prints the
+count and the six longest blocks, so you see that the cards drew. The `[word-budget]` log line
+gives the count on a pass, but not what drew. Put the ceiling back before you commit.
+
 ## 2026-10-15: a shorter footer is a change to every page's scroll room
 
 **Believed:** cutting the footer from about 30 links to 8 (#838) touches only the footer's own
