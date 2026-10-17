@@ -446,7 +446,8 @@ export function SolanaLadderPoolCard({ bungalow, compact = false }: { bungalow: 
       label="Minimum stake"
       value={pool ? fmtRaw(pool.minStakeRaw, decimals) : '–'}
       unit={sym}
-      describedBy={`${fid}-min`}
+      // The note it points at is in the ledger's Notes, which the compact card leaves out.
+      describedBy={compact ? undefined : `${fid}-min`}
     />
   );
 

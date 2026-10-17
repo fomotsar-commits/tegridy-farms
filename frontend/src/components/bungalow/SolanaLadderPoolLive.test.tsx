@@ -1411,6 +1411,10 @@ describe('compact: the home card', () => {
     for (const region of ['Your earnings', 'Your positions', 'The pool']) {
       expect(screen.queryByRole('region', { name: region })).toBeNull();
     }
+    // Every description it points at is on the card: the Notes it leaves out are not referenced.
+    for (const el of document.querySelectorAll('[aria-describedby]')) {
+      for (const id of el.getAttribute('aria-describedby')!.split(/\s+/)) expect(document.getElementById(id), `#${id}`).not.toBeNull();
+    }
   });
 
   it('a wallet with positions gets one line and the way to them', async () => {

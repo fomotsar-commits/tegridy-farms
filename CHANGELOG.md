@@ -8,7 +8,7 @@ page keeps the newest thirty days.
 
 ### 2026-10-17
 
-- The home page lets you stake BAYLA and add SOL + BAYLA liquidity right under the Heat reader, with the same cards as Earn and Solana LP (one wallet connection for both). The liquidity card is BAYLA's SOL pool alone, short, with Add liquidity and Add with one coin; its price and history are under "More about this pool". The two sentences under the headline moved into "How heat works".
+- The home page has three short cards in one row under the Heat reader: Swap (SOL to BAYLA), Lock BAYLA and Add SOL + BAYLA, the same forms as Swap, Earn and Solana LP with one wallet connection for all three; a phone stacks them. Lock BAYLA is the shortest: the lock lengths in one row, the amount and Lock, with Claim and manage linking to Earn. The two sentences under the headline moved into "How heat works".
 
 ### 2026-10-16
 
