@@ -17,6 +17,7 @@ import {
 import type { ChainPickerOption } from '../components/layout/ChainPicker';
 import { useActiveBungalowId } from './useActiveBungalowId';
 import { useLiquidityChainId } from './useLiquidityChainId';
+import { useSwapChainId } from './useSwapChainId';
 import { useCurveChainId } from './useCurveChainId';
 
 export interface SectionChainCopy {
@@ -43,6 +44,7 @@ export function useSectionChain(items: readonly NavItem[], activeTo: string, cop
   const walletChainId = useChainId();
   const { switchChain } = useSwitchChain();
   const liquidityChainId = useLiquidityChainId();
+  const swapChainId = useSwapChainId();
   const curveChainId = useCurveChainId();
   const roomId = useActiveBungalowId();
 
@@ -57,7 +59,10 @@ export function useSectionChain(items: readonly NavItem[], activeTo: string, cop
   } else if (chains.length === 1) {
     active = chains[0] ?? 'ethereum';
   } else {
-    const evm = activeTo === '/liquidity' ? liquidityChainId : activeTo === '/eth-curve' ? curveChainId : null;
+    const evm = activeTo === '/liquidity' ? liquidityChainId
+      : activeTo === '/eth-curve' ? curveChainId
+      : activeTo === '/swap' ? swapChainId
+      : null;
     const read = venueChainOfEvm(evm);
     active = read && chains.includes(read) ? read : (chains[0] ?? 'ethereum');
   }

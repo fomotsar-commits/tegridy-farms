@@ -327,3 +327,55 @@ describe('useSwapQuote — priceImpact outage-as-zero', () => {
     }
   });
 });
+
+describe('useSwapQuote on Base: our pools vs Uniswap V2, the better one wins (2026-10-17)', () => {
+  const BASE = 8453;
+  const BASE_UNI_ROUTER = '0x4752ba5DBc23f44D87826276BF6Fd6b1C372aD24';
+  const BASE_OUR_FACTORY = '0x12a249A027AA7DdF184E824b4bb63ba031A39fEC';
+  const BASE_OUR_ROUTER = '0x4B134C08aAF86B6e2A8E097D1039C4e7638806f3';
+  const OUR_PAIR = '0x8888888888888888888888888888888888888888';
+  const IN = parseEther('1');
+
+  beforeEach(() => {
+    wagmiMock.reset();
+    wagmiMock.setChainId(BASE);
+    // Mainnet's routers answer too, with a number that must never surface on Base.
+    wagmiMock.setReadResult({ functionName: 'getAmountsOut', address: UNISWAP_V2_ROUTER, result: [IN, parseEther('999999')] });
+    wagmiMock.setReadResult({ functionName: 'getAmountsOut', address: TEGRIDY_ROUTER_ADDRESS, result: [IN, parseEther('999999')] });
+    wagmiMock.setReadResult({ functionName: 'getPair', address: TEGRIDY_FACTORY_ADDRESS, result: PAIR });
+    wagmiMock.setReadResult({ functionName: 'getAmountsOut', address: BASE_UNI_ROUTER, result: [IN, parseEther('2000')] });
+  });
+
+  const quoteOnBase = () => renderHook(() => useSwapQuote(ETH, TKN, IN, 0.5, undefined, BASE)).result.current;
+
+  it('with no pool of ours, quotes Uniswap V2 on Base, never a mainnet router', () => {
+    wagmiMock.setReadResult({ functionName: 'getPair', address: BASE_OUR_FACTORY, result: ZERO_ADDR });
+    const q = quoteOnBase();
+    expect(q.selectedRoute).toBe('uniswap');
+    expect(q.outputAmount).toBe(parseEther('2000'));
+    expect(q.hasTegridyPair).toBe(false);
+  });
+
+  it('takes our pool when it pays more after the venue fee', () => {
+    wagmiMock.setReadResult({ functionName: 'getPair', address: BASE_OUR_FACTORY, result: OUR_PAIR });
+    // 2100 before a 0.5% fee is 2089.5 after: more than Uniswap's 2000.
+    wagmiMock.setReadResult({ functionName: 'getAmountsOut', address: BASE_OUR_ROUTER, result: [IN, parseEther('2100')] });
+    const q = quoteOnBase();
+    expect(q.selectedRoute).toBe('tegridy');
+    expect(q.outputAmount).toBe((parseEther('2100') * 9950n) / 10000n);
+  });
+
+  it('sends the trade to Uniswap when our pool pays less after the venue fee', () => {
+    wagmiMock.setReadResult({ functionName: 'getPair', address: BASE_OUR_FACTORY, result: OUR_PAIR });
+    // 2005 before the fee is 1994.975 after: less than Uniswap's 2000.
+    wagmiMock.setReadResult({ functionName: 'getAmountsOut', address: BASE_OUR_ROUTER, result: [IN, parseEther('2005')] });
+    const q = quoteOnBase();
+    expect(q.selectedRoute).toBe('uniswap');
+    expect(q.outputAmount).toBe(parseEther('2000'));
+  });
+
+  it('without a chain argument, a wallet on Base gets no quote at all (the zap plan relies on it)', () => {
+    const q = renderHook(() => useSwapQuote(ETH, TKN, IN, 0.5, undefined)).result.current;
+    expect(q.outputAmount).toBe(0n);
+  });
+});

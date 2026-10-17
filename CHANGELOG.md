@@ -8,7 +8,7 @@ page keeps the newest thirty days.
 
 ### 2026-10-17
 
-- One network drop-down on Swap, Pools and Launch: Ethereum, Base, Robinhood Chain, Solana. Pools adds and removes on Base and Robinhood Chain; a network with nothing there is greyed, with why.
+- One network drop-down on Swap, Pools and Launch: Ethereum, Base, Robinhood Chain, Solana. Swap and Pools run on Base and Robinhood Chain (Swap: our pools or Uniswap V2, whichever pays more); a network with nothing there is greyed, with why.
 - Lock, inside a bungalow, opens that bungalow's own pool; Back to Earn lists every pool.
 - Heat is the only number a person has here now. Points, the Venue Score, the Bronze, Silver and Gold tiers and the trading competitions are gone, with their pages, tabs and cards. An old /leaderboard link opens History and an old /competitions link opens Earn. A room whose reward vault is empty no longer prints a rate: it shows the vault and says it pays nothing until someone funds it.
 - Adding liquidity to a room's coin is up front now. The BAYLA room has an "Add SOL + BAYLA" button beside Trade, the home's Provide LP card opens the list of every Solana pool (each row with Add), and after a Heat read the home says which of your coins you can add to. Each opens Add with one coin on that coin's SOL pool.

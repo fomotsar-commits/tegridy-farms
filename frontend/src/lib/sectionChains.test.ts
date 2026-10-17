@@ -34,8 +34,8 @@ describe('the four networks', () => {
 });
 
 describe('which tab serves which network', () => {
-  it('swaps on Ethereum and Solana only: the EVM swap stack is wired for mainnet', () => {
-    expect(tabChains('/swap')).toEqual(['ethereum']);
+  it('swaps on every EVM chain with a swap venue, and on Solana', () => {
+    expect(tabChains('/swap')).toEqual(['ethereum', 'base', 'robinhood']);
     expect(tabChains('/solana')).toEqual(['solana']);
   });
 
@@ -73,8 +73,14 @@ describe('where a pick goes', () => {
   });
 
   it('goes nowhere on a network the section has nothing on', () => {
-    expect(chainDestination(SWAP_SECTION.items, '/swap', 'base')).toBeNull();
-    expect(sectionHasChain(SWAP_SECTION.items, '/swap', 'robinhood')).toBe(false);
+    const items = [{ to: '/zap', label: 'Zap' }];
+    expect(chainDestination(items, '/zap', 'base')).toBeNull();
+    expect(sectionHasChain(items, '/zap', 'robinhood')).toBe(false);
+  });
+
+  it('sends a Swap pick on Base or Robinhood to the same EVM swap page', () => {
+    expect(chainDestination(SWAP_SECTION.items, '/swap', 'base')).toBe('/swap');
+    expect(chainDestination(SWAP_SECTION.items, '/solana', 'robinhood')).toBe('/swap');
   });
 
   it('never sends a pick to a tab that is off, but lights the network of the off page the visitor is on', () => {
@@ -92,7 +98,8 @@ describe('where a pick goes', () => {
     expect(chainHref('/eth-curve', 'base')).toBe('/eth-curve?c=8453');
     expect(chainHref('/liquidity', 'robinhood')).toBe('/liquidity?c=4663');
     expect(chainHref('/launch-simulator', 'solana')).toBe('/launch-simulator?chain=solana');
-    expect(chainHref('/swap', 'ethereum')).toBe('/swap');
+    expect(chainHref('/swap', 'ethereum')).toBe('/swap?c=1');
+    expect(chainHref('/swap', 'base')).toBe('/swap?c=8453');
     expect(chainHref('/solana-lp', 'solana')).toBe('/solana-lp');
   });
 });

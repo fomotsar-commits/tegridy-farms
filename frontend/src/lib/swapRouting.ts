@@ -1,5 +1,12 @@
 import { SWAP_FEE_ROUTER_ADDRESS, UNISWAP_V2_ROUTER } from './constants';
 import type { RouteSource } from '../hooks/useSwapQuote';
+import type { SwapVenue } from './chains/swapVenue';
+
+/** The two executors a swap can approve, on Ethereum unless a venue is passed. */
+const MAINNET_EXECUTORS: Pick<SwapVenue, 'swapFeeRouter' | 'uniswapV2Router'> = {
+  swapFeeRouter: SWAP_FEE_ROUTER_ADDRESS,
+  uniswapV2Router: UNISWAP_V2_ROUTER,
+};
 
 /**
  * The contract a user must APPROVE to spend their input token for a swap — i.e.
@@ -16,11 +23,15 @@ import type { RouteSource } from '../hooks/useSwapQuote';
  *   aggregator → its on-chain fallback venue, i.e. selectedOnChainRoute.source
  *
  * Keep `swapRouting.test.ts` in lockstep with the useSwap executor addresses.
+ *
+ * `executors` is the quoted chain's pair (a SwapVenue); omitted, Ethereum's, which
+ * is what the zap plan uses.
  */
 export function swapSpenderFor(
   selectedRoute: RouteSource,
   onChainSource: 'tegridy' | 'uniswap',
+  executors: Pick<SwapVenue, 'swapFeeRouter' | 'uniswapV2Router'> = MAINNET_EXECUTORS,
 ): `0x${string}` {
-  const venue = selectedRoute === 'aggregator' ? onChainSource : selectedRoute;
-  return venue === 'tegridy' ? SWAP_FEE_ROUTER_ADDRESS : UNISWAP_V2_ROUTER;
+  const route = selectedRoute === 'aggregator' ? onChainSource : selectedRoute;
+  return route === 'tegridy' ? executors.swapFeeRouter : executors.uniswapV2Router;
 }
