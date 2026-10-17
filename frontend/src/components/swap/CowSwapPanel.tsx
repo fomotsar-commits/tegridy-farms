@@ -3,10 +3,10 @@ import { useAccount, useChainId } from 'wagmi';
 import { parseUnits, formatUnits } from 'viem';
 import { useCowSwap, type CowSwapRecord } from '../../hooks/useCowSwap';
 import { CHAIN_ID, WETH_ADDRESS } from '../../lib/constants';
-import { type ParsedCowSwapQuote } from '../../lib/cowSwap';
+import { cowSwapAmounts, type ParsedCowSwapQuote } from '../../lib/cowSwap';
+import { COW_PARTNER_FEE_BPS } from '../../lib/cowProtocol';
 import { type TokenInfo } from '../../lib/tokenList';
 import { formatTokenAmountGrouped } from '../../lib/formatting';
-import { providerFeeAttachment } from '../../lib/fees/swapFee';
 import { VenueFeeLine } from './VenueFeeLine';
 import { FinePrint } from '../ui/FinePrint';
 
@@ -83,7 +83,8 @@ export function CowSwapPanel({ fromToken, toToken, inputAmount, slippage, onChai
   }, [eligible, fromToken, toToken, parsedSellAmount, cow.getQuote]);
 
   const buyDecimals = toToken?.decimals ?? 18;
-  const cowOutHuman = quote ? formatUnits(quote.buyAmount, buyDecimals) : null;
+  // What the signed order is built from: the quote after CoW's costs AND the venue fee.
+  const cowOutHuman = quote ? formatUnits(cowSwapAmounts(quote, 0n).buyAmountAfterFees, buyDecimals) : null;
   const cowBeatsOnChain = useMemo(() => {
     if (!cowOutHuman || !onChainOutputFormatted) return null;
     const a = parseFloat(cowOutHuman);
@@ -155,16 +156,12 @@ export function CowSwapPanel({ fromToken, toToken, inputAmount, slippage, onChai
                   )}
                 </div>
               )}
-              <p className="mt-1 text-white/50">Guaranteed minimum applies your {slippage}% slippage; solvers keep any surplus.</p>
+              <p className="mt-1 text-white/50">Guaranteed minimum applies your {slippage}% slippage; a better price goes to you.</p>
               {/* This panel signs, so the venue fee belongs here rather than on the
-                  comparison panel. Reading `providerFeeAttachment` keeps it on the same
-                  policy the request would carry — CoW's own leg is withheld (its fee
-                  rides the appData document in cowProtocol.ts), so this reads 0 today
-                  and cannot start reading otherwise without that module changing too. */}
-              <VenueFeeLine
-                quote={{ source: 'cowswap', venueFeeBps: providerFeeAttachment('cowswap', CHAIN_ID)?.bps ?? 0 }}
-                executes
-              />
+                  comparison panel. It reads COW_PARTNER_FEE_BPS — the rate the market-swap
+                  appData document carries into the signed order (cowProtocol.ts) — so
+                  the shown rate and the charged rate are one number. */}
+              <VenueFeeLine quote={{ source: 'cowswap', venueFeeBps: COW_PARTNER_FEE_BPS }} executes />
             </div>
           ) : !quoteLoading ? (
             <p className="mt-2 text-[10px] text-white/50">No CoW quote for this pair/size right now.</p>

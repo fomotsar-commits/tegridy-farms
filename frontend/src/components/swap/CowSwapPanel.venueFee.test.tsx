@@ -7,6 +7,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import { PROVIDER_FEE_LEGS } from '../../lib/fees/swapFee';
+import { COW_PARTNER_FEE_BPS } from '../../lib/cowProtocol';
 
 vi.mock('wagmi', () => ({
   useAccount: () => ({ isConnected: true }),
@@ -17,6 +18,7 @@ const getQuote = vi.fn(async () => ({
   sellAmount: 10n ** 18n,
   buyAmount: 2n * 10n ** 18n,
   feeAmount: 0n,
+  protocolFeeBps: 0,
   validTo: 0,
   quoteId: null,
 }));
@@ -72,11 +74,12 @@ describe('the signing surface discloses the venue fee', () => {
     expect(note.textContent).toMatch(/gas/i);
   });
 
-  it('stays at zero even with the venue fee configured, because CoW’s leg is withheld', async () => {
-    // Pins the reason the panel may read the policy directly: there is no CoW request
-    // parameter for this module to disagree with. Unblocking the leg means wiring
-    // cowProtocol.ts's appData at the same time, and this test is the tripwire.
+  it('shows the rate the signed order carries, not the aggregator policy', async () => {
+    // The panel reads COW_PARTNER_FEE_BPS, the rate in the market-swap appData it
+    // signs. The aggregator's venue-fee setting never reaches a CoW order (that leg
+    // stays withheld), so setting it must not change what this panel discloses.
     expect(PROVIDER_FEE_LEGS.cowswap.status).toBe('blocked');
+    expect(COW_PARTNER_FEE_BPS).toBe(0);
     vi.stubEnv('VITE_SWAP_FEE_BPS', '25');
     vi.stubEnv('VITE_SWAP_FEE_RECIPIENT', '0x7D2620243EdAd69Ec81A53c4A063B07995A4Bd7d');
     renderPanel();
