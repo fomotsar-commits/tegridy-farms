@@ -42,11 +42,21 @@ function countLoads(page: Page) {
   return seen;
 }
 
+/**
+ * The Ethereum form, and the press that opens the Solana LP page from it: since 2026-10-15
+ * that is the Pools network drop-down, then Solana (the strip lists one network's tabs). Either
+ * way it is an in-app route change that lazy-loads SolanaLpPage.
+ */
 async function openLiquidity(page: Page) {
   await page.goto('/liquidity');
-  const tab = page.getByRole('tab', { name: 'Solana LP' });
-  await expect(tab).toBeVisible({ timeout: 30_000 });
-  return tab;
+  const network = page.getByRole('button', { name: /^Pools network: / });
+  await expect(network).toBeVisible({ timeout: 30_000 });
+  return {
+    click: async () => {
+      await network.click();
+      await page.getByRole('option', { name: /Solana/ }).click();
+    },
+  };
 }
 
 /** Where this tab's build keeps its files: the host's own files under names the next build never uses. */

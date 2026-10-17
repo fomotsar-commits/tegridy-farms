@@ -86,9 +86,11 @@ function loadCustomTokens(chainId: number): TokenInfo[] {
   } catch { return []; }
 }
 
-export function LiquidityTab() {
+/** `chainId`: the page's chain (useLiquidityChainId); without it, wagmi's chain as before. */
+export function LiquidityTab({ chainId: chainIdProp }: { chainId?: number } = {}) {
   const { address, isConnected } = useAccount();
-  const chainId = useChainId();
+  const walletChainId = useChainId();
+  const chainId = chainIdProp ?? walletChainId;
   const venue = useMemo(() => liquidityVenueOn(chainId), [chainId]);
   /**
    * The curated token list is Ethereum's, so it is offered ONLY on Ethereum.
@@ -115,7 +117,7 @@ export function LiquidityTab() {
   const [removePct, setRemovePct] = useState(0);
   const [slippageBps, setSlippageBps] = useState<number>(50);
 
-  const liq = useAddLiquidity(tokenA, tokenB);
+  const liq = useAddLiquidity(tokenA, tokenB, chainId);
   const { data: walletClient } = useWalletClient();
 
   // The #1 source of "my LP disappeared" confusion: the LP receipt is a plain ERC-20

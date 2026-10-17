@@ -12,6 +12,7 @@ import {
 } from './constants';
 import { isSolanaSwapLive } from './solana';
 import { BUNGALOWS, getActiveBungalow } from './bungalows';
+import { EARN_PATH, earnPoolPath, isEarnPoolId } from './earnRoutes';
 import { hasRoutableYieldVenue } from './yield/venues';
 import { isLauncherEnabled } from './launcher/config';
 import { curveChainNames, isCurveLive } from './launcher/curveChains';
@@ -77,6 +78,16 @@ export const SOLANA_LIVE = isSolanaSwapLive();
 export function tradeRoute(): string {
   const active = getActiveBungalow();
   return active?.chain === 'solana' && isSolanaSwapLive() ? '/solana' : '/swap';
+}
+
+/**
+ * Where "Lock" goes: the active room's own pool (owner, 2026-10-15: "only show the bungalow
+ * selected", BAYLA's pool in BAYLA's room), else the list of every pool. Read at render, like
+ * tradeRoute. `/earn` itself stays the list, so each pool's "Back to Earn" still reaches it.
+ */
+export function lockRoute(): string {
+  const active = getActiveBungalow();
+  return active && isEarnPoolId(active.id) ? earnPoolPath(active.id) : EARN_PATH;
 }
 
 
@@ -162,10 +173,14 @@ export const NAV_SECTIONS: NavSection[] = [
     ],
   },
   {
-    // /earn is ALWAYS the list of every pool and one pool is /earn/<id> (App.tsx), so the
-    // word and this tab lead back to the list from inside any pool (owner, 2026-09-30).
+    // /earn is the list of every pool and one pool is /earn/<id> (App.tsx). The word and the
+    // Staking tab open the room's own pool (owner, 2026-10-15), the list with no room; each
+    // pool's "Back to Earn" leads to the list (owner, 2026-09-30).
     heading: 'Lock',
     hub: '/earn',
+    get primaryTo() {
+      return lockRoute();
+    },
     items: [
       // "Staking", not "Pools": Pools is the drawer row for providing liquidity.
       { to: '/earn', label: 'Staking' },

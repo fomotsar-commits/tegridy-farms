@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import { useTabListKeys } from '../../hooks/useTabListKeys';
 import type { NavItem } from '../../lib/navConfig';
 import { tabDomId } from './routeTabId';
@@ -19,6 +20,8 @@ export interface RouteTabsProps {
   /** `to` of the entry currently rendered in the panel. */
   active: string;
   onSelect: (to: string) => void;
+  /** Drawn before the strip, outside its scroll box so a drop-down under it is not clipped. */
+  leading?: ReactNode;
 }
 
 /**
@@ -39,7 +42,7 @@ function TabLabel({ item }: { item: NavItem }) {
   );
 }
 
-export function RouteTabs({ idPrefix, ariaLabel, items: all, active, onSelect }: RouteTabsProps) {
+export function RouteTabs({ idPrefix, ariaLabel, items: all, active, onSelect, leading }: RouteTabsProps) {
   const items = all.filter((i) => !i.soon || i.to === active);
   const keys = items.map((i) => i.to);
   const tabKeys = useTabListKeys(keys, active, onSelect);
@@ -50,7 +53,8 @@ export function RouteTabs({ idPrefix, ariaLabel, items: all, active, onSelect }:
        above the panel's padding it lies over. flow-root: a panel's -mt-14 would else
        collapse through the empty anchor and lift the strip 56px, under the top bar. */
     <div data-route-tabs className="relative z-30 h-0 flow-root">
-      <div className="absolute inset-x-4 md:inset-x-6 top-0 max-w-[900px] mx-auto pt-3">
+      <div className="absolute inset-x-4 md:inset-x-6 top-0 max-w-[900px] mx-auto pt-3 flex gap-1.5 md:gap-2">
+        {leading}
         <div
           ref={listRef}
           role="tablist"
@@ -58,7 +62,7 @@ export function RouteTabs({ idPrefix, ariaLabel, items: all, active, onSelect }:
           onKeyDown={tabKeys.onKeyDown}
           /* overflow-x-auto is load-bearing: the Check strip is seven tabs wide and must scroll
              on a 390px phone rather than clip its last two. */
-          className="flex gap-1 md:gap-1.5 p-1 rounded-2xl overflow-x-auto no-scrollbar"
+          className="flex-1 min-w-0 flex gap-1 md:gap-1.5 p-1 rounded-2xl overflow-x-auto no-scrollbar"
           style={{
             // 0.92, so headings and links underneath do not ghost through. Matches BottomNav's ~0.95.
             background: 'rgba(13,21,48,0.92)',
