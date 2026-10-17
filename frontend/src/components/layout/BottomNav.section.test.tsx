@@ -3,7 +3,7 @@
 // bar's is: lit only on its own URL, a word went dark one press away from it.
 
 import { afterEach, describe, it, expect, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { cleanup, render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 
 const account = vi.hoisted(() => ({ isConnected: false }));
@@ -37,6 +37,7 @@ function lit(path: string, hash = ''): string[] {
 
 afterEach(() => {
   account.isConnected = false;
+  window.localStorage.clear();
 });
 
 describe('BottomNav: the five words', () => {
@@ -92,5 +93,16 @@ describe('BottomNav: a word is lit on every page it owns', () => {
     tabs('/earn');
     expect(screen.getByRole('link', { name: 'Lock' })).toHaveAttribute('aria-current', 'page');
     expect(screen.getByRole('link', { name: 'Heat' })).not.toHaveAttribute('aria-current');
+  });
+});
+
+// Owner, 2026-10-17: inside a room, Heat on the phone bar opens that room's own page and owns it.
+describe('BottomNav: Heat stays in the room', () => {
+  it("inside BAYLA's room, Heat opens /bayla and is the word lit there", () => {
+    window.localStorage.setItem('tegridy-bungalow', 'bayla');
+    tabs('/bayla');
+    expect(screen.getByRole('link', { name: 'Heat' }).getAttribute('href')).toBe('/bayla');
+    cleanup();
+    expect(lit('/bayla')).toEqual(['Heat']);
   });
 });
