@@ -15,6 +15,32 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-10-17: a CoW order signed as quoted is refused, and a partner fee is charged on orders it is never paid out for
+
+**Believed:** a CoW order can be signed from the `/quote` response as it comes back, and a
+partner fee named in an order's appData is paid out whatever the order type.
+
+**Measured** (live mainnet calls on 2026-10-17, preparing #861): `POST /api/v1/quote` for 0.1
+WETH returned `feeAmount` 167205522446820 (a network-cost estimate), and `sellAmount` +
+`feeAmount` came to exactly 0.1 WETH. `GET /api/v1/app_data/<hash>` for a made-up hash: 404.
+
+**Found** (read, not run): the orderbook refuses any order whose signed `feeAmount` is above 0
+(`NonZeroFee`, cowprotocol/services #2454, merged 2024-03-04), so a quote signed as returned is
+never placed. The settlement engine charges a partner fee on any order whose appData names one
+(services `crates/autopilot/src/domain/fee/mod.rs`), but docs.cow.fi/governance/fees/partner-fee
+pays it out on market orders only. CoW keeps 25% (CIP-75), pays weekly in WETH, and voids a
+week under 0.001 WETH. The current app-data schemas live in cow-sdk `packages/app-data`
+(v1.15.0, `partnerFee` v1.1.0, `volumeBps`); the old cowprotocol/app-data repo stops at v1.6.0,
+and the legacy `{bps}` shape is still parsed as a volume fee.
+
+**Do:** sign like cow-sdk's `amountsToSign` (`packages/order-book/src/quoteAmountsAndCosts`):
+`sellAmount = quote.sellAmount + quote.feeAmount`, `feeAmount = 0`, and a buy floor of the
+quote after all fees, less slippage. Put a partner fee only on a market swap's appData
+document. To learn whether a document ever reached CoW, read
+`https://api.cow.fi/<network>/api/v1/app_data/<hash>`: 404 means no order carrying it was ever
+accepted. A fee taken on a filled order shows in `GET /api/v1/trades?orderUid=<uid>` as
+`executedProtocolFees`.
+
 ## 2026-10-15: a shorter footer is a change to every page's scroll room
 
 **Believed:** cutting the footer from about 30 links to 8 (#838) touches only the footer's own
