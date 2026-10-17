@@ -6,9 +6,13 @@ page keeps the newest thirty days.
 
 ## [Unreleased]
 
-### 2026-10-16
+### 2026-10-17
 
 - The home page lets you stake BAYLA and add SOL + BAYLA liquidity right under the Heat reader, with the same cards as Earn and Solana LP (one wallet connection for both). The liquidity card is BAYLA's SOL pool alone, short, with Add liquidity and Add with one coin; its price and history are under "More about this pool". The two sentences under the headline moved into "How heat works".
+
+### 2026-10-16
+
+- Heat is the only number a person has here now. Points, the Venue Score, the Bronze, Silver and Gold tiers and the trading competitions are gone, with their pages, tabs and cards. An old /leaderboard link opens History and an old /competitions link opens Earn. A room whose reward vault is empty no longer prints a rate: it shows the vault and says it pays nothing until someone funds it. The lock lengths on the Ethereum rooms read 7 days to 4 years, without the farm's names.
 - Adding liquidity to a room's coin is up front now. The BAYLA room has an "Add SOL + BAYLA" button beside Trade, the home's Provide LP card opens the list of every Solana pool (each row with Add), and after a Heat read the home says which of your coins you can add to. Each opens Add with one coin on that coin's SOL pool: one amount in SOL, 25/50/75% or Max, a bar showing about how much of the pool it buys, and "I have both coins" for the pair form. A new share rises into place when it lands.
 - Solana pools: the risk line above the pool finder, and on every add, open and review, now says what the team's vault can do. With 2 of its 2 keys and no waiting period it can pause removing, change fees or replace the pool program, and no outside firm has checked our changes. Under Risks, the notice below your positions names the program, the vault and its multisig in full, read on chain 2026-10-16. "The program" card's heading now says the fork has our keys, not one addition the running program does not have yet.
 - Solana LP: a pool whose price is more than 3% off now says what that costs you, as a share of what you add. 19.6% below the outside price costs up to about 0.6% of what you add (about $0.59 per $100), where it said the whole gap went to the first trade. On the pool card the Difference row shows the gap in the warning colour and names the price it is off from. A pool with no outside price to check against now says whoever trades it back takes part of what you add, where it said the whole difference. The pool stays open to deposits.
@@ -322,40 +326,6 @@ page keeps the newest thirty days.
 
 - The launch gate's reading names the tier as the wallet's own, and its verdicts carry no em dash.
 - "Check graduation" no longer says a token has not graduated from a read it never made.
-
-### 2026-09-17
-
-- The venue opens straight to the page; the arrival film plays only from "Watch the arrival" on /island.
-- Leaving the BAYLA lock ladder early costs the time left over four years, capped at 75 percent.
-- A live reward rate on the BAYLA lock ladder can no longer be lowered.
-- The lock ladder card shows no APR, states its reward window honestly, and promises nothing it cannot prove.
-- "Nothing to claim" is no longer shown over revenue balances that were never read.
-- The USDT approval reset now happens when it is needed, not skipped on an unread allowance.
-- The staking runway is no longer invented from a failed read.
-- An ended LP reward period no longer reads as a live 0.00% APR on /farm.
-- The liquidity card no longer says "Confirmed" after an approval, before the real action is sent.
-- A Gold Card membership that could not be read is no longer sold back to its owner on /premium.
-- "Not enough TOWELI" is no longer said about a balance nobody read.
-- Nakamigos: an unread listings feed no longer shows as a healthy empty market.
-- The NFT pool owner's panel no longer hides a queued timelock change behind an unread value.
-- Pool volume is no longer printed from an unread fee rate, and /treasury no longer shows a 0.00% POL share from an unread LP supply.
-- The home page's /swap card stops describing one pair on one route.
-- An unread input no longer tells a staker they are a Seedling on the score card.
-- Nakamigos: a listings set from one venue no longer speaks for the whole market.
-- Nakamigos: an unread listings source no longer reads as an empty market.
-- An unread staking, LP or referral read no longer shrinks your points.
-- The arrival curtain keeps its time budget even when the page is busy.
-- The zap planner checks your wallet's chain against the pool's, not against itself.
-- A Connect Wallet button with no wallet modal to open is disabled.
-- The launchpad no longer arms Mint or names a sale phase from an unread sale state.
-- The token picker and token detail dialogs keep focus and scroll lock steady while the page re-renders.
-
-### 2026-09-15
-
-- Four buttons that said "Connect Wallet" and were disabled for saying it now open the wallet modal.
-- The venue's icons carry their version in the path, so clients stuck on the old Nakamigos mark update.
-- The BAYLA lighthouse card keeps its Connect button now that deposits are closed.
-- Trust Wallet connects on the Solana side of the venue.
 
 ## Earlier
 

@@ -544,25 +544,11 @@ export const ROUTES: readonly RouteSpec[] = [
   },
   {
     path: '/competitions',
-    voice: 'venue',
-    owner: 'pages/CompetitionsPage.tsx',
-    tabOf: 'EarnPage · competitions',
-    gate: null,
-    why:
-      'Two halves with two different answers. The volume board reads api.geckoterminal.com live and keyless ' +
-      'and nothing stubs it, so it renders either the ranked board or its coverage notice depending on what ' +
-      'the feed answers at run time; both states carry the same landmarks (one h1, a captioned table with ' +
-      'scoped headers, a labelled select and input, named buttons) and both are pinned deterministically by ' +
-      'src/components/competitions/CupBoard.test.tsx. Season 1 is the router season and is always unread ' +
-      'here — it is scored from an indexer this build does not configure — so its notice renders and its ' +
-      'standings table does not. The season picker and the scoring rules render from lib/competitions and ' +
-      'are fully audited either way. ' +
-      BOTH_BRANCHES_MEASURED +
-      'Here the ready DOM is a 77-row volume board of ~9.3k chars and the degraded one has no table at all ' +
-      '(~3.4k). This route also happens to be the one that proves the concern was worth measuring rather ' +
-      'than assuming: a live unstubbed read of its 13 pools rate-limits part-way through on a real run ' +
-      '(5 answered, 8 refused), so a THIRD, partial DOM is reachable in CI — 227 rows on the pass that ' +
-      'was measured. It violates nothing either.',
+    voice: null,
+    owner: 'App.tsx',
+    gate: 'redirect',
+    why: 'The trading competitions were deleted 2026-10-15 (island item 4: no seasons); an old link lands on Earn.',
+    redirectsTo: '/earn',
     knownViolations: [],
   },
   {
@@ -637,10 +623,11 @@ export const ROUTES: readonly RouteSpec[] = [
   },
   {
     path: '/leaderboard',
-    voice: 'venue',
-    owner: 'pages/ActivityPage.tsx',
-    tabOf: 'ActivityPage · points',
-    gate: null,
+    voice: null,
+    owner: 'App.tsx',
+    gate: 'redirect',
+    why: 'The points program (Venue Score) was deleted 2026-10-15 (island item 4); an old link lands on History.',
+    redirectsTo: '/history',
     knownViolations: [],
   },
   { path: '/community', voice: 'venue', owner: 'pages/CommunityPage.tsx', gate: null, knownViolations: ['aria-valid-attr-value'] },

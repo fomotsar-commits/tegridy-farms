@@ -23,7 +23,6 @@ import { useLPFarming } from '../hooks/useLPFarming';
 import { useAutoRefreshBoost } from '../hooks/useAutoRefreshBoost';
 import { useOneClickStake } from '../hooks/useOneClickStake';
 import { usePageTitle } from '../hooks/usePageTitle';
-import { usePoints } from '../hooks/usePoints';
 import { useAutoReset } from '../hooks/useAutoReset';
 import { useRestaking } from '../hooks/useRestaking';
 import { safeParseEther } from '../lib/safeParseEther';
@@ -134,10 +133,6 @@ function ToweliFarm() {
   const pos = useUserPosition();
   const actions = useFarmActions();
   const nft = useNFTBoost();
-  // F108: the page no longer calls the deprecated points.logAction no-op, but we
-  // keep usePoints mounted so the on-chain points/streak state stays warm for the
-  // header/leaderboard surfaces that share the engine. (No binding — read-only.)
-  usePoints();
   const price = useTOWELIPrice();
   const priceHistory = usePriceHistory();
   const { history: priceData, error: priceError } = priceHistory;
