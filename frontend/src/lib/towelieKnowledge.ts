@@ -325,20 +325,12 @@ export const KNOWLEDGE_BASE: KnowledgeEntry[] = [
     answer: "Cancel from /premium → Manage. You get a pro-rata refund on the unused portion as a pull-payment credit — claim it from the same screen after you cancel.",
   },
   {
-    keywords: ['leaderboard', 'points', 'rank', 'ranking'],
-    answer: "Earn points for staking, claiming, voting, etc. Top of /leaderboard gets bragging rights and seasonal rewards.",
-  },
-  {
     // HONESTY PASS 2026-08-28: "you both earn bonus" was the joiner-bonus
     // overclaim /referrals and the changelog already record as fixed — the
     // splitter credits the REFERRER only (ReferralSplitter.sol). This was the
     // last surface still promising the friend a cut.
     keywords: ['referral', 'invite', 'friend', 'code'],
     answer: "Dashboard has your referral link. When someone you refer trades, the referral share of their fee is credited to YOU — the joiner gets no discount or bonus, and /referrals says so up front. Tegridy through community.",
-  },
-  {
-    keywords: ['tegridy', 'score'],
-    answer: "Venue Score measures commitment: stake size, lock length, NFT boost, vote activity. Higher = better perks.",
   },
 
   // ── Misc ────────────────────────────────────────────────────

@@ -81,7 +81,6 @@ export const PAGE_ROUTES: Record<string, string> = {
   lore: '/lore',
   changelog: '/changelog',
   'changelog-cards': '/changelog',
-  leaderboard: '/leaderboard',
   premium: '/premium',
   history: '/history',
   security: '/security',
@@ -91,7 +90,6 @@ export const PAGE_ROUTES: Record<string, string> = {
   faq: '/faq',
   admin: '/admin',
   'admin-dashboard': '/admin',
-  'tegridy-score': '/dashboard',
   'referral-widget': '/dashboard',
   checkout: '/checkout',
   tax: '/tax',
@@ -100,7 +98,6 @@ export const PAGE_ROUTES: Record<string, string> = {
   terminal: '/terminal',
   developer: '/developers',
   'nav-drawer': '/',
-  seasonal: '/',
   'legacy-exit': '/earn/toweli',
   wizard: '/nft-finance',
   // 2026-10-03: the pageIds minted for card art, plus the older ones that had
@@ -130,7 +127,7 @@ export const PAGE_ROUTES: Record<string, string> = {
   gallery: '/gallery',
   // The Tradermigos landing. Its three pop-ups above have the same host route.
   marketplace: '/nakamigos',
-  'heat-card': '/leaderboard',
+  'heat-card': '/exposure',
   'clock-line': '/swap',
   'solana-swap': '/solana',
   'il-calculator': '/liquidity',
@@ -145,7 +142,6 @@ export const PAGE_ROUTES: Record<string, string> = {
   'launch-token': '/launch',
   shield: '/nft-finance',
   'copy-trading': '/copy-trading',
-  competitions: '/competitions',
   trust: '/trust',
   chart: '/chart',
   alerts: '/alerts',
@@ -196,7 +192,6 @@ export const SURFACES: Surface[] = [
   { group: 'Dashboard', pageId: 'dashboard', idx: 3, label: 'D4 — Stat: ETH Balance' },
   { group: 'Dashboard', pageId: 'dashboard', idx: 4, label: 'D5 — Stat: Claimable' },
   { group: 'Dashboard', pageId: 'dashboard', idx: 5, label: 'D6 — Stat: TOWELI Price' },
-  { group: 'Dashboard', pageId: 'dashboard', idx: 6, label: 'D7 — Venue Score block' },
   { group: 'Dashboard', pageId: 'dashboard', idx: 7, label: 'D8 — ETH Revenue Claim' },
   { group: 'Dashboard', pageId: 'dashboard', idx: 8, label: 'D9 — POL Accumulator' },
   { group: 'Dashboard', pageId: 'dashboard', idx: 9, label: 'D10 — DCA Due Alerts' },
@@ -320,12 +315,6 @@ export const SURFACES: Surface[] = [
   })),
 
   // Leaderboard (6)
-  { group: 'Leaderboard', pageId: 'leaderboard', idx: 0, label: 'LB1 — Page bg' },
-  { group: 'Leaderboard', pageId: 'leaderboard', idx: 1, label: 'LB2 — Your Stats' },
-  { group: 'Leaderboard', pageId: 'leaderboard', idx: 2, label: 'LB3 — Empty state' },
-  { group: 'Leaderboard', pageId: 'leaderboard', idx: 3, label: 'LB4 — How Points Work' },
-  { group: 'Leaderboard', pageId: 'leaderboard', idx: 4, label: 'LB5 — Tier Breakdown' },
-  { group: 'Leaderboard', pageId: 'leaderboard', idx: 5, label: 'LB6 — All Badges' },
 
   // Premium (3)
   { group: 'Premium', pageId: 'premium', idx: 0, label: 'PR1 — Page bg' },
@@ -376,7 +365,6 @@ export const SURFACES: Surface[] = [
   { group: 'Misc pages', pageId: 'terminal', idx: 0, label: 'TM1 — Pro Terminal page bg' },
   { group: 'Misc pages', pageId: 'developer', idx: 0, label: 'DV1 — Developer API page bg' },
 
-  { group: 'Misc widgets', pageId: 'tegridy-score', idx: 0, label: 'TS1 — TegridyScore widget' },
   { group: 'Misc widgets', pageId: 'referral-widget', idx: 0, label: 'RW1 — Referral widget' },
 
   // Pop-up / modal cards — the surfaces that appear over other pages. Registered
@@ -416,7 +404,6 @@ export const SURFACES: Surface[] = [
   { group: 'Trust tools',   pageId: 'chart',            idx: 1, label: 'TT5b — Pro Charting pool picker card' },
   { group: 'Trust tools',   pageId: 'chart',            idx: 2, label: 'TT5c — Pro Charting sources card' },
   { group: 'Engage',        pageId: 'copy-trading',     idx: 0, label: 'EN2 — Copy Trading backdrop' },
-  { group: 'Engage',        pageId: 'competitions',     idx: 0, label: 'EN3 — Competitions backdrop' },
   { group: 'Engage',        pageId: 'checkout',         idx: 0, label: 'EN4 — Checkout backdrop' },
   // idx 1 is the merchant's minted payment link; idx 2 is the buyer's
   // merchant-signature strip. Both are the cards a person stares at while
@@ -610,7 +597,6 @@ export const SURFACES: Surface[] = [
   // happen to be on, so the Live-page preview can't scroll to them (it will
   // report "not found"). Use the Art tab to place them.
   { group: 'Popups', pageId: 'nav-drawer', idx: 0, label: 'MO3 — Mobile nav drawer' },
-  { group: 'Popups', pageId: 'seasonal', idx: 0, label: 'MO5 — Seasonal event banner' },
   { group: 'Popups', pageId: 'legacy-exit', idx: 0, label: 'MO6 — Legacy staking notice' },
 
   // Launchpad wizard (gated) — the last cards in the app that had no art at all.
@@ -693,7 +679,6 @@ export const SURFACES: Surface[] = [
   { group: 'Island', pageId: 'island', idx: 1, label: 'Door card: Gallery' },
   { group: 'Island', pageId: 'island', idx: 2, label: 'Door card: Marketplace' },
   { group: 'Island', pageId: 'island', idx: 3, label: 'Door card: Community' },
-  { group: 'Island', pageId: 'island', idx: 4, label: 'Door card: Venue Score' },
   { group: 'Island', pageId: 'island', idx: 5, label: 'Door card: Treasury & numbers' },
 
   // Island · Gallery
@@ -711,7 +696,6 @@ export const SURFACES: Surface[] = [
   // Community
   { group: 'Community', pageId: 'toweli-section-band', idx: 0, label: 'TOWELI protocol band above the tabs' },
   { group: 'Community', pageId: 'bounties', idx: 6, label: 'Bounty claims could not be read notice (error)' },
-  { group: 'Community', pageId: 'community', idx: 6, label: 'Venue Score link card' },
   { group: 'Community', pageId: 'community', idx: 7, label: 'Community chat link card' },
   { group: 'Community', pageId: 'community', idx: 8, label: 'Gallery link card' },
   { group: 'Community', pageId: 'gauge-voting', idx: 7, label: 'Pending reveal banner (gauge controller wired, vote committed and…)' },
@@ -725,8 +709,6 @@ export const SURFACES: Surface[] = [
 
   // Leaderboard
   { group: 'Leaderboard', pageId: 'heat-card', idx: 0, label: 'Heat card (panel variant only)' },
-  { group: 'Leaderboard', pageId: 'leaderboard', idx: 7, label: 'Season line under the heading' },
-  { group: 'Leaderboard', pageId: 'leaderboard', idx: 6, label: 'On-chain verified points banner' },
 
   // Premium
   { group: 'Premium', pageId: 'premium', idx: 3, label: 'Connect your wallet card (not connected)' },
@@ -943,15 +925,6 @@ export const SURFACES: Surface[] = [
   { group: 'Earn · Copy Trading', pageId: 'copy-trading', idx: 6, label: 'Wallets trading the venue card (indexer configured and router board read)' },
 
   // Earn · Competitions
-  { group: 'Earn · Competitions', pageId: 'competitions', idx: 1, label: 'Pool coverage notice' },
-  { group: 'Earn · Competitions', pageId: 'competitions', idx: 2, label: 'Volume board card (a pool board was read)' },
-  { group: 'Earn · Competitions', pageId: 'competitions', idx: 3, label: 'Find a sender card (a pool board was read)' },
-  { group: 'Earn · Competitions', pageId: 'competitions', idx: 4, label: 'How this is scored card' },
-  { group: 'Earn · Competitions', pageId: 'competitions', idx: 5, label: 'No season declared card (indexer configured, no season declared)' },
-  { group: 'Earn · Competitions', pageId: 'competitions', idx: 6, label: 'Season picker card (indexer configured, season declared)' },
-  { group: 'Earn · Competitions', pageId: 'competitions', idx: 7, label: 'Standings read notice (indexer configured)' },
-  { group: 'Earn · Competitions', pageId: 'competitions', idx: 8, label: 'Season standings card (indexer configured and standings read)' },
-  { group: 'Earn · Competitions', pageId: 'competitions', idx: 9, label: 'Season standings not open yet' },
 
   // Earn · Checkout
   { group: 'Earn · Checkout', pageId: 'checkout', idx: 1, label: 'Link names two invoices card (Pay tab, URL carries both a signed invoice…)' },

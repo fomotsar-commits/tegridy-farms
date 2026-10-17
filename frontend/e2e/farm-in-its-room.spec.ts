@@ -13,7 +13,7 @@ import { gotoRoute, waitForQuiescence } from './fixtures/routes';
 
 test.use({ viewport: { width: 390, height: 844 } });
 
-const VENUE_ROUTES = ['/start', '/leaderboard', '/nb1', '/launch'];
+const VENUE_ROUTES = ['/start', '/history', '/nb1', '/launch'];
 const VENUE_SENTENCE = 'Memetic Finance on Jungle Bay Island.';
 const FARM_SENTENCE = 'Stake TOWELI & LP tokens to earn rewards';
 const towelie = (page: Page) => page.getByRole('button', { name: 'Towelie says hi' });

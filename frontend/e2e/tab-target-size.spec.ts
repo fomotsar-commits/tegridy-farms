@@ -47,7 +47,7 @@ const TOUCH_WIDTHS = [
 // without a case here the new strips would have inherited that silently onto
 // nineteen routes.
 //
-// /lore, /contracts and /leaderboard are those three hosts — LearnPage, InfoPage
+// /lore, /contracts and /history are those three hosts — LearnPage, InfoPage
 // and ActivityPage. RouteTabs was extracted FROM them and then left them behind,
 // so for one change-set the app shipped the 44px floor on the four new strips and
 // the old flat 40px on the three originals: the same defect this file was written
@@ -64,7 +64,7 @@ const TOUCH_WIDTHS = [
 // at all (navConfig.ts explains why that section alone is not a SectionHost), so
 // the `toBeGreaterThan(1)` guard below would fail on a count of 0 — reporting a
 // page that is correct by design as a page that changed shape.
-for (const path of ['/community', '/nft-finance', '/trust', '/launch', '/lore', '/contracts', '/leaderboard', '/liquidity', '/earn']) {
+for (const path of ['/community', '/nft-finance', '/trust', '/launch', '/lore', '/contracts', '/history', '/liquidity', '/earn']) {
   for (const vp of TOUCH_WIDTHS) {
     test(`${path} section tabs clear the ${FLOOR}px touch floor at ${vp.name}`, async ({
       page,

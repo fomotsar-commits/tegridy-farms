@@ -44,14 +44,13 @@ import { BungalowPicker } from '../BungalowPicker';
 import { BungalowOnboarding } from '../bungalow/BungalowOnboarding';
 import { BUNGALOWS, getBungalowIdentity, OPEN_BUNGALOWS_EVENT, OPEN_BUNGALOW_ABOUT_EVENT } from '../../lib/bungalows';
 import { WalletConnectWatchdog } from '../ui/WalletConnectWatchdog';
-import { SeasonalEventBanner } from '../SeasonalEvent';
 import { isToweliVoice, OPEN_VENUE_WELCOME_EVENT } from '../../lib/arrival';
 import { useActiveBungalowId } from '../../hooks/useActiveBungalowId';
 import { useReferralAttribution } from '../../hooks/useReferralAttribution';
 
 const NAV_ORDER = [
   '/', '/dashboard', '/earn', '/swap', '/nft-finance', '/gallery', '/tokenomics',
-  '/lore', '/leaderboard', '/community', '/premium', '/history', '/admin',
+  '/lore', '/community', '/premium', '/history', '/admin',
 ];
 
 function getGlitchConfig(from: string, to: string): GlitchConfig {
@@ -195,7 +194,6 @@ export function AppLayout() {
         <ParticleBackground />
       </Suspense>
       <TopNav />
-      <SeasonalEventBanner />
       <RouteGlitch />
 
       {/* pb-20 for bottom nav height + safe-area-inset-bottom for notched devices.
