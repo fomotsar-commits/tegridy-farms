@@ -232,6 +232,7 @@ export function PoolCard({
   chainNow = null,
   readers = null,
   openNow = 0,
+  openForm,
   showNow = 0,
   onActed,
 }: {
@@ -246,6 +247,8 @@ export function PoolCard({
   readers?: Pick<LpReaders, 'poolPast'> | null;
   /** A wish's number (PoolFinder LpWish), or 0: open this pool's Add form by itself, once. */
   openNow?: number;
+  /** Which form `openNow` opens: 'one' is Add with one coin (the LP door). Absent: Add liquidity. */
+  openForm?: 'one';
   /** A wish's number, or 0: the wish named this pool and its form cannot open (`useShownOnce`). */
   showNow?: number;
   /** Told when this card acts on a wish, so the finder spends it. */
@@ -386,7 +389,7 @@ export function PoolCard({
             {!writes && health.deposits.verdict === 'allowed' && (
               <Notice>Adding liquidity here is not switched on yet.</Notice>
             )}
-            {writes && <DepositOfferBlock writes={writes} offer={offer} view={view} health={health} safety={safety} tokenDecimals={tokenDecimals} openNow={openNow} onActed={onActed} />}
+            {writes && <DepositOfferBlock writes={writes} offer={offer} view={view} health={health} safety={safety} tokenDecimals={tokenDecimals} openNow={openNow} openForm={openForm} onActed={onActed} />}
           </div>
         </Part>
 
@@ -504,6 +507,7 @@ function DepositOfferBlock({
   safety,
   tokenDecimals,
   openNow,
+  openForm,
   onActed,
 }: {
   writes: LpWrites;
@@ -513,6 +517,7 @@ function DepositOfferBlock({
   safety: TokenSafety | null;
   tokenDecimals: number | null;
   openNow: number;
+  openForm?: 'one';
   onActed?: (n: number) => void;
 }) {
   const key = `add:${view.address}`;
@@ -522,14 +527,16 @@ function DepositOfferBlock({
   const blockRef = useRef<HTMLDivElement | null>(null);
   const acted = useRef(0);
   const { open: openPanel, busy } = writes;
+  // The LP door asks for Add with one coin (`openForm`); every other wish, Add liquidity.
+  const wishKey = openForm === 'one' ? `one:${view.address}` : key;
   useEffect(() => {
     if (!openNow || acted.current === openNow || offer !== 'offer') return;
     acted.current = openNow;
     // Already open, or another form is mid-flow: the press still shows where its form is.
-    if (!open && !busy) openPanel('add', key, addButton.current);
+    if (writes.active?.key !== wishKey && !busy) openPanel('add', wishKey, addButton.current);
     else (blockRef.current?.querySelector('h4') ?? addButton.current)?.scrollIntoView?.({ block: 'start' });
     onActed?.(openNow);
-  }, [openNow, offer, open, busy, openPanel, key, onActed]);
+  }, [openNow, offer, writes.active?.key, wishKey, busy, openPanel, onActed]);
   // Another panel's flow is running: this one cannot open over it.
   const blockedByOther = writes.busy && !open;
   // An open panel stays mounted whatever the offer turns into while its flow runs: its
@@ -541,7 +548,14 @@ function DepositOfferBlock({
   const panel = open ? (
     <AddLiquidityPanel view={view} health={health} safety={safety} tokenDecimals={tokenDecimals} onClose={writes.close} />
   ) : oneOpen ? (
-    <AddOneCoinPanel view={view} health={health} safety={safety} tokenDecimals={tokenDecimals} onClose={writes.close} />
+    <AddOneCoinPanel
+      view={view}
+      health={health}
+      safety={safety}
+      tokenDecimals={tokenDecimals}
+      onClose={writes.close}
+      onPair={() => writes.open('add', key, addButton.current)}
+    />
   ) : null;
   return (
     <div ref={blockRef} className="space-y-2 mt-2">

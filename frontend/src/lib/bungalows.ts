@@ -65,6 +65,10 @@ export interface Bungalow {
 
   /** Closed to new deposits (a UI gate, not on chain). Claim, unstake and rescue never close. Absent = open. */
   depositsClosed?: true;
+  /** Solana only: this coin's SOL pool on the venue's own pool program, the deepest if several. It puts the
+   *  LP door on the room (`bungalowLpDoor`). The finder reads and checks the pool on chain before any form opens,
+   *  so a stale entry opens nothing; a pool opened later shows its door once it is added here. */
+  venueSolPool?: string;
   /** Decimals fallback before the live mint read lands (which wins). */
   decimals?: number;
   /** The primary pool the chart and market strip read, as GeckoTerminal names it. `network` is GeckoTerminal's
@@ -224,6 +228,8 @@ export const BUNGALOWS: Bungalow[] = [
     ladderPool: BAYLA_LADDER_POOL || undefined,
     // Retiring for `bayla-ladder`: positions keep claim, unstake and rescue; only the stake form goes.
     depositsClosed: true,
+    // BAYLA/SOL on the venue's pool program, opened 2026-10-02 by the owner's wallet.
+    venueSolPool: 'ErvzV1NMZmcfAqZtGH4AQhYAjn77nJEworKK1mYPz5w4',
     // Token-2022, 6 decimals, no transfer-fee extension: staked and claimed amounts are exact.
     decimals: 6,
     live: true,
@@ -415,6 +421,15 @@ function isDexscreenerUrl(url: string): boolean {
   } catch {
     return false;
   }
+}
+
+/**
+ * The LP door (island, answer twenty): one press from a room to the Add form of its coin's SOL pool,
+ * with the token and the pool already answered. A room with no pool on the venue gets none.
+ */
+export function bungalowLpDoor(b: Bungalow): { to: string; label: string } | null {
+  if (b.chain !== 'solana' || !b.address || !b.venueSolPool) return null;
+  return { to: `/solana-lp?mint=${b.address}&task=add&pool=${b.venueSolPool}`, label: `Add SOL + ${b.symbol}` };
 }
 
 /** In-venue scanner route. Base carries the explicit chain: a 0x address is ambiguous with Ethereum. */

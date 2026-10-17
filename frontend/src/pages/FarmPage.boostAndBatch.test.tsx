@@ -97,7 +97,6 @@ vi.mock('../hooks/useTransactionReceipt', () => ({ useTransactionReceipt: () => 
 vi.mock('../hooks/useConfetti', () => ({ useConfetti: () => ({ fire: vi.fn() }) }));
 vi.mock('../hooks/usePoolTVL', () => ({ usePoolTVL: () => ({ stakerSharePct: 0, isLoaded: false, tvl: 0, lpSupply: 0n }) }));
 vi.mock('../hooks/usePageTitle', () => ({ usePageTitle: () => undefined }));
-vi.mock('../hooks/usePoints', () => ({ usePoints: () => ({}) }));
 vi.mock('../hooks/useAutoReset', () => ({ useAutoReset: () => undefined }));
 vi.mock('../hooks/useRestaking', () => ({ useRestaking: () => ({ isDeployed: false, isRestaked: false, bonusAPR: 0 }) }));
 

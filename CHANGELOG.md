@@ -6,10 +6,15 @@ page keeps the newest thirty days.
 
 ## [Unreleased]
 
+### 2026-10-17
+
+- One network drop-down on Swap, Pools and Launch: Ethereum, Base, Robinhood Chain, Solana. Pools adds and removes on Base and Robinhood Chain; a network with nothing there is greyed, with why.
+- Lock, inside a bungalow, opens that bungalow's own pool; Back to Earn lists every pool.
+- Heat is the only number a person has here now. Points, the Venue Score, the Bronze, Silver and Gold tiers and the trading competitions are gone, with their pages, tabs and cards. An old /leaderboard link opens History and an old /competitions link opens Earn. A room whose reward vault is empty no longer prints a rate: it shows the vault and says it pays nothing until someone funds it. The lock lengths on the Ethereum rooms read 7 days to 4 years, without the farm's names.
+- Adding liquidity to a room's coin is up front now. The BAYLA room has an "Add SOL + BAYLA" button beside Trade, the home's Provide LP card opens the list of every Solana pool (each row with Add), and after a Heat read the home says which of your coins you can add to. Each opens Add with one coin on that coin's SOL pool: one amount in SOL, 25/50/75% or Max, a bar showing about how much of the pool it buys, and "I have both coins" for the pair form. A new share rises into place when it lands.
+
 ### 2026-10-16
 
-- Swap, Pools and Launch: one network drop-down, as on Uniswap, lists Ethereum, Base, Robinhood Chain and Solana, and switches the page to that network. Pools now offers add and remove on Base and Robinhood Chain, where our pool contracts are deployed. A network with nothing there stays listed, greyed, with the reason. With a wallet connected on another network, a pick asks the wallet to switch.
-- Lock: inside a bungalow, the Lock word and the Staking tab open that bungalow's own pool instead of the list of every pool. "Back to Earn" at the top of each pool still opens the full list, which is also what a visitor sees before choosing a bungalow.
 - Solana pools: the risk line above the pool finder, and on every add, open and review, now says what the team's vault can do. With 2 of its 2 keys and no waiting period it can pause removing, change fees or replace the pool program, and no outside firm has checked our changes. Under Risks, the notice below your positions names the program, the vault and its multisig in full, read on chain 2026-10-16. "The program" card's heading now says the fork has our keys, not one addition the running program does not have yet.
 - Solana LP: a pool whose price is more than 3% off now says what that costs you, as a share of what you add. 19.6% below the outside price costs up to about 0.6% of what you add (about $0.59 per $100), where it said the whole gap went to the first trade. On the pool card the Difference row shows the gap in the warning colour and names the price it is off from. A pool with no outside price to check against now says whoever trades it back takes part of what you add, where it said the whole difference. The pool stays open to deposits.
 - Solana LP and Pools: opening a pool has one name, "Open a pool", on the first button, the card and its button. Above that button the card now says the whole cost, read from the chain: the fee that goes to the venue plus the account setup you do not get back (about 0.04 SOL today), or "amount not read" when that read fails. Where the card points to a pool that already exists, its button reads "Go to that pool" and opens that pool's own Add form. The card's "Read again" is now "Refresh", and a short address opens with "Show full address" and closes with "Hide".
@@ -349,13 +354,6 @@ page keeps the newest thirty days.
 - A Connect Wallet button with no wallet modal to open is disabled.
 - The launchpad no longer arms Mint or names a sale phase from an unread sale state.
 - The token picker and token detail dialogs keep focus and scroll lock steady while the page re-renders.
-
-### 2026-09-15
-
-- Four buttons that said "Connect Wallet" and were disabled for saying it now open the wallet modal.
-- The venue's icons carry their version in the path, so clients stuck on the old Nakamigos mark update.
-- The BAYLA lighthouse card keeps its Connect button now that deposits are closed.
-- Trust Wallet connects on the Solana side of the venue.
 
 ## Earlier
 

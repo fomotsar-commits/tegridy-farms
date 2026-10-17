@@ -191,9 +191,6 @@ export const NAV_SECTIONS: NavSection[] = [
       // read. It promises no execution and no payout.
       // CT on phones and iPads: "Copy Trading" is wider than its tab there.
       { to: '/copy-trading', label: 'Copy Trading', compactTabLabel: 'CT', soon: !hasCopyTapeSource() },
-      // Deleted with the points program (owner, 2026-10-15): off, so no strip lists it. Its
-      // page opens by URL until it is removed.
-      { to: '/competitions', label: 'Competitions', soon: true },
       // Browser-only (signed invoice in the URL fragment); off only while no served
       // chain has a verified settlement asset.
       { to: '/checkout', label: 'Checkout', soon: !hasPaymentLinkChain() },

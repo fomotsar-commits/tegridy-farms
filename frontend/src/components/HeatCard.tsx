@@ -29,6 +29,7 @@ import { heatExampleLine, VENUE } from '../lib/arrival';
 import { injectedNetworks, readInjectedAddress, type FillNetwork } from '../lib/heat/walletFill';
 import { useSolanaSurface } from '../lib/solanaSurface';
 import { SITE_URL } from '../lib/constants';
+import { BUNGALOWS, bungalowLpDoor } from '../lib/bungalows';
 import { CardArt } from './ui/CardArt';
 import { FinePrint } from './ui/FinePrint';
 
@@ -162,6 +163,9 @@ export interface HeatCardProps {
   /** The one network the wallet fill may read, for a page that is about one network
    *  (the Solana launch door). Without it the card offers every network it can read. */
   fillFrom?: FillNetwork;
+  /** After a read, one line per Solana room coin the wallet holds whose SOL pool is on the venue
+   *  (the LP door, island answer twenty): the venue's home only. */
+  lpDoors?: boolean;
 }
 
 const FILL_LABEL: Record<FillNetwork, string> = {
@@ -178,6 +182,7 @@ export function HeatCard({
   showEligibility = true,
   scopeTo,
   fillFrom,
+  lpDoors = false,
 }: HeatCardProps = {}) {
   const { address: connected } = useAccount();
   const solanaConnected = useSolanaSurface().surface?.address ?? null;
@@ -427,6 +432,7 @@ export function HeatCard({
                 showMath={showMath}
                 onToggleMath={() => setShowMath((v) => !v)}
                 showEligibility={showEligibility}
+                lpDoors={lpDoors}
               />
             )}
           </m.div>
@@ -461,12 +467,14 @@ function Reading({
   showMath,
   onToggleMath,
   showEligibility = true,
+  lpDoors = false,
 }: {
   reading: HeatReading;
   now: number;
   showMath: boolean;
   onToggleMath: () => void;
   showEligibility?: boolean;
+  lpDoors?: boolean;
 }) {
   const stale = isStale(reading, now);
   const next = nextTier(reading.degrees);
@@ -497,6 +505,23 @@ function Reading({
       `Held time counts here. ${SITE_URL}/read/${reading.address}`;
     return `https://x.com/intent/post?text=${encodeURIComponent(text)}`;
   }, [reading.tier, reading.degrees, reading.address, deepest, days]);
+
+  // The LP door for each Solana room coin this wallet holds, its deepest rooms first, three at
+  // most. A mint is matched exactly; a room with no SOL pool on the venue has no door.
+  const doors = useMemo(
+    () =>
+      lpDoors
+        ? rows
+            .filter((r) => !r.retired)
+            .flatMap((r) => {
+              const b = BUNGALOWS.find((x) => x.chain === 'solana' && x.address === r.tokenAddress.trim());
+              const door = b ? bungalowLpDoor(b) : null;
+              return b && door ? [{ symbol: b.symbol, door }] : [];
+            })
+            .slice(0, 3)
+        : [],
+    [lpDoors, rows],
+  );
 
   // The delta is DERIVED from the reading, not a second fact about it, so it is
   // computed during render rather than pushed into state by an effect. This also
@@ -627,6 +652,19 @@ function Reading({
       {/* LAUNCH ELIGIBILITY, from the same primitive the launch paths enforce with, so
           what a wallet is told here and what happens at submit cannot drift. */}
       {showEligibility && <Eligibility reading={reading} now={now} />}
+
+      {doors.length > 0 && (
+        <div data-testid="heat-lp-doors" className="space-y-1">
+          {doors.map(({ symbol, door }) => (
+            <p key={symbol} className="text-[13px] text-white/85 leading-relaxed">
+              You hold {symbol}. Earn from every {symbol} trade:{' '}
+              <Link to={door.to} className="font-semibold underline underline-offset-2" style={{ color: '#31d0aa' }}>
+                {door.label}
+              </Link>
+            </p>
+          ))}
+        </div>
+      )}
 
       {/* THE LADDER (element B). It replaces the single "Toward <tier>" bar that
           stood here: the bar showed one rung and the ladder shows all five, and
