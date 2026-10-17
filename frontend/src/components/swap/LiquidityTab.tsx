@@ -641,6 +641,7 @@ export function LiquidityTab({ chainId: chainIdProp }: { chainId?: number } = {}
           disabledAddress={showPicker === 'A' ? tokenB.address : tokenA.address}
           customTokens={customTokens}
           tokens={curatedTokens}
+          chainId={chainId}
           onAddCustomToken={handleAddCustom}
         />
       )}

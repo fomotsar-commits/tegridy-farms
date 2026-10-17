@@ -3,6 +3,8 @@ import { Link } from 'react-router-dom';
 import type { Bungalow } from '../../lib/bungalows';
 import { bungalowExplorerUrl, bungalowScanRoute, bungalowTradeRoute, stakePoolMembersOnly } from '../../lib/bungalows';
 import { isSolanaSwapLive, isSolanaFeeConfigured } from '../../lib/solana';
+// From ./registry, not the chains barrel (it drags a viem transport in; see ChainSwapAvailability).
+import { getChainConfig } from '../../lib/chains/registry';
 import { HeatCard } from './HeatCard';
 import { usePageTitle } from '../../hooks/usePageTitle';
 
@@ -61,15 +63,18 @@ export function BungalowFarmPanel({ bungalow }: { bungalow: Bungalow }) {
   );
   const explorer = bungalowExplorerUrl(bungalow);
   const chainLabel = bungalow.chain === 'solana' ? 'Solana' : bungalow.chain === 'base' ? 'Base' : 'Ethereum';
-  // Each chain's own swap fee. Solana: the fee account. Ethereum: SwapFeeRouter charges only
-  // on a fill in the venue's own pools, and pays stakers, POL and treasury. Base: the swap
-  // stack does not trade there (chains/registry.ts `ammSwap: false`).
+  // Each chain's own swap fee. Solana: the fee account. An EVM chain the swap runs on
+  // (chains/registry.ts `ammSwap`; Ethereum, and Base since 2026-10-17): SwapFeeRouter charges
+  // only on a fill in the venue's own pools, and its fee never reaches a room's pool (on
+  // Ethereum it goes to stakers and treasury, on Base to the venue's fee Safe there).
+  const evmSwapRuns = bungalow.chain !== 'solana'
+    && getChainConfig(bungalow.chain === 'base' ? 8453 : 1)?.capabilities.ammSwap === true;
   const swapFeeLine =
     bungalow.chain === 'solana'
       ? isSolanaFeeConfigured()
         ? 'the Solana swap surface captures a platform fee, and a share of it can route here.'
         : 'the Solana swap surface is live but takes no platform fee today.'
-      : bungalow.chain === 'ethereum'
+      : evmSwapRuns
         ? `the ${chainLabel} swap surface takes a fee only on fills in the venue's own pools; none of it routes here today.`
         : `the venue runs no swap on ${chainLabel}, so there is no swap fee to share.`;
   // Row 2 holds the lighthouse pool and the funding card side by side. With a ladder and

@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { m, AnimatePresence } from 'framer-motion';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { useReadContract, useChainId } from 'wagmi';
+import { useReadContract } from 'wagmi';
 import { toast } from 'sonner';
 import { ERC20_ABI } from '../../lib/contracts';
 import { CHAIN_ID } from '../../lib/constants';
@@ -55,8 +55,13 @@ interface TokenSelectModalProps {
    * pair against it. A pasted address still works everywhere; what is unsafe is
    * a CURATED list presented as correct on a chain it was not curated for.
    */
-  tokens?: TokenInfo[];
+  tokens?: readonly TokenInfo[];
   onAddCustomToken: (token: TokenInfo) => void;
+  /**
+   * The chain a pasted address is read on: the form's chain, never the wallet's.
+   * Ethereum when omitted.
+   */
+  chainId?: number;
 }
 
 const RECENT_TOKENS_KEY = 'tegridy_recent_tokens';
@@ -77,8 +82,10 @@ function saveRecentToken(address: string) {
   } catch { /* ignore */ }
 }
 
-export function TokenSelectModal({ open, onClose, onSelect, disabledAddress, customTokens, onAddCustomToken, tokens = DEFAULT_TOKENS }: TokenSelectModalProps) {
-  const chainId = useChainId();
+export function TokenSelectModal({ open, onClose, onSelect, disabledAddress, customTokens, onAddCustomToken, tokens = DEFAULT_TOKENS, chainId: formChainId }: TokenSelectModalProps) {
+  const readChainId = formChainId ?? CHAIN_ID;
+  // getTokenUrl already opens the form's chain's explorer; the words follow it.
+  const explorerWord = readChainId === CHAIN_ID ? 'Etherscan' : 'the block explorer';
   const [search, setSearch] = useState('');
   const [importAddress, setImportAddress] = useState('');
   const [importRiskAccepted, setImportRiskAccepted] = useState(false);
@@ -195,14 +202,14 @@ export function TokenSelectModal({ open, onClose, onSelect, disabledAddress, cus
   // For custom token import: read on-chain data
   const isImporting = isValidAddress(importAddress) && !allTokens.find(t => t.address.toLowerCase() === importAddress.toLowerCase());
 
-  // F198: pin the import reads to CHAIN_ID so a wallet on the wrong network
-  // can't read a different chain's contract at the same address and seed a
-  // bogus symbol/decimals into the mainnet-scoped custom-token store.
+  // F198: pin the import reads to the FORM's chain so a wallet on the wrong
+  // network can't read a different chain's contract at the same address and
+  // seed a bogus symbol/decimals into that chain's custom-token store.
   const { data: importSymbol } = useReadContract({
     address: importAddress as `0x${string}`,
     abi: ERC20_ABI,
     functionName: 'symbol',
-    chainId: CHAIN_ID,
+    chainId: readChainId,
     query: { enabled: isImporting },
   });
 
@@ -210,7 +217,7 @@ export function TokenSelectModal({ open, onClose, onSelect, disabledAddress, cus
     address: importAddress as `0x${string}`,
     abi: ERC20_ABI,
     functionName: 'decimals',
-    chainId: CHAIN_ID,
+    chainId: readChainId,
     query: { enabled: isImporting },
   });
 
@@ -478,13 +485,13 @@ export function TokenSelectModal({ open, onClose, onSelect, disabledAddress, cus
                           the flow hid the full address behind truncation
                           with no quick way to inspect. */}
                       <a
-                        href={getTokenUrl(chainId, importAddress)}
+                        href={getTokenUrl(readChainId, importAddress)}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="text-[11px] font-semibold text-purple-200 hover:text-white px-2 py-1 rounded transition-colors whitespace-nowrap"
-                        aria-label={`View ${importSymbol as string} contract on Etherscan (opens in new tab)`}
+                        aria-label={`View ${importSymbol as string} contract on ${explorerWord} (opens in new tab)`}
                       >
-                        View on Etherscan ↗
+                        View on {explorerWord} ↗
                       </a>
                     </div>
                     <div className="px-3 py-2.5" style={{ background: 'rgba(255,178,55,0.06)' }}>

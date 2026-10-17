@@ -49,9 +49,9 @@ function swapFeeLine(b: Bungalow, feeOn: boolean): string {
 }
 
 describe("the funding card's swap-fee line is true for the room it sits in", () => {
-  it('judges the six EVM rooms, on a chain the venue swap serves and on one it does not', () => {
+  it('judges the six EVM rooms, every one on a chain the venue swap serves (Base since 2026-10-17)', () => {
     expect(EVM.map((b) => b.id).sort()).toEqual(['bnkr', 'drb', 'jbm', 'mfer', 'pepe', 'qr']);
-    expect(new Set(EVM.map(swapServed))).toEqual(new Set([true, false]));
+    expect(new Set(EVM.map(swapServed))).toEqual(new Set([true]));
     expect(ROOMS.some((b) => b.chain === 'solana')).toBe(true);
   });
 

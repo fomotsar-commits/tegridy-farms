@@ -5,12 +5,12 @@ import { useSectionChain } from '../../hooks/useSectionChain';
 
 /**
  * Swap's network drop-down, at the top of each swap page (the section draws no tab strip:
- * TradeHostPage.tsx). Ethereum is `/swap`, Solana is `/solana` (our own pools or Jupiter); Base
- * and Robinhood Chain are listed, greyed, because the swap stack trades on mainnet only
- * (registry `ammSwap`). The network is the page's: `/swap` lights Ethereum and `/solana` Solana.
+ * TradeHostPage.tsx). Ethereum, Base and Robinhood Chain are `/swap` (`?c=` picks the chain;
+ * our pools or Uniswap V2, whichever pays more), Solana is `/solana` (our own pools or Jupiter).
+ * The network is the page's: `/swap` lights its own chain and `/solana` Solana.
  * The name stays ChainSwitch so every page and test that mounts it keeps working.
  */
-const NOTES = { ethereum: 'Uniswap / CoW', solana: 'Our pools + Jupiter' } as const;
+const NOTES = { ethereum: 'Uniswap / CoW', base: 'Our pools + Uniswap', robinhood: 'Our pools + Uniswap', solana: 'Our pools + Jupiter' } as const;
 
 export function ChainSwitch() {
   const { pathname } = useLocation();

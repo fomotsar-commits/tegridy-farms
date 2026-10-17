@@ -736,7 +736,8 @@ export const SURFACES: Surface[] = [
   // Swap · Ethereum
   { group: 'Swap · Ethereum', pageId: 'clock-line', idx: 0, label: 'Your clock line card (after a buy is recorded)' },
   { group: 'Swap · Ethereum', pageId: 'trade', idx: 4, label: 'Launching something card' },
-  { group: 'Swap · Ethereum', pageId: 'trade', idx: 5, label: 'Swapping not live here banner (wallet on a chain with no swaps)' },
+  { group: 'Swap · Ethereum', pageId: 'trade', idx: 5, label: 'Not-on-this-chain banner (a trade tab that does not run on this chain)' },
+  { group: 'Swap · Ethereum', pageId: 'trade', idx: 6, label: 'Where the fee goes card (Swap on Base / Robinhood)' },
 
   // Swap · Solana
   { group: 'Swap · Solana', pageId: 'solana-swap', idx: 0, label: 'Page background' },

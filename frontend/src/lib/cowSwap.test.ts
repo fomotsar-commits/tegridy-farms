@@ -6,11 +6,12 @@ import {
   parseCowSwapQuote,
   buildCowSwapOrder,
   requiredSellBalance,
+  cowSwapAmounts,
   cowApiUrl,
   COW_SWAP_DEFAULT_TTL_SECONDS,
   type ParsedCowSwapQuote,
 } from './cowSwap';
-import { COW_APP_DATA_HASH } from './cowProtocol';
+import { COW_APP_DATA_HASH, COW_PARTNER_FEE_BPS, COW_SWAP_APP_DATA_HASH } from './cowProtocol';
 
 const WETH = '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2' as const;
 const TOWELI = '0x420698CFdEDdEa6bc78D59bC17798113ad278F9D' as const;
@@ -91,6 +92,14 @@ describe('parseCowSwapQuote', () => {
     expect(q!.feeAmount).toBe(0n);
     expect(q!.validTo).toBe(1900000000);
     expect(q!.quoteId).toBe(42);
+    expect(q!.protocolFeeBps).toBe(0);
+  });
+
+  it("reads CoW's protocol fee off the response (a string on the wire)", () => {
+    expect(parseCowSwapQuote({ ...good, protocolFeeBps: '2' })!.protocolFeeBps).toBe(2);
+    expect(parseCowSwapQuote({ ...good, protocolFeeBps: '2.5' })!.protocolFeeBps).toBe(2.5);
+    expect(parseCowSwapQuote({ ...good, protocolFeeBps: 'two' })).toBeNull();
+    expect(parseCowSwapQuote({ ...good, protocolFeeBps: '-1' })).toBeNull();
   });
 
   it('defaults feeAmount to 0 when absent', () => {
@@ -113,11 +122,17 @@ describe('buildCowSwapOrder', () => {
     sellAmount: 1_000_000n,
     buyAmount: 2_000_000n,
     feeAmount: 1_234n,
+    protocolFeeBps: 0,
     validTo: 111,
     quoteId: 7,
   };
 
-  it('sets buyAmount to the slippage floor and passes fee/sell through', () => {
+  // CoW's orderbook answers `NonZeroFee` to any signed fee above 0 (services #2454,
+  // 2024-03-04), and a live /quote always carries a non-zero network-cost feeAmount.
+  // At the live 0.50% venue fee: network cost in buy units = 2_000_000 × 1_234 /
+  // 1_000_000 = 2_468; fee = (2_000_000 + 2_468) × 50 / 10_000 = 10_012; after fees
+  // 1_989_988; less 1% slippage (19_899) = 1_970_089.
+  it('signs a zero fee and the whole input, flooring buy at the quote after the venue fee, less slippage', () => {
     const { order, buyAmountMin } = buildCowSwapOrder({
       sellToken: WETH,
       buyToken: TOWELI,
@@ -126,14 +141,15 @@ describe('buildCowSwapOrder', () => {
       slippageBps: 100n, // 1%
       now: 1_000_000, // ms
     });
-    expect(buyAmountMin).toBe(1_980_000n); // 2_000_000 - 1%
-    expect(order.buyAmount).toBe(1_980_000n);
-    expect(order.sellAmount).toBe(1_000_000n);
-    expect(order.feeAmount).toBe(1_234n);
+    expect(buyAmountMin).toBe(1_970_089n);
+    expect(order.buyAmount).toBe(1_970_089n);
+    expect(order.feeAmount).toBe(0n);
+    expect(order.sellAmount).toBe(1_001_234n); // sellAmount + feeAmount: the user's input
+    expect(order.sellAmount).toBe(requiredSellBalance(quote)); // what the hook checks balance against
     expect(order.kind).toBe('sell');
     expect(order.partiallyFillable).toBe(false);
     expect(order.receiver).toBe(USER);
-    expect(order.appData).toBe(COW_APP_DATA_HASH);
+    expect(order.appData).toBe(COW_SWAP_APP_DATA_HASH);
     // validTo defaults to now(sec) + TTL
     expect(order.validTo).toBe(Math.floor(1_000_000 / 1000) + COW_SWAP_DEFAULT_TTL_SECONDS);
   });
@@ -148,7 +164,7 @@ describe('buildCowSwapOrder', () => {
       validTo: 42424242,
     });
     expect(order.validTo).toBe(42424242);
-    expect(order.buyAmount).toBe(2_000_000n); // 0 slippage = full quote
+    expect(order.buyAmount).toBe(1_989_988n); // 0 slippage = the quote after the venue fee
   });
 });
 
@@ -163,7 +179,46 @@ describe('cowApiUrl', () => {
 describe('requiredSellBalance', () => {
   it('is sellAmount plus feeAmount', () => {
     expect(
-      requiredSellBalance({ sellAmount: 100n, buyAmount: 5n, feeAmount: 7n, validTo: 1, quoteId: null }),
+      requiredSellBalance({ sellAmount: 100n, buyAmount: 5n, feeAmount: 7n, protocolFeeBps: 0, validTo: 1, quoteId: null }),
     ).toBe(107n);
+  });
+});
+
+describe('cowSwapAmounts', () => {
+  // CoW's own worked SELL example, verbatim: cow-sdk
+  // packages/order-book/src/quoteAmountsAndCosts/README.md §6 (0.16 WETH → COW,
+  // protocolFeeBps 20, partnerFeeBps 50, slippage 100 bps).
+  const sdkQuote: ParsedCowSwapQuote = {
+    sellAmount: 156144455961718918n,
+    buyAmount: 18632013982n,
+    feeAmount: 3855544038281082n,
+    protocolFeeBps: 20,
+    validTo: 1,
+    quoteId: null,
+  };
+
+  it("matches CoW's SDK example to the unit", () => {
+    const a = cowSwapAmounts(sdkQuote, 100n, 50);
+    expect(a.sellAmount).toBe(160000000000000000n);
+    expect(a.partnerFeeAmount).toBe(95647086n);
+    expect(a.buyAmountAfterFees).toBe(18536366896n);
+    expect(a.buyAmountMin).toBe(18351003228n);
+  });
+
+  it('takes nothing for the venue at 0 bps', () => {
+    const a = cowSwapAmounts(sdkQuote, 100n, 0);
+    expect(a.partnerFeeAmount).toBe(0n);
+    expect(a.buyAmountAfterFees).toBe(sdkQuote.buyAmount);
+  });
+
+  it('defaults to the rate the market-swap appData carries', () => {
+    expect(cowSwapAmounts(sdkQuote, 0n)).toEqual(cowSwapAmounts(sdkQuote, 0n, COW_PARTNER_FEE_BPS));
+  });
+});
+
+describe('the live venue fee', () => {
+  it('market swaps sign the 0.50% document, never the fee-free one', () => {
+    expect(COW_PARTNER_FEE_BPS).toBe(50);
+    expect(COW_SWAP_APP_DATA_HASH).not.toBe(COW_APP_DATA_HASH);
   });
 });
