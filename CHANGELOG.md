@@ -8,6 +8,7 @@ page keeps the newest thirty days.
 
 ### 2026-10-17
 
+- Solana LP, Pools and the home's liquidity card: the amber line about what the team's vault can do is no longer on the page or on the add, open and review forms. The same sentence, word for word, now leads each "Risks" drop-down.
 - The home page has three short cards in one row under the Heat reader: Swap (SOL to BAYLA), Lock BAYLA and Add SOL + BAYLA, the same forms as Swap, Earn and Solana LP with one wallet connection for all three; a phone stacks them. Lock BAYLA is the shortest: the lock lengths in one row, the amount and Lock, with Claim and manage linking to Earn. The two sentences under the headline moved into "How heat works".
 - One network drop-down on Swap, Pools and Launch: Ethereum, Base, Robinhood Chain, Solana. Pools adds and removes on Base and Robinhood Chain; a network with nothing there is greyed, with why.
 - Lock, inside a bungalow, opens that bungalow's own pool; Back to Earn lists every pool.

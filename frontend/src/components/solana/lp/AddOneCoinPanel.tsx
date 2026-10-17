@@ -872,9 +872,10 @@ function OneCoinInner({
               Close
             </button>
           </div>
-          <p className="text-amber-300/90 text-[12px]" data-testid="lp-one-risk">
-            {RISK_SHORT}
-          </p>
+          {/* Off the page (owner, 2026-10-17: "remove this warning from everywhere"), one press away. */}
+          <FinePrint summary="Risks" testId="lp-one-risk">
+            <p>{RISK_SHORT}</p>
+          </FinePrint>
           {onPair && (
             <button type="button" className="min-h-[44px] text-[13px] text-white/85 underline underline-offset-2 text-left" onClick={onPair}>
               I have both coins

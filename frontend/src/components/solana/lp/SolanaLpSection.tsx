@@ -26,7 +26,7 @@ import { browserLpReaders, type LpReaders } from './readers';
 /**
  * The Solana LP section on /pools and /solana-lp, in one order on both (owner, 2026-10-14:
  * "the actions people need to take spotlighted and their positions and the rates and
- * routes getting the attention"): the risk line and the earn line, the three actions
+ * routes getting the attention"): the earn line, the three actions
  * (the finder), every pool, the wallet's positions, the rates read from the chain, where a swap goes,
  * and the full notice last. Adding, removing and opening pools follow LP's own switch (lpWriteFlag.ts):
  * with it 'off' no write code is fetched and nothing here can sign; otherwise
@@ -56,7 +56,7 @@ export interface LpWritesOverrides {
  * No form opens by itself: an open form takes focus and the screen, and the home's first
  * screen is the heat reader's. It reads and writes nothing
  * in the address (the home is not the Pools tab), and keeps only the actions: the risk and
- * earn lines, the pool, your positions (and its Connect) and the notice. The
+ * earn line, the pool and the notice. The
  * finder's controls, every pool, Open a pool, the rates and the routes stay on the tabs.
  */
 export interface LpHome {
@@ -107,8 +107,8 @@ function LpBody({ readers, mode, reloadKey, home }: { readers: LpReaders; mode: 
   );
   const { publicKey } = useWallet();
 
-  // The risk line above the actions says RISK_SHORT, so the notice says that risk only in full, in its small print.
-  const disclosure = <LpDisclosure programId={readers.programId} mode={mode} riskAbove programBelow={!homeMint} bare={Boolean(homeMint)} />;
+  // The vault risk is said in the notice's Risks drop-down, not on the page (owner, 2026-10-17).
+  const disclosure = <LpDisclosure programId={readers.programId} mode={mode} programBelow={!homeMint} bare={Boolean(homeMint)} />;
   const writesTop = mode !== 'off' && <LpWritesTop />;
   const tierRead = useFeeTiers(readers);
   // Remove liquidity (the finder's third button) brings the positions onto the screen:
@@ -191,7 +191,6 @@ function LpBody({ readers, mode, reloadKey, home }: { readers: LpReaders; mode: 
   if (homeMint) {
     return (
       <div className="flex flex-col gap-3" data-testid="lp-section" data-lp-mode={mode} data-lp-home="">
-        <LpRiskLine compact />
         <LpEarnLine />
         {writesTop}
         {finder}
@@ -202,11 +201,10 @@ function LpBody({ readers, mode, reloadKey, home }: { readers: LpReaders; mode: 
     );
   }
 
-  // Actions first, under the one risk line and the one line on earning; then every pool;
+  // Actions first, under the one line on earning; then every pool;
   // then what you hold; then the rates and the routes; the long notice last.
   return (
     <div className="flex flex-col gap-4" data-testid="lp-section" data-lp-mode={mode}>
-      <LpRiskLine />
       <LpEarnLine />
       {writesTop}
       {finder}
@@ -219,21 +217,6 @@ function LpBody({ readers, mode, reloadKey, home }: { readers: LpReaders; mode: 
   );
 }
 
-const RISK_LINE_STYLE = { background: 'rgba(28,21,6,0.92)', border: '1px solid rgba(227,179,65,0.45)' } as const;
-
-/**
- * The short form of LpDisclosure, above the finder on a tab that opens on it. It may be
- * short only because the full card is on the same page, below the positions.
- * Set tighter on a phone, where each of its lines pushes the finder's field down.
- */
-function LpRiskLine({ compact = false }: { compact?: boolean }) {
-  return (
-    <p data-testid="lp-risk-line" className={`relative isolate rounded-xl text-amber-200 ${compact ? 'px-3 py-2 text-[12px] leading-snug' : 'px-4 py-2.5 sm:py-3 text-[13px] leading-snug sm:leading-relaxed'}`} style={RISK_LINE_STYLE}>
-      <CardArt pageId="solana-lp" idx={10} />
-      {RISK_SHORT}
-    </p>
-  );
-}
 
 /**
  * One line saying fees need no claim, and where the earning cards are. It stands above the
@@ -300,23 +283,19 @@ const DISCLOSURE_NOTICE: Record<LpWriteMode, string> = {
     'Adding liquidity from this site is paused right now. Removing it still works, and each removal is checked and test-run before your wallet is asked to sign.',
 };
 
-export function LpDisclosure({ programId, mode = 'off', riskAbove = false, programBelow = true, bare = false }: {
+export function LpDisclosure({ programId, mode = 'off', programBelow = true, bare = false }: {
   programId: string;
   mode?: LpWriteMode;
   /** The home's card: the Risks drop-down alone, with the program's address inside it. */
   bare?: boolean;
   /** "The program" card is below on this page (the Pools tabs); the home has none, so it points at the tab. */
   programBelow?: boolean;
-  /**
-   * The page already shows RISK_SHORT above the finder (LpRiskLine, finder first): the
-   * card then does not say it again. Said once per page visibly (owner, 2026-10-14), and
-   * once in full, with the addresses, in the small print below.
-   */
-  riskAbove?: boolean;
 }) {
   // "The program" (VenueProgramCard) is the last section of every page that mounts this one.
   const risks = (
         <FinePrint summary="Risks">
+          {/* The vault risk in one sentence, once on screen and now here (owner, 2026-10-17: "remove this warning from everywhere"). */}
+          <p>{RISK_SHORT}</p>
           {/* True of the pool program RUNNING on mainnet, built before the source gained create_lp_metadata.
               It goes false the day that program is upgraded: reword it in the same release as the upgrade
               (src/test/poolProgramCopy.test.ts fails that release until you do, and holds the wording). */}
@@ -355,7 +334,6 @@ export function LpDisclosure({ programId, mode = 'off', riskAbove = false, progr
   return (
     <section data-testid="lp-disclosure" aria-label="Before you provide liquidity">
       <Card title="Before you provide liquidity" art={<CardArt pageId="solana-lp" idx={0} />}>
-        {!riskAbove && <p className="text-white/80">{RISK_SHORT}</p>}
         <Row label="Pool program" value={programId} />
         {risks}
       </Card>

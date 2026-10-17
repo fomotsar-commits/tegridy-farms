@@ -452,12 +452,13 @@ describe('your positions: a share too small to take out', () => {
 });
 
 // One order on both tabs (owner, 2026-10-14: "the actions people need to take spotlighted and
-// their positions and the rates and routes getting the attention"): the risk line and the
-// earn line, the three actions, the positions, the rates, the routes, the full notice last.
+// their positions and the rates and routes getting the attention"): the earn line, the three
+// actions, the positions, the rates, the routes, the full notice last. No risk line on the page
+// (owner, 2026-10-17: "remove this warning from everywhere"): it leads the notice's Risks.
 describe('the order of the section', () => {
   const RISK_LINE =
     "The team's vault (2 of 2 keys, no waiting period) can pause removing, change fees or replace the program. No outside firm has checked our changes. Only add what you can afford to lose.";
-  const ORDER = ['lp-risk-line', 'lp-earn-line', 'lp-finder', 'lp-positions', 'fee-tiers', 'lp-routes', 'lp-disclosure'];
+  const ORDER = ['lp-earn-line', 'lp-finder', 'lp-positions', 'fee-tiers', 'lp-routes', 'lp-disclosure'];
   const parts = () => [...screen.getByTestId('lp-section').children].map((c) => c.getAttribute('data-testid'));
   // A gate that could not be read: its banner is the top of the section's write half.
   const unreadGate = () => ({
@@ -466,7 +467,7 @@ describe('the order of the section', () => {
     gateRpc: unusedGateRpc,
   });
 
-  it('on both tabs: the risk line, the earn line, the actions, the positions, the rates, the routes, the full notice', () => {
+  it('on both tabs: the earn line, the actions, the positions, the rates, the routes, the full notice', () => {
     for (const path of ['/pools', '/solana-lp']) {
       const view = mount(readers(), path);
       expect(parts()).toEqual(ORDER);
@@ -480,19 +481,20 @@ describe('the order of the section', () => {
     expect(screen.getByTestId('fee-tiers').nextElementSibling).toBe(screen.getByTestId('lp-routes'));
     const line = screen.getByTestId('lp-earn-line');
     expect(line.textContent).toBe('Fees grow your pool shares. Nothing to claim.');
-    // Drawn first, heard first: no CSS order moves either line (e2e/tab-target-size.spec.ts holds the first screen).
-    expect(screen.getByTestId('lp-risk-line').nextElementSibling).toBe(line);
+    // Drawn first, heard first: no CSS order moves it (e2e/tab-target-size.spec.ts holds the first screen).
+    expect(screen.queryByTestId('lp-risk-line')).toBeNull();
+    expect(screen.getByTestId('lp-section').firstElementChild).toBe(line);
     expect(line.nextElementSibling).toBe(screen.getByTestId('lp-finder'));
-    for (const el of [line, screen.getByTestId('lp-risk-line')]) expect(el.className).not.toMatch(/\border-/);
+    expect(line.className).not.toMatch(/\border-/);
     expect(line.textContent).not.toMatch(FORECAST_WORDS);
     expect(line.textContent).not.toContain('—');
   });
 
   // The vault's powers, read on chain 2026-10-16: the pool program's admin and its upgrade
   // authority are both vault 0 of a 2-of-2 Squads multisig with a time lock of 0 seconds.
-  it('the risk line names what the team’s vault can do, with how many keys and no wait, and keeps the afford-to-lose clause', () => {
+  it('the vault sentence names what the team’s vault can do, with how many keys and no wait, and keeps the afford-to-lose clause', () => {
     mount(readers(), '/solana-lp');
-    const line = screen.getByTestId('lp-risk-line').textContent ?? '';
+    const line = within(screen.getByTestId('lp-disclosure')).getByText(RISK_LINE).textContent ?? '';
     expect(line).toContain('(2 of 2 keys, no waiting period)');
     expect(line).toContain('can pause removing');
     expect(line).toContain('change fees');
@@ -506,16 +508,19 @@ describe('the order of the section', () => {
     expect(line).not.toContain('—');
   });
 
-  it('the risk line says exactly this, in plain sight once; the full notice below the positions says it in full, with the addresses, only in its small print', () => {
+  it('the vault sentence is not on the page: it leads the full notice’s small print, below the positions, with the addresses', () => {
     mount(readers(), '/pools');
-    expect(screen.getByTestId('lp-risk-line').textContent).toBe(RISK_LINE);
+    expect(screen.queryByTestId('lp-risk-line')).toBeNull();
     const full = screen.getByTestId('lp-disclosure');
     expect(screen.getByTestId('lp-positions').compareDocumentPosition(full) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    // Once visibly, once in full: the notice does not repeat the short line.
+    // Once, and only behind a press: inside the notice's closed Risks drop-down, first.
+    const [sentence] = screen.getAllByText(RISK_LINE);
     expect(screen.getAllByText(RISK_LINE)).toHaveLength(1);
-    expect(within(full).queryByText(RISK_LINE)).toBeNull();
     const small = full.querySelector('details');
     expect(small).not.toBeNull();
+    expect(small).not.toHaveAttribute('open');
+    expect(small).toContainElement(sentence!);
+    expect(small!.querySelector('p')).toBe(sentence);
     expect(small).toHaveTextContent(/have not had their own independent review yet/);
     for (const fact of [
       'Read on chain 2026-10-16',
@@ -547,7 +552,7 @@ describe('the order of the section', () => {
   it('a gate banner stands above the actions', async () => {
     render(<MemoryRouter initialEntries={['/pools']}><LpInner readers={readers()} writes={unreadGate()} /></MemoryRouter>);
     await screen.findByTestId('lp-gate-banner');
-    expect(parts()).toEqual(['lp-risk-line', 'lp-earn-line', 'lp-gate-banner', 'lp-finder', 'lp-positions', 'fee-tiers', 'lp-routes', 'lp-disclosure']);
+    expect(parts()).toEqual(['lp-earn-line', 'lp-gate-banner', 'lp-finder', 'lp-positions', 'fee-tiers', 'lp-routes', 'lp-disclosure']);
   });
 });
 

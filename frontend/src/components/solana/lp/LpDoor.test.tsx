@@ -236,9 +236,11 @@ describe('the home card', () => {
     const sol = view();
     mountHome(readers([sol], { kind: 'ok', list: { pools: [sol], unread: 0, truncated: false, chainNow: null } }), '/', sol.address);
     await waitFor(() => cardOf(sol.address));
-    expect(screen.getByTestId('lp-risk-line')).toHaveTextContent(RISK_SHORT);
+    // No risk line on the page (owner, 2026-10-17): its sentence leads the closed Risks drop-down.
+    expect(screen.queryByTestId('lp-risk-line')).toBeNull();
     // The full notice is one closed drop-down, with no card or Pool program row around it.
     const notice = screen.getByTestId('lp-disclosure');
+    expect(within(notice).getByText(RISK_SHORT).closest('details')).not.toHaveAttribute('open');
     expect(within(notice).getByText('Risks')).toBeInTheDocument();
     expect(within(notice).queryByText('Pool program')).toBeNull();
     expect(within(notice).queryByRole('heading')).toBeNull();
@@ -380,11 +382,14 @@ describe('the screen the door opens', () => {
     return panel;
   }
 
-  it('says what the share is in one sentence, and the risk line sits under the button', async () => {
+  it('says what the share is in one sentence, and the vault risk is one closed Risks under the button', async () => {
     const panel = await door();
     expect(within(panel).getByTestId('lp-one-what')).toHaveTextContent('A share of the CORN/SOL pool and its fee on every trade. Withdraw any time. No lock.');
     const review = within(panel).getByRole('button', { name: 'Review: add with one coin' });
+    // Off the page (owner, 2026-10-17: "remove this warning from everywhere"), one press away.
     const risk = within(panel).getByTestId('lp-one-risk');
+    expect(risk.tagName).toBe('DETAILS');
+    expect(risk).not.toHaveAttribute('open');
     expect(risk).toHaveTextContent(RISK_SHORT);
     expect(review.compareDocumentPosition(risk) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     // The two signatures are named before the first press.
