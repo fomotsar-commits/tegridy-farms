@@ -43,10 +43,12 @@ describe('the first frame ships in the HTML', () => {
     expect(h1?.textContent).not.toContain(`${VENUE.heroTitle}${VENUE.heroLine}`);
   });
 
-  it('carries the two hero lines verbatim', () => {
+  // Owner, 2026-10-16: fewer words. The hero's two lines went into How heat works, so the
+  // frame drops them too, or the headline would jump when React's hero replaced it.
+  it('carries no sentence between the headline and the field, as the hero does not', () => {
     const lines = Array.from(frame!.querySelectorAll('p')).map(spoken);
-    expect(lines).toContain(VENUE.heroPlain);
-    expect(lines).toContain(VENUE.heroHook);
+    expect(lines).not.toContain(VENUE.heroPlain);
+    expect(lines).not.toContain(VENUE.heroHook);
   });
 
   it('starts the clock where the island does: at a first hold, never a first buy', () => {

@@ -16,9 +16,12 @@ import {
   COMMUNITY_ADDRESSES_LIVE,
   tradeRoute,
   lockRoute,
+  poolsRoute,
+  heatRoute,
   litWord,
 } from './navConfig';
 import { readFileSync } from 'node:fs';
+import { BUNGALOWS } from './bungalows';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { isIndexerConfigured } from './indexer/client';
@@ -456,5 +459,63 @@ describe('lockRoute', () => {
   it('stays lit on the pool it opens', () => {
     window.localStorage.setItem('tegridy-bungalow', 'pepe');
     expect(lockWord()?.lit('/earn/pepe', '')).toBe(true);
+  });
+});
+
+// Pools follows the room as Lock does (owner, 2026-10-17: "the wiring for the pages inside the
+// bayla bungalow is off"): in a Solana room with a coin it opens the Solana LP tab on that coin.
+describe('poolsRoute', () => {
+  afterEach(() => {
+    window.localStorage.clear();
+  });
+
+  it("opens on the room's coin in a Solana room, and as for anyone elsewhere", () => {
+    expect(poolsRoute()).toBe('/solana-lp');
+    expect(POOLS_SECTION.primaryTo).toBe('/solana-lp');
+
+    window.localStorage.setItem('tegridy-bungalow', 'bayla');
+    const bayla = BUNGALOWS.find((b) => b.id === 'bayla')!;
+    expect(poolsRoute(), "BAYLA's room opens on BAYLA").toBe(`/solana-lp?mint=${bayla.address}`);
+    expect(POOLS_SECTION.primaryTo).toBe(`/solana-lp?mint=${bayla.address}`);
+
+    window.localStorage.setItem('tegridy-bungalow', 'toweli');
+    expect(poolsRoute(), 'an Ethereum room keeps the tab as it opens for anyone').toBe('/solana-lp');
+  });
+});
+
+// Heat stays in the room (owner, 2026-10-17: "inside a room, Heat (top bar and phone bar)
+// should open that room's own page, like /bayla, instead of leaving for the venue home").
+describe('heatRoute', () => {
+  afterEach(() => {
+    window.localStorage.clear();
+  });
+
+  const heatWord = () => BAR_NAV.find((w) => w.label === 'Heat')!;
+  const roomsWord = () => BAR_NAV.find((w) => w.label === 'Rooms')!;
+
+  it("opens the room's own page inside a room, and the venue home elsewhere", () => {
+    expect(heatRoute()).toBe('/');
+    expect(heatWord().to).toBe('/');
+    window.localStorage.setItem('tegridy-bungalow', 'venue');
+    expect(heatWord().to, 'the venue sentinel is no room').toBe('/');
+    window.localStorage.setItem('tegridy-bungalow', 'bayla');
+    expect(heatWord().to, "BAYLA's room stays in BAYLA's room").toBe('/bayla');
+    window.localStorage.setItem('tegridy-bungalow', 'toweli');
+    expect(heatWord().to, "TOWELI's room stays in TOWELI's room").toBe('/toweli');
+  });
+
+  it("lights Heat on the room's own page, and Rooms on the hall, never both", () => {
+    window.localStorage.setItem('tegridy-bungalow', 'bayla');
+    expect(heatWord().lit('/bayla', '')).toBe(true);
+    expect(roomsWord().lit('/bayla', '')).toBe(false);
+    expect(litWord('/bayla')?.label).toBe('Heat');
+    expect(roomsWord().lit('/', '#hall')).toBe(true);
+    expect(heatWord().lit('/', '#hall')).toBe(false);
+    // Another room's door, seen from this room before its skin switches, is the hall's.
+    expect(roomsWord().lit('/pepe', '')).toBe(true);
+    expect(heatWord().lit('/pepe', '')).toBe(false);
+    for (const [path, hash] of [['/bayla', ''], ['/', '#hall'], ['/', ''], ['/earn/bayla', '']] as const) {
+      expect(BAR_NAV.filter((w) => w.lit(path, hash)).length, `${path}${hash}`).toBeLessThanOrEqual(1);
+    }
   });
 });

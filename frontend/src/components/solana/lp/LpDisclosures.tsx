@@ -20,7 +20,7 @@ import { LOCKED_SHARES_TEXT, solAbout, solExact } from './panelKit';
 const FORK_LINE =
   "Our pool program is Raydium's, with only its admin keys changed. Those changes have not had their own independent review yet. Put in only what you can afford to lose.";
 /**
- * The risk in one visible line (owner, 2026-10-13: fewer words, the rest one press away):
+ * The risk in one sentence (owner, 2026-10-17: off the page, first in every Risks drop-down):
  * what the team's vault can do with no waiting period, and that no outside firm has
  * checked our changes. Read on chain 2026-10-16; LpDisclosure's small print
  * (SolanaLpSection.tsx) says it in full, with the addresses. It names no change to the
@@ -86,8 +86,8 @@ export function LpBeforeYouAdd({
 }) {
   return (
     <div className="space-y-2" data-testid="lp-before-you-add">
-      {!reviewing && <p className="text-amber-300/90">{RISK_SHORT}</p>}
       <LpRisksDetails>
+        {!reviewing && <li>{RISK_SHORT}</li>}
         {!reviewing && <li>{FORK_LINE}</li>}
         {!reviewing && <li>{VAULT_LINE}</li>}
         <li>{PRICE_MOVES_LINE}</li>
@@ -165,8 +165,8 @@ export function LpBeforeYouOpen({
         : 'account deposits that never come back (the fee tiers list on this page has their amount)';
   return (
     <div className="space-y-2" data-testid="lp-before-you-open">
-      {!reviewing && <p className="text-amber-300/90">{RISK_SHORT}</p>}
       <LpRisksDetails>
+        {!reviewing && <li>{RISK_SHORT}</li>}
         {!reviewing && <li>{FORK_LINE}</li>}
         {!reviewing && <li>{CREATE_VAULT_LINE}</li>}
         <li>{MONEY_LINE}</li>
@@ -191,8 +191,8 @@ export function LpReviewDisclosure(p: { kind: 'add'; origin: 'launch-pool' | 'st
     <div className="space-y-1" data-testid="lp-review-disclosure" data-kind={p.kind}>
       {/* On a phone the review is two screens long and its button is at the end of it. */}
       <Notice>Read this through. The Sign in wallet button is at the end of it.</Notice>
-      <Notice tone="warn">{RISK_SHORT}</Notice>
       <FinePrint summary="Risks">
+        <p>{RISK_SHORT}</p>
         <p>{FORK_LINE}</p>
         <p>{p.kind === 'create' ? CREATE_VAULT_LINE : VAULT_LINE}</p>
         {p.kind === 'add' && p.origin === 'launch-pool' && <p>{LAUNCH_POOL_LINE}</p>}

@@ -85,6 +85,16 @@ export function tradeRoute(): string {
  * selected", BAYLA's pool in BAYLA's room), else the list of every pool. Read at render, like
  * tradeRoute. `/earn` itself stays the list, so each pool's "Back to Earn" still reaches it.
  */
+/**
+ * Where Pools opens: in a Solana room with a coin, the Solana LP tab already on that coin
+ * (owner, 2026-10-17: "the wiring for the pages inside the bayla bungalow is off"); with no
+ * room, the tab as it opens for anyone.
+ */
+export function poolsRoute(): string {
+  const active = getActiveBungalow();
+  return active && active.chain === 'solana' && active.address ? `/solana-lp?mint=${active.address}` : '/solana-lp';
+}
+
 export function lockRoute(): string {
   const active = getActiveBungalow();
   return active && isEarnPoolId(active.id) ? earnPoolPath(active.id) : EARN_PATH;
@@ -123,9 +133,12 @@ export const NAV_SECTIONS: NavSection[] = [
     // Providing liquidity: add/remove, Solana LP, the venue's own Solana AMM, and zap in.
     heading: 'Pools',
     hub: '/liquidity',
-    // Owner, 2026-10-03: "pools land on solana lp". The drawer row opens the Solana LP tab;
-    // the strip keeps its order, so the Ethereum form is the tab to its left.
-    primaryTo: '/solana-lp',
+    // Owner, 2026-10-03: "pools land on solana lp". The drawer row opens the Solana LP tab,
+    // on the room's coin inside a Solana room; the strip keeps its order, so the Ethereum
+    // form is the tab to its left.
+    get primaryTo() {
+      return poolsRoute();
+    },
     items: [
       { to: '/liquidity', label: 'Liquidity', tabLabel: 'Add / Remove' },
       // Ungated, like /pools: the page mounts its LP section only once the venue reads live.
@@ -255,6 +268,17 @@ export function isRoomDoor(pathname: string): boolean {
   return path === '/towelie' || BUNGALOWS.some((b) => `/${b.id}` === path);
 }
 
+/**
+ * Where Heat opens (owner, 2026-10-17: "inside a room, Heat should open that room's own page,
+ * like /bayla, instead of leaving for the venue home"): the room's door while a room is entered,
+ * the venue home otherwise. Read at render, as Lock's and Swap's are, so a skin switch moves it.
+ */
+export function heatRoute(): string {
+  const active = getActiveBungalow();
+  const door = active ? `/${active.id}` : null;
+  return door && isRoomDoor(door) ? door : '/';
+}
+
 function sectionWord(section: NavSection): BarWord {
   return {
     label: section.heading,
@@ -267,12 +291,25 @@ function sectionWord(section: NavSection): BarWord {
 
 /**
  * The bar, phone and wide screen alike (owner, 2026-10-03, the island's venue review item 1).
- * Heat is the home, where the read field is; Rooms is the home's hall of doors. Five is the
+ * Heat is the home, where the read field is, or inside a room that room's own page; Rooms is
+ * the home's hall of doors. Five is the
  * ceiling: a 44px tab and a 10px label at 390px.
  */
 export const BAR_NAV: readonly BarWord[] = [
-  { label: 'Heat', to: '/', lit: (pathname, hash) => pathname === '/' && hash !== HALL },
-  { label: 'Rooms', to: `/${HALL}`, lit: (pathname, hash) => (pathname === '/' && hash === HALL) || isRoomDoor(pathname) },
+  // Inside a room Heat is the room's own page, so it owns that door; Rooms keeps the hall
+  // and any other door.
+  {
+    label: 'Heat',
+    get to() {
+      return heatRoute();
+    },
+    lit: (pathname, hash) => (pathname === '/' && hash !== HALL) || (heatRoute() !== '/' && pathname.replace(/\/+$/, '') === heatRoute()),
+  },
+  {
+    label: 'Rooms',
+    to: `/${HALL}`,
+    lit: (pathname, hash) => (pathname === '/' && hash === HALL) || (isRoomDoor(pathname) && pathname.replace(/\/+$/, '') !== heatRoute()),
+  },
   sectionWord(LOCK_SECTION),
   sectionWord(LAUNCH_SECTION),
   sectionWord(SWAP_SECTION),

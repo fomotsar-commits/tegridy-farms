@@ -206,13 +206,11 @@ for (const vp of FIRST_SCREENS) {
       const box = await onFirstScreen(tasks.getByRole('button', { name, exact: true }), name);
       firstButtonTop = Math.min(firstButtonTop, box.y);
     }
-    // The risk notice is read on the way to them: it is on screen, above them.
-    const risk = (await page.getByTestId('lp-risk-line').boundingBox())!;
-    expect(risk.y, 'the risk line starts above the top of the screen').toBeGreaterThanOrEqual(0);
-    expect(risk.y + risk.height, 'the risk line is not above the three buttons').toBeLessThanOrEqual(firstButtonTop);
-    // So is the one line on earning (fees need no claim): under the risk line, above the buttons.
+    // No risk line on the page (owner, 2026-10-17: "remove this warning from everywhere"); its
+    // sentence leads the notice's Risks drop-down. The one line on earning is read on the way.
+    await expect(page.getByTestId('lp-risk-line')).toHaveCount(0);
     const earn = (await page.getByTestId('lp-earn-line').boundingBox())!;
-    expect(earn.y, 'the earn line is not under the risk line').toBeGreaterThanOrEqual(risk.y + risk.height);
+    expect(earn.y, 'the earn line starts above the top of the screen').toBeGreaterThanOrEqual(0);
     expect(earn.y + earn.height, 'the earn line is not above the three buttons').toBeLessThanOrEqual(firstButtonTop);
 
     // One press, and what comes next is on the screen: a site token to press, and the

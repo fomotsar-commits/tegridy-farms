@@ -11,7 +11,7 @@ import { safeGetItem } from '../../lib/storage';
 import { pageArt } from '../../lib/artConfig';
 import { getActiveBungalow, getBungalowIdentity, OPEN_BUNGALOWS_EVENT } from '../../lib/bungalows';
 import { useActiveBungalowId } from '../../hooks/useActiveBungalowId';
-import { isSolanaPage, isToweliRoomPage } from '../../lib/routeVoice';
+import { hasMixedSolanaSection, isSolanaPage, isToweliRoomPage } from '../../lib/routeVoice';
 import {
   cancelSolanaOpenRequest,
   requestSolanaOpen,
@@ -96,8 +96,9 @@ export const TopNav = React.memo(function TopNav() {
   const { isConnected } = useAccount();
   // On a page with a Solana section the wallet slot connects Solana, through that section's
   // own connection: the path answers while it loads, its provider after (lib/solanaSurface.ts).
-  const { surface: solana, openPending: solanaOpenPending, page: solanaHere } = useSolanaSurface();
-  const solanaPage = solanaHere || isSolanaPage(location.pathname, getBungalowIdentity());
+  const { surface: solana, openPending: solanaOpenPending, page: solanaHere, mixed: solanaMixed } = useSolanaSurface();
+  // A section on a page that connects Ethereum too (the home's cards) keeps the sheet below.
+  const solanaPage = (solanaHere && !solanaMixed) || isSolanaPage(location.pathname, getBungalowIdentity());
   // Everywhere else the slot opens the wallet sheet: Solana, or Ethereum (WalletSheet.tsx).
   const [walletSheetOpen, setWalletSheetOpen] = useState(false);
   const openWalletSheet = useCallback(() => setWalletSheetOpen(true), []);
@@ -297,8 +298,8 @@ export const TopNav = React.memo(function TopNav() {
               {({ account, chain, openAccountModal, openChainModal, openConnectModal, mounted }) => {
                 const connected = mounted && account && chain;
                 const wrongNetwork = Boolean(connected && chain.unsupported);
-                // The top bar's own Solana connection (TopBarSolana.tsx): this
-                // page has no Solana section, so `solana` can only be that one.
+                // The top bar's own Solana connection (TopBarSolana.tsx), or the
+                // connection of a section on a mixed page (the home's cards).
                 const solanaAddress = solana?.address ?? null;
                 return (
                   <div className="min-w-0" {...(!mounted && { 'aria-hidden': true, style: { opacity: 0, pointerEvents: 'none', userSelect: 'none' } })}>
@@ -346,7 +347,7 @@ export const TopNav = React.memo(function TopNav() {
               }}
             </ConnectButton.Custom>
             )}
-            <TopBarSolana solanaPage={solanaPage} />
+            <TopBarSolana solanaPage={solanaPage || hasMixedSolanaSection(location.pathname)} />
 
             {/* The admin kebab, only with the tegridy_admin flag. */}
             {showAdmin && (

@@ -8,6 +8,10 @@ page keeps the newest thirty days.
 
 ### 2026-10-17
 
+- Inside a room, Heat (top bar and phone bar) opens that room's own page, such as /bayla, instead of leaving for the venue home. Inside the BAYLA room (any Solana room): Pools opens Solana LP on BAYLA, the scanner offers "Try BAYLA" instead of TOWELI, and when Add SOL + BAYLA cannot open its form the card says "This pool's Add form was not opened", no longer "your position's pool".
+- Every pool card (Solana LP, Pools and the home): in view are the pool, what LPs keep and what the venue takes, whether swaps and withdrawals are open, the deposit check and Add. What the pool earned, its last 20 transactions, what each trade pays, its price and its address are under "More about this pool". A pool that charges a creator fee still shows the wallet it pays.
+- Solana LP, Pools and the home's liquidity card: the amber line about what the team's vault can do is no longer on the page or on the add, open and review forms. The same sentence, word for word, now leads each "Risks" drop-down.
+- The home page has three short cards in one row under the Heat reader: Swap (SOL to BAYLA), Lock BAYLA and Add SOL + BAYLA, the same forms as Swap, Earn and Solana LP with one wallet connection for all three; a phone stacks them. Lock BAYLA is the shortest: the lock lengths in one row, the amount and Lock, with Claim and manage linking to Earn. The two sentences under the headline moved into "How heat works".
 - One network drop-down on Swap, Pools and Launch: Ethereum, Base, Robinhood Chain, Solana. Swap and Pools run on Base and Robinhood Chain (Swap: our pools or Uniswap V2, whichever pays more); a network with nothing there is greyed, with why.
 - Lock, inside a bungalow, opens that bungalow's own pool; Back to Earn lists every pool.
 - Heat is the only number a person has here now. Points, the Venue Score, the Bronze, Silver and Gold tiers and the trading competitions are gone, with their pages, tabs and cards. An old /leaderboard link opens History and an old /competitions link opens Earn. A room whose reward vault is empty no longer prints a rate: it shows the vault and says it pays nothing until someone funds it.
@@ -328,33 +332,6 @@ page keeps the newest thirty days.
 
 - The launch gate's reading names the tier as the wallet's own, and its verdicts carry no em dash.
 - "Check graduation" no longer says a token has not graduated from a read it never made.
-
-### 2026-09-17
-
-- The venue opens straight to the page; the arrival film plays only from "Watch the arrival" on /island.
-- Leaving the BAYLA lock ladder early costs the time left over four years, capped at 75 percent.
-- A live reward rate on the BAYLA lock ladder can no longer be lowered.
-- The lock ladder card shows no APR, states its reward window honestly, and promises nothing it cannot prove.
-- "Nothing to claim" is no longer shown over revenue balances that were never read.
-- The USDT approval reset now happens when it is needed, not skipped on an unread allowance.
-- The staking runway is no longer invented from a failed read.
-- An ended LP reward period no longer reads as a live 0.00% APR on /farm.
-- The liquidity card no longer says "Confirmed" after an approval, before the real action is sent.
-- A Gold Card membership that could not be read is no longer sold back to its owner on /premium.
-- "Not enough TOWELI" is no longer said about a balance nobody read.
-- Nakamigos: an unread listings feed no longer shows as a healthy empty market.
-- The NFT pool owner's panel no longer hides a queued timelock change behind an unread value.
-- Pool volume is no longer printed from an unread fee rate, and /treasury no longer shows a 0.00% POL share from an unread LP supply.
-- The home page's /swap card stops describing one pair on one route.
-- An unread input no longer tells a staker they are a Seedling on the score card.
-- Nakamigos: a listings set from one venue no longer speaks for the whole market.
-- Nakamigos: an unread listings source no longer reads as an empty market.
-- An unread staking, LP or referral read no longer shrinks your points.
-- The arrival curtain keeps its time budget even when the page is busy.
-- The zap planner checks your wallet's chain against the pool's, not against itself.
-- A Connect Wallet button with no wallet modal to open is disabled.
-- The launchpad no longer arms Mint or names a sale phase from an unread sale state.
-- The token picker and token detail dialogs keep focus and scroll lock steady while the page re-renders.
 
 ## Earlier
 

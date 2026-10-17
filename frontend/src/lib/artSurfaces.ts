@@ -184,6 +184,8 @@ export const SURFACES: Surface[] = [
   // surface on the site was unregistered and unplaceable in either studio until
   // 2026-09-13, even though artOverrides.ts has carried a pick for it all along.
   { group: 'Home', pageId: 'venue-home', idx: 0, label: 'H0 — Venue hero bg (non-bungalow)' },
+  // The venue home's cards (owner, 2026-10-16): swap and stake wear their own pages' art; this is the LP card's.
+  { group: 'Home', pageId: 'venue-home', idx: 1, label: 'Venue home: Add SOL + BAYLA card' },
 
   // Dashboard (14)
   { group: 'Dashboard', pageId: 'dashboard', idx: 0, label: 'D1 — BG disconnected' },
@@ -762,7 +764,6 @@ export const SURFACES: Surface[] = [
   { group: 'Pools · Solana LP', pageId: 'solana-lp', idx: 7, label: 'Pool card (after a lookup, one per pool found)' },
   { group: 'Pools · Solana LP', pageId: 'solana-lp', idx: 8, label: 'Pool not read card (after a lookup, a pool that could not be r…)' },
   { group: 'Pools · Solana LP', pageId: 'solana-lp', idx: 9, label: 'Open a pool card (after a lookup, liquidity writes on)' },
-  { group: 'Pools · Solana LP', pageId: 'solana-lp', idx: 10, label: 'Risk line above the forms' },
   { group: 'Pools · Solana LP', pageId: 'solana-lp', idx: 13, label: 'All pools card (every pool on the venue, before a lookup)' },
   { group: 'Pools · Solana LP', pageId: 'venue-amm', idx: 0, label: 'Venue status card' },
   { group: 'Pools · Solana LP', pageId: 'venue-amm', idx: 1, label: 'The program card' },

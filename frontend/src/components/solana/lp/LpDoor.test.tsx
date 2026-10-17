@@ -164,6 +164,174 @@ beforeEach(() => {
   }));
 });
 
+// THE HOME CARD (owner, 2026-10-16: "stake with the module and provide lp with the module so
+// people can right away do these things"). The same section on '/', on one pool, short: its
+// Add buttons ready, no form opened by itself (an open form takes focus and the screen, and
+// the home's first screen is the heat reader's), and the home's address is not the Pools tab's.
+describe('the home card', () => {
+  function mountHome(r: LpReaders, path: string, pool: string) {
+    const writes: LpWritesOverrides = { mode: 'on', load: vi.fn(async () => fakeLpApi()), gateRpc: unusedGateRpc };
+    render(
+      <MemoryRouter initialEntries={[path]}>
+        <Where />
+        <LpInner readers={r} writes={writes} home={{ mint: M, pool }} />
+      </MemoryRouter>,
+    );
+  }
+
+  it('shows its pool alone, short, with both Add buttons, and opens nothing or moves nothing by itself', async () => {
+    const sol = view();
+    const usdc = view({ quote: USDC_QUOTE, q: 100_000n * 10n ** 6n });
+    const r = readers([usdc, sol]);
+    mountHome(r, '/', sol.address);
+    const card = await waitFor(() => cardOf(sol.address));
+    await within(card).findByRole('button', { name: 'Add with one coin' });
+    expect(screen.getAllByTestId('lp-pool')).toHaveLength(1);
+    // A screen reader hears of the one pool shown, not "2 pools found".
+    expect(screen.getByTestId('lp-status')).toHaveTextContent(/^The pool was read\.$/);
+    expect(within(card).getByRole('button', { name: 'Add liquidity' })).toBeInTheDocument();
+    // Its pool is read with the lookup, whatever the index lists.
+    expect(r.findPools).toHaveBeenCalledWith(expect.anything(), [sol.address]);
+    // How LPs earn and what the venue takes, in view; the price and the rest a press away.
+    expect(within(card).getByTestId('lp-pool-split')).toHaveTextContent(/^LPs keep [\d.]+% of each trade, the venue [\d.]+%\.$/);
+    expect(within(card).getByTestId('lp-pool-more')).not.toHaveAttribute('open');
+    expect(within(within(card).getByTestId('lp-pool-more')).getByText('Price')).toBeInTheDocument();
+    // Nothing to search with, nothing else to open, no clean token card.
+    expect(screen.queryByTestId('lp-tasks')).toBeNull();
+    expect(screen.queryByRole('textbox', { name: /Token mint address/ })).toBeNull();
+    expect(screen.queryByTestId('lp-create')).toBeNull();
+    expect(screen.queryByTestId('token-safety')).toBeNull();
+    // Swaps and withdrawals both open: one line, and no reassurance line under the buttons.
+    expect(within(card).getByTestId('lp-pool-open')).toHaveTextContent('Swaps and withdrawals open');
+    expect(within(card).queryByText('Checks run again on fresh reads when you press Review.')).toBeNull();
+    await new Promise((res) => setTimeout(res, 50));
+    expect(screen.queryByTestId('lp-one-coin-panel')).toBeNull();
+    expect(screen.queryByTestId('lp-add-panel')).toBeNull();
+    expect(Element.prototype.scrollIntoView).not.toHaveBeenCalled();
+    expect(where).toBe('');
+  });
+
+  it('one press on Add with one coin opens its form on that pool', async () => {
+    const sol = view();
+    mountHome(readers([sol]), '/', sol.address);
+    const card = await waitFor(() => cardOf(sol.address));
+    fireEvent.click(await within(card).findByRole('button', { name: 'Add with one coin' }));
+    expect(card).toContainElement(await screen.findByTestId('lp-one-coin-panel'));
+  });
+
+  it('reads no token or task from the address', async () => {
+    const sol = view();
+    const r = readers([sol]);
+    const other = key().toBase58();
+    mountHome(r, `/?mint=${other}&task=add`, sol.address);
+    await waitFor(() => cardOf(sol.address));
+    const looked = vi.mocked(r.findPools).mock.calls.map((c) => c[0].toBase58());
+    expect(looked.length).toBeGreaterThan(0);
+    expect(looked.every((m) => m === M)).toBe(true);
+    expect(screen.queryByTestId('lp-one-coin-panel')).toBeNull();
+    expect(where).toBe(`?mint=${other}&task=add`);
+  });
+
+  it('keeps the actions and leaves every pool, the rates and the routes to the tabs', async () => {
+    const sol = view();
+    mountHome(readers([sol], { kind: 'ok', list: { pools: [sol], unread: 0, truncated: false, chainNow: null } }), '/', sol.address);
+    await waitFor(() => cardOf(sol.address));
+    // No risk line on the page (owner, 2026-10-17): its sentence leads the closed Risks drop-down.
+    expect(screen.queryByTestId('lp-risk-line')).toBeNull();
+    // The full notice is one closed drop-down, with no card or Pool program row around it.
+    const notice = screen.getByTestId('lp-disclosure');
+    expect(within(notice).getByText(RISK_SHORT).closest('details')).not.toHaveAttribute('open');
+    expect(within(notice).getByText('Risks')).toBeInTheDocument();
+    expect(within(notice).queryByText('Pool program')).toBeNull();
+    expect(within(notice).queryByRole('heading')).toBeNull();
+    // No Your positions card: each Add form carries its own Connect.
+    expect(screen.queryByRole('heading', { name: 'Your positions' })).toBeNull();
+    expect(screen.queryByTestId('lp-all-pools')).toBeNull();
+    expect(screen.queryByTestId('fee-tiers')).toBeNull();
+    expect(screen.queryByTestId('lp-routes')).toBeNull();
+  });
+
+  it('a token check that found anything still shows its card', async () => {
+    const sol = view();
+    const r = readers([sol]);
+    r.safety = vi.fn(async () => new Map([[M, { ...okToken, verdict: 'warn' as const }]]));
+    mountHome(r, '/', sol.address);
+    await waitFor(() => cardOf(sol.address));
+    expect(screen.getByTestId('token-safety')).toHaveAttribute('data-verdict', 'warn');
+  });
+
+  it('a token that could not be read is one line, and nothing is called checked', async () => {
+    const sol = view();
+    const r = readers([sol]);
+    r.safety = vi.fn(async () => new Map([[M, { kind: 'unread' as const, mint: M, detail: 'HTTP 429' }]]));
+    mountHome(r, '/', sol.address);
+    const line = await screen.findByTestId('token-safety');
+    expect(line).toHaveAttribute('data-verdict', 'unread');
+    expect(line).toHaveTextContent('This token could not be read just now, so nothing on this card counts as checked.');
+    expect(screen.queryByText('Copy the mint address')).toBeNull();
+  });
+
+  // Owner, 2026-10-16: "the add lp doesnt even show how to add". A failed read never strands the card.
+  it('a pool read that failed tries again by itself, and offers Read again and the Solana LP tab meanwhile', async () => {
+    const sol = view();
+    const r = readers([sol]);
+    const ok = search([sol]);
+    let calls = 0;
+    r.findPools = vi.fn(async () => (++calls === 1 ? { kind: 'unread' as const, detail: 'HTTP 429', index: { kind: 'unread' as const, detail: 'HTTP 429' } } : ok)) as LpReaders['findPools'];
+    mountHome(r, '/', sol.address);
+    const stuck = await screen.findByTestId('lp-only-unread');
+    expect(within(stuck).getByRole('button', { name: 'Read again' })).toBeInTheDocument();
+    expect(within(stuck).getByRole('link', { name: 'Add on the Solana LP tab' })).toHaveAttribute('href', `/solana-lp?mint=${M}&task=add&pool=${sol.address}`);
+    // No press: the card reads again on its own and its Add buttons arrive.
+    const card = await screen.findByTestId('lp-pool', {}, { timeout: 6_000 });
+    expect(await within(card).findByRole('button', { name: 'Add with one coin' })).toBeInTheDocument();
+    expect(screen.queryByTestId('lp-only-unread')).toBeNull();
+  }, 15_000);
+
+  it('a token and a pool that both did not read offer the way on once', async () => {
+    const sol = view();
+    const r = readers([sol]);
+    r.safety = vi.fn(async () => new Map([[M, { kind: 'unread' as const, mint: M, detail: 'HTTP 429' }]]));
+    r.findPools = vi.fn(async () => ({ kind: 'unread' as const, detail: 'HTTP 429', index: { kind: 'unread' as const, detail: 'HTTP 429' } })) as LpReaders['findPools'];
+    mountHome(r, '/', sol.address);
+    await screen.findByTestId('lp-only-unread');
+    expect(screen.getAllByTestId('lp-only-way-on')).toHaveLength(1);
+  });
+
+  it('an outside price that could not be read tries again by itself, and offers the way on meanwhile', async () => {
+    const sol = view();
+    const r = readers([sol]);
+    let calls = 0;
+    r.outsidePrice = vi.fn(async (mint: string) =>
+      mint === M && ++calls === 1
+        ? { kind: 'unread' as const, detail: 'Jupiter did not give a price (HTTP 429)' }
+        : { kind: 'ok' as const, solPerToken: mint === M ? 0.01 : 1, source: 'Jupiter' as const }) as LpReaders['outsidePrice'];
+    mountHome(r, '/', sol.address);
+    const row = await screen.findByTestId('lp-only-way-on');
+    expect(within(row).getByRole('link', { name: 'Add on the Solana LP tab' })).toBeInTheDocument();
+    const card = await waitFor(() => cardOf(sol.address));
+    expect(await within(card).findByRole('button', { name: 'Add with one coin' }, { timeout: 6_000 })).toBeInTheDocument();
+    expect(screen.queryByTestId('lp-only-way-on')).toBeNull();
+  }, 15_000);
+
+  it('Read again reads again at once', async () => {
+    const sol = view();
+    const r = readers([sol]);
+    r.findPools = vi.fn(async () => ({ kind: 'unread' as const, detail: 'HTTP 429', index: { kind: 'unread' as const, detail: 'HTTP 429' } })) as LpReaders['findPools'];
+    mountHome(r, '/', sol.address);
+    fireEvent.click(within(await screen.findByTestId('lp-only-unread')).getByRole('button', { name: 'Read again' }));
+    await waitFor(() => expect(vi.mocked(r.findPools).mock.calls.length).toBeGreaterThanOrEqual(2));
+  });
+
+  it('a pool that did not read says so, and shows no other pool in its place', async () => {
+    const usdc = view({ quote: USDC_QUOTE });
+    mountHome(readers([usdc]), '/', key().toBase58());
+    expect(await screen.findByTestId('lp-only-unread')).toHaveTextContent('The pool could not be read just now.');
+    expect(screen.getByTestId('lp-status')).toHaveTextContent(/^The pool could not be read\.$/);
+    expect(screen.queryByTestId('lp-pool')).toBeNull();
+  });
+});
+
 describe('the door’s link', () => {
   it('?task=add&pool= opens Add with one coin on that pool by itself, then leaves the address', async () => {
     const sol = view();
@@ -214,11 +382,14 @@ describe('the screen the door opens', () => {
     return panel;
   }
 
-  it('says what the share is in one sentence, and the risk line sits under the button', async () => {
+  it('says what the share is in one sentence, and the vault risk is one closed Risks under the button', async () => {
     const panel = await door();
     expect(within(panel).getByTestId('lp-one-what')).toHaveTextContent('A share of the CORN/SOL pool and its fee on every trade. Withdraw any time. No lock.');
     const review = within(panel).getByRole('button', { name: 'Review: add with one coin' });
+    // Off the page (owner, 2026-10-17: "remove this warning from everywhere"), one press away.
     const risk = within(panel).getByTestId('lp-one-risk');
+    expect(risk.tagName).toBe('DETAILS');
+    expect(risk).not.toHaveAttribute('open');
     expect(risk).toHaveTextContent(RISK_SHORT);
     expect(review.compareDocumentPosition(risk) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     // The two signatures are named before the first press.
@@ -288,5 +459,32 @@ describe('the landing', () => {
     mount(r, '/solana-lp');
     const card = await screen.findByTestId('lp-position');
     expect(card).not.toHaveAttribute('data-landed');
+  });
+});
+
+// A door visitor may hold nothing (owner, 2026-10-17, walking the BAYLA room): when the door's
+// pool cannot open its form, the card says "this pool", never "your position's pool".
+describe('the door names no position', () => {
+  it('a door whose pool cannot open its form says why without calling it your position', async () => {
+    const sol = view();
+    const r = readers([sol]);
+    r.outsidePrice = vi.fn(async () => ({ kind: 'unread' as const, detail: 'HTTP 429' })) as LpReaders['outsidePrice'];
+    mount(r, `/solana-lp?mint=${M}&task=add&pool=${sol.address}`);
+    // Waited for: the reason settles once the gate and the pool's checks have both answered.
+    await waitFor(() => expect(screen.getByTestId('lp-wish-why')).toHaveTextContent(/^This pool’s Add form was not opened:/), { timeout: 8_000 });
+    // And after the card has spent the wish (CI, 2026-10-17: the line flipped back to "your
+    // position's pool" once the live wish was gone): the line keeps where it came from.
+    await new Promise((res) => setTimeout(res, 600));
+    expect(screen.getByTestId('lp-wish-why')).toHaveTextContent(/^This pool’s Add form was not opened:/);
+    expect(screen.getByTestId('lp-wish-why')).not.toHaveTextContent(/your position/);
+  });
+
+  it('a door to a pool that did not read says "this pool", not your position', async () => {
+    const usdc = view({ quote: USDC_QUOTE });
+    const missing = key().toBase58();
+    mount(readers([usdc]), `/solana-lp?mint=${M}&task=add&pool=${missing}`);
+    const line = await screen.findByTestId('lp-wish-unfound');
+    expect(line).toHaveTextContent(`This pool (${missing}) did not read as a pool for this token just now`);
+    expect(line).not.toHaveTextContent(/your position/i);
   });
 });

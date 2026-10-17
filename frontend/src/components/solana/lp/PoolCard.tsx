@@ -210,16 +210,25 @@ function notOpenedWhy(offer: DepositOffer, health: PoolHealth): string {
 
 /** The wish number this card was last shown for (`useShownOnce`), kept after the wish is spent. */
 function useShownFor(showNow: number): number {
-  const [shownFor, setShownFor] = useState(0);
-  // Adjusted during render, so the line is on the page before the heading takes focus.
-  if (showNow && showNow !== shownFor) setShownFor(showNow);
-  return shownFor;
+  return useShownWish(showNow, false).shownFor;
 }
 
-function WishWhy({ id, why }: { id: string; why: string }) {
+/**
+ * The same, with whether that wish came from the LP door, latched with it: the wish is spent
+ * once the card acts on it, and its `door` with it, while the line stays on the card. Read
+ * from the live wish, a door's line turned back into "your position's pool" a moment later.
+ */
+function useShownWish(showNow: number, fromDoor: boolean): { shownFor: number; door: boolean } {
+  const [shown, setShown] = useState({ shownFor: 0, door: false });
+  // Adjusted during render, so the line is on the page before the heading takes focus.
+  if (showNow && showNow !== shown.shownFor) setShown({ shownFor: showNow, door: fromDoor });
+  return shown;
+}
+
+function WishWhy({ id, why, fromDoor = false }: { id: string; why: string; fromDoor?: boolean }) {
   return (
     <div id={id} data-testid="lp-wish-why" className="mb-2 text-[12px] leading-relaxed">
-      <Notice tone="warn">This is your position’s pool. Its Add form was not opened: {why}</Notice>
+      <Notice tone="warn">{fromDoor ? 'This pool’s' : 'This is your position’s pool. Its'} Add form was not opened: {why}</Notice>
     </div>
   );
 }
@@ -235,7 +244,10 @@ export function PoolCard({
   openForm,
   showNow = 0,
   onActed,
+  fromDoor = false,
 }: {
+  /** The wish this card shows a reason for came from the LP door, not a position (LpWish `door`). */
+  fromDoor?: boolean;
   view: PoolView;
   health: PoolHealth;
   tokenDecimals: number | null;
@@ -257,7 +269,7 @@ export function PoolCard({
   const cardRef = useRef<HTMLLIElement | null>(null);
   const headingRef = useRef<HTMLHeadingElement | null>(null);
   useShownOnce(showNow, onActed, cardRef, headingRef);
-  const shownFor = useShownFor(showNow);
+  const { shownFor, door: shownFromDoor } = useShownWish(showNow, fromDoor);
   const whyId = useId();
   const writes = useLpWrites();
   const offer: DepositOffer = writes
@@ -282,39 +294,16 @@ export function PoolCard({
   const explorer = explorerOf(writes);
   // The wallet a creator fee is paid to stays in view whenever this pool charges one.
   const openedBy = <AddressRow label="Opened by" value={pool.poolCreator} explorerUrl={explorer(pool.poolCreator)} />;
-
-  // In the order a visitor asks: which pool, its price, what it has earned, what a trade
-  // pays and to whom, whether it can be used, then its accounts.
-  return (
-    <li
-      ref={cardRef}
-      className={`${CARD} isolate`}
-      style={CARD_STYLE}
-      data-testid="lp-pool"
-      data-pool={view.address}
-      data-origin={view.origin}
-      data-quote={view.quote.symbol}
-      data-swaps={health.swaps.state}
-      data-withdrawals={health.withdrawals}
-      data-deposits={health.deposits.verdict}
-      data-price={price.state}
-      data-add={offer}
-    >
-      <CardArt pageId="solana-lp" idx={7} />
-      {/* Named as a position names its pool (identity.ts): the registry's symbol, the pairing coin, the tier. */}
-      <h3 ref={headingRef} tabIndex={-1} aria-describedby={why ? whyId : undefined} className="text-white font-semibold text-[15px] mb-1 outline-none [overflow-wrap:anywhere]" style={SHADOW}>
-        {pairLabel(view)}
-      </h3>
-      {why && <WishWhy id={whyId} why={why} />}
-      {isCreatedPool(view.address) && (
-        <p className="text-emerald-300/90 text-[12px] mt-2" data-testid="lp-opened-here">
-          You opened this pool just now. Your share is under &apos;Your positions&apos;.
-        </p>
-      )}
-      <div className="text-[11px] mb-3">
-        <AddressRow label="Pool address" value={view.address} explorerUrl={explorer(view.address)} />
-      </div>
-      <div className="text-white/60 text-[11px] leading-relaxed space-y-3">
+  const splitText = split
+    ? `LPs keep ${split.lpKeepsPct.toFixed(3)}% of each trade, the venue ${split.venueTakesPct.toFixed(3)}%${creatorRate > 0n ? `, the pool's creator ${ratePercent(creatorRate).toFixed(3)}%` : ''}`
+    : null;
+  const address = (
+    <div className="text-[11px] mb-3">
+      <AddressRow label="Pool address" value={view.address} explorerUrl={explorer(view.address)} />
+    </div>
+  );
+  const facts = (
+    <>
         <Part title="Price">
           <Row label="In the pool" value={`${quoteText(view.quoteReserve, view.quote)} and ${tokenText(view.tokenReserve, tokenDecimals, unit.many)}`} mono={false} />
           <PriceRows price={price} quote={view.quote} unit={unit.one} />
@@ -345,15 +334,11 @@ export function PoolCard({
             <>
               {/* What a trade on THIS pool costs: its tier's trade fee, plus the creator fee when the pool's own switch is on. */}
               <Row label={`Fee tier ${cfg.index}`} value={`Traders pay ${tradeCostText(cfg, pool.enableCreatorFee)}`} mono={false} />
-              <Row
-                label="Of that fee"
-                value={`LPs keep ${split.lpKeepsPct.toFixed(3)}% of each trade, the venue ${split.venueTakesPct.toFixed(3)}%${creatorRate > 0n ? `, the pool's creator ${ratePercent(creatorRate).toFixed(3)}%` : ''}`}
-                mono={false}
-              />
+              <Row label="Of that fee" value={splitText!} mono={false} />
               {creatorRate > 0n && (
                 <Row
                   label="Creator fee"
-                  value={`${feeRateText(creatorRate)} a trade on top of the trade fee, paid to the wallet that opened this pool (Opened by, below), not to LPs`}
+                  value={`${feeRateText(creatorRate)} a trade on top of the trade fee, paid to the wallet that opened this pool (Opened by, on this card), not to LPs`}
                   mono={false}
                 />
               )}
@@ -366,12 +351,58 @@ export function PoolCard({
           {pool.enableCreatorFee && (
             <Row label="Creator’s fee, not collected yet" value={`${quoteText(quoteFees[1]!, view.quote)} and ${tokenText(tokFees[1]!, tokenDecimals, unit.many)}`} mono={false} />
           )}
-          {creatorRate > 0n && openedBy}
         </Part>
+    </>
+  );
+
+  // In the order a visitor asks, and only that in view (owner, 2026-10-17: "i dont want people
+  // to see too much text unless they want to"): which pool, how its fee splits (what LPs keep,
+  // what the venue takes), whether it can be used, and Add. Its price, what it earned, what a
+  // trade pays and its address are under More about this pool, word for word.
+  return (
+    <li
+      ref={cardRef}
+      className={`${CARD} isolate`}
+      style={CARD_STYLE}
+      data-testid="lp-pool"
+      data-pool={view.address}
+      data-origin={view.origin}
+      data-quote={view.quote.symbol}
+      data-swaps={health.swaps.state}
+      data-withdrawals={health.withdrawals}
+      data-deposits={health.deposits.verdict}
+      data-price={price.state}
+      data-add={offer}
+    >
+      <CardArt pageId="solana-lp" idx={7} />
+      {/* Named as a position names its pool (identity.ts): the registry's symbol, the pairing coin, the tier. */}
+      <h3 ref={headingRef} tabIndex={-1} aria-describedby={why ? whyId : undefined} className="text-white font-semibold text-[15px] mb-1 outline-none [overflow-wrap:anywhere]" style={SHADOW}>
+        {pairLabel(view)}
+      </h3>
+      {why && <WishWhy id={whyId} why={why} fromDoor={shownFromDoor} />}
+      {isCreatedPool(view.address) && (
+        <p className="text-emerald-300/90 text-[12px] mt-2" data-testid="lp-opened-here">
+          You opened this pool just now. Your share is under &apos;Your positions&apos;.
+        </p>
+      )}
+      <div className="text-white/60 text-[11px] leading-relaxed space-y-3">
+        {/* How LPs earn and what the venue takes stays in view (owner, 2026-10-09). */}
+        <p data-testid="lp-pool-split" className="text-white/85 text-[12px]">
+          {splitText ? `${splitText}.` : 'This pool’s fee settings could not be read.'}
+        </p>
+        {/* A creator fee goes to a third party: the wallet it is paid to stays in view (owner, 2026-10-10). */}
+        {creatorRate > 0n && openedBy}
 
         <Part title="Trading and deposits">
-          <Row label="Swaps" value={swaps.text} mono={false} />
-          <Row label="Withdrawals" value={withdrawalsText(health.withdrawals, view.quote)} mono={false} />
+          {swaps.tone === 'good' && health.withdrawals === 'open' ? (
+            // Both as they should be: one line. Anything else gets its own row.
+            <p data-testid="lp-pool-open" className="text-white/70 text-[12px]">Swaps and withdrawals open</p>
+          ) : (
+            <>
+              <Row label="Swaps" value={swaps.text} mono={false} />
+              <Row label="Withdrawals" value={withdrawalsText(health.withdrawals, view.quote)} mono={false} />
+            </>
+          )}
           <div data-testid="lp-pool-deposits">
             <p className={`text-[12px] font-semibold ${depositsHead.tone}`}>{depositsHead.title}</p>
             {health.deposits.reasons.map((r) => (
@@ -397,6 +428,10 @@ export function PoolCard({
         <details data-testid="lp-pool-more" className="rounded-lg" style={{ border: '1px solid rgba(255,255,255,0.08)' }}>
           <summary className="min-h-[44px] flex items-center px-3 cursor-pointer text-white/75 text-[12px]">More about this pool</summary>
           <div className="space-y-2 px-3 pb-3">
+            <div className="space-y-3 pb-1">
+              {address}
+              {facts}
+            </div>
             <p>{ORIGIN_LABEL[view.origin]}</p>
             {!writes && health.deposits.verdict === 'allowed' && <p>These checks will run again before any deposit.</p>}
             <AddressRow label="Token" value={view.tokenMint} explorerUrl={explorer(view.tokenMint)} />
@@ -585,7 +620,7 @@ function DepositOfferBlock({
             </button>
           </div>
           {(blockedByOther || blockedOne) && <Notice>Finish or close the open liquidity panel first.</Notice>}
-          <Notice>Checks run again on fresh reads when you press Review.</Notice>
+          {/* The checks run again at Review, where they are said; nothing about them here (owner, 2026-10-17). */}
         </>
       )}
       {panel}

@@ -183,7 +183,8 @@ describe('Add liquidity', () => {
     const c = await card();
     expect(await within(c).findByRole('button', { name: 'Add liquidity' })).toBeInTheDocument();
     expect(c).toHaveAttribute('data-add', 'offer');
-    expect(within(c).getByText('Checks run again on fresh reads when you press Review.')).toBeInTheDocument();
+    // The checks are said at Review, where they run; nothing about them under the buttons (owner, 2026-10-17).
+    expect(within(c).queryByText('Checks run again on fresh reads when you press Review.')).toBeNull();
     expect(screen.getByTestId('lp-disclosure')).toHaveTextContent(/Opening a pool, adding and removing liquidity here send real transactions/);
     expect(screen.getByTestId('lp-disclosure')).not.toHaveTextContent(/only reads/);
     // A clean token at the market price: the same green pass as ever, and no warning anywhere.

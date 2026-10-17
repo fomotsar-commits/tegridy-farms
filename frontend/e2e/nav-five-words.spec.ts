@@ -48,7 +48,8 @@ for (const size of SIZES) {
       test.slow();
       const expectLit: Record<string, string[]> = {
         '/': ['Heat'],
-        '/bayla': ['Rooms'],
+        // Entering BAYLA's room makes Heat her room's own page (owner, 2026-10-17).
+        '/bayla': ['Heat'],
         '/earn': ['Lock'],
         '/launch': ['Launch'],
         '/swap': ['Swap'],

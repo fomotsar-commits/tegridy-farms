@@ -39,7 +39,7 @@ import { shortenAddress } from '../lib/formatting';
 import { safeGetItem, safeSetItem } from '../lib/storage';
 import { bungalowTradeBlurb, getBungalowIdentity, stakePoolMembersOnly, TOWELI_HERO } from '../lib/bungalows';
 import { arrivalVoice, VENUE, OPEN_VENUE_WELCOME_EVENT } from '../lib/arrival';
-import { VenueHero } from '../components/VenueHero';
+import { VenueCards, VenueHero, VenueHeroFooter } from '../components/VenueHero';
 import { HeatCard } from '../components/HeatCard';
 import { VenueDoors } from '../components/VenueDoors';
 import { ThreePaths } from '../components/ThreePaths';
@@ -471,6 +471,15 @@ export default function HomePage() {
                 which chains this venue is on, and the island's ruling names
                 them as staying. */}
           </m.div>
+
+          {/* The venue's cards, swap, stake and add liquidity (owner, 2026-10-16), in a row of
+              their own under the hero, then the hero's tour and island line. */}
+          {!bungalowIdentity && !isToweliArrival && (
+            <>
+              <VenueCards />
+              <VenueHeroFooter />
+            </>
+          )}
 
           {/* Wallet-less yield calculator for first-time visitors.
               Only shown when disconnected — once they connect, the live stats

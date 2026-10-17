@@ -39,7 +39,11 @@ const PHONE = 390;
  *  team's vault can pause removing. Here the list's read fails (no pool index behind a
  *  local build), so its "could not be read" line stands where pool rows would. */
 const BUDGET: Record<string, { desktop: number; phone: number }> = {
-  '/': { desktop: 200, phone: 200 },
+  // Raised 2026-10-16 for the cards the owner asked for on the home (stake BAYLA, add SOL + BAYLA:
+  // "put the bayla staking module and the lp pool module here on the homepage"): 373 measured on the
+  // desktop with both drawn, 220 of them the cards' (238 when the LP card waits on the venue's read),
+  // after the hero's two sentences went into How heat works. 200 / 200 before them.
+  '/': { desktop: 410, phone: 410 },
   '/earn': { desktop: 140, phone: 125 },
   '/liquidity': { desktop: 140, phone: 140 },
   // Raised 2026-10-15 for the All pools card the owner kept (220 / 215 before it).
