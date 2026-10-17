@@ -1,12 +1,17 @@
-name: Error Retention
+name: Data Retention
 
-# Deletes error reports more than 30 days old from the error_events table, every hour.
+# Every hour: deletes error reports more than 30 days old from the error_events table, and
+# analytics events more than 90 days old from the analytics_events table.
 #
-# WHY: the owner's decision of 2026-10-02, and the Privacy page's words (sections 3 and 5
-# and the notice at its top): an error report is kept for 30 days and then deleted
-# automatically. "Automatically" has to hold when no new report arrives, so the delete
-# runs on a clock here. api/errors.js also runs it after a stored batch, at most once an
-# hour per instance, as a backstop for when this schedule is late or GitHub is down.
+# WHY: the owner's decisions of 2026-10-02 (error reports, 30 days) and 2026-10-03
+# (analytics events, 90 days), and the Privacy page's words (sections 3 and 5): each is
+# kept that long and then deleted automatically. "Automatically" has to hold when nothing
+# new arrives, so the delete runs on a clock here. api/errors.js and api/analytics.js also
+# purge their own table after a stored batch, at most once an hour per instance, as a
+# backstop for when this schedule is late or GitHub is down.
+#
+# The file keeps its first name, error-retention.yml: GitHub's run history and the GitLab
+# exclusion list (src/test/gitlabCi.test.ts) are keyed on it.
 #
 # WHY HERE, AND NOT A VERCEL CRON OR pg_cron: this repo has no Vercel cron, no CRON_SECRET
 # and no pg_cron. It does have scheduled GitHub workflows, watched by the `github-crons`
@@ -15,11 +20,13 @@ name: Error Retention
 # nothing new, and no new public route exists to attack.
 #
 # Hourly, though the job is daily in spirit: GitHub drops and delays scheduled runs, and
-# each run is a few seconds. A row is gone within about an hour of turning 30 days old.
+# each run is a few seconds. A row is gone within about an hour of passing its retention.
 #
-# RED MEANS SOMETHING WAS NOT DELETED. Missing secrets, a refused key, a server error or
-# no answer all fail the run, and GitHub mails the owner. The one green run that deletes
-# nothing on purpose is the table not existing yet (before migration 026).
+# RED MEANS SOMETHING WAS NOT DELETED. Missing secrets, a refused key, a key with no DELETE
+# on a table (analytics_events before migration 027), a server error or no answer all fail
+# the run, and GitHub mails the owner. Both tables are tried on every run, so one failing
+# never stops the other. The one green run that deletes nothing on purpose is a table not
+# existing yet (error_events before migration 026, analytics_events before 013).
 #
 # The script imports nothing from node_modules, so there is no npm install and no third
 # party code runs next to the service key.
@@ -48,9 +55,9 @@ jobs:
         with:
           node-version: 24
 
-      - name: Delete error reports older than 30 days
+      - name: Delete error reports older than 30 days and analytics events older than 90 days
         shell: bash
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
-        run: node frontend/scripts/purge-error-events.mjs
+        run: node frontend/scripts/purge-expired-events.mjs

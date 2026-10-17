@@ -25,7 +25,7 @@ const EXCLUDED: Record<string, string> = {
   'revenue-watch.yml': 'Schedule only; off GitHub the ops scheduler runs it, not GitLab CI.',
   'synthetic-monitor.yml': 'Schedule only; off GitHub the ops scheduler runs it, not GitLab CI.',
   'supabase-backup.yml': 'Schedule only, and it holds secrets, which this runner never gets; off GitHub the ops scheduler runs it.',
-  'error-retention.yml': 'Schedule only, and it holds the Supabase service key, which this runner never gets; off GitHub api/errors.js purges after each stored report.',
+  'error-retention.yml': 'Schedule only, and it holds the Supabase service key, which this runner never gets; off GitHub api/errors.js and api/analytics.js purge after a stored batch.',
   'contracts-coverage.yml': 'Schedule and dispatch only; not run off GitHub, by decision.',
   'mirror-to-gitlab.yml': 'GitHub only: it copies the branches and tags on GitHub to GitLab; on GitLab it would push the project to itself.',
 };

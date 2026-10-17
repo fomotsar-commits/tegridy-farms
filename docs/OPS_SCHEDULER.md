@@ -409,6 +409,7 @@ before it is printed or pinged. Section 3 says what this does not protect agains
 - **Each task's time limit** is longer than its job's own timeouts plus the pings, so a slow run
   is reported by the runner instead of being killed silently by Task Scheduler.
 - **`error-retention` has no failover job.** Off GitHub, `/api/errors` still deletes reports
-  older than 30 days after it stores one (at most once an hour per server instance), but not
-  while no report arrives. In a failover longer than a day, run it by hand from the repo root
-  with `SUPABASE_URL` and `SUPABASE_SERVICE_KEY` set: `node frontend/scripts/purge-error-events.mjs`.
+  older than 30 days after it stores one, and `/api/analytics` deletes events older than 90 days
+  after it stores a batch (each at most once an hour per server instance), but not while nothing
+  arrives. In a failover longer than a day, run it by hand from the repo root with
+  `SUPABASE_URL` and `SUPABASE_SERVICE_KEY` set: `node frontend/scripts/purge-expired-events.mjs`.
