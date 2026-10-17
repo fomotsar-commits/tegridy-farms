@@ -254,7 +254,8 @@ export function PoolFinder({
   // Each try is a fresh lookup. After the last, Read again and the Solana LP tab stay on screen.
   const autoTries = useRef(0);
   const onlyFailed =
-    Boolean(only) && state.status === 'done' && !state.refreshing && (state.pools.kind !== 'ok' || state.safety.kind === 'unread' || !listsPool(state.pools, only!));
+    Boolean(only) && state.status === 'done' && !state.refreshing &&
+    (state.pools.kind !== 'ok' || state.safety.kind === 'unread' || !listsPool(state.pools, only!) || state.outside?.kind === 'unread');
   useEffect(() => {
     if (!onlyFailed || autoTries.current >= ONLY_RETRY_MS.length) return;
     const t = setTimeout(() => {
@@ -748,6 +749,9 @@ function SearchResults({
               )}
             </ul>
           )}
+          {/* The home card: an outside price that could not be read leaves deposits unchecked
+              and adding off. The pool's card says why; this is the way on from it. */}
+          {only && listed.length > 0 && outside?.kind === 'unread' && <OnlyWayOn mint={mint} pool={only} onRetry={onRetry} />}
           {!only && pools.search.pools.length > 0 && pools.search.otherPairs > 0 && (
             <Notice>{pools.search.otherPairs} more pool(s) pair this token with something other than {QUOTE_COINS_OR} and are not shown.</Notice>
           )}

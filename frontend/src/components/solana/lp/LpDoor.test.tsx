@@ -296,6 +296,22 @@ describe('the home card', () => {
     expect(screen.getAllByTestId('lp-only-way-on')).toHaveLength(1);
   });
 
+  it('an outside price that could not be read tries again by itself, and offers the way on meanwhile', async () => {
+    const sol = view();
+    const r = readers([sol]);
+    let calls = 0;
+    r.outsidePrice = vi.fn(async (mint: string) =>
+      mint === M && ++calls === 1
+        ? { kind: 'unread' as const, detail: 'Jupiter did not give a price (HTTP 429)' }
+        : { kind: 'ok' as const, solPerToken: mint === M ? 0.01 : 1, source: 'Jupiter' as const }) as LpReaders['outsidePrice'];
+    mountHome(r, '/', sol.address);
+    const row = await screen.findByTestId('lp-only-way-on');
+    expect(within(row).getByRole('link', { name: 'Add on the Solana LP tab' })).toBeInTheDocument();
+    const card = await waitFor(() => cardOf(sol.address));
+    expect(await within(card).findByRole('button', { name: 'Add with one coin' }, { timeout: 6_000 })).toBeInTheDocument();
+    expect(screen.queryByTestId('lp-only-way-on')).toBeNull();
+  }, 15_000);
+
   it('Read again reads again at once', async () => {
     const sol = view();
     const r = readers([sol]);
