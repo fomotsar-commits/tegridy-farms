@@ -129,7 +129,10 @@ describe('buildCowSwapOrder', () => {
 
   // CoW's orderbook answers `NonZeroFee` to any signed fee above 0 (services #2454,
   // 2024-03-04), and a live /quote always carries a non-zero network-cost feeAmount.
-  it('signs a zero fee and the whole input, flooring buy at the quote less slippage', () => {
+  // At the live 0.50% venue fee: network cost in buy units = 2_000_000 × 1_234 /
+  // 1_000_000 = 2_468; fee = (2_000_000 + 2_468) × 50 / 10_000 = 10_012; after fees
+  // 1_989_988; less 1% slippage (19_899) = 1_970_089.
+  it('signs a zero fee and the whole input, flooring buy at the quote after the venue fee, less slippage', () => {
     const { order, buyAmountMin } = buildCowSwapOrder({
       sellToken: WETH,
       buyToken: TOWELI,
@@ -138,8 +141,8 @@ describe('buildCowSwapOrder', () => {
       slippageBps: 100n, // 1%
       now: 1_000_000, // ms
     });
-    expect(buyAmountMin).toBe(1_980_000n); // 2_000_000 - 1%
-    expect(order.buyAmount).toBe(1_980_000n);
+    expect(buyAmountMin).toBe(1_970_089n);
+    expect(order.buyAmount).toBe(1_970_089n);
     expect(order.feeAmount).toBe(0n);
     expect(order.sellAmount).toBe(1_001_234n); // sellAmount + feeAmount: the user's input
     expect(order.sellAmount).toBe(requiredSellBalance(quote)); // what the hook checks balance against
@@ -161,7 +164,7 @@ describe('buildCowSwapOrder', () => {
       validTo: 42424242,
     });
     expect(order.validTo).toBe(42424242);
-    expect(order.buyAmount).toBe(2_000_000n); // 0 slippage = full quote
+    expect(order.buyAmount).toBe(1_989_988n); // 0 slippage = the quote after the venue fee
   });
 });
 
@@ -213,9 +216,9 @@ describe('cowSwapAmounts', () => {
   });
 });
 
-describe('the fee-free document', () => {
-  it('is what market swaps sign while the venue fee is off', () => {
-    expect(COW_PARTNER_FEE_BPS).toBe(0);
-    expect(COW_SWAP_APP_DATA_HASH).toBe(COW_APP_DATA_HASH);
+describe('the live venue fee', () => {
+  it('market swaps sign the 0.50% document, never the fee-free one', () => {
+    expect(COW_PARTNER_FEE_BPS).toBe(50);
+    expect(COW_SWAP_APP_DATA_HASH).not.toBe(COW_APP_DATA_HASH);
   });
 });
