@@ -683,7 +683,8 @@ function SearchResults({
         // The home card: a token that could not be read is one line, not a card. Nothing is called checked.
         <div data-testid="token-safety" data-verdict="unread" className="space-y-2">
           <Notice tone="warn">This token could not be read just now, so nothing on this card counts as checked.</Notice>
-          <OnlyWayOn mint={mint} pool={only} onRetry={onRetry} />
+          {/* Once per card: when the pool did not read either, its line below carries the way on. */}
+          {listed.length > 0 && <OnlyWayOn mint={mint} pool={only} onRetry={onRetry} />}
         </div>
       ) : (
         (!only || !tokenClean) && <TokenSafetyCard mint={mint} safety={safety} />

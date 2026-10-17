@@ -286,6 +286,16 @@ describe('the home card', () => {
     expect(screen.queryByTestId('lp-only-unread')).toBeNull();
   }, 15_000);
 
+  it('a token and a pool that both did not read offer the way on once', async () => {
+    const sol = view();
+    const r = readers([sol]);
+    r.safety = vi.fn(async () => new Map([[M, { kind: 'unread' as const, mint: M, detail: 'HTTP 429' }]]));
+    r.findPools = vi.fn(async () => ({ kind: 'unread' as const, detail: 'HTTP 429', index: { kind: 'unread' as const, detail: 'HTTP 429' } })) as LpReaders['findPools'];
+    mountHome(r, '/', sol.address);
+    await screen.findByTestId('lp-only-unread');
+    expect(screen.getAllByTestId('lp-only-way-on')).toHaveLength(1);
+  });
+
   it('Read again reads again at once', async () => {
     const sol = view();
     const r = readers([sol]);
