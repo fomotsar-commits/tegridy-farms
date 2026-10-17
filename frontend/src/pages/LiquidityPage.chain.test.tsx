@@ -45,13 +45,15 @@ describe('/liquidity on the picked chain', () => {
   it('follows ?c= with no wallet: Base names Base, hides the Ethereum table and says where the venue cut goes', () => {
     at('/liquidity?c=8453');
     // The chain is named in the money line, not an eyebrow (owner, 2026-10-14).
-    expect(screen.getByText(/^Base pools\./)).toHaveTextContent(/to the pool after a one-sixth venue cut, which goes to the venue's fee Safe \(cut on/);
-    expect(screen.queryByText(/Venue cut: off/)).toBeNull();
+    // A new pair starts with kLast = 0, so a Base pool's cut is off until the venue switches
+    // it on; the line may not claim it is on (it did until 2026-10-17).
+    expect(screen.getByText(/^Base pools\./)).toHaveTextContent(/all to providers until the venue switches on its one-sixth cut for that pool, which goes to the venue's fee Safe/);
+    expect(screen.queryByText(/TOWELI\/ETH/)).toBeNull();
     expect(screen.queryByTestId('pool-table')).toBeNull();
     expect(screen.getByTestId('form')).toHaveTextContent('8453');
-    // ...and the fine print under it says the same, not Ethereum's "optional cut was off".
-    expect(screen.getByText(/less the venue's one-sixth cut, which was on/)).toBeInTheDocument();
-    expect(screen.queryByText(/optional cut was off/)).toBeNull();
+    // ...and the fine print under it says the same, not Ethereum's TOWELI/ETH split.
+    expect(screen.getByText(/only on a pool where it has switched that on\. There is no pool here yet/)).toBeInTheDocument();
+    expect(screen.queryByText(/since 16 October 2026/)).toBeNull();
   });
 
   it('refuses a ?c= with no venue on it', () => {
@@ -66,7 +68,7 @@ describe('/liquidity on the picked chain', () => {
     at('/liquidity');
     expect(screen.getByText(/^Ethereum pools\./)).toBeInTheDocument();
     expect(screen.getByTestId('pool-table')).toBeInTheDocument();
-    expect(screen.queryByText(/one-sixth cut/)).toBeNull();
+    expect(screen.queryByText(/until the venue switches on its one-sixth cut for that pool/)).toBeNull();
     // The form gets the wallet's chain and refuses it there, as before.
     expect(screen.getByTestId('form')).toHaveTextContent('42161');
   });

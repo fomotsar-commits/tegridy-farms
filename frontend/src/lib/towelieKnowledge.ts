@@ -14,8 +14,8 @@ export const KNOWLEDGE_BASE: KnowledgeEntry[] = [
   // ── Core protocol ────────────────────────────────────────────
   {
     // The ETH that stakers are in line for is the ROUTER's fee, less the referral share.
-    // The pair's own 0.3% never reaches them: its one-sixth venue cut is off (kLast 0,
-    // read 2026-10-10) and would mint LP to the treasury Safe, not to stakers.
+    // The pair's own 0.3% never reaches them: its one-sixth venue cut (on for TOWELI/WETH
+    // since 2026-10-16) mints LP to the treasury Safe, not to stakers.
     keywords: ['toweli', 'token'],
     answer: "TOWELI is the farm's token. 1B fixed supply, no mint function. Stake it and you earn TOWELI today. After a referral share, the venue's swap fee is routed toward stakers as ETH, in payout rounds that need 1 ETH of fees first. /premium shows what has been paid. That's the whole pitch.",
   },
@@ -131,10 +131,11 @@ export const KNOWLEDGE_BASE: KnowledgeEntry[] = [
     // Two fees, read 2026-10-10. SwapFeeRouter.feeBps is 50, ReferralSplitter takes
     // referralFeeBps (2000) first, and stakerShareBps sends all of the rest toward stakers;
     // the owner can move all three through timelocks. The distributor has received 0.
-    // The pair's 0.3% stays in the pool. A static answer cannot read the chain, so each
-    // figure that can move carries its date or points at the page that reads it.
+    // The pair's 0.3% stays in the pool, less the venue's one-sixth cut on a pool where the
+    // owner switched it on (TOWELI/WETH, 2026-10-16). A static answer cannot read the chain,
+    // so each figure that can move carries its date or points at the page that reads it.
     keywords: ['fee', 'swap', 'cost', 'percent'],
-    answer: "Two fees. A swap through our own router pays a venue fee. On 10 October 2026 it was 0.5%: 20% of that was the referral share, which goes to your referrer if they stake enough TOWELI and to the treasury otherwise, and the other 80% was routed toward TOWELI stakers as ETH. By that date the router had taken 0.000003 ETH in all and stakers had been paid none. The swap screen shows the live rate before you sign, and /premium shows the live total paid. Underneath, the pool itself charges 0.3%, which stays in the pool for liquidity providers.",
+    answer: "Two fees. A swap through our own router pays a venue fee. On 10 October 2026 it was 0.5%: 20% of that was the referral share, which goes to your referrer if they stake enough TOWELI and to the treasury otherwise, and the other 80% was routed toward TOWELI stakers as ETH. By that date the router had taken 0.000003 ETH in all and stakers had been paid none. The swap screen shows the live rate before you sign, and /premium shows the live total paid. Underneath, the pool itself charges 0.3% for its liquidity providers. On the TOWELI/ETH pool the venue has taken one sixth of that for its treasury since 16 October 2026, so providers there keep about 0.25%.",
   },
 
   // ── Liquidity ───────────────────────────────────────────────

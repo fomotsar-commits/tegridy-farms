@@ -89,34 +89,44 @@ export default function LiquidityPage() {
           </Link>
         </p>
         {/* One line: how a provider earns and what the venue takes, as numbers, on the chain
-            the form is on. The venue's one-sixth cut is a switch, so its state carries the date
-            it was read (the sentence under it, and the primer below, say who holds it and how to
-            check it). */}
+            the form is on. The venue's one-sixth cut is a switch PER POOL: a pair mints it only
+            once `kLast` is set, and only the factory's feeToSetter can set it the first time
+            (TegridyPair.harvest, HARVEST_BOOTSTRAP_GATED). So its state carries the date it was
+            read, and the fine print says a new pool starts with it off. */}
         {onMainnet ? (
+          /* Ethereum: factory 0xa24C…7a52 has one pair, TOWELI/WETH 0x5587…a481. The owner
+             switched its cut on 2026-10-16 04:48Z (kLast set, tx 0x1fa58e91…); feeTo = the
+             TREASURY Safe 0x7D26…Bd7d. Read 2026-10-17: kLast != 0, feeTo unchanged. */
           <p className="text-white/75 text-[14px] md:text-[15px] leading-relaxed max-w-[62ch]">
-            Ethereum pools. Swap fee 0.3%, all to the pool. Venue cut: off (read 10 October 2026).
-            Swaps made through this site pay the venue a separate fee.
+            Ethereum pools. Swap fee 0.3%. On TOWELI/ETH: 0.25% to providers, 0.05% to the
+            venue&apos;s treasury (read 17 October 2026). Swaps made through this site pay the venue a
+            separate fee.
           </p>
         ) : (
-          /* Base and Robinhood Chain: the same pair contract, but each factory's feeTo was
-             SET when read (2026-10-15) to the venue's FEE_REMITTANCE Safe 0xfc5D…fbf1 (Safe
-             code on both chains), so the one-sixth cut is on there. Our swap does not route on
-             either chain, so no venue swap fee is earned there, and the line claims none. */
+          /* Base and Robinhood Chain: the same factory code, and each factory's feeTo is the
+             venue's FEE_REMITTANCE Safe 0xfc5D…fbf1. Neither has a pair yet (read 2026-10-17),
+             and a new pair starts with kLast = 0, so its cut stays off until the feeToSetter
+             (Base: the venue's L2 multisig 0xBC4E…Be5B; Robinhood: the owner wallet) switches
+             it on. Our swap does not route on either chain, so the line claims no swap fee. */
           <p className="text-white/75 text-[14px] md:text-[15px] leading-relaxed max-w-[62ch]">
-            {chainName} pools. Swap fee 0.3%, to the pool after a one-sixth venue cut, which goes
-            to the venue&apos;s fee Safe (cut on, read 15 October 2026).
+            {chainName} pools. Swap fee 0.3%, all to providers until the venue switches on its
+            one-sixth cut for that pool, which goes to the venue&apos;s fee Safe (read 17 October 2026).
           </p>
         )}
         <FinePrint summary="How it works">
           {onMainnet ? (
             <p>
-              Providers split the whole 0.3% swap fee by pool share (the venue&apos;s optional cut was
-              off when read on 10 October 2026). The venue earns its own fee on swaps routed here.
+              Providers split the swap fee by pool share. On TOWELI/ETH the venue&apos;s one-sixth cut
+              is on (since 16 October 2026): it is paid to the venue&apos;s treasury as new pool shares,
+              so providers keep about 0.25% of each trade. The venue switches the cut on pool by
+              pool, so a new pool keeps the whole 0.3% until it does. The venue also earns its own
+              fee on swaps routed here.
             </p>
           ) : (
             <p>
-              Providers split the 0.3% swap fee by pool share, less the venue&apos;s one-sixth cut, which
-              was on when read on 15 October 2026 and goes to the venue&apos;s fee Safe.
+              Providers split the 0.3% swap fee by pool share. The venue can take one sixth of it,
+              paid to its fee Safe as new pool shares, but only on a pool where it has switched that
+              on. There is no pool here yet, so none has it on (read 17 October 2026).
             </p>
           )}
           <p>
