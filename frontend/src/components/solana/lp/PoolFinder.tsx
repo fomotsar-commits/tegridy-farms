@@ -660,7 +660,14 @@ function SearchResults({
   const tokenClean = safety.kind === 'read' && safety.verdict === 'ok' && safety.warnings.length === 0;
   return (
     <div className="space-y-4">
-      {(!only || !tokenClean) && <TokenSafetyCard mint={mint} safety={safety} />}
+      {only && safety.kind === 'unread' ? (
+        // The home card: a token that could not be read is one line, not a card. Nothing is called checked.
+        <div data-testid="token-safety" data-verdict="unread">
+          <Notice tone="warn">This token could not be read just now, so nothing on this card counts as checked.</Notice>
+        </div>
+      ) : (
+        (!only || !tokenClean) && <TokenSafetyCard mint={mint} safety={safety} />
+      )}
       {pools.kind === 'unread' ? (
         <Card title="Pools" art={<CardArt pageId="solana-lp" idx={6} />}>
           <Notice tone="warn">

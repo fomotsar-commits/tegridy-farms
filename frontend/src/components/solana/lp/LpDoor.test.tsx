@@ -201,6 +201,9 @@ describe('the home card', () => {
     expect(screen.queryByRole('textbox', { name: /Token mint address/ })).toBeNull();
     expect(screen.queryByTestId('lp-create')).toBeNull();
     expect(screen.queryByTestId('token-safety')).toBeNull();
+    // Swaps and withdrawals both open: one line, and no reassurance line under the buttons.
+    expect(within(card).getByTestId('lp-pool-open')).toHaveTextContent('Swaps and withdrawals open');
+    expect(within(card).queryByText('Checks run again on fresh reads when you press Review.')).toBeNull();
     await new Promise((res) => setTimeout(res, 50));
     expect(screen.queryByTestId('lp-one-coin-panel')).toBeNull();
     expect(screen.queryByTestId('lp-add-panel')).toBeNull();
@@ -234,7 +237,13 @@ describe('the home card', () => {
     mountHome(readers([sol], { kind: 'ok', list: { pools: [sol], unread: 0, truncated: false, chainNow: null } }), '/', sol.address);
     await waitFor(() => cardOf(sol.address));
     expect(screen.getByTestId('lp-risk-line')).toHaveTextContent(RISK_SHORT);
-    expect(screen.getByTestId('lp-disclosure')).toBeInTheDocument();
+    // The full notice is one closed drop-down, with no card or Pool program row around it.
+    const notice = screen.getByTestId('lp-disclosure');
+    expect(within(notice).getByText('Risks')).toBeInTheDocument();
+    expect(within(notice).queryByText('Pool program')).toBeNull();
+    expect(within(notice).queryByRole('heading')).toBeNull();
+    // No Your positions card: each Add form carries its own Connect.
+    expect(screen.queryByRole('heading', { name: 'Your positions' })).toBeNull();
     expect(screen.queryByTestId('lp-all-pools')).toBeNull();
     expect(screen.queryByTestId('fee-tiers')).toBeNull();
     expect(screen.queryByTestId('lp-routes')).toBeNull();
@@ -247,6 +256,17 @@ describe('the home card', () => {
     mountHome(r, '/', sol.address);
     await waitFor(() => cardOf(sol.address));
     expect(screen.getByTestId('token-safety')).toHaveAttribute('data-verdict', 'warn');
+  });
+
+  it('a token that could not be read is one line, and nothing is called checked', async () => {
+    const sol = view();
+    const r = readers([sol]);
+    r.safety = vi.fn(async () => new Map([[M, { kind: 'unread' as const, mint: M, detail: 'HTTP 429' }]]));
+    mountHome(r, '/', sol.address);
+    const line = await screen.findByTestId('token-safety');
+    expect(line).toHaveAttribute('data-verdict', 'unread');
+    expect(line).toHaveTextContent('This token could not be read just now, so nothing on this card counts as checked.');
+    expect(screen.queryByText('Copy the mint address')).toBeNull();
   });
 
   it('a pool that did not read says so, and shows no other pool in its place', async () => {

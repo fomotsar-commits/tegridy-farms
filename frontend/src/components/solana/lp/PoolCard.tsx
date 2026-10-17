@@ -392,8 +392,15 @@ export function PoolCard({
         )}
 
         <Part title="Trading and deposits">
-          <Row label="Swaps" value={swaps.text} mono={false} />
-          <Row label="Withdrawals" value={withdrawalsText(health.withdrawals, view.quote)} mono={false} />
+          {compact && swaps.tone === 'good' && health.withdrawals === 'open' ? (
+            // Both as they should be: one line (the home's card). Anything else gets its own row.
+            <p data-testid="lp-pool-open" className="text-white/70 text-[12px]">Swaps and withdrawals open</p>
+          ) : (
+            <>
+              <Row label="Swaps" value={swaps.text} mono={false} />
+              <Row label="Withdrawals" value={withdrawalsText(health.withdrawals, view.quote)} mono={false} />
+            </>
+          )}
           <div data-testid="lp-pool-deposits">
             <p className={`text-[12px] font-semibold ${depositsHead.tone}`}>{depositsHead.title}</p>
             {health.deposits.reasons.map((r) => (
@@ -411,7 +418,7 @@ export function PoolCard({
             {!writes && health.deposits.verdict === 'allowed' && (
               <Notice>Adding liquidity here is not switched on yet.</Notice>
             )}
-            {writes && <DepositOfferBlock writes={writes} offer={offer} view={view} health={health} safety={safety} tokenDecimals={tokenDecimals} openNow={openNow} openForm={openForm} onActed={onActed} />}
+            {writes && <DepositOfferBlock writes={writes} offer={offer} view={view} health={health} safety={safety} tokenDecimals={tokenDecimals} openNow={openNow} openForm={openForm} onActed={onActed} compact={compact} />}
           </div>
         </Part>
 
@@ -537,7 +544,10 @@ function DepositOfferBlock({
   openNow,
   openForm,
   onActed,
+  compact = false,
 }: {
+  /** The home's card: the reassurance under the buttons is left to the Review step, where the checks run. */
+  compact?: boolean;
   writes: LpWrites;
   offer: DepositOffer;
   view: PoolView;
@@ -613,7 +623,7 @@ function DepositOfferBlock({
             </button>
           </div>
           {(blockedByOther || blockedOne) && <Notice>Finish or close the open liquidity panel first.</Notice>}
-          <Notice>Checks run again on fresh reads when you press Review.</Notice>
+          {!compact && <Notice>Checks run again on fresh reads when you press Review.</Notice>}
         </>
       )}
       {panel}

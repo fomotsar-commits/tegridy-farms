@@ -11,14 +11,15 @@ import { noteOwnSolanaFailed } from '../lib/solanaSurface';
 
 const HomeModules = lazy(() => import('./HomeModules'));
 
-/** The two pages the home's cards come from, when the cards' code did not load. */
+/** The pages the home's cards come from, when the cards' code did not load. */
 function ModulesUnloaded() {
   // The cards' connection is the top bar's Solana one on the home: its wallet sheet says the load failed.
   useEffect(() => {
     noteOwnSolanaFailed();
   }, []);
   return (
-    <p className="mb-6 flex flex-wrap gap-x-4 text-[13px]">
+    <p className="mt-2 mb-2 flex flex-wrap gap-x-4 text-[13px]">
+      <Link to="/solana" className="underline underline-offset-4" style={{ color: 'var(--color-kyle)' }}>Swap</Link>
       <Link to="/earn/bayla" className="underline underline-offset-4" style={{ color: 'var(--color-kyle)' }}>Stake BAYLA</Link>
       <Link to="/solana-lp" className="underline underline-offset-4" style={{ color: 'var(--color-kyle)' }}>Add liquidity</Link>
     </p>
@@ -87,14 +88,30 @@ export function VenueHero() {
         </FinePrint>
       </div>
 
-      {/* Stake BAYLA and add SOL + BAYLA liquidity right here (owner, 2026-10-16). Lazy: the
-          Solana wallet stack loads after the hero has painted. If its code cannot load, the
-          two pages it comes from are linked instead. */}
-      <ErrorBoundary fallback={() => <ModulesUnloaded />}>
-        <Suspense fallback={null}>
-          <HomeModules />
-        </Suspense>
-      </ErrorBoundary>
+    </>
+  );
+}
+
+/**
+ * The home's cards, swap, stake and add liquidity (owner, 2026-10-16), in their own row under
+ * the hero: the hero column is too narrow for three side by side. Lazy: the Solana wallet stack
+ * loads after the hero has painted. If its code cannot load, the pages they come from are linked.
+ */
+export function VenueCards() {
+  return (
+    <ErrorBoundary fallback={() => <ModulesUnloaded />}>
+      <Suspense fallback={null}>
+        <HomeModules />
+      </Suspense>
+    </ErrorBoundary>
+  );
+}
+
+/** Under the cards: the tour, the four steps and the island line. */
+export function VenueHeroFooter() {
+  return (
+    <>
+      {/* The venue never opens its welcome by itself: this pill is the door to the tour. */}
       <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1">
         <button
           type="button"

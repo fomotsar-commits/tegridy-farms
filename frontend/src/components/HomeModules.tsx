@@ -1,26 +1,33 @@
 // Polyfill MUST load before any @solana/* import, the same rule as SolanaProviders.
 import '../lib/solanaPolyfill';
-import { useMemo } from 'react';
+import { lazy, Suspense, useMemo } from 'react';
 import { SolanaProviders } from './solana/SolanaProviders';
 import { SolanaLadderPoolCard } from './bungalow/SolanaLadderPoolLive';
 import { LighthouseClaimStrip } from './bungalow/LighthousePoolLive';
 import { LpInner } from './solana/lp/SolanaLpSection';
 import { browserLpReaders, type LpReaders } from './solana/lp/readers';
+import { CardArt } from './ui/CardArt';
 import { useVenueStatus } from '../hooks/useVenueStatus';
+import { isSolanaSwapLive } from '../lib/solana';
 import { BUNGALOWS, bungalowLpDoor, stakePoolMembersOnly } from '../lib/bungalows';
 
 /** The room whose pool and liquidity the home offers (owner, 2026-10-16: "the bayla staking module and the lp pool module"). */
 const HOME_ROOM_ID = 'bayla';
 
+// The swap page's own form, in its home mode. Its own chunk, so the other two cards never wait on it.
+const SolanaSwapInner = lazy(() => import('../pages/SolanaSwapPage').then((m) => ({ default: m.SolanaSwapInner })));
+
 /**
- * The home's two working cards: stake BAYLA and add SOL + BAYLA liquidity, with no trip to
- * Earn or Pools. Each is the card its own page mounts (the stack of /earn/bayla, the LP
- * section of /solana-lp), so a fix there is a fix here, and every check before a signature
- * is theirs. ONE SolanaProviders for both: a second WalletProvider reads the saved wallet
- * only when it mounts, so a visitor who connected in one card would look disconnected in
- * the other until a reload. It is also the top bar's Solana connection on the home
- * (`mixed`, lib/routeVoice.ts hasMixedSolanaSection), so it mounts even when neither card
- * has anything on record to act on; such a card is not drawn.
+ * The home's three working cards, in one row: swap, stake BAYLA and add SOL + BAYLA liquidity
+ * (owner, 2026-10-16: "right away", then "move the lp module beside the staking one ... the
+ * swap is missing ... make them take way less space ... staking module needs to be shorter").
+ * Each is the form its own page mounts (the swap of /solana, the ladder of /earn/bayla, the
+ * LP section of /solana-lp), in a short mode, so every check before a signature is theirs.
+ * ONE SolanaProviders for all three: a second WalletProvider reads the saved wallet only when
+ * it mounts, so a visitor who connected in one card would look disconnected in another until
+ * a reload. It is also the top bar's Solana connection on the home (`mixed`, lib/routeVoice.ts
+ * hasMixedSolanaSection), so it mounts even when no card has anything on record to act on;
+ * such a card is not drawn.
  */
 export default function HomeModules({ readers: given }: { readers?: LpReaders } = {}) {
   const room = BUNGALOWS.find((b) => b.id === HOME_ROOM_ID);
@@ -32,23 +39,42 @@ export default function HomeModules({ readers: given }: { readers?: LpReaders } 
     ? { readers, mint: room.address, pool: room.venueSolPool, label: door.label }
     : null;
   const ladder = room?.ladderPool ? { ...room, ladderPool: room.ladderPool } : null;
+  // As on /solana: no swap card where the swap is not live.
+  const swap = isSolanaSwapLive();
 
   return (
     // `mixed`: the home connects Ethereum too, so the top bar keeps its Solana-or-Ethereum sheet.
     <SolanaProviders mixed>
-      {(ladder || lp) && (
-      <div className="flex flex-col gap-5 mb-6 max-w-md" data-testid="home-modules">
-        {ladder && <SolanaLadderPoolCard bungalow={ladder} />}
-        {room && stakePoolMembersOnly(room) && <LighthouseClaimStrip bungalow={room} />}
-        {lp && (
-          <section aria-labelledby="home-lp-heading" data-testid="home-lp">
-            <h2 id="home-lp-heading" className="heading-luxury text-xl sm:text-2xl text-white mb-3" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>
-              {lp.label}
-            </h2>
-            <LpInner readers={lp.readers} home={{ mint: lp.mint, pool: lp.pool }} />
-          </section>
-        )}
-      </div>
+      {(swap || ladder || lp) && (
+        <div className="mt-6 mb-2 grid grid-cols-1 gap-4 lg:grid-cols-3 items-start" data-testid="home-modules">
+          {swap && (
+            <div className="min-w-0" data-testid="home-swap">
+              <Suspense fallback={null}>
+                <SolanaSwapInner home />
+              </Suspense>
+            </div>
+          )}
+          {ladder && (
+            <div className="min-w-0 flex flex-col gap-4" data-testid="home-stake">
+              <SolanaLadderPoolCard bungalow={ladder} compact />
+              {room && stakePoolMembersOnly(room) && <LighthouseClaimStrip bungalow={room} />}
+            </div>
+          )}
+          {lp && (
+            <section
+              aria-labelledby="home-lp-heading"
+              data-testid="home-lp"
+              className="relative isolate min-w-0 rounded-2xl p-4"
+              style={{ background: 'rgba(4,9,18,0.72)', border: '1px solid var(--color-purple-25)' }}
+            >
+              <CardArt pageId="venue-home" idx={1} />
+              <h2 id="home-lp-heading" className="heading-luxury text-xl text-white mb-3" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>
+                {lp.label}
+              </h2>
+              <LpInner readers={lp.readers} home={{ mint: lp.mint, pool: lp.pool }} />
+            </section>
+          )}
+        </div>
       )}
     </SolanaProviders>
   );

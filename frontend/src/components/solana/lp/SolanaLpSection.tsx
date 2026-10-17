@@ -108,7 +108,7 @@ function LpBody({ readers, mode, reloadKey, home }: { readers: LpReaders; mode: 
   const { publicKey } = useWallet();
 
   // The risk line above the actions says RISK_SHORT, so the notice says that risk only in full, in its small print.
-  const disclosure = <LpDisclosure programId={readers.programId} mode={mode} riskAbove programBelow={!homeMint} />;
+  const disclosure = <LpDisclosure programId={readers.programId} mode={mode} riskAbove programBelow={!homeMint} bare={Boolean(homeMint)} />;
   const writesTop = mode !== 'off' && <LpWritesTop />;
   const tierRead = useFeeTiers(readers);
   // Remove liquidity (the finder's third button) brings the positions onto the screen:
@@ -190,13 +190,13 @@ function LpBody({ readers, mode, reloadKey, home }: { readers: LpReaders; mode: 
 
   if (homeMint) {
     return (
-      <div className="flex flex-col gap-4" data-testid="lp-section" data-lp-mode={mode} data-lp-home="">
-        <LpRiskLine />
+      <div className="flex flex-col gap-3" data-testid="lp-section" data-lp-mode={mode} data-lp-home="">
+        <LpRiskLine compact />
         <LpEarnLine />
         {writesTop}
         {finder}
-        {/* Its Connect is the card's only one: the Add panels ask for a wallet and offer none. */}
-        {positions}
+        {/* No Your positions card: each Add form carries its own Connect, and a wallet's
+            shares are on the Solana LP tab. The full notice is one drop-down. */}
         {disclosure}
       </div>
     );
@@ -226,9 +226,9 @@ const RISK_LINE_STYLE = { background: 'rgba(28,21,6,0.92)', border: '1px solid r
  * short only because the full card is on the same page, below the positions.
  * Set tighter on a phone, where each of its lines pushes the finder's field down.
  */
-function LpRiskLine() {
+function LpRiskLine({ compact = false }: { compact?: boolean }) {
   return (
-    <p data-testid="lp-risk-line" className="relative isolate rounded-xl px-4 py-2.5 sm:py-3 text-amber-200 text-[13px] leading-snug sm:leading-relaxed" style={RISK_LINE_STYLE}>
+    <p data-testid="lp-risk-line" className={`relative isolate rounded-xl text-amber-200 ${compact ? 'px-3 py-2 text-[12px] leading-snug' : 'px-4 py-2.5 sm:py-3 text-[13px] leading-snug sm:leading-relaxed'}`} style={RISK_LINE_STYLE}>
       <CardArt pageId="solana-lp" idx={10} />
       {RISK_SHORT}
     </p>
@@ -300,9 +300,11 @@ const DISCLOSURE_NOTICE: Record<LpWriteMode, string> = {
     'Adding liquidity from this site is paused right now. Removing it still works, and each removal is checked and test-run before your wallet is asked to sign.',
 };
 
-export function LpDisclosure({ programId, mode = 'off', riskAbove = false, programBelow = true }: {
+export function LpDisclosure({ programId, mode = 'off', riskAbove = false, programBelow = true, bare = false }: {
   programId: string;
   mode?: LpWriteMode;
+  /** The home's card: the Risks drop-down alone, with the program's address inside it. */
+  bare?: boolean;
   /** "The program" card is below on this page (the Pools tabs); the home has none, so it points at the tab. */
   programBelow?: boolean;
   /**
@@ -313,11 +315,7 @@ export function LpDisclosure({ programId, mode = 'off', riskAbove = false, progr
   riskAbove?: boolean;
 }) {
   // "The program" (VenueProgramCard) is the last section of every page that mounts this one.
-  return (
-    <section data-testid="lp-disclosure" aria-label="Before you provide liquidity">
-      <Card title="Before you provide liquidity" art={<CardArt pageId="solana-lp" idx={0} />}>
-        {!riskAbove && <p className="text-white/80">{RISK_SHORT}</p>}
-        <Row label="Pool program" value={programId} />
+  const risks = (
         <FinePrint summary="Risks">
           {/* True of the pool program RUNNING on mainnet, built before the source gained create_lp_metadata.
               It goes false the day that program is upgraded: reword it in the same release as the upgrade
@@ -351,6 +349,15 @@ export function LpDisclosure({ programId, mode = 'off', riskAbove = false, progr
           </p>
           <p>{DISCLOSURE_NOTICE[mode]}</p>
         </FinePrint>
+  );
+  // The program's address is in the drop-down's second paragraph, so the bare form loses nothing.
+  if (bare) return <section data-testid="lp-disclosure" aria-label="Before you provide liquidity">{risks}</section>;
+  return (
+    <section data-testid="lp-disclosure" aria-label="Before you provide liquidity">
+      <Card title="Before you provide liquidity" art={<CardArt pageId="solana-lp" idx={0} />}>
+        {!riskAbove && <p className="text-white/80">{RISK_SHORT}</p>}
+        <Row label="Pool program" value={programId} />
+        {risks}
       </Card>
     </section>
   );
