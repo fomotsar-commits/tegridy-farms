@@ -8,6 +8,9 @@ page keeps the newest thirty days.
 
 ### 2026-10-18
 
+- Solana swaps between SOL, USDC, USDT and staked SOL now pay a 0.05% venue fee instead of 0.5%; every other swap stays at 0.5%.
+- CoW swaps on Ethereum now carry a 0.25% venue fee instead of 0.5%.
+- The API plans on /developer now read $49, $199 and $799 a month; billing is still off.
 - BOBO, SOY, BRAINLET and RIZZ each have a SOL pool on the venue now, so each room gets Add SOL + its coin, second on its first screen, as BAYLA's has.
 
 ### 2026-10-17
@@ -333,11 +336,6 @@ page keeps the newest thirty days.
 ### 2026-09-19
 
 - The dead Discord invite and the retired Telegram handle are gone from the footer.
-
-### 2026-09-18
-
-- The launch gate's reading names the tier as the wallet's own, and its verdicts carry no em dash.
-- "Check graduation" no longer says a token has not graduated from a read it never made.
 
 ## Earlier
 

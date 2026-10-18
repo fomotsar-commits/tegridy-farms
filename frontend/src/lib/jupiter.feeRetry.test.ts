@@ -280,6 +280,42 @@ describe('the no-fee quote and build carry NO fee fields', () => {
     expect(body.feeAccount).toBe(VAULT_WSOL_FEE_ACCOUNT);
   });
 
+  // Owner, 2026-10-18: 0.05% between majors (jup.ag charges 0.02% on SOL-stable), 0.5% on the rest.
+  it('between majors the quote asks for 5 bps; any other fee-bearing pair still asks for the standard 50', async () => {
+    const USDC = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
+    const USDT = 'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB';
+    const JITOSOL = 'J1toso1uCk3RLmjorhTtrVwY9HJ7X8V9yYac6Y7kGCPn';
+    const { getQuote, platformFeeBpsFor } = await load();
+    const asked = async (inputMint: string, outputMint: string) => {
+      const q = captureFetch(FEE_QUOTE);
+      await getQuote({ inputMint, outputMint, amount: '100000000', slippageBps: 50 });
+      return new URL(q.mock.calls[0]![0], 'https://x.test').searchParams.get('platformFeeBps');
+    };
+    for (const [a, b] of [[SOL, USDC], [USDC, SOL], [SOL, JITOSOL], [USDC, USDT], [JITOSOL, USDC]] as const) {
+      expect(platformFeeBpsFor(a, b)).toBe(5);
+      expect(await asked(a, b)).toBe('5');
+    }
+    for (const [a, b] of [[SOL, BAYLA], [BAYLA, USDC], [USDC, BAYLA]] as const) {
+      expect(platformFeeBpsFor(a, b)).toBe(50);
+      expect(await asked(a, b)).toBe('50');
+    }
+  });
+
+  it('the majors are exactly SOL, USDC, USDT and the four staked-SOL tokens the site lists', async () => {
+    const { MAJOR_MINTS } = await load();
+    expect([...MAJOR_MINTS].sort()).toEqual([
+      'So11111111111111111111111111111111111111112', 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', 'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB',
+      'J1toso1uCk3RLmjorhTtrVwY9HJ7X8V9yYac6Y7kGCPn', 'mSoLzYCxHdYgdzU16g5QSh3i5K3z3KZK7ytfqcJm7So', 'bSo13r4TkiE4KumL71LsHTPpL2euBYLFx6h9HP3piy1',
+      '5oVNBeEEQvYi1cX3ir8Dx5n1P7pdxydbGF2X4TxVusJm',
+    ].sort());
+  });
+
+  it('with no rate set in the build, the standard rate is 50 bps (0.5%), not 1%', async () => {
+    vi.stubEnv('VITE_SOLANA_PLATFORM_FEE_BPS', '');
+    const { platformFeeBpsFor } = await load();
+    expect(platformFeeBpsFor(SOL, BAYLA)).toBe(50);
+  });
+
   it('noPlatformFee: the quote request has no platformFeeBps at all, and is otherwise the same request', async () => {
     const { getQuote } = await load();
     const withFee = captureFetch(FEE_QUOTE);

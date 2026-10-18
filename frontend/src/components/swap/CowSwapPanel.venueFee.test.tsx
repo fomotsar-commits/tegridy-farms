@@ -66,9 +66,9 @@ describe('the signing surface discloses the venue fee', () => {
     await waitFor(() => expect(screen.getByText('Venue fee')).toBeInTheDocument(), { timeout: 3000 });
   });
 
-  it('shows the 0.5% before the user signs, and that third-party costs are separate', async () => {
+  it('shows the 0.25% before the user signs, and that third-party costs are separate', async () => {
     renderPanel();
-    await waitFor(() => expect(screen.getByText('0.5%')).toBeInTheDocument(), { timeout: 3000 });
+    await waitFor(() => expect(screen.getByText('0.25%')).toBeInTheDocument(), { timeout: 3000 });
     const note = screen.getByText(/Added by the venue to this CowSwap route before you sign/i);
     expect(note.textContent).toMatch(/pool/i);
     expect(note.textContent).toMatch(/gas/i);
@@ -76,9 +76,9 @@ describe('the signing surface discloses the venue fee', () => {
   });
 
   it('shows the CoW amount after the venue fee', async () => {
-    // Mock quote: 2.0 TOWELI, no network cost, no protocol fee → 0.5% off = 1.99.
+    // Mock quote: 2.0 TOWELI, no network cost, no protocol fee → 0.25% off = 1.995.
     renderPanel();
-    await waitFor(() => expect(screen.getByText(/^1\.9900 TOWELI$/)).toBeInTheDocument(), { timeout: 3000 });
+    await waitFor(() => expect(screen.getByText(/^1\.9950 TOWELI$/)).toBeInTheDocument(), { timeout: 3000 });
   });
 
   it('shows the rate the signed order carries, not the aggregator policy', async () => {
@@ -86,11 +86,11 @@ describe('the signing surface discloses the venue fee', () => {
     // signs. The aggregator's venue-fee setting never reaches a CoW order (that leg
     // stays withheld), so setting it must not change what this panel discloses.
     expect(PROVIDER_FEE_LEGS.cowswap.status).toBe('blocked');
-    expect(COW_PARTNER_FEE_BPS).toBe(50);
-    vi.stubEnv('VITE_SWAP_FEE_BPS', '25');
+    expect(COW_PARTNER_FEE_BPS).toBe(25);
+    vi.stubEnv('VITE_SWAP_FEE_BPS', '40');
     vi.stubEnv('VITE_SWAP_FEE_RECIPIENT', '0x7D2620243EdAd69Ec81A53c4A063B07995A4Bd7d');
     renderPanel();
-    await waitFor(() => expect(screen.getByText('0.5%')).toBeInTheDocument(), { timeout: 3000 });
-    expect(screen.queryByText(/0\.25%/)).toBeNull();
+    await waitFor(() => expect(screen.getByText('0.25%')).toBeInTheDocument(), { timeout: 3000 });
+    expect(screen.queryByText(/0\.40?%/)).toBeNull();
   });
 });

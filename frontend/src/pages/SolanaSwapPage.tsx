@@ -21,7 +21,7 @@ import { useSolanaRoute } from '../components/swap/useSolanaRoute';
 import { useVenueSwap } from '../components/swap/useVenueSwap';
 import { useReturnFocus, type OnSettled } from '../components/solana/curve/useTxFlow';
 import { holdReload } from '../lib/reloadHold';
-import { isSolanaFeeConfigured, isSolanaSwapLive, SOLANA_PLATFORM_FEE_BPS, SOL_MINT, USDC_MINT } from '../lib/solana';
+import { isSolanaFeeConfigured, isSolanaSwapLive, SOLANA_MAJOR_PAIR_FEE_BPS, SOLANA_PLATFORM_FEE_BPS, SOL_MINT, USDC_MINT } from '../lib/solana';
 import {
   PAY_WITH_TOKENS,
   BUY_TOKENS,
@@ -58,6 +58,7 @@ import {
   NoRouteError,
   buildSwapTransaction,
   pickFeeMint,
+  platformFeeBpsFor,
   getUsdPrices,
   routeLabels,
   getShield,
@@ -723,7 +724,7 @@ function EarnRail({ onPick }: { onPick: (t: SolToken) => void }) {
       {/* One line: how the holder earns, and what the venue takes. The rest is small print. */}
       <p className="text-white/55 text-[11px] mt-1.5">
         Its SOL value is built to rise with staking rewards.{' '}
-        {isSolanaFeeConfigured() ? `Platform fee: ${SOLANA_PLATFORM_FEE_BPS / 100}% via Jupiter.` : 'No platform fee.'}
+        {isSolanaFeeConfigured() ? `Platform fee: ${SOLANA_MAJOR_PAIR_FEE_BPS / 100}% via Jupiter.` : 'No platform fee.'}
       </p>
       <FinePrint summary="Details">
         <p>
@@ -731,7 +732,7 @@ function EarnRail({ onPick }: { onPick: (t: SolToken) => void }) {
           are added. There is no lockup, and you can sell back to SOL at any time. This page reads no staking rate,
           so it shows none: each provider publishes its own.{' '}
           {isSolanaFeeConfigured()
-            ? `A ${SOLANA_PLATFORM_FEE_BPS / 100}% fee applies when the buy goes through Jupiter. A buy in one of our pools pays that pool's own fee inside the quote, and no platform fee on top.`
+            ? `A ${SOLANA_MAJOR_PAIR_FEE_BPS / 100}% fee applies when you pay with SOL or USDC and the buy goes through Jupiter. A buy in one of our pools pays that pool's own fee inside the quote, and no platform fee on top.`
             : 'No platform fee is charged on the buy.'}
         </p>
       </FinePrint>
@@ -1725,7 +1726,7 @@ export function SolanaSwapInner({ home = false }: { home?: boolean } = {}) {
       }}
     />
   ) : null;
-  const feePct = (SOLANA_PLATFORM_FEE_BPS / 100).toFixed(2);
+  const feePct = (platformFeeBpsFor(payToken.mint, buyToken.mint) / 100).toFixed(2);
   // The fee can only be collected on a pair touching SOL or USDC (pre-created
   // fee ATAs). Drive the UI off the SAME decision the quote/swap use.
   const feeMintForPair = isSolanaFeeConfigured() ? pickFeeMint(payToken.mint, buyToken.mint) : null;
@@ -2744,7 +2745,7 @@ export function SolanaSwapInner({ home = false }: { home?: boolean } = {}) {
               ? 'No platform fee is charged here today.'
               : feeWaived
                 ? 'No platform fee on this route.'
-                : `A ${feePct}% platform fee applies on pairs that include SOL or USDC.`}
+                : `A ${SOLANA_PLATFORM_FEE_BPS / 100}% platform fee applies on pairs that include SOL or USDC, and ${SOLANA_MAJOR_PAIR_FEE_BPS / 100}% between SOL, USDC, USDT and staked SOL.`}
               </>
             )}
           </p>

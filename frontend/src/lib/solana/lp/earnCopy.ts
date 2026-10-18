@@ -12,8 +12,25 @@ import { feeRateText, pctText } from './format';
 
 export const EARN_TITLES = { you: 'How you earn', venue: 'How the venue earns' } as const;
 
-/** The site's fee on a swap it sends through Jupiter, when one is set up, and the wallet it is paid to. */
-export interface JupiterFee { bps: number; wallet: string }
+/**
+ * The site's fee on a swap it sends through Jupiter, when one is set up, and the wallet it is paid to.
+ * `majorBps`, when given and lower, is the rate between SOL, USDC, USDT and staked SOL.
+ */
+export interface JupiterFee { bps: number; wallet: string; majorBps?: number }
+
+/**
+ * " (0.05% between SOL, USDC, USDT and staked SOL)" when majors pay less, else "". `short`
+ * says "between majors", for the card held to 90 words (the swap page names them in full).
+ */
+function majorNote(fee: JupiterFee, short = false): string {
+  if (fee.majorBps === undefined || fee.majorBps >= fee.bps) return '';
+  return ` (${pctText(fee.majorBps / 100)} between ${short ? 'majors' : 'SOL, USDC, USDT and staked SOL'})`;
+}
+
+/** "0.5%", or "0.5% (0.05% between SOL, USDC, USDT and staked SOL)" when majors pay less. */
+export function jupiterFeeText(fee: JupiterFee): string {
+  return `${pctText(fee.bps / 100)}${majorNote(fee)}`;
+}
 
 export function howYouEarn(tier: AmmConfigView | null): string[] {
   const first = tier
@@ -41,7 +58,7 @@ const VAULT_LABEL = 'Team’s shared wallet';
 
 export function howVenueEarns(tier: AmmConfigView | null, jupiter: JupiterFee | null): VenueEarns {
   const swap = jupiter
-    ? `${pctText(jupiter.bps / 100)} of a swap sent through Jupiter, where the route allows it.`
+    ? `${pctText(jupiter.bps / 100)} of a swap sent through Jupiter${majorNote(jupiter, true)}, where the route allows it.`
     : 'No fee on a swap sent through Jupiter: none is set up.';
   if (!tier) return { sources: ['A cut of each trade in its pools.', 'A fee when a public pool is opened.', swap], where: null, wallets: [], elsewhere: false };
 

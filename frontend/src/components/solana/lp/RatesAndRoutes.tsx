@@ -2,8 +2,8 @@ import { Link } from 'react-router-dom';
 import { PUBLIC_TIER_INDEX, type AmmConfigView } from '../../../lib/solana/cpswap/program';
 import { CREATOR_FEE_SWITCH, chargedCreatorFeeRate, feeSplit, solOf, tradeCost } from '../../../lib/solana/cpswap/venue';
 import { feeRateText, pctText, solText, tradeCostText } from '../../../lib/solana/lp/format';
-import { SOLANA_FEE_ACCOUNT, SOLANA_PLATFORM_FEE_BPS, isSolanaFeeConfigured } from '../../../lib/solana';
-import { howVenueEarns, howYouEarn, type JupiterFee } from '../../../lib/solana/lp/earnCopy';
+import { SOLANA_FEE_ACCOUNT, SOLANA_MAJOR_PAIR_FEE_BPS, SOLANA_PLATFORM_FEE_BPS, isSolanaFeeConfigured } from '../../../lib/solana';
+import { howVenueEarns, howYouEarn, jupiterFeeText, type JupiterFee } from '../../../lib/solana/lp/earnCopy';
 import type { FeeTierRead } from '../../../lib/solana/lp/poolFinder';
 import { Card, Notice, Row } from '../curve/ui';
 import { CardArt } from '../../ui/CardArt';
@@ -14,7 +14,9 @@ import { useLpWrites } from './useLpWrites';
 
 /** The swap's own fee as jupiter.ts takes it: only with a wallet to pay and a rate above zero. */
 const BUILD_JUPITER_FEE: JupiterFee | null =
-  isSolanaFeeConfigured() && SOLANA_PLATFORM_FEE_BPS > 0 ? { bps: SOLANA_PLATFORM_FEE_BPS, wallet: SOLANA_FEE_ACCOUNT } : null;
+  isSolanaFeeConfigured() && SOLANA_PLATFORM_FEE_BPS > 0
+    ? { bps: SOLANA_PLATFORM_FEE_BPS, wallet: SOLANA_FEE_ACCOUNT, majorBps: SOLANA_MAJOR_PAIR_FEE_BPS }
+    : null;
 
 /**
  * Rates: what a trade pays in each kind of pool, what stays in the pool for the people in
@@ -156,7 +158,7 @@ export function Routes({ jupiterFee = BUILD_JUPITER_FEE }: { jupiterFee?: Jupite
         <div className="flex flex-wrap items-center gap-3">
           <Link to="/solana" className="btn-secondary px-5 py-2.5 text-[13px] inline-block">Swap</Link>
           <span className="text-white/60 text-[12px]" data-testid="lp-route-fee">
-            Venue fee through Jupiter: {jupiterFee ? pctText(jupiterFee.bps / 100) : 'none'}
+            Venue fee through Jupiter: {jupiterFee ? jupiterFeeText(jupiterFee) : 'none'}
           </span>
         </div>
         <FinePrint summary="How it works">

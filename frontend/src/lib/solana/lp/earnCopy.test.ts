@@ -9,13 +9,13 @@ import { PublicKey } from '@solana/web3.js';
 import { PLATFORM_TREASURY_VAULT } from '../../launcher/solana/curve/program';
 import { RECORDING, recordedTier } from '../cpswap/mainnetVenueReplay.fixture';
 import type { AmmConfigView } from '../cpswap/program';
-import { EARN_TITLES, howVenueEarns, howYouEarn } from './earnCopy';
+import { EARN_TITLES, howVenueEarns, howYouEarn, type JupiterFee } from './earnCopy';
 import { FORECAST_WORDS } from './format';
 
 const VAULT = 'GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd';
 const OTHER = '2sa31zceMSTAAbSu5wfSnNA6sBYzS7r97nvZYaQouEXa';
 const tier1 = (): AmmConfigView => recordedTier(1);
-const jupiter = { bps: 50, wallet: VAULT };
+const jupiter: JupiterFee = { bps: 50, wallet: VAULT, majorBps: 5 };
 const NOTHING_TO_CLAIM = 'Nothing to claim: you receive it when you remove liquidity.';
 const FEW_TRADES = 'Few trades means small fees.';
 
@@ -58,9 +58,15 @@ describe('How you earn', () => {
 });
 
 describe('How the venue earns', () => {
+  it('says the lower rate between majors only when it is lower', () => {
+    expect(howVenueEarns(null, { bps: 50, wallet: VAULT, majorBps: 5 }).sources[2]).toBe('0.5% of a swap sent through Jupiter (0.05% between majors), where the route allows it.');
+    expect(howVenueEarns(null, { bps: 50, wallet: VAULT, majorBps: 50 }).sources[2]).toBe('0.5% of a swap sent through Jupiter, where the route allows it.');
+    expect(howVenueEarns(null, { bps: 50, wallet: VAULT }).sources[2]).toBe('0.5% of a swap sent through Jupiter, where the route allows it.');
+  });
+
   it('on the public tier as mainnet holds it, with the swap fee paid to the same vault: three sources, one wallet', () => {
     expect(howVenueEarns(tier1(), jupiter)).toEqual({
-      sources: ['0.16% of each trade in a public pool.', '0.15 SOL when a public pool is opened.', '0.5% of a swap sent through Jupiter, where the route allows it.'],
+      sources: ['0.16% of each trade in a public pool.', '0.15 SOL when a public pool is opened.', '0.5% of a swap sent through Jupiter (0.05% between majors), where the route allows it.'],
       where: 'It goes to the team’s shared wallet, which needs two signatures and can change the pool rates.',
       wallets: [{ label: 'Team’s shared wallet', address: VAULT }],
       elsewhere: false,
@@ -132,7 +138,7 @@ describe('How the venue earns', () => {
     expect(v).toEqual({ sources: ['A cut of each trade in its pools.', 'A fee when a public pool is opened.', 'No fee on a swap sent through Jupiter: none is set up.'], where: null, wallets: [], elsewhere: false });
     expect(v.sources.join(' ')).not.toMatch(/\d/);
     // The swap fee is the build's own setting, not the tier's: it is still said.
-    expect(howVenueEarns(null, jupiter).sources[2]).toBe('0.5% of a swap sent through Jupiter, where the route allows it.');
+    expect(howVenueEarns(null, jupiter).sources[2]).toBe('0.5% of a swap sent through Jupiter (0.05% between majors), where the route allows it.');
   });
 });
 
