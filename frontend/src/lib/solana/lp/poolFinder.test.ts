@@ -151,9 +151,9 @@ describe('findPools: what a pool read must not hide', () => {
   });
 
   // S1-R01: everything the index may return is read; nothing it names is cut here.
-  it('reads every address the index may return, plus the seven it works out', async () => {
-    // The launch pool, and a standard address on each of two fee tiers for each of three coins.
-    expect(MAX_CANDIDATES).toBe(1 + 2 * QUOTE_COINS.length + POOL_INDEX_MAX);
+  it('reads every address the index may return, plus the ten it works out', async () => {
+    // The launch pool, and a standard address on each of three fee tiers (two public, the launch tier) for each of three coins.
+    expect(MAX_CANDIDATES).toBe(1 + 3 * QUOTE_COINS.length + POOL_INDEX_MAX);
     const mint = key();
     const pools = Array.from({ length: POOL_INDEX_MAX }, (_, i) => buildPool({ mint, configIndex: 1, address: key(), quoteReserve: BigInt(i + 1) * 10n ** 6n, tokenReserve: 10n }));
     const accounts = Object.assign({ [CLOCK]: clockAccount(5n) }, ...pools.map((p) => p.accounts));
@@ -171,15 +171,15 @@ describe('findPools: what a pool read must not hide', () => {
 });
 
 describe('knownPoolAddresses', () => {
-  it('for each pairing coin, SOL first: the public tier (1) before the graduation tier (0), for the sorted pair', () => {
+  it('for each pairing coin, SOL first: the public tiers (1, then 2) before the graduation tier (0), for the sorted pair', () => {
     const mint = key();
     const k = knownPoolAddresses(mint, PROGRAM, LAUNCH);
-    expect(k.standard.map((s) => [s.quote, s.index])).toEqual(QUOTE_COINS.flatMap((q) => [[q.mint, 1], [q.mint, 0]]));
+    expect(k.standard.map((s) => [s.quote, s.index])).toEqual(QUOTE_COINS.flatMap((q) => [[q.mint, 1], [q.mint, 2], [q.mint, 0]]));
     for (const s of k.standard) {
       const quote = QUOTE_COINS.find((q) => q.mint === s.quote)!;
       expect(s.address, `${quote.symbol} tier ${s.index}`).toBe(buildPool({ mint, quote, configIndex: s.index, quoteReserve: 1n, tokenReserve: 1n }).address.toBase58());
     }
-    expect(new Set(k.standard.map((s) => s.address)).size).toBe(6);
+    expect(new Set(k.standard.map((s) => s.address)).size).toBe(9);
     expect(k.launchPool).toBe(poolStatePda(mint, LAUNCH).toBase58());
     expect(WSOL.toBase58()).not.toBe(mint.toBase58());
   });
@@ -298,10 +298,10 @@ describe('findPools: pools paired with USDC and BAYLA', () => {
 });
 
 describe('readFeeTiers', () => {
-  it('reads tier 1 as absent when it has not been created, never as a copy of a proposal', async () => {
+  it('reads a public tier as absent when it has not been created, never as a copy of a proposal', async () => {
     const c0 = deriveAmmConfig(PROGRAM, 0).toBase58();
     const r = await readFeeTiers(fakeRpc({ [c0]: { owner: PROGRAM.toBase58(), data: configBytes(0, 2_500n, 120_000n) } }), PROGRAM);
-    expect(r.kind === 'ok' && r.tiers.map((t) => [t.index, t.state, t.config?.tradeFeeRate])).toEqual([[0, 'live', 2_500n], [1, 'absent', undefined]]);
+    expect(r.kind === 'ok' && r.tiers.map((t) => [t.index, t.state, t.config?.tradeFeeRate])).toEqual([[0, 'live', 2_500n], [1, 'absent', undefined], [2, 'absent', undefined]]);
   });
 
   // S1-R04: opening a pool is never "free": the accounts it creates hold rent for good.

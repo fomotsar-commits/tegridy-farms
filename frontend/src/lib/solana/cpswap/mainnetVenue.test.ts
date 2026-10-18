@@ -45,8 +45,10 @@ describe('the recorded mainnet venue, through the read path', () => {
     expect([...calls.slice(2)].sort()).toEqual([`getAccountInfo:${RECORDING.tier0}`, `getAccountInfo:${RECORDING.tier1}`].sort());
   });
 
-  it('readFeeTiers reads both tiers, and the rents it quotes for opening one', async () => {
-    const r = await readFeeTiers(recordedRpc(), PROGRAM);
+  it('readFeeTiers reads the recorded tiers (0 and 1), and the rents it quotes for opening one', async () => {
+    // The recording predates the 0.25% tier (tier 2, owner 2026-10-18), so the two recorded
+    // indices are asked for by name; the page's own read asks for every public tier too.
+    const r = await readFeeTiers(recordedRpc(), PROGRAM, [0, 1]);
     expect(r.kind).toBe('ok');
     if (r.kind !== 'ok') return;
     expect(r.tiers.map((t) => t.state)).toEqual(['live', 'live']);

@@ -52,7 +52,7 @@ const TEN_YEARS = 10 * 365 * 86_400;
 /** The locked shares, as the page writes them (shares show in 9 decimals; see panelKit.ts LOCKED_SHARES_TEXT). */
 const LOCKED_SHARES = '0.0000001 pool shares (100 of the smallest unit)';
 const MONEY = 'Jupiter does not send trades to our pools';
-const TIER1 = publicTierConfig(CP_SWAP_PROGRAM);
+const TIER1 = publicTierConfig(CP_SWAP_PROGRAM, 1);
 
 /** A price book a fixture can register a fresh token in before any browser exists. */
 const bookOf = (prices: Prices): Pick<JupiterStub, 'setPrice'> => ({

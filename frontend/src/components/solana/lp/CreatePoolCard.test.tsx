@@ -19,7 +19,7 @@ import { buildPool, key, observationBytes } from '../../../lib/solana/lp/testkit
 import { decodeObservationState } from '../../../lib/solana/lp/ownPrice';
 import { LP_PENDING_SCOPE, readPendingTrades, savePendingTrade } from '../curve/pendingTrade';
 import { GATE_RETRY_MS } from '../curve/useWriteGate';
-import type { CreateFacts, LpWriteApi } from '../curve/ports';
+import type { CreateFacts, LpWriteApi, TierState } from '../curve/ports';
 import { TIER1_ADDRESS, fakeLpApi, lpOpenGate, LP_PROGRAM, notOpenFacts, readyFacts, tier1Config, unusedGateRpc } from './fakeLpWriteApi.fixture';
 import { realToken, reasonText } from './anyToken.fixture';
 
@@ -804,12 +804,15 @@ describe('each answer has its own line, and only `offer` has the button', () => 
     expect(within(c).getByRole('button', { name: 'Refresh' })).toBeInTheDocument();
   });
 
+  // Tier 1 in the state given, tier 2 not created (mainnet before the 0.25% tier): the
+  // card explains tier 1 and says no other tier is open.
+  const tier1In = (t: TierState): CreateFacts => ({ tiers: [t, notOpenFacts().tiers[1]!], feeAccount: { kind: 'ready' } });
   it.each<[string, CreateFacts, string]>([
-    ['tier-not-open', notOpenFacts(), "New pools from this site go on the public fee tier (tier 1), and that tier has not been created on the network yet. When the team's vault creates it, the Open a pool button appears here."],
-    ['tier-off', { tier: { kind: 'switched-off', address: TIER1_ADDRESS, config: tier1Config({ disableCreatePool: true }) }, feeAccount: { kind: 'ready' } }, "Opening new pools on the public fee tier is switched off right now by the pool program's admin (the team's vault)."],
-    ['tier-fee-too-high', { tier: { kind: 'fee-too-high', address: TIER1_ADDRESS, config: tier1Config({ createPoolFee: 2_000_000_000n }), limit: 1_000_000_000n }, feeAccount: { kind: 'ready' } }, "The fee to open a pool on the public fee tier is set to 2 SOL, above this site's limit of 1 SOL, so this site will not open one."],
-    ['tier-bad', { tier: { kind: 'not-a-tier', address: TIER1_ADDRESS, detail: 'it is fee tier 0, not 1' }, feeAccount: { kind: 'ready' } }, "The public fee tier's account is not what this site expects (it is fee tier 0, not 1), so opening a pool is off."],
-    ['fee-account', { tier: readyFacts().tier, feeAccount: { kind: 'missing' } }, "The account that receives the fee to open a pool is not set up (there is no account at its address), so opening a pool would fail. Nothing can be opened until the team's vault sets it up."],
+    ['tier-not-open', notOpenFacts(), "New pools from this site go on a public fee tier, and none has been created on the network yet. When the team's vault creates one, the Open a pool button appears here."],
+    ['tier-off', tier1In({ kind: 'switched-off', index: 1, address: TIER1_ADDRESS, config: tier1Config({ disableCreatePool: true }) }), "Opening new pools on fee tier 1 is switched off right now by the pool program's admin (the team's vault). No other fee tier is open for new pools."],
+    ['tier-fee-too-high', tier1In({ kind: 'fee-too-high', index: 1, address: TIER1_ADDRESS, config: tier1Config({ createPoolFee: 2_000_000_000n }), limit: 1_000_000_000n }), "The fee to open a pool on fee tier 1 is set to 2 SOL, above this site's limit of 1 SOL, so this site will not open one. No other fee tier is open for new pools."],
+    ['tier-bad', tier1In({ kind: 'not-a-tier', index: 1, address: TIER1_ADDRESS, detail: 'it is fee tier 0, not 1' }), "Fee tier 1’s account is not what this site expects (it is fee tier 0, not 1), so opening a pool is off. No other fee tier is open for new pools."],
+    ['fee-account', { tiers: readyFacts().tiers, feeAccount: { kind: 'missing' } }, "The account that receives the fee to open a pool is not set up (there is no account at its address), so opening a pool would fail. Nothing can be opened until the team's vault sets it up."],
   ])('%s', async (state, createFacts, text) => {
     mount(readers({ findPools: vi.fn(async () => search([view()])) }), { createFacts });
     const c = await settled(state);
@@ -822,12 +825,12 @@ describe('each answer has its own line, and only `offer` has the button', () => 
   it('tier-unread and fee-account-unread read the create facts again, never the gate', async () => {
     const readCreateFacts = vi
       .fn()
-      .mockResolvedValueOnce({ tier: { kind: 'unread', address: TIER1_ADDRESS, detail: 'HTTP 503' }, feeAccount: { kind: 'ready' } })
-      .mockResolvedValueOnce({ tier: readyFacts().tier, feeAccount: { kind: 'unread', detail: 'HTTP 504' } })
+      .mockResolvedValueOnce({ tiers: [{ kind: 'unread', index: 1, address: TIER1_ADDRESS, detail: 'HTTP 503' }, notOpenFacts().tiers[1]], feeAccount: { kind: 'ready' } })
+      .mockResolvedValueOnce({ tiers: readyFacts().tiers, feeAccount: { kind: 'unread', detail: 'HTTP 504' } })
       .mockResolvedValue(readyFacts());
     const { api } = mount(readers(), { api: fakeLpApi({ readCreateFacts }) });
     const c = await settled('tier-unread');
-    expect(c).toHaveTextContent('We could not read the public fee tier just now (HTTP 503), so opening a pool is off until we can.');
+    expect(c).toHaveTextContent('We could not read fee tier 1 just now (HTTP 503), so opening a pool is off until we can.');
     fireEvent.click(within(c).getByRole('button', { name: 'Refresh' }));
     await waitFor(() => expect(c).toHaveAttribute('data-create', 'fee-account-unread'));
     expect(c).toHaveTextContent('We could not read the account that receives the fee to open a pool (HTTP 504), so opening a pool is off until we can.');
@@ -915,7 +918,7 @@ describe('Refresh says it is reading, and what it found', () => {
   it('tier-unread: a fee-tier read that answers differently says the answer is new', async () => {
     const readCreateFacts = vi
       .fn()
-      .mockResolvedValueOnce({ tier: { kind: 'unread', address: TIER1_ADDRESS, detail: 'HTTP 503' }, feeAccount: { kind: 'ready' } })
+      .mockResolvedValueOnce({ tiers: [{ kind: 'unread', index: 1, address: TIER1_ADDRESS, detail: 'HTTP 503' }, notOpenFacts().tiers[1]], feeAccount: { kind: 'ready' } })
       .mockResolvedValue(readyFacts());
     mount(readers(), { api: fakeLpApi({ readCreateFacts }) });
     const c = await settled('tier-unread');

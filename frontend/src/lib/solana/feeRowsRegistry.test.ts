@@ -69,7 +69,7 @@ describe('the swap fee is paid to the registered token accounts of the registere
 
 describe('both fee tiers are registered where the pool code derives them', () => {
   it('the public tier (index 1) and the launch tier (index 0)', () => {
-    expect(entry('cp-swap-amm-config-public-restart').address).toBe(publicTierConfig(REGISTERED_PROGRAM_ID).toBase58());
+    expect(entry('cp-swap-amm-config-public-restart').address).toBe(publicTierConfig(REGISTERED_PROGRAM_ID, 1).toBase58());
     expect(entry('cp-swap-amm-config-restart').address).toBe(deriveAmmConfig(REGISTERED_PROGRAM_ID, 0).toBase58());
     expect(entry('cp-swap-amm-config-public-restart').expect?.type).toBe('program-owned');
     expect(entry('cp-swap-program-restart').address).toBe(REGISTERED_PROGRAM_ID.toBase58());

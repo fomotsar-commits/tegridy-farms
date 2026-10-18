@@ -5,6 +5,7 @@ import { poolStatePda } from '../../launcher/solana/curve/program';
 import {
   decodeAmmConfig,
   decodePoolState,
+  PUBLIC_TIER_INDICES,
   deriveAmmConfig,
   derivePool,
   sortMints,
@@ -268,8 +269,8 @@ export async function readPools(rpc: SolanaRpc, addresses: string[], opts: ReadP
   return { kind: 'ok', entries, chainNow };
 }
 
-/** The fee tiers the finder checks standard addresses on, public tier first. */
-export const STANDARD_CONFIG_INDICES = [1, 0] as const;
+/** The fee tiers the finder checks standard addresses on: each public tier, then the launch tier. */
+export const STANDARD_CONFIG_INDICES = [...PUBLIC_TIER_INDICES, 0] as const;
 
 export interface KnownAddresses {
   launchPool: string;
@@ -407,7 +408,7 @@ export async function findPools(
  */
 export const NEVER_REFUNDED_ACCOUNT_SIZES = [637, 4075, 82, 165, 165] as const;
 
-/** The fee tiers as they are on chain right now: read, never assumed (tier 1 may not exist yet). */
+/** The fee tiers as they are on chain right now: read, never assumed (a public tier may not exist yet). */
 export type FeeTierRead =
   | {
       kind: 'ok';
@@ -433,7 +434,7 @@ async function readOpeningDeposits(rpc: SolanaRpc): Promise<bigint | null> {
   }
 }
 
-export async function readFeeTiers(rpc: SolanaRpc, programId: PublicKey, indices: readonly number[] = [0, 1]): Promise<FeeTierRead> {
+export async function readFeeTiers(rpc: SolanaRpc, programId: PublicKey, indices: readonly number[] = [0, ...PUBLIC_TIER_INDICES]): Promise<FeeTierRead> {
   const addrs = indices.map((i) => deriveAmmConfig(programId, i).toBase58());
   let accounts: (RawAccount | null)[];
   let openingDeposits: bigint | null;

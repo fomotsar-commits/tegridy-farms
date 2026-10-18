@@ -409,7 +409,7 @@ describe('cp-swap initialize matches the committed mainnet IDL', () => {
   // Opening a pool from this site (lp-create). The decoder pins all 20 slots by name and
   // order (intent.ts poolInitialize), so the list it pins is held to the release's IDL.
   const flags = (spec: IdlIx) => spec.accounts.map((a) => [a.name, !!a.signer, !!a.writable]);
-  const tier1 = publicTierConfig(CPSWAP);
+  const tier1 = publicTierConfig(CPSWAP, 1);
   const [t0, t1] = sortMints(WSOL_MINT, MINT);
 
   it('20 accounts by name, order and flags, the discriminator, and init_amount_0, init_amount_1, open_time', () => {
