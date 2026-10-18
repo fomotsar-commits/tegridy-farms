@@ -83,6 +83,22 @@ for (const size of SIZES) {
       await expect(page.getByRole('tab', { name: 'Solana LP', exact: true })).toHaveAttribute('aria-selected', 'true', { timeout: 30_000 });
     });
 
+    test('nothing lies over the open drawer: every row takes its own tap', async ({ page }) => {
+      // The drawer's rows sit at the bottom of the panel, where the phone's bottom bar
+      // (z-50) and Towelie (z-[60]) live; at the same z the bar covered the last rows.
+      await open(page, '/');
+      await page.getByRole('button', { name: 'Open navigation menu' }).click();
+      const drawer = page.getByRole('dialog', { name: 'Navigation menu' });
+      await expect(drawer.getByRole('link').last()).toBeVisible();
+      const covered = await drawer.getByRole('link').evaluateAll((as) => as.flatMap((a) => {
+        a.scrollIntoView({ block: 'nearest' });
+        const b = a.getBoundingClientRect();
+        const top = document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2);
+        return top && a.contains(top) ? [] : [`${a.textContent} (under ${top?.tagName ?? 'nothing'}${top?.closest('nav')?.getAttribute('aria-label') ? ` in ${top.closest('nav')!.getAttribute('aria-label')}` : ''})`];
+      }));
+      expect(covered, 'a drawer row is covered by something drawn over it').toEqual([]);
+    });
+
     test('the footer is eight links, on one screen above the bar', async ({ page }) => {
       test.slow();
       for (const path of ['/', '/swap', '/bayla', '/toweli']) {
