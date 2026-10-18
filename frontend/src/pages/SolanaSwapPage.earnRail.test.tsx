@@ -104,7 +104,7 @@ describe('SolanaSwapPage: the Earn rail names each staking token and prints no r
     expect(percentages.length).toBeGreaterThan(0);
     // SOL, USDC and staked SOL are majors, so a staked-SOL buy pays the lower major rate.
     expect([...new Set(percentages)]).toEqual([`${SOLANA_MAJOR_PAIR_FEE_BPS / 100}%`]);
-    expect(text).toContain(`A ${percentages[0]} fee applies when you pay with SOL or USDC and the buy goes through Jupiter.`);
+    expect(text).toContain(`A ${percentages[0]} fee applies when the buy goes through Jupiter.`);
     // A buy that goes to one of our pools pays no platform fee, so the fee is never said of every buy.
     expect(text).toContain("A buy in one of our pools pays that pool's own fee inside the quote, and no platform fee on top.");
     expect(text).not.toMatch(/fee on the buy/);

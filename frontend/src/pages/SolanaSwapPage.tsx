@@ -732,7 +732,7 @@ function EarnRail({ onPick }: { onPick: (t: SolToken) => void }) {
           are added. There is no lockup, and you can sell back to SOL at any time. This page reads no staking rate,
           so it shows none: each provider publishes its own.{' '}
           {isSolanaFeeConfigured()
-            ? `A ${SOLANA_MAJOR_PAIR_FEE_BPS / 100}% fee applies when you pay with SOL or USDC and the buy goes through Jupiter. A buy in one of our pools pays that pool's own fee inside the quote, and no platform fee on top.`
+            ? `A ${SOLANA_MAJOR_PAIR_FEE_BPS / 100}% fee applies when the buy goes through Jupiter. A buy in one of our pools pays that pool's own fee inside the quote, and no platform fee on top.`
             : 'No platform fee is charged on the buy.'}
         </p>
       </FinePrint>
