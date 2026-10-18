@@ -8,6 +8,7 @@ page keeps the newest thirty days.
 
 ### 2026-10-18
 
+- The bar reads Island · Lock · Launch · Swap: Heat and Rooms both opened the home, so they are one word, Island, which inside a room opens that room's own page. The menu (☰) lost its Island row and gained a "More" list with one link to each feature the bar and menu did not name: Marketplace, NFT Finance, Gallery, Pro Terminal, Pro Charting, Alerts, Copy Trading, Yield Routing, Checkout, Gold Card, Community, Treasury & numbers, History and Lore. The island page with the whole board and the arrival film opens from "The whole island" under the home's bungalows.
 - BOBO, SOY, BRAINLET and RIZZ each have a SOL pool on the venue now, so each room gets Add SOL + its coin, second on its first screen, as BAYLA's has.
 
 ### 2026-10-17
