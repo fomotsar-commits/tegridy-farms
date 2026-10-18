@@ -6,6 +6,10 @@ page keeps the newest thirty days.
 
 ## [Unreleased]
 
+### 2026-10-18
+
+- BOBO, SOY, BRAINLET and RIZZ each have a SOL pool on the venue now, so each room gets Add SOL + its coin, second on its first screen, as BAYLA's has.
+
 ### 2026-10-17
 
 - The home's row of three cards is NFT Finance, Marketplace and Launch; Hold and Provide LP left it.
