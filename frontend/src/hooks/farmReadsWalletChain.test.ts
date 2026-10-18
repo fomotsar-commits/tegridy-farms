@@ -76,6 +76,8 @@ function stubMainnet() {
   staking('totalBoostedStake', 6_000_000n * E18);
   staking('rewardRate', E18);
   staking('totalRewardsFunded', 2_000_000n * E18);
+  // Staking release 1: the four-year schedule is running (nothing pays past periodFinish).
+  staking('periodFinish', BigInt(Math.floor(Date.now() / 1000) + 4 * 365 * 86400));
   staking('totalPenaltiesCollected', 0n);
   staking('totalUnsettledRewards', 0n);
   toweli('balanceOf', 6_000_000n * E18);

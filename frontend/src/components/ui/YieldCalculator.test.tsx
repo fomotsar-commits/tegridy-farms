@@ -145,6 +145,8 @@ describe('YieldCalculator', () => {
     // aprNum = rewardRate / boostedStake * (100 * 31_536_000). With
     // boostedStake = 3_153_600_000, aprNum == rewardRate. So rewardRate=45 → 45%.
     wagmiMock.setReadResult({ functionName: 'rewardRate', result: 45n });
+    // Staking release 1: a rate only pays while the four-year schedule runs.
+    wagmiMock.setReadResult({ functionName: 'periodFinish', result: BigInt(Math.floor(Date.now() / 1000) + 4 * 365 * 86400) });
     wagmiMock.setReadResult({ functionName: 'totalBoostedStake', result: 3_153_600_000n });
     renderCalc();
     const matches = screen.getAllByText(
@@ -158,6 +160,8 @@ describe('YieldCalculator', () => {
     // ceiling). usePoolData comma-formats this; the calculator must NOT parse the
     // string and must show the baseline chip, never "Live 2,000%".
     wagmiMock.setReadResult({ functionName: 'rewardRate', result: 2000n });
+    // The schedule runs, so the fallback below is the ceiling's doing, not a zero APR.
+    wagmiMock.setReadResult({ functionName: 'periodFinish', result: BigInt(Math.floor(Date.now() / 1000) + 4 * 365 * 86400) });
     wagmiMock.setReadResult({ functionName: 'totalBoostedStake', result: 3_153_600_000n });
     renderCalc();
     const matches = screen.getAllByText(
