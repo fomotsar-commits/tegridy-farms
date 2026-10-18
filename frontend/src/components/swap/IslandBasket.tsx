@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import { Modal } from '../ui/Modal';
 import { FinePrint } from '../ui/FinePrint';
 import { pageArt } from '../../lib/artConfig';
@@ -74,9 +75,11 @@ export function IslandBasketDialog(p: {
   after?: ReactNode;
   finePrint: ReactNode;
 }) {
-  // Mounted only while open: a closed order costs the swap card nothing.
-  if (!p.open) return null;
-  return (
+  // Mounted only while open: a closed order costs the swap card nothing. Portalled to the
+  // body: the swap card is animated with a transform, which would trap a fixed dialog in
+  // its own layer, under the top bar and the phone's tab bar.
+  if (!p.open || typeof document === 'undefined') return null;
+  return createPortal(
     <Modal
       open={p.open}
       onClose={p.closable ? p.onClose : () => {}}
@@ -84,7 +87,8 @@ export function IslandBasketDialog(p: {
       title="Buy all bungalows"
       art={pageArt('island-basket', 0).src}
     >
-      <div data-testid="island-basket">
+      {/* Scrolls inside the dialog on a short screen, so the title, the close button and Buy stay reachable. */}
+      <div data-testid="island-basket" className="max-h-[calc(100dvh-8.5rem)] overflow-y-auto overscroll-contain -mx-1 px-1">
         <p className="text-white/85 text-[12px] mb-3">One amount, split evenly across every island coin on {p.chainName}.</p>
         <label htmlFor="island-basket-usd" className="sr-only">Dollars to spend</label>
         <div className="flex items-center gap-2 rounded-xl p-3" style={{ background: 'rgba(0,0,0,0.6)', border: '1px solid rgba(255,255,255,0.22)' }}>
@@ -122,18 +126,18 @@ export function IslandBasketDialog(p: {
             <li
               key={r.key}
               data-testid={`island-basket-row-${r.key}`}
-              className="flex items-start justify-between gap-2 px-2.5 py-1.5 rounded-lg text-[11px]"
+              className="px-2.5 py-1 rounded-lg text-[11px]"
               style={{ background: 'rgba(0,0,0,0.5)', border: '1px solid rgba(255,255,255,0.10)' }}
             >
-              <span className="min-w-0">
-                <span className="text-white font-semibold">{r.symbol}</span>
-                {r.tag && <span className="ml-1.5 text-white/60 text-[10px]">{r.tag}</span>}
-                <span className="block text-white/55 text-[10px]">{r.venue ?? '…'}</span>
+              {/* One line a coin: what, from where, through which pool, and what it pays. */}
+              <span className="flex items-baseline justify-between gap-2">
+                <span className="min-w-0 truncate">
+                  <span className="text-white font-semibold">{r.symbol}</span>
+                  <span className="text-white/55 text-[10px]">{r.tag ? ` ${r.tag}` : ''}{` · ${r.venue ?? '…'}`}</span>
+                </span>
+                <span className="shrink-0 text-white font-mono">{r.pays ?? '…'}</span>
               </span>
-              <span className="text-right shrink-0">
-                <span className="block text-white font-mono">{r.pays ?? '…'}</span>
-                {r.status && <span className={`block text-[10px] ${TONE[r.status.tone]}`}>{r.status.text}</span>}
-              </span>
+              {r.status && <span className={`block text-[10px] leading-snug ${TONE[r.status.tone]}`}>{r.status.text}</span>}
             </li>
           ))}
         </ul>
@@ -146,7 +150,8 @@ export function IslandBasketDialog(p: {
         {p.after && <div className="mt-2 text-center">{p.after}</div>}
         <FinePrint summary="How it works" className="mt-2">{p.finePrint}</FinePrint>
       </div>
-    </Modal>
+    </Modal>,
+    document.body,
   );
 }
 

@@ -65,10 +65,10 @@ describe('IslandBasketEvm', () => {
     await open();
     for (const k of ['qr', 'mfer', 'bnkr', 'drb', 'jbm']) expect(row(`${k}-${(await import('../../lib/islandBasket')).EVM_BASKET.base.find((c) => c.room === k)!.token}`)).toBeInTheDocument();
     const list = screen.getByRole('list', { name: 'Coins in this order' });
-    expect(within(list).getByText('from Ethereum')).toBeInTheDocument();
-    expect(within(list).getByText('from Solana')).toBeInTheDocument();
-    await waitFor(() => expect(within(list).getAllByText('Uniswap V3')).toHaveLength(6));
-    expect(within(list).getByText('Uniswap V2')).toBeInTheDocument();
+    await waitFor(() => expect(within(list).getAllByText(/· Uniswap V3$/)).toHaveLength(6));
+    expect(within(list).getByText(/^from Ethereum · Uniswap V3$/)).toBeInTheDocument();
+    expect(within(list).getByText(/^from Solana · Uniswap V3$/)).toBeInTheDocument();
+    expect(within(list).getByText(/^· Uniswap V2$/)).toBeInTheDocument();
     expect(screen.getByTestId('island-basket-fee')).toHaveTextContent(/No site fee.*venue earns nothing/);
   });
 
@@ -144,5 +144,13 @@ describe('IslandBasketEvm', () => {
     await waitFor(() => expect(screen.getByTestId('island-basket-notice')).toHaveTextContent(/ETH price could not be read/));
     expect(screen.getByTestId('island-basket-buy')).toBeDisabled();
     price.ethUsdForDisplay = 2400;
+  });
+
+  it('opens over the whole page, outside the swap card: a transformed card would trap it under the bars', async () => {
+    const { container } = renderWithProviders(<IslandBasketEvm chainId={8453} slippagePct={1} />);
+    await open();
+    const dialog = screen.getByRole('dialog');
+    expect(container.contains(dialog)).toBe(false);
+    expect(document.body.contains(dialog)).toBe(true);
   });
 });

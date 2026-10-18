@@ -74,8 +74,8 @@ describe('IslandBasketSolana', () => {
     expect(screen.getByTestId('island-basket-open')).toHaveTextContent('5');
     await openAndPrice();
     const list = screen.getByRole('list', { name: 'Coins in this order' });
-    expect(within(list).getAllByText('PumpSwap via Jupiter')).toHaveLength(4);
-    expect(within(list).getByText('Raydium via Jupiter')).toBeInTheDocument();
+    expect(within(list).getAllByText(/· PumpSwap via Jupiter$/)).toHaveLength(4);
+    expect(within(list).getByText(/· Raydium via Jupiter$/)).toBeInTheDocument();
   });
 
   it('buys each coin in its own transaction, holding the wallet with a note until each confirms', async () => {
@@ -162,7 +162,7 @@ describe('IslandBasketSolana', () => {
     mount();
     fireEvent.click(screen.getByTestId('island-basket-open'));
     await waitFor(() => expect(screen.getByTestId('island-basket-buy')).toHaveTextContent('A price could not be read'), { timeout: 10_000 });
-    expect(within(status('bayla')).getByText('Price not read')).toBeInTheDocument();
+    expect(within(status('bayla')).getByText(/· Price not read$/)).toBeInTheDocument();
     expect(screen.getByTestId('island-basket-buy')).toBeDisabled();
   }, 15_000);
 });
