@@ -15,6 +15,22 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-10-18: a three-minute fake-clock watch is over in milliseconds, so a real hash before the timer outlasts it
+
+**Believed:** `watch()` (`frontend/src/test/quietHost.ts`), stepping a fake clock 180 s in
+500 ms steps, leaves plenty of room for a call that hashes with WebCrypto before it arms its
+own timeout.
+
+**Measured** (vitest 5.0.3, Node 24, this Windows box): all 360 steps of
+`vi.advanceTimersByTimeAsync(500)` passed in 5 to 16 ms of real time. With each
+`crypto.subtle.digest` held 1.5 s by a spy, both "an answer that stops part-way" tests in
+`launchMetadata/upload.test.ts` returned null ("still pending after 180 s"), the message CI
+gave once on #866 (run 39081813182). The fake clock moves on whether or not the hash has
+answered. How long the CI runner's hash took was not measured.
+
+**Do:** when real-async work runs before the timer, have the stub fetch resolve a promise,
+wait for it in real time, then start the watch, counting from that moment.
+
 ## 2026-10-17: Solscan values a pool's address at its rent; the pool's coins are in its vaults
 
 **Believed:** an explorer link to a pool's address shows the pool and what is in it.

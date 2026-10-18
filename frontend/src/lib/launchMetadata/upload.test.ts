@@ -211,18 +211,24 @@ describe('uploadLaunchMetadata', () => {
   describe('an answer that stops part-way', () => {
     const NOT_REACHED = { ok: false, reason: 'Could not reach the upload service. Nothing was launched. Try again.', retryable: true, notConfigured: false };
 
-    /** How it ended, and how long after the request left (the picture is hashed first, off the fake clock). */
+    /**
+     * How it ended, and how long after the request left. The picture is hashed first, in
+     * real time, so the fake clock starts only once the request is out: started at the
+     * call, a slow runner spends the whole window hashing and the call reads as pending.
+     */
     async function upload(answer: (signal: AbortSignal) => Promise<Response>) {
       vi.useFakeTimers();
       try {
-        const start = Date.now();
-        let askedAfterMs = -1;
+        let sent!: () => void;
+        const asked = new Promise<void>((resolve) => (sent = resolve));
         const f = ((_url: string, init: RequestInit) => {
-          askedAfterMs = Date.now() - start;
+          sent();
           return answer(init.signal as AbortSignal);
         }) as unknown as typeof fetch;
-        const ended = await watch(() => uploadLaunchMetadata(input(), f), 180_000, 500);
-        return ended && { value: ended.value, afterAskMs: ended.afterMs - askedAfterMs };
+        const pending = uploadLaunchMetadata(input(), f);
+        await Promise.race([asked, pending]);
+        const ended = await watch(() => pending, 180_000, 500);
+        return ended && { value: ended.value, afterAskMs: ended.afterMs };
       } finally {
         vi.useRealTimers();
       }
