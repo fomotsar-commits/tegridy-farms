@@ -125,11 +125,23 @@ async function quoteOurs(client: QuoteClient, venue: SwapVenue, coin: EvmBasketC
   return { out: (gross * (10_000n - feeBps)) / 10_000n, feeBps };
 }
 
-/** Quote every leg. Never throws: a read that fails marks its leg unread. */
+/** How long one pool's quote may take before its coin counts as unread (a public RPC can stall). */
+export const QUOTE_TIMEOUT_MS = 12_000;
+
+/** `p`, or a rejection after `ms`. */
+function timed<T>(p: Promise<T>, ms: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const t = setTimeout(() => reject(new Error('timed out')), ms);
+    p.then((v) => { clearTimeout(t); resolve(v); }, (e: unknown) => { clearTimeout(t); reject(e); });
+  });
+}
+
+/** Quote every leg. Never throws: a read that fails, or does not answer in time, marks its leg unread. */
 export async function quoteEvmLegs(
   client: QuoteClient,
   venue: SwapVenue,
   legs: readonly { coin: EvmBasketCoin; amountIn: bigint }[],
+  timeoutMs: number = QUOTE_TIMEOUT_MS,
 ): Promise<EvmLegQuote[]> {
   const uni = uniswapOn(venue.chainId);
   if (!uni) return legs.map((l) => ({ ...l, outside: [], ours: null, unread: true }));
@@ -138,7 +150,7 @@ export async function quoteEvmLegs(
     const outside: EvmLegQuote['outside'] = [];
     await Promise.all(coin.pools.map(async (pool) => {
       try {
-        const out = await quoteOutside(client, venue, uni.quoterV2, coin, pool, amountIn);
+        const out = await timed(quoteOutside(client, venue, uni.quoterV2, coin, pool, amountIn), timeoutMs);
         if (out > 0n) outside.push({ pool, out });
       } catch {
         unread = true;
@@ -146,7 +158,7 @@ export async function quoteEvmLegs(
     }));
     let ours: EvmLegQuote['ours'] = null;
     try {
-      ours = await quoteOurs(client, venue, coin, amountIn);
+      ours = await timed(quoteOurs(client, venue, coin, amountIn), timeoutMs);
     } catch {
       unread = true;
     }

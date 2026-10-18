@@ -24,7 +24,9 @@ vi.mock('wagmi', () => ({
   usePublicClient: () => h.client,
   useSendTransaction: () => ({ sendTransactionAsync: h.send }),
 }));
-vi.mock('../../contexts/PriceContext', () => ({ useTOWELIPriceOptional: () => ({ ethUsd: 2400 }) }));
+// A heartbeat-fresh round: the strict 300 s `ethUsd` is 0 (the feed is routinely older), the display price is set.
+const price = vi.hoisted(() => ({ ethUsd: 0, ethUsdForDisplay: 2400 }));
+vi.mock('../../contexts/PriceContext', () => ({ useTOWELIPriceOptional: () => price }));
 vi.mock('../../lib/evm/islandBasketEvm', async (orig) => ({ ...(await orig<typeof import('../../lib/evm/islandBasketEvm')>()), quoteEvmLegs: h.quotes }));
 vi.mock('../../lib/txErrors', async (orig) => ({ ...(await orig<typeof import('../../lib/txErrors')>()), waitForReceiptOutcome: h.receipt, surfaceReceiptNotice: vi.fn() }));
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn(), warning: vi.fn(), info: vi.fn() } }));
@@ -131,5 +133,16 @@ describe('IslandBasketEvm', () => {
     fireEvent.change(screen.getByLabelText('Dollars to spend'), { target: { value: '5' } });
     expect(screen.getByTestId('island-basket-buy')).toHaveTextContent('Enter at least $7.00');
     expect(screen.getByTestId('island-basket-buy')).toBeDisabled();
+  });
+
+  it('sizes the order on a heartbeat-fresh ETH price, and says so plainly when there is none', async () => {
+    renderWithProviders(<IslandBasketEvm chainId={8453} slippagePct={1} />);
+    await open();
+    await waitFor(() => expect(screen.getByTestId('island-basket-buy')).toHaveTextContent('Buy all 7'));
+    price.ethUsdForDisplay = 0;
+    fireEvent.change(screen.getByLabelText('Dollars to spend'), { target: { value: '25' } });
+    await waitFor(() => expect(screen.getByTestId('island-basket-notice')).toHaveTextContent(/ETH price could not be read/));
+    expect(screen.getByTestId('island-basket-buy')).toBeDisabled();
+    price.ethUsdForDisplay = 2400;
   });
 });

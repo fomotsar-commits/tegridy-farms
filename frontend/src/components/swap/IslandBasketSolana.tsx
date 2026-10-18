@@ -6,6 +6,7 @@ import { SOL_MINT, SOLANA_PLATFORM_FEE_BPS, isSolanaFeeConfigured } from '../../
 import { NoRouteError, buildSwapTransaction, fromBaseUnits, getQuote, getUsdPrices, simulateSwap, swapCarriesPlatformFee, type JupiterQuote, type PriorityLevel } from '../../lib/jupiter';
 import { MIN_USD_PER_COIN, SOL_BASKET, shortAmount, splitEvenly, usdText, usdToBaseUnits, type SolBasketCoin } from '../../lib/islandBasket';
 import { pinnedGetQuote, prepareSolLeg, retryingGetQuote, solLegRoute, BASKET_COPY, PoolNotNamedError } from '../../lib/solana/swap/islandBasketSol';
+import { within } from '../../lib/solana/swap/ownPoolRoute';
 import type { VenuePoolCandidate } from '../../lib/solana/swap/venuePools';
 import { pollConfirm } from '../../lib/solana/confirm';
 import { readSendThrow } from '../../lib/solana/walletThrow';
@@ -25,8 +26,19 @@ import { BasketCta, IslandBasketButton, IslandBasketDialog, type BasketRow, type
 const REQUOTE_MS = 30_000;
 /** Between one coin's Jupiter quote and the next: Jupiter's keyless tier refuses a burst. */
 const QUOTE_GAP_MS = 1_100;
-/** Jupiter's quote, asked once more after a refusal (a rate limit is a wait, not a missing price). */
-const quoteJupiter = retryingGetQuote(getQuote);
+/** How long one coin's Jupiter quote (its retry included) may take before it counts as unread. */
+const QUOTE_TIMEOUT_MS = 15_000;
+/** How long a read of our pools may take: the order view waits longer than a press does (the swap's OWN_CHECK_MS). */
+const OWN_READ_MS = 8_000;
+const OWN_CHECK_MS = 4_000;
+/** `p`, or a rejection after `ms`: a public endpoint that stalls must not hold the order. */
+const timed = <T,>(p: Promise<T>, ms: number): Promise<T> => new Promise<T>((resolve, reject) => {
+  const t = setTimeout(() => reject(new Error('timed out')), ms);
+  p.then((v) => { clearTimeout(t); resolve(v); }, (e: unknown) => { clearTimeout(t); reject(e); });
+});
+/** Jupiter's quote, asked once more after a refusal (a rate limit is a wait, not a missing price), within a time limit. */
+const retried = retryingGetQuote(getQuote);
+const quoteJupiter: typeof retried = (q) => timed(retried(q), QUOTE_TIMEOUT_MS);
 /** How long a sent coin is watched before the order says it cannot tell (the swap's own wait). */
 const CONFIRM_TIMEOUT_MS = 90_000;
 /** About what opening one coin's account costs (rent, refunded if it is closed), plus its fees. */
@@ -134,7 +146,7 @@ export function IslandBasketSolana(p: {
 
   // Our pools for every coin at once (they are not Jupiter's), then Jupiter one coin at a time.
   const quoteAll = useCallback(async (ls: Leg[], live: () => boolean): Promise<LegQuote[] | null> => {
-    const own = await Promise.all(ls.map((l) => readOwnPoolsFor(SOL_MINT, l.coin.mint, l.amountIn).catch(() => null)));
+    const own = await Promise.all(ls.map((l) => within(readOwnPoolsFor(SOL_MINT, l.coin.mint, l.amountIn), OWN_READ_MS, null)));
     const out: LegQuote[] = [];
     for (let i = 0; i < ls.length; i++) {
       if (!live()) return null;
@@ -203,7 +215,7 @@ export function IslandBasketSolana(p: {
             buildSwapTransaction,
             simulateSwap: (b64) => simulateSwap(b64),
             swapCarriesPlatformFee,
-            ownPools: () => readOwnPoolsFor(SOL_MINT, leg.coin.mint, leg.amountIn),
+            ownPools: () => within(readOwnPoolsFor(SOL_MINT, leg.coin.mint, leg.amountIn), OWN_CHECK_MS, null),
           },
           { coin: leg.coin, inputMint: SOL_MINT, amountIn: leg.amountIn, shown: q.jupiter, shownOwn: q.own, slippageBps: p.slippageBps, user, priority: p.priority },
         );
@@ -292,7 +304,7 @@ export function IslandBasketSolana(p: {
       key: coin.room,
       symbol: coin.symbol,
       venue,
-      pays: r?.out != null ? `≈ ${shortAmount(Number(fromBaseUnits(r.out.toString(), coin.decimals)))}` : quoting || !shown ? null : '–',
+      pays: r?.out != null ? `≈ ${shortAmount(Number(fromBaseUnits(r.out.toString(), coin.decimals)))}` : quoting || (!shown && orderKey) ? null : '–',
       status,
     };
   });
@@ -325,6 +337,7 @@ export function IslandBasketSolana(p: {
   else if (unread) [label, disabled] = ['A price could not be read', true];
 
   const shownNotice = notice
+    ?? (solUsd === null && !frozen && dollars > 0 && !tooSmall && open ? { tone: 'warn' as const, text: 'SOL’s price could not be read yet, so the order cannot be sized.' } : null)
     ?? (unread && !quoting ? { tone: 'warn' as const, text: 'A price could not be read. It is asked again in a moment.' } : null)
     ?? (tight ? { tone: 'warn' as const, text: `Keep about ${sol(reserve).toFixed(3)} SOL more than this for fees and new coin accounts, or a coin may not go through.` } : null);
 

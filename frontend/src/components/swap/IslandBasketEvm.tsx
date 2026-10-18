@@ -42,7 +42,10 @@ export function IslandBasketEvm({ chainId, slippagePct }: { chainId: number; sli
   const publicClient = usePublicClient({ chainId });
   const { data: balance, refetch: refetchBalance } = useBalance({ address, chainId, query: { enabled: !!address } });
   const { sendTransactionAsync } = useSendTransaction();
-  const ethUsd = useTOWELIPriceOptional()?.ethUsd ?? 0;
+  // The price only sizes how much ETH the dollars are (the ETH figure is shown before anything is
+  // signed, and every coin is held to its on-chain floor). So the feed's own heartbeat is fresh
+  // enough: the 300 s window of `ethUsd` would leave the order unsized most of each hour.
+  const ethUsd = useTOWELIPriceOptional()?.ethUsdForDisplay ?? 0;
 
   const [open, setOpen] = useState(false);
   const [usd, setUsd] = useState('10');
@@ -220,7 +223,7 @@ export function IslandBasketEvm({ chainId, slippagePct }: { chainId: number; sli
       symbol: coin.symbol,
       tag: coin.bridged ? `from ${coin.bridged.from === 'ethereum' ? 'Ethereum' : 'Solana'}` : undefined,
       venue: venueWord(r),
-      pays: out !== null ? `≈ ${shortAmount(Number(formatUnits(out, coin.decimals)))}` : quoting || !shown ? null : '–',
+      pays: out !== null ? `≈ ${shortAmount(Number(formatUnits(out, coin.decimals)))}` : quoting || (!shown && orderKey) ? null : '–',
       status: statuses[i],
     };
   });
@@ -247,7 +250,9 @@ export function IslandBasketEvm({ chainId, slippagePct }: { chainId: number; sli
   else if (!routes || quoting) [label, disabled] = ['Getting prices…', true];
   else if (unread) [label, disabled] = ['A price could not be read', true];
 
-  const shownNotice = notice ?? (unread && !quoting ? { tone: 'warn' as const, text: 'A price could not be read. It is asked again in a moment.' } : null);
+  const shownNotice = notice
+    ?? (ethUsd <= 0 && dollars > 0 && !tooSmall ? { tone: 'warn' as const, text: 'The ETH price could not be read, so the order cannot be sized right now.' } : null)
+    ?? (unread && !quoting ? { tone: 'warn' as const, text: 'A price could not be read. It is asked again in a moment.' } : null);
   const v2Leg = routes?.some((r) => r.via === 'v2-router') ?? false;
   const oursLeg = ours.length > 0;
   const txCount = (routes?.some((r) => r.via === 'batch') ? 1 : 0) + (routes?.filter((r) => r.via !== 'batch' && r.via !== 'none').length ?? 0);

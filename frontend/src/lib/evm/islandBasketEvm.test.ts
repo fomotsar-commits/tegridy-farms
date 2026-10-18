@@ -145,6 +145,12 @@ describe('quoteEvmLegs', () => {
     expect((await quoteEvmLegs(box({ pair: PAIR, fee: 5_000n }), BASE, legs))[0]!.unread).toBe(true);
   });
 
+  it('a read that never answers marks the coin unread in time: a stalled RPC never leaves the order spinning', async () => {
+    const stalled: QuoteClient = { readContract: () => new Promise(() => {}), simulateContract: () => new Promise(() => {}) };
+    const [leg] = await quoteEvmLegs(stalled, BASE, legs, 20);
+    expect(leg!.unread).toBe(true);
+  });
+
   it('a chain without Uniswap here quotes nothing', async () => {
     const out = await quoteEvmLegs(box(), { ...BASE, chainId: 4663 }, legs);
     expect(out[0]!.unread).toBe(true);
