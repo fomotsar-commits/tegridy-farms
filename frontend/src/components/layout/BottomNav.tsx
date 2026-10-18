@@ -7,16 +7,15 @@ const ICON = { width: 20, height: 20, viewBox: '0 0 24 24', fill: 'none', stroke
 
 /** One icon per bar word; a NavItem carries none. */
 const ICONS: Record<string, React.ReactNode> = {
-  Heat: (
+  // A palm on its island.
+  Island: (
     <svg {...ICON}>
-      <path d="M12 3c.6 3.4 4.5 5.6 4.5 10.2a4.5 4.5 0 0 1-9 0c0-2.1.9-3.6 2.2-4.8.2 1.5.9 2.5 2.1 3C11.4 9 11.1 6 12 3z" />
-    </svg>
-  ),
-  Rooms: (
-    <svg {...ICON}>
-      <path d="M3 11l9-7 9 7" />
-      <path d="M5 10v10h14V10" />
-      <path d="M10 20v-6h4v6" />
+      <path d="M4 20c2.4-1.3 5.1-2 8-2s5.6.7 8 2" />
+      <path d="M11 18.2c.2-3.4.9-6.4 2.4-9" />
+      <path d="M13.4 9.2C11.6 7 8.6 6.4 5.8 7.6" />
+      <path d="M13.4 9.2c1.4-2.3 4.2-3.1 6.8-2" />
+      <path d="M13.4 9.2c-.4-2.6.6-4.8 2.9-6.2" />
+      <path d="M13.4 9.2c-2.3-.4-4.6.6-5.9 2.8" />
     </svg>
   ),
   Lock: (
@@ -40,9 +39,9 @@ const ICONS: Record<string, React.ReactNode> = {
 };
 
 /**
- * The phone bar: the same five words as the top bar (navConfig BAR_NAV). Five is the ceiling,
+ * The phone bar: the same four words as the top bar (navConfig BAR_NAV). Five is the ceiling,
  * a 44px target and a 10px label at 390px, so Dashboard is a drawer row. A word is lit on every
- * page it owns, never by its own URL alone: Heat and Rooms both open the home.
+ * page it owns, never by its own URL alone: Island owns the home, each room's door and the island's pages.
  */
 export const BottomNav = React.memo(function BottomNav() {
   // Swap's target follows the room, so a door must re-render this memoized bar.
