@@ -563,4 +563,22 @@ describe("the drawer's More list", () => {
     const off = ALL_NAV.filter((n) => n.soon).map((n) => n.to);
     for (const to of more()) expect(off, `${to} is off, and its own strip hides it`).not.toContain(to);
   });
+
+  // Every entry is on today, so the guard above cannot fail on its own: switch one off.
+  it('drops a page the moment it is off, as its strip does', async () => {
+    expect(more(), 'the precondition: Copy Trading is listed while its tape is readable').toContain('/copy-trading');
+    vi.resetModules();
+    vi.doMock('./copytrade/tape', async (importOriginal) => ({
+      ...(await importOriginal<typeof import('./copytrade/tape')>()),
+      hasCopyTapeSource: () => false,
+    }));
+    try {
+      const off = await import('./navConfig');
+      expect(off.ALL_NAV.find((n) => n.to === '/copy-trading')?.soon, 'Copy Trading reads as off').toBe(true);
+      expect(off.DRAWER_MORE.map((i) => i.to)).not.toContain('/copy-trading');
+    } finally {
+      vi.doUnmock('./copytrade/tape');
+      vi.resetModules();
+    }
+  });
 });
