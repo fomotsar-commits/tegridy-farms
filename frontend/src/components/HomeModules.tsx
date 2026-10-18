@@ -7,6 +7,9 @@ import { LighthouseClaimStrip } from './bungalow/LighthousePoolLive';
 import { LpInner } from './solana/lp/SolanaLpSection';
 import { browserLpReaders, type LpReaders } from './solana/lp/readers';
 import { CardArt } from './ui/CardArt';
+import { ChainPicker } from './layout/ChainPicker';
+import { useSectionChain } from '../hooks/useSectionChain';
+import { POOLS_SECTION } from '../lib/navConfig';
 import { useVenueStatus } from '../hooks/useVenueStatus';
 import { isSolanaSwapLive } from '../lib/solana';
 import { BUNGALOWS, bungalowLpDoor, stakePoolMembersOnly } from '../lib/bungalows';
@@ -16,6 +19,17 @@ const HOME_ROOM_ID = 'bayla';
 
 // The swap page's own form, in its home mode. Its own chunk, so the other two cards never wait on it.
 const SolanaSwapInner = lazy(() => import('../pages/SolanaSwapPage').then((m) => ({ default: m.SolanaSwapInner })));
+
+/**
+ * The LP card's network drop-down: the Pools tabs' own (PoolsHostPage), lit on Solana because the
+ * card is /solana-lp's. A pick leaves for that network's Pools tab (Base: /liquidity?c=8453).
+ * Its list opens leftward: the card is the row's last, and a list opening right ran 47px off a
+ * 1280px screen.
+ */
+function PoolsNetwork() {
+  const network = useSectionChain(POOLS_SECTION.items, '/solana-lp', { missing: 'No pools here' });
+  return <ChainPicker label="Pools network" active={network.active} options={network.options} onPick={network.pick} align="end" />;
+}
 
 /**
  * The home's three working cards, in one row: swap, stake BAYLA and add SOL + BAYLA liquidity
@@ -68,9 +82,12 @@ export default function HomeModules({ readers: given }: { readers?: LpReaders } 
               style={{ background: 'rgba(4,9,18,0.72)', border: '1px solid var(--color-purple-25)' }}
             >
               <CardArt pageId="venue-home" idx={1} />
-              <h2 id="home-lp-heading" className="heading-luxury text-xl text-white mb-3" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>
-                {lp.label}
-              </h2>
+              <div className="flex flex-wrap items-center gap-2 mb-3">
+                <h2 id="home-lp-heading" className="heading-luxury text-xl text-white" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>
+                  {lp.label}
+                </h2>
+                <PoolsNetwork />
+              </div>
               <LpInner readers={lp.readers} home={{ mint: lp.mint, pool: lp.pool }} />
             </section>
           )}
