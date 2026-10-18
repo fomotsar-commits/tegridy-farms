@@ -6,6 +6,10 @@ page keeps the newest thirty days.
 
 ## [Unreleased]
 
+### 2026-10-18
+
+- Pool prices flip with a press: on any pool card or in All pools, press a price such as "1 BAYLA = 0.000006354 SOL" and every pool on the page shows it the other way round, such as "1 SOL = 157,392 BAYLA", with the card's Difference worked out the same way. Press again to flip back.
+
 ### 2026-10-17
 
 - The home's row of three cards is NFT Finance, Marketplace and Launch; Hold and Provide LP left it.
