@@ -9,7 +9,8 @@ The site's Changelog tab shows both files.
 
 ### 2026-10-18
 
-- The Changelog tab (/changelog) now shows this list, so every change that reaches the site appears there too. Its newest entry had been August 18.
+- The home: the chain row gains ROBINHOOD, which opens the curve on Robinhood Chain, and BASE now opens the curve on Base (it opened your wallet's chain, or Ethereum with no wallet). The home's Swap and Add SOL + BAYLA cards each have the network drop-down; picking another network opens that network's Swap or Pools page.
+- The Changelog tab (/changelog) now shows this list.
 - BOBO, SOY, BRAINLET and RIZZ each have a SOL pool on the venue now, so each room gets Add SOL + its coin, second on its first screen, as BAYLA's has.
 
 ### 2026-10-17
@@ -331,10 +332,6 @@ The site's Changelog tab shows both files.
 
 - tegridyfarms.vercel.app redirects to memetics.finance instead of serving a second copy of the venue.
 - The footer carries the owner's permanent Discord invite.
-
-### 2026-09-19
-
-- The dead Discord invite and the retired Telegram handle are gone from the footer.
 
 ## Earlier
 

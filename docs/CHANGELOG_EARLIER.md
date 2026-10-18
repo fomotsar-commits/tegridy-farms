@@ -6,6 +6,10 @@ first. The site's Changelog tab shows this file under that one. When a day leave
 
 ## Days
 
+### 2026-09-19
+
+- The dead Discord invite and the retired Telegram handle are gone from the footer.
+
 ### 2026-09-18
 
 - The launch gate's reading names the tier as the wallet's own, and its verdicts carry no em dash.
