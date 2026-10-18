@@ -8,6 +8,7 @@ page keeps the newest thirty days.
 
 ### 2026-10-18
 
+- Base and Robinhood Chain: Pools opens on each network's own coins (ETH and USDC on Base, ETH and USDG on Robinhood Chain), not Ethereum's TOWELI, and Swap on Robinhood Chain opens on ETH to USDG. A wallet that refuses a network switch is told so; on DCA, Limit, TWAP and Trigger, "Switch your wallet to Ethereum" now switches it.
 - BOBO, SOY, BRAINLET and RIZZ each have a SOL pool on the venue now, so each room gets Add SOL + its coin, second on its first screen, as BAYLA's has.
 
 ### 2026-10-17
@@ -333,11 +334,6 @@ page keeps the newest thirty days.
 ### 2026-09-19
 
 - The dead Discord invite and the retired Telegram handle are gone from the footer.
-
-### 2026-09-18
-
-- The launch gate's reading names the tier as the wallet's own, and its verdicts carry no em dash.
-- "Check graduation" no longer says a token has not graduated from a read it never made.
 
 ## Earlier
 
