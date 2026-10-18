@@ -27,7 +27,7 @@ On a buy from a pool:
 |---|---|---|
 | The buyer pays | the curve price + the venue fee | the curve price + the venue fee + the royalty |
 | The pool owner gets | the curve price **minus the royalty** | the curve price |
-| The venue gets | 0.5% of the price (50 bps) | the same |
+| The venue gets | 0.5% of the price (50 bps) | 0.25% of the price (25 bps) |
 | The collection gets | its ERC-2981 royalty, capped at 25% | the same, paid by the buyer |
 
 On a sale into a pool, both templates take the royalty and the venue fee out of the seller's
@@ -35,10 +35,12 @@ payout. The old template's sell quote leaves the royalty out, so it shows the se
 they get; the new one quotes the real payout, which is what the site's NFT AMM tab already
 assumes.
 
-The pool owner earns the buy-sell spread plus any pool fee they set. The venue's 0.5% sits in each
+The pool owner earns the buy-sell spread plus any pool fee they set. The venue's cut sits in each
 pool until anyone calls the factory's `claimPoolFees`; then the factory's owner withdraws it to the
-treasury Safe `0x7D2620243EdAd69Ec81A53c4A063B07995A4Bd7d`. The new factory keeps the venue's terms
-exactly: the fork rehearsal reads them off the live factory and checks they match.
+treasury Safe `0x7D2620243EdAd69Ec81A53c4A063B07995A4Bd7d`. The new factory takes 0.25% a swap,
+half the live factory's 0.5% (your call of 2026-10-18), so traders pay less and the venue earns
+half as much per swap. It pays the same treasury and uses the same WETH: the fork rehearsal reads
+those off the live factory and checks they match, and checks the fee is 25 bps.
 
 ## Two calls for you
 
@@ -68,17 +70,17 @@ You should see `true`.
 **Step 2. Dry run, no key.** Nothing is sent.
 
 ```bash
-MULTISIG=0xA36053477568Fb5382492F3A5970D35Fe896b7F8 TREASURY=0x7D2620243EdAd69Ec81A53c4A063B07995A4Bd7d WETH=0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2 PROTOCOL_FEE_BPS=50 forge script script/DeployNFTPoolFactory.s.sol:DeployNFTPoolFactoryScript --rpc-url "$ETH_RPC_URL" --sender 0x14898258122C0740106391E6e8E4F17F3b6d456E
+MULTISIG=0xA36053477568Fb5382492F3A5970D35Fe896b7F8 TREASURY=0x7D2620243EdAd69Ec81A53c4A063B07995A4Bd7d WETH=0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2 PROTOCOL_FEE_BPS=25 forge script script/DeployNFTPoolFactory.s.sol:DeployNFTPoolFactoryScript --rpc-url "$ETH_RPC_URL" --sender 0x14898258122C0740106391E6e8E4F17F3b6d456E
 ```
 
-You should see `Script ran successfully`, `Protocol fee (bps): 50` and about 7.6 million gas
+You should see `Script ran successfully`, `Protocol fee (bps): 25` and about 7.6 million gas
 (0.0009 ETH at the 0.12 gwei of 2026-10-18). If you chose another owner in call 1, change
 `MULTISIG` here and in step 3.
 
 **Step 3. Deploy (your key).** One transaction. The factory's constructor makes the template.
 
 ```bash
-MULTISIG=0xA36053477568Fb5382492F3A5970D35Fe896b7F8 TREASURY=0x7D2620243EdAd69Ec81A53c4A063B07995A4Bd7d WETH=0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2 PROTOCOL_FEE_BPS=50 forge script script/DeployNFTPoolFactory.s.sol:DeployNFTPoolFactoryScript --rpc-url "$ETH_RPC_URL" --account deployer --broadcast
+MULTISIG=0xA36053477568Fb5382492F3A5970D35Fe896b7F8 TREASURY=0x7D2620243EdAd69Ec81A53c4A063B07995A4Bd7d WETH=0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2 PROTOCOL_FEE_BPS=25 forge script script/DeployNFTPoolFactory.s.sol:DeployNFTPoolFactoryScript --rpc-url "$ETH_RPC_URL" --account deployer --broadcast
 ```
 
 Use `--ledger` instead of `--account deployer` if the key is on a Ledger. Add
@@ -93,7 +95,7 @@ NEW_FACTORY=<factory address from step 3> forge test --match-path "test/fork/NFT
 ```
 
 You should see `3 passed`, and `pool ETH lost over the round trips: 2.4…` for the old factory.
-If `test_newFactory_keepsTheTerms_andTheBuyerPays` fails, stop: do not point the site at it.
+If `test_newFactory_at25Bps_toTheSameTreasury_andTheBuyerPays` fails, stop: do not point the site at it.
 
 **Step 5. Hand the factory address to a session.** It opens the site switch PR (below). Merging it
 is a production deploy, so it waits for your word.
@@ -123,12 +125,14 @@ After step 4 passes, one PR points the site at the new factory:
   (the scan is not blind). The live factory reads: owner `0xA360…b7F8`, fee 50 bps, fee recipient
   `0x7D26…Bd7d`, WETH `0xC02a…6Cc2`, 0 pools, not paused.
 - **Fork rehearsal** (`contracts/test/fork/NFTPoolRoyaltyForkRehearsal.t.sol`, 3/3 passed): on the
-  live factory a 20 ETH pool loses 2.4 ETH in 10 round trips; on a factory from this script with the
-  live terms it loses nothing. Control run with `NEW_FACTORY` set to the live factory: the
-  new-factory check fails ("new template lacks the fix").
-- **CI test** (`contracts/test/TegridyNFTPoolFactory_Deploy.t.sol`, 4/4): the script's factory has
-  the right terms and costs the pool nothing; the script refuses a non-mainnet chain and an owner
-  with no code. With the pre-fix pool source put back, the round-trip test fails with the same
-  2.4 ETH loss, so it tells the two builds apart.
-- **Dry run** of step 2 against mainnet: succeeded, about 7.6 million gas. Pool template 13,450
-  bytes and factory 12,443 bytes, both under the 24,576-byte limit.
+  live factory a 20 ETH pool loses 2.4 ETH in 10 round trips; on a factory from this script (live
+  owner, treasury and WETH, 25 bps) it loses nothing. Control runs with `NEW_FACTORY` set to the
+  live factory: the new-factory check fails, first on "new template lacks the fix", and since the
+  fee change on "protocol fee is not 25 bps".
+- **CI test** (`contracts/test/TegridyNFTPoolFactory_Deploy.t.sol`, 4/4): the script defaults to
+  25 bps, its factory has the right terms and costs the pool nothing; the script refuses a
+  non-mainnet chain and an owner with no code. With the pre-fix pool source put back, the
+  round-trip test fails with a 2.45 ETH loss, so it tells the two builds apart. With the default
+  still at 50, the 25 bps test failed.
+- **Dry run** of step 2 against mainnet: succeeded with `Protocol fee (bps): 25`, about 7.6 million
+  gas. Pool template 13,450 bytes and factory 12,443 bytes, both under the 24,576-byte limit.

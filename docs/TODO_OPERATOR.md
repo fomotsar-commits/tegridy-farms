@@ -36,7 +36,8 @@ stop and say so — a surprise is information.
   ETH, so a hostile collection can drain any pool made on it, and the NFT AMM tab lets anyone make
   one today. It has 0 pools, so nothing is lost yet.
 - ⬜ **Deploy the new factory** with your key: one transaction, about 0.001 ETH at today's gas.
-  Then run the fork check. Every command and what you should see:
+  It takes 0.25% a swap, your call of 2026-10-18 (the live one takes 0.5%). Then run the fork
+  check. Every command and what you should see:
   [`NFT_POOL_FACTORY_REDEPLOY.md`](NFT_POOL_FACTORY_REDEPLOY.md). One call first: who owns it
   (the default is the same Safe as today).
 

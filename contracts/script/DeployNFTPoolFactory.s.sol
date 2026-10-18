@@ -9,9 +9,11 @@ import {TegridyNFTPoolFactory} from "../src/TegridyNFTPoolFactory.sol";
 ///         deploys the pool template and stores it as the immutable poolImplementation, so a
 ///         template fix ships only as a new factory (runbook: docs/NFT_POOL_FACTORY_REDEPLOY.md).
 ///         The owner is set DIRECTLY to the multisig in the constructor; no handover step.
-/// @dev    Env: MULTISIG (becomes owner), PROTOCOL_FEE_BPS (default 50, the live factory's),
+/// @dev    Env: MULTISIG (becomes owner), PROTOCOL_FEE_BPS (default 25: 0.25%, half the live 0.5%),
 ///         TREASURY (protocol fee recipient), WETH.
 contract DeployNFTPoolFactoryScript is Script {
+    uint256 public constant DEFAULT_PROTOCOL_FEE_BPS = 25;
+
     struct Config {
         address multisig;
         uint256 protocolFeeBps;
@@ -22,7 +24,7 @@ contract DeployNFTPoolFactoryScript is Script {
     function run() external returns (TegridyNFTPoolFactory factory) {
         Config memory cfg = Config({
             multisig: vm.envAddress("MULTISIG"),
-            protocolFeeBps: vm.envOr("PROTOCOL_FEE_BPS", uint256(50)),
+            protocolFeeBps: vm.envOr("PROTOCOL_FEE_BPS", DEFAULT_PROTOCOL_FEE_BPS),
             treasury: vm.envAddress("TREASURY"),
             weth: vm.envAddress("WETH")
         });
