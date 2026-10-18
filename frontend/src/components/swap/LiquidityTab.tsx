@@ -419,7 +419,7 @@ export function LiquidityTab({ chainId: chainIdProp }: { chainId?: number } = {}
                 </button>
                 <input type="number" inputMode="decimal" placeholder="0.0" value={amountB}
                   onChange={e => handleAmountBChange(e.target.value)} onKeyDown={blockNegativeKey}
-                  disabled={!tokenB} aria-label={tokenB ? `Amount of ${tokenB.symbol}` : 'Pick token B first'}
+                  disabled={!tokenB}
                   className="flex-1 bg-transparent text-right text-white text-[18px] font-mono outline-none min-w-0" />
               </div>
             </div>

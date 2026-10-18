@@ -65,7 +65,12 @@ describe('the add / remove form on each network', () => {
   it('a chain with no venue opens with Token B unpicked, and says which networks the form runs on', () => {
     render(<LiquidityTab chainId={42161} />);
     expect(tokenB()).toHaveTextContent('Select');
-    expect(screen.getByLabelText('Pick token B first')).toBeDisabled();
+    // Both boxes are named by their placeholder, '0.0': e2e/liquidity.spec.ts finds them by
+    // that name in Chromium, and an aria-label on one (tried 2026-10-18) hid it from all four.
+    const [amountA, amountB] = screen.getAllByPlaceholderText('0.0');
+    for (const box of [amountA, amountB]) expect(box).not.toHaveAttribute('aria-label');
+    expect(amountA).toBeEnabled();
+    expect(amountB).toBeDisabled();
     expect(screen.getByTestId('liquidity-submit')).toHaveTextContent('Pick token B');
     expect(screen.getByRole('alert')).toHaveTextContent('switch to Ethereum, Robinhood Chain or Base to view pool data');
   });
