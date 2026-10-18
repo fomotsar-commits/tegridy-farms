@@ -3,7 +3,10 @@ import { describe, it, expect } from 'vitest';
 import { tokenText } from '../../../lib/solana/lp/format';
 import { BAYLA_QUOTE, SOL_QUOTE, USDC_QUOTE } from '../../../lib/solana/lp/quotes';
 import { LP_COPY } from '../../../lib/launcher/solana/write/liquidity';
-import { cannotFundText, coinAbout, coinExact, priceGapLossText, solAbout, solAboutUp, solExact, tokensAbout, unitsExact } from './panelKit';
+import { explorerAddressUrl } from '../../../lib/launcher/solana/write/config';
+import type { SolanaCluster } from '../../../lib/launcher/solana/write/types';
+import { cannotFundText, coinAbout, coinExact, explorerOf, priceGapLossText, solAbout, solAboutUp, solExact, tokensAbout, unitsExact } from './panelKit';
+import type { LpWrites } from './useLpWrites';
 
 describe('the "about" amounts on the liquidity panels', () => {
   it('never say a real amount is 0, on the token side as on the SOL side', () => {
@@ -215,5 +218,31 @@ describe('cannotFundText: a wallet that cannot fund the action is told so, and w
         'This wallet holds no BAYLA, so it cannot add to this pool yet. A pool needs both BAYLA and the token.',
       );
     });
+  });
+});
+
+// Owner, 2026-10-17: the links "are not labelled properly and are carrying you to the wrong
+// part of it". Each said "Explorer"; a mint opened Solscan's account page.
+describe('an address’s explorer link', () => {
+  const writes = (cluster: SolanaCluster) => ({ api: { explorerAddressUrl }, cfg: { cluster } }) as unknown as LpWrites;
+  const A = 'ErvzV1NMZmcfAqZtGH4AQhYAjn77nJEworKK1mYPz5w4';
+
+  it('says what it opens and where, and a mint opens its token page', () => {
+    const on = explorerOf(writes('mainnet'));
+    expect(on(A, 'token')).toEqual({ href: `https://solscan.io/token/${A}`, text: 'Token on Solscan' });
+    expect(on(A, 'wallet')).toEqual({ href: `https://solscan.io/account/${A}`, text: 'Wallet on Solscan' });
+    expect(on(A, 'balance')).toEqual({ href: `https://solscan.io/account/${A}`, text: 'Balance on Solscan' });
+    expect(on(A, 'activity')).toEqual({ href: `https://solscan.io/account/${A}`, text: 'Transactions on Solscan' });
+    expect(explorerOf(writes('devnet'))(A, 'token')?.text).toBe('Token on Solscan');
+  });
+
+  it('names the explorer it really opens: a local validator’s is the Solana Explorer', () => {
+    const link = explorerOf(writes('localnet'))(A, 'wallet')!;
+    expect(link.href).toMatch(/^https:\/\/explorer\.solana\.com\//);
+    expect(link.text).toBe('Wallet on the Solana Explorer');
+  });
+
+  it('is none until the write code has loaded', () => {
+    expect(explorerOf(null)(A, 'token')).toBeNull();
   });
 });
