@@ -60,7 +60,7 @@ const STRANGER = Keypair.generate().publicKey;
 const ISSUER = Keypair.generate().publicKey;
 const fresh = () => Keypair.generate().publicKey;
 const OPEN: LpOpenGate = { kind: 'open', cfg: cfgLocal, mode: 'on' };
-const TIER1 = publicTierConfig(CPSWAP);
+const TIER1 = publicTierConfig(CPSWAP, 1);
 const TIER0 = deriveAmmConfig(CPSWAP, 0);
 const USDC = new PublicKey(USDC_QUOTE.mint);
 const BAYLA = new PublicKey(BAYLA_QUOTE.mint);
@@ -230,6 +230,7 @@ const args = (w: World, o: Partial<LpCreateArgs> = {}): LpCreateArgs => ({
   // 200 coins, or 1 SOL: either way 100 tokens beside it is the market price.
   quote: w.quote.native ? SOL : COINS,
   token: tokensOf(w),
+  tier: 1,
   shown: { terms: TERMS, standard: 'empty' },
   ...o,
 });
@@ -313,7 +314,7 @@ describe('readCreateSnapshot: an opening paired with USDC or BAYLA', () => {
   it('called on its own: one read; the coin’s account and its mint come back; SOL reads no mint; a failed read is a string', async () => {
     const w = world(BAYLA_QUOTE);
     const key = fresh();
-    const snap = (await readCreateSnapshot(W(w.chain), cfgLocal, { tokenMint: w.mint, owner: ME, fresh: key, quote: BAYLA_QUOTE })) as CreateSnapshot;
+    const snap = (await readCreateSnapshot(W(w.chain), cfgLocal, { tokenMint: w.mint, owner: ME, fresh: key, quote: BAYLA_QUOTE, tier: 1 })) as CreateSnapshot;
     expect(w.chain.calls).toEqual(['getMultipleAccountsInfo']);
     expect(snap.quoteAccount.address.equals(w.quoteAta)).toBe(true);
     expect(snap.quoteAccount.account?.owner).toBe(BAYLA_QUOTE.program);
@@ -325,7 +326,7 @@ describe('readCreateSnapshot: an opening paired with USDC or BAYLA', () => {
     expect(snap.tokenAccounts.classic).not.toBeNull();
 
     // The same token asked about as a SOL pair: another standard address, the wrapped-SOL account, and no mint read.
-    const sol = (await readCreateSnapshot(W(w.chain), cfgLocal, { tokenMint: w.mint, owner: ME, fresh: key, quote: SOL_QUOTE })) as CreateSnapshot;
+    const sol = (await readCreateSnapshot(W(w.chain), cfgLocal, { tokenMint: w.mint, owner: ME, fresh: key, quote: SOL_QUOTE, tier: 1 })) as CreateSnapshot;
     expect(sol.quoteMint).toBeNull();
     expect(sol.quoteAccount.address.equals(associatedTokenAddress(WSOL_MINT, ME))).toBe(true);
     expect(sol.standard.address.equals(w.standard)).toBe(false);
@@ -333,7 +334,7 @@ describe('readCreateSnapshot: an opening paired with USDC or BAYLA', () => {
     w.chain.getMultipleAccountsInfo = async () => {
       throw new Error('HTTP 502');
     };
-    expect(typeof (await readCreateSnapshot(W(w.chain), cfgLocal, { tokenMint: w.mint, owner: ME, fresh: key, quote: BAYLA_QUOTE }))).toBe('string');
+    expect(typeof (await readCreateSnapshot(W(w.chain), cfgLocal, { tokenMint: w.mint, owner: ME, fresh: key, quote: BAYLA_QUOTE, tier: 1 }))).toBe('string');
   });
 });
 
@@ -805,7 +806,7 @@ describe('prepareLpCreate with USDC or BAYLA: what refuses it, each in its own w
     const changed = await create(world(USDC_QUOTE), { shown: { terms: { ...TERMS, createPoolFee: 100_000_000n }, standard: 'empty' } });
     expect(refused(changed)).toBe(CREATE_COPY.termsChanged('fee to open 0.1 → 0.15 SOL'));
     expect(refused(await create(world(BAYLA_QUOTE, { feeReceiver: null })))).toBe(CREATE_COPY.feeAccount('there is no account at its address'));
-    expect(refused(await create(world(BAYLA_QUOTE, { tier: null })))).toBe(CREATE_COPY.tierNotOpen);
+    expect(refused(await create(world(BAYLA_QUOTE, { tier: null })))).toBe(CREATE_COPY.tierNotOpen(1));
   });
 });
 
@@ -969,7 +970,7 @@ describe('createPins for a coin that is not SOL', () => {
     const { token0, token1 } = sortMints(quoteMint, tokenMint);
     const standard = derivePool(CPSWAP, TIER1, token0, token1);
     const solPair = sortMints(WSOL_MINT, tokenMint);
-    const base = { tokenMint, tokenProgram, signer: ME, quote };
+    const base = { tokenMint, tokenProgram, signer: ME, quote, tier: 1 as const };
     const std = createPins(cfgLocal, { ...base, address: standard });
     const other = createPins(cfgLocal, { ...base, address: fresh() });
     // The SOL pair's standard address for this token is just another address to this pair.
@@ -995,7 +996,7 @@ describe('createPins for a coin that is not SOL', () => {
   });
 
   it('no pins for a pair this site reads the other way round, a coin priced in itself, or SOL as the token', () => {
-    const at = { address: fresh(), tokenProgram: TOKEN_PROGRAM_ID, signer: ME };
+    const at = { address: fresh(), tokenProgram: TOKEN_PROGRAM_ID, signer: ME, tier: 1 as const };
     expect(createPins(cfgLocal, { ...at, tokenMint: USDC, quote: BAYLA_QUOTE })).toBe('this site does not open a pool that prices this token in BAYLA');
     expect(createPins(cfgLocal, { ...at, tokenMint: USDC, quote: USDC_QUOTE })).toBe('this site does not open a pool that prices this token in USDC');
     expect(createPins(cfgLocal, { ...at, tokenMint: BAYLA, tokenProgram: TOKEN_2022_PROGRAM_ID, quote: BAYLA_QUOTE })).toBe('this site does not open a pool that prices this token in BAYLA');
@@ -1014,7 +1015,7 @@ describe('decodeIntent: opening a pool paired with USDC or BAYLA', () => {
     const tokenMint = o.tokenMint ?? fresh();
     const { token0, token1 } = sortMints(new PublicKey(quote.mint), tokenMint);
     const address = o.address ?? (o.oneOff ? fresh() : derivePool(CPSWAP, TIER1, token0, token1));
-    const p = createPins(cfgLocal, { address, tokenMint, tokenProgram: o.tokenProgram ?? TOKEN_PROGRAM_ID, signer: ME, quote });
+    const p = createPins(cfgLocal, { address, tokenMint, tokenProgram: o.tokenProgram ?? TOKEN_PROGRAM_ID, signer: ME, quote, tier: 1 });
     if (typeof p === 'string') throw new Error(p);
     return p;
   }

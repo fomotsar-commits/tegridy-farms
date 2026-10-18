@@ -5,6 +5,7 @@ import { browserCurveRpc, browserRpc } from '../../../lib/launcher/solana/curve/
 import type { LpWriteMode } from '../../../lib/launcher/solana/lpWriteFlag';
 import { rememberCreatedShare, type PositionsRead } from '../../../lib/solana/lp/positions';
 import { rememberCreatedPool } from '../../../lib/solana/lp/poolFinder';
+import { PUBLIC_TIER_INDICES, publicTierConfig } from '../../../lib/solana/cpswap/program';
 import { lpFetch } from '../../../lib/solana/lp/readFetch';
 import { noteResponse } from '../../../lib/solana/lp/rpcBudget';
 import { withReadCommitment } from '../curve/confirmedRpc';
@@ -230,7 +231,10 @@ export function LpWritesProvider({
           const detail = e instanceof Error ? e.message : String(e);
           setFacts({
             gate: factsGate,
-            facts: { tier: { kind: 'unread', address: factsGate.cfg.cpSwapProgram, detail }, feeAccount: { kind: 'unread', detail } },
+            facts: {
+              tiers: PUBLIC_TIER_INDICES.map((index) => ({ kind: 'unread', index, address: publicTierConfig(factsGate.cfg.cpSwapProgram, index), detail })),
+              feeAccount: { kind: 'unread', detail },
+            },
             nonce: factsNonce,
           });
         },

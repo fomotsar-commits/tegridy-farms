@@ -9,6 +9,7 @@ import {
 import {
   LIVE_PROGRAM_ID,
   DEFAULT_AMM_CONFIG_INDEX,
+  PUBLIC_TIER_INDICES,
   deriveAmmConfig,
   derivePool,
   publicTierConfig,
@@ -110,7 +111,7 @@ export type VenueStatus =
   | { kind: 'live'; programId: string; config: AmmConfigView; publicTier: PublicTierRead }
   | { kind: 'unreadable'; detail: string };
 
-/** The public fee tier (PUBLIC_TIER_INDEX), read beside the launch tier when a page asks for it. */
+/** The first public fee tier (PUBLIC_TIER_INDICES[0]), read beside the launch tier when a page asks for it. */
 export type PublicTierRead =
   | { kind: 'ok'; config: AmmConfigView }
   | { kind: 'absent' }
@@ -142,7 +143,7 @@ export async function readVenue(
   // Asked for, the public tier is read alongside, not after: one more account, no more waiting.
   const [raw, publicTier] = await Promise.all([
     fetchAccount(rpc, configAddress),
-    opts.publicTier ? readTier(rpc, publicTierConfig(programId)) : Promise.resolve<PublicTierRead>({ kind: 'not-asked' }),
+    opts.publicTier ? readTier(rpc, publicTierConfig(programId, PUBLIC_TIER_INDICES[0])) : Promise.resolve<PublicTierRead>({ kind: 'not-asked' }),
   ]);
   if (raw.kind === 'unreadable') return { kind: 'unreadable', detail: raw.detail };
   // An absent AmmConfig is NOT an outage — it is the operator's `create_amm_config`

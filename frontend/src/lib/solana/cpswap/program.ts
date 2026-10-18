@@ -111,18 +111,25 @@ export function deriveAmmConfig(programId: PublicKey, index: number): PublicKey 
 }
 
 /**
- * The public fee tier: the one AmmConfig this site opens pools on. Tier 0 is the
- * launch tier (graduations); this site never opens a pool there. Mainnet:
- * `CapqvAA9HvERTwzmE26xrtFhMaNcaXXoQUADpBWqWjKy`.
+ * The public fee tiers: the AmmConfigs this site opens pools on, in the order a form
+ * offers them. Tier 0 is the launch tier (graduations); this site never opens a pool
+ * there. Mainnet: tier 1 `CapqvAA9HvERTwzmE26xrtFhMaNcaXXoQUADpBWqWjKy` (1% a trade) and
+ * tier 2 `4UjFf1iU27SqyJfDif6Ra9YcgPYDjv6ehs9V7YaSUbb8` (0.25%, owner 2026-10-18). A tier
+ * is offered only once its account is read on chain; its rates are read, never stated here.
  */
-export const PUBLIC_TIER_INDEX = 1;
+export const PUBLIC_TIER_INDICES = [1, 2] as const;
+export type PublicTierIndex = (typeof PUBLIC_TIER_INDICES)[number];
+
+export function isPublicTierIndex(index: number): index is PublicTierIndex {
+  return (PUBLIC_TIER_INDICES as readonly number[]).includes(index);
+}
 
 /**
- * The public fee tier's address, DERIVED from `PUBLIC_TIER_INDEX`, never read and never
- * passed in, so a lying read cannot point an opening at the launch tier.
+ * A public fee tier's address, DERIVED from its index, never read and never passed in,
+ * so a lying read cannot point an opening at the launch tier.
  */
-export function publicTierConfig(programId: PublicKey): PublicKey {
-  return deriveAmmConfig(programId, PUBLIC_TIER_INDEX);
+export function publicTierConfig(programId: PublicKey, index: PublicTierIndex): PublicKey {
+  return deriveAmmConfig(programId, index);
 }
 
 /** `[AUTH_SEED]` — the vault + LP-mint authority, one per program. */
