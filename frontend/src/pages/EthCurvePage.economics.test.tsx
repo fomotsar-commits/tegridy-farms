@@ -8,10 +8,11 @@ import { CurveHowItWorks } from './EthCurvePage';
 // packages the survival stack with in-app <Link>s, so it renders under a
 // MemoryRouter (still no framer/art/providers).
 describe('CurveHowItWorks', () => {
-  it('states the zero-toll promise and the 40/25/35 split', () => {
+  it('states the zero-toll promise and the 50/25/25 split', () => {
     render(<MemoryRouter><CurveHowItWorks /></MemoryRouter>);
     expect(screen.getByText(/Zero third-party tolls/i)).toBeInTheDocument();
-    expect(screen.getByText(/40 \/ 25 \/ 35/)).toBeInTheDocument();
+    expect(screen.getByText(/50 \/ 25 \/ 25/)).toBeInTheDocument();
+    expect(screen.getByText(/1% trade fee: 50% to the creator, 25% to the Jungle Bay treasury, 25% to the protocol\./)).toBeInTheDocument();
     expect(screen.getByText(/100% of the 1% trade fee/i)).toBeInTheDocument();
   });
 

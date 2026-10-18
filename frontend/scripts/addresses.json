@@ -177,7 +177,7 @@
     {
       "id": "cp-swap-amm-config-restart",
       "address": "BHMteE8u6LAppswQmFmd2h7hp1fCfWtGahvVJnhRk8jW",
-      "role": "cp-swap AmmConfig index 0 under cp-swap-program-restart, seeds [\"amm_config\", 0u16 big-endian]: the launch tier, the fee sheet of graduated pools. READ on mainnet-beta at finalized slot 455,314,217 (2026-10-10), 236 bytes: trade_fee_rate 2,500 per million (0.25% of each swap), protocol_fee_rate 200,000 per million OF THAT TRADE FEE (20% of it, so 0.05% of the swap), fund_fee_rate 0, creator_fee_rate 500 per million of the swap (0.05%, charged on top of the trade fee where a pool has its creator fee switched on), create_pool_fee 0 lamports, disable_create_pool false; protocol_owner and fund_owner are both squads-vault. HISTORY, from this account's only three transactions, each a Squads vault transaction: created 2026-09-30T02:10:29Z (slot 451,825,863) as create_amm_config(0, 2500, 120000, 0, 0, 0), which is the '12% of it to the protocol' and no creator fee this row described until 2026-10-10; update_amm_config(7, 500) set the creator fee on 2026-10-01T06:09:01Z (slot 452,202,367); update_amm_config(1, 200000) raised the protocol share from 12% to 20% of the trade fee on 2026-10-01T06:09:13Z (slot 452,202,414). Created by Squads proposal 1 (MAINNET_GO_LIVE.md §4). Pinned by restartRegistry.test.ts.",
+      "role": "cp-swap AmmConfig index 0 under cp-swap-program-restart, seeds [\"amm_config\", 0u16 big-endian]: the launch tier, the fee sheet of graduated pools. READ on mainnet-beta at finalized slot 455,314,217 (2026-10-10), 236 bytes: trade_fee_rate 2,500 per million (0.25% of each swap), protocol_fee_rate 200,000 per million OF THAT TRADE FEE (20% of it, so 0.05% of the swap), fund_fee_rate 0, creator_fee_rate 5,000 per million of the swap (0.50%, charged on top of the trade fee where a pool has its creator fee switched on; it was 500, 0.05%, until the owner-approved Squads proposal of 2026-10-18), create_pool_fee 0 lamports, disable_create_pool false; protocol_owner and fund_owner are both squads-vault. HISTORY, from this account's only three transactions, each a Squads vault transaction: created 2026-09-30T02:10:29Z (slot 451,825,863) as create_amm_config(0, 2500, 120000, 0, 0, 0), which is the '12% of it to the protocol' and no creator fee this row described until 2026-10-10; update_amm_config(7, 500) set the creator fee on 2026-10-01T06:09:01Z (slot 452,202,367); update_amm_config(1, 200000) raised the protocol share from 12% to 20% of the trade fee on 2026-10-01T06:09:13Z (slot 452,202,414); update_amm_config(7, 5000) raised the creator fee to 0.50% (owner-approved 2026-10-18, step creator-fee-050 in the squads-proposer). Created by Squads proposal 1 (MAINNET_GO_LIVE.md §4). Pinned by restartRegistry.test.ts.",
       "custody": "program-derived, no key. Only cp-swap's compiled admin (squads-vault) can change it.",
       "status": "CREATED (post-deploy truth for website release 2). Recorded as deployed by website release 2 (branch ship/solana-launch-on), which the owner deploys only after website-release-2/precheck.mjs has read it on mainnet (MAINNET_GO_LIVE.md §3-§8 done). Written 2026-09-29 as the state this release REQUIRES, not as a read of it. What precheck.mjs read that day: both programs on mainnet with the tested bytes (last deployed slots 451,687,458 cp-swap and 451,687,658 tegridy-launch), their upgrade authority still tegridy-launch-deployer, and global, AmmConfig and Permission not created yet. If this branch is built before the rest is done, an entry here is wrong and the daily registry-onchain job fails on it, which is the point.",
       "expect": {
@@ -190,6 +190,16 @@
       "role": "cp-swap AmmConfig index 1 under cp-swap-program-restart, seeds [\"amm_config\", 1u16 big-endian], bump 255, derived and matched: the public tier, the fee sheet of every pool opened from the site (venue-pool-bayla-sol and venue-pool-bayla-usdc both name it). READ on mainnet-beta at finalized slot 455,314,217 (2026-10-10), 236 bytes: trade_fee_rate 10,000 per million (1% of each swap), protocol_fee_rate 160,000 per million OF THAT TRADE FEE (16% of it, so 0.16% of the swap; the other 0.84% stays in the pool for its liquidity providers), fund_fee_rate 0, creator_fee_rate 0, create_pool_fee 150,000,000 lamports (0.15 SOL to open a pool, paid into cpswap-fee-receiver-wsol-ata), disable_create_pool false; protocol_owner and fund_owner are both squads-vault. Created 2026-10-01T06:08:37Z (slot 452,202,278) by a Squads vault transaction as create_amm_config(1, 10000, 160000, 0, 150000000, 0) and not changed since: its other five transactions are the two pool openings and three swaps. Pinned against the code's own derivation by src/lib/solana/feeRowsRegistry.test.ts.",
       "custody": "program-derived, no key. Only cp-swap's compiled admin (squads-vault) can change it.",
       "status": "CREATED, and read: at finalized slot 455,314,217 (2026-10-10) it is owned by cp-swap-program-restart and holds 1,849,120 lamports. Registered 2026-10-10; until then the registry named this address only inside the two venue-pool rows, so nothing asserted it against the chain.",
+      "expect": {
+        "type": "program-owned"
+      }
+    },
+    {
+      "id": "cp-swap-amm-config-quarter-restart",
+      "address": "4UjFf1iU27SqyJfDif6Ra9YcgPYDjv6ehs9V7YaSUbb8",
+      "role": "cp-swap AmmConfig index 2 under cp-swap-program-restart, seeds [\"amm_config\", 2u16 big-endian], bump 255, derived and matched: the 0.25% tier, a cheaper fee sheet a new pool can choose (owner-approved 2026-10-18; Raydium's default is 0.25% with 16% to Raydium). create_amm_config(2, 2500, 160000, 0, 150000000, 0): trade_fee_rate 2,500 per million (0.25% of each swap), protocol_fee_rate 160,000 per million OF THAT TRADE FEE (16% of it, so 0.04% of the swap; 0.21% stays in the pool), fund_fee_rate 0, creator_fee_rate 0, create_pool_fee 150,000,000 lamports (0.15 SOL, paid into cpswap-fee-receiver-wsol-ata); protocol_owner and fund_owner are squads-vault. Simulated as the vault against mainnet before signing (success, 8,408 CU). Created by Squads (step amm-config-2 in the squads-proposer).",
+      "custody": "program-derived, no key. Only cp-swap's compiled admin (squads-vault) can change it.",
+      "status": "CREATED by the owner's Squads proposal (2026-10-18). Written as the state this branch REQUIRES: merge only after the proposal executed, or the daily registry-onchain job fails on this row, which is the point.",
       "expect": {
         "type": "program-owned"
       }
@@ -686,7 +696,7 @@
     {
       "id": "curve-launcher",
       "address": "0xF4Dfa741aD63B3D95dC3Fc10D311caE507CE34dE",
-      "role": "TegridyCurveLauncher — the own zero-toll launch curve. Owner = Treasury Safe. 1% fee split 40 creator / 25 treasury / 35 protocol; graduates into a TegridyFactory pair at 4 ETH with LP burned to 0xdead; 3.69% reserve to the operator address.",
+      "role": "TegridyCurveLauncher — the own zero-toll launch curve. Owner = Treasury Safe. 1% fee split 50 creator / 25 treasury / 25 protocol (owner, 2026-10-18; launches made before keep 40/25/35); graduates into a TegridyFactory pair at 4 ETH with LP burned to 0xdead; 3.69% reserve to the operator address.",
       "custody": "Treasury Safe (owner)",
       "status": "live",
       "expect": {
@@ -2088,7 +2098,7 @@
         "createPoolFee": 0,
         "protocolOwner": "squads-vault",
         "fundOwner": "squads-vault",
-        "creatorFeeRate": 500
+        "creatorFeeRate": 5000
       },
       "cp-swap-amm-config-public-restart": {
         "layout": "cp-swap-amm-config",
@@ -2096,6 +2106,19 @@
         "disableCreatePool": 0,
         "index": 1,
         "tradeFeeRate": 10000,
+        "protocolFeeRate": 160000,
+        "fundFeeRate": 0,
+        "createPoolFee": 150000000,
+        "protocolOwner": "squads-vault",
+        "fundOwner": "squads-vault",
+        "creatorFeeRate": 0
+      },
+      "cp-swap-amm-config-quarter-restart": {
+        "layout": "cp-swap-amm-config",
+        "owner": "cp-swap-program-restart",
+        "disableCreatePool": 0,
+        "index": 2,
+        "tradeFeeRate": 2500,
         "protocolFeeRate": 160000,
         "fundFeeRate": 0,
         "createPoolFee": 150000000,

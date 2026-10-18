@@ -106,12 +106,11 @@ contract DeployCurveLauncherScript is Script {
             virtualEth: uint128(virtualEth),
             graduationEth: uint128(graduationEth),
             feeBps: uint16(vm.envOr("CURVE_FEE_BPS", uint256(100))),
-            // Fee split (docs/CURVE_ECONOMICS.md): 40% creator / 25% treasury /
-            // 35% protocol (protocol = the remainder). Creator 40% matches the
-            // Clanker benchmark and stays competitive because we ALSO give
-            // graduate-to-us LP + the 3.69% reserve; treasury 25% seeds Jungle
-            // Bay ecosystem funding; protocol 35% funds the launchpad itself.
-            creatorFeeShareBps: uint16(vm.envOr("CREATOR_FEE_SHARE_BPS", uint256(4_000))),
+            // Fee split (docs/CURVE_ECONOMICS.md): 50% creator / 25% treasury /
+            // 25% protocol (protocol = the remainder). Owner, 2026-10-18: 40% was
+            // the sector's lowest creator share (Zora 50%, Virtuals and Pons 70%);
+            // 50% matches the Solana curve. Treasury 25% seeds Jungle Bay funding.
+            creatorFeeShareBps: uint16(vm.envOr("CREATOR_FEE_SHARE_BPS", uint256(5_000))),
             treasuryFeeShareBps: uint16(vm.envOr("TREASURY_FEE_SHARE_BPS", uint256(2_500))),
             reserveBps: uint16(reserveBps),
             reserveRecipient: reserveBps > 0

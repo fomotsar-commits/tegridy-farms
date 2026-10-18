@@ -71,6 +71,9 @@ describe('both fee tiers are registered where the pool code derives them', () =>
   it('the public tier (index 1) and the launch tier (index 0)', () => {
     expect(entry('cp-swap-amm-config-public-restart').address).toBe(publicTierConfig(REGISTERED_PROGRAM_ID).toBase58());
     expect(entry('cp-swap-amm-config-restart').address).toBe(deriveAmmConfig(REGISTERED_PROGRAM_ID, 0).toBase58());
+    // The 0.25% tier (owner, 2026-10-18), created by Squads before this row merged.
+    expect(entry('cp-swap-amm-config-quarter-restart').address).toBe(deriveAmmConfig(REGISTERED_PROGRAM_ID, 2).toBase58());
+    expect(entry('cp-swap-amm-config-quarter-restart').expect?.type).toBe('program-owned');
     expect(entry('cp-swap-amm-config-public-restart').expect?.type).toBe('program-owned');
     expect(entry('cp-swap-program-restart').address).toBe(REGISTERED_PROGRAM_ID.toBase58());
   });
