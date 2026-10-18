@@ -80,11 +80,16 @@ function makeRes() {
 
 function buildValidOrder({ offerer = OWNER, priceWei = "1000000000000000000" } = {}) {
   const nowSec = Math.floor(Date.now() / 1000);
+  // createNativeListing's split: the seller's share, then 1% to the treasury.
+  const feeWei = (BigInt(priceWei) * 100n) / 10000n;
   return {
     parameters: {
       offerer,
       offer: [{ itemType: 2, token: NAKAMIGOS, identifierOrCriteria: "1", startAmount: "1" }],
-      consideration: [{ itemType: 0, token: "0x0000000000000000000000000000000000000000", startAmount: priceWei, recipient: offerer }],
+      consideration: [
+        { itemType: 0, token: "0x0000000000000000000000000000000000000000", startAmount: (BigInt(priceWei) - feeWei).toString(), recipient: offerer },
+        { itemType: 0, token: "0x0000000000000000000000000000000000000000", startAmount: feeWei.toString(), recipient: "0x7D2620243EdAd69Ec81A53c4A063B07995A4Bd7d" },
+      ],
       startTime: String(nowSec),
       endTime: String(nowSec + 7 * 24 * 3600),
       salt: "0x123",

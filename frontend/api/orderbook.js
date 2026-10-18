@@ -14,6 +14,7 @@ import { createHash, randomUUID } from "crypto";
 import { recoverMessageAddress, decodeAbiParameters, parseAbiParameters } from "viem";
 import { checkRateLimit } from "./_lib/ratelimit.js";
 import { VENUE_CONTRACTS } from "./_lib/venue-registry.js";
+import { platformFeeError } from "./_lib/platform-fee.js";
 import { verifySeaportSignature, verifyNftOwnership, verifyBundleOwnership, fetchNftOwner, MAX_PRICE_WEI, priceWeiToEthNumber } from "./_lib/seaport-verify.js";
 import { computeSeaportOrderHash, isValidSeaportOrderHash } from "./_lib/seaportHash.js";
 // AUDIT FIX 2026-05-26 [H-20]: bound the Alchemy RPC response so a hostile /
@@ -785,6 +786,11 @@ export default async function handler(req, res) {
       if (isListing && currencyAddr !== "0x0000000000000000000000000000000000000000") {
         return res.status(400).json({ error: "Only native-ETH listings are supported" });
       }
+      // The venue's 1% is a consideration item only the client adds. See platform-fee.js.
+      if (isListing) {
+        const feeError = platformFeeError(params.consideration, priceWeiBig);
+        if (feeError) return res.status(400).json({ error: feeError });
+      }
       const decimals = TOKEN_DECIMALS[currencyAddr];
       if (decimals === undefined) {
         return res.status(400).json({ error: `Unsupported currency: ${currencyAddr}` });
@@ -1226,6 +1232,8 @@ export default async function handler(req, res) {
       if (currencyAddr !== "0x0000000000000000000000000000000000000000") {
         return res.status(400).json({ error: "Only native-ETH listings are supported" });
       }
+      const bundleFeeError = platformFeeError(params.consideration, priceWeiBig);
+      if (bundleFeeError) return res.status(400).json({ error: bundleFeeError });
       const decimals = TOKEN_DECIMALS[currencyAddr];
       if (decimals === undefined) {
         return res.status(400).json({ error: `Unsupported currency: ${currencyAddr}` });
