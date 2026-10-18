@@ -150,13 +150,16 @@ test.describe('a section link on its own page', () => {
   test('pressed again after scrolling away, it lands again', async ({ page }) => {
     await prepare(page);
     await page.goto('/');
-    const hold = page.locator('section[aria-label="Three paths"] a[href="/#hall"]');
+    // The bar's Rooms word opens /#hall (navConfig BAR_NAV), and the bar stays on screen.
+    const hold = page.locator('nav[aria-label="Main navigation"]:visible').getByRole('link', { name: 'Rooms' });
     await expect(hold).toBeVisible({ timeout: 20_000 });
+    // The bar draws before the home page's own code does.
+    await expect(page.locator('#hall')).toBeAttached({ timeout: 20_000 });
     for (const press of [1, 2, 3]) {
-      // Past the hall, with the link that names it at the top of the screen.
+      // Past the hall.
       await page.evaluate(() => {
-        const paths = document.querySelector('section[aria-label="Three paths"]');
-        if (paths) window.scrollTo(0, window.scrollY + paths.getBoundingClientRect().top);
+        const hall = document.getElementById('hall');
+        if (hall) window.scrollTo(0, window.scrollY + hall.getBoundingClientRect().bottom + 10);
       });
       expect(await placement(page, 'hall'), `before press ${press}, the hall is above the screen`).toMatch(/^#hall top at -/);
       await hold.click();
@@ -199,16 +202,16 @@ test.describe('a section address opened directly', () => {
   test('Back to it is the browser\'s to place: the venue makes no jump', async ({ page }) => {
     await prepare(page);
     await page.goto('/#hall');
-    const toPools = page.locator('section[aria-label="Three paths"] a[href="/liquidity"]');
-    await expect(toPools).toBeVisible({ timeout: 20_000 });
-    await toPools.click();
-    await expect(page.locator('#provide')).toBeAttached({ timeout: 20_000 });
-    const poolsTitle = await page.title();
+    const toNftFinance = page.locator('section[aria-label="Three paths"] a[href="/nft-finance"]');
+    await expect(toNftFinance).toBeVisible({ timeout: 20_000 });
+    await toNftFinance.click();
+    await expect(page.getByRole('heading', { name: 'NFT Finance', level: 1 })).toBeVisible({ timeout: 20_000 });
+    const awayTitle = await page.title();
     await forgetJumps(page);
     await page.goBack();
     await expect(page.locator('#hall')).toBeAttached({ timeout: 20_000 });
     // The home page sets its title in an effect of the commit that drew it, after the venue's own.
-    await expect(page).not.toHaveTitle(poolsTitle, { timeout: 20_000 });
+    await expect(page).not.toHaveTitle(awayTitle, { timeout: 20_000 });
     await twoFrames(page);
     expect(await jumpsTo(page, 'hall'), 'jumps to the hall made on Back').toBe(0);
   });

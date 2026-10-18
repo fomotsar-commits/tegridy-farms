@@ -313,7 +313,8 @@ function dangerousShield(warnings: ShieldWarning[], mint: string): boolean {
 export type MintedShieldWarning = ShieldWarning & { mint: string };
 
 // Token icon via the CSP-safe weserv proxy, falling back to an initials avatar
-// on missing/broken images (we never load arbitrary token-image hosts directly).
+// on missing/broken images (we never load arbitrary token-image hosts directly;
+// the one exception, Irys, is named in iconSrc and in img-src).
 function TokenAvatar({ token, size = 28 }: { token: SolToken; size?: number }) {
   const [errored, setErrored] = useState(false);
   const src = errored ? '' : iconSrc(token.logoURI);
@@ -324,6 +325,7 @@ function TokenAvatar({ token, size = 28 }: { token: SolToken; size?: number }) {
         src={src}
         alt=""
         loading="lazy"
+        referrerPolicy="no-referrer"
         onError={() => setErrored(true)}
         className="rounded-full flex-shrink-0 object-cover"
         style={{ width: px, height: px, background: 'var(--color-purple-25)' }}
@@ -1325,14 +1327,28 @@ function LimitTab({ payToken, buyToken, shieldWarnings, needsAck, ack, setAck, o
   );
 }
 
-function SolanaSwapInner() {
+/**
+ * The swap form. `home` is the home page's card (owner, 2026-10-16: swap, stake and add
+ * liquidity right on the home): SOL to BAYLA to start, nothing read from the address (the
+ * home's address is not a share link), no page header, no Limit or DCA tabs, no chart and
+ * no rails. The trade itself, its route, its fee line and every check are this form's own.
+ */
+export function SolanaSwapInner({ home = false }: { home?: boolean } = {}) {
   const { connection } = useConnection();
   const { publicKey, sendTransaction } = useWallet();
+  // The address this form reads its opening pair and amount from: none on the home.
+  const [linkSearch] = useState(() => {
+    try {
+      return home ? '' : window.location.search;
+    } catch {
+      return '';
+    }
+  });
 
   // ?in=<mint> presets the PAY side (share links). Same rules as ?out= below.
   const [payToken, setPayToken] = useState<SolToken>(() => {
     try {
-      const inp = new URLSearchParams(window.location.search).get('in')?.trim();
+      const inp = new URLSearchParams(linkSearch).get('in')?.trim();
       if (inp && looksLikeMint(inp)) {
         const known = findSolToken(inp);
         if (known) return known;
@@ -1345,7 +1361,8 @@ function SolanaSwapInner() {
   // any other resolves async below, with $BAYLA standing until it does.
   const [openingBuy] = useState(() => {
     try {
-      return openingBuyMint(window.location.search, getActiveBungalow());
+      // The home's card opens on BAYLA whatever room was last entered.
+      return openingBuyMint(linkSearch, home ? null : getActiveBungalow());
     } catch { /* URL APIs unavailable — default stands */ }
     return BAYLA.mint;
   });
@@ -1354,7 +1371,7 @@ function SolanaSwapInner() {
   // values fall back silently — a bad deep link must never break the page.
   const [amount, setAmount] = useState(() => {
     try {
-      const amt = new URLSearchParams(window.location.search).get('amt')?.trim();
+      const amt = new URLSearchParams(linkSearch).get('amt')?.trim();
       // Same unambiguous-regex rule as acceptAmountInput (query strings are
       // attacker-length): the dot is anchored, so no polynomial backtracking.
       if (amt && /^(?:\d*\.)?\d+$/.test(amt) && /[1-9]/.test(amt)) return amt;
@@ -1437,7 +1454,7 @@ function SolanaSwapInner() {
   // failed lookup leaves the honest default in place — a bad deep link must never break
   // the page. The curated cases were already handled in the state initializers.
   useEffect(() => {
-    const search = new URLSearchParams(window.location.search);
+    const search = new URLSearchParams(linkSearch);
     const ctrl = new AbortController();
     for (const [mint, set] of [[openingBuy, setBuyToken], [search.get('in')?.trim(), setPayToken]] as const) {
       if (!mint || !looksLikeMint(mint) || findSolToken(mint)) continue;
@@ -1446,7 +1463,7 @@ function SolanaSwapInner() {
         .catch(() => { /* honest default stands */ });
     }
     return () => ctrl.abort();
-  }, [openingBuy]);
+  }, [openingBuy, linkSearch]);
 
   // Tokens ticked while this pair is on screen: their box stays, so the tick can be taken back.
   const [tickedNow, setTickedNow] = useState<ReadonlySet<string>>(() => new Set());
@@ -2273,19 +2290,20 @@ function SolanaSwapInner() {
     : quoteFail === 'unavailable' ? 'Quote unavailable'
     : 'Fetching quote…';
 
+  const Heading = home ? 'h2' : 'h1';
   return (
     <>
-    <PageArtBackdrop pageId="solana-swap" />
+    {!home && <PageArtBackdrop pageId="solana-swap" />}
     {/* `relative` with no z-index on purpose: it paints above the backdrop by
         coming after it, without becoming a stacking context. A z-10 here would
         trap the token pickers below (z-[60]) under the tab strip (z-30). */}
-    <div className="relative max-w-md mx-auto px-4 py-8">
-      <ChainSwitch />
+    <div className={home ? 'relative' : 'relative max-w-md mx-auto px-4 py-8'}>
+      {!home && <ChainSwitch />}
       <m.div
         initial={{ opacity: 0, y: 16 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.4 }}
-        className="rounded-2xl p-5 relative overflow-hidden"
+        className={home ? 'rounded-2xl p-4 relative overflow-hidden' : 'rounded-2xl p-5 relative overflow-hidden'}
         style={{ border: '1px solid rgba(255,255,255,0.12)' }}
       >
         <div className="absolute inset-0">
@@ -2295,10 +2313,12 @@ function SolanaSwapInner() {
 
         <div className="relative z-10">
           {/* Header */}
-          <div className="flex items-center justify-between mb-4">
+          <div className={home ? 'flex items-center justify-between mb-3' : 'flex items-center justify-between mb-4'}>
             <div>
-              <h1 ref={headingRef} tabIndex={-1} className="heading-luxury text-[18px] text-white outline-none">Solana Swap</h1>
-              <p className="text-white/60 text-[11px]">Buy Solana tokens through our own pools or Jupiter, whichever pays more.</p>
+              <Heading ref={headingRef} tabIndex={-1} className={home ? 'heading-luxury text-xl text-white outline-none' : 'heading-luxury text-[18px] text-white outline-none'}>
+                {home ? 'Swap' : 'Solana Swap'}
+              </Heading>
+              {!home && <p className="text-white/60 text-[11px]">Buy Solana tokens through our own pools or Jupiter, whichever pays more.</p>}
             </div>
             {publicKey ? (
               <span className="text-white/70 text-[11px] font-mono px-2 py-1 rounded-md" style={{ background: 'var(--color-purple-15)' }}>
@@ -2308,7 +2328,8 @@ function SolanaSwapInner() {
             ) : null}
           </div>
 
-          {/* Mode tabs */}
+          {/* Mode tabs: not on the home's card, which is an instant swap only. */}
+          {!home && (
           <div className="flex gap-1 mb-4">
             {(['swap', 'limit', 'dca'] as const).map((mTab) => (
               <button
@@ -2327,6 +2348,7 @@ function SolanaSwapInner() {
               </button>
             ))}
           </div>
+          )}
 
           {mode === 'swap' && ownFlowOpen ? (
             // A review that has to be read, or an ending with something to say, takes
@@ -2735,7 +2757,7 @@ function SolanaSwapInner() {
         </div>
       </m.div>
 
-      {mode === 'swap' && (
+      {mode === 'swap' && !home && (
         <>
           {/* Skip the chart for stablecoin buys — a $1.00 flatline is noise. */}
           {buyToken.mint !== USDC.mint && buyToken.mint !== USDT.mint && (

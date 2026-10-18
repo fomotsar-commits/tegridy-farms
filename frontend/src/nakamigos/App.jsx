@@ -20,6 +20,7 @@ import Gallery from "./components/Gallery";
 import Toast from "./components/Toast";
 import NftMarquee from "./components/NftMarquee";
 import SplashScreen from "./components/SplashScreen";
+import { pageArt } from "../lib/artConfig";
 import PageTransition from "./components/PageTransition";
 import PriceAlertPanel, { usePriceAlerts } from "./components/PriceAlerts";
 import useSmartAlerts from "./hooks/useSmartAlerts";
@@ -308,6 +309,18 @@ function LandingShell({ themeName, onCycleTheme, walletName, disconnect, childre
 
   return (
     <div style={{ minHeight: "100vh", background: "transparent", color: "var(--text)", fontFamily: "var(--display)", position: "relative" }}>
+      {/* The studio's marketplace backdrop (surface marketplace:0): a fixed
+          layer UNDER the collage with its own scrim, so a bungalow skin can
+          dress the landing while the marketplace's own art stays on top. The
+          collage's layers are fixed at z-index 0 as well and come later in
+          the DOM, so they paint over this one. */}
+      <div
+        aria-hidden="true"
+        style={{
+          position: "fixed", inset: 0, zIndex: 0, pointerEvents: "none",
+          background: `linear-gradient(180deg, rgba(8,10,18,0.78) 0%, rgba(8,10,18,0.86) 100%), url(${pageArt("marketplace", 0).src}) center / cover no-repeat`,
+        }}
+      />
       <Background />
       <Header
         tab="landing"

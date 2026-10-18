@@ -12,9 +12,12 @@ import { useReplacedTxNotice } from './useReceiptOutcome';
 const ZERO_ADDR = '0x0000000000000000000000000000000000000000' as const;
 const PLACEHOLDER_ADDR = '0x0000000000000000000000000000000000000001' as const;
 
-export function useAddLiquidity(tokenA: TokenInfo | null, tokenB: TokenInfo | null) {
+export function useAddLiquidity(tokenA: TokenInfo | null, tokenB: TokenInfo | null, chainIdOverride?: number) {
   const { address } = useAccount();
-  const chainId = useChainId();
+  const walletChainId = useChainId();
+  // The page's chain (useLiquidityChainId): the wallet's whenever one is connected, so a write
+  // is always addressed to the chain that signs it; only a disconnected read can follow `?c=`.
+  const chainId = chainIdOverride ?? walletChainId;
   /**
    * Router + factory + WETH for the CONNECTED chain, resolved together so an
    * address and a chainId can never come from different chains. Null where we

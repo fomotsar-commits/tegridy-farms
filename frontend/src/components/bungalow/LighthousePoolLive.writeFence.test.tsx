@@ -88,7 +88,7 @@ const BUNGALOW = {
   stakePool: 'PooLAddr1111111111111111111111111111111111', address: 'MintAddr',
 } as unknown as Bungalow & { stakePool: string };
 
-const noteText = () => screen.getByText('Your share —').parentElement!.textContent ?? '';
+const noteText = () => screen.getByText('Your share:').parentElement!.textContent ?? '';
 const shareCellShows = async (re: RegExp) => {
   await waitFor(() => expect(noteText()).toMatch(re));
 };

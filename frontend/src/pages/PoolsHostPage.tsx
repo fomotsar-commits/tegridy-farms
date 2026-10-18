@@ -13,7 +13,9 @@ const ZapPage = lazy(() => import('../components/zap/ZapPage'));
 
 /**
  * Pools, the section for providing liquidity: one tab per way in, from POOLS_SECTION
- * (navConfig.ts). Every tab is its own URL and App.tsx routes each one here.
+ * (navConfig.ts). Every tab is its own URL and App.tsx routes each one here. The network
+ * drop-down picks Ethereum, Base, Robinhood Chain or Solana and the strip shows that
+ * network's tabs (lib/sectionChains.ts).
  */
 export default function PoolsHostPage() {
   return (
@@ -21,6 +23,7 @@ export default function PoolsHostPage() {
       section={POOLS_SECTION}
       idPrefix="pools"
       ariaLabel="Liquidity sections"
+      chains={{ label: 'Pools network', missing: 'No pools here' }}
       panels={{
         '/liquidity': LiquidityPage,
         '/solana-lp': SolanaLpPage,

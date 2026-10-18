@@ -9,6 +9,11 @@ import {
   COW_APP_DATA_HASH,
   COW_PARTNER_FEE_BPS,
   COW_PARTNER_FEE_RECIPIENT,
+  COW_PARTNER_FEE_MAX_BPS,
+  COW_SWAP_APP_DATA_DOC,
+  COW_SWAP_APP_DATA_HASH,
+  cowSwapAppDataDoc,
+  cowAppDataDocFor,
   COW_ORDER_TYPES,
   cowDomain,
   buildLimitSellOrder,
@@ -151,12 +156,12 @@ describe('cowProtocol', () => {
 });
 
 describe('partner-fee dark invariant (2026-08-22 fee-leak audit)', () => {
-  it('bps=0 keeps the appData doc byte-identical to every order ever shipped', () => {
+  it('the limit/TWAP/trigger doc stays byte-identical to every order ever shipped, whatever the swap rate', () => {
     // The pinned literal below is the document as it existed BEFORE the
-    // partner-fee capability was wired. If this test fails, the doc changed
-    // while COW_PARTNER_FEE_BPS is 0 — which would silently re-hash appData and
-    // reject every in-flight order class at submission. bps=0 must be a no-op.
-    expect(COW_PARTNER_FEE_BPS).toBe(0);
+    // partner-fee capability was wired. If this test fails, the doc changed —
+    // which would silently re-hash appData and reject every pre-signed trigger
+    // order at submission. The market-swap rate must never reach this document.
+    expect(COW_PARTNER_FEE_BPS).toBeGreaterThan(0);
     expect(COW_APP_DATA_DOC).toBe(
       JSON.stringify({ appCode: 'Tegridy Farms', metadata: {}, version: '1.1.0' }),
     );
@@ -168,5 +173,54 @@ describe('partner-fee dark invariant (2026-08-22 fee-leak audit)', () => {
 
   it('the dark recipient is the treasury Safe from the registry', () => {
     expect(COW_PARTNER_FEE_RECIPIENT).toBe('0x7D2620243EdAd69Ec81A53c4A063B07995A4Bd7d');
+  });
+});
+
+describe('the market-swap appData document (2026-10-17)', () => {
+  it("is CoW's current shape: app-data v1.15.0, partnerFee v1.1.0 volumeBps, orderClass market", () => {
+    expect(JSON.parse(cowSwapAppDataDoc(25))).toEqual({
+      appCode: 'Tegridy Farms',
+      metadata: {
+        orderClass: { orderClass: 'market' },
+        partnerFee: { volumeBps: 25, recipient: COW_PARTNER_FEE_RECIPIENT },
+      },
+      version: '1.15.0',
+    });
+  });
+
+  // The live document, pinned literally with its hash: switching the rate is the
+  // owner's call (0.50%, 2026-10-17), and any change to it must edit this pin.
+  it('carries the 0.50% venue fee to the Treasury Safe', () => {
+    expect(COW_PARTNER_FEE_BPS).toBe(50);
+    expect(COW_SWAP_APP_DATA_DOC).toBe(
+      '{"appCode":"Tegridy Farms","metadata":{"orderClass":{"orderClass":"market"},"partnerFee":{"volumeBps":50,"recipient":"0x7D2620243EdAd69Ec81A53c4A063B07995A4Bd7d"}},"version":"1.15.0"}',
+    );
+    expect(COW_SWAP_APP_DATA_HASH).toBe('0x7ae7089935a31801a4cf346e7f12a4797674428b44ecf0975ba53eb72b344b74');
+    expect(COW_SWAP_APP_DATA_HASH).not.toBe(COW_APP_DATA_HASH);
+  });
+
+  it('is the fee-free document at 0 bps', () => {
+    expect(cowSwapAppDataDoc(0)).toBe(COW_APP_DATA_DOC);
+    expect(COW_SWAP_APP_DATA_HASH).toBe(keccak256(stringToHex(COW_SWAP_APP_DATA_DOC)));
+  });
+
+  it('refuses a rate CoW would refuse', () => {
+    for (const bad of [-1, 0.5, 101, NaN]) expect(() => cowSwapAppDataDoc(bad)).toThrow();
+    expect(() => cowSwapAppDataDoc(COW_PARTNER_FEE_MAX_BPS)).not.toThrow();
+  });
+
+  // CoW charges a partner fee on any order whose appData names one but pays out
+  // only on market orders, so the limit/TWAP/trigger document must never carry it.
+  it('never lends its fee to the limit, TWAP or trigger document', () => {
+    expect(COW_APP_DATA_DOC).not.toContain('partnerFee');
+    expect(buildLimitSellOrder({
+      sellToken: WETH, buyToken: USDC, sellAmount: 1n, buyAmount: 1n, validTo: 1, receiver: USER,
+    }).appData).toBe(COW_APP_DATA_HASH);
+  });
+
+  it('submits the document the order signed, and nothing it did not make', () => {
+    expect(cowAppDataDocFor(COW_APP_DATA_HASH)).toBe(COW_APP_DATA_DOC);
+    expect(cowAppDataDocFor(COW_SWAP_APP_DATA_HASH)).toBe(COW_SWAP_APP_DATA_DOC);
+    expect(() => cowAppDataDocFor(`0x${'ab'.repeat(32)}`)).toThrow();
   });
 });

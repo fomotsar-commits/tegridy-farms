@@ -11,7 +11,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { Keypair, PublicKey, TransactionMessage, VersionedTransaction } from '@solana/web3.js';
 import type { JupiterQuote, SwapSimulation } from '../../../lib/jupiter';
 import { CHECK_KEEPS_FAILING, HELD_NOT_SENT } from '../../../lib/solana/swap/walletCopy';
-import { readStepTwo, saveStepTwo, sendJupiterLeg, stepOneLanded, type JupiterLegDeps } from './oneCoinSwap';
+import { priceChangeOf, readStepTwo, saveStepTwo, sendJupiterLeg, stepOneLanded, type JupiterLegDeps } from './oneCoinSwap';
 
 const SOL = 'So11111111111111111111111111111111111111112';
 const BAYLA = '7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump';
@@ -142,11 +142,54 @@ describe('sendJupiterLeg', () => {
     expect(d.send).not.toHaveBeenCalled();
   });
 
+  describe('a route whose transaction cannot take the site fee (the 6014 retry, kept)', () => {
+    // The fee-bearing build fails with Jupiter's 6014; the one no-fee rebuild passes.
+    const SIXTY_FOURTEEN: SwapSimulation = { ok: false, reason: 'custom program error: 0x177e', jupiterIncorrectTokenProgram: true };
+    const noFee = quote({ outAmount: '10050000000', otherAmountThreshold: '9949500000', platformFee: null });
+    const onRetryRoute = () =>
+      deps({
+        getQuote: vi.fn<JupiterLegDeps['getQuote']>(async (p) => (p.noPlatformFee ? noFee : quote())),
+        simulateSwap: vi.fn<JupiterLegDeps['simulateSwap']>(async () => SIXTY_FOURTEEN).mockResolvedValueOnce(SIXTY_FOURTEEN).mockResolvedValueOnce(OK),
+      });
+
+    it('a review that showed the site fee is shown again with none, and the wallet is not asked', async () => {
+      const { d } = onRetryRoute();
+      const onNoFee = vi.fn();
+      const end = await sendJupiterLeg(d, { ...ARGS, onNoFee });
+      expect(end).toMatchObject({ kind: 'not-sent', title: 'Quote changed', replan: true });
+      expect(end.kind === 'not-sent' && end.message).toBe(
+        'The site fee cannot be taken on this route, so the figures changed. Nothing was sent. Review the new figures and press again.',
+      );
+      // The pair is learned as no-fee, so the review made again quotes what is sent.
+      expect(onNoFee).toHaveBeenCalledWith(true);
+      expect(d.send).not.toHaveBeenCalled();
+    });
+
+    it('a review that already showed no site fee sends the no-fee transaction, and says so', async () => {
+      const { d } = onRetryRoute();
+      const end = await sendJupiterLeg(d, { ...ARGS, shown: noFee });
+      expect(end).toMatchObject({ kind: 'sent', signature: SIG, outcome: 'confirmed', feeWaived: true, quote: noFee });
+      expect(d.getQuote).toHaveBeenCalledWith(expect.objectContaining({ noPlatformFee: true }));
+      expect(d.send).toHaveBeenCalledTimes(1);
+    });
+  });
+
   it('a fresh quote under the reviewed one by more than the slippage is not sent', async () => {
     const { d } = deps({ getQuote: vi.fn(async () => quote({ outAmount: '9800000000' })) });
     const end = await sendJupiterLeg(d, ARGS);
     expect(end).toMatchObject({ kind: 'not-sent', title: 'Price moved', replan: true });
     expect(d.send).not.toHaveBeenCalled();
+  });
+});
+
+describe('priceChangeOf', () => {
+  it('says Jupiter’s price impact as the swap page does, and its warning from 5%', () => {
+    expect(priceChangeOf(quote({ priceImpactPct: '0.0123' }))).toEqual({ text: '1.23%', bps: 123n });
+    expect(priceChangeOf(quote({ priceImpactPct: '0.00001' }))?.text).toBe('<0.01%');
+    expect(priceChangeOf(quote({ priceImpactPct: '-0.07' }))).toEqual({ text: '7.00%', bps: 700n });
+  });
+  it('a missing or unreadable figure is no figure, never 0%', () => {
+    for (const raw of [undefined, '', '  ', 'abc', null]) expect(priceChangeOf(quote({ priceImpactPct: raw as never })), String(raw)).toBeNull();
   });
 });
 

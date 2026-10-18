@@ -36,7 +36,8 @@ export type PoolIndexRead =
   /** The index did not answer, or answered with something we did not expect. */
   | { kind: 'unread'; detail: string };
 
-export type PoolIndexQuery = { mint: string } | { lpMint: string };
+/** `all`: every pool paired with a coin, for the list shown before a token is picked. */
+export type PoolIndexQuery = { mint: string } | { lpMint: string } | { all: true };
 
 function isAddress(s: unknown): s is string {
   if (typeof s !== 'string' || s.length < 32 || s.length > 44) return false;
@@ -48,11 +49,11 @@ function isAddress(s: unknown): s is string {
 }
 
 export async function readPoolIndex(query: PoolIndexQuery, expectedProgram: string, fetchImpl: typeof fetch = fetch): Promise<PoolIndexRead> {
-  const [key, value] = 'mint' in query ? ['mint', query.mint] : ['lpMint', query.lpMint];
-  if (!isAddress(value)) return { kind: 'unread', detail: 'that is not a Solana address' };
+  const [key, value]: [string, string | true] = 'all' in query ? ['all', true] : 'mint' in query ? ['mint', query.mint] : ['lpMint', query.lpMint];
+  if (value !== true && !isAddress(value)) return { kind: 'unread', detail: 'that is not a Solana address' };
   let res: Response;
   try {
-    res = await fetchImpl(`${POOL_INDEX_PATH}?${key}=${encodeURIComponent(value)}`, { headers: { Accept: 'application/json' } });
+    res = await fetchImpl(`${POOL_INDEX_PATH}?${key}=${value === true ? '1' : encodeURIComponent(value)}`, { headers: { Accept: 'application/json' } });
   } catch (e) {
     // A 20-second timeout (readFetch.ts) already names the index; wrapping it again
     // would print the sentence twice inside one bracket.
@@ -80,7 +81,7 @@ export async function readPoolIndex(query: PoolIndexQuery, expectedProgram: stri
   if (typeof body !== 'object' || body === null || !Array.isArray(b.pools) || typeof b.truncated !== 'boolean') {
     return { kind: 'unread', detail: 'the pool index answered in an unexpected shape' };
   }
-  if (b[key] !== value) return { kind: 'unread', detail: 'the pool index answered about a different token' };
+  if (b[key] !== value) return { kind: 'unread', detail: value === true ? 'the pool index answered a different question' : 'the pool index answered about a different token' };
   if (b.program !== expectedProgram) return { kind: 'unread', detail: 'the pool index answered for a different pool program than this page reads' };
   if (b.pools.length > POOL_INDEX_MAX || !b.pools.every(isAddress)) {
     return { kind: 'unread', detail: 'the pool index answered with an invalid address list' };

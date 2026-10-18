@@ -3,8 +3,9 @@ import { useReadContracts, useChainId } from 'wagmi';
 import { maxUint256 } from 'viem';
 import { toast } from 'sonner';
 import { ERC20_ABI } from '../lib/contracts';
-import { WETH_ADDRESS, SWAP_FEE_ROUTER_ADDRESS, UNISWAP_V2_ROUTER, CHAIN_ID } from '../lib/constants';
-import { type TokenInfo, DEFAULT_TOKENS } from '../lib/tokenList';
+import { CHAIN_ID } from '../lib/constants';
+import { type TokenInfo, defaultTokensFor } from '../lib/tokenList';
+import { swapVenueOn, type SwapVenue } from '../lib/chains/swapVenue';
 import type { RouteSource } from './useSwapQuote';
 import { swapSpenderFor } from '../lib/swapRouting';
 
@@ -39,10 +40,15 @@ export function useSwapAllowance(
     functionName: string;
     args: readonly unknown[];
   }) => void,
+  /** The chain's swap venue (useSwap passes its own); omitted, Ethereum's. */
+  venue: SwapVenue | null = swapVenueOn(CHAIN_ID),
 ): SwapAllowanceResult {
   const [unlimitedApproval, setUnlimitedApproval] = useState(false);
   const chainId = useChainId();
-  const onRightChain = chainId === CHAIN_ID;
+  // Reads and writes are the venue's chain, and only with the wallet on it.
+  const onRightChain = venue !== null && chainId === venue.chainId;
+  const venueChainId = venue?.chainId ?? CHAIN_ID;
+  const ZERO = '0x0000000000000000000000000000000000000000' as const;
 
   // R033 M-02: USDT (and other reflection-style tokens) revert on `approve`
   // when existing allowance > 0 AND new amount > 0. Canonical defence is OZ
@@ -56,24 +62,24 @@ export function useSwapAllowance(
   const { data: allowanceData, refetch: refetchAllowance } = useReadContracts({
     contracts: [
       {
-        address: (fromToken?.address ?? WETH_ADDRESS) as `0x${string}`,
+        address: (fromToken?.address ?? ZERO) as `0x${string}`,
         abi: ERC20_ABI,
         functionName: 'allowance',
-        args: [address!, SWAP_FEE_ROUTER_ADDRESS],
-        chainId: CHAIN_ID,
+        args: [address!, venue?.swapFeeRouter ?? ZERO],
+        chainId: venueChainId,
       },
       {
-        address: (fromToken?.address ?? WETH_ADDRESS) as `0x${string}`,
+        address: (fromToken?.address ?? ZERO) as `0x${string}`,
         abi: ERC20_ABI,
         functionName: 'allowance',
-        args: [address!, UNISWAP_V2_ROUTER],
-        chainId: CHAIN_ID,
+        args: [address!, venue?.uniswapV2Router ?? ZERO],
+        chainId: venueChainId,
       },
     ],
-    // R042 MED-3: gated on the wallet's chain, and kept. The reads are pinned to
-    // CHAIN_ID too; the gate is here because nothing displays these allowances.
-    // They decide writes only (needsApproval, and approve()'s USDT zero-first
-    // step), and neither write may be sent off mainnet.
+    // R042 MED-3: gated on the wallet being on the venue's chain, and kept. The
+    // reads are pinned to that chain too; the gate is here because nothing displays
+    // these allowances. They decide writes only (needsApproval, and approve()'s
+    // USDT zero-first step), and neither write may be sent on another chain.
     query: { enabled: onRightChain && !!address && !!fromToken && !fromToken.isNative },
   });
 
@@ -105,15 +111,15 @@ export function useSwapAllowance(
   // F186: the approval spender MUST equal the contract useSwap executes against
   // for this route — SFR for tegridy (and aggregator→tegridy), UniswapV2Router
   // for uniswap (and aggregator→uniswap). Single source of truth: swapSpenderFor().
-  const spender = swapSpenderFor(selectedRoute, onChainSource);
-  const activeAllowance = spender === SWAP_FEE_ROUTER_ADDRESS ? sfrAllowance : uniV2Allowance;
+  const spender = venue ? swapSpenderFor(selectedRoute, onChainSource, venue) : swapSpenderFor(selectedRoute, onChainSource);
+  const activeAllowance = venue && spender === venue.swapFeeRouter ? sfrAllowance : uniV2Allowance;
 
   const needsApproval = !!fromToken && !fromToken.isNative && parsedAmount > 0n && activeAllowance < parsedAmount;
 
   const approve = useCallback(() => {
     if (!fromToken || fromToken.isNative) return;
     if (!onRightChain) {
-      toast.error('Wrong network — switch to Ethereum mainnet');
+      toast.error(`Wrong network — switch to ${venue?.name ?? 'Ethereum'}`);
       return;
     }
     // AUDIT FIX FE-HIGH-6: refuse `approve(MAX_UINT256)` for custom (non-
@@ -123,7 +129,7 @@ export function useSwapAllowance(
     // pull every later transfer. Exact-amount approvals still work for
     // custom tokens — every swap re-approves, which is mildly annoying but
     // not exploitable.
-    const isCustomToken = !DEFAULT_TOKENS.some(d =>
+    const isCustomToken = !defaultTokensFor(venueChainId).some(d =>
       d.address.toLowerCase() === fromToken.address.toLowerCase()
     );
     let approvalAmount: bigint;
@@ -161,7 +167,7 @@ export function useSwapAllowance(
       pendingTokenRef.current = tokenAddr;
       setIsApprovingMultiStep(true);
       writeContract({
-        chainId: CHAIN_ID,
+        chainId: venueChainId,
         address: tokenAddr,
         abi: ERC20_ABI,
         functionName: 'approve',
@@ -172,19 +178,19 @@ export function useSwapAllowance(
 
     // Fresh-token / already-zero path: write target directly.
     writeContract({
-      chainId: CHAIN_ID,
+      chainId: venueChainId,
       address: tokenAddr,
       abi: ERC20_ABI,
       functionName: 'approve',
       args: [spender, approvalAmount],
     });
-  }, [fromToken, parsedAmount, unlimitedApproval, spender, activeAllowance, allowanceUnread, onRightChain, writeContract]);
+  }, [fromToken, parsedAmount, unlimitedApproval, spender, activeAllowance, allowanceUnread, onRightChain, writeContract, venue, venueChainId]);
 
   const continueMultiStepApprove = useCallback((): boolean => {
     // R-CHAINID: explicit chain re-check — function fires from a useEffect after
     // the first tx, and chainId may have changed between submit and confirm.
-    if (chainId !== CHAIN_ID) {
-      // Not safely on mainnet — wipe pending state and bail without dispatching.
+    if (chainId !== venueChainId) {
+      // Not safely on the venue's chain — wipe pending state and bail without dispatching.
       pendingTargetAmountRef.current = null;
       pendingSpenderRef.current = null;
       pendingTokenRef.current = null;
@@ -204,14 +210,14 @@ export function useSwapAllowance(
     pendingTokenRef.current = null;
     // Keep isApprovingMultiStep = true through the second tx.
     writeContract({
-      chainId: CHAIN_ID,
+      chainId: venueChainId,
       address: tokenAddr,
       abi: ERC20_ABI,
       functionName: 'approve',
       args: [spender, target],
     });
     return true;
-  }, [writeContract, chainId]);
+  }, [writeContract, chainId, venueChainId]);
 
   const resetMultiStepApprove = useCallback(() => {
     pendingTargetAmountRef.current = null;

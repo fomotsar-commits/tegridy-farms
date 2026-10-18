@@ -2,30 +2,16 @@ import { Suspense, type ComponentType } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { PageSkeleton } from '../components/PageSkeleton';
 import { RouteTabs } from '../components/layout/RouteTabs';
+import { ChainPicker } from '../components/layout/ChainPicker';
 import { tabDomId } from '../components/layout/routeTabId';
-import type { NavSection } from '../lib/navConfig';
+import type { NavItem, NavSection } from '../lib/navConfig';
+import { useSectionChain, type SectionChainCopy } from '../hooks/useSectionChain';
 
 /**
- * SectionHost — turns one "More" menu section into one page with tabs.
- *
- * The dropdown used to list every destination in every section: twenty-one
- * links under six headings, of which Trust & Safety alone was seven. Four of
- * those sections (Launch / Earn / Stats / Trust & Safety) now collapse to a
- * single menu entry each, and their former entries become the tab strip on the
- * page that entry opens — the pattern LearnPage / InfoPage / ActivityPage
- * already used for Tokenomics-Lore-Security-FAQ and friends.
- *
- * THE SECTION IS THE SOURCE OF TRUTH. Tabs are not re-listed here: they are the
- * section's own `items` from navConfig.ts, in menu order, carrying their own
- * labels and their own SOON/LIVE pills. A destination cannot be in the menu and
- * missing from its host's tab bar, and a gating predicate cannot be honoured in
- * one place and forgotten in the other, because there is only one list.
- *
- * ROUTES, NOT STATE. Every tab is a real URL that also renders standalone
- * (R007 Pattern A — `tab` is derived from `location.pathname` on every render,
- * no effect, no cascading set), so every deep link, footer link and shared URL
- * that predates the condensation still lands exactly where it did, now with the
- * strip above it.
+ * One nav section as one page with tabs: the section's own `items` (navConfig.ts) are the strip,
+ * so a destination cannot be listed and missing from its host. Every tab is a real URL, derived
+ * from the path on every render, so a deep link lands where it did with the strip above it. An
+ * entry that is off today still renders by URL; RouteTabs leaves it out of the strip elsewhere.
  */
 export interface SectionHostProps {
   /** The nav section whose items become the tabs. */
@@ -36,47 +22,58 @@ export interface SectionHostProps {
   ariaLabel: string;
   /** Panel component per `item.to`. Every item in the section needs one. */
   panels: Record<string, ComponentType>;
+  /**
+   * The section runs on more than one network: a network drop-down leads the strip and the
+   * strip lists that network's tabs (lib/sectionChains.ts). Off for single-network sections.
+   */
+  chains?: SectionChainCopy & { label: string };
+  /** Where a tab's press goes, when not its own `to` (Lock's Staking tab follows the room). */
+  tabTo?: (to: string) => string;
 }
 
-/**
- * Does `pathname` belong to `to`?
- *
- * Deliberately NOT `pathname.startsWith(to)`: `/launch-simulator` starts with
- * `/launch`, so a prefix test would light the wrong tab on the Launch host and
- * — because the first match wins — render the wrong page. A segment-boundary
- * test is the only one that separates them.
- */
+/** Does `pathname` belong to `to`? A segment test: a prefix test lights /launch for /launch-simulator. */
 function matchesRoute(pathname: string, to: string): boolean {
   return pathname === to || pathname.startsWith(`${to}/`);
 }
 
-export function SectionHost({ section, idPrefix, ariaLabel, panels }: SectionHostProps) {
+export function SectionHost({ section, idPrefix, ariaLabel, panels, chains, tabTo }: SectionHostProps) {
   const location = useLocation();
   const navigate = useNavigate();
   const items = section.items;
 
-  // R007 Pattern A — derive the active tab straight from the URL. The first
-  // item is the host's landing tab, which is also what `section.hub` points at.
+  // The active tab comes from the URL, off entries included; the first is the hub's landing tab.
   const active = items.find((i) => matchesRoute(location.pathname, i.to))?.to ?? items[0]?.to ?? '';
 
   // A no-op only ON the tab's own address. Under it (/earn/<id> lights the
   // /earn tab) a click goes back up to it: that tab is the way out of a pool.
   const handleTab = (to: string) => {
-    if (location.pathname === to) return;
-    navigate(to, { replace: false });
+    const target = tabTo ? tabTo(to) : to;
+    if (location.pathname === target) return;
+    navigate(target, { replace: false });
   };
 
   const Panel = panels[active];
 
   return (
     <>
-      <RouteTabs
-        idPrefix={idPrefix}
-        ariaLabel={ariaLabel}
-        items={items}
-        active={active}
-        onSelect={handleTab}
-      />
+      {chains ? (
+        <ChainStrip
+          idPrefix={idPrefix}
+          ariaLabel={ariaLabel}
+          items={items}
+          active={active}
+          pathname={location.pathname}
+          chains={chains}
+        />
+      ) : (
+        <RouteTabs
+          idPrefix={idPrefix}
+          ariaLabel={ariaLabel}
+          items={items}
+          active={active}
+          onSelect={handleTab}
+        />
+      )}
 
       <div
         role="tabpanel"
@@ -93,5 +90,45 @@ export function SectionHost({ section, idPrefix, ariaLabel, panels }: SectionHos
         </Suspense>
       </div>
     </>
+  );
+}
+
+/**
+ * The strip of a section that runs on several networks: the drop-down first, then the chosen
+ * network's tabs. Its own component so the wallet hooks run only on those hosts.
+ */
+function ChainStrip({
+  idPrefix,
+  ariaLabel,
+  items,
+  active,
+  pathname,
+  chains,
+}: {
+  idPrefix: string;
+  ariaLabel: string;
+  items: readonly NavItem[];
+  active: string;
+  pathname: string;
+  chains: SectionChainCopy & { label: string };
+}) {
+  const navigate = useNavigate();
+  const network = useSectionChain(items, active, chains);
+  // As SectionHost's own handler, with the network riding along on the way.
+  const handleTab = (to: string) => {
+    if (pathname === to) return;
+    navigate(network.tabHref(to), { replace: false });
+  };
+  return (
+    <RouteTabs
+      idPrefix={idPrefix}
+      ariaLabel={ariaLabel}
+      items={network.visibleItems}
+      active={active}
+      onSelect={handleTab}
+      leading={
+        <ChainPicker label={chains.label} active={network.active} options={network.options} onPick={network.pick} stretch />
+      }
+    />
   );
 }

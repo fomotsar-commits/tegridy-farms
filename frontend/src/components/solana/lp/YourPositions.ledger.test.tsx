@@ -184,7 +184,7 @@ describe('the row, top to bottom', () => {
     expect(within(pool).queryByText(v.address)).toBeNull();
     expect(within(pool).getByRole('button', { name: 'Copy' })).toHaveClass('min-h-[44px]');
     // The whole address is one press away.
-    fireEvent.click(within(pool).getByRole('button', { name: /Show whole/ }));
+    fireEvent.click(within(pool).getByRole('button', { name: /Show full address/ }));
     expect(within(pool).getByText(v.address)).toBeInTheDocument();
     expect(value(li, 'Worth now')).toBe(`1 SOL and 100 ${SHORT}`);
     expect(value(li, 'Pool swaps')).toBe('open');
@@ -242,7 +242,7 @@ describe('the row, top to bottom', () => {
     expect(within(li).getAllByText('Token check')).toHaveLength(1);
   });
 
-  it('the addresses link to the explorer once the write code has loaded', async () => {
+  it('the addresses link to the explorer once the write code has loaded, each to the page that shows it, and say which', async () => {
     const v = view();
     const p = position(v);
     const api = fakeLpApi();
@@ -252,9 +252,19 @@ describe('the row, top to bottom', () => {
       </MemoryRouter>,
     );
     const li = await rowOf(p);
-    await waitFor(() => expect(within(li).getAllByRole('link', { name: 'Explorer' }).length).toBeGreaterThanOrEqual(4));
-    const hrefs = within(li).getAllByRole('link', { name: 'Explorer' }).map((a) => a.getAttribute('href'));
-    for (const addr of [v.address, p.lpMint, p.lpAccount, v.tokenMint]) expect(hrefs).toContain(`https://explorer.test/address/${addr}`);
+    const link = (group: string) => within(within(li).getByRole('group', { name: group })).getByRole('link');
+    await waitFor(() => expect(link('Pool')).toBeInTheDocument());
+    const expected: Array<[string, string, string]> = [
+      ['Pool', 'Transactions', `account/${v.address}`],
+      ['Pool share token', 'Token', `token/${p.lpMint}`],
+      ['Share account', 'Balance', `account/${p.lpAccount}`],
+      ['Token', 'Token', `token/${v.tokenMint}`],
+    ];
+    for (const [group, shows, path] of expected) {
+      // The fake write code is on a local validator, whose explorer is the Solana Explorer.
+      expect(link(group), group).toHaveAccessibleName(`${shows} on the Solana Explorer (opens in a new tab)`);
+      expect(link(group).getAttribute('href'), group).toBe(`https://explorer.test/${path}`);
+    }
   });
 });
 

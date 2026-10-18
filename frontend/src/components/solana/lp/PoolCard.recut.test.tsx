@@ -82,12 +82,12 @@ describe('the pool card reads like a pool', () => {
       expect(card.textContent).not.toContain(whole);
     }
     const pool = within(card).getByRole('group', { name: 'Pool address' });
-    fireEvent.click(within(pool).getByRole('button', { name: `${shortAddress(v.address)} Show whole` }));
+    fireEvent.click(within(pool).getByRole('button', { name: `${shortAddress(v.address)} Show full address` }));
     expect(rowValue(pool, 'Pool address')).toBe(v.address);
     for (const label of ['Token', 'Opened by']) {
       const group = within(card).getByRole('group', { name: label });
       expect(within(card).getByTestId('lp-pool-more')).toContainElement(group);
-      fireEvent.click(within(group).getByRole('button', { name: /Show whole/ }));
+      fireEvent.click(within(group).getByRole('button', { name: /Show full address/ }));
       expect(rowValue(group, label)).toBe(label === 'Token' ? v.tokenMint : v.snapshot.pool.poolCreator);
     }
   });
@@ -101,51 +101,73 @@ describe('the pool card reads like a pool', () => {
     expect(card.textContent).not.toMatch(/\btokens?\b/);
   });
 
-  it('says what the pool earned under its price, before the fees, the deposit checks and the Add form', () => {
+  // Owner, 2026-10-17: "i dont want people to see too much text unless they want to". In view:
+  // the fee split, trading and deposits, and Add; the price, what the pool earned and what a trade
+  // pays are under More about this pool, in the order they had.
+  it('keeps the fee split and the deposit checks in view, and the price, what it earned and the fees a press away', () => {
     const card = mount(view());
-    const price = within(card).getByText('Price here');
-    const earned = within(card).getByTestId('lp-pool-earned');
-    const history = within(card).getByRole('button', { name: POOL_PAST_BUTTON });
-    const fees = within(card).getByText('Of that fee');
+    const more = within(card).getByTestId('lp-pool-more');
+    expect(more).not.toHaveAttribute('open');
+    const split = within(card).getByTestId('lp-pool-split');
     const deposits = within(card).getByTestId('lp-pool-deposits');
+    expect(more).not.toContainElement(split);
+    expect(more).not.toContainElement(deposits);
+    expect(follows(split, deposits)).toBe(true);
+    const price = within(more).getByText('Price here');
+    const earned = within(more).getByTestId('lp-pool-earned');
+    const history = within(more).getByRole('button', { name: POOL_PAST_BUTTON });
+    const fees = within(more).getByText('Of that fee');
     expect(follows(price, earned)).toBe(true);
     expect(follows(earned, history)).toBe(true);
     expect(follows(history, fees)).toBe(true);
-    expect(follows(fees, deposits)).toBe(true);
     expect(within(card).getAllByRole('heading', { level: 4 }).map((h) => h.textContent)).toEqual([
+      'Trading and deposits',
       'Price',
       'What this pool earned',
       'What each trade pays',
-      'Trading and deposits',
     ]);
   });
 
-  it('a price too far from the outside one points down to its warning, which is now under it', () => {
+  it('a price too far from the outside one is said in the warning colour, against what it is off from, with its warning under it', () => {
     const card = mount(view(), 0.000006);
-    expect(rowValue(card, 'Difference')).toMatch(/apart: see the warning below\.$/);
-    expect(follows(within(card).getByText('Difference'), within(card).getByTestId('lp-pool-warnings'))).toBe(true);
+    const value = within(card).getByText('Difference', { exact: true }).nextElementSibling!;
+    expect(value.textContent).toMatch(/^\d+\.\d% below the outside price$/);
+    expect(value).toHaveClass('text-amber-300/90');
+    // The warning itself is in view, with the deposit checks; the figure it rests on is a press away.
+    expect(within(card).getByTestId('lp-pool-more')).not.toContainElement(within(card).getByTestId('lp-pool-warnings'));
+    expect(within(card).getByTestId('lp-pool-more')).toContainElement(within(card).getByText('Difference'));
+    // A price that agrees stays a plain figure.
+    cleanup();
+    const plain = within(mount(view())).getByText('Difference', { exact: true }).nextElementSibling!;
+    expect(plain.textContent).toMatch(/^\d+\.\d% (above|below)$/);
+    expect(plain).not.toHaveClass('text-amber-300/90');
   });
 
   it('a pool that pays a creator fee keeps the wallet it pays in view, below the fee row that names it', () => {
     const card = mount(view(BAYLA_MINT, true));
     const openedBy = within(card).getByRole('group', { name: 'Opened by' });
     expect(within(card).getByTestId('lp-pool-more')).not.toContainElement(openedBy);
-    expect(rowValue(card, 'Creator fee')).toMatch(/\(Opened by, below\), not to LPs$/);
-    expect(follows(within(card).getByText('Creator fee'), openedBy)).toBe(true);
+    expect(rowValue(card, 'Creator fee')).toMatch(/\(Opened by, on this card\), not to LPs$/);
+    // In view, right under the fee split that names the creator's share.
+    expect(within(card).getByTestId('lp-pool-split').nextElementSibling).toBe(openedBy);
   });
 
   it('keeps every line it had: each row label, the sentences, and the deposit check', () => {
     const card = mount(view());
-    for (const label of ['In the pool', 'Price here', 'Outside price (Jupiter)', 'Difference', 'Fee tier 1', 'Of that fee', 'Venue’s cut, not collected yet', 'Swaps', 'Withdrawals', 'Paired with', 'Pool shares issued']) {
+    for (const label of ['In the pool', 'Price here', 'Outside price (Jupiter)', 'Difference', 'Fee tier 1', 'Of that fee', 'Venue’s cut, not collected yet', 'Paired with', 'Pool shares issued']) {
       expect(within(card).getAllByText(label, { exact: true }), label).toHaveLength(1);
     }
+    // Swaps and withdrawals both open: one line (anything else keeps its own row).
+    expect(within(card).getByTestId('lp-pool-open')).toHaveTextContent('Swaps and withdrawals open');
     for (const group of ['Pool address', 'Token', 'Opened by']) expect(within(card).getByRole('group', { name: group })).toBeInTheDocument();
     expect(rowValue(card, 'Fee tier 1')).toBe('Traders pay 1% a trade');
     expect(rowValue(card, 'Of that fee')).toBe('LPs keep 0.840% of each trade, the venue 0.160%');
     expect(rowValue(card, 'Paired with')).toBe('SOL');
     expect(card).toHaveTextContent('LPs’ share of fees is not paid out separately: it stays in the pool, so each pool share is worth a little more after every trade.');
-    // How an LP is paid stays on the card, never only in a drop-down.
-    expect(within(card).getByText(/LPs’ share of fees is not paid out separately/)).toBeVisible();
+    // How an LP is paid stays in view as the fee split; the longer sentence is a press away.
+    expect(within(card).getByTestId('lp-pool-split')).toBeVisible();
+    expect(within(card).getByTestId('lp-pool-split')).toHaveTextContent('LPs keep 0.840% of each trade, the venue 0.160%.');
+    expect(within(card).getByTestId('lp-pool-more')).toHaveTextContent('LPs’ share of fees is not paid out separately');
     expect(card).toHaveTextContent('Deposits: the checks pass');
     // Fewer words (#803): the notice stays on the card, the reassurance sits in the drop-down.
     expect(within(card).getByText('Adding liquidity here is not switched on yet.')).toBeVisible();

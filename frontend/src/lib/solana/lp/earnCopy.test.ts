@@ -63,7 +63,14 @@ describe('How the venue earns', () => {
       sources: ['0.16% of each trade in a public pool.', '0.15 SOL when a public pool is opened.', '0.5% of a swap sent through Jupiter, where the route allows it.'],
       where: 'It goes to the team’s shared wallet, which needs two signatures and can change the pool rates.',
       wallets: [{ label: 'Team’s shared wallet', address: VAULT }],
+      elsewhere: false,
     });
+  });
+
+  it('says when the cut goes to a wallet that is not the shared vault, so the card never folds it', () => {
+    expect(howVenueEarns(tier1(), jupiter).elsewhere).toBe(false);
+    expect(howVenueEarns({ ...tier1(), protocolOwner: OTHER }, null).elsewhere).toBe(true);
+    expect(howVenueEarns(null, jupiter).elsewhere).toBe(false);
   });
 
   it('every number is read: the cut, the fee to open and the swap fee each follow what they are given', () => {
@@ -122,7 +129,7 @@ describe('How the venue earns', () => {
 
   it('with no tier read: no pool number, no wallet and no claim about where it goes', () => {
     const v = howVenueEarns(null, null);
-    expect(v).toEqual({ sources: ['A cut of each trade in its pools.', 'A fee when a public pool is opened.', 'No fee on a swap sent through Jupiter: none is set up.'], where: null, wallets: [] });
+    expect(v).toEqual({ sources: ['A cut of each trade in its pools.', 'A fee when a public pool is opened.', 'No fee on a swap sent through Jupiter: none is set up.'], where: null, wallets: [], elsewhere: false });
     expect(v.sources.join(' ')).not.toMatch(/\d/);
     // The swap fee is the build's own setting, not the tier's: it is still said.
     expect(howVenueEarns(null, jupiter).sources[2]).toBe('0.5% of a swap sent through Jupiter, where the route allows it.');

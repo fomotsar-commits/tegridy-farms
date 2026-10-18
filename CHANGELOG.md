@@ -6,12 +6,53 @@ page keeps the newest thirty days.
 
 ## [Unreleased]
 
+### 2026-10-18
+
+- TOWELI staking moves to a new contract: new stakes go there, one wallet can stake up to 1,000,000 TOWELI there (50,000 on the first contract), and leaving a lock early costs 75% of the stake, paid to the treasury. Rewards are paid first, but only what the reward pot holds; the stake form and the early-exit confirm both say that a short pot can cost you rewards on top of the 75%. A position on the first contract stays there on its own terms, 25% early exit included: the Farm page shows it in its own card (claim, the ETH fee share, withdraw, leave early at 25%, the pause exits, Auto-Max off), the Dashboard points to it, and History, Portfolio and the FAQ, Risks, Terms and docs give each contract its own fee. LP left in the first LP farm (rewards ended Jun 15, 2026) has a Withdraw button on the Farm page.
+- BOBO, SOY, BRAINLET and RIZZ each have a SOL pool on the venue now, so each room gets Add SOL + its coin, second on its first screen, as BAYLA's has.
+
+### 2026-10-17
+
+- The menu (the ☰ button) is redesigned: it opens full screen, as a circle from the button, with big numbered rows and a picture for each (on a computer, one large picture that changes with the row under the pointer). On phones its last rows are no longer covered by the bottom bar.
+- The home's row of three cards is NFT Finance, Marketplace and Launch; Hold and Provide LP left it.
+- Inside a room, Heat (top bar and phone bar) opens that room's own page, such as /bayla, instead of leaving for the venue home. Inside the BAYLA room (any Solana room): Pools opens Solana LP on BAYLA, the scanner offers "Try BAYLA" instead of TOWELI, and when Add SOL + BAYLA cannot open its form the card says "This pool's Add form was not opened", no longer "your position's pool".
+- Every pool card (Solana LP, Pools and the home): in view are the pool, what LPs keep and what the venue takes, whether swaps and withdrawals are open, the deposit check and Add. What the pool earned, its last 20 transactions, what each trade pays, its price and its address are under "More about this pool". A pool that charges a creator fee still shows the wallet it pays.
+- Solana LP, Pools and the home's liquidity card: the amber line about what the team's vault can do is no longer on the page or on the add, open and review forms. The same sentence, word for word, now leads each "Risks" drop-down.
+- The home page has three short cards in one row under the Heat reader: Swap (SOL to BAYLA), Lock BAYLA and Add SOL + BAYLA, the same forms as Swap, Earn and Solana LP with one wallet connection for all three; a phone stacks them. Lock BAYLA is the shortest: the lock lengths in one row, the amount and Lock, with Claim and manage linking to Earn. The two sentences under the headline moved into "How heat works".
+- One network drop-down on Swap, Pools and Launch: Ethereum, Base, Robinhood Chain, Solana. Swap and Pools run on Base and Robinhood Chain (Swap: our pools or Uniswap V2, whichever pays more); a network with nothing there is greyed, with why.
+- Lock, inside a bungalow, opens that bungalow's own pool; Back to Earn lists every pool.
+- Heat is the only number a person has here now. Points, the Venue Score, the Bronze, Silver and Gold tiers and the trading competitions are gone, with their pages, tabs and cards. An old /leaderboard link opens History and an old /competitions link opens Earn. A room whose reward vault is empty no longer prints a rate: it shows the vault and says it pays nothing until someone funds it.
+- Adding liquidity to a room's coin is up front now. The BAYLA room has an "Add SOL + BAYLA" button beside Trade, the home's Provide LP card opens the list of every Solana pool (each row with Add), and after a Heat read the home says which of your coins you can add to. Each opens Add with one coin on that coin's SOL pool.
+- Solana wallet list on phones: on Android, Phantom opens this page in its own app; inside a wallet's own browser, that wallet is listed once; the whole list fits a small screen.
+
+### 2026-10-16
+
+- Solana pools: the risk line above the pool finder, and on every add, open and review, now says what the team's vault can do. With 2 of its 2 keys and no waiting period it can pause removing, change fees or replace the pool program, and no outside firm has checked our changes. Under Risks, the notice below your positions names the program, the vault and its multisig in full, read on chain 2026-10-16. "The program" card's heading now says the fork has our keys, not one addition the running program does not have yet.
+- Solana LP: a pool whose price is more than 3% off now says what that costs you, as a share of what you add. 19.6% below the outside price costs up to about 0.6% of what you add (about $0.59 per $100), where it said the whole gap went to the first trade. On the pool card the Difference row shows the gap in the warning colour and names the price it is off from. A pool with no outside price to check against now says whoever trades it back takes part of what you add, where it said the whole difference. The pool stays open to deposits.
+- Solana LP and Pools: opening a pool has one name, "Open a pool", on the first button, the card and its button. Above that button the card now says the whole cost, read from the chain: the fee that goes to the venue plus the account setup you do not get back (about 0.04 SOL today), or "amount not read" when that read fails. Where the card points to a pool that already exists, its button reads "Go to that pool" and opens that pool's own Add form. The card's "Read again" is now "Refresh", and a short address opens with "Show full address" and closes with "Hide".
+- Solana LP, "Add with one coin": the swap step's review now shows its price change. On a route where the site fee cannot be taken (BAYLA's pump.fun route), it no longer says 0.50%: the first Sign sends nothing and shows the review again with "No site fee on this route", and the next Sign sends exactly that.
+- Solana LP, Remove liquidity: once a withdrawal is confirmed, the card says what you got (about this much SOL and this much of the token) and offers Swap it, which opens the Solana swap on that token, and Add to another pool, which brings the All pools list up. Close is still there.
+- Solana LP: each row of All pools now carries short warning tags from what the list already read: Trading off, Adding off, Removing off, Frozen, Trading not open yet, Little money in pool (under 1 SOL or 100 USDC), No trades yet and No trades in 7 days. Nothing not read gives a tag. The price check behind a pool's Add button is now shared by everyone looking at that pool for 30 seconds, so busy moments no longer hold Add back while Jupiter is asked again for each visitor. Review, and pressing Read again, still ask Jupiter itself. Swap quotes are never shared.
+
 ### 2026-10-15
 
-- TOWELI staking moves to a new contract: new stakes go there, and leaving a lock early costs 75% of the stake, paid to the treasury. Rewards are paid first, but only what the reward pot holds; the stake form and the early-exit confirm both say that a short pot can cost you rewards on top of the 75%. A position on the first contract stays there on its own terms, 25% early exit included: the Farm page shows it in its own card (claim, the ETH fee share, withdraw, leave early at 25%, the pause exits, Auto-Max off), the Dashboard points to it, and History, Portfolio and the FAQ, Risks, Terms and docs give each contract its own fee. LP left in the first LP farm (rewards ended Jun 15, 2026) has a Withdraw button on the Farm page.
+- Solana swaps and the pool price checks behind Add liquidity keep working when Jupiter retires its free host, once the venue's Jupiter key is set on the server; until then nothing changes. If Jupiter refuses the key, its limit is reached or it does not serve that path, the request is sent once more to the free host while it still answers. The swap fee setting reaches Jupiter the same way on both.
+- The bar reads Heat, Rooms, Lock, Launch and Swap, on a phone and on a wide screen. Pools, Check, the island, the records and Dashboard are in the menu, which now opens at every width; Pools still opens Solana LP. The footer is eight links. No bar or tab strip says Soon: a tab that is off is not listed.
+- Towelie in the corner: when a tab slides under him as you scroll, a press on that tab now opens the tab straight away. While he faded out of the way, a press there went to Towelie instead, and in Safari on an iPad it did even with motion turned down.
+- Launch token pages: the disclosure attestation line now gets a real answer, "Attested" or "No attestation", where it said "Cannot verify" on every token. When the check cannot run it says so in one plain sentence, and the technical error waits under Details.
+- Launch: the graduation fee line, and the integrator fees on Admin, now count the fees held in launched tokens as well as in ETH and TOWELI. They asked the browser's network connection for the full launch history, which every free provider refuses, so they always warned "only base pairs were checked". They now read it from the site, as the launch list already does.
+- Pro Terminal on an iPad held upright (and any window 768 to about 940px wide): the page no longer scrolls sideways. The pools table was widening the whole page by up to 122px; it now scrolls inside its own card, as it always did on a laptop.
+- A shared link to the site now unfurls as the home page's own first picture, Bayla at the door, on X, Discord and Telegram. It used to be a text card. A page with its own picture keeps it. X keeps an old card for about a week per link.
+- Solana adds, removals, pool openings and swaps: taking your time on the review no longer shuts the wallet. Before, a review read for more than 30 seconds was built again at Sign, and any line that moved, even the outside price check, kept the wallet shut, so on a phone a holder could press Sign again and again without the wallet opening. Now the wallet opens unless something you would sign for changed: the pool, the token, the amounts and limits, your share, or the transaction itself. A price check or fee that moved is listed while the wallet is open. A new warning, or a price that moved more than 3 points further off, still stops it and shows you why. The two risk notes now show once during a review, not again under the Sign button.
+- Solana LP: every pool on the venue is now listed under the finder as soon as the page opens (pair, fee tier, what it holds, price), with no token to search first. View opens that token's pools. When there are more pools than the list holds, it says so and the search finds the rest.
+- Launched token pages (/launch and /eth-curve): "The maker's allocation" and the maker's create-buy said a real launch receipt "could not be found" when the first public host kept no copy of it. The page now asks other named hosts, and says the receipt "could not be read" only when none of them has it.
+- Swap (Ethereum): the venue's swap fee is now only ever addressed to the venue's own Safe on the chain of the trade. The address set for Ethereum is the Base Safe, which nobody controls on Ethereum, so until that setting is changed the Ethereum swap fee is off, ParaSwap price checks no longer name that address, and a trigger order's fee note says the fee is switched off. No fee was ever taken to that address.
+- Bungalows: clicking through several in a row no longer ends in "rate-limiting, try again" on the price chart and the trades. The site keeps its GeckoTerminal reads under GeckoTerminal's limit, and when GeckoTerminal is busy it shows the last copy it read, with the time it was read. Any of these figures more than a minute old says its time, and a bungalow no longer shows the last one's price or trades while its own load.
+- Solana swap: token pictures hosted on Irys show again. The image service we use for token pictures started refusing Irys, so those tokens showed letters instead; they now load from Irys directly.
 
 ### 2026-10-14
 
+- Pools: Create, Add and Remove come first, then your positions, one Rates card (trade fee, to the pool, to the venue) and one Swap routes card. Four cards that repeated the fee split are now that one table. Ethereum Add / Remove says Add and Remove, not "Grow the Crop" and "Pull Crop Out".
 - Earn: a farm or pool whose rewards have ended is no longer offered for new stakes. The TOWELI/ETH LP farm, which stopped paying on Jun 15, 2026, now says so in one line with that date and shows no Stake box; Withdraw, Claim and Exit still work. The Zap page no longer offers that farm as a destination. The lock-ladder and lighthouse pools on the bungalows do the same the day their reward period ends. When the end date cannot be read, Stake waits and no date is shown.
 - Bungalows: a lock-ladder or lighthouse pool that pays 0 rewards now, because it was never funded or its rate is 0, no longer takes new stakes. All six Ethereum and Base ladders (PEPE, QR, MFER, BNKR, DRB, JBM) read a rate of 0 on Oct 14, 2026, and nobody is staked in them. Each says so in one line; claim and exit still work, and Stake comes back by itself once a pool is funded.
 - NFT owner panel: plain wording in place of the dashes in its notices.
@@ -20,6 +61,13 @@ page keeps the newest thirty days.
 - A tab left open while the site is updated now refreshes itself once, to the same address, the next time you open a page it has not loaded yet. It used to show "Something went wrong". It never refreshes while a transaction is at your wallet or on its way: it says the site was updated and gives you a Refresh button.
 - Earn: the Referrals tab is gone. An old /referrals link opens Earn. A referral link (`/?ref=…`) still works anywhere on the site, and the TOWELI room's dashboard still shows your referral link and lets you claim what it earned.
 - Solana swap: one line under the form, and the same on our pool's review, gives the pair's 24h average traded price (weighted by volume, worked out by the site) and how far your trade's price is above or below it. How it is worked out is in a drop-down. When the pair traded too little it says so, and a failed read says "could not be read". It never holds a trade.
+- Staking and pools: the card you have money in now wears a steady green ring and a "You’re in" mark, on every staking card, lock ladder, LP farm, your Solana pool shares and the dashboard, so your position is the first thing you see. Cards you are not in keep their purple pulse.
+- Fewer words again, on Pools, Earn and every pool room, NFT Finance, the Marketplace and the Bayla bungalow: each page is a heading and a line, each card its numbers and buttons, and everything that explains sits one press away under "Details" or "How it works". Visible words on a phone: Pools 570 to 220, Solana LP 390 to 194, Bayla 351 to 288, NFT Finance 320 to 233, Dashboard 246 to 201, Earn 160 to 109. A guard now fails a page that grows wordy again.
+- Earn on a phone: the Open button for every pool is on the first screen; before, it sat off the right edge of the list. In the TOWELI room, Connect wallet is on the first screen instead of eight screens down.
+- NFT Finance: Lend, Borrow and My Loans and the form are one screen down instead of three and a half; the four-step explanations and the shield’s small print fold away.
+- Marketplace: the opening animation has an Enter button from the first moment and leaves on its own after about three seconds; the first screen then shows Browse, Buy, Sell / List and Make offer. The marketplace is now in the bungalow studios as "Island · Marketplace", so a skin can dress its backdrop and cards.
+- Bayla bungalow: two more doors, Marketplace and NFT loans, on the front page and the dashboard. The studio’s NFT group is now called "NFT Finance".
+- Earn and Liquidity on a phone: each pool's Open or Provide button now sits on the screen beside the pool's name. It used to sit past the right edge of the list, reachable only by swiping the list sideways, with nothing to say so. The pool's chain and terms (on Liquidity, its TVL and routed volume) now show under its name.
 - A quiet nod to Jungle Bay's music: the footer, the island page and an empty History now link to the collective on Spotify and YouTube. Plain links only, nowhere near a trade, a stake or a warning.
 - Bayla bungalow: hand-picked art on 102 more surfaces, across Pools, Earn and the rest of the site, placed in the Bayla studio.
 - A link to one part of a page now lands on that part while the page is still loading, when its address is opened directly, and when the same link is pressed again. "The bungalows" on the Island page often left you at the top of the home page instead. "See what you'd earn" on the TOWELI farm now opens the estimate in the TOWELI room; it used to open the front page, which has no estimate.
@@ -291,213 +339,6 @@ page keeps the newest thirty days.
 
 - The launch gate's reading names the tier as the wallet's own, and its verdicts carry no em dash.
 - "Check graduation" no longer says a token has not graduated from a read it never made.
-
-### 2026-09-17
-
-- The venue opens straight to the page; the arrival film plays only from "Watch the arrival" on /island.
-- Leaving the BAYLA lock ladder early costs the time left over four years, capped at 75 percent.
-- A live reward rate on the BAYLA lock ladder can no longer be lowered.
-- The lock ladder card shows no APR, states its reward window honestly, and promises nothing it cannot prove.
-- "Nothing to claim" is no longer shown over revenue balances that were never read.
-- The USDT approval reset now happens when it is needed, not skipped on an unread allowance.
-- The staking runway is no longer invented from a failed read.
-- An ended LP reward period no longer reads as a live 0.00% APR on /farm.
-- The liquidity card no longer says "Confirmed" after an approval, before the real action is sent.
-- A Gold Card membership that could not be read is no longer sold back to its owner on /premium.
-- "Not enough TOWELI" is no longer said about a balance nobody read.
-- Nakamigos: an unread listings feed no longer shows as a healthy empty market.
-- The NFT pool owner's panel no longer hides a queued timelock change behind an unread value.
-- Pool volume is no longer printed from an unread fee rate, and /treasury no longer shows a 0.00% POL share from an unread LP supply.
-- The home page's /swap card stops describing one pair on one route.
-- An unread input no longer tells a staker they are a Seedling on the score card.
-- Nakamigos: a listings set from one venue no longer speaks for the whole market.
-- Nakamigos: an unread listings source no longer reads as an empty market.
-- An unread staking, LP or referral read no longer shrinks your points.
-- The arrival curtain keeps its time budget even when the page is busy.
-- The zap planner checks your wallet's chain against the pool's, not against itself.
-- A Connect Wallet button with no wallet modal to open is disabled.
-- The launchpad no longer arms Mint or names a sale phase from an unread sale state.
-- The token picker and token detail dialogs keep focus and scroll lock steady while the page re-renders.
-
-### 2026-09-15
-
-- Four buttons that said "Connect Wallet" and were disabled for saying it now open the wallet modal.
-- The venue's icons carry their version in the path, so clients stuck on the old Nakamigos mark update.
-- The BAYLA lighthouse card keeps its Connect button now that deposits are closed.
-- Trust Wallet connects on the Solana side of the venue.
-
-### 2026-09-14
-
-- The art studios show every surface, doors are authorable, and the island mark replaces the old icon.
-
-### 2026-09-13
-
-- The venue no longer speaks in prose as one of its residents.
-- GeckoTerminal trades and charts load through a caching edge instead of failing under the rate limit.
-- One canonical host for every page and for the sitemap.
-- The TOWELI/ETH pool card no longer labels the venue's own fee as an LP APR.
-- Nakamigos: collection and trait offers name the token that fills them, and can be accepted.
-- /pools stops calling itself /solana.
-
-### 2026-09-12
-
-- The old BAYLA Streamflow pool is closed to new deposits; existing stakers can still claim and leave.
-- A live BAYLA lighthouse position that is still earning can claim again.
-- The remaining mainnet reads load for a wallet connected on Base or Robinhood.
-- Seven more mainnet reads no longer go blank for a wallet on Base.
-- The arrival curtain always lifts inside its time budget.
-
-### 2026-09-11
-
-- The named trade tape no longer returns a server error, and /chart shows its live data.
-- A wallet last used on Base no longer sees the mainnet farm as empty and ended.
-- The arrival curtain no longer covers a page that has already loaded.
-- The LP farming card says when its farm-wide reads failed, and its Stake button guards on them.
-- During a pause, the staking card's exit sends the call that works for your position.
-- An old ?tab=liquidity link lands on the liquidity page.
-- The LP farming section keeps its heading while it loads.
-
-### 2026-09-10
-
-- The BAYLA lock ladder gets its staking card.
-- The arrival's backdrop is the door.
-
-### 2026-09-07
-
-- The lighthouse card's max boost quotes the longest lock you can pick, and /dashboard shows rewards that can no longer be claimed as stranded.
-
-### 2026-09-06
-
-- A BAYLA lighthouse position past the claim limit is no longer offered a claim that fails, and can still leave.
-- The home page opens on the heat instrument: your own number first.
-- Liquidity has one chain-aware page, and the swap page stops duplicating it.
-- On Base and Robinhood the swap page says why it cannot quote instead of going quiet.
-- The mobile menu shows one row per section.
-- /liquidity and /farm no longer scroll sideways on a phone.
-- The top bar is six words with no dropdown, and liquidity has its own section.
-
-### 2026-09-05
-
-- The six EVM ladders point at their redeployed pools, and deposits reopen.
-- Deposits are closed on the six EVM ladder pools built before the fix.
-- Nakamigos: My Bids, bid history, My Offers and My Listings load again.
-- Four fixes from the 4 September field review.
-- /chart, /competitions and /copy-trading can reach the indexer again.
-- Nakamigos collection listings load through the venue's proxy again.
-- Eleven more places where a failed read showed as a fact now say they could not read.
-- Nakamigos: a route that is gone for good says so instead of retrying.
-- Nakamigos: accepting an offer no longer spends gas on an approval when the fill cannot be built.
-- The close button works on every titled dialog.
-- A failed read no longer renders as a fact on the worst two surfaces a sweep found.
-- A missing Alchemy key no longer falls back to a shared public key.
-- The nav logo loads its small image again, 1.5 KB instead of 189 KB.
-- Two images that shared one derived file each show their own, and /gallery is wired.
-- The zap-off icon on /security draws correctly.
-
-### 2026-09-04
-
-- The More menu goes from 21 rows to 7, behind tabbed hubs.
-- Homepage images that rendered broken in production load again.
-- A rejected Alchemy key says so instead of answering 200.
-- The Alchemy RPC proxy reports upstream failures as failures.
-- Art images are about 31 percent smaller across ten routes.
-- An EVM ladder's empty-pool rewards can no longer be taken by a three-wei stake.
-- Headings use Archivo, and one more wallet can connect.
-- Swap quotes from the seven aggregators are checked for shape before they are shown.
-- The floating assistant bubbles no longer eat taps on a phone.
-- Three security defects found by code scanning are fixed.
-- Ten places where a failed read showed as a fact now say they could not read.
-- The 3 September field review's findings are resolved.
-- Every nav entry that said SOON is now a working page.
-
-### 2026-09-03
-
-- Phantom appears in both wallet modals, and the Solana swap is rebuilt.
-
-### 2026-09-01
-
-- The lighthouse stake card is a labelled grid that no longer breaks mid-line on a narrow screen.
-- The Tegridy name is retired from every rendered surface, and the venue speaks as itself.
-
-### 2026-08-31
-
-- The venue wears the island mark on every icon, and Tradermigos reads Marketplace where visitors see it.
-- The hall of doors opens under the venue hero, the arrival opens no modal, and every resident gets its own walls.
-- The front door stops saying Tegridy Farms and speaks as the venue.
-- The EVM bungalow dashboard no longer offers staking buttons that could only revert.
-- Every visitor sees the lock ladder's tiers, connected or not.
-- All six EVM lighthouses move to ladder pools.
-- The install offer waits for the first-run dialogs instead of stacking a third.
-- The lighthouse card shows the pool's full rate range and leads with what changes the decision.
-- The EVM lighthouse card offers TOWELI's lock ladder, 7 days to 4 years, with an early exit.
-- PEPE's lighthouse lands, so all thirteen bungalows stake, and six EVM residents are no longer told they are on Solana.
-- A barely funded vault no longer prints a full APR above its own banner saying it pays 0%.
-- Four Base staking cards that could not read their pools now load.
-- The four Solana lighthouses go live: BOBO, SOY, BRAINLET and RIZZ.
-- SOY and BRAINLET point at their real mints instead of look-alike tokens.
-- Five Base lighthouses go live, and RIZZ moves to the chain it lives on.
-
-### 2026-08-30
-
-- All thirteen bungalows are built out, with a round of lighthouse exit-safety fixes.
-- The BAYLA lighthouse moves to its replacement pool, where a longer lock earns more.
-
-### 2026-08-29
-
-- The Connect button is no longer cut off on a tablet, and the lighthouse lock warning comes before the wallet prompt.
-- The lighthouse lock picker starts at the shortest lock instead of 30 days, on a pool with no early exit.
-- The /pools status card is readable over bright bungalow art.
-- The Solana LP venue opens on /pools, with a swap client and the venue's own pool router.
-- The Bayla farm no longer claims a swap fee the venue is not taking.
-
-### 2026-08-28
-
-- Bayla's dashboard states the pool's rate and its vault together.
-- Bayla's staking card is rebuilt with preset lock buttons, her Solana swap is wired, and her dashboard is reworked.
-- A frontend audit wave fixes 46 verified findings.
-- Bayla's page shows her market chart, trade tape and holder distribution.
-- /bayla-studio lets art be picked and placed inside a bungalow skin.
-- /eth-curve lists live launches, every launch gets a permanent /eth-curve/:token page, and a creator can claim their fees.
-
-### 2026-08-27
-
-- The lighthouse pool reads through the venue's RPC proxy, and features that are live stop saying they are being built.
-- /nakamigos stops loading a font the site's security policy always blocked.
-- Solana pages stop failing in production builds on a missing Buffer.
-- Solana pages no longer crash in production on a blocked stylesheet import, and the top nav gets a bungalow chooser.
-- Tokens launched on the EVM curve carry an image, a description and socials, signed by their creator.
-- The BAYLA lighthouse card reads its live mainnet pool.
-- BAYLA staking uses the Token-2022 program BAYLA's mint lives on, instead of assuming the legacy one.
-
-### 2026-08-26
-
-- The BAYLA lighthouse staking card is built, ready to switch on when its pool exists.
-- The TOWELI staking card stops promising a JBAC boost it cannot grant, a dry pool shows a real zero APR, and a claim receipt shows the amount paid.
-- The Base and Robinhood curve launchpads are live.
-- An NFT loan repay covers the minimum-interest floor, so it no longer reverts.
-- The /bayla page keeps its own title after it loads.
-- Nakamigos: four more places where a failed read looked like a fact.
-- An RPC endpoint that refused every request is dropped from all five failover lists.
-- Bungalow doors unfurl, and Bayla gets her dashboard.
-- 332 KB less JavaScript before first paint.
-- The orderbook's fill checks no longer depend on a single Alchemy key.
-
-### 2026-08-24
-
-- The Base and Robinhood legs, graduation stacks, and the venue's own EVM curve.
-- A reverted transaction no longer shows as a success anywhere.
-- Ghost links, false claims and dead references are removed from the site.
-- Bungalow doors in the /bayla format, with in-venue BAYLA trading and heat.
-- NFT finance: a repay pays past a stale quote, and repay or claim failures show.
-- Same-origin requests are no longer refused at the API's resource gates.
-- Bayla speaks for herself, token first.
-- Jungle Bay bungalows: Bayla's background, and a bungalow picker after the intro.
-- The Meteora launch rail is retired, and Solana graduation facts point at the venue's own pool.
-- Colours that pointed at a missing theme token use real ones.
-
-### 2026-08-23
-
-- Light mode is removed.
 
 ## Earlier
 

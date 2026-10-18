@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useAccount, useChainId, useReadContracts, useSwitchChain, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
 import { parseUnits } from 'viem';
 import { toast } from 'sonner';
+import { ConnectButton } from '@rainbow-me/rainbowkit';
 import type { Bungalow } from '../../lib/bungalows';
 import { LIGHTHOUSE_STAKING_ABI, ERC20_ABI } from '../../lib/contracts';
 import { deriveEvmLighthouse, fmtRaw, fmtRunway } from '../../lib/evmLighthouse';
@@ -13,6 +14,7 @@ import { CardArt } from '../ui/CardArt';
 import { FinePrint } from '../ui/FinePrint';
 import { rewardsEndedLine, rewardsHaveEnded, rewardsZeroLine } from '../../lib/rewardsEnded';
 
+import { PositionMark, positionHost } from '../ui/PositionMark';
 /**
  * The EVM lighthouse — live staking card for a bungalow whose pool is the
  * VENDORED Synthetix StakingRewards (contracts/src/vendor/, provenance D8).
@@ -191,7 +193,8 @@ export function EvmLighthousePoolLive({ bungalow }: { bungalow: Bungalow & { sta
   const stakeClosed = rewardsEnded || paysNothing || periodFinishRaw === null || big(2) === null;
 
   return (
-    <div className="relative isolate overflow-hidden rounded-2xl glass-card-animated" style={{ border: '1px solid var(--color-purple-75)' }}>
+    <div className={positionHost('relative isolate overflow-hidden rounded-2xl glass-card-animated', userStakedRaw !== null && userStakedRaw > 0n)} style={{ border: '1px solid var(--color-purple-75)' }}>
+      <PositionMark inPosition={userStakedRaw !== null && userStakedRaw > 0n} />
       <CardArt pageId="evm-lighthouse-pool-live" idx={0} scrim="transparent" />
       {/* ART VISIBILITY 2026-08-31 (owner): this scrim was 0.85 and the
           resident's art underneath was barely readable — a dark page scrim
@@ -217,14 +220,14 @@ export function EvmLighthousePoolLive({ bungalow }: { bungalow: Bungalow & { sta
           // problem — so no figures, and nothing below can send a transaction.
           // Same wording and styling as EvmLadderPoolLive.tsx:175-180.
           <p className="text-[13px] mb-4 rounded-lg p-3" style={{ background: 'rgba(239,68,68,0.10)', border: '1px solid rgba(239,68,68,0.4)', color: '#fca5a5' }}>
-            This pool does not stake {bungalow.symbol} — it reports {shortenAddress(poolToken ?? '', 6)} as its staking
+            This pool does not stake {bungalow.symbol}. It reports {shortenAddress(poolToken ?? '', 6)} as its staking
             token. That is a configuration error, not a network problem, so no figures are shown and nothing here
             will send a transaction.
           </p>
         ) : !view.coreKnown && !isLoading ? (
           // OUTAGE, not zeros: some core read failed.
           <p className="text-[13px] mb-4" style={{ color: '#f0b26b' }}>
-            The pool could not be read just now — figures are withheld rather than shown
+            The pool could not be read just now. Figures are withheld rather than shown
             as zeros. Refresh, or check the explorer link above.
           </p>
         ) : (
@@ -258,11 +261,16 @@ export function EvmLighthousePoolLive({ bungalow }: { bungalow: Bungalow & { sta
                 {rewardsZeroLine(periodFinishRaw === 0n)}
               </p>
             ) : unfunded && (
-              <p className="text-[12px] mb-4 rounded-lg p-3" style={{ background: 'rgba(240,178,107,0.08)', border: '1px solid rgba(240,178,107,0.35)', color: '#f0b26b' }}>
-                The reward vault is unfunded, so staking works but earns nothing until funding
-                lands. Unlike the Solana lighthouse, your principal is NEVER at the vault&apos;s
-                mercy here: withdraw is free at any time and moves principal only.
-              </p>
+              <div className="text-[12px] mb-4 rounded-lg p-3" style={{ background: 'rgba(240,178,107,0.08)', border: '1px solid rgba(240,178,107,0.35)', color: '#f0b26b' }}>
+                <p className="m-0">The reward vault is unfunded, so staking earns nothing yet.</p>
+                <FinePrint summary="Why">
+                  <p className="m-0">
+                    The reward vault is unfunded, so staking works but earns nothing until funding
+                    lands. Unlike the Solana lighthouse, your principal is NEVER at the vault&apos;s
+                    mercy here: withdraw is free at any time and moves principal only.
+                  </p>
+                </FinePrint>
+              </div>
             )}
 
             <p className="text-[11px] text-white/55 mb-1">
@@ -351,10 +359,19 @@ export function EvmLighthousePoolLive({ bungalow }: { bungalow: Bungalow & { sta
                 </>
               )
             ) : (
-              <p className="text-[12px] text-white/60">
-                Connect a wallet to stake. Reading the pool needs no wallet — the figures
-                above are live either way.
-              </p>
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+                <ConnectButton.Custom>
+                {({ openConnectModal, mounted }) => (
+                  <button type="button" onClick={openConnectModal} disabled={!mounted} className="btn-primary px-6 py-2.5 text-[13px] disabled:opacity-50">
+                    Connect wallet
+                  </button>
+                )}
+              </ConnectButton.Custom>
+                <p className="text-[12px] text-white/60 m-0">
+                  Connect a wallet to stake. Reading the pool needs no wallet. The figures
+                  above are live either way.
+                </p>
+              </div>
             )}
           </>
         )}

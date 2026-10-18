@@ -15,6 +15,165 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-10-17: Solscan values a pool's address at its rent; the pool's coins are in its vaults
+
+**Believed:** an explorer link to a pool's address shows the pool and what is in it.
+
+**Measured** (Solscan in Chrome and `getAccountInfo` on the public mainnet RPC, 2026-10-17,
+while fixing #867): `solscan.io/account/ErvzV1NMZmcfAqZtGH4AQhYAjn77nJEworKK1mYPz5w4`, the
+BAYLA/SOL pool's state account, showed "Total Value $0.4008" and "SOL Balance 0.0038862":
+its rent. The pool held 36.209 SOL and 5,699,019.6679 BAYLA. Its two vaults (the keys at
+byte offsets 72 and 104 of the pool account) did show the coins:
+`4HjxickXVJ98vdosH9idfKfsombYrk2nNbWZETS8PjVN` held 36.217428047 WSOL, and
+`8YBj4RCdDKKs4MG6Ck9A3TSciRRocASr12ie7EsxLTe` held 5,699,019.66797 BAYLA. The 0.0084 SOL
+gap is the venue's cut, which stays in the vault until it is collected. A mint sent to
+`solscan.io/account/<mint>` loads a blank account page and then redirects to
+`/token/<mint>`.
+
+**So:** to show what a pool holds, link its vaults, and expect their balances to run a
+little above the reserves until fees are collected. Link a mint to `/token/` directly. Name
+what each link opens: four rows all saying "Explorer" read as one broken link.
+
+## 2026-10-17: a CoW order signed as quoted is refused, and a partner fee is charged on orders it is never paid out for
+
+**Believed:** a CoW order can be signed from the `/quote` response as it comes back, and a
+partner fee named in an order's appData is paid out whatever the order type.
+
+**Measured** (live mainnet calls on 2026-10-17, preparing #861): `POST /api/v1/quote` for 0.1
+WETH returned `feeAmount` 167205522446820 (a network-cost estimate), and `sellAmount` +
+`feeAmount` came to exactly 0.1 WETH. `GET /api/v1/app_data/<hash>` for a made-up hash: 404.
+
+**Found** (read, not run): the orderbook refuses any order whose signed `feeAmount` is above 0
+(`NonZeroFee`, cowprotocol/services #2454, merged 2024-03-04), so a quote signed as returned is
+never placed. The settlement engine charges a partner fee on any order whose appData names one
+(services `crates/autopilot/src/domain/fee/mod.rs`), but docs.cow.fi/governance/fees/partner-fee
+pays it out on market orders only. CoW keeps 25% (CIP-75), pays weekly in WETH, and voids a
+week under 0.001 WETH. The current app-data schemas live in cow-sdk `packages/app-data`
+(v1.15.0, `partnerFee` v1.1.0, `volumeBps`); the old cowprotocol/app-data repo stops at v1.6.0,
+and the legacy `{bps}` shape is still parsed as a volume fee.
+
+**Do:** sign like cow-sdk's `amountsToSign` (`packages/order-book/src/quoteAmountsAndCosts`):
+`sellAmount = quote.sellAmount + quote.feeAmount`, `feeAmount = 0`, and a buy floor of the
+quote after all fees, less slippage. Put a partner fee only on a market swap's appData
+document. To learn whether a document ever reached CoW, read
+`https://api.cow.fi/<network>/api/v1/app_data/<hash>`: 404 means no order carrying it was ever
+accepted. A fee taken on a filled order shows in `GET /api/v1/trades?orderUid=<uid>` as
+`executedProtocolFees`.
+
+## 2026-10-16: a Solana card on a page makes the top bar Solana-only, even where the page connects Ethereum too
+
+**Believed:** mounting `SolanaProviders` for the home's two Solana cards (stake BAYLA, add
+SOL + BAYLA, #858) adds Solana to the home and leaves the top bar as it was.
+
+**Measured** (#858 `9d3fa054`, on the branch build): any page-level `SolanaProviders` reports
+`page` to `lib/solanaSurface.ts`, and TopNav reads that as "a Solana page". Its Connect became
+the Solana-only button ("Connect a Solana wallet") and Ethereum left the top bar. On the same
+page, a Connect then Solana pressed before the lazy cards loaded mounted the top bar's own
+connection (`TopBarSolana`), which steps aside when a page's connection arrives and took the
+open wallet list with it: its buttons stayed detached for 30 s in the e2e walk.
+
+**Do:** on a page that connects Ethereum too, mount `<SolanaProviders mixed>` and list the path
+in `hasMixedSolanaSection` (`lib/routeVoice.ts`). `mixed` keeps the Solana-or-Ethereum sheet;
+the path rule stops the top bar mounting a connection of its own while the page's is on its
+way. Still one Solana connection per page.
+
+## 2026-10-16: an LP form opened by code moves whatever page it is mounted on
+
+**Believed:** the LP door's auto-open (Add with one coin on the room's pool) could be reused on
+the home: its LP card asked for the same form once, when it first drew.
+
+**Measured** (#858 `8f5312c3`, the first walk of the branch build): the home scrolled itself
+about 2,000px down to the card. Two effects do it, both right on the LP tab, where a press or a
+door link asked for the form. An Add panel (`PanelFrame`) focuses its heading and calls
+`scrollIntoView({ block: 'start' })` when it mounts. `PoolFinder` scrolls to a lookup's answer
+when `asked` is set, and every `lookUp`, so every `openAdd`, sets it.
+
+**Do:** where a page that is not the LP tab mounts LP cards, show the Add buttons and open a
+form only on a press. Pin it the way `LpDoor.test.tsx` does: mock
+`Element.prototype.scrollIntoView` and assert it was never called.
+
+## 2026-10-16: a word-budget pass can come from a run where the cards it budgets for never drew
+
+**Believed:** `e2e/word-budget.spec.ts` passing on `/` means the home, cards and all, fits its
+ceiling.
+
+**Measured** (#858): a local run with other specs in parallel passed `/` while the home's lazily
+loaded Solana cards never drew (the public RPC answered 429). The spec cannot tell:
+`waitForQuiescence` resolves silently at its 12 s cap, the cards are a `lazy()` import, and the
+LP card is drawn only once a chain read says the venue is `live`. The same build with the
+ceiling set to 1 failed at 373 words, and its longest blocks showed what was on screen,
+including the LP card's "2 pools found for this token" (a screen-reader line: sr-only text is
+counted too), which #858 then fixed.
+
+**Do:** to read a route's real count, set its ceiling to 1 for one run: the failure prints the
+count and the six longest blocks, so you see that the cards drew. The `[word-budget]` log line
+gives the count on a pass, but not what drew. Put the ceiling back before you commit.
+
+## 2026-10-15: a shorter footer is a change to every page's scroll room
+
+**Believed:** cutting the footer from about 30 links to 8 (#838) touches only the footer's own
+specs.
+
+**Measured:** trunk CI went red in all four projects on `e2e/tab-strip-clears-focus.spec.ts`,
+whose precondition is that a page scrolls more than 200px. /scan at 1280x800 scrolled 100px
+once the footer was 250px tall (read with `scrollHeight - innerHeight` on the production
+build). The local runs before merge had not included that spec.
+
+**Do:** when shared chrome changes height (footer, header, bars), run every spec that reads
+`scrollHeight - innerHeight` or asserts a page scrolls: today `tab-strip-clears-focus`,
+`tab-target-size` and `phone-layout`.
+
+## 2026-10-15: a NavLink lights itself, so two words that open one page both light
+
+**Believed:** a bar word pointing at `/#hall` lights only on the hall, and a `NavLink` whose
+`className` is a plain string carries only the classes it was given.
+
+**Measured** (react-router 7.18.3, `NavLink` in `dist/development`, and the bar's own unit test):
+a string `className` gets ` active` appended, and `aria-current="page"` is set, whenever
+`isActive`, and `isActive` compares the pathname alone. So `/` and `/#hall` are both active on
+`/`: Heat and Rooms lit together on the home. A second trap in the same drawer: index.css makes
+`.nav-link` `inline-flex` under its touch media queries, unlayered, so it beats Tailwind's
+`flex` and two bare drawer links shared a line at 390 and 820 (a Playwright box check, red on
+that build).
+
+**Do:** a word that shares a pathname with another is a plain `Link` with `aria-current` from
+its own rule; give each drawer row its own block (`<li>`).
+
+## 2026-10-14: an element fading out with `visibility` still takes presses, and WebKit can call it hidden while it does
+
+**Believed:** a control hidden with `opacity-0 invisible` and a `transition-[opacity,visibility]`
+stops taking presses when it is hidden, and `checkVisibility()` returning false means a press
+there cannot reach it.
+
+**Measured** (Playwright 1.62, production build, the Towelie corner over /nft-finance's tabs):
+a `visibility` transition keeps the element `visible` until it ends, so for the whole 200ms
+fade it is hit-tested. With motion on, Chromium's press on the tab under it landed on the
+corner at opacity 0.98. With reduced motion every e2e project shortens the fade to 0.01ms, and
+Chromium passed; CI's iPad WebKit failed every attempt with `checkVisibility()` false and
+`elementFromPoint` returning the corner's own picture, on the one scroll step where the class
+had just landed. The press point sat on the rim of the round picture, and only the DPR 2
+device counted the rim.
+
+**Do:** take presses away with something that is not transitioned (`inert`, or
+`pointer-events-none`) in the same render that starts the fade, and test the press with motion
+on, at the first frame the opacity drops below 1. Name the control a stray press lands in
+(`closest('[aria-label]')`), not just its tag: "lands on img" cost a trace dig.
+
+## 2026-10-14: four loads of one heavy page in one WebKit tab is where the iPhone project fails to load
+
+**Believed:** a test that sets a width and reloads the same route four times in one page is
+the same as four tests.
+
+**Measured:** seven full E2E runs on 2026-10-14 held four flakes of the one such test on
+WebKit (`tab-strip-scroll.spec.ts`), all on `iphone-safari` (DPR 3), on four routes, every one
+inside the load: a 60s wait for `load`, "WebKit encountered an internal error", and a page that
+never mounted after a 2.3s load where the first two loads took 0.16 to 0.28s. No other test
+flaked on a WebKit project in those runs. The retry passed each time.
+
+**Do:** read the failing step before calling a flake a race in the page. Give each load its own
+test, as the sibling width specs do; whether that alone ends this flake was not yet shown when
+this was written.
+
 ## 2026-10-14: a wallet send error that is not a "cancel" can still mean the swap was sent
 
 **Believed:** when `sendTransaction` from the Solana wallet adapter throws, nothing left the
@@ -296,6 +455,83 @@ a tab that really is hidden it never returns. A headed window opens on the deskt
 whoever is at the machine: in the one headed run here the page was already on the new
 build before the scripted press, by nothing the script did, and the run was thrown away.
 
+## 2026-10-14: viem's `fallback` moves to the next RPC on an error, never on a `null`
+
+**Believed:** over `fallback([publicnode, drpc])`, a receipt the first host lacks is read from
+the second.
+
+**Measured:** for an Ethereum transaction in block 25,038,892, `ethereum-rpc.publicnode.com`
+answered `eth_getTransactionReceipt` with HTTP 200 and `"result": null`, while `eth.drpc.org` and
+`eth-mainnet.public.blastapi.io` returned it with 28 logs. A viem client over publicnode then drpc
+threw `TransactionReceiptNotFoundError` ("could not be found. The Transaction may not be processed
+on a block yet."); the same two hosts in the other order returned the receipt. A `null` is an
+answer, so the fallback never asks the second host. A ranked transport picks the first host at
+run time, so one page reads fine for one visitor and fails for the next.
+
+**Do:** for a historical read through a fallback, treat "not found" as "the host that answered
+has no record" and ask a named second host before saying anything. The Solana form of this trap
+is the 2026-10-10 entry "a public RPC host can answer 200 with a history it does not have".
+
+## 2026-10-14: a page's visible words are a number a test can hold, and the first pass only looks finished
+
+**Believed:** once the explanations sit in closed drop-downs, a page stays short; a second
+"fewer words" pass finds little.
+
+**Measured** on the production build (Chromium, `vite preview`, Bayla skin, words of
+`main.innerText`, which excludes a closed details element's body): six days after the
+first pass, the phone showed /pools at 570 words, /solana-lp 390, /bayla 351,
+/nft-finance 320, /dashboard 246, /liquidity 176, /earn 160, and the marketplace landing
+675 behind a splash that stayed up to 12 s with no visible way in. The same fee split was
+on /pools four times. One pass by six builders took them to 295 / 206 / 290 / 233 / 203 /
+126 / 109 / 227, with every card, control and art surface kept and every moved sentence
+in the DOM; the Open button on /earn moved from off the right edge of a 520 px table to
+the first screen, and the TOWELI room's Connect from the eighth screen to the first.
+`e2e/word-budget.spec.ts` now pins a ceiling per route and width, about a tenth above the
+measurement (a count moves with the chain: the marketplace read 227 and 265 on two runs).
+
+**Do:** count, do not read; pin the number so it can only go down; walk the phone and
+look at where the first control is, not whether it exists. Two measuring traps: a
+Playwright `addInitScript` runs before `document.documentElement` exists, so observe
+`document`; and a count taken before a chain read lands is the loading state, so wait for
+the section (a Streamflow pool is ~13 sequential RPCs; the LP section ~20 s).
+
+## 2026-10-14: `vite preview` listens on `localhost` only, and a Bash pipeline commits on grep's exit code
+
+**Believed:** `127.0.0.1:4173` and `localhost:4173` are the same server; `test | grep
+summary && git commit` commits only on a green test.
+
+**Measured:** `vite preview --port 4173` on this machine binds `::1`; `127.0.0.1` is
+refused (Playwright's baseURL says `localhost`, which is why the suite never noticed).
+And one commit went in with a red test because the pipeline's status was grep's (0, it
+matched a line), not vitest's.
+
+**Do:** address the preview by `localhost`. Run the test alone, or capture its status in
+a variable, before the commit in the same chain.
+
+## 2026-10-14: a rebuilt review compared line for line shuts on lines that move by themselves
+
+**Believed:** when a stale review is built again before signing, requiring every rendered
+line to read the same is the safe rule: nothing the reader did not see can reach the wallet.
+
+**Found** (island, answer eighteen: a holder could not get a 1 SOL add signed from a phone).
+Some lines move with nothing in the transaction changed. A price checked against an outside
+market moves every few seconds. A gap estimate printed to the lamport moves with it. A
+priority fee re-read from recent fees moves block to block, and its "share of this trade"
+text with it. In unit tests on the review, a 0.1 SOL add read 0.01% at 12,000 lamports and
+0.03% at 30,000. A review read at phone speed outlives the blockhash, so the rebuild ran on
+almost every press, one of those lines had always moved, and the wallet never opened. The
+rule that was meant to be strict kept a careful reader from ever signing.
+
+**Do instead:** sort the lines by what can move them (mark the element; treat an unknown
+mark as the transaction's own). Hold the transaction's own lines and its instruction bytes
+to equality. Let market and fee lines move, and show what moved while the wallet is open.
+Shut on what is news: a warning in words the reader has not seen, or a move past the
+page's own warning gap. When it does shut, list every line that differs, market lines
+included, so "every other line reads as it did" stays true. Measuring a fee move needs the
+lamports: the review prints SOL to 0.0001, so a few thousand lamports leave the printed
+SOL change unchanged. (`frontend/src/components/solana/curve/useTxFlow.ts` `compare`,
+`reviewLines.ts`.)
+
 ## 2026-10-10: a scroll reset in `useEffect` lands after the page is drawn, on every page change, and a test can see it without losing a race
 
 **Believed:** scrolling to the top in `useEffect` on a route change is the standard pattern
@@ -351,6 +587,34 @@ folder ignored by git as `*.local`, holding copies of `dist`, turned a clean lin
 
 **Do:** filter by `name\.spec`, never by a bare name a branch or folder may share. Keep
 scratch builds outside `frontend/`, or move the scratch folder out before the lint gate.
+## 2026-10-14: a button past a table's right edge passes every check that scrolls to it
+
+**Believed:** a phone test that finds a row's button, lets Playwright scroll it into view and
+clicks it shows a visitor can tap it.
+
+**Measured:** /earn, trunk 08596661 production build, iPhone 15 WebKit and Pixel 5 Chromium.
+Every pool's Open button sat at x 394 to 521 on a 393px screen, inside the table's own
+`overflow-x-auto` box. `toBeVisible` passed (the box is not empty), the page itself was not too
+wide (`scrollWidth` 393, so a page-width check passes), and `click()` on "Open TOWELI" reached
+the pool: Playwright scrolled the TABLE sideways first, which no visitor knew to do.
+
+**Do:** scroll the page down only (`window.scrollTo`), then in one evaluate read the button's
+rect against `documentElement.clientWidth` and ask `elementFromPoint` at its centre.
+`e2e/pool-open-buttons.spec.ts` does this.
+
+## 2026-10-14: a see-through bar in a Windows WebKit screenshot can be a blur that browser never draws
+
+**Believed:** page text readable behind the fixed top bar in a Playwright iPhone screenshot
+means the bar lets text through on an iPhone.
+
+**Measured:** /earn, same build, the bar's own contents hidden, brightest pixel inside the bar.
+Playwright WebKit on Windows: 31/255 with `backdrop-filter: blur(20px)` on and 31 with it off,
+while `CSS.supports` said yes to both spellings. Pixel 5 Chromium: 8 on, 31 off. Bar made
+opaque: 0. The Windows WebKit build reports the blur and paints none of it.
+
+**Do:** before calling a glass surface see-through from a WebKit screenshot, switch its blur
+off and compare. Identical pixels mean the test browser; check in Chromium or on a real phone.
+
 ## 2026-10-10: `origin/<trunk>` moves under a long job, and without your fetch
 
 **Believed:** the trunk commit named at the start of a job holds for the job, and
@@ -2166,6 +2430,46 @@ bar, then `focus()`: top at 64px, behind the strip, in three of four runs. With 
 
 **Do:** to test a bar, start the control under the bar, focus it, and separately scroll it
 to the start. A control that begins fully off screen is centred, and passes on broken code.
+
+## 2026-10-03: "the page says nothing" from a text probe misses a sheet drawn in a closed shadow root
+
+**Believed:** after a tap on the Mobile Wallet Adapter row on Android Chrome with no wallet app,
+the page says nothing and then throws "Wallet connection timed out". A phone walk of production
+read the page's text and its dialogs and found none.
+
+**Measured:** on a production build of trunk af44844e, in Chromium with Pixel 5's user agent at
+360x640, a screenshot after that tap shows the package's own sheet, "Allow connections to your
+wallet" (`@solana-mobile/wallet-standard-mobile` 0.5.3). It is drawn in a closed shadow root at
+z-index 2147483647, so `document.body.innerText`, `getByRole('dialog')` and every other query
+return nothing. The adapter's `connect()` (`wallet-adapter-mobile` 2.2.9) calls its private
+`#connect()` and awaits nothing, so wallet-adapter-react's `connecting` is false at once. The
+failure came 32 seconds later, from a 30 second timer that runs while that sheet is still up: an
+`error` event, which WalletProvider only logs, and the same error rejected into a promise nobody
+holds (Playwright's `pageerror`). By the package's code the attempt is not over then: the timer
+only wins a `Promise.race`, and the other branch goes on.
+
+**Do:** take a screenshot before writing "the page says nothing". To report a failure like this
+one, listen on the adapter itself for `error`; the unhandled rejection carries the same object,
+so it can be matched by identity. React only to an attempt the visitor tapped for, because
+`autoConnect()` takes the same path at page load. Done in
+`frontend/src/components/solana/usePhoneWalletFailure.ts` (branch `fix/solana-wallet-list-phone`).
+
+## 2026-10-03: a phone walk of `/solana-lp` can meet the Ethereum Connect, because its Solana section waits on a chain read
+
+**Believed:** `/solana-lp` always has the Solana Connect in the top bar, so a wallet-list test can
+open the list from there.
+
+**Measured:** against a local production build, in 1 of 6 fresh browser launches the top bar read
+"Connect wallet" (the Ethereum list) for a full 25 second wait, and the screenshot showed the
+page saying "Reading the venue's status from the chain...". 8 of 8 loads in one already-open
+browser were fine. Two earlier runs timed out waiting for the same button; what they showed was
+not captured. `SolanaLpPage.tsx` mounts its Solana section only once that read says the venue is
+live, and the top bar borrows its Solana connect from that section.
+
+**Do:** open the wallet list from a page whose Solana section is there from the first render,
+`/earn/bayla`, as `frontend/e2e/topbar-solana-connect.spec.ts` and
+`frontend/e2e/solana-wallet-list-phone.spec.ts` do. On `/solana-lp`, wait for the Solana button by
+name and treat its absence as "the read has not answered", not as a missing wallet list.
 
 ## 2026-10-03: a button disabled "while connecting" is a dead end when the wallet never answers
 

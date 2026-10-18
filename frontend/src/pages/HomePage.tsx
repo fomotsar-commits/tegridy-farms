@@ -39,7 +39,7 @@ import { shortenAddress } from '../lib/formatting';
 import { safeGetItem, safeSetItem } from '../lib/storage';
 import { bungalowTradeBlurb, getBungalowIdentity, stakePoolMembersOnly, TOWELI_HERO } from '../lib/bungalows';
 import { arrivalVoice, VENUE, OPEN_VENUE_WELCOME_EVENT } from '../lib/arrival';
-import { VenueHero } from '../components/VenueHero';
+import { VenueCards, VenueHero, VenueHeroFooter } from '../components/VenueHero';
 import { HeatCard } from '../components/HeatCard';
 import { VenueDoors } from '../components/VenueDoors';
 import { ThreePaths } from '../components/ThreePaths';
@@ -339,8 +339,8 @@ export default function HomePage() {
                 fee-share: that mechanic is wired on-chain but has distributed 0 ETH
                 until the native pool opens, so a present-tense yield claim would
                 overclaim (and "100% of fees to stakers" is flat wrong: the router's fee
-                pays a 20% referral share first, and the pool's one-sixth protocol cut
-                has never been switched on, read 2026-10-10). What IS true, and
+                pays a 20% referral share first, and the pool's one-sixth protocol cut,
+                on since 2026-10-16, goes to the treasury). What IS true, and
                 became materially truer today, is verifiability: every core contract
                 is now Etherscan source-verified and /contracts proves it with live
                 per-address badges. So the headline leads with the one differentiator
@@ -471,6 +471,15 @@ export default function HomePage() {
                 which chains this venue is on, and the island's ruling names
                 them as staying. */}
           </m.div>
+
+          {/* The venue's cards, swap, stake and add liquidity (owner, 2026-10-16), in a row of
+              their own under the hero, then the hero's tour and island line. */}
+          {!bungalowIdentity && !isToweliArrival && (
+            <>
+              <VenueCards />
+              <VenueHeroFooter />
+            </>
+          )}
 
           {/* Wallet-less yield calculator for first-time visitors.
               Only shown when disconnected — once they connect, the live stats
@@ -724,20 +733,20 @@ export default function HomePage() {
           </div>
         )}
 
+        {/* WAVE SEVEN, element C: THE THREE PATHS, on the same gate. This is where
+            the hero's three CTAs went. Since answer twenty they stand on the second
+            screen, directly under the hero's number and ABOVE the hall: providing
+            liquidity was tucked away on the fourth screen. Each card states its own
+            requirement at the point of intent, and the launch floor is read from the
+            same config the gate enforces with, never typed. */}
+        {!bungalowIdentity && !isToweliArrival && <ThreePaths />}
+
         {/* ARRIVAL IDENTITY 2026-08-31: THE HALL OF DOORS. The venue arrival
             opens onto the island itself — every bungalow door in one hall,
             the open ones lit and the settled ones greyed while their people
             move in. Venue voice only: toweli keeps the classic home whole,
             an identity bungalow keeps its token-first home. */}
         {!bungalowIdentity && !isToweliArrival && <VenueDoors />}
-
-        {/* WAVE SEVEN, element C: THE THREE PATHS, on the same gate and directly
-            after the hall. This is where the hero's three CTAs went. A visitor
-            reaches it having already read one number and seen thirteen doors, so
-            the choice is made with context instead of before it. Each card states
-            its own requirement at the point of intent, and the launch floor is
-            read from the same config the gate enforces with, never typed. */}
-        {!bungalowIdentity && !isToweliArrival && <ThreePaths />}
 
         {/* WAVE SEVEN, element G: THE ISLAND'S BOARD, on the venue. Five named flames,
             so a stranger sees held time attached to people before they are asked to

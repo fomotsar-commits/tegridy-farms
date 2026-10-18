@@ -108,6 +108,16 @@ const SOLANA_PATHS: ReadonlySet<string> = new Set(['/solana', '/pools', '/solana
  * a Solana card. /dashboard mirrors DashboardPage: `room` is
  * getBungalowIdentity(), and a Solana room gets the Solana panel.
  */
+/**
+ * Pages that connect Ethereum AND carry a Solana section of their own: the venue home, whose
+ * cards stake BAYLA and add SOL + BAYLA (owner, 2026-10-16; components/HomeModules.tsx). The
+ * top bar keeps its wallet sheet there, and does not mount a Solana connection of its own: the
+ * cards' is on its way, and two on one page would disagree (lib/solanaSurface.ts).
+ */
+export function hasMixedSolanaSection(pathname: string): boolean {
+  return normalize(pathname) === '/';
+}
+
 export function isSolanaPage(pathname: string, room: Pick<Bungalow, 'chain'> | null = null): boolean {
   const exact = normalize(pathname);
   // As written only: these four are tabs whose own match is exact (/POOLS draws

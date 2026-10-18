@@ -301,7 +301,7 @@ for (const width of [360, 412]) {
   });
 }
 
-/** In the page: the two lines under the heading, then the field and the button beside it. */
+/** In the page: the lines under the heading (none since 2026-10-16), then the field and the button beside it. */
 const readLines = (root: Element) => {
   const box = (el: Element | null | undefined) => {
     if (!el) return null;
@@ -344,6 +344,8 @@ for (const width of [360, 412]) {
     const moved: string[] = [];
     for (const [what, b] of Object.entries(hero)) {
       const a = frame[what as keyof typeof frame];
+      // In neither: the hero's two sentences went into How heat works (owner, 2026-10-16), from both.
+      if (!a && !b) continue;
       if (!a || !b) { moved.push(`${what}: ${a ? 'not in the hero' : 'not in the frame'}`); continue; }
       for (const k of ['top', 'left', 'width', 'height', 'font'] as const) {
         if (Math.abs(a[k] - b[k]) > (k === 'font' ? 0.1 : 1)) moved.push(`${what} ${k}: ${Math.round(a[k] * 10) / 10} then ${Math.round(b[k] * 10) / 10}`);

@@ -86,9 +86,11 @@ function loadCustomTokens(chainId: number): TokenInfo[] {
   } catch { return []; }
 }
 
-export function LiquidityTab() {
+/** `chainId`: the page's chain (useLiquidityChainId); without it, wagmi's chain as before. */
+export function LiquidityTab({ chainId: chainIdProp }: { chainId?: number } = {}) {
   const { address, isConnected } = useAccount();
-  const chainId = useChainId();
+  const walletChainId = useChainId();
+  const chainId = chainIdProp ?? walletChainId;
   const venue = useMemo(() => liquidityVenueOn(chainId), [chainId]);
   /**
    * The curated token list is Ethereum's, so it is offered ONLY on Ethereum.
@@ -115,7 +117,7 @@ export function LiquidityTab() {
   const [removePct, setRemovePct] = useState(0);
   const [slippageBps, setSlippageBps] = useState<number>(50);
 
-  const liq = useAddLiquidity(tokenA, tokenB);
+  const liq = useAddLiquidity(tokenA, tokenB, chainId);
   const { data: walletClient } = useWalletClient();
 
   // The #1 source of "my LP disappeared" confusion: the LP receipt is a plain ERC-20
@@ -281,12 +283,12 @@ export function LiquidityTab() {
           <button onClick={() => setMode('add')} aria-pressed={mode === 'add'}
             className="flex-1 px-3 py-2 min-h-[40px] rounded-lg text-[12px] font-medium transition-all"
             style={{ background: mode === 'add' ? 'var(--color-purple-40)' : 'transparent', color: 'white', border: mode === 'add' ? '1px solid var(--color-purple-60)' : '1px solid transparent' }}>
-            Grow the Crop
+            Add
           </button>
           <button onClick={() => setMode('remove')} aria-pressed={mode === 'remove'}
             className="flex-1 px-3 py-2 min-h-[40px] rounded-lg text-[12px] font-medium transition-all"
             style={{ background: mode === 'remove' ? 'var(--color-purple-40)' : 'transparent', color: 'white', border: mode === 'remove' ? '1px solid var(--color-purple-60)' : '1px solid transparent' }}>
-            Pull Crop Out
+            Remove
           </button>
         </div>
 
@@ -356,7 +358,7 @@ export function LiquidityTab() {
 
         {!isConnected ? (
           <div className="text-center py-8">
-            <p className="text-white/70 text-[13px] mb-4">Gotta connect a wallet to farm liquidity.</p>
+            <p className="text-white/70 text-[13px] mb-4">Connect a wallet to add liquidity.</p>
             <ConnectButton label={CONNECT_ETHEREUM_WALLET} />
           </div>
         ) : mode === 'add' ? (
@@ -513,13 +515,13 @@ export function LiquidityTab() {
                 disabled={liq.isPending || liq.isConfirming || !amountA || !amountB || parseFloat(amountA) <= 0 || parseFloat(amountB) <= 0 || balanceUnknown || insufficientA || insufficientB}
                 className="w-full btn-primary py-3 min-h-[48px] text-[14px] font-semibold rounded-xl disabled:opacity-40">
                 {liq.isPending ? 'Confirm in wallet…'
-                  : liq.isConfirming ? 'Growing the crop…'
+                  : liq.isConfirming ? 'Adding…'
                   : !amountA || !amountB ? 'Enter amounts'
                   : !balanceAKnown ? (balanceAUnread ? `${tokenA.symbol} balance unavailable — reload` : `Reading ${tokenA.symbol} balance…`)
                   : !balanceBKnown ? (balanceBUnread ? `${tokenB.symbol} balance unavailable — reload` : `Reading ${tokenB.symbol} balance…`)
                   : insufficientA ? `Not enough ${tokenA.symbol}`
                   : insufficientB ? `Not enough ${tokenB.symbol}`
-                  : 'Grow the Crop'}
+                  : 'Add liquidity'}
               </button>
             )}
           </>
@@ -588,7 +590,7 @@ export function LiquidityTab() {
 
             {!liq.pairExists ? (
               <div className="mb-3 px-3 py-2 rounded-lg text-[11px] text-amber-400" style={{ background: 'rgba(255,178,55,0.08)', border: '1px solid rgba(255,178,55,0.25)' }}>
-                No pool exists for this pair yet. Switch to Grow the Crop to plant one.
+                No pool exists for this pair yet. Switch to Add to open one.
               </div>
             ) : liq.lpUnread ? (
               <div className="mb-3 px-3 py-2 rounded-lg text-[11px] text-amber-300" style={{ background: 'rgba(255,178,55,0.10)', border: '1px solid rgba(255,178,55,0.35)' }}>
@@ -612,9 +614,9 @@ export function LiquidityTab() {
                   disabled={liq.isPending || liq.isConfirming || removePct === 0}
                   className="w-full btn-primary py-3 min-h-[48px] text-[14px] font-semibold rounded-xl disabled:opacity-40">
                   {liq.isPending ? 'Confirm in wallet…'
-                    : liq.isConfirming ? 'Harvesting…'
+                    : liq.isConfirming ? 'Removing…'
                     : removePct === 0 ? 'Move the slider'
-                    : 'Pull Crop Out'}
+                    : 'Remove liquidity'}
                 </button>
               )
             )}
@@ -639,6 +641,7 @@ export function LiquidityTab() {
           disabledAddress={showPicker === 'A' ? tokenB.address : tokenA.address}
           customTokens={customTokens}
           tokens={curatedTokens}
+          chainId={chainId}
           onAddCustomToken={handleAddCustom}
         />
       )}

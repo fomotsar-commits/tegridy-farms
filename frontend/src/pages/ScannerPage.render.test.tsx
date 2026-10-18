@@ -117,3 +117,18 @@ describe('end to end: a ScanError an adapter throws → the words on screen', ()
     },
   );
 });
+
+// Inside a room the scanner's example is the room's coin (owner, 2026-10-17: the BAYLA room
+// offered TOWELI). With no room it is TOWELI.
+describe('ScannerPage: the example follows the room', () => {
+  it('offers BAYLA in her room, and TOWELI with no room', () => {
+    window.localStorage.setItem('tegridy-bungalow', 'bayla');
+    const view = render(<MemoryRouter><ScannerPage /></MemoryRouter>);
+    expect(screen.getByRole('button', { name: 'Try BAYLA' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /TOWELI/ })).toBeNull();
+    view.unmount();
+    window.localStorage.clear();
+    render(<MemoryRouter><ScannerPage /></MemoryRouter>);
+    expect(screen.getByRole('button', { name: 'Try our token (TOWELI)' })).toBeTruthy();
+  });
+});

@@ -27,7 +27,7 @@ const STRIPS = [
   { path: '/earn', strip: 'Earn sections' },
   { path: '/trust', strip: 'Token-checking tools' },
   { path: '/tokenomics', strip: 'Treasury and numbers sections' },
-  { path: '/leaderboard', strip: 'Activity sections' },
+  { path: '/history', strip: 'Activity sections' },
   { path: '/contracts', strip: 'Info sections' },
   { path: '/lore', strip: 'Learn sections' },
 ];

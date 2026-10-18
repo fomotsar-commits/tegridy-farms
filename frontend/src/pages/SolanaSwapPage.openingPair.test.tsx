@@ -58,6 +58,7 @@ vi.mock('@solana/wallet-adapter-react', () => ({
 }));
 
 import SolanaSwapPage from './SolanaSwapPage';
+import { SolanaSwapInner } from './SolanaSwapPage';
 
 /** The coin on the buy side, read from the button that names it. */
 const buying = () =>
@@ -151,5 +152,38 @@ describe('/solana in a room', () => {
     open(`/solana?out=${USDC_MINT}`, 'bobo');
     await waitFor(() => expect(buying()).toBe('USDC'));
     expect(h.resolveMint).not.toHaveBeenCalled();
+  });
+});
+
+// THE HOME'S SWAP CARD (owner, 2026-10-16: swap, stake and add liquidity on the home). The same
+// form, short: it opens SOL to BAYLA whatever the address or the last room says (the home's
+// address is not a share link), with no page heading, no Limit or DCA tabs and no rails.
+describe('the home card (SolanaSwapInner home)', () => {
+  function openHome(url: string, storedRoom?: string) {
+    window.history.replaceState(null, '', url);
+    if (storedRoom) localStorage.setItem('tegridy-bungalow', storedRoom);
+    return render(<SolanaSwapInner home />);
+  }
+
+  it('opens SOL to BAYLA, and reads no coin or amount from the address', async () => {
+    openHome(`/?out=${USDC_MINT}&in=${BOBO_MINT}&amt=5`);
+    await waitFor(() => expect(buying()).toBe('BAYLA'));
+    expect(paying()).toBe('SOL');
+    expect(screen.getByLabelText(/^Amount of SOL to pay$/)).toHaveValue('');
+    expect(h.resolveMint).not.toHaveBeenCalled();
+  });
+
+  it('opens on BAYLA in any room', async () => {
+    openHome('/', 'bobo');
+    await waitFor(() => expect(buying()).toBe('BAYLA'));
+  });
+
+  it('is a short card: a second-level heading, the instant swap only, no rails', async () => {
+    openHome('/');
+    await waitFor(() => expect(buying()).toBe('BAYLA'));
+    expect(screen.getByRole('heading', { level: 2, name: 'Swap' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { level: 1 })).toBeNull();
+    for (const tab of ['Instant swap', 'Limit order', 'DCA']) expect(screen.queryByRole('button', { name: tab })).toBeNull();
+    expect(screen.getByTestId('swap-footer')).toBeInTheDocument();
   });
 });

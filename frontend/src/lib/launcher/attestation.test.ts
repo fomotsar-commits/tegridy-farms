@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 // The write helpers (attestFactSheet / registerFactSheetSchema) carry an internal
 // defense-in-depth gate (INFO#17). Mock the launcher gate so we can drive both the
@@ -394,15 +394,36 @@ describe('registerFactSheetSchema — request shape (no live chain)', () => {
 const UID_A = ('0x' + 'a1'.repeat(32)) as Hex;
 const UID_B = ('0x' + 'b2'.repeat(32)) as Hex;
 
-/** A decoded viem log for the Attested event. */
+/** One Attested log as the backend names it. */
 function attestedLog(uid: Hex, attester: Address = ATTESTER) {
-  return { args: { recipient: TOKEN, attester, uid, schema: factSheetSchemaUid() } };
+  return { uid, attester };
 }
 
 /** A getAttestation tuple in the EAS struct's own field order. */
-function attestationTuple(time: bigint, revocationTime = 0n): readonly unknown[] {
-  return [UID_A, factSheetSchemaUid(), time, 0n, revocationTime, ZERO_BYTES32, TOKEN, ATTESTER, true, '0x'];
+function attestationTuple(
+  time: bigint,
+  revocationTime = 0n,
+  { uid = UID_A, schema = factSheetSchemaUid(), recipient = TOKEN }: { uid?: Hex; schema?: Hex; recipient?: Address } = {},
+): readonly unknown[] {
+  return [uid, schema, time, 0n, revocationTime, ZERO_BYTES32, recipient, ATTESTER, true, '0x'];
 }
+
+/** A getAttestation that answers for whichever uid it is asked about. */
+const recordFor =
+  (time: bigint, over: { schema?: Hex; recipient?: Address } = {}) =>
+  async (args: { args: [Hex] }) =>
+    attestationTuple(time, 0n, { uid: args.args[0], ...over });
+
+/** A client whose getLogs fails the test: the browser must never run the refused scan. */
+const noScan = (readContract: (args: { args: [Hex] }) => Promise<unknown>) => ({
+  getLogs: async () => {
+    throw new Error('the browser ran eth_getLogs');
+  },
+  readContract,
+});
+
+const OTHER_SCHEMA = ('0x' + 'c3'.repeat(32)) as Hex;
+const OTHER_TOKEN = '0x4444444444444444444444444444444444444444' as Address;
 
 describe('EAS_ATTESTED_EVENT', () => {
   // Copied from eas-contracts/deployments/mainnet/EAS.json, not from memory. If the
@@ -444,65 +465,86 @@ describe('decodeAttestationRecord', () => {
     expect(decodeAttestationRecord('0x')).toBeNull();
     expect(decodeAttestationRecord({ time: 1 })).toBeNull();
   });
+
+  it('given a claim, returns null for a record naming another uid, schema or recipient', () => {
+    const claim = { uid: UID_A, schema: factSheetSchemaUid(), recipient: TOKEN };
+    expect(decodeAttestationRecord(attestationTuple(42n), claim)).toEqual({ time: 42, revoked: false });
+    expect(decodeAttestationRecord(attestationTuple(42n, 0n, { uid: UID_B }), claim)).toBeNull();
+    expect(decodeAttestationRecord(attestationTuple(42n, 0n, { schema: OTHER_SCHEMA }), claim)).toBeNull();
+    expect(decodeAttestationRecord(attestationTuple(42n, 0n, { recipient: OTHER_TOKEN }), claim)).toBeNull();
+  });
+});
+
+describe('fetchAttestedLogs: the log scan comes from our backend', () => {
+  const reply = (body: unknown, status = 200) =>
+    vi.fn(async () => ({ ok: status >= 200 && status < 300, status, json: async () => body }));
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('asks ?resource=eas-attested for this recipient under this schema, and the browser never scans', async () => {
+    const fetchMock = reply({ attestations: [{ uid: UID_A, attester: ATTESTER.toLowerCase(), block: 1 }] });
+    vi.stubGlobal('fetch', fetchMock);
+    const r = await readFactSheetAttestations(noScan(recordFor(1_800_000_000n)), TOKEN);
+    expect(r).toEqual({ status: 'attested', attestations: [{ uid: UID_A, attester: ATTESTER, time: 1_800_000_000, revoked: false }] });
+    const url = new URL(String((fetchMock.mock.calls[0] as unknown[])[0]), 'https://memetics.finance');
+    expect(url.pathname).toBe('/api/aggregator');
+    expect(url.searchParams.get('resource')).toBe('eas-attested');
+    expect(url.searchParams.get('recipient')).toBe(TOKEN);
+    expect(url.searchParams.get('schema')).toBe(factSheetSchemaUid());
+  });
+
+  it('reads an empty list as a real "none"', async () => {
+    vi.stubGlobal('fetch', reply({ attestations: [] }));
+    expect(await readFactSheetAttestations(noScan(recordFor(1n)), TOKEN)).toEqual({ status: 'none' });
+  });
+
+  // The bug class this read guards against: a lookup that did not complete must never
+  // render as "this token has never been attested".
+  for (const [label, fetchMock, detail] of [
+    ['a 5xx', reply({ error: 'Attestations could not be looked up right now' }, 502), /HTTP 502/],
+    ['a 200 without a list', reply({ tx: null }), /without a list/],
+    ['a body that is not JSON', vi.fn(async () => ({ ok: true, status: 200, json: async () => Promise.reject(new Error('html')) })), /without a list/],
+    ['an entry it cannot spell out', reply({ attestations: [{ uid: '0x12', attester: ATTESTER }] }), /did not spell out/],
+    ['a request that never landed', vi.fn(async () => Promise.reject(new TypeError('Failed to fetch'))), /Failed to fetch/],
+  ] as const) {
+    it(`reads ${label} as UNVERIFIABLE, never as "none"`, async () => {
+      vi.stubGlobal('fetch', fetchMock);
+      const r = await readFactSheetAttestations(noScan(recordFor(1n)), TOKEN);
+      expect(r.status).toBe('unverifiable');
+      if (r.status === 'unverifiable') expect(r.detail).toMatch(detail);
+    });
+  }
 });
 
 describe('readFactSheetAttestations', () => {
-  it('queries the EAS with a recipient + schema topic filter from the deployment block', async () => {
-    let seen: Record<string, unknown> | undefined;
-    const client = {
-      getLogs: async (args: Record<string, unknown>) => {
-        seen = args;
-        return [];
-      },
-      readContract: async () => null,
-    };
-    await readFactSheetAttestations(client, TOKEN);
-    expect(seen?.address).toBe(EAS_MAINNET);
-    expect(seen?.fromBlock).toBe(EAS_MAINNET_FIRST_BLOCK);
-    expect(seen?.args).toEqual({ recipient: TOKEN, schema: factSheetSchemaUid() });
-  });
+  const source = (...logs: ReturnType<typeof attestedLog>[]) => async () => logs;
 
   it('reports an empty log set as a real "none"', async () => {
-    const client = { getLogs: async () => [], readContract: async () => null };
-    expect(await readFactSheetAttestations(client, TOKEN)).toEqual({ status: 'none' });
+    expect(await readFactSheetAttestations(noScan(recordFor(1n)), TOKEN, { logs: source() })).toEqual({ status: 'none' });
   });
 
-  // The bug class this whole read guards against: an RPC that refuses the query must
-  // NOT render as "this token has never been attested".
-  it('reports an RPC failure as UNVERIFIABLE, never as "none"', async () => {
-    const client = {
-      getLogs: async () => {
-        throw new Error('ranges over 10000 blocks are not supported on free plan');
-      },
-      readContract: async () => null,
+  it('reports a failed lookup as UNVERIFIABLE with its first line as the detail', async () => {
+    const logs = async () => {
+      throw new Error('RPC Request failed.\nRequest body: {"method":"eth_getLogs"}');
     };
-    const r = await readFactSheetAttestations(client, TOKEN);
-    expect(r.status).toBe('unverifiable');
-    if (r.status === 'unverifiable') expect(r.reason).toMatch(/10000 blocks/);
+    expect(await readFactSheetAttestations(noScan(recordFor(1n)), TOKEN, { logs })).toEqual({
+      status: 'unverifiable',
+      detail: 'RPC Request failed.',
+    });
   });
 
   it('returns the attestation with its attester, timestamp and revocation state', async () => {
-    const client = {
-      getLogs: async () => [attestedLog(UID_A)],
-      readContract: async () => attestationTuple(1_800_000_000n),
-    };
-    const r = await readFactSheetAttestations(client, TOKEN);
+    const r = await readFactSheetAttestations(noScan(recordFor(1_800_000_000n)), TOKEN, { logs: source(attestedLog(UID_A)) });
     expect(r).toEqual({
       status: 'attested',
       attestations: [{ uid: UID_A, attester: ATTESTER, time: 1_800_000_000, revoked: false }],
     });
   });
 
-  it('keeps a proven attestation when the getAttestation follow-up fails, with UNKNOWN time', async () => {
-    // The log alone proves existence and names the attester (both indexed). Dropping
-    // it would turn a real attestation into a "none".
-    const client = {
-      getLogs: async () => [attestedLog(UID_A)],
-      readContract: async () => {
-        throw new Error('rpc down');
-      },
+  it('keeps a named attestation when the getAttestation re-read fails, with UNKNOWN time', async () => {
+    const down = async () => {
+      throw new Error('rpc down');
     };
-    const r = await readFactSheetAttestations(client, TOKEN);
+    const r = await readFactSheetAttestations(noScan(down), TOKEN, { logs: source(attestedLog(UID_A)) });
     expect(r).toEqual({
       status: 'attested',
       attestations: [{ uid: UID_A, attester: ATTESTER, time: null, revoked: null }],
@@ -510,21 +552,26 @@ describe('readFactSheetAttestations', () => {
   });
 
   it('returns the newest attestations first and bounds the follow-up reads', async () => {
-    const client = {
-      getLogs: async () => [attestedLog(UID_A), attestedLog(UID_B)],
-      readContract: async () => attestationTuple(1n),
-    };
-    const r = await readFactSheetAttestations(client, TOKEN, { max: 1 });
+    const r = await readFactSheetAttestations(noScan(recordFor(1n)), TOKEN, { logs: source(attestedLog(UID_A), attestedLog(UID_B)), max: 1 });
     expect(r.status).toBe('attested');
     if (r.status === 'attested') {
       expect(r.attestations).toHaveLength(1);
-      expect(r.attestations[0].uid).toBe(UID_B); // getLogs is ascending → last is newest
+      expect(r.attestations[0].uid).toBe(UID_B); // the source is oldest first, so the last is newest
     }
   });
 
-  it('reports logs it cannot decode as unverifiable, not as "none"', async () => {
-    const client = { getLogs: async () => [{ args: {} }], readContract: async () => null };
-    const r = await readFactSheetAttestations(client, TOKEN);
-    expect(r.status).toBe('unverifiable');
+  it('drops a uid whose EAS record names another schema or token, and keeps the one that agrees', async () => {
+    const readContract = async (args: { args: [Hex] }) =>
+      attestationTuple(7n, 0n, { uid: args.args[0], ...(args.args[0] === UID_B ? { schema: OTHER_SCHEMA } : {}) });
+    const r = await readFactSheetAttestations(noScan(readContract), TOKEN, { logs: source(attestedLog(UID_A), attestedLog(UID_B)) });
+    expect(r).toEqual({ status: 'attested', attestations: [{ uid: UID_A, attester: ATTESTER, time: 7, revoked: false }] });
+  });
+
+  it('reads a lookup the EAS contract contradicts as UNVERIFIABLE, not as "attested" or "none"', async () => {
+    for (const readContract of [recordFor(0n), recordFor(7n, { recipient: OTHER_TOKEN })]) {
+      const r = await readFactSheetAttestations(noScan(readContract), TOKEN, { logs: source(attestedLog(UID_A)) });
+      expect(r.status).toBe('unverifiable');
+      if (r.status === 'unverifiable') expect(r.detail).toMatch(/does not hold/);
+    }
   });
 });

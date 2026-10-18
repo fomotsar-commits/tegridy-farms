@@ -215,7 +215,8 @@ export interface LpWriteApi {
   /** As `WriteApi.recheckOutcome`: with `cfg` and a liquidity `kind`, a refusal is said in that kind's words. */
   recheckOutcome(rpc: WriteRpc, signature: string, opts?: { lastValidBlockHeight?: number; cfg?: CurveWriteConfig; kind?: LpKind }): Promise<TxOutcome>;
   explorerTxUrl(signature: string, cluster: SolanaCluster): string;
-  explorerAddressUrl(address: string, cluster: SolanaCluster): string;
+  /** `page: 'token'` for a mint: Solscan's token page, not its account page. */
+  explorerAddressUrl(address: string, cluster: SolanaCluster, page?: 'account' | 'token'): string;
   meta: Pick<MetadataApi, 'displaySafe'>;
 }
 

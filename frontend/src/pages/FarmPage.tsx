@@ -23,7 +23,6 @@ import { useLPFarming } from '../hooks/useLPFarming';
 import { useAutoRefreshBoost } from '../hooks/useAutoRefreshBoost';
 import { useOneClickStake } from '../hooks/useOneClickStake';
 import { usePageTitle } from '../hooks/usePageTitle';
-import { usePoints } from '../hooks/usePoints';
 import { useAutoReset } from '../hooks/useAutoReset';
 import { useRestaking } from '../hooks/useRestaking';
 import { safeParseEther } from '../lib/safeParseEther';
@@ -100,15 +99,19 @@ function VenueEarn() {
       {/* `relative` with no z-index: above the backdrop by coming after it, and
           not a stacking context that would trap a dialog under the tab strip. */}
       <div className="relative mx-auto w-full max-w-[900px] px-4 py-8 sm:py-10">
+        {/* One heading, one line (owner, 2026-10-14: as few words as possible).
+            The island's name is in the list's own heading below; the "Jungle
+            Bay Island" eyebrow that stood above the h1 was a third line of
+            words before the first row. */}
         <header className="mb-6">
-          <p className="text-[11px] uppercase tracking-wider label-pill mb-2" style={{ color: 'var(--color-kyle)' }}>
-            Jungle Bay Island
-          </p>
-          <h1 className="heading-luxury text-3xl md:text-4xl text-white leading-tight mb-3">Earn</h1>
+          <h1 className="heading-luxury text-3xl md:text-4xl text-white leading-tight mb-2">Earn</h1>
           <p className="text-white/75 text-[14px] md:text-[15px] leading-relaxed max-w-[62ch]">
-            Stake for a share of a pool&rsquo;s rewards. Longer locks earn more.
+            Pick a coin, open its pool, stake.
           </p>
           <FinePrint summary="How it works" className="mt-1 max-w-[62ch]">
+            <p>
+              Stake for a share of a pool&rsquo;s rewards. Longer locks earn more.
+            </p>
             <p>
               Stake a token to earn a share of its pool, or provide liquidity and take a cut of every
               swap that routes through it. The longer you lock, the larger your share of the same
@@ -132,10 +135,6 @@ function ToweliFarm() {
   const pos = useUserPosition();
   const actions = useFarmActions();
   const nft = useNFTBoost();
-  // F108: the page no longer calls the deprecated points.logAction no-op, but we
-  // keep usePoints mounted so the on-chain points/streak state stays warm for the
-  // header/leaderboard surfaces that share the engine. (No binding — read-only.)
-  usePoints();
   const price = useTOWELIPrice();
   const priceHistory = usePriceHistory();
   const { history: priceData, error: priceError } = priceHistory;
@@ -390,6 +389,11 @@ function ToweliFarm() {
               jungle art hero and ConnectPrompt are untouched. */}
           <div className="max-w-[1200px] mx-auto px-4 md:px-6 pb-4">
             <BackToEarn />
+            {/* The thing a logged-out visitor came to press is Connect, so the
+                action card is the FIRST card, not the last: on a 390px phone it
+                sat 6,400px down, under five sections of figures (the lead's
+                walk, 2026-10-14). The read-only figures follow it unchanged. */}
+            <ConnectPrompt surface="farm" />
             <IncentivesStrip apr={pool.apr} aprNum={pool.aprNum} rewardPool={stats.rewardPool} dailyEmissions={stats.dailyEmissions} rewardsRemaining={rewardsRemainingDisplay} secondsRemaining={pool.secondsRemaining} stakerSharePct={poolTVL.stakerSharePct} referralFeeBps={poolTVL.referralFeeBps} reserveEmpty={pool.isDry} />
 
             <FarmStatsRow
@@ -414,10 +418,10 @@ function ToweliFarm() {
               <div className="flex items-center justify-between mb-5">
                 <div>
                   <h2 className="heading-luxury text-white text-[22px] tracking-tight">Liquidity Pools</h2>
-                  <p className="text-white text-[13px] mt-0.5">Provide liquidity to native pairs &middot; earn trading fees</p>
+                  <p className="text-white text-[13px] mt-0.5">Add two coins. Earn from every trade.</p>
                 </div>
                 <Link to="/liquidity" className="text-white/60 text-[12px] hover:text-white transition-colors">
-                  View all pools &#8594;
+                  All pools &#8594;
                 </Link>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
@@ -449,7 +453,6 @@ function ToweliFarm() {
               </Link>
             </div>
           </div>
-          <ConnectPrompt surface="farm" />
         </div>
       </div>
     );
@@ -475,6 +478,60 @@ function ToweliFarm() {
           <h1 className="heading-luxury text-2xl md:text-3xl lg:text-4xl text-white tracking-tight mb-1">Farm</h1>
           <p className="text-white text-[14px]">Stake TOWELI and earn rewards &middot; <span className="text-white">FAFO</span></p>
         </m.div>
+
+        {/* THE STAKE FORM AND THE POSITION COME FIRST (owner, 2026-10-14: "not
+            even see the stuff they are to interact with"). This grid sat at the
+            foot of the page, under the strip, the stats, the real-yield proof,
+            the season banner, the pool cards and the LP farm: five phone
+            screens before the amount field. Everything that was above it still
+            renders, below it, in the same order it had. */}
+
+        {/* Exit-only surface for retired pre-relaunch staking contracts; renders
+            nothing unless the connected wallet holds a legacy position. */}
+        <LegacyStakingExit />
+
+        {/* STAKING RELEASE 1: a position on the first relaunch contract (25% early exit)
+            claims and leaves there; the card below takes new stakes on the new one. Each
+            renders nothing for a wallet with nothing on its contract. */}
+        <OldStakingCard />
+        <OldLpFarmExit />
+
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-10">
+          {/* Staking Card */}
+          <StakingCard
+            isConnected={isConnected}
+            pos={pos}
+            actions={actions}
+            nft={nft}
+            pool={{ apr: pool.apr, aprNum: pool.aprNum, isDeployed: pool.isDeployed, isDry: pool.isDry, secondsRemaining: pool.secondsRemaining }}
+            input={{
+              amount: stakeAmount,
+              setAmount: setStakeAmount,
+              lock: selectedLock,
+              setLock: setSelectedLock,
+              extendLockDuration,
+              setExtendLockDuration,
+            }}
+            confirms={confirms}
+            setConfirm={setConfirm}
+            computed={{
+              boostDisplay,
+              totalBoostBps,
+              amtNum,
+              effectiveStake,
+              // The CTA labels the next confirmation, not the allowance state: on a
+              // batching wallet the single prompt approves AND stakes, so "Approve
+              // TOWELI" would understate what the user is about to sign.
+              stakeNeedsApproval: stakeNeedsApproval && !canBatchStake,
+            }}
+            handleStake={handleStake}
+            lastActionRef={lastActionRef}
+            submittedAmountRef={submittedAmountRef}
+          />
+
+          {/* Boost Table */}
+          <BoostScheduleTable selectedLockLabel={selectedLock.label} aprNum={pool.aprNum} />
+        </div>
 
         {/* Incentives strip — real APR + reward-pool / emissions / boost / fee-share */}
         <IncentivesStrip apr={pool.apr} aprNum={pool.aprNum} rewardPool={stats.rewardPool} dailyEmissions={stats.dailyEmissions} rewardsRemaining={rewardsRemainingDisplay} secondsRemaining={pool.secondsRemaining} stakerSharePct={poolTVL.stakerSharePct} referralFeeBps={poolTVL.referralFeeBps} reserveEmpty={pool.isDry} />
@@ -506,8 +563,13 @@ function ToweliFarm() {
                 {nft.boostLabel && <span className="badge badge-warning text-[10px]">{nft.boostLabel}</span>}
               </div>
               <p className="text-white text-[13px]">
-                Lock TOWELI for up to 4x boost. Longer lock = more rewards + governance power.
+                Lock longer for a bigger boost, up to 4x.
               </p>
+              <FinePrint summary="Details">
+                <p>
+                  Lock TOWELI for up to 4x boost. Longer lock = more rewards + governance power.
+                </p>
+              </FinePrint>
             </div>
             {nft.holdsJBAC && (
               <div className="md:text-right">
@@ -523,10 +585,10 @@ function ToweliFarm() {
           <div className="flex items-center justify-between mb-5">
             <div>
               <h2 className="heading-luxury text-white text-[22px] tracking-tight">Liquidity Pools</h2>
-              <p className="text-white text-[13px] mt-0.5">Provide liquidity to native pairs &middot; earn trading fees</p>
+              <p className="text-white text-[13px] mt-0.5">Add two coins. Earn from every trade.</p>
             </div>
             <Link to="/liquidity" className="text-white/60 text-[12px] hover:text-white transition-colors">
-              View all pools &#8594;
+              All pools &#8594;
             </Link>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
@@ -653,52 +715,6 @@ function ToweliFarm() {
           </m.div>
         )}
 
-        {/* Exit-only surface for retired pre-relaunch staking contracts; renders
-            nothing unless the connected wallet holds a legacy position. */}
-        <LegacyStakingExit />
-
-        {/* STAKING RELEASE 1: a position on the first relaunch contract (25% early exit)
-            claims and leaves there; the card below takes new stakes on the new one. Each
-            renders nothing for a wallet with nothing on its contract. */}
-        <OldStakingCard />
-        <OldLpFarmExit />
-
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-12">
-          {/* Staking Card */}
-          <StakingCard
-            isConnected={isConnected}
-            pos={pos}
-            actions={actions}
-            nft={nft}
-            pool={{ apr: pool.apr, aprNum: pool.aprNum, isDeployed: pool.isDeployed, isDry: pool.isDry, secondsRemaining: pool.secondsRemaining }}
-            input={{
-              amount: stakeAmount,
-              setAmount: setStakeAmount,
-              lock: selectedLock,
-              setLock: setSelectedLock,
-              extendLockDuration,
-              setExtendLockDuration,
-            }}
-            confirms={confirms}
-            setConfirm={setConfirm}
-            computed={{
-              boostDisplay,
-              totalBoostBps,
-              amtNum,
-              effectiveStake,
-              // The CTA labels the next confirmation, not the allowance state: on a
-              // batching wallet the single prompt approves AND stakes, so "Approve
-              // TOWELI" would understate what the user is about to sign.
-              stakeNeedsApproval: stakeNeedsApproval && !canBatchStake,
-            }}
-            handleStake={handleStake}
-            lastActionRef={lastActionRef}
-            submittedAmountRef={submittedAmountRef}
-          />
-
-          {/* Boost Table */}
-          <BoostScheduleTable selectedLockLabel={selectedLock.label} aprNum={pool.aprNum} />
-        </div>
       </div>
       </ErrorBoundary>
     </div>

@@ -595,6 +595,61 @@ describe('IPadAwarePhantomWalletAdapter — upstream Phantom, plus the iPad', ()
   });
 });
 
+/**
+ * Android Chrome (phone walk of production, 2026-10-03): Phantom's row read
+ * "Install" and opened phantom.app, with the app on the phone or not, while
+ * every other wallet's row opened this page inside its app.
+ */
+describe('IPadAwarePhantomWalletAdapter — Android Chrome', () => {
+  afterEach(() => {
+    delete (window as unknown as { phantom?: unknown }).phantom;
+    delete (window as unknown as { isPhantomInstalled?: unknown }).isPhantomInstalled;
+  });
+
+  it('is Loadable and opens the page inside Phantom, as the iPhone row does', async () => {
+    setLocation(BAYLA_CARD);
+    setUserAgent(UA.androidChrome);
+    const adapter = new IPadAwarePhantomWalletAdapter();
+    expect(adapter.readyState).toBe(WalletReadyState.Loadable);
+    await adapter.connect();
+    expect(window.location.href).toBe(
+      `https://phantom.app/ul/browse/${encodeURIComponent(BAYLA_CARD)}?ref=${encodeURIComponent('https://memetics.finance')}`,
+    );
+  });
+
+  it('autoConnect never navigates', async () => {
+    setLocation(BAYLA_CARD);
+    setUserAgent(UA.androidChrome);
+    await new IPadAwarePhantomWalletAdapter().autoConnect();
+    expect(window.location.href).toBe(BAYLA_CARD);
+  });
+
+  it('an in-app webview stays NotDetected: no hop out of another app’s browser', () => {
+    setUserAgent(UA.androidWebView);
+    expect(new IPadAwarePhantomWalletAdapter().readyState).toBe(WalletReadyState.NotDetected);
+  });
+
+  it('inside Phantom (provider injected) it is Installed, never a loop', () => {
+    setUserAgent(UA.androidChrome);
+    (window as unknown as { isPhantomInstalled?: boolean }).isPhantomInstalled = true;
+    (window as unknown as { phantom?: unknown }).phantom = { solana: { isPhantom: true } };
+    const adapter = new IPadAwarePhantomWalletAdapter();
+    vi.advanceTimersByTime(1100);
+    expect(adapter.readyState).toBe(WalletReadyState.Installed);
+  });
+
+  it('a half-injected Phantom (no isPhantomInstalled yet) is not offered the hop', () => {
+    setUserAgent(UA.androidChrome);
+    (window as unknown as { phantom?: unknown }).phantom = { solana: { isPhantom: true } };
+    expect(new IPadAwarePhantomWalletAdapter().readyState).not.toBe(WalletReadyState.Loadable);
+  });
+
+  it('a computer stays NotDetected, and its row still points at the install page', () => {
+    setUserAgent(UA.desktopChrome);
+    expect(new IPadAwarePhantomWalletAdapter().readyState).toBe(WalletReadyState.NotDetected);
+  });
+});
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Solflare and Backpack — "Open app" rows
 // ─────────────────────────────────────────────────────────────────────────────
