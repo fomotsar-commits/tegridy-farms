@@ -15,6 +15,71 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-10-18: a token with the same name and a smaller market can be the real coin, carried over a bridge
+
+**Believed:** a second token with the same name and symbol as a resident, on another chain, with a
+far smaller market, is an impostor (the 08-30 check called Base RIZZ `0x58d6…b238` one).
+
+**Measured** (`cast call` on Base, 2026-10-18): Wormhole's token bridge on Base
+(`0x8d2de8d2f73F1F4cAB472AC9A881C9b123C79627`, `chainId()` = 30) answers
+`wrappedAsset(1, <RIZZ's Solana mint as bytes32>)` with exactly `0x58d6…b238`, and that token's own
+`chainId()` = 1 and `nativeContract()` = the mint. Same bridge, `wrappedAsset(2, TOWELI)` = Base
+`0x279e…87ca`; the 52,681,394 TOWELI held by Wormhole's Ethereum bridge
+(`0x3ee18B2214AFF97000D974cf647E7C347E8fa585`) equal that token's whole Base supply. The OP-stack
+standard bridge marks its tokens the same way: Base BOBO `0x570b…3947` answers `remoteToken()` =
+Ethereum BOBO. None of this shows in `name()`/`symbol()`, and the market-size test reads a bridge
+copy exactly like a fake.
+
+**So:** before calling a namesake real or fake, ask the bridges. `wrappedAsset(chain, address)` on
+Wormhole's token bridge, and `remoteToken()`/`l1Token()` on the token for the OP standard bridge, are
+one call each. A wrapped copy is the same coin; whether it is worth listing is a separate question
+(Wormhole's PEPE and $mfer copies on Solana exist and have no market that trades).
+
+## 2026-10-18: Uniswap's SwapRouter02 on Base cannot reach a V2 pair
+
+**Believed:** SwapRouter02 swaps through V2 and V3 on every chain it is deployed to, so one
+`multicall` can buy a basket across both.
+
+**Measured** (`cast call`, 2026-10-18): on Ethereum, `0x68b3…Fc45.factoryV2()` = Uniswap V2's
+factory. On Base, `0x2626…1e481.factoryV2()` = `0x0000…0000`: its `swapExactTokensForTokens` has no
+pairs to reach. Its V3 side works; a fork run (anvil on mainnet.base.org) bought six coins through
+one `multicall(deadline, [exactInputSingle × 6, refundETH])`, each leg paid from the ETH sent with
+the call (the router wraps exactly that leg's amount), no approval. Promising one leg 20% more than
+its pool paid made the whole transaction revert: no coin bought.
+
+**So:** read `factoryV2()` before routing a V2 leg through SwapRouter02 on an L2. A V2 leg on Base is
+its own transaction through the V2 Router02. A `multicall` of exact-input legs paid from `msg.value`
+is all-or-nothing, which is the property a basket wants.
+
+## 2026-10-18: Jupiter's keyless tier refuses the sixth quote in a burst, for longer than a short retry waits
+
+**Believed:** five or six quotes a second apart, or one retry after a 429, stay inside Jupiter's free
+tier.
+
+**Measured** (`curl` through a local `vite preview` relay to lite-api.jup.ag, 2026-10-18): six quotes
+250 ms apart answered 200, 200, 200, 200, 200, 429, and the next one 3 s later was still 429. A
+production build walked with Playwright quoted five coins 1.1 s apart, then the first two quotes at
+the press failed even after a 2.5 s retry; the third, a few seconds later, passed. Before the fix, a
+coin whose Jupiter quote failed was shown as going to the other venue that did quote.
+
+**So:** a failed quote is "price not read", never a reason to route elsewhere. Space a burst about a
+second apart, and give the quote a trade is about to be sent on a longer backoff (2.5, 5, 10 s) than
+a figure on screen. The site's own relay also caps Jupiter at 60 calls a minute per visitor.
+
+## 2026-10-18: a fixed dialog inside an animated card is trapped under the page's fixed bars
+
+**Believed:** a `position: fixed` dialog with `z-index: 101` covers a top bar and a tab bar at
+`z-index: 50`, wherever it is rendered.
+
+**Measured** (Playwright, production build, 1280 px and 390 px, 2026-10-18): rendered inside the swap
+card, which framer-motion animates with a `transform`, the dialog was laid out against the card
+and stacked inside it. The top bar covered its title and close button and, on a phone, the tab bar
+covered its main button. Portalled to `document.body`, the same dialog covered both bars.
+
+**So:** a dialog opened from inside a card renders through `createPortal(…, document.body)`. Any
+ancestor with a transform, filter or `will-change` becomes the containing block and the stacking
+context of a fixed child.
+
 ## 2026-10-17: Solscan values a pool's address at its rent; the pool's coins are in its vaults
 
 **Believed:** an explorer link to a pool's address shows the pool and what is in it.
