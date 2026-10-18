@@ -111,18 +111,20 @@ describe('retryingGetQuote', () => {
   it('asks once more after a wait when a quote is refused (a rate limit), and returns that answer', async () => {
     const get = vi.fn().mockRejectedValueOnce(new Error('Quote unavailable (429)')).mockResolvedValueOnce(quote('7'));
     const slept: number[] = [];
-    await expect(retryingGetQuote(get, 2_500, async (ms) => { slept.push(ms); })(ask)).resolves.toMatchObject({ outAmount: '7' });
+    await expect(retryingGetQuote(get, [2_500], async (ms) => { slept.push(ms); })(ask)).resolves.toMatchObject({ outAmount: '7' });
     expect(get).toHaveBeenCalledTimes(2);
     expect(slept).toEqual([2_500]);
   });
 
-  it('does not ask again on Jupiter’s own "no route", and gives up after the one retry', async () => {
+  it('does not ask again on Jupiter’s own "no route", and gives up after the last wait', async () => {
     const none = vi.fn().mockRejectedValue(new NoRouteError());
-    await expect(retryingGetQuote(none, 0, async () => {})(ask)).rejects.toBeInstanceOf(NoRouteError);
+    await expect(retryingGetQuote(none, [0, 0, 0], async () => {})(ask)).rejects.toBeInstanceOf(NoRouteError);
     expect(none).toHaveBeenCalledTimes(1);
     const down = vi.fn().mockRejectedValue(new Error('Quote unavailable (502)'));
-    await expect(retryingGetQuote(down, 0, async () => {})(ask)).rejects.toThrow('502');
-    expect(down).toHaveBeenCalledTimes(2);
+    const slept: number[] = [];
+    await expect(retryingGetQuote(down, [2_500, 5_000, 10_000], async (ms) => { slept.push(ms); })(ask)).rejects.toThrow('502');
+    expect(down).toHaveBeenCalledTimes(4);
+    expect(slept).toEqual([2_500, 5_000, 10_000]);
   });
 });
 

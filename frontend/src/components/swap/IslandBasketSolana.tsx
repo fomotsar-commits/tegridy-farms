@@ -22,12 +22,17 @@ import { surfaceUnconfirmedTx } from '../../lib/txErrors';
 import { readOwnPoolsFor } from './useSolanaRoute';
 import { BasketCta, IslandBasketButton, IslandBasketDialog, type BasketRow, type RowTone } from './IslandBasket';
 
-/** A quote older than this is asked for again while the order is open (the swap's own window). */
-const REQUOTE_MS = 30_000;
+/**
+ * The order's figures are asked for again this often while it is open. Longer than the
+ * swap's 30 s: five coins a round against Jupiter's rate limit (the site's relay allows 60
+ * calls a minute). What is sent is quoted again at the press and held to these figures.
+ */
+const REQUOTE_MS = 60_000;
 /** Between one coin's Jupiter quote and the next: Jupiter's keyless tier refuses a burst. */
 const QUOTE_GAP_MS = 1_100;
-/** How long one coin's Jupiter quote (its retry included) may take before it counts as unread. */
+/** How long one coin's Jupiter quote (retries included) may take before it counts as unread. */
 const QUOTE_TIMEOUT_MS = 15_000;
+const PRESS_QUOTE_TIMEOUT_MS = 30_000;
 /** How long a read of our pools may take: the order view waits longer than a press does (the swap's OWN_CHECK_MS). */
 const OWN_READ_MS = 8_000;
 const OWN_CHECK_MS = 4_000;
@@ -36,9 +41,15 @@ const timed = <T,>(p: Promise<T>, ms: number): Promise<T> => new Promise<T>((res
   const t = setTimeout(() => reject(new Error('timed out')), ms);
   p.then((v) => { clearTimeout(t); resolve(v); }, (e: unknown) => { clearTimeout(t); reject(e); });
 });
-/** Jupiter's quote, asked once more after a refusal (a rate limit is a wait, not a missing price), within a time limit. */
-const retried = retryingGetQuote(getQuote);
-const quoteJupiter: typeof retried = (q) => timed(retried(q), QUOTE_TIMEOUT_MS);
+/**
+ * Jupiter's quote within a time limit, asked again after a refusal (a rate limit is a wait,
+ * not a missing price): once for the figures on screen, up to three times for a coin being
+ * bought, which is better late than skipped.
+ */
+const shownRetry = retryingGetQuote(getQuote, [2_500]);
+const pressRetry = retryingGetQuote(getQuote, [2_500, 5_000, 10_000]);
+const quoteJupiter: typeof shownRetry = (q) => timed(shownRetry(q), QUOTE_TIMEOUT_MS);
+const quoteForPress: typeof pressRetry = (q) => timed(pressRetry(q), PRESS_QUOTE_TIMEOUT_MS);
 /** How long a sent coin is watched before the order says it cannot tell (the swap's own wait). */
 const CONFIRM_TIMEOUT_MS = 90_000;
 /** About what opening one coin's account costs (rent, refunded if it is closed), plus its fees. */
@@ -211,7 +222,7 @@ export function IslandBasketSolana(p: {
         setLeg(i, { kind: 'busy', text: 'Checking…' });
         const prepared = await prepareSolLeg(
           {
-            getQuote: pinnedGetQuote(quoteJupiter, leg.coin),
+            getQuote: pinnedGetQuote(quoteForPress, leg.coin),
             buildSwapTransaction,
             simulateSwap: (b64) => simulateSwap(b64),
             swapCarriesPlatformFee,

@@ -44,18 +44,24 @@ export function quotedPool(q: Pick<JupiterQuote, 'routePlan'>): string | null {
 type GetQuote = (p: Parameters<FeeRetryDeps['getQuote']>[0] & { pin?: { dex: string } }) => Promise<JupiterQuote>;
 
 /**
- * `getQuote`, asked once more after `waitMs` when it fails for any reason but Jupiter's own
- * "no route". Jupiter's keyless tier refuses a burst of quotes (five in a row was enough,
- * 2026-10-18) and the order asks for one per coin: a refusal is a wait, not a missing price.
+ * `getQuote`, asked again after each wait in `waitsMs` when it fails for any reason but
+ * Jupiter's own "no route". Jupiter's keyless tier refuses a burst of quotes (the sixth in
+ * a row, 2026-10-18, and still refusing 3 s later) and the order asks for one per coin: a
+ * refusal is a wait, not a missing price.
  */
-export function retryingGetQuote(getQuote: GetQuote, waitMs = 2_500, sleep: (ms: number) => Promise<unknown> = (ms) => new Promise((r) => setTimeout(r, ms))): GetQuote {
+export function retryingGetQuote(
+  getQuote: GetQuote,
+  waitsMs: readonly number[] = [2_500],
+  sleep: (ms: number) => Promise<unknown> = (ms) => new Promise((r) => setTimeout(r, ms)),
+): GetQuote {
   return async (p) => {
-    try {
-      return await getQuote(p);
-    } catch (e) {
-      if (e instanceof NoRouteError) throw e;
-      await sleep(waitMs);
-      return getQuote(p);
+    for (let attempt = 0; ; attempt++) {
+      try {
+        return await getQuote(p);
+      } catch (e) {
+        if (e instanceof NoRouteError || attempt >= waitsMs.length) throw e;
+        await sleep(waitsMs[attempt]!);
+      }
     }
   };
 }
