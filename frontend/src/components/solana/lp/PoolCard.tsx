@@ -303,13 +303,18 @@ export function PoolCard({
   // The explorer link comes with the write code (lpWriteApi.ts); until it loads there is none.
   const explorer = explorerOf(writes);
   // The wallet a creator fee is paid to stays in view whenever this pool charges one.
-  const openedBy = <AddressRow label="Opened by" value={pool.poolCreator} explorerUrl={explorer(pool.poolCreator)} />;
+  const openedBy = <AddressRow label="Opened by" value={pool.poolCreator} explorer={explorer(pool.poolCreator, 'wallet')} />;
   const splitText = split
     ? `LPs keep ${split.lpKeepsPct.toFixed(3)}% of each trade, the venue ${split.venueTakesPct.toFixed(3)}%${creatorRate > 0n ? `, the pool's creator ${ratePercent(creatorRate).toFixed(3)}%` : ''}`
     : null;
+  // The pool's own account keeps its records; its coins sit in its two vaults, each a press away.
+  const [quoteVault, tokenVault] = view.quoteIsToken0 ? [pool.token0Vault, pool.token1Vault] : [pool.token1Vault, pool.token0Vault];
   const address = (
     <div className="text-[11px] mb-3">
-      <AddressRow label="Pool address" value={view.address} explorerUrl={explorer(view.address)} />
+      <AddressRow label="Pool address" value={view.address} explorer={explorer(view.address, 'activity')} />
+      <AddressRow label={`Holds its ${view.quote.symbol}`} value={quoteVault} explorer={explorer(quoteVault, 'balance')} />
+      <AddressRow label={`Holds its ${unit.many}`} value={tokenVault} explorer={explorer(tokenVault, 'balance')} />
+      <p className="text-white/60 text-[12px]">Each also holds fees not collected yet.</p>
     </div>
   );
   const facts = (
@@ -444,7 +449,7 @@ export function PoolCard({
             </div>
             <p>{ORIGIN_LABEL[view.origin]}</p>
             {!writes && health.deposits.verdict === 'allowed' && <p>These checks will run again before any deposit.</p>}
-            <AddressRow label="Token" value={view.tokenMint} explorerUrl={explorer(view.tokenMint)} />
+            <AddressRow label="Token" value={view.tokenMint} explorer={explorer(view.tokenMint, 'token')} />
             <Row label="Paired with" value={view.quote.symbol} mono={false} />
             <Row label="Pool shares issued" value={tokenText(pool.lpSupply, pool.lpMintDecimals, 'shares')} mono={false} />
             {creatorRate === 0n && openedBy}

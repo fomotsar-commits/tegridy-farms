@@ -402,7 +402,7 @@ function PositionRow({
   const checkedClean = safety?.kind === 'read' && safety.verdict === 'ok';
   const shareRows = (
     <>
-      <AddressRow label="Pool share token" value={p.lpMint} explorerUrl={explorer(p.lpMint)} />
+      <AddressRow label="Pool share token" value={p.lpMint} explorer={explorer(p.lpMint, 'token')} />
       <Row label="You hold" value={tokenText(p.lpAmount, view ? view.snapshot.pool.lpMintDecimals : null, 'shares')} mono={false} />
     </>
   );
@@ -456,7 +456,7 @@ function PositionRow({
       {view && (
         <>
           {p.value && <p className={HINT}>Your share: {p.value.sharePct.toFixed(4)}% of the pool</p>}
-          <AddressRow label="Pool" value={view.address} explorerUrl={explorer(view.address)} />
+          <AddressRow label="Pool" value={view.address} explorer={explorer(view.address, 'activity')} />
           {!checkedClean && tokenCheck}
           <p data-testid="lp-fees-in-shares">{LEDGER_COPY.feesInShares}</p>
           {!setAside && readers.ledger ? (
@@ -499,10 +499,10 @@ function PositionRow({
         <div className="space-y-1.5 px-3 pb-3">
           {view && shareRows}
           {locked && <Row label={LEDGER_LABELS.locked} value={locked} mono={false} />}
-          <AddressRow label="Share account" value={p.lpAccount} explorerUrl={explorer(p.lpAccount)} />
+          <AddressRow label="Share account" value={p.lpAccount} explorer={explorer(p.lpAccount, 'balance')} />
           {view && (
             <>
-              <AddressRow label="Token" value={view.tokenMint} explorerUrl={explorer(view.tokenMint)} />
+              <AddressRow label="Token" value={view.tokenMint} explorer={explorer(view.tokenMint, 'token')} />
               {!setAside && safety?.kind === 'read' && (safety.name || safety.symbol) && (
                 <Row label="Calls itself" value={`${displaySafe(safety.name ?? '', 32)} (${displaySafe(safety.symbol ?? '', 12)})`} mono={false} />
               )}

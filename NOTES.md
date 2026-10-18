@@ -15,6 +15,25 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-10-17: Solscan values a pool's address at its rent; the pool's coins are in its vaults
+
+**Believed:** an explorer link to a pool's address shows the pool and what is in it.
+
+**Measured** (Solscan in Chrome and `getAccountInfo` on the public mainnet RPC, 2026-10-17,
+while fixing #867): `solscan.io/account/ErvzV1NMZmcfAqZtGH4AQhYAjn77nJEworKK1mYPz5w4`, the
+BAYLA/SOL pool's state account, showed "Total Value $0.4008" and "SOL Balance 0.0038862":
+its rent. The pool held 36.209 SOL and 5,699,019.6679 BAYLA. Its two vaults (the keys at
+byte offsets 72 and 104 of the pool account) did show the coins:
+`4HjxickXVJ98vdosH9idfKfsombYrk2nNbWZETS8PjVN` held 36.217428047 WSOL, and
+`8YBj4RCdDKKs4MG6Ck9A3TSciRRocASr12ie7EsxLTe` held 5,699,019.66797 BAYLA. The 0.0084 SOL
+gap is the venue's cut, which stays in the vault until it is collected. A mint sent to
+`solscan.io/account/<mint>` loads a blank account page and then redirects to
+`/token/<mint>`.
+
+**So:** to show what a pool holds, link its vaults, and expect their balances to run a
+little above the reserves until fees are collected. Link a mint to `/token/` directly. Name
+what each link opens: four rows all saying "Explorer" read as one broken link.
+
 ## 2026-10-17: a CoW order signed as quoted is refused, and a partner fee is charged on orders it is never paid out for
 
 **Believed:** a CoW order can be signed from the `/quote` response as it comes back, and a

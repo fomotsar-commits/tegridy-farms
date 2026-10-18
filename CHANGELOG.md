@@ -8,10 +8,13 @@ page keeps the newest thirty days.
 
 ### 2026-10-18
 
-- Pool prices flip with a press: on any pool card or in All pools, press a price such as "1 BAYLA = 0.000006354 SOL" and every pool on the page shows it the other way round, such as "1 SOL = 157,392 BAYLA", with the card's Difference worked out the same way. Press again to flip back.
+- The home: the chain row gains ROBINHOOD, which opens the curve on Robinhood Chain, and BASE now opens the curve on Base (it opened your wallet's chain, or Ethereum with no wallet). The home's Swap and Add SOL + BAYLA cards each have the network drop-down; picking another network opens that network's Swap or Pools page.
+- BOBO, SOY, BRAINLET and RIZZ each have a SOL pool on the venue now, so each room gets Add SOL + its coin, second on its first screen, as BAYLA's has.
+- Pool prices flip with a press: press any pool's price and every pool on the page shows it the other way round, such as "1 SOL = 157,392 BAYLA".
 
 ### 2026-10-17
 
+- The menu (the ☰ button) is redesigned: it opens full screen, as a circle from the button, with big numbered rows and a picture for each (on a computer, one large picture that changes with the row under the pointer). On phones its last rows are no longer covered by the bottom bar.
 - The home's row of three cards is NFT Finance, Marketplace and Launch; Hold and Provide LP left it.
 - Inside a room, Heat (top bar and phone bar) opens that room's own page, such as /bayla, instead of leaving for the venue home. Inside the BAYLA room (any Solana room): Pools opens Solana LP on BAYLA, the scanner offers "Try BAYLA" instead of TOWELI, and when Add SOL + BAYLA cannot open its form the card says "This pool's Add form was not opened", no longer "your position's pool".
 - Every pool card (Solana LP, Pools and the home): in view are the pool, what LPs keep and what the venue takes, whether swaps and withdrawals are open, the deposit check and Add. What the pool earned, its last 20 transactions, what each trade pays, its price and its address are under "More about this pool". A pool that charges a creator fee still shows the wallet it pays.
@@ -328,15 +331,6 @@ page keeps the newest thirty days.
 
 - tegridyfarms.vercel.app redirects to memetics.finance instead of serving a second copy of the venue.
 - The footer carries the owner's permanent Discord invite.
-
-### 2026-09-19
-
-- The dead Discord invite and the retired Telegram handle are gone from the footer.
-
-### 2026-09-18
-
-- The launch gate's reading names the tier as the wallet's own, and its verdicts carry no em dash.
-- "Check graduation" no longer says a token has not graduated from a read it never made.
 
 ## Earlier
 
