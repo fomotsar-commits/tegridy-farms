@@ -32,7 +32,10 @@ const state = {
   positionMeta: { dataUpdatedAt: NOW_MS, isLoading: false, isError: false },
 };
 
-function entry(fn: string): ReadEntry {
+/** An address-scoped stub (`<address>:<fn>`, lowercase) wins over the bare-name one. */
+function entry(fn: string, address?: string): ReadEntry {
+  const scoped = address ? state.reads[`${address.toLowerCase()}:${fn}`] : undefined;
+  if (scoped) return scoped;
   return state.reads[fn] ?? { status: 'failure' };
 }
 
@@ -45,14 +48,14 @@ vi.mock('wagmi', () => ({
     opts?.query?.enabled === false
       ? { data: undefined, isError: false, refetch: vi.fn() }
       : { ...state.balance, refetch: vi.fn() },
-  useReadContracts: (opts: { contracts?: { functionName?: string }[]; query?: { enabled?: boolean } }) => {
+  useReadContracts: (opts: { contracts?: { functionName?: string; address?: string }[]; query?: { enabled?: boolean } }) => {
     const contracts = opts.contracts ?? [];
     // The dependent batch is the one asking for getPosition.
     const isPositionBatch = contracts.some((c) => c.functionName === 'getPosition');
     const meta = isPositionBatch ? state.positionMeta : state.baseMeta;
     const enabled = opts.query?.enabled !== false;
     return {
-      data: enabled ? contracts.map((c) => entry(c.functionName ?? '')) : undefined,
+      data: enabled ? contracts.map((c) => entry(c.functionName ?? '', c.address)) : undefined,
       dataUpdatedAt: enabled ? meta.dataUpdatedAt : 0,
       // wagmi reports a disabled query as not loading; modelling that is the whole point
       // of the "no staking NFT" case.
@@ -75,6 +78,7 @@ vi.mock('../contexts/PriceContext', () => ({
 }));
 
 import { usePortfolioSources } from './usePortfolioSources';
+import { TEGRIDY_STAKING_ADDRESS, OLD_TEGRIDY_STAKING_ADDRESS, OLD_STAKING_MONITOR_VIEW_ADDRESS } from '../lib/constants';
 import { aggregatePortfolio } from '../lib/portfolio/aggregate';
 import type { PortfolioSourceId, PortfolioSourceReport } from '../lib/portfolio/types';
 
@@ -172,6 +176,28 @@ describe('the dependent batch cannot stall a wallet that has no staking position
     expect(s.staking.state).toBe('ok');
     expect(s.staking.usd).toBe(0);
     expect(aggregatePortfolio(result.current.sources).omitted.map((o) => o.id)).not.toContain('staking');
+  });
+});
+
+describe('staking release 1: a position on the first staking contract is still worth something', () => {
+  // The site moved new stakes to a new contract; the first one keeps its own positions.
+  // A portfolio reading only the current contract would value that holder's stake at 0.
+  it('counts a first-contract position, read through ITS monitor view', () => {
+    const scoped = (address: string, fn: string, result: unknown) => {
+      state.reads[`${address.toLowerCase()}:${fn}`] = { status: 'success', result };
+    };
+    scoped(TEGRIDY_STAKING_ADDRESS, 'userTokenId', 0n);
+    scoped(OLD_TEGRIDY_STAKING_ADDRESS, 'userTokenId', 3n);
+    scoped(OLD_STAKING_MONITOR_VIEW_ADDRESS, 'getPosition', [100_000n * 10n ** 18n, 15_000n, 0n, 0n, false, false]);
+    const s = byId(renderHook(() => usePortfolioSources()).result.current.sources);
+    expect(s.staking.state).toBe('ok');
+    expect(s.staking.usd).toBeCloseTo(100_000 * 0.002, 6);
+  });
+
+  it('an unread first-contract token id makes the staking leg unknown, never a smaller number', () => {
+    state.reads[`${OLD_TEGRIDY_STAKING_ADDRESS.toLowerCase()}:userTokenId`] = { status: 'failure' };
+    const s = byId(renderHook(() => usePortfolioSources()).result.current.sources);
+    expect(s.staking.usd).toBeNull();
   });
 });
 

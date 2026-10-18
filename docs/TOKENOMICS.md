@@ -195,11 +195,15 @@ Net effect when active: every epoch of fee flow reduces circulating TOWELI. Acts
 
 ### 2. Early-withdrawal penalty (a transfer to treasury, not a sink)
 
-Locked stakers who exit before their lock end pay a **flat 25% penalty** on the withdrawn principal:
+Locked stakers who exit before their lock end pay a **flat 75% penalty** on the withdrawn principal:
 
 | Constant | Value |
 |---|---|
-| `EARLY_WITHDRAWAL_PENALTY_BPS` | `2500` (25%) |
+| `EARLY_WITHDRAWAL_PENALTY_BPS` | `7500` (75%) |
+
+This is the staking contract of staking release 1, which takes every new stake. Positions opened before it stay on the first relaunch contract, where the constant is `2500`: leaving early there still costs 25%, also paid to the treasury. A deployed constant cannot change.
+
+- Rewards are paid first, and only from what the reward pool holds. If it is short when you leave early, you can lose the rewards it cannot pay, and you still pay the penalty.
 
 - The penalty is flat. It does not shrink as the lock approaches maturity.
 - **The entire penalty is transferred to the protocol treasury** — `safeTransfer(treasury, penalty)` in `earlyWithdraw`, per audit fix L-23. It does not reach stakers and it does not top up any reward pool. The penalty-recycle split that would have done that was removed for EIP-170 size and its bps defaulted to zero anyway.
@@ -213,10 +217,10 @@ Beyond the raw distribution above, here are the on-chain addresses where TOWELI 
 
 | Holder type | Contract / address | Typical balance source |
 |---|---|---|
-| Staker positions | [TegridyStaking](https://etherscan.io/address/0xcaDc93E96De58EA554c71ca609974625615E046D) | User locks |
-| LP farmer positions | [TegridyLPFarming](https://etherscan.io/address/0x1171268AE5B69791c47Fd589b7825932c957e149) | LP deposits |
+| Staker positions | [TegridyStaking](https://etherscan.io/address/0xPENDING_REDEPLOY_STAKING) | User locks (positions from before staking release 1 stay on the first contract, listed in CONTRACTS.md) |
+| LP farmer positions | [TegridyLPFarming](https://etherscan.io/address/0xPENDING_REDEPLOY_LP_FARMING) | LP deposits |
 | Protocol treasury | [Treasury Safe](https://etherscan.io/address/0x7D2620243EdAd69Ec81A53c4A063B07995A4Bd7d) | Ops reserve + early-exit penalties |
-| Revenue distributor | [RevenueDistributor](https://etherscan.io/address/0xF993316E2fC079de4358c489A935E01e03E23E17) | In-flight reward claims |
+| Revenue distributor | [RevenueDistributor](https://etherscan.io/address/0xPENDING_REDEPLOY_REVENUE_DISTRIBUTOR) | In-flight reward claims |
 | POL sink | [POLAccumulator](https://etherscan.io/address/0x2A5f65f4C74b1e49e77aE9A57e20fBDb0cED11D2) | Locked-LP accumulator (deployed, not wired) |
 | Native LP | [TegridyLP](https://etherscan.io/address/0x55875887B43C2E23aE424AF0FC8606Fdb058a481) | TOWELI/WETH native pair |
 | External LP | [Uniswap V2 pair](https://etherscan.io/address/0x6682Ac593513cc0A6c25D0F3588e8fA4FF81104D) | Historical Uniswap listing |
@@ -248,7 +252,7 @@ Any balance not in the contracts above is in EOA wallets, exchange hot-wallets, 
 - **Yield is designed to come from ETH fees, not TOWELI emissions** — the rail has collected, but the take is parked in `ReferralSplitter` behind an uncalled `recoverCallerCredit()`, and `RevenueDistributor` has never paid anyone. This is a design, not a track record.
 - **A 20% referral cut comes off every fee before stakers see it**, and it cannot be set to zero or unwired. Staker yield is capped at ~80% of the fee, not 100%.
 - **Boost ceiling 4.5×.** 0.4× at 7-day lock → 4.0× at 4-year lock + 0.5× JBAC bonus.
-- **Flat 25% early-exit penalty, paid in full to the treasury** — not recycled to stakers.
+- **Flat 75% early-exit penalty, paid in full to the treasury** — not recycled to stakers. Positions on the first relaunch staking contract keep its 25%.
 - **POL sink is dormant twice over:** the lever is 0% and `SwapFeeRouter.polAccumulator()` is unset. Activation is a governance decision plus a wiring transaction; see [REVENUE_ANALYSIS.md](archive/REVENUE_ANALYSIS.md) § fee calibration.
 
 ---

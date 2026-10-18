@@ -1,5 +1,6 @@
 import { BUNGALOW_COUNT } from './bungalows';
 import { VENUE } from './arrival';
+import { EARLY_WITHDRAWAL_PENALTY_BPS, OLD_EARLY_WITHDRAWAL_PENALTY_BPS } from './constants';
 
 export interface FAQItem {
   q: string;
@@ -85,7 +86,7 @@ export const TOWELI_FAQ_DATA: FAQSection[] = [
     items: [
       { q: 'How does staking work?', a: 'Deposit TOWELI tokens into the staking contract to earn rewards. Choose a lock duration to receive a boost multiplier: longer locks earn higher yields. Rewards are paid in TOWELI emissions today. An ETH share of swap fees is wired on chain, and a payout round needs 1 ETH of fees first; the Premium page shows what has been paid.' },
       { q: 'What is the lock duration?', a: 'You can lock your TOWELI from 7 days up to 4 years. Contract bounds are MIN_LOCK_DURATION = 7 days and MAX_LOCK_DURATION = 4 years. Longer lock durations give you a higher boost multiplier, which means more rewards.' },
-      { q: 'Can I withdraw early?', a: 'Yes, but with a 25% early withdrawal penalty. The penalty is sent to the protocol treasury — it is not redistributed to other stakers.' },
+      { q: 'Can I withdraw early?', a: `Yes, but it costs ${EARLY_WITHDRAWAL_PENALTY_BPS / 100}% of the TOWELI you staked, sent to the protocol treasury, not to other stakers. Your rewards are paid first, but only what the reward pool holds: if it is short, you can lose the rest and still pay the ${EARLY_WITHDRAWAL_PENALTY_BPS / 100}%. A position on the old staking contract keeps its own ${OLD_EARLY_WITHDRAWAL_PENALTY_BPS / 100}% fee.` },
       { q: 'What is a boost multiplier?', a: 'Your lock duration determines your yield boost on a linear scale: 0.4x at 7 days up to 4.0x at the full 4-year lock. With the JBAC NFT bonus stacked on top, the contract enforces a 4.5x ceiling (MAX_BOOST_BPS_CEILING = 45000). Higher multipliers mean a larger share of the reward pool.' },
       { q: 'Do I get an NFT for staking?', a: 'Yes. Your staking position is represented as an ERC-721 NFT. This NFT tracks your deposit amount, lock duration, and boost. It can also be used as collateral for peer-to-peer lending.' },
       { q: 'What are NFT boosts?', a: 'Holders of a JBAC NFT receive a flat +0.5x bonus on top of their lock multiplier (capped at 4.5x by MAX_BOOST_BPS_CEILING). Simply hold the NFT in your connected wallet to activate the bonus.' },

@@ -164,7 +164,7 @@ stateDiagram-v2
     [*] --> Staked : stake(amount, duration)<br/>mints ERC-721 position
     Staked --> Boosted : hold JBAC NFT<br/>(+0.5× passive)
     Staked --> LockExpired : block.timestamp ≥ lockEnd
-    Staked --> EarlyExited : earlyWithdraw()<br/>25% penalty →<br/>treasury (audit L-23)
+    Staked --> EarlyExited : earlyWithdraw()<br/>75% penalty →<br/>treasury (audit L-23)
     LockExpired --> Withdrawn : withdraw()<br/>burns NFT
     EarlyExited --> [*]
     Withdrawn --> [*]
@@ -320,7 +320,7 @@ flowchart LR
     subgraph Immutable["Hard-coded, admin cannot change"]
         ONR[OwnableNoRenounce<br/>no renounce path]
         BOOST[4.5× boost ceiling]
-        PEN[25% early-exit penalty]
+        PEN[75% early-exit penalty]
         FEE[Launchpad fee ≤ 100%]
         GRACE[1h NFT lending grace]
     end

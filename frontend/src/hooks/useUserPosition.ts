@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useAccount, useReadContracts } from 'wagmi';
 import { formatEther } from 'viem';
 import { TEGRIDY_STAKING_ABI, ERC20_ABI } from '../lib/contracts';
-import { TEGRIDY_STAKING_ADDRESS, STAKING_MONITOR_VIEW_ADDRESS, TOWELI_ADDRESS, CHAIN_ID, isDeployed as checkDeployed } from '../lib/constants';
+import { STAKING_CONTRACT, TOWELI_ADDRESS, CHAIN_ID, isDeployed as checkDeployed, type StakingContractSet } from '../lib/constants';
 
 // Dummy address for disabled queries (wagmi needs valid args shape)
 const ZERO_ADDR = '0x0000000000000000000000000000000000000001' as const;
@@ -14,9 +14,15 @@ const ZERO_ADDR = '0x0000000000000000000000000000000000000001' as const;
 // inventing unbounded rewards.
 const MAX_ACCRUAL_DRIFT_SEC = 45;
 
-export function useUserPosition() {
+/**
+ * The connected wallet's position on ONE staking contract. Defaults to the contract that
+ * takes new stakes; `<OldStakingCard />` passes OLD_STAKING_CONTRACT so a position there
+ * is read from its own contract and its own monitor view.
+ */
+export function useUserPosition(contract: StakingContractSet = STAKING_CONTRACT) {
   const { address } = useAccount();
-  const stakingAddr = TEGRIDY_STAKING_ADDRESS;
+  const stakingAddr = contract.staking;
+  const monitorAddr = contract.monitor;
   const isDeployed = checkDeployed(stakingAddr);
   const enabled = isDeployed && !!address;
   const userAddr = address ?? ZERO_ADDR;
@@ -69,8 +75,8 @@ export function useUserPosition() {
   // EIP-170 split: getPosition + earned live on StakingMonitorView, not the host staking contract.
   const { data: posData, refetch: refetchPos, isLoading: isPosLoading } = useReadContracts({
     contracts: [
-      { address: STAKING_MONITOR_VIEW_ADDRESS, abi: TEGRIDY_STAKING_ABI, functionName: 'getPosition', args: [hasTokenId ? tokenId : 1n], chainId: CHAIN_ID },
-      { address: STAKING_MONITOR_VIEW_ADDRESS, abi: TEGRIDY_STAKING_ABI, functionName: 'earned', args: [hasTokenId ? tokenId : 1n], chainId: CHAIN_ID },
+      { address: monitorAddr, abi: TEGRIDY_STAKING_ABI, functionName: 'getPosition', args: [hasTokenId ? tokenId : 1n], chainId: CHAIN_ID },
+      { address: monitorAddr, abi: TEGRIDY_STAKING_ABI, functionName: 'earned', args: [hasTokenId ? tokenId : 1n], chainId: CHAIN_ID },
     ],
     query: { enabled: enabled && hasTokenId, refetchInterval: 30_000, refetchOnWindowFocus: true },
   });
