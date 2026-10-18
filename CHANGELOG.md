@@ -335,11 +335,6 @@ page keeps the newest thirty days.
 
 - The dead Discord invite and the retired Telegram handle are gone from the footer.
 
-### 2026-09-18
-
-- The launch gate's reading names the tier as the wallet's own, and its verdicts carry no em dash.
-- "Check graduation" no longer says a token has not graduated from a read it never made.
-
 ## Earlier
 
 The long form lives in git. `git show 531813e6:CHANGELOG.md` is this file as it stood before
