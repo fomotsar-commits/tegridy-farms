@@ -12,6 +12,8 @@ import { BasketCta, IslandBasketButton, IslandBasketDialog, type BasketRow, type
 
 /** A quote older than this is asked for again while the order is open (the swap's own window). */
 const REQUOTE_MS = 30_000;
+/** While a price is missing, it is asked for again this soon. */
+const RETRY_MS = 15_000;
 /** How long the order's transactions stay valid once signed. */
 const DEADLINE_SECS = 10 * 60;
 
@@ -101,11 +103,6 @@ export function IslandBasketEvm({ chainId, slippagePct }: { chainId: number; sli
     }, 500);
     return () => clearTimeout(t);
   }, [open, running, client, venue, orderKey, legsFor, tick]);
-  useEffect(() => {
-    if (!open || running) return;
-    const iv = setInterval(() => setTick((x) => x + 1), REQUOTE_MS);
-    return () => clearInterval(iv);
-  }, [open, running]);
   // A new amount, chain or wallet is a new order: the last one's results go (never mid-run).
   const orderOf = `${usd}|${chainId}|${address ?? ''}`;
   const [resultsFor, setResultsFor] = useState(orderOf);
@@ -118,6 +115,14 @@ export function IslandBasketEvm({ chainId, slippagePct }: { chainId: number; sli
 
   const shown = quotes && quotes.key === orderKey ? quotes.legs : null;
   const routes = useMemo(() => (shown ? shown.map((q) => routeEvmLeg(q, chainId)) : null), [shown, chainId]);
+  // Asked again every REQUOTE_MS while idle, and every RETRY_MS while a price is missing: one
+  // unread coin holds the whole order, so it is not left waiting a full round.
+  const anyUnread = routes?.some((r) => r.via === 'none' && r.why === 'unread') ?? false;
+  useEffect(() => {
+    if (!open || running) return;
+    const iv = setInterval(() => setTick((x) => x + 1), anyUnread ? RETRY_MS : REQUOTE_MS);
+    return () => clearInterval(iv);
+  }, [open, running, anyUnread]);
 
   if (!coins || !venue) return null;
 
@@ -252,7 +257,7 @@ export function IslandBasketEvm({ chainId, slippagePct }: { chainId: number; sli
 
   const shownNotice = notice
     ?? (ethUsd <= 0 && dollars > 0 && !tooSmall ? { tone: 'warn' as const, text: 'The ETH price could not be read, so the order cannot be sized right now.' } : null)
-    ?? (unread && !quoting ? { tone: 'warn' as const, text: 'A price could not be read. It is asked again in a moment.' } : null);
+    ?? (unread && !quoting ? { tone: 'warn' as const, text: 'A price could not be read. It is asked again in a moment.', action: { label: 'Try again', onClick: () => setTick((x) => x + 1) } } : null);
   const v2Leg = routes?.some((r) => r.via === 'v2-router') ?? false;
   const oursLeg = ours.length > 0;
   const txCount = (routes?.some((r) => r.via === 'batch') ? 1 : 0) + (routes?.filter((r) => r.via !== 'batch' && r.via !== 'none').length ?? 0);

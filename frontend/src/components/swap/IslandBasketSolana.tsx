@@ -28,6 +28,8 @@ import { BasketCta, IslandBasketButton, IslandBasketDialog, type BasketRow, type
  * calls a minute). What is sent is quoted again at the press and held to these figures.
  */
 const REQUOTE_MS = 60_000;
+/** While a price is missing, it is asked for again this soon. */
+const RETRY_MS = 15_000;
 /** Between one coin's Jupiter quote and the next: Jupiter's keyless tier refuses a burst. */
 const QUOTE_GAP_MS = 1_100;
 /** How long one coin's Jupiter quote (retries included) may take before it counts as unread. */
@@ -188,14 +190,17 @@ export function IslandBasketSolana(p: {
     }, 500);
     return () => clearTimeout(t);
   }, [open, running, legs, orderKey, quoteAll, tick]);
-  useEffect(() => {
-    if (!open || running) return;
-    const iv = setInterval(() => setTick((x) => x + 1), REQUOTE_MS);
-    return () => clearInterval(iv);
-  }, [open, running]);
 
   const shown = quotes && quotes.key === orderKey ? quotes.legs : null;
   const setLeg = (i: number, s: LegState) => setStates((was) => ({ ...was, [i]: s }));
+  // Asked again every REQUOTE_MS while idle, and every RETRY_MS while a price is missing: one
+  // unread coin holds the whole order, so it is not left waiting a full round.
+  const anyUnread = shown?.some((q) => shownRoute(q)?.decision === 'unread') ?? false;
+  useEffect(() => {
+    if (!open || running) return;
+    const iv = setInterval(() => setTick((x) => x + 1), anyUnread ? RETRY_MS : REQUOTE_MS);
+    return () => clearInterval(iv);
+  }, [open, running, anyUnread]);
 
   async function buy() {
     if (!publicKey || !legs || !shares || !shown || running) return;
@@ -349,7 +354,7 @@ export function IslandBasketSolana(p: {
 
   const shownNotice = notice
     ?? (solUsd === null && !frozen && dollars > 0 && !tooSmall && open ? { tone: 'warn' as const, text: 'SOL’s price could not be read yet, so the order cannot be sized.' } : null)
-    ?? (unread && !quoting ? { tone: 'warn' as const, text: 'A price could not be read. It is asked again in a moment.' } : null)
+    ?? (unread && !quoting ? { tone: 'warn' as const, text: 'A price could not be read. It is asked again in a moment.', action: { label: 'Try again', onClick: () => setTick((x) => x + 1) } } : null)
     ?? (tight ? { tone: 'warn' as const, text: `Keep about ${sol(reserve).toFixed(3)} SOL more than this for fees and new coin accounts, or a coin may not go through.` } : null);
 
   return (

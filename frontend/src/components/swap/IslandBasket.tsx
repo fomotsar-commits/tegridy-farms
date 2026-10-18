@@ -69,7 +69,7 @@ export function IslandBasketDialog(p: {
   /** The visible line on what the venue takes. */
   feeLine: string;
   /** A warning or the reason the button is off, said in view. */
-  notice?: { tone: RowTone; text: string } | null;
+  notice?: { tone: RowTone; text: string; action?: { label: string; onClick: () => void } } | null;
   cta: ReactNode;
   /** Under the button, e.g. "Stop after this coin". */
   after?: ReactNode;
@@ -144,7 +144,14 @@ export function IslandBasketDialog(p: {
 
         <p className="text-white/75 text-[11px] mt-2" data-testid="island-basket-fee">{p.feeLine}</p>
         {p.notice && (
-          <p role="status" className={`text-[11px] mt-2 ${TONE[p.notice.tone]}`} data-testid="island-basket-notice">{p.notice.text}</p>
+          <p role="status" className={`text-[11px] mt-2 ${TONE[p.notice.tone]}`} data-testid="island-basket-notice">
+            {p.notice.text}
+            {p.notice.action && (
+              <button type="button" onClick={p.notice.action.onClick} className="ml-1.5 px-1 py-2 -my-2 underline underline-offset-2 font-semibold text-white">
+                {p.notice.action.label}
+              </button>
+            )}
+          </p>
         )}
         <div className="mt-3">{p.cta}</div>
         {p.after && <div className="mt-2 text-center">{p.after}</div>}

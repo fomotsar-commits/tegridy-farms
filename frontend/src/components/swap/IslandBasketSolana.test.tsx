@@ -164,5 +164,9 @@ describe('IslandBasketSolana', () => {
     await waitFor(() => expect(screen.getByTestId('island-basket-buy')).toHaveTextContent('A price could not be read'), { timeout: 10_000 });
     expect(within(status('bayla')).getByText(/· Price not read$/)).toBeInTheDocument();
     expect(screen.getByTestId('island-basket-buy')).toBeDisabled();
-  }, 15_000);
+    // Try again asks at once; a price that now answers frees the order.
+    h.failQuoteFor = null;
+    fireEvent.click(within(screen.getByTestId('island-basket-notice')).getByRole('button', { name: 'Try again' }));
+    await waitFor(() => expect(screen.getByTestId('island-basket-buy')).toHaveTextContent('Buy all 5'), { timeout: 10_000 });
+  }, 30_000);
 });
