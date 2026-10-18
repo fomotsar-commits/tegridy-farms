@@ -84,19 +84,29 @@ for (const size of SIZES) {
     });
 
     test('nothing lies over the open drawer: every row takes its own tap', async ({ page }) => {
-      // The drawer's rows sit at the bottom of the panel, where the phone's bottom bar
-      // (z-50) and Towelie (z-[60]) live; at the same z the bar covered the last rows.
+      // The menu covers the screen, where the phone's bottom bar (z-50) and Towelie (z-[60])
+      // also live; at the bar's z the bar was drawn over the menu's last rows.
       await open(page, '/');
       await page.getByRole('button', { name: 'Open navigation menu' }).click();
       const drawer = page.getByRole('dialog', { name: 'Navigation menu' });
       await expect(drawer.getByRole('link').last()).toBeVisible();
+      // Each row is the topmost thing at its own centre.
       const covered = await drawer.getByRole('link').evaluateAll((as) => as.flatMap((a) => {
         a.scrollIntoView({ block: 'nearest' });
         const b = a.getBoundingClientRect();
         const top = document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2);
-        return top && a.contains(top) ? [] : [`${a.textContent} (under ${top?.tagName ?? 'nothing'}${top?.closest('nav')?.getAttribute('aria-label') ? ` in ${top.closest('nav')!.getAttribute('aria-label')}` : ''})`];
+        return top && a.contains(top) ? [] : [`${a.textContent} (under ${top?.tagName ?? 'nothing'} ${top?.closest('nav')?.getAttribute('aria-label') ?? ''})`];
       }));
       expect(covered, 'a drawer row is covered by something drawn over it').toEqual([]);
+      // And the screen's edges, where the bars sit, whether or not a row reaches them today.
+      const edges = await drawer.evaluate((d) => {
+        const w = innerWidth, h = innerHeight;
+        return [[w / 2, h - 8], [8, h - 8], [w - 8, h - 8], [w / 2, 8], [w - 8, h / 2]].flatMap(([x, y]) => {
+          const top = document.elementFromPoint(x!, y!);
+          return top && d.contains(top) ? [] : [`${Math.round(x!)},${Math.round(y!)} is ${top?.tagName ?? 'nothing'} ${top?.closest('nav')?.getAttribute('aria-label') ?? ''}`];
+        });
+      });
+      expect(edges, 'something is drawn over the open menu').toEqual([]);
     });
 
     test('the footer is eight links, on one screen above the bar', async ({ page }) => {

@@ -6,7 +6,7 @@ import { createPortal } from 'react-dom';
 import { toast } from 'sonner';
 import { AnimatePresence, m } from 'framer-motion';
 import { useTheme } from '../../contexts/ThemeContext';
-import { BAR_NAV, DASHBOARD_NAV, DRAWER_LINKS, DRAWER_SECTIONS, sectionIsActive } from '../../lib/navConfig';
+import { BAR_NAV } from '../../lib/navConfig';
 import { safeGetItem } from '../../lib/storage';
 import { pageArt } from '../../lib/artConfig';
 import { getActiveBungalow, getBungalowIdentity, OPEN_BUNGALOWS_EVENT } from '../../lib/bungalows';
@@ -19,11 +19,11 @@ import {
   useSolanaSurface,
   type SolanaSurface,
 } from '../../lib/solanaSurface';
-import { ArtImg } from '../ArtImg';
 import { VENUE } from '../../lib/arrival';
 import { artImgProps } from '../../lib/artSrcSet';
 import { WalletSheet } from './WalletSheet';
 import { TopBarSolana } from './TopBarSolana';
+import { NavDrawer } from './NavDrawer';
 
 // The wallet button's two looks, shared by the Ethereum (RainbowKit) and Solana
 // slots so they are the same width: the 360px row has no room to spare.
@@ -82,64 +82,19 @@ function SolanaWalletSlot({ surface, pending }: { surface: SolanaSurface | null;
   );
 }
 
-// The drawer's own palette: near-black and cream, with the venue's green for "here" and hover.
-const DRAWER_BG = '#05080f';
-const DRAWER_INK = '#f5e4b8';
-const DRAWER_EASE = [0.22, 1, 0.36, 1] as const;
-const DRAWER_ART_FADE = 'linear-gradient(180deg, #000 0%, #000 40%, transparent 100%)';
-
-/**
- * A big numbered row. The number and the arrow sit beside the link, not in it, so the link's
- * name stays the bare word ("Pools", not "01Pools"); its ::after covers the whole row, so the
- * number and the arrow still take the tap. The word moves on an inner span: a transform on the
- * link itself would shrink that ::after to the word while the pointer is over the row.
- */
-function DrawerRow({ n, to, label, here, onGo }: { n: number; to: string; label: string; here: boolean; onGo: () => void }) {
-  return (
-    <m.li
-      className="group relative flex items-center gap-3 pl-11 pr-1 py-3.5 border-b border-white/[0.08]"
-      initial={{ opacity: 0, x: 28 }}
-      animate={{ opacity: 1, x: 0 }}
-      transition={{ delay: 0.1 + n * 0.055, duration: 0.55, ease: DRAWER_EASE }}
-    >
-      <span aria-hidden="true"
-        className={`absolute left-0 top-1/2 -translate-y-1/2 font-mono text-[11px] tracking-[0.14em] tabular-nums transition-colors ${here ? 'text-[#22c55e]' : 'text-[#f5e4b8]/60 group-hover:text-[#22c55e]'}`}>
-        {String(n).padStart(2, '0')}
-      </span>
-      <Link to={to} onClick={onGo} aria-current={here ? 'page' : undefined}
-        className={`flex-1 min-w-0 whitespace-nowrap text-[length:clamp(2rem,9.5vw,2.75rem)] font-extrabold leading-none tracking-[-0.045em] transition-colors duration-300 after:absolute after:inset-0 after:content-[''] focus-visible:outline-none focus-visible:after:outline-2 focus-visible:after:-outline-offset-2 focus-visible:after:outline-[#22c55e] ${here ? 'text-[#22c55e]' : 'text-[#f5e4b8] group-hover:text-white'}`}
-        style={{ fontFamily: 'var(--font-family-heading)' }}>
-        <span className="inline-block transition-transform duration-300 ease-out group-hover:translate-x-1.5">{label}</span>
-      </Link>
-      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"
-        className={`flex-shrink-0 transition-[color,transform] duration-300 ${here ? 'text-[#22c55e]' : 'text-[#f5e4b8]/40 -translate-x-1 group-hover:translate-x-0 group-hover:text-[#22c55e]'}`}>
-        <path d="M4 12h15M13 6l6 6-6 6" />
-      </svg>
-      {/* The rule under the row sweeps green from the left on hover, and stays green where you are. */}
-      <span aria-hidden="true"
-        className={`absolute left-0 right-0 -bottom-px h-px origin-left pointer-events-none bg-[#22c55e] transition-transform duration-500 ease-out ${here ? 'scale-x-100' : 'scale-x-0 group-hover:scale-x-100'}`} />
-    </m.li>
-  );
-}
-
-/** A small mono row (the records), its left edge on the big words' left edge. */
-function DrawerSmallLink({ to, label, onGo }: { to: string; label: string; onGo: () => void }) {
-  return (
-    <li className="pl-11">
-      <NavLink to={to} onClick={onGo}
-        className={({ isActive }) => `inline-flex items-center min-h-[44px] md:min-h-[36px] font-mono text-[12.5px] tracking-[0.06em] underline-offset-4 transition-colors hover:text-[#22c55e] hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#22c55e] ${isActive ? 'text-[#22c55e]' : 'text-[#f5e4b8]/75'}`}>
-        {label}
-      </NavLink>
-    </li>
-  );
-}
-
 export const TopNav = React.memo(function TopNav() {
   const [open, setOpen] = useState(false);
   const [kebabOpen, setKebabOpen] = useState(false);
   const kebabRef = useRef<HTMLDivElement>(null);
   const drawerRef = useRef<HTMLDivElement>(null);
   const menuButtonRef = useRef<HTMLButtonElement>(null);
+  // The menu opens as a circle from the centre of its button.
+  const [menuFrom, setMenuFrom] = useState<{ x: number; y: number } | null>(null);
+  const openMenu = useCallback(() => {
+    const r = menuButtonRef.current?.getBoundingClientRect();
+    setMenuFrom(r ? { x: r.left + r.width / 2, y: r.top + r.height / 2 } : null);
+    setOpen(true);
+  }, []);
   const location = useLocation();
   // The chip names the room and Swap follows it; both re-read on a skin switch.
   useActiveBungalowId();
@@ -446,7 +401,7 @@ export const TopNav = React.memo(function TopNav() {
               </div>
             )}
 
-            <button ref={menuButtonRef} onClick={() => setOpen(true)} aria-label="Open navigation menu" aria-expanded={open} className="p-2 -mr-1 flex-shrink-0 text-text-muted min-w-[44px] min-h-[44px] flex items-center justify-center">
+            <button ref={menuButtonRef} onClick={openMenu} aria-label="Open navigation menu" aria-expanded={open} className="p-2 -mr-1 flex-shrink-0 text-text-muted min-w-[44px] min-h-[44px] flex items-center justify-center">
               <svg width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
                 <path d="M3 5h14M3 10h14M3 15h14" />
               </svg>
@@ -455,85 +410,10 @@ export const TopNav = React.memo(function TopNav() {
         </div>
       </header>
 
-      {/* The drawer, at every width: Pools, Check and Island, the records, and Dashboard once connected.
-          Its own black in both themes: the art at the top, the words big and numbered below it.
-          z-[70]: over the phone's bottom bar (z-50) and Towelie (z-[60]), which hid its last rows. */}
-      <AnimatePresence>
-        {open && (
-          <>
-            <m.div className="fixed inset-0 z-[70] bg-black/60 backdrop-blur-[6px]"
-              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-              onClick={() => setOpen(false)} />
-            <m.div
-              ref={drawerRef}
-              role="dialog"
-              aria-modal="true"
-              aria-label="Navigation menu"
-              className="fixed right-0 top-0 bottom-0 z-[70] w-[88vw] max-w-[400px] flex flex-col overflow-hidden"
-              style={{ background: DRAWER_BG, paddingTop: 'env(safe-area-inset-top, 0px)', paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}
-              initial={{ x: '100%' }}
-              animate={{ x: 0, transition: { duration: 0.55, ease: DRAWER_EASE } }}
-              exit={{ x: '100%', transition: { duration: 0.28, ease: [0.4, 0, 1, 1] } }}>
-              {/* The art, in plain view: it fills the top of the panel and fades into the black
-                  under the rows. Pickable as `nav-drawer:0` in /art-studio. */}
-              <div className="absolute inset-x-0 top-0 h-[62%] pointer-events-none" aria-hidden="true"
-                style={{ maskImage: DRAWER_ART_FADE, WebkitMaskImage: DRAWER_ART_FADE }}>
-                <ArtImg pageId="nav-drawer" idx={0} alt="" loading="lazy" className="w-full h-full object-cover" />
-                <div className="absolute inset-0" style={{ background: `linear-gradient(180deg, ${DRAWER_BG}c0 0%, ${DRAWER_BG}00 30%, ${DRAWER_BG}40 100%)` }} />
-              </div>
-              {/* A green hairline down the left edge, drawn as the panel arrives. */}
-              <m.span aria-hidden="true" className="absolute left-0 inset-y-0 w-px origin-top pointer-events-none"
-                style={{ background: 'linear-gradient(180deg, transparent 0%, var(--color-kyle-bright) 35%, var(--color-kyle-bright) 75%, transparent 100%)', opacity: 0.7 }}
-                initial={{ scaleY: 0 }} animate={{ scaleY: 1 }} transition={{ delay: 0.15, duration: 0.9, ease: DRAWER_EASE }} />
-              <div className="relative z-10 h-14 flex-shrink-0 flex items-center justify-between gap-3 pl-6 pr-3">
-                {/* Where you are, as an address. */}
-                <span className="min-w-0 flex items-center gap-2 font-mono text-[11px] tracking-[0.08em]" style={{ color: DRAWER_INK }}>
-                  <span aria-hidden="true" className="w-1.5 h-1.5 flex-shrink-0" style={{ background: 'var(--color-kyle-bright)' }} />
-                  <span className="truncate"><span style={{ opacity: 0.6 }}>{VENUE.markMain.toLowerCase()}{VENUE.markSub.toLowerCase()}</span>{location.pathname}</span>
-                </span>
-                <button onClick={() => setOpen(false)} aria-label="Close navigation menu"
-                  className="group/close w-11 h-11 flex-shrink-0 flex items-center justify-center border border-white/15 transition-colors hover:border-[#22c55e] hover:text-[#22c55e] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#22c55e]"
-                  style={{ color: DRAWER_INK, background: 'rgba(5,8,15,0.55)' }}>
-                  <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"
-                    className="transition-transform duration-300 group-hover/close:rotate-90">
-                    <path d="M4 4l12 12M16 4L4 16" />
-                  </svg>
-                </button>
-              </div>
-              <div className="relative z-10 flex-1 min-h-0 flex flex-col overflow-y-auto">
-                {/* The art's room. It gives way first when the screen is short. */}
-                <div className="flex-1 min-h-[72px]" aria-hidden="true" />
-                <nav className="px-6 pb-6">
-                  {/* One row per section, its page and not its tabs: the page's strip lists them
-                      (owner, 2026-09-05: printed, the tabs outgrew the screen). */}
-                  <ul className="border-t border-white/[0.08]">
-                    {[
-                      ...DRAWER_SECTIONS.map((section) => ({
-                        to: section.primaryTo ?? section.hub,
-                        label: section.heading,
-                        here: sectionIsActive(section, location.pathname),
-                      })),
-                      ...(isConnected ? [{
-                        to: DASHBOARD_NAV.to,
-                        label: DASHBOARD_NAV.label,
-                        here: location.pathname === DASHBOARD_NAV.to || location.pathname.startsWith(`${DASHBOARD_NAV.to}/`),
-                      }] : []),
-                    ].map((row, i) => (
-                      <DrawerRow key={row.to} n={i + 1} {...row} onGo={() => setOpen(false)} />
-                    ))}
-                  </ul>
-                  <m.ul className="mt-5" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.35, duration: 0.5 }}>
-                    {DRAWER_LINKS.map((link) => (
-                      <DrawerSmallLink key={link.to} to={link.to} label={link.label} onGo={() => setOpen(false)} />
-                    ))}
-                    {showAdmin && <DrawerSmallLink to="/admin" label="Admin" onGo={() => setOpen(false)} />}
-                  </m.ul>
-                </nav>
-              </div>
-            </m.div>
-          </>
-        )}
-      </AnimatePresence>
+      {/* The menu, full screen at every width (NavDrawer.tsx). z-[70]: over the phone's bottom bar
+          (z-50) and Towelie (z-[60]), which hid its last rows when it shared their z. */}
+      <NavDrawer ref={drawerRef} open={open} onClose={() => setOpen(false)} from={menuFrom}
+        pathname={location.pathname} isConnected={isConnected} showAdmin={showAdmin} />
     </>
   );
 });
