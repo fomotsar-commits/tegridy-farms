@@ -8,7 +8,7 @@ page keeps the newest thirty days.
 
 ### 2026-10-18
 
-- TOWELI staking moves to a new contract: new stakes go there, one wallet can stake up to 1,000,000 TOWELI there (50,000 on the first contract), and leaving a lock early costs 75% of the stake, paid to the treasury. Rewards are paid first, but only what the reward pot holds; the stake form and the early-exit confirm both say that a short pot can cost you rewards on top of the 75%. A position on the first contract stays there on its own terms, 25% early exit included: the Farm page shows it in its own card (claim, the ETH fee share, withdraw, leave early at 25%, the pause exits, Auto-Max off), the Dashboard points to it, and History, Portfolio and the FAQ, Risks, Terms and docs give each contract its own fee. LP left in the first LP farm (rewards ended Jun 15, 2026) has a Withdraw button on the Farm page.
+- TOWELI staking moves to a new contract: up to 1,000,000 TOWELI a wallet, and leaving a lock early costs 75%, paid to the treasury. Rewards are paid first, only from what the pot holds. A position on the first contract keeps its 25% and gets its own card on the Farm page.
 - BOBO, SOY, BRAINLET and RIZZ each have a SOL pool on the venue now, so each room gets Add SOL + its coin, second on its first screen, as BAYLA's has.
 
 ### 2026-10-17
@@ -334,11 +334,6 @@ page keeps the newest thirty days.
 ### 2026-09-19
 
 - The dead Discord invite and the retired Telegram handle are gone from the footer.
-
-### 2026-09-18
-
-- The launch gate's reading names the tier as the wallet's own, and its verdicts carry no em dash.
-- "Check graduation" no longer says a token has not graduated from a read it never made.
 
 ## Earlier
 
