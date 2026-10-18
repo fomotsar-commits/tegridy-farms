@@ -36,8 +36,10 @@ import { PositionMark, positionHost } from '../ui/PositionMark';
  *  - NEVER-FUNDED is its own state, distinct from "the period ended".
  */
 
-const CHAIN_IDS: Record<string, number> = { ethereum: 1, base: 8453 };
-const CHAIN_LABEL: Record<number, string> = { 1: 'Ethereum', 8453: 'Base' };
+// Robinhood Chain is listed before any room lives there (owner, 2026-10-18): the
+// fallback below is Ethereum, and a pool on an unlisted chain would read mainnet.
+const CHAIN_IDS: Record<string, number> = { ethereum: 1, base: 8453, robinhood: 4663 };
+const CHAIN_LABEL: Record<number, string> = { 1: 'Ethereum', 8453: 'Base', 4663: 'Robinhood Chain' };
 const PLACEHOLDER = '0x0000000000000000000000000000000000000001' as const;
 const DAY = 86_400n;
 // The same six rungs the TOWELI farm uses (lib/copy.ts), named by their plain length

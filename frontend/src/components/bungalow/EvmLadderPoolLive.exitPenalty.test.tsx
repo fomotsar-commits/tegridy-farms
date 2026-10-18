@@ -11,14 +11,15 @@ import type { Bungalow } from '../../lib/bungalows';
 type ReadCell = { status: 'success'; result: unknown } | { status: 'failure'; error: Error };
 type Query = { address: string; functionName: string; args?: readonly unknown[] };
 const USER = '0x00000000000000000000000000000000000000a1';
-const wagmiState = vi.hoisted(() => ({ answers: new Map<string, ReadCell>(), loading: false }));
+const wagmiState = vi.hoisted(() => ({ answers: new Map<string, ReadCell>(), loading: false, chainIds: [] as unknown[] }));
 const keyOf = (q: Query) => `${q.functionName}:${(q.args ?? []).map(String).join(',')}`;
 
 vi.mock('wagmi', () => ({
   useAccount: () => ({ address: '0x00000000000000000000000000000000000000a1', isConnected: true }),
   useChainId: () => 8453,
   useSwitchChain: () => ({ switchChain: () => {} }),
-  useReadContracts: ({ contracts }: { contracts: Query[] }) => ({
+  useReadContracts: ({ contracts }: { contracts: (Query & { chainId?: number })[] }) => ({
+    ...(contracts[0] && wagmiState.chainIds.push(contracts[0].chainId) && {}),
     data: contracts.map((q) => wagmiState.answers.get(keyOf(q)) ?? { status: 'failure', error: new Error(`unmocked ${keyOf(q)}`) }),
     isLoading: wagmiState.loading,
     refetch: () => Promise.resolve(),
@@ -96,5 +97,18 @@ describe('EvmLadderPoolLive: the early-exit penalty is read from the pool', () =
     expect(exit).toHaveAttribute('title', expect.stringContaining('could not be read'));
     expect(screen.getByRole('button', { name: /^emergency$/ })).toBeInTheDocument();
     expect(document.body.textContent).not.toMatch(/25%|75%/);
+  });
+
+  // Owner, 2026-10-18: the same ladder serves Robinhood Chain the day a room lives there.
+  // The card's chain map used to fall back to Ethereum for any chain it did not name, so a
+  // Robinhood pool would have read mainnet under a Robinhood label. Red first.
+  it('a Robinhood room reads chain 4663, never the Ethereum fallback', async () => {
+    seed(7_500n);
+    wagmiState.chainIds = [];
+    render(<EvmLadderPoolLive bungalow={{ ...QR, chain: 'robinhood' } as unknown as Bungalow & { stakePool: string }} />);
+    await screen.findByTestId('ladder-exit-cost');
+    expect(wagmiState.chainIds).toContain(4663);
+    expect(wagmiState.chainIds).not.toContain(1);
+    expect(screen.getByText(/The lighthouse · Robinhood Chain · lock ladder/)).toBeInTheDocument();
   });
 });

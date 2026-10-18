@@ -23,6 +23,12 @@
 #
 # An optional list of pool ids (qr mfer ...) limits a run to those pools.
 # Order of the real deploy: base first (qr as the cheap rehearsal), ethereum last.
+#
+# ROBINHOOD CHAIN (4663): no room coin lives there yet (2026-10-18), so the chain
+# has no hard-coded rows. The day one does, name its token and the same ladder
+# deploys there at 75% with one command, the fee Safe as notifier:
+#   ROBINHOOD_STAKING_TOKEN=0x<room token> ROBINHOOD_POOL_ID=<room> \
+#     ./script/ladders-75.sh robinhood dry-run      # then anvil, then broadcast
 # ============================================================================
 set -euo pipefail
 
@@ -57,10 +63,18 @@ case "$CHAIN" in
   robinhood)
     CHAIN_ID=4663
     RPC="${ROBINHOOD_RPC_URL:-}"
-    # No room has a ladder on Robinhood Chain today. The deploy script already
-    # accepts chain 4663 at 75% (test/vendor/DeployLighthouseLadderGate.t.sol);
-    # add "id|token|a Robinhood Safe with code" rows here when one does.
-    POOLS=() ;;
+    # The notifier is the chain's fee-remittance Safe: the same address and the
+    # same two signers as on Base, 2 of 2 (read on 4663 on 2026-10-18: 171 bytes
+    # of code, threshold 2, nonce 0). The ladder checks no sequencer feed.
+    if [ -n "${ROBINHOOD_STAKING_TOKEN:-}" ]; then
+      case "$ROBINHOOD_STAKING_TOKEN" in
+        0x[0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F]) ;;
+        *) echo "ROBINHOOD_STAKING_TOKEN must be a 0x address of 40 hex digits" >&2; exit 2 ;;
+      esac
+      POOLS=("${ROBINHOOD_POOL_ID:-room}|${ROBINHOOD_STAKING_TOKEN}|0xfc5D5018E557941A3BB7Ff057d1B0c2eCC09fbf1")
+    else
+      POOLS=()
+    fi ;;
   *)
     echo "usage: $0 <ethereum|base|robinhood> <dry-run|anvil|broadcast> [pool ...]" >&2
     exit 2 ;;
@@ -72,7 +86,8 @@ case "$MODE" in
 esac
 
 if [ "${#POOLS[@]}" -eq 0 ]; then
-  echo "no room ladder is configured for $CHAIN; nothing to do" >&2
+  echo "no room ladder is configured for $CHAIN; nothing to do." >&2
+  [ "$CHAIN" = robinhood ] && echo "Name the room's token: ROBINHOOD_STAKING_TOKEN=0x... ROBINHOOD_POOL_ID=<room> $0 robinhood $MODE" >&2
   exit 0
 fi
 

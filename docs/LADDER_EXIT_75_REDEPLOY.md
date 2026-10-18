@@ -197,12 +197,54 @@ Open an honest position at a long lock before the first notify, then
 exit is not 75%, so a retired address cannot be funded. Before funding any Base pool, prove the
 fee Safe can execute a transaction (it never has).
 
-## Robinhood
+## Robinhood Chain (4663): prepared, not deployed
 
-No room has a ladder on Robinhood Chain. The deploy script accepts chain 4663
-(`test/vendor/DeployLighthouseLadderGate.t.sol` deploys there at 75%), and
-`ladders-75.sh robinhood` has an empty table with the row shape to add: the room's token and a
-Robinhood Safe with code as the notifier, `ROBINHOOD_RPC_URL` set.
+Owner, 2026-10-18: "do the same for robinhood too even though we wont be using it right now".
+No room coin lives on Robinhood Chain and no ladder exists there, so there is nothing to deploy
+and no address to write down. The registry says so in a note row with no address
+(`frontend/scripts/addresses.json`, section `robinhood`). What is ready:
+
+- The deploy script accepts chain 4663 and ships the same 75% build (L-INV-13);
+  `test/vendor/DeployLighthouseLadderGate.t.sol` deploys there in the test EVM.
+- The notifier is the chain's fee-remittance Safe, `0xfc5D5018E557941A3BB7Ff057d1B0c2eCC09fbf1`:
+  the same address and the same two signers as on Base (`0x14898258122C0740106391E6e8E4F17F3b6d456E`
+  and `0x28d7CB2F4D73C2750Ba0055c771871fec79260f8`, 2 of 2). Read on 4663 on 2026-10-18: 171 bytes
+  of code, threshold 2, nonce 0, so it has never executed there. Prove it can before funding.
+- The ladder and its deploy script read no sequencer feed; the chain's attested feed
+  `0x12a249A027AA7DdF184E824b4bb63ba031A39fEC` is not involved.
+- The card already maps `robinhood` to chain 4663 and labels it Robinhood Chain; the explorer
+  is Blockscout, `https://robinhoodchain.blockscout.com`. The daily verifier reads 4663 through
+  `RH_RPC` (default `https://rpc.mainnet.chain.robinhood.com`).
+
+The day a room lives there, its ladder is one command per phase, the token being the only
+input. From `contracts/`:
+
+```bash
+ROBINHOOD_RPC_URL=https://rpc.mainnet.chain.robinhood.com ROBINHOOD_STAKING_TOKEN=0x<room token> ROBINHOOD_POOL_ID=<room> ./script/ladders-75.sh robinhood dry-run
+```
+
+```bash
+anvil --fork-url https://rpc.mainnet.chain.robinhood.com --auto-impersonate --port 8548
+```
+
+```bash
+ANVIL_RPC=http://127.0.0.1:8548 ROBINHOOD_STAKING_TOKEN=0x<room token> ROBINHOOD_POOL_ID=<room> ./script/ladders-75.sh robinhood anvil
+```
+
+```bash
+SIGNER="--account deployer" ROBINHOOD_RPC_URL=https://rpc.mainnet.chain.robinhood.com ROBINHOOD_STAKING_TOKEN=0x<room token> ROBINHOOD_POOL_ID=<room> ./script/ladders-75.sh robinhood broadcast
+```
+
+Rehearsed on 2026-10-18 with the chain's WETH (`0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73`, 18
+decimals) standing in for a room token: the dry run against the live chain and the anvil fork
+both deploy and read back `exit=7500`, the fee Safe as notifier and WETH as the staking token.
+That proves the path, not a pool: nothing was broadcast, and WETH is not a room.
+
+After a real deploy: read `EARLY_EXIT_PENALTY_BPS()` back on Blockscout or with `cast call`
+against the Robinhood RPC, then the repin PR adds `robinhood` to the room's `chain` type in
+`frontend/src/lib/bungalows.ts` (today `'ethereum' | 'base' | 'solana' | 'tbd'`), the room's row
+with `poolKind: 'ladder'`, and a `ladder-<room>` registry row under `robinhood` with its broadcast.
+Nothing but the room ladder goes to an L2: there is no veTOWELI on Base or Robinhood, ever.
 
 ## The fee map
 

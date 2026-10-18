@@ -4,7 +4,7 @@
  * LighthouseLadder build? Reads code, totalBoosted(), MIN_STAKE()/MIN_BOOST(),
  * EARLY_EXIT_PENALTY_BPS() and totalSupply/rewardRate/periodFinish; never sends a
  * transaction. Exit 0 = all fixed, 1 = any pre-fix, unaudited or UNREADABLE pool. Flags: --json, --self-test,
- * --rpc-eth URL, --rpc-base URL (or ETH_RPC, BASE_RPC).
+ * --rpc-eth URL, --rpc-base URL, --rpc-robinhood URL (or ETH_RPC, BASE_RPC, RH_RPC).
  */
 
 import { readFileSync } from 'node:fs';
@@ -22,6 +22,8 @@ const REGISTRY = join(HERE, '..', 'frontend', 'src', 'lib', 'bungalows.ts');
 const DEFAULT_RPC = {
   ethereum: ['https://ethereum-rpc.publicnode.com', 'https://eth.drpc.org'],
   base: ['https://mainnet.base.org', 'https://base.drpc.org'],
+  // No room ladder lives here yet (2026-10-18); listed so the first one is read, not skipped.
+  robinhood: ['https://rpc.mainnet.chain.robinhood.com'],
 };
 
 const BROWSER_UA =
@@ -343,8 +345,8 @@ if (argv.includes('--self-test')) selfTest();
 
 /**
  * A preferred endpoint goes to the FRONT of the list and never replaces it: one
- * throttled host would turn a correct registry red. ETH_RPC and BASE_RPC are the
- * names registry-onchain.yml binds. The fallbacks see only read-only public calls.
+ * throttled host would turn a correct registry red. ETH_RPC, BASE_RPC and RH_RPC are
+ * the names registry-onchain.yml binds. The fallbacks see only read-only public calls.
  */
 const prefer = (chosen, defaults) =>
   chosen ? [chosen, ...defaults.filter((u) => u !== chosen)] : defaults;
@@ -352,6 +354,7 @@ const prefer = (chosen, defaults) =>
 const rpc = {
   ethereum: prefer(arg('--rpc-eth') ?? process.env.ETH_RPC, DEFAULT_RPC.ethereum),
   base: prefer(arg('--rpc-base') ?? process.env.BASE_RPC, DEFAULT_RPC.base),
+  robinhood: prefer(arg('--rpc-robinhood') ?? process.env.RH_RPC, DEFAULT_RPC.robinhood),
 };
 
 const ladders = parseLadders(readFileSync(REGISTRY, 'utf8'));

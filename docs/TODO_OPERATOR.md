@@ -39,8 +39,10 @@ live pools and 75% on the new ones with no copy switch. The six live ladders sti
 until you redeploy them: `docs/LADDER_EXIT_75_REDEPLOY.md`, phases A to E, Base first with QR as
 the rehearsal, PEPE on Ethereum last, then hand the six addresses to an agent for the repin PR.
 TOWELI staking's 75% is PR #824. The BAYLA ladder on Solana already caps at 75%. The Streamflow
-rooms have no early exit. Robinhood has no room ladder; the same script deploys one at 75% if a
-room ever gets one.
+rooms have no early exit. Robinhood has no room ladder and no room coin ("do the same for robinhood
+too even though we wont be using it right now"): the kit is prepared, not deployed, and deploys one at
+75% with one command the day a room lives there (`ROBINHOOD_STAKING_TOKEN=... ./script/ladders-75.sh
+robinhood ...`), the fee-remittance Safe as notifier; rehearsed on a 4663 fork with WETH standing in.
 
 ## 🔴 2026-10-16: done tonight, and what changed on your list
 
