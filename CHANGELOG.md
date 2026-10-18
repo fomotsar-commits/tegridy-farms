@@ -8,6 +8,7 @@ page keeps the newest thirty days.
 
 ### 2026-10-18
 
+- Room staking on Ethereum and Base: the card reads the early-exit penalty from the pool it shows instead of assuming 25%. Today's six pools still charge 25%; the venue's exit is now 75%, and the card says 75% the moment the owner's redeployed pools go live.
 - The home: the chain row gains ROBINHOOD, which opens the curve on Robinhood Chain, and BASE now opens the curve on Base (it opened your wallet's chain, or Ethereum with no wallet). The home's Swap and Add SOL + BAYLA cards each have the network drop-down; picking another network opens that network's Swap or Pools page.
 - BOBO, SOY, BRAINLET and RIZZ each have a SOL pool on the venue now, so each room gets Add SOL + its coin, second on its first screen, as BAYLA's has.
 
@@ -325,15 +326,6 @@ page keeps the newest thirty days.
 - The BAYLA staking cards are rebuilt, and the wrong readings the rebuild turned up are fixed.
 - The changelog page can name the builder of a change beside its date.
 - memetic.fun is no longer treated as a name for this venue.
-
-### 2026-09-20
-
-- tegridyfarms.vercel.app redirects to memetics.finance instead of serving a second copy of the venue.
-- The footer carries the owner's permanent Discord invite.
-
-### 2026-09-19
-
-- The dead Discord invite and the retired Telegram handle are gone from the footer.
 
 ## Earlier
 

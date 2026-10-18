@@ -64,6 +64,35 @@ contract DriftedBoostLadderMock {
     }
 }
 
+/// @notice The 2026-09-05 six, by shape: the audited floor and weight, and the 25%
+///         exit the owner retired on 2026-10-18 (every staking exit is 75% now).
+///         They are the ladder addresses the registry still carries, so the one an
+///         operator is most likely to paste. Funding one would run a 25% pool.
+contract Exit25LadderMock {
+    uint256 public totalBoosted;
+    uint256 public totalSupply;
+
+    function MIN_STAKE() external pure returns (uint256) {
+        return 100e18;
+    }
+
+    function MIN_BOOST() external pure returns (uint256) {
+        return 40e18;
+    }
+
+    function MIN_BOOST_BPS() external pure returns (uint256) {
+        return 4_000;
+    }
+
+    function BPS() external pure returns (uint256) {
+        return 10_000;
+    }
+
+    function EARLY_EXIT_PENALTY_BPS() external pure returns (uint256) {
+        return 2_500;
+    }
+}
+
 /// @title  The funding ceremony must refuse a pre-fix ladder
 /// @notice REGRESSION TEST for AUDIT FIX 2026-09-04 [LH-01].
 ///
@@ -180,5 +209,34 @@ contract FundLighthouseGuardTest is Test {
         assertFalse(ok, "live pools revert MIN_STAKE() - that is what makes them pre-fix");
         vm.expectRevert(bytes("POOL: PRE-FIX ladder build (no MIN_STAKE) - refusing to fund, redeploy first"));
         script.assertFundableBuild(address(live));
+    }
+
+    // ── the 25% exit, retired 2026-10-18 ───────────────────────────────
+
+    /// The six ladders live on 2026-10-18 (PEPE on Ethereum, QR, MFER, BNKR, DRB
+    /// and JBM on Base) carry the audited floor AND a 25% exit. Owner: 75% on
+    /// every rail. Until the registry is repinned they are the only ladder
+    /// addresses in the repo, so the gate must refuse them by shape.
+    function test_exit25Ladder_isRefused() public {
+        Exit25LadderMock live = new Exit25LadderMock();
+        assertEq(live.MIN_STAKE(), 100e18, "the floor is right: this is NOT the pre-fix case");
+        vm.expectRevert(bytes("POOL: ladder exit penalty is not 75% - the 25% build is retired, redeploy first"));
+        script.assertFundableBuild(address(live));
+    }
+
+    /// On the money path, not only in the helper.
+    function test_run_refusesExit25Ladder() public {
+        Exit25LadderMock live = new Exit25LadderMock();
+        vm.setEnv("POOL", vm.toString(address(live)));
+        vm.setEnv("AMOUNT", "1");
+        vm.expectRevert(bytes("POOL: ladder exit penalty is not 75% - the 25% build is retired, redeploy first"));
+        script.run();
+    }
+
+    /// The build the deploy script ships now answers 7_500 and funds.
+    function test_exit75Ladder_isAccepted() public {
+        LighthouseLadder pool = new LighthouseLadder(SAFE, address(token), address(token));
+        assertEq(pool.EARLY_EXIT_PENALTY_BPS(), 7_500, "the venue-wide 75% exit");
+        assertTrue(script.assertFundableBuild(address(pool)));
     }
 }

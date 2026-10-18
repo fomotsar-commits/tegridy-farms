@@ -239,7 +239,9 @@ structurally refuse to ship the contracts without one.
 | DRB | Base | `0x0aCB93fcFD5b1950D94064998017a2601b36D7bB` |
 | JBM | Base | `0x3C339692ec7B3b96ad6F8fbEb5F5202164b44465` |
 
-These are the pools the app uses (`frontend/src/lib/bungalows.ts`, and the `ladder-*` entries
+These six charge a 25% early exit. Owner, 2026-10-18: every staking exit is 75%, so they are
+replaced by a 75% build the owner deploys (`docs/LADDER_EXIT_75_REDEPLOY.md`); this table is
+repinned when that lands. These are the pools the app uses (`frontend/src/lib/bungalows.ts`, and the `ladder-*` entries
 in `frontend/scripts/addresses.json`). They replaced the first six ladders, deployed
 2026-08-30, whose build let a reward payout spend other stakers' principal (C1 in
 `docs/LIGHTHOUSE_AUDIT_2026_09_01.md`). Those six were **retired 2026-09-05 (PR #433), before

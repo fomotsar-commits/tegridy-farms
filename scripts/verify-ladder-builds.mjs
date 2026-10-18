@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 /**
  * Does every `poolKind: 'ladder'` pool in frontend/src/lib/bungalows.ts run the fixed
- * LighthouseLadder build? Reads code, totalBoosted(), MIN_STAKE()/MIN_BOOST() and
- * totalSupply/rewardRate/periodFinish; never sends a transaction. Exit 0 = all fixed,
- * 1 = any pre-fix, unaudited or UNREADABLE pool. Flags: --json, --self-test,
+ * LighthouseLadder build? Reads code, totalBoosted(), MIN_STAKE()/MIN_BOOST(),
+ * EARLY_EXIT_PENALTY_BPS() and totalSupply/rewardRate/periodFinish; never sends a
+ * transaction. Exit 0 = all fixed, 1 = any pre-fix, unaudited or UNREADABLE pool. Flags: --json, --self-test,
  * --rpc-eth URL, --rpc-base URL (or ETH_RPC, BASE_RPC).
  */
 
@@ -39,12 +39,23 @@ const SEL = {
   MIN_STAKE: '0xcb1c2b5c', // cast sig "MIN_STAKE()"
   MIN_BOOST: '0x0a7486c7', // cast sig "MIN_BOOST()"
   totalBoosted: '0x631516c2', // cast sig "totalBoosted()"
+  EARLY_EXIT_PENALTY_BPS: '0x5c82a112', // cast sig "EARLY_EXIT_PENALTY_BPS()"
 };
 
 /** The audited post-fix constants. A ladder that answers anything else is not this build. */
 export const AUDITED_MIN_STAKE = 100n * 10n ** 18n;
 /** MIN_BOOST = MIN_STAKE * MIN_BOOST_BPS / BPS, with MIN_BOOST_BPS = 4_000, BPS = 10_000. */
 export const AUDITED_MIN_BOOST = (AUDITED_MIN_STAKE * 4000n) / 10000n;
+/** Owner, 2026-10-18: every staking exit costs 75%. The build the deploy script ships. */
+export const AUDITED_EXIT_PENALTY_BPS = 7500n;
+/** The 2026-09-05 six charge this. Retired the same day the 75% was ruled; redeploy pending. */
+export const RETIRED_EXIT_PENALTY_BPS = 2500n;
+/**
+ * True while the registry still ships the 25% six: they pass with a WARN so the
+ * daily job stays honest about what is live. The repin PR flips this to false
+ * (docs/LADDER_EXIT_75_REDEPLOY.md), and a 25% pool fails from then on.
+ */
+export const ACCEPT_RETIRED_EXIT_UNTIL_REPIN = true;
 
 // ── registry parsing (pure, self-tested) ──────────────────────────────────
 
@@ -74,7 +85,10 @@ export function parseLadders(src) {
  * does, while a pre-fix ladder and a plain pool both revert MIN_STAKE().
  * FundLighthouseStaking.s.sol tests the same way, so funding and shipping agree.
  */
-export function classify({ codeBytes, totalBoosted, minStake, minBoost }) {
+export function classify(
+  { codeBytes, totalBoosted, minStake, minBoost, exitPenalty },
+  { acceptRetiredExit = ACCEPT_RETIRED_EXIT_UNTIL_REPIN } = {},
+) {
   if (!codeBytes) return { build: 'absent', ok: false, note: 'no contract at this address' };
   if (totalBoosted === null) {
     return { build: 'plain', ok: true, note: 'vendored StakingRewards — no ladder, no floor by design' };
@@ -89,7 +103,15 @@ export function classify({ codeBytes, totalBoosted, minStake, minBoost }) {
     // A floor that does not match its own boost derivation is a half-applied fix.
     return { build: 'unaudited', ok: false, note: `MIN_BOOST ${minBoost} does not derive from MIN_STAKE` };
   }
-  return { build: 'fixed', ok: true, note: 'post-fix ladder, audited constants' };
+  if (exitPenalty === AUDITED_EXIT_PENALTY_BPS) {
+    return { build: 'fixed', ok: true, note: 'post-fix ladder, audited constants, 75% exit' };
+  }
+  if (exitPenalty === RETIRED_EXIT_PENALTY_BPS) {
+    return acceptRetiredExit
+      ? { build: 'exit25', ok: true, note: 'WARN: the 25% exit build, retired 2026-10-18; redeploy at 75% pending (docs/LADDER_EXIT_75_REDEPLOY.md)' }
+      : { build: 'exit25', ok: false, note: 'the 25% exit build, retired 2026-10-18: redeploy at 75% and repin' };
+  }
+  return { build: 'unaudited', ok: false, note: `EARLY_EXIT_PENALTY_BPS is ${exitPenalty}, neither 7500 nor the retired 2500` };
 }
 
 /** Is the replace-vs-migrate window still open for this pool? */
@@ -203,6 +225,7 @@ async function inspect(pool, rpc) {
     totalBoosted: reads.totalBoosted,
     minStake: reads.MIN_STAKE,
     minBoost: reads.MIN_BOOST,
+    exitPenalty: reads.EARLY_EXIT_PENALTY_BPS,
   });
   return {
     ...pool,
@@ -252,7 +275,18 @@ function selfTest() {
   // A plain pool also reverts MIN_STAKE — it must NOT be called vulnerable.
   eq('classify plain', classify({ codeBytes: 4000, totalBoosted: null, minStake: null, minBoost: null }).build, 'plain');
   eq('classify plain ok', classify({ codeBytes: 4000, totalBoosted: null, minStake: null, minBoost: null }).ok, true);
-  eq('classify fixed', classify({ codeBytes: 6500, totalBoosted: 0n, minStake: AUDITED_MIN_STAKE, minBoost: AUDITED_MIN_BOOST }).build, 'fixed');
+  const fixed = { codeBytes: 6500, totalBoosted: 0n, minStake: AUDITED_MIN_STAKE, minBoost: AUDITED_MIN_BOOST, exitPenalty: AUDITED_EXIT_PENALTY_BPS };
+  eq('classify fixed', classify(fixed).build, 'fixed');
+  eq('classify fixed ok', classify(fixed).ok, true);
+  // The 25% six: a WARN while the repin is pending, a FAIL once the switch is flipped.
+  const exit25 = { ...fixed, exitPenalty: RETIRED_EXIT_PENALTY_BPS };
+  eq('classify exit25 build', classify(exit25).build, 'exit25');
+  eq('classify exit25 accepted until repin', classify(exit25, { acceptRetiredExit: true }).ok, true);
+  eq('classify exit25 warns', /WARN/.test(classify(exit25, { acceptRetiredExit: true }).note), true);
+  eq('classify exit25 fails after repin', classify(exit25, { acceptRetiredExit: false }).ok, false);
+  // Any other exit is not a build this repo ever shipped.
+  eq('classify odd exit', classify({ ...fixed, exitPenalty: 5000n }).build, 'unaudited');
+  eq('classify unread exit', classify({ ...fixed, exitPenalty: null }).ok, false);
   // A floor that is present but wrong is not the audited build.
   eq('classify moved floor', classify({ codeBytes: 6500, totalBoosted: 0n, minStake: 1n, minBoost: null }).build, 'unaudited');
   eq('classify drifted boost', classify({ codeBytes: 6500, totalBoosted: 0n, minStake: AUDITED_MIN_STAKE, minBoost: 1n }).build, 'unaudited');
@@ -328,11 +362,13 @@ if (asJson) {
 } else {
   console.log('LADDER BUILDS SHIPPED BY THE REGISTRY (frontend/src/lib/bungalows.ts)\n');
   const pad = (s, n) => String(s).padEnd(n);
-  console.log(`${pad('pool', 8)}${pad('chain', 10)}${pad('bytes', 7)}${pad('build', 11)}${pad('window', 13)}note`);
+  console.log(`${pad('pool', 8)}${pad('chain', 10)}${pad('bytes', 7)}${pad('build', 11)}${pad('exit', 6)}${pad('window', 13)}note`);
   for (const r of rows) {
     const build = r.unreadable ? 'UNREADABLE' : r.build;
     const win = r.unreadable ? '-' : r.replaceable ? 'replaceable' : 'CLOSED';
-    console.log(`${pad(r.id, 8)}${pad(r.chain, 10)}${pad(r.codeBytes ?? '-', 7)}${pad(build, 11)}${pad(win, 13)}${r.note}`);
+    const exitBps = r.reads?.EARLY_EXIT_PENALTY_BPS;
+    const exit = typeof exitBps === 'bigint' ? `${Number(exitBps) / 100}%` : '-';
+    console.log(`${pad(r.id, 8)}${pad(r.chain, 10)}${pad(r.codeBytes ?? '-', 7)}${pad(build, 11)}${pad(exit, 6)}${pad(win, 13)}${r.note}`);
   }
 }
 
@@ -348,6 +384,13 @@ if (bad.length) {
   }
   process.exit(1);
 }
-if (!asJson) console.log(`\nOK: all ${rows.length} shipped ladders run the audited fixed build.`);
+if (!asJson) {
+  const warned = rows.filter((r) => r.build === 'exit25').length;
+  console.log(
+    warned
+      ? `\nOK with ${warned} WARN: ${rows.length - warned} of ${rows.length} shipped ladders run the 75% build; ${warned} still charge the retired 25% exit (redeploy pending).`
+      : `\nOK: all ${rows.length} shipped ladders run the audited fixed build.`,
+  );
+}
 process.exit(0);
 }

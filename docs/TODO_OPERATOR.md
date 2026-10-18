@@ -29,6 +29,19 @@ stop and say so — a surprise is information.
 
 ---
 
+## 🔴 2026-10-18: the room ladders move to a 75% exit (six broadcasts, your signature)
+
+Owner's word, 2026-10-18: "the staking exit needs to be 75 on solana eth base robinhood". The
+ladder-exit PR of 2026-10-18 ships `LighthouseLadder.sol` at 75% (`EARLY_EXIT_PENALTY_BPS` 7_500),
+a deploy gate that refuses any other build (L-INV-13), a funding script that refuses a 25% pool,
+and a room card that reads the penalty from the pool it shows, so the site says 25% on the six
+live pools and 75% on the new ones with no copy switch. The six live ladders still charge 25%
+until you redeploy them: `docs/LADDER_EXIT_75_REDEPLOY.md`, phases A to E, Base first with QR as
+the rehearsal, PEPE on Ethereum last, then hand the six addresses to an agent for the repin PR.
+TOWELI staking's 75% is PR #824. The BAYLA ladder on Solana already caps at 75%. The Streamflow
+rooms have no early exit. Robinhood has no room ladder; the same script deploys one at 75% if a
+room ever gets one.
+
 ## 🔴 2026-10-16: done tonight, and what changed on your list
 
 Newer than the 2026-10-15 section below. That section's lists still stand, except where an item

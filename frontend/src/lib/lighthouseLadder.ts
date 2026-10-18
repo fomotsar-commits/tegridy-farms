@@ -37,7 +37,13 @@ export const MAX_LOCK_SECS = 4n * 365n * 24n * 60n * 60n;
 /** TOWELI parity: 0.4x at seven days. */
 export const MIN_BOOST_BPS = 4_000n;
 export const MAX_BOOST_BPS = 40_000n;
-export const PENALTY_BPS = 2_500n;
+/**
+ * The exit penalty of the build the deploy script ships (LighthouseLadder.sol,
+ * EARLY_EXIT_PENALTY_BPS): 75% since 2026-10-18, on every rail. The card never
+ * assumes it: it reads the live pool's own constant, so the six 25% ladders still
+ * live read 25% until the owner redeploys them (docs/LADDER_EXIT_75_REDEPLOY.md).
+ */
+export const PENALTY_BPS = 7_500n;
 /**
  * The contract's `MIN_STAKE` dust floor, in RAW units, not scaled by decimals:
  * it is a plain `100e18` in Solidity and the deploy script refuses any staking
@@ -136,9 +142,17 @@ export function projectedRawPerSec(
   return (view.payingNowRawPerSec * myBoostedRaw) / denom;
 }
 
-/** What an early exit costs, in raw units. */
-export function penaltyOn(amountRaw: bigint): bigint {
-  return (amountRaw * PENALTY_BPS) / 10_000n;
+/** What an early exit costs, in raw units, at the penalty the pool answered. */
+export function penaltyOn(amountRaw: bigint, penaltyBps: bigint): bigint {
+  return (amountRaw * penaltyBps) / 10_000n;
+}
+
+/** "75%", "25%", "12.5%": the pool's penalty as the card says it. Never rounds. */
+export function penaltyPct(penaltyBps: bigint): string {
+  const whole = penaltyBps / 100n;
+  const frac = penaltyBps % 100n;
+  if (frac === 0n) return `${whole}%`;
+  return `${whole}.${frac.toString().padStart(2, '0').replace(/0+$/, '')}%`;
 }
 
 /** Seconds until a lock opens; 0 once it has. */

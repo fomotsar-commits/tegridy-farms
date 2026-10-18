@@ -51,14 +51,14 @@ import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
  * ───────────────────────────── THE EXIT HATCHES ──────────────────────────────
  *
  *   withdrawPosition   after the lock ends — principal + rewards, no penalty
- *   earlyExit          before it ends      — principal - 25%, rewards paid
+ *   earlyExit          before it ends      — principal - 75%, rewards paid
  *   emergencyWithdraw  ALWAYS, any time    — principal only, touching the
  *                                            reward path not at all
  *
  * `emergencyWithdraw` is the last resort and is deliberately ungated by time:
  * it is the hatch for a broken reward token or a wedged accumulator, so gating
  * it behind `lockEnd` would shut it in exactly the case it exists for. It is
- * not a way to dodge the lock — an early emergency exit pays the same 25%
+ * not a way to dodge the lock — an early emergency exit pays the same 75%
  * penalty; what it buys is an exit that needs nothing from the reward engine.
  *
  * ────────────────────────────── HARDENING NOTES ──────────────────────────────
@@ -144,8 +144,9 @@ contract LighthouseLadder is ReentrancyGuard {
     /// @notice Paid by anyone leaving before their lock ends. It stays in the
     ///         pool as reward budget — no treasury address, no external call,
     ///         nothing to misconfigure, and the people who kept their word are
-    ///         the ones it accrues to.
-    uint256 public constant EARLY_EXIT_PENALTY_BPS = 2_500; // 25%
+    ///         the ones it accrues to. 75% on every rail (owner, 2026-10-18);
+    ///         the deploy script refuses any other value (L-INV-13).
+    uint256 public constant EARLY_EXIT_PENALTY_BPS = 7_500; // 75%
     /// @notice Bounds the per-account loop in `positionsOf`.
     uint256 public constant MAX_POSITIONS = 20;
 

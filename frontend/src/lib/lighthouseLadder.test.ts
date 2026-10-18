@@ -14,6 +14,7 @@ import {
   boostLabel,
   projectedRawPerSec,
   penaltyOn,
+  penaltyPct,
   lockRemaining,
   MAX_LOCK_SECS,
   MIN_LOCK_SECS,
@@ -164,14 +165,26 @@ describe('the dust floor', () => {
 });
 
 describe('the exit costs', () => {
-  it('prices the early exit at exactly 25%, the contract constant', () => {
-    expect(penaltyOn(1_000n * E18)).toBe(250n * E18);
+  // Owner, 2026-10-18: every staking exit costs 75%. The card prices an exit with the
+  // penalty the POOL answers, so the six 25% ladders live today read 25% until the
+  // owner redeploys them (docs/LADDER_EXIT_75_REDEPLOY.md), and the new ones 75%.
+  it('prices the early exit at the penalty the pool answers: 75% on the new build, 25% on the live six', () => {
+    expect(penaltyOn(1_000n * E18, 7_500n)).toBe(750n * E18);
+    expect(penaltyOn(1_000n * E18, 2_500n)).toBe(250n * E18);
+    expect(penaltyOn(1_000n * E18, PENALTY_BPS)).toBe(750n * E18);
+  });
+
+  it('says the penalty as a plain percentage, no trailing zeros', () => {
+    expect(penaltyPct(7_500n)).toBe('75%');
+    expect(penaltyPct(2_500n)).toBe('25%');
+    expect(penaltyPct(1_250n)).toBe('12.5%');
+    expect(penaltyPct(0n)).toBe('0%');
   });
 
   it('is the constant LighthouseLadder.sol declares, not the Solana ladder one', () => {
-    // The Solana bayla-ladder charges veYFI's time-left schedule (up to 75%) since 2026-09-17; this EVM contract is a
-    // separate product and was not changed. Read from the Solidity so a sweep that
-    // "fixes" every 2_500 in the repo fails here instead of misquoting EVM stakers.
+    // The Solana bayla-ladder charges veYFI's time-left schedule (capped at 75%); this EVM contract
+    // charges a flat 75% since 2026-10-18. Read from the Solidity so the two cannot drift: the build
+    // the deploy script ships must be the one this constant describes.
     const here = dirname(fileURLToPath(import.meta.url));
     const sol = readFileSync(join(here, '..', '..', '..', 'contracts', 'src', 'LighthouseLadder.sol'), 'utf8');
     const m = /uint256 public constant EARLY_EXIT_PENALTY_BPS = ([\d_]+);/.exec(sol);

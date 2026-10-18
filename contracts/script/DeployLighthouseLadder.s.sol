@@ -4,6 +4,7 @@ pragma solidity ^0.8.26;
 import "forge-std/Script.sol";
 import {LighthouseLadder} from "../src/LighthouseLadder.sol";
 import {BaseChainConfig} from "./base/BaseChainConfig.sol";
+import {RobinhoodChainConfig} from "./robinhood/RobinhoodChainConfig.sol";
 
 interface IERC20MetadataLike {
     function decimals() external view returns (uint8);
@@ -11,29 +12,23 @@ interface IERC20MetadataLike {
 }
 
 /// @title  DeployLighthouseLadder — the island's LOCKED EVM lighthouse.
-/// @notice Replaces the no-lock StakingRewards pools deployed earlier on
-///         2026-08-30 with the ladder build (owner decision: "toweli style is
-///         the way for evm"). Same shape of ceremony as
-///         DeployLighthouseStaking.s.sol, which it supersedes.
+/// @notice One pool per run: stake X, earn X, locks 7 days to 4 years at
+///         0.4x..4.0x, a 75% early-exit penalty that stays in the pool, an
+///         always-open emergency hatch, and reward payouts capped at
+///         `balanceOf(pool) - totalSupply()` so a payout can never spend
+///         principal. Runbook: docs/LADDER_EXIT_75_REDEPLOY.md.
 ///
-/// @dev    SAFE TO REPLACE, TODAY ONLY. Every pool from the first round has
-///         totalSupply() == 0 and has never been funded, so swapping the
-///         contract costs gas and harms nobody. Once anyone stakes, this stops
-///         being a redeploy and becomes a migration.
-///
-/// @dev    WHAT CHANGED vs the first round: locks 0..4 years with a 1.00x..
-///         4.00x boost, a 25% early-exit penalty that stays in the pool, an
-///         always-open emergency hatch, and — the load-bearing one — reward
-///         payouts capped at `balanceOf(pool) - totalSupply()`, so a payout can
-///         never spend principal. In a SAME-TOKEN pool that is the difference
-///         between a funding ritual and an on-chain guarantee.
+/// @dev    SAFE TO REPLACE WHILE EMPTY. The six ladders live on 2026-10-18
+///         (25% exit) read totalSupply() == 0 and were never funded, so swapping
+///         them costs gas and harms nobody. Once anyone stakes, this stops being
+///         a redeploy and becomes a migration.
 ///
 /// @dev    ROLES: there is no owner. `rewardsDistribution` is the only
 ///         privileged role, it can only call notifyRewardAmount, and it is
 ///         immutable — set it to a Safe, never an EOA.
 ///
 /// @dev    Env vars:
-///           EXPECTED_CHAIN_ID     — 1 (Ethereum) or 8453 (Base); refused otherwise
+///           EXPECTED_CHAIN_ID     — 1 (Ethereum), 8453 (Base) or 4663 (Robinhood); refused otherwise
 ///           STAKING_TOKEN         — the bungalow token (stake it, earn it)
 ///           REWARDS_DISTRIBUTION  — the Safe allowed to notifyRewardAmount
 contract DeployLighthouseLadderScript is Script {
@@ -74,8 +69,9 @@ contract DeployLighthouseLadderScript is Script {
 
     function _validate(Config memory cfg) internal view {
         require(
-            cfg.expectedChainId == 1 || cfg.expectedChainId == BaseChainConfig.CHAIN_ID,
-            "EXPECTED_CHAIN_ID: island lighthouses deploy on Ethereum (1) or Base (8453) only"
+            cfg.expectedChainId == 1 || cfg.expectedChainId == BaseChainConfig.CHAIN_ID
+                || cfg.expectedChainId == RobinhoodChainConfig.CHAIN_ID,
+            "EXPECTED_CHAIN_ID: island lighthouses deploy on Ethereum (1), Base (8453) or Robinhood (4663) only"
         );
         require(block.chainid == cfg.expectedChainId, "wrong chain for EXPECTED_CHAIN_ID");
 
@@ -134,6 +130,9 @@ contract DeployLighthouseLadderScript is Script {
             pool.MIN_BOOST() == (pool.MIN_STAKE() * pool.MIN_BOOST_BPS()) / pool.BPS(),
             "L-INV-12: MIN_BOOST drifted from MIN_STAKE - the two must stay one number"
         );
+        // Owner, 2026-10-18: every staking exit is 75%. The retired 25% build has
+        // the same ABI and ceremony, so only this line keeps it from going out.
+        require(pool.EARLY_EXIT_PENALTY_BPS() == 7_500, "L-INV-13: early exit is not 75% (the retired 25% build?)");
     }
 
     function _printSummary(Config memory cfg, Deployed memory d) internal view {
@@ -152,7 +151,7 @@ contract DeployLighthouseLadderScript is Script {
         console.log("LADDER: 7 days = 0.40x (TOWELI parity - the same ladder)");
         console.log("        4 years = 4.00x, linear in between. Ten-fold spread.");
         console.log("EXITS:  after the lock  -> principal + rewards, no penalty");
-        console.log("        before the lock -> principal - 25%, rewards paid");
+        console.log("        before the lock -> principal - 75%, rewards paid");
         console.log("        ALWAYS          -> emergencyWithdraw, principal only,");
         console.log("                           needing nothing from the reward path");
         console.log("");

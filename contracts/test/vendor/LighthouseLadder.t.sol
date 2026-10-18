@@ -232,8 +232,8 @@ contract LighthouseLadderTest is Test {
         uint256 before = token.balanceOf(alice);
         vm.prank(alice);
         pool.earlyExit(id);
-        assertEq(token.balanceOf(alice) - before, (STAKE * 75) / 100, "25% penalty taken");
-        assertEq(token.balanceOf(address(pool)), STAKE / 4, "penalty stays as reward budget");
+        assertEq(token.balanceOf(alice) - before, (STAKE * 25) / 100, "75% penalty taken");
+        assertEq(token.balanceOf(address(pool)), (STAKE * 75) / 100, "penalty stays as reward budget");
         assertEq(pool.totalSupply(), 0, "no principal claim remains");
     }
 
@@ -255,7 +255,7 @@ contract LighthouseLadderTest is Test {
         pool.emergencyWithdraw(id);
         // Principal back minus the same penalty — it escapes a broken reward
         // path, it is not a way to dodge the lock.
-        assertEq(token.balanceOf(alice) - before, (STAKE * 75) / 100);
+        assertEq(token.balanceOf(alice) - before, (STAKE * 25) / 100);
         assertEq(pool.totalSupply(), 0);
     }
 
@@ -266,6 +266,16 @@ contract LighthouseLadderTest is Test {
         vm.prank(alice);
         pool.emergencyWithdraw(id);
         assertEq(token.balanceOf(alice) - before, STAKE, "matured emergency exit keeps everything");
+    }
+
+    /// Owner, 2026-10-18: every staking exit on the venue costs 75% (Solana,
+    /// Ethereum, Base, Robinhood). The deploy script pins this constant (L-INV-13)
+    /// and the funding script refuses any other value, so a 25% build can be
+    /// neither deployed nor funded. Mutation check: script/mutate-ladder-exit.sh
+    /// sets the constant to 2_500 and expects this file to go red.
+    function test_earlyExitPenaltyIsSeventyFivePercent() public view {
+        assertEq(pool.EARLY_EXIT_PENALTY_BPS(), 7_500, "the venue-wide 75% exit");
+        assertEq(pool.BPS(), 10_000, "of principal, in basis points");
     }
 
     // ─────────────────── OTHER REVIEW FINDINGS ───────────────────

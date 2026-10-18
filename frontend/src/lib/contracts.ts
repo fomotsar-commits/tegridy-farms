@@ -432,7 +432,9 @@ export const LIGHTHOUSE_STAKING_ABI = [
 
 // ─── Island lighthouse LADDER (contracts/src/LighthouseLadder.sol) ───────────
 // The locked build that supersedes the plain StakingRewards pools: 0d..4y
-// locks, 1.00x..4.00x boost, 25% early-exit penalty, an always-open emergency
+// locks, 1.00x..4.00x boost, an early-exit penalty the card reads from the pool
+// (EARLY_EXIT_PENALTY_BPS: 75% since 2026-10-18; the live six charge 25% until
+// redeployed, docs/LADDER_EXIT_75_REDEPLOY.md), an always-open emergency
 // hatch, and reward payouts capped at balanceOf(pool) - totalSupply() so a
 // payout can never spend principal. `withdraw` is deliberately NOT the
 // canonical selector here — it takes a position id, not an amount, and reusing

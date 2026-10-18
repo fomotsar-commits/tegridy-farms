@@ -6,7 +6,7 @@ import { ConnectButton } from '@rainbow-me/rainbowkit';
 import type { Bungalow } from '../../lib/bungalows';
 import { LIGHTHOUSE_LADDER_ABI, ERC20_ABI } from '../../lib/contracts';
 import {
-  deriveLadder, boostLabel, boostBpsFor, projectedRawPerSec, penaltyOn, lockRemaining, MIN_STAKE_RAW,
+  deriveLadder, boostLabel, boostBpsFor, projectedRawPerSec, penaltyOn, penaltyPct, lockRemaining, MIN_STAKE_RAW,
   isC1UnsafeLadder,
 } from '../../lib/lighthouseLadder';
 import { fmtRaw, fmtRunway } from '../../lib/evmLighthouse';
@@ -96,6 +96,10 @@ export function EvmLadderPoolLive({ bungalow }: { bungalow: Bungalow & { stakePo
       // any figure is trusted (a design-review finding — a mispasted address
       // would otherwise render a stranger pool's numbers under our symbol).
       { ...poolC, functionName: 'stakingToken' },
+      // The exit penalty is the pool's own constant, read and never assumed: the
+      // six ladders live today charge 25%, the redeployed build 75% (owner,
+      // 2026-10-18). An unread penalty is no number, not a stale one.
+      { ...poolC, functionName: 'EARLY_EXIT_PENALTY_BPS' },
     ],
     query: { refetchInterval: 30_000 },
   });
@@ -107,6 +111,8 @@ export function EvmLadderPoolLive({ bungalow }: { bungalow: Bungalow & { stakePo
   const decimals = reads?.[6]?.status === 'success' ? Number(reads[6].result) : bungalow.decimals ?? 18;
   const poolToken = reads?.[12]?.status === 'success' ? String(reads[12].result) : null;
   const identityMismatch = poolToken !== null && poolToken.toLowerCase() !== token.toLowerCase();
+  const penaltyBps = big(13);
+  const penaltyWord = penaltyBps === null ? 'a penalty that could not be read just now' : penaltyPct(penaltyBps);
 
   const view = useMemo(
     () => deriveLadder({
@@ -187,7 +193,7 @@ export function EvmLadderPoolLive({ bungalow }: { bungalow: Bungalow & { stakePo
   const unfunded = view.vaultRaw !== null && view.vaultRaw === 0n;
   // A landed periodFinish in the past, or a pool paying 0 now (never funded, or a
   // rate of 0): no new stake (owner, 2026-10-14), as a lock of up to 4 years would
-  // earn nothing and leaving early costs 25%. Claim and every position exit stay.
+  // earn nothing and leaving early costs the pool's penalty. Claim and every position exit stay.
   // An unread end or rate holds Stake.
   const periodFinishRaw = big(4);
   const rewardsEnded = rewardsHaveEnded(periodFinishRaw, nowSecs);
@@ -244,7 +250,7 @@ export function EvmLadderPoolLive({ bungalow }: { bungalow: Bungalow & { stakePo
                 <p className="m-0">{rewardsZeroLine(view.everFunded === false)}</p>
                 <FinePrint summary="Why">
                   <p className="m-0">
-                    A lock here would earn nothing, and leaving before it opens costs 25%. Staking opens again
+                    A lock here would earn nothing, and leaving before it opens costs {penaltyWord}. Staking opens again
                     by itself once the pool is funded and pays a reward rate. Tokens merely sent to the pool
                     earn no one anything.
                   </p>
@@ -256,8 +262,8 @@ export function EvmLadderPoolLive({ bungalow }: { bungalow: Bungalow & { stakePo
               </p>
             )}
 
-            <p className="text-[11px] text-white/60 mb-4 leading-relaxed">
-              Longer locks earn a larger <em>share</em>. Leaving before your lock opens costs 25%.
+            <p className="text-[11px] text-white/60 mb-4 leading-relaxed" data-testid="ladder-exit-cost">
+              Longer locks earn a larger <em>share</em>. Leaving before your lock opens costs {penaltyWord}.
             </p>
 
             {/* THE WAY IN, above the ladder (owner, 2026-10-14: "see the stuff they are to
@@ -305,7 +311,7 @@ export function EvmLadderPoolLive({ bungalow }: { bungalow: Bungalow & { stakePo
                 Longer locks earn a larger <em>share</em>: 0.40× at seven days up to 4.00× at four years, the
                 venue&apos;s standard lock ladder. Rewards are
                 never paid out of anyone&apos;s principal: the contract caps every payout at its surplus, so your
-                deposit can always come back. Leaving before your lock opens costs 25%, which stays in the pool for
+                deposit can always come back. Leaving before your lock opens costs {penaltyWord}, which stays in the pool for
                 the stakers who waited. <strong>Emergency withdraw is always open</strong> and needs nothing from the
                 reward side.
               </p>
@@ -412,7 +418,7 @@ export function EvmLadderPoolLive({ bungalow }: { bungalow: Bungalow & { stakePo
                       {positions.map((p) => {
                         const left = lockRemaining(p.lockEnd, nowSecs);
                         const open = left === 0n;
-                        const fee = penaltyOn(p.amount);
+                        const fee = penaltyBps === null ? null : penaltyOn(p.amount, penaltyBps);
                         return (
                           <div key={String(p.id)} className="flex flex-wrap items-center gap-2 text-[12px]">
                             <span className="text-white tabular-nums">{fmtRaw(p.amount, decimals)} {bungalow.symbol}</span>
@@ -428,14 +434,16 @@ export function EvmLadderPoolLive({ bungalow }: { bungalow: Bungalow & { stakePo
                               </button>
                             ) : (
                               <button type="button" disabled={busy !== null} className="btn-secondary px-3 py-1 text-[11px] disabled:opacity-50"
-                                title={`Leaving early costs ${fmtRaw(fee, decimals)} ${bungalow.symbol} (25%), which stays in the pool for the stakers who waited.`}
+                                title={fee === null
+                                  ? 'The penalty could not be read just now. The pool charges it either way, and it stays in the pool for the stakers who waited.'
+                                  : `Leaving early costs ${fmtRaw(fee, decimals)} ${bungalow.symbol} (${penaltyWord}), which stays in the pool for the stakers who waited.`}
                                 onClick={() => send('e' + p.id, () => writeContractAsync({ ...poolC, functionName: 'earlyExit', args: [p.id] }))}>
-                                Exit early (−{fmtRaw(fee, decimals)})
+                                {fee === null ? 'Exit early' : `Exit early (−${fmtRaw(fee, decimals)})`}
                               </button>
                             )}
                             {/* AUDIT (2026-09-01): this used to promise "Principal
                                 only" unconditionally. On a LOCKED position that is
-                                false — emergencyWithdraw applies the SAME 25%
+                                false — emergencyWithdraw applies the SAME
                                 penalty as earlyExit
                                 (LighthouseLadder.sol: `if (block.timestamp <
                                 p.lockEnd) out = amount - penalty`). A user taking
@@ -446,9 +454,11 @@ export function EvmLadderPoolLive({ bungalow }: { bungalow: Bungalow & { stakePo
                             <button type="button" disabled={busy !== null} className="text-[11px] text-white/45 hover:text-white underline underline-offset-2"
                               title={open
                                 ? 'Principal only, forfeiting unclaimed rewards, using nothing from the reward side. Always available — this is the last resort if rewards are ever broken.'
-                                : `Still locked, so this costs the same ${fmtRaw(fee, decimals)} ${bungalow.symbol} (25%) as exiting early, AND forfeits unclaimed rewards. It uses nothing from the reward side, so it works even if rewards are broken — that is the only reason to prefer it over Exit early.`}
+                                : fee === null
+                                  ? 'Still locked, so this costs the same penalty as exiting early (it could not be read just now), AND forfeits unclaimed rewards. It uses nothing from the reward side, so it works even if rewards are broken, which is the only reason to prefer it over Exit early.'
+                                  : `Still locked, so this costs the same ${fmtRaw(fee, decimals)} ${bungalow.symbol} (${penaltyWord}) as exiting early, AND forfeits unclaimed rewards. It uses nothing from the reward side, so it works even if rewards are broken — that is the only reason to prefer it over Exit early.`}
                               onClick={() => send('x' + p.id, () => writeContractAsync({ ...poolC, functionName: 'emergencyWithdraw', args: [p.id] }))}>
-                              {open ? 'emergency' : `emergency (−${fmtRaw(fee, decimals)})`}
+                              {open || fee === null ? 'emergency' : `emergency (−${fmtRaw(fee, decimals)})`}
                             </button>
                           </div>
                         );
