@@ -8,6 +8,7 @@ import { isAddress } from 'viem';
 import { GALLERY_ORDER, UNIQUE_GALLERY_COUNT, pageArt, artStyle } from '../lib/artConfig';
 import { isLauncherEnabled } from '../lib/launcher/config';
 import { isSolanaSwapLive } from '../lib/solana';
+import { chainHref, tabServes } from '../lib/sectionChains';
 import { useFarmStats } from '../hooks/useFarmStats';
 import { useLpEmissionsPhase } from '../hooks/useLpEmissionsPhase';
 import { farmCardStat, farmCardDesc } from '../lib/lpEmissions';
@@ -307,13 +308,25 @@ export default function HomePage() {
               >
                 ETHEREUM
               </Link>
+              {/* Base and Robinhood Chain open the curve ON their chain (`?c=`): a bare /eth-curve
+                  shows the wallet's chain, or mainnet with no wallet. Robinhood's pill is drawn
+                  only while its launcher is in the registry, as the Launch drop-down reads it. */}
               <Link
-                to="/eth-curve"
+                to={chainHref('/eth-curve', 'base')}
                 aria-label="Live on Base: launch and trade on the curve"
                 className="badge badge-chain-base relative before:absolute before:content-[''] before:inset-x-0 before:-inset-y-[11px] text-[10px] no-underline hover:brightness-110 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent focus-visible:ring-[#2151f5]"
               >
                 BASE
               </Link>
+              {tabServes('/eth-curve', 'robinhood') && (
+                <Link
+                  to={chainHref('/eth-curve', 'robinhood')}
+                  aria-label="Live on Robinhood Chain: launch and trade on the curve"
+                  className="badge badge-chain-robinhood relative before:absolute before:content-[''] before:inset-x-0 before:-inset-y-[11px] text-[10px] no-underline hover:brightness-110 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent focus-visible:ring-[#CCFF00]"
+                >
+                  ROBINHOOD
+                </Link>
+              )}
             </div>
 
             {/* Jungle Bay bungalows: when the active bungalow speaks for itself
