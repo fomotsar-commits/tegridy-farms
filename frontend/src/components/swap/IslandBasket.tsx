@@ -39,6 +39,8 @@ export function IslandBasketButton({ count, onOpen }: { count: number; onOpen: (
       type="button"
       onClick={onOpen}
       aria-haspopup="dialog"
+      // Not "Buy …" first: the form's own Buy button is the one a reader (or a script) looks for by that word.
+      aria-label={`Island order: Buy all bungalows, ${count} coins`}
       data-testid="island-basket-open"
       className="inline-flex items-center gap-1.5 px-2.5 py-1 min-h-[32px] rounded-full text-[11px] font-semibold text-white transition-colors hover:bg-white/15"
       style={{ background: 'rgba(0,0,0,0.55)', border: '1px solid rgba(255,255,255,0.22)' }}
@@ -72,6 +74,8 @@ export function IslandBasketDialog(p: {
   after?: ReactNode;
   finePrint: ReactNode;
 }) {
+  // Mounted only while open: a closed order costs the swap card nothing.
+  if (!p.open) return null;
   return (
     <Modal
       open={p.open}

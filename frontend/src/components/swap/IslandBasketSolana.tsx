@@ -5,7 +5,7 @@ import { useConnection, useWallet } from '@solana/wallet-adapter-react';
 import { SOL_MINT, SOLANA_PLATFORM_FEE_BPS, isSolanaFeeConfigured } from '../../lib/solana';
 import { NoRouteError, buildSwapTransaction, fromBaseUnits, getQuote, getUsdPrices, simulateSwap, swapCarriesPlatformFee, type JupiterQuote, type PriorityLevel } from '../../lib/jupiter';
 import { MIN_USD_PER_COIN, SOL_BASKET, shortAmount, splitEvenly, usdText, usdToBaseUnits, type SolBasketCoin } from '../../lib/islandBasket';
-import { pinnedGetQuote, prepareSolLeg, solLegRoute, BASKET_COPY, PoolNotNamedError } from '../../lib/solana/swap/islandBasketSol';
+import { pinnedGetQuote, prepareSolLeg, retryingGetQuote, solLegRoute, BASKET_COPY, PoolNotNamedError } from '../../lib/solana/swap/islandBasketSol';
 import type { VenuePoolCandidate } from '../../lib/solana/swap/venuePools';
 import { pollConfirm } from '../../lib/solana/confirm';
 import { readSendThrow } from '../../lib/solana/walletThrow';
@@ -23,8 +23,10 @@ import { BasketCta, IslandBasketButton, IslandBasketDialog, type BasketRow, type
 
 /** A quote older than this is asked for again while the order is open (the swap's own window). */
 const REQUOTE_MS = 30_000;
-/** Between one coin's Jupiter quote and the next, so five quotes do not land as one burst. */
-const QUOTE_GAP_MS = 250;
+/** Between one coin's Jupiter quote and the next: Jupiter's keyless tier refuses a burst. */
+const QUOTE_GAP_MS = 1_100;
+/** Jupiter's quote, asked once more after a refusal (a rate limit is a wait, not a missing price). */
+const quoteJupiter = retryingGetQuote(getQuote);
 /** How long a sent coin is watched before the order says it cannot tell (the swap's own wait). */
 const CONFIRM_TIMEOUT_MS = 90_000;
 /** About what opening one coin's account costs (rent, refunded if it is closed), plus its fees. */
@@ -46,9 +48,13 @@ const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 /** A coin a press may (re)buy: never one bought, one left for our pool's review, or one we cannot tell about. */
 const buyable = (s: LegState | undefined): boolean => !s || s.kind === 'not-sent' || s.kind === 'refused';
 
-/** Where a coin goes on the quotes shown, and what it is quoted to pay there. */
-function shownRoute(q: LegQuote | undefined): { decision: 'own' | 'jupiter' | 'none'; out: bigint | null } | null {
+/**
+ * Where a coin goes on the quotes shown, and what it is quoted to pay there. A Jupiter price
+ * that could not be read is `unread`: never a route for our pool by default.
+ */
+function shownRoute(q: LegQuote | undefined): { decision: 'own' | 'jupiter' | 'none' | 'unread'; out: bigint | null } | null {
   if (!q) return null;
+  if (!q.jupiter && !q.why) return { decision: 'unread', out: null };
   let jup: bigint | null;
   try { jup = q.jupiter ? BigInt(q.jupiter.outAmount) : null; } catch { jup = null; }
   const decision = solLegRoute(jup, q.own ?? []);
@@ -69,7 +75,10 @@ export function IslandBasketSolana(p: {
   onOwnLeg: (coin: SolBasketCoin, lamports: bigint) => void;
   /** The swap form has a trade on its way, or a sent one holds this wallet. */
   busy: boolean;
+  /** Tests pass 0; QUOTE_GAP_MS otherwise. */
+  quoteGapMs?: number;
 }) {
+  const gap = p.quoteGapMs ?? QUOTE_GAP_MS;
   const { connection } = useConnection();
   const { publicKey, sendTransaction } = useWallet();
   const [open, setOpen] = useState(false);
@@ -129,10 +138,10 @@ export function IslandBasketSolana(p: {
     const out: LegQuote[] = [];
     for (let i = 0; i < ls.length; i++) {
       if (!live()) return null;
-      if (i > 0) await wait(QUOTE_GAP_MS);
+      if (i > 0 && gap > 0) await wait(gap);
       const l = ls[i]!;
       try {
-        const jupiter = await pinnedGetQuote(getQuote, l.coin)({ inputMint: SOL_MINT, outputMint: l.coin.mint, amount: l.amountIn.toString(), slippageBps: p.slippageBps });
+        const jupiter = await pinnedGetQuote(quoteJupiter, l.coin)({ inputMint: SOL_MINT, outputMint: l.coin.mint, amount: l.amountIn.toString(), slippageBps: p.slippageBps });
         out.push({ jupiter, own: own[i] ?? null, why: null });
       } catch (e) {
         const why = e instanceof PoolNotNamedError ? BASKET_COPY.poolNotNamed : e instanceof NoRouteError ? BASKET_COPY.noRoute : null;
@@ -140,7 +149,7 @@ export function IslandBasketSolana(p: {
       }
     }
     return out;
-  }, [p.slippageBps]);
+  }, [p.slippageBps, gap]);
 
   const latest = useRef(0);
   useEffect(() => {
@@ -190,7 +199,7 @@ export function IslandBasketSolana(p: {
         setLeg(i, { kind: 'busy', text: 'Checking…' });
         const prepared = await prepareSolLeg(
           {
-            getQuote: pinnedGetQuote(getQuote, leg.coin),
+            getQuote: pinnedGetQuote(quoteJupiter, leg.coin),
             buildSwapTransaction,
             simulateSwap: (b64) => simulateSwap(b64),
             swapCarriesPlatformFee,
@@ -270,7 +279,7 @@ export function IslandBasketSolana(p: {
   const rows: BasketRow[] = SOL_BASKET.map((coin, i) => {
     const r = shownRoute(shown?.[i]);
     const s = states[i];
-    const venue = !r ? null : r.decision === 'own' ? 'Our pool' : r.decision === 'jupiter' ? `${coin.pool.dex === 'pumpswap' ? 'PumpSwap' : 'Raydium'} via Jupiter` : 'No route';
+    const venue = !r ? null : r.decision === 'own' ? 'Our pool' : r.decision === 'jupiter' ? `${coin.pool.dex === 'pumpswap' ? 'PumpSwap' : 'Raydium'} via Jupiter` : r.decision === 'unread' ? 'Price not read' : 'No route';
     const status: BasketRow['status'] =
       !s ? (shown?.[i] && shown[i]!.own === null ? { tone: 'muted', text: 'Our pools not read' } : undefined)
       : s.kind === 'busy' ? { tone: 'busy', text: s.text }
@@ -296,8 +305,8 @@ export function IslandBasketSolana(p: {
   const summary = total !== null ? `${n} coins · ${usdText(perCoin)} each · ≈ ${sol(total).toFixed(4)} SOL` : null;
   const left = legs ? legs.filter((_, i) => buyable(states[i])).length : n;
   const started = Object.keys(states).length > 0;
-  // A coin with no Jupiter price, no pool of ours that quoted, and no reason given: its read failed.
-  const unread = shown?.some((q) => !q.jupiter && !q.why && shownRoute(q)?.decision !== 'own') ?? false;
+  // A coin whose Jupiter price could not be read: the order waits for it, whatever our pools quote.
+  const unread = shown?.some((q) => shownRoute(q)?.decision === 'unread') ?? false;
   const reserve = PER_COIN_RESERVE_LAMPORTS * BigInt(n);
   const short = total !== null && lamports !== null && lamports < total;
   const tight = total !== null && lamports !== null && !short && lamports < total + reserve;

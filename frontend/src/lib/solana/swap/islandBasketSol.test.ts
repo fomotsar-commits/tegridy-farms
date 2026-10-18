@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { NoRouteError, type JupiterQuote } from '../../jupiter';
 import { SOL_BASKET } from '../../islandBasket';
 import { NOT_TEST_RUN_COPY } from './jupiterFeeRetry';
-import { BASKET_COPY, PoolNotNamedError, pinnedGetQuote, prepareSolLeg, quotedPool, solLegRoute, type SolLegDeps } from './islandBasketSol';
+import { BASKET_COPY, PoolNotNamedError, pinnedGetQuote, prepareSolLeg, quotedPool, retryingGetQuote, solLegRoute, type SolLegDeps } from './islandBasketSol';
 import type { VenuePoolCandidate } from './venuePools';
 
 const SOL = 'So11111111111111111111111111111111111111112';
@@ -105,3 +105,24 @@ describe('prepareSolLeg', () => {
     await expect(prepareSolLeg(deps({ simulateSwap: async () => { throw new Error('rpc down'); } }), base)).resolves.toEqual({ kind: 'not-sent', why: NOT_TEST_RUN_COPY });
   });
 });
+
+describe('retryingGetQuote', () => {
+  const ask = { inputMint: SOL, outputMint: brainlet.mint, amount: '1000', slippageBps: 100 };
+  it('asks once more after a wait when a quote is refused (a rate limit), and returns that answer', async () => {
+    const get = vi.fn().mockRejectedValueOnce(new Error('Quote unavailable (429)')).mockResolvedValueOnce(quote('7'));
+    const slept: number[] = [];
+    await expect(retryingGetQuote(get, 2_500, async (ms) => { slept.push(ms); })(ask)).resolves.toMatchObject({ outAmount: '7' });
+    expect(get).toHaveBeenCalledTimes(2);
+    expect(slept).toEqual([2_500]);
+  });
+
+  it('does not ask again on Jupiter’s own "no route", and gives up after the one retry', async () => {
+    const none = vi.fn().mockRejectedValue(new NoRouteError());
+    await expect(retryingGetQuote(none, 0, async () => {})(ask)).rejects.toBeInstanceOf(NoRouteError);
+    expect(none).toHaveBeenCalledTimes(1);
+    const down = vi.fn().mockRejectedValue(new Error('Quote unavailable (502)'));
+    await expect(retryingGetQuote(down, 0, async () => {})(ask)).rejects.toThrow('502');
+    expect(down).toHaveBeenCalledTimes(2);
+  });
+});
+

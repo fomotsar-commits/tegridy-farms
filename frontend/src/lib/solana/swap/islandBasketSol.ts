@@ -43,6 +43,23 @@ export function quotedPool(q: Pick<JupiterQuote, 'routePlan'>): string | null {
 
 type GetQuote = (p: Parameters<FeeRetryDeps['getQuote']>[0] & { pin?: { dex: string } }) => Promise<JupiterQuote>;
 
+/**
+ * `getQuote`, asked once more after `waitMs` when it fails for any reason but Jupiter's own
+ * "no route". Jupiter's keyless tier refuses a burst of quotes (five in a row was enough,
+ * 2026-10-18) and the order asks for one per coin: a refusal is a wait, not a missing price.
+ */
+export function retryingGetQuote(getQuote: GetQuote, waitMs = 2_500, sleep: (ms: number) => Promise<unknown> = (ms) => new Promise((r) => setTimeout(r, ms))): GetQuote {
+  return async (p) => {
+    try {
+      return await getQuote(p);
+    } catch (e) {
+      if (e instanceof NoRouteError) throw e;
+      await sleep(waitMs);
+      return getQuote(p);
+    }
+  };
+}
+
 /** `getQuote`, held to `coin`'s pool: every answer, the no-fee retry's included, must name it. */
 export function pinnedGetQuote(getQuote: GetQuote, coin: SolBasketCoin): FeeRetryDeps['getQuote'] {
   return async (p) => {

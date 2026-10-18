@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { renderWithProviders } from '../../test-utils/render';
-import { SOL_BASKET } from '../../lib/islandBasket';
+import { SOL_BASKET, type SolBasketCoin } from '../../lib/islandBasket';
 
 const SOL = 'So11111111111111111111111111111111111111112';
 const h = vi.hoisted(() => ({
@@ -9,6 +9,8 @@ const h = vi.hoisted(() => ({
   prepare: vi.fn(),
   confirm: vi.fn(),
   balance: 10_000_000_000,
+  failQuoteFor: null as string | null,
+  own: [] as unknown[],
 }));
 
 vi.mock('@solana/wallet-adapter-react', () => ({
@@ -22,14 +24,17 @@ vi.mock('@solana/web3.js', async (orig) => {
 vi.mock('../../lib/jupiter', async (orig) => ({
   ...(await orig<typeof import('../../lib/jupiter')>()),
   getUsdPrices: async () => ({ [SOL]: 100 }),
-  // Every coin quoted through the pool the list names.
-  getQuote: async (p: { outputMint: string }) => ({
+  // Every coin quoted through the pool the list names; `failQuoteFor` refuses one coin's quote every time.
+  getQuote: async (p: { outputMint: string }) => {
+    if (p.outputMint === h.failQuoteFor) throw new Error('Quote unavailable (429)');
+    return {
     inputMint: SOL, outputMint: p.outputMint, inAmount: '1', outAmount: '5000000', otherAmountThreshold: '1', swapMode: 'ExactIn', slippageBps: 50, priceImpactPct: '0',
     routePlan: [{ percent: 100, swapInfo: { ammKey: SOL_BASKET.find((c) => c.mint === p.outputMint)!.pool.address } }],
-  }),
+    };
+  },
 }));
 vi.mock('../../lib/solana/swap/islandBasketSol', async (orig) => ({ ...(await orig<typeof import('../../lib/solana/swap/islandBasketSol')>()), prepareSolLeg: h.prepare }));
-vi.mock('./useSolanaRoute', () => ({ readOwnPoolsFor: async () => [] }));
+vi.mock('./useSolanaRoute', () => ({ readOwnPoolsFor: async () => h.own }));
 vi.mock('../../lib/solana/confirm', () => ({ pollConfirm: h.confirm }));
 vi.mock('../../lib/solana/blockhashWindow', () => ({ blockhashSeen: async () => null, recentBlockhashOf: () => null }));
 vi.mock('../../lib/solanaActivity', () => ({ recordActivity: vi.fn() }));
@@ -40,10 +45,10 @@ import { IslandBasketSolana } from './IslandBasketSolana';
 
 const ready = { kind: 'ready', quote: { outAmount: '5000000' }, swapTransaction: 'AAAA', siteFeeWaived: false };
 const pending = () => ({ hold: vi.fn(), release: vi.fn(), holdsNow: vi.fn(() => false) });
-const mount = (o: { pending?: ReturnType<typeof pending>; onOwnLeg?: ReturnType<typeof vi.fn> } = {}) => {
+const mount = (o: { pending?: ReturnType<typeof pending> } = {}) => {
   const p = o.pending ?? pending();
-  const onOwnLeg = o.onOwnLeg ?? vi.fn();
-  renderWithProviders(<IslandBasketSolana slippageBps={50} priority="high" pending={p} onOwnLeg={onOwnLeg} busy={false} />);
+  const onOwnLeg = vi.fn<(coin: SolBasketCoin, lamports: bigint) => void>();
+  renderWithProviders(<IslandBasketSolana slippageBps={50} priority="high" pending={p} onOwnLeg={onOwnLeg} busy={false} quoteGapMs={0} />);
   return { p, onOwnLeg };
 };
 const openAndPrice = async () => {
@@ -55,6 +60,8 @@ const status = (room: string) => screen.getByTestId(`island-basket-row-${room}`)
 beforeEach(() => {
   vi.clearAllMocks();
   h.balance = 10_000_000_000;
+  h.failQuoteFor = null;
+  h.own = [];
   h.prepare.mockResolvedValue(ready);
   let n = 0;
   h.send.mockImplementation(async () => `sig${++n}`);
@@ -148,4 +155,14 @@ describe('IslandBasketSolana', () => {
     fireEvent.click(screen.getByTestId('island-basket-open'));
     await waitFor(() => expect(screen.getByTestId('island-basket-buy')).toHaveTextContent('Not enough SOL'));
   });
+
+  it('a Jupiter price that could not be read holds the order, even where our pool quotes: a failed read is never "our pool wins"', async () => {
+    h.failQuoteFor = SOL_BASKET[0]!.mint;
+    h.own = [{ venue: 'own-pool', outAmount: 1n, label: 'venue pool', poolAddress: 'OwnPool111' }];
+    mount();
+    fireEvent.click(screen.getByTestId('island-basket-open'));
+    await waitFor(() => expect(screen.getByTestId('island-basket-buy')).toHaveTextContent('A price could not be read'), { timeout: 10_000 });
+    expect(within(status('bayla')).getByText('Price not read')).toBeInTheDocument();
+    expect(screen.getByTestId('island-basket-buy')).toBeDisabled();
+  }, 15_000);
 });
