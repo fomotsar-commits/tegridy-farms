@@ -1,7 +1,7 @@
-// The 1% venue fee on a native listing is enforced by the SERVER.
+// The 0.5% venue fee on a native listing is enforced by the SERVER.
 //
 // createNativeListing / createNativeBundleListing (src/nakamigos/lib/orderbook.js) add a
-// consideration item paying 1% of the price to the treasury Safe, but the client is
+// consideration item paying 0.5% of the price to the treasury Safe, but the client is
 // optional: a hand-built Seaport order POSTed straight to /api/orderbook was stored and
 // served with a live Buy button whether or not it paid the venue anything.
 import { describe, it, expect, beforeEach, vi } from "vitest";
@@ -63,7 +63,7 @@ vi.mock("@supabase/supabase-js", () => ({
 }));
 
 const PRICE = 1_234_567_890_123_456_789n;
-const FEE = (PRICE * 100n) / 10000n;
+const FEE = (PRICE * 50n) / 10000n;
 const eth = (amount, recipient, itemType = 0) => ({
   itemType, token: ZERO_ADDR, identifierOrCriteria: "0",
   startAmount: amount.toString(), endAmount: amount.toString(), recipient,
@@ -125,7 +125,7 @@ const REFUSED = [
   ["omits the fee amount", () => [eth(PRICE - FEE, SELLER), { ...eth(FEE, TREASURY), startAmount: undefined, endAmount: undefined }]],
 ];
 
-describe("orderbook create: the 1% venue fee", () => {
+describe("orderbook create: the 0.5% venue fee", () => {
   let handler;
   beforeEach(async () => {
     vi.resetModules();
@@ -155,7 +155,7 @@ describe("orderbook create: the 1% venue fee", () => {
   });
 });
 
-describe("orderbook create-bundle: the 1% venue fee", () => {
+describe("orderbook create-bundle: the 0.5% venue fee", () => {
   let handler;
   beforeEach(async () => {
     vi.resetModules();
@@ -187,8 +187,15 @@ describe("the server's fee terms", () => {
     expect(PLATFORM_FEE_BPS).toBe(BigInt(CLIENT_BPS));
   });
 
-  it("round down like the client on a price that does not divide by 100", () => {
-    expect(platformFeeError([eth(198n, SELLER), eth(1n, TREASURY)], 199n)).toBeNull();
-    expect(platformFeeError([eth(197n, SELLER), eth(2n, TREASURY)], 199n)).toMatch(/exactly 1 wei/);
+  // The owner's call of 2026-10-18: half of OpenSea's 1%.
+  it("are 0.5% (50 bps)", () => {
+    expect(CLIENT_BPS).toBe(50);
+    expect(PLATFORM_FEE_BPS).toBe(50n);
+  });
+
+  it("round down like the client when the fee is not a whole wei", () => {
+    // 0.5% of 399 wei is 1.995 wei: the fee is 1, never 2.
+    expect(platformFeeError([eth(398n, SELLER), eth(1n, TREASURY)], 399n)).toBeNull();
+    expect(platformFeeError([eth(397n, SELLER), eth(2n, TREASURY)], 399n)).toMatch(/exactly 1 wei/);
   });
 });

@@ -547,20 +547,20 @@ describe("orderbook create — F10 seaportOrderHash claim verification", () => {
       offerer,
       zone: "0x0000000000000000000000000000000000000000",
       offer: [{ itemType: 2, token: NAKAMIGOS, identifierOrCriteria: "42", startAmount: "1", endAmount: "1" }],
-      // createNativeListing's split of 1 ETH: the seller's share, then 1% to the treasury.
+      // createNativeListing's split of 1 ETH: the seller's share, then 0.5% to the treasury.
       consideration: [{
         itemType: 0,
         token: "0x0000000000000000000000000000000000000000",
         identifierOrCriteria: "0",
-        startAmount: "990000000000000000",
-        endAmount: "990000000000000000",
+        startAmount: "995000000000000000",
+        endAmount: "995000000000000000",
         recipient: offerer,
       }, {
         itemType: 0,
         token: "0x0000000000000000000000000000000000000000",
         identifierOrCriteria: "0",
-        startAmount: "10000000000000000",
-        endAmount: "10000000000000000",
+        startAmount: "5000000000000000",
+        endAmount: "5000000000000000",
         recipient: "0x7D2620243EdAd69Ec81A53c4A063B07995A4Bd7d",
       }],
       orderType: 0, // FULL_OPEN (was a stale pre-2026-06-10 fixture; 2 = FULL_RESTRICTED is unbuyable with a zero zone, and the server now refuses it)

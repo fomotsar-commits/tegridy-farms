@@ -114,8 +114,8 @@ function buildOrder({ priceWei = "1000000000000000000", offerer = OFFERER } = {}
   const now = Math.floor(Date.now() / 1000);
   const seaportSig = "0x" + "1".repeat(130);
   const authSig = "0x" + "2".repeat(130);
-  // createNativeListing's split: the seller's share, then 1% to the treasury.
-  const feeWei = (BigInt(priceWei) * 100n) / 10000n;
+  // createNativeListing's split: the seller's share, then 0.5% to the treasury.
+  const feeWei = (BigInt(priceWei) * 50n) / 10000n;
   const sellerWei = (BigInt(priceWei) - feeWei).toString();
   return {
     parameters: {

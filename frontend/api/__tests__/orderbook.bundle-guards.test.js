@@ -36,10 +36,10 @@ const CANONICAL_CONDUIT = "0x0000007b02230091a7ed01230072f7006a004d60a8d4e71d599
 const ZERO_ADDR = "0x" + "0".repeat(40);
 const ZERO32 = "0x" + "0".repeat(64);
 const TREASURY = "0x7D2620243EdAd69Ec81A53c4A063B07995A4Bd7d";
-// createNativeListing's split of 1 ETH: the seller's share, then 1% to the treasury.
+// createNativeListing's split of 1 ETH: the seller's share, then 0.5% to the treasury.
 const clientConsideration = () => [
-  { itemType: 0, token: ZERO_ADDR, identifierOrCriteria: "0", startAmount: "990000000000000000", endAmount: "990000000000000000", recipient: SELLER },
-  { itemType: 0, token: ZERO_ADDR, identifierOrCriteria: "0", startAmount: "10000000000000000", endAmount: "10000000000000000", recipient: TREASURY },
+  { itemType: 0, token: ZERO_ADDR, identifierOrCriteria: "0", startAmount: "995000000000000000", endAmount: "995000000000000000", recipient: SELLER },
+  { itemType: 0, token: ZERO_ADDR, identifierOrCriteria: "0", startAmount: "5000000000000000", endAmount: "5000000000000000", recipient: TREASURY },
 ];
 
 vi.mock("viem", () => ({

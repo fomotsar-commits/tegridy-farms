@@ -113,8 +113,8 @@ describe("the landing lists nine collections", () => {
     await renderLanding();
     // The visible money line (owner 2026-10-14: one line), and the full
     // sentence it used to be, kept word for word in the closed small print.
-    expect(screen.getByText("Flat 1% fee on the 4 collections that trade here. It funds the treasury.")).toBeVisible();
-    expect(screen.getByText("Native listings: one flat 1% fee on the 4 collections that trade here, every fee funds the treasury")).toBeInTheDocument();
+    expect(screen.getByText("Flat 0.5% fee on the 4 collections that trade here. It funds the treasury.")).toBeVisible();
+    expect(screen.getByText("Native listings: one flat 0.5% fee on the 4 collections that trade here, every fee funds the treasury")).toBeInTheDocument();
   });
 
   it("the first screen says what to press: Browse, Buy, Sell / List, Make offer", async () => {

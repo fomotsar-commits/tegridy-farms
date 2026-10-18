@@ -573,9 +573,8 @@ export default function Modal({ nft, onClose, onTheater, onShare, isFavorite, on
           {/* List-for-sale funnel — owner-only. Native listing creation is only
               reachable from the "My NFTs" tab today, so surface it here where the
               owner is already looking at their token. Routes to the tested Bulk
-              List wizard (pure navigation — no new money-path code). Fee is parity
-              with OpenSea (~1%), so the honest edge is that fees fund the Tegridy
-              treasury with 0% royalty — not a cheaper headline. */}
+              List wizard (pure navigation — no new money-path code). Fee is 0.5%,
+              half of OpenSea's 1%, and it funds the Tegridy treasury. */}
           {/* Suppressed once the token already has a live order — "List for sale"
               on an active listing is redundant; cancelling lives in My Listings. */}
           {onList && wallet && nft?.owner && !nft.orderHash && wallet.toLowerCase() === nft.owner.toLowerCase() && (
