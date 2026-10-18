@@ -8,6 +8,7 @@ page keeps the newest thirty days.
 
 ### 2026-10-18
 
+- The marketplace fee on native listings is now 0.5%, half of OpenSea's 1%, and a listing that skips it is refused.
 - BOBO, SOY, BRAINLET and RIZZ each have a SOL pool on the venue now, so each room gets Add SOL + its coin, second on its first screen, as BAYLA's has.
 
 ### 2026-10-17
