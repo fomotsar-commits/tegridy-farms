@@ -20,6 +20,7 @@ import {
   MIN_LOCK_SECS,
   MIN_STAKE_RAW,
   PENALTY_BPS,
+  LIVE_LADDER_EXIT_BPS,
   type LadderReads,
 } from './lighthouseLadder';
 
@@ -190,6 +191,15 @@ describe('the exit costs', () => {
     const m = /uint256 public constant EARLY_EXIT_PENALTY_BPS = ([\d_]+);/.exec(sol);
     expect(m, 'EARLY_EXIT_PENALTY_BPS not found in LighthouseLadder.sol — re-anchor this test').not.toBeNull();
     expect(PENALTY_BPS).toBe(BigInt(m![1]!.replace(/_/g, '')));
+  });
+
+  it('the live number is one of the two builds that ever shipped, and the card never uses it', () => {
+    // 2_500n until the owner redeploys (docs/LADDER_EXIT_75_REDEPLOY.md), then PENALTY_BPS.
+    expect([2_500n, PENALTY_BPS]).toContain(LIVE_LADDER_EXIT_BPS);
+    const here = dirname(fileURLToPath(import.meta.url));
+    const card = readFileSync(join(here, '..', 'components', 'bungalow', 'EvmLadderPoolLive.tsx'), 'utf8');
+    expect(card).not.toContain('LIVE_LADDER_EXIT_BPS');
+    expect(card).toContain("functionName: 'EARLY_EXIT_PENALTY_BPS'");
   });
 
   it('counts down a lock and stops at zero rather than going negative', () => {

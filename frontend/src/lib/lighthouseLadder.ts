@@ -45,6 +45,13 @@ export const MAX_BOOST_BPS = 40_000n;
  */
 export const PENALTY_BPS = 7_500n;
 /**
+ * What the ladders the registry ships charge TODAY: the six of 2026-09-05, at 25%.
+ * Build-time copy (llms.txt) says this number; the card itself reads the pool. The
+ * repin PR sets it to PENALTY_BPS, and scripts/verify-ladder-builds.mjs fails any
+ * shipped pool whose exit differs from it, so the site and the chain cannot drift.
+ */
+export const LIVE_LADDER_EXIT_BPS = 2_500n;
+/**
  * The contract's `MIN_STAKE` dust floor, in RAW units, not scaled by decimals:
  * it is a plain `100e18` in Solidity and the deploy script refuses any staking
  * token that is not 18-decimal. Mirrored so the panel says "below the minimum"

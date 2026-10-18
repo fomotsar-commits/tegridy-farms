@@ -169,7 +169,8 @@ export function collectFacts(ledger: AddressLedger, deployConfig?: RedirectConfi
     ladderStaking: {
       minLockSeconds: Number(ladder.MIN_LOCK_SECS),
       maxLockSeconds: Number(ladder.MAX_LOCK_SECS),
-      earlyExitBps: Number(ladder.PENALTY_BPS),
+      // The pools live today, not the build: 25% until the owner's 75% redeploy lands.
+      earlyExitBps: Number(ladder.LIVE_LADDER_EXIT_BPS),
       minBoostBps: Number(ladder.MIN_BOOST_BPS),
       maxBoostBps: Number(ladder.MAX_BOOST_BPS),
     },

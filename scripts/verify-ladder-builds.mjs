@@ -51,11 +51,17 @@ export const AUDITED_EXIT_PENALTY_BPS = 7500n;
 /** The 2026-09-05 six charge this. Retired the same day the 75% was ruled; redeploy pending. */
 export const RETIRED_EXIT_PENALTY_BPS = 2500n;
 /**
- * True while the registry still ships the 25% six: they pass with a WARN so the
- * daily job stays honest about what is live. The repin PR flips this to false
- * (docs/LADDER_EXIT_75_REDEPLOY.md), and a 25% pool fails from then on.
+ * The exit the SITE says the shipped ladders charge: `LIVE_LADDER_EXIT_BPS` in
+ * frontend/src/lib/lighthouseLadder.ts, read as text like the registry. A shipped
+ * pool whose exit differs from it fails here, so a repin that forgets the switch,
+ * or a switch flipped before the repin, is caught by the daily job.
  */
-export const ACCEPT_RETIRED_EXIT_UNTIL_REPIN = true;
+const LIVE_SWITCH = join(HERE, '..', 'frontend', 'src', 'lib', 'lighthouseLadder.ts');
+export function parseLiveExitBps(src) {
+  const m = /export const LIVE_LADDER_EXIT_BPS = ([\d_]+)n;/.exec(src);
+  if (!m) throw new Error('LIVE_LADDER_EXIT_BPS not found in lighthouseLadder.ts');
+  return BigInt(m[1].replace(/_/g, ''));
+}
 
 // ── registry parsing (pure, self-tested) ──────────────────────────────────
 
@@ -87,7 +93,7 @@ export function parseLadders(src) {
  */
 export function classify(
   { codeBytes, totalBoosted, minStake, minBoost, exitPenalty },
-  { acceptRetiredExit = ACCEPT_RETIRED_EXIT_UNTIL_REPIN } = {},
+  { liveExitBps = AUDITED_EXIT_PENALTY_BPS } = {},
 ) {
   if (!codeBytes) return { build: 'absent', ok: false, note: 'no contract at this address' };
   if (totalBoosted === null) {
@@ -103,15 +109,18 @@ export function classify(
     // A floor that does not match its own boost derivation is a half-applied fix.
     return { build: 'unaudited', ok: false, note: `MIN_BOOST ${minBoost} does not derive from MIN_STAKE` };
   }
-  if (exitPenalty === AUDITED_EXIT_PENALTY_BPS) {
-    return { build: 'fixed', ok: true, note: 'post-fix ladder, audited constants, 75% exit' };
+  if (exitPenalty !== AUDITED_EXIT_PENALTY_BPS && exitPenalty !== RETIRED_EXIT_PENALTY_BPS) {
+    return { build: 'unaudited', ok: false, note: `EARLY_EXIT_PENALTY_BPS is ${exitPenalty}, neither 7500 nor the retired 2500` };
   }
-  if (exitPenalty === RETIRED_EXIT_PENALTY_BPS) {
-    return acceptRetiredExit
-      ? { build: 'exit25', ok: true, note: 'WARN: the 25% exit build, retired 2026-10-18; redeploy at 75% pending (docs/LADDER_EXIT_75_REDEPLOY.md)' }
-      : { build: 'exit25', ok: false, note: 'the 25% exit build, retired 2026-10-18: redeploy at 75% and repin' };
+  const build = exitPenalty === AUDITED_EXIT_PENALTY_BPS ? 'fixed' : 'exit25';
+  if (exitPenalty !== liveExitBps) {
+    // The site says one number and this pool charges another: whichever side is
+    // stale, it must not ship.
+    return { build, ok: false, note: `the site says ${Number(liveExitBps) / 100}% (LIVE_LADDER_EXIT_BPS), this pool charges ${Number(exitPenalty) / 100}%` };
   }
-  return { build: 'unaudited', ok: false, note: `EARLY_EXIT_PENALTY_BPS is ${exitPenalty}, neither 7500 nor the retired 2500` };
+  return build === 'fixed'
+    ? { build, ok: true, note: 'post-fix ladder, audited constants, 75% exit' }
+    : { build, ok: true, note: 'WARN: the 25% exit build, retired 2026-10-18; redeploy at 75% pending (docs/LADDER_EXIT_75_REDEPLOY.md)' };
 }
 
 /** Is the replace-vs-migrate window still open for this pool? */
@@ -205,7 +214,7 @@ async function getCodeBytes(urls, addr) {
   return (r.raw.length - 2) / 2;
 }
 
-async function inspect(pool, rpc) {
+async function inspect(pool, rpc, liveExitBps) {
   const url = rpc[pool.chain];
   if (!url) return { ...pool, unreadable: true, note: `no RPC configured for chain "${pool.chain}"` };
 
@@ -226,7 +235,7 @@ async function inspect(pool, rpc) {
     minStake: reads.MIN_STAKE,
     minBoost: reads.MIN_BOOST,
     exitPenalty: reads.EARLY_EXIT_PENALTY_BPS,
-  });
+  }, { liveExitBps });
   return {
     ...pool,
     codeBytes,
@@ -278,12 +287,19 @@ function selfTest() {
   const fixed = { codeBytes: 6500, totalBoosted: 0n, minStake: AUDITED_MIN_STAKE, minBoost: AUDITED_MIN_BOOST, exitPenalty: AUDITED_EXIT_PENALTY_BPS };
   eq('classify fixed', classify(fixed).build, 'fixed');
   eq('classify fixed ok', classify(fixed).ok, true);
-  // The 25% six: a WARN while the repin is pending, a FAIL once the switch is flipped.
+  // The 25% six: a WARN while the site says 25%, a FAIL once the site says 75%; and a
+  // 75% pool fails while the site still says 25%. Both sides are held to the chain.
   const exit25 = { ...fixed, exitPenalty: RETIRED_EXIT_PENALTY_BPS };
-  eq('classify exit25 build', classify(exit25).build, 'exit25');
-  eq('classify exit25 accepted until repin', classify(exit25, { acceptRetiredExit: true }).ok, true);
-  eq('classify exit25 warns', /WARN/.test(classify(exit25, { acceptRetiredExit: true }).note), true);
-  eq('classify exit25 fails after repin', classify(exit25, { acceptRetiredExit: false }).ok, false);
+  eq('classify exit25 build', classify(exit25, { liveExitBps: 2500n }).build, 'exit25');
+  eq('classify exit25 ok while the site says 25%', classify(exit25, { liveExitBps: 2500n }).ok, true);
+  eq('classify exit25 warns', /WARN/.test(classify(exit25, { liveExitBps: 2500n }).note), true);
+  eq('classify exit25 fails once the site says 75%', classify(exit25, { liveExitBps: 7500n }).ok, false);
+  eq('classify fixed fails while the site says 25%', classify(fixed, { liveExitBps: 2500n }).ok, false);
+  eq('parse live switch', parseLiveExitBps("export const LIVE_LADDER_EXIT_BPS = 2_500n;\n"), 2500n);
+  eq('parse live switch 75', parseLiveExitBps("export const LIVE_LADDER_EXIT_BPS = 7500n;"), 7500n);
+  let threw = false;
+  try { parseLiveExitBps('nothing here'); } catch { threw = true; }
+  eq('parse live switch missing throws', threw, true);
   // Any other exit is not a build this repo ever shipped.
   eq('classify odd exit', classify({ ...fixed, exitPenalty: 5000n }).build, 'unaudited');
   eq('classify unread exit', classify({ ...fixed, exitPenalty: null }).ok, false);
@@ -344,8 +360,9 @@ if (ladders.length === 0) {
   process.exit(1);
 }
 
+const liveExitBps = parseLiveExitBps(readFileSync(LIVE_SWITCH, 'utf8'));
 const rows = [];
-for (const pool of ladders) rows.push(await inspect(pool, rpc));
+for (const pool of ladders) rows.push(await inspect(pool, rpc, liveExitBps));
 
 const asJson = argv.includes('--json');
 if (asJson) {

@@ -115,14 +115,18 @@ for row in "${POOLS[@]}"; do
     [ "$keep" -eq 1 ] || continue
   fi
   echo "== $id: stake $token, notifier $notifier =="
-  out="$(EXPECTED_CHAIN_ID="$CHAIN_ID" STAKING_TOKEN="$token" REWARDS_DISTRIBUTION="$notifier" \
-         forge script script/DeployLighthouseLadder.s.sol --rpc-url "$RPC" "${EXTRA[@]}" 2>&1)" || {
-    echo "$out" | tail -40
+  # Through tee, not into a variable: a keystore or --interactive prompt must reach
+  # the terminal, and the owner should see every line forge prints before signing.
+  log="$(mktemp)"
+  if ! EXPECTED_CHAIN_ID="$CHAIN_ID" STAKING_TOKEN="$token" REWARDS_DISTRIBUTION="$notifier" \
+       forge script script/DeployLighthouseLadder.s.sol --rpc-url "$RPC" "${EXTRA[@]}" 2>&1 | tee "$log"; then
     echo "FAILED on $id. An L-INV-13 revert means the build is not the 75% one: rebuild, do not repin." >&2
     exit 1
-  }
-  echo "$out" | grep -E "LighthouseLadder:|before the lock|L-INV|ONCHAIN EXECUTION|Error|revert" | sed 's/^/   /' || true
-  addr="$(echo "$out" | grep -oE '1\. LighthouseLadder: 0x[0-9a-fA-F]{40}' | head -1 | grep -oE '0x[0-9a-fA-F]{40}' || true)"
+  fi
+  echo "   --"
+  grep -E "LighthouseLadder:|before the lock|L-INV|ONCHAIN EXECUTION|Error|revert" "$log" | sed 's/^/   /' || true
+  addr="$(grep -oE '1\. LighthouseLadder: 0x[0-9a-fA-F]{40}' "$log" | head -1 | grep -oE '0x[0-9a-fA-F]{40}' || true)"
+  rm -f "$log"
   if [ "$MODE" = "dry-run" ]; then
     RESULTS+=("$id|simulated|$addr")
     continue

@@ -41,9 +41,11 @@ The code side is done and merged with this runbook:
 - The room staking card reads `EARLY_EXIT_PENALTY_BPS()` from the pool it shows. It says 25%
   on the six above, 75% on the pools you deploy, and no number when the read fails. There is
   no copy switch to flip: the site cannot say 75% while a 25% pool is live.
-- `scripts/verify-ladder-builds.mjs` (the daily registry job) now reads the exit of every
-  shipped ladder and reports it. A 25% pool passes with a WARN until the repin PR flips
-  `ACCEPT_RETIRED_EXIT_UNTIL_REPIN` to `false`; from then on a 25% pool fails the job.
+- `LIVE_LADDER_EXIT_BPS` in `frontend/src/lib/lighthouseLadder.ts` is the one switch: the
+  exit the site says the shipped pools charge, 2_500n today. Build-time copy (llms.txt)
+  prints it. `scripts/verify-ladder-builds.mjs` (the daily registry job) reads every shipped
+  ladder's exit and fails any pool that differs from the switch, so the switch cannot be
+  flipped before the repin, and the repin cannot forget the switch.
 
 ## Phase A: preflight (no gas, no key)
 
@@ -85,7 +87,7 @@ Both runs simulate every pool against the live chain through forge's own dry run
 every gate in the script, L-INV-13 included. Nothing is sent.
 
 ```bash
-ETH_RPC_URL=https://eth.drpc.org ./script/ladders-75.sh ethereum dry-run
+ETH_RPC_URL=https://ethereum-rpc.publicnode.com ./script/ladders-75.sh ethereum dry-run
 ```
 
 ```bash
@@ -108,9 +110,10 @@ In another, from `contracts/`:
 ```
 
 Expect a table of five pools each reading `exit=7500 minStake=100000000000000000000`, the fee
-Safe as notifier and the room's token. The same with `--fork-url https://eth.drpc.org` and
-`ethereum anvil` for PEPE. The anvil run keeps its broadcast log in the temp folder, never in
-`contracts/broadcast/`.
+Safe as notifier and the room's token. The same with `ethereum anvil` for PEPE, forking an
+Ethereum endpoint that serves historical state (publicnode refuses archive reads to anvil;
+eth.drpc.org reset the connection on 2026-10-18; a keyed endpoint is surest). The anvil run
+keeps its broadcast log in the temp folder, never in `contracts/broadcast/`.
 
 ## Phase B: deploy (gas, your signature, irreversible)
 
@@ -173,9 +176,9 @@ derived, never typed: `cast to-check-sum-address <addr>`.
 4. `frontend/src/components/bungalow/HeldTimeLine.test.tsx`: `PEPE_LADDER`, for accuracy.
 5. `docs/CONTRACTS.md`: the "Bungalow lighthouses" table gets the new six; the old six join the
    retired table with the reason.
-6. `scripts/verify-ladder-builds.mjs`: `ACCEPT_RETIRED_EXIT_UNTIL_REPIN = false`. From here a
-   25% pool fails the daily job. Run `node scripts/verify-ladder-builds.mjs`: six rows `fixed`,
-   `75%`, exit 0.
+6. `frontend/src/lib/lighthouseLadder.ts`: `LIVE_LADDER_EXIT_BPS = 7_500n`. From here llms.txt
+   says 75% and a 25% pool fails the daily job. Run `node scripts/verify-ladder-builds.mjs`:
+   six rows `fixed`, `75%`, exit 0.
 7. `CHANGELOG.md`, one line: room staking on Ethereum and Base, leaving before the lock opens
    now costs 75%, with the date.
 8. Leave `C1_UNSAFE_LADDER_POOLS` in `frontend/src/lib/lighthouseLadder.ts` alone, and leave
