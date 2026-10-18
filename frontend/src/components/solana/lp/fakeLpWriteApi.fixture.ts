@@ -50,7 +50,7 @@ export function fakeLpApi(over: Partial<LpWriteApi> & { gate?: LpGate } = {}): L
     submitPrepared: vi.fn(),
     recheckOutcome: vi.fn(),
     explorerTxUrl: vi.fn((sig: string) => `https://explorer.test/tx/${sig}`),
-    explorerAddressUrl: vi.fn((a: string) => `https://explorer.test/address/${a}`),
+    explorerAddressUrl: vi.fn((a: string, _cluster?: string, page: 'account' | 'token' = 'account') => `https://explorer.test/${page}/${a}`),
     meta: { displaySafe: validate.displaySafe },
   };
   return { ...api, ...rest };
