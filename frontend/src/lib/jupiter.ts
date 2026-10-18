@@ -137,6 +137,11 @@ export async function getQuote(params: {
    * later quotes of that pair.
    */
   noPlatformFee?: boolean;
+  /**
+   * One pool's DEX, direct: the island order asks for a single hop on the DEX of the pool
+   * it names (lib/solana/swap/islandBasketSol.ts checks the pool Jupiter answers with).
+   */
+  pin?: { dex: string };
 }): Promise<JupiterQuote> {
   const qs = new URLSearchParams({
     inputMint: params.inputMint,
@@ -146,6 +151,10 @@ export async function getQuote(params: {
     swapMode: 'ExactIn',
     restrictIntermediateTokens: 'true',
   });
+  if (params.pin) {
+    qs.set('onlyDirectRoutes', 'true');
+    qs.set('dexes', params.pin.dex);
+  }
   // Attach the platform fee ONLY when a leg of the pair is fee-supported. The
   // SAME decision drives /swap, so platformFeeBps is never sent without a
   // matching feeAccount (which Jupiter rejects) and the fee account always exists.
