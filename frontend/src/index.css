@@ -358,6 +358,7 @@ body {
    redesign. Change the rail's look here, once. */
 .badge-chain-solana { background: rgba(76,175,80,0.78); color: #000; border: 1px solid var(--color-kyle-40); }
 .badge-chain-base { background: rgba(33,81,245,0.78); color: #fff; border: 1px solid rgba(33,81,245,0.45); }
+.badge-chain-robinhood { background: rgba(204,255,0,0.78); color: #000; border: 1px solid rgba(204,255,0,0.45); }
 .badge-success { background: rgba(49, 208, 170, 0.75); color: #000; }
 .badge-warning { background: rgba(255, 178, 55, 0.75); color: #000; }
 /* ─── Small Label Pill (uppercase labels on art) ─── */
