@@ -2,12 +2,14 @@
 
 What changed for a user of memetics.finance, one plain line per change, newest first,
 grouped by the UTC date it reached `mvp-launch`, by pull request or by direct push. This
-page keeps the newest thirty days.
+page keeps the newest thirty days; an older day moves to `docs/CHANGELOG_EARLIER.md`.
+The site's Changelog tab shows both files.
 
 ## [Unreleased]
 
 ### 2026-10-18
 
+- The Changelog tab (/changelog) now shows this list, so every change that reaches the site appears there too. Its newest entry had been August 18.
 - BOBO, SOY, BRAINLET and RIZZ each have a SOL pool on the venue now, so each room gets Add SOL + its coin, second on its first screen, as BAYLA's has.
 
 ### 2026-10-17
@@ -333,11 +335,6 @@ page keeps the newest thirty days.
 ### 2026-09-19
 
 - The dead Discord invite and the retired Telegram handle are gone from the footer.
-
-### 2026-09-18
-
-- The launch gate's reading names the tier as the wallet's own, and its verdicts carry no em dash.
-- "Check graduation" no longer says a token has not graduated from a read it never made.
 
 ## Earlier
 

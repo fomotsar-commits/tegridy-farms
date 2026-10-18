@@ -254,6 +254,27 @@ describe('the changelog is one line per change', () => {
     expect(text).not.toContain(EM_DASH);
   });
 
+  // A day past the thirty moves to docs/CHANGELOG_EARLIER.md, and the site's Changelog
+  // tab shows both files, so the two read as one list: no day in both, newest first.
+  it('moves an older day to docs/CHANGELOG_EARLIER.md, in the same form, as one list', () => {
+    const earlier = read('docs', 'CHANGELOG_EARLIER.md');
+    const days = earlier.slice(earlier.indexOf('## Days') + '## Days'.length);
+    expect(earlier.indexOf('## Days')).toBeGreaterThan(-1);
+    const odd = days
+      .split('\n')
+      .filter((l) => l.trim() !== '')
+      .filter((l) => !/^### \d{4}-\d{2}-\d{2}$/.test(l) && !/^- \S/.test(l));
+    expect(odd, 'every line under Days is a date heading or one entry').toEqual([]);
+    expect(earlier).not.toContain(EM_DASH);
+    const dates = [unreleased(read('CHANGELOG.md')), days].flatMap((t) =>
+      [...t.matchAll(/^### (\d{4}-\d{2}-\d{2})$/gm)].map((m) => m[1]!),
+    );
+    expect(dates.length).toBeGreaterThan(20);
+    expect(dates, 'the days run newest first, each once, across both files').toEqual(
+      [...new Set(dates)].sort().reverse(),
+    );
+  });
+
   it('lists no entry twice under Unreleased', () => {
     // Two branches can each file the same line under the day they were written, and a
     // merge keeps both copies. Seen red on 8f0f15cf: one heat line sat under 2026-09-30
