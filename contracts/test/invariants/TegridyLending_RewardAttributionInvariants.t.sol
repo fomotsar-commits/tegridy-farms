@@ -102,7 +102,7 @@ contract TegridyLending_RewardAttributionInvariants is Test {
         toweli = new LDInv_Toweli();
         jbac = new LDInv_JBAC();
         weth = new LDInv_WETH();
-        staking = new TegridyStaking(address(toweli), address(jbac), treasury, 1e18);
+        staking = new TegridyStaking(address(toweli), address(jbac), treasury);
         stakingAdmin = new TegridyStakingAdmin(address(staking));
         staking.setStakingAdmin(address(stakingAdmin));
 

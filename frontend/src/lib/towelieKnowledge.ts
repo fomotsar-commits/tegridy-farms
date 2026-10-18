@@ -40,7 +40,7 @@ export const KNOWLEDGE_BASE: KnowledgeEntry[] = [
     // Supply is fixed, and today's rewards are emissions from a one-time 6.4M seed. The
     // ETH side waits on a full ether of fees per round, not on the pool going live.
     keywords: ['emission', 'inflation', 'distribution'],
-    answer: "Supply is fixed: no new TOWELI, ever. Staking rewards today come from a one-time 6.4M emissions seed funded at launch. ETH swap-fee rewards are wired on-chain, and a payout round needs 1 ETH of fees first. /tokenomics shows the breakdown.",
+    answer: "Supply is fixed: no new TOWELI, ever. Staking rewards today come from a one-time 6.4M emissions seed funded at launch; the new staking contract pays its reward pot out over four years (the pot divided by 1,460 a day). ETH swap-fee rewards are wired on-chain, and a payout round needs 1 ETH of fees first. /tokenomics shows the breakdown.",
   },
   {
     // HONESTY PASS 2026-06-11: treasury Safe is freshly rebuilt post-relaunch and

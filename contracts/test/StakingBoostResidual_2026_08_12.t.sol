@@ -132,7 +132,7 @@ contract StakingBoostResidual_2026_08_12_Test is Test {
         toweli = new BRW_Toweli();
         jbac = new BRW_JBAC();
 
-        staking = new TegridyStaking(address(toweli), address(jbac), treasury, REWARD_RATE);
+        staking = new TegridyStaking(address(toweli), address(jbac), treasury);
         admin = new TegridyStakingAdmin(address(staking));
         staking.setStakingAdmin(address(admin));
         vault = new TegridyStakingJbacVault(address(jbac), address(staking));

@@ -168,8 +168,7 @@ contract TegridyLending_ETHFloorTest is Test {
         staking = new TegridyStaking(
             address(toweli),
             address(jbac),
-            treasury,
-            1e18
+            treasury
         );
 
         // R003: deploy + bootstrap the TWAP oracle backing the ETH-floor.

@@ -23,7 +23,7 @@ Forge deploys both libraries itself when the script runs, so do **not** pass `--
 |---|---|---|---|
 | L1 | StakingViewLib | `0x7c9d52CF71a1dff1D5D302E95e68Bce80191ab0E` | none (CREATE2 by forge) |
 | L2 | StakingRewardLib | `0xb86A763a92A24e0951658E52d54CE50A5D52C1Ea` | none (CREATE2 by forge) |
-| 1 | TegridyStaking (75%) | `0xcaDc93E96De58EA554c71ca609974625615E046D` | TOWELI `0x420698CFdEDdEa6bc78D59bC17798113ad278F9D`, JBAC `0xd37264c71e9af940e49795F0d3a8336afAaFDdA9`, treasury Safe `0x7D2620243EdAd69Ec81A53c4A063B07995A4Bd7d`, **reward rate = owner's choice (env, no default)** |
+| 1 | TegridyStaking (75%) | `0xcaDc93E96De58EA554c71ca609974625615E046D` | TOWELI `0x420698CFdEDdEa6bc78D59bC17798113ad278F9D`, JBAC `0xd37264c71e9af940e49795F0d3a8336afAaFDdA9`, treasury Safe `0x7D2620243EdAd69Ec81A53c4A063B07995A4Bd7d`. **No reward rate** (owner 2026-10-18): it starts at 0 and step 2 sets it |
 | 2 | TegridyStakingJbacVault | `0x28317bf362d43b40fceCEbf2390c43Db558c3f14` | JBAC, new staking |
 | 3 | TegridyStakingAdmin | `0x4B134C08aAF86B6e2A8E097D1039C4e7638806f3` | new staking |
 | 4 | StakingMonitorView | `0xbE1E75124C7F07d5B681839C42d8e751f0d0fcfC` | new staking |
@@ -32,7 +32,12 @@ Forge deploys both libraries itself when the script runs, so do **not** pass `--
 | 7 | RevenueDistributor | `0xF993316E2fC079de4358c489A935E01e03E23E17` | new staking, treasury Safe, WETH `0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2` |
 | 8 | ReferralSplitter | `0x6B3442dAcB62d40BA39fCe9b3CDa350FEa6f7e4c` | 2000 bps, new staking, treasury Safe, WETH |
 
-The live reward rate is `824300000000000000` wei/s (0.8243 TOWELI/s, 71,219.52 TOWELI/day).
+The old contract's reward rate is `824300000000000000` wei/s (0.8243 TOWELI/s, 71,219.52 TOWELI/day)
+and stays so. **The new contract has no rate to choose** (owner 2026-10-18): every funding spreads
+the funds plus what is still scheduled over a fresh four years (`REWARDS_DURATION` = 4 × 365 days,
+Synthetix `notifyRewardAmount`), so each day pays the pot ÷ 1,460. Nothing accrues after
+`periodFinish`; a stretch with nothing staked, or paused, moves `periodFinish` back by that stretch.
+There is no rate setter on the new staking or its admin.
 
 ## Step 1: deploy and wire (one sitting, nothing to wait for)
 
@@ -45,7 +50,7 @@ the live contracts and aborts if any moved since 2026-10-14. After sending, it c
 | 2 | deploy `TegridyStakingJbacVault`; `staking.setJbacVault(vault)` | one-shot, instant |
 | 3 | deploy `TegridyStakingAdmin`; `staking.setStakingAdmin(admin)` | one-shot, instant |
 | 4 | `staking.setPauseGuardian(0xCDCA0F0621ce34012AD61bBD140f327EB778F354)` (the live guardian Safe) | instant |
-| 5 | `staking.setMaxStakePerUser(1,000,000 TOWELI)` (owner 2026-10-18; the old contract's is 50,000), `staking.setMaxTotalStaked(5,000,000 TOWELI)` (the live cap) | instant |
+| 5 | `staking.setMaxStakePerUser(1,000,000 TOWELI)` (owner 2026-10-18; the old contract's is 50,000). **No whole-pool cap** (owner 2026-10-18): `setMaxTotalStaked` is not called, so it stays uncapped (the old contract's is 5,000,000) | instant |
 | 6 | deploy `StakingMonitorView`, `TegridyTokenURIReader`, `TegridyLPFarming` | deploy |
 | 7 | deploy `RevenueDistributor`; `revDist.setPauseGuardian(0xCDCA0F0621ce34012AD61bBD140f327EB778F354)` | instant |
 | 8 | deploy `ReferralSplitter`; `setApprovedCaller(SwapFeeRouter 0x6d5791A660e79175F74C6D639584C98422d5956E, true)`; `completeSetup()` | one-shot, instant |
@@ -55,7 +60,7 @@ the live contracts and aborts if any moved since 2026-10-14. After sending, it c
 Not copied, on purpose: `maxUnsettledRewards` (live = the constructor default 100,000 TOWELI,
 asserted); `restakingContract` (none live); lending whitelist (none live); reward notifiers (none
 were ever added; the owner funds directly). After this release any of those needs a proposal on
-the new `TegridyStakingAdmin` and **48 hours**, including any later change of the reward rate.
+the new `TegridyStakingAdmin` and **48 hours**. The reward rate is not one of them: only a funding changes it.
 
 ## Step 2: fund the new staking (right after step 1)
 

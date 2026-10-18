@@ -95,7 +95,7 @@ contract StakingRestakeReturnStrandingTest is Test {
         jbac = new StrandNFT();
         weth = new StrandWETH();
 
-        staking = new TegridyStaking(address(toweli), address(jbac), treasury, REWARD_RATE);
+        staking = new TegridyStaking(address(toweli), address(jbac), treasury);
         monitor = new StakingMonitorView(address(staking));
         stakingAdmin = new TegridyStakingAdmin(address(staking));
         staking.setStakingAdmin(address(stakingAdmin));

@@ -147,7 +147,7 @@ describe('<OldStakingCard /> — a position on the first relaunch contract', () 
 
 describe('useFarmActions on a contract that takes no new stakes', () => {
   function Probe({ run }: { run: (a: ReturnType<typeof useFarmActions>) => void }) {
-    const actions = useFarmActions({ staking: OLD_TEGRIDY_STAKING_ADDRESS, monitor: OLD_STAKING_MONITOR_VIEW_ADDRESS, revenueDistributor: OLD_REVENUE_DISTRIBUTOR_ADDRESS, penaltyBps: OLD_EARLY_WITHDRAWAL_PENALTY_BPS, acceptsStakes: false });
+    const actions = useFarmActions({ staking: OLD_TEGRIDY_STAKING_ADDRESS, monitor: OLD_STAKING_MONITOR_VIEW_ADDRESS, revenueDistributor: OLD_REVENUE_DISTRIBUTOR_ADDRESS, penaltyBps: OLD_EARLY_WITHDRAWAL_PENALTY_BPS, acceptsStakes: false, hasRewardSchedule: false });
     return <button type="button" onClick={() => run(actions)}>go</button>;
   }
 
@@ -184,23 +184,27 @@ describe('the card for NEW stakes quotes the new contract\'s 75%, and the dry-po
     );
   }
 
-  it('the stake form names 75% AND the rewards a short pot cannot pay, before any money goes in', () => {
+  it('the stake form says how the pot pays out (over four years) and the 75%, before any money goes in', () => {
     stubPosition(TEGRIDY_STAKING_ADDRESS, STAKING_MONITOR_VIEW_ADDRESS, { tokenId: 0n });
     wagmiMock.setReadResult({ address: TEGRIDY_STAKING_ADDRESS, functionName: 'maxStakePerUser', result: 50_000n * 10n ** 18n });
     renderWithProviders(<Current />);
     const line = screen.getByTestId('stake-exit-risk-line').textContent ?? '';
     expect(line).toContain(`pay ${EARLY_WITHDRAWAL_PENALTY_BPS / 100}% of your stake`);
-    expect(line).toMatch(/rewards the pot cannot cover/);
+    expect(line).toMatch(/share of the reward pot, paid out over four years/);
+    // The new contract only schedules what it was given, so a "short pot" warning would be false.
+    expect(line).not.toMatch(/cannot cover|short/);
     expect(EARLY_WITHDRAWAL_PENALTY_BPS).toBe(7500);
   });
 
-  it('leaving early quotes 75%, and an EMPTY pot is said plainly: no rewards, and still the 75%', () => {
+  it('leaving early quotes 75%, rewards first, and no short-pot scare on a contract that only schedules what it was given', () => {
     stubPosition(TEGRIDY_STAKING_ADDRESS, STAKING_MONITOR_VIEW_ADDRESS);
     renderWithProviders(<Current pool={{ apr: '0', aprNum: 0, isDeployed: true, isDry: true }} />);
     fireEvent.click(screen.getByRole('button', { name: /DEA Raid Tax \(75%\)/i }));
     expect(screen.getByText(/750\.00 TOWELI/)).toBeInTheDocument(); // the penalty
     expect(screen.getByText(/250\.00 TOWELI/)).toBeInTheDocument(); // what comes back
-    expect(screen.getByTestId('early-exit-pot-warning').textContent).toMatch(/pot is empty right now[\s\S]*no rewards[\s\S]*still pay the 75%/);
+    const warning = screen.getByTestId('early-exit-pot-warning').textContent ?? '';
+    expect(warning).toMatch(/rewards so far are paid first[\s\S]*pay the 75%/);
+    expect(warning).not.toMatch(/empty|short|lose/);
   });
 });
 

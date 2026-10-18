@@ -409,9 +409,15 @@ export function StakingCard({
                       {/* The dry-pot trap, said where the money moves: rewards are paid
                           first but only from what the pot holds, and the fee does not
                           shrink when they are not paid (TegridyStaking.sol, the
-                          EARLY_WITHDRAWAL_PENALTY_BPS note; StakingBoostResidual test). */}
+                          EARLY_WITHDRAWAL_PENALTY_BPS note; StakingBoostResidual test).
+                          A contract with a reward schedule (release 1, 2026-10-18) only
+                          ever schedules what it was given, so what a position has earned
+                          is covered: there the trap does not exist, and saying it would
+                          be false. The first contract has no schedule and IS short. */}
                       <p className="text-danger/90 text-[11px] mt-1 font-semibold" data-testid="early-exit-pot-warning">
-                        {pool?.isDry
+                        {contract.hasRewardSchedule
+                          ? `Your rewards so far are paid first, then you pay the ${EARLY_WITHDRAWAL_PENALTY_PCT}%.`
+                          : pool?.isDry
                           ? `The reward pot is empty right now: leaving early pays you no rewards, and you still pay the ${EARLY_WITHDRAWAL_PENALTY_PCT}%.`
                           : `Rewards are paid first, but only what the reward pot holds. If it is short, you can lose the rest, and you still pay the ${EARLY_WITHDRAWAL_PENALTY_PCT}%.`}
                       </p>
@@ -762,7 +768,7 @@ export function StakingCard({
                   const runwayDays = Math.floor((pool.secondsRemaining ?? 0) / 86400);
                   return runwayDays > 0 && runwayDays < 365 ? (
                     <p className="text-[11px] mt-1 text-center" style={{ color: '#e3b341', opacity: 0.85 }}>
-                      Current reserve runs ≈ {runwayDays}d at this rate. Figures beyond that assume refills.
+                      Payouts end in ≈ {runwayDays}d unless the pot is topped up. Figures beyond that assume a top-up.
                     </p>
                   ) : null;
                 })()}
@@ -783,10 +789,12 @@ export function StakingCard({
                 : `Stake & Lock for ${selectedLock.label}`}
             </button>
 
-            {/* The risk line where money goes in: the fee AND the dry-pot trap, visible. */}
+            {/* Where money goes in, one visible line (feedback_say_how_money_moves): how a
+                staker earns (the pot, paid out over four years, owner ruling 2026-10-18) and
+                what the venue takes (the early-exit fee). Only the new contract shows this form. */}
             <p className="text-white text-[11px] text-center mt-3" data-testid="stake-exit-risk-line">
-              Leave before your lock ends and you pay {EARLY_WITHDRAWAL_PENALTY_PCT}% of your stake to the
-              treasury ({PENALTY_COPY.earlyExitLabel}), and can lose rewards the pot cannot cover.
+              You earn a share of the reward pot, paid out over four years. Leave before your lock
+              ends and you pay {EARLY_WITHDRAWAL_PENALTY_PCT}% of your stake to the treasury ({PENALTY_COPY.earlyExitLabel}).
             </p>
           </div>
         )}

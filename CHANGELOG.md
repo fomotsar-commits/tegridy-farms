@@ -8,7 +8,7 @@ page keeps the newest thirty days.
 
 ### 2026-10-18
 
-- TOWELI staking moves to a new contract: up to 1,000,000 TOWELI a wallet, and leaving a lock early costs 75%, paid to the treasury. Rewards are paid first, only from what the pot holds. A position on the first contract keeps its 25% and gets its own card on the Farm page.
+- TOWELI staking moves to a new contract: up to 1,000,000 TOWELI a wallet, and leaving a lock early costs 75%, paid to the treasury. Its reward pot is paid out over four years, with no cap on the whole pool. A position on the first contract keeps its 25% and gets its own card on the Farm page.
 - BOBO, SOY, BRAINLET and RIZZ each have a SOL pool on the venue now, so each room gets Add SOL + its coin, second on its first screen, as BAYLA's has.
 
 ### 2026-10-17

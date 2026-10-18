@@ -34,11 +34,13 @@ import {SwapFeeRouterAdmin} from "../src/SwapFeeRouterAdmin.sol";
 ///         VALUES. Every value is copied from the live contract it replaces, read at run time,
 ///         and compared against what was read on 2026-10-14 (block 26,190,643). If anything has
 ///         moved since, the run aborts before sending: look at why first.
-///         Two values are NOT copied. The per-wallet stake cap is the owner's 2026-10-18 choice,
-///         1,000,000 TOWELI (the old contract's is 50,000, and it is still asserted there). The
-///         reward rate the owner has not chosen, so it is a REQUIRED env var with no default:
-///             STAKING_REWARD_RATE_WEI_PER_SEC   TOWELI-wei per second, at most 1e18.
-///             (the old contract pays 824300000000000000 = 0.8243 TOWELI/s = 71,219.52 TOWELI/day)
+///         Three values are NOT copied, all owner rulings of 2026-10-18:
+///           - per-wallet stake cap 1,000,000 TOWELI (the old contract's 50,000 is still asserted);
+///           - NO whole-pool cap: `maxTotalStaked` is left at its constructor default, uncapped
+///             (the old contract's 5,000,000 is still asserted);
+///           - NO reward rate: the contract starts at 0 and sets its own rate from each funding,
+///             the funds plus what is still scheduled spread over four years (REWARDS_DURATION).
+///             Step 2 (`FundStakingRelease1.s.sol`) is what starts the payouts.
 ///
 ///         OWNER. Must be broadcast BY the address that owns every live contract today,
 ///         0x14898258122C0740106391E6e8E4F17F3b6d456E. Each new contract is owned by its
@@ -67,7 +69,7 @@ contract DeployStakingRelease1Script is Script {
     address constant TEGRIDY_LP = 0x55875887B43C2E23aE424AF0FC8606Fdb058a481; // LP farm's staking token
     uint256 constant OLD_MAX_STAKE_PER_USER = 50_000e18;
     uint256 constant MAX_STAKE_PER_USER = 1_000_000e18; // owner 2026-10-18: the new contract's cap
-    uint256 constant MAX_TOTAL_STAKED = 5_000_000e18;
+    uint256 constant OLD_MAX_TOTAL_STAKED = 5_000_000e18;
     uint256 constant MAX_UNSETTLED_REWARDS = 100_000e18; // constructor default; asserted, not set
     uint256 constant LP_REWARDS_DURATION = 7 days;
     uint256 constant REFERRAL_FEE_BPS = 2000;
@@ -87,9 +89,6 @@ contract DeployStakingRelease1Script is Script {
 
     function run() external returns (Deployed memory d) {
         require(block.chainid == 1, "MAINNET_ONLY");
-        uint256 rewardRate = vm.envUint("STAKING_REWARD_RATE_WEI_PER_SEC"); // no default, on purpose
-        require(rewardRate > 0, "STAKING_REWARD_RATE_WEI_PER_SEC is 0: the new staking would pay nothing");
-        require(rewardRate <= 1e18, "STAKING_REWARD_RATE_WEI_PER_SEC above MAX_REWARD_RATE (1e18)");
 
         _assertLiveStillMatches();
 
@@ -97,7 +96,7 @@ contract DeployStakingRelease1Script is Script {
         require(msg.sender == OWNER, "sender must be the owner 0x14898258122C0740106391E6e8E4F17F3b6d456E");
 
         // 1-3. Staking + its two one-shot sisters. Libraries are linked and deployed by forge.
-        TegridyStaking staking = new TegridyStaking(TOWELI, JBAC, TREASURY, rewardRate);
+        TegridyStaking staking = new TegridyStaking(TOWELI, JBAC, TREASURY);
         d.staking = address(staking);
         TegridyStakingJbacVault vault = new TegridyStakingJbacVault(JBAC, d.staking);
         d.jbacVault = address(vault);
@@ -107,7 +106,6 @@ contract DeployStakingRelease1Script is Script {
         staking.setStakingAdmin(d.stakingAdmin);
         staking.setPauseGuardian(PAUSE_GUARDIAN);
         staking.setMaxStakePerUser(MAX_STAKE_PER_USER);
-        staking.setMaxTotalStaked(MAX_TOTAL_STAKED);
 
         // 4-7. Readers and the LP farm: each binds the new staking as an immutable.
         d.monitorView = address(new StakingMonitorView(d.staking));
@@ -131,8 +129,8 @@ contract DeployStakingRelease1Script is Script {
 
         vm.stopBroadcast();
 
-        _assertDeployed(d, rewardRate);
-        _log(d, rewardRate);
+        _assertDeployed(d);
+        _log(d);
     }
 
     /// Every value this script copies must still be what the live contracts hold.
@@ -144,7 +142,7 @@ contract DeployStakingRelease1Script is Script {
         require(old.treasury() == TREASURY, "live staking treasury moved");
         require(old.pauseGuardian() == PAUSE_GUARDIAN, "live staking pauseGuardian moved");
         require(old.maxStakePerUser() == OLD_MAX_STAKE_PER_USER, "live maxStakePerUser moved");
-        require(old.maxTotalStaked() == MAX_TOTAL_STAKED, "live maxTotalStaked moved");
+        require(old.maxTotalStaked() == OLD_MAX_TOTAL_STAKED, "live maxTotalStaked moved");
         require(old.maxUnsettledRewards() == MAX_UNSETTLED_REWARDS, "live maxUnsettledRewards moved");
         require(old.restakingContract() == address(0), "live staking has a restaking contract now");
         require(old.EARLY_WITHDRAWAL_PENALTY_BPS() == 2500, "this is not the 25% contract");
@@ -181,16 +179,17 @@ contract DeployStakingRelease1Script is Script {
         require(ok && abi.decode(ret, (address)) == OLD_REF_SPLITTER, "router no longer points at the old splitter");
     }
 
-    function _assertDeployed(Deployed memory d, uint256 rewardRate) internal view {
+    function _assertDeployed(Deployed memory d) internal view {
         TegridyStaking s = TegridyStaking(d.staking);
         require(s.EARLY_WITHDRAWAL_PENALTY_BPS() == NEW_EARLY_EXIT_BPS, "new staking is not 75%");
         require(s.owner() == OWNER && s.pendingOwner() == address(0), "staking owner");
-        require(s.rewardRate() == rewardRate, "reward rate");
+        require(s.rewardRate() == 0 && s.periodFinish() == 0, "pays nothing until step 2 funds it");
+        require(s.REWARDS_DURATION() == 4 * 365 days, "rewards are spread over four years");
         require(address(s.rewardToken()) == TOWELI && address(s.jbacNFT()) == JBAC, "tokens");
         require(s.treasury() == TREASURY, "treasury");
         require(s.jbacVault() == d.jbacVault && s.stakingAdmin() == d.stakingAdmin, "sisters");
         require(s.pauseGuardian() == PAUSE_GUARDIAN, "guardian");
-        require(s.maxStakePerUser() == MAX_STAKE_PER_USER && s.maxTotalStaked() == MAX_TOTAL_STAKED, "caps");
+        require(s.maxStakePerUser() == MAX_STAKE_PER_USER && s.maxTotalStaked() == type(uint256).max, "caps");
         require(s.maxUnsettledRewards() == MAX_UNSETTLED_REWARDS, "unsettled cap");
         require(TegridyStakingJbacVault(d.jbacVault).staking() == d.staking, "vault -> staking");
         require(address(TegridyStakingAdmin(d.stakingAdmin).staking()) == d.staking, "admin -> staking");
@@ -212,7 +211,7 @@ contract DeployStakingRelease1Script is Script {
         require(sfra.pendingReferralSplitter() == d.referralSplitter, "router splitter proposal");
     }
 
-    function _log(Deployed memory d, uint256 rewardRate) internal view {
+    function _log(Deployed memory d) internal view {
         console2.log("=== STAKING RELEASE 1 DEPLOYED (early exit 75%) ===");
         console2.log("TegridyStaking          ", d.staking);
         console2.log("TegridyStakingJbacVault ", d.jbacVault);
@@ -222,17 +221,16 @@ contract DeployStakingRelease1Script is Script {
         console2.log("TegridyLPFarming        ", d.lpFarm);
         console2.log("RevenueDistributor      ", d.revenueDistributor);
         console2.log("ReferralSplitter        ", d.referralSplitter);
-        console2.log("reward rate (wei/s)     ", rewardRate);
-        console2.log("reward per day (TOWELI) ", (rewardRate * 1 days) / 1e18);
+        console2.log("reward rate: 0 until step 2; then funds / 1,460 days per day");
         console2.log("stake cap per wallet (TOWELI)", MAX_STAKE_PER_USER / 1e18);
-        console2.log("stake cap, whole pool (TOWELI)", MAX_TOTAL_STAKED / 1e18);
+        console2.log("stake cap, whole pool: none");
         uint256 readyAt = SwapFeeRouterAdmin(SWAP_FEE_ROUTER_ADMIN).revenueDistributorChangeTime();
         console2.log("router re-point ready at (unix)", readyAt);
         console2.log("router re-point expires at (unix)", readyAt + 7 days);
         console2.log("");
         console2.log("NEXT (owner):");
-        console2.log(" a) fund the new staking: TOWELI.approve(staking, X) then staking.notifyRewardAmount(X)");
-        console2.log("    BEFORE any stake. Emission runs from this block; an unfunded pool short-pays exits.");
+        console2.log(" a) fund the new staking (FundStakingRelease1.s.sol). It pays nothing until then;");
+        console2.log("    the funds are then paid out over four years, funds / 1,460 per day.");
         console2.log(" b) after the ready time and within 7 days: ExecuteStakingRelease1Repoint.s.sol");
         console2.log(" c) site: new addresses + 75% copy, old contract kept for its 16 positions");
     }

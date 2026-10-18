@@ -6,10 +6,10 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {TegridyStaking} from "../src/TegridyStaking.sol";
 
 /// @title  FundStakingRelease1 — put TOWELI rewards into the NEW (75%) staking contract
-/// @notice Approves exactly the amount and calls `notifyRewardAmount`. Rewards are paid only
-///         from what is funded: an early exit while the pool is short forfeits the unpaid part.
-///         The new contract emits `rewardRate` per second from its deploy block, so fund it
-///         BEFORE the site sends anyone to it, and top it up before it runs dry.
+/// @notice Approves exactly the amount and calls `notifyRewardAmount`. The contract then sets
+///         its own rate (owner ruling 2026-10-18): this amount plus whatever is still scheduled,
+///         spread over a fresh four years. Nothing is paid before the first funding. The same
+///         script is every later top-up: each one re-spreads the remainder over four years.
 /// @dev    Env (both required, no defaults):
 ///             NEW_STAKING             the address printed by DeployStakingRelease1
 ///             STAKING_FUND_TOWELI_WEI amount in TOWELI-wei (1 TOWELI = 1e18), at least 1,000 TOWELI
@@ -38,9 +38,11 @@ contract FundStakingRelease1Script is Script {
         vm.stopBroadcast();
 
         uint256 rate = staking.rewardRate();
+        require(staking.periodFinish() == block.timestamp + staking.REWARDS_DURATION(), "schedule not reset to 4 years");
         console2.log("funded (TOWELI):", amount / 1e18);
         console2.log("totalRewardsFunded (TOWELI):", staking.totalRewardsFunded() / 1e18);
-        console2.log("emission per day (TOWELI):", (rate * 1 days) / 1e18);
-        if (rate > 0) console2.log("this deposit alone covers (days):", amount / (rate * 1 days));
+        console2.log("reward rate (wei/s):", rate);
+        console2.log("paid out per day, to all stakers together (TOWELI):", (rate * 1 days) / 1e18);
+        console2.log("schedule ends (unix):", staking.periodFinish());
     }
 }

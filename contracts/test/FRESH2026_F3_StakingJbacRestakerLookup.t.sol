@@ -154,7 +154,7 @@ contract FRESH2026_F3_StakingJbacRestakerLookupTest is Test {
     function setUp() public {
         toweli = new F3_Toweli();
         jbac = new F3_JBAC();
-        staking = new TegridyStaking(address(toweli), address(jbac), treasury, 1e14);
+        staking = new TegridyStaking(address(toweli), address(jbac), treasury);
         admin = new TegridyStakingAdmin(address(staking));
         staking.setStakingAdmin(address(admin));
         vault = new TegridyStakingJbacVault(address(jbac), address(staking));

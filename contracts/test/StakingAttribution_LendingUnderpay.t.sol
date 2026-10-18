@@ -74,7 +74,7 @@ contract StakingAttributionLendingUnderpayTest is Test {
 
         toweli = new UnderpayToken();
         jbac = new UnderpayNFT();
-        staking = new TegridyStaking(address(toweli), address(jbac), treasury, 1e18);
+        staking = new TegridyStaking(address(toweli), address(jbac), treasury);
         stakingAdmin = new TegridyStakingAdmin(address(staking));
         staking.setStakingAdmin(address(stakingAdmin));
 

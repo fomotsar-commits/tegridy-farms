@@ -40,7 +40,7 @@ contract MVPLaunch_StakingInvariantsTest is Test {
     function setUp() public {
         toweli = new MockTowel();
         jbac = new MockJBAC();
-        staking = new TegridyStaking(address(toweli), address(jbac), treasury, 1e18);
+        staking = new TegridyStaking(address(toweli), address(jbac), treasury);
         monitor = new StakingMonitorView(address(staking));
         vault = new TegridyStakingJbacVault(address(jbac), address(staking));
         staking.setJbacVault(address(vault));

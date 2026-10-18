@@ -43,7 +43,7 @@ contract GaugeControllerTest is Test {
         toweli = new MockTOWELIGauge();
         jbac = new MockJBACGauge();
 
-        staking = new TegridyStaking(address(toweli), address(jbac), treasury, 1 ether);
+        staking = new TegridyStaking(address(toweli), address(jbac), treasury);
         gauge = new GaugeController(address(staking), 1_000_000 ether);
 
         toweli.approve(address(staking), type(uint256).max);

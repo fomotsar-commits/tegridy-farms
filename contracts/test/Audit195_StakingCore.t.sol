@@ -45,7 +45,7 @@ contract Audit195StakingCoreTest is Test {
     function setUp() public {
         token = new MockTOWELI();
         nft = new MockJBAC();
-        staking = new TegridyStaking(address(token), address(nft), treasury, 1 ether);
+        staking = new TegridyStaking(address(token), address(nft), treasury);
         monitor = new StakingMonitorView(address(staking));
         // AUDIT FIX (pass-8 batch-14): JBAC vault sister.
         TegridyStakingJbacVault vault = new TegridyStakingJbacVault(address(nft), address(staking));

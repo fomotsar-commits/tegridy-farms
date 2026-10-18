@@ -92,7 +92,7 @@ contract StakingLendingWhitelistEOATest is Test {
         toweli = new LendToken();
         jbac = new LendNFT();
 
-        staking = new TegridyStaking(address(toweli), address(jbac), treasury, REWARD_RATE);
+        staking = new TegridyStaking(address(toweli), address(jbac), treasury);
         stakingAdmin = new TegridyStakingAdmin(address(staking));
         staking.setStakingAdmin(address(stakingAdmin));
         vault = new TegridyStakingJbacVault(address(jbac), address(staking));

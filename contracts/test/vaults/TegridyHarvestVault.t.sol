@@ -95,7 +95,7 @@ contract TegridyHarvestVaultTest is Test {
         weth.transfer(address(pair), 10_000 ether);
         pair.mint(deployer);
 
-        staking = new TegridyStaking(address(toweli), address(jbac), treasury, 1 ether);
+        staking = new TegridyStaking(address(toweli), address(jbac), treasury);
         farm = new TegridyLPFarming(address(toweli), address(pair), address(staking), treasury, DURATION);
 
         vault = new TegridyHarvestVault(

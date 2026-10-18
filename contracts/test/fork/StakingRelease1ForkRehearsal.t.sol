@@ -167,6 +167,18 @@ contract StakingRelease1ForkRehearsal is Test {
         assertEq(IERC20(TOWELI).balanceOf(bob) - bobBefore, owed + 2_500 ether, "rewards + 25%");
     }
 
+    /// Owner 2026-10-18: the new contract pays its pot out over four years, and has no
+    /// whole-pool cap. The rehearsal funded it once (step 2), so the rate is that funding over
+    /// 4 x 365 days, and the schedule ends four years after it (48 h have passed since).
+    function test_fork_new_paysThePotOverFourYears_noPoolCap() public onlyFork {
+        uint256 funded = staking.totalRewardsFunded();
+        assertEq(staking.rewardRate(), funded / (4 * 365 days), "rate = pot / four years");
+        assertGt(staking.periodFinish(), _now() + 4 * 365 days - 3 days, "ends about four years out");
+        assertLe(staking.periodFinish(), _now() + 4 * 365 days, "and not later");
+        assertEq(staking.maxTotalStaked(), type(uint256).max, "no whole-pool cap");
+        assertEq(oldStaking.maxTotalStaked(), 5_000_000 ether, "the old contract keeps its 5M");
+    }
+
     /// The owner's 2026-10-18 cap: one wallet can stake 1,000,000 TOWELI on the new contract,
     /// and not one wei more. The old contract keeps its 50,000.
     function test_fork_new_perWalletCap_oneMillion_old50k() public onlyFork {

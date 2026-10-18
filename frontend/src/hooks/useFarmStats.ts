@@ -21,6 +21,8 @@ export function useFarmStats() {
       { address: addr, abi: TEGRIDY_STAKING_ABI, functionName: 'totalStaked', chainId: CHAIN_ID },
       { address: addr, abi: TEGRIDY_STAKING_ABI, functionName: 'totalRewardsFunded', chainId: CHAIN_ID },
       { address: addr, abi: TEGRIDY_STAKING_ABI, functionName: 'rewardRate', chainId: CHAIN_ID },
+      // Staking release 1: nothing is paid after the four-year schedule's end.
+      { address: addr, abi: TEGRIDY_STAKING_ABI, functionName: 'periodFinish', chainId: CHAIN_ID },
     ],
     query: { enabled: isDeployed, refetchInterval: 60_000, refetchOnWindowFocus: true },
   });
@@ -32,11 +34,14 @@ export function useFarmStats() {
   const stakedReadOk = data?.[0]?.status === 'success';
   const totalStaked = (stakedReadOk ? data![0].result as bigint : 0n);
   const totalFunded = (data?.[1]?.status === 'success' ? data[1].result as bigint : 0n);
-  const rewardRate = (data?.[2]?.status === 'success' ? data[2].result as bigint : 0n);
+  const rateReadOk = data?.[2]?.status === 'success' && data?.[3]?.status === 'success';
+  const scheduleRunning = rateReadOk && (data![3].result as bigint) > BigInt(Math.floor(Date.now() / 1000));
+  // A rate past the schedule's end (or before the first funding) pays nothing.
+  const rewardRate = rateReadOk && scheduleRunning ? data![2].result as bigint : 0n;
 
   const totalStakedStr = formatWei(totalStaked, 18, 4);
   const totalFundedStr = formatWei(totalFunded, 18, 4);
-  // Daily emissions = rewardRate (TOWELI/sec) * 86400 s/day (fixed-rate emission).
+  // Daily emissions = rewardRate (TOWELI/sec) * 86400 s/day, while the schedule runs.
   const dailyEmissionsStr = formatWei(rewardRate * 86400n, 18, 0);
 
   // F85: USD-denominated TVL (additive). Surface USD as primary with the TOWELI
@@ -54,7 +59,8 @@ export function useFarmStats() {
     rewardsDistributed: isDeployed ? `${Number(totalFundedStr).toLocaleString()} TOWELI` : '–',
     // Incentive headline figures surfaced via <IncentivesStrip/>.
     rewardPool: isDeployed && totalFunded > 0n ? `${Number(totalFundedStr).toLocaleString()} TOWELI` : '–',
-    dailyEmissions: isDeployed && rewardRate > 0n ? `${Number(dailyEmissionsStr).toLocaleString()} TOWELI` : '–',
+    dailyEmissions: isDeployed && rewardRate > 0n ? `${Number(dailyEmissionsStr).toLocaleString()} TOWELI`
+      : isDeployed && rateReadOk ? '0 TOWELI' : '–',
     isDeployed,
     isLoading,
   };

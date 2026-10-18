@@ -272,7 +272,7 @@ contract R027_TegridyStaking_TotalStakeCheckpoint is Test {
     function setUp() public {
         token = new MockTOWELI_REVM01();
         jbac = new MockJBAC_REVM01();
-        staking = new TegridyStaking(address(token), address(jbac), treasury, 1 ether);
+        staking = new TegridyStaking(address(token), address(jbac), treasury);
         admin = new TegridyStakingAdmin(address(staking));
         staking.setStakingAdmin(address(admin));
 

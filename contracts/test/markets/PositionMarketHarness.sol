@@ -204,7 +204,7 @@ abstract contract PositionMarketFixture is Test {
         // later settlement silently credits zero — which would make the escrow-yield
         // assertions below pass or fail for a reason that has nothing to do with the
         // market. At this rate the whole suite stays four orders of magnitude clear.
-        staking = new TegridyStaking(address(token), address(jbac), treasury, 1e15);
+        staking = new TegridyStaking(address(token), address(jbac), treasury);
         staking.setJbacVault(address(new TegridyStakingJbacVault(address(jbac), address(staking))));
 
         market = new TegridyPositionMarket(address(staking), address(weth), address(this));

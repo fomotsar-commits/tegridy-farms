@@ -49,7 +49,7 @@ contract AuditMediumStakingEmergencyTouchTest is Test {
     function setUp() public {
         token = new MockTOWELI_EmergencyTouch();
         nft = new MockJBAC_EmergencyTouch();
-        staking = new TegridyStaking(address(token), address(nft), treasury, 1 ether);
+        staking = new TegridyStaking(address(token), address(nft), treasury);
 
         token.transfer(alice, 5_000_000 ether);
         vm.prank(alice); token.approve(address(staking), type(uint256).max);

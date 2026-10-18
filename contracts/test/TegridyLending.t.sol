@@ -108,8 +108,7 @@ contract TegridyLendingTest is Test {
         staking = new TegridyStaking(
             address(toweli),
             address(jbac),
-            treasury,
-            1e18 // rewardRate
+            treasury
         );
 
         // 3. Deploy MockWETH + mock TegridyPair seeded with a 1 TOWELI = 0.001 ETH price,

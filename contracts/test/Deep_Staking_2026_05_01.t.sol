@@ -47,7 +47,7 @@ contract Deep_Staking_2026_05_01_Test is Test {
         // BATCH-J2 H8: kick reverts if pending rewards exceed unsettled cap
         // (100k ether). Drop reward rate from 1 ether/sec → 1e14/sec so
         // 5-7d accrual stays well under the cap regardless of stake size.
-        staking = new TegridyStaking(address(token), address(nft), treasury, 1e14);
+        staking = new TegridyStaking(address(token), address(nft), treasury);
         monitor = new StakingMonitorView(address(staking));
         admin = new TegridyStakingAdmin(address(staking));
         staking.setStakingAdmin(address(admin));
@@ -282,7 +282,7 @@ contract Deep_Staking_2026_05_01_Test is Test {
 
     function test_setStakingAdmin_revertsOnEOA() public {
         // Fresh staking instance (admin not yet set).
-        TegridyStaking fresh = new TegridyStaking(address(token), address(nft), treasury, 1 ether);
+        TegridyStaking fresh = new TegridyStaking(address(token), address(nft), treasury);
         vm.expectRevert(TegridyStaking.NotAContract.selector);
         fresh.setStakingAdmin(alice); // alice is an EOA
     }

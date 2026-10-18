@@ -96,7 +96,7 @@ contract Audit20260712_OfferCapReclaimTest is Test {
         toweli = new MockToweli();
         jbac = new MockJBAC();
 
-        staking = new TegridyStaking(address(toweli), address(jbac), treasury, 1e18);
+        staking = new TegridyStaking(address(toweli), address(jbac), treasury);
 
         weth = new MockWETHLending();
         pair = new MockTegridyPairLending(address(toweli), address(weth), 1_000_000 ether, 1_000 ether);

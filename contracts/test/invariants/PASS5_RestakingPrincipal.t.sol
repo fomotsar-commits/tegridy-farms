@@ -144,7 +144,7 @@ contract PASS5_INV_A_RestakingPrincipal is Test {
         jbac = new InvR_JBAC();
         weth = new InvR_WETH();
 
-        staking = new TegridyStaking(address(toweli), address(jbac), treasury, 1 ether);
+        staking = new TegridyStaking(address(toweli), address(jbac), treasury);
         monitor = new StakingMonitorView(address(staking));
         stakingAdmin = new TegridyStakingAdmin(address(staking));
         staking.setStakingAdmin(address(stakingAdmin));

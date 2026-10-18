@@ -139,7 +139,7 @@ contract RestakingBonusBlacklistDoS is Test {
         jbac = new BLD_MockJBAC();
         weth = new BLD_MockBlacklistWETH();
 
-        staking = new TegridyStaking(address(toweli), address(jbac), treasury, REWARD_RATE);
+        staking = new TegridyStaking(address(toweli), address(jbac), treasury);
         monitor = new StakingMonitorView(address(staking));
         stakingAdmin = new TegridyStakingAdmin(address(staking));
         staking.setStakingAdmin(address(stakingAdmin));

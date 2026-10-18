@@ -303,8 +303,7 @@ contract TegridyLending_ReentrancyTest is Test {
         staking = new TegridyStaking(
             address(toweli),
             address(jbac),
-            treasury,
-            1e18
+            treasury
         );
 
         // Deploy WETH, pair stub, and lending

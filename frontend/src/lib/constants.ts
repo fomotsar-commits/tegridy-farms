@@ -265,6 +265,13 @@ export interface StakingContractSet {
   penaltyBps: number;
   /** Takes new stakes. False for a contract that only lets its positions leave. */
   acceptsStakes: boolean;
+  /**
+   * Pays its pot out over a schedule that ends at `periodFinish()` (staking release 1:
+   * each funding spreads the pot over four years, owner ruling 2026-10-18). After that
+   * time nothing accrues, whatever `rewardRate()` still says. The first contract has no
+   * schedule (it emits at its rate until the pot is empty) and no `periodFinish()`.
+   */
+  hasRewardSchedule: boolean;
 }
 
 export const STAKING_CONTRACT: StakingContractSet = {
@@ -273,6 +280,7 @@ export const STAKING_CONTRACT: StakingContractSet = {
   revenueDistributor: REVENUE_DISTRIBUTOR_ADDRESS,
   penaltyBps: EARLY_WITHDRAWAL_PENALTY_BPS,
   acceptsStakes: true,
+  hasRewardSchedule: true,
 };
 
 export const OLD_STAKING_CONTRACT: StakingContractSet = {
@@ -281,6 +289,7 @@ export const OLD_STAKING_CONTRACT: StakingContractSet = {
   revenueDistributor: OLD_REVENUE_DISTRIBUTOR_ADDRESS,
   penaltyBps: OLD_EARLY_WITHDRAWAL_PENALTY_BPS,
   acceptsStakes: false,
+  hasRewardSchedule: false,
 };
 
 // Protocol swap fee (mirrors the deployed SwapFeeRouter feeBps). The native

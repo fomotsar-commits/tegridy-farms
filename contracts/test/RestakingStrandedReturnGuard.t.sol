@@ -134,7 +134,7 @@ contract RestakingStrandedReturnGuardTest is Test {
         jbac = new SRG_MockJBAC();
         weth = new SRG_MockWETH();
 
-        staking = new TegridyStaking(address(toweli), address(jbac), treasury, REWARD_RATE);
+        staking = new TegridyStaking(address(toweli), address(jbac), treasury);
         monitor = new StakingMonitorView(address(staking));
         stakingAdmin = new TegridyStakingAdmin(address(staking));
         staking.setStakingAdmin(address(stakingAdmin));

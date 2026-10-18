@@ -47,7 +47,7 @@ contract StakingEarlyExit75Test is Test {
     function setUp() public {
         token = new EE75Token();
         nft = new EE75Nft();
-        staking = new TegridyStaking(address(token), address(nft), treasury, 0.5 ether);
+        staking = new TegridyStaking(address(token), address(nft), treasury);
         monitor = new StakingMonitorView(address(staking));
         admin = new TegridyStakingAdmin(address(staking));
         staking.setStakingAdmin(address(admin));

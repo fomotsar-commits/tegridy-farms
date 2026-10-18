@@ -61,8 +61,7 @@ contract FinalAuditStaking is Test {
         staking = new TegridyStaking(
             address(toweli),
             address(jbac),
-            treasury,
-            REWARD_RATE
+            treasury
         );
         monitor = new StakingMonitorView(address(staking));
         // AUDIT FIX (pass-8 batch-14): wire the JBAC vault sister so stakeWithBoost works.

@@ -73,7 +73,7 @@ contract StakingRewardOverMintTest is Test {
     function setUp() public {
         toweli = new MockTOWELI();
         jbac = new MockJBAC();
-        staking = new TegridyStaking(address(toweli), address(jbac), treasury, REWARD_RATE);
+        staking = new TegridyStaking(address(toweli), address(jbac), treasury);
         admin = new TegridyStakingAdmin(address(staking));
         staking.setStakingAdmin(address(admin));
         vault = new TegridyStakingJbacVault(address(jbac), address(staking));

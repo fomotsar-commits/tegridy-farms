@@ -45,7 +45,7 @@ contract AuditFixesStakingTest is Test {
     function setUp() public {
         token = new MockTokenAudit();
         nft = new MockNFTAudit();
-        staking = new TegridyStaking(address(token), address(nft), treasury, 1 ether);
+        staking = new TegridyStaking(address(token), address(nft), treasury);
         monitor = new StakingMonitorView(address(staking));
         admin = new TegridyStakingAdmin(address(staking));
         staking.setStakingAdmin(address(admin));

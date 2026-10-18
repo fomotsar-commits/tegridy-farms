@@ -105,7 +105,7 @@ contract CommunityGrantsRealStakingIntegrationTest is Test {
         nft   = new MockJbacCGI();
         weth  = new MockWethCGI();
 
-        staking = new TegridyStaking(address(token), address(nft), treasury, 1 ether);
+        staking = new TegridyStaking(address(token), address(nft), treasury);
         staking.setJbacVault(address(new TegridyStakingJbacVault(address(nft), address(staking))));
 
         // Exactly the production wiring: votingEscrow == the staking contract.

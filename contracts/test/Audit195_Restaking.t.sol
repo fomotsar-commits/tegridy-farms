@@ -74,8 +74,7 @@ contract Audit195Restaking is Test {
         staking = new TegridyStaking(
             address(toweli),
             address(jbac),
-            treasury,
-            REWARD_RATE
+            treasury
         );
         monitor = new StakingMonitorView(address(staking));
         stakingAdmin = new TegridyStakingAdmin(address(staking));

@@ -7,7 +7,6 @@ import {TimelockAdmin} from "./base/TimelockAdmin.sol";
 /// @notice Minimal interface to TegridyStaking for the admin's apply hooks.
 ///         Each `apply*` setter is `onlyAdmin` on the staking side.
 interface ITegridyStakingApply {
-    function applyRewardRate(uint256 _rate) external;
     function applyTreasury(address _treasury) external;
     function applyRestakingContract(address _restaking) external;
     function applyMaxUnsettledRewards(uint256 _cap) external;
@@ -15,11 +14,9 @@ interface ITegridyStakingApply {
     function applyRewardNotifier(address _notifier, bool _enabled) external;
     // NOTE: applyExtendFee / applyPenaltyRecycle / applyExtendFeeRecycle removed
     // with the extend-fee + penalty-recycle machinery (EIP-170 size on staking side).
-    function MAX_REWARD_RATE() external view returns (uint256);
     // AUDIT FIX (pass-8 batch-14): BPS() and EXTEND_FEE_BPS_CEILING() removed
     // — both lowered to `internal` on staking to free auto-getter bytecode
     // under EIP-170. Admin-side checks hardcode the values.
-    function rewardRate() external view returns (uint256);
     function treasury() external view returns (address);
     function restakingContract() external view returns (address);
     function maxUnsettledRewards() external view returns (uint256);
@@ -36,7 +33,7 @@ interface ITegridyStakingApply {
 ///         semantics (delays, ceilings, validity windows) are unchanged.
 /// @dev    AUDIT ADMIN-3 NAMING NOTE (2026-04-28): the legacy view helpers that
 ///         expose pending-execute timestamps use TWO naming conventions —
-///         `*ChangeTime` for the older two (`rewardRateChangeTime`,
+///         `*ChangeTime` for the older two (`rewardRateChangeTime`, removed 2026-10-18 with the rate flow;
 ///         `treasuryChangeTime`) and `*ChangeReadyAt` for the newer ones
 ///         (restaking, lendingContract). The newer convention (`*ChangeReadyAt`) is the
 ///         intended forward style — it reads as "ready at this timestamp"
@@ -48,7 +45,6 @@ interface ITegridyStakingApply {
 contract TegridyStakingAdmin is OwnableNoRenounce, TimelockAdmin {
     // ─── Errors ───────────────────────────────────────────────────────
     error ZeroAddress();
-    error RateTooHigh();
     error CapTooLow();
     /// @notice AUDIT FIX FRESH-2026: F-35-3 — sanity ceiling on maxUnsettledRewards.
     error CapTooHigh();
@@ -59,7 +55,6 @@ contract TegridyStakingAdmin is OwnableNoRenounce, TimelockAdmin {
     error NotAContract();
 
     // ─── Timelock keys ────────────────────────────────────────────────
-    bytes32 public constant REWARD_RATE_CHANGE = keccak256("REWARD_RATE_CHANGE");
     bytes32 public constant TREASURY_CHANGE = keccak256("TREASURY_CHANGE");
     bytes32 public constant RESTAKING_CHANGE = keccak256("RESTAKING_CHANGE");
     bytes32 public constant UNSETTLED_CAP_CHANGE = keccak256("UNSETTLED_CAP_CHANGE");
@@ -69,7 +64,6 @@ contract TegridyStakingAdmin is OwnableNoRenounce, TimelockAdmin {
     // keys removed with the extend-fee + penalty-recycle flows (EIP-170 size).
 
     // ─── Delays (mirror what TegridyStaking previously enforced) ──────
-    uint256 public constant REWARD_RATE_TIMELOCK = 48 hours;
     uint256 public constant TREASURY_CHANGE_TIMELOCK = 48 hours;
     uint256 public constant RESTAKING_CHANGE_TIMELOCK = 48 hours;
     uint256 public constant UNSETTLED_CAP_TIMELOCK = 48 hours;
@@ -79,7 +73,6 @@ contract TegridyStakingAdmin is OwnableNoRenounce, TimelockAdmin {
     // removed with the extend-fee + penalty-recycle flows (EIP-170 size).
 
     // ─── Pending storage ──────────────────────────────────────────────
-    uint256 public pendingRewardRate;
     address public pendingTreasury;
     address public pendingRestakingContract;
     uint256 public pendingMaxUnsettledRewards;
@@ -94,8 +87,6 @@ contract TegridyStakingAdmin is OwnableNoRenounce, TimelockAdmin {
     ITegridyStakingApply public immutable staking;
 
     // ─── Events ───────────────────────────────────────────────────────
-    event RewardRateProposed(uint256 newRate, uint256 executeAfter);
-    event RewardRateExecuted(uint256 newRate);
     event TreasuryChangeProposed(address newTreasury, uint256 executeAfter);
     event TreasuryChangeExecuted(address oldTreasury, address newTreasury);
     event RestakingContractChangeProposed(address newRestaking, uint256 executeAfter);
@@ -117,30 +108,9 @@ contract TegridyStakingAdmin is OwnableNoRenounce, TimelockAdmin {
         staking = ITegridyStakingApply(_staking);
     }
 
-    // ─── Reward rate ──────────────────────────────────────────────────
-    function proposeRewardRate(uint256 _rate) external onlyOwner {
-        if (_rate > staking.MAX_REWARD_RATE()) revert RateTooHigh();
-        pendingRewardRate = _rate;
-        _propose(REWARD_RATE_CHANGE, REWARD_RATE_TIMELOCK);
-        emit RewardRateProposed(_rate, _executeAfter[REWARD_RATE_CHANGE]);
-    }
-
-    function executeRewardRateChange() external onlyOwner {
-        _execute(REWARD_RATE_CHANGE);
-        uint256 r = pendingRewardRate;
-        pendingRewardRate = 0;
-        staking.applyRewardRate(r);
-        emit RewardRateExecuted(r);
-    }
-
-    function cancelRewardRateProposal() external onlyOwner {
-        _cancel(REWARD_RATE_CHANGE);
-        pendingRewardRate = 0;
-    }
-
-    function rewardRateChangeTime() external view returns (uint256) {
-        return _executeAfter[REWARD_RATE_CHANGE];
-    }
+    // Reward rate: removed 2026-10-18. TegridyStaking sets its own rate from the funds
+    // it receives (notifyRewardAmount spreads them over 4 years), so there is nothing to
+    // propose here any more.
 
     // ─── Treasury ─────────────────────────────────────────────────────
     function proposeTreasuryChange(address _newTreasury) external onlyOwner {
@@ -332,10 +302,6 @@ contract TegridyStakingAdmin is OwnableNoRenounce, TimelockAdmin {
     ///         per-key cancellation events — base event is sufficient).
     function acceptOwnership() public override {
         super.acceptOwnership();
-        if (_executeAfter[REWARD_RATE_CHANGE] != 0) {
-            _cancel(REWARD_RATE_CHANGE);
-            pendingRewardRate = 0;
-        }
         if (_executeAfter[TREASURY_CHANGE] != 0) {
             _cancel(TREASURY_CHANGE);
             pendingTreasury = address(0);

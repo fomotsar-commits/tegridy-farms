@@ -51,7 +51,7 @@ contract AuditMediumStakingNotifyRewardTest is Test {
     function setUp() public {
         token = new MockTOWELI_NotifyReward();
         nft = new MockJBAC_NotifyReward();
-        staking = new TegridyStaking(address(token), address(nft), treasury, 1 ether);
+        staking = new TegridyStaking(address(token), address(nft), treasury);
 
         token.transfer(alice, 5_000_000 ether);
         vm.prank(alice); token.approve(address(staking), type(uint256).max);

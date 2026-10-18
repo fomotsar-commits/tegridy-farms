@@ -367,7 +367,7 @@ contract TegridyStakingFuzzTest is Test {
     function setUp() public {
         token = new MockERC20Fuzz("Towelie", "TOWELI");
         nft = new MockNFTFuzz();
-        staking = new TegridyStaking(address(token), address(nft), treasury, 1 ether);
+        staking = new TegridyStaking(address(token), address(nft), treasury);
         monitor = new StakingMonitorView(address(staking));
 
         // Fund staking contract with rewards

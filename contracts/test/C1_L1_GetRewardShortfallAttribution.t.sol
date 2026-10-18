@@ -95,7 +95,7 @@ contract C1L1GetRewardShortfallAttributionTest is Test {
     function setUp() public {
         token = new C1L1MockToken();
         nft = new C1L1MockNFT();
-        staking = new TegridyStaking(address(token), address(nft), treasury, START_RATE);
+        staking = new TegridyStaking(address(token), address(nft), treasury);
         monitor = new StakingMonitorView(address(staking));
         admin = new TegridyStakingAdmin(address(staking));
         staking.setStakingAdmin(address(admin));

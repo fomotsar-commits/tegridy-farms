@@ -69,7 +69,7 @@ contract StakingAttributionPerTokenIdLedgerTest is Test {
     function setUp() public {
         token = new LedgerMockToken();
         nft = new LedgerMockNFT();
-        staking = new TegridyStaking(address(token), address(nft), treasury, 1 ether);
+        staking = new TegridyStaking(address(token), address(nft), treasury);
         admin = new TegridyStakingAdmin(address(staking));
         staking.setStakingAdmin(address(admin));
 

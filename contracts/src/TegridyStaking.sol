@@ -201,6 +201,8 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
     address public jbacVault;
     address public treasury;
 
+    /// @notice TOWELI-wei per second, set only by `notifyRewardAmount`: everything still
+    ///         to be paid, spread over REWARDS_DURATION (owner ruling 2026-10-18).
     uint256 public rewardRate;
     uint256 public lastUpdateTime;
     uint256 public rewardPerTokenStored;
@@ -367,6 +369,12 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
     // captured-owner runway-burn ceiling. Routine rate adjustments remain gated by
     // the 48h timelock.
     uint256 public constant MAX_REWARD_RATE = 1e18; // Cap maximum reward rate
+
+    /// @notice Owner ruling 2026-10-18: the reward pot is paid out over four years.
+    ///         Each funding re-spreads (new funds + what is still scheduled) over a
+    ///         fresh four years: Synthetix StakingRewards.notifyRewardAmount, the same
+    ///         rule as TegridyLPFarming and LighthouseLadder. 4 x 365 days, exactly.
+    uint256 public constant REWARDS_DURATION = 4 * 365 days;
 
     // AUDIT FIX H8: Restaking contract reference for restaking-aware view functions
     address public restakingContract;
@@ -583,18 +591,17 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
     constructor(
         address _rewardToken,
         address _jbacNFT,
-        address _treasury,
-        uint256 _rewardRate
+        address _treasury
     ) OwnableNoRenounce(msg.sender) {
         // AUDIT FIX (pass-8 batch-14): Solady ERC721 has no constructor-args
         // surface for name/symbol; overridden as constant `name()` / `symbol()`
         // returns below.
         if (_rewardToken == address(0) || _jbacNFT == address(0) || _treasury == address(0)) revert ZeroAddress();
-        if (_rewardRate > MAX_REWARD_RATE) revert RateTooHigh();
         rewardToken = IERC20(_rewardToken);
         jbacNFT = IERC721(_jbacNFT);
         treasury = _treasury;
-        rewardRate = _rewardRate;
+        // No reward rate here: it starts at 0 and only `notifyRewardAmount` sets it, from
+        // the funds it receives (REWARDS_DURATION). An unfunded pool pays nothing.
         lastUpdateTime = block.timestamp;
 
         // mvp-launch Phase 0.7: caps default uncapped at construction. The
@@ -955,14 +962,15 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
     // ─── C1 EIP-170 split: reward-state marshalling choke-points ─────────
     // Standalone scalar state vars cannot be passed to a delegatecall library by
     // storage reference, so the reward cluster is marshalled through these two
-    // helpers: load the four mutable scalars into a memory struct, let the library
-    // mutate them, then write ALL FOUR back in one place. Routing every cluster
+    // helpers: load the five mutable scalars into a memory struct, let the library
+    // mutate them, then write ALL FIVE back in one place. Routing every cluster
     // wrapper through the SAME store helper makes a dropped write-back impossible.
     function _loadRewardState() private view returns (StakingRewardLib.RewardState memory rs) {
         rs.rewardPerTokenStored = rewardPerTokenStored;
         rs.lastUpdateTime = lastUpdateTime;
         rs.totalBoostedStake = totalBoostedStake;
         rs.totalUnsettledRewards = totalUnsettledRewards;
+        rs.periodFinish = periodFinish;
     }
 
     function _storeRewardState(StakingRewardLib.RewardState memory rs) private {
@@ -970,6 +978,7 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
         lastUpdateTime = rs.lastUpdateTime;
         totalBoostedStake = rs.totalBoostedStake;
         totalUnsettledRewards = rs.totalUnsettledRewards;
+        periodFinish = rs.periodFinish;
     }
 
     function _rewardCfg() private view returns (StakingRewardLib.Cfg memory cfg) {
@@ -1020,7 +1029,10 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
         // `_unpause()` and the assignment, that logic would observe the
         // unpaused state with the stale `lastUpdateTime`. With the assignment
         // first, any post-unpause callback already sees the correct anchor.
-        lastUpdateTime = block.timestamp;
+        // Settling while still paused sets that anchor (`lastUpdateTime = now`) AND moves
+        // periodFinish back by the last paused stretch (StakingRewardLib.accumulateRewards),
+        // so the emission the pause skipped is still paid, later.
+        _accumulateRewards();
         _unpause();
     }
 
@@ -2365,18 +2377,17 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
     ///      MIN_NOTIFY_AMOUNT floor. Defends totalRewardsFunded accounting against any
     ///      future migration to a FoT/rebasing reward token; harmless ~3k gas tax.
     /// @param _amount Amount of reward tokens to deposit (must be >= MIN_NOTIFY_AMOUNT)
-    function notifyRewardAmount(uint256 _amount) external nonReentrant whenNotPaused updateReward {
+    function notifyRewardAmount(uint256 _amount) external nonReentrant whenNotPaused {
         if (msg.sender != owner() && !rewardNotifiers[msg.sender]) {
             revert NotRewardNotifier();
         }
-        if (_amount < MIN_NOTIFY_AMOUNT) revert FundAmountTooSmall(); // AUDIT FIX #61
-        // AUDIT FIX: DEEP-DS-08 — delta-measure pattern.
-        uint256 balBefore = rewardToken.balanceOf(address(this));
-        address(rewardToken).safeTransferFrom(msg.sender, address(this), _amount);
-        uint256 received = rewardToken.balanceOf(address(this)) - balBefore;
-        if (received < MIN_NOTIFY_AMOUNT) revert FundAmountTooSmall();
+        // EIP-170: the body (settle under the pre-funding pool, pull and measure the funds,
+        // set the four-year schedule) lives in StakingRewardLib.notifyRewardAmount.
+        StakingRewardLib.RewardState memory rs = _loadRewardState();
+        uint256 received;
+        (rs, received, rewardRate) = StakingRewardLib.notifyRewardAmount(rs, _rewardCfg(), _amount);
+        _storeRewardState(rs);
         totalRewardsFunded += received;
-        emit RewardAdded(received);
     }
 
     /// @notice First-time setter for the sister TegridyStakingAdmin contract (where the
@@ -2427,6 +2438,13 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
     /// @notice block.timestamp after which `executeAdminReplacement` is callable.
     ///         Zero when no proposal is pending.
     uint256 public adminReplacementReadyAt;
+
+    /// @notice When the current reward schedule ends (see REWARDS_DURATION). Nothing
+    ///         accrues after it. A stretch that pays nobody (paused, or nothing staked)
+    ///         moves it back by that stretch, so no scheduled reward is stranded.
+    ///         Declared at the END of storage (see the note below): the hardcoded test
+    ///         slots stay put.
+    uint256 public periodFinish;
 
     /// @notice Address of the deployed `TegridyTokenURIReader`. Zero until wired.
     /// @dev    AUDIT FIX 2026-08-12 [TOKENURI-UNWIRED].
@@ -2517,7 +2535,7 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
         emit StakingAdminReplacementCancelled(proposed);
     }
 
-    /// @dev One private body for the six `apply*` setters (M-S6 added the sixth), the
+    /// @dev One private body for the five `apply*` setters (M-S6 added one; the rate one left 2026-10-18), the
     ///      same EIP-170 fold as `_requireContract`: an inlined modifier pays per call site.
     modifier onlyAdmin() {
         _onlyAdmin();
@@ -2528,12 +2546,9 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
         if (msg.sender != stakingAdmin) revert Unauthorized();
     }
 
-    /// @notice Apply a new reward rate. Caller must be the wired admin contract.
-    function applyRewardRate(uint256 _rate) external onlyAdmin updateReward {
-        if (_rate > MAX_REWARD_RATE) revert RateTooHigh();
-        rewardRate = _rate;
-        emit RewardRateUpdated(_rate);
-    }
+    // `applyRewardRate` is gone (owner ruling 2026-10-18): the rate follows the funds,
+    // set only by `notifyRewardAmount`, so no hand-set rate can promise more than the
+    // pot holds. Synthetix StakingRewards has no rate setter either.
 
     /// @notice Apply a treasury change. Caller must be the wired admin contract.
     function applyTreasury(address _newTreasury) external onlyAdmin {

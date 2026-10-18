@@ -162,7 +162,7 @@ const fn = (name, out) => ({ type: 'function', name, stateMutability: 'view', in
 const ABI = [
   ...['owner', 'treasury', 'rewardToken', 'jbacNFT', 'stakingAdmin', 'jbacVault', 'staking', 'tegridyStaking',
     'stakingToken', 'votingEscrow', 'weth', 'stakingContract'].map((n) => fn(n, 'address')),
-  ...['EARLY_WITHDRAWAL_PENALTY_BPS', 'rewardRate', 'totalStaked', 'totalUnsettledRewards', 'referralFeeBps'].map((n) => fn(n, 'uint256')),
+  ...['EARLY_WITHDRAWAL_PENALTY_BPS', 'rewardRate', 'periodFinish', 'totalStaked', 'totalUnsettledRewards', 'referralFeeBps'].map((n) => fn(n, 'uint256')),
   ...['paused', 'setupComplete'].map((n) => fn(n, 'bool')),
   { type: 'function', name: 'balanceOf', stateMutability: 'view', inputs: [{ type: 'address' }], outputs: [{ type: 'uint256' }] },
 ];
@@ -214,11 +214,14 @@ export async function verifyOnChain(client, a) {
   const oldPaused = await read(OLD_STAKING, 'paused');
 
   // The reward pot. Free = balance - staked - unsettled IOUs (the contract's own reserve rule).
+  // Since 2026-10-18 the contract sets its own rate from each funding (the pot over four
+  // years), so the end of payouts is read, not worked out from pot / rate.
   const rate = await read(a.staking, 'rewardRate');
+  const finish = await read(a.staking, 'periodFinish');
   const bal = await read(TOWELI, 'balanceOf', [a.staking]);
   const staked = await read(a.staking, 'totalStaked');
   const owed = await read(a.staking, 'totalUnsettledRewards');
-  return { problems, oldPaused, rate, free: bal - staked - owed };
+  return { problems, oldPaused, rate, finish, free: bal - staked - owed };
 }
 
 async function main() {
@@ -244,7 +247,7 @@ async function main() {
   } catch (e) {
     stop(`a read did not answer on ${redactRpcUrl(rpc)} (${e.shortMessage ?? e.message}). An unread value is not a pass.`);
   }
-  const { problems, oldPaused, rate, free } = checked;
+  const { problems, oldPaused, rate, finish, free } = checked;
   if (problems.length) stop(`the chain does not match the release:\n  ${problems.join('\n  ')}`);
   if (free < MIN_FUNDED_WEI && !allowUnfunded) {
     stop(`the new staking contract holds ${formatEther(free > 0n ? free : 0n)} reward TOWELI. Run step 2 (FundStakingRelease1) first: ` +
@@ -267,11 +270,10 @@ async function main() {
     }
   }
 
-  const days = rate > 0n ? Number(free / (rate * 86_400n)) : null;
   console.log(`Receipt   contracts/broadcast/DeployStakingRelease1.s.sol/1/${r.file}, first block ${r.firstBlock}, ${date}`);
   for (const [name, key] of Object.entries(CONTRACTS)) console.log(`${name.padEnd(24)} ${a[key]}`);
   console.log(`Fee       ${NEW_PENALTY_BPS} bps on the new contract; the first one still ${OLD_PENALTY_BPS} bps${oldPaused ? ' and PAUSED: its positions cannot claim or leave. Ask before going on.' : ''}`);
-  console.log(`Pot       ${formatEther(free)} TOWELI free at ${formatEther(rate * 86_400n)} TOWELI/day${days === null ? '' : ` (about ${days} days, an upper bound: owed rewards are not subtracted)`}`);
+  console.log(`Pot       ${formatEther(free)} TOWELI, paid out at ${formatEther(rate * 86_400n)} TOWELI/day until ${finish > 0n ? new Date(Number(finish) * 1000).toISOString().slice(0, 10) : 'it is funded'} (the four-year schedule)`);
   console.log(`\nFilled ${changed.length} file(s):\n  ${changed.join('\n  ')}`);
   console.log('\nNext: git add those files AND the receipts (both run-*.json and run-latest.json under');
   console.log('contracts/broadcast/DeployStakingRelease1.s.sol/1/), then from frontend/:');

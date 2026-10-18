@@ -31,6 +31,8 @@ export function useProtocolStats() {
       { address: TEGRIDY_STAKING_ADDRESS, abi: TEGRIDY_STAKING_ABI, functionName: 'totalStaked', chainId: CHAIN_ID },
       { address: TEGRIDY_STAKING_ADDRESS, abi: TEGRIDY_STAKING_ABI, functionName: 'totalRewardsFunded', chainId: CHAIN_ID },
       { address: TEGRIDY_STAKING_ADDRESS, abi: TEGRIDY_STAKING_ABI, functionName: 'rewardRate', chainId: CHAIN_ID },
+      // Staking release 1: nothing is paid after the four-year schedule's end.
+      { address: TEGRIDY_STAKING_ADDRESS, abi: TEGRIDY_STAKING_ABI, functionName: 'periodFinish', chainId: CHAIN_ID },
     ],
     query: { enabled: sfrDeployed && stakingDeployed, refetchInterval: 60_000, refetchOnWindowFocus: true },
   });
@@ -39,7 +41,9 @@ export function useProtocolStats() {
   const feeBps = data?.[1]?.status === 'success' ? data[1].result as bigint : 0n;
   const totalStaked = data?.[2]?.status === 'success' ? data[2].result as bigint : 0n;
   const totalRewardsFunded = data?.[3]?.status === 'success' ? data[3].result as bigint : 0n;
-  const rewardRate = data?.[4]?.status === 'success' ? data[4].result as bigint : 0n;
+  const scheduleRunning = data?.[5]?.status === 'success'
+    && (data[5].result as bigint) > BigInt(Math.floor(Date.now() / 1000));
+  const rewardRate = data?.[4]?.status === 'success' && scheduleRunning ? data[4].result as bigint : 0n;
 
   const ethUsd = price.ethUsd;
   const toweliUsd = price.priceInUsd;

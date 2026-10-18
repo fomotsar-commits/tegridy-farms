@@ -41,7 +41,7 @@ contract TegridyStakingTest is Test {
     function setUp() public {
         token = new MockToken();
         nft = new MockNFT();
-        staking = new TegridyStaking(address(token), address(nft), treasury, 1 ether);
+        staking = new TegridyStaking(address(token), address(nft), treasury);
         monitor = new StakingMonitorView(address(staking));
         admin = new TegridyStakingAdmin(address(staking));
         staking.setStakingAdmin(address(admin));
@@ -710,44 +710,6 @@ contract TegridyStakingTest is Test {
     }
 
     // ===== PROPOSE REWARD RATE TIMELOCK (SECURITY FIX #13) =====
-
-    function test_proposeRewardRate() public {
-        // FRESH-2026 (Wave A F-35-2): MAX_REWARD_RATE tightened 100e18 → 1e18 (~31%/yr cap).
-        admin.proposeRewardRate(0.5 ether);
-        assertEq(admin.pendingRewardRate(), 0.5 ether);
-        assertGt(admin.rewardRateChangeTime(), block.timestamp);
-    }
-
-    function test_executeRewardRateChange_afterTimelock() public {
-        admin.proposeRewardRate(0.5 ether);
-        vm.warp(block.timestamp + 48 hours + 1);
-        admin.executeRewardRateChange();
-        assertEq(staking.rewardRate(), 0.5 ether);
-        assertEq(admin.pendingRewardRate(), 0);
-        assertEq(admin.rewardRateChangeTime(), 0);
-    }
-
-    function test_revert_executeRewardRate_beforeTimelock() public {
-        admin.proposeRewardRate(0.5 ether);
-        vm.expectRevert(abi.encodeWithSelector(TimelockAdmin.ProposalNotReady.selector, admin.REWARD_RATE_CHANGE()));
-        admin.executeRewardRateChange();
-    }
-
-    function test_revert_executeRewardRate_noPending() public {
-        vm.expectRevert(abi.encodeWithSelector(TimelockAdmin.NoPendingProposal.selector, admin.REWARD_RATE_CHANGE()));
-        admin.executeRewardRateChange();
-    }
-
-    function test_revert_proposeRewardRate_tooHigh() public {
-        vm.expectRevert(TegridyStaking.RateTooHigh.selector);
-        admin.proposeRewardRate(101 ether);
-    }
-
-    function test_revert_proposeRewardRate_notOwner() public {
-        vm.prank(bob);
-        vm.expectRevert();
-        admin.proposeRewardRate(5 ether);
-    }
 
     // ===== NFT TRANSFER WITH AlreadyHasPosition GUARD (AUDIT FIX #2) =====
 

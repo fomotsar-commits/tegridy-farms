@@ -57,6 +57,11 @@ contract Audit_StakingEIP170SizeTest is Test {
     ///           24,489 B  [M-S6, 2026-10-14]       -32  reward-notifier grant moved behind
     ///                     the admin's 48h timelock (+16), and `onlyAdmin`'s six inline copies
     ///                     folded into one private `_onlyAdmin` (-48). Margin 55 B -> 87 B.
+    ///           24,356 B  [four-year rewards, 2026-10-18]  -133  owner ruling: the pot is paid
+    ///                     out over four years (Synthetix notifyRewardAmount + periodFinish).
+    ///                     Written inline it measured 24,693 B, OVER EIP-170. Applying the rule
+    ///                     below instead: the funding body moved to StakingRewardLib, and the
+    ///                     hand-set rate path (applyRewardRate) was deleted. Margin 87 B -> 220 B.
     ///
     ///         This constant was briefly wrong during that work — it was set to 24,508 before
     ///         the second fix was measured, and this assertion is what caught it. That is the
@@ -66,7 +71,7 @@ contract Audit_StakingEIP170SizeTest is Test {
     ///         rule in contracts/foundry.toml is: extract to StakingViewLib / StakingRewardLib
     ///         or to the StakingMonitorView sister FIRST, and do not spend the remaining margin.
     ///         If you are here because this went red, that rule is what it is asking you to apply.
-    uint256 internal constant STAKING_RATCHET = 24_489;
+    uint256 internal constant STAKING_RATCHET = 24_356;
 
     TegridyStaking internal staking;
     TegridyStakingAdmin internal stakingAdmin;
@@ -74,7 +79,7 @@ contract Audit_StakingEIP170SizeTest is Test {
     StakingMonitorView internal monitorView;
 
     function setUp() public {
-        staking = new TegridyStaking(address(0xA11CE), address(0xB0B), address(0xC0FFEE), 0);
+        staking = new TegridyStaking(address(0xA11CE), address(0xB0B), address(0xC0FFEE));
         stakingAdmin = new TegridyStakingAdmin(address(staking));
         vault = new TegridyStakingJbacVault(address(0xB0B), address(staking));
         monitorView = new StakingMonitorView(address(staking));
@@ -94,7 +99,7 @@ contract Audit_StakingEIP170SizeTest is Test {
         assertLe(
             address(staking).code.length,
             STAKING_RATCHET,
-            "TegridyStaking grew past its 2026-10-14 measurement of 24,489 B. CI's FLOOR_EXCEPTIONS entry only WARNS below 24,576 B, so this test is the gate. Extract to a lib or the monitor sister rather than spending the margin - see contracts/foundry.toml."
+            "TegridyStaking grew past its 2026-10-18 measurement of 24,356 B. CI's FLOOR_EXCEPTIONS entry only WARNS below 24,576 B, so this test is the gate. Extract to a lib or the monitor sister rather than spending the margin - see contracts/foundry.toml."
         );
     }
 
