@@ -210,7 +210,11 @@ abstract contract PositionMarketFixture is Test {
         market = new TegridyPositionMarket(address(staking), address(weth), address(this));
 
         token.approve(address(staking), type(uint256).max);
-        staking.notifyRewardAmount(50_000_000 ether);
+        // 2026-10-18: a funding sets the rate (pot / four years), so the modest rate above is
+        // set by the pot: 126,144 TOWELI over 4 x 365 days is exactly 1e15 wei/s, the rate this
+        // fixture always ran at. Seed extra TOWELI too, as the 50M top-up did, so no pool cap binds.
+        staking.notifyRewardAmount(126_144 ether);
+        token.transfer(address(staking), 50_000_000 ether);
 
         _fund(alice);
         _fund(bob);

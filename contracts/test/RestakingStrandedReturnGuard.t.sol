@@ -147,8 +147,8 @@ contract RestakingStrandedReturnGuardTest is Test {
         vm.warp(block.timestamp + 48 hours + 1);
         stakingAdmin.executeRestakingContract();
 
-        toweli.approve(address(staking), 500_000_000 ether);
-        staking.notifyRewardAmount(500_000_000 ether);
+        toweli.approve(address(staking), 100_000_000 ether); // 2026-10-18: one schedule tops out at 126,144,000 (MAX_REWARD_RATE x 4y)
+        staking.notifyRewardAmount(100_000_000 ether);
         weth.transfer(address(restaking), 1_000_000 ether);
 
         toweli.transfer(alice, STAKE_AMOUNT * 4);

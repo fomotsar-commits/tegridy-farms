@@ -110,7 +110,12 @@ contract AuditMediumStakingNotifyRewardTest is Test {
         uint256 tokenId = staking.userTokenId(alice);
 
         // Let emission outrun the funded pool, so the pool cap is what bounds accrual.
+        // 2026-10-18: a four-year schedule never outruns what it was funded on its own, so the
+        // rig simulates a loss instead: the pot is cut to 1,000 TOWELI, below what the interval
+        // has scheduled. The property is unchanged: the interval before a funding is paid from
+        // the pool that existed during it.
         vm.warp(vm.getBlockTimestamp() + 600 days);
+        deal(address(token), address(staking), staking.totalStaked() + staking.totalUnsettledRewards() + 1_000 ether);
 
         uint256 prePool =
             token.balanceOf(address(staking)) - staking.totalStaked() - staking.totalUnsettledRewards();

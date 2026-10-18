@@ -73,7 +73,7 @@ contract Audit195StakingRewards is Test {
 
         // Fund with rewards
         token.approve(address(staking), type(uint256).max);
-        staking.notifyRewardAmount(500_000_000 ether);
+        staking.notifyRewardAmount(100_000_000 ether);
     }
 
     // =========================================================================
@@ -93,9 +93,10 @@ contract Audit195StakingRewards is Test {
         // Advance 100 seconds
         vm.warp(block.timestamp + 100);
 
-        // pendingReward should be ~100 tokens (100s * 1 TOWELI/s)
+        // pendingReward should be ~100 seconds of emission. 2026-10-18: the rate is the pot over
+        // four years (100M / 1,460 days), no longer a fixed 1 TOWELI/s.
         uint256 pending = monitor.earned(tokenId);
-        assertApproxEqAbs(pending, 100 ether, 1e15, "Pending should be ~100 TOWELI");
+        assertApproxEqAbs(pending, 100 * staking.rewardRate(), 1e15, "Pending should be ~100 seconds of emission");
     }
 
     /// @notice Verify precision doesn't lose significant value with very small stakes
@@ -111,7 +112,7 @@ contract Audit195StakingRewards is Test {
 
         // Even small stake should capture all rewards when sole staker
         uint256 pending = monitor.earned(tokenId);
-        assertApproxEqAbs(pending, 1000 ether, 1e15, "Small staker should get all rewards");
+        assertApproxEqAbs(pending, 1000 * staking.rewardRate(), 1e15, "Small staker should get all rewards");
     }
 
     /// @notice Verify no overflow with large stakes and long durations

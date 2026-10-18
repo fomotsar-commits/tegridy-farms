@@ -155,6 +155,13 @@ contract StakingBoostResidual_2026_08_12_Test is Test {
     //  helpers
     // ─────────────────────────────────────────────────────────────────────
 
+    /// @dev 2026-10-18: TOWELI sent straight to the contract no longer pays anyone; a funding
+    ///      does, spread over four years. The scenarios fund through notifyRewardAmount.
+    function _fundSchedule(uint256 amount) internal {
+        toweli.approve(address(staking), amount);
+        staking.notifyRewardAmount(amount);
+    }
+
     /// @dev The unpaid-owed quantity the H-05 fix exists to preserve:
     ///      `accumulated - rewardDebt`, in token units.
     function _residual(uint256 tokenId) internal view returns (int256) {
@@ -167,7 +174,11 @@ contract StakingBoostResidual_2026_08_12_Test is Test {
     ///      reward pool and the unsettled cap exhausted so nothing can pay it
     ///      down. Returns Alice's tokenId.
     function _buildResidual() internal returns (uint256 tokenId) {
-        toweli.mint(address(staking), POOL);
+        // 2026-10-18: the four-year schedule never allocates the same pool twice (the
+        // double allocation below used to produce this state; it is fixed), so the state is
+        // now reached through a LOSS: a real schedule accrues, then the pool is cut to POOL
+        // before Alice claims. The H-05 machinery under test is the same whatever emptied it.
+        _fundSchedule(100_000_000 ether);
 
         vm.startPrank(alice);
         toweli.approve(address(staking), type(uint256).max);
@@ -187,6 +198,7 @@ contract StakingBoostResidual_2026_08_12_Test is Test {
         // to the pool as it stands now, not net of already-allocated pending), so
         // Alice's claim on this line necessarily exceeds what the pool can pay.
         skip(10 days);
+        deal(address(toweli), address(staking), staking.totalStaked() + staking.totalUnsettledRewards() + POOL);
         vm.prank(alice);
         staking.getReward(tokenId);
 
@@ -281,7 +293,7 @@ contract StakingBoostResidual_2026_08_12_Test is Test {
     ///         regression against AUDIT H-AUDIT-2026-1's "keep max boost
     ///         perpetually" semantic. Anchor flat instead.
     function test_decayRestore_doesNotCarryNegativeResidual() public {
-        toweli.mint(address(staking), 5_000_000 ether);
+        _fundSchedule(5_000_000 ether);
 
         vm.startPrank(alice);
         toweli.approve(address(staking), type(uint256).max);

@@ -319,6 +319,17 @@ contract Audit195StakingGov is Test {
         admin.executeTreasuryChange();
     }
 
+    /// Moved here 2026-10-18 from the reward-rate key, which no longer exists (the rate follows
+    /// the funds): the validity window is inclusive at its last second (`>`, not `>=`).
+    function test_executeTreasury_atExactExpiry() public {
+        address t = makeAddr("newTreasury");
+        admin.proposeTreasuryChange(t);
+        uint256 executeAt = admin.treasuryChangeTime();
+        vm.warp(executeAt + 7 days);
+        admin.executeTreasuryChange();
+        assertEq(staking.treasury(), t);
+    }
+
     function test_proposeTreasury_cannotDoublePropose() public {
         admin.proposeTreasuryChange(makeAddr("a"));
         vm.expectRevert(abi.encodeWithSelector(TimelockAdmin.ExistingProposalPending.selector, admin.TREASURY_CHANGE()));
@@ -405,6 +416,15 @@ contract Audit195StakingGov is Test {
         vm.prank(attacker);
         vm.expectRevert();
         admin.cancelTreasuryProposal();
+    }
+
+    /// Moved here 2026-10-18 from the reward-rate key: a cancelled proposal frees the key.
+    function test_cancelTreasury_thenReproposeWorks() public {
+        admin.proposeTreasuryChange(makeAddr("t1"));
+        admin.cancelTreasuryProposal();
+        address t2 = makeAddr("t2");
+        admin.proposeTreasuryChange(t2);
+        assertEq(admin.pendingTreasury(), t2);
     }
 
     function test_cancelRestaking_clearsState() public {

@@ -156,7 +156,7 @@ contract StakingAttributionLendingUnderpayTest is Test {
     ///      state a real tokenId carries after a restake cycle that exited while the
     ///      staking reward pool was short.
     function _seedForeignResidue() internal returns (uint256 residue) {
-        _fund(50_000_000 ether);
+        _fund(20_000_000 ether);
         vm.warp(vm.getBlockTimestamp() + 100_000);
 
         vm.prank(alice);
@@ -238,7 +238,7 @@ contract StakingAttributionLendingUnderpayTest is Test {
         // the close-transfer credits lending's ledger entry either way, but the
         // post-transfer `claimUnsettledForTokenId` can only actually pay out of a
         // funded pool, and it is that payout the split then attributes.
-        _fund(50_000_000 ether);
+        _fund(20_000_000 ether);
         skip(3 days);
 
         uint256 aliceBefore = toweli.balanceOf(alice);
@@ -295,7 +295,7 @@ contract StakingAttributionLendingUnderpayTest is Test {
 
         // Blow the deadline with a healthy pool so the close-transfer credits lending's
         // entry and the post-transfer pull can actually pay it out.
-        _fund(50_000_000 ether);
+        _fund(20_000_000 ether);
         skip(8 days);
 
         uint256 danBefore = toweli.balanceOf(dan);
@@ -326,7 +326,7 @@ contract StakingAttributionLendingUnderpayTest is Test {
         uint256 foreignResidue = _seedForeignResidue();
         uint256 loanId = _openLoan();
 
-        _fund(50_000_000 ether);
+        _fund(20_000_000 ether);
         skip(3 days);
         uint256 repay = 1 ether + 0.05 ether;
         vm.deal(alice, repay);
@@ -334,7 +334,7 @@ contract StakingAttributionLendingUnderpayTest is Test {
         lending.repayLoan{value: repay}(loanId);
 
         // Refill so the pool can honour the foreign holder's claim.
-        _fund(50_000_000 ether);
+        _fund(20_000_000 ether);
 
         address sink = makeAddr("up_sink");
         uint256 paid = foreign.callClaim(aliceTokenId, sink);

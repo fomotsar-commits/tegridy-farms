@@ -768,7 +768,10 @@ contract TegridyStakingTest is Test {
 
         uint256 tokenId = staking.userTokenId(bob);
         uint256 pending = monitor.earned(tokenId);
-        assertApproxEqAbs(pending, 100 ether, 1 ether);
+        // 2026-10-18: the rate is the pot over four years (10M / 1,460 days), not a fixed 1/s.
+        uint256 rate = staking.rewardRate();
+        assertEq(rate, uint256(10_000_000 ether) / (4 * 365 days), "rate = pot / four years");
+        assertApproxEqAbs(pending, 100 * rate, rate);
     }
 
     function test_claim_rewards() public {
@@ -780,7 +783,7 @@ contract TegridyStakingTest is Test {
         uint256 balBefore = token.balanceOf(bob);
         vm.prank(bob);
         staking.getReward(tokenId);
-        assertGt(token.balanceOf(bob) - balBefore, 900 ether);
+        assertGt(token.balanceOf(bob) - balBefore, 900 * staking.rewardRate());
     }
 
     // ===== AUTO-MAX-LOCK =====

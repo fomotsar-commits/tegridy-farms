@@ -100,8 +100,8 @@ contract Audit195Restaking is Test {
         stakingAdmin.executeRestakingContract();
 
         // Fund staking with rewards
-        toweli.approve(address(staking), 500_000_000 ether);
-        staking.notifyRewardAmount(500_000_000 ether);
+        toweli.approve(address(staking), 100_000_000 ether); // 2026-10-18: one schedule tops out at 126,144,000 (MAX_REWARD_RATE x 4y)
+        staking.notifyRewardAmount(100_000_000 ether);
 
         // Fund restaking bonus pool
         weth.transfer(address(restaking), 100_000 ether);
