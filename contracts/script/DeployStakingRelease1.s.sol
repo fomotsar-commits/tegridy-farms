@@ -34,8 +34,9 @@ import {SwapFeeRouterAdmin} from "../src/SwapFeeRouterAdmin.sol";
 ///         VALUES. Every value is copied from the live contract it replaces, read at run time,
 ///         and compared against what was read on 2026-10-14 (block 26,190,643). If anything has
 ///         moved since, the run aborts before sending: look at why first.
-///         The one value NOT copied is the reward rate. The owner has not chosen it, so it is a
-///         REQUIRED env var with no default:
+///         Two values are NOT copied. The per-wallet stake cap is the owner's 2026-10-18 choice,
+///         1,000,000 TOWELI (the old contract's is 50,000, and it is still asserted there). The
+///         reward rate the owner has not chosen, so it is a REQUIRED env var with no default:
 ///             STAKING_REWARD_RATE_WEI_PER_SEC   TOWELI-wei per second, at most 1e18.
 ///             (the old contract pays 824300000000000000 = 0.8243 TOWELI/s = 71,219.52 TOWELI/day)
 ///
@@ -64,7 +65,8 @@ contract DeployStakingRelease1Script is Script {
     address constant TREASURY = 0x7D2620243EdAd69Ec81A53c4A063B07995A4Bd7d; // Safe
     address constant PAUSE_GUARDIAN = 0xCDCA0F0621ce34012AD61bBD140f327EB778F354; // Safe
     address constant TEGRIDY_LP = 0x55875887B43C2E23aE424AF0FC8606Fdb058a481; // LP farm's staking token
-    uint256 constant MAX_STAKE_PER_USER = 50_000e18;
+    uint256 constant OLD_MAX_STAKE_PER_USER = 50_000e18;
+    uint256 constant MAX_STAKE_PER_USER = 1_000_000e18; // owner 2026-10-18: the new contract's cap
     uint256 constant MAX_TOTAL_STAKED = 5_000_000e18;
     uint256 constant MAX_UNSETTLED_REWARDS = 100_000e18; // constructor default; asserted, not set
     uint256 constant LP_REWARDS_DURATION = 7 days;
@@ -141,7 +143,7 @@ contract DeployStakingRelease1Script is Script {
         require(address(old.jbacNFT()) == JBAC, "live staking jbacNFT moved");
         require(old.treasury() == TREASURY, "live staking treasury moved");
         require(old.pauseGuardian() == PAUSE_GUARDIAN, "live staking pauseGuardian moved");
-        require(old.maxStakePerUser() == MAX_STAKE_PER_USER, "live maxStakePerUser moved");
+        require(old.maxStakePerUser() == OLD_MAX_STAKE_PER_USER, "live maxStakePerUser moved");
         require(old.maxTotalStaked() == MAX_TOTAL_STAKED, "live maxTotalStaked moved");
         require(old.maxUnsettledRewards() == MAX_UNSETTLED_REWARDS, "live maxUnsettledRewards moved");
         require(old.restakingContract() == address(0), "live staking has a restaking contract now");
@@ -222,6 +224,8 @@ contract DeployStakingRelease1Script is Script {
         console2.log("ReferralSplitter        ", d.referralSplitter);
         console2.log("reward rate (wei/s)     ", rewardRate);
         console2.log("reward per day (TOWELI) ", (rewardRate * 1 days) / 1e18);
+        console2.log("stake cap per wallet (TOWELI)", MAX_STAKE_PER_USER / 1e18);
+        console2.log("stake cap, whole pool (TOWELI)", MAX_TOTAL_STAKED / 1e18);
         uint256 readyAt = SwapFeeRouterAdmin(SWAP_FEE_ROUTER_ADMIN).revenueDistributorChangeTime();
         console2.log("router re-point ready at (unix)", readyAt);
         console2.log("router re-point expires at (unix)", readyAt + 7 days);

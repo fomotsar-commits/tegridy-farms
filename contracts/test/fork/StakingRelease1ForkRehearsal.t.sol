@@ -167,6 +167,29 @@ contract StakingRelease1ForkRehearsal is Test {
         assertEq(IERC20(TOWELI).balanceOf(bob) - bobBefore, owed + 2_500 ether, "rewards + 25%");
     }
 
+    /// The owner's 2026-10-18 cap: one wallet can stake 1,000,000 TOWELI on the new contract,
+    /// and not one wei more. The old contract keeps its 50,000.
+    function test_fork_new_perWalletCap_oneMillion_old50k() public onlyFork {
+        assertEq(staking.maxStakePerUser(), 1_000_000 ether, "new cap 1M");
+        assertEq(oldStaking.maxStakePerUser(), 50_000 ether, "old cap untouched");
+        address whale = makeAddr("fork-whale");
+        address over = makeAddr("fork-over");
+        deal(TOWELI, whale, 1_000_000 ether);
+        deal(TOWELI, over, 1_000_000 ether + 1);
+        vm.prank(whale);
+        IERC20(TOWELI).approve(address(staking), type(uint256).max);
+        vm.prank(over);
+        IERC20(TOWELI).approve(address(staking), type(uint256).max);
+
+        vm.prank(over);
+        vm.expectRevert(TegridyStaking.PerUserStakeCapExceeded.selector);
+        staking.stake(1_000_000 ether + 1, 365 days);
+
+        uint256 id = _stake(staking, whale, 1_000_000 ether, 365 days);
+        (uint256 amount,,,,,,,,,,) = staking.positions(id);
+        assertEq(amount, 1_000_000 ether, "a full 1M position");
+    }
+
     function test_fork_new_afterLockEnd_noFee() public onlyFork {
         _stake(staking, carol, 5_000 ether, 365 days);
         uint256 id = _stake(staking, bob, 10_000 ether, 7 days);

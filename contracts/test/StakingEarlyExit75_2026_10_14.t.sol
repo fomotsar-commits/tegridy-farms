@@ -195,7 +195,8 @@ contract StakingEarlyExit75Test is Test {
 
     /// Fuzz: for any stake size and any moment inside the lock, the split is exact.
     function testFuzz_earlyWithdraw_split(uint96 rawAmount, uint32 rawElapsed) public {
-        uint256 amount = bound(uint256(rawAmount), 100 ether, 50_000 ether);
+        // Up to the release's per-wallet cap (DeployStakingRelease1.MAX_STAKE_PER_USER).
+        uint256 amount = bound(uint256(rawAmount), 100 ether, 1_000_000 ether);
         uint256 lock = 365 days;
         uint256 elapsed = bound(uint256(rawElapsed), 0, lock - 1);
         _stake(carol, 5_000 ether, lock);
