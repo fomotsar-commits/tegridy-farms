@@ -115,3 +115,12 @@ describe('VenueDoors — the hall of doors', () => {
     expect(screen.getByText(/Walk in where you hold/)).toBeInTheDocument();
   });
 });
+
+// The bar's Island word opens this home (2026-10-18), and the island lobby (the whole board,
+// the arrival film) has no word of its own: this link is its way in (navReach.test.tsx).
+describe('VenueDoors — the way to the island lobby', () => {
+  it('links the island lobby from the hall', () => {
+    renderHall();
+    expect(screen.getByRole('link', { name: 'The whole island' })).toHaveAttribute('href', '/island');
+  });
+});
