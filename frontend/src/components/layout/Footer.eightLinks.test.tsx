@@ -51,7 +51,7 @@ describe('the footer', () => {
     expect(href('For your AI')).toBe('/llms.txt');
   });
 
-  it('carries no room button and no column headings: Rooms is a word on the bar', () => {
+  it("carries no room button and no column headings: the bar's Island word opens the hall", () => {
     const footer = footerAt('/');
     expect(within(footer).queryByRole('button', { name: /Bungalows/ })).toBeNull();
     for (const heading of ['Product', 'Resources', 'Community', 'Legal', 'Trust & Safety']) {
