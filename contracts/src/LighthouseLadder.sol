@@ -381,6 +381,11 @@ contract LighthouseLadder is ReentrancyGuard {
         if (timeLeft > MAX_LOCK_DURATION) timeLeft = MAX_LOCK_DURATION;
         uint256 ratio = (timeLeft * PENALTY_SCALE) / MAX_LOCK_DURATION;
         if (ratio > MAX_PENALTY_RATIO) ratio = MAX_PENALTY_RATIO;
+        // SLITHER 2026-10-19: the ratio is floored at 1e18 before it meets the amount, as
+        // veYFI and the BAYLA ladder (math.rs penalty_for) do it, so the two ladders quote
+        // the same wei for the same inputs. The flooring costs under amount / 1e18, less
+        // than a wei per whole token, and always in the leaver's favour.
+        // slither-disable-next-line divide-before-multiply
         return (amount * ratio) / PENALTY_SCALE;
     }
 
