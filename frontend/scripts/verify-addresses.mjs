@@ -1547,7 +1547,8 @@ function selfTest() {
   );
   t(
     'check 3d (chain) reads the fund owner back by address: the split’s fund owner on chain is red against a vault row, green against a split row',
-    onChain(acct(cfgBytes({ fundOwner: splitOwner }))).problems.some((p) => p.startsWith('fundOwner is G2EHPseT'))
+    // Both rows written out, so it holds whichever owner the registry names for tier 0 today.
+    solanaFieldProblems({ ...spec0, fundOwner: reg.solanaFields.onlyHolder }, acct(cfgBytes({ fundOwner: splitOwner })), fid).problems.some((p) => p.startsWith('fundOwner is G2EHPseT'))
       && solanaFieldProblems({ ...spec0, fundOwner: splitOwner }, acct(cfgBytes({ fundOwner: splitOwner })), fid).problems.length === 0,
   );
   t('check 3d (chain) fails a tier whose rate moved', onChain(acct(cfgBytes({ tradeFeeRate: 3000 }))).problems.some((p) => p.includes('tradeFeeRate is 3000')));
