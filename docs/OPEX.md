@@ -71,14 +71,14 @@ lapses, and how the operator would notice. Sources: env usage across `frontend/a
 | Breaks on lapse | WalletConnect-modal pairing (mobile wallets) fails; injected wallets (MetaMask/Rabby/Frame) + Coinbase Wallet unaffected — `wagmi.ts` has an explicit no-projectId fallback |
 | Detection | User reports only |
 
-### 7. Vercel hosting (Hobby plan)
+### 7. Vercel hosting (Pro plan, since 2026-09-04)
 | | |
 |---|---|
 | Used by | The entire frontend + all 9 serverless functions |
-| Free tier | Hobby: **12-function cap (main = 9, see `frontend/api/SERVERLESS_BUDGET.md`)**, 100 GB bandwidth/mo, bounded function GB-hours. Hobby ToS is non-commercial — a fee-collecting marketplace is a plausible forced-upgrade trigger |
-| Paid threshold | Pro $20/mo |
-| Today | $0 |
-| Breaks | Function cap → deploy failures (recurring known cause, not a code bug); usage caps → site paused |
+| Plan | Pro, moved off Hobby 2026-09-04 (the team billing page read "Pro Plan · Active", card on file; see `frontend/api/SERVERLESS_BUDGET.md`). The Hobby 12-function cap and the Hobby non-commercial terms no longer bind |
+| Price | Pro list price $20/mo (the figure is the list price; the invoice has not been read for this page) |
+| Today | ~$20/mo |
+| Breaks | A failed payment on the card on file. Usage beyond what the plan includes bills on demand (not measured here). A deploy failure is no longer the function cap: look for a code or config cause |
 | Detection | Synthetic monitor catches dead/stale prod within 30 min; deploy failures surface in the CLI/dashboard |
 
 ### 8. GitHub Actions
@@ -139,6 +139,9 @@ unless that sink is paid. `SEAPORT_CHAIN_ID`, `ALLOWED_ORIGINS`, `DISABLE_SECURE
 are config, not vendors.
 
 ## Summary — total monthly opex vs the self-sustain bar
+
+> **Vercel is on Pro since 2026-09-04 (item 7), about $20/mo, about $0.66/day. The three rows below
+> were written when it was free and leave it out: add it to each.**
 
 | Posture | What's paid | Est. $/mo | Revenue needed/day |
 |---|---|---|---|
