@@ -1,4 +1,5 @@
 import { PLATFORM_TREASURY_VAULT } from '../../launcher/solana/curve/program';
+import { WORKSHOP_WALLET } from '../../launcher/solana/write/plant';
 import type { AmmConfigView } from '../cpswap/program';
 import { feeSplit, solOf } from '../cpswap/venue';
 import { feeRateText, pctText } from './format';
@@ -38,6 +39,7 @@ export interface VenueEarns {
 
 const VAULT_CAN = 'which needs two signatures and can change the pool rates';
 const VAULT_LABEL = 'Team’s shared wallet';
+const WORKSHOP_LABEL = 'Island’s Workshop';
 
 export function howVenueEarns(tier: AmmConfigView | null, jupiter: JupiterFee | null): VenueEarns {
   const swap = jupiter
@@ -55,15 +57,26 @@ export function howVenueEarns(tier: AmmConfigView | null, jupiter: JupiterFee | 
   const show = (label: string, address: string) => {
     if (!wallets.some((w) => w.address === address)) wallets.push({ label: address === vault ? VAULT_LABEL : label, address });
   };
-  if (takers.every((a) => a === vault)) {
+  // The island's split (agreed 2026-10-18, on chain 2026-10-19): the vault keeps the protocol part and the
+  // island's Workshop collects the fund part. Agreed, so named plainly rather than flagged as money elsewhere.
+  const workshop = WORKSHOP_WALLET.toBase58();
+  const islandSplit = tier.protocolOwner === vault && tier.fundFeeRate > 0n && tier.fundOwner === workshop;
+  if (takers.every((a) => a === vault) || islandSplit) {
     show(VAULT_LABEL, vault);
+    if (islandSplit) show(WORKSHOP_LABEL, workshop);
     if (jupiter) show('Swap fee wallet', jupiter.wallet);
     const swapElsewhere = jupiter !== null && jupiter.wallet !== vault;
+    const island = Math.round((Number(tier.fundFeeRate) * 100) / Number(tier.protocolFeeRate + tier.fundFeeRate));
+    const pool = islandSplit
+      ? `The pool cut is split: ${100 - island}% to the team’s shared wallet, ${VAULT_CAN}, and ${island}% to the island’s Workshop, the island’s agreed share.`
+      : null;
     return {
       sources,
-      where: swapElsewhere
-        ? `The pool fees go to the team’s shared wallet, ${VAULT_CAN}. The swap fee goes to its own wallet.`
-        : `It goes to the team’s shared wallet, ${VAULT_CAN}.`,
+      where: pool
+        ? `${pool}${swapElsewhere ? ' The swap fee goes to its own wallet.' : jupiter ? ' The swap fee goes to the team’s shared wallet.' : ''}`
+        : swapElsewhere
+          ? `The pool fees go to the team’s shared wallet, ${VAULT_CAN}. The swap fee goes to its own wallet.`
+          : `It goes to the team’s shared wallet, ${VAULT_CAN}.`,
       wallets,
       elsewhere: false,
     };
