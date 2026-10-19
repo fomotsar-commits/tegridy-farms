@@ -600,10 +600,10 @@ export const SURFACES: Surface[] = [
   // happen to be on, so the Live-page preview can't scroll to them (it will
   // report "not found"). Use the Art tab to place them.
   { group: 'Popups', pageId: 'nav-drawer', idx: 0, label: 'MO3 — Mobile nav drawer' },
-  // The menu's rows, each with its own picture (NavDrawer.tsx ROW_ART).
+  // The menu's rows, each with its own picture (NavDrawer.tsx ROW_ART), and its More list's (MORE_ART).
   { group: 'Popups', pageId: 'nav-drawer', idx: 1, label: 'MO3a — Menu row: Pools' },
   { group: 'Popups', pageId: 'nav-drawer', idx: 2, label: 'MO3b — Menu row: Check' },
-  { group: 'Popups', pageId: 'nav-drawer', idx: 3, label: 'MO3c — Menu row: Island' },
+  { group: 'Popups', pageId: 'nav-drawer', idx: 3, label: 'MO3c — Menu: the More list' },
   { group: 'Popups', pageId: 'nav-drawer', idx: 4, label: 'MO3d — Menu row: Dashboard' },
   { group: 'Popups', pageId: 'legacy-exit', idx: 0, label: 'MO6 — Legacy staking notice' },
   // "Buy all bungalows" on the swap card (IslandBasket.tsx).

@@ -51,12 +51,26 @@ describe('the footer', () => {
     expect(href('For your AI')).toBe('/llms.txt');
   });
 
-  it('carries no room button and no column headings: Rooms is a word on the bar', () => {
+  it("carries no room button and no column headings: the bar's Island word opens the hall", () => {
     const footer = footerAt('/');
     expect(within(footer).queryByRole('button', { name: /Bungalows/ })).toBeNull();
     for (const heading of ['Product', 'Resources', 'Community', 'Legal', 'Trust & Safety']) {
       expect(within(footer).queryByRole('heading', { name: heading }), heading).toBeNull();
     }
+  });
+
+  // The public line agreed with Jungle Bay Island on 2026-10-18, word for word, typed out here
+  // rather than read from VENUE, on every kind of page: the venue's, a room's and the farm's.
+  it.each(['/', '/swap', '/bayla', '/toweli'])('carries the agreed public line, verbatim, in the bottom bar on %s', (path) => {
+    const footer = footerAt(path);
+    const line = within(footer).getByText(
+      "memetics.finance is the island's venue: built and run by greencifer, its take shared across the island after the venue's costs, every month, read on chain.",
+    );
+    expect(line.tagName).toBe('P');
+    expect(line.closest('nav')).toBeNull();
+    // Added beside the bar's lines, never in place of one.
+    expect(footer).toHaveTextContent('Experimental protocol. Use at your own risk. Not financial advice.');
+    expect(footer).toHaveTextContent('© 2026 memetics.finance · built by the jungle bay artists collective');
   });
 
   it('keeps the farm’s market links in its own room, beside its contract card', () => {
