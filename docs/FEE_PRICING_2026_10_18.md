@@ -13,8 +13,8 @@ Nothing below is sent by an agent: every on-chain step is signed by the owner.
 | Paid API plans (billing off) | $99 / $499 / $2,000 | $49 / $199 / $799 | PR #877 | #877 merges |
 | Marketplace fee (own listings, single-NFT offers) | 1% | 0.5% | PR #876 | #876 merges |
 | NFT trading pools, new factory | 0.5% | 0.25% | PR #875 kit | the redeploy |
-| Solana graduated pools, creator fee | 0.05% | 0.50% (0.75% total) | Squads step 1 below | proposal executes |
-| Solana 0.25% pool tier (fee settings 2) | none | 0.25%; the take is 16% of the fee, split 10.4% to the vault and 5.6% to the island (born with the split the island accepted on 2026-10-18) | Squads step 2 below | proposal executes; usable once the tier picker (#887) ships |
+| Solana graduated pools, creator fee | 0.05% | 0.50% (0.75% total) | Squads step 1 below | **LIVE: executed 2026-10-19 07:59:04Z (Squads #12, slot 458,758,678)**; launches stay paused until at least 2026-10-26 08:00Z, the owner's ruling, since it went out without the seven-day notice |
+| Solana 0.25% pool tier (fee settings 2) | none | 0.25%; the take is 16% of the fee, split 10.4% to the vault and 5.6% to the island (born with the split the island accepted on 2026-10-18) | Squads step 2 below | proposal executes, after the seven-day public notice AND the vault's 48-hour lock (live since 2026-10-19 08:08:07Z, Squads #14); usable once the tier picker (#887) ships |
 | EVM curve split, all three chains | 40 / 25 / 35 | 50 / 25 / 25 | Safe steps below | each Safe tx executes |
 | Card on-ramp partner fee | not set | 0.5% | provider dashboards + Vercel env | when on-ramp keys are set |
 
@@ -28,8 +28,8 @@ The tool is the local proposer page, already used for proposals 1 to 5.
 
 1. Run `node C:\Users\jimbo\solana-launch-release-2026-09-26\squads-proposer\serve.mjs`.
 2. Open http://127.0.0.1:5199/ in the browser that has Member A's wallet (`5QHzAqbGk3W8qGRBHCMyWjhLXf8YJcs3yPEh14Ymcwgz`).
-3. Two new steps are at the bottom of the list.
-   - **"Graduated pools: creator fee 0.05% to 0.50%"**
+3. Two steps. The first is DONE on chain; the second is still to sign.
+   - **"Graduated pools: creator fee 0.05% to 0.50%"**: DONE, Squads #12, executed 2026-10-19 07:59:04Z. Read back on chain: fee settings 0 creator_fee_rate 5,000 (and, from the split's own proposal #13, protocol 130,000 / fund 70,000 with the Workshop as fund owner). The page shows it as ALREADY DONE.
      - `update_amm_config(7, 5000)` on fee settings 0, `BHMteE8u6LAppswQmFmd2h7hp1fCfWtGahvVJnhRk8jW`.
      - Data `313cae889a1c74c8078813000000000000`.
      - No pool uses fee settings 0 today and the launcher is paused, so nobody pays it until launches open.
@@ -39,7 +39,7 @@ The tool is the local proposer page, already used for proposals 1 to 5.
      - The vault pays about 0.00185 SOL of rent. A new fee tier is a fee change: post it seven days before it executes (the island's terms).
 4. The page simulates each step as the vault before it shows a Sign button. The creator-fee step simulated clean on 2026-10-18 (3,021 CU); the rebuilt tier-2 step passed its live-mainnet pre-flight on 2026-10-19.
 5. Member A signs each create, at about 0.004 SOL each.
-6. Member B (`6VHowW4pnD4WTGsXhqBp6yxGgC3EExVmYgebSrRNu2tY`) approves and executes both at https://app.squads.so/squads/GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd/transactions. They will be transactions #12 and #13.
+6. Member B (`6VHowW4pnD4WTGsXhqBp6yxGgC3EExVmYgebSrRNu2tY`) approves at https://app.squads.so/squads/GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd/transactions. Since Squads #14 (2026-10-19) the vault's config carries a 48-hour time lock: execution waits 48 hours after the second approval, and every proposal older than #14 is stale. The tier-2 proposal must also be posted seven days before it executes (the island's terms).
 
 ## EVM: three Safe transactions, one per chain
 
