@@ -49,6 +49,7 @@ import { BungalowHero } from '../components/bungalow/BungalowHero';
 import { BungalowMarket } from '../components/bungalow/BungalowMarket';
 import { BungalowHolders } from '../components/bungalow/BungalowHolders';
 import { BungalowBurn } from '../components/bungalow/BungalowBurn';
+import { RoomRail } from '../components/bungalow/RoomRail';
 import { homeBurnRoom } from '../lib/bungalowBurn';
 
 // F92: persist a valid ?ref= address so attribution survives navigation and
@@ -339,7 +340,10 @@ export default function HomePage() {
                 moved it to the Check overview; see the note where it used to
                 render, below. */}
             {bungalowIdentity ? (
-              <BungalowHero bungalow={bungalowIdentity} />
+              /* The room's first section, for its rail (RoomRail.tsx): the hero and its doors. */
+              <div id="room-doors" data-room-section="Doors">
+                <BungalowHero bungalow={bungalowIdentity} />
+              </div>
             ) : !isToweliArrival ? (
               /* ARRIVAL IDENTITY 2026-08-27: the venue's own hero is the
                  default first impression. The classic Tegridy cluster below
@@ -633,11 +637,16 @@ export default function HomePage() {
           )}
         </div>
 
+        {/* The room's index (owner, 2026-10-19): its sections below, numbered, lit as you scroll.
+            It reads the `data-room-section` marks on the cards' slots, so each room lists what it
+            renders. The venue home marks nothing and has none. */}
+        {bungalowIdentity && <RoomRail room={bungalowIdentity.id} />}
+
         {/* The bungalow's market — her own pool's chart + numbers, in the slot
             where the default venue puts its TOWELI stat pills. Renders only
             when the bungalow declares a `market` pool; self-hides otherwise. */}
         {bungalowIdentity?.market && (
-          <div className="pb-8">
+          <div className="pb-8" id="room-market" data-room-section="Market">
             <BungalowMarket bungalow={bungalowIdentity} />
           </div>
         )}
@@ -646,7 +655,7 @@ export default function HomePage() {
             token bungalow shows it once, TOWELI included, which has no identity and so
             reaches this slot through its own arrival. */}
         {burnRoom && (
-          <div className={bungalowIdentity ? 'pb-8' : 'pb-16'}>
+          <div className={bungalowIdentity ? 'pb-8' : 'pb-16'} id="room-burn" data-room-section="Burn">
             <BungalowBurn bungalow={burnRoom} />
           </div>
         )}
@@ -657,7 +666,7 @@ export default function HomePage() {
             second. Same reading as the venue's, presented to the narrower
             question a room asks. */}
         {bungalowIdentity?.address && (
-          <div className="pb-8">
+          <div className="pb-8" id="room-held-time" data-room-section="Held time">
             {/* THE ROOM SUPPLIES THE PANEL. `variant="embedded"` drops the card's
                 own chrome, which is right where a host has already introduced it
                 (the launch gate) and wrong here: on a room's full-bleed art the
@@ -706,7 +715,7 @@ export default function HomePage() {
         {/* Who holds her — the venue's own scanner, run on this bungalow's
             token, with its coverage limits stated rather than smoothed over. */}
         {bungalowIdentity?.address && (
-          <div className="pb-16">
+          <div className="pb-16" id="room-holders" data-room-section="Holders">
             <BungalowHolders bungalow={bungalowIdentity} />
           </div>
         )}
@@ -717,7 +726,7 @@ export default function HomePage() {
             canon copy only): a resident without lore gets NO card rather
             than another resident's story. */}
         {bungalowIdentity?.identity.lore && (
-          <div className="pb-16">
+          <div className="pb-16" id="room-lore" data-room-section="Lore">
             <div className="relative rounded-2xl overflow-hidden glass-card-animated" style={{ border: '1px solid var(--color-purple-75)' }}>
               <div className="absolute inset-0" aria-hidden="true">
                 <ArtImg pageId="bungalow-lore" idx={0} alt="" loading="lazy" className="w-full h-full object-cover" />
