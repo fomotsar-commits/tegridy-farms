@@ -149,6 +149,10 @@ export function Footer() {
             © 2026 memetics.finance · built by the jungle bay artists collective · <IslandSoundLinks />
           </span>
         </div>
+        {/* The public line agreed with Jungle Bay Island (2026-10-18), verbatim, on every page. */}
+        <p className="pb-4 -mt-2 text-white/60 text-[11px] text-center md:text-right" style={SHADOW}>
+          {VENUE.venueLine}
+        </p>
       </div>
     </footer>
   );
