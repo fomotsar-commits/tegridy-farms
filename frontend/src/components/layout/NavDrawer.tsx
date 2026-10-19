@@ -81,11 +81,10 @@ function IndexLink({ n, name, item, here, onHover, onGo }: { n: number; name: st
  * pages two across. The word rises from under a mask; on a phone and an iPad the group's own
  * picture sits beside it (the big frame carries it from 900px).
  */
-function IndexGroupBlock({ i, group, first, pathname, onHover, onGo }: {
-  i: number; group: IndexGroup; first: number; pathname: string; onHover: (shown: Shown) => void; onGo: () => void;
+function IndexGroupBlock({ i, group, first, here, pathname, onHover, onGo }: {
+  i: number; group: IndexGroup; first: number; here: boolean; pathname: string; onHover: (shown: Shown) => void; onGo: () => void;
 }) {
   const id = `nav-index-${group.heading.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`;
-  const here = group.to !== undefined && isHere(group.to, pathname);
   const word = (
     <span className="block overflow-hidden pr-[0.08em] pb-[0.06em]">
       <m.span className="block" initial={{ y: '110%' }} animate={{ y: 0 }} transition={{ delay: 0.2 + i * 0.05, duration: 0.8, ease: EASE }}>
@@ -272,7 +271,8 @@ function Panel({ ref, onClose, from, pathname, isConnected, showAdmin, focusSear
               ) : (
                 <div className="grid min-[600px]:grid-cols-2 gap-x-10 min-[1100px]:gap-x-12 items-start">
                   {groups.map((group, i) => (
-                    <IndexGroupBlock key={group.heading} i={i} group={group} first={firsts[i]!} pathname={pathname} onHover={setHover} onGo={onClose} />
+                    <IndexGroupBlock key={group.heading} i={i} group={group} first={firsts[i]!} here={group.heading === here?.heading}
+                      pathname={pathname} onHover={setHover} onGo={onClose} />
                   ))}
                 </div>
               )}
