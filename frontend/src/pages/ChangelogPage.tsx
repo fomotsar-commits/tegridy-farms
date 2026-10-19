@@ -3,10 +3,13 @@ import { pageArt } from '../lib/artConfig';
 import { usePageTitle } from '../hooks/usePageTitle';
 import { ArtImg } from '../components/ArtImg';
 import { artImgProps } from '../lib/artSrcSet';
+import { daysFromChangelog } from '../lib/changelogDays';
+import { changelog as changelogFile, earlierDays as earlierDaysFile } from 'virtual:changelog-files';
 
 interface ChangelogEntry {
   date: string;
-  title: string;
+  /** Hand-written entries carry one; a day read from CHANGELOG.md does not. */
+  title?: string;
   items: string[];
   /**
    * THE BUILDER, WHEN THE ENTRY CAME IN THROUGH THE PIECE RAIL.
@@ -31,7 +34,8 @@ interface ChangelogEntry {
 // import: pageArt follows the skin, and a door changes the skin in place.
 const cardArt = () => Array.from({ length: 16 }, (_, i) => pageArt('changelog-cards', i));
 
-const CHANGELOG: ChangelogEntry[] = [
+/** Entries written by hand before the page read CHANGELOG.md; the newest is August 18, 2026. */
+const WRITTEN_BY_HAND: ChangelogEntry[] = [
   {
     date: 'August 18, 2026',
     title: 'Code That Was Written and Never Switched On',
@@ -423,6 +427,12 @@ const CHANGELOG: ChangelogEntry[] = [
   },
 ];
 
+const CHANGELOG: ChangelogEntry[] = [
+  ...daysFromChangelog(changelogFile),
+  ...daysFromChangelog(earlierDaysFile),
+  ...WRITTEN_BY_HAND,
+];
+
 /**
  * THE DATE, AND THE BUILDER'S CREDIT BESIDE IT WHEN THE ENTRY CARRIES ONE.
  *
@@ -497,7 +507,7 @@ export default function ChangelogPage() {
                 key={idx}
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.1 + idx * 0.08 }}
+                transition={{ delay: 0.1 + Math.min(idx, 8) * 0.08 }}
                 className="relative pl-12 md:pl-14"
               >
                 {/* Timeline dot */}
@@ -519,8 +529,9 @@ export default function ChangelogPage() {
                   <div className="relative z-10 m-2 md:m-3 rounded-lg p-4 md:p-5" style={{ background: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(4px)', border: '1px solid rgba(255,255,255,0.08)' }}>
                     <EntryBadges date={entry.date} by={entry.by} />
 
-                    {/* Title */}
-                    <h2 className="text-white text-lg font-bold mb-4" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.9)' }}>{entry.title}</h2>
+                    {entry.title ? (
+                      <h2 className="text-white text-lg font-bold mb-4" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.9)' }}>{entry.title}</h2>
+                    ) : null}
 
                     {/* Items */}
                     <ul className="space-y-2.5">

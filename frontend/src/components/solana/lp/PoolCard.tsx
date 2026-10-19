@@ -1,7 +1,7 @@
 import { useEffect, useId, useRef, useState, type ReactNode, type RefObject } from 'react';
 import { isCreatedPool, type PoolEntry, type PoolView } from '../../../lib/solana/lp/poolFinder';
 import { REFERENCE_NAME, formatWhen, vaultFreezer, type PoolHealth, type PriceReference, type WithdrawalsState } from '../../../lib/solana/lp/poolHealth';
-import { feeRateText, priceText, quoteText, tokenText, tradeCostText } from '../../../lib/solana/lp/format';
+import { feeRateText, quoteText, tokenText, tradeCostText, turnedDiff } from '../../../lib/solana/lp/format';
 import { pairLabel, registryToken } from '../../../lib/solana/lp/identity';
 import type { QuoteCoin } from '../../../lib/solana/lp/quotes';
 import { noPriceClause } from '../../../lib/solana/lp/poolHealth';
@@ -28,6 +28,8 @@ import { CardArt } from '../../ui/CardArt';
 import { AddLiquidityPanel } from './AddLiquidityPanel';
 import { AddOneCoinPanel } from './AddOneCoinPanel';
 import { AddressRow } from './AddressRow';
+import { PriceFlip } from './PriceFlip';
+import { usePriceSide } from './priceSide';
 import { depositOffer, lpHeld, type DepositOffer } from './offers';
 import { explorerOf } from './panelKit';
 import type { LpReaders } from './readers';
@@ -105,8 +107,14 @@ const REFERENCE_LABEL: Readonly<Record<PriceReference, string>> = {
   'launch-pool': 'The launch pool’s price',
 };
 
-/** The pool's price and what it was checked against, both in the pool's own pairing coin. */
-function PriceRows({ price, quote, unit }: { price: PoolHealth['price']; quote: QuoteCoin; unit: string }) {
+/**
+ * The pool's price and what it was checked against, both in the pool's own pairing coin.
+ * A press on either price turns every pool's prices round (PriceFlip); the difference is
+ * then worked out the same way round, so it matches the two numbers above it.
+ */
+function PriceRows({ price, quote, unit }: { price: PoolHealth['price']; quote: QuoteCoin; unit: { one: string; many: string } }) {
+  const side = usePriceSide();
+  const here = (perToken: number) => <PriceFlip perToken={perToken} quote={quote} unit={unit} />;
   switch (price.state) {
     case 'empty-pool':
       return <Row label="Price" value="No price: one side is empty" mono={false} />;
@@ -117,7 +125,7 @@ function PriceRows({ price, quote, unit }: { price: PoolHealth['price']; quote: 
       // the token has a price then, and "this token" would be wrong.
       return (
         <>
-          <Row label="Price here" value={priceText(price.pool, quote, unit)} mono={false} />
+          <Row label="Price here" value={here(price.pool)} mono={false} />
           <Row label="Checked against" value={`Nothing: ${noPriceClause(price.of, quote)}`} mono={false} />
         </>
       );
@@ -126,14 +134,14 @@ function PriceRows({ price, quote, unit }: { price: PoolHealth['price']; quote: 
       // the price is shown, and why it was compared with nothing.
       return (
         <>
-          <Row label="Price here" value={priceText(price.pool, quote, unit)} mono={false} />
+          <Row label="Price here" value={here(price.pool)} mono={false} />
           <Row label="Checked against" value={`Nothing: ${TOO_NEW_WHY}`} mono={false} />
         </>
       );
     case 'no-trades-yet':
       return (
         <>
-          <Row label="Price here" value={priceText(price.pool, quote, unit)} mono={false} />
+          <Row label="Price here" value={here(price.pool)} mono={false} />
           <Row label="Checked against" value="Nothing needed: nobody has traded since the launch program opened this pool at this price" mono={false} />
         </>
       );
@@ -141,28 +149,30 @@ function PriceRows({ price, quote, unit }: { price: PoolHealth['price']; quote: 
     case 'unread':
       return (
         <>
-          <Row label="Price here" value={price.pool === null ? 'not worked out' : priceText(price.pool, quote, unit)} mono={false} />
+          <Row label="Price here" value={price.pool === null ? 'not worked out' : here(price.pool)} mono={false} />
           <Row label="Checked against" value={price.state === 'skipped' ? `Not compared: ${price.detail.replace(/^not compared, /, '')}` : `Nothing: ${price.detail}`} mono={false} />
         </>
       );
     case 'agrees':
-    case 'disagrees':
+    case 'disagrees': {
+      const diff = side === 'coin' ? turnedDiff(price.diff) : price.diff;
       return (
         <>
-          <Row label="Price here" value={priceText(price.pool, quote, unit)} mono={false} />
+          <Row label="Price here" value={here(price.pool)} mono={false} />
           <Row
             label={REFERENCE_LABEL[price.against]}
-            value={priceText(price.reference, quote, unit)}
+            value={here(price.reference)}
             mono={false}
           />
           {/* Further apart than the check allows is a warning, not a refusal: the value is in the warning colour and names what it is off from; its cost is listed with the deposit checks. */}
           {price.state === 'disagrees' ? (
-            <Row label="Difference" value={`${differenceText(price.diff)} ${REFERENCE_NAME[price.against]}`} mono={false} tone="warn" />
+            <Row label="Difference" value={`${differenceText(diff)} ${REFERENCE_NAME[price.against]}`} mono={false} tone="warn" />
           ) : (
-            <Row label="Difference" value={differenceText(price.diff)} mono={false} />
+            <Row label="Difference" value={differenceText(diff)} mono={false} />
           )}
         </>
       );
+    }
   }
 }
 
@@ -311,7 +321,7 @@ export function PoolCard({
     <>
         <Part title="Price">
           <Row label="In the pool" value={`${quoteText(view.quoteReserve, view.quote)} and ${tokenText(view.tokenReserve, tokenDecimals, unit.many)}`} mono={false} />
-          <PriceRows price={price} quote={view.quote} unit={unit.one} />
+          <PriceRows price={price} quote={view.quote} unit={unit} />
         </Part>
 
         <Part title="What this pool earned">
