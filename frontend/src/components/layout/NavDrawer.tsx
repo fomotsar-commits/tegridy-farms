@@ -257,8 +257,9 @@ function Panel({ ref, onClose, from, pathname, isConnected, showAdmin, focusSear
               <input ref={searchRef} type="search" value={q} onChange={(e) => setQ(e.target.value)}
                 onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); jump(); } }}
                 aria-label="Jump to a page" placeholder="Jump to…" autoComplete="off" spellCheck={false} enterKeyHint="go"
-                // The rule under the field turns green on focus; index.css's purple ring is off here.
-                className="w-full h-12 pl-7 pr-20 bg-transparent font-mono text-[15px] tracking-[0.04em] text-[#f5e4b8] placeholder:text-[#f5e4b8]/40 outline-none focus-visible:outline-none [&::-webkit-search-cancel-button]:appearance-none" />
+                // The rule under the field turns green on focus; index.css's purple ring is off here
+                // (.nav-index-search there: an unlayered rule, which a utility cannot outrank).
+                className="nav-index-search w-full h-12 pl-7 pr-20 bg-transparent font-mono text-[15px] tracking-[0.04em] text-[#f5e4b8] placeholder:text-[#f5e4b8]/40 outline-none [&::-webkit-search-cancel-button]:appearance-none" />
               <kbd aria-hidden="true"
                 className="hidden min-[900px]:inline-block absolute right-0 top-1/2 -translate-y-1/2 px-1.5 py-0.5 border border-white/15 font-mono text-[10px] tracking-[0.14em] text-[#f5e4b8]/50">
                 {mac ? '⌘K' : 'CTRL K'}
