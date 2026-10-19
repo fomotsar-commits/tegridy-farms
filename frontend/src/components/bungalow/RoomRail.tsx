@@ -51,8 +51,11 @@ export function RoomRail({ stops }: { stops: readonly RoomStop[] }) {
 
   return (
     <nav ref={ref} aria-label="On this page"
-      // Sticky under the header's row until 1440px (the --rail-top var, so the docked rail's top-1/2 wins there).
-      className="sticky top-[var(--rail-top)] z-30 mb-6 -mx-1 min-[1440px]:fixed min-[1440px]:left-5 min-[1440px]:top-1/2 min-[1440px]:-translate-y-1/2 min-[1440px]:m-0"
+      // Sticky under the header's row until 1440px (the --rail-top var, so the docked rail's top-1/2
+      // wins there). Its box is exactly 72px, the hero air it stands in (HomePage.tsx: pt-10 + 72 =
+      // the pt-28 the first frame drew), so the heading does not move when the page arrives
+      // (e2e/door-first-frame.spec.ts); the line sits at the top of the box.
+      className="sticky top-[var(--rail-top)] z-30 h-[72px] -mx-1 min-[1440px]:fixed min-[1440px]:left-5 min-[1440px]:top-1/2 min-[1440px]:-translate-y-1/2 min-[1440px]:h-auto min-[1440px]:m-0"
       style={{ '--rail-top': 'calc(3.5rem + env(safe-area-inset-top, 0px) + 0.5rem)' } as CSSProperties}>
       {/* The same dark glass at both sizes: the docked rail sits on full-bleed art, where bare
           cream type at 60% was not legible over a pale painting. */}

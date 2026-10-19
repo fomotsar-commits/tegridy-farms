@@ -289,7 +289,8 @@ export default function HomePage() {
             ...(bungalowIdentity.identity.lore ? [ROOM_STOPS.lore] : []),
           ]} />
         )}
-        {/* In a room the rail's line takes the first 70px of the hero's air; docked, it takes none. */}
+        {/* In a room the rail's 72px box takes the first 72 of the hero's 112px of air (pt-28), so
+            the heading stays where the first frame drew it; docked (1440px up) it takes none. */}
         <div className={bungalowIdentity ? 'pt-10 min-[1440px]:pt-28 pb-20' : 'pt-28 pb-20'}>
           <m.div className="max-w-xl relative" initial={heroAlreadyOnScreen ? false : { opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>
             {/* Readability scrim — softly darkens the art behind the hero copy so the white
