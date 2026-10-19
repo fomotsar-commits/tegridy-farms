@@ -15,6 +15,26 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-10-19: `forge coverage --ir-minimum` over a whole suite needs more RAM than a runner has, and `--match-path` does not shrink its compile
+
+**Believed:** the weekly coverage job was red because it lacked the IR-minimum workaround for
+"stack too deep".
+
+**Measured** (forge 1.7.1, ubuntu-latest 16 GB, 2026-10-19): the workflow already passed
+`--ir-minimum`, and two things were wrong. (1) A Yul exception, bisected by keeping a subset of
+`src/` and `--skip`ping the rest, to a 20-argument `string.concat` in one deployed contract; plain
+`forge coverage` (no flag) dies in legacy codegen instead, and a per-file `additional_compiler_profiles`
+entry with `via_ir` did not escape `--ir-minimum`'s settings. (2) With that file gone, the ~480-file
+compile was killed at exit 143 after 3.5 to 6 minutes: `free -m` every 10 s showed solc rising about
+70 MB/s into the 16 GB ceiling. `--match-path` filters which tests run, not what compiles; `--skip
+<path>` does. Skipping every test file outside a slice gave 7.5 GB, 2 to 4 minutes per slice.
+
+**Do:** slice coverage like the test matrix and merge the lcov by line. Exit 143 with no annotation
+is the runner killing a step for memory, not a timeout; a `| tail` on the step hides everything it
+printed, so sample memory to the log live. Do not repeat these compiles in WSL: three of them took
+the whole WSL service down (`Wsl/Service/E_UNEXPECTED`, back after 20 to 60 s), and a poll loop
+that calls `wsl` every few seconds keeps it down.
+
 ## 2026-10-19: a dev-server walk that stubs every /api/ request renders a blank page, because the app imports from /api/_lib/
 
 **Believed:** on `vite dev`, which has no serverless functions, answering every same-origin
