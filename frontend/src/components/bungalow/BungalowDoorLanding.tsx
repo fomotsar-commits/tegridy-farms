@@ -88,7 +88,7 @@ export function BungalowDoorLanding({ bungalow }: { bungalow: Bungalow }) {
       </div>
       {/* The plaque's place (6rem down, the whole column, the eyebrow above the heading)
           is what the lot's frame holds: LOT_FRAME in scripts/render-bungalow-doors.mjs. */}
-      <div className="relative z-10 max-w-[1200px] mx-auto px-4 md:px-6 pt-10 pb-16">
+      <div className="relative z-10 page-column mx-auto px-4 md:px-6 pt-10 pb-16">
         {/* The plaque */}
         <div className="mb-8">
           <p className="text-white/70 text-[11px] uppercase tracking-[0.2em] mb-2">

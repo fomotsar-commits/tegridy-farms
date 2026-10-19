@@ -136,7 +136,7 @@ export default function SecurityPage() {
       <div className="fixed inset-0 z-0" style={{ background: '#060c1a' }}>
         <ArtImg pageId="security" idx={0} alt="" loading="lazy" className="w-full h-full object-cover" />
       </div>
-      <div className="relative z-10 max-w-[1200px] mx-auto px-4 md:px-6 pt-32 pb-20">
+      <div className="relative z-10 page-column mx-auto px-4 md:px-6 pt-32 pb-20">
 
         {/* Hero */}
         <m.div initial="hidden" animate="visible" variants={fade} transition={{ duration: 0.6 }} className="text-center mb-16">

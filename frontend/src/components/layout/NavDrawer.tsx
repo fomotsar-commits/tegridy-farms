@@ -229,7 +229,7 @@ function Panel({ ref, onClose, from, pathname, isConnected, showAdmin, focusSear
       </div>
 
       {/* Laid out like the top bar, so the close button lands where the menu button was. */}
-      <div className="relative z-10 flex-shrink-0 mx-auto w-full max-w-[1200px] h-14 px-2 min-[400px]:px-3 min-[480px]:px-4 md:px-6 flex items-center justify-between gap-3">
+      <div className="relative z-10 flex-shrink-0 mx-auto w-full page-column h-14 px-2 min-[400px]:px-3 min-[480px]:px-4 md:px-6 flex items-center justify-between gap-3">
         <span className="ml-3 min-[400px]:ml-2 md:ml-0 min-w-0 flex items-center gap-2 font-mono text-[11px] tracking-[0.08em]">
           <span aria-hidden="true" className="w-1.5 h-1.5 flex-shrink-0 bg-[#22c55e]" />
           <span className="truncate"><span className="opacity-60">{venue}</span>{pathname}</span>
@@ -244,7 +244,7 @@ function Panel({ ref, onClose, from, pathname, isConnected, showAdmin, focusSear
       </div>
 
       <div className="relative z-10 flex-1 min-h-0 overflow-y-auto">
-        <div className="mx-auto w-full max-w-[1200px] min-h-full px-5 min-[480px]:px-6 pt-1 pb-10 grid content-start min-[900px]:grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)] gap-x-16">
+        <div className="mx-auto w-full page-column min-h-full px-5 min-[480px]:px-6 pt-1 pb-10 grid content-start min-[900px]:grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)] gap-x-16">
           <div className="min-w-0">
             <Figure art={0} caption={venue} className="min-[900px]:hidden h-[18vh] min-h-[96px] mb-6" />
 

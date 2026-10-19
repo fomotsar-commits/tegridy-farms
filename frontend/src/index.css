@@ -4,6 +4,18 @@
    device at any width, so an iPad in landscape counts too. */
 @custom-variant handheld (@media (width < 1024px), @media (hover: none) and (pointer: coarse));
 
+/* The page column: 1200px, then wider as the screen is, so a wide desktop reads cards and not
+   only the art beside them. Steps: 1360px from 1536px (Tailwind's 2xl), 1600px from 1920px,
+   1800px from 2560px. One utility, so the bar, the footer, every host and the first frame's
+   .ff-wrap (index.html, pinned by firstFrame.test.ts) move together. The room's rail
+   (RoomRail.tsx) docks in the gutter: each step leaves it room, with its words from 1700px. */
+@utility page-column {
+  max-width: 1200px;
+  @media (width >= 96rem) { max-width: 1360px; }
+  @media (width >= 1920px) { max-width: 1600px; }
+  @media (width >= 2560px) { max-width: 1800px; }
+}
+
 @theme {
   /* ─── Luxury Purple Accent ─── */
   --color-primary: #8b5cf6;

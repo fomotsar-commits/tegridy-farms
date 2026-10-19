@@ -90,7 +90,7 @@ export function BungalowFarmPanel({ bungalow }: { bungalow: Bungalow }) {
         {/* A light scrim (0.38), so the resident's art reads through. */}
         <div className="absolute inset-0" style={{ background: 'rgba(6,12,26,0.38)' }} />
       </div>
-      <div className="relative z-10 max-w-[1200px] mx-auto px-4 md:px-6 pt-8 pb-16">
+      <div className="relative z-10 page-column mx-auto px-4 md:px-6 pt-8 pb-16">
       <BackToEarn />
       {/* Header */}
       {/* FEWER WORDS (owner, 2026-10-14): one heading and one line. The island eyebrow

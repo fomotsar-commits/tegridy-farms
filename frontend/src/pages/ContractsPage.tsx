@@ -425,7 +425,7 @@ export default function ContractsPage() {
         initial={{ opacity: 0, y: 8 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.3 }}
-        className="relative z-10 max-w-[1200px] mx-auto px-4 md:px-6 pt-28 pb-20"
+        className="relative z-10 page-column mx-auto px-4 md:px-6 pt-28 pb-20"
       >
         <header className="mb-8 md:mb-12">
           <h1 className="heading-luxury text-3xl md:text-5xl text-white mb-3" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.9)' }}>Contract Index</h1>

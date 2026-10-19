@@ -56,7 +56,7 @@ export function BungalowMarket({ bungalow }: { bungalow: Bungalow }) {
 
   return (
     <section
-      className="relative isolate rounded-2xl p-6"
+      className="@container relative isolate rounded-2xl p-6"
       style={{ background: 'rgba(4,9,18,0.72)', border: '1px solid var(--color-purple-25)' }}
       aria-label={`${bungalow.symbol} market`}
     >
@@ -75,7 +75,7 @@ export function BungalowMarket({ bungalow }: { bungalow: Bungalow }) {
       </div>
 
       {/* Stat strip */}
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-5">
+      <div className="grid grid-cols-2 @min-[42rem]:grid-cols-3 @min-[58rem]:grid-cols-6 gap-3 mb-5">
         <Stat label="Price" value={fmtUsd(data?.priceUsd ?? null)} />
         <Stat
           label="24h"

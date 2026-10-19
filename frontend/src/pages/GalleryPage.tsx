@@ -100,7 +100,7 @@ export default function GalleryPage() {
       <div className="fixed inset-0 z-0" style={{ background: '#060c1a' }} />
       <PageArtBackdrop pageId="gallery" />
 
-      <div className="relative z-10 max-w-[1200px] mx-auto px-4 md:px-6 pt-20 pb-28 md:pb-12">
+      <div className="relative z-10 page-column mx-auto px-4 md:px-6 pt-20 pb-28 md:pb-12">
         <m.div className="mb-8" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
           <h1 className="heading-luxury text-2xl md:text-3xl lg:text-4xl text-white tracking-tight mb-1">The Collection</h1>
           <p className="text-white text-[14px]">

@@ -48,7 +48,7 @@ export function BungalowHolders({ bungalow }: { bungalow: Bungalow }) {
 
   return (
     <section
-      className="relative isolate rounded-2xl p-6"
+      className="@container relative isolate rounded-2xl p-6"
       style={{ background: 'rgba(4,9,18,0.72)', border: '1px solid var(--color-purple-25)' }}
       aria-label={`${bungalow.symbol} holder distribution`}
     >
@@ -84,7 +84,7 @@ export function BungalowHolders({ bungalow }: { bungalow: Bungalow }) {
             <p className="text-white/85 text-[13px] flex-1 min-w-[240px]">{a.headline}</p>
           </div>
 
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <div className="grid grid-cols-2 @min-[42rem]:grid-cols-4 gap-3">
             <Stat label="Top 1" value={pct(m.topN.top1)} />
             <Stat label="Top 5" value={pct(m.topN.top5)} />
             <Stat label="Top 10" value={pct(m.topN.top10)} />
