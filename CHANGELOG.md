@@ -8,7 +8,7 @@ page keeps the newest thirty days.
 
 ### 2026-10-19
 
-- /island has the home's Swap, Lock BAYLA and Add SOL + BAYLA cards.
+- /island and /bayla have the home's Swap, Lock BAYLA and Add SOL + BAYLA cards.
 
 ### 2026-10-18
 

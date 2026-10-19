@@ -38,7 +38,7 @@ import { CopyButton } from '../components/ui/CopyButton';
 import { TOWELI_ADDRESS, SITE_URL, ETHERSCAN_TOKEN, GECKOTERMINAL_URL, CURVE_LAUNCHER_ADDRESS, isDeployed } from '../lib/constants';
 import { shortenAddress } from '../lib/formatting';
 import { safeGetItem, safeSetItem } from '../lib/storage';
-import { bungalowTradeBlurb, getBungalowIdentity, stakePoolMembersOnly, TOWELI_HERO } from '../lib/bungalows';
+import { bungalowTradeBlurb, CARDS_ROOM_ID, getBungalowIdentity, stakePoolMembersOnly, TOWELI_HERO } from '../lib/bungalows';
 import { arrivalVoice, VENUE, OPEN_VENUE_WELCOME_EVENT } from '../lib/arrival';
 import { VenueHero, VenueHeroFooter } from '../components/VenueHero';
 import { VenueCards } from '../components/VenueCards';
@@ -494,6 +494,10 @@ export default function HomePage() {
               <VenueHeroFooter />
             </>
           )}
+          {/* The same cards on BAYLA's own door, under her hero (owner, 2026-10-19, on /bayla: "on
+              here"): the Island word opens this page inside her room. They are her coin's, so no
+              other room draws them (lib/bungalows.ts CARDS_ROOM_ID). */}
+          {bungalowIdentity?.id === CARDS_ROOM_ID && <VenueCards />}
 
           {/* Wallet-less yield calculator for first-time visitors.
               Only shown when disconnected — once they connect, the live stats

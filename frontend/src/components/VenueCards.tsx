@@ -23,10 +23,10 @@ function ModulesUnloaded() {
 
 /**
  * The venue's cards, swap, stake and add liquidity (owner, 2026-10-16), in their own row: under
- * the home's hero, and under the island lobby's title (owner, 2026-10-19: "put them there
- * again"). Lazy: the Solana wallet stack loads after the page has painted. If its code cannot
- * load, the pages they come from are linked. Its own file, so the lobby does not load the
- * home's heat reader with it.
+ * the home's hero, under the island lobby's title, and under BAYLA's hero on her door (owner,
+ * 2026-10-19: "put them there again", then "on here"). Lazy: the Solana wallet stack loads after
+ * the page has painted. If its code cannot load, the pages they come from are linked. Its own
+ * file, so the lobby does not load the home's heat reader with it.
  */
 export function VenueCards() {
   return (
