@@ -31,6 +31,28 @@ answered. How long the CI runner's hash took was not measured.
 **Do:** when real-async work runs before the timer, have the stub fetch resolve a promise,
 wait for it in real time, then start the watch, counting from that moment.
 
+## 2026-10-18: a coin with no name in a wallet can still be a room's coin, and a pool someone else opens gives no signal
+
+**Believed:** a pool whose coin shows no name in a wallet pairs some stranger's coin, and a
+room's "Add SOL + <coin>" door appears once its coin has a SOL pool on the venue.
+
+**Measured** (`getProgramAccounts` and `getAccountInfo` on the public mainnet RPC,
+2026-10-18): the venue's pool program held seven pools, and four were SOL pools of room coins
+that no room named: RIZZ's (opened 10-16 18:56Z), BRAINLET's, BOBO's and SOY's (10-17 and
+10-18). An earlier note had called RIZZ's coin unnamed. It is not unnamed on chain: mint
+`5ad4puH6yDBoeCcrQfwV5s9bxvPnAeWDoYDj3uLyBS8k` has a Metaplex metadata account
+(`GYw8brrmdibD5S2RwksCmpqqZNtdA9RJeszeowh593dr`) whose name is
+"SigmaGyattOhioFanumSkibidiGooner" and whose symbol is "Rizz". Its details link points at
+`cf-ipfs.com`, which no longer resolves, so a wallet that loads the coin's details from that
+link gets nothing. The door is hand-written (`venueSolPool` in `lib/bungalows.ts`): until
+#871 named the four pools, those rooms had no door, and nothing said so. #873's check, run
+against the registry before #871, named exactly those four rooms and pools.
+
+**So:** before calling a pool's coin unnamed or a stranger's, match its mint against
+`lib/bungalows.ts`. A coin's on-chain name need not match its room, and a dead details link
+blanks it in a wallet. And any list written by hand that mirrors what others can create on
+chain needs something that reads the program, or it falls behind without anyone knowing.
+
 ## 2026-10-17: Solscan values a pool's address at its rent; the pool's coins are in its vaults
 
 **Believed:** an explorer link to a pool's address shows the pool and what is in it.
