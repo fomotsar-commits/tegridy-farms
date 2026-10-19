@@ -99,19 +99,28 @@ fi
 EXTRA=()
 case "$MODE" in
   dry-run)
-    [ -n "$RPC" ] || { echo "set ETH_RPC_URL / BASE_RPC_URL / ROBINHOOD_RPC_URL for $CHAIN" >&2; exit 2; }
+    if [ -z "$RPC" ]; then
+      echo "set ETH_RPC_URL / BASE_RPC_URL / ROBINHOOD_RPC_URL for $CHAIN" >&2
+      exit 2
+    fi
     ;;
   anvil)
     RPC="${ANVIL_RPC:-http://127.0.0.1:8545}"
     SENDER="${ANVIL_SENDER:-0x1111111111111111111111111111111111111111}"
     got="$(cast chain-id --rpc-url "$RPC" 2>/dev/null || true)"
-    [ "$got" = "$CHAIN_ID" ] || { echo "anvil at $RPC reports chain id '${got:-none}', expected $CHAIN_ID (fork the right chain, keep its id)" >&2; exit 2; }
+    if [ "$got" != "$CHAIN_ID" ]; then
+      echo "anvil at $(redact_url "$RPC") reports chain id '${got:-none}', expected $CHAIN_ID (fork the right chain, keep its id)" >&2
+      exit 2
+    fi
     cast rpc --rpc-url "$RPC" anvil_setBalance "$SENDER" 0x8AC7230489E80000 > /dev/null   # 10 ETH
     export FOUNDRY_BROADCAST="${TMPDIR:-/tmp}/ladders-75-anvil-broadcast"
     EXTRA=(--broadcast --unlocked --sender "$SENDER")
     ;;
   broadcast)
-    [ -n "$RPC" ] || { echo "set ETH_RPC_URL / BASE_RPC_URL / ROBINHOOD_RPC_URL for $CHAIN" >&2; exit 2; }
+    if [ -z "$RPC" ]; then
+      echo "set ETH_RPC_URL / BASE_RPC_URL / ROBINHOOD_RPC_URL for $CHAIN" >&2
+      exit 2
+    fi
     [ -n "${SIGNER:-}" ] || { echo "set SIGNER, e.g. SIGNER=\"--account deployer\" (or --ledger, or --interactive)" >&2; exit 2; }
     case "$SIGNER" in *--private-key*) echo "refusing: never pass a raw key on the command line; use a keystore (cast wallet import), --ledger or --interactive" >&2; exit 2 ;; esac
     # shellcheck disable=SC2206
