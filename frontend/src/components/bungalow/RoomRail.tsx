@@ -50,16 +50,17 @@ export function RoomRail({ stops }: { stops: readonly RoomStop[] }) {
 
   return (
     <nav ref={ref} aria-label="On this page"
-      // Sticky under the header's row until 1440px (the --rail-top var, so the docked rail's top-1/2
-      // wins there). Its box is exactly 72px, the hero air it stands in (HomePage.tsx: pt-10 + 72 =
-      // the pt-28 the first frame drew), so the heading does not move when the page arrives
-      // (e2e/door-first-frame.spec.ts); the line sits at the top of the box.
-      className="sticky top-[var(--rail-top)] z-30 h-[72px] -mx-1 min-[1440px]:fixed min-[1440px]:left-5 min-[1440px]:top-1/2 min-[1440px]:-translate-y-1/2 min-[1440px]:h-auto min-[1440px]:m-0"
+      // Sticky under the header's row until 1440px (--rail-top; the docked rail's top-1/2 wins
+      // there). The box is exactly 72px, the hero air it stands in (HomePage.tsx: pt-10 + 72 = the
+      // first frame's pt-28), so the heading holds (e2e/door-first-frame.spec.ts). Stuck 64px down,
+      // its empty lower part lies over the chain pills, so only the line takes a tap
+      // (e2e/arrival.spec.ts, zero unasked overlays).
+      className="pointer-events-none sticky top-[var(--rail-top)] z-30 h-[72px] -mx-1 min-[1440px]:fixed min-[1440px]:left-5 min-[1440px]:top-1/2 min-[1440px]:-translate-y-1/2 min-[1440px]:h-auto min-[1440px]:m-0"
       style={{ '--rail-top': 'calc(3.5rem + env(safe-area-inset-top, 0px) + 0.5rem)' } as CSSProperties}>
       {/* The same dark glass at both sizes: the docked rail sits on full-bleed art, where bare
           cream type at 60% was not legible over a pale painting. */}
       <ol
-        className="flex items-center gap-0.5 overflow-x-auto px-1.5 rounded-full border border-white/10 bg-[rgba(6,12,26,0.82)] backdrop-blur-md [scrollbar-width:none] [&::-webkit-scrollbar]:hidden [mask-image:linear-gradient(90deg,#000_calc(100%-28px),transparent)] min-[1440px]:[mask-image:none] min-[1440px]:flex-col min-[1440px]:items-start min-[1440px]:gap-0.5 min-[1440px]:overflow-visible min-[1440px]:px-3 min-[1440px]:py-2.5 min-[1440px]:rounded-2xl">
+        className="pointer-events-auto flex items-center gap-0.5 overflow-x-auto px-1.5 rounded-full border border-white/10 bg-[rgba(6,12,26,0.82)] backdrop-blur-md [scrollbar-width:none] [&::-webkit-scrollbar]:hidden [mask-image:linear-gradient(90deg,#000_calc(100%-28px),transparent)] min-[1440px]:[mask-image:none] min-[1440px]:flex-col min-[1440px]:items-start min-[1440px]:gap-0.5 min-[1440px]:overflow-visible min-[1440px]:px-3 min-[1440px]:py-2.5 min-[1440px]:rounded-2xl">
         {stops.map((s, i) => {
           const lit = here ? here === s.id : i === 0;
           return (

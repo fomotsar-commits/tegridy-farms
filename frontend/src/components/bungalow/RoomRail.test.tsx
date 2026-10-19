@@ -82,9 +82,14 @@ describe('RoomRail', () => {
   // when the rail's box was 70px (46 + a 24px margin) in 72px of air.
   it("stands in exactly the hero air it takes: a 72px box, pt-10 under it, pt-28 again once docked", () => {
     render(<Room stops={STOPS} />);
-    const classes = screen.getByRole('navigation', { name: 'On this page' }).className.split(/\s+/);
+    const nav = screen.getByRole('navigation', { name: 'On this page' });
+    const classes = nav.className.split(/\s+/);
     expect(classes).toContain('h-[72px]');
     expect(classes).toContain('min-[1440px]:h-auto');
+    // CI, 2026-10-19: stuck 64px down, the box's empty lower part answered taps meant for the
+    // chain pills under it. Only the line itself takes a tap.
+    expect(classes).toContain('pointer-events-none');
+    expect(nav.querySelector('ol')!.className.split(/\s+/)).toContain('pointer-events-auto');
     const home = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'pages', 'HomePage.tsx'), 'utf8');
     expect(home).toContain("bungalowIdentity ? 'pt-10 min-[1440px]:pt-28 pb-20' : 'pt-28 pb-20'");
   });
