@@ -2069,12 +2069,9 @@
     }
   ],
   "solanaFields": {
-    "$comment": "Who holds each authority of our Solana programs, and what each fee tier charges, as decoded from the account data by `verify-addresses.mjs --onchain` (check 3d). Values that name a key are solana row ids. Every admin, fee owner and fee receiver must be `onlyHolder`: the offline check fails on anything else, with one exception, `fundOwnerShare`, which a fee tier's fundOwner alone may name. All values read 2026-10-13 at finalized slot 456,675,628, except the two fee tiers' protocolFeeRate, fundFeeRate and fundOwner, which are the values the 2026-10-18 revenue split's Squads proposal sets. Not covered here: cp-swap's admin, which is compiled into the program (src/lib.rs `admin::ID`, the Squads vault), not stored in an account.",
+    "$comment": "Who holds each authority of our Solana programs, and what each fee tier charges, as decoded from the account data by `verify-addresses.mjs --onchain` (check 3d). Values that name a key are solana row ids. Every admin, fee owner and fee receiver must be `onlyHolder`: the offline check fails on anything else, with ONE exception: `fundOwner` may be `fundOwnerUnderTheSplit`, the island's Workshop, under the split the island accepted on 2026-10-18 (its answer, §7: fund_owner on fee settings 1, 0 and the 0.25% tier). A fund owner can collect only the fund fee (cp-swap admin/collect_fund_fee.rs); the protocol owner, the admin and every other authority stay `onlyHolder`. All values read 2026-10-13 at finalized slot 456,675,628, except the protocolFeeRate, fundFeeRate and fundOwner of fee settings 0 and 1, which are the values the split's day-one Squads proposal sets. Not covered here: cp-swap's admin, which is compiled into the program (src/lib.rs `admin::ID`, the Squads vault), not stored in an account.",
     "onlyHolder": "squads-vault",
-    "fundOwnerShare": {
-      "holder": "island-workshop-wallet",
-      "why": "The revenue split agreed with Jungle Bay Island on 2026-10-18: 35% of the venue's take on each cp-swap fee tier is that tier's fund fee, collected by the island's Workshop. Only a fee tier's fundOwner may name this row; every other fee owner, fee receiver and admin key stays onlyHolder."
-    },
+    "fundOwnerUnderTheSplit": "island-workshop-wallet",
     "accounts": {
       "cp-swap-programdata-restart": { "layout": "programdata", "upgradeAuthority": "squads-vault" },
       "tegridy-launch-programdata-restart": { "layout": "programdata", "upgradeAuthority": "squads-vault" },

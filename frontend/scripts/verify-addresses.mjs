@@ -428,9 +428,6 @@ for (const d of reg.denylist ?? []) {
 // own programs' data accounts; the chain read decodes them and fails on any difference.
 // Offline, every field that holds money or control must name `onlyHolder` (the Squads
 // vault): a fee owner, receiver or admin key that is not ours is red before any read.
-// One exception, the revenue split agreed with Jungle Bay Island on 2026-10-18: a cp-swap
-// fee tier's fundOwner may name `fundOwnerShare.holder` (the island's Workshop). No other
-// field may name it, and without that block no fundOwner may either.
 const SOLANA_FIELD_LAYOUTS = {
   // BPF upgradeable loader ProgramData: tag 3, slot, option byte, authority.
   programdata: { ownerAddress: 'BPFLoaderUpgradeab1e11111111111111111111111', tag: { at: 0, value: 3 }, some: 12, fields: { upgradeAuthority: { at: 13, kind: 'holder' } } },
@@ -460,7 +457,7 @@ const SOLANA_FIELD_LAYOUTS = {
 };
 /** Rows that must be listed in solanaFields.accounts (or in notAsserted, with a reason). */
 const FIELD_COVERAGE = /amm-config|programdata|global/;
-const SOLANA_FIELDS_KEYS = new Set(['$comment', 'onlyHolder', 'fundOwnerShare', 'accounts', 'notAsserted']);
+const SOLANA_FIELDS_KEYS = new Set(['$comment', 'onlyHolder', 'fundOwnerUnderTheSplit', 'accounts', 'notAsserted']);
 
 function checkSolanaFields(registry, entries) {
   const block = registry.solanaFields;
@@ -469,17 +466,11 @@ function checkSolanaFields(registry, entries) {
   for (const k of Object.keys(block)) if (!SOLANA_FIELDS_KEYS.has(k)) fail(`solanaFields.${k} is not a key anything reads`);
   const sol = new Map(entries.filter((e) => e.kind === 'solana').map((e) => [e.id, e]));
   if (!sol.has(block.onlyHolder)) fail(`solanaFields.onlyHolder "${block.onlyHolder}" is not a solana row id`);
-  let fundHolder = null;
-  const share = block.fundOwnerShare;
-  if (share !== undefined) {
-    if (!share || typeof share !== 'object' || Array.isArray(share) || !sol.has(share.holder) || share.holder === block.onlyHolder) {
-      fail('solanaFields.fundOwnerShare.holder must be a solana row id other than onlyHolder');
-    } else if (typeof share.why !== 'string' || share.why.length < 20) {
-      fail('solanaFields.fundOwnerShare: say why a fee tier pays its fund fee to this row');
-    } else {
-      fundHolder = share.holder;
-    }
-  }
+  // The one exception to onlyHolder: under the split the island agreed on 2026-10-18, the
+  // island's Workshop is cp-swap's fund_owner. It can collect ONLY the fund fee (admin/
+  // collect_fund_fee.rs); protocol owner, admin and every other authority stay the vault.
+  const splitFundOwner = block.fundOwnerUnderTheSplit;
+  if (splitFundOwner !== undefined && !sol.has(splitFundOwner)) fail(`solanaFields.fundOwnerUnderTheSplit "${splitFundOwner}" is not a solana row id`);
   const accounts = block.accounts && typeof block.accounts === 'object' && !Array.isArray(block.accounts) ? block.accounts : {};
   const skipped = block.notAsserted && typeof block.notAsserted === 'object' && !Array.isArray(block.notAsserted) ? block.notAsserted : {};
   if (!Object.keys(accounts).length) fail('solanaFields.accounts is empty: it asserts NOTHING');
@@ -499,9 +490,8 @@ function checkSolanaFields(registry, entries) {
     for (const [name, f] of Object.entries(layout.fields)) {
       const v = spec[name];
       if (v === undefined) { fail(`${label}: ${name} is missing; every field of ${spec.layout} is asserted or none is`); continue; }
-      const fundShare = name === 'fundOwner' && spec.layout === 'cp-swap-amm-config' && fundHolder !== null && v === fundHolder;
-      if (f.kind === 'holder' && v !== block.onlyHolder && !fundShare) {
-        fail(`${label}: ${name} names "${v}", not "${block.onlyHolder}". Only the venue's Squads vault may hold a fee owner, fee receiver or admin key of ours (a fee tier's fundOwner may also name solanaFields.fundOwnerShare.holder)`);
+      if (f.kind === 'holder' && v !== block.onlyHolder && !(name === 'fundOwner' && splitFundOwner !== undefined && v === splitFundOwner)) {
+        fail(`${label}: ${name} names "${v}", not "${block.onlyHolder}". Only the venue's Squads vault may hold a fee owner, fee receiver or admin key of ours (the one exception: fundOwner may be solanaFields.fundOwnerUnderTheSplit, the island's Workshop under the 2026-10-18 split)`);
       } else if ((f.kind === 'holder' || f.kind === 'pubkey') && !sol.has(v)) {
         fail(`${label}: ${name} "${v}" is not a solana row id`);
       } else if (f.kind !== 'holder' && f.kind !== 'pubkey' && !(Number.isSafeInteger(v) && v >= 0)) {
@@ -1494,33 +1484,33 @@ function selfTest() {
     'check 3d fails a fee receiver that is not the Squads vault',
     fieldFailsWith((r) => { r.solanaFields.accounts['tegridy-launch-global-restart'].feeRecipient = 'bayla-ladder-deployer'; }, 'feeRecipient', 'Only the venue'),
   );
+  // 11c. The one exception, as narrow as the agreement: the split's fund owner may hold
+  //      fundOwner and nothing else; anyone else as fundOwner is still red.
+  const splitOwner = reg.solanaFields.fundOwnerUnderTheSplit;
+  t('CONTROL: the split names a fund owner that is a solana row', typeof splitOwner === 'string' && splitOwner !== reg.solanaFields.onlyHolder);
+  t('check 3d lets the split’s fund owner hold fundOwner on any tier', fieldFailures((r) => { r.solanaFields.accounts[cfg0].fundOwner = splitOwner; }).length === 0);
+  t(
+    'check 3d still fails a fundOwner that is neither the vault nor the split’s fund owner',
+    fieldFailsWith((r) => { r.solanaFields.accounts[cfg0].fundOwner = 'operator-payer'; }, 'fundOwner', 'Only the venue'),
+  );
+  t(
+    'check 3d never lets the split’s fund owner hold the protocol owner',
+    fieldFailsWith((r) => { r.solanaFields.accounts[cfg0].protocolOwner = splitOwner; }, 'protocolOwner', 'Only the venue'),
+  );
+  t(
+    'check 3d never lets the split’s fund owner hold a fee receiver or an upgrade authority',
+    fieldFailsWith((r) => { r.solanaFields.accounts['tegridy-launch-global-restart'].feeRecipient = splitOwner; }, 'feeRecipient', 'Only the venue')
+      && fieldFailsWith((r) => { r.solanaFields.accounts['cp-swap-programdata-restart'].upgradeAuthority = splitOwner; }, 'upgradeAuthority', 'Only the venue'),
+  );
+  t('check 3d refuses a fundOwnerUnderTheSplit that is not a solana row', fieldFailsWith((r) => { r.solanaFields.fundOwnerUnderTheSplit = 'nobody'; }, 'fundOwnerUnderTheSplit'));
+  t(
+    'check 3d with no fundOwnerUnderTheSplit at all is the old rule: only the vault',
+    fieldFailsWith((r) => { delete r.solanaFields.fundOwnerUnderTheSplit; r.solanaFields.accounts[cfg0].fundOwner = splitOwner; }, 'fundOwner', 'Only the venue'),
+  );
   t(
     'check 3d fails an upgrade authority that is not the Squads vault',
     fieldFailsWith((r) => { r.solanaFields.accounts['bayla-ladder-programdata'].upgradeAuthority = 'bayla-ladder-deployer'; }, 'upgradeAuthority', 'Only the venue'),
   );
-  // The split's one exception: a fee tier's fundOwner may name the island's Workshop. It
-  // reaches no other field, no other holder, and nothing at all without its block.
-  const shareHolder = reg.solanaFields.fundOwnerShare?.holder;
-  t('CONTROL: the split names a fund holder, and the real fee tiers pay their fund fee to it', Boolean(shareHolder) && reg.solanaFields.accounts[cfg0].fundOwner === shareHolder);
-  t(
-    'check 3d fails a fee tier fundOwner that is neither the vault nor the split\'s holder',
-    fieldFailsWith((r) => { r.solanaFields.accounts[cfg0].fundOwner = 'operator-payer'; }, `solanaFields/${cfg0}`, 'fundOwner', 'Only the venue'),
-  );
-  t(
-    'check 3d fails the split\'s holder as a protocol fee owner',
-    fieldFailsWith((r) => { r.solanaFields.accounts[cfg0].protocolOwner = shareHolder; }, `solanaFields/${cfg0}`, 'protocolOwner', 'Only the venue'),
-  );
-  t(
-    'check 3d fails the split\'s holder as a fee receiver or an upgrade authority',
-    fieldFailsWith((r) => { r.solanaFields.accounts['tegridy-launch-global-restart'].feeRecipient = shareHolder; }, 'feeRecipient', 'Only the venue') &&
-      fieldFailsWith((r) => { r.solanaFields.accounts['cp-swap-programdata-restart'].upgradeAuthority = shareHolder; }, 'upgradeAuthority', 'Only the venue'),
-  );
-  t(
-    'check 3d fails a fundOwner other than the vault once the split block is gone',
-    fieldFailsWith((r) => { delete r.solanaFields.fundOwnerShare; }, `solanaFields/${cfg0}`, 'fundOwner', 'Only the venue'),
-  );
-  t('check 3d fails a split block that says no reason', fieldFailsWith((r) => { r.solanaFields.fundOwnerShare.why = ''; }, 'fundOwnerShare', 'say why'));
-  t('check 3d fails a split block that names the vault itself', fieldFailsWith((r) => { r.solanaFields.fundOwnerShare.holder = 'squads-vault'; }, 'fundOwnerShare.holder'));
   t('check 3d fails a tier with a rate left out', fieldFailsWith((r) => { delete r.solanaFields.accounts[cfg0].tradeFeeRate; }, 'tradeFeeRate is missing'));
   t('check 3d fails a field no layout has (a misspelling asserts nothing)', fieldFailsWith((r) => { r.solanaFields.accounts[cfg0].tradeFeeRte = 1; }, '"tradeFeeRte"'));
   t('check 3d fails a rate written as text', fieldFailsWith((r) => { r.solanaFields.accounts[cfg0].tradeFeeRate = '0.25%'; }, 'whole number'));
@@ -1554,6 +1544,12 @@ function selfTest() {
   t(
     'check 3d (chain) fails a tier whose protocol fee owner on chain is someone else',
     onChain(acct(cfgBytes({ protocolOwner: 'operator-payer' }))).problems.some((p) => p.startsWith('protocolOwner is 5hNA2MXk')),
+  );
+  t(
+    'check 3d (chain) reads the fund owner back by address: the split’s fund owner on chain is red against a vault row, green against a split row',
+    // Both rows written out, so it holds whichever owner the registry names for tier 0 today.
+    solanaFieldProblems({ ...spec0, fundOwner: reg.solanaFields.onlyHolder }, acct(cfgBytes({ fundOwner: splitOwner })), fid).problems.some((p) => p.startsWith('fundOwner is G2EHPseT'))
+      && solanaFieldProblems({ ...spec0, fundOwner: splitOwner }, acct(cfgBytes({ fundOwner: splitOwner })), fid).problems.length === 0,
   );
   t('check 3d (chain) fails a tier whose rate moved', onChain(acct(cfgBytes({ tradeFeeRate: 3000 }))).problems.some((p) => p.includes('tradeFeeRate is 3000')));
   t('check 3d (chain) fails an account another program owns', onChain(acct(cfgBytes(), { owner: '11111111111111111111111111111111' })).problems.some((p) => p.startsWith('owner is')));
