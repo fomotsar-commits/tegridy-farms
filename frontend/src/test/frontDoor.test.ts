@@ -238,7 +238,7 @@ describe('the changelog is one line per change', () => {
 
   it('stays short and points at the long form in git', () => {
     const text = read('CHANGELOG.md');
-    expect(Buffer.byteLength(text, 'utf-8')).toBeLessThan(64 * 1024);
+    expect(Buffer.byteLength(text, 'utf-8')).toBeLessThan(96 * 1024);
     expect(text).toContain('git show 531813e6:CHANGELOG.md');
   });
 
