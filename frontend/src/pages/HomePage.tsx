@@ -673,7 +673,7 @@ export default function HomePage() {
             when the bungalow declares a `market` pool; self-hides otherwise. */}
         {bungalowIdentity?.market && (
           <div className="pb-8 2xl:col-span-8" id={ROOM_STOPS.market.id}>
-            <BungalowMarket bungalow={bungalowIdentity} />
+            <BungalowMarket bungalow={bungalowIdentity} wideGrid />
           </div>
         )}
 
@@ -744,7 +744,8 @@ export default function HomePage() {
             token, with its coverage limits stated rather than smoothed over. */}
         {bungalowIdentity?.address && (
           <div className="pb-16 2xl:pb-8" id={ROOM_STOPS.holders.id}>
-            <BungalowHolders bungalow={bungalowIdentity} />
+            {/* In the stack beside the market, where the card is a third of the column. */}
+            <BungalowHolders bungalow={bungalowIdentity} wideGrid={Boolean(bungalowIdentity.market)} />
           </div>
         )}
         </div>

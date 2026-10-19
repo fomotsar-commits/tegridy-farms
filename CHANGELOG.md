@@ -9,6 +9,7 @@ page keeps the newest thirty days.
 ### 2026-10-19
 
 - The menu is the site's index: every section's word with its pages under it, a Jump to field (Ctrl+K opens it), and the word Menu beside the ☰ on a computer. A room's page gets a numbered line under the top bar, lit as you scroll, one tap to each section.
+- On a wide screen the page column steps up with the screen, from 1536px, and a room lays its cards on a grid: the price chart beside the burn, held time and holders, the lore across all.
 
 ### 2026-10-18
 
@@ -324,12 +325,6 @@ page keeps the newest thirty days.
 - Staking cards say how the island reads a locked bag.
 - The heat explainer reads the island's sentences.
 - Bungalow links open once, on the room's hero.
-
-### 2026-09-21
-
-- The BAYLA staking cards are rebuilt, and the wrong readings the rebuild turned up are fixed.
-- The changelog page can name the builder of a change beside its date.
-- memetic.fun is no longer treated as a name for this venue.
 
 ## Earlier
 
