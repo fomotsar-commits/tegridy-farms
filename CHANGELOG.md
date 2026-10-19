@@ -6,6 +6,10 @@ page keeps the newest thirty days.
 
 ## [Unreleased]
 
+### 2026-10-19
+
+- The menu is the site's index: every section's word with its pages under it, a Jump to field (Ctrl+K opens it), and the word Menu beside the ☰ on a computer. A room's page gets a numbered line under the top bar, lit as you scroll, one tap to each section.
+
 ### 2026-10-18
 
 - Heat and Rooms are now Island; the menu gains More.
@@ -326,15 +330,6 @@ page keeps the newest thirty days.
 - The BAYLA staking cards are rebuilt, and the wrong readings the rebuild turned up are fixed.
 - The changelog page can name the builder of a change beside its date.
 - memetic.fun is no longer treated as a name for this venue.
-
-### 2026-09-20
-
-- tegridyfarms.vercel.app redirects to memetics.finance instead of serving a second copy of the venue.
-- The footer carries the owner's permanent Discord invite.
-
-### 2026-09-19
-
-- The dead Discord invite and the retired Telegram handle are gone from the footer.
 
 ## Earlier
 

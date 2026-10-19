@@ -1,5 +1,7 @@
 # The front, made avant-garde — plan of 2026-10-19
 
+> The one to-do list is [docs/TODO_OPERATOR.md](TODO_OPERATOR.md). This file is the design note behind one pull request, not a to-do list.
+
 Walked on production, 2026-10-19: the venue home, the BAYLA door, each of its six doors, the menu, at a wide desktop. Phone and iPad were read from the code and then shot with Playwright at 390 and 810.
 
 ## What the walk found
