@@ -58,6 +58,8 @@ export interface DoorFact {
 export interface LlmsFacts {
   siteUrl: string;
   description: string;
+  /** The public line agreed with Jungle Bay Island, verbatim (VENUE.venueLine). */
+  venueLine: string;
   heroLine: string;
   heatPlain: string;
   heatOnePerson: string;
@@ -153,6 +155,7 @@ export function collectFacts(ledger: AddressLedger, deployConfig?: RedirectConfi
   return {
     siteUrl: SITE_URL,
     description: VENUE.description,
+    venueLine: VENUE.venueLine,
     heroLine: VENUE.heroLine,
     heatPlain: VENUE.heatPlain,
     heatOnePerson: VENUE.heatOnePerson,
@@ -232,7 +235,7 @@ const CHAIN_NAME: Record<string, string> = { ethereum: 'Ethereum', base: 'Base',
 
 export function renderLlmsTxt(f: LlmsFacts, meta: { date: string; commit?: string | null }): string {
   const out: string[] = [];
-  out.push('# memetics.finance', '', `> ${f.description}`, '');
+  out.push('# memetics.finance', '', `> ${f.description}`, '', f.venueLine, '');
 
   out.push('## Held time', '');
   out.push(f.heroLine, '', f.heatPlain, '', f.heatOnePerson, '');
