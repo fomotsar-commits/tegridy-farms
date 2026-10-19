@@ -57,6 +57,35 @@ scratchpad cannot `import '@playwright/test'`, since resolution starts from the 
 folder: `createRequire('<worktree>/frontend/package.json')('@playwright/test')` loads the
 worktree's copy.
 
+## 2026-10-19: a dev-server walk that stubs every /api/ request renders a blank page, because the app imports from /api/_lib/
+
+**Believed:** on `vite dev`, which has no serverless functions, answering every same-origin
+`/api/*` request with a 503 JSON body only turns the page's live reads into dashes.
+
+**Measured** (Playwright 1.x chromium against `npx vite --port 5199`, 2026-10-19): with
+`page.route('**/api/**', 503)` the BAYLA door was an empty `<body>` with no `pageerror`; the one
+request the stub answered was `GET /api/_lib/errorPolicy.js`, loaded by the bundle as an ES module.
+Unstubbed, the page's own `fetch('/api/aggregator.js?...')` made vite try to compile the function,
+fail on `./_lib/aggregator-proxy.js`, and draw its error overlay over the page, which then
+intercepted every click.
+
+**Do:** stub by path, and spare the shared code: `page.route((url) => url.pathname.startsWith('/api/')
+&& !url.pathname.startsWith('/api/_lib/'), …)`. The reads fail honestly, the layout renders, no overlay.
+
+## 2026-10-19: a framer-motion stand-in built on a Proxy remounts the tree on every render, so an element held across a state change goes stale
+
+**Believed:** `vi.mock('framer-motion', …)` with `m = new Proxy({}, { get: () => (props) => <div/> })`
+is a transparent pass-through, so a dialog element captured once can be queried after typing into it.
+
+**Measured** (`TopNav.primaryBar.test.tsx`, vitest 5, 2026-10-19): every read of `m.div` returns a
+new function, so React sees a new component type on each render and remounts the whole panel. After
+`fireEvent.change` on the menu's search field, the captured dialog node was detached and still held
+all 38 links; the live dialog held 2. The test passed the assertion only once it re-queried
+`screen.getByRole('dialog', …)` after the change.
+
+**Do:** with that mock, re-query the container and the field after every state change, or return
+one memoised component per tag from the Proxy.
+
 ## 2026-10-18: a three-minute fake-clock watch is over in milliseconds, so a real hash before the timer outlasts it
 
 **Believed:** `watch()` (`frontend/src/test/quietHost.ts`), stepping a fake clock 180 s in
