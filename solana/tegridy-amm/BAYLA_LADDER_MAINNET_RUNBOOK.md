@@ -898,6 +898,41 @@ operator policy; the program does not enforce it.
 
 ---
 
+## 8B. The four-year window: the program first, then the December reload (2026-10-19)
+
+This branch sets `REWARDS_DURATION_SECS` to four years. Mainnet still runs the 90-day build
+(`b21e1277…`), and its window ends **2026-12-23T15:32:16Z** (`period_finish` 1798039936, re-read
+2026-10-19). Both the upgrade and the reload are vault proposals now, and each waits 48 hours
+(Squads #14). The owner's pack is outside the repo:
+`C:\Users\jimbo\solana-launch-release-2026-09-26\ladder-four-year-upgrade-2026-10\START-HERE.md`.
+
+- **Order.** Upgrade the program first, reload after. A reload sized for four years against the
+  90-day program pays out 16.2× too fast. `bayla-ladder-ops.mjs notify` reads the live program's
+  bytes and sizes with that build's window (`LADDER_BUILDS`), so this code is safe to merge before
+  or after the upgrade. It refuses any build it cannot pin.
+- **The build.** `e0fd775d59b2eed1d356fc341b1c0acdcf6254d3928e24cc46308fbc5654a6bd`, 515,352 bytes, the
+  same size as the program account: no extend. Built with CI's toolchain (solana 2.3.0, anchor 0.32.1);
+  the same script rebuilt tag `bayla-ladder-mainnet` as `b21e1277…` byte for byte. It differs from
+  that build in 30 bytes: the window constant at four sites and panic line numbers. Before the
+  upgrade, run `solana-deploy-artifact.yml` (bayla-ladder, mainnet, program
+  `EJLP5GEJXEyPTdoKbGtp2xJiREJpE4DkHSWbVEs9FfUQ`, deployer `Fu7mNAv67sRbKynEp7gpPLaaEGHcE2R5Sq89AMTEtTb6`)
+  on this branch: it must print the same sha256.
+- **No reload inside the running window after the upgrade.** Holding today's rate over a fresh four
+  years would take about 33.1 million BAYLA. Any top-up of the CURRENT window goes before the
+  upgrade (at least `reward_rate × seconds since 2026-09-24`), or not at all.
+- **The calendar** (worked back from `period_finish`; the pack's preflight prints it from chain):
+  the amount and source by 2026-11-15 (O-1009-10); the upgrade's Day 0 best between 11-16 and
+  11-30, at the latest 12-13 to leave room for one failed round; its second approval by
+  2026-12-18 15:32:16Z; the reload's second approval by **2026-12-21 15:32:16Z**; the reload executes
+  at **2026-12-23 15:32:16Z** or after and runs to 2030-12-22.
+- **Owed before December.** A page step that proposes `notify_reward` from the vault. It must refuse
+  unless the four-year build is live, and must accept error 6028 (`RewardRateWouldDecrease`) only
+  while the window it is checked against has not ended and will have ended by the time the lock
+  releases.
+- **After the first four-year window opens**, the "reload every ~60–75 days" rule above becomes:
+  top up whenever it suits, with at least `reward_rate × seconds since the last notify`, or the rate
+  guard refuses.
+
 ## 8A. The multisig handover — the last irreversible step
 
 **When.** The owner ruled 2026-09-20 that this runs **last**, after §9's card is on. It is

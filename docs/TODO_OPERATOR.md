@@ -366,7 +366,9 @@ above, with what each costs. That list is the one to work from.
   next block must also say the BAYLA tick box went on 2026-10-08 (PR #769).
 - ⬜ **O-1009-10: BAYLA ladder rewards stop 2026-12-23T15:32Z.** Decide the amount and where the
   BAYLA comes from by mid-November. The reload is signed by both multisig members from the
-  multisig's own BAYLA account, which has to be funded first.
+  multisig's own BAYLA account, which has to be funded first. 2026-10-19: the four-year upgrade
+  goes first (pack `ladder-four-year-upgrade-2026-10\START-HERE.md`, Day 0 best 11-16 to 11-30);
+  every vault proposal waits 48 h, so the reload's second approval is due by 2026-12-21 15:32Z.
 - ⬜ **O-1009-11: look at two cloud sessions on claude.ai/code.** They wrote
   `claude/intelligent-edison-s91nxi` (27 swap fixes, plus wording on the home page, FAQ and
   footer) and `claude/zealous-heisenberg-yc9dbp` (adding liquidity from Trust on a phone is
