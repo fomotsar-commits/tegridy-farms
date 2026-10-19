@@ -15,6 +15,7 @@ page keeps the newest thirty days.
 - Heat and Rooms are now Island; the menu gains More.
 - The home: the chain row gains ROBINHOOD, which opens the curve on Robinhood Chain, and BASE now opens the curve on Base (it opened your wallet's chain, or Ethereum with no wallet). The home's Swap and Add SOL + BAYLA cards each have the network drop-down; picking another network opens that network's Swap or Pools page.
 - BOBO, SOY, BRAINLET and RIZZ each have a SOL pool on the venue now, so each room gets Add SOL + its coin, second on its first screen, as BAYLA's has.
+- Pool prices flip with a press: press any pool's price and every pool on the page shows it the other way round, such as "1 SOL = 157,392 BAYLA".
 
 ### 2026-10-17
 
@@ -330,6 +331,11 @@ page keeps the newest thirty days.
 - The BAYLA staking cards are rebuilt, and the wrong readings the rebuild turned up are fixed.
 - The changelog page can name the builder of a change beside its date.
 - memetic.fun is no longer treated as a name for this venue.
+
+### 2026-09-20
+
+- tegridyfarms.vercel.app redirects to memetics.finance instead of serving a second copy of the venue.
+- The footer carries the owner's permanent Discord invite.
 
 ## Earlier
 
