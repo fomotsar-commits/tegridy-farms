@@ -11,6 +11,8 @@ page keeps the newest thirty days.
 - Solana swaps between SOL, USDC, USDT and staked SOL now pay a 0.05% venue fee instead of 0.5%; every other swap stays at 0.5%.
 - CoW swaps on Ethereum now carry a 0.25% venue fee instead of 0.5%.
 - The API plans on /developer now read $49, $199 and $799 a month; billing is still off.
+- Heat and Rooms are now Island; the menu gains More.
+- The home: the chain row gains ROBINHOOD, which opens the curve on Robinhood Chain, and BASE now opens the curve on Base (it opened your wallet's chain, or Ethereum with no wallet). The home's Swap and Add SOL + BAYLA cards each have the network drop-down; picking another network opens that network's Swap or Pools page.
 - BOBO, SOY, BRAINLET and RIZZ each have a SOL pool on the venue now, so each room gets Add SOL + its coin, second on its first screen, as BAYLA's has.
 
 ### 2026-10-17
@@ -321,21 +323,6 @@ page keeps the newest thirty days.
 - Staking cards say how the island reads a locked bag.
 - The heat explainer reads the island's sentences.
 - Bungalow links open once, on the room's hero.
-
-### 2026-09-21
-
-- The BAYLA staking cards are rebuilt, and the wrong readings the rebuild turned up are fixed.
-- The changelog page can name the builder of a change beside its date.
-- memetic.fun is no longer treated as a name for this venue.
-
-### 2026-09-20
-
-- tegridyfarms.vercel.app redirects to memetics.finance instead of serving a second copy of the venue.
-- The footer carries the owner's permanent Discord invite.
-
-### 2026-09-19
-
-- The dead Discord invite and the retired Telegram handle are gone from the footer.
 
 ## Earlier
 

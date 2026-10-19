@@ -15,6 +15,109 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-10-18: a three-minute fake-clock watch is over in milliseconds, so a real hash before the timer outlasts it
+
+**Believed:** `watch()` (`frontend/src/test/quietHost.ts`), stepping a fake clock 180 s in
+500 ms steps, leaves plenty of room for a call that hashes with WebCrypto before it arms its
+own timeout.
+
+**Measured** (vitest 5.0.3, Node 24, this Windows box): all 360 steps of
+`vi.advanceTimersByTimeAsync(500)` passed in 5 to 16 ms of real time. With each
+`crypto.subtle.digest` held 1.5 s by a spy, both "an answer that stops part-way" tests in
+`launchMetadata/upload.test.ts` returned null ("still pending after 180 s"), the message CI
+gave once on #866 (run 39081813182). The fake clock moves on whether or not the hash has
+answered. How long the CI runner's hash took was not measured.
+
+**Do:** when real-async work runs before the timer, have the stub fetch resolve a promise,
+wait for it in real time, then start the watch, counting from that moment.
+
+## 2026-10-18: a coin with no name in a wallet can still be a room's coin, and a pool someone else opens gives no signal
+
+**Believed:** a pool whose coin shows no name in a wallet pairs some stranger's coin, and a
+room's "Add SOL + <coin>" door appears once its coin has a SOL pool on the venue.
+
+**Measured** (`getProgramAccounts` and `getAccountInfo` on the public mainnet RPC,
+2026-10-18): the venue's pool program held seven pools, and four were SOL pools of room coins
+that no room named: RIZZ's (opened 10-16 18:56Z), BRAINLET's, BOBO's and SOY's (10-17 and
+10-18). An earlier note had called RIZZ's coin unnamed. It is not unnamed on chain: mint
+`5ad4puH6yDBoeCcrQfwV5s9bxvPnAeWDoYDj3uLyBS8k` has a Metaplex metadata account
+(`GYw8brrmdibD5S2RwksCmpqqZNtdA9RJeszeowh593dr`) whose name is
+"SigmaGyattOhioFanumSkibidiGooner" and whose symbol is "Rizz". Its details link points at
+`cf-ipfs.com`, which no longer resolves, so a wallet that loads the coin's details from that
+link gets nothing. The door is hand-written (`venueSolPool` in `lib/bungalows.ts`): until
+#871 named the four pools, those rooms had no door, and nothing said so. #873's check, run
+against the registry before #871, named exactly those four rooms and pools.
+
+**So:** before calling a pool's coin unnamed or a stranger's, match its mint against
+`lib/bungalows.ts`. A coin's on-chain name need not match its room, and a dead details link
+blanks it in a wallet. And any list written by hand that mirrors what others can create on
+chain needs something that reads the program, or it falls behind without anyone knowing.
+
+## 2026-10-18: a token with the same name and a smaller market can be the real coin, carried over a bridge
+
+**Believed:** a second token with the same name and symbol as a resident, on another chain, with a
+far smaller market, is an impostor (the 08-30 check called Base RIZZ `0x58d6…b238` one).
+
+**Measured** (`cast call` on Base, 2026-10-18): Wormhole's token bridge on Base
+(`0x8d2de8d2f73F1F4cAB472AC9A881C9b123C79627`, `chainId()` = 30) answers
+`wrappedAsset(1, <RIZZ's Solana mint as bytes32>)` with exactly `0x58d6…b238`, and that token's own
+`chainId()` = 1 and `nativeContract()` = the mint. Same bridge, `wrappedAsset(2, TOWELI)` = Base
+`0x279e…87ca`; the 52,681,394 TOWELI held by Wormhole's Ethereum bridge
+(`0x3ee18B2214AFF97000D974cf647E7C347E8fa585`) equal that token's whole Base supply. The OP-stack
+standard bridge marks its tokens the same way: Base BOBO `0x570b…3947` answers `remoteToken()` =
+Ethereum BOBO. None of this shows in `name()`/`symbol()`, and the market-size test reads a bridge
+copy exactly like a fake.
+
+**So:** before calling a namesake real or fake, ask the bridges. `wrappedAsset(chain, address)` on
+Wormhole's token bridge, and `remoteToken()`/`l1Token()` on the token for the OP standard bridge, are
+one call each. A wrapped copy is the same coin; whether it is worth listing is a separate question
+(Wormhole's PEPE and $mfer copies on Solana exist and have no market that trades).
+
+## 2026-10-18: Uniswap's SwapRouter02 on Base cannot reach a V2 pair
+
+**Believed:** SwapRouter02 swaps through V2 and V3 on every chain it is deployed to, so one
+`multicall` can buy a basket across both.
+
+**Measured** (`cast call`, 2026-10-18): on Ethereum, `0x68b3…Fc45.factoryV2()` = Uniswap V2's
+factory. On Base, `0x2626…1e481.factoryV2()` = `0x0000…0000`: its `swapExactTokensForTokens` has no
+pairs to reach. Its V3 side works; a fork run (anvil on mainnet.base.org) bought six coins through
+one `multicall(deadline, [exactInputSingle × 6, refundETH])`, each leg paid from the ETH sent with
+the call (the router wraps exactly that leg's amount), no approval. Promising one leg 20% more than
+its pool paid made the whole transaction revert: no coin bought.
+
+**So:** read `factoryV2()` before routing a V2 leg through SwapRouter02 on an L2. A V2 leg on Base is
+its own transaction through the V2 Router02. A `multicall` of exact-input legs paid from `msg.value`
+is all-or-nothing, which is the property a basket wants.
+
+## 2026-10-18: Jupiter's keyless tier refuses the sixth quote in a burst, for longer than a short retry waits
+
+**Believed:** five or six quotes a second apart, or one retry after a 429, stay inside Jupiter's free
+tier.
+
+**Measured** (`curl` through a local `vite preview` relay to lite-api.jup.ag, 2026-10-18): six quotes
+250 ms apart answered 200, 200, 200, 200, 200, 429, and the next one 3 s later was still 429. A
+production build walked with Playwright quoted five coins 1.1 s apart, then the first two quotes at
+the press failed even after a 2.5 s retry; the third, a few seconds later, passed. Before the fix, a
+coin whose Jupiter quote failed was shown as going to the other venue that did quote.
+
+**So:** a failed quote is "price not read", never a reason to route elsewhere. Space a burst about a
+second apart, and give the quote a trade is about to be sent on a longer backoff (2.5, 5, 10 s) than
+a figure on screen. The site's own relay also caps Jupiter at 60 calls a minute per visitor.
+
+## 2026-10-18: a fixed dialog inside an animated card is trapped under the page's fixed bars
+
+**Believed:** a `position: fixed` dialog with `z-index: 101` covers a top bar and a tab bar at
+`z-index: 50`, wherever it is rendered.
+
+**Measured** (Playwright, production build, 1280 px and 390 px, 2026-10-18): rendered inside the swap
+card, which framer-motion animates with a `transform`, the dialog was laid out against the card
+and stacked inside it. The top bar covered its title and close button and, on a phone, the tab bar
+covered its main button. Portalled to `document.body`, the same dialog covered both bars.
+
+**So:** a dialog opened from inside a card renders through `createPortal(…, document.body)`. Any
+ancestor with a transform, filter or `will-change` becomes the containing block and the stacking
+context of a fixed child.
+
 ## 2026-10-17: Solscan values a pool's address at its rent; the pool's coins are in its vaults
 
 **Believed:** an explorer link to a pool's address shows the pool and what is in it.

@@ -1,4 +1,4 @@
-// The top bar reads Heat · Rooms · Lock · Launch · Swap (owner, 2026-10-03), and everything
+// The top bar reads Island · Lock · Launch · Swap (owner, 2026-10-03 and 2026-10-18), and everything
 // else is one drawer that opens at every width. navReach.test.tsx proves no page is stranded;
 // SectionHost.test.tsx that every section item survives as a tab on its host.
 import { describe, it, expect, vi } from 'vitest';
@@ -32,9 +32,9 @@ vi.mock('../ArtImg', () => ({ ArtImg: () => null }));
 
 import { TopNav } from './TopNav';
 import { ThemeProvider } from '../../contexts/ThemeContext';
-import { BAR_NAV, DRAWER_SECTIONS, MORE_NAV } from '../../lib/navConfig';
+import { BAR_NAV, DRAWER_MORE, DRAWER_SECTIONS, MORE_NAV } from '../../lib/navConfig';
 
-const WORDS = ['Heat', 'Rooms', 'Lock', 'Launch', 'Swap'];
+const WORDS = ['Island', 'Lock', 'Launch', 'Swap'];
 
 function mount(path = '/', connected = false) {
   mockIsConnected.value = connected;
@@ -60,7 +60,7 @@ function openDrawer(path = '/', connected = false) {
 }
 
 describe('TopNav: the bar', () => {
-  it('reads Heat · Rooms · Lock · Launch · Swap, and nothing else', () => {
+  it('reads Island · Lock · Launch · Swap, and nothing else', () => {
     mount();
     expect(within(bar()).getAllByRole('link').map((l) => l.textContent)).toEqual(WORDS);
   });
@@ -71,12 +71,12 @@ describe('TopNav: the bar', () => {
     expect(screen.queryByRole('navigation', { name: 'More destinations' })).toBeNull();
   });
 
-  it('opens Heat on the home, Rooms on the hall of doors, and each other word on its section', () => {
+  it('opens Island on the home, and each other word on its section', () => {
     mount();
     for (const w of BAR_NAV) {
       expect(within(bar()).getByRole('link', { name: w.label }).getAttribute('href'), w.label).toBe(w.to);
     }
-    expect(within(bar()).getByRole('link', { name: 'Rooms' }).getAttribute('href')).toBe('/#hall');
+    expect(within(bar()).getByRole('link', { name: 'Island' }).getAttribute('href')).toBe('/');
     expect(within(bar()).getByRole('link', { name: 'Lock' }).getAttribute('href')).toBe('/earn');
   });
 
@@ -86,8 +86,9 @@ describe('TopNav: the bar', () => {
   });
 
   it.each([
-    ['/', 'Heat'],
-    ['/bayla', 'Rooms'],
+    ['/', 'Island'],
+    ['/bayla', 'Island'],
+    ['/island', 'Island'],
     ['/earn/pepe', 'Lock'],
     ['/nft-finance', 'Lock'],
     ['/eth-curve', 'Launch'],
@@ -101,7 +102,7 @@ describe('TopNav: the bar', () => {
     expect(lit[0]).toHaveAttribute('aria-current', 'page');
   });
 
-  it.each(['/solana-lp', '/trust', '/island'])('lights no word on %s, a drawer page', (path) => {
+  it.each(['/solana-lp', '/trust', '/history'])('lights no word on %s, a drawer page', (path) => {
     mount(path);
     const lit = within(bar())
       .getAllByRole('link')
@@ -119,13 +120,21 @@ describe('TopNav: the drawer', () => {
     }
   });
 
-  it('carries Pools, Check and Island, one row each, with Pools first and on Solana LP', () => {
+  it('carries Pools and Check, one row each, with Pools first and on Solana LP', () => {
     const drawer = openDrawer();
     const rows = DRAWER_SECTIONS.map((s) => within(drawer).getByRole('link', { name: s.heading }));
-    expect(rows.map((r) => r.textContent)).toEqual(['Pools', 'Check', 'Island']);
+    expect(rows.map((r) => r.textContent)).toEqual(['Pools', 'Check']);
     expect(rows[0]).toHaveAttribute('href', '/solana-lp');
     expect(rows[1]).toHaveAttribute('href', '/trust');
-    expect(rows[2]).toHaveAttribute('href', '/island');
+  });
+
+  // Owner, 2026-10-18: "put marketplace, nft finance, and other things here that dont have a
+  // direct access on the app".
+  it('carries the More list, one link per feature no word names, Marketplace and NFT Finance first', () => {
+    const drawer = openDrawer();
+    const links = within(within(drawer).getByRole('list', { name: 'More' })).getAllByRole('link');
+    expect(links.map((l) => [l.textContent, l.getAttribute('href')])).toEqual(DRAWER_MORE.map((i) => [i.label, i.to]));
+    expect(links.slice(0, 2).map((l) => l.textContent)).toEqual(['Marketplace', 'NFT Finance']);
   });
 
   it("does not repeat the bar's words or print the tabs", () => {
@@ -133,8 +142,9 @@ describe('TopNav: the drawer', () => {
     for (const w of WORDS) {
       expect(within(drawer).queryByRole('link', { name: w }), `${w} is on the bar already`).toBeNull();
     }
-    const hubs = new Set(DRAWER_SECTIONS.map((s) => s.primaryTo ?? s.hub));
-    const reprinted = MORE_NAV.filter((i) => !hubs.has(i.to) && within(drawer).queryAllByText(i.label).length > 0);
+    // The More list is the one place a tab's page is named, on purpose.
+    const listed = new Set([...DRAWER_SECTIONS.map((s) => s.primaryTo ?? s.hub), ...DRAWER_MORE.map((i) => i.to)]);
+    const reprinted = MORE_NAV.filter((i) => !listed.has(i.to) && within(drawer).queryAllByText(i.label).length > 0);
     expect(reprinted.map((i) => i.label), 'the drawer is printing tab rows again').toEqual([]);
   });
 
@@ -157,5 +167,11 @@ describe('TopNav: the drawer', () => {
     const drawer = openDrawer('/scan');
     expect(within(drawer).getByRole('link', { name: 'Check' })).toHaveAttribute('aria-current', 'page');
     expect(within(drawer).getByRole('link', { name: 'Pools' })).not.toHaveAttribute('aria-current');
+  });
+
+  it('marks the More link of the page you are on', () => {
+    const drawer = openDrawer('/gallery');
+    expect(within(drawer).getByRole('link', { name: 'Gallery' })).toHaveAttribute('aria-current', 'page');
+    expect(within(drawer).getByRole('link', { name: 'Marketplace' })).not.toHaveAttribute('aria-current');
   });
 });
