@@ -79,9 +79,10 @@ export const SYSTEM_PROGRAM_ID = new PublicKey('11111111111111111111111111111111
 export const MIN_LOCK_SECS = 7 * 86_400;
 export const MAX_LOCK_SECS = 4 * 365 * 86_400;
 /**
- * The emission window: FOUR YEARS, deliberately equal to `MAX_LOCK_SECS` (owner decision
- * 2026-09-20, replacing 90 days). `program.test.ts` reads math.rs's value back out of the
- * source, so this copy cannot drift from the program without that test going red.
+ * The emission window of THIS source's build: four years, equal to `MAX_LOCK_SECS`.
+ * `program.test.ts` reads math.rs's value back, so this copy cannot drift from the source.
+ * The site never sizes a window with it: it reads `reward_rate` and `period_finish` from
+ * chain, so it stays right whichever build is live.
  */
 export const REWARDS_DURATION_SECS = 4 * 365 * 86_400;
 /**
