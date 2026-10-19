@@ -2,7 +2,8 @@
 
 What changed for a user of memetics.finance, one plain line per change, newest first,
 grouped by the UTC date it reached `mvp-launch`, by pull request or by direct push. This
-page keeps the newest thirty days.
+page keeps the newest thirty days; an older day moves to `docs/CHANGELOG_EARLIER.md`.
+The site's Changelog tab shows both files.
 
 ## [Unreleased]
 
@@ -10,6 +11,7 @@ page keeps the newest thirty days.
 
 - Heat and Rooms are now Island; the menu gains More.
 - The home: the chain row gains ROBINHOOD, which opens the curve on Robinhood Chain, and BASE now opens the curve on Base (it opened your wallet's chain, or Ethereum with no wallet). The home's Swap and Add SOL + BAYLA cards each have the network drop-down; picking another network opens that network's Swap or Pools page.
+- The Changelog tab (/changelog) now shows this list.
 - BOBO, SOY, BRAINLET and RIZZ each have a SOL pool on the venue now, so each room gets Add SOL + its coin, second on its first screen, as BAYLA's has.
 - Pool prices flip with a press: press any pool's price and every pool on the page shows it the other way round, such as "1 SOL = 157,392 BAYLA".
 
