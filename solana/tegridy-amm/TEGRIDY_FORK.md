@@ -261,13 +261,15 @@ matches the pack's. With this change it gives `1e55bcdcb10c39ee9678efb697b453cb2
 
 #### Upgrade runbook (owner)
 
-Nothing here has been sent. It rides the pool program's ONE pending upgrade, beside
-`create_lp_metadata` and the security text (MAINNET_RUNBOOK.md §4b and its pack), so it adds
-no proposal of its own. Every vault proposal waits 48 hours since 2026-10-19.
+Nothing here has been sent. **One upgrade or two is the owner's call.** Combined with the
+pending upgrade (`create_lp_metadata` and the security text, MAINNET_RUNBOOK.md §4b and its
+pack), it adds no proposal of its own: one 48-hour wait and one buffer. Shipped later on its
+own, it costs a second wait, a second ~3.7 SOL buffer and a pack of its own. Until the owner
+rules, the pack stays on `99a9e73d…`. The steps below are the combined path.
 
-1. **Merge this change first, then rebuild the pack.** The pack's file `99a9e73d…` lacks the gate.
-   Its program file, checksums, buffer check and rehearsal outputs are for that file and are
-   void. Build the new file from the merge commit, twice, from clean copies; both must be
+1. **Merge this change first, then the pack takes the new file.** The pack's file `99a9e73d…`
+   lacks the gate, and its checksums, buffer check and rehearsal numbers change with the file.
+   Build the new file from the merge commit, twice, from clean copies; both must be
    `1e55bcdc…`, 725,176 bytes, if nothing else in `programs/cp-swap/` or `Cargo.lock` moved.
    A different hash: find out why before going on.
 2. **The enlarge grows by 488 bytes.** Mainnet's program holds 691,640 bytes (read
