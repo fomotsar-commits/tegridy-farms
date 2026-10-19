@@ -2637,15 +2637,16 @@ describe('notify --preview — no keypair, nothing built, and never with --broad
       expect(rpc.calls).toEqual(SNAPSHOT);
     });
 
-    it('with no override the CLI uses its REAL table, whose four-year entry is not pinned yet', async () => {
+    it('with no override the CLI uses its REAL table: bytes that are neither pinned build are refused', async () => {
       // main() passes no `builds` (pinned by the `notify` case test above), so this is what an operator runs.
       const lines = [];
-      await expect(runWith({ rpc: stubRpc({ programData: programDataAccount(FAKE_4Y) }), lines }, '--amount', '130000', '--preview'))
-        .rejects.toThrow(/not a build this CLI knows.*Not pinned yet: "the four-year window \(NOT PINNED YET\)"/);
+      const err = await runWith({ rpc: stubRpc({ programData: programDataAccount(FAKE_4Y) }), lines }, '--amount', '130000', '--preview').catch((e) => e);
+      expect(String(err?.message)).toMatch(/not a build this CLI knows/);
+      expect(String(err?.message)).not.toMatch(/Not pinned yet/);
       expect(lines).toEqual([]);
     });
 
-    it('the real table pins the deployed 90-day build exactly, and the four-year entry is a placeholder', () => {
+    it('the real table pins the deployed 90-day build and the four-year build exactly', () => {
       // The deployed build, re-read from mainnet program data FormQpVV... on 2026-10-19.
       expect(LADDER_BUILDS.filter((b) => b.windowSecs === 90 * 86_400)).toEqual([{
         name: expect.any(String),
@@ -2653,9 +2654,15 @@ describe('notify --preview — no keypair, nothing built, and never with --broad
         len: 515_352,
         windowSecs: 7_776_000,
       }]);
-      // This source's build. Whoever pins it from the CI build replaces this line with its literal.
+      // This source's build, as built 2026-10-19 with CI's toolchain (the same toolchain rebuilt b21e1277).
       const four = LADDER_BUILDS.filter((b) => b.windowSecs === REWARDS_DURATION_SECS);
-      expect(four).toEqual([{ name: expect.stringMatching(/NOT PINNED YET/), sha256: null, len: null, windowSecs: 126_144_000 }]);
+      expect(four).toEqual([{
+        name: expect.stringMatching(/e0fd775d/),
+        sha256: 'e0fd775d59b2eed1d356fc341b1c0acdcf6254d3928e24cc46308fbc5654a6bd',
+        len: 515_352,
+        windowSecs: 126_144_000,
+      }]);
+      expect(LADDER_BUILDS.some((b) => b.sha256 === null)).toBe(false);
       expect(Object.isFrozen(LADDER_BUILDS) && LADDER_BUILDS.every(Object.isFrozen)).toBe(true);
     });
 

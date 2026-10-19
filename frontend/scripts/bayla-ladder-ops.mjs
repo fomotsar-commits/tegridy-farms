@@ -142,9 +142,16 @@ const LADDER_BUILDS = Object.freeze([
     len: 515_352,
     windowSecs: 90 * 86_400,
   }),
-  // PLACEHOLDER, NOT PINNED: the four-year build of this source. Fill sha256 and len from
-  // the CI build, never from a local one.
-  Object.freeze({ name: 'the four-year window (NOT PINNED YET)', sha256: null, len: null, windowSecs: 4 * 365 * 86_400 }),
+  // The four-year build of this source, built 2026-10-19 with CI's toolchain (solana 2.3.0,
+  // anchor 0.32.1), which rebuilt the deployed tag byte for byte as b21e1277. It differs from
+  // that build in 30 bytes: the window at four sites and the line numbers of panic messages.
+  // solana-deploy-artifact.yml on this commit must print the same sha256 before the upgrade.
+  Object.freeze({
+    name: 'the four-year window (e0fd775d)',
+    sha256: 'e0fd775d59b2eed1d356fc341b1c0acdcf6254d3928e24cc46308fbc5654a6bd',
+    len: 515_352,
+    windowSecs: 4 * 365 * 86_400,
+  }),
 ]);
 /**
  * math.rs's penalty schedule constants, mirrored exactly (the test reads the first two back
