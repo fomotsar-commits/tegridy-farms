@@ -241,9 +241,9 @@ already refused tier 0 (`intent.ts`); the program did not. Read on mainnet at sl
 458,890,755: no pool on tier 0, seven on tier 1, so the gap was never used.
 
 **What still opens pools on tier 0.** `initialize_with_permission`, untouched. Only accounts
-the admin (the Squads vault) granted a `Permission` can call it; on mainnet that is one,
-tegridy-launch's migration authority (`5H38YE…`). Graduation keeps working. Pools already on
-tier 0 keep trading.
+the admin (the Squads vault) granted a `Permission` can call it. Mainnet holds one (read
+2026-10-19, slot 458,897,459): `5H38YE…`, for tegridy-launch's migration authority
+`BS8oMxW2…`. Graduation keeps working. Pools already on tier 0 keep trading.
 
 **How it was proved, 2026-10-19.**
 
