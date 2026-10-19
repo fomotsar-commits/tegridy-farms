@@ -1,8 +1,8 @@
 // The island's venue review, item 1, as the owner took it on 2026-10-03: the bar reads
 // Island · Lock · Launch · Swap at every width (Heat and Rooms became Island on 2026-10-18),
-// Pools, Check and a More list of every feature no word names live in one drawer that
-// opens at every width, the footer is eight links on one screen, and no bar or tab strip says
-// Soon. Walked on the production build at a phone, an iPad held upright and a laptop.
+// one menu opens at every width and is the site's index, every section's word with its pages
+// under it (owner, 2026-10-19), the footer is eight links on one screen, and no bar or tab
+// strip says Soon. Walked on the production build at a phone, an iPad held upright and a laptop.
 import { test, expect, type Page } from '@playwright/test';
 
 test.use({ serviceWorkers: 'block' });
@@ -80,10 +80,13 @@ for (const size of SIZES) {
       for (const [word, name] of [['Island', 'Marketplace'], ['Lock', 'NFT Loans'], ['Check', 'Charting'], ['Island', 'Lore']] as const) {
         await expect(index.getByRole('region', { name: word }).getByRole('link', { name, exact: true }), `${name} under ${word}`).toBeVisible();
       }
-      // The groups run in one or two columns, never more, and nothing runs off the screen sideways.
+      // The groups run in one, two or three columns, never more; no word is cut short, and the
+      // index runs off the screen neither sideways nor under the picture.
       const lefts = await index.getByRole('heading', { level: 2 }).evaluateAll((hs) => hs.map((h) => Math.round(h.getBoundingClientRect().left)));
-      expect(new Set(lefts).size, 'the index runs in more than two columns').toBeLessThanOrEqual(2);
-      expect(await drawer.evaluate((d) => d.scrollWidth <= d.clientWidth + 1), 'the menu scrolls sideways').toBe(true);
+      expect(new Set(lefts).size, 'the index runs in more than three columns').toBeLessThanOrEqual(3);
+      const cut = await index.getByRole('link').evaluateAll((as) => as.filter((a) => a.scrollWidth > a.clientWidth + 1).map((a) => a.textContent));
+      expect(cut, 'a word in the index is cut short').toEqual([]);
+      expect(await index.evaluate((n) => n.scrollWidth <= n.clientWidth + 1), 'the index scrolls sideways').toBe(true);
       await index.getByRole('link', { name: 'Pools', exact: true }).click();
       await expect.poll(() => new URL(page.url()).pathname).toBe('/solana-lp');
       await expect(page.getByRole('tab', { name: 'Solana LP', exact: true })).toHaveAttribute('aria-selected', 'true', { timeout: 30_000 });

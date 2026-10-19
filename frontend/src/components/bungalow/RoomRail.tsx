@@ -1,38 +1,23 @@
 import { useEffect, useRef, useState, type CSSProperties, type MouseEvent } from 'react';
 
-/** One section of the room's page: the element's id and the word the rail prints for it. */
+/** One section of the room's page: the id of its slot on the page, and the word the rail prints. */
 export interface RoomStop {
   id: string;
   label: string;
 }
 
-/** The sections a room marks on its page, in page order (HomePage.tsx `data-room-section`). */
-export function readRoomStops(root: ParentNode = document): RoomStop[] {
-  return [...root.querySelectorAll<HTMLElement>('[data-room-section]')]
-    .filter((el) => el.id)
-    .map((el) => ({ id: el.id, label: el.dataset.roomSection || el.id }));
-}
-
 const pad = (n: number) => String(n).padStart(2, '0');
 
 /**
- * The room's own index: one entry per section its page renders, numbered, the one on screen lit,
- * one tap to each. Under 1440px a strip that stays under the top bar while the cards scroll; from
- * 1440px a rail fixed at the left edge, numbers and rules, with the words from 1700px, where the
- * gutter beside the 1200px column has room for them. It reads the page, so a resident without
- * lore has no Lore entry and the venue home, which marks no section, shows no rail. No art on it:
- * a fixed strip is never an art surface.
+ * The room's own index: one entry per section its page renders (HomePage.tsx names them, in page
+ * order), numbered, the one on screen lit, one tap to each. Under 1440px a strip that stays under
+ * the top bar while the cards scroll; from 1440px a rail fixed at the left edge, numbers and rules,
+ * with the words from 1700px, where the gutter beside the 1200px column has room for them. A room
+ * with one section has no index to show. No art on it: a fixed strip is never an art surface.
  */
-export function RoomRail({ room }: { room: string }) {
+export function RoomRail({ stops }: { stops: readonly RoomStop[] }) {
   const ref = useRef<HTMLElement>(null);
-  const [stops, setStops] = useState<RoomStop[]>([]);
   const [here, setHere] = useState<string | null>(null);
-
-  // The cards mount in the same render as the rail, so one read per room is the page.
-  useEffect(() => {
-    setStops(readRoomStops());
-    setHere(null);
-  }, [room]);
 
   // The section crossing the upper part of the screen is the one you are reading.
   useEffect(() => {
@@ -68,8 +53,10 @@ export function RoomRail({ room }: { room: string }) {
       // Sticky under the header's row until 1440px (the --rail-top var, so the docked rail's top-1/2 wins there).
       className="sticky top-[var(--rail-top)] z-30 mb-6 -mx-1 min-[1440px]:fixed min-[1440px]:left-5 min-[1440px]:top-1/2 min-[1440px]:-translate-y-1/2 min-[1440px]:m-0"
       style={{ '--rail-top': 'calc(3.5rem + env(safe-area-inset-top, 0px) + 0.5rem)' } as CSSProperties}>
+      {/* The same dark glass at both sizes: the docked rail sits on full-bleed art, where bare
+          cream type at 60% was not legible over a pale painting. */}
       <ol
-        className="flex items-center gap-0.5 overflow-x-auto px-1.5 rounded-full border border-white/10 bg-[rgba(6,12,26,0.82)] backdrop-blur-md [scrollbar-width:none] [&::-webkit-scrollbar]:hidden min-[1440px]:flex-col min-[1440px]:items-start min-[1440px]:gap-1 min-[1440px]:overflow-visible min-[1440px]:p-0 min-[1440px]:rounded-none min-[1440px]:border-0 min-[1440px]:bg-transparent min-[1440px]:backdrop-blur-none">
+        className="flex items-center gap-0.5 overflow-x-auto px-1.5 rounded-full border border-white/10 bg-[rgba(6,12,26,0.82)] backdrop-blur-md [scrollbar-width:none] [&::-webkit-scrollbar]:hidden [mask-image:linear-gradient(90deg,#000_calc(100%-28px),transparent)] min-[1440px]:[mask-image:none] min-[1440px]:flex-col min-[1440px]:items-start min-[1440px]:gap-0.5 min-[1440px]:overflow-visible min-[1440px]:px-3 min-[1440px]:py-2.5 min-[1440px]:rounded-2xl">
         {stops.map((s, i) => {
           const lit = here ? here === s.id : i === 0;
           return (

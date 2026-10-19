@@ -60,9 +60,10 @@ function narrow(groups: readonly IndexGroup[], q: string): IndexGroup[] {
  */
 function IndexLink({ n, name, item, here, onHover, onGo }: { n: number; name: string; item: NavItem; here: boolean; onHover: () => void; onGo: () => void }) {
   return (
-    <li className="group/page relative flex items-center gap-2 min-h-[44px] py-1.5 border-b border-white/[0.09]" onMouseEnter={onHover}>
+    // 44px rows on a phone and an iPad; 38px from 900px, where a pointer taps.
+    <li className="group/page relative flex items-center gap-2 min-h-[44px] py-1.5 min-[900px]:min-h-[38px] min-[900px]:py-1 border-b border-white/[0.09]" onMouseEnter={onHover}>
       <Link to={item.to} onClick={onGo} onFocus={onHover} aria-current={here ? 'page' : undefined}
-        className={`min-w-0 truncate font-black leading-tight tracking-[-0.03em] text-[17px] min-[1100px]:text-[18px] transition-colors after:absolute after:inset-0 after:z-10 after:content-[''] focus-visible:outline-none focus-visible:after:outline-2 focus-visible:after:-outline-offset-2 focus-visible:after:outline-[#22c55e] ${here ? 'text-[#22c55e]' : 'text-[#f5e4b8] group-hover/page:text-white'}`}
+        className={`min-w-0 truncate font-black leading-tight tracking-[-0.03em] text-[17px] min-[900px]:text-[16px] transition-colors after:absolute after:inset-0 after:z-10 after:content-[''] focus-visible:outline-none focus-visible:after:outline-2 focus-visible:after:-outline-offset-2 focus-visible:after:outline-[#22c55e] ${here ? 'text-[#22c55e]' : 'text-[#f5e4b8] group-hover/page:text-white'}`}
         style={HEADING_FONT}>
         {name}
       </Link>
@@ -92,9 +93,10 @@ function IndexGroupBlock({ i, group, first, here, pathname, onHover, onGo }: {
       </m.span>
     </span>
   );
-  const wordClass = 'font-black leading-[0.95] tracking-[-0.05em] text-[clamp(1.75rem,7vw,2.5rem)] min-[600px]:text-[2.125rem] min-[1100px]:text-[2.5rem]';
+  // Sized so "Records", the longest word, fits a third of the desktop's column.
+  const wordClass = 'font-black leading-[0.95] tracking-[-0.05em] text-[clamp(1.75rem,7vw,2.5rem)] min-[600px]:text-[2.125rem]';
   return (
-    <section aria-labelledby={id} className="min-w-0 pt-7 min-[900px]:pt-8 first:pt-2"
+    <section aria-labelledby={id} className="min-w-0"
       onMouseEnter={() => onHover({ art: group.art, caption: group.heading })}>
       <div className="group/word relative flex items-end gap-3 pb-2 border-b border-white/20">
         <h2 id={id} className={`min-w-0 ${wordClass} ${here ? 'text-[#22c55e]' : 'text-[#f5e4b8]'}`} style={HEADING_FONT}>
@@ -117,8 +119,10 @@ function IndexGroupBlock({ i, group, first, here, pathname, onHover, onGo }: {
           <ArtImg pageId="nav-drawer" idx={group.art} alt="" loading="lazy" className="w-full h-full object-cover" />
         </span>
       </div>
+      {/* Two across on a phone and an iPad, where the groups have the width; one column from
+          900px, where the groups share the screen with the picture and a word two across clipped. */}
       {group.items.length > 0 && (
-        <ul className="grid grid-cols-2 gap-x-5 min-[600px]:gap-x-6">
+        <ul className="grid grid-cols-2 gap-x-5 min-[600px]:gap-x-6 min-[900px]:grid-cols-1">
           {group.items.map((item, j) => (
             <IndexLink key={item.to} n={first + j} name={indexName(group, item)} item={item} here={isHere(item.to, pathname)}
               onHover={() => onHover({ art: group.art, caption: indexName(group, item) })} onGo={onGo} />
@@ -253,7 +257,8 @@ function Panel({ ref, onClose, from, pathname, isConnected, showAdmin, focusSear
               <input ref={searchRef} type="search" value={q} onChange={(e) => setQ(e.target.value)}
                 onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); jump(); } }}
                 aria-label="Jump to a page" placeholder="Jump to…" autoComplete="off" spellCheck={false} enterKeyHint="go"
-                className="w-full h-12 pl-7 pr-20 bg-transparent font-mono text-[15px] tracking-[0.04em] text-[#f5e4b8] placeholder:text-[#f5e4b8]/40 outline-none [&::-webkit-search-cancel-button]:appearance-none" />
+                // The rule under the field turns green on focus; index.css's purple ring is off here.
+                className="w-full h-12 pl-7 pr-20 bg-transparent font-mono text-[15px] tracking-[0.04em] text-[#f5e4b8] placeholder:text-[#f5e4b8]/40 outline-none focus-visible:outline-none [&::-webkit-search-cancel-button]:appearance-none" />
               <kbd aria-hidden="true"
                 className="hidden min-[900px]:inline-block absolute right-0 top-1/2 -translate-y-1/2 px-1.5 py-0.5 border border-white/15 font-mono text-[10px] tracking-[0.14em] text-[#f5e4b8]/50">
                 {mac ? '⌘K' : 'CTRL K'}
@@ -261,15 +266,15 @@ function Panel({ ref, onClose, from, pathname, isConnected, showAdmin, focusSear
             </div>
 
             {/* The index: every section with its pages, in the order a visitor moves (navConfig
-                INDEX_GROUPS); Dashboard once a wallet connects; the records last. Two columns of
-                groups once there is room for them. */}
+                INDEX_GROUPS); Dashboard once a wallet connects; the records last. The groups run
+                in one column on a phone, two from 600px and three from 1100px. */}
             <nav aria-label="Site index" onMouseLeave={() => setHover(null)}>
               {groups.length === 0 ? (
                 <p role="status" className="py-8 font-mono text-[12.5px] tracking-[0.06em] text-[#f5e4b8]/60">
                   Nothing here is called “{q.trim()}”.
                 </p>
               ) : (
-                <div className="grid min-[600px]:grid-cols-2 gap-x-10 min-[1100px]:gap-x-12 items-start">
+                <div className="grid gap-y-9 min-[600px]:grid-cols-2 min-[1100px]:grid-cols-3 gap-x-8 min-[1100px]:gap-x-9 items-start pt-3">
                   {groups.map((group, i) => (
                     <IndexGroupBlock key={group.heading} i={i} group={group} first={firsts[i]!} here={group.heading === here?.heading}
                       pathname={pathname} onHover={setHover} onGo={onClose} />

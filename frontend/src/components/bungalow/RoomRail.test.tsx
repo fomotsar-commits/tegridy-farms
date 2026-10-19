@@ -1,27 +1,26 @@
-// The room's rail (owner, 2026-10-19): the page's own index, read from the sections the room
-// renders, numbered, lit as you scroll, one tap to each.
+// The room's rail (owner, 2026-10-19): the page's own index, the sections the room renders,
+// numbered, lit as you scroll, one tap to each.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, within } from '@testing-library/react';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { RoomRail, readRoomStops } from './RoomRail';
+import { RoomRail, type RoomStop } from './RoomRail';
 
-const slug = (s: string) => `room-${s.toLowerCase().replace(/ /g, '-')}`;
+const LABELS = ['Doors', 'Market', 'Burn', 'Held time', 'Holders', 'Lore'];
+const STOPS: RoomStop[] = LABELS.map((label) => ({ id: `room-${label.toLowerCase().replace(/ /g, '-')}`, label }));
 
-/** A room's page: its sections, then the rail, as HomePage.tsx mounts them. */
-function Room({ sections, room = 'bayla' }: { sections: string[]; room?: string }) {
+/** A room's page: its slots, then the rail, as HomePage.tsx mounts them. */
+function Room({ stops }: { stops: RoomStop[] }) {
   return (
     <>
-      {sections.map((s) => (
-        <div key={s} id={slug(s)} data-room-section={s} style={{ height: 800 }} />
+      {stops.map((s) => (
+        <div key={s.id} id={s.id} style={{ height: 800 }} />
       ))}
-      <RoomRail room={room} />
+      <RoomRail stops={stops} />
     </>
   );
 }
-
-const SECTIONS = ['Doors', 'Market', 'Burn', 'Held time', 'Holders', 'Lore'];
 
 beforeEach(() => {
   // jsdom has neither; the rail reads both.
@@ -32,27 +31,25 @@ afterEach(() => vi.restoreAllMocks());
 
 describe('RoomRail', () => {
   it("lists the room's sections in page order, numbered, the first lit until the page scrolls", () => {
-    render(<Room sections={SECTIONS} />);
+    render(<Room stops={STOPS} />);
     const links = within(screen.getByRole('navigation', { name: 'On this page' })).getAllByRole('link');
     expect(links.map((l) => [l.textContent, l.getAttribute('href')])).toEqual(
-      SECTIONS.map((s, i) => [`${String(i + 1).padStart(2, '0')}${s}`, `#${slug(s)}`]),
+      STOPS.map((s, i) => [`${String(i + 1).padStart(2, '0')}${s.label}`, `#${s.id}`]),
     );
+    // The number is decoration (aria-hidden): each link's name is its section's word alone.
     expect(links.map((l) => l.getAttribute('aria-current'))).toEqual(['location', null, null, null, null, null]);
+    expect(screen.getByRole('link', { name: 'Held time' })).toHaveAttribute('href', '#room-held-time');
   });
 
-  it('renders nothing for a page with fewer than two sections, and none for one with no marks', () => {
-    const { unmount } = render(<Room sections={['Doors']} />);
-    expect(screen.queryByRole('navigation', { name: 'On this page' })).toBeNull();
-    unmount();
-    render(<RoomRail room="toweli" />);
+  it('renders nothing for a page with fewer than two sections', () => {
+    render(<Room stops={STOPS.slice(0, 1)} />);
     expect(screen.queryByRole('navigation', { name: 'On this page' })).toBeNull();
   });
 
   it('a tap scrolls the section under the header and the strip, smoothly, and lights it', () => {
-    render(<Room sections={SECTIONS} />);
+    render(<Room stops={STOPS} />);
     const market = document.getElementById('room-market')!;
     market.getBoundingClientRect = () => ({ top: 1000, bottom: 1800, left: 0, right: 0, width: 0, height: 800, x: 0, y: 1000, toJSON: () => ({}) });
-    // The number is decoration (aria-hidden): the link's name is the section's word alone.
     const link = screen.getByRole('link', { name: 'Market' });
     fireEvent.click(link);
     // No <header> in this page, so its 56px row stands in; the strip itself measures 0 here, plus its 8px; then 12px of air.
@@ -63,20 +60,21 @@ describe('RoomRail', () => {
 
   it('scrolls without easing for a reduced-motion visitor', () => {
     window.matchMedia = vi.fn((q: string) => ({ matches: q.includes('reduced-motion') })) as unknown as typeof window.matchMedia;
-    render(<Room sections={SECTIONS} />);
+    render(<Room stops={STOPS} />);
     fireEvent.click(screen.getByRole('link', { name: 'Burn' }));
     expect(window.scrollTo).toHaveBeenCalledWith(expect.objectContaining({ behavior: 'auto' }));
   });
 
-  it('reads only marks that have an id to scroll to', () => {
-    document.body.innerHTML = '<div id="a" data-room-section="A"></div><div data-room-section="B"></div><div id="c" data-room-section="C"></div>';
-    expect(readRoomStops()).toEqual([{ id: 'a', label: 'A' }, { id: 'c', label: 'C' }]);
-    document.body.innerHTML = '';
-  });
-
-  it("the home page marks a resident's six slots, in this order, and mounts the rail once a room is entered", () => {
+  it("the home page names a resident's six slots in this order, gates each as its slot is gated, and mounts the rail once a room is entered", () => {
     const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'pages', 'HomePage.tsx'), 'utf8');
-    expect([...src.matchAll(/data-room-section="([^"]+)"/g)].map((m) => m[1])).toEqual(SECTIONS);
-    expect(src).toMatch(/\{bungalowIdentity && <RoomRail room=\{bungalowIdentity\.id\} \/>\}/);
+    const stops = [...src.matchAll(/\{ id: '(room-[a-z-]+)', label: '([^']+)' \}/g)].map((m) => [m[1], m[2]]);
+    expect(stops).toEqual(STOPS.map((s) => [s.id, s.label]));
+    // Every named slot carries its id, once.
+    for (const s of STOPS) expect(src.match(new RegExp(`id=\\{ROOM_STOPS\\.[a-zA-Z]+\\.id\\}`, 'g'))?.length, s.id).toBe(STOPS.length);
+    expect(src).toMatch(/<RoomRail key=\{bungalowIdentity\.id\} stops=\{\[/);
+    expect(src).toMatch(/bungalowIdentity\.market \? \[ROOM_STOPS\.market\]/);
+    expect(src).toMatch(/burnRoom \? \[ROOM_STOPS\.burn\]/);
+    expect(src).toMatch(/bungalowIdentity\.address \? \[ROOM_STOPS\.heldTime, ROOM_STOPS\.holders\]/);
+    expect(src).toMatch(/bungalowIdentity\.identity\.lore \? \[ROOM_STOPS\.lore\]/);
   });
 });
