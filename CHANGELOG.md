@@ -6,6 +6,10 @@ page keeps the newest thirty days.
 
 ## [Unreleased]
 
+### 2026-10-19
+
+- /island has the home's Swap, Lock BAYLA and Add SOL + BAYLA cards.
+
 ### 2026-10-18
 
 - Heat and Rooms are now Island; the menu gains More.
@@ -331,10 +335,6 @@ page keeps the newest thirty days.
 
 - tegridyfarms.vercel.app redirects to memetics.finance instead of serving a second copy of the venue.
 - The footer carries the owner's permanent Discord invite.
-
-### 2026-09-19
-
-- The dead Discord invite and the retired Telegram handle are gone from the footer.
 
 ## Earlier
 

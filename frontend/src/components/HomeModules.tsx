@@ -39,9 +39,9 @@ function PoolsNetwork() {
  * LP section of /solana-lp), in a short mode, so every check before a signature is theirs.
  * ONE SolanaProviders for all three: a second WalletProvider reads the saved wallet only when
  * it mounts, so a visitor who connected in one card would look disconnected in another until
- * a reload. It is also the top bar's Solana connection on the home (`mixed`, lib/routeVoice.ts
- * hasMixedSolanaSection), so it mounts even when no card has anything on record to act on;
- * such a card is not drawn.
+ * a reload. It is also the top bar's Solana connection on the home and the island lobby
+ * (`mixed`, lib/routeVoice.ts hasMixedSolanaSection), so it mounts even when no card has
+ * anything on record to act on; such a card is not drawn.
  */
 export default function HomeModules({ readers: given }: { readers?: LpReaders } = {}) {
   const room = BUNGALOWS.find((b) => b.id === HOME_ROOM_ID);
