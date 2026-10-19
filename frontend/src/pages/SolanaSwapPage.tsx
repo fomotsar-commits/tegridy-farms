@@ -2313,11 +2313,14 @@ export function SolanaSwapInner({ home = false }: { home?: boolean } = {}) {
 
         <div className="relative z-10">
           {/* Header */}
-          <div className={home ? 'flex items-center justify-between mb-3' : 'flex items-center justify-between mb-4'}>
-            <div>
+          <div className={home ? 'flex flex-wrap items-center justify-between gap-2 mb-3' : 'flex items-center justify-between mb-4'}>
+            {/* On the home the card's network drop-down sits by its name, as /solana's sits above
+                its card: the other three networks are /swap's. */}
+            <div className={home ? 'flex items-center gap-2' : undefined}>
               <Heading ref={headingRef} tabIndex={-1} className={home ? 'heading-luxury text-xl text-white outline-none' : 'heading-luxury text-[18px] text-white outline-none'}>
                 {home ? 'Swap' : 'Solana Swap'}
               </Heading>
+              {home && <ChainSwitch at="/solana" />}
               {!home && <p className="text-white/60 text-[11px]">Buy Solana tokens through our own pools or Jupiter, whichever pays more.</p>}
             </div>
             {publicKey ? (

@@ -257,7 +257,7 @@ export const KNOWLEDGE_BASE: KnowledgeEntry[] = [
   },
   {
     keywords: ['jupiter', 'jup', 'swap solana', 'solana swap'],
-    answer: "Jupiter is one of the two routes behind /solana: it shops your trade across Solana's DEXes. When one of our own pools pays you at least as much, the trade goes to that pool instead. A Jupiter trade's platform fee is shown before you sign, every time. A swap in one of our pools pays that pool's own fee inside the quote: 1% of the trade on a public pool, with 0.16% of the trade going to the venue. No platform fee is added on top.",
+    answer: "Jupiter is one of the two routes behind /solana: it shops your trade across Solana's DEXes. When one of our own pools pays you at least as much, the trade goes to that pool instead. A Jupiter trade's platform fee is shown before you sign, every time. A swap in one of our pools pays that pool's own fee inside the quote: 1% of the trade on a public pool, with 0.16% of the trade as the venue's take (0.104% to its vault, 0.056% to the island's Workshop). No platform fee is added on top.",
   },
   {
     // The Meteora rail was retired 2026-08-23; anyone asking about it gets that answer.
