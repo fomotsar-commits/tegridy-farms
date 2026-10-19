@@ -15,6 +15,44 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-10-18: a three-minute fake-clock watch is over in milliseconds, so a real hash before the timer outlasts it
+
+**Believed:** `watch()` (`frontend/src/test/quietHost.ts`), stepping a fake clock 180 s in
+500 ms steps, leaves plenty of room for a call that hashes with WebCrypto before it arms its
+own timeout.
+
+**Measured** (vitest 5.0.3, Node 24, this Windows box): all 360 steps of
+`vi.advanceTimersByTimeAsync(500)` passed in 5 to 16 ms of real time. With each
+`crypto.subtle.digest` held 1.5 s by a spy, both "an answer that stops part-way" tests in
+`launchMetadata/upload.test.ts` returned null ("still pending after 180 s"), the message CI
+gave once on #866 (run 39081813182). The fake clock moves on whether or not the hash has
+answered. How long the CI runner's hash took was not measured.
+
+**Do:** when real-async work runs before the timer, have the stub fetch resolve a promise,
+wait for it in real time, then start the watch, counting from that moment.
+
+## 2026-10-18: a coin with no name in a wallet can still be a room's coin, and a pool someone else opens gives no signal
+
+**Believed:** a pool whose coin shows no name in a wallet pairs some stranger's coin, and a
+room's "Add SOL + <coin>" door appears once its coin has a SOL pool on the venue.
+
+**Measured** (`getProgramAccounts` and `getAccountInfo` on the public mainnet RPC,
+2026-10-18): the venue's pool program held seven pools, and four were SOL pools of room coins
+that no room named: RIZZ's (opened 10-16 18:56Z), BRAINLET's, BOBO's and SOY's (10-17 and
+10-18). An earlier note had called RIZZ's coin unnamed. It is not unnamed on chain: mint
+`5ad4puH6yDBoeCcrQfwV5s9bxvPnAeWDoYDj3uLyBS8k` has a Metaplex metadata account
+(`GYw8brrmdibD5S2RwksCmpqqZNtdA9RJeszeowh593dr`) whose name is
+"SigmaGyattOhioFanumSkibidiGooner" and whose symbol is "Rizz". Its details link points at
+`cf-ipfs.com`, which no longer resolves, so a wallet that loads the coin's details from that
+link gets nothing. The door is hand-written (`venueSolPool` in `lib/bungalows.ts`): until
+#871 named the four pools, those rooms had no door, and nothing said so. #873's check, run
+against the registry before #871, named exactly those four rooms and pools.
+
+**So:** before calling a pool's coin unnamed or a stranger's, match its mint against
+`lib/bungalows.ts`. A coin's on-chain name need not match its room, and a dead details link
+blanks it in a wallet. And any list written by hand that mirrors what others can create on
+chain needs something that reads the program, or it falls behind without anyone knowing.
+
 ## 2026-10-18: a token with the same name and a smaller market can be the real coin, carried over a bridge
 
 **Believed:** a second token with the same name and symbol as a resident, on another chain, with a

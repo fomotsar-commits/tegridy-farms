@@ -14,7 +14,7 @@ import { IslandSoundLinks } from '../IslandSound';
 /**
  * Eight links on one screen (the island's venue review, item 1; owner 2026-10-03): the page
  * links below, the AI file and the two community links. Every page the footer used to list
- * opens from the bar or the drawer (navReach.test.tsx). Rooms is a word on the bar.
+ * opens from the bar or the drawer (navReach.test.tsx). The bar's Island word opens the hall.
  */
 const PAGE_LINKS: { to: string; label: string }[] = [
   { to: '/faq', label: 'FAQ' },
