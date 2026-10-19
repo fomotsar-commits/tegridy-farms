@@ -15,12 +15,14 @@ import {
   projectedRawPerSec,
   penaltyOn,
   penaltyPct,
+  penaltyShare,
   lockRemaining,
   MAX_LOCK_SECS,
   MIN_LOCK_SECS,
   MIN_STAKE_RAW,
-  PENALTY_BPS,
+  MAX_PENALTY_BPS,
   LIVE_LADDER_EXIT_BPS,
+  LIVE_LADDER_EXIT_SCHEDULE,
   type LadderReads,
 } from './lighthouseLadder';
 
@@ -166,13 +168,20 @@ describe('the dust floor', () => {
 });
 
 describe('the exit costs', () => {
-  // Owner, 2026-10-18: every staking exit costs 75%. The card prices an exit with the
-  // penalty the POOL answers, so the six 25% ladders live today read 25% until the
-  // owner redeploys them (docs/LADDER_EXIT_75_REDEPLOY.md), and the new ones 75%.
-  it('prices the early exit at the penalty the pool answers: 75% on the new build, 25% on the live six', () => {
-    expect(penaltyOn(1_000n * E18, 7_500n)).toBe(750n * E18);
+  // Owner, 2026-10-18: the room ladders keep the ladder's law (the time left over four
+  // years, capped at 75%). The card never computes that: it reads each position's quote
+  // from the pool. penaltyOn is for the six FLAT ladders live today, which answer a rate.
+  it('prices a flat exit at the rate the pool answers (the live six: 25%)', () => {
     expect(penaltyOn(1_000n * E18, 2_500n)).toBe(250n * E18);
-    expect(penaltyOn(1_000n * E18, PENALTY_BPS)).toBe(750n * E18);
+    expect(penaltyOn(1_000n * E18, 7_500n)).toBe(750n * E18);
+  });
+
+  it('says a quoted penalty as a share of the position, floored, never rounded up', () => {
+    expect(penaltyShare(250n * E18, 1_000n * E18)).toBe('25%');
+    // A seven-day lock left at once under the ladder's law: 7/1460 of principal.
+    expect(penaltyShare((1_000n * E18 * 7n) / 1460n, 1_000n * E18)).toBe('0.47%');
+    expect(penaltyShare(0n, 1_000n * E18)).toBe('0%');
+    expect(penaltyShare(1n, 0n)).toBe('0%');
   });
 
   it('says the penalty as a plain percentage, no trailing zeros', () => {
@@ -182,24 +191,30 @@ describe('the exit costs', () => {
     expect(penaltyPct(0n)).toBe('0%');
   });
 
-  it('is the constant LighthouseLadder.sol declares, not the Solana ladder one', () => {
-    // The Solana bayla-ladder charges veYFI's time-left schedule (capped at 75%); this EVM contract
-    // charges a flat 75% since 2026-10-18. Read from the Solidity so the two cannot drift: the build
-    // the deploy script ships must be the one this constant describes.
+  it('is the cap LighthouseLadder.sol declares: the same schedule as the Solana ladder', () => {
+    // Both ladders charge veYFI's time-left schedule capped at 75% since 2026-10-18 (the
+    // ladder's law). Read from the Solidity so the cap here cannot drift from the build.
     const here = dirname(fileURLToPath(import.meta.url));
     const sol = readFileSync(join(here, '..', '..', '..', 'contracts', 'src', 'LighthouseLadder.sol'), 'utf8');
-    const m = /uint256 public constant EARLY_EXIT_PENALTY_BPS = ([\d_]+);/.exec(sol);
-    expect(m, 'EARLY_EXIT_PENALTY_BPS not found in LighthouseLadder.sol — re-anchor this test').not.toBeNull();
-    expect(PENALTY_BPS).toBe(BigInt(m![1]!.replace(/_/g, '')));
+    const m = /uint256 public constant MAX_EARLY_EXIT_PENALTY_BPS = ([\d_]+);/.exec(sol);
+    expect(m, 'MAX_EARLY_EXIT_PENALTY_BPS not found in LighthouseLadder.sol — re-anchor this test').not.toBeNull();
+    expect(MAX_PENALTY_BPS).toBe(BigInt(m![1]!.replace(/_/g, '')));
+    expect(sol).not.toMatch(/constant EARLY_EXIT_PENALTY_BPS/);
+    expect(sol).toContain('function penaltyFor(uint256 amount, uint64 lockEnd) public view returns (uint256)');
   });
 
-  it('the live number is one of the two builds that ever shipped, and the card never uses it', () => {
-    // 2_500n until the owner redeploys (docs/LADDER_EXIT_75_REDEPLOY.md), then PENALTY_BPS.
-    expect([2_500n, PENALTY_BPS]).toContain(LIVE_LADDER_EXIT_BPS);
+  it('the live switch is one of the two shapes that ever shipped, and the card never uses it', () => {
+    // Flat 2_500n until the owner redeploys (docs/LADDER_EXIT_75_REDEPLOY.md), then the
+    // time-left schedule capped at MAX_PENALTY_BPS. One switch, two fields, no third shape.
+    expect(['flat', 'time-left']).toContain(LIVE_LADDER_EXIT_SCHEDULE);
+    if (LIVE_LADDER_EXIT_SCHEDULE === 'flat') expect(LIVE_LADDER_EXIT_BPS).toBe(2_500n);
+    else expect(LIVE_LADDER_EXIT_BPS).toBe(MAX_PENALTY_BPS);
     const here = dirname(fileURLToPath(import.meta.url));
     const card = readFileSync(join(here, '..', 'components', 'bungalow', 'EvmLadderPoolLive.tsx'), 'utf8');
-    expect(card).not.toContain('LIVE_LADDER_EXIT_BPS');
+    expect(card).not.toContain('LIVE_LADDER_EXIT');
     expect(card).toContain("functionName: 'EARLY_EXIT_PENALTY_BPS'");
+    expect(card).toContain("functionName: 'MAX_EARLY_EXIT_PENALTY_BPS'");
+    expect(card).toContain("functionName: 'penaltyFor'");
   });
 
   it('counts down a lock and stops at zero rather than going negative', () => {

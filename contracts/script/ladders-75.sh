@@ -157,12 +157,19 @@ for row in "${POOLS[@]}"; do
   fi
   [ -n "$addr" ] || { echo "could not find the deployed address in forge's output for $id" >&2; exit 1; }
   # Read the pool back from the chain it now lives on, the way Phase C does.
-  exitbps="$(cast call "$addr" 'EARLY_EXIT_PENALTY_BPS()(uint256)' --rpc-url "$RPC")"
+  # The ladder's law, read back: the cap, and one year left quoted at the chain's own
+  # clock (exactly 25% in the block it is asked in; a block of drift is noise).
+  cap="$(cast call "$addr" 'MAX_EARLY_EXIT_PENALTY_BPS()(uint256)' --rpc-url "$RPC")"
+  chain_now="$(cast block latest -f timestamp --rpc-url "$RPC")"
+  year="$(cast call "$addr" 'penaltyFor(uint256,uint64)(uint256)' 1000000000000000000 "$((chain_now + 31536000))" --rpc-url "$RPC")"
   minstake="$(cast call "$addr" 'MIN_STAKE()(uint256)' --rpc-url "$RPC")"
   dist="$(cast call "$addr" 'rewardsDistribution()(address)' --rpc-url "$RPC")"
   stk="$(cast call "$addr" 'stakingToken()(address)' --rpc-url "$RPC")"
-  RESULTS+=("$id|$addr|exit=$exitbps minStake=$minstake notifier=$dist token=$stk")
-  [ "${exitbps%% *}" = "7500" ] || { echo "READ-BACK: $id answers EARLY_EXIT_PENALTY_BPS=$exitbps, not 7500" >&2; exit 1; }
+  RESULTS+=("$id|$addr|cap=${cap%% *} oneYearLeft=${year%% *} minStake=${minstake%% *} notifier=$dist token=$stk")
+  [ "${cap%% *}" = "7500" ] || { echo "READ-BACK: $id answers MAX_EARLY_EXIT_PENALTY_BPS=$cap, not 7500" >&2; exit 1; }
+  # 0.25e18 within 1e14 (about 3.5 hours of schedule): bash arithmetic overflows on wei, so node.
+  node -e 'const q=BigInt(process.argv[1]),t=250000000000000000n,d=q>t?q-t:t-q; process.exit(d<=100000000000000n?0:1)' "${year%% *}" \
+    || { echo "READ-BACK: $id quotes ${year%% *} for one year left, not 25% of 1e18: not the ladder's law" >&2; exit 1; }
   echo
 done
 

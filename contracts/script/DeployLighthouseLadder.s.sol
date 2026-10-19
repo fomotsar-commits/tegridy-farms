@@ -13,13 +13,14 @@ interface IERC20MetadataLike {
 
 /// @title  DeployLighthouseLadder — the island's LOCKED EVM lighthouse.
 /// @notice One pool per run: stake X, earn X, locks 7 days to 4 years at
-///         0.4x..4.0x, a 75% early-exit penalty that stays in the pool, an
+///         0.4x..4.0x, an early exit that costs the time left over four years
+///         capped at 75% (the ladder's law) and stays in the pool, an
 ///         always-open emergency hatch, and reward payouts capped at
 ///         `balanceOf(pool) - totalSupply()` so a payout can never spend
 ///         principal. Runbook: docs/LADDER_EXIT_75_REDEPLOY.md.
 ///
 /// @dev    SAFE TO REPLACE WHILE EMPTY. The six ladders live on 2026-10-18
-///         (25% exit) read totalSupply() == 0 and were never funded, so swapping
+///         (flat 25% exit) read totalSupply() == 0 and were never funded, so swapping
 ///         them costs gas and harms nobody. Once anyone stakes, this stops being
 ///         a redeploy and becomes a migration.
 ///
@@ -130,9 +131,14 @@ contract DeployLighthouseLadderScript is Script {
             pool.MIN_BOOST() == (pool.MIN_STAKE() * pool.MIN_BOOST_BPS()) / pool.BPS(),
             "L-INV-12: MIN_BOOST drifted from MIN_STAKE - the two must stay one number"
         );
-        // Owner, 2026-10-18: every staking exit is 75%. The retired 25% build has
-        // the same ABI and ceremony, so only this line keeps it from going out.
-        require(pool.EARLY_EXIT_PENALTY_BPS() == 7_500, "L-INV-13: early exit is not 75% (the retired 25% build?)");
+        // Owner, 2026-10-18: the room ladders keep the ladder's law. The retired flat
+        // builds share this ceremony, so these four lines are what keep them out:
+        // the cap, and three points on the schedule a flat rate cannot satisfy.
+        uint64 t = uint64(block.timestamp);
+        require(pool.MAX_EARLY_EXIT_PENALTY_BPS() == 7_500, "L-INV-13: exit cap is not 75%");
+        require(pool.penaltyFor(1e18, t + 4 * 365 days) == 0.75e18, "L-INV-14: four years left must cost the cap");
+        require(pool.penaltyFor(1e18, t + 365 days) == 0.25e18, "L-INV-15: one year left must cost 25% (a flat rate?)");
+        require(pool.penaltyFor(1e18, t) == 0, "L-INV-16: a matured lock must cost nothing");
     }
 
     function _printSummary(Config memory cfg, Deployed memory d) internal view {
@@ -151,7 +157,8 @@ contract DeployLighthouseLadderScript is Script {
         console.log("LADDER: 7 days = 0.40x (TOWELI parity - the same ladder)");
         console.log("        4 years = 4.00x, linear in between. Ten-fold spread.");
         console.log("EXITS:  after the lock  -> principal + rewards, no penalty");
-        console.log("        before the lock -> principal - 75%, rewards paid");
+        console.log("        before the lock -> principal minus the time left over");
+        console.log("                           four years, capped at 75%; rewards paid");
         console.log("        ALWAYS          -> emergencyWithdraw, principal only,");
         console.log("                           needing nothing from the reward path");
         console.log("");

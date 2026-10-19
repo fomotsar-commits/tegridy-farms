@@ -64,10 +64,10 @@ contract DriftedBoostLadderMock {
     }
 }
 
-/// @notice The 2026-09-05 six, by shape: the audited floor and weight, and the 25%
-///         exit the owner retired on 2026-10-18 (every staking exit is 75% now).
-///         They are the ladder addresses the registry still carries, so the one an
-///         operator is most likely to paste. Funding one would run a 25% pool.
+/// @notice The 2026-09-05 six, by shape: the audited floor and weight, and the FLAT
+///         25% exit the owner retired on 2026-10-18 for the ladder's law (the time
+///         left over four years, capped at 75%). They are the ladder addresses the
+///         registry still carries, so the one an operator is most likely to paste.
 contract Exit25LadderMock {
     uint256 public totalBoosted;
     uint256 public totalSupply;
@@ -90,6 +90,38 @@ contract Exit25LadderMock {
 
     function EARLY_EXIT_PENALTY_BPS() external pure returns (uint256) {
         return 2_500;
+    }
+}
+
+/// @notice A ladder with the right cap but a FLAT 75%: the build this PR shipped for a
+///         few hours before the owner's ruling. "A flat 75 on a seven-day lock is a
+///         trap." The cap alone cannot tell it from the ladder's law; a quote can.
+contract Flat75LadderMock {
+    uint256 public totalBoosted;
+    uint256 public totalSupply;
+
+    function MIN_STAKE() external pure returns (uint256) {
+        return 100e18;
+    }
+
+    function MIN_BOOST() external pure returns (uint256) {
+        return 40e18;
+    }
+
+    function MIN_BOOST_BPS() external pure returns (uint256) {
+        return 4_000;
+    }
+
+    function BPS() external pure returns (uint256) {
+        return 10_000;
+    }
+
+    function MAX_EARLY_EXIT_PENALTY_BPS() external pure returns (uint256) {
+        return 7_500;
+    }
+
+    function penaltyFor(uint256 amount, uint64) external pure returns (uint256) {
+        return (amount * 7_500) / 10_000;
     }
 }
 
@@ -211,32 +243,41 @@ contract FundLighthouseGuardTest is Test {
         script.assertFundableBuild(address(live));
     }
 
-    // ── the 25% exit, retired 2026-10-18 ───────────────────────────────
+    // ── the flat exits, retired 2026-10-18 for the ladder's law ────────
 
     /// The six ladders live on 2026-10-18 (PEPE on Ethereum, QR, MFER, BNKR, DRB
-    /// and JBM on Base) carry the audited floor AND a 25% exit. Owner: 75% on
-    /// every rail. Until the registry is repinned they are the only ladder
-    /// addresses in the repo, so the gate must refuse them by shape.
-    function test_exit25Ladder_isRefused() public {
+    /// and JBM on Base) carry the audited floor AND a flat 25% exit. Owner: the
+    /// room ladders keep the ladder's law. Until the registry is repinned they are
+    /// the only ladder addresses in the repo, so the gate must refuse them by shape.
+    function test_flat25Ladder_isRefused() public {
         Exit25LadderMock live = new Exit25LadderMock();
         assertEq(live.MIN_STAKE(), 100e18, "the floor is right: this is NOT the pre-fix case");
-        vm.expectRevert(bytes("POOL: ladder exit penalty is not 75% - the 25% build is retired, redeploy first"));
+        vm.expectRevert(bytes("POOL: ladder has no exit schedule (a flat-rate build, retired) - redeploy first"));
         script.assertFundableBuild(address(live));
     }
 
+    /// The cap alone is not the law: a flat 75% answers the cap and fails the quote.
+    function test_flat75Ladder_isRefused() public {
+        Flat75LadderMock flat = new Flat75LadderMock();
+        assertEq(flat.MAX_EARLY_EXIT_PENALTY_BPS(), 7_500, "the cap reads right");
+        vm.expectRevert(bytes("POOL: ladder exit is not the time left over four years - not the ladder's law"));
+        script.assertFundableBuild(address(flat));
+    }
+
     /// On the money path, not only in the helper.
-    function test_run_refusesExit25Ladder() public {
+    function test_run_refusesFlat25Ladder() public {
         Exit25LadderMock live = new Exit25LadderMock();
         vm.setEnv("POOL", vm.toString(address(live)));
         vm.setEnv("AMOUNT", "1");
-        vm.expectRevert(bytes("POOL: ladder exit penalty is not 75% - the 25% build is retired, redeploy first"));
+        vm.expectRevert(bytes("POOL: ladder has no exit schedule (a flat-rate build, retired) - redeploy first"));
         script.run();
     }
 
-    /// The build the deploy script ships now answers 7_500 and funds.
-    function test_exit75Ladder_isAccepted() public {
+    /// The build the deploy script ships: cap 75%, one year left costs 25%, and it funds.
+    function test_laddersLawBuild_isAccepted() public {
         LighthouseLadder pool = new LighthouseLadder(SAFE, address(token), address(token));
-        assertEq(pool.EARLY_EXIT_PENALTY_BPS(), 7_500, "the venue-wide 75% exit");
+        assertEq(pool.MAX_EARLY_EXIT_PENALTY_BPS(), 7_500, "the cap");
+        assertEq(pool.penaltyFor(1e18, uint64(block.timestamp + 365 days)), 0.25e18, "one year left: 25%");
         assertTrue(script.assertFundableBuild(address(pool)));
     }
 }

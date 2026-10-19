@@ -6,7 +6,7 @@ import { ConnectButton } from '@rainbow-me/rainbowkit';
 import type { Bungalow } from '../../lib/bungalows';
 import { LIGHTHOUSE_LADDER_ABI, ERC20_ABI } from '../../lib/contracts';
 import {
-  deriveLadder, boostLabel, boostBpsFor, projectedRawPerSec, penaltyOn, penaltyPct, lockRemaining, MIN_STAKE_RAW,
+  deriveLadder, boostLabel, boostBpsFor, projectedRawPerSec, penaltyOn, penaltyPct, penaltyShare, lockRemaining, MIN_STAKE_RAW,
   isC1UnsafeLadder,
 } from '../../lib/lighthouseLadder';
 import { fmtRaw, fmtRunway } from '../../lib/evmLighthouse';
@@ -98,10 +98,12 @@ export function EvmLadderPoolLive({ bungalow }: { bungalow: Bungalow & { stakePo
       // any figure is trusted (a design-review finding — a mispasted address
       // would otherwise render a stranger pool's numbers under our symbol).
       { ...poolC, functionName: 'stakingToken' },
-      // The exit penalty is the pool's own constant, read and never assumed: the
-      // six ladders live today charge 25%, the redeployed build 75% (owner,
-      // 2026-10-18). An unread penalty is no number, not a stale one.
+      // The exit is the pool's own, read and never assumed. The six ladders live
+      // today answer a flat rate (EARLY_EXIT_PENALTY_BPS, 25%); the ladder's-law
+      // build answers a cap (MAX_EARLY_EXIT_PENALTY_BPS, 75%) and quotes each
+      // position with penaltyFor() below. An unread penalty is no number.
       { ...poolC, functionName: 'EARLY_EXIT_PENALTY_BPS' },
+      { ...poolC, functionName: 'MAX_EARLY_EXIT_PENALTY_BPS' },
     ],
     query: { refetchInterval: 30_000 },
   });
@@ -113,8 +115,14 @@ export function EvmLadderPoolLive({ bungalow }: { bungalow: Bungalow & { stakePo
   const decimals = reads?.[6]?.status === 'success' ? Number(reads[6].result) : bungalow.decimals ?? 18;
   const poolToken = reads?.[12]?.status === 'success' ? String(reads[12].result) : null;
   const identityMismatch = poolToken !== null && poolToken.toLowerCase() !== token.toLowerCase();
-  const penaltyBps = big(13);
-  const penaltyWord = penaltyBps === null ? 'a penalty that could not be read just now' : penaltyPct(penaltyBps);
+  const flatBps = big(13);
+  const capBps = big(14);
+  const capWord = capBps === null ? '' : penaltyPct(capBps);
+  const penaltyWord = flatBps !== null
+    ? penaltyPct(flatBps)
+    : capBps !== null
+      ? `the time left on it over four years, capped at ${capWord}`
+      : 'a penalty that could not be read just now';
 
   const view = useMemo(
     () => deriveLadder({
@@ -142,6 +150,17 @@ export function EvmLadderPoolLive({ bungalow }: { bungalow: Bungalow & { stakePo
     const t = r.result as readonly [string, bigint, bigint, bigint];
     return { id, lockEnd: BigInt(t[1]), amount: t[2], boosted: t[3] };
   }).filter(Boolean) as Pos[];
+
+  // The ladder's law prices each position by the time left on it, so the figure on
+  // an exit button is the pool's own penaltyFor() for that position: read, not derived.
+  const { data: quoteReads } = useReadContracts({
+    contracts: positions.map((p) => ({ ...poolC, functionName: 'penaltyFor' as const, args: [p.amount, p.lockEnd] as const })),
+    query: { enabled: capBps !== null && positions.length > 0, refetchInterval: 30_000 },
+  });
+  const quoteFor = (i: number): bigint | null => {
+    const r = quoteReads?.[i];
+    return r && r.status === 'success' ? (r.result as bigint) : null;
+  };
 
   // An RPC that fails must never render as "you have nothing staked". That is
   // the outage-as-zero the Solana card was built to refuse, and here it is
@@ -417,10 +436,10 @@ export function EvmLadderPoolLive({ bungalow }: { bungalow: Bungalow & { stakePo
                   <div className="rounded-xl p-3" style={{ background: 'rgba(0,0,0,0.4)', border: '1px solid rgba(255,255,255,0.08)' }}>
                     <p className="text-[10px] uppercase tracking-wider text-white/50 mb-2">Your positions</p>
                     <div className="space-y-2">
-                      {positions.map((p) => {
+                      {positions.map((p, i) => {
                         const left = lockRemaining(p.lockEnd, nowSecs);
                         const open = left === 0n;
-                        const fee = penaltyBps === null ? null : penaltyOn(p.amount, penaltyBps);
+                        const fee = flatBps !== null ? penaltyOn(p.amount, flatBps) : capBps !== null ? quoteFor(i) : null;
                         return (
                           <div key={String(p.id)} className="flex flex-wrap items-center gap-2 text-[12px]">
                             <span className="text-white tabular-nums">{fmtRaw(p.amount, decimals)} {bungalow.symbol}</span>
@@ -438,7 +457,9 @@ export function EvmLadderPoolLive({ bungalow }: { bungalow: Bungalow & { stakePo
                               <button type="button" disabled={busy !== null} className="btn-secondary px-3 py-1 text-[11px] disabled:opacity-50"
                                 title={fee === null
                                   ? 'The penalty could not be read just now. The pool charges it either way, and it stays in the pool for the stakers who waited.'
-                                  : `Leaving early costs ${fmtRaw(fee, decimals)} ${bungalow.symbol} (${penaltyWord}), which stays in the pool for the stakers who waited.`}
+                                  : flatBps !== null
+                                    ? `Leaving early costs ${fmtRaw(fee, decimals)} ${bungalow.symbol} (${penaltyWord}), which stays in the pool for the stakers who waited.`
+                                    : `Leaving now costs ${fmtRaw(fee, decimals)} ${bungalow.symbol} (about ${penaltyShare(fee, p.amount)}): the time left on your lock over four years, capped at ${capWord}. It stays in the pool for the stakers who waited.`}
                                 onClick={() => send('e' + p.id, () => writeContractAsync({ ...poolC, functionName: 'earlyExit', args: [p.id] }))}>
                                 {fee === null ? 'Exit early' : `Exit early (−${fmtRaw(fee, decimals)})`}
                               </button>
@@ -458,7 +479,9 @@ export function EvmLadderPoolLive({ bungalow }: { bungalow: Bungalow & { stakePo
                                 ? 'Principal only, forfeiting unclaimed rewards, using nothing from the reward side. Always available — this is the last resort if rewards are ever broken.'
                                 : fee === null
                                   ? 'Still locked, so this costs the same penalty as exiting early (it could not be read just now), AND forfeits unclaimed rewards. It uses nothing from the reward side, so it works even if rewards are broken, which is the only reason to prefer it over Exit early.'
-                                  : `Still locked, so this costs the same ${fmtRaw(fee, decimals)} ${bungalow.symbol} (${penaltyWord}) as exiting early, AND forfeits unclaimed rewards. It uses nothing from the reward side, so it works even if rewards are broken — that is the only reason to prefer it over Exit early.`}
+                                  : flatBps !== null
+                                    ? `Still locked, so this costs the same ${fmtRaw(fee, decimals)} ${bungalow.symbol} (${penaltyWord}) as exiting early, AND forfeits unclaimed rewards. It uses nothing from the reward side, so it works even if rewards are broken — that is the only reason to prefer it over Exit early.`
+                                    : `Still locked, so this costs the same ${fmtRaw(fee, decimals)} ${bungalow.symbol} (about ${penaltyShare(fee, p.amount)}) as exiting early, AND forfeits unclaimed rewards. It uses nothing from the reward side, so it works even if rewards are broken, which is the only reason to prefer it over Exit early.`}
                               onClick={() => send('x' + p.id, () => writeContractAsync({ ...poolC, functionName: 'emergencyWithdraw', args: [p.id] }))}>
                               {open || fee === null ? 'emergency' : `emergency (−${fmtRaw(fee, decimals)})`}
                             </button>

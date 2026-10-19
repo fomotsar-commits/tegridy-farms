@@ -38,18 +38,20 @@ export const MAX_LOCK_SECS = 4n * 365n * 24n * 60n * 60n;
 export const MIN_BOOST_BPS = 4_000n;
 export const MAX_BOOST_BPS = 40_000n;
 /**
- * The exit penalty of the build the deploy script ships (LighthouseLadder.sol,
- * EARLY_EXIT_PENALTY_BPS): 75% since 2026-10-18, on every rail. The card never
- * assumes it: it reads the live pool's own constant, so the six 25% ladders still
- * live read 25% until the owner redeploys them (docs/LADDER_EXIT_75_REDEPLOY.md).
+ * The cap of the ladder's law (LighthouseLadder.sol MAX_EARLY_EXIT_PENALTY_BPS):
+ * leaving early costs the time left on the lock over four years, capped at 75%, as
+ * the BAYLA ladder charges it (owner, 2026-10-18). The card never computes it: it
+ * reads the pool's own quote for each position (penaltyFor).
  */
-export const PENALTY_BPS = 7_500n;
+export const MAX_PENALTY_BPS = 7_500n;
 /**
- * What the ladders the registry ships charge TODAY: the six of 2026-09-05, at 25%.
- * Build-time copy (llms.txt) says this number; the card itself reads the pool. The
- * repin PR sets it to PENALTY_BPS, and scripts/verify-ladder-builds.mjs fails any
- * shipped pool whose exit differs from it, so the site and the chain cannot drift.
+ * What the ladders the registry ships charge TODAY: the six of 2026-09-05, a flat
+ * 25%. Build-time copy (llms.txt) says this; the card itself reads the pool. The
+ * repin PR sets the schedule to 'time-left' and the number to MAX_PENALTY_BPS, and
+ * scripts/verify-ladder-builds.mjs fails any shipped pool whose exit differs from
+ * this pair, so the site and the chain cannot drift.
  */
+export const LIVE_LADDER_EXIT_SCHEDULE: 'flat' | 'time-left' = 'flat';
 export const LIVE_LADDER_EXIT_BPS = 2_500n;
 /**
  * The contract's `MIN_STAKE` dust floor, in RAW units, not scaled by decimals:
@@ -149,7 +151,7 @@ export function projectedRawPerSec(
   return (view.payingNowRawPerSec * myBoostedRaw) / denom;
 }
 
-/** What an early exit costs, in raw units, at the penalty the pool answered. */
+/** What an early exit costs on a FLAT-rate pool (the six live today), at the rate it answered. */
 export function penaltyOn(amountRaw: bigint, penaltyBps: bigint): bigint {
   return (amountRaw * penaltyBps) / 10_000n;
 }
@@ -160,6 +162,12 @@ export function penaltyPct(penaltyBps: bigint): string {
   const frac = penaltyBps % 100n;
   if (frac === 0n) return `${whole}%`;
   return `${whole}.${frac.toString().padStart(2, '0').replace(/0+$/, '')}%`;
+}
+
+/** A quoted penalty as a share of its position, floored to hundredths: "0.47%". */
+export function penaltyShare(penaltyRaw: bigint, amountRaw: bigint): string {
+  if (amountRaw <= 0n) return '0%';
+  return penaltyPct((penaltyRaw * 10_000n) / amountRaw);
 }
 
 /** Seconds until a lock opens; 0 once it has. */

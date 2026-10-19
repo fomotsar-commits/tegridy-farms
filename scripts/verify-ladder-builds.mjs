@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 /**
  * Does every `poolKind: 'ladder'` pool in frontend/src/lib/bungalows.ts run the fixed
- * LighthouseLadder build? Reads code, totalBoosted(), MIN_STAKE()/MIN_BOOST(),
- * EARLY_EXIT_PENALTY_BPS() and totalSupply/rewardRate/periodFinish; never sends a
- * transaction. Exit 0 = all fixed, 1 = any pre-fix, unaudited or UNREADABLE pool. Flags: --json, --self-test,
+ * LighthouseLadder build? Reads code, totalBoosted(), MIN_STAKE()/MIN_BOOST(), the exit
+ * (EARLY_EXIT_PENALTY_BPS() on the retired flat builds; MAX_EARLY_EXIT_PENALTY_BPS() and a
+ * penaltyFor() quote on the ladder's-law build) and totalSupply/rewardRate/periodFinish;
+ * never sends a transaction. Exit 0 = all fixed, 1 = any pre-fix, unaudited or UNREADABLE pool. Flags: --json, --self-test,
  * --rpc-eth URL, --rpc-base URL, --rpc-robinhood URL (or ETH_RPC, BASE_RPC, RH_RPC).
  */
 
@@ -41,28 +42,43 @@ const SEL = {
   MIN_STAKE: '0xcb1c2b5c', // cast sig "MIN_STAKE()"
   MIN_BOOST: '0x0a7486c7', // cast sig "MIN_BOOST()"
   totalBoosted: '0x631516c2', // cast sig "totalBoosted()"
-  EARLY_EXIT_PENALTY_BPS: '0x5c82a112', // cast sig "EARLY_EXIT_PENALTY_BPS()"
+  EARLY_EXIT_PENALTY_BPS: '0x5c82a112', // cast sig "EARLY_EXIT_PENALTY_BPS()" (the retired flat builds)
+  MAX_EARLY_EXIT_PENALTY_BPS: '0x5efd5ee9', // cast sig "MAX_EARLY_EXIT_PENALTY_BPS()" (the ladder's law)
 };
+/** cast sig "penaltyFor(uint256,uint64)"; the two arguments are appended, each 32 bytes. */
+const PENALTY_FOR_SEL = '0xf10b1600';
+const ONE_TOKEN = 10n ** 18n;
+const YEAR_SECS = 365n * 86_400n;
+const word = (v) => v.toString(16).padStart(64, '0');
+export const penaltyForCalldata = (amount, lockEnd) => PENALTY_FOR_SEL + word(amount) + word(lockEnd);
 
 /** The audited post-fix constants. A ladder that answers anything else is not this build. */
 export const AUDITED_MIN_STAKE = 100n * 10n ** 18n;
 /** MIN_BOOST = MIN_STAKE * MIN_BOOST_BPS / BPS, with MIN_BOOST_BPS = 4_000, BPS = 10_000. */
 export const AUDITED_MIN_BOOST = (AUDITED_MIN_STAKE * 4000n) / 10000n;
-/** Owner, 2026-10-18: every staking exit costs 75%. The build the deploy script ships. */
-export const AUDITED_EXIT_PENALTY_BPS = 7500n;
-/** The 2026-09-05 six charge this. Retired the same day the 75% was ruled; redeploy pending. */
-export const RETIRED_EXIT_PENALTY_BPS = 2500n;
 /**
- * The exit the SITE says the shipped ladders charge: `LIVE_LADDER_EXIT_BPS` in
- * frontend/src/lib/lighthouseLadder.ts, read as text like the registry. A shipped
- * pool whose exit differs from it fails here, so a repin that forgets the switch,
- * or a switch flipped before the repin, is caught by the daily job.
+ * Owner, 2026-10-18: the room ladders keep the ladder's law, the time left over four
+ * years capped at 75%. The build the deploy script ships answers this cap and quotes
+ * exactly 25% with one year left (ONE_YEAR_QUOTE, within the drift of a block or two).
+ */
+export const AUDITED_EXIT_CAP_BPS = 7500n;
+export const ONE_YEAR_QUOTE = ONE_TOKEN / 4n;
+export const QUOTE_TOLERANCE = 10n ** 14n; // about 3.5 hours of schedule, far from any flat rate
+/** The 2026-09-05 six charge this flat rate. Retired 2026-10-18; redeploy pending. */
+export const RETIRED_FLAT_EXIT_BPS = 2500n;
+/**
+ * The exit the SITE says the shipped ladders charge: `LIVE_LADDER_EXIT_SCHEDULE` and
+ * `LIVE_LADDER_EXIT_BPS` in frontend/src/lib/lighthouseLadder.ts, read as text like
+ * the registry. A shipped pool whose exit differs from that pair fails here, so a
+ * repin that forgets the switch, or a switch flipped before the repin, is caught by
+ * the daily job.
  */
 const LIVE_SWITCH = join(HERE, '..', 'frontend', 'src', 'lib', 'lighthouseLadder.ts');
-export function parseLiveExitBps(src) {
-  const m = /export const LIVE_LADDER_EXIT_BPS = ([\d_]+)n;/.exec(src);
-  if (!m) throw new Error('LIVE_LADDER_EXIT_BPS not found in lighthouseLadder.ts');
-  return BigInt(m[1].replace(/_/g, ''));
+export function parseLiveExit(src) {
+  const sched = /export const LIVE_LADDER_EXIT_SCHEDULE: 'flat' \| 'time-left' = '(flat|time-left)';/.exec(src);
+  const bps = /export const LIVE_LADDER_EXIT_BPS = ([\d_]+)n;/.exec(src);
+  if (!sched || !bps) throw new Error('LIVE_LADDER_EXIT_SCHEDULE / LIVE_LADDER_EXIT_BPS not found in lighthouseLadder.ts');
+  return { schedule: sched[1], bps: BigInt(bps[1].replace(/_/g, '')) };
 }
 
 // ── registry parsing (pure, self-tested) ──────────────────────────────────
@@ -94,8 +110,8 @@ export function parseLadders(src) {
  * FundLighthouseStaking.s.sol tests the same way, so funding and shipping agree.
  */
 export function classify(
-  { codeBytes, totalBoosted, minStake, minBoost, exitPenalty },
-  { liveExitBps = AUDITED_EXIT_PENALTY_BPS } = {},
+  { codeBytes, totalBoosted, minStake, minBoost, flatExit, exitCap, yearQuote },
+  { live = { schedule: 'time-left', bps: AUDITED_EXIT_CAP_BPS } } = {},
 ) {
   if (!codeBytes) return { build: 'absent', ok: false, note: 'no contract at this address' };
   if (totalBoosted === null) {
@@ -111,18 +127,35 @@ export function classify(
     // A floor that does not match its own boost derivation is a half-applied fix.
     return { build: 'unaudited', ok: false, note: `MIN_BOOST ${minBoost} does not derive from MIN_STAKE` };
   }
-  if (exitPenalty !== AUDITED_EXIT_PENALTY_BPS && exitPenalty !== RETIRED_EXIT_PENALTY_BPS) {
-    return { build: 'unaudited', ok: false, note: `EARLY_EXIT_PENALTY_BPS is ${exitPenalty}, neither 7500 nor the retired 2500` };
+  // The exit, in one of the two shapes that ever shipped. A flat rate answers
+  // EARLY_EXIT_PENALTY_BPS; the ladder's law answers the cap and quotes one year
+  // left at 25% (a flat 75% answers the cap too, and fails the quote).
+  let shape;
+  let build;
+  if (flatExit !== null && flatExit !== undefined) {
+    if (flatExit !== RETIRED_FLAT_EXIT_BPS) {
+      return { build: 'unaudited', ok: false, note: `a flat EARLY_EXIT_PENALTY_BPS of ${flatExit}: no build ever shipped that` };
+    }
+    shape = { schedule: 'flat', bps: flatExit };
+    build = 'exit25';
+  } else if (exitCap !== null && exitCap !== undefined) {
+    const quoteOk = typeof yearQuote === 'bigint' && (yearQuote > ONE_YEAR_QUOTE ? yearQuote - ONE_YEAR_QUOTE : ONE_YEAR_QUOTE - yearQuote) <= QUOTE_TOLERANCE;
+    if (exitCap !== AUDITED_EXIT_CAP_BPS || !quoteOk) {
+      return { build: 'unaudited', ok: false, note: `exit cap ${exitCap}, one year left quotes ${yearQuote}: not the ladder's law (cap 7500, 25% with a year left)` };
+    }
+    shape = { schedule: 'time-left', bps: exitCap };
+    build = 'fixed';
+  } else {
+    return { build: 'unaudited', ok: false, note: 'answers neither a flat exit nor a cap' };
   }
-  const build = exitPenalty === AUDITED_EXIT_PENALTY_BPS ? 'fixed' : 'exit25';
-  if (exitPenalty !== liveExitBps) {
-    // The site says one number and this pool charges another: whichever side is
+  if (shape.schedule !== live.schedule || shape.bps !== live.bps) {
+    // The site says one exit and this pool charges another: whichever side is
     // stale, it must not ship.
-    return { build, ok: false, note: `the site says ${Number(liveExitBps) / 100}% (LIVE_LADDER_EXIT_BPS), this pool charges ${Number(exitPenalty) / 100}%` };
+    return { build, ok: false, note: `the site says ${live.schedule} ${Number(live.bps) / 100}% (LIVE_LADDER_EXIT_*), this pool charges ${shape.schedule} ${Number(shape.bps) / 100}%` };
   }
   return build === 'fixed'
-    ? { build, ok: true, note: 'post-fix ladder, audited constants, 75% exit' }
-    : { build, ok: true, note: 'WARN: the 25% exit build, retired 2026-10-18; redeploy at 75% pending (docs/LADDER_EXIT_75_REDEPLOY.md)' };
+    ? { build, ok: true, note: "the ladder's law: time left over four years, capped at 75%" }
+    : { build, ok: true, note: 'WARN: the flat 25% build, retired 2026-10-18; redeploy pending (docs/LADDER_EXIT_75_REDEPLOY.md)' };
 }
 
 /** Is the replace-vs-migrate window still open for this pool? */
@@ -216,7 +249,13 @@ async function getCodeBytes(urls, addr) {
   return (r.raw.length - 2) / 2;
 }
 
-async function inspect(pool, rpc, liveExitBps) {
+async function latestTimestamp(urls) {
+  const r = await rpcCall(urls, 'eth_getBlockByNumber', ['latest', false]);
+  if (!r.transport || !r.raw || typeof r.raw.timestamp !== 'string') return null;
+  return BigInt(r.raw.timestamp);
+}
+
+async function inspect(pool, rpc, live) {
   const url = rpc[pool.chain];
   if (!url) return { ...pool, unreadable: true, note: `no RPC configured for chain "${pool.chain}"` };
 
@@ -231,13 +270,26 @@ async function inspect(pool, rpc, liveExitBps) {
     reads[k] = value;
   }
 
+  // The schedule's one-year point, quoted at the chain's own clock (not this
+  // machine's): a block or two of drift is inside QUOTE_TOLERANCE.
+  let yearQuote = null;
+  if (reads.MAX_EARLY_EXIT_PENALTY_BPS !== null) {
+    const now = await latestTimestamp(url);
+    if (now === null) return { ...pool, unreadable: true, note: 'eth_getBlockByNumber failed (transport)' };
+    const q = await ethCall(url, pool.stakePool, penaltyForCalldata(ONE_TOKEN, now + YEAR_SECS));
+    if (!q.transport) return { ...pool, unreadable: true, note: 'eth_call penaltyFor failed (transport)' };
+    yearQuote = q.value;
+  }
+
   const verdict = classify({
     codeBytes,
     totalBoosted: reads.totalBoosted,
     minStake: reads.MIN_STAKE,
     minBoost: reads.MIN_BOOST,
-    exitPenalty: reads.EARLY_EXIT_PENALTY_BPS,
-  }, { liveExitBps });
+    flatExit: reads.EARLY_EXIT_PENALTY_BPS,
+    exitCap: reads.MAX_EARLY_EXIT_PENALTY_BPS,
+    yearQuote,
+  }, { live });
   return {
     ...pool,
     codeBytes,
@@ -247,7 +299,7 @@ async function inspect(pool, rpc, liveExitBps) {
       rewardRate: reads.rewardRate ?? 0n,
       periodFinish: reads.periodFinish ?? 0n,
     }),
-    reads,
+    reads: { ...reads, yearQuote },
   };
 }
 
@@ -286,25 +338,34 @@ function selfTest() {
   // A plain pool also reverts MIN_STAKE — it must NOT be called vulnerable.
   eq('classify plain', classify({ codeBytes: 4000, totalBoosted: null, minStake: null, minBoost: null }).build, 'plain');
   eq('classify plain ok', classify({ codeBytes: 4000, totalBoosted: null, minStake: null, minBoost: null }).ok, true);
-  const fixed = { codeBytes: 6500, totalBoosted: 0n, minStake: AUDITED_MIN_STAKE, minBoost: AUDITED_MIN_BOOST, exitPenalty: AUDITED_EXIT_PENALTY_BPS };
-  eq('classify fixed', classify(fixed).build, 'fixed');
-  eq('classify fixed ok', classify(fixed).ok, true);
-  // The 25% six: a WARN while the site says 25%, a FAIL once the site says 75%; and a
-  // 75% pool fails while the site still says 25%. Both sides are held to the chain.
-  const exit25 = { ...fixed, exitPenalty: RETIRED_EXIT_PENALTY_BPS };
-  eq('classify exit25 build', classify(exit25, { liveExitBps: 2500n }).build, 'exit25');
-  eq('classify exit25 ok while the site says 25%', classify(exit25, { liveExitBps: 2500n }).ok, true);
-  eq('classify exit25 warns', /WARN/.test(classify(exit25, { liveExitBps: 2500n }).note), true);
-  eq('classify exit25 fails once the site says 75%', classify(exit25, { liveExitBps: 7500n }).ok, false);
-  eq('classify fixed fails while the site says 25%', classify(fixed, { liveExitBps: 2500n }).ok, false);
-  eq('parse live switch', parseLiveExitBps("export const LIVE_LADDER_EXIT_BPS = 2_500n;\n"), 2500n);
-  eq('parse live switch 75', parseLiveExitBps("export const LIVE_LADDER_EXIT_BPS = 7500n;"), 7500n);
+  const LAW = { schedule: 'time-left', bps: 7500n };
+  const FLAT25 = { schedule: 'flat', bps: 2500n };
+  const fixed = { codeBytes: 6500, totalBoosted: 0n, minStake: AUDITED_MIN_STAKE, minBoost: AUDITED_MIN_BOOST, flatExit: null, exitCap: AUDITED_EXIT_CAP_BPS, yearQuote: ONE_YEAR_QUOTE };
+  eq('classify fixed', classify(fixed, { live: LAW }).build, 'fixed');
+  eq('classify fixed ok', classify(fixed, { live: LAW }).ok, true);
+  // A block of drift on the one-year quote is still the law; a flat 75% is not.
+  eq('classify fixed, quote a few seconds off', classify({ ...fixed, yearQuote: ONE_YEAR_QUOTE - 10n ** 11n }, { live: LAW }).ok, true);
+  eq('classify flat 75 behind a cap is unaudited', classify({ ...fixed, yearQuote: (ONE_TOKEN * 3n) / 4n }, { live: LAW }).build, 'unaudited');
+  eq('classify cap 25 is unaudited', classify({ ...fixed, exitCap: 2500n }, { live: LAW }).build, 'unaudited');
+  eq('classify unread quote is not ok', classify({ ...fixed, yearQuote: null }, { live: LAW }).ok, false);
+  // The flat 25% six: a WARN while the site says flat 25%, a FAIL once the site says the
+  // law; and a law pool fails while the site still says flat 25%. Both sides are held.
+  const exit25 = { ...fixed, flatExit: RETIRED_FLAT_EXIT_BPS, exitCap: null, yearQuote: null };
+  eq('classify exit25 build', classify(exit25, { live: FLAT25 }).build, 'exit25');
+  eq('classify exit25 ok while the site says flat 25%', classify(exit25, { live: FLAT25 }).ok, true);
+  eq('classify exit25 warns', /WARN/.test(classify(exit25, { live: FLAT25 }).note), true);
+  eq('classify exit25 fails once the site says the law', classify(exit25, { live: LAW }).ok, false);
+  eq('classify fixed fails while the site says flat 25%', classify(fixed, { live: FLAT25 }).ok, false);
+  eq('classify odd flat exit', classify({ ...exit25, flatExit: 5000n }, { live: FLAT25 }).build, 'unaudited');
+  eq('classify no exit getter at all', classify({ ...fixed, exitCap: null, yearQuote: null }, { live: LAW }).ok, false);
+  const sw = parseLiveExit("export const LIVE_LADDER_EXIT_SCHEDULE: 'flat' | 'time-left' = 'flat';\nexport const LIVE_LADDER_EXIT_BPS = 2_500n;\n");
+  eq('parse live switch schedule', sw.schedule, 'flat');
+  eq('parse live switch bps', sw.bps, 2500n);
+  eq('parse live switch law', parseLiveExit("export const LIVE_LADDER_EXIT_SCHEDULE: 'flat' | 'time-left' = 'time-left';\nexport const LIVE_LADDER_EXIT_BPS = 7_500n;").schedule, 'time-left');
   let threw = false;
-  try { parseLiveExitBps('nothing here'); } catch { threw = true; }
+  try { parseLiveExit('nothing here'); } catch { threw = true; }
   eq('parse live switch missing throws', threw, true);
-  // Any other exit is not a build this repo ever shipped.
-  eq('classify odd exit', classify({ ...fixed, exitPenalty: 5000n }).build, 'unaudited');
-  eq('classify unread exit', classify({ ...fixed, exitPenalty: null }).ok, false);
+  eq('penaltyFor calldata', penaltyForCalldata(ONE_TOKEN, 1800000000n), '0xf10b16000000000000000000000000000000000000000000000000000de0b6b3a7640000000000000000000000000000000000000000000000000000000000006b49d200');
   // A floor that is present but wrong is not the audited build.
   eq('classify moved floor', classify({ codeBytes: 6500, totalBoosted: 0n, minStake: 1n, minBoost: null }).build, 'unaudited');
   eq('classify drifted boost', classify({ codeBytes: 6500, totalBoosted: 0n, minStake: AUDITED_MIN_STAKE, minBoost: 1n }).build, 'unaudited');
@@ -363,9 +424,9 @@ if (ladders.length === 0) {
   process.exit(1);
 }
 
-const liveExitBps = parseLiveExitBps(readFileSync(LIVE_SWITCH, 'utf8'));
+const live = parseLiveExit(readFileSync(LIVE_SWITCH, 'utf8'));
 const rows = [];
-for (const pool of ladders) rows.push(await inspect(pool, rpc, liveExitBps));
+for (const pool of ladders) rows.push(await inspect(pool, rpc, live));
 
 const asJson = argv.includes('--json');
 if (asJson) {
@@ -382,13 +443,14 @@ if (asJson) {
 } else {
   console.log('LADDER BUILDS SHIPPED BY THE REGISTRY (frontend/src/lib/bungalows.ts)\n');
   const pad = (s, n) => String(s).padEnd(n);
-  console.log(`${pad('pool', 8)}${pad('chain', 10)}${pad('bytes', 7)}${pad('build', 11)}${pad('exit', 6)}${pad('window', 13)}note`);
+  console.log(`${pad('pool', 8)}${pad('chain', 10)}${pad('bytes', 7)}${pad('build', 11)}${pad('exit', 10)}${pad('window', 13)}note`);
   for (const r of rows) {
     const build = r.unreadable ? 'UNREADABLE' : r.build;
     const win = r.unreadable ? '-' : r.replaceable ? 'replaceable' : 'CLOSED';
-    const exitBps = r.reads?.EARLY_EXIT_PENALTY_BPS;
-    const exit = typeof exitBps === 'bigint' ? `${Number(exitBps) / 100}%` : '-';
-    console.log(`${pad(r.id, 8)}${pad(r.chain, 10)}${pad(r.codeBytes ?? '-', 7)}${pad(build, 11)}${pad(exit, 6)}${pad(win, 13)}${r.note}`);
+    const flat = r.reads?.EARLY_EXIT_PENALTY_BPS;
+    const cap = r.reads?.MAX_EARLY_EXIT_PENALTY_BPS;
+    const exit = typeof flat === 'bigint' ? `${Number(flat) / 100}% flat` : typeof cap === 'bigint' ? `law<=${Number(cap) / 100}%` : '-';
+    console.log(`${pad(r.id, 8)}${pad(r.chain, 10)}${pad(r.codeBytes ?? '-', 7)}${pad(build, 11)}${pad(exit, 10)}${pad(win, 13)}${r.note}`);
   }
 }
 
@@ -408,7 +470,7 @@ if (!asJson) {
   const warned = rows.filter((r) => r.build === 'exit25').length;
   console.log(
     warned
-      ? `\nOK with ${warned} WARN: ${rows.length - warned} of ${rows.length} shipped ladders run the 75% build; ${warned} still charge the retired 25% exit (redeploy pending).`
+      ? `\nOK with ${warned} WARN: ${rows.length - warned} of ${rows.length} shipped ladders run the ladder's law; ${warned} still charge the retired flat 25% (redeploy pending).`
       : `\nOK: all ${rows.length} shipped ladders run the audited fixed build.`,
   );
 }
