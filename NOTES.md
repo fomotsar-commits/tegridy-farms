@@ -20,13 +20,15 @@ Rules for entries, so this stays worth reading:
 **Believed:** a vault proposal that simulates green when it is approved will execute green, and one
 that simulates red is wrong. That held while the vault had no lock.
 
-**Measured** (local validator holding mainnet's ladder pool and multisig, lock 172,800 s and then 90 s;
-Squads v4 source, `vault_transaction_execute.rs`): the execute is checked against the chain 48 hours
-later. A reload (`notify_reward`) approved before the window's end simulates red with 6028
-(`RewardRateWouldDecrease`) and is correct, because by the time the lock releases the window has
-ended and the guard is off. The reverse also holds: anything that can change in 48 hours (a feature
-gate: mainnet epochs are ~26 h, so a 48 h wait spans at least one boundary) must be read again at the
-execute, not trusted from the approval.
+**Measured** (2026-10-19): Squads v4 executes an approved vault proposal only when
+`Clock - approvedAt >= time_lock` (`vault_transaction_execute.rs`), so the execute meets the chain 48
+hours after the approval; on a local validator with mainnet's multisig the page and the chain both
+refused it until then (6021). A ladder reload simulated as the vault on mainnet, inside the running
+window (`notify_reward`, 0 fresh + 1,000 from budget, sigVerify off, nothing sent) came back 6028
+(`RewardRateWouldDecrease`). Approved two days before the window's end, that same reload is right:
+the guard is `now >= period_finish || new_rate >= old_rate` (math.rs), so it is off when the lock
+releases. The reverse also holds: mainnet epochs were ~26 h that day, so a 48 h wait spans at least
+one feature-activation boundary; what can change in 48 hours must be read again at the execute.
 
 **Do:** a page that proposes under a lock must run every gate again before the execute, read the
 network's Clock sysvar (not the computer's clock) for "is the wait over", and, where a step is
