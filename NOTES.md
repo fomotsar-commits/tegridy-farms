@@ -15,6 +15,36 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-10-19: under a Squads time lock, a proposal checked the day it is approved is checked against the wrong day
+
+**Believed:** a vault proposal that simulates green when it is approved will execute green, and one
+that simulates red is wrong. That held while the vault had no lock.
+
+**Measured** (local validator holding mainnet's ladder pool and multisig, lock 172,800 s and then 90 s;
+Squads v4 source, `vault_transaction_execute.rs`): the execute is checked against the chain 48 hours
+later. A reload (`notify_reward`) approved before the window's end simulates red with 6028
+(`RewardRateWouldDecrease`) and is correct, because by the time the lock releases the window has
+ended and the guard is off. The reverse also holds: anything that can change in 48 hours (a feature
+gate: mainnet epochs are ~26 h, so a 48 h wait spans at least one boundary) must be read again at the
+execute, not trusted from the approval.
+
+**Do:** a page that proposes under a lock must run every gate again before the execute, read the
+network's Clock sysvar (not the computer's clock) for "is the wait over", and, where a step is
+meant to wait for a chain event, accept exactly the one refusal that event lifts, and only when the
+event falls before the release.
+
+## 2026-10-19: a JSON round trip of a `solana account --output json` file stops the test validator from starting
+
+**Believed:** reading an account file the harness wrote, changing one field of its data, and writing
+it back with `JSON.stringify` keeps it loadable by `solana-test-validator --account`.
+
+**Measured** (solana-test-validator 3.1.11, 2026-10-19): the validator exited during startup, three
+times in a row. The file's `"rentEpoch": 18446744073709551615` (u64::MAX) came back as
+`18446744073709552000`, a float past u64.
+
+**Do:** treat the file as text: replace only the base64 data string, and assert `rentEpoch` is still
+`18446744073709551615` before writing.
+
 ## 2026-10-19: a dev-server walk that stubs every /api/ request renders a blank page, because the app imports from /api/_lib/
 
 **Believed:** on `vite dev`, which has no serverless functions, answering every same-origin
