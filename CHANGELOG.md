@@ -7,6 +7,10 @@ The site's Changelog tab shows both files.
 
 ## [Unreleased]
 
+### 2026-10-19
+
+- The home shows the venue's all-time volume, counted every hour, with the time it was counted.
+
 ### 2026-10-18
 
 - Heat and Rooms are now Island; the menu gains More.
