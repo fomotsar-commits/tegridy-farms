@@ -197,9 +197,9 @@
     {
       "id": "cp-swap-amm-config-quarter-restart",
       "address": "4UjFf1iU27SqyJfDif6Ra9YcgPYDjv6ehs9V7YaSUbb8",
-      "role": "cp-swap AmmConfig index 2 under cp-swap-program-restart, seeds [\"amm_config\", 2u16 big-endian], bump 255, derived and matched: the 0.25% tier, a cheaper fee sheet a new pool can choose (owner-approved 2026-10-18; Raydium's default is 0.25% with 16% to Raydium). create_amm_config(2, 2500, 160000, 0, 150000000, 0): trade_fee_rate 2,500 per million (0.25% of each swap), protocol_fee_rate 160,000 per million OF THAT TRADE FEE (16% of it, so 0.04% of the swap; 0.21% stays in the pool), fund_fee_rate 0, creator_fee_rate 0, create_pool_fee 150,000,000 lamports (0.15 SOL, paid into cpswap-fee-receiver-wsol-ata); protocol_owner and fund_owner are squads-vault. Simulated as the vault against mainnet before signing (success, 8,408 CU). Created by Squads (step amm-config-2 in the squads-proposer).",
+      "role": "cp-swap AmmConfig index 2 under cp-swap-program-restart, seeds [\"amm_config\", 2u16 big-endian], bump 255, derived and matched: the 0.25% tier, a cheaper fee sheet a new pool can choose (owner-approved 2026-10-18; Raydium's default is 0.25% with 16% to Raydium), born with the island's split (the island's answer of 2026-10-18, accepted by the owner). create_amm_config(2, 2500, 104000, 56000, 150000000, 0): trade_fee_rate 2,500 per million (0.25% of each swap), protocol_fee_rate 104,000 per million OF THAT TRADE FEE (10.4% of it, so 0.026% of the swap, to the vault), fund_fee_rate 56,000 per million of the trade fee (5.6% of it, so 0.014% of the swap, to the island), creator_fee_rate 0, create_pool_fee 150,000,000 lamports (0.15 SOL, paid into cpswap-fee-receiver-wsol-ata); 0.21% of each swap stays in the pool. protocol_owner is squads-vault; fund_owner is island-workshop-wallet, set by update_amm_config(4) in the same Squads proposal, so the island collects its share itself. Pre-flight passed as the vault against live mainnet (the squads-proposer, step amm-config-2, rebuilt 2026-10-19).",
       "custody": "program-derived, no key. Only cp-swap's compiled admin (squads-vault) can change it.",
-      "status": "CREATED by the owner's Squads proposal (2026-10-18). Written as the state this branch REQUIRES: merge only after the proposal executed, or the daily registry-onchain job fails on this row, which is the point.",
+      "status": "CREATED by the owner's Squads proposal (2026-10-19). Written as the state this branch REQUIRES: merge only after the proposal executed, or the daily registry-onchain job fails on this row, which is the point.",
       "expect": {
         "type": "program-owned"
       }
@@ -2079,8 +2079,9 @@
     }
   ],
   "solanaFields": {
-    "$comment": "Who holds each authority of our Solana programs, and what each fee tier charges, as decoded from the account data by `verify-addresses.mjs --onchain` (check 3d). Values that name a key are solana row ids. Every admin, fee owner and fee receiver must be `onlyHolder`: the offline check fails on anything else. All values read 2026-10-13 at finalized slot 456,675,628. Not covered here: cp-swap's admin, which is compiled into the program (src/lib.rs `admin::ID`, the Squads vault), not stored in an account.",
+    "$comment": "Who holds each authority of our Solana programs, and what each fee tier charges, as decoded from the account data by `verify-addresses.mjs --onchain` (check 3d). Values that name a key are solana row ids. Every admin, fee owner and fee receiver must be `onlyHolder`: the offline check fails on anything else, with ONE exception: `fundOwner` may be `fundOwnerUnderTheSplit`, the island's Workshop, under the split the island accepted on 2026-10-18 (its answer, §7: fund_owner on fee settings 1, 0 and the 0.25% tier). A fund owner can collect only the fund fee (cp-swap admin/collect_fund_fee.rs); the protocol owner, the admin and every other authority stay `onlyHolder`. All values read 2026-10-13 at finalized slot 456,675,628. Not covered here: cp-swap's admin, which is compiled into the program (src/lib.rs `admin::ID`, the Squads vault), not stored in an account.",
     "onlyHolder": "squads-vault",
+    "fundOwnerUnderTheSplit": "island-workshop-wallet",
     "accounts": {
       "cp-swap-programdata-restart": { "layout": "programdata", "upgradeAuthority": "squads-vault" },
       "tegridy-launch-programdata-restart": { "layout": "programdata", "upgradeAuthority": "squads-vault" },
@@ -2119,11 +2120,11 @@
         "disableCreatePool": 0,
         "index": 2,
         "tradeFeeRate": 2500,
-        "protocolFeeRate": 160000,
-        "fundFeeRate": 0,
+        "protocolFeeRate": 104000,
+        "fundFeeRate": 56000,
         "createPoolFee": 150000000,
         "protocolOwner": "squads-vault",
-        "fundOwner": "squads-vault",
+        "fundOwner": "island-workshop-wallet",
         "creatorFeeRate": 0
       },
       "tegridy-launch-global-restart": {

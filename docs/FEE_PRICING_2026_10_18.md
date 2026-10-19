@@ -14,7 +14,7 @@ Nothing below is sent by an agent: every on-chain step is signed by the owner.
 | Marketplace fee (own listings, single-NFT offers) | 1% | 0.5% | PR #876 | #876 merges |
 | NFT trading pools, new factory | 0.5% | 0.25% | PR #875 kit | the redeploy |
 | Solana graduated pools, creator fee | 0.05% | 0.50% (0.75% total) | Squads step 1 below | proposal executes |
-| Solana 0.25% pool tier (fee settings 2) | none | 0.25%, 16% to us | Squads step 2 below | proposal executes; usable once a tier picker ships |
+| Solana 0.25% pool tier (fee settings 2) | none | 0.25%; the take is 16% of the fee, split 10.4% to the vault and 5.6% to the island (born with the split the island accepted on 2026-10-18) | Squads step 2 below | proposal executes; usable once the tier picker (#887) ships |
 | EVM curve split, all three chains | 40 / 25 / 35 | 50 / 25 / 25 | Safe steps below | each Safe tx executes |
 | Card on-ramp partner fee | not set | 0.5% | provider dashboards + Vercel env | when on-ramp keys are set |
 
@@ -33,11 +33,11 @@ The tool is the local proposer page, already used for proposals 1 to 5.
      - `update_amm_config(7, 5000)` on fee settings 0, `BHMteE8u6LAppswQmFmd2h7hp1fCfWtGahvVJnhRk8jW`.
      - Data `313cae889a1c74c8078813000000000000`.
      - No pool uses fee settings 0 today and the launcher is paused, so nobody pays it until launches open.
-   - **"Fee settings 2 (a 0.25% swap fee tier)"**
-     - `create_amm_config(2, 2500, 160000, 0, 150000000, 0)` at `4UjFf1iU27SqyJfDif6Ra9YcgPYDjv6ehs9V7YaSUbb8`.
-     - Data `8934edd4d7756c680200c4090000000000000071020000000000000000000000000080d1f008000000000000000000000000`.
-     - The vault pays about 0.00185 SOL of rent.
-4. The page simulates each step as the vault before it shows a Sign button. Both simulated clean against mainnet on 2026-10-18 (3,021 and 8,408 CU).
+   - **"Fee settings 2 (a 0.25% swap fee tier), with the island's share"**: one proposal, two instructions (rebuilt 2026-10-19 after the island accepted the split).
+     - `create_amm_config(2, 2500, 104000, 56000, 150000000, 0)` at `4UjFf1iU27SqyJfDif6Ra9YcgPYDjv6ehs9V7YaSUbb8`: data `8934edd4d7756c680200c4090000000000004096010000000000c0da00000000000080d1f008000000000000000000000000`.
+     - then `update_amm_config(4, fund_owner)` with the island's Workshop `G2EHPseTXetHbBvvRDs27XQyXfQikXXyxP9uMbsKrbu` as the new fund owner, so the island collects its 5.6% of the fee itself.
+     - The vault pays about 0.00185 SOL of rent. A new fee tier is a fee change: post it seven days before it executes (the island's terms).
+4. The page simulates each step as the vault before it shows a Sign button. The creator-fee step simulated clean on 2026-10-18 (3,021 CU); the rebuilt tier-2 step passed its live-mainnet pre-flight on 2026-10-19.
 5. Member A signs each create, at about 0.004 SOL each.
 6. Member B (`6VHowW4pnD4WTGsXhqBp6yxGgC3EExVmYgebSrRNu2tY`) approves and executes both at https://app.squads.so/squads/GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd/transactions. They will be transactions #12 and #13.
 
