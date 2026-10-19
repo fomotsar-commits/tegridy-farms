@@ -203,6 +203,10 @@ derived, never typed: `cast to-check-sum-address <addr>`.
    `ISLAND_READ_POOLS` in `bungalows.ts` alone: the island does not read the EVM ladders today,
    so the held-time line keeps saying the pool is not counted. If the island ever lists them,
    it lists the new addresses.
+9. `scripts/check-interface-selectors.mjs`: delete the `EARLY_EXIT_PENALTY_BPS()` entry from
+   `KNOWN_SUPERSEDED_FRONTEND_SELECTORS`, and the matching ABI entry and read in
+   `frontend/src/lib/contracts.ts` and `EvmLadderPoolLive.tsx`: once no live pool answers the
+   flat getter, the card has one shape to read and the guard has nothing to excuse.
 
 Gates before merge: `npm run lint`, `npx tsc -b --noEmit`, `npm test` in `frontend/`, and
 `node scripts/verify-ladder-builds.mjs` at the root. The card needs no change: it reads the

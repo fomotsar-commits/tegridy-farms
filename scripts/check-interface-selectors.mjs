@@ -168,6 +168,24 @@ const KNOWN_LATENT_FRONTEND_SELECTORS = {
   },
 };
 
+// Selectors a frontend ABI keeps for a build that is RETIRED IN SOURCE but still
+// LIVE ON CHAIN, and read at the live address on purpose: the card reads it to
+// tell the old build from the new one and to say the old build's own terms. No
+// artifact can vouch for such a selector (its source is gone), so the daily chain
+// job does (scripts/verify-ladder-builds.mjs reads every shipped ladder), and this
+// list prints every run. An entry whose target exports the selector again is
+// stale and fails. Remove an entry with the repin that retires the last pool
+// answering it.
+const KNOWN_SUPERSEDED_FRONTEND_SELECTORS = {
+  LIGHTHOUSE_LADDER_ABI: {
+    // The six flat-rate ladders of 2026-09-05 (addresses.json ladder-*) answer it;
+    // the ladder's-law build (2026-10-18) answers MAX_EARLY_EXIT_PENALTY_BPS and
+    // penaltyFor instead. EvmLadderPoolLive reads both and says 25% on the old
+    // six until the owner's redeploy (docs/LADDER_EXIT_75_REDEPLOY.md, Phase D).
+    'EARLY_EXIT_PENALTY_BPS()': { reason: 'the flat 25% ladders are live until the redeploy; the card reads it to tell the builds apart' },
+  },
+};
+
 if (!existsSync(OUT_DIR)) {
   console.error(`ERROR: ${OUT_DIR} not found. Run \`cd contracts && forge build\` first.`);
   process.exit(2);
@@ -323,6 +341,7 @@ for (const cname of contracts.keys()) {
 
 const frontendFindings = [];
 const latentReports = [];
+const supersededReports = [];
 const unresolved = [];
 
 // Every `*_ABI` export has to be accounted for. The scanner below only matches
@@ -384,10 +403,21 @@ for (const match of abiSource.matchAll(/^export const ([A-Z0-9_]+_ABI)\s*=\s*(?=
 
   const hosts = FRONTEND_SELECTOR_HOSTS[exportName] ?? {};
   const latent = KNOWN_LATENT_FRONTEND_SELECTORS[exportName] ?? {};
+  const superseded = KNOWN_SUPERSEDED_FRONTEND_SELECTORS[exportName] ?? {};
   const gap = [];
   for (const entry of abi) {
     if (entry?.type !== 'function') continue; // events/errors carry no call selector
     const sig = canonicalSignature(entry);
+    // A superseded entry must be ABSENT from its target, or it is stale.
+    if (superseded[sig]) {
+      if (contracts.get(target).sigs.has(sig)) {
+        unresolved.push(`${exportName}: ${sig} is recorded as superseded but ${target} exports it. ` +
+                        'Drop it from KNOWN_SUPERSEDED_FRONTEND_SELECTORS.');
+      } else {
+        supersededReports.push({ exportName, sig, ...superseded[sig] });
+      }
+      continue;
+    }
     const hostName = latent[sig]?.host ?? hosts[sig] ?? target;
     const host = contracts.get(hostName);
     if (!host) {
@@ -434,6 +464,17 @@ if (latentReports.length > 0) {
     console.warn(`  ${l.exportName}  ${l.sig}  -> lives on ${l.host}  [${l.reason}]`);
   }
   console.warn('Re-point these at the host contract before deploying the feature.\n');
+}
+
+// The superseded ledger prints every run too: it names a selector the chain
+// still answers and the source no longer builds, which is exactly the kind of
+// thing that should never be quiet.
+if (supersededReports.length > 0) {
+  console.warn('\nSUPERSEDED (not failing — a retired build still live on chain answers it; the daily chain job vouches):');
+  for (const r of supersededReports) {
+    console.warn(`  ${r.exportName}  ${r.sig}  [${r.reason}]`);
+  }
+  console.warn('Remove each entry with the repin that retires the last pool answering it.\n');
 }
 
 if (findings.length === 0 && frontendFindings.length === 0 && unresolved.length === 0) {
