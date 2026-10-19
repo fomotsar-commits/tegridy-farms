@@ -2,13 +2,14 @@ import { useEffect, useState, type Ref } from 'react';
 import type { PoolView } from '../../../lib/solana/lp/poolFinder';
 import { LITTLE_MONEY_TEXT, poolTags, type PoolListRead } from '../../../lib/solana/lp/poolList';
 import { poolPricePerToken } from '../../../lib/solana/lp/poolHealth';
-import { priceText, quoteText, tokenText } from '../../../lib/solana/lp/format';
+import { quoteText, tokenText } from '../../../lib/solana/lp/format';
 import { pairLabel, registryToken } from '../../../lib/solana/lp/identity';
 import { QUOTE_COINS_OR, quoteCoin } from '../../../lib/solana/lp/quotes';
 import { Card, Notice } from '../curve/ui';
 import { CardArt } from '../../ui/CardArt';
 import { FinePrint } from '../../ui/FinePrint';
 import type { LpReaders } from './readers';
+import { PriceFlip } from './PriceFlip';
 import { BUNGALOWS } from '../../../lib/bungalows';
 import { useActiveBungalowId } from '../../../hooks/useActiveBungalowId';
 
@@ -130,7 +131,9 @@ function PoolRow({ view, chainNow, onView, onAdd }: { view: PoolView; chainNow: 
         <p className="text-white/75 text-[12.5px] [overflow-wrap:anywhere]">
           Holds {quoteText(view.quoteReserve, view.quote)} and {tokenText(view.tokenReserve, tokenDecimals, symbol ?? 'tokens')}
         </p>
-        <p className="text-white/75 text-[12.5px] [overflow-wrap:anywhere]">{price === null ? 'No price: one side is empty' : priceText(price, view.quote, symbol ?? 'token')}</p>
+        <p className="text-white/75 text-[12.5px] [overflow-wrap:anywhere]">
+          {price === null ? 'No price: one side is empty' : <PriceFlip perToken={price} quote={view.quote} unit={symbol ? { one: symbol, many: symbol } : { one: 'token', many: 'tokens' }} />}
+        </p>
         {tags.length > 0 && (
           <ul className="flex flex-wrap gap-1.5 pt-1" aria-label={`${label}: warnings`}>
             {tags.map((t) => (
