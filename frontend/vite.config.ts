@@ -5,6 +5,7 @@ import { visualizer } from 'rollup-plugin-visualizer';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { parseOverrideModule, mergeScoped, type OverrideEntry } from './src/lib/dev/overrideFileMerge';
+import { changelogFilesPlugin } from './changelogFilesPlugin.ts';
 
 // R002: only a same-origin localhost dev server may POST to the save handler
 // (DNS rebinding, LAN CSRF, or any hostile tab could fetch() it otherwise).
@@ -350,6 +351,7 @@ export default defineConfig(({ command, mode }) => {
       doorStudioPlugin(),
       firstFrameStylesheetsPlugin(),
       doorPagesPreviewPlugin(),
+      changelogFilesPlugin(),
       ...(process.env.ANALYZE ? [visualizer({ open: true, gzipSize: true, filename: 'dist/bundle-analysis.html' })] : []),
     ],
     resolve: {

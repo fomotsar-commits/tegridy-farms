@@ -1,8 +1,9 @@
 import { defineConfig, configDefaults } from 'vitest/config';
 import react from '@vitejs/plugin-react';
+import { changelogFilesPlugin } from './changelogFilesPlugin.ts';
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), changelogFilesPlugin()],
   // The test runner counts as a dev server, as vite.config.ts says for `vite`
   // (src/devServerDefine.d.ts). A test stubs it with vi.stubGlobal to play a build.
   define: { __VITE_DEV_SERVER__: 'true' },

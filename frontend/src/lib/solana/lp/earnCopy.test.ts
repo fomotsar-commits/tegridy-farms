@@ -111,6 +111,24 @@ describe('How the venue earns', () => {
     expect(v.wallets.find((w) => w.address === VAULT)?.label).toBe('Team’s shared wallet');
   });
 
+  it('the island’s split (on chain 2026-10-19): the Workshop is named as the island’s agreed share, not flagged as money elsewhere', () => {
+    const WORKSHOP = 'G2EHPseTXetHbBvvRDs27XQyXfQikXXyxP9uMbsKrbu';
+    const split = { ...tier1(), protocolFeeRate: 104_000n, fundFeeRate: 56_000n, fundOwner: WORKSHOP };
+    const v = howVenueEarns(split, jupiter);
+    expect(v.elsewhere).toBe(false);
+    expect(v.sources[0]).toBe('0.16% of each trade in a public pool.');
+    expect(v.where).toBe(
+      'The pool cut is split: 65% to the team’s shared wallet, which needs two signatures and can change the pool rates, and 35% to the island’s Workshop, the island’s agreed share. The swap fee goes to the team’s shared wallet.',
+    );
+    expect(v.wallets).toEqual([{ label: 'Team’s shared wallet', address: VAULT }, { label: 'Island’s Workshop', address: WORKSHOP }]);
+    expect(howVenueEarns(split, { bps: 50, wallet: OTHER }).where).toMatch(/ The swap fee goes to its own wallet\.$/);
+    expect(howVenueEarns(split, null).where).toMatch(/agreed share\.$/);
+    // Only that exact shape is the agreed one: any other fund owner, or a protocol owner that is not
+    // the vault, is still said in bold as money going elsewhere.
+    expect(howVenueEarns({ ...split, fundOwner: OTHER }, jupiter).elsewhere).toBe(true);
+    expect(howVenueEarns({ ...split, protocolOwner: OTHER }, jupiter).elsewhere).toBe(true);
+  });
+
   it('every wallet a sentence speaks of is shown once: no address twice, and a fund owner the tier does not pay is not shown', () => {
     const third = 'DKxZsjMKVtoRedcHuPRsjnso9Ezj6jVHwSmqnQwU3RJm';
     const all = howVenueEarns({ ...tier1(), protocolOwner: OTHER, fundFeeRate: 40_000n, fundOwner: third }, { bps: 50, wallet: OTHER });
