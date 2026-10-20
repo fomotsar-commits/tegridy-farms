@@ -435,6 +435,15 @@ export default async function handler(req, res) {
     return handleRecord(req, res);
   }
 
+  // `?resource=position` answers a range position NFT's link, `/position/:id.json` (a
+  // vercel.json rewrite), with its metadata read from chain. Every position NFT keeps that
+  // link forever, so like the record route it must never fall to the SPA's HTML. Public by
+  // design: wallets fetch it with no Origin. See _lib/position.js.
+  if (req.query.resource === "position") {
+    const { handlePosition } = await import("./_lib/position.js");
+    return handlePosition(req, res);
+  }
+
   // `?resource=airdrop` is the hosted airdrop manifest store: a claimant fetches THEIR
   // OWN leaf and proof, and a creator publishes the list before funding. There is
   // deliberately no branch that returns the recipient list — an airdrop recipient list

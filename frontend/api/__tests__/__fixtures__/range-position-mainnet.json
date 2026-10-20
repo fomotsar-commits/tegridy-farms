@@ -1,0 +1,17 @@
+{
+ "recordedBy": "frontend/scripts/record-clmm-fixture.mjs (one position of its 2026-10-20 recording)",
+ "recordedAt": "2026-10-20T16:13:52.159Z",
+ "program": "CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK",
+ "position": {
+  "address": "C8mfXD8NaK2zfjreJm7vdXUA6Rrq77Jjsv2LzZcgzawG",
+  "gz": "H4sIAAAAAAACCnPLn1b3jF+y9P++255fe2Yc1WvzOCPBZ5/S/8+hrvdpn8lv7VCt1f+PHuNKdbA6tbVD/lS3N+eWYw8tC/fJVlxcE236XYOjWPnVM1cGjkQGhgszGBiuOrtqcjEgwNyZ8xyZJ82G8+9q7XKrDZsgzEBjoMZCmX4AMUY8nBkBAAA="
+ },
+ "pool": {
+  "address": "7pEyz9tPwxYv2WF1fCBB83ChXuCjyusgTB89CXGPrMHh",
+  "gz": "H4sIAAAAAAACCvv+9vHX64fvuf1rPbJ5rk3oPO5ZCnOS0hzUd214Nr9YzN350I2kB21zu9QWFgkpOT5cdDdT7goD644Py9+fiu6VOhruMFMwUX21/zffLWyzO8L/rW5s+Z1Rn+wmccD01hHLO1KvrUNnLPjAwMDAwFhx860Hd3FnfNqtVdalR2pLpRq6TgR05R9Z+0NtSdy3K/oPi5nPCTx005xcbMizX9dhj7xU4JvMteL1Qdu6khma00VSngZvsg6wmrZkwQTzzCOqtntmLanZNtewX8X4ZbTdjj/b7O1McmavnFe7dG2IvMXCn1z2e2PzdwacSn23t2TF2VmpWpxsFQxffxzx5WJAgBsVaj1du1qWsUL5Pu0QOnN1oojsEl9HmLqNE56E7+k78YoRypc7mc8EouvkThszDAdAKHJHHTrIHdpgT2P//Px0CUxnWa8SRBZXZ2EYBcMAAAAjpwtGCAYAAA=="
+ },
+ "config": {
+  "address": "A1BBtTYJd4i3xU8D6Tc2FzU6ZN4oXZWXKZnCxwbHXr8x",
+  "gz": "H4sIAAAAAAACCrv1RTHj9Gnt/P/MDDxOc8X5/z8R+/gl70S4T30lF2uA2L47IUqFf7TKKg5senngCiODgDoDQwWDwxwGMLjbmVE1qbPM03vLvedHT62bnBqc1fmt0aHW4sWPY4tlhQ8z4AAAEF2qsnUAAAA="
+ }
+}
