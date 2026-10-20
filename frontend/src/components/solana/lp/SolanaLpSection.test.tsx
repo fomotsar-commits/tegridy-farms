@@ -716,3 +716,55 @@ describe('the outside price for a token with no pool', () => {
     expect(off.outsidePrice).not.toHaveBeenCalled();
   });
 });
+
+// Owner, 2026-10-17: the explorer links "aren't showing the right addresses and are not
+// labelled properly and are carrying you to the wrong part of it". Each said "Explorer" and
+// opened Solscan's account page: a mint by way of a redirect, and the pool on its own record
+// account, whose "Total Value" there is its rent (about $0.40), not the coins in it. Now each
+// link says what it opens, a mint opens its token page, and the two vaults that hold the
+// pool's coins are rows of their own.
+describe('the pool card’s explorer links', () => {
+  // The same pool with its coins in the other order: the vault called SOL's must follow the mint, not the slot.
+  const mirrored = (v: PoolView): PoolView => {
+    const p = v.snapshot.pool;
+    return { ...v, quoteIsToken0: !v.quoteIsToken0, snapshot: { ...v.snapshot, pool: { ...p, token0Mint: p.token1Mint, token1Mint: p.token0Mint, token0Vault: p.token1Vault, token1Vault: p.token0Vault } } };
+  };
+
+  for (const order of ['as built', 'in the other order'] as const) {
+    it(`each says what it opens, and opens it (its coins ${order})`, async () => {
+      const built = view();
+      const v = order === 'as built' ? built : mirrored(built);
+      const p = v.snapshot.pool;
+      const solVault = p.token0Mint === SOL_QUOTE.mint ? p.token0Vault : p.token1Vault;
+      const tokenVault = p.token0Mint === M ? p.token0Vault : p.token1Vault;
+      expect(solVault).not.toBe(tokenVault);
+      render(
+        <MemoryRouter initialEntries={[`/pools?mint=${M}`]}>
+          <LpInner readers={readers({ findPools: vi.fn(async () => search([v])) })} writes={{ mode: 'on', load: vi.fn(async () => fakeLpApi()), gateRpc: unusedGateRpc }} />
+        </MemoryRouter>,
+      );
+      const card = await screen.findByTestId('lp-pool');
+      const link = (group: string) => within(within(card).getByRole('group', { name: group })).getByRole('link');
+      await waitFor(() => expect(link('Pool address')).toBeInTheDocument());
+      const expected: Array<[string, string, string]> = [
+        ['Pool address', 'Transactions', `account/${v.address}`],
+        ['Holds its SOL', 'Balance', `account/${solVault}`],
+        ['Holds its tokens', 'Balance', `account/${tokenVault}`],
+        ['Token', 'Token', `token/${M}`],
+        ['Opened by', 'Wallet', `account/${p.poolCreator}`],
+      ];
+      for (const [group, shows, path] of expected) {
+        // The fake write code is on a local validator, whose explorer is the Solana Explorer.
+        expect(link(group), group).toHaveAccessibleName(`${shows} on the Solana Explorer (opens in a new tab)`);
+        expect(link(group), group).toHaveTextContent(`${shows} on the Solana Explorer ↗`);
+        expect(link(group).getAttribute('href'), group).toBe(`https://explorer.test/${path}`);
+      }
+      const more = within(card).getByTestId('lp-pool-more');
+      for (const [group] of expected) expect(more).toContainElement(within(card).getByRole('group', { name: group }));
+      // A vault holds the venue's and any creator's fees until they are collected, so its balance is a little above "In the pool".
+      expect(more).toHaveTextContent('Each also holds fees not collected yet.');
+      expect(within(card).queryByText('Explorer', { exact: true })).toBeNull();
+    });
+  }
+});
+

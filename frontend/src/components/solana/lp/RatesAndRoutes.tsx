@@ -33,7 +33,7 @@ export function Rates({ read, jupiterFee = BUILD_JUPITER_FEE }: { read: FeeTierR
   // The public tier first: every pool opened from this site is on it.
   const tiers = read?.kind === 'ok' ? [...read.tiers].sort((a, b) => rank(a.index) - rank(b.index)) : [];
   const wallets = venue.wallets.map((w) => (
-    <AddressRow key={w.address} label={w.label} value={w.address} explorerUrl={explorer(w.address)} />
+    <AddressRow key={w.address} label={w.label} value={w.address} explorer={explorer(w.address, 'wallet')} />
   ));
   return (
     <section data-testid="fee-tiers" aria-label="Rates">

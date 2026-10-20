@@ -90,11 +90,25 @@ export const TopNav = React.memo(function TopNav() {
   const menuButtonRef = useRef<HTMLButtonElement>(null);
   // The menu opens as a circle from the centre of its button.
   const [menuFrom, setMenuFrom] = useState<{ x: number; y: number } | null>(null);
-  const openMenu = useCallback(() => {
+  // Opened from the keyboard, the cursor starts in the menu's "Jump to" (NavDrawer.tsx).
+  const [focusSearch, setFocusSearch] = useState(false);
+  const openMenu = useCallback((search = false) => {
     const r = menuButtonRef.current?.getBoundingClientRect();
     setMenuFrom(r ? { x: r.left + r.width / 2, y: r.top + r.height / 2 } : null);
+    setFocusSearch(search);
     setOpen(true);
   }, []);
+  // Ctrl+K / ⌘K opens the index from any page, and closes it again.
+  useEffect(() => {
+    function handleShortcut(e: KeyboardEvent) {
+      if (!(e.metaKey || e.ctrlKey) || e.altKey || e.shiftKey || e.key.toLowerCase() !== 'k') return;
+      e.preventDefault();
+      if (open) setOpen(false);
+      else openMenu(true);
+    }
+    window.addEventListener('keydown', handleShortcut);
+    return () => window.removeEventListener('keydown', handleShortcut);
+  }, [open, openMenu]);
   const location = useLocation();
   // The chip names the room and Swap follows it; both re-read on a skin switch.
   useActiveBungalowId();
@@ -280,8 +294,8 @@ export const TopNav = React.memo(function TopNav() {
               this nav, BottomNav.tsx, AppLayout.tsx's content pb and index.css's two max-width:799px
               blocks; a split opens a band with no bar. e2e/header-reachability.spec.ts sweeps it. */}
           <nav aria-label="Main navigation" className="hidden min-[800px]:flex items-center gap-0.5">
-            {/* Five words (navConfig BAR_NAV), each lit on every page it owns, never by its own
-                URL alone: Heat and Rooms both open the home. */}
+            {/* Four words (navConfig BAR_NAV), each lit on every page it owns, never by its own
+                URL alone: Island owns the home, each room's door and the island's pages. */}
             {BAR_NAV.map((word) => {
               const lit = word.lit(location.pathname, location.hash);
               return (
@@ -401,7 +415,12 @@ export const TopNav = React.memo(function TopNav() {
               </div>
             )}
 
-            <button ref={menuButtonRef} onClick={openMenu} aria-label="Open navigation menu" aria-expanded={open} className="p-2 -mr-1 flex-shrink-0 text-text-muted min-w-[44px] min-h-[44px] flex items-center justify-center">
+            {/* The index behind one button, at every width. From 1100px the button says so: a bare
+                icon after the wallet read, on a desktop, as a phone's leftover (owner, 2026-10-19).
+                The row needs about 790px at 800px, so the word waits for room. */}
+            <button ref={menuButtonRef} onClick={() => openMenu()} aria-label="Open navigation menu" aria-expanded={open}
+              className="p-2 -mr-1 flex-shrink-0 text-text-muted min-w-[44px] min-h-[44px] flex items-center justify-center gap-2 transition-colors hover:text-white">
+              <span aria-hidden="true" className="hidden min-[1100px]:inline font-mono text-[11px] tracking-[0.14em] uppercase">Menu</span>
               <svg width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
                 <path d="M3 5h14M3 10h14M3 15h14" />
               </svg>
@@ -413,7 +432,7 @@ export const TopNav = React.memo(function TopNav() {
       {/* The menu, full screen at every width (NavDrawer.tsx). z-[70]: over the phone's bottom bar
           (z-50) and Towelie (z-[60]), which hid its last rows when it shared their z. */}
       <NavDrawer ref={drawerRef} open={open} onClose={() => setOpen(false)} from={menuFrom}
-        pathname={location.pathname} isConnected={isConnected} showAdmin={showAdmin} />
+        pathname={location.pathname} isConnected={isConnected} showAdmin={showAdmin} focusSearch={focusSearch} />
     </>
   );
 });
