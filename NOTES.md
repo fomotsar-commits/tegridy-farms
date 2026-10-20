@@ -15,6 +15,19 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-10-20: a test with one `expect` per item in a 130,000-step loop passes alone and times out in the full suite
+
+**Believed:** a round trip over every 7th tick of the range program (about 130,000 ticks, up to
+three `expect` calls each) is a few seconds of plain arithmetic, inside vitest's default 5 s.
+
+**Measured** (vitest 5.0.3, `npx vitest run` of all 1,028 files on the shared box, 2026-10-20):
+the test passed when its file ran alone, then failed the full run at 6,169 ms with `Test timed
+out in 5000ms`. The arithmetic was not the cost: with plain `!==` comparisons, mismatches pushed
+to an array and one `expect(bad).toEqual([])`, the whole file ran in 1.08 s.
+
+**Do:** in a big loop, compare without `expect`, collect what differs, assert once, and give the
+test its own timeout as headroom. A test that only passes alone is a CI flake waiting for a busy runner.
+
 ## 2026-10-19: a dev-server walk that stubs every /api/ request renders a blank page, because the app imports from /api/_lib/
 
 **Believed:** on `vite dev`, which has no serverless functions, answering every same-origin
