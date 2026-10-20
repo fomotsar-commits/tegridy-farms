@@ -68,6 +68,11 @@ describe.each(PAIRS)('%s', (_, p) => {
     expect(holdsNow(p, pool, r)).toBe('both');
   });
 
+  it('two prices that round to the same usable price are moved one step apart', () => {
+    const r = rangeFromPrices(p, parsePrice('0.00030000')!, parsePrice('0.00030001')!) as TickRange;
+    expect(r.tickUpper - r.tickLower).toBe(120);
+  });
+
   it('refuses a minimum at or above the maximum', () => {
     expect(rangeFromPrices(p, parsePrice('0.0005')!, parsePrice('0.0002')!)).toBe('min-not-below-max');
     expect(rangeFromPrices(p, parsePrice('0.0003')!, parsePrice('0.0003')!)).toBe('min-not-below-max');

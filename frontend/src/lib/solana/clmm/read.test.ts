@@ -189,6 +189,17 @@ describe("a wallet's positions", () => {
     expect((await readWalletPositions(c.rpc, PROG, ME)).kind).toBe('unread');
   });
 
+  it('a position whose NFT the wallet sent away (its empty account left behind) is not listed', async () => {
+    const { c } = walletWith();
+    const gone = Keypair.generate().publicKey;
+    c.set(derivePersonalPosition(PROG, gone), { owner: PROG, data: encodePosition({ nftMint: gone, pool: POOL, tickLower: LOWER, tickUpper: UPPER, liquidity: L }) });
+    c.tokenAccounts.push({ pubkey: Keypair.generate().publicKey, mint: gone, amount: 0n });
+    const r = await readWalletPositions(c.rpc, PROG, ME);
+    if (r.kind !== 'ok') throw new Error(r.detail);
+    expect(r.value.positions.map((p) => p.position.nftMint)).not.toContain(gone.toBase58());
+    expect(r.value.positions).toHaveLength(1);
+  });
+
   it('a wallet with no position reads as none, from the chain', async () => {
     const c = withTiers();
     const r = await readWalletPositions(c.rpc, PROG, ME);
