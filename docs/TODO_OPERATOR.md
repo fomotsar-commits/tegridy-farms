@@ -29,6 +29,116 @@ stop and say so — a surprise is information.
 
 ---
 
+## 🔴 2026-10-20: the BAYLA ladder's four-year upgrade and the December refill
+
+Newer than every section below. You decided on 2026-10-19: keep the four-year change, with the
+upgrade's Day 0 between Mon 2026-11-16 and Mon 2026-11-30. This section replaces the 2026-10-15
+item "BAYLA ladder rewards stop 2026-12-23T15:32Z" [was O-1009-10].
+
+**What the upgrade changes.** One number in the ladder program: how long a refill of the reward
+pot is paid out over, 90 days today and 4 years after. The 2,000,000 refill of 2026-09-24 pays
+22,678.62 BAYLA a day and stops at **2026-12-23 15:32:16 UTC**; spread over 4 years, the same
+amount would pay 1,369.79 a day. Stakes, locks and the early-exit fee do not change.
+
+**How the money moves.** Stakers earn BAYLA from the reward pot, shared every second by weight
+(the amount staked times the lock boost: 0.40x for 7 days up to 4.00x for 4 years, fixed when
+they stake). The venue earns nothing from the ladder. Early-exit fees go into the reward pot and
+pay nobody until a later refill names them. **BAYLA sent into the pot never comes back out, and
+the daily rate cannot be lowered for the 4 years.** Your own two 4-year stakes hold 8.8% of the
+weight, so about 8.8% of any refill comes back to you.
+
+### Your decisions, by Sun 2026-11-15
+
+- ⬜ **The refill amount.** Read on 2026-10-20 (weight 45,272,392; 50 stakes; 23 wallets). The
+  rates are a year's rewards over the amount staked:
+
+  | Refill, exact (BAYLA) | Per day | 4-year lock | 1.00x lock | 7-day lock | Value on 10-20 | Under the 27.64% cap? |
+  |---|---|---|---|---|---|---|
+  | 1,999,886.976 (the "2M" of last time) | 1,369.79 | 4.4% | 1.1% | 0.44% | about $1,200 | yes, always |
+  | **7,703,866.368 (recommended)** | **5,276.62** | **17.0%** | **4.25%** | **1.70%** | **about $4,670** | **yes, even if only today's 4-year lockers stay** |
+  | 11,336,687.424 | 7,764.85 | 25.0% | 6.3% | 2.5% | about $6,870 | until about 2028-09-20 |
+  | 12,515,250.816 | 8,572.09 | 27.6% | 6.9% | 2.8% | about $7,580 | only at today's exact weight |
+  | 33,110,781.696 (today's rate) | 22,678.62 | 73% | 18% | 7.3% | about $20,050 | no |
+
+  The cap is 27.64% a year for a 4-year lock: above it, "lock 4 years and leave early" pays more
+  than an honest shorter lock. Why 7.70M: if every staker except today's 4-year lockers left,
+  weight would fall to 27,867,557, and 7.70M still stays under the cap. Too big is permanent; too
+  small can be topped up, but a top-up must bring at least the daily rate times the days since the
+  last refill (1,925,966.592 after one year at 7.70M), so a top-up is cheapest early. Each amount
+  above is an exact multiple of the window (126,144,000 raw); any other amount leaves up to 126.144
+  BAYLA unpaid in the pot. The smallest refill that pays anything is 5,802.624 BAYLA, not the
+  "about 5,700" the pack's R1 says. Values use about $0.0006 a BAYLA; buying that much on the
+  market would move the price.
+- ⬜ **Who pays for it.** The team's wallets hold about 44,706 BAYLA free (about $27). The
+  2,000,000 of 2026-09-24 came from the island's Workshop,
+  `G2EHPseTXetHbBvvRDs27XQyXfQikXXyxP9uMbsKrbu`, which held 58,300,000 on 2026-10-20 (135,491,275
+  on 2026-09-24). Ask the island in writing, early, for the amount and for its OK that the BAYLA
+  passes through the vault's BAYLA account: the split agreement says neither side holds the
+  other's coin.
+- ⬜ **Tell the stakers, with dates.** Every amount above is a cut from today's 22,678.62 a day
+  (the recommended one is 77% lower). Early-exit fees after 12-23 sit in the pot until a big
+  top-up or the window's end in 2030: say so too.
+
+### The steps, in order (UTC)
+
+| When | What | Who |
+|---|---|---|
+| Before Day 0 | Start GitHub's build of the four-year program (below). Send 2.65 SOL to the paying wallet and 0.06 SOL to member A (below). | you |
+| **Day 0, Mon 11-16 to Mon 11-30** | Steps 1 to 14 of `C:\Users\jimbo\solana-launch-release-2026-09-26\ladder-four-year-upgrade-2026-10\START-HERE.md`: upload, hand over, propose, approve. About 40 minutes. | you, both members |
+| Day 2 (48 hours after step 14; the page names the minute) | Steps 15 and 16: execute, check. Then tell a session: its pull request (branch `feat/bayla-ladder-four-year-gated`) goes out. | either member |
+| By Fri 12-18 | The refill page is built and rehearsed (not built on 2026-10-20). It must refuse unless the four-year program is live. | a session |
+| Fri 12-18 to Sun 12-20 | A session runs the ladder's sweep (anyone may: it moves 35,713.98 BAYLA of emergency-exit fees into the pot). Send the refill BAYLA to the vault's BAYLA account `4HUXwHSie4q52eZiazheRqTHCABQZXJ4Yx3GkdBAwavy`, a tiny test amount first. Member A proposes the refill on the refill page. | you, member A, a session |
+| **By Mon 12-21 15:32:16** | Member B's approval, the second one. The 48 hours run from it. | member B |
+| **Wed 12-23 15:32:16, or just after** | Execute the refill. Rewards then run to 2030-12-22. Every hour later pays stakers nothing. | either member |
+
+The latest the pack allows: Day 0 by 12-13 15:32:16 (room for one failed round), the upgrade's
+second approval by 12-18 15:32:16, its execute by 12-20 15:32:16.
+
+**GitHub's build.** It only builds; it never deploys. Run it from the repo folder:
+
+```powershell
+gh workflow run solana-deploy-artifact.yml --repo fomotsar-commits/tegridy-farms --ref feat/bayla-ladder-four-year-gated -f program=bayla-ladder -f cluster=mainnet -f program_id=EJLP5GEJXEyPTdoKbGtp2xJiREJpE4DkHSWbVEs9FfUQ -f deployer=Fu7mNAv67sRbKynEp7gpPLaaEGHcE2R5Sq89AMTEtTb6
+```
+
+**You should see** the run's log print sha256
+`e0fd775d59b2eed1d356fc341b1c0acdcf6254d3928e24cc46308fbc5654a6bd`, the same as the pack's
+`binary-to-deploy` file. Any other value: stop and say so before Day 0.
+
+**The wallets.**
+
+- The paying wallet is the ladder's old deployer, `Fu7mNAv67sRbKynEp7gpPLaaEGHcE2R5Sq89AMTEtTb6`
+  (0.18 SOL on 2026-10-20). Send it 2.65 SOL; the 2.62 SOL parked in the upload comes back on Day 2.
+- Member A, `5QHzAqbGk3W8qGRBHCMyWjhLXf8YJcs3yPEh14Ymcwgz`, held 0.001 SOL: not enough for one
+  proposal. Send it 0.06 SOL: 0.05 covers both upgrade packs, the rest the refill proposal.
+- Member B, `6VHowW4pnD4WTGsXhqBp6yxGgC3EExVmYgebSrRNu2tY`, held 0.027 SOL: enough.
+
+### What must never happen
+
+- **The refill executed while the 90-day program is live.** 7.70M would then pay out in about
+  three months, at about 276% a year, and the rate could not be lowered. The upgrade executes
+  first; the refill page refuses otherwise.
+- **An address copied from your wallet's history.** Seven seconds after the Workshop's 2,000,000
+  reached you, a look-alike, `G2EHCBHQFRppk9dKMJBfr4xtkf47YMWsoiXWRS9Ltrbu`, sent you dust. Take
+  every address from this page or `frontend/scripts/addresses.json`.
+- **SOL or BAYLA sent to the vault "to be safe".** Anything in the vault leaves only through a
+  proposal and another 48 hours.
+
+### Corrections to the lists below
+
+- **"Name the staking receipt"** (2026-10-15 money list; O-1009-5): done on 2026-10-14 for the old
+  Streamflow pool, whose receipt `g8W2HWmS1dKJwHHKDkR1k7SmtTTx7ic97z1ssAZ8NwN` now reads "Bayla
+  Staking" / "sBAYLA". The ladder makes no receipt token at all, so there is nothing to name. A
+  wallet receipt for the ladder needs a program change, an audit and its own upgrade: later, your
+  call.
+- **The pool-program upgrade** (O-1009-4): its pack was reworked on 2026-10-19 for the 48-hour
+  lock and now prepares a roll-back on Day 0, so the paying wallet
+  `CqcVvaMvesrSKrUSbqBqr9mLjKLJuYqhaXg1gXpR41cg` needs 7.40 SOL, not 3.90. Its START-HERE has the
+  steps.
+- **Every vault action now waits 48 hours after its second approval** (Squads #14, 2026-10-19),
+  an emergency pause too.
+
+---
+
 ## 🔴 2026-10-16: done tonight, and what changed on your list
 
 Newer than the 2026-10-15 section below. That section's lists still stand, except where an item
