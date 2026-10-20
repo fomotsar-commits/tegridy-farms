@@ -80,21 +80,25 @@ describe('tick maths: the program’s own unit tests, ported', () => {
       expect(M.getTickAtSqrtPrice(s - 1n)).toBe(t - 1);
     }
   });
+  // About 130,000 ticks: mismatches are collected and asserted once, since an `expect` per tick
+  // took this past vitest's 5 s under a full parallel run.
   it('round trip and order, every 7th tick across the whole range and every tick near zero', () => {
+    const bad: string[] = [];
     let last = 0n;
     const check = (t: number) => {
       const s = M.getSqrtPriceAtTick(t);
-      expect(M.getTickAtSqrtPrice(s)).toBe(t);
-      if (t > M.MIN_TICK) expect(M.getTickAtSqrtPrice(s - 1n)).toBe(t - 1);
+      if (M.getTickAtSqrtPrice(s) !== t) bad.push(`tick ${t} does not come back`);
+      if (t > M.MIN_TICK && M.getTickAtSqrtPrice(s - 1n) !== t - 1) bad.push(`one below tick ${t} is not tick ${t - 1}`);
       return s;
     };
     for (let t = M.MIN_TICK; t < M.MAX_TICK; t += 7) {
       const s = check(t);
-      expect(s > last).toBe(true);
+      if (!(s > last)) bad.push(`tick ${t} is not above the one before`);
       last = s;
     }
     for (let t = -3000; t <= 3000; t++) check(t);
-  });
+    expect(bad).toEqual([]);
+  }, 30_000);
 });
 
 describe('the program’s vectors', () => {
