@@ -47,6 +47,7 @@ import {
   createTransferInstruction,
   getAssociatedTokenAddressSync,
   getMint,
+  mintTo,
   NATIVE_MINT,
   TOKEN_PROGRAM_ID,
 } from "@solana/spl-token";
@@ -150,6 +151,8 @@ describe("tegridy-launch full migration rehearsal", () => {
   let launch: AnyProgram;
   let cpSwap: AnyProgram;
   let ammConfig: PublicKey;
+  /** Index 1, shaped like mainnet's public tier: the opening fee, a 1% trade fee. */
+  let publicConfig: PublicKey;
   let feeReceiver: PublicKey;
   // The config's fee recipient. Also the destination of the unspent migration
   // reserve since 2026-08-08 — see `migrate_to_amm`'s residual sweep.
@@ -207,6 +210,14 @@ describe("tegridy-launch full migration rehearsal", () => {
         systemProgram: SystemProgram.programId,
       })
       .rpc();
+    publicConfig = PublicKey.findProgramAddressSync(
+      [AMM_CONFIG_SEED, new BN(1).toArrayLike(Buffer, "be", 2)],
+      cpSwap.programId
+    )[0];
+    await cpSwap.methods
+      .createAmmConfig(1, new BN(10000), new BN(160000), new BN(0), CREATE_POOL_FEE, new BN(0))
+      .accountsPartial({ owner: wallet.publicKey, ammConfig: publicConfig, systemProgram: SystemProgram.programId })
+      .rpc();
 
     // The one-time cp-swap ADMIN action `migrate_to_amm` now depends on.
     //
@@ -228,6 +239,17 @@ describe("tegridy-launch full migration rehearsal", () => {
           [PERMISSION_SEED, pda([MIGRATION_AUTH_SEED], launch.programId).toBuffer()],
           cpSwap.programId
         ),
+        systemProgram: SystemProgram.programId,
+      })
+      .rpc();
+    // A second permission holder, the only kind of caller that can still occupy the
+    // canonical launch-tier pool (adversarial precondition 2).
+    await cpSwap.methods
+      .createPermissionPda()
+      .accountsPartial({
+        owner: wallet.publicKey,
+        permissionAuthority: wallet.publicKey,
+        permission: pda([PERMISSION_SEED, wallet.publicKey.toBuffer()], cpSwap.programId),
         systemProgram: SystemProgram.programId,
       })
       .rpc();
@@ -428,17 +450,12 @@ describe("tegridy-launch full migration rehearsal", () => {
     );
 
     // ── ADVERSARIAL PRECONDITION 2: occupy cp-swap's canonical pool ──────────
-    // cp-swap's `initialize` is permissionless (its `creator` is documented "Can be
-    // anyone") and `create_pool` refuses a `pool_state` that is no longer
-    // System-owned (initialize.rs:372-374). So the canonical
-    // [POOL_SEED, amm_config, mint0, mint1] address is a PUBLIC BRICK: buy one token
-    // off a curve, wrap dust SOL, create that pool, and the launch could never
-    // graduate. `migrate_to_amm` therefore graduates into a PDA of the LAUNCH
-    // program, which nobody else can sign for.
-    //
-    // Occupying the canonical address here is the whole point of this block: if the
-    // pool derivation ever reverts to cp-swap's canonical one, this test reverts
-    // with NotApproved instead of the defect reaching mainnet.
+    // `create_pool` refuses a `pool_state` that is no longer System-owned, so whoever
+    // opens the canonical [POOL_SEED, amm_config, mint0, mint1] pool first bricks a
+    // graduation into it. On the launch tier only a permission holder can (the public
+    // path is refused, see the last test), so the wallet uses its own permission.
+    // `migrate_to_amm` graduates into a PDA of the launch program: if that derivation
+    // ever reverts to the canonical one, this test fails with NotApproved.
     const squattedPool = PublicKey.findProgramAddressSync(
       [POOL_SEED, ammConfig.toBuffer(), mint0.toBuffer(), mint1.toBuffer()],
       cpSwap.programId
@@ -461,8 +478,9 @@ describe("tegridy-launch full migration rehearsal", () => {
       );
       const squattedLp = pda([POOL_LP_MINT_SEED, squattedPool.toBuffer()], cpSwap.programId);
       await cpSwap.methods
-        .initialize(new BN(1_000_000), new BN(1_000_000), new BN(0))
+        .initializeWithPermission(new BN(1_000_000), new BN(1_000_000), new BN(0), { bothToken: {} })
         .accountsPartial({
+          payer: wallet.publicKey,
           creator: wallet.publicKey,
           ammConfig,
           authority: ammAuthority,
@@ -470,9 +488,9 @@ describe("tegridy-launch full migration rehearsal", () => {
           token0Mint: mint0,
           token1Mint: mint1,
           lpMint: squattedLp,
-          creatorToken0: getAssociatedTokenAddressSync(mint0, wallet.publicKey),
-          creatorToken1: getAssociatedTokenAddressSync(mint1, wallet.publicKey),
-          creatorLpToken: getAssociatedTokenAddressSync(squattedLp, wallet.publicKey),
+          payerToken0: getAssociatedTokenAddressSync(mint0, wallet.publicKey),
+          payerToken1: getAssociatedTokenAddressSync(mint1, wallet.publicKey),
+          payerLpToken: getAssociatedTokenAddressSync(squattedLp, wallet.publicKey),
           token0Vault: pda(
             [POOL_VAULT_SEED, squattedPool.toBuffer(), mint0.toBuffer()],
             cpSwap.programId
@@ -483,12 +501,12 @@ describe("tegridy-launch full migration rehearsal", () => {
           ),
           createPoolFee: feeReceiver,
           observationState: pda([OBSERVATION_SEED, squattedPool.toBuffer()], cpSwap.programId),
+          permission: pda([PERMISSION_SEED, wallet.publicKey.toBuffer()], cpSwap.programId),
           tokenProgram: TOKEN_PROGRAM_ID,
           token0Program: TOKEN_PROGRAM_ID,
           token1Program: TOKEN_PROGRAM_ID,
           associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
           systemProgram: SystemProgram.programId,
-          rent: SYSVAR_RENT_PUBKEY,
         })
         .rpc();
       assert.isNotNull(
@@ -911,5 +929,73 @@ describe("tegridy-launch full migration rehearsal", () => {
     const supply = (await getMint(provider.connection, launchMint)).supply;
     assert.equal(held.toString(), supply.toString(), "supply must be conserved");
     assert.equal(supply.toString(), SUPPLY.toString());
+  });
+
+  // ─── the launch tier is the launcher's ──────────────────────────────────────
+  //
+  // Tier 0 charges no opening fee and the lowest trade fee, because only graduations
+  // open pools there. Public `initialize` refuses it, so anyone else pays the tier they
+  // pick. Tier 1 is the positive control: the same call and accounts, one config apart.
+  it("refuses a public pool on the launch tier, and opens one on a fee tier", async () => {
+    const conn = provider.connection;
+    const a = await createMint(conn, wallet, wallet.publicKey, null, 9);
+    const b = await createMint(conn, wallet, wallet.publicKey, null, 9);
+    const [m0, m1] = Buffer.compare(a.toBuffer(), b.toBuffer()) < 0 ? [a, b] : [b, a];
+    for (const m of [m0, m1]) {
+      const ata = await createAssociatedTokenAccount(conn, wallet, m, wallet.publicKey);
+      await mintTo(conn, wallet, m, ata, wallet, 1_000_000_000);
+    }
+    const open = (config: PublicKey) => {
+      const pool = pda([POOL_SEED, config.toBuffer(), m0.toBuffer(), m1.toBuffer()], cpSwap.programId);
+      const lp = pda([POOL_LP_MINT_SEED, pool.toBuffer()], cpSwap.programId);
+      const send = () =>
+        cpSwap.methods
+          .initialize(new BN(1_000_000), new BN(1_000_000), new BN(0))
+          .accountsPartial({
+            creator: wallet.publicKey,
+            ammConfig: config,
+            authority: pda([AUTH_SEED], cpSwap.programId),
+            poolState: pool,
+            token0Mint: m0,
+            token1Mint: m1,
+            lpMint: lp,
+            creatorToken0: getAssociatedTokenAddressSync(m0, wallet.publicKey),
+            creatorToken1: getAssociatedTokenAddressSync(m1, wallet.publicKey),
+            creatorLpToken: getAssociatedTokenAddressSync(lp, wallet.publicKey),
+            token0Vault: pda([POOL_VAULT_SEED, pool.toBuffer(), m0.toBuffer()], cpSwap.programId),
+            token1Vault: pda([POOL_VAULT_SEED, pool.toBuffer(), m1.toBuffer()], cpSwap.programId),
+            createPoolFee: feeReceiver,
+            observationState: pda([OBSERVATION_SEED, pool.toBuffer()], cpSwap.programId),
+            tokenProgram: TOKEN_PROGRAM_ID,
+            token0Program: TOKEN_PROGRAM_ID,
+            token1Program: TOKEN_PROGRAM_ID,
+            associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+            systemProgram: SystemProgram.programId,
+            rent: SYSVAR_RENT_PUBKEY,
+          })
+          .rpc();
+      return { pool, send };
+    };
+
+    const launchTier = open(ammConfig);
+    let refused = "";
+    try {
+      await launchTier.send();
+    } catch (e) {
+      refused = String(e);
+    }
+    assert.include(refused, "NotApproved", "a public initialize on the launch tier must be refused");
+    assert.isNull(await conn.getAccountInfo(launchTier.pool), "no public pool may exist on the launch tier");
+
+    const feeBefore = BigInt((await conn.getTokenAccountBalance(feeReceiver)).value.amount);
+    const feeTier = open(publicConfig);
+    await feeTier.send();
+    const pool: any = await (cpSwap.account as any).poolState.fetch(feeTier.pool);
+    assert.equal(pool.ammConfig.toBase58(), publicConfig.toBase58(), "the public pool sits on the fee tier");
+    assert.equal(
+      (BigInt((await conn.getTokenAccountBalance(feeReceiver)).value.amount) - feeBefore).toString(),
+      CREATE_POOL_FEE.toString(),
+      "the fee tier charges its opening fee"
+    );
   });
 });

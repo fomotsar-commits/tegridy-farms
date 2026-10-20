@@ -364,7 +364,9 @@ So the file the upgrade installs is a different one. What is true of it:
   to be deployed; the pack keeps it only in its folder of superseded files.
 - **The gate on the commit that is built.** #899 merged, and
   `git diff 10ee2dcc4 <that commit> -- solana/tegridy-amm/programs/cp-swap solana/tegridy-amm/Cargo.lock`
-  prints nothing. Read before Day 0 and again at #899's merge. The ids the build read:
+  prints nothing. Read at #899's merge (`e3510ea3`, 2026-10-20 16:09 UTC): nothing, and
+  trunk's cp-swap tree is `660ee834…`, the id below. Read it again if trunk's `programs/`
+  or `Cargo.lock` moves before the execute. The ids the build read:
 
   | path | id on `10ee2dcc4` |
   |---|---|
