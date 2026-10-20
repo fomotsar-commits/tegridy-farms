@@ -7,6 +7,10 @@ The site's Changelog tab shows both files.
 
 ## [Unreleased]
 
+### 2026-10-19
+
+- The menu is the site's index: every section's word with its pages under it, a Jump to field (Ctrl+K opens it), and the word Menu beside the ☰ on a computer. A room's page gets a numbered line under the top bar, lit as you scroll, one tap to each section.
+
 ### 2026-10-18
 
 - Room staking on Ethereum and Base: the card reads the early-exit penalty from the pool it shows instead of assuming 25%. Today's six pools still charge a flat 25%; the pools the owner deploys next keep the ladder's law, the time left on your lock over four years capped at 75%, and the card quotes each position the moment they go live.
