@@ -37,6 +37,9 @@ const W = (c: FakeChain) => c as unknown as WriteRpc;
 const PROG = Keypair.generate().publicKey;
 const ME = Keypair.generate().publicKey;
 const STRANGER = Keypair.generate().publicKey;
+/** The two wallets the fee tier names: the one that collects the protocol part, and the fund part's. */
+const TIER_OWNER = Keypair.generate().publicKey;
+const FUND_OWNER = Keypair.generate().publicKey;
 const TOKEN = Keypair.generate().publicKey;
 const SPACING = 120;
 const { token0: MINT0, token1: MINT1 } = sortMints(WSOL_MINT, TOKEN);
@@ -64,7 +67,7 @@ function deployed(chain: FakeChain, program: PublicKey) {
 function chainWith(o: { status?: number; deploy?: boolean; tokens?: bigint } = {}): FakeChain {
   const c = new FakeChain();
   if (o.deploy !== false) deployed(c, PROG);
-  c.set(CONFIG, { lamports: rent(117), owner: PROG, data: encodeAmmConfig({ index: 0, tradeFeeRate: 10_000, protocolFeeRate: 104_000, fundFeeRate: 56_000, tickSpacing: SPACING }) });
+  c.set(CONFIG, { lamports: rent(117), owner: PROG, data: encodeAmmConfig({ index: 0, tradeFeeRate: 10_000, protocolFeeRate: 104_000, fundFeeRate: 56_000, tickSpacing: SPACING, owner: TIER_OWNER, fundOwner: FUND_OWNER }) });
   c.set(POOL, {
     lamports: rent(1544),
     owner: PROG,
@@ -174,6 +177,8 @@ describe('opening a range position', () => {
     expect(s.quoted.quote > 0n && s.max.quote >= s.quoted.quote).toBe(true);
     expect(s.range.holds).toBe('both');
     expect(s.poolLine.tradeFeeRate).toBe(10_000);
+    // The tier's own parts and the wallets that collect them, for the review's split line.
+    expect([s.poolLine.protocolFeeRate, s.poolLine.fundFeeRate, s.poolLine.owner, s.poolLine.fundOwner]).toEqual([104_000, 56_000, TIER_OWNER.toBase58(), FUND_OWNER.toBase58()]);
     expect(s.poolLine.venueShareRate).toBe(160_000);
     expect(s.unwrapsWsol).toBe(true);
     const kinds = p.steps.map((x) => x.kind).filter((k) => !k.startsWith('compute'));

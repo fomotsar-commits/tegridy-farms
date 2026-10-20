@@ -342,6 +342,11 @@ export interface RangePoolLine {
   /** Per million of each swap, and per million OF THAT FEE to the venue's accounts (protocol plus fund). */
   tradeFeeRate: number;
   venueShareRate: number;
+  /** The tier's two parts of that share, per million of the fee, and the wallets that collect them. */
+  protocolFeeRate: number;
+  fundFeeRate: number;
+  owner: string;
+  fundOwner: string;
 }
 
 /** The range, in the pool's ticks and as prices (whole coin per whole token), lowest first. */

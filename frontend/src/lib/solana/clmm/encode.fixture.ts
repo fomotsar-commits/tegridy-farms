@@ -43,7 +43,7 @@ class W {
   key(o: number, k: PublicKey | string) { this.d.set((typeof k === 'string' ? new PublicKey(k) : k).toBytes(), o); }
 }
 
-export function encodeAmmConfig(c: { index: number; tradeFeeRate: number; protocolFeeRate: number; fundFeeRate: number; tickSpacing: number; owner?: PublicKey }): Uint8Array {
+export function encodeAmmConfig(c: { index: number; tradeFeeRate: number; protocolFeeRate: number; fundFeeRate: number; tickSpacing: number; owner?: PublicKey; fundOwner?: PublicKey }): Uint8Array {
   const w = new W(AMM_CONFIG_LEN, ACCOUNT_AMM_CONFIG);
   const o = AMM_CONFIG_OFFSETS;
   w.u16(o.index, c.index);
@@ -52,6 +52,7 @@ export function encodeAmmConfig(c: { index: number; tradeFeeRate: number; protoc
   w.u32(o.protocolFeeRate, c.protocolFeeRate);
   w.u32(o.fundFeeRate, c.fundFeeRate);
   w.u16(o.tickSpacing, c.tickSpacing);
+  if (c.fundOwner) w.key(o.fundOwner, c.fundOwner);
   return w.d;
 }
 
