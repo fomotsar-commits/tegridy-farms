@@ -47,7 +47,8 @@ If the box above is checked, please describe:
 - [ ] Branch is rebased on latest `mvp-launch` (the trunk; **not** `main`, which has diverged)
 - [ ] Commits follow conventional-commit style (`feat(...)`, `fix(...)`, `docs(...)`, etc.)
 - [ ] No secrets, private keys, or `.env` values committed
-- [ ] Documentation updated (README, inline comments, changelog) where relevant
+- [ ] Documentation updated (README, inline comments) where relevant
+- [ ] One plain line in `CHANGELOG.md` for anything a visitor gets, or a `No changelog: <reason>` line in this description (the Changelog check reads it)
 - [ ] Breaking changes are called out clearly in the description
 
 ## Deployment notes

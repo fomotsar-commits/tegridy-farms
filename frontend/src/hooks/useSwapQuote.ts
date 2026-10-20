@@ -539,6 +539,12 @@ export function useSwapQuote(
   }, [fromToken, toToken, path]);
 
   const routeLabel = useMemo(() => {
+    // ETH and WETH are one coin: the path is [weth, weth], no pool swaps a coin for itself,
+    // and the quote is 0 (the Swap button stays off). Say what to do instead of naming a
+    // venue that cannot fill it.
+    if (path.length === 2 && path[0]!.toLowerCase() === path[1]!.toLowerCase()) {
+      return 'ETH and WETH are the same coin; wrap or unwrap it in your wallet';
+    }
     // Name the venue that ACTUALLY executes. When an aggregator quotes higher we
     // disclose that as context rather than claiming to route through it — the
     // swap is still submitted on-chain via SwapFeeRouter / Uniswap V2.
