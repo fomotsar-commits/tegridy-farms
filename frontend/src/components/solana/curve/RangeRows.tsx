@@ -1,5 +1,6 @@
 import { formatSol, formatTokenAmount } from '../../../lib/launcher/solana/curve';
 import { formatSolPrice } from '../../../lib/solana/lp/format';
+import { perMillionPercent } from '../../../lib/solana/clmm/feeText';
 import { Notice, Row } from './ui';
 import type { RangeSummary } from './ports';
 
@@ -11,11 +12,6 @@ import type { RangeSummary } from './ports';
 
 const coinText = (v: bigint, decimals: number, symbol: string, native: boolean) =>
   native ? `${formatSol(v, 9)} SOL` : `${formatTokenAmount(v, decimals, decimals).text} ${symbol}`;
-
-/** Per million as a percent, exactly: 10,000 is 1%, 160,000 (of the fee) is 16%. */
-function perMillionPercent(rate: number): string {
-  return `${Number((rate / 10_000).toFixed(4))}%`;
-}
 
 export function RangeRows({ summary: s }: { summary: RangeSummary }) {
   const l = s.poolLine;

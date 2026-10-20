@@ -73,6 +73,7 @@ export function tabChains(to: string): TabChains {
       return evmWhere((id) => curveLauncherOn(id).status === 'deployed');
     case '/solana':
     case '/solana-lp':
+    case '/range-pools':
     case '/pools':
     case '/curve-launch':
       return ['solana'];
