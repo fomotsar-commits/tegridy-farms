@@ -97,7 +97,6 @@ vi.mock('../hooks/useTowelie', () => ({ useTowelie: () => ({ say: vi.fn() }) }))
 
 vi.mock('../components/ArtImg', () => ({ ArtImg: () => null }));
 vi.mock('../components/PositionHealth', () => ({ PositionHealth: () => null }));
-vi.mock('../components/TegridyScoreMini', () => ({ TegridyScoreMini: () => null }));
 vi.mock('../components/ReferralWidget', () => ({ ReferralWidget: () => null }));
 vi.mock('../components/PriceAlertWidget', () => ({ PriceAlertWidget: () => null }));
 vi.mock('../components/chart/PriceChart', () => ({ PriceChart: () => null }));
@@ -127,13 +126,16 @@ function priceCard(): HTMLElement {
 
 const isBusy = (card: HTMLElement) => card.querySelector('[aria-busy="true"]') !== null;
 
-// The classic TOWELI dashboard, where this card lives, is the TOWELI room's page.
+// The classic TOWELI dashboard, where this card lives, is the TOWELI room's page: the
+// room is stored and the address is /dashboard, as it is for a visitor.
 beforeEach(() => {
   window.localStorage.setItem(BUNGALOW_STORAGE_KEY, 'toweli');
+  window.history.replaceState({}, '', '/dashboard');
   Object.assign(price, { isLoaded: false, priceSettled: false, priceInUsd: 0, oracleStale: false });
 });
 afterEach(() => {
   window.localStorage.removeItem(BUNGALOW_STORAGE_KEY);
+  window.history.replaceState({}, '', '/');
 });
 
 describe('Dashboard "TOWELI Price" card', () => {

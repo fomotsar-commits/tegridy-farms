@@ -67,7 +67,8 @@ function loadIdls(): Idls {
 }
 
 export class GuardRefusal extends Error {}
-const refuse = (why: string): never => { throw new GuardRefusal(why); };
+/** A declaration, not an arrow: TypeScript then knows nothing runs after a refusal. */
+function refuse(why: string): never { throw new GuardRefusal(why); }
 
 /** One decoded instruction, kept on the wallet's record so a spec can assert on what was SIGNED. */
 export interface SignedIx {
@@ -77,8 +78,26 @@ export interface SignedIx {
   accounts: Record<string, string>;
 }
 
+/** One named field of a signed instruction's record; a spec asking for one it lacks fails by name. */
+export function field(rec: Record<string, string>, name: string): string {
+  const v = rec[name];
+  if (v === undefined) throw new Error(`the signed instruction carries no ${name} (it has ${Object.keys(rec).join(', ') || 'none'})`);
+  return v;
+}
+
 function matchIdl(list: IdlIx[], data: Uint8Array): IdlIx | null {
   return list.find((ix) => ix.discriminator.every((b, i) => data[i] === b)) ?? null;
+}
+
+/**
+ * An instruction's accounts under the pinned IDL's names. Asking for a name the
+ * instruction does not carry is a refusal, never an `undefined` that crashes later.
+ */
+function accountsByName(ix: IdlIx, acc: PublicKey[]) {
+  const m: Record<string, PublicKey> = {};
+  ix.accounts.forEach((a, i) => { const k = acc[i]; if (k) m[a.name] = k; });
+  const need = (name: string): PublicKey => m[name] ?? refuse(`${ix.name}: no ${name} account (it names ${acc.length}, the pinned IDL ${ix.accounts.length})`);
+  return { m, need };
 }
 const u64 = (d: Uint8Array, o: number) => Buffer.from(d).readBigUInt64LE(o);
 const u32 = (d: Uint8Array, o: number) => Buffer.from(d).readUInt32LE(o);
@@ -115,9 +134,9 @@ function poolLayout(cpIdl: CpIdl): Map<string, number> {
 async function readPool(address: PublicKey, cpIdl: CpIdl): Promise<GuardPool> {
   const a = await chain().getAccountInfo(address, 'confirmed');
   if (!a) refuse(`the pool ${address.toBase58()} does not exist on chain`);
-  if (!a!.owner.equals(CP_SWAP_PROGRAM)) refuse(`${address.toBase58()} is not a pool of the pool program (owner ${a!.owner.toBase58()})`);
+  if (!a.owner.equals(CP_SWAP_PROGRAM)) refuse(`${address.toBase58()} is not a pool of the pool program (owner ${a.owner.toBase58()})`);
   const disc = cpIdl.accounts.find((x) => x.name === 'PoolState')?.discriminator ?? refuse('the pinned IDL has no PoolState discriminator');
-  const d = a!.data;
+  const d = a.data;
   if (!disc.every((b, i) => d[i] === b)) refuse(`${address.toBase58()} is not a PoolState`);
   const L = poolLayout(cpIdl);
   const pk = (name: string) => {
@@ -153,6 +172,7 @@ export async function checkTransaction(bytes: Uint8Array, wallet: PublicKey): Pr
   const msg = vt.message;
   if (msg.addressTableLookups.length > 0) refuse('address lookup tables are not used by this site');
   const keys = msg.staticAccountKeys;
+  const key = (i: number): PublicKey => keys[i] ?? refuse(`the transaction names account ${i}, and it carries only ${keys.length}`);
   const nSigners = msg.header.numRequiredSignatures;
   if (!keys[0]?.equals(wallet)) refuse(`fee payer is ${keys[0]?.toBase58()}, not this wallet`);
   const signers = keys.slice(0, nSigners);
@@ -162,7 +182,7 @@ export async function checkTransaction(bytes: Uint8Array, wallet: PublicKey): Pr
   const initializeIx = cpIdl.instructions.find((x) => x.name === 'initialize') ?? refuse('the pinned IDL has no initialize');
   /** This transaction opens a pool (a cp-swap initialize anywhere in it). */
   const opening = (msg.compiledInstructions as MessageCompiledInstruction[]).some(
-    (ci) => keys[ci.programIdIndex].equals(CP_SWAP_PROGRAM) && initializeIx.discriminator.every((b, i) => ci.data[i] === b),
+    (ci) => key(ci.programIdIndex).equals(CP_SWAP_PROGRAM) && initializeIx.discriminator.every((b, i) => ci.data[i] === b),
   );
   const out: SignedIx[] = [];
   let cuLimit: bigint | null = null;
@@ -184,14 +204,12 @@ export async function checkTransaction(bytes: Uint8Array, wallet: PublicKey): Pr
   const wsolHeldBefore = async () => (wsolBefore === undefined ? (wsolBefore = await tokenAmount(walletWsol)) : wsolBefore);
 
   for (const ci of msg.compiledInstructions as MessageCompiledInstruction[]) {
-    const program = keys[ci.programIdIndex];
-    const acc = ci.accountKeyIndexes.map((i) => keys[i]);
+    const program = key(ci.programIdIndex);
+    const acc = ci.accountKeyIndexes.map((i) => key(i));
+    /** Account `n` of this instruction; one it does not carry is a refusal. */
+    const at = (n: number): PublicKey => acc[n] ?? refuse(`an instruction of ${program.toBase58()} names ${acc.length} accounts, too few for the one it sends`);
     const d = ci.data;
-    const named = (ix: IdlIx) => {
-      const m: Record<string, PublicKey> = {};
-      ix.accounts.forEach((a, i) => { if (acc[i]) m[a.name] = acc[i]; });
-      return m;
-    };
+    const named = (ix: IdlIx) => accountsByName(ix, acc);
     const show = (m: Record<string, PublicKey>) => Object.fromEntries(Object.entries(m).map(([k, v]) => [k, v.toBase58()]));
 
     if (program.equals(COMPUTE_BUDGET)) {
@@ -205,16 +223,18 @@ export async function checkTransaction(bytes: Uint8Array, wallet: PublicKey): Pr
       if (tag === 0) { // CreateAccount {lamports, space, owner}
         const space = u64(d, 12);
         const owner = new PublicKey(d.slice(20, 52));
-        if (!acc[0].equals(wallet)) refuse('createAccount is paid by someone else');
-        if (!otherSigners.some((s) => s.equals(acc[1]))) refuse('createAccount of an account that is not a fresh co-signer');
+        const newAccount = at(1);
+        if (!at(0).equals(wallet)) refuse('createAccount is paid by someone else');
+        if (!otherSigners.some((s) => s.equals(newAccount))) refuse('createAccount of an account that is not a fresh co-signer');
         if (space !== 82n || !owner.equals(TOKEN_PROGRAM_ID)) refuse(`createAccount of ${space} bytes owned by ${owner.toBase58()} is not a new mint`);
-        createdMints.push(acc[1]);
-        out.push({ program: 'system', name: 'create-mint-account', args: { lamports: String(u64(d, 4)), space: String(space) }, accounts: { mint: acc[1].toBase58() } });
+        createdMints.push(newAccount);
+        out.push({ program: 'system', name: 'create-mint-account', args: { lamports: String(u64(d, 4)), space: String(space) }, accounts: { mint: newAccount.toBase58() } });
         continue;
       }
       if (tag === 2) { // Transfer {lamports}
-        if (!acc[0].equals(wallet) || !acc[1].equals(walletWsol)) refuse(`a SOL transfer to ${acc[1]?.toBase58()}, which is not this wallet's own WSOL account`);
-        out.push({ program: 'system', name: 'wrap-sol', args: { lamports: String(u64(d, 4)) }, accounts: { to: acc[1].toBase58() } });
+        const to = acc[1];
+        if (!at(0).equals(wallet) || !to?.equals(walletWsol)) refuse(`a SOL transfer to ${to?.toBase58()}, which is not this wallet's own WSOL account`);
+        out.push({ program: 'system', name: 'wrap-sol', args: { lamports: String(u64(d, 4)) }, accounts: { to: at(1).toBase58() } });
         continue;
       }
       refuse(`system instruction ${tag} is not one this site sends`);
@@ -223,24 +243,25 @@ export async function checkTransaction(bytes: Uint8Array, wallet: PublicKey): Pr
     if (program.equals(TOKEN_PROGRAM_ID)) {
       const tag = d[0];
       if (tag === 20) { // InitializeMint2 {decimals, mint_authority, freeze COption}
-        if (!createdMints.some((m) => m.equals(acc[0]))) refuse('initializeMint2 on a mint this transaction did not create');
+        const mint = at(0);
+        if (!createdMints.some((m) => m.equals(mint))) refuse('initializeMint2 on a mint this transaction did not create');
         const auth = new PublicKey(d.slice(2, 34));
         if (d[1] !== 6 || !auth.equals(wallet) || d[34] !== 0) refuse('the new mint is not 6 decimals / authority = you / no freeze authority');
-        out.push({ program: 'token', name: 'initialize-mint', args: { decimals: String(d[1]) }, accounts: { mint: acc[0].toBase58() } });
+        out.push({ program: 'token', name: 'initialize-mint', args: { decimals: String(d[1]) }, accounts: { mint: mint.toBase58() } });
         continue;
       }
       if (tag === 17) { // SyncNative
-        if (!acc[0].equals(walletWsol)) refuse('syncNative on an account that is not your WSOL account');
-        out.push({ program: 'token', name: 'sync-native', args: {}, accounts: { account: acc[0].toBase58() } });
+        if (!at(0).equals(walletWsol)) refuse('syncNative on an account that is not your WSOL account');
+        out.push({ program: 'token', name: 'sync-native', args: {}, accounts: { account: at(0).toBase58() } });
         continue;
       }
       if (tag === 9) { // CloseAccount [account, destination, owner]
-        if (!acc[0].equals(walletWsol) || !acc[1].equals(wallet) || !acc[2].equals(wallet)) refuse('closeAccount that does not return your own WSOL to you');
+        if (!at(0).equals(walletWsol) || !at(1).equals(wallet) || !at(2).equals(wallet)) refuse('closeAccount that does not return your own WSOL to you');
         // Closing a WSOL account unwraps EVERYTHING in it. One that already held wrapped SOL
         // before this transaction is the person's own money: the site keeps it, never unwraps it.
         const held = await wsolHeldBefore();
         if (held !== null && held > 0n) refuse(`closeAccount of your WSOL account, which already held ${held} wrapped lamports before this transaction: it would unwrap SOL this transaction did not put there`);
-        out.push({ program: 'token', name: 'close-wsol', args: {}, accounts: { account: acc[0].toBase58() } });
+        out.push({ program: 'token', name: 'close-wsol', args: {}, accounts: { account: at(0).toBase58() } });
         continue;
       }
       refuse(`token instruction ${tag} (transfer / approve / set-authority / …) is never sent by this site`);
@@ -259,10 +280,10 @@ export async function checkTransaction(bytes: Uint8Array, wallet: PublicKey): Pr
       if (d.length !== 10) refuse(`a Token-2022 instruction of ${d.length} bytes is not the plant`);
       if (acc.length !== (burn ? 3 : 4)) refuse(`the plant's ${burn ? 'burn' : 'transfer'} names ${acc.length} accounts`);
       const from = baylaAccount(wallet);
-      if (!acc[0].equals(from)) refuse('the plant spends from an account that is not your own $BAYLA account');
-      if (!acc[1].equals(BAYLA_MINT)) refuse('the plant moves a token other than $BAYLA');
-      if (!burn && !acc[2].equals(WORKSHOP_BAYLA_ACCOUNT)) refuse("the plant sends $BAYLA somewhere other than the island's Workshop account");
-      if (!acc[burn ? 2 : 3].equals(wallet)) refuse('the plant is authorised by someone other than you');
+      if (!at(0).equals(from)) refuse('the plant spends from an account that is not your own $BAYLA account');
+      if (!at(1).equals(BAYLA_MINT)) refuse('the plant moves a token other than $BAYLA');
+      if (!burn && !at(2).equals(WORKSHOP_BAYLA_ACCOUNT)) refuse("the plant sends $BAYLA somewhere other than the island's Workshop account");
+      if (!at(burn ? 2 : 3).equals(wallet)) refuse('the plant is authorised by someone other than you');
       const amount = u64(d, 1);
       if (amount !== PLANT_HALF) refuse(`the plant ${burn ? 'burns' : 'sends'} ${amount} base units, not 50,000 $BAYLA`);
       if (d[9] !== BAYLA_DECIMALS) refuse(`the plant names ${d[9]} decimals for $BAYLA`);
@@ -271,14 +292,15 @@ export async function checkTransaction(bytes: Uint8Array, wallet: PublicKey): Pr
         program: 'token-2022',
         name: burn ? 'plant-burn' : 'plant-transfer',
         args: { amount: String(amount), decimals: String(d[9]) },
-        accounts: burn ? { from: from.toBase58(), mint: acc[1].toBase58() } : { from: from.toBase58(), mint: acc[1].toBase58(), to: acc[2].toBase58() },
+        accounts: burn ? { from: from.toBase58(), mint: at(1).toBase58() } : { from: from.toBase58(), mint: at(1).toBase58(), to: at(2).toBase58() },
       });
       continue;
     }
 
     if (program.equals(ASSOCIATED_TOKEN_PROGRAM_ID)) {
       if (!(d.length === 0 || (d.length === 1 && (d[0] === 0 || d[0] === 1)))) refuse('unknown associated-token instruction');
-      const [payer, account, owner, mint, , tokenProgram] = acc;
+      const payer = at(0); const account = at(1); const owner = at(2); const mint = at(3);
+      const tokenProgram = acc[5];
       if (!payer.equals(wallet) || !owner.equals(wallet)) refuse('a token account that is not your own');
       // An opening makes ONLY the wrapped-SOL account here: the pool program opens the
       // pool-share account itself (one made first would make it fail), and the token
@@ -289,10 +311,10 @@ export async function checkTransaction(bytes: Uint8Array, wallet: PublicKey): Pr
       // round, is someone else's address, or no account at all.
       const mintProgram = createdMints.some((m) => m.equals(mint)) ? TOKEN_PROGRAM_ID : await mintOwner(mint);
       if (!mintProgram) refuse(`a token account for ${mint.toBase58()}, which is not a mint on chain`);
-      if (!mintProgram!.equals(TOKEN_PROGRAM_ID) && !mintProgram!.equals(TOKEN_2022_PROGRAM_ID)) refuse(`a token account for ${mint.toBase58()}, owned by ${mintProgram!.toBase58()}, which is not a token program`);
-      if (!tokenProgram?.equals(mintProgram!)) refuse(`a token account under ${tokenProgram?.toBase58()} for a mint owned by ${mintProgram!.toBase58()}`);
-      if (!account.equals(ata(mint, wallet, mintProgram!))) refuse('a token account that is not your own (not the address your wallet has under the mint\'s own token program)');
-      out.push({ program: 'ata', name: d[0] === 1 ? 'create-idempotent' : 'create', args: { tokenProgram: mintProgram!.toBase58() }, accounts: { account: account.toBase58(), mint: mint.toBase58() } });
+      if (!mintProgram.equals(TOKEN_PROGRAM_ID) && !mintProgram.equals(TOKEN_2022_PROGRAM_ID)) refuse(`a token account for ${mint.toBase58()}, owned by ${mintProgram.toBase58()}, which is not a token program`);
+      if (!tokenProgram?.equals(mintProgram)) refuse(`a token account under ${tokenProgram?.toBase58()} for a mint owned by ${mintProgram.toBase58()}`);
+      if (!account.equals(ata(mint, wallet, mintProgram))) refuse('a token account that is not your own (not the address your wallet has under the mint\'s own token program)');
+      out.push({ program: 'ata', name: d[0] === 1 ? 'create-idempotent' : 'create', args: { tokenProgram: mintProgram.toBase58() }, accounts: { account: account.toBase58(), mint: mint.toBase58() } });
       continue;
     }
 
@@ -305,7 +327,7 @@ export async function checkTransaction(bytes: Uint8Array, wallet: PublicKey): Pr
       if (d[o] !== 0 || d[o + 1] !== 0 || d[o + 2] !== 0) refuse('metadata with creators / collection / uses');
       o += 3;
       if (d[o] !== 0) refuse('metadata left MUTABLE: the name, symbol and picture could be changed after people buy');
-      const [metadata, mint, mintAuthority, payer, updateAuthority] = acc;
+      const metadata = at(0); const mint = at(1); const mintAuthority = at(2); const payer = at(3); const updateAuthority = at(4);
       const expected = PublicKey.findProgramAddressSync([Buffer.from('metadata'), METAPLEX.toBuffer(), mint.toBuffer()], METAPLEX)[0];
       if (!metadata.equals(expected) || !mintAuthority.equals(wallet) || !payer.equals(wallet) || !updateAuthority.equals(wallet)) refuse('metadata accounts are not (PDA, your mint, you, you, you)');
       if (!createdMints.some((m) => m.equals(mint))) refuse('metadata for a mint this transaction did not create');
@@ -315,48 +337,50 @@ export async function checkTransaction(bytes: Uint8Array, wallet: PublicKey): Pr
 
     if (program.equals(LAUNCH_PROGRAM)) {
       const ix = matchIdl(launchIdl.instructions, d) ?? refuse('unknown tegridy-launch instruction');
-      const m = named(ix);
+      const { m, need } = named(ix);
       const extra = acc.slice(ix.accounts.length);
       if (ix.name !== 'create_launch' && extra.length) refuse(`${ix.name} carries ${extra.length} extra account(s)`);
       switch (ix.name) {
         case 'create_launch': {
-          if (!m.creator.equals(wallet)) refuse('create_launch names another creator');
-          if (!createdMints.some((k) => k.equals(m.mint))) refuse('create_launch for a mint this transaction did not create');
+          const mint = need('mint');
+          if (!need('creator').equals(wallet)) refuse('create_launch names another creator');
+          if (!createdMints.some((k) => k.equals(mint))) refuse('create_launch for a mint this transaction did not create');
           // The reserve-at-create program: the platform reserve is paid, inside this
           // instruction, to ATA(mint, global.fee_recipient) AS THE CHAIN RECORDS IT.
           if (ix.accounts.length !== 11) refuse(`create_launch has ${ix.accounts.length} IDL accounts; the pinned program has 11`);
           const glc = await getGlobal();
           if (!m.fee_recipient?.equals(glc.feeRecipient)) refuse('create_launch: the platform reserve goes to someone other than global.fee_recipient');
-          if (!m.treasury_token?.equals(ata(m.mint, glc.feeRecipient))) refuse('create_launch: the reserve token account is not the treasury token account for this mint');
+          if (!m.treasury_token?.equals(ata(mint, glc.feeRecipient))) refuse('create_launch: the reserve token account is not the treasury token account for this mint');
           if (!m.associated_token_program?.equals(ASSOCIATED_TOKEN_PROGRAM_ID)) refuse('create_launch: not the Associated Token program');
           const trailing = ci.accountKeyIndexes.slice(ix.accounts.length);
           if (trailing.length > 1) refuse('create_launch carries more than one trailing account');
           for (const i of trailing) {
-            if (i < nSigners || msg.isAccountWritable(i) || !keys[i].equals(LAUNCH_INDEX)) refuse(`create_launch trailing account ${keys[i].toBase58()} is not the read-only launch index`);
+            if (i < nSigners || msg.isAccountWritable(i) || !key(i).equals(LAUNCH_INDEX)) refuse(`create_launch trailing account ${key(i).toBase58()} is not the read-only launch index`);
           }
-          launchedMints.push(m.mint);
-          out.push({ program: 'launch', name: ix.name, args: { trailing: trailing.map((i) => keys[i].toBase58()).join(',') }, accounts: show(m) });
+          launchedMints.push(mint);
+          out.push({ program: 'launch', name: ix.name, args: { trailing: trailing.map((i) => key(i).toBase58()).join(',') }, accounts: show(m) });
           break;
         }
         case 'buy':
         case 'sell': {
           const amount = u64(d, 8); const floor = u64(d, 16);
-          if (!m.trader.equals(wallet)) refuse(`${ix.name}: the trader is not you`);
+          const mint = need('mint'); const feeRecipient = need('fee_recipient'); const creator = need('creator');
+          if (!need('trader').equals(wallet)) refuse(`${ix.name}: the trader is not you`);
           if (floor === 0n) refuse(`${ix.name}: the slippage floor is 0, which accepts any price`);
-          if (!m.trader_token_account.equals(ata(m.mint, wallet))) refuse(`${ix.name}: the token account is not your own`);
+          if (!need('trader_token_account').equals(ata(mint, wallet))) refuse(`${ix.name}: the token account is not your own`);
           const gl = await getGlobal();
-          if (!m.fee_recipient.equals(gl.feeRecipient)) refuse(`${ix.name}: fee recipient ${m.fee_recipient.toBase58()} is not global.fee_recipient`);
-          const c = await curve(m.mint);
-          const expectedCreator = c ? c.curve.creator : launchedMints.some((k) => k.equals(m.mint)) ? wallet : null;
-          if (!expectedCreator || !m.creator.equals(expectedCreator)) refuse(`${ix.name}: creator ${m.creator.toBase58()} is not the curve's recorded creator`);
+          if (!feeRecipient.equals(gl.feeRecipient)) refuse(`${ix.name}: fee recipient ${feeRecipient.toBase58()} is not global.fee_recipient`);
+          const c = await curve(mint);
+          const expectedCreator = c ? c.curve.creator : launchedMints.some((k) => k.equals(mint)) ? wallet : null;
+          if (!expectedCreator || !creator.equals(expectedCreator)) refuse(`${ix.name}: creator ${creator.toBase58()} is not the curve's recorded creator`);
           out.push({ program: 'launch', name: ix.name, args: ix.name === 'buy' ? { maxLamportsIn: String(amount), minTokensOut: String(floor) } : { tokensIn: String(amount), minLamportsOut: String(floor) }, accounts: show(m) });
           break;
         }
         case 'migrate_to_amm': {
           const gl = await getGlobal();
-          const c = await curve(m.launch_mint) ?? refuse('migrate_to_amm for a mint with no curve');
-          if (!m.payer.equals(wallet)) refuse('migrate_to_amm: payer is not you');
-          if (!m.fee_recipient.equals(gl.feeRecipient) || !m.creator.equals(c.curve.creator) || !m.amm_config.equals(gl.ammConfig) || !m.cp_swap_program.equals(CP_SWAP_PROGRAM)) {
+          const c = await curve(need('launch_mint')) ?? refuse('migrate_to_amm for a mint with no curve');
+          if (!need('payer').equals(wallet)) refuse('migrate_to_amm: payer is not you');
+          if (!need('fee_recipient').equals(gl.feeRecipient) || !need('creator').equals(c.curve.creator) || !need('amm_config').equals(gl.ammConfig) || !need('cp_swap_program').equals(CP_SWAP_PROGRAM)) {
             refuse('migrate_to_amm: fee recipient / creator / amm config / cp-swap is not what the chain records');
           }
           out.push({ program: 'launch', name: ix.name, args: {}, accounts: show(m) });
@@ -379,20 +403,21 @@ export async function checkTransaction(bytes: Uint8Array, wallet: PublicKey): Pr
         continue;
       }
       if (ix.name !== 'swap_base_input') refuse(`cp-swap ${ix.name} is never sent from the site`);
-      const m = named(ix);
+      const { m, need } = named(ix);
       const amountIn = u64(d, 8); const minOut = u64(d, 16);
-      if (!m.payer.equals(wallet)) refuse('swap: the payer is not you');
+      if (!need('payer').equals(wallet)) refuse('swap: the payer is not you');
       if (minOut === 0n) refuse('swap: minimum_amount_out is 0, which accepts any price');
       // A launch's own pool (its launch page): classic accounts, at the address only the
       // launch program can open. Any other pool is the swap page's route to one of our
       // pools, and is checked against that pool as the chain records it (checkVenueSwap).
-      const mint = m.input_token_mint.equals(WSOL) ? m.output_token_mint : m.input_token_mint;
-      if (!m.pool_state.equals(poolStatePda(mint, LAUNCH_PROGRAM))) {
+      const inMint = need('input_token_mint'); const outMint = need('output_token_mint');
+      const mint = inMint.equals(WSOL) ? outMint : inMint;
+      if (!need('pool_state').equals(poolStatePda(mint, LAUNCH_PROGRAM))) {
         out.push(await checkVenueSwap(ix, acc, d, wallet, cpIdl));
         continue;
       }
-      if (!m.input_token_account.equals(ata(m.input_token_mint, wallet))) refuse('swap: the input account is not your own');
-      if (!m.output_token_account.equals(ata(m.output_token_mint, wallet))) refuse('swap: the OUTPUT account is not your own (cp-swap does not check its owner)');
+      if (!need('input_token_account').equals(ata(inMint, wallet))) refuse('swap: the input account is not your own');
+      if (!need('output_token_account').equals(ata(outMint, wallet))) refuse('swap: the OUTPUT account is not your own (cp-swap does not check its owner)');
       out.push({ program: 'cp-swap', name: ix.name, args: { amountIn: String(amountIn), minimumAmountOut: String(minOut) }, accounts: show(m) });
       continue;
     }
@@ -454,28 +479,27 @@ async function checkLiquidity(ix: IdlIx, acc: PublicKey[], d: Uint8Array, wallet
   const what = ix.name;
   if (acc.length !== ix.accounts.length) refuse(`${what}: ${acc.length} accounts, the pinned IDL has ${ix.accounts.length}`);
   if (d.length !== 32) refuse(`${what}: ${d.length} bytes of data, expected 32`);
-  const m: Record<string, PublicKey> = {};
-  ix.accounts.forEach((a, i) => { m[a.name] = acc[i]; });
+  const { m, need } = accountsByName(ix, acc);
   for (const a of ix.accounts) {
-    if (a.address && !m[a.name].equals(new PublicKey(a.address))) refuse(`${what}: ${a.name} is ${m[a.name].toBase58()}, not ${a.address}`);
+    if (a.address && !need(a.name).equals(new PublicKey(a.address))) refuse(`${what}: ${a.name} is ${need(a.name).toBase58()}, not ${a.address}`);
   }
-  if (!m.owner.equals(wallet)) refuse(`${what}: the owner is not you`);
-  if (!m.authority.equals(CP_AUTHORITY)) refuse(`${what}: the authority is not the pool program's own`);
-  const pool = await readPool(m.pool_state, cpIdl);
+  if (!need('owner').equals(wallet)) refuse(`${what}: the owner is not you`);
+  if (!need('authority').equals(CP_AUTHORITY)) refuse(`${what}: the authority is not the pool program's own`);
+  const pool = await readPool(need('pool_state'), cpIdl);
   const own: [string, PublicKey][] = [
     ['token_0_vault', pool.token0Vault], ['token_1_vault', pool.token1Vault],
     ['vault_0_mint', pool.token0Mint], ['vault_1_mint', pool.token1Mint], ['lp_mint', pool.lpMint],
   ];
-  for (const [name, want] of own) if (!m[name].equals(want)) refuse(`${what}: ${name} is not the pool's own (${want.toBase58()})`);
-  if (!m.token_0_account.equals(ata(pool.token0Mint, wallet, pool.token0Program))) refuse(`${what}: token_0_account is not your own account for that token`);
-  if (!m.token_1_account.equals(ata(pool.token1Mint, wallet, pool.token1Program))) refuse(`${what}: token_1_account is not your own account for that token`);
+  for (const [name, want] of own) if (!need(name).equals(want)) refuse(`${what}: ${name} is not the pool's own (${want.toBase58()})`);
+  if (!need('token_0_account').equals(ata(pool.token0Mint, wallet, pool.token0Program))) refuse(`${what}: token_0_account is not your own account for that token`);
+  if (!need('token_1_account').equals(ata(pool.token1Mint, wallet, pool.token1Program))) refuse(`${what}: token_1_account is not your own account for that token`);
   if (what === 'deposit') {
-    if (!m.owner_lp_token.equals(ata(pool.lpMint, wallet))) refuse('deposit: the pool shares go to an account that is not your own');
+    if (!need('owner_lp_token').equals(ata(pool.lpMint, wallet))) refuse('deposit: the pool shares go to an account that is not your own');
   } else {
-    const lpAcc = await readClassicTokenAccount(m.owner_lp_token);
+    const lpAcc = await readClassicTokenAccount(need('owner_lp_token'));
     if (!lpAcc) refuse('withdraw: the pool-share account does not exist');
-    if (!lpAcc!.mint.equals(pool.lpMint)) refuse('withdraw: the pool-share account holds a different token');
-    if (!lpAcc!.owner.equals(wallet)) refuse('withdraw: the pool-share account is not your own');
+    if (!lpAcc.mint.equals(pool.lpMint)) refuse('withdraw: the pool-share account holds a different token');
+    if (!lpAcc.owner.equals(wallet)) refuse('withdraw: the pool-share account is not your own');
   }
   const lp = u64(d, 8); const a0 = u64(d, 16); const a1 = u64(d, 24);
   if (lp === 0n) refuse(`${what}: lp_token_amount is 0`);
@@ -506,19 +530,18 @@ async function checkLiquidity(ix: IdlIx, acc: PublicKey[], d: Uint8Array, wallet
 async function checkVenueSwap(ix: IdlIx, acc: PublicKey[], d: Uint8Array, wallet: PublicKey, cpIdl: CpIdl): Promise<SignedIx> {
   if (acc.length !== ix.accounts.length) refuse(`swap: ${acc.length} accounts, the pinned IDL has ${ix.accounts.length}`);
   if (d.length !== 24) refuse(`swap: ${d.length} bytes of data, expected 24`);
-  const m: Record<string, PublicKey> = {};
-  ix.accounts.forEach((a, i) => { m[a.name] = acc[i]; });
+  const { m, need } = accountsByName(ix, acc);
   for (const a of ix.accounts) {
-    if (a.address && !m[a.name].equals(new PublicKey(a.address))) refuse(`swap: ${a.name} is ${m[a.name].toBase58()}, not ${a.address}`);
+    if (a.address && !need(a.name).equals(new PublicKey(a.address))) refuse(`swap: ${a.name} is ${need(a.name).toBase58()}, not ${a.address}`);
   }
-  if (!m.payer.equals(wallet)) refuse('swap: the payer is not you');
-  if (!m.authority.equals(CP_AUTHORITY)) refuse('swap: the authority is not the pool program\'s own');
-  const pool = await readPool(m.pool_state, cpIdl);
-  if (!m.amm_config.equals(pool.ammConfig)) refuse(`swap: amm_config is not the pool's own fee settings (${pool.ammConfig.toBase58()})`);
+  if (!need('payer').equals(wallet)) refuse('swap: the payer is not you');
+  if (!need('authority').equals(CP_AUTHORITY)) refuse('swap: the authority is not the pool program\'s own');
+  const pool = await readPool(need('pool_state'), cpIdl);
+  if (!need('amm_config').equals(pool.ammConfig)) refuse(`swap: amm_config is not the pool's own fee settings (${pool.ammConfig.toBase58()})`);
   const side0 = { mint: pool.token0Mint, program: pool.token0Program, vault: pool.token0Vault };
   const side1 = { mint: pool.token1Mint, program: pool.token1Program, vault: pool.token1Vault };
-  const in0 = m.input_token_mint.equals(side0.mint);
-  if (!in0 && !m.input_token_mint.equals(side1.mint)) refuse('swap: it pays in a token this pool does not hold');
+  const in0 = need('input_token_mint').equals(side0.mint);
+  if (!in0 && !need('input_token_mint').equals(side1.mint)) refuse('swap: it pays in a token this pool does not hold');
   const [input, output] = in0 ? [side0, side1] : [side1, side0];
   const own: [string, PublicKey][] = [
     ['output_token_mint', output.mint],
@@ -526,9 +549,9 @@ async function checkVenueSwap(ix: IdlIx, acc: PublicKey[], d: Uint8Array, wallet
     ['input_token_program', input.program], ['output_token_program', output.program],
     ['observation_state', pool.observationKey],
   ];
-  for (const [name, want] of own) if (!m[name].equals(want)) refuse(`swap: ${name} is not the pool's own (${want.toBase58()})`);
-  if (!m.input_token_account.equals(ata(input.mint, wallet, input.program))) refuse('swap: the input account is not your own');
-  if (!m.output_token_account.equals(ata(output.mint, wallet, output.program))) refuse('swap: the OUTPUT account is not your own (cp-swap does not check its owner)');
+  for (const [name, want] of own) if (!need(name).equals(want)) refuse(`swap: ${name} is not the pool's own (${want.toBase58()})`);
+  if (!need('input_token_account').equals(ata(input.mint, wallet, input.program))) refuse('swap: the input account is not your own');
+  if (!need('output_token_account').equals(ata(output.mint, wallet, output.program))) refuse('swap: the OUTPUT account is not your own (cp-swap does not check its owner)');
   const amountIn = u64(d, 8); const minOut = u64(d, 16);
   if (amountIn === 0n) refuse('swap: amount_in is 0');
   if (minOut === 0n) refuse('swap: minimum_amount_out is 0, which accepts any price');
@@ -571,21 +594,20 @@ async function checkInitialize(
 ): Promise<SignedIx> {
   if (acc.length !== ix.accounts.length) refuse(`initialize: ${acc.length} accounts, the pinned IDL has ${ix.accounts.length} (an extra one would be read as a support-mint record)`);
   if (d.length !== 32) refuse(`initialize: ${d.length} bytes of data, expected 32`);
-  const m: Record<string, PublicKey> = {};
-  ix.accounts.forEach((a, i) => { m[a.name] = acc[i]; });
+  const { m, need } = accountsByName(ix, acc);
   for (const a of ix.accounts) {
-    if (a.address && !m[a.name].equals(new PublicKey(a.address))) refuse(`initialize: ${a.name} is ${m[a.name].toBase58()}, not ${a.address}`);
+    if (a.address && !need(a.name).equals(new PublicKey(a.address))) refuse(`initialize: ${a.name} is ${need(a.name).toBase58()}, not ${a.address}`);
   }
-  if (!m.creator.equals(wallet)) refuse('initialize: the pool is opened and paid for by someone else');
-  if (m.amm_config.equals(tierConfig(0))) refuse('initialize: the pool would open on the launch tier (fee tier 0), which this site never does');
-  if (!m.amm_config.equals(tierConfig(1))) refuse('initialize: the pool would open on a fee tier this site does not use');
-  if (!m.authority.equals(CP_AUTHORITY)) refuse('initialize: the authority is not the pool program\'s own');
-  const t0 = m.token_0_mint;
-  const t1 = m.token_1_mint;
+  if (!need('creator').equals(wallet)) refuse('initialize: the pool is opened and paid for by someone else');
+  if (need('amm_config').equals(tierConfig(0))) refuse('initialize: the pool would open on the launch tier (fee tier 0), which this site never does');
+  if (!need('amm_config').equals(tierConfig(1))) refuse('initialize: the pool would open on a fee tier this site does not use');
+  if (!need('authority').equals(CP_AUTHORITY)) refuse('initialize: the authority is not the pool program\'s own');
+  const t0 = need('token_0_mint');
+  const t1 = need('token_1_mint');
   if (Buffer.compare(t0.toBuffer(), t1.toBuffer()) >= 0) refuse('initialize: the two mints are not in the program\'s order');
   const pair = coinOfPool(t0.toBase58(), t1.toBase58()) ?? refuse('initialize: the pool does not pair a token with SOL, USDC or BAYLA');
-  const standard = cpPda(Buffer.from('pool'), m.amm_config.toBuffer(), t0.toBuffer(), t1.toBuffer());
-  const pool = m.pool_state;
+  const standard = cpPda(Buffer.from('pool'), need('amm_config').toBuffer(), t0.toBuffer(), t1.toBuffer());
+  const pool = need('pool_state');
   if (!pool.equals(standard) && !coSigners.some((k) => k.equals(pool))) refuse('initialize: the pool is neither the standard address nor a fresh key that signs this transaction');
   const derived: [string, PublicKey][] = [
     ['lp_mint', cpPda(Buffer.from('pool_lp_mint'), pool.toBuffer())],
@@ -593,14 +615,14 @@ async function checkInitialize(
     ['token_1_vault', cpPda(Buffer.from('pool_vault'), pool.toBuffer(), t1.toBuffer())],
     ['observation_state', cpPda(Buffer.from('observation'), pool.toBuffer())],
   ];
-  for (const [name, want] of derived) if (!m[name].equals(want)) refuse(`initialize: ${name} is not the one the pool's address gives`);
+  for (const [name, want] of derived) if (!need(name).equals(want)) refuse(`initialize: ${name} is not the one the pool's address gives`);
   for (const [side, mint] of [['0', t0], ['1', t1]] as const) {
     const owner = mint.equals(WSOL) ? TOKEN_PROGRAM_ID : await mintOwner(mint);
     if (!owner || !(owner.equals(TOKEN_PROGRAM_ID) || owner.equals(TOKEN_2022_PROGRAM_ID))) refuse(`initialize: token_${side}_mint is not a mint of either token program`);
-    if (!m[`token_${side}_program`].equals(owner!)) refuse(`initialize: token_${side}_program is not the program that owns that mint`);
-    if (!m[`creator_token_${side}`].equals(ata(mint, wallet, owner!))) refuse(`initialize: creator_token_${side} is not your own account for that token`);
+    if (!need(`token_${side}_program`).equals(owner)) refuse(`initialize: token_${side}_program is not the program that owns that mint`);
+    if (!need(`creator_token_${side}`).equals(ata(mint, wallet, owner))) refuse(`initialize: creator_token_${side} is not your own account for that token`);
   }
-  if (!m.creator_lp_token.equals(ata(m.lp_mint, wallet))) refuse('initialize: the pool shares go to an account that is not your own');
+  if (!need('creator_lp_token').equals(ata(need('lp_mint'), wallet))) refuse('initialize: the pool shares go to an account that is not your own');
   const a0 = u64(d, 8);
   const a1 = u64(d, 16);
   const openTime = u64(d, 24);

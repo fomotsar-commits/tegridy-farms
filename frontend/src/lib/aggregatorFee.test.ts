@@ -1,18 +1,14 @@
-// F3 fee plumbing, at the wire.
-//
-// The claim under test is narrow and total: what the meta-router SENDS and what it
-// REPORTS on the quote are the same number, for every provider, in both the off and
-// the on state. `venueFeeBps` is the only figure a surface is allowed to display, so
-// if it can drift from the request, every disclosure downstream is fiction.
-//
-// Kept out of aggregator.test.ts so the R045 chain/slippage suite stays a single
-// subject.
+// F3 fee plumbing, at the wire. What the meta-router SENDS and what it REPORTS on the
+// quote are the same number, for every provider, off and on. `venueFeeBps` is the only
+// figure a surface may display, so if it drifts from the request every disclosure is
+// fiction. Kept out of aggregator.test.ts so the R045 chain/slippage suite stays one subject.
 
 import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest';
 import { getMetaAggregatorQuotes, getAggregatorPrice } from './aggregator';
 import { venueFeeDisclosure } from '../components/swap/VenueFeeLine';
 
-const RECIPIENT = '0x6d5791A660e79175F74C6D639584C98422d5956E';
+// The mainnet treasury Safe, the one recipient a chain-1 quote may carry.
+const RECIPIENT = '0x7D2620243EdAd69Ec81A53c4A063B07995A4Bd7d';
 const AMOUNT = '1000000000000000000';
 const SENDER = '0x000000000000000000000000000000000000dEaD';
 
@@ -149,6 +145,20 @@ describe('fee ON — only a confirmed leg carries it', () => {
     const priced = await getAggregatorPrice('ETH', 'WETH', AMOUNT, SENDER, 1);
     expect(priced!.source).toBe('lifi');
     expect(priced!.venueFeeBps).toBe(0);
+  });
+});
+
+describe('the recipient on the wire belongs to the quoted chain', () => {
+  it('the production dials of 2026-09-25 (25 bps, the BASE treasury Safe) send no mainnet partner fee', async () => {
+    vi.stubEnv('VITE_SWAP_FEE_BPS', '25');
+    vi.stubEnv('VITE_SWAP_FEE_RECIPIENT', '0x796c22ff58F24e4a5d07683d8A5c03Ec54dB38C0');
+    const spy = mockAllProviders();
+    const result = await quotes();
+    const [call] = callsMatching(spy, '/paraswap/');
+    const url = new URL(String(call![0]), 'https://memetic.fun');
+    expect(url.searchParams.get('partnerAddress')).toBeNull();
+    expect(url.searchParams.get('partnerFeeBps')).toBeNull();
+    expect(result.allQuotes.find((q) => q.source === 'paraswap')!.venueFeeBps).toBe(0);
   });
 });
 

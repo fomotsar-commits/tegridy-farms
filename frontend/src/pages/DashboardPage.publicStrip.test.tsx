@@ -127,7 +127,6 @@ vi.mock('../hooks/useTowelie', () => ({ useTowelie: () => ({ say: vi.fn() }) }))
 
 vi.mock('../components/ArtImg', () => ({ ArtImg: () => null }));
 vi.mock('../components/PositionHealth', () => ({ PositionHealth: () => null }));
-vi.mock('../components/TegridyScoreMini', () => ({ TegridyScoreMini: () => null }));
 vi.mock('../components/ReferralWidget', () => ({ ReferralWidget: () => null }));
 vi.mock('../components/PriceAlertWidget', () => ({ PriceAlertWidget: () => null }));
 vi.mock('../components/chart/PriceChart', () => ({ PriceChart: () => null }));
@@ -175,11 +174,14 @@ beforeEach(() => {
 
 // The venue speaks for the whole island; the classic TOWELI stack lives in its
 // own room. Stand in that room before rendering.
+// The room opened last speaks only on its own pages, so the address is set too.
 beforeEach(() => {
   window.localStorage.setItem(BUNGALOW_STORAGE_KEY, 'toweli');
+  window.history.replaceState({}, '', '/dashboard');
 });
 afterEach(() => {
   window.localStorage.removeItem(BUNGALOW_STORAGE_KEY);
+  window.history.replaceState({}, '', '/');
 });
 
 describe('logged-out ETH Distributed tile', () => {

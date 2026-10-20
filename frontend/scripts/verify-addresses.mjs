@@ -150,7 +150,7 @@ const ROW_SECTIONS = {
   robinhood: { kind: 'evm', chainId: 4663 },
 };
 /** Top-level keys that hold no rows. Each is checked (or deliberately not) further down. */
-const NON_ROW_KEYS = new Set(['$comment', 'denylist', 'retiredDeploys', 'heatRegistry']);
+const NON_ROW_KEYS = new Set(['$comment', 'denylist', 'retiredDeploys', 'heatRegistry', 'solanaFields']);
 
 /**
  * AUDIT FIX TF-058: pick the newest receipt by its OWN `timestamp`, not by the
@@ -222,6 +222,16 @@ function base58Decode(s) {
   let leading = 0;
   for (const ch of s) { if (ch === '1') leading++; else break; }
   return new Uint8Array([...new Array(leading).fill(0), ...body]);
+}
+
+/** bytes → base58, the inverse of base58Decode, for keys read out of account data. */
+function base58Encode(bytes) {
+  let n = 0n;
+  for (const x of bytes) n = n * 256n + BigInt(x);
+  let s = '';
+  while (n > 0n) { s = B58[Number(n % 58n)] + s; n /= 58n; }
+  for (const x of bytes) { if (x === 0) s = '1' + s; else break; }
+  return s;
 }
 
 const TRUNCATION = /[…]|\.\.\./;
@@ -485,6 +495,132 @@ for (const d of reg.denylist ?? []) {
     }
   }
 }
+
+// ── 3d. WHO holds each of our authorities, and what each fee tier charges ─────────
+//
+// The chain read below checks that an account exists and what kind it is. It never
+// read who holds an authority or what a tier charges, so eleven rows drifted for ten
+// days under a green job. `solanaFields` in addresses.json states those values for our
+// own programs' data accounts; the chain read decodes them and fails on any difference.
+// Offline, every field that holds money or control must name `onlyHolder` (the Squads
+// vault): a fee owner, receiver or admin key that is not ours is red before any read.
+const SOLANA_FIELD_LAYOUTS = {
+  // BPF upgradeable loader ProgramData: tag 3, slot, option byte, authority.
+  programdata: { ownerAddress: 'BPFLoaderUpgradeab1e11111111111111111111111', tag: { at: 0, value: 3 }, some: 12, fields: { upgradeAuthority: { at: 13, kind: 'holder' } } },
+  'anchor-idl': { fields: { authority: { at: 8, kind: 'holder' } } },
+  // solana/tegridy-amm/programs/bayla-ladder; offsets as in src/lib/ladder/program.ts.
+  'bayla-ladder-pool': { size: 508, fields: { authority: { at: 75, kind: 'holder' }, pendingAuthority: { at: 107, kind: 'pubkey' } } },
+  // solana/tegridy-amm/programs/cp-swap/src/states/config.rs, AmmConfig::LEN 236.
+  'cp-swap-amm-config': {
+    size: 236,
+    fields: {
+      disableCreatePool: { at: 9, kind: 'u8' }, index: { at: 10, kind: 'u16' },
+      tradeFeeRate: { at: 12, kind: 'u64' }, protocolFeeRate: { at: 20, kind: 'u64' }, fundFeeRate: { at: 28, kind: 'u64' },
+      createPoolFee: { at: 36, kind: 'u64' }, protocolOwner: { at: 44, kind: 'holder' }, fundOwner: { at: 76, kind: 'holder' },
+      creatorFeeRate: { at: 108, kind: 'u64' },
+    },
+  },
+  // solana/tegridy-amm/programs/tegridy-launch/src/state.rs, GlobalConfig (202 bytes).
+  'tegridy-launch-global': {
+    size: 202,
+    fields: {
+      authority: { at: 8, kind: 'holder' }, feeRecipient: { at: 40, kind: 'holder' },
+      tradeFeeBps: { at: 72, kind: 'u64' }, creatorFeeShareBps: { at: 80, kind: 'u64' },
+      cpSwapProgram: { at: 128, kind: 'pubkey' }, ammConfig: { at: 160, kind: 'pubkey' },
+      platformReserveBps: { at: 194, kind: 'u64' },
+    },
+  },
+};
+/** Rows that must be listed in solanaFields.accounts (or in notAsserted, with a reason). */
+const FIELD_COVERAGE = /amm-config|programdata|global/;
+const SOLANA_FIELDS_KEYS = new Set(['$comment', 'onlyHolder', 'fundOwnerUnderTheSplit', 'accounts', 'notAsserted']);
+
+function checkSolanaFields(registry, entries) {
+  const block = registry.solanaFields;
+  if (block === undefined) { fail('addresses.json has no solanaFields: nothing asserts who holds our Solana authorities'); return; }
+  if (block === null || typeof block !== 'object' || Array.isArray(block)) { fail('solanaFields must be an object'); return; }
+  for (const k of Object.keys(block)) if (!SOLANA_FIELDS_KEYS.has(k)) fail(`solanaFields.${k} is not a key anything reads`);
+  const sol = new Map(entries.filter((e) => e.kind === 'solana').map((e) => [e.id, e]));
+  if (!sol.has(block.onlyHolder)) fail(`solanaFields.onlyHolder "${block.onlyHolder}" is not a solana row id`);
+  // The one exception to onlyHolder: under the split the island agreed on 2026-10-18, the
+  // island's Workshop is cp-swap's fund_owner. It can collect ONLY the fund fee (admin/
+  // collect_fund_fee.rs); protocol owner, admin and every other authority stay the vault.
+  const splitFundOwner = block.fundOwnerUnderTheSplit;
+  if (splitFundOwner !== undefined && !sol.has(splitFundOwner)) fail(`solanaFields.fundOwnerUnderTheSplit "${splitFundOwner}" is not a solana row id`);
+  const accounts = block.accounts && typeof block.accounts === 'object' && !Array.isArray(block.accounts) ? block.accounts : {};
+  const skipped = block.notAsserted && typeof block.notAsserted === 'object' && !Array.isArray(block.notAsserted) ? block.notAsserted : {};
+  if (!Object.keys(accounts).length) fail('solanaFields.accounts is empty: it asserts NOTHING');
+  for (const [id, spec] of Object.entries(accounts)) {
+    const label = `solanaFields/${id}`;
+    const e = sol.get(id);
+    if (!e) { fail(`${label}: no solana row has this id`); continue; }
+    if (e.id.startsWith('devnet-') || e.onchain === false || e.expect?.type === 'absent') fail(`${label}: the row is not a live mainnet account, so the read would assert nothing`);
+    const layout = SOLANA_FIELD_LAYOUTS[spec?.layout];
+    if (!layout) { fail(`${label}: layout "${spec?.layout}" is not one of ${Object.keys(SOLANA_FIELD_LAYOUTS).join(', ')}`); continue; }
+    const needsOwner = !layout.ownerAddress;
+    for (const k of Object.keys(spec)) {
+      if (k === 'layout' || (k === 'owner' && needsOwner) || Object.hasOwn(layout.fields, k)) continue;
+      fail(`${label}: "${k}" is not a field of layout ${spec.layout}; the read would never look at it`);
+    }
+    if (needsOwner && !sol.has(spec.owner)) fail(`${label}: owner "${spec.owner}" must be the solana row id of the program that owns this account`);
+    for (const [name, f] of Object.entries(layout.fields)) {
+      const v = spec[name];
+      if (v === undefined) { fail(`${label}: ${name} is missing; every field of ${spec.layout} is asserted or none is`); continue; }
+      if (f.kind === 'holder' && v !== block.onlyHolder && !(name === 'fundOwner' && splitFundOwner !== undefined && v === splitFundOwner)) {
+        fail(`${label}: ${name} names "${v}", not "${block.onlyHolder}". Only the venue's Squads vault may hold a fee owner, fee receiver or admin key of ours (the one exception: fundOwner may be solanaFields.fundOwnerUnderTheSplit, the island's Workshop under the 2026-10-18 split)`);
+      } else if ((f.kind === 'holder' || f.kind === 'pubkey') && !sol.has(v)) {
+        fail(`${label}: ${name} "${v}" is not a solana row id`);
+      } else if (f.kind !== 'holder' && f.kind !== 'pubkey' && !(Number.isSafeInteger(v) && v >= 0)) {
+        fail(`${label}: ${name} must be a whole number, as the chain stores it`);
+      }
+    }
+  }
+  for (const [id, why] of Object.entries(skipped)) {
+    if (!sol.has(id)) fail(`solanaFields.notAsserted/${id}: no solana row has this id`);
+    if (typeof why !== 'string' || why.length < 20) fail(`solanaFields.notAsserted/${id}: say why it is not asserted`);
+    if (Object.hasOwn(accounts, id)) fail(`solanaFields/${id} is both asserted and notAsserted`);
+  }
+  for (const e of sol.values()) {
+    if (!FIELD_COVERAGE.test(e.id) || e.expect?.type !== 'program-owned' || e.id.startsWith('devnet-') || e.onchain === false) continue;
+    if (!Object.hasOwn(accounts, e.id) && !Object.hasOwn(skipped, e.id)) {
+      fail(`solana/${e.id}: a live program data or fee settings account that solanaFields neither asserts nor explains`);
+    }
+  }
+}
+
+/**
+ * Compare one account the RPC returned against its solanaFields spec. Pure. `ids` maps
+ * a solana row id to its address. Returns { answered, problems }: an account too short
+ * to decode is not an answer; a missing account, a wrong owner or a wrong value is.
+ */
+export function solanaFieldProblems(spec, v, ids) {
+  const layout = SOLANA_FIELD_LAYOUTS[spec.layout];
+  if (v === null) return { answered: true, problems: ['the account DOES NOT EXIST'] };
+  if (!v || typeof v !== 'object' || !Array.isArray(v.data) || v.data[1] !== 'base64') return unanswered('the account came back without base64 data');
+  const b = Buffer.from(v.data[0], 'base64');
+  const need = Math.max(...Object.values(layout.fields).map((f) => f.at + ({ holder: 32, pubkey: 32, u64: 8, u16: 2, u8: 1 })[f.kind]));
+  if (b.length < need) return unanswered(`asked for ${need} bytes of data, the response carried ${b.length}`);
+  const problems = [];
+  const owner = layout.ownerAddress ?? ids.get(spec.owner);
+  if (v.owner !== owner) problems.push(`owner is ${v.owner}, registry says ${owner}`);
+  if (layout.size !== undefined && Number.isInteger(v.space) && v.space !== layout.size) problems.push(`is ${v.space} bytes, a ${spec.layout} is ${layout.size}`);
+  if (layout.tag && b.readUInt32LE(layout.tag.at) !== layout.tag.value) problems.push(`is not a ${spec.layout} account`);
+  if (layout.some !== undefined && b[layout.some] !== 1) problems.push('has NO upgrade authority (immutable), registry names one');
+  const key = (at) => base58Encode(b.subarray(at, at + 32));
+  for (const [name, f] of Object.entries(layout.fields)) {
+    const want = spec[name];
+    if (f.kind === 'holder' || f.kind === 'pubkey') {
+      const got = key(f.at);
+      if (got !== ids.get(want)) problems.push(`${name} is ${got}, registry says ${want} (${ids.get(want)})`);
+    } else {
+      const got = f.kind === 'u64' ? b.readBigUInt64LE(f.at) : f.kind === 'u16' ? BigInt(b.readUInt16LE(f.at)) : BigInt(b[f.at]);
+      if (got !== BigInt(want)) problems.push(`${name} is ${got}, registry says ${want}`);
+    }
+  }
+  return { answered: true, problems };
+}
+
+checkSolanaFields(reg, allEntries);
 
 // ── The two drift directions ────────────────────────────────────────────────────
 const ZERO = '0x0000000000000000000000000000000000000000';
@@ -1213,6 +1349,35 @@ async function onchain() {
   }
   const heat = Object.values(reg.heatRegistry ?? {}).filter(Array.isArray).flat().length;
   if (heat) console.log(`  heatRegistry: ${heat} third-party token(s) NOT chain-checked (Base + mainnet; structure only)`);
+
+  // Check 3d on the chain: who holds each authority and what each tier charges, decoded
+  // from the account data. One batch; no answer is NOT CHECKED, never a pass.
+  const fieldSpecs = Object.entries(reg.solanaFields?.accounts ?? {});
+  const ids = new Map(allEntries.filter((e) => e.kind === 'solana').map((e) => [e.id, e.address]));
+  const fieldRows = fieldSpecs.filter(([id]) => ids.has(id) && SOLANA_FIELD_LAYOUTS[reg.solanaFields.accounts[id]?.layout]);
+  let fieldSkips = 0;
+  if (fieldRows.length) {
+    console.log('\n── who holds each authority, and what each fee tier charges ──');
+    const res = await post(SOL_RPC, {
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'getMultipleAccounts',
+      params: [fieldRows.map(([id]) => safeAddress(ids.get(id))), { encoding: 'base64', dataSlice: { offset: 0, length: 240 } }],
+    });
+    const cls = res.ok ? classifySolanaBatch(res.json, fieldRows.length) : unanswered(res.reason);
+    fieldRows.forEach(([id, spec], i) => {
+      const r = cls.answered ? solanaFieldProblems(spec, cls.values[i], ids) : cls;
+      if (!r.answered) {
+        warn(`Solana field read SKIPPED for ${id}: ${r.reason}. Who holds it is NOT KNOWN from this run.`);
+        console.log(`  ${id.padEnd(36)} (NOT CHECKED)`);
+        fieldSkips++;
+        return;
+      }
+      console.log(`  ${id.padEnd(36)} ${r.problems.length ? `<-- ${r.problems.join('; ')}` : `${spec.layout}: every field as registered`}`);
+      for (const p of r.problems) fail(`solanaFields/${id}: ${p}`);
+    });
+  }
+  console.log(`\n  field read: ${fieldRows.length} accounts considered, ${fieldSkips} NOT CHECKED (the RPC did not answer)`);
 }
 
 function markdown() {
@@ -1477,6 +1642,96 @@ function selfTest() {
   t('the chain read reads a robinhood row on Robinhood (4663)', pairs.has('robinhood/factory@4663'));
   t('the chain read does NOT read a base row on mainnet', !pairs.has('base/twap@1') && !pairs.has('base/router@1'));
   t('CONTROL: an ethereum row with no chainId is still read on mainnet', pairs.has('ethereum/staking-admin@1'));
+
+  // 11b. Check 3d offline: the money rule. A fee owner, fee receiver or admin that is
+  //      not the Squads vault is red on the registry alone, and so is a gap in coverage.
+  const fieldFailures = (mutate) => {
+    const r = structuredClone(reg);
+    mutate(r);
+    return collect(() => checkSolanaFields(r, checkRows(r))).failed;
+  };
+  const fieldFailsWith = (mutate, ...parts) => fieldFailures(mutate).some((m) => parts.every((p) => m.includes(p)));
+  const cfg0 = 'cp-swap-amm-config-restart';
+  t('CONTROL: check 3d passes the real addresses.json', fieldFailures(() => {}).length === 0);
+  t(
+    'check 3d fails a fee owner that is not the Squads vault',
+    fieldFailsWith((r) => { r.solanaFields.accounts[cfg0].protocolOwner = 'operator-payer'; }, `solanaFields/${cfg0}`, 'protocolOwner', 'Only the venue'),
+  );
+  t(
+    'check 3d fails a fee receiver that is not the Squads vault',
+    fieldFailsWith((r) => { r.solanaFields.accounts['tegridy-launch-global-restart'].feeRecipient = 'bayla-ladder-deployer'; }, 'feeRecipient', 'Only the venue'),
+  );
+  // 11c. The one exception, as narrow as the agreement: the split's fund owner may hold
+  //      fundOwner and nothing else; anyone else as fundOwner is still red.
+  const splitOwner = reg.solanaFields.fundOwnerUnderTheSplit;
+  t('CONTROL: the split names a fund owner that is a solana row', typeof splitOwner === 'string' && splitOwner !== reg.solanaFields.onlyHolder);
+  t('check 3d lets the split’s fund owner hold fundOwner on any tier', fieldFailures((r) => { r.solanaFields.accounts[cfg0].fundOwner = splitOwner; }).length === 0);
+  t(
+    'check 3d still fails a fundOwner that is neither the vault nor the split’s fund owner',
+    fieldFailsWith((r) => { r.solanaFields.accounts[cfg0].fundOwner = 'operator-payer'; }, 'fundOwner', 'Only the venue'),
+  );
+  t(
+    'check 3d never lets the split’s fund owner hold the protocol owner',
+    fieldFailsWith((r) => { r.solanaFields.accounts[cfg0].protocolOwner = splitOwner; }, 'protocolOwner', 'Only the venue'),
+  );
+  t(
+    'check 3d never lets the split’s fund owner hold a fee receiver or an upgrade authority',
+    fieldFailsWith((r) => { r.solanaFields.accounts['tegridy-launch-global-restart'].feeRecipient = splitOwner; }, 'feeRecipient', 'Only the venue')
+      && fieldFailsWith((r) => { r.solanaFields.accounts['cp-swap-programdata-restart'].upgradeAuthority = splitOwner; }, 'upgradeAuthority', 'Only the venue'),
+  );
+  t('check 3d refuses a fundOwnerUnderTheSplit that is not a solana row', fieldFailsWith((r) => { r.solanaFields.fundOwnerUnderTheSplit = 'nobody'; }, 'fundOwnerUnderTheSplit'));
+  t(
+    'check 3d with no fundOwnerUnderTheSplit at all is the old rule: only the vault',
+    fieldFailsWith((r) => { delete r.solanaFields.fundOwnerUnderTheSplit; r.solanaFields.accounts[cfg0].fundOwner = splitOwner; }, 'fundOwner', 'Only the venue'),
+  );
+  t(
+    'check 3d fails an upgrade authority that is not the Squads vault',
+    fieldFailsWith((r) => { r.solanaFields.accounts['bayla-ladder-programdata'].upgradeAuthority = 'bayla-ladder-deployer'; }, 'upgradeAuthority', 'Only the venue'),
+  );
+  t('check 3d fails a tier with a rate left out', fieldFailsWith((r) => { delete r.solanaFields.accounts[cfg0].tradeFeeRate; }, 'tradeFeeRate is missing'));
+  t('check 3d fails a field no layout has (a misspelling asserts nothing)', fieldFailsWith((r) => { r.solanaFields.accounts[cfg0].tradeFeeRte = 1; }, '"tradeFeeRte"'));
+  t('check 3d fails a rate written as text', fieldFailsWith((r) => { r.solanaFields.accounts[cfg0].tradeFeeRate = '0.25%'; }, 'whole number'));
+  t(
+    'check 3d fails a live fee settings account it neither asserts nor explains',
+    fieldFailsWith((r) => { delete r.solanaFields.accounts['cp-swap-amm-config-public-restart']; }, 'solana/cp-swap-amm-config-public-restart', 'neither asserts'),
+  );
+  t('check 3d fails when the whole block is gone', fieldFailsWith((r) => { delete r.solanaFields; }, 'no solanaFields'));
+
+  // 11c. Check 3d on the chain, a pure function of the RPC's answer, on made-up bytes
+  //      laid out as cp-swap's AmmConfig.
+  const fid = new Map([...collect(() => checkRows(reg)).value].filter((e) => e.kind === 'solana').map((e) => [e.id, e.address]));
+  const spec0 = reg.solanaFields.accounts[cfg0];
+  const cfgBytes = (over = {}) => {
+    const s = { ...spec0, ...over };
+    const b = Buffer.alloc(236);
+    b[9] = s.disableCreatePool;
+    b.writeUInt16LE(s.index, 10);
+    b.writeBigUInt64LE(BigInt(s.tradeFeeRate), 12);
+    b.writeBigUInt64LE(BigInt(s.protocolFeeRate), 20);
+    b.writeBigUInt64LE(BigInt(s.fundFeeRate), 28);
+    b.writeBigUInt64LE(BigInt(s.createPoolFee), 36);
+    Buffer.from(base58Decode(fid.get(s.protocolOwner))).copy(b, 44);
+    Buffer.from(base58Decode(fid.get(s.fundOwner))).copy(b, 76);
+    b.writeBigUInt64LE(BigInt(s.creatorFeeRate), 108);
+    return b;
+  };
+  const acct = (b, extra = {}) => ({ owner: fid.get(spec0.owner), space: 236, lamports: 1, data: [b.toString('base64'), 'base64'], ...extra });
+  const onChain = (v) => solanaFieldProblems(spec0, v, fid);
+  t('CONTROL: check 3d (chain) passes a tier exactly as registered', onChain(acct(cfgBytes())).answered && onChain(acct(cfgBytes())).problems.length === 0);
+  t(
+    'check 3d (chain) fails a tier whose protocol fee owner on chain is someone else',
+    onChain(acct(cfgBytes({ protocolOwner: 'operator-payer' }))).problems.some((p) => p.startsWith('protocolOwner is 5hNA2MXk')),
+  );
+  t(
+    'check 3d (chain) reads the fund owner back by address: the split’s fund owner on chain is red against a vault row, green against a split row',
+    // Both rows written out, so it holds whichever owner the registry names for tier 0 today.
+    solanaFieldProblems({ ...spec0, fundOwner: reg.solanaFields.onlyHolder }, acct(cfgBytes({ fundOwner: splitOwner })), fid).problems.some((p) => p.startsWith('fundOwner is G2EHPseT'))
+      && solanaFieldProblems({ ...spec0, fundOwner: splitOwner }, acct(cfgBytes({ fundOwner: splitOwner })), fid).problems.length === 0,
+  );
+  t('check 3d (chain) fails a tier whose rate moved', onChain(acct(cfgBytes({ tradeFeeRate: 3000 }))).problems.some((p) => p.includes('tradeFeeRate is 3000')));
+  t('check 3d (chain) fails an account another program owns', onChain(acct(cfgBytes(), { owner: '11111111111111111111111111111111' })).problems.some((p) => p.startsWith('owner is')));
+  t('check 3d (chain): a missing account is a definite failure', onChain(null).problems.some((p) => p.includes('DOES NOT EXIST')));
+  t('check 3d (chain): a SHORT body is NOT an answer', onChain(acct(cfgBytes().subarray(0, 60))).answered === false);
 
   // 12. Check 6 per chain. A CREATE is classified only by a row on ITS chain; a mainnet
   //     row (or a retired mainnet deploy) at the same address says nothing about Base.

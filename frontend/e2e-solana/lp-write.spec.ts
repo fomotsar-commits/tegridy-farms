@@ -32,10 +32,10 @@ import {
 import { SOL_COIN } from './fixtures/coins';
 import {
   actor, addAndReview, closeAll, connect, depositPlan, ensureConnected, esc, openAdd, openPools, openRemove, pct, pendingNotes, poolCard, positionRow, press, pressable,
-  reviewDeposit, reviewRows, shareText, sidesOf, signConfirmed, signedSol, signedTok, solExact, tok, units, withdrawPlan, type Prices,
+  reviewDeposit, reviewRows, shareRow, shareText, sidesOf, signConfirmed, signedSol, signedTok, solExact, tok, units, withdrawPlan, type Prices,
 } from './fixtures/lpPage';
 // The market sums, worked out by hand (never the page's own): see fixtures/market.ts.
-import { gapOf, lossAtMarketUp, priceOf, stubMid } from './fixtures/market';
+import { gapCostOf, gapOf, lossAtMarketUp, priceOf, stubMid } from './fixtures/market';
 import { ui, expectPressableAtSizes } from './fixtures/ui';
 import { formatSol, parseDecimalToBaseUnits } from '../src/lib/launcher/solana/curve/format';
 import { poolStatePda } from '../src/lib/launcher/solana/curve/program';
@@ -585,13 +585,16 @@ test.describe('group B (chromium only)', () => {
     const owner = B.creator7.publicKey;
     // The outside price the page reads for this token, worked out from the stub's own numbers.
     const market = stubMid(FAIR, DEC);
-    const offLine = (gap: string) => `Its price is ${gap} the outside price. A deposit here would hand that gap to the first arbitrage trade.`;
     const lossLine = (lamports: bigint) => `At these amounts, a move back to the outside price would take up to about ${solExact(lamports)} of what you put in. That is an estimate.`;
-    /** How far the pool's price is from that outside price, from a read of its reserves in Node. */
-    const gapOfPool = (f: PoolFacts) => {
+    /** The pool's price, from a read of its reserves in Node. */
+    const priceOfPool = (f: PoolFacts) => {
       const s = sidesOf(f);
-      return gapOf(priceOf(s.coinIs0 ? f.snapshot.reserve0 : f.snapshot.reserve1, s.coinIs0 ? f.snapshot.reserve1 : f.snapshot.reserve0, DEC, SOL_COIN), market);
+      return priceOf(s.coinIs0 ? f.snapshot.reserve0 : f.snapshot.reserve1, s.coinIs0 ? f.snapshot.reserve1 : f.snapshot.reserve0, DEC, SOL_COIN);
     };
+    /** How far the pool's price is from that outside price. */
+    const gapOfPool = (f: PoolFacts) => gapOf(priceOfPool(f), market);
+    /** The pool's price warning at that read: the gap, then what a deposit loses when it is traded back. */
+    const offLine = (f: PoolFacts) => `Its price is ${gapOfPool(f)} the outside price. If you add now, ${gapCostOf(priceOfPool(f), market)}.`;
     const lossOf = (plan: { costSol: bigint; costTok: bigint }) =>
       lossAtMarketUp({ coinAmount: plan.costSol, tokenAmount: plan.costTok, tokenDecimals: DEC, marketPricePerToken: market, coin: SOL_COIN });
 
@@ -616,7 +619,7 @@ test.describe('group B (chromium only)', () => {
     expect(rows['Price check']).toBe(`${gap} the outside price (Jupiter), read just now. That is off by more than 3%.`);
     expect(rows['Estimated cost of that gap']).toBe(`up to about ${solExact(loss)} of what you put in`);
     await expect(ui.reviewWarnings(p)).toContainText('Read these warnings first. Nothing here stops you signing, and each one is a risk to what you put in:');
-    await expect(ui.reviewWarnings(p)).toContainText(offLine(gap));
+    await expect(ui.reviewWarnings(p)).toContainText(offLine(f));
     await expect(ui.reviewWarnings(p)).toContainText(lossLine(loss));
     const lpAcc = ata(s.lpMint, owner);
     const heldBefore = (await tokenAmount(lpAcc))!;
@@ -631,11 +634,11 @@ test.describe('group B (chromium only)', () => {
     await expect(card).toHaveAttribute('data-add', 'offer');
     await expect(card).toContainText('Deposits: the checks pass, with warnings');
     const f2 = await poolFacts(B.p7.address);
-    await expect(ui.lp.poolWarnings(card)).toContainText(offLine(gapOfPool(f2)));
+    await expect(ui.lp.poolWarnings(card)).toContainText(offLine(f2));
     // And its Add form says the warning before anything is typed, then what the typed amount may lose. Review stays on.
     const again = await openAdd(p, B.p7.address);
     await expect(ui.lp.addWarnings(again.panel)).toContainText('Read these before you review. You can still add, and each one is a risk to what you put in:');
-    await expect(ui.lp.addWarnings(again.panel)).toContainText(offLine(gapOfPool(f2)));
+    await expect(ui.lp.addWarnings(again.panel)).toContainText(offLine(f2));
     await expect(ui.lp.addWarnings(again.panel)).toContainText('Type an amount to see about how much that could cost you.');
     await ui.lp.solToAdd(again.panel).fill('0.05');
     await expect(ui.lp.addWarnings(again.panel)).toContainText(lossLine(lossOf(depositPlan(f2, 'sol', sol(0.05)))));
@@ -774,7 +777,7 @@ test.describe('group B (chromium only)', () => {
     await openPools(p);
     await connect(p);
     const lpMint = B.p11.lpMint.toBase58();
-    const row = ui.lp.position(p).filter({ hasText: lpMint });
+    const row = shareRow(p, lpMint);
     await expect(row).toHaveAttribute('data-placement', 'index-unread', { timeout: 60_000 });
     await expect(row).toHaveAttribute('data-remove', 'unplaced');
     // The fixture, not the page: the share's opening must still be in the local ledger's window.
@@ -910,7 +913,7 @@ test.describe('group B (chromium only)', () => {
     const p = a.page;
     const owner = B.creator18.publicKey;
     const noMarket =
-      'Jupiter has no market price for this token, so this pool’s price was not checked against anything. If it is off, a deposit here hands the difference to whoever trades it back.';
+      'Jupiter has no market price for this token, so this pool’s price was not checked against anything. If it is off, whoever trades it back takes part of what you add.';
     // No route: allowed, with the warning on the card.
     await openPools(p, B.tu);
     const unpriced = poolCard(p, B.pu.address);
@@ -967,7 +970,9 @@ test.describe('group B (chromium only)', () => {
     await expect(poolCard(p, B.a1.address)).toHaveAttribute('data-add', 'offer', { timeout: 60_000 });
     const page = (await p.locator('body').innerText()).replace(/\s+/g, ' ');
     for (const bad of [/takes (whichever|the one)/i, /unless elsewhere is better/i, /whichever is better/i]) expect(page).not.toMatch(bad);
-    expect(page).toContain('to our pool when ours pays at least as much as Jupiter, and through Jupiter when it does not.');
+    // The routing sentence is in the Swap routes card's small print (textContent reads it folded).
+    const routes = ((await p.getByTestId('lp-routes').textContent()) ?? '').replace(/\s+/g, ' ');
+    expect(routes).toContain('to our pool when ours pays at least as much as Jupiter, and through Jupiter when it does not.');
     expect(page).not.toContain('still goes through Jupiter');
     expect(page).not.toContain('adding and removing liquidity from here is not switched on yet');
 

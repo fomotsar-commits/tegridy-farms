@@ -4,6 +4,7 @@ import { ERC20_ABI, SWAP_FEE_ROUTER_ABI } from '../lib/contracts';
 import { TOWELI_ADDRESS, SWAP_FEE_ROUTER_ADDRESS, TOWELI_DECIMALS, CHAIN_ID, isDeployed } from '../lib/constants';
 import { formatBurnPercent, homeBurnRoom } from '../lib/bungalowBurn';
 import { useBungalowBurn } from '../hooks/useBungalowBurn';
+import { CardArt } from './ui/CardArt';
 
 /**
  * "Prove It" — every headline claim rendered FROM a live on-chain read, not from
@@ -23,10 +24,12 @@ function Row({ label, value, verified, href }: { label: string; value: string; v
       href={href}
       target="_blank"
       rel="noopener noreferrer"
-      className="flex items-center justify-between gap-3 px-3 py-2.5 rounded-lg transition-colors hover:bg-white/5"
+      // flex-wrap + ml-auto: a value too wide to sit beside its label drops under it, still at
+      // the right. A number cannot break, so squeezed into the same line it ran under the tick.
+      className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 px-3 py-2.5 rounded-lg transition-colors hover:bg-white/5"
     >
       <span className="text-[13px] text-text-secondary">{label}</span>
-      <span className="flex items-center gap-2 min-w-0">
+      <span className="ml-auto flex items-center gap-2 min-w-0">
         {/* Wraps, never truncates: on a phone an ellipsis cut the figure or its words off. */}
         <span className="stat-value text-[13px] text-white text-right min-w-0">{value}</span>
         {verified && (
@@ -98,13 +101,14 @@ export function ProofOfClaims() {
   if (rows.length === 0) return null;
 
   return (
-    <div className="glass-card rounded-xl p-4 md:p-5">
+    <div className="relative isolate glass-card rounded-xl p-4 md:p-5">
+      <CardArt pageId="proof-of-claims" idx={0} />
       <div className="flex items-center justify-between mb-3">
         <h3 className="heading-luxury text-[15px] text-white">Don&rsquo;t trust — verify</h3>
         <span className="text-[10px] uppercase tracking-wider" style={{ color: '#22c55e' }}>live on-chain</span>
       </div>
       <p className="text-[12px] text-text-secondary mb-2">
-        Every number below is read straight from the contracts right now — tap any row to check it yourself on Etherscan.
+        Read live from the contracts. Tap a row to check it on Etherscan.
       </p>
       <div className="space-y-0.5">
         {rows.map((r) => (

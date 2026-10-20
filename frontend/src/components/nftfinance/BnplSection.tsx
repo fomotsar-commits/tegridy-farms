@@ -6,6 +6,8 @@ import { useBnplDesk, BNPL_WRITTEN_TERMS } from '../../hooks/useBnplDesk';
 import { useBnplQuote } from '../../hooks/useBnplQuote';
 import { usePooledLendingVaults } from '../../hooks/usePooledLendingVault';
 import { isBnplLive, POOLED_VAULT_WRITTEN_TERMS } from '../../hooks/usePooledLendingConfig';
+import { CardArt } from '../ui/CardArt';
+import { FinePrint } from '../ui/FinePrint';
 
 // Buy-now-pay-later at the point of sale (#62).
 //
@@ -124,44 +126,59 @@ export function BnplSection() {
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.3, ease: EASE }}
     >
-      <div className="rounded-xl p-4" style={{ background: CARD_BG, border: `1px solid ${CARD_BORDER}` }}>
+      <div className="relative isolate rounded-xl p-4" style={{ background: CARD_BG, border: `1px solid ${CARD_BORDER}` }}>
+        <CardArt pageId="nft-finance" idx={12} />
         <h2 className="text-[16px] font-semibold text-white mb-1" style={LABEL_STYLE}>
           Pay in instalments
         </h2>
         <p className="text-[12px] text-white/70 leading-relaxed" style={LABEL_STYLE}>
-          A buyer puts a deposit down, the lending pool fronts the rest, and the seller is paid in full immediately. The
-          token sits in the pool&rsquo;s escrow until the plan is cleared. There is no promotional rate and no interest-free
-          window: the financed part is a loan from the pool and it costs what the pool charges.
+          Pay a deposit; the pool lends the rest at what the pool charges.
         </p>
+        <FinePrint summary="How it works">
+          <p>
+            A buyer puts a deposit down, the lending pool fronts the rest, and the seller is paid in full immediately. The
+            token sits in the pool&rsquo;s escrow until the plan is cleared. There is no promotional rate and no interest-free
+            window: the financed part is a loan from the pool and it costs what the pool charges.
+          </p>
+        </FinePrint>
       </div>
 
-      <RiskBanner variant="danger">
-        <span className="font-semibold">Missing a payment costs you the token.</span> If an instalment goes unpaid past
-        its grace period, anyone may wind the plan up: the escrowed token is sold through the pool&rsquo;s liquidation route,
-        the pool is repaid first, and only what is left over comes back to you. Payments you have already made reduce
-        the debt, so they sit inside that leftover rather than being lost ahead of it — but a sale below the debt returns
-        nothing. Nothing here reminds you or pays for you; this venue runs no keeper, and a due date passes whether or
-        not anything notices.
+      <RiskBanner variant="danger" art={<CardArt pageId="nft-finance" idx={24} />}>
+        <span className="font-semibold">Missing a payment costs you the token.</span>
+        <FinePrint summary="Risks">
+          <p>
+            If an instalment goes unpaid past
+            its grace period, anyone may wind the plan up: the escrowed token is sold through the pool&rsquo;s liquidation route,
+            the pool is repaid first, and only what is left over comes back to you. Payments you have already made reduce
+            the debt, so they sit inside that leftover rather than being lost ahead of it — but a sale below the debt returns
+            nothing. Nothing here reminds you or pays for you; this venue runs no keeper, and a due date passes whether or
+            not anything notices.
+          </p>
+        </FinePrint>
       </RiskBanner>
 
       {!live && (
         <div
-          className="rounded-xl p-4"
+          className="relative isolate rounded-xl p-4"
           style={{ background: 'rgba(234,179,8,0.06)', border: '1px solid rgba(234,179,8,0.2)' }}
         >
+          <CardArt pageId="nft-finance" idx={13} />
           <p className="text-[13px] font-semibold text-amber-300 mb-1" style={LABEL_STYLE}>
             The instalment desk is not deployed.
           </p>
-          <p className="text-[12px] text-white/70 leading-relaxed" style={LABEL_STYLE}>
-            {desk.detail} No listing can be made and no plan can be opened. The estimator below runs entirely in your
-            browser against the terms written in the contract source, so you can see what a plan would cost — it is not
-            a quote from a live desk, and no live desk exists to give one.
-          </p>
+          <FinePrint summary="Details">
+            <p>
+              {desk.detail} No listing can be made and no plan can be opened. The estimator below runs entirely in your
+              browser against the terms written in the contract source, so you can see what a plan would cost — it is not
+              a quote from a live desk, and no live desk exists to give one.
+            </p>
+          </FinePrint>
         </div>
       )}
 
       {/* ── Cost-of-credit estimator ───────────────────────────────── */}
-      <div className="rounded-xl p-4" style={{ background: CARD_BG, border: `1px solid ${CARD_BORDER}` }}>
+      <div className="relative isolate rounded-xl p-4" style={{ background: CARD_BG, border: `1px solid ${CARD_BORDER}` }}>
+        <CardArt pageId="nft-finance" idx={14} />
         <div className="flex items-center gap-1 mb-2">
           <h3 className="text-[14px] font-semibold text-white" style={LABEL_STYLE}>
             What a plan would cost
@@ -181,11 +198,21 @@ export function BnplSection() {
           />
         </label>
 
-        <p className="text-[11px] text-white/50 mt-2 leading-relaxed" style={LABEL_STYLE}>
-          {TERMS_PROVENANCE[termsSource]}{' '}
+        {/* The numbers stay visible. Where they came from is one press away, unless a
+            contract could not be read: that line must never fold into looking fine. */}
+        <p className="text-[12px] text-white/80 mt-2 leading-relaxed" style={LABEL_STYLE}>
           Deposit {(terms.depositBps / 100).toFixed(2)}%, APR {(terms.aprBps / 100).toFixed(2)}%,{' '}
           {terms.instalments} payments {Math.round(terms.instalmentIntervalSeconds / 86400)} days apart.
         </p>
+        {termsSource === 'desk-unreadable' || termsSource === 'pool-unavailable' ? (
+          <p className="text-[11px] text-amber-300 mt-1 leading-relaxed" style={LABEL_STYLE}>
+            {TERMS_PROVENANCE[termsSource]}
+          </p>
+        ) : (
+          <FinePrint summary={termsSource === 'live' ? 'Where these terms come from' : 'Written terms, not a live quote'}>
+            <p>{TERMS_PROVENANCE[termsSource]}</p>
+          </FinePrint>
+        )}
 
         {priceInput.trim() !== '' && priceWei === null && (
           <p className="text-[12px] text-amber-300 mt-3" style={LABEL_STYLE}>
@@ -218,9 +245,17 @@ export function BnplSection() {
               className="rounded-lg p-3"
               style={{ background: 'rgba(234,179,8,0.06)', border: '1px solid rgba(234,179,8,0.2)' }}
             >
-              <p className="text-[11px] uppercase tracking-wide text-amber-300 mb-1.5" style={LABEL_STYLE}>
-                What still has to be true for this plan to open
+              {/* The verdict in one line; the two conditions, in full, are one press away. */}
+              <p className="text-[12px] text-amber-300" style={LABEL_STYLE}>
+                {financedCeilingWei !== null && quote.financedWei > financedCeilingWei
+                  ? `The pool would lend at most ${eth(financedCeilingWei)} on one token, so this price would be refused.`
+                  : !poolTermCoversPlan
+                    ? 'The pool term is shorter than the plan, so the desk would refuse it.'
+                    : financedCeilingWei === null
+                      ? 'Not a confirmation: the pool cap could not be checked from here.'
+                      : 'The pool cap and term cover this plan.'}
               </p>
+              <FinePrint summary="What still has to be true for this plan to open">
               <ul className="space-y-1.5 text-[11.5px] leading-relaxed text-white/70" style={LABEL_STYLE}>
                 <li>
                   <span className="text-white/85 font-semibold">The pool has to be willing to lend {eth(quote.financedWei)}.</span>{' '}
@@ -249,6 +284,7 @@ export function BnplSection() {
                     : 'That does not cover it, and the desk refuses the purchase rather than letting the loan mature mid-schedule and cost a paying buyer the token.'}
                 </li>
               </ul>
+              </FinePrint>
             </div>
 
             <div className="rounded-lg p-3" style={{ background: 'rgba(255,255,255,0.04)' }}>
@@ -259,7 +295,7 @@ export function BnplSection() {
                 {quote.instalmentsWei.map((amount, i) => (
                   <li key={i} className="flex justify-between text-[12px] text-white/75" style={LABEL_STYLE}>
                     <span>
-                      Payment {i + 1} &mdash; day {Math.round(((i + 1) * terms.instalmentIntervalSeconds) / 86400)}
+                      Payment {i + 1}, day {Math.round(((i + 1) * terms.instalmentIntervalSeconds) / 86400)}
                     </span>
                     <span className="text-white font-semibold">{eth(amount)}</span>
                   </li>
@@ -270,6 +306,9 @@ export function BnplSection() {
         )}
       </div>
 
+      {/* How it works, one press away (owner, 2026-10-13: how-it-works goes in a closed
+          drop-down). The five-step strip and its art sit inside, word for word. */}
+      <FinePrint summary="How it works" testId="bnpl-how">
       <HowItWorks
         storageKey="tegridy-bnpl-how"
         title="How an instalment purchase works"
@@ -277,7 +316,7 @@ export function BnplSection() {
           {
             label: 'The seller states an on-chain intent',
             description:
-              'A price and an expiry, with an approval granted to the instalment contract alone. The marketplace listing approval is never reused for this — a permission to sell at a signed price must not double as a permission to move a token for nothing.',
+              'A price and an expiry, with an approval granted to the instalment contract alone. The marketplace listing approval is never reused for this. A permission to sell at a signed price must not double as a permission to move a token for nothing.',
           },
           {
             label: 'The buyer pays the deposit',
@@ -287,7 +326,7 @@ export function BnplSection() {
           {
             label: 'The pool fronts the rest and holds the token',
             description:
-              'The financed part is an ordinary loan from the collection’s lending pool, and the token sits in that pool’s escrow — one escrow and one liquidation path, not a second copy of the same machinery.',
+              'The financed part is an ordinary loan from the collection’s lending pool, and the token sits in that pool’s escrow: one escrow and one liquidation path, not a second copy of the same machinery.',
           },
           {
             label: 'Each payment retires principal plus accrued interest',
@@ -301,6 +340,7 @@ export function BnplSection() {
           },
         ]}
       />
+      </FinePrint>
     </m.div>
   );
 }

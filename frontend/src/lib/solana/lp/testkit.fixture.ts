@@ -22,6 +22,7 @@ import {
 import { TOKEN_PROGRAM, WSOL_MINT } from './tokenSafety';
 import type { PoolView } from './poolFinder';
 import { SOL_QUOTE, readPair, type QuoteCoin } from './quotes';
+import type { SigEntry } from './txHistory';
 import type { SolanaRpc } from '../../launcher/solana/curve/rpc';
 
 export const PROGRAM = new PublicKey('EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT');
@@ -178,6 +179,118 @@ export function fakeRpc(accounts: Record<string, FakeAccount>, opts: { fail?: Se
     }
     if (method === 'getMinimumBalanceForRentExemption') return (128 + (params as [number])[0]) * 6960;
     throw new Error(`fake rpc: ${method} not handled`);
+  };
+}
+
+/**
+ * `fakeRpc` plus history. `getSignaturesForAddress` answers from `history` (newest first,
+ * honouring `limit` and `before`); an address not in `history` throws, so "no history" and
+ * "not configured" stay apart. `getTransaction` answers from `txs` by signature, `null`
+ * being "no record"; a signature not in `txs` throws.
+ */
+export function fakeRpcWithHistory(accounts: Record<string, FakeAccount>, history: Record<string, SigEntry[]>, txs: Record<string, unknown>, opts: { fail?: Set<string>; calls?: [string, unknown[]][] } = {}): SolanaRpc {
+  const base = fakeRpc(accounts, opts);
+  return async (method, params) => {
+    if (method !== 'getSignaturesForAddress' && method !== 'getTransaction') return base(method, params);
+    opts.calls?.push([method, params]);
+    if (opts.fail?.has(method)) throw new Error(`${method}: HTTP 502`);
+    if (method === 'getSignaturesForAddress') {
+      const [address, o] = params as [string, { limit?: number; before?: string } | undefined];
+      const all = history[address];
+      if (!all) throw new Error(`fake rpc: no history configured for ${address}`);
+      let from = 0;
+      if (o?.before !== undefined) {
+        const at = all.findIndex((e) => e.signature === o.before);
+        if (at < 0) throw new Error(`fake rpc: before names a signature not in the history of ${address}`);
+        from = at + 1;
+      }
+      return all.slice(from, from + (o?.limit ?? 1000));
+    }
+    const [signature] = params as [string];
+    if (!(signature in txs)) throw new Error(`fake rpc: no transaction configured for ${signature}`);
+    return txs[signature];
+  };
+}
+
+const BASE58 = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+
+/** Bytes to base58, leading zero bytes as leading '1's (the inverse of txHistory's decoder). */
+function toBase58(bytes: Uint8Array): string {
+  let n = 0n;
+  for (const b of bytes) n = (n << 8n) | BigInt(b);
+  let out = '';
+  while (n > 0n) {
+    out = BASE58[Number(n % 58n)] + out;
+    n /= 58n;
+  }
+  for (const b of bytes) {
+    if (b !== 0) break;
+    out = '1' + out;
+  }
+  return out;
+}
+
+export interface TxIxSpec { program: string; accounts: string[]; data: Uint8Array }
+export interface TxJsonSpec {
+  keys: string[];
+  numSigners?: number;
+  /** Addresses loaded from lookup tables: present makes the transaction v0. */
+  loaded?: { writable?: string[]; readonly?: string[] };
+  instructions: TxIxSpec[];
+  inner?: { index: number; instructions: TxIxSpec[] }[];
+  /** `null` on a side = absent on that side (the account was created or closed inside). */
+  balances: { account: string; mint: string; owner?: string; pre: bigint | null; post: bigint | null }[];
+  lamports?: { account: string; pre: number; post: number }[];
+  err?: unknown;
+  slot: number;
+  blockTime: number | null;
+}
+
+/** A `getTransaction` (json) answer. Accounts by name; the builder encodes indices and base58 data. */
+export function txJson(o: TxJsonSpec): unknown {
+  const all = [...o.keys, ...(o.loaded?.writable ?? []), ...(o.loaded?.readonly ?? [])];
+  const index = (name: string) => {
+    const i = all.indexOf(name);
+    if (i < 0) throw new Error(`txJson: ${name} is not among the keys`);
+    return i;
+  };
+  const ix = (s: TxIxSpec) => ({ programIdIndex: index(s.program), accounts: s.accounts.map(index), data: toBase58(s.data) });
+  const side = (which: 'pre' | 'post') =>
+    o.balances
+      .filter((b) => b[which] !== null)
+      .map((b) => ({
+        accountIndex: index(b.account),
+        mint: b.mint,
+        ...(b.owner === undefined ? {} : { owner: b.owner }),
+        uiTokenAmount: { amount: b[which]!.toString(), decimals: 0, uiAmount: null, uiAmountString: b[which]!.toString() },
+      }));
+  const lamports = (which: 'pre' | 'post') => all.map((k) => o.lamports?.find((l) => l.account === k)?.[which] ?? 0);
+  const err = o.err ?? null;
+  return {
+    slot: o.slot,
+    blockTime: o.blockTime,
+    version: o.loaded ? 0 : 'legacy',
+    transaction: {
+      message: {
+        header: { numRequiredSignatures: o.numSigners ?? 1, numReadonlySignedAccounts: 0, numReadonlyUnsignedAccounts: 0 },
+        accountKeys: o.keys,
+        recentBlockhash: '11111111111111111111111111111111',
+        instructions: o.instructions.map(ix),
+      },
+    },
+    meta: {
+      err,
+      status: err === null ? { Ok: null } : { Err: err },
+      fee: 5000,
+      preBalances: lamports('pre'),
+      postBalances: lamports('post'),
+      preTokenBalances: side('pre'),
+      postTokenBalances: side('post'),
+      innerInstructions: (o.inner ?? []).map((g) => ({ index: g.index, instructions: g.instructions.map(ix) })),
+      ...(o.loaded ? { loadedAddresses: { writable: o.loaded.writable ?? [], readonly: o.loaded.readonly ?? [] } } : {}),
+      logMessages: [],
+      rewards: [],
+    },
   };
 }
 

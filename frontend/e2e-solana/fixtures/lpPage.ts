@@ -174,6 +174,8 @@ export async function waitPoolOpenByWallClock(pool: PublicKey, maxMs = 5 * 60_00
 
 export const poolCard = (p: Page, address: PublicKey | string) => p.locator(`[data-testid="lp-pool"][data-pool="${typeof address === 'string' ? address : address.toBase58()}"]`);
 export const positionRow = (p: Page, pool: PublicKey | string) => p.locator(`[data-testid="lp-position"][data-pool="${typeof pool === 'string' ? pool : pool.toBase58()}"]`);
+/** A position by its share token, for a share with no pool yet: the row prints addresses short, so its text no longer names the whole mint. */
+export const shareRow = (p: Page, lpMint: PublicKey | string) => p.locator(`[data-testid="lp-position"][data-lp-mint="${typeof lpMint === 'string' ? lpMint : lpMint.toBase58()}"]`);
 export const pendingNotes = (p: Page) => p.evaluate((k) => sessionStorage.getItem(k), LP_PENDING_KEY);
 
 /** The review's rows, label → value, as a person reads them. */

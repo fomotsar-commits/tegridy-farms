@@ -22,7 +22,10 @@ import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 import { describe, it, expect, vi } from 'vitest';
 import { Connection, PublicKey, Keypair } from '@solana/web3.js';
-import type { SignerWalletAdapter } from '@solana/wallet-adapter-base';
+import { WalletNotConnectedError, WalletSendTransactionError, WalletSignTransactionError, type SignerWalletAdapter } from '@solana/wallet-adapter-base';
+import { DECLINED_IN_WALLET, lostAnswerCopy } from '../solana/swap/walletCopy';
+import { notSignedCopy } from '../solana/walletThrow';
+import { reloadHeld } from '../reloadHold';
 import { poolPda, stakeVaultPda, rewardVaultPda, ASSOCIATED_TOKEN_PROGRAM_ID, MIN_LOCK_SECS } from './program';
 import { createAtaIdempotentIx } from './ix';
 import {
@@ -149,8 +152,37 @@ describe('the classifier only promises "nothing moved" when it can prove it', ()
   it('a declined signature never reached the network', () => {
     const r = classifyWriteError(new Error('User rejected the request.'));
     expect(r.ok).toBe(false);
-    expect(!r.ok && r.reason).toMatch(/declined/i);
-    expect(!r.ok && r.reason).toMatch(/nothing moved/i);
+    expect(!r.ok && r.reason).toBe(DECLINED_IN_WALLET);
+  });
+
+  // One wallet behaviour, one wording (owner, 2026-10-13). The ladder sends through the
+  // adapter's sendTransaction: these are the shapes its catch receives.
+  it.each([
+    ['Solflare’s decline, in its own words', new WalletSendTransactionError('Transaction cancelled', new Error('Transaction cancelled')), DECLINED_IN_WALLET],
+    ['Trust’s decline, code 4001 and the message "4001" only', new WalletSendTransactionError('4001', Object.assign(new Error('4001'), { code: 4001 })), DECLINED_IN_WALLET],
+    ['a decline that is a plain object with no message', new WalletSendTransactionError(undefined, { code: 4001 }), DECLINED_IN_WALLET],
+    ['a page no longer connected to the wallet', new WalletNotConnectedError(), notSignedCopy('this page is no longer connected to it, so it was never asked')],
+    ['a wallet that failed before signing, in its words', new WalletSignTransactionError('Wallet is locked', new Error('Wallet is locked')), notSignedCopy('Wallet is locked')],
+  ])('%s reads as every Solana write reads it', async (_, thrown, said) => {
+    expect(classifyWriteError(thrown)).toEqual({ ok: false, reason: said });
+    // And through the send itself, with no signature handed back.
+    const r = await submitLadder(fakeConn({ statuses: [] }), fakeWallet(async () => { throw thrown; }), SOME_IX, noSleep);
+    expect(r).toEqual({ ok: false, reason: said });
+  });
+
+  it('a send whose answer was lost after the wallet may have signed: "we cannot tell", never "did not go through"', () => {
+    const r = classifyWriteError(new WalletSendTransactionError('Network request failed', new TypeError('Network request failed')));
+    expect(!r.ok && r.reason).toBe(lostAnswerCopy('Network request failed', 'it was sent'));
+    expect(!r.ok && r.reason).not.toMatch(/did not go through|nothing moved|nothing was sent/i);
+    // A throw that is not the wallet's (a read before it was asked) keeps its own words.
+    const before = classifyWriteError(new Error('Failed to fetch'));
+    expect(!before.ok && before.reason).toMatch(/check it before retrying/i);
+  });
+
+  it('once a signature exists, no word in the error makes it a cancel', () => {
+    const r = classifyWriteError(new Error('Program log: access denied'), SIG);
+    expect(!r.ok && r.reason).not.toBe(DECLINED_IN_WALLET);
+    expect(!r.ok && r.signature).toBe(SIG);
   });
 
   it('names a program error in the words of the person who pressed the button', () => {
@@ -233,6 +265,17 @@ const SOME_IX = [createAtaIdempotentIx({
 })];
 
 describe('submitLadder', () => {
+  it('holds the page from reloading for a new deploy until the write is answered, sent or thrown', async () => {
+    const heldAtWallet: boolean[] = [];
+    const conn = fakeConn({ statuses: [{ err: null, confirmationStatus: 'confirmed' }], onStatuses: () => heldAtWallet.push(reloadHeld()) });
+    expect(reloadHeld()).toBe(false);
+    await submitLadder(conn, fakeWallet(async () => { heldAtWallet.push(reloadHeld()); return SIG; }), SOME_IX, noSleep);
+    expect(heldAtWallet).toEqual([true, true]);
+    expect(reloadHeld()).toBe(false);
+    await submitLadder(conn, fakeWallet(async () => { throw new WalletSendTransactionError('lost'); }), SOME_IX, noSleep);
+    expect(reloadHeld()).toBe(false);
+  });
+
   it('returns the signature once the status says confirmed', async () => {
     const conn = fakeConn({ statuses: [{ err: null, confirmationStatus: 'confirmed' }] });
     const r = await submitLadder(conn, fakeWallet(async () => SIG), SOME_IX, noSleep);

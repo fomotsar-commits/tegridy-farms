@@ -59,7 +59,13 @@ vi.mock('framer-motion', () => {
 });
 vi.mock('../ArtImg', () => ({ ArtImg: () => null }));
 // The lazy Solana provider is never loaded here: the store stands in for it.
-vi.mock('./TopBarSolana', () => ({ TopBarSolana: () => null }));
+const topBarSolana = vi.hoisted(() => ({ solanaPage: null as boolean | null }));
+vi.mock('./TopBarSolana', () => ({
+  TopBarSolana: ({ solanaPage }: { solanaPage: boolean }) => {
+    topBarSolana.solanaPage = solanaPage;
+    return null;
+  },
+}));
 
 import { TopNav } from './TopNav';
 import { ThemeProvider } from '../../contexts/ThemeContext';
@@ -201,6 +207,44 @@ describe('TopNav: Connect, off the Solana pages, asks which network', () => {
     fireEvent.click(solanaRow());
     expect(current).toHaveBeenCalledTimes(1);
     expect(stale).not.toHaveBeenCalled();
+  });
+
+  // THE HOME'S CARDS (owner, 2026-10-16): stake BAYLA and add SOL + BAYLA bring their own Solana
+  // connection to a page that connects Ethereum too. Mounted `mixed`, it does not make the home a
+  // Solana page: the sheet stays, both networks in it, and its Solana row opens the cards' list.
+  it('a mixed section keeps the sheet, and its Solana row opens that section’s list', () => {
+    const cardsOpen = vi.fn();
+    const owner = {};
+    owners.push(owner);
+    mount('/');
+    act(() => setSolanaSurface(owner, { open: cardsOpen, address: null, connecting: false }, false, true));
+    expect(getSolanaSurfaceState().page).toBe(true);
+    openSheet();
+    expect(rows()).toEqual([
+      'SolanaPhantom, Trust, Jupiter, Solflare and more',
+      'Ethereum, Base, Robinhood ChainMetaMask, Trust, Rainbow and more',
+    ]);
+    fireEvent.click(solanaRow());
+    expect(cardsOpen).toHaveBeenCalledTimes(1);
+    expect(rk.openConnectModal).not.toHaveBeenCalled();
+  });
+
+  // Before the cards' connection mounts, the top bar must not mount one of its own on the home:
+  // it would step aside when the cards' arrives, and a wallet list it had opened would vanish.
+  it.each([
+    ['/', true],
+    ['/earn', false],
+  ])('%s: the top bar’s own Solana connection held back: %s', (path, held) => {
+    mount(path);
+    expect(topBarSolana.solanaPage).toBe(held);
+  });
+
+  it('a section that is not mixed still makes the page a Solana page: the sheet is gone', () => {
+    const owner = {};
+    owners.push(owner);
+    mount('/');
+    act(() => setSolanaSurface(owner, { open: vi.fn(), address: null, connecting: false }));
+    expect(within(banner()).queryByRole('button', { name: 'Connect wallet' })).toBeNull();
   });
 });
 

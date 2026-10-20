@@ -2,7 +2,8 @@ import { useMemo, useEffect, useState, useRef, useCallback } from 'react';
 import { useReadContract, useChainId } from 'wagmi';
 import { formatUnits } from 'viem';
 import { UNISWAP_V2_ROUTER_ABI, UNISWAP_V2_FACTORY_ABI, UNISWAP_V2_PAIR_ABI, TEGRIDY_ROUTER_ABI, TEGRIDY_FACTORY_ABI, SWAP_FEE_ROUTER_ABI } from '../lib/contracts';
-import { UNISWAP_V2_ROUTER, WETH_ADDRESS, UNISWAP_V2_FACTORY, TEGRIDY_FACTORY_ADDRESS, TEGRIDY_ROUTER_ADDRESS, SWAP_FEE_ROUTER_ADDRESS, CHAIN_ID, SWAP_FEE_BPS, isDeployed } from '../lib/constants';
+import { WETH_ADDRESS, CHAIN_ID, SWAP_FEE_BPS } from '../lib/constants';
+import { swapVenueOn } from '../lib/chains/swapVenue';
 import { type TokenInfo } from '../lib/tokenList';
 import { getAggregatorPrice, calculateAggregatorSpread, AGGREGATOR_NAMES, type AggregatorQuote, type AggregatorSource } from '../lib/aggregator';
 
@@ -24,18 +25,19 @@ const SWAP_FEE_BPS_BI = BigInt(SWAP_FEE_BPS);
 // router deadline but still long enough to not flap on slow networks.
 export const QUOTE_MAX_AGE_MS = 30_000;
 
-// Build the swap path: always route through WETH if neither token is WETH/ETH
-export function buildPath(fromToken: TokenInfo, toToken: TokenInfo): `0x${string}`[] {
-  const fromAddr = fromToken.isNative ? WETH_ADDRESS : fromToken.address as `0x${string}`;
-  const toAddr = toToken.isNative ? WETH_ADDRESS : toToken.address as `0x${string}`;
+// Build the swap path: always route through WETH if neither token is WETH/ETH.
+// `weth` is the quoted chain's WETH (mainnet's unless a venue says otherwise).
+export function buildPath(fromToken: TokenInfo, toToken: TokenInfo, weth: `0x${string}` = WETH_ADDRESS): `0x${string}`[] {
+  const fromAddr = fromToken.isNative ? weth : fromToken.address as `0x${string}`;
+  const toAddr = toToken.isNative ? weth : toToken.address as `0x${string}`;
 
   // Direct pair (one of them is WETH or they share a direct pair)
-  if (fromAddr.toLowerCase() === WETH_ADDRESS.toLowerCase() || toAddr.toLowerCase() === WETH_ADDRESS.toLowerCase()) {
+  if (fromAddr.toLowerCase() === weth.toLowerCase() || toAddr.toLowerCase() === weth.toLowerCase()) {
     return [fromAddr, toAddr];
   }
 
   // Route through WETH as intermediate
-  return [fromAddr, WETH_ADDRESS, toAddr];
+  return [fromAddr, weth, toAddr];
 }
 
 export interface SwapQuoteResult {
@@ -84,26 +86,43 @@ export function useSwapQuote(
   parsedAmount: bigint,
   slippage: number,
   address: `0x${string}` | undefined,
+  /**
+   * The chain to quote on (the swap page passes useSwapChainId()). Omitted, the
+   * quote is Ethereum's and only while the wallet is on Ethereum, as it always was:
+   * the zap plan relies on that, because its contracts exist on Ethereum only.
+   */
+  venueChainId?: number,
 ): SwapQuoteResult {
   const fromDecimals = fromToken?.decimals ?? 18;
   const toDecimals = toToken?.decimals ?? 18;
+
+  // Every read below is pinned to ONE venue's chain and addresses, together
+  // (lib/chains/swapVenue.ts), and runs only when there is a venue:
+  //   - a quote is not a display figure. Its path, route and minimumReceived are
+  //     what useSwap signs, and the floors a zap plan submits (useZapPlan.ts);
+  //   - the aggregator leg follows the quoted chain (R045 H1), so an L2 quote is
+  //     never answered with mainnet liquidity;
+  //   - a chain with no venue gets no quote, and the page says why.
+  const walletChainId = useChainId();
+  const venue = useMemo(
+    () => (venueChainId === undefined
+      ? (walletChainId === CHAIN_ID ? swapVenueOn(CHAIN_ID) : null)
+      : swapVenueOn(venueChainId)),
+    [venueChainId, walletChainId],
+  );
+  const onRightChain = venue !== null;
+  const quoteChainId = venue?.chainId ?? walletChainId;
+  const weth = venue?.weth ?? WETH_ADDRESS;
+  // A disabled read still needs an address; it is never sent.
+  const at = (a: `0x${string}` | undefined) => a ?? ZERO_ADDR;
+
   // R042 HIGH-2: memoise the path so it isn't a fresh array every render — a new
   // identity here was defeating the return-object memo (and routeDescription,
   // also path-deped) by flipping their identity on every render.
   const path = useMemo<`0x${string}`[]>(
-    () => (fromToken && toToken ? buildPath(fromToken, toToken) : EMPTY_PATH),
-    [fromToken, toToken],
+    () => (fromToken && toToken ? buildPath(fromToken, toToken, weth) : EMPTY_PATH),
+    [fromToken, toToken, weth],
   );
-
-  // Every read below is pinned to CHAIN_ID AND gated on the wallet being there.
-  // The gate stays, unlike the display reads un-gated in useLPFarming.ts:
-  //   - a quote is not a display figure. Its path, route and minimumReceived are
-  //     what useSwap signs, and the floors a zap plan submits (useZapPlan.ts);
-  //   - the aggregator leg follows the wallet's chain on purpose (R045 H1), so
-  //     un-gating only these legs would quote mainnet liquidity to an L2 wallet;
-  //   - off mainnet the empty form is explained by ChainSwapAvailability.
-  const chainId = useChainId();
-  const onRightChain = chainId === CHAIN_ID;
 
   // Track which inputAmount generated each aggregator quote to discard stale results
   const quoteRequestIdRef = useRef(0);
@@ -118,11 +137,11 @@ export function useSwapQuote(
   // track on-chain truth if the owner retunes feeBps. Falls back to the
   // SWAP_FEE_BPS constant when the read hasn't landed or the router isn't deployed.
   const { data: liveFeeBps } = useReadContract({
-    address: SWAP_FEE_ROUTER_ADDRESS,
+    address: at(venue?.swapFeeRouter),
     abi: SWAP_FEE_ROUTER_ABI,
     functionName: 'feeBps',
-    chainId: CHAIN_ID,
-    query: { enabled: isDeployed(SWAP_FEE_ROUTER_ADDRESS), staleTime: 5 * 60_000 },
+    chainId: quoteChainId,
+    query: { enabled: onRightChain, staleTime: 5 * 60_000 },
   });
   // Sanity-clamp: a sane protocol fee is 0..1000 bps (≤10%). Outside that we
   // keep the audited constant rather than display/net on a garbage read.
@@ -133,48 +152,48 @@ export function useSwapQuote(
 
   // ---- Uniswap V2 quote ----
   const { data: uniAmountsOut, isLoading: isUniQuoteLoading, refetch: refetchUni } = useReadContract({
-    address: UNISWAP_V2_ROUTER,
+    address: at(venue?.uniswapV2Router),
     abi: UNISWAP_V2_ROUTER_ABI,
     functionName: 'getAmountsOut',
     args: [parsedAmount, path],
-    chainId: CHAIN_ID,
+    chainId: quoteChainId,
     query: { enabled: onRightChain && parsedAmount > 0n && path.length >= 2 },
   });
 
   // ---- Venue DEX: check own pools ----
-  const fromAddrForPair = fromToken?.isNative ? WETH_ADDRESS : (fromToken?.address ?? WETH_ADDRESS);
-  const toAddrForPair = toToken?.isNative ? WETH_ADDRESS : (toToken?.address ?? WETH_ADDRESS);
+  const fromAddrForPair = fromToken?.isNative ? weth : (fromToken?.address ?? weth);
+  const toAddrForPair = toToken?.isNative ? weth : (toToken?.address ?? weth);
   const pairsEnabled = onRightChain && !!fromToken && !!toToken && fromAddrForPair.toLowerCase() !== toAddrForPair.toLowerCase();
 
   // Check if Venue Factory has a pair for these tokens
   const { data: tegridyPairAddr } = useReadContract({
-    address: TEGRIDY_FACTORY_ADDRESS,
+    address: at(venue?.factory),
     abi: TEGRIDY_FACTORY_ABI,
     functionName: 'getPair',
     args: [fromAddrForPair as `0x${string}`, toAddrForPair as `0x${string}`],
-    chainId: CHAIN_ID,
+    chainId: quoteChainId,
     query: { enabled: pairsEnabled },
   });
 
-  const hasTegridyPair = !!tegridyPairAddr && tegridyPairAddr !== ZERO_ADDR;
+  const hasTegridyPair = onRightChain && !!tegridyPairAddr && tegridyPairAddr !== ZERO_ADDR;
 
   // Get quote from Venue Router (only if own pair exists)
   const { data: tegridyAmountsOut, isLoading: isTegridyQuoteLoading, refetch: refetchTegridy } = useReadContract({
-    address: TEGRIDY_ROUTER_ADDRESS,
+    address: at(venue?.router),
     abi: TEGRIDY_ROUTER_ABI,
     functionName: 'getAmountsOut',
     args: [parsedAmount, path],
-    chainId: CHAIN_ID,
+    chainId: quoteChainId,
     query: { enabled: hasTegridyPair && parsedAmount > 0n && path.length >= 2 },
   });
 
   // Also check Uniswap factory for direct pair (for routing info display)
   const { data: directPair } = useReadContract({
-    address: UNISWAP_V2_FACTORY,
+    address: at(venue?.uniswapV2Factory),
     abi: UNISWAP_V2_FACTORY_ABI,
     functionName: 'getPair',
     args: [fromAddrForPair as `0x${string}`, toAddrForPair as `0x${string}`],
-    chainId: CHAIN_ID,
+    chainId: quoteChainId,
     query: { enabled: pairsEnabled },
   });
 
@@ -185,20 +204,20 @@ export function useSwapQuote(
   const primaryPairAddr = !isMultiHop ? directPair : undefined;
 
   const { data: leg1Pair } = useReadContract({
-    address: UNISWAP_V2_FACTORY,
+    address: at(venue?.uniswapV2Factory),
     abi: UNISWAP_V2_FACTORY_ABI,
     functionName: 'getPair',
-    args: [path[0] as `0x${string}`, WETH_ADDRESS],
-    chainId: CHAIN_ID,
+    args: [path[0] as `0x${string}`, weth],
+    chainId: quoteChainId,
     query: { enabled: onRightChain && isMultiHop && path.length === 3 && parsedAmount > 0n },
   });
 
   const { data: leg2Pair } = useReadContract({
-    address: UNISWAP_V2_FACTORY,
+    address: at(venue?.uniswapV2Factory),
     abi: UNISWAP_V2_FACTORY_ABI,
     functionName: 'getPair',
-    args: [WETH_ADDRESS, path[2] as `0x${string}`],
-    chainId: CHAIN_ID,
+    args: [weth, path[2] as `0x${string}`],
+    chainId: quoteChainId,
     query: { enabled: onRightChain && isMultiHop && path.length === 3 && parsedAmount > 0n },
   });
 
@@ -209,7 +228,7 @@ export function useSwapQuote(
     address: primaryPairAddr as `0x${string}`,
     abi: UNISWAP_V2_PAIR_ABI,
     functionName: 'getReserves',
-    chainId: CHAIN_ID,
+    chainId: quoteChainId,
     query: { enabled: onRightChain && !!primaryPairAddr && primaryPairAddr !== ZERO_ADDR && parsedAmount > 0n, refetchInterval: 30_000 },
   });
 
@@ -217,7 +236,7 @@ export function useSwapQuote(
     address: primaryPairAddr as `0x${string}`,
     abi: UNISWAP_V2_PAIR_ABI,
     functionName: 'token0',
-    chainId: CHAIN_ID,
+    chainId: quoteChainId,
     query: { enabled: onRightChain && !!primaryPairAddr && primaryPairAddr !== ZERO_ADDR },
   });
 
@@ -225,7 +244,7 @@ export function useSwapQuote(
     address: leg1Pair as `0x${string}`,
     abi: UNISWAP_V2_PAIR_ABI,
     functionName: 'getReserves',
-    chainId: CHAIN_ID,
+    chainId: quoteChainId,
     query: { enabled: onRightChain && !!validLeg1 && parsedAmount > 0n, refetchInterval: 30_000 },
   });
 
@@ -233,7 +252,7 @@ export function useSwapQuote(
     address: leg1Pair as `0x${string}`,
     abi: UNISWAP_V2_PAIR_ABI,
     functionName: 'token0',
-    chainId: CHAIN_ID,
+    chainId: quoteChainId,
     query: { enabled: onRightChain && !!validLeg1 && parsedAmount > 0n },
   });
 
@@ -241,7 +260,7 @@ export function useSwapQuote(
     address: leg2Pair as `0x${string}`,
     abi: UNISWAP_V2_PAIR_ABI,
     functionName: 'getReserves',
-    chainId: CHAIN_ID,
+    chainId: quoteChainId,
     query: { enabled: onRightChain && !!validLeg2 && parsedAmount > 0n, refetchInterval: 30_000 },
   });
 
@@ -249,7 +268,7 @@ export function useSwapQuote(
     address: leg2Pair as `0x${string}`,
     abi: UNISWAP_V2_PAIR_ABI,
     functionName: 'token0',
-    chainId: CHAIN_ID,
+    chainId: quoteChainId,
     query: { enabled: onRightChain && !!validLeg2 && parsedAmount > 0n },
   });
 
@@ -274,14 +293,14 @@ export function useSwapQuote(
     const sellToken = fromToken.isNative ? 'ETH' : fromToken.address;
     const buyToken = toToken.isNative ? 'ETH' : toToken.address;
     const timer = setTimeout(() => {
-      // AUDIT R045 H1: pass the connected wallet's chainId so the meta-
+      // AUDIT R045 H1: pass the quoted chain so the meta-
       // aggregator short-circuits on unsupported chains (no HTTP calls go
       // out and "best route" never returns mainnet liquidity for an L2 user).
       // F199: forward the user's slippage tolerance to the aggregator quote
       // (was hardcoded undefined → always DEFAULT_MAX_SLIPPAGE_PCT). The
       // downstream clampSlippage bounds it, so venues that consume slippage at
       // quote time reflect the user's actual setting.
-      getAggregatorPrice(sellToken, buyToken, parsedAmount.toString(), address, chainId, slippage, fromDecimals, abortController.signal)
+      getAggregatorPrice(sellToken, buyToken, parsedAmount.toString(), address, quoteChainId, slippage, fromDecimals, abortController.signal)
         .then(q => {
           // Only apply if this is still the latest request
           if (!abortController.signal.aborted && quoteRequestIdRef.current === currentRequestId) {
@@ -301,7 +320,7 @@ export function useSwapQuote(
     return () => { abortController.abort(); clearTimeout(timer); };
     // F467: aggRequestId in the deps lets refreshQuote re-fire this effect.
     // F199: slippage in the deps re-quotes when the user changes tolerance.
-  }, [fromToken, toToken, parsedAmount, address, fromDecimals, chainId, aggRequestId, slippage]);
+  }, [fromToken, toToken, parsedAmount, address, fromDecimals, quoteChainId, aggRequestId, slippage]);
 
   // Stamp on every wagmi on-chain leg arrival.
   useEffect(() => {
@@ -406,7 +425,7 @@ export function useSwapQuote(
       if (!leg1Reserves || !leg1Token0 || !leg2Reserves || !leg2Token0) return null;
 
       try {
-        const fromAddr = (fromToken.isNative ? WETH_ADDRESS : fromToken.address).toLowerCase();
+        const fromAddr = (fromToken.isNative ? weth : fromToken.address).toLowerCase();
         const isLeg1Token0From = leg1Token0.toLowerCase() === fromAddr;
         const r1In = isLeg1Token0From ? (leg1Reserves[0] ?? 0n) : (leg1Reserves[1] ?? 0n);
         const r1Out = isLeg1Token0From ? (leg1Reserves[1] ?? 0n) : (leg1Reserves[0] ?? 0n);
@@ -416,7 +435,7 @@ export function useSwapQuote(
         const execPrice1 = ((activeAmountsOut[1] ?? 0n) * 10n ** 18n) / (activeAmountsOut[0] ?? 1n);
         const ratio1 = midPrice1 > 0n ? (execPrice1 * 10n ** 18n) / midPrice1 : 10n ** 18n;
 
-        const isLeg2Token0Weth = leg2Token0.toLowerCase() === WETH_ADDRESS.toLowerCase();
+        const isLeg2Token0Weth = leg2Token0.toLowerCase() === weth.toLowerCase();
         const r2In = isLeg2Token0Weth ? (leg2Reserves[0] ?? 0n) : (leg2Reserves[1] ?? 0n);
         const r2Out = isLeg2Token0Weth ? (leg2Reserves[1] ?? 0n) : (leg2Reserves[0] ?? 0n);
         if (r2In <= 0n || r2Out <= 0n) return 0.5;
@@ -440,7 +459,7 @@ export function useSwapQuote(
     if (!reserves || !token0) return null;
 
     try {
-      const fromAddr = fromToken.isNative ? WETH_ADDRESS : fromToken.address;
+      const fromAddr = fromToken.isNative ? weth : fromToken.address;
       const isToken0From = token0.toLowerCase() === fromAddr.toLowerCase();
       const reserveIn = isToken0From ? reserves[0] : reserves[1];
       const reserveOut = isToken0From ? reserves[1] : reserves[0];
@@ -475,7 +494,7 @@ export function useSwapQuote(
       // A throw in the bigint math is a figure we do not have, not a 0% one.
       return null;
     }
-  }, [reserves, token0, parsedAmount, outputAmount, fromToken, toToken, path, activeAmountsOut, leg1Reserves, leg1Token0, leg2Reserves, leg2Token0]);
+  }, [reserves, token0, parsedAmount, outputAmount, fromToken, toToken, path, activeAmountsOut, leg1Reserves, leg1Token0, leg2Reserves, leg2Token0, weth]);
 
   // Keep the null for the compiler; carry the REASON for it next to the number.
   // Scoped to the state where the missing figure is dangerous: right chain, a
@@ -520,6 +539,12 @@ export function useSwapQuote(
   }, [fromToken, toToken, path]);
 
   const routeLabel = useMemo(() => {
+    // ETH and WETH are one coin: the path is [weth, weth], no pool swaps a coin for itself,
+    // and the quote is 0 (the Swap button stays off). Say what to do instead of naming a
+    // venue that cannot fill it.
+    if (path.length === 2 && path[0]!.toLowerCase() === path[1]!.toLowerCase()) {
+      return 'ETH and WETH are the same coin; wrap or unwrap it in your wallet';
+    }
     // Name the venue that ACTUALLY executes. When an aggregator quotes higher we
     // disclose that as context rather than claiming to route through it — the
     // swap is still submitted on-chain via SwapFeeRouter / Uniswap V2.

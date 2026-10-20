@@ -35,7 +35,6 @@ export const TOWELI_ROOM_PATHS: ReadonlySet<string> = new Set([
   '/treasury',
   '/premium',
   '/lore',
-  '/referrals',
   '/zap',
   '/earn/toweli',
 ]);
@@ -63,6 +62,22 @@ export function routeVoice(pathname: string): RouteVoice {
   if (RECORD_PATHS.has(path)) return 'record';
   if (LEGAL_PATHS.has(path)) return 'legal';
   return 'venue';
+}
+
+/** The room whose own page this is, by the path alone: its door (/bayla), its lock page
+ *  (/earn/bayla), and for TOWELI its protocol pages. Null on every venue route. */
+export function routeRoomId(pathname: string): string | null {
+  const path = normalize(pathname);
+  if (TOWELI_DOORS.has(path) || TOWELI_ROOM_PATHS.has(path)) return 'toweli';
+  const id = /^\/(?:earn\/)?([^/]+)$/.exec(path)?.[1];
+  return id !== undefined && BUNGALOWS.some((b) => b.id === id) ? id : null;
+}
+
+/** May the room opened last speak here (its words, its footer, Towelie)? Only on its own
+ *  pages (docs/FACE_LAWS.md, law 21). /dashboard is the one route left: it draws that
+ *  room's positions, which have no address of their own yet. */
+export function roomSpeaksOn(pathname: string, roomId: string): boolean {
+  return routeRoomId(pathname) === roomId || normalize(pathname).toLowerCase() === '/dashboard';
 }
 
 /** A TOWELI protocol page (not the room's own doors, which ARE the room). */
@@ -93,6 +108,16 @@ const SOLANA_PATHS: ReadonlySet<string> = new Set(['/solana', '/pools', '/solana
  * a Solana card. /dashboard mirrors DashboardPage: `room` is
  * getBungalowIdentity(), and a Solana room gets the Solana panel.
  */
+/**
+ * Pages that connect Ethereum AND carry a Solana section of their own: the venue home, whose
+ * cards stake BAYLA and add SOL + BAYLA (owner, 2026-10-16; components/HomeModules.tsx). The
+ * top bar keeps its wallet sheet there, and does not mount a Solana connection of its own: the
+ * cards' is on its way, and two on one page would disagree (lib/solanaSurface.ts).
+ */
+export function hasMixedSolanaSection(pathname: string): boolean {
+  return normalize(pathname) === '/';
+}
+
 export function isSolanaPage(pathname: string, room: Pick<Bungalow, 'chain'> | null = null): boolean {
   const exact = normalize(pathname);
   // As written only: these four are tabs whose own match is exact (/POOLS draws

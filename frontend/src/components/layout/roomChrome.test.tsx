@@ -103,17 +103,74 @@ describe("the footer's chrome follows the route", () => {
     expect(text).not.toContain('—');
   });
 
-  it('names no resident beside the room label in a TOWELI room', () => {
-    // The label reads "Bungalows · <room>" on a door. In a protocol room it is
-    // the bare word, because the room is not theirs. The separator is a middle
-    // dot and not an em dash, which is element I's business: an em dash here
-    // billed one dash of venue CHROME to all fourteen doors at once.
+  // The footer carries no room label since 2026-10-15: the bar's Island word opens the hall. So a TOWELI
+  // room, carrying Bayla, names no resident anywhere in its footer, and bills no prose dash.
+  it('names no resident in a TOWELI room', () => {
     walkedThrough('bayla');
     const { container } = at('/tokenomics', <Footer />);
-    const label = container.textContent ?? '';
-    expect(label).toContain('Bungalows');
-    expect(label).not.toContain('Bungalows · Bayla');
-    expect(label).not.toContain('—');
+    const text = container.textContent ?? '';
+    expect(text).not.toContain('Bayla');
+    expect(text).not.toContain('—');
+  });
+});
+
+/**
+ * THE FARM SPEAKS ONLY IN ITS ROOM (docs/FACE_LAWS.md, law 21). The same rule as above,
+ * carried to the venue's own routes: a room opened last never dresses their footer.
+ * Each case is paired with its counter-test, for the reason given at the top.
+ */
+describe("the footer on a venue route is the venue's, whatever door was opened last", () => {
+  const VENUE_ROUTES = ['/start', '/leaderboard', '/launch', '/nb1', '/swap', '/earn'];
+  const VENUE_SENTENCE = 'Memetic Finance on Jungle Bay Island. Bungalows for meme communities';
+  const FARM_SENTENCE = 'Stake TOWELI & LP tokens to earn rewards';
+  const FARM_MARKET_LINKS = ['Trade on Uniswap', 'Etherscan', 'GeckoTerminal'];
+  const footerText = (path: string) => at(path, <Footer />).container.textContent ?? '';
+
+  it.each(VENUE_ROUTES)('reads the venue sentence on %s after a visit to /toweli', (path) => {
+    walkedThrough('toweli');
+    const text = footerText(path);
+    expect(text).toContain(VENUE_SENTENCE);
+    expect(text).not.toContain(FARM_SENTENCE);
+    expect(text).not.toContain('TOWELI contract');
+  });
+
+  it.each(VENUE_ROUTES)('links to no market of one resident on %s after a visit to /toweli', (path) => {
+    walkedThrough('toweli');
+    const text = footerText(path);
+    for (const label of FARM_MARKET_LINKS) expect(text, label).not.toContain(label);
+  });
+
+  it.each(['/toweli', '/towelie', '/tokenomics', '/earn/toweli'])('KEEPS the farm footer on %s, same storage', (path) => {
+    walkedThrough('toweli');
+    const text = footerText(path);
+    expect(text).toContain(FARM_SENTENCE);
+    expect(text).toContain('TOWELI contract');
+    for (const label of FARM_MARKET_LINKS) expect(text, label).toContain(label);
+  });
+
+  it.each(VENUE_ROUTES)('reads the venue sentence on %s after a visit to /bayla', (path) => {
+    walkedThrough('bayla');
+    const text = footerText(path);
+    expect(text).toContain(VENUE_SENTENCE);
+    expect(text).not.toContain('Bayla bungalow');
+    expect(text).not.toContain('BAYLA contract');
+  });
+
+  it.each(['/bayla', '/earn/bayla'])('KEEPS the resident card on %s, same storage', (path) => {
+    walkedThrough('bayla');
+    const text = footerText(path);
+    expect(text).toContain('Bayla bungalow, Jungle Bay Island.');
+    expect(text).toContain('BAYLA contract');
+  });
+
+  it('follows the room last opened on /dashboard, which draws that room’s positions', () => {
+    walkedThrough('toweli');
+    expect(footerText('/dashboard')).toContain('TOWELI contract');
+    localStorage.clear();
+    walkedThrough('bayla');
+    expect(footerText('/dashboard')).toContain('BAYLA contract');
+    localStorage.clear();
+    expect(footerText('/dashboard')).toContain(VENUE_SENTENCE);
   });
 });
 
@@ -135,12 +192,11 @@ describe("the nav chip's chrome follows the route", () => {
 });
 
 describe('the tab bar leaves room for the band', () => {
-  it('offsets itself by the measured band height, never a bare 56px', () => {
-    // The OTHER half of ruling 1, as far as a unit test can honestly reach: the
-    // occlusion itself needs a browser, but a tab bar pinned at a hard-coded
-    // top is the defect that caused it, and that is visible here. AppLayout
-    // measures the band and publishes --room-band-h; the fallback 0px keeps
-    // every page without a band exactly where it was.
+  it('sits in the page flow after the band, never pinned over it or over the page', () => {
+    // The OTHER half of ruling 1, as far as a unit test can reach: a pinned tab bar
+    // painted over the band, and once scrolled over fields and buttons on 19 pages
+    // (2026-10-14). In the flow it can do neither. A browser measures both in
+    // e2e/safe-area-insets.spec.ts and e2e/tab-strip-clears-focus.spec.ts.
     const { container } = render(
       <MemoryRouter>
         <RouteTabs
@@ -152,8 +208,13 @@ describe('the tab bar leaves room for the band', () => {
         />
       </MemoryRouter>,
     );
-    const fixed = container.querySelector<HTMLElement>('div.fixed');
-    expect(fixed).not.toBeNull();
-    expect(fixed!.style.top).toBe('calc(56px + var(--room-band-h, 0px))');
+    const anchor = container.firstElementChild as HTMLElement;
+    expect(anchor.classList.contains('relative') && anchor.classList.contains('h-0'), 'the anchor is in the flow and takes no room').toBe(true);
+    // Without it a panel's -mt-14 collapses through the empty anchor: the strip rose 56px.
+    expect(anchor).toHaveClass('flow-root');
+    const pinned = Array.from(container.querySelectorAll<HTMLElement>('*')).filter(
+      (el) => el.classList.contains('fixed') || el.classList.contains('sticky') || el.style.position === 'fixed' || el.style.position === 'sticky' || el.style.top !== '',
+    );
+    expect(pinned.map((el) => el.className)).toEqual([]);
   });
 });

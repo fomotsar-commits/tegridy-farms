@@ -60,6 +60,20 @@ export function gapOf(price: number, market: number): string {
 }
 
 /**
+ * What a pool's price warning says a deposit there loses when the price is traded back to
+ * `market`, in the page's own words: with r the pool's price over the market, a deposit at
+ * the pool's price loses (sqrt(r) - 1) squared over (r + 1) of what it puts in, valued at
+ * the market. Under 1% it is said to one figure, never below 0.01%; the dollars per $100
+ * are the percent itself, to the cent.
+ */
+export function gapCostOf(price: number, market: number): string {
+  const r = price / market;
+  const pct = ((Math.sqrt(r) - 1) ** 2 / (r + 1)) * 100;
+  const shown = pct >= 1 ? pct.toFixed(1) : Math.max(pct, 0.01).toPrecision(1);
+  return `whoever trades it back takes up to about ${shown}% of what you add (about $${Math.max(pct, 0.01).toFixed(2)} per $100)`;
+}
+
+/**
  * What arbitrage would take from these amounts if the price moved to the market, in the
  * coin's base units: with x whole coins and y whole tokens at market price m,
  * (sqrt(x) - sqrt(y*m)) squared. The trade fee is ignored, so it is an upper bound.

@@ -227,8 +227,8 @@ export function isDeployed(address: string): boolean {
   return address !== ZERO_ADDRESS;
 }
 
-// Engagement season — a label + countdown for the points/leaderboard program
-// (LeaderboardPage) and the Farm "Season" stat. This is NOT a claim about on-chain
+// Engagement season — the label and countdown on the farm's own "Season" stat, inside the
+// TOWELI room (the points program it was made for was deleted 2026-10-15). NOT a claim about on-chain
 // LP-farm funding: the LP farm's real reward rate, total funded, and period-end are
 // read live from the contract in <LPFarmingSection/>, and single-asset staking
 // emissions come from useFarmStats (also on-chain). Set these dates to the

@@ -3,7 +3,10 @@ import { artSrcSet } from '../lib/artSrcSet';
 import { Link } from 'react-router-dom';
 import { m } from 'framer-motion';
 import { BUNGALOWS, type Bungalow } from '../lib/bungalows';
+import { ISLAND_SECTION } from '../lib/navConfig';
 import { doorArt } from '../lib/doorArt';
+import { CardArt } from './ui/CardArt';
+import { FinePrint } from './ui/FinePrint';
 /**
  * THE HALL OF DOORS — the venue arrival's island map.
  *
@@ -243,16 +246,11 @@ export function VenueDoors() {
           <h2 className="heading-luxury text-2xl text-white tracking-tight mb-1" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>
             The bungalows
           </h2>
-          {/* 16px, and measured in ch rather than a container width. This is the
-              only place the LIVE / SETTLED / QUIET system is explained and it was
-              set at 13px — smaller than the card labels underneath it — running
-              the full width of the hero. `max-w-2xl` was ~85 characters a line;
-              60ch is the readable measure for a paragraph someone is expected to
-              actually read rather than scan. */}
+          {/* 16px, and measured in ch rather than a container width. One line now
+              (owner, 2026-10-13: minimal words); the LIVE / SETTLED / QUIET system
+              is explained in the FinePrint under the grid. */}
           <p className="text-white text-[16px] max-w-[60ch] leading-relaxed" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>
-            Every island community keeps a door at the venue. {openCount} {openCount === 1 ? 'door is' : 'doors are'} open
-            for business. Settled doors are marked while their people move in; each one still opens to its plaque,
-            contract and trade route. Walk in where you hold.
+            {openCount} {openCount === 1 ? 'door is' : 'doors are'} open. Walk in where you hold.
           </p>
         </div>
       </div>
@@ -260,19 +258,32 @@ export function VenueDoors() {
           as the picker) so thirteen doors read as one place, not thirteen
           tiles floating on loud page art. */}
       <div
-        className="rounded-2xl p-3"
+        className="relative isolate rounded-2xl p-3"
         style={{ background: 'rgba(0,0,0,0.45)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)', border: '1px solid rgba(255,255,255,0.10)' }}
       >
+        <CardArt pageId="venue-doors" idx={0} />
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
           {BUNGALOWS.map((b) => (
             <DoorTile key={b.id} bungalow={b} />
           ))}
         </div>
-        {/* The island's growth line: quiet, true, forward-pulling. */}
-        <p className="mt-3 mb-1 text-center text-[12px] italic text-white/70">
-          The island grows a door at a time. More open as their people move in.
-        </p>
+        {/* The LIVE / SETTLED / QUIET system and the island's growth line, one press away. */}
+        <FinePrint summary="What the doors mean" className="mt-2 px-1">
+          <p>
+            Every island community keeps a door at the venue. Settled doors are marked while their
+            people move in; each one still opens to its plaque, contract and trade route.
+          </p>
+          <p>The island grows a door at a time. More open as their people move in.</p>
+        </FinePrint>
       </div>
+      {/* The island's own page, from its hall: the whole board, the arrival film and its doors.
+          The bar's Island word opens this home (2026-10-18), so this is the lobby's way in. */}
+      <p className="mt-3 px-1 text-[13px]">
+        <Link to={ISLAND_SECTION.hub} className="underline underline-offset-4 text-white/80 hover:text-white transition-colors"
+          style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>
+          The whole island <span aria-hidden="true">→</span>
+        </Link>
+      </p>
     </m.section>
   );
 }

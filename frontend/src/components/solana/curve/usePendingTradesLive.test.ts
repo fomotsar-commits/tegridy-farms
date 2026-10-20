@@ -6,7 +6,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { KEY, SIG, buySummary, prepared } from './fakeWriteApi.fixture';
-import { LP_PENDING_SCOPE, curveTradeScope, readPendingTrades } from './pendingTrade';
+import { LP_PENDING_SCOPE, curveTradeScope, readPendingTrades, swapPendingScope } from './pendingTrade';
 import { usePendingTrades, type CheckSignature } from './usePendingTrades';
 import { lpCreateSummary } from '../lp/fakeLpWriteApi.fixture';
 import { createHeld } from '../lp/offers';
@@ -64,6 +64,26 @@ describe('live notes (the liquidity scope)', () => {
     await act(async () => {});
     expect(check).not.toHaveBeenCalled();
     expect(result.current.notes).toHaveLength(1);
+  });
+});
+
+describe('live notes per wallet (the swap page), with storage blocked', () => {
+  it('a wallet switched away from and back to is still held by the note this tab wrote for it', () => {
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new Error('blocked');
+    });
+    vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+      throw new Error('blocked');
+    });
+    const A = swapPendingScope(KEY(40).toBase58());
+    const B = swapPendingScope(KEY(41).toBase58());
+    const { result, rerender } = renderHook(({ scope }) => usePendingTrades(scope, null, vi.fn(), { live: true }), { initialProps: { scope: A } });
+    act(() => result.current.hold({ kind: 'jupiter-swap', signature: SIG, lastValidBlockHeight: 99 }));
+    expect(result.current.notes).toMatchObject([{ signature: SIG }]);
+    rerender({ scope: B });
+    expect(result.current.notes).toEqual([]);
+    rerender({ scope: A });
+    expect(result.current.notes).toMatchObject([{ kind: 'jupiter-swap', signature: SIG }]);
   });
 });
 

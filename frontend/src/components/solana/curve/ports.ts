@@ -13,6 +13,7 @@
 // drift between the UI and either layer is a type error in exactly one place.
 
 import type { PublicKey } from '@solana/web3.js';
+import type { NoteBlockhash } from '../../../lib/solana/blockhashWindow';
 import type { CurveAccount, CurveRpc, CurveTerms, GlobalConfig, LaunchState, BondingCurve, Read, SolanaRpc } from '../../../lib/launcher/solana/curve';
 import type {
   CreateFacts,
@@ -214,6 +215,8 @@ export interface LpWriteApi {
   /** As `WriteApi.recheckOutcome`: with `cfg` and a liquidity `kind`, a refusal is said in that kind's words. */
   recheckOutcome(rpc: WriteRpc, signature: string, opts?: { lastValidBlockHeight?: number; cfg?: CurveWriteConfig; kind?: LpKind }): Promise<TxOutcome>;
   explorerTxUrl(signature: string, cluster: SolanaCluster): string;
+  /** `page: 'token'` for a mint: Solscan's token page, not its account page. */
+  explorerAddressUrl(address: string, cluster: SolanaCluster, page?: 'account' | 'token'): string;
   meta: Pick<MetadataApi, 'displaySafe'>;
 }
 
@@ -227,7 +230,7 @@ export interface VenueSwapApi {
   readSwapGate(rpc: GateRpc, cfg: CurveWriteConfig | null): Promise<SwapGate>;
   prepareVenueSwap(rpc: WriteRpc, gate: SwapOpenGate, a: VenueSwapArgs): Promise<Prepared>;
   submitPrepared(rpc: WriteRpc, signer: TxSigner, p: PreparedTx, deps?: SubmitDeps): Promise<TxOutcome>;
-  recheckOutcome(rpc: WriteRpc, signature: string, opts?: { lastValidBlockHeight?: number; cfg?: CurveWriteConfig; kind?: LpKind }): Promise<TxOutcome>;
+  recheckOutcome(rpc: WriteRpc, signature: string, opts?: { lastValidBlockHeight?: number; blockhash?: NoteBlockhash; cfg?: CurveWriteConfig; kind?: LpKind }): Promise<TxOutcome>;
   explorerTxUrl(signature: string, cluster: SolanaCluster): string;
   meta: Pick<MetadataApi, 'displaySafe'>;
 }

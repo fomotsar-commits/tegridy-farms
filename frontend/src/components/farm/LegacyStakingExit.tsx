@@ -8,6 +8,8 @@ import { LEGACY_STAKING_ADDRESSES, CHAIN_ID } from '../../lib/constants';
 import { TEGRIDY_STAKING_ABI } from '../../lib/contracts';
 import { useReceiptOutcome } from '../../hooks/useReceiptOutcome';
 import { ArtImg } from '../ArtImg';
+import { CardArt } from '../ui/CardArt';
+import { FinePrint } from '../ui/FinePrint';
 import { noteReplacement } from '../../lib/txErrors';
 
 // The legacy deployments are the same TegridyStaking family as the live one, so
@@ -147,13 +149,12 @@ export function LegacyStakingExit() {
   if (positions.length === 0 && legacyUnread) {
     return (
       <div
-        className="mb-8 rounded-xl border border-amber-500/40 bg-amber-500/10 p-4 text-[13px] text-amber-100"
+        className="relative isolate mb-8 rounded-xl border border-amber-500/40 bg-amber-500/10 p-4 text-[13px] text-amber-100"
         data-testid="legacy-staking-exit-unread"
       >
-        We could not check the retired staking contracts just now — the network did
-        not answer. If you have a position stranded in one, it is still there and
-        still yours; this check failing does not move or forfeit anything. Reload
-        to try again before concluding you have nothing to withdraw.
+        <CardArt pageId="legacy-exit" idx={1} />
+        We could not check the retired staking contracts. Any position in one is still
+        there and still yours. Reload to try again.
       </div>
     );
   }
@@ -189,11 +190,19 @@ export function LegacyStakingExit() {
       <div className="text-amber-300 text-[13px] font-semibold uppercase tracking-wider mb-1">
         Legacy staking position found
       </div>
-      <p className="text-white/70 text-[13px] mb-3">
-        This wallet has TOWELI in a retired staking contract from before the relaunch. That
-        contract is no longer part of the app — withdraw your funds below (they stay yours either
-        way; this is just the exit).
+      <p className="text-white/70 text-[13px] mb-1">
+        TOWELI in a retired contract. Withdraw it below.
       </p>
+      <FinePrint summary="Details" className="mb-2">
+        <p>
+          This wallet has TOWELI in a retired staking contract. Withdraw it below.
+        </p>
+        <p>
+          This wallet has TOWELI in a retired staking contract from before the relaunch. That
+          contract is no longer part of the app — withdraw your funds below (they stay yours either
+          way; this is just the exit).
+        </p>
+      </FinePrint>
       <div className="flex flex-col gap-3">
         {positions.map((p) => {
           const busy = (isPending || isConfirming) && activeIdx === p.idx;
@@ -215,7 +224,7 @@ export function LegacyStakingExit() {
                 </a>
                 {!p.canWithdraw && (
                   <div className="text-amber-300/80 text-[11px] mt-0.5">
-                    Locked until {new Date(Number(p.lockEnd) * 1000).toLocaleDateString()} — early
+                    Locked until {new Date(Number(p.lockEnd) * 1000).toLocaleDateString()}, early
                     withdrawal pays {p.penaltyBps === null
                       ? 'a penalty whose rate could not be read just now'
                       : `a ${(Number(p.penaltyBps) / 100).toFixed(0)}% penalty`}
@@ -242,7 +251,7 @@ export function LegacyStakingExit() {
                   {busy
                     ? 'Confirming…'
                     : p.penaltyBps === null
-                      ? 'Penalty unknown — reload'
+                      ? 'Penalty unknown, reload'
                       : `Confirm −${(Number(p.penaltyBps) / 100).toFixed(0)}% penalty`}
                 </button>
               ) : (

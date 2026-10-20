@@ -153,15 +153,16 @@ export async function expectTxReceipt(
       const hash = href ? /0x[0-9a-fA-F]{64}/.exec(href)?.[0]?.toLowerCase() : undefined;
       if (hash) hashes.push(hash);
     }
-    if (hashes.length === 0) return 'NO VISIBLE RECEIPT LINK ON THE PAGE AT ALL';
+    const first = hashes[0];
+    if (first === undefined) return 'NO VISIBLE RECEIPT LINK ON THE PAGE AT ALL';
     if (wantHash) {
       if (!hashes.includes(wantHash)) return `ONLY RECEIPTS FOR OTHER TRANSACTIONS (${hashes.join(', ')})`;
       matched = wantHash;
-    } else {
-      if (hashes[0] === notHash) return `STILL THE PREVIOUS STEP'S RECEIPT (${hashes[0]})`;
-      matched = hashes[0];
+      return wantHash;
     }
-    return matched;
+    if (first === notHash) return `STILL THE PREVIOUS STEP'S RECEIPT (${first})`;
+    matched = first;
+    return first;
   };
 
   await expect
@@ -253,7 +254,7 @@ export async function expectMinedSuccessfully(page: Page, what: string, since: n
  *
  * ⚠ THIS IS THE BUG THAT KEPT THREE ANVIL LEGS RED, and it was never a missing fixture.
  * Every money surface here renders ONE button that renames itself: "Approve TOWELI" while
- * the allowance is short, the real verb ("Stake & Lock for 90 Days", "Grow the Crop")
+ * the allowance is short, the real verb ("Stake & Lock for 90 Days", "Add liquidity")
  * once it is not. A spec that clicks that button ONCE, on a cold fork, spends its click
  * on the APPROVAL — and an approval deliberately surfaces no `/tx/0x…` receipt
  * (FarmPage.tsx tags it precisely so no stake receipt is fabricated). The spec then waits

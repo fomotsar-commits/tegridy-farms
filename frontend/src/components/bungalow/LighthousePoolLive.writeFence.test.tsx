@@ -14,6 +14,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, waitFor, fireEvent, act } from '@testing-library/react';
 import type { Bungalow } from '../../lib/bungalows';
 import { FENCE_RETRY_MS } from '../../lib/ladder/writeFence';
+import { reloadHeld } from '../../lib/reloadHold';
 
 const DAY = 86_400;
 const WEIGHT_SCALE = 1_000_000_000n;
@@ -87,7 +88,7 @@ const BUNGALOW = {
   stakePool: 'PooLAddr1111111111111111111111111111111111', address: 'MintAddr',
 } as unknown as Bungalow & { stakePool: string };
 
-const noteText = () => screen.getByText('Your share —').parentElement!.textContent ?? '';
+const noteText = () => screen.getByText('Your share:').parentElement!.textContent ?? '';
 const shareCellShows = async (re: RegExp) => {
   await waitFor(() => expect(noteText()).toMatch(re));
 };
@@ -197,5 +198,23 @@ describe('the lighthouse write-slot fence', () => {
     view.rerender(<LighthousePoolLive bungalow={BUNGALOW} />);
     await shareCellShows(/of each payout/);
     expect(document.body.textContent).toContain('30%');
+  });
+});
+
+describe('a new deploy never reloads the page under a write', () => {
+  it('holds the reload while an unstake is with the wallet, and lets it go once answered', async () => {
+    const staking = await import('../../lib/bungalowStaking');
+    let answer: () => void = () => {};
+    vi.mocked(staking.unstakeAndClaim).mockImplementationOnce(
+      () => new Promise((r) => (answer = () => r({ ok: true as const, txId: 'TX-EXIT-A' }))),
+    );
+    await mountHoldingAandB();
+    expect(reloadHeld()).toBe(false);
+    const btn = await screen.findAllByRole('button', { name: 'Unstake & claim' });
+    await act(async () => { fireEvent.click(btn[0]!); });
+    expect(reloadHeld()).toBe(true);
+    await act(async () => { answer(); });
+    await screen.findByText(/Unstake confirmed\./);
+    expect(reloadHeld()).toBe(false);
   });
 });

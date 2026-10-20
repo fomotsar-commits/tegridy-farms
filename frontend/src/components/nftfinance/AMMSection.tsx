@@ -32,6 +32,8 @@ import { useTabListKeys } from '../../hooks/useTabListKeys';
 import { useSafeConnectModal } from '../../hooks/useSafeConnectModal';
 import { useReceiptOutcome } from '../../hooks/useReceiptOutcome';
 import { artImgProps } from '../../lib/artSrcSet';
+import { CardArt } from '../ui/CardArt';
+import { FinePrint } from '../ui/FinePrint';
 import { noteReplacement } from '../../lib/txErrors';
 
 // ─── Constants ────────────────────────────────────────────────────
@@ -469,7 +471,7 @@ function AMMStatsBar({ poolCount }: { poolCount: bigint | undefined }) {
   ];
 
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4 mb-8">
+    <div className="grid grid-cols-3 gap-2 sm:gap-4 mb-8">
       {stats.map((s, i) => (
         <m.div
           key={s.label}
@@ -478,8 +480,8 @@ function AMMStatsBar({ poolCount }: { poolCount: bigint | undefined }) {
           transition={{ delay: i * 0.08 }}
         >
           <ArtCard art={pageArt('amm', 0)} opacity={1} overlay="none">
-            <div className="p-4 text-center">
-              <p className={`${labelClass} inline-flex items-center gap-1`}>
+            <div className="p-3 sm:p-4 text-center">
+              <p className={`${labelClass} inline-flex flex-wrap justify-center items-center gap-1`}>
                 {s.label}
                 <InfoTooltip text={s.tooltip} />
               </p>
@@ -1116,10 +1118,15 @@ function TradeHistory({ deployed }: { deployed: boolean }) {
         {/* F269: once the factory is deployed the "after launch" copy is stale —
             per-pool trade history lives under each pool's expandable card. */}
         <p className="text-xs text-white leading-relaxed max-w-xs mx-auto">
-          {deployed
-            ? 'Expand any tracked pool to see its live swap history. All swaps, fees, and pool interactions are tracked on-chain.'
-            : 'Trade history will appear here once the protocol is live. All swaps, fees, and pool interactions will be tracked.'}
+          {deployed ? 'Open a tracked pool to see its swaps.' : 'Trade history appears once the protocol is live.'}
         </p>
+        <FinePrint summary="Details">
+          <p>
+            {deployed
+              ? 'Expand any tracked pool to see its live swap history. All swaps, fees, and pool interactions are tracked on-chain.'
+              : 'Trade history will appear here once the protocol is live. All swaps, fees, and pool interactions will be tracked.'}
+          </p>
+        </FinePrint>
       </div>
     </ArtCard>
   );
@@ -1695,7 +1702,8 @@ function PoolCard({
   // knows why — the MyPoolsTab remove button sits over this card.
   if (poolInfoError) {
     return (
-      <div className="rounded-2xl border border-[rgba(239,68,68,0.2)] bg-[rgba(13,21,48,0.6)] backdrop-blur-[20px] p-4">
+      <div className="relative isolate rounded-2xl border border-[rgba(239,68,68,0.2)] bg-[rgba(13,21,48,0.6)] backdrop-blur-[20px] p-4">
+        <CardArt pageId="nft-finance" idx={21} />
         <p className="text-sm font-medium text-red-400 mb-1">Pool unreachable</p>
         <p className="text-[12px] text-white/70 mb-1">
           This address didn't respond to <span className="font-mono">getPoolInfo</span> — it may be from an old deployment.
@@ -2584,7 +2592,10 @@ function CreatePoolTab({ deployed }: { deployed: boolean }) {
 
                   {poolType === 2 && (
                     <RiskBanner variant="info">
-                      TRADE pools are exposed to inventory risk. If the NFT floor price drops, your pool may accumulate NFTs worth less than the ETH you deposited. This is similar to impermanent loss in token AMMs.
+                      <span className="font-semibold">Inventory risk:</span> if the NFT floor drops, your pool may hold NFTs worth less than the ETH you deposited.
+                      <FinePrint summary="Details">
+                        <p>TRADE pools are exposed to inventory risk. If the NFT floor price drops, your pool may accumulate NFTs worth less than the ETH you deposited. This is similar to impermanent loss in token AMMs.</p>
+                      </FinePrint>
                     </RiskBanner>
                   )}
                 </div>
@@ -2830,11 +2841,16 @@ function MyPoolsTab({ deployed }: { deployed: boolean }) {
       <ArtCard art={pageArt('amm', 14)} opacity={1} overlay="none" className="rounded-2xl">
         <div className="p-5">
           <h4 className="text-sm font-semibold text-white mb-3">Track a Pool</h4>
-          <p className="text-xs text-white mb-4">
-            {deployed
-              ? 'Enter a pool address. It is checked against the factory before it is tracked; owner controls unlock only when the pool’s on-chain owner is your connected wallet.'
-              : 'Tracking is unavailable until the pool factory address is set — an address cannot be checked against a factory that isn’t there.'}
+          <p className="text-xs text-white mb-1">
+            {deployed ? 'Enter a pool address. It is checked against the factory first.' : 'Tracking needs the pool factory address, which is not set.'}
           </p>
+          <FinePrint summary="Details" className="mb-3">
+            <p>
+              {deployed
+                ? 'Enter a pool address. It is checked against the factory before it is tracked; owner controls unlock only when the pool’s on-chain owner is your connected wallet.'
+                : 'Tracking is unavailable until the pool factory address is set. An address cannot be checked against a factory that isn’t there.'}
+            </p>
+          </FinePrint>
           <div className="flex gap-3">
             <input
               type="text"
@@ -2868,7 +2884,7 @@ function MyPoolsTab({ deployed }: { deployed: boolean }) {
               </svg>
             </div>
             <p className="text-sm text-white mb-1">No pools tracked yet</p>
-            <p className="text-xs text-white">You haven't created any pools yet. Go to Create Pool to get started, or enter a pool address above to track an existing one.</p>
+            <p className="text-xs text-white">Create one, or enter a pool address above to track it.</p>
           </div>
         </ArtCard>
       ) : (
@@ -2920,24 +2936,17 @@ export function AMMSection() {
     <div>
       {!deployed && (
         <div
-          className="rounded-xl px-4 py-3 text-center text-[13px] text-amber-400/80 border border-amber-500/20 mb-6"
+          className="relative isolate rounded-xl px-4 py-3 text-center text-[13px] text-amber-400/80 border border-amber-500/20 mb-6"
           style={{ background: 'rgba(245,158,11,0.06)' }}
         >
+          <CardArt pageId="nft-finance" idx={22} />
           The NFT pool factory is deployed on mainnet; this notice appears only if its address is ever unset. Explore the interface below. <Link to="/security" className="underline hover:text-amber-300 transition-colors">View security details</Link>
         </div>
       )}
+      <p className="text-white/80 text-[13px] mb-4" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>
+        Trade NFTs from a pool, or open one and earn trade fees.
+      </p>
       <AMMStatsBar poolCount={poolCount as bigint | undefined} />
-
-      <HowItWorks
-        storageKey="tegridy-amm-how"
-        title="How does NFT AMM work?"
-        steps={[
-          { label: 'Create a Pool', description: 'Liquidity providers deposit NFTs and/or ETH into a pool and set a bonding curve (spot price + delta).' },
-          { label: 'Traders Buy/Sell', description: 'Traders buy NFTs from the pool (price goes up by delta) or sell NFTs in (price goes down by delta).' },
-          { label: 'Earn LP Fees', description: 'TRADE pools earn LP fees on every swap. BUY/SELL pools are single-sided.' },
-          { label: 'Linear Pricing', description: 'Price changes by "delta" per trade. Predictable, transparent, no oracles needed.' },
-        ]}
-      />
 
       <TabNav active={activeTab} onChange={setActiveTab} />
 
@@ -2954,6 +2963,21 @@ export function AMMSection() {
           {activeTab === 'pools' && <MyPoolsTab deployed={deployed} />}
         </m.div>
       </AnimatePresence>
+
+      {/* How it works, one press away (owner, 2026-10-13: how-it-works goes in a closed
+          drop-down). The four-step strip and its art sit inside, word for word. */}
+      <FinePrint summary="How it works" className="mt-6" testId="amm-how">
+        <HowItWorks
+          storageKey="tegridy-amm-how"
+          title="How does NFT AMM work?"
+          steps={[
+            { label: 'Create a Pool', description: 'Liquidity providers deposit NFTs and/or ETH into a pool and set a bonding curve (spot price + delta).' },
+            { label: 'Traders Buy/Sell', description: 'Traders buy NFTs from the pool (price goes up by delta) or sell NFTs in (price goes down by delta).' },
+            { label: 'Earn LP Fees', description: 'TRADE pools earn LP fees on every swap. BUY/SELL pools are single-sided.' },
+            { label: 'Linear Pricing', description: 'Price changes by "delta" per trade. Predictable, transparent, no oracles needed.' },
+          ]}
+        />
+      </FinePrint>
     </div>
   );
 }

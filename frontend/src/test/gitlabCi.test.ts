@@ -20,7 +20,7 @@ const workflowFiles = () => readdirSync(WORKFLOW_DIR).filter((f) => /\.ya?ml$/.t
 const EXCLUDED: Record<string, string> = {
   'codeql.yml': 'GitHub only: SARIF goes to GitHub code scanning, and the CodeQL licence covers CI for code hosted on GitHub.com.',
   'release.yml': 'Publishes a GitHub Release through the GitHub API (softprops/action-gh-release); no v* tag has ever been cut.',
-  'solana-deploy-artifact.yml': 'Manual mainnet builds: its inputs are spliced into scripts, so an act port needs an input allowlist first, and its program build has the unset-SIZE bug.',
+  'solana-deploy-artifact.yml': 'Manual mainnet builds: its inputs are spliced into scripts, so an act port needs an input allowlist first.',
   'arb-linkage-monitor.yml': 'Schedule only; off GitHub the ops scheduler runs it, not GitLab CI.',
   'revenue-watch.yml': 'Schedule only; off GitHub the ops scheduler runs it, not GitLab CI.',
   'synthetic-monitor.yml': 'Schedule only; off GitHub the ops scheduler runs it, not GitLab CI.',
@@ -28,6 +28,7 @@ const EXCLUDED: Record<string, string> = {
   'error-retention.yml': 'Schedule only, and it holds the Supabase service key, which this runner never gets; off GitHub api/errors.js purges after each stored report.',
   'contracts-coverage.yml': 'Schedule and dispatch only; not run off GitHub, by decision.',
   'mirror-to-gitlab.yml': 'GitHub only: it copies the branches and tags on GitHub to GitLab; on GitLab it would push the project to itself.',
+  'changelog.yml': 'GitHub only: it reads a GitHub pull request\'s file list and description through the GitHub API; a merge request has neither there.',
 };
 const REPLACED: Record<string, { job: string; why: string }> = {
   'gitleaks.yml': { job: 'gitleaks', why: 'gitleaks-action reads PR commits through the GitHub API; the job runs the pinned binary over the same range.' },

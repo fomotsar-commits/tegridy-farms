@@ -21,6 +21,7 @@ import { FundingNextStep } from './FundingNextStep';
 import { LpAmountPair, type LpSide } from './LpAmountPair';
 import { CoinRiskNotice, LpBeforeYouOpen, LpReviewDisclosure } from './LpDisclosures';
 import { PanelFrame } from './PanelFrame';
+import { FinePrint } from '../../ui/FinePrint';
 import { LOCKED_SHARES_TEXT, NOTES_BELOW, cannotFundText, coinExact, reviewOffWhy, sharePct, solAbout, solAboutUp, solExact, tokensAbout, unitsExact, useDebounced, useFlowReports, useSettledAlert, useWalletFacts } from './panelKit';
 import { POOL_RISK_CODES, createHeld, type CreateOffer, type PairFacts } from './offers';
 import { useLpWrites, type LpWrites } from './useLpWrites';
@@ -260,11 +261,13 @@ function CreateInner({
     const done = (price: OutsidePrice) => {
       if (live) setCoinPrice({ key: coinKey, price });
     };
-    readers.outsidePrice(coin.mint, coin.decimals).then(done, (e: unknown) => done({ kind: 'unread', detail: e instanceof Error ? e.message : String(e) }));
+    // Read again (`coinAsk`) asks Jupiter itself, as the card's own read again does (PoolFinder.tsx).
+    const read = coinAsk > 0 ? readers.outsidePrice(coin.mint, coin.decimals, { fresh: true }) : readers.outsidePrice(coin.mint, coin.decimals);
+    read.then(done, (e: unknown) => done({ kind: 'unread', detail: e instanceof Error ? e.message : String(e) }));
     return () => {
       live = false;
     };
-  }, [readers, coinKey, coin.mint, coin.decimals]);
+  }, [readers, coinKey, coinAsk, coin.mint, coin.decimals]);
   // Only the answer to the read that is out now. While the coin's price is read again its
   // old price is not a price: beside the token's new one it would give a market price of
   // no moment at all. Until both are in, the form says "reading" and Match is off.
@@ -918,13 +921,15 @@ function CreateInner({
               Close
             </button>
           </div>
-          <p className="text-white/40 text-[10px]">
-            {!coin.native
-              ? `Your ${coin.symbol} is spent straight from your own ${coin.symbol} account. Nothing is wrapped.`
-              : wsolKept && facts?.kind === 'ok'
-                ? `You already hold ${unitsExact(facts.wsol.amount, 9)} wrapped SOL. None of it is spent.`
-                : 'Your SOL is wrapped into a token account for the opening, and that account is closed in the same transaction.'}
-          </p>
+          <FinePrint summary={`Your ${coin.symbol}`}>
+            <p>
+              {!coin.native
+                ? `Your ${coin.symbol} is spent straight from your own ${coin.symbol} account. Nothing is wrapped.`
+                : wsolKept && facts?.kind === 'ok'
+                  ? `You already hold ${unitsExact(facts.wsol.amount, 9)} wrapped SOL. None of it is spent.`
+                  : 'Your SOL is wrapped into a token account for the opening, and that account is closed in the same transaction.'}
+            </p>
+          </FinePrint>
         </>
       )}
       <div className="space-y-1.5" data-testid="lp-create-terms">
@@ -942,7 +947,7 @@ function CreateInner({
           mono={false}
         />
       </div>
-      <LpBeforeYouOpen fee={fee ?? 0n} neverRefunded={neverRefunded} walletConnected={!!signer} coin={coin} />
+      <LpBeforeYouOpen fee={fee ?? 0n} neverRefunded={neverRefunded} walletConnected={!!signer} coin={coin} reviewing={flow.state.step === 'review'} />
       <p role="status" className="sr-only">
         {flow.state.step === 'idle' ? [coinSaid, status].filter(Boolean).join(' ') : ''}
       </p>

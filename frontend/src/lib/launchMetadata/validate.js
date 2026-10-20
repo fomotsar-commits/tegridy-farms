@@ -56,8 +56,12 @@ export const LIMITS = Object.freeze({
 /** How long a signed upload request stays valid. */
 export const UPLOAD_SIGNATURE_TTL_MS = 10 * 60 * 1000;
 
-/** Where a launch made on this site says it was made. */
-export const CREATED_ON = "https://memetic.fun";
+/**
+ * Where a launch made on this site says it was made: the canonical origin, SITE_URL in
+ * src/lib/constants.ts. Typed out because this file cannot import a .ts module (see the
+ * header); validate.test.ts holds the two equal. Written only: no reader checks it.
+ */
+export const CREATED_ON = "https://memetics.finance";
 
 // ── reserved words ──────────────────────────────────────────────────────────
 

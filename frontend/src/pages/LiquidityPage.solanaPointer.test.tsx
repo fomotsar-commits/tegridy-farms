@@ -14,6 +14,11 @@ vi.mock('../lib/launcher/solana/lpWriteFlag', async (orig) => ({
   ...(await orig<typeof import('../lib/launcher/solana/lpWriteFlag')>()),
   lpWriteMode: () => lp.mode,
 }));
+vi.mock('wagmi', () => ({
+  useAccount: () => ({ isConnected: false }),
+  useChainId: () => 1,
+  useSwitchChain: () => ({ switchChain: vi.fn() }),
+}));
 vi.mock('../hooks/usePageTitle', () => ({ usePageTitle: () => {} }));
 vi.mock('../hooks/usePoolTVL', () => ({ usePoolTVL: () => ({}) }));
 vi.mock('../components/swap/LiquidityTab', () => ({ LiquidityTab: () => null }));
@@ -40,13 +45,21 @@ afterEach(() => {
 describe('/liquidity points a Solana visitor at the Solana LP tab', () => {
   it('with a link in its header, before the paragraph and the pool table', () => {
     mount();
-    const link = screen.getByRole('link', { name: 'On Solana? Create a pool, add or remove liquidity on the Solana LP tab' });
+    const link = screen.getByRole('link', { name: 'On Solana? Create, add or remove on the Solana LP tab' });
     expect(link).toHaveAttribute('href', '/solana-lp');
     const header = screen.getByRole('heading', { level: 1, name: 'Liquidity' }).parentElement!;
     expect(header).toContainElement(link);
     const before = (a: Element, b: Element) => !!(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
     expect(before(link, screen.getByText(/Pair two tokens into a pool/))).toBe(true);
     expect(before(link, screen.getByTestId('pool-table'))).toBe(true);
+  });
+
+  // How the venue earns stays on screen (owner, 2026-10-09): its cut of the TOWELI/ETH pool
+  // fee (on since 2026-10-16), and the separate fee on swaps routed through this site.
+  it('says on screen what the venue takes from the TOWELI/ETH pool fee and that swaps through this site pay it a separate fee', () => {
+    mount();
+    expect(screen.getByText(/On TOWELI\/ETH: 0\.25% to providers, 0\.05% to the venue's treasury \(read 17 October 2026\)/)).toBeVisible();
+    expect(screen.getByText(/Swaps made through this site pay the venue a separate fee/)).toBeVisible();
   });
 
   it.each<[LpWriteMode, string, RegExp]>([

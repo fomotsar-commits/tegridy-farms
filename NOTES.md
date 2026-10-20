@@ -15,6 +15,1202 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-10-19: a dev-server walk that stubs every /api/ request renders a blank page, because the app imports from /api/_lib/
+
+**Believed:** on `vite dev`, which has no serverless functions, answering every same-origin
+`/api/*` request with a 503 JSON body only turns the page's live reads into dashes.
+
+**Measured** (Playwright 1.x chromium against `npx vite --port 5199`, 2026-10-19): with
+`page.route('**/api/**', 503)` the BAYLA door was an empty `<body>` with no `pageerror`; the one
+request the stub answered was `GET /api/_lib/errorPolicy.js`, loaded by the bundle as an ES module.
+Unstubbed, the page's own `fetch('/api/aggregator.js?...')` made vite try to compile the function,
+fail on `./_lib/aggregator-proxy.js`, and draw its error overlay over the page, which then
+intercepted every click.
+
+**Do:** stub by path, and spare the shared code: `page.route((url) => url.pathname.startsWith('/api/')
+&& !url.pathname.startsWith('/api/_lib/'), …)`. The reads fail honestly, the layout renders, no overlay.
+
+## 2026-10-19: a framer-motion stand-in built on a Proxy remounts the tree on every render, so an element held across a state change goes stale
+
+**Believed:** `vi.mock('framer-motion', …)` with `m = new Proxy({}, { get: () => (props) => <div/> })`
+is a transparent pass-through, so a dialog element captured once can be queried after typing into it.
+
+**Measured** (`TopNav.primaryBar.test.tsx`, vitest 5, 2026-10-19): every read of `m.div` returns a
+new function, so React sees a new component type on each render and remounts the whole panel. After
+`fireEvent.change` on the menu's search field, the captured dialog node was detached and still held
+all 38 links; the live dialog held 2. The test passed the assertion only once it re-queried
+`screen.getByRole('dialog', …)` after the change.
+
+**Do:** with that mock, re-query the container and the field after every state change, or return
+one memoised component per tag from the Proxy.
+
+## 2026-10-18: a three-minute fake-clock watch is over in milliseconds, so a real hash before the timer outlasts it
+
+**Believed:** `watch()` (`frontend/src/test/quietHost.ts`), stepping a fake clock 180 s in
+500 ms steps, leaves plenty of room for a call that hashes with WebCrypto before it arms its
+own timeout.
+
+**Measured** (vitest 5.0.3, Node 24, this Windows box): all 360 steps of
+`vi.advanceTimersByTimeAsync(500)` passed in 5 to 16 ms of real time. With each
+`crypto.subtle.digest` held 1.5 s by a spy, both "an answer that stops part-way" tests in
+`launchMetadata/upload.test.ts` returned null ("still pending after 180 s"), the message CI
+gave once on #866 (run 39081813182). The fake clock moves on whether or not the hash has
+answered. How long the CI runner's hash took was not measured.
+
+**Do:** when real-async work runs before the timer, have the stub fetch resolve a promise,
+wait for it in real time, then start the watch, counting from that moment.
+
+## 2026-10-18: a coin with no name in a wallet can still be a room's coin, and a pool someone else opens gives no signal
+
+**Believed:** a pool whose coin shows no name in a wallet pairs some stranger's coin, and a
+room's "Add SOL + <coin>" door appears once its coin has a SOL pool on the venue.
+
+**Measured** (`getProgramAccounts` and `getAccountInfo` on the public mainnet RPC,
+2026-10-18): the venue's pool program held seven pools, and four were SOL pools of room coins
+that no room named: RIZZ's (opened 10-16 18:56Z), BRAINLET's, BOBO's and SOY's (10-17 and
+10-18). An earlier note had called RIZZ's coin unnamed. It is not unnamed on chain: mint
+`5ad4puH6yDBoeCcrQfwV5s9bxvPnAeWDoYDj3uLyBS8k` has a Metaplex metadata account
+(`GYw8brrmdibD5S2RwksCmpqqZNtdA9RJeszeowh593dr`) whose name is
+"SigmaGyattOhioFanumSkibidiGooner" and whose symbol is "Rizz". Its details link points at
+`cf-ipfs.com`, which no longer resolves, so a wallet that loads the coin's details from that
+link gets nothing. The door is hand-written (`venueSolPool` in `lib/bungalows.ts`): until
+#871 named the four pools, those rooms had no door, and nothing said so. #873's check, run
+against the registry before #871, named exactly those four rooms and pools.
+
+**So:** before calling a pool's coin unnamed or a stranger's, match its mint against
+`lib/bungalows.ts`. A coin's on-chain name need not match its room, and a dead details link
+blanks it in a wallet. And any list written by hand that mirrors what others can create on
+chain needs something that reads the program, or it falls behind without anyone knowing.
+
+## 2026-10-18: a token with the same name and a smaller market can be the real coin, carried over a bridge
+
+**Believed:** a second token with the same name and symbol as a resident, on another chain, with a
+far smaller market, is an impostor (the 08-30 check called Base RIZZ `0x58d6…b238` one).
+
+**Measured** (`cast call` on Base, 2026-10-18): Wormhole's token bridge on Base
+(`0x8d2de8d2f73F1F4cAB472AC9A881C9b123C79627`, `chainId()` = 30) answers
+`wrappedAsset(1, <RIZZ's Solana mint as bytes32>)` with exactly `0x58d6…b238`, and that token's own
+`chainId()` = 1 and `nativeContract()` = the mint. Same bridge, `wrappedAsset(2, TOWELI)` = Base
+`0x279e…87ca`; the 52,681,394 TOWELI held by Wormhole's Ethereum bridge
+(`0x3ee18B2214AFF97000D974cf647E7C347E8fa585`) equal that token's whole Base supply. The OP-stack
+standard bridge marks its tokens the same way: Base BOBO `0x570b…3947` answers `remoteToken()` =
+Ethereum BOBO. None of this shows in `name()`/`symbol()`, and the market-size test reads a bridge
+copy exactly like a fake.
+
+**So:** before calling a namesake real or fake, ask the bridges. `wrappedAsset(chain, address)` on
+Wormhole's token bridge, and `remoteToken()`/`l1Token()` on the token for the OP standard bridge, are
+one call each. A wrapped copy is the same coin; whether it is worth listing is a separate question
+(Wormhole's PEPE and $mfer copies on Solana exist and have no market that trades).
+
+## 2026-10-18: Uniswap's SwapRouter02 on Base cannot reach a V2 pair
+
+**Believed:** SwapRouter02 swaps through V2 and V3 on every chain it is deployed to, so one
+`multicall` can buy a basket across both.
+
+**Measured** (`cast call`, 2026-10-18): on Ethereum, `0x68b3…Fc45.factoryV2()` = Uniswap V2's
+factory. On Base, `0x2626…1e481.factoryV2()` = `0x0000…0000`: its `swapExactTokensForTokens` has no
+pairs to reach. Its V3 side works; a fork run (anvil on mainnet.base.org) bought six coins through
+one `multicall(deadline, [exactInputSingle × 6, refundETH])`, each leg paid from the ETH sent with
+the call (the router wraps exactly that leg's amount), no approval. Promising one leg 20% more than
+its pool paid made the whole transaction revert: no coin bought.
+
+**So:** read `factoryV2()` before routing a V2 leg through SwapRouter02 on an L2. A V2 leg on Base is
+its own transaction through the V2 Router02. A `multicall` of exact-input legs paid from `msg.value`
+is all-or-nothing, which is the property a basket wants.
+
+## 2026-10-18: Jupiter's keyless tier refuses the sixth quote in a burst, for longer than a short retry waits
+
+**Believed:** five or six quotes a second apart, or one retry after a 429, stay inside Jupiter's free
+tier.
+
+**Measured** (`curl` through a local `vite preview` relay to lite-api.jup.ag, 2026-10-18): six quotes
+250 ms apart answered 200, 200, 200, 200, 200, 429, and the next one 3 s later was still 429. A
+production build walked with Playwright quoted five coins 1.1 s apart, then the first two quotes at
+the press failed even after a 2.5 s retry; the third, a few seconds later, passed. Before the fix, a
+coin whose Jupiter quote failed was shown as going to the other venue that did quote.
+
+**So:** a failed quote is "price not read", never a reason to route elsewhere. Space a burst about a
+second apart, and give the quote a trade is about to be sent on a longer backoff (2.5, 5, 10 s) than
+a figure on screen. The site's own relay also caps Jupiter at 60 calls a minute per visitor.
+
+## 2026-10-18: a fixed dialog inside an animated card is trapped under the page's fixed bars
+
+**Believed:** a `position: fixed` dialog with `z-index: 101` covers a top bar and a tab bar at
+`z-index: 50`, wherever it is rendered.
+
+**Measured** (Playwright, production build, 1280 px and 390 px, 2026-10-18): rendered inside the swap
+card, which framer-motion animates with a `transform`, the dialog was laid out against the card
+and stacked inside it. The top bar covered its title and close button and, on a phone, the tab bar
+covered its main button. Portalled to `document.body`, the same dialog covered both bars.
+
+**So:** a dialog opened from inside a card renders through `createPortal(…, document.body)`. Any
+ancestor with a transform, filter or `will-change` becomes the containing block and the stacking
+context of a fixed child.
+
+## 2026-10-17: Solscan values a pool's address at its rent; the pool's coins are in its vaults
+
+**Believed:** an explorer link to a pool's address shows the pool and what is in it.
+
+**Measured** (Solscan in Chrome and `getAccountInfo` on the public mainnet RPC, 2026-10-17,
+while fixing #867): `solscan.io/account/ErvzV1NMZmcfAqZtGH4AQhYAjn77nJEworKK1mYPz5w4`, the
+BAYLA/SOL pool's state account, showed "Total Value $0.4008" and "SOL Balance 0.0038862":
+its rent. The pool held 36.209 SOL and 5,699,019.6679 BAYLA. Its two vaults (the keys at
+byte offsets 72 and 104 of the pool account) did show the coins:
+`4HjxickXVJ98vdosH9idfKfsombYrk2nNbWZETS8PjVN` held 36.217428047 WSOL, and
+`8YBj4RCdDKKs4MG6Ck9A3TSciRRocASr12ie7EsxLTe` held 5,699,019.66797 BAYLA. The 0.0084 SOL
+gap is the venue's cut, which stays in the vault until it is collected. A mint sent to
+`solscan.io/account/<mint>` loads a blank account page and then redirects to
+`/token/<mint>`.
+
+**So:** to show what a pool holds, link its vaults, and expect their balances to run a
+little above the reserves until fees are collected. Link a mint to `/token/` directly. Name
+what each link opens: four rows all saying "Explorer" read as one broken link.
+
+## 2026-10-17: a CoW order signed as quoted is refused, and a partner fee is charged on orders it is never paid out for
+
+**Believed:** a CoW order can be signed from the `/quote` response as it comes back, and a
+partner fee named in an order's appData is paid out whatever the order type.
+
+**Measured** (live mainnet calls on 2026-10-17, preparing #861): `POST /api/v1/quote` for 0.1
+WETH returned `feeAmount` 167205522446820 (a network-cost estimate), and `sellAmount` +
+`feeAmount` came to exactly 0.1 WETH. `GET /api/v1/app_data/<hash>` for a made-up hash: 404.
+
+**Found** (read, not run): the orderbook refuses any order whose signed `feeAmount` is above 0
+(`NonZeroFee`, cowprotocol/services #2454, merged 2024-03-04), so a quote signed as returned is
+never placed. The settlement engine charges a partner fee on any order whose appData names one
+(services `crates/autopilot/src/domain/fee/mod.rs`), but docs.cow.fi/governance/fees/partner-fee
+pays it out on market orders only. CoW keeps 25% (CIP-75), pays weekly in WETH, and voids a
+week under 0.001 WETH. The current app-data schemas live in cow-sdk `packages/app-data`
+(v1.15.0, `partnerFee` v1.1.0, `volumeBps`); the old cowprotocol/app-data repo stops at v1.6.0,
+and the legacy `{bps}` shape is still parsed as a volume fee.
+
+**Do:** sign like cow-sdk's `amountsToSign` (`packages/order-book/src/quoteAmountsAndCosts`):
+`sellAmount = quote.sellAmount + quote.feeAmount`, `feeAmount = 0`, and a buy floor of the
+quote after all fees, less slippage. Put a partner fee only on a market swap's appData
+document. To learn whether a document ever reached CoW, read
+`https://api.cow.fi/<network>/api/v1/app_data/<hash>`: 404 means no order carrying it was ever
+accepted. A fee taken on a filled order shows in `GET /api/v1/trades?orderUid=<uid>` as
+`executedProtocolFees`.
+
+## 2026-10-16: a Solana card on a page makes the top bar Solana-only, even where the page connects Ethereum too
+
+**Believed:** mounting `SolanaProviders` for the home's two Solana cards (stake BAYLA, add
+SOL + BAYLA, #858) adds Solana to the home and leaves the top bar as it was.
+
+**Measured** (#858 `9d3fa054`, on the branch build): any page-level `SolanaProviders` reports
+`page` to `lib/solanaSurface.ts`, and TopNav reads that as "a Solana page". Its Connect became
+the Solana-only button ("Connect a Solana wallet") and Ethereum left the top bar. On the same
+page, a Connect then Solana pressed before the lazy cards loaded mounted the top bar's own
+connection (`TopBarSolana`), which steps aside when a page's connection arrives and took the
+open wallet list with it: its buttons stayed detached for 30 s in the e2e walk.
+
+**Do:** on a page that connects Ethereum too, mount `<SolanaProviders mixed>` and list the path
+in `hasMixedSolanaSection` (`lib/routeVoice.ts`). `mixed` keeps the Solana-or-Ethereum sheet;
+the path rule stops the top bar mounting a connection of its own while the page's is on its
+way. Still one Solana connection per page.
+
+## 2026-10-16: an LP form opened by code moves whatever page it is mounted on
+
+**Believed:** the LP door's auto-open (Add with one coin on the room's pool) could be reused on
+the home: its LP card asked for the same form once, when it first drew.
+
+**Measured** (#858 `8f5312c3`, the first walk of the branch build): the home scrolled itself
+about 2,000px down to the card. Two effects do it, both right on the LP tab, where a press or a
+door link asked for the form. An Add panel (`PanelFrame`) focuses its heading and calls
+`scrollIntoView({ block: 'start' })` when it mounts. `PoolFinder` scrolls to a lookup's answer
+when `asked` is set, and every `lookUp`, so every `openAdd`, sets it.
+
+**Do:** where a page that is not the LP tab mounts LP cards, show the Add buttons and open a
+form only on a press. Pin it the way `LpDoor.test.tsx` does: mock
+`Element.prototype.scrollIntoView` and assert it was never called.
+
+## 2026-10-16: a word-budget pass can come from a run where the cards it budgets for never drew
+
+**Believed:** `e2e/word-budget.spec.ts` passing on `/` means the home, cards and all, fits its
+ceiling.
+
+**Measured** (#858): a local run with other specs in parallel passed `/` while the home's lazily
+loaded Solana cards never drew (the public RPC answered 429). The spec cannot tell:
+`waitForQuiescence` resolves silently at its 12 s cap, the cards are a `lazy()` import, and the
+LP card is drawn only once a chain read says the venue is `live`. The same build with the
+ceiling set to 1 failed at 373 words, and its longest blocks showed what was on screen,
+including the LP card's "2 pools found for this token" (a screen-reader line: sr-only text is
+counted too), which #858 then fixed.
+
+**Do:** to read a route's real count, set its ceiling to 1 for one run: the failure prints the
+count and the six longest blocks, so you see that the cards drew. The `[word-budget]` log line
+gives the count on a pass, but not what drew. Put the ceiling back before you commit.
+
+## 2026-10-15: a shorter footer is a change to every page's scroll room
+
+**Believed:** cutting the footer from about 30 links to 8 (#838) touches only the footer's own
+specs.
+
+**Measured:** trunk CI went red in all four projects on `e2e/tab-strip-clears-focus.spec.ts`,
+whose precondition is that a page scrolls more than 200px. /scan at 1280x800 scrolled 100px
+once the footer was 250px tall (read with `scrollHeight - innerHeight` on the production
+build). The local runs before merge had not included that spec.
+
+**Do:** when shared chrome changes height (footer, header, bars), run every spec that reads
+`scrollHeight - innerHeight` or asserts a page scrolls: today `tab-strip-clears-focus`,
+`tab-target-size` and `phone-layout`.
+
+## 2026-10-15: a NavLink lights itself, so two words that open one page both light
+
+**Believed:** a bar word pointing at `/#hall` lights only on the hall, and a `NavLink` whose
+`className` is a plain string carries only the classes it was given.
+
+**Measured** (react-router 7.18.3, `NavLink` in `dist/development`, and the bar's own unit test):
+a string `className` gets ` active` appended, and `aria-current="page"` is set, whenever
+`isActive`, and `isActive` compares the pathname alone. So `/` and `/#hall` are both active on
+`/`: Heat and Rooms lit together on the home. A second trap in the same drawer: index.css makes
+`.nav-link` `inline-flex` under its touch media queries, unlayered, so it beats Tailwind's
+`flex` and two bare drawer links shared a line at 390 and 820 (a Playwright box check, red on
+that build).
+
+**Do:** a word that shares a pathname with another is a plain `Link` with `aria-current` from
+its own rule; give each drawer row its own block (`<li>`).
+
+## 2026-10-14: an element fading out with `visibility` still takes presses, and WebKit can call it hidden while it does
+
+**Believed:** a control hidden with `opacity-0 invisible` and a `transition-[opacity,visibility]`
+stops taking presses when it is hidden, and `checkVisibility()` returning false means a press
+there cannot reach it.
+
+**Measured** (Playwright 1.62, production build, the Towelie corner over /nft-finance's tabs):
+a `visibility` transition keeps the element `visible` until it ends, so for the whole 200ms
+fade it is hit-tested. With motion on, Chromium's press on the tab under it landed on the
+corner at opacity 0.98. With reduced motion every e2e project shortens the fade to 0.01ms, and
+Chromium passed; CI's iPad WebKit failed every attempt with `checkVisibility()` false and
+`elementFromPoint` returning the corner's own picture, on the one scroll step where the class
+had just landed. The press point sat on the rim of the round picture, and only the DPR 2
+device counted the rim.
+
+**Do:** take presses away with something that is not transitioned (`inert`, or
+`pointer-events-none`) in the same render that starts the fade, and test the press with motion
+on, at the first frame the opacity drops below 1. Name the control a stray press lands in
+(`closest('[aria-label]')`), not just its tag: "lands on img" cost a trace dig.
+
+## 2026-10-14: four loads of one heavy page in one WebKit tab is where the iPhone project fails to load
+
+**Believed:** a test that sets a width and reloads the same route four times in one page is
+the same as four tests.
+
+**Measured:** seven full E2E runs on 2026-10-14 held four flakes of the one such test on
+WebKit (`tab-strip-scroll.spec.ts`), all on `iphone-safari` (DPR 3), on four routes, every one
+inside the load: a 60s wait for `load`, "WebKit encountered an internal error", and a page that
+never mounted after a 2.3s load where the first two loads took 0.16 to 0.28s. No other test
+flaked on a WebKit project in those runs. The retry passed each time.
+
+**Do:** read the failing step before calling a flake a race in the page. Give each load its own
+test, as the sibling width specs do; whether that alone ends this flake was not yet shown when
+this was written.
+
+## 2026-10-14: a wallet send error that is not a "cancel" can still mean the swap was sent
+
+**Believed:** when `sendTransaction` from the Solana wallet adapter throws, nothing left the
+browser, so the visitor can press Buy again.
+
+**Measured** (PR #806, wallet-adapter as pinned on trunk): `StandardWalletAdapter` wraps
+everything `signAndSendTransaction` throws in `WalletSendTransactionError`, so for Phantom,
+Solflare and Backpack a failure before signing and a send whose answer was lost look the same.
+Only `WalletSignTransactionError` (a decline) and the adapter's own pre-prompt errors
+(`WalletNotConnectedError`, `WalletConfigError`, `WalletAccountError`) mean "nothing sent". A
+bare `new WalletSendTransactionError()` with no message is byte-identical to a wallet that
+rejected with `undefined` after it may have sent. The case can be played safely on a production
+build: a stand-in Wallet Standard wallet whose `signTransaction` returns the bytes unsigned
+(chains mainnet and localnet listed), and `route.abort` on the `sendTransaction` RPC. The
+adapter then throws `WalletSendTransactionError('Failed to fetch')` and nothing leaves the
+browser.
+
+**Do:** read every non-cancel throw, including an empty one, as "may have been sent", and hold
+the button until the blockhash is dead (next entry). For Streamflow, which reads only
+`publicKey` and `signTransaction` of its invoker, a small wrapper that notes the signature tells
+"never signed" from "signed, then stopped" without forking the SDK.
+
+## 2026-10-14: `isBlockhashValid` says false for a blockhash the server has never seen, and Jupiter's blockhash is already old
+
+**Believed:** `isBlockhashValid(...) === false` means a transaction can no longer land, and a
+Jupiter `/swap` transaction carries a fresh blockhash.
+
+**Measured** (PR #806, mainnet, 2026-10-14): a lagging RPC node answers false for a blockhash it
+has not seen yet. Jupiter's `/swap` transaction arrived with a blockhash that was valid at slot
+456,744,303 and gone by 456,744,489, about 40 seconds after the wallet step, which fits a
+finalized-commitment blockhash. A release built on "height after build plus 300 blocks" waits
+far longer than needed.
+
+**Do:** treat false as "can no longer land" only from a server at or past a slot where the
+blockhash was once seen valid: pass `minContextSlot` and check `context.slot >= ` that slot. A
+note for a transaction the wallet sends itself has no last valid height; the height read after
+the build plus 150, plus a margin for node lag, is a safe upper bound (too high only delays the
+release).
+
+## 2026-10-14: a storage event never fires in the tab that wrote, and a hold that disables a button misses presses already under way
+
+**Believed:** listening for `storage` keeps every tab's copy of a cross-tab hold current, and
+disabling the button is the hold.
+
+**Measured** (PR #806): the event fires only in the other tabs. A note another tab wrote counts
+before its event arrives, so a press read from hook state can go through. A review that rebuilt
+itself, or a press already awaiting a quote, passed a disabled button. Merging a "written while
+storage threw" backup into the notes on every read brought back a note another tab had cleared.
+
+**Do:** update the writing tab directly and use the event only for the others. Read storage
+again at the press and put the last check in the shared send wrapper, at the point just before
+the wallet with nothing awaited after it (here `useVenueSwap`'s `submitPrepared`). Keep the
+in-memory backup only when the storage write really failed (make the save return whether it
+stored). In jsdom, `window.dispatchEvent(new StorageEvent('storage', { key }))` tests the other
+tab. A mid-press race replays on a production build: hold one request with `page.route` while
+another tab writes `localStorage`.
+
+## 2026-10-14: a red run before the fix can be red for a reason that has nothing to do with the fix
+
+**Believed:** the named test failed on the old code, so it guards the fix.
+
+**Measured** across five pull requests on 2026-10-13 and 14: a break-it check on a line the test
+never reaches passed quietly, because a failed read returned early above it (#805). New tests run
+against old product files failed only on their import of a new helper (#806). A test whose first
+failing assertion was bookkeeping never showed the harm in numbers (#799). A restore by
+`git show HEAD:path > path` also erased uncommitted edits (#801).
+
+**Do:** read which path the named test takes before trusting its result. For pre-fix runs, put
+the product files back to the old commit but keep new pure helpers, with a small uncommitted shim
+for new exports. Put the money assertion first. Mutate by copying the file to a backup, applying
+one edit, running the test, copying the backup back and comparing sha256: that proves the
+restore without `git stash` and touches nothing else.
+
+## 2026-10-14: a green pull request can turn red on the merge itself, with no conflict
+
+**Believed:** a PR green on its own head, merged with no conflict, leaves trunk green.
+
+**Measured:** PR #791 was written before `35c2b92c` changed how the swap page waits for a linked
+coin. It merged with no conflict and five own-pool page tests went red on trunk `08596661`.
+Every PR opened afterwards showed the same red "Lint, Type Check & Test" job for a reason that
+was not its own.
+
+**Do:** before blaming a PR for a red job, compare it with trunk's last run of the same job.
+When a train carries copy changes, run `moneyWordsMatchTheChain` after every copy merge: on
+2026-10-14 a sentence shortened in #803 carried a fact #801 had corrected, and only that test
+caught it.
+
+## 2026-10-14: a train branch made of merge commits hides each pull request's secret scan
+
+**Believed:** a train's green "Scan for secrets" covers every PR it carries.
+
+**Measured** (train #809): gitleaks runs here as `git log -p --no-merges --first-parent
+base^..head`, so a branch made of `--no-ff` merges scans only its own non-merge commits. A PR
+that is red on that check is green inside the train.
+
+**Do:** read each carried PR's own scan before the train merges, and apply any skip rule by
+hand. Merging each PR's exact head (read `headRefOid` right before each merge) lets GitHub mark
+every carried PR merged.
+
+## 2026-10-14: a new contract test file can switch off every contract test on GitHub
+
+**Believed:** adding `contracts/test/Foo.t.sol` adds tests and changes nothing else.
+
+**Measured** (PR #799): a file whose name matches no pattern in
+`.github/contracts-test-slices.json` fails the slice coverage guard. Every `forge test` slice
+depends on that guard, so all were skipped and no contract test ran. A skipped job reads as
+not red. A fresh worktree also needs `git submodule update --init --recursive`; a non-recursive
+init fails the first build on `permit2/src/...`.
+
+**Do:** run `node scripts/check-test-slice-coverage.mjs` before pushing a new test file.
+
+## 2026-10-14: zero as "switched off" is also a real value
+
+**Believed:** setting a price to 0 is a clean way to mark a feature off.
+
+**Measured** (PR #799): a mint price of 0 means a free drop, so "off" became "free". A guard
+keyed on "after the first sale" (`totalSupply > 0`) left the zero-sale window open.
+
+**Do:** use a separate flag and let only the timelocked setter clear it. Test every state switch
+with nothing sold as well as after a sale.
+
+## 2026-10-14: the contract size levers were not exhausted: a modifier is copied into every function that uses it
+
+**Believed:** TegridyStaking has no EIP-170 room left without moving logic out.
+
+**Measured** (PR #799, `via_ir`): a modifier used at N sites is inlined N times. Moving its body
+into one private function the modifier calls (the same move as `_requireContract`) saved 48 bytes
+over 6 sites.
+
+**Do:** before calling a contract full, count modifier uses and fold the bodies.
+
+## 2026-10-14: an Ethereum read that "reverted" can be a broken RPC, and some questions need no archive node
+
+**Believed:** a revert from a read means the function is missing or refused, and full event
+history needs a paid archive RPC.
+
+**Measured** (PRs #799 and #801): viem labels a JSON-RPC -32603 "Internal error" as
+`ContractFunctionRevertedError`. drpc's free tier caps `getLogs` at 10,000 blocks and publicnode
+refuses archive ranges, but Blockscout's Etherscan-style API
+(`eth.blockscout.com/api?module=logs&action=getLogs`, and `module=contract&action=getcontractcreation`)
+returned a contract's whole history and its creation transaction in one keyless call.
+
+**Do:** to learn whether a deployed contract has a function, read `eth_getCode` and search for
+`PUSH4 <selector>` (`63xxxxxxxx`; a selector starting `00` is pushed with `PUSH3`, `62`). For an
+EIP-1167 clone, read the template address out of the 45-byte proxy first. A Python script on
+Windows prints `\r\n`: strip `\r` before passing a hash to `cast`.
+
+## 2026-10-14: the "failed: custom program error" line in Solana logs cannot be written by a program, and 6000 means a different thing in each program
+
+**Believed:** a Streamflow error is opaque, and one error number means one thing across a
+vendor's programs.
+
+**Measured** (PR #806): the Streamflow staking SDK throws `ContractError` with `cause` set to
+web3's `SendTransactionError`, whose `transactionLogs` hold the full simulation. Program output
+is always prefixed `Program log:`, so the runtime's `Program <id> failed: custom program error:
+0x...` line is the reliable source of program and code. Code 6000 is `ArithmeticError` in the
+reward programs, `InvalidDuration` in the stake pool and `Unauthorized` in the fee manager.
+
+**Do:** read the program id and the code together from that runtime line, and map codes per
+program. This complements the 2026-10-10 entry on reasons a token's own program can write.
+
+## 2026-10-14: vendoring an upstream Solana program has three quiet traps
+
+**Believed:** `git archive` gives the upstream bytes, a path dependency is just a path, and a
+new `.so` hash means new code.
+
+**Measured** (PR #800, Raydium CLMM): `git archive` applies `core.autocrlf`, so `diff -rq` flagged
+every file. A path dependency inside the workspace folder joined the workspace and dragged its
+dev-dependencies into the lockfile. Moving a git dependency to a vendored path kept the SBF `.so`
+the same size (1,523,176 bytes) but changed its hash, because crate identity feeds the mangled
+symbol hashes. Two builds of the same source, Solana tools 3.1.11 in WSL and 3.1.10 on GitHub,
+both platform-tools v1.52, were byte-identical.
+
+**Do:** vendor with `git -c core.autocrlf=false archive` and clone upstream the same way. Add
+`exclude = ["vendor"]` to the workspace. Compare Cargo.lock by (name, version, source, checksum)
+tuples. Treat a local WSL build as a cross-check for CI. A committed manifest of upstream hashes
+plus the reviewed diff in plain `diff` format can replace a CI clone: undo the diff strictly
+(every `>` line must match) and compare with upstream's hash. To tie an unverified deployed
+program to a commit, compare its programdata's last-deploy slot time with upstream merge times
+and find an error string unique to one commit with `git log -S`; searching the binary for raw
+32-byte keys fails because the compiler inlines constant keys.
+
+## 2026-10-14: a press area made with `::before` can be zero wide, or covered by a later sibling
+
+**Believed:** `before:-inset-y-[N]` grows a button's press area to 44px.
+
+**Measured** (PR #802): with only the vertical insets set, `left` and `right` stay auto and the
+absolutely positioned `::before` is zero wide. A later positioned sibling (a `relative` wrapper)
+painted over another element's `::before` extension. On paper 10px gave 44.5px; a hit test at
++22px missed.
+
+**Do:** add `before:inset-x-0`, or use `-inset-[N]` on all sides. Hit-test with
+`elementFromPoint` at the exact edge points, with about 1px of slack for pixel snapping.
+
+## 2026-10-14: WebKit ignores a focused field's `scroll-margin-top`, and an empty anchor lets a margin collapse through it
+
+**Believed:** `scroll-margin-top` on a field keeps it clear of a fixed bar when it takes focus,
+and an empty anchor sits where it is placed.
+
+**Measured** (PR #802): WebKit reveals a focused element using only the scroller's
+`scroll-padding`, landing it up to about 10 to 15px short; Chromium centres it, so the bug cannot
+be seen there. A zero-height empty anchor let a later sibling's negative `margin-top` (the
+panels' `-mt-14`) collapse through it and moved the anchor up 56px.
+
+**Do:** raise `scroll-padding` only while a field has focus with
+`html:has(:is(input,select,textarea):focus)`, and check focus landings on WebKit. Give an
+empty anchor `display: flow-root`. This adds to the 2026-10-03 entry on WebKit lining up a
+field by its text.
+
+## 2026-10-14: small tool traps met this week
+
+- `spawnSync('npx', args, { shell: true })` splits a multi-word vitest `-t` name into words, so
+  the filter runs the wrong set or none. Run `node_modules/vitest/vitest.mjs` with
+  `process.execPath` and no shell (#805).
+- Git Bash turns a Playwright `-g` pattern that starts with `/` into a Windows path, and the run
+  reports "No tests found". Drop the slash (#802). It also rewrites a lone `/root/...` argument
+  to `wsl`: prefix `MSYS_NO_PATHCONV=1` (#800).
+- `gh run view --log` returns nothing while any job of the run is still going;
+  `gh api repos/<o>/<r>/actions/jobs/<id>/logs` returns a finished job's log at once (#800).
+  Match `^::error::` in guard logs: a printed diff can hold `use crate::error::ErrorCode`.
+- The workflow scratchpad is shared by every agent of a run: a generic `commit-msg.txt` was
+  overwritten by another agent's message twice (#800, #802). Prefix scratch files with the task.
+- A wait for `[aria-busy]` count 0 passes at once, before React has mounted anything. Wait for
+  the fallback to appear, then to go (#802).
+- `vite preview` reuses `server.proxy`, so `/api/solrpc` and `/api/jupiter` reach mainnet, but
+  Vercel functions (`/api/pools`, `/api/aggregator`) are not there: a local walk sees only
+  pools the browser finds by address, and console 404s production does not have (#804, #809).
+  Restart the preview after every build before measuring (#802).
+- Playwright's Chromium "Pixel 5" device matches `(hover: hover) and (pointer: fine)`, so
+  mouse-only UI shows and touch-only tests skip on `mobile-chrome` (#809).
+- `em-dash-zero` counts text nodes that hold a dash, not dashes: removing one of two dashes in
+  one paragraph leaves that route's count unchanged (#801; read in the spec's `proseDashes`).
+- A Python heredoc turns a typed `\b` into a backspace byte inside a regex. Write files that
+  hold backslashes with the file tool (#804).
+- A test that mocks framer-motion with a Proxy returning a new component per access remounts the
+  subtree on every render; element references taken before a click go stale. Re-query (#801).
+- In a TypeScript test that imports an `.mjs`, a default of `= []` is typed `never[]`. Add a JSDoc
+  cast (#800).
+- `gitlabCi.test.ts` needs each `local-gates.sh` command word for word on one CI line: use
+  `run: |` with backslash continuations, never a folded `run: >-` block (#800).
+- To confirm a walk build matches production, build with the two Jupiter fee `VITE_` values:
+  the small `solana-*.js` chunk then has a byte-identical name to the live one (#805).
+- To build trunk without touching a worktree: `git archive <sha> frontend | tar -x` into a
+  scratch folder, junction `node_modules`, `npm run build`, then
+  `npx vite preview --outDir <abs path>` (#802).
+
+## 2026-10-10: an error screen that shows 40 seconds late is not a slow host; it is a timer in a tab that runs timers late
+
+**Believed:** a tab left open across a deploy that showed "Loading..." for about 40 seconds
+before "Something went wrong" had waited that long on the network for a file that no longer
+exists.
+
+**Measured:** the host answers at once. `curl` on the live site for the previous build's
+main bundle, two made-up asset names and a made-up stylesheet: status 200,
+`Content-Type: text/html`, 0.3 to 0.5 s each, and
+`Cache-Control: public, max-age=31536000, immutable`, because vercel.json keys that header
+on the request path and the single-page fallback answers under the asset's name. In a
+browser on the live site, with the service worker in control, `import()` of a missing
+asset rejected after 0.15 to 0.5 s. With two real builds (the commit before PR 782, and
+trunk) on a local host that can switch between them, a tab on the old build that pressed
+the Solana LP tab had its six files answered as HTML within 0.1 s and showed the error
+screen at 0.3 s. The 0.2 s between is one `setTimeout` set inside React: it holds the
+change from a spinner to anything else until 300 ms after the spinner appeared. With
+every timer in the page made 5 s late, the same error screen appeared at 5.27 s, and with
+animation frames stopped instead, at 0.36 s. So the wait is that timer and nothing else. A
+hidden tab is where a browser runs timers late; the tab that was seen live could not be
+made hidden here, so "it was in the background" is the fitting explanation and not a
+measurement.
+
+**Do:** when a screen changes late, time the network and the screen separately before
+blaming either, and make the page's timers late on purpose (wrap `setTimeout` in an init
+script) to see whether the screen follows them. Do anything urgent from the event itself,
+never from the render after it: `vite:preloadError` is dispatched in the same task the
+import fails in, and a reload started there took 0.23 s with the timers still 5 s late.
+Know what the test browser will not show: Playwright starts Chromium with background
+throttling switched off, a headless page never reports `hidden` (minimising its window
+through CDP changed nothing), and `page.waitForFunction` polls on animation frames, so in
+a tab that really is hidden it never returns. A headed window opens on the desktop of
+whoever is at the machine: in the one headed run here the page was already on the new
+build before the scripted press, by nothing the script did, and the run was thrown away.
+
+## 2026-10-14: viem's `fallback` moves to the next RPC on an error, never on a `null`
+
+**Believed:** over `fallback([publicnode, drpc])`, a receipt the first host lacks is read from
+the second.
+
+**Measured:** for an Ethereum transaction in block 25,038,892, `ethereum-rpc.publicnode.com`
+answered `eth_getTransactionReceipt` with HTTP 200 and `"result": null`, while `eth.drpc.org` and
+`eth-mainnet.public.blastapi.io` returned it with 28 logs. A viem client over publicnode then drpc
+threw `TransactionReceiptNotFoundError` ("could not be found. The Transaction may not be processed
+on a block yet."); the same two hosts in the other order returned the receipt. A `null` is an
+answer, so the fallback never asks the second host. A ranked transport picks the first host at
+run time, so one page reads fine for one visitor and fails for the next.
+
+**Do:** for a historical read through a fallback, treat "not found" as "the host that answered
+has no record" and ask a named second host before saying anything. The Solana form of this trap
+is the 2026-10-10 entry "a public RPC host can answer 200 with a history it does not have".
+
+## 2026-10-14: a page's visible words are a number a test can hold, and the first pass only looks finished
+
+**Believed:** once the explanations sit in closed drop-downs, a page stays short; a second
+"fewer words" pass finds little.
+
+**Measured** on the production build (Chromium, `vite preview`, Bayla skin, words of
+`main.innerText`, which excludes a closed details element's body): six days after the
+first pass, the phone showed /pools at 570 words, /solana-lp 390, /bayla 351,
+/nft-finance 320, /dashboard 246, /liquidity 176, /earn 160, and the marketplace landing
+675 behind a splash that stayed up to 12 s with no visible way in. The same fee split was
+on /pools four times. One pass by six builders took them to 295 / 206 / 290 / 233 / 203 /
+126 / 109 / 227, with every card, control and art surface kept and every moved sentence
+in the DOM; the Open button on /earn moved from off the right edge of a 520 px table to
+the first screen, and the TOWELI room's Connect from the eighth screen to the first.
+`e2e/word-budget.spec.ts` now pins a ceiling per route and width, about a tenth above the
+measurement (a count moves with the chain: the marketplace read 227 and 265 on two runs).
+
+**Do:** count, do not read; pin the number so it can only go down; walk the phone and
+look at where the first control is, not whether it exists. Two measuring traps: a
+Playwright `addInitScript` runs before `document.documentElement` exists, so observe
+`document`; and a count taken before a chain read lands is the loading state, so wait for
+the section (a Streamflow pool is ~13 sequential RPCs; the LP section ~20 s).
+
+## 2026-10-14: `vite preview` listens on `localhost` only, and a Bash pipeline commits on grep's exit code
+
+**Believed:** `127.0.0.1:4173` and `localhost:4173` are the same server; `test | grep
+summary && git commit` commits only on a green test.
+
+**Measured:** `vite preview --port 4173` on this machine binds `::1`; `127.0.0.1` is
+refused (Playwright's baseURL says `localhost`, which is why the suite never noticed).
+And one commit went in with a red test because the pipeline's status was grep's (0, it
+matched a line), not vitest's.
+
+**Do:** address the preview by `localhost`. Run the test alone, or capture its status in
+a variable, before the commit in the same chain.
+
+## 2026-10-14: a rebuilt review compared line for line shuts on lines that move by themselves
+
+**Believed:** when a stale review is built again before signing, requiring every rendered
+line to read the same is the safe rule: nothing the reader did not see can reach the wallet.
+
+**Found** (island, answer eighteen: a holder could not get a 1 SOL add signed from a phone).
+Some lines move with nothing in the transaction changed. A price checked against an outside
+market moves every few seconds. A gap estimate printed to the lamport moves with it. A
+priority fee re-read from recent fees moves block to block, and its "share of this trade"
+text with it. In unit tests on the review, a 0.1 SOL add read 0.01% at 12,000 lamports and
+0.03% at 30,000. A review read at phone speed outlives the blockhash, so the rebuild ran on
+almost every press, one of those lines had always moved, and the wallet never opened. The
+rule that was meant to be strict kept a careful reader from ever signing.
+
+**Do instead:** sort the lines by what can move them (mark the element; treat an unknown
+mark as the transaction's own). Hold the transaction's own lines and its instruction bytes
+to equality. Let market and fee lines move, and show what moved while the wallet is open.
+Shut on what is news: a warning in words the reader has not seen, or a move past the
+page's own warning gap. When it does shut, list every line that differs, market lines
+included, so "every other line reads as it did" stays true. Measuring a fee move needs the
+lamports: the review prints SOL to 0.0001, so a few thousand lamports leave the printed
+SOL change unchanged. (`frontend/src/components/solana/curve/useTxFlow.ts` `compare`,
+`reviewLines.ts`.)
+
+## 2026-10-10: a scroll reset in `useEffect` lands after the page is drawn, on every page change, and a test can see it without losing a race
+
+**Believed:** scrolling to the top in `useEffect` on a route change is the standard pattern
+and lands with the new page; where it is late that is a WebKit race, so a test for it can
+only fail now and then.
+
+**Measured** on production builds (Chromium, mobile Chrome, iPhone, iPad and desktop WebKit
+from Playwright 1.62, React 19.3, react-router 7.18). The router commits every navigation
+inside `startTransition`, so the new page and the effect that resets the scroll are one
+commit, and a passive effect of that commit runs in a later task. When the new page's DOM
+landed the window was still where the old page had been scrolled to (600 px), and the jump
+came 3 to 56 ms later; on a page with its own mount jump a second one came at 32 to 355 ms.
+A `MutationObserver` callback runs after the commit's layout effects and before its passive
+ones. A test that scrolls the window inside that callback and then asks whether anything
+jumped to the top afterwards failed 30 of 30 on the old code, in every engine, and passed
+150 of 150 on the new.
+
+**Do:** make the jump in `useLayoutEffect`. React re-runs layout effects (not passive ones)
+when a Suspense boundary hides and re-shows a subtree, so keep the key last handled in a ref
+and do nothing for the same key twice. Test with the observer, not with a wheel and a timer.
+Assert `scrollY > 0`, not the number you set: when content above the fold grows, the browser
+moves the window to keep the visitor's place (250 became 359 in Chromium, 1022 on the iPhone
+build).
+
+## 2026-10-10: one walk of the old build and one of the new cannot tell a race from a regression
+
+**Believed:** walking a flow once on the build before a change and once on the build after,
+and comparing the numbers, shows what the change did. "The same on both" means unchanged and
+working.
+
+**Measured:** a link to a section of a lazily loaded page (`/island` to `/#hall`) landed on
+its section on both builds in the first walk, in 3 of 3 browsers, and was written down as
+working. In a second walk the new build missed it in one browser, which read as a regression.
+Ten runs a browser on each build: 19 of 30 on the old, 18 of 30 on the new. It was a coin
+flip in code the change does not touch (two tries 120 ms apart against a lazy chunk). The
+same second walk put Back 736 px lower on the new build; three more runs on each showed
+both positions on both builds, because that page is 736 px taller once a live read answers.
+
+**Do:** repeat a step ten times on each build before reading a difference, or a sameness,
+and compare counts. Compare what the code decides (was a jump made: the same in every run
+here) before what the browser and the network decide (the final pixel).
+
+## 2026-10-10: a worktree named after its spec makes the spec's name match every test file
+
+**Believed:** `npx playwright test opens-at-the-top` runs `e2e/opens-at-the-top.spec.ts`.
+
+**Measured:** the filter is matched against the whole path. In a worktree at
+`...\wt\opens-at-the-top\frontend` it matched all 39 spec files (591 tests a project), and
+the run looked like a hang for thirteen minutes. `"opens-at-the-top\.spec"` ran the 6. The
+same folder taught a second thing: `npx eslint .` does not read `.gitignore`. A scratch
+folder ignored by git as `*.local`, holding copies of `dist`, turned a clean lint into
+15,835 errors, 126 files from each copy.
+
+**Do:** filter by `name\.spec`, never by a bare name a branch or folder may share. Keep
+scratch builds outside `frontend/`, or move the scratch folder out before the lint gate.
+## 2026-10-14: a button past a table's right edge passes every check that scrolls to it
+
+**Believed:** a phone test that finds a row's button, lets Playwright scroll it into view and
+clicks it shows a visitor can tap it.
+
+**Measured:** /earn, trunk 08596661 production build, iPhone 15 WebKit and Pixel 5 Chromium.
+Every pool's Open button sat at x 394 to 521 on a 393px screen, inside the table's own
+`overflow-x-auto` box. `toBeVisible` passed (the box is not empty), the page itself was not too
+wide (`scrollWidth` 393, so a page-width check passes), and `click()` on "Open TOWELI" reached
+the pool: Playwright scrolled the TABLE sideways first, which no visitor knew to do.
+
+**Do:** scroll the page down only (`window.scrollTo`), then in one evaluate read the button's
+rect against `documentElement.clientWidth` and ask `elementFromPoint` at its centre.
+`e2e/pool-open-buttons.spec.ts` does this.
+
+## 2026-10-14: a see-through bar in a Windows WebKit screenshot can be a blur that browser never draws
+
+**Believed:** page text readable behind the fixed top bar in a Playwright iPhone screenshot
+means the bar lets text through on an iPhone.
+
+**Measured:** /earn, same build, the bar's own contents hidden, brightest pixel inside the bar.
+Playwright WebKit on Windows: 31/255 with `backdrop-filter: blur(20px)` on and 31 with it off,
+while `CSS.supports` said yes to both spellings. Pixel 5 Chromium: 8 on, 31 off. Bar made
+opaque: 0. The Windows WebKit build reports the blur and paints none of it.
+
+**Do:** before calling a glass surface see-through from a WebKit screenshot, switch its blur
+off and compare. Identical pixels mean the test browser; check in Chromium or on a real phone.
+
+## 2026-10-10: `origin/<trunk>` moves under a long job, and without your fetch
+
+**Believed:** the trunk commit named at the start of a job holds for the job, and
+`origin/mvp-launch` in my own worktree moves only when I fetch.
+
+**Measured:** thirteen jobs worked from one clone that day. Two merges 29 seconds apart moved
+trunk 21 commits and 76 files under them, a third followed about 100 minutes later, and nine
+of the thirteen reports listed it as a surprise. Worktrees of one clone share their remote
+refs, so another session's fetch moved mine: `git diff origin/mvp-launch --numstat` went from
+7 files to about 80 with no command of my own in between. A merge simulation of one change
+against a draft exited 0 from the old trunk and 1 from the new, because the new trunk alone
+conflicted with that draft in three files. And where trunk had only gained what a branch
+already held, `git merge-tree --write-tree` of trunk into the branch printed the branch's own
+tree id.
+
+**Do:** read `git rev-parse origin/<trunk>` again before the last diff, before the push and
+before the report. Same tree id: record the merge and keep every gate result. An unpushed
+commit can be replayed on the new trunk with no force push. When a simulation turns red after
+a move, simulate trunk alone too and report only the files that differ. Merging a newer trunk
+into an old branch can also move the lockfile under an install already made (here sharp
+0.35.4 to 0.35.5): compare its hash before the last gates.
+
+## 2026-10-10: a pull request page counts what the branch holds and prints more than the body says
+
+**Believed:** a pull request's page describes that pull request: its own commits, its own
+checks, and the body as it was written.
+
+**Measured:** three readings in one day. A notes pull request of one commit, opened on top of
+an open train, read 75 commits and 111 changed files: the train's 74 and 111, which in turn
+held the 45 commits of the train under it. A branch push had already run a workflow, so at
+the moment another pull request opened, `gh pr checks` listed 10 finished rows from the push
+beside the pending rows of its own run. And GitHub unfurls every `#N` inside a list item into
+that pull request's full title with a state icon: 19 lines of `- #778 <title>` each showed
+their title twice.
+
+**Do:** say in the body what the branch sits on and which commits are its own. Do not read
+"the listed rows are green" just after opening as the pull request's own run. Write
+`#N <title>` lines as plain lines in a paragraph (a body keeps single newlines as line
+breaks) and "pull request N" inside bullets, then read the rendered page before calling the
+body done.
+
+## 2026-10-10: the end of the day's block is where every same-day changelog line collides
+
+**Believed:** two pull requests that each add a line under today's heading in `CHANGELOG.md`
+must conflict, and a line git merges with no conflict has landed in the right place.
+
+**Measured:** with a train open whose line sat at the end of the `### 2026-10-10` block, the
+same new line conflicted at the end and merged cleanly in the middle, one unchanged line away
+from both the top and the end (`git merge-tree --write-tree` exit 0, both lines present).
+Against six open pull requests the end collided with three, the top with one, after the
+second entry with one, and after the first, third or fourth entry with none. The other way
+round, git merged two carried lines with no conflict under 2026-10-03 and 2026-10-04, where
+their old bases had them, and one head's two notes after the file's last entry, out of date
+order.
+
+**Do:** while other pull requests are open, place the line mid-block and prove the spot
+against each open head with plumbing only (`hash-object`, a temporary index, `commit-tree`,
+then `merge-tree --write-tree`, exit 0 required). After every merge of a dated file, conflict
+or not, check that each added line is under today's heading and that the dates never rise
+reading down. Two notes of one date go to the same spot and collide (one did): send notes
+through one pull request.
+
+## 2026-10-10: two timeouts in two layers passed every test of both and gave the wrong one
+
+**Believed:** two pull requests that each make "a read ends after N seconds" can be stacked
+once both test sets pass on the result.
+
+**Measured:** one put a 10 second clock in the transport, the other a 20 second clock in the
+fetch handed to that transport. Git merged them with no conflict and every existing test of
+either passed, because each set times its own layer alone. The composed read ended at 10
+seconds with the transport's sentence, on a page whose words and tests say 20. Only a test of
+the wiring failed: the transport built the way the page builds it, held, still pending just
+past 10 seconds and ended at 20. While writing it, a fake fetch that ignored its abort signal
+left a correct test hanging: the transport aborted and nothing rejected.
+
+**Do:** when stacking timeout work, grep for a fetch wrapper passed into a transport and test
+the composed read at both limits. Let the layer that owns the clock say so on the thing it
+hands over, so a wrapper that drops the note leaves the shorter clock running: the failure is
+a read that ends early, never one that does not end. Make every never-answering fake reject
+on abort, as a browser's fetch does.
+
+## 2026-10-10: a test that opens a page with no parameter is testing the page's default
+
+**Believed:** after merging trunk into a branch that changes what a page opens on, fixing the
+tests that fail is the whole job.
+
+**Measured:** the branch made a swap page open on another coin. Three of trunk's newest tests
+failed. A fourth, about the first coin's notes, kept passing, and still passed with its guard
+line deleted, because that coin was no longer on the form: it was testing nothing.
+
+**Do:** when a change alters a page's default, grep every test that opens that page with no
+parameter, make each one name its subject in the link, and assert the subject is on screen
+before anything else.
+
+## 2026-10-10: a scroll worked out from rendered boxes lands short while an ancestor is scaled
+
+**Believed:** a Safari-only miss of 2 to 5px in "bring the selected tab into view" is font
+metrics, and a looser threshold is the fix.
+
+**Measured:** every page arrives drawn at 99.4% (an entrance pose, `scale: 0.994`), held a
+few frames even with reduced motion on. `getBoundingClientRect` carries an ancestor's
+transform; `clientWidth`, `scrollLeft` and `offsetLeft` do not. A scroll computed from both
+while the page was still scaled landed short, and a transform ending fires no
+`ResizeObserver`, so it stayed short. The signature: the miss was the same for every tab at
+one width and different between widths. For a room R asked for and a scale s, the room left
+settles at `R - (clientWidth - R) x (1/s - 1)`: 22.0px at a 390px window and 19.5px at 820,
+where CI had logged 22, 22, 21 and 19, 19, 19. One machine passed 18 of 18 while CI failed,
+because the lazy page chunk raced the end of the pose.
+
+**Do:** compute scroll positions from `offsetLeft`, `offsetWidth` and `clientWidth`, never
+from rendered boxes (a transformed element is the offset parent of its children). To pin it,
+hold the pose: an init script that scales the page container before the app mounts, at a
+rough 0.9, because at 0.994 a 2px rounding allowance hides the miss at phone width. Assert
+the hold applied (rendered width over `offsetWidth`), or the test proves nothing. When a miss
+is constant at one width, look for a scale before touching a threshold.
+
+## 2026-10-10: a view is on screen before its mount effects have run
+
+**Believed:** once a page's header is visible the page has finished opening, so a test may
+act; and a scroll-to-top on open is something no visitor can see.
+
+**Measured:** over 82 loads, React 19 ran a view's mount effects in a later task than the
+commit that showed it: 70 to 148 ms later on Chromium, 407 to 953 ms with the CPU slowed four
+times, 91 to 1,031 ms on WebKit. A test that scrolled straight after "header visible" had its
+scroll undone by the page's own `scrollTo(0)`: 5 first-try failures in 4 of the 6 newest
+trunk runs, all on iPhone Safari. A simulated wheel turned as the page appeared lost its
+first 120px in 9 of 16 loads on WebKit and 0 of 10 on Chromium. CPU throttling never
+reproduced the order on Chromium (0 of 6). Holding back the scheduler's `MessageChannel` tick
+did, 26 of 26, but only when held at delivery (wrapping `port1.onmessage`): React posts the
+tick inside the commit, so a hold at `postMessage` delayed nothing.
+
+**Do:** before a one-shot action in a test, wait for something the same effect sets (here the
+tab's title, set one line above the jump). Count a flake without re-running CI: `gh run view
+<run> --job <job> --log` and a grep for the "N flaky" block read six runs in under two
+minutes.
+
+## 2026-10-10: reverting the whole fix can pass where one line reverted fails
+
+**Believed:** the strongest break-it check reverts every line of a fix, each added guard can
+be seen red by itself, and a browser test's mutant costs a second full build.
+
+**Measured:** with both lines of an inset fix reverted (the code before the fix) one of its
+tests passed, because the old second line had already counted the inset; only that line
+reverted alone turned it red (48px). Two waits added to a flaky test masked each other:
+either one removed passed 6 of 6, both removed failed 6 of 6. And a mutant bundle from
+`npx vite build --outDir <a folder outside the worktree>` took 5.6 and 8 seconds in two jobs
+and about 2 minutes in a third, against 53 seconds to 5 minutes for `npm run build`;
+`vite preview --outDir` served it on a second port, and a `dist` kept from before a change
+turned a reworked test red in 19 seconds.
+
+**Do:** where lines of a fix can cancel, break them one at a time as well as together. Where
+two guards imply each other, report the pair as the proven unit and name the single removals
+that survive. Build mutants outside the worktree, so `dist` stays the fixed build and no
+mutant is left in it. That covers specs that need only the app bundle: the 2026-10-03 entry
+on a plain `vite build` names the ones that need more.
+
+## 2026-10-10: a port that answers 200 is not your server
+
+**Believed:** I started a preview on a port I had checked was free and the port answers 200,
+so the browser run is against my build; and a port I stopped my server on is still mine.
+
+**Measured:** port 4391 answered 200 from another session's build while my own server had
+exited with "Port 4391 is already in use". In another job a preview was stopped by PID and
+the port was still listening: another session's server had taken it within the same second.
+Stopping a backgrounded `npx vite preview` leaves two node processes, npx and vite, on
+Windows.
+
+**Do:** start with `--strictPort`, read the server's own log for "already in use", and
+byte-compare the served `index.html` with your own build folder before every browser run.
+Stop a server by PID only after its command line (`Get-CimInstance Win32_Process`) names your
+own worktree or output folder, and read the listener's command line again afterwards.
+
+## 2026-10-10: three totals that were not what ran or what was seen
+
+**Believed:** `vitest list` gives the number of tests to reconcile a partial run against,
+chunked browser runs add up to "the whole folder", and after reading 50 screenshots I have
+looked at each.
+
+**Measured:** `vitest list` prints one line per `it.each` template, not per case: 894 lines
+against 1,141 tests run for the same 67 files, and 36 listed for a file that runs 54. A tally
+kept across chunked Playwright runs said 601 tests had run; ticking each spec file off
+against `--list` gave 494. And the image reader dropped older pictures from context past a
+per-request limit ("media removed"), 11 of 27 in one set.
+
+**Do:** reconcile a partial vitest run by file count, and take test counts from the run's own
+"Tests N passed" line. For chunked runs write the per-file counts from `--list` first and
+tick each file off per chunk. Read screenshots three or four at a time and write one line per
+picture before loading more; re-read any that were dropped before saying it was looked at.
+
+## 2026-10-10: a remembered verdict holds only for every input of the check that made it
+
+**Believed:** a verdict kept in page state ("this route's transaction failed its test run")
+is safe when keyed on the trade: the pair and the amount.
+
+**Measured:** the test run that produced it also depended on the slippage and on the wallet.
+After the trader widened the slippage the page still said the transaction had failed its test
+run, for a transaction nobody had tested; a test with only the slippage changed failed on the
+old key. The fix added slippage to the key and missed the wallet, which a reviewer found. The
+verdict was also ended by a check that could not run, and "is it kept" was being read from a
+flag derived for display, which is false whenever the other route has caught up on screen.
+
+**Do:** list every input of the check and key the verdict on all of them. Give it an ending
+for each way it can stop being true, and end it only on a check that ran and passed. Decide
+"a verdict is kept" from the kept state, never from a flag made for display.
+
+## 2026-10-10: the reason a failed simulation gives can be written by the token's own program
+
+**Believed:** the reason string parsed from a failed simulation's logs is the network's
+account of the failure, so it can be shown to the person about to sign.
+
+**Measured:** the parser returned the first log line matching failed, insufficient, slippage
+or 0x, with `Program log: ` stripped. A `Program log:` line is whatever a program in the
+transaction chose to print, so a token's own program could word the cause on the page. After
+the fix, a walk on the built site whose only log was a forged `Program log:` line showed no
+cause.
+
+**Do:** derive anything shown on a standing line or a consent screen only from lines the
+runtime writes: `Program <id> failed: ...` (anchored), a native program's line with no
+`Program log:` prefix, such as the System Program's "Transfer: insufficient lamports X, need
+Y", or a one-word RPC error. Pin it with a test that feeds the forged `Program log:` twin of
+each line. Give advice only where the cause is attributed for certain: the short-transfer
+line names two amounts and not whose account it was.
+
+## 2026-10-10: what a constant-product pool has earned its shares can be read with no history
+
+**Believed:** to say what a pool has paid its liquidity providers you must add up its swaps,
+which means reading its transactions or running an indexer.
+
+**Measured:** in a pool that mints its first shares as the square root of the two deposits
+(Raydium's cp-swap, Uniswap v2), `isqrt(reserve0 * reserve1) / share supply` is exactly 1 at
+opening and can only rise. Read from the BAYLA/SOL pool's current state alone on 2026-10-10:
+372,663,147,122 over 372,631,821,673, so 0.0084065% growth per share, which matched the fees
+of its three swaps counted one by one (4,208,400 lamports to providers). Two things it is not.
+It is not exactly zero before the first trade: every deposit rounds in the pool's favour, and
+29 deposits had already made it 234 units (0.0000000641%). And it is not only fees: 1 SOL sent
+straight into the vault, with no trade, read as 1.9%.
+
+**Do:** use the ratio for "how much each share has grown", free, on every read. Take "has it
+traded at all" from the pool's own trade record, never from the ratio being zero. Before
+stretching it into a rate, ask a second witness that only trades move: here the venue's
+uncollected fee counter, which explained 30,575,562 of the 31,325,449 units of growth.
+
+## 2026-10-10: a public RPC host can answer 200 with a history it does not have
+
+**Believed:** `getSignaturesForAddress` returns an account's transactions on any mainnet host,
+and a missing transaction comes back as an error.
+
+**Measured:** for a pool with 34 transactions over six days, `solana-rpc.publicnode.com`
+returned 1 signature, and `null` with HTTP 200 for transactions one to four days old.
+`api.mainnet-beta.solana.com` returned all 34 and every transaction. Current state (balances,
+accounts) agreed on both hosts, so nothing looked wrong until the counts were compared.
+
+**Do:** before trusting a count or a "first deposit" read from history, ask the host for one
+transaction you know is old. Treat a `null` transaction as "this host has no record", a state
+of its own, never as "it did not happen".
+
+## 2026-10-10: one refused call out of twenty threw the whole page away, every time
+
+**Believed:** reading a page of 20 transactions with `Promise.all` and pressing again on a
+failure gets there in the end.
+
+**Measured:** against a keyless public host, 10 of the 20 calls were turned away with HTTP 429
+on the first press of every walk. `Promise.all` rejected on the first refusal and the code kept
+transactions only after all 20 had answered, so the next press sent all 20 again and half were
+refused again: the page never finished. Waiting for every call to settle and keeping each
+finalized answer that did arrive made the second press ask for 10 and the third for 8.
+
+**Do:** when a batch is retried by a person pressing a button, keep what answered. Count the
+calls on the wire for the second press: if it equals the first, nothing was kept.
+
+## 2026-10-10: a value handed up through an effect is on screen one render late
+
+**Believed:** once a test has waited for a block to leave its "reading" state, everything that
+block derives is on the page.
+
+**Measured:** a row moved into a fold was told its text by the block through an effect, so it
+arrived one render after the figures. Two tests read it straight after the wait. The file
+passed 12 of 13 runs alone and failed in 3 of 4 runs of the wider set on a busy machine, always
+the same two tests, always "unable to find an element". The page itself was right every time.
+
+**Do:** when a fix moves where something is drawn, re-read how it gets there. Wait for the
+thing you assert, not for a neighbour. Then run the wider set several times in a row before
+calling it fixed: five runs of 1,548 tests passed after the two waits were added.
+
+## 2026-10-10: a wallet can grow a transaction you built at 763 bytes to exactly the limit
+
+**Believed:** a transaction's size is what the site built, so one that is 763 bytes has 469
+bytes to spare under the 1,232-byte limit.
+
+**Measured:** on mainnet, 3 of a pool's 30 deposits were signed with 10 extra guard
+instructions the wallet added (about 469 bytes) and each landed at exactly 1,232 bytes. The
+three swaps carried 8 such instructions (427 bytes) and the pool's opening 12. The other 27
+deposits carried none.
+
+**Do:** when sizing a new transaction, leave room for what the wallet adds, and take that
+figure from real signed transactions, not from the docs. Before building two steps into one
+transaction, sign one of that shape in a real wallet.
+
+## 2026-10-10: a price feed's candles are for the pool's first-named token, and a builder's 200 is not the program's yes
+
+**Believed:** asking a candle feed for a token's top pool gives that token's price, and an
+order API that returns a transaction has accepted the order.
+
+**Measured:** GeckoTerminal's candles describe the first-named token of the pool. For USDC
+the top pool that day was another coin paired with USDC, so the same lookup that is right for
+BAYLA would have printed the other coin's price as USDC's. Separately, Jupiter's recurring
+order API built a transaction for a Token-2022 token in both directions, and the program
+rejected it when simulated (error 3007).
+
+**Do:** check that the feed's base token is the one you asked about and say "unread" when it
+is not. Simulate what a builder hands back before offering it to someone to sign.
+
+## 2026-10-09: an expected value built by the function under test cannot see a wrong constant inside it
+
+**Believed:** the address a launch's details file says it was made on (`createdOn`) was
+covered. Five test files build or fake that file, and the canonical host has its own guard
+tests.
+
+**Measured:** the address was written on 2026-09-26 as the host the venue had left on
+2026-09-20, and every test stayed green for 13 days. Three of the files build the file with
+`buildMetadataJson`, the function that writes the address: two compare its output with its
+own output, so both sides held the same wrong host, and one reads the file back through a
+parser that ignores the field. The other two typed a host into a fake upload, two different
+hosts, and asserted nothing about either. Each canonical-host guard pins a
+surface it names (index.html, the sitemap, the middleware, the bot's defaults); a surface
+written after the move was on no list. One assertion against `SITE_URL` failed on its first
+run: `expected 'https://memetic.fun' to be 'https://memetics.finance'`.
+
+**Do:** pin a constant that is written out and never read back against its source of truth,
+not against the function that writes it. A test that calls that function for its expected
+value is checking the plumbing, which is worth having, and says nothing about the value.
+After a host moves, also search shipped code for the old host as text: the listed surfaces
+are only the ones somebody thought of.
+
+## 2026-10-08: a workflow's green runs can all have skipped the job that is broken
+
+**Believed:** a manual workflow whose last five runs are green builds what it says it builds.
+
+**Measured:** `solana-deploy-artifact.yml` has two jobs, each behind an `if:` on which
+program was asked for. All five green runs from 2026-09-09 on built bayla-ladder; the job
+that builds cp-swap and tegridy-launch read `skipped` in each (`gh run view <id> --json
+jobs`). That job's last step printed `$((SIZE * 2))` under `set -euo pipefail` with `SIZE`
+never set. Run as the runner runs it (`bash -e <script>`, a dummy `.so`, Git Bash 5.2.37) it
+exited 1 with `SIZE: unbound variable`, before the checksum file and the upload; with only
+`-u` taken off it exited 0 and printed `solana rent 0`. GitHub accepted the file throughout.
+
+**Do:** for a workflow with jobs behind `if:`, read which jobs ran, not the run's conclusion.
+To try a step without a runner, take its script out of the file, fill in its expressions, and
+run it under the same shell options beside a dummy input. An unset name is fatal only under
+`-u`, and in arithmetic it would otherwise read as 0 and print a wrong number in silence.
+
+## 2026-10-08: after fetching two refs, FETCH_HEAD is the first one
+
+**Believed:** `git fetch origin mvp-launch pull/695/head`, then
+`git merge-tree --write-tree HEAD FETCH_HEAD`, simulates a merge with the pull request.
+
+**Measured:** `FETCH_HEAD` resolved to the first ref fetched, the trunk. The simulation
+exited 0, clean, for a pull request that conflicts in two files (exit 1 once its own sha was
+passed).
+
+**Do:** fetch the one ref, put `git rev-parse FETCH_HEAD` in a variable straight away, and
+check it against `gh pr view <n> --json headRefOid` before simulating anything.
+
+## 2026-10-08: every caller had a branch for a read that failed, and the failure never reached one
+
+**Believed:** the swap page treated an unanswered read as "no answer" (law 8): every
+caller of a read had a branch for a read that failed.
+
+**Measured:** the failure never reached those branches. Three functions answered "could not
+check" with the same value as a finding. `refresh()` returned `[]` for "no pools" and for a
+read of our pools that failed. `prepareJupiterSwap` returned `blocked` both for a test run
+that refused the transaction and for a no-fee retry whose quote, build or test run threw.
+Its fail-open `ready` (first test run threw) looked the same as a clean run. A reviewer
+reproduced each in a page test: Jupiter's transaction sent with our pools unread; our pool
+built with a review saying Jupiter's transaction "failed its test run" when it was never run.
+
+**Do:** give "could not check" its own value where it is made (`null`, `unchecked: true`),
+then read every caller. A caller cannot honour a distinction its input does not carry.
+
+## 2026-10-08: `tsc -b` in a throwaway worktree can write the main checkout's build cache
+
+**Believed:** a git worktree with `node_modules` symlinked from the main checkout is
+isolated: what runs there does not touch the main tree.
+
+**Measured:** `tsc -b` keeps its incremental state in `node_modules/.tmp/*.tsbuildinfo`, so a
+worktree that symlinks `node_modules` shares that state. An agent's `tsc -b --noEmit` in such
+a worktree rewrote the three files the main checkout's `tsc -b` reads. A later clean result
+in the main checkout could have been an answer about the worktree's sources.
+
+**Do:** in a shared `node_modules`, run the gate as `npx tsc -b --noEmit --force`, or give the
+worktree its own `node_modules/.tmp`. Re-run with `--force` before trusting a clean `tsc -b`
+after any worktree run.
+## 2026-10-10: a cache told not to store a wrong answer still hands it on, when the cache behind it holds the same answer
+
+**Believed:** the service worker stored the app's page under an asset's name, so a check
+that stops it storing HTML fixes a visitor whose browser runs the worker.
+
+**Measured:** Chromium 151, the built app and the real `public/sw.js`, on a local host that
+sends what production sends for an asset name it does not have (status 200, `text/html`,
+`Cache-Control: public, max-age=31536000, immutable`). With the check alone the worker's
+cache stayed empty, and once the host had the file again `fetch()` still got the page,
+`import()` failed and the host was asked 0 times: the worker's own `fetch(request)` is
+answered from the browser's HTTP cache, which had kept the page for its year. Asking a
+second time with `fetch(request, { cache: 'reload' })` when the first answer is a page
+reached the host, returned the file and replaced the browser's entry: with the worker then
+unregistered and its caches deleted, the browser answered with the file and asked the host
+0 times. A `<link rel="stylesheet">` (a no-cors request) healed the same way. Playwright's
+WebKit 26.5 showed the worker's half and the same repair, but its own cache kept nothing
+between two page loads with no worker at all, so it says nothing about Safari's cache.
+
+**Do:** when a worker sits in front of the browser's cache, name both caches and prove each
+alone. Read the worker's with `caches.open(name)`; then unregister the worker, delete its
+caches, and count the requests that reach the host. `cache: 'reload'` is how a worker gets
+past the browser's cache and repairs it in one request. A browser with no worker in control
+is not reached by any of this.
+
+## 2026-10-10: `vite preview` does not answer a missing asset the way the host does
+
+**Believed:** `vite preview` answers a file it does not have with index.html and status 200,
+as production does, so it can stand in for the host when the question is what a browser
+keeps.
+
+**Measured:** vite 8.3.0, `curl` on a made-up `/assets/` name with each `Sec-Fetch-Dest`:
+`script` gets status 404 and an empty body; `style`, `font`, `image` and `empty` (a
+`fetch()`) get the page with status 200. Production gave the page to all of them. Every
+answer from `vite preview`, real files included, carries `Cache-Control: no-cache` and
+`Vary: Origin`; production sent `public, max-age=31536000, immutable` and no `Vary`. Seen in
+Chromium as a result: the browser's own cache never kept the page, so that half of the
+fault cannot be shown there; and the worker's Cache held one URL apart by request. An
+`import()` carries an `origin` request header and a `fetch()` does not, so a page stored
+for a `fetch()` was not matched by an `import()` of the same URL, which went to the network
+and loaded while `fetch()` still got the stored page. `cache.match(url)` said "no entry"
+for a response an `import()` had stored; `{ ignoreVary: true }` found it.
+
+**Do:** read the real host's headers first (`curl -s -o /dev/null -D -`), and build the
+local host from them: a Node server of about 60 lines did. Ask the way the page asks: an
+`import()`, a `<link>` and a `fetch()` are three different requests. When a test looks in a
+Cache, pass `ignoreVary: true` or list `cache.keys()`.
+
+## 2026-10-10: on Vercel a 404 carries the header rules of its path
+
+**Believed:** leaving `/assets/` out of the single-page rewrite in `vercel.json` makes a
+missing asset a plain 404, and a 404 is not something a browser keeps.
+
+**Measured:** on memetics.finance only `/api/` paths can answer 404 today (the rewrite
+leaves them out). `/api/zz-not-a-file` answered 404 with `Cache-Control: public, max-age=0,
+must-revalidate`, the platform's default, and the `X-Frame-Options` of the `/(.*)` rule.
+`/api/zz-not-a-file.map` answered 404 with `Cache-Control: no-store` and `X-Robots-Tag:
+noindex`, both from the `/(.*).map` rule. So a header rule is applied to a 404 by its path,
+Cache-Control included. A 404 under `/assets/` could not be read, because nothing there can
+answer 404 today; by the same rule it would carry `max-age=31536000, immutable`. Chromium
+151 keeps a 404 sent with that header: on a local host that answers a missing asset that
+way, the next ask after the host had the file again was answered 404 from the browser's
+cache, 0 requests reached the host, and `import()` failed. The path decides the header for
+the page too: a made-up `/icons/` name got the page with the year-long header, and made-up
+`/art/` and `/_derived/` names got it with seven days.
+
+**Do:** before turning a wrong 200 into a 404, find a path that already answers 404 under a
+header rule and read what it sends. `headers` in `vercel.json` matches the request, never
+whether a file exists. Vercel's reference (read 2026-10-10) lists the one thing that did,
+`handle` in `routes`, as deprecated. And a repair written for the wrong answer of today
+(`public/sw.js` asks again when it is handed a page) does not fire for another wrong answer:
+change what the host sends for a missing name, and that check changes with it.
+
 ## 2026-10-08: a test rewritten for a new rule can stop holding the old rule it also held
 
 **Believed:** a pull request that changes one assertion in an existing test (a pool's price
@@ -148,6 +1344,134 @@ page: they count and find it whether or not anyone can see it.
 **Do:** when rows are folded, go through each and ask whether any value of it is a warning.
 Draw that case outside the fold. A test that finds text in a closed fold proves the text
 exists, not that it is shown: assert it is not inside the `details`.
+
+## 2026-10-07: a `WalletSignTransactionError` means the person declined
+
+**Believed:** the Solana write path's decline test could match the adapter's error class
+name, because a sign that throws is a prompt the person said no to.
+
+**Read, in `@solana/wallet-adapter-base` and every adapter in `lib/solanaWallets.ts` and
+`lib/solanaWalletConnect.ts`:** each one rethrows ANY failure inside `signTransaction` as
+`new WalletSignTransactionError(inner.message, inner)`: a wallet that broke before its prompt
+opened, a WalletConnect session that never granted signing, and a real "no" all wear the same
+class. A Trust Wallet LP add that failed with no prompt read "You cancelled in your wallet".
+And Trust's real "no" is not words at all: `trust-web3-provider`'s `CallbackAdapter` turns the
+app's numeric answer into `RPCError(4001, '4001')`, and an older build rejects with a bare
+string, so `inner.message` can be `"4001"` or `undefined`. And the library adapter throws
+three errors unwrapped, with a name and no words, before the wallet is asked at all
+(`WalletNotConnectedError`, `WalletConfigError`, `WalletAccountError`).
+
+**Do:** decide a decline from the wallet's own error under the wrapper (`.error`, then
+`.cause`): code 4001, or reject/declin/denied/cancel in its words. Anything else says what
+the wallet said, so the next report carries the real reason. Where there are no words, say
+the code or what the error's name tells before settling for "it gave no reason".
+
+## 2026-10-07: a request timeout covers the whole request
+
+**Believed:** a transport's timeout ends any request that is not answered in time. So
+"viem gives up after 10 s per endpoint" means an Ethereum or Base read is never waited on
+for longer than that, and a hand-written timer copied from it bounds the read the same way.
+
+**Measured:** viem 2.56.8 on Node 24.13.0, its `http` transport with no retries, against two
+local servers. One never answers: the request threw `TimeoutError` after 10.1 s. One sends
+a 200, its headers and half a JSON body, then nothing: the request was still pending after
+the 30 s watched. viem's timer wraps only the `fetch` call and is cleared when the headers
+land; the body is read after it, with no clock. The same shape written by hand for the
+Solana transport (`browserRpc`), with the clock stopped at the headers, passed 39 of its 40
+tests. The one that failed used a response whose `json()` never ends. A second trap sat
+beside it: an abort that lands during the body read does not come back as an abort. With a
+fake whose `json()` rejects as a browser's does, the call reported "the response was not
+JSON (The operation was aborted.)", because the wrapper around the parse caught it first.
+
+**Do:** keep the timer running until the body has been read, and clear it in a `finally`.
+Decide "timed out" from the controller (`signal.aborted`), never from the error's name or
+message. Test with two fakes: a fetch that only ends by being aborted, and a response whose
+`json()` only ends by being aborted. Before leaning on a library's timeout, run it against
+a server that sends headers and half a body.
+
+## 2026-10-07: a Playwright route can play any way a host goes wrong
+
+**Believed:** `page.route` covers every network failure a browser test needs: refuse the
+request, hold it, or answer it.
+
+**Measured:** a route answers with a whole body or not at all (`route.fulfill` takes the
+body in one piece), so "headers and half a body, then nothing" cannot be played through it.
+What worked, on Chromium 151 with the production build untouched: a local Node `https`
+server with a self-signed certificate that writes the headers and half the body and never
+ends the response; Chromium started with
+`--host-resolver-rules=MAP <rpc host> 127.0.0.1:<port>` for each host; and the context
+opened with `ignoreHTTPSErrors: true`. The bundle, its URLs and its CSP stay as shipped.
+The server sees when the browser hangs up (`res.on('close')`), which is the moment an
+abort landed: 10.0 s for every read, 2.0 s for every ranker ping. While any route was
+registered on the context, no CORS preflight reached the server; only the POSTs did. In two
+runs started together on a busy machine, the first round of 2 s pings never reached the
+server and the round a minute later did; in a run by itself they arrived at once. Why was
+not established.
+
+**Do:** to stall a body in a real browser, resolve the hostname to a server of your own
+instead of routing the request. Run one browser at a time when the first seconds matter,
+and log every timestamp against one start point.
+
+## 2026-10-07: timing a body read that a library leaves untimed takes a second timer
+
+**Believed:** viem's request timeout stops at the headers, so covering the body means
+wrapping `fetch` with our own `AbortController`, our own timer and our own timeout figure.
+
+**Measured:** viem 2.56.8, on Node 24.13.0 and in Chromium 151 (a production build, the
+RPC hostnames resolved to a local TLS server). viem clears its timer when the `fetchFn` it
+was handed returns, and the signal that timer aborts is the one it hands that function. So
+a `fetchFn` that reads the body before it returns puts the body on viem's own clock. With
+every host sending headers and half a body, a read through the Ethereum roster ended as
+viem's `TimeoutError` after 81.05 s of fake clock, the same instant as with silent hosts
+(Base, three hosts: 121.05 s); before, it was still pending after 300 s. In Chromium the
+burn card said "Reading" for the 150 s watched before, and gave up 81.5 s in after. Three
+things came with it:
+
+- Reading the body yourself steps around viem's 10 MiB limit on an answer, which it
+  applies while it streams. The wrapper has to stop at the same limit.
+- viem's ranker waits for every ping of a round. One ping whose body stalled ended ranking
+  for the visit: one round in 70 s where there should be two.
+- Given a caller's signal, viem's `http` transport hands `fetch` that signal instead of its
+  timer's, and then nothing times the request at all. `fallback` drops a caller's signal
+  today, which is the only reason this does not bite.
+
+**Do:** before putting a timer beside a library's, read when the library clears its own and
+what it passes to the function you are allowed to replace. Pin the result on the real
+config: a fake clock, a body that only ends by being aborted, and the assertion that the
+read ends exactly when a silent host's does. When you buffer a body a library would have
+streamed, keep its size limit.
+
+## 2026-10-07: moving the body read under the timer is the whole fix, and an AbortError fake proves it
+
+**Believed:** a hand-written `fetch` whose timer is cleared at the headers needs one line
+moved, and a test fake whose body rejects with an `AbortError` when the request is aborted
+shows the fix works.
+
+**Measured:** vitest 5.0.3 on Node 24.13.0, ten sites fixed in one round.
+
+- The fake decides what the test can see. Each fix was mutated to ask the error's name
+  (`e.name === 'AbortError'`) where it asks the controller's signal. With a body that
+  errors as an `AbortError`, 4 of 5 mutations passed every test. With a body that errors as
+  a `SyntaxError`, which is what half a JSON body is to a parser, 5 of 5 failed.
+- In three sites the `finally` that stopped the timer at the headers also removed the
+  caller's abort listener. A caller that cancelled 1 s into the body read was ignored: the
+  call was still pending after the 30 s watched.
+- In two sites one timer was shared by a three-attempt retry loop and cleared at the first
+  headers. After a 500 the second attempt had no timer: still pending after the 120 s
+  watched. A request that was never answered ended after 33 s and 3 requests where 30 s and
+  1 were meant, because the loop slept and retried twice on a signal already aborted.
+- The scan for the shape had been run over `frontend/`. Run over the repo (1,125 files) it
+  found a tenth site, in the Solana indexer, a process with nothing else to end the wait.
+- The code under test loaded a mocked library with `await import()` on first use. On the
+  fake clock the first test gave up before that load ended, and its call ran on into the
+  next two tests, which reached the real class: 3 of 16 failed until the test file
+  imported the library statically. Why the real class was reached was not established.
+
+**Do:** make the fake body fail as a parse error, and mutation-check the fix by making it
+ask the error's name. Before moving a body read under its timer, list what else the same
+`finally` undoes and what else shares the timer, and test each. Run a shape scan over the
+repo, not the folder the first hit was in. Import statically, in the test file, whatever
+the code under test imports lazily.
 
 ## 2026-10-06: a lookup that derives one address answers about that address, not about "our pool"
 
@@ -558,6 +1882,47 @@ counts nowhere. The line now says which project it is about.
 from one run is a claim about that project and no other. Give each entry the projects it
 belongs to, or collect every run before deleting anything.
 
+## 2026-10-06: a fake-clock test that runs ten periods in one jump proves a timer never fires
+
+**Believed:** `await act(async () => { await vi.advanceTimersByTimeAsync(10 * PERIOD) })`
+straight after `renderHook`, then "the read was called once", shows that a retry timer did
+not fire in ten periods.
+
+**Measured:** React 19.3.0, vitest 5.0.3, `@testing-library/react` 16.3.3, the gate hook's
+retry (`useWriteGate.ts`). The hook's first answer is a promise. The state it sets, and the
+effect that arms the timer, are drawn only when that `act` call ends, and by then the fake
+clock has already moved the whole jump. So the timer is armed after the wait, and nothing
+could have fired inside it. With the rule broken on purpose (every closed gate counted as
+unread, so every one should have been read again), all five "never asked again" cases
+stayed green at one read each. A removed `clearTimeout` stayed green for the same reason:
+the timer armed by the first answer and the one armed after a pressed Refresh were both
+armed at the same clock time, so they fired together as one read. After the tests were
+changed to land the first answer in its own zero-length `act`, then move one period per
+`act`, the first break failed seven tests where it had failed one, and the second failed
+one where it had failed none.
+
+**Do:** under a fake clock, give the first answer its own `act` with a zero-length wait,
+then advance one period per `act`. A "never fires" check is only worth keeping once
+breaking the rule it guards has turned it red.
+
+## 2026-10-06: a vitest worker that runs out of memory leaves a summary with passes and no failure line
+
+**Believed:** a test file with a broken test shows a failed test in the summary, so a
+filter on the failure marks and the totals is enough to read a run.
+
+**Measured:** vitest 5.0.3. A new test passed `load: async () => api` inside `renderHook`'s
+callback. That makes a new function on every render, the hook's effect depends on it, and
+each run of the effect sets state: an endless render loop. The worker died with
+`FATAL ERROR: ... JavaScript heap out of memory` and `Worker exited unexpectedly with exit
+code 134`. The summary read `Test Files  (1)` and `Tests  7 passed (30)`: no failed file,
+no failed test, and 23 tests never ran. Run with two other files, the totals of all three
+were mixed together, and the crash showed only as an error line a filter can drop.
+
+**Do:** read the totals as a sum: passed plus failed plus skipped must equal the number in
+brackets, and the file count must name a result. When they do not, the run did not
+complete, which is not a pass and not a fail. In a hook test, make every function the hook
+depends on once, outside the render callback.
+
 ## 2026-10-04: a test that asks the app's own planner what a row should read agrees with the app whatever it does
 
 **Believed:** the end-to-end check of the "Locked in the pool forever" row was independent of
@@ -654,6 +2019,165 @@ and a picture would have been let in and then let out by three builders that all
 
 **Do:** a test of a rule over a list needs at least two items, with the one that matters not
 in the first place, and where order matters, first and last being different items.
+
+## 2026-10-04: a box that is the same on two frames has come to rest
+
+**Believed:** two things. That `locator.boundingBox()` followed by a `page.evaluate` using
+that box asks one question. And that an element whose box is unchanged across two animation
+frames (Playwright's own test for "stable") has settled.
+
+**Measured:** `e2e/modal-close.spec.ts` on an `npm run build` bundle under `vite preview`,
+chromium, one worker, 12 repeats: 3, 5 and 10 of 12 failed, the X "covered" by the dialog's
+own content wrapper. Sampled every frame from the moment the dialog mounts, the X is never
+covered. The dialog mounts in its entrance pose (`matrix(0.95, 0, 0, 0.95, 0, 10)`, X at
+950.7,149.7 and 41.8px wide), holds that pose unchanged for 3 or 4 frames (about 100 ms),
+then snaps to rest (`transform: none`, X at 967.0,123.4 and 44px). That is with reduced
+motion on, which the suite sets: the transform is not animated, but it still lands late. The
+centre of the entrance box is 3.2px below the X at rest. Ten runs with a 400 ms pause
+between the spec's two reads: the 6 that read the entrance box hit the wrapper, the 4 that
+read the rest box hit the X. So a pass meant both reads fell on one side of the snap, on
+either side, and a fail meant the snap fell between them. In all four sampled runs a wait for
+two unchanged frames alone would have stopped in the entrance pose.
+
+**Do:** read a box and use it inside ONE `page.evaluate`: `getBoundingClientRect` and
+`elementFromPoint` in the same task cannot have a frame between them. To measure at rest,
+wait first for a sign that the entrance is over (here the dialog's computed `transform` is
+`none`) and then for an unchanged box. With both: 60 of 60 on chromium, 18 of 18 on the other
+three projects, and still red when the wrapper is given the X's z-index.
+
+## 2026-10-04: a page too wide for its window can be scrolled sideways in every test browser
+
+**Believed:** `scrollWidth <= innerWidth`, or `scrollTo(500, 0)` and then reading `scrollX`,
+shows a page that is too wide in any Playwright project.
+
+**Measured:** /nft-finance on trunk bcafb7b3, production build, Chromium, viewport set to
+820px. The section tabs made the document 1,119px wide. Desktop project: `innerWidth` 820,
+`scrollWidth` 1119, and `scrollTo(500, 0)` left `scrollX` at 299. Pixel 5 project
+(`isMobile`): `innerWidth` 1119, `scrollWidth` 1119, and `scrollX` stayed 0. A phone browser
+widens its layout viewport to fit the page, so the page has nothing left to scroll and both
+checks pass on the broken page. `documentElement.clientWidth` read 820 in both. `hasTouch`
+alone does not do it (`innerWidth` 820, `scrollX` 299): `isMobile` does. WebKit's two phone
+projects were not measured: WebKit would not launch (next entry).
+
+**Do:** compare `scrollWidth` with `documentElement.clientWidth`, or with the width the test
+set. A check written the `scrollX` way cannot fail for this reason in a phone project, so a
+green there says nothing about a page that is too wide.
+
+## 2026-10-04: WebKit that dies at launch is the machine being busy
+
+**Believed:** `browserType.launch: Target page, context or browser has been closed` on the
+WebKit projects means load. Run WebKit alone with `--workers=1` and it passes.
+
+**Measured:** alone, with one worker, all 12 WebKit tests failed in 1 to 3 ms each, and a bare
+`webkit.launch()` failed three times in a row. `Playwright.exe --version` exited
+`0xC0E90002`, which the launch log prints as `exitCode=3236495362`. The Code Integrity log
+(`Get-WinEvent -LogName Microsoft-Windows-CodeIntegrity/Operational`, event 3077) named the
+cause: Windows Smart App Control refused the unsigned `libEGL.dll` inside
+`ms-playwright\webkit-2336`. The same log holds one such block on 10-02 and none during the
+WebKit runs other sessions made earlier on 10-03, so the block comes and goes. Chromium ran
+throughout.
+
+**Do:** when WebKit fails in milliseconds, read the exit code in the launch log before
+retrying. `3236495362` is this block, and waiting for the machine to go quiet does nothing.
+Leave Smart App Control on. Say WebKit did not run, and let CI's `iphone-safari` and
+`ipad-safari` projects be the WebKit check.
+
+## 2026-10-04: a local validator answers for every transaction that landed on it
+
+**Believed:** `solana-test-validator` keeps its whole history while it runs, so
+`getSignatureStatuses` with `searchTransactionHistory` always finds a transaction that
+landed on it. A "reload while unconfirmed" spec that is red in a full run and green alone
+is therefore the machine being busy.
+
+**Measured:** its `--help` gives `--limit-ledger-size` a default of 10,000 shreds. Two
+validators (3.1.11) were started side by side from `start-validator.sh`, one with that
+default and one with 50,000,000. Each was sent 14 airdrops between slots 1166 and 1465
+and asked about them every 5 seconds.
+
+- Default: `getFirstAvailableBlock` read 0, then 1057, 1625, 2161 and 2658. About every
+  550 slots, four minutes at the 0.47 seconds a slot it ran at, it dropped all but its
+  newest 30 or so slots. `getTransaction` answered null for all 14 from the next drop, 192
+  to 491 slots after they landed. `getSignatureStatuses` with history answered null for
+  all 14 at 330 to 491 slots: the recent-status cache covered the younger ones to about
+  340.
+- 50,000,000: the first available block was still 0 at slot 2369, and all 14 still
+  answered, the oldest 1,203 slots old.
+
+The page reads two empty history reads past the blockhash window as "expired". `lp-create`
+P2, with a five-minute pause put in before its last Check again, failed on the default
+validator (`data-advice` was "exists", not "opened-here", after 632 slots) and passed on
+the other (609 slots). A fresh validator drops nothing before slot 1057, about eight
+minutes in: a first probe that stopped at slot 998 found nothing wrong on either one, and
+a spec file run alone on a fresh validator passes.
+
+The price: the ledger was 3.7 GB after 24 minutes at 50,000,000, against 2.2 GB at the
+default, and still growing at about 10 GB an hour. Not measured: where it stops growing.
+
+**Do:** when a test asks a local validator about a transaction it sent earlier, start
+the validator with `--limit-ledger-size` far above the run, and stop it afterwards. Before
+reading "expired" or "did not land" in a long run as load, ask `getFirstAvailableBlock`:
+anything but 0 means the chain forgot. A probe for this has to run past the first drop,
+1,100 slots or more.
+
+## 2026-10-04: a script that sets `scrollLeft` puts the strip where it set it
+
+**Believed:** scroll snap shapes where a finger's flick comes to rest. A script that sets
+`scrollLeft` to show the selected tab is obeyed.
+
+**Measured:** production build, Chromium, the NFT Finance tab strip with `snap-x
+snap-mandatory` and `snap-start` tabs. The browser snaps a scripted scroll too, to the tab
+start nearest the value asked for. At 820px the strip rests at 4 with the fourth tab ending
+flush at its edge. Pressing that tab asked for 28, to leave 24px of room and bring the next
+tab within reach; the strip went back to 4 (the next tab start is 196), and the last tab
+stayed cut 315px. The same code's landings passed at 390 and 820, and a press at 390 asked
+for 138 and got 166, a tab start that happened to leave the tab whole. A test of landings
+alone is green with the snap on.
+
+**Do:** on a strip that code scrolls to a computed offset, drop mandatory snap, or compute
+the offset as one of its snap points. Test it by walking: press, check, press the next.
+
+## 2026-10-04: a test that clicks a tab shows what a visitor's press does
+
+**Believed:** `locator.click()` on a tab cut by its scrolling strip tests the press.
+
+**Measured:** Playwright scrolls its target into view before it clicks. On the pre-fix
+build, where a real press on a cut tab selects it and leaves it cut 110px,
+`tabs.last().click()` took the strip's `scrollLeft` from 4 to 562 by itself and the tab was
+whole. A bare `page.mouse.click(x, y)` inside the part of the tab that shows left the strip
+at 4. Two more things the bare press needs: `elementFromPoint(x, y)` read in the same
+`evaluate` as the point, to prove the press lands on the tab; and the strip brought back to
+the middle of the window before every press. Centred once at the start, the second press
+no longer hit a tab (the hit came back null: each press swaps in a section of another
+height). Centred before every press, all of them landed, in four browser projects.
+
+**Do:** to test what a press does to a scroll position, press by coordinates. A locator
+click proves only that the control works once something has scrolled it into view.
+
+## 2026-10-04: `overflow-x: hidden` on `body` makes `scrollWidth` lie, so push the page and read `scrollX`
+
+**Believed:** two e2e helpers said it in their comments: `body` is `overflow-x: hidden`, so
+`scrollWidth` and `clientWidth` can disagree on a page that does not move, and the honest
+check is to push the page (`scrollTo(500, 0)`) and read `scrollX`. A second belief rode
+with it: every phone project (`isMobile`) hides a page that is too wide from that push.
+
+**Measured:** production build of trunk bcafb7b3, all 68 auditable routes, the width set by
+the test. On `chromium` and `mobile-chrome` at 390, 768, 820 and 1024px, and on
+`ipad-safari` at 390, 820 and 1024px, `documentElement.scrollWidth` equalled
+`documentElement.clientWidth` on every page that did not move, and `clientWidth` equalled
+the width set on every reading. On desktop Chromium `scrollX` after the push equalled
+`scrollWidth - clientWidth` on 269 of 269 readings: the push measures nothing the two
+widths do not. One page was too wide, /nft-finance at 820px. With `body` at
+`overflow-x: hidden` its `scrollWidth` read the full 1,119px, and the push moved it 299px
+on `chromium`, `iphone-safari` and `ipad-safari`. On `mobile-chrome` the push moved it 0
+and `innerWidth` read 1119. So the rule on `body` changed neither width and did not stop
+the page moving, and only Chromium's phone emulation widened the window: WebKit's two phone
+projects did not.
+
+**Do:** compare `documentElement.scrollWidth` with `documentElement.clientWidth`. Before
+trusting a width check in a project, see it fail there: append a 1,100px `<div>` to `body`
+in an 820px window and require a reading 280px over. With `scrollX` as the ruler, or with
+`innerWidth` as the window, that test passed on three projects and failed on
+`mobile-chrome`.
 
 ## 2026-10-04: a new card that passes on a phone means the change passes on a phone
 
@@ -840,6 +2364,67 @@ spare) refuses from 125 blocks, about 33 seconds after the blockhash is read.
 pin the clock to that number in a test. Let a block-height read decide, and treat any
 wall-clock limit as the fallback for when the height cannot be read.
 
+## 2026-10-03 — Phantom's "This dApp could be malicious" is a review note, not a blocklist, and no code change clears it
+
+**Believed:** a red "Request blocked / This dApp could be malicious" in Phantom on a plain
+Add liquidity deposit means the domain sits on a blocklist (as MetaMask's did on 09-25),
+or that the transaction is doing something a wallet dislikes, so the code must change.
+
+**Measured** (10-03, memetics.finance, the owner's own deposit
+`4Jg1XVqkF1gr4h74FaPqeocqD5mGUtBibP8RHQTLBp1cYfpCJrc2mykXxkCM5zbcvS2JGy21zDD82vfiYn7fAUz9`):
+
+| source | answer |
+|---|---|
+| Phantom's open blocklist (`github.com/phantom/blocklist`, 2321 lines) | no memetics entry |
+| MetaMask/Blockaid `dapp-scanning.api.cx.metamask.io/v2/scan?url=memetics.finance` | `NONE` (was `BLOCK` on 09-25) |
+| the warned transaction, read back | legacy, 1 signature, 8 instructions, no lookup table, standard programs only, confirmed |
+| Phantom's developer docs ("Domain and transaction warnings") | the red note = "Phantom could not simulate the transaction"; the yellow "domain is new" = their age check, clears after their review; over a week → their Google Form |
+
+Phantom's own developer checklist is: one signer (wallet signs FIRST if more), simulate
+with `sigVerify:false` before asking the wallet, stay under the size limit. Our write path
+already does all three (`write/liquidity.ts` `extraSigners: []`, `write/prepare.ts simulate()`,
+`write/submit.ts` signs with `signTransaction` and broadcasts itself). So the only lever is
+Phantom's review form, which must come from the team (name, email, a Solscan link of the
+warned transaction): `phantom-flag-dispute.md` at the repo root is the paste-ready pack.
+
+**One real code-side cause remains:** a review window that outlives the blockhash
+(`REVIEW_TTL_MS` 45 s vs about 40 s of blockhash life now). A visitor who reads slowly signs
+a dead transaction, which Phantom cannot simulate, and that is this exact note. PR #728
+rebuilds on fresh numbers at Sign.
+
+**Do:** when a wallet shows a "malicious" note, check the public lists with `curl` and read
+the warned transaction back BEFORE touching code; then compare the write path with the
+wallet vendor's own developer checklist. Never tell users to press "Proceed anyway": it
+reads as drainer behaviour and counts against the domain.
+
+## 2026-10-03 — the Chrome extension refuses `*.vercel.app` previews; walk a branch build against mainnet instead
+
+**Believed:** a PR's Vercel preview is the place to walk a change live, and the Chrome
+extension (which holds the Vercel session) can open it.
+
+**Measured:** `navigate` to
+`tegridy-farms-git-<branch>-fomotsar-3237s-projects.vercel.app` answers
+`Cannot access this page. Claude cannot assist with the content on this page.` (a
+browsing-policy refusal of the host, not a load error); `curl` gets the deployment
+protection redirect.
+
+**What worked, in about ten minutes:** `vite build` the branch, `vite preview --port 4199
+--strictPort` (never :4173, a stale server may hold it), and a Playwright script that
+routes `**/api/**`:
+
+- `/api/pools*` → **the branch's own handler**, imported into the script
+  (`pathToFileURL(...)` on Windows, `NODE_ENV=test`, `SOLANA_RPC_URL` = the public RPC),
+  called with a fake `req`/`res`: real chain, this PR's code;
+- `/api/solrpc` → forwarded to `api.mainnet-beta.solana.com` with the page's own body;
+- Jupiter `price/v3` → forwarded to `lite-api.jup.ag`;
+- everything else aborted and LISTED, so the walk names what the page still wanted.
+
+Resolve `playwright` with `createRequire('<main checkout>/frontend/package.json')`; set
+the init-script keys (`tf_loaded`, onboarding seen, consent `denied`, bungalow `venue`).
+Screenshots at 1280x900 and 390x664, then LOOK at them: the phone shot showed the
+tab strip covering the card's heading after `scrollIntoView` (the #723 defect), which no
+DOM assertion would have said.
+
 ## 2026-10-03: a flag carried through a wallet's "Open app" link is an input anyone can write
 
 **Believed:** after a phone visitor presses a wallet's "Open app" row and the page reopens
@@ -924,6 +2509,99 @@ proves the bare words are gone.
 
 **Do:** when a test guards WORDS, mutate the ways the words can be spelled, not only the
 one spelling that existed.
+
+## 2026-10-03: a local WebKit red that survives a solo re-run can still be trunk's: `e2e/arrival.spec.ts:79` is, on Windows
+
+**Believed:** a spec that fails in a full run and again alone with one worker was broken
+by the branch under test.
+
+**Measured:** `arrival.spec.ts:79` ("Escape did not clear the film") failed on iphone-safari
+and ipad-safari in a full run at `--workers=2` and alone at `--workers=1` (Playwright
+1.62.1, WebKit build 2336, Windows 11). Trunk's own tree, built in a second folder
+(`git archive af44844e frontend | tar -x -C <dir>`, a `node_modules` junction, `vite build`)
+and served from this checkout with `vite preview --outDir <dir>/frontend/dist --port 4392
+--strictPort`, failed the same test the same way on both projects. Trunk's CI run
+37143678391 on that commit was green. The page under test, /island, has no tab strip, so
+the branch's change was not active on it. Three `trade-page.spec.ts` reds from the same
+full run passed alone.
+
+**Do:** before reading a local WebKit red as yours, run the same spec against trunk's build
+from a second folder and port. It took three minutes and needs no second worktree.
+
+## 2026-10-03: WebKit lines a focused text field up by its text, so a `scroll-padding` sized to a bar's edge leaves the field's top under the bar
+
+**Believed:** `scroll-padding-top` set to a fixed bar's lower edge plus a few pixels keeps
+every focused control clear of the bar in every browser.
+
+**Measured:** Playwright 1.62.1 (WebKit build 2336), 390x664, a tab strip fixed from 68 to
+122px, `scroll-padding-top: 130px`. Each field on 16 tabbed pages was placed under the
+strip and given `focus()`. Selects, checkboxes and radios landed with their top at 130px.
+Text inputs landed at 115 to 129px: a 44px input with an 18.75px line at 115, a 109px
+textarea at 124, a 24px input with no padding at 129. The line of text is what reaches the
+padding; the box starts above it by its padding and half its spare height, 15px at most
+here, so up to 7px of the field sat under the strip. Chromium (build 1234) left no control
+overlapping the strip at 130 on the five pages it was run on, two of them with a text
+input. `scrollIntoView({ block: 'start' })` put the box itself at the padding in both.
+
+**Do:** add the largest text inset to a top scroll-padding (15px here, so 140px under a bar
+that ends at 122), and measure a focused text field in WebKit, not only a button or a link.
+
+## 2026-10-03: focusing a control that starts off screen does not show whether a fixed bar covers it
+
+**Believed:** to reproduce "the focused control lands behind the sticky bar", scroll the
+control off screen and focus it.
+
+**Measured:** /solana-lp at 390x664, Chromium build 1234 and WebKit build 2336,
+`scroll-padding-top: 64px`, a tab strip fixed from 68 to 122px. A button wholly above or
+wholly below the screen, then `focus()`: both engines put it in mid-screen (top at 301 to
+316px), except WebKit from just below the screen, which moved it the least it could (539).
+None ended behind the strip. The same button with its top at 28px, half under the 56px top
+bar, then `focus()`: top at 64px, behind the strip, in three of four runs. With its top at
+72px, inside the padding and under the strip, `focus()` moved nothing in either engine.
+`scrollIntoView({ block: 'start' })` put it at 64px every time.
+
+**Do:** to test a bar, start the control under the bar, focus it, and separately scroll it
+to the start. A control that begins fully off screen is centred, and passes on broken code.
+
+## 2026-10-03: "the page says nothing" from a text probe misses a sheet drawn in a closed shadow root
+
+**Believed:** after a tap on the Mobile Wallet Adapter row on Android Chrome with no wallet app,
+the page says nothing and then throws "Wallet connection timed out". A phone walk of production
+read the page's text and its dialogs and found none.
+
+**Measured:** on a production build of trunk af44844e, in Chromium with Pixel 5's user agent at
+360x640, a screenshot after that tap shows the package's own sheet, "Allow connections to your
+wallet" (`@solana-mobile/wallet-standard-mobile` 0.5.3). It is drawn in a closed shadow root at
+z-index 2147483647, so `document.body.innerText`, `getByRole('dialog')` and every other query
+return nothing. The adapter's `connect()` (`wallet-adapter-mobile` 2.2.9) calls its private
+`#connect()` and awaits nothing, so wallet-adapter-react's `connecting` is false at once. The
+failure came 32 seconds later, from a 30 second timer that runs while that sheet is still up: an
+`error` event, which WalletProvider only logs, and the same error rejected into a promise nobody
+holds (Playwright's `pageerror`). By the package's code the attempt is not over then: the timer
+only wins a `Promise.race`, and the other branch goes on.
+
+**Do:** take a screenshot before writing "the page says nothing". To report a failure like this
+one, listen on the adapter itself for `error`; the unhandled rejection carries the same object,
+so it can be matched by identity. React only to an attempt the visitor tapped for, because
+`autoConnect()` takes the same path at page load. Done in
+`frontend/src/components/solana/usePhoneWalletFailure.ts` (branch `fix/solana-wallet-list-phone`).
+
+## 2026-10-03: a phone walk of `/solana-lp` can meet the Ethereum Connect, because its Solana section waits on a chain read
+
+**Believed:** `/solana-lp` always has the Solana Connect in the top bar, so a wallet-list test can
+open the list from there.
+
+**Measured:** against a local production build, in 1 of 6 fresh browser launches the top bar read
+"Connect wallet" (the Ethereum list) for a full 25 second wait, and the screenshot showed the
+page saying "Reading the venue's status from the chain...". 8 of 8 loads in one already-open
+browser were fine. Two earlier runs timed out waiting for the same button; what they showed was
+not captured. `SolanaLpPage.tsx` mounts its Solana section only once that read says the venue is
+live, and the top bar borrows its Solana connect from that section.
+
+**Do:** open the wallet list from a page whose Solana section is there from the first render,
+`/earn/bayla`, as `frontend/e2e/topbar-solana-connect.spec.ts` and
+`frontend/e2e/solana-wallet-list-phone.spec.ts` do. On `/solana-lp`, wait for the Solana button by
+name and treat its absence as "the read has not answered", not as a missing wallet list.
 
 ## 2026-10-03: a button disabled "while connecting" is a dead end when the wallet never answers
 
@@ -1126,6 +2804,49 @@ throws when its time runs out is fine, because the caller's `catch` can say what
 
 ---
 
+## 2026-10-03: a bare warming import runs a file's mock factories before its own consts exist
+
+**Believed** (the 2026-09-10 entry "a slow vitest "test" is often a slow *hook*"): any test file
+that re-imports a module under `vi.resetModules()` can take a bare `import "../thing.js";` at the
+top, and that import is what gives the resets teeth.
+
+**Measured** (vitest 4.1.11, trunk `288a7948`, the six `api/__tests__/orderbook*.test.js` files
+with no warming import): five took it. `orderbook-r053.test.js` did not. Its factories read
+top-level consts when they run (`vi.mock("viem", () => ({ recoverMessageAddress: recoverMock }))`).
+From a hook that is long after the consts exist. A static import is hoisted above them, so the
+file failed at collection, `Cannot access 'recoverMock' before initialization`, with 0 tests run.
+An `await import("../orderbook.js")` below the last mock warms the same graph: first hook 137 to
+373ms before, 1.5 to 2.4ms after. It also runs after that file's top-level
+`process.env.SUPABASE_URL = ...`, so the warmed instance has a live client and the reset pins
+nothing: deleting it failed 0 of 11 before and 0 of 11 after. In the five that took the bare
+import the same deletion went from 0 to 6 of 6, 12 of 22, 5 of 5, 3 of 4 and 10 of 10.
+
+**Do:** before adding a warming import, read each `vi.mock` factory for a name it reads when it
+runs, as opposed to inside a function it returns. If there is one, warm with `await import()`
+below the last mock. Then delete the reset on both sides of the change: where the warm load sits
+relative to the file's env writes decides whether the reset pins anything.
+
+---
+
+## 2026-10-03: Windows' `% Processor Utility` reads 100% on a machine that is half idle
+
+**Believed:** a Windows counter is the reference to check an `os.cpus()` idle-time meter against,
+so a run recorded at "Windows 100%" ran on a saturated machine.
+
+**Measured** (18 logical CPUs, typeperf at 1s): `\Processor Information(_Total)\% Processor
+Utility` read 164 to 253% across six seconds in which `\Processor(_Total)\% Processor Time` read
+48 to 71%, and an `os.cpus()` meter read 64% over the next five. Capped at 100, Utility said 100%
+beside every one of 16 single-file vitest runs that the `os.cpus()` meter put at 39 to 60%, with
+no other vitest process at either end of them. Microsoft describes Utility as scaled by clock
+speed (read, not measured), which fits. The `os.cpus()` meter has a ceiling of its own: with 17
+to 20 other vitest processes it read 89% in 76 of 80 runs and never more, and 89% is 16 of 18.
+
+**Do:** record `% Processor Time` or the `os.cpus()` figure, and beside it the count of other
+test runners (`Get-CimInstance Win32_Process`, matched on the command line). Treat 89% on this
+machine as full.
+
+---
+
 ## 2026-10-03: "above the fold at 390x844" measures the phone's screen, not the page its browser gets
 
 **Believed:** a field that is whole inside 390x844 in a first-screen test is on an iPhone's
@@ -1226,6 +2947,134 @@ plant pays the Workshop's $BAYLA account (`WORKSHOP_BAYLA_ACCOUNT` in
 `frontend/src/lib/launcher/solana/write/plant.ts`), so the recipe is that account's signatures
 (`getSignaturesForAddress`), keeping the transactions that carry the plant's two instructions
 (`plantInstructions`: a burn and a transfer of 50,000 $BAYLA each).
+
+---
+
+## 2026-10-03: two renders of a hook that stamps the clock are equal only inside one second
+
+**Believed:** rendering a hook twice, back to back, and deep-comparing the two reports is a
+stable test when nothing in the stubs changed.
+
+**Measured:** `useWalletExposure` stamps `observedAt` with `Math.floor(Date.now() / 1000)` on
+every render (`deriveHoldingExposure`). `walletChainDisplayReads.test.ts` compared two renders
+with `toEqual` and failed CI run 37116193466 on that one field, 1791023351 against 1791023350:
+a second boundary fell between the renders. To find every test of this kind at once, a
+throwaway setup file made each `Date.now()` read land one second after the last
+(`Date.now = () => base + reads++ * 1000`) and the whole unit suite ran under it at 288a7948:
+13,267 tests, 16 failed. Two were this test. The other 14, in three files, time themselves
+with a stopwatch or a deadline (`fork-relay`, `orderbook.bundle-guards`,
+`seaport-verify.bundle-ownership`), which that clock breaks by design; all pass on the real
+clock. `new Date()` with no argument reads the clock on its own and was not swept.
+
+**Do:** freeze the clock in any test that compares two reports (`vi.useFakeTimers({ toFake:
+['Date'] })`, `vi.setSystemTime(NOW)`, real timers back in `afterEach`), and assert one stamp
+equals the frozen time, so taking the freeze away fails every run and not only when a second
+turns.
+
+---
+
+## 2026-10-03: a slow `waitFor` can be a cold import inside the code under test
+
+**Believed:** a test body with no `await import()` in it, in a file that loads its component at
+collection, has no cold load left, so a 5000ms timeout there is real work.
+
+**Measured** (vitest 4.1.11, trunk `288a7948`, `LighthousePoolLive.readOrder.test.tsx`, the body
+split with `performance.now()`): 1299 to 1342ms at 57 to 66% CPU load and 3420ms at 89%, with 829
+to 2392ms of it inside one `waitFor`. Which `waitFor` changed between runs. The card calls
+`readConfirmedSlot` after a confirmed write. The test mocked four functions of
+`lib/bungalowStaking` and not that one, so the real one ran `import('@streamflow/staking')` cold:
+948 to 2691ms, then null, because no RPC answers a test. Module evaluation blocks the event loop,
+so the open wait took the time, and a 1542ms timeout was reported as 2732 to 3341ms. With the one
+line mocked: 339 to 560ms at about 50% load, 744 to 2821ms at 89%.
+
+**Do:** when a split shows one wait holding the time, time the functions the mock left real
+before blaming the render. A `vi.mock(path, importOriginal)` spread keeps every function you did
+not name.
+
+---
+
+## 2026-10-03: moving an import to collection also moves when the module reads its env
+
+**Believed:** the fix for a cold `await import()` in a test body is always a static import, or a
+bare warming import, at the top of the file.
+
+**Measured:** `api/__tests__/canonical-origin.test.js` stubbed NODE_ENV to production in a
+`beforeAll`, then imported ten handlers inside test bodies (`orderbook.js`: 1117 to 4199ms of a
+5000ms bound; the rest of that body 3 to 6ms). `api/etherscan.js` builds its CORS allowlist at
+module scope from NODE_ENV. An import at the top of the file is evaluated before any hook, and
+with no `vi.resetModules()` the body gets that same instance: the handlers would have been tested
+in test shape, every assertion still green. The check that sees it: mutate `etherscan.js` to
+widen its list whenever NODE_ENV is not "production". The old file passes, the new file passes,
+and the new file with its two `vi.stubEnv` lines deleted fails.
+
+**Do:** before hoisting, grep the imported modules for `process.env` at module scope. If any
+reads it there, stub the env at the top level of the test file, ahead of a top-level
+`await import()`, and run a mutation that only the right env hides.
+
+---
+
+## 2026-10-03: a timeout gate sized at one load is wrong five minutes later
+
+**Believed** (the 2026-09-11 entry "a per-test timeout is a third clock"): a threshold between
+the pre-fix and post-fix durations, with the runs interleaved, separates the two.
+
+**Measured:** other sessions ran suites on the same machine, and load moved between 33% and 89%
+within minutes. One test, fixed: 339 to 2821ms. The same test before the fix: 956 to 5031ms, the
+last a real `Test timed out in 5000ms`. A 1100ms gate sized near 80% load failed the fixed file 2
+of 5 once load rose. A 3230ms gate sized at 89% passed the pre-fix file 5 of 5 once load fell.
+Sizing and gating in the same minutes held: three pairs at the default timeout, the log midpoint
+of the slowest fixed and the fastest pre-fix run, refuse if they overlap, gate at once. Pre-fix
+timed out 5 of 5 and fixed passed 5 of 5.
+
+**Do:** size the gate in the run that uses it, and check the load meter against the system's
+own: an `os.cpus()` idle-time meter read 89% here, its ceiling, while Windows reported 100%, so
+every 89% in these three entries means saturated. When a script reads vitest's JSON report: a
+timeout is written `Error: STACK_TRACE_ERROR` (the words "timed out" are only in the default
+reporter), and `numTotalTestSuites` counts describe blocks, not files.
+
+---
+
+## 2026-10-03: ethers' `wait()` throws on a replaced transaction only if the signer sent it; through a contract method it never settles
+
+**Believed:** in ethers v6, `await tx.wait()` throws `TRANSACTION_REPLACED` when the wallet
+speeds up or cancels a pending transaction, so a `catch` around it sees every replacement.
+And a `repriced` replacement is the same call, so it worked.
+
+**Measured** against ethers 6.17.0: the real `BrowserProvider` over a scripted EIP-1193 node,
+one transaction replaced at its nonce, sent two ways
+(`frontend/src/nakamigos/lib/txOutcome.ethers.test.js`):
+
+| Sent by | A speed-up, a cancel, or another call at that nonce |
+|---|---|
+| `signer.sendTransaction(...)` | `wait()` throws `TRANSACTION_REPLACED`, reason `repriced` / `cancelled` / `replaced` |
+| `contract.method(...)` | `wait()` never settles. `wait(1, 250)` ends only on ethers' own `TIMEOUT` |
+
+`JsonRpcSigner.sendTransaction` returns `tx.replaceableTransaction(blockNumber)`. A contract
+method wraps that in `new ContractTransactionResponse(iface, provider, tx)`, whose constructor
+copies the fields and leaves the private start block at -1, and `wait()` skips the replacement
+scan when it is -1. `provider.getTransaction(hash)` hands back the same unarmed kind. 16 of the
+marketplace's 18 waits were on contract methods: a sped-up cancel or approval sat on its spinner
+until a reload, and the two signer sends called a sped-up purchase "failed".
+
+Two more shapes from the same run:
+
+- A speed-up that REVERTED still throws `TRANSACTION_REPLACED` / `repriced`. ethers never
+  checks the replacement's receipt, so `error.receipt.status` is 0 inside a "repriced" error.
+- A reverted receipt throws `CALL_EXCEPTION`, the code a failed gas estimate also uses. Only
+  `error.receipt?.status === 0` says this transaction was mined and reverted.
+
+**Do:** re-arm before waiting: `tx.replaceableTransaction(head - n)` is public and works on any
+response; `n` has to reach the block before the send (`lib/txOutcome.js` uses 5). Then sort the
+throw on positive evidence only: `repriced` is judged by its own receipt, `cancelled` and
+`replaced` did not happen, a `CALL_EXCEPTION` carrying a status 0 receipt reverted, and
+everything else is "we can't tell".
+
+### A scripted node needs `cacheTimeout: -1`
+
+`BrowserProvider` caches each JSON-RPC answer for 250 ms. A script that moves the head when
+`eth_sendTransaction` runs is read back at the old head, the first scan stops one block short,
+and the case passes only on the next poll: 1.5 s of wall clock that reads as a hang. With
+`{ cacheTimeout: -1, pollingInterval: 20 }` every case is one pass.
 
 ---
 

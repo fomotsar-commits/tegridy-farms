@@ -7,10 +7,10 @@ import { MemoryRouter } from 'react-router-dom';
 // SolanaLpPage.mintLink.test.tsx mounts the real one.
 const readVenue = vi.fn();
 vi.mock('../lib/solana/cpswap/read', () => ({ readVenue: (...a: unknown[]) => readVenue(...a) }));
-vi.mock('../lib/launcher/solana/curve/rpc', () => ({ browserCurveRpc: () => ({}) }));
+vi.mock('../lib/launcher/solana/curve/rpc', () => ({ browserCurveRpc: () => ({}), browserRpc: () => ({}) }));
 vi.mock('../lib/analytics', () => ({ trackPageView: vi.fn() }));
 vi.mock('../components/solana/lp/SolanaLpSection', () => ({
-  default: ({ finderFirst = false }: { finderFirst?: boolean }) => <div data-testid="lp-section" data-finder-first={String(finderFirst)} />,
+  default: () => <div data-testid="lp-section" />,
 }));
 const lp = vi.hoisted(() => ({ mode: 'on' as 'off' | 'on' | 'withdraw-only' }));
 vi.mock('../lib/launcher/solana/lpWriteFlag', async (importOriginal) => ({
@@ -31,6 +31,7 @@ const LIVE = {
     createPoolFee: 0n, creatorFeeRate: 0n,
     protocolOwner: 'Own1', fundOwner: 'Own2',
   },
+  publicTier: { kind: 'not-asked' },
 } as const;
 const UNREADABLE = { kind: 'unreadable', detail: 'proxy timed out' } as const;
 
@@ -57,7 +58,7 @@ function expectNoLpSection() {
   expect(screen.queryByText(/Loading the pool finder/)).toBeNull();
 }
 
-const venueAmmLink = () => screen.getByRole('link', { name: /fees, status and how the pools work/i });
+const venueAmmLink = () => screen.getByRole('link', { name: /fees and status, on the Venue AMM tab/i });
 
 /** The hero block, and each thing after it in the page's column, top to bottom. */
 function column() {
@@ -76,11 +77,10 @@ describe('when the venue reads live', () => {
   it('mounts the LP section finder-first right under the hero, then the status card, then "The program"', async () => {
     await mount();
     const section = await screen.findByTestId('lp-section');
-    expect(section).toHaveAttribute('data-finder-first', 'true');
     const card = screen.getByRole('region', { name: 'Venue status' });
     expect(card).toHaveTextContent(/Pools are open/);
     const { hero, after } = column();
-    expect(hero).toHaveTextContent(/Create a pool, add liquidity or take it out/);
+    expect(hero).toHaveTextContent(/Open a pool, add liquidity or take it out/);
     expect(after).toHaveLength(3);
     expect(after[0]!.firstElementChild).toBe(section);
     expect(after[1]).toBe(card);
@@ -93,7 +93,7 @@ describe('when the venue reads live', () => {
     const section = await screen.findByTestId('lp-section');
     const { hero, after } = column();
     expect(within(hero).queryByRole('link')).toBeNull();
-    expect(hero.lastElementChild).toHaveTextContent(/^Create a pool, add liquidity or take it out/);
+    expect(hero.lastElementChild).toHaveTextContent(/^Open a pool, add liquidity or take it out/);
     const link = venueAmmLink();
     expect(link).toHaveAttribute('href', `/pools?mint=${M}`);
     expect(after[0]).toContainElement(link);
@@ -117,7 +117,7 @@ describe('when the venue reads live', () => {
     expect(document.title).toMatch(/^Solana liquidity/);
     // The venue read alone does not say each can be done right now: the section's own reads do.
     expect(
-      screen.getByText(/^Create a pool, add liquidity or take it out on the venue.s own Solana AMM\.$/),
+      screen.getByText(/^Open a pool, add liquidity or take it out\.$/),
     ).toBeInTheDocument();
   });
 
@@ -125,13 +125,13 @@ describe('when the venue reads live', () => {
     lp.mode = 'withdraw-only';
     const first = await mount();
     await screen.findByTestId('lp-section');
-    expect(screen.getByText(/take your liquidity out.*Adding liquidity and opening pools from here are paused\./)).toBeInTheDocument();
+    expect(screen.getByText(/take your liquidity out.*Adding and opening pools are paused here\./i)).toBeInTheDocument();
     expect(screen.queryByText(/add or remove liquidity, or open/)).toBeNull();
     first.unmount();
     lp.mode = 'off';
     await mount();
     await screen.findByTestId('lp-section');
-    expect(screen.getByText(/Adding and removing liquidity from here is not switched on yet\./)).toBeInTheDocument();
+    expect(screen.getByText(/Adding and removing are not switched on yet\./)).toBeInTheDocument();
     expect(screen.queryByText(/add or remove liquidity, or open/)).toBeNull();
   });
 
@@ -203,8 +203,8 @@ describe('when the venue reads live', () => {
     const card = screen.getByRole('region', { name: 'Venue status' });
     expect(scrolled.mock.contexts[0]).toBe(card);
     expect(scrolled).toHaveBeenCalledWith({ block: 'nearest' });
-    // The scroll stops short of the fixed header and tab strip (e2e measures it in a browser).
-    expect(card).toHaveClass('scroll-mt-24');
+    // The scroll stops with air above the card (e2e measures where, under the tab strip).
+    expect(card).toHaveClass('scroll-mt-5');
   });
 });
 
@@ -222,9 +222,9 @@ describe('when the venue does not read live', () => {
     // No present-tense claim above a card that says the venue is not open.
     expect(screen.queryByText(/^Find a pool/)).toBeNull();
     expect(screen.getByText(/once a chain read says the venue is open/i)).toBeInTheDocument();
-    // The card is directly under the hero, which says "the card below"; then "The program".
+    // The card is directly under the hero, which says when the tab opens; then "The program".
     const { hero, after } = column();
-    expect(hero).toHaveTextContent(/The card below says what the latest read found\./);
+    expect(hero).toHaveTextContent(/Opens here once a chain read says the venue is open\./);
     expect(after).toHaveLength(2);
     expect(after[0]).toBe(screen.getByRole('region', { name: 'Venue status' }));
     expect(after[0]).toHaveTextContent(title);

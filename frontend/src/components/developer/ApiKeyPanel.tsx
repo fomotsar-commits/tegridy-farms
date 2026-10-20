@@ -1,5 +1,6 @@
 import { useCallback, useState } from 'react';
 import type { ApiStatusState } from './useApiPlatformStatus';
+import { CardArt } from '../ui/CardArt';
 
 interface KeyRow {
   id: string;
@@ -114,10 +115,11 @@ export function ApiKeyPanel({ status }: { status: ApiStatusState }) {
       */}
       {status.phase === 'unreachable' && (
         <p
-          className="text-sm rounded-xl px-4 py-3"
+          className="relative isolate text-sm rounded-xl px-4 py-3"
           style={{ border: '1px solid var(--color-purple-12)' }}
           data-testid="keys-unknown"
         >
+          <CardArt pageId="developer" idx={11} />
           Could not read this deployment&apos;s API status ({status.reason}), so whether key issuance
           is enabled here is unknown. Reload to try again.
         </p>
@@ -125,10 +127,11 @@ export function ApiKeyPanel({ status }: { status: ApiStatusState }) {
 
       {status.phase === 'ready' && status.data.platform.keyIssuance === 'not_configured' && (
         <div
-          className="text-sm rounded-xl px-4 py-3"
+          className="relative isolate text-sm rounded-xl px-4 py-3"
           style={{ border: '1px solid var(--color-purple-12)' }}
           data-testid="keys-not-configured"
         >
+          <CardArt pageId="developer" idx={9} />
           <p className="mb-1">
             <strong>Key issuance is not enabled on this deployment.</strong>
           </p>
@@ -191,10 +194,11 @@ export function ApiKeyPanel({ status }: { status: ApiStatusState }) {
 
           {issued && (
             <div
-              className="rounded-xl px-4 py-3 mb-3 text-sm"
+              className="relative isolate rounded-xl px-4 py-3 mb-3 text-sm"
               style={{ border: '1px solid var(--color-purple-12)' }}
               data-testid="issued-key"
             >
+              <CardArt pageId="developer" idx={10} />
               <code className="break-all">{issued}</code>
             </div>
           )}

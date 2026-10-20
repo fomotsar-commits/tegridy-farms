@@ -123,13 +123,26 @@ export async function fetchHeat(address: string, opts: FetchHeatOptions = {}): P
   opts.signal?.addEventListener('abort', onAbort);
 
   let res: Response;
+  let payload: unknown;
+  let unparsed = false;
   try {
     res = await fetch(`/api/aggregator?resource=heat&address=${encodeURIComponent(address.trim())}`, {
       headers: { Accept: 'application/json' },
       signal: ac.signal,
     });
+    // Read before the timer is cleared: an answer that stops part-way is an instrument
+    // we could not reach. An abort here can come back as a parse error, so the signal
+    // says which it was.
+    if (res.ok) {
+      try {
+        payload = await res.json();
+      } catch (e) {
+        if (ac.signal.aborted) throw e;
+        unparsed = true;
+      }
+    }
   } catch {
-    // Network error or timeout. The instrument is unreachable — say so; do not guess.
+    // Network error or timeout. The instrument is unreachable: say so, do not guess.
     throw new HeatUnavailableError('The instrument is unreachable. Try again in a moment.');
   } finally {
     clearTimeout(timer);
@@ -139,13 +152,7 @@ export async function fetchHeat(address: string, opts: FetchHeatOptions = {}): P
   if (res.status === 400) throw new HeatUnavailableError('That is not an Ethereum, Base, or Solana address.');
   if (res.status === 429) throw new HeatUnavailableError('Too many readings requested. Try again shortly.');
   if (!res.ok) throw new HeatUnavailableError('The instrument is unreachable. Try again in a moment.');
-
-  let payload: unknown;
-  try {
-    payload = await res.json();
-  } catch {
-    throw new HeatUnavailableError('The instrument returned something unreadable.');
-  }
+  if (unparsed) throw new HeatUnavailableError('The instrument returned something unreadable.');
 
   // A 200 with a malformed body is an OUTAGE, not a low score.
   const failure = heatEnvelopeFailure(payload);

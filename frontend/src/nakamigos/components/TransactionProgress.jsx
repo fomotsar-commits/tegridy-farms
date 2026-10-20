@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { Eth } from "./Icons";
 import NftImage from "./NftImage";
 import { getFriendlyError, isUserRejection } from "../lib/errorMessages";
+import { isTxNotice } from "../lib/txOutcome";
 import { getProvider } from "../api";
 
 // ═══ STEPS ═══
@@ -423,7 +424,10 @@ function ReceiptRow({ label, value, bold }) {
 }
 
 // ═══ ERROR PANEL ═══
-function ErrorPanel({ message, onRetry, onBack }) {
+// Also the panel for a notice (lib/txOutcome.js): a result that is neither a
+// success nor a failure brings its own `title`, the `hash` to look at, and a
+// `mark` that replaces the red cross, which says "failed".
+function ErrorPanel({ message, onRetry, onBack, title = "Transaction Failed", hash = null, mark = null }) {
   return (
     <div style={{ textAlign: "center", padding: "10px 0" }}>
       <div
@@ -431,14 +435,14 @@ function ErrorPanel({ message, onRetry, onBack }) {
           width: 48,
           height: 48,
           borderRadius: "50%",
-          background: "var(--red, #ff6464)",
+          background: mark ? "var(--yellow, #fbbf24)" : "var(--red, #ff6464)",
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
           margin: "0 auto 14px",
         }}
       >
-        <span style={{ fontSize: 24, color: "#fff", fontWeight: 700 }}>{"\u2717"}</span>
+        <span style={{ fontSize: 24, color: mark ? "#000" : "#fff", fontWeight: 700 }}>{mark || "\u2717"}</span>
       </div>
 
       <div style={{
@@ -448,7 +452,7 @@ function ErrorPanel({ message, onRetry, onBack }) {
         color: "var(--text, #eee)",
         marginBottom: 8,
       }}>
-        Transaction Failed
+        {title}
       </div>
 
       <div style={{
@@ -461,6 +465,12 @@ function ErrorPanel({ message, onRetry, onBack }) {
       }}>
         {message}
       </div>
+
+      {hash && (
+        <div style={{ marginBottom: 16 }}>
+          <TxHashLink hash={hash} />
+        </div>
+      )}
 
       <div style={{ display: "flex", gap: 8 }}>
         {onRetry && (
@@ -546,6 +556,11 @@ function SpeedUpButton({ txHash, onSpeedUp, visible }) {
 // ═══ PENDING TX MONITOR ═══
 function PendingMonitor({ txHash, startTime, onConfirmed, onError }) {
   const [showSpeedUp, setShowSpeedUp] = useState(false);
+  // Every hash this purchase may mine under: the one sent, then each speed-up
+  // sent from here. Whichever gets a receipt first is the purchase. The parent
+  // keys this component by `txHash`, so a new purchase starts a new list.
+  const hashesRef = useRef([txHash]);
+  const [latestHash, setLatestHash] = useState(txHash);
   const pollRef = useRef(null);
   const speedUpTimerRef = useRef(null);
   const mountedRef = useRef(true);
@@ -566,14 +581,16 @@ function PendingMonitor({ txHash, startTime, onConfirmed, onError }) {
         if (!ethProvider) return;
         const { ethers } = await import("ethers");
         const provider = new ethers.BrowserProvider(ethProvider);
-        const receipt = await provider.getTransactionReceipt(txHash);
-        if (receipt) {
+        for (const hash of hashesRef.current) {
+          const receipt = await provider.getTransactionReceipt(hash);
+          if (!receipt) continue;
           if (!mountedRef.current) return;
           if (receipt.status === 1) {
             const gasUsed = receipt.gasUsed && receipt.gasPrice
               ? Number(receipt.gasUsed * receipt.gasPrice) / 1e18
               : null;
-            onConfirmedRef.current?.({ receipt, gasUsed });
+            // `hash` is the one that mined, which after a speed-up is not `txHash`.
+            onConfirmedRef.current?.({ receipt, gasUsed, hash });
           } else {
             onErrorRef.current?.("Transaction reverted on-chain");
           }
@@ -604,13 +621,15 @@ function PendingMonitor({ txHash, startTime, onConfirmed, onError }) {
       if (!ethProvider) return;
       const { ethers } = await import("ethers");
       const provider = new ethers.BrowserProvider(ethProvider);
-      const tx = await provider.getTransaction(txHash);
-      if (!tx) return;
+      const tx = await provider.getTransaction(hashesRef.current.at(-1));
+      // Already in a block: there is nothing to speed up, and sending its call
+      // again would be the purchase a second time.
+      if (!tx || tx.blockNumber != null) return;
       const signer = await provider.getSigner();
       // Resubmit with 20% higher gas
       const newMaxFee = tx.maxFeePerGas ? tx.maxFeePerGas * 120n / 100n : undefined;
       const newMaxPriority = tx.maxPriorityFeePerGas ? tx.maxPriorityFeePerGas * 120n / 100n : undefined;
-      await signer.sendTransaction({
+      const replacement = await signer.sendTransaction({
         type: 2,
         to: tx.to,
         value: tx.value,
@@ -620,10 +639,15 @@ function PendingMonitor({ txHash, startTime, onConfirmed, onError }) {
         maxPriorityFeePerGas: newMaxPriority,
         ...(tx.gasLimit ? { gasLimit: tx.gasLimit } : {}),
       });
+      // The replacement mines under its own hash, so the poll watches both.
+      if (replacement?.hash) {
+        hashesRef.current = [...hashesRef.current, replacement.hash];
+        setLatestHash(replacement.hash);
+      }
     } catch (err) {
       console.warn("Speed up failed:", err.message);
     }
-  }, [txHash]);
+  }, []);
 
   return (
     <div style={{
@@ -637,10 +661,10 @@ function PendingMonitor({ txHash, startTime, onConfirmed, onError }) {
         justifyContent: "space-between",
         alignItems: "center",
       }}>
-        <TxHashLink hash={txHash} />
+        <TxHashLink hash={latestHash} />
         <ElapsedTimer startTime={startTime} />
       </div>
-      <SpeedUpButton txHash={txHash} onSpeedUp={handleSpeedUp} visible={showSpeedUp} />
+      <SpeedUpButton txHash={latestHash} onSpeedUp={handleSpeedUp} visible={showSpeedUp} />
     </div>
   );
 }
@@ -668,6 +692,12 @@ function injectStyles() {
     }
   `;
   document.head.appendChild(style);
+}
+
+// ═══ NOTICE TITLE ═══
+function noticeTitle(notice) {
+  if (notice.error === "unconfirmed") return "We can't tell if this went through";
+  return notice.reason === "cancelled" ? "Transaction cancelled" : "Transaction replaced";
 }
 
 // ═══ CELEBRATION LEVEL ═══
@@ -706,6 +736,9 @@ export default function TransactionProgress({
   const [pendingStart, setPendingStart] = useState(null);
   const [gasUsed, setGasUsed] = useState(null);
   const [errorMsg, setErrorMsg] = useState("");
+  // An unconfirmed or replaced result (lib/txOutcome.js): shown in the error
+  // panel's place, in its own words, never as "Transaction Failed".
+  const [notice, setNotice] = useState(null);
   const [showConfetti, setShowConfetti] = useState(false);
   const [retryCount, setRetryCount] = useState(0);
   const executedRef = useRef(false);
@@ -780,6 +813,7 @@ export default function TransactionProgress({
     const run = async () => {
       setPhase("signing");
       setErrorMsg("");
+      setNotice(null);
       setTxHash(null);
       setGasUsed(null);
       setShowConfetti(false);
@@ -794,6 +828,11 @@ export default function TransactionProgress({
         } else if (result.error === "rejected") {
           // User rejected — just close, no error display
           onClose?.();
+        } else if (isTxNotice(result)) {
+          // Shown verbatim: getFriendlyError would turn it into "failed".
+          setNotice(result);
+          setErrorMsg(result.message);
+          setPhase("error");
         } else {
           const friendly = getFriendlyError(result.message || result.error || "Transaction failed");
           setErrorMsg(friendly);
@@ -821,18 +860,23 @@ export default function TransactionProgress({
       setPendingStart(null);
       setGasUsed(null);
       setErrorMsg("");
+      setNotice(null);
       setShowConfetti(false);
     }
   }, [visible]);
 
-  const handleConfirmed = useCallback(({ gasUsed: gas }) => {
+  const handleConfirmed = useCallback(({ gasUsed: gas, hash }) => {
+    // The hash that mined, which after a speed-up is not the one first sent.
+    const mined = hash || txHashRef.current;
+    txHashRef.current = mined;
+    setTxHash(mined);
     setGasUsed(gas);
     setPhase("confirmed");
     const level = getCelebrationLevel(price);
     if (level === "medium") {
       setShowConfetti(true);
     }
-    onSuccess?.({ hash: txHashRef.current, gasUsed: gas });
+    onSuccess?.({ hash: mined, gasUsed: gas });
   }, [price, onSuccess]);
 
   const handlePendingError = useCallback((msg) => {
@@ -845,6 +889,7 @@ export default function TransactionProgress({
     setPhase("idle");
     setTxHash(null);
     setErrorMsg("");
+    setNotice(null);
     setGasUsed(null);
     setShowConfetti(false);
     // Increment retryCount to force the auto-execute effect to re-run
@@ -958,6 +1003,7 @@ export default function TransactionProgress({
         {/* PENDING MONITOR */}
         {phase === "pending" && txHash && (
           <PendingMonitor
+            key={txHash}
             txHash={txHash}
             startTime={pendingStart}
             onConfirmed={handleConfirmed}
@@ -982,7 +1028,11 @@ export default function TransactionProgress({
         {phase === "error" && (
           <ErrorPanel
             message={errorMsg}
-            onRetry={handleRetry}
+            title={notice ? noticeTitle(notice) : undefined}
+            hash={notice?.hash}
+            mark={notice ? (notice.error === "unconfirmed" ? "?" : "!") : null}
+            // No RETRY for a receipt nobody could read: the purchase may have landed.
+            onRetry={notice?.error === "unconfirmed" ? null : handleRetry}
             onBack={onClose}
           />
         )}

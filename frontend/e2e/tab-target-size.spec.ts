@@ -14,6 +14,7 @@
  */
 import type { Locator, Page } from '@playwright/test';
 import { test, expect } from './fixtures/wallet';
+import { expectNoSidewaysScroll } from './fixtures/pageWidth';
 import { gotoRoute, waitForQuiescence } from './fixtures/routes';
 import { playLiveVenue } from './fixtures/playedVenue';
 
@@ -46,7 +47,7 @@ const TOUCH_WIDTHS = [
 // without a case here the new strips would have inherited that silently onto
 // nineteen routes.
 //
-// /lore, /contracts and /leaderboard are those three hosts — LearnPage, InfoPage
+// /lore, /contracts and /history are those three hosts — LearnPage, InfoPage
 // and ActivityPage. RouteTabs was extracted FROM them and then left them behind,
 // so for one change-set the app shipped the 44px floor on the four new strips and
 // the old flat 40px on the three originals: the same defect this file was written
@@ -63,7 +64,7 @@ const TOUCH_WIDTHS = [
 // at all (navConfig.ts explains why that section alone is not a SectionHost), so
 // the `toBeGreaterThan(1)` guard below would fail on a count of 0 — reporting a
 // page that is correct by design as a page that changed shape.
-for (const path of ['/community', '/nft-finance', '/trust', '/launch', '/lore', '/contracts', '/leaderboard', '/liquidity', '/earn']) {
+for (const path of ['/community', '/nft-finance', '/trust', '/launch', '/lore', '/contracts', '/history', '/liquidity', '/earn']) {
   for (const vp of TOUCH_WIDTHS) {
     test(`${path} section tabs clear the ${FLOOR}px touch floor at ${vp.name}`, async ({
       page,
@@ -88,43 +89,7 @@ for (const path of ['/community', '/nft-finance', '/trust', '/launch', '/lore', 
   }
 }
 
-/**
- * THE PAGE MUST NOT SCROLL SIDEWAYS ON A PHONE.
- *
- * ⚠️ WRITTEN BECAUSE IT SHIPPED BROKEN. The 2026-09-05 nav rewrite added two
- * wide tables (/liquidity's pool table, /farm's island index), each correctly
- * wrapped in `overflow-x-auto`. The wrapper clipped the TABLE — and did not clip
- * the `sr-only` span in its last <th>, because Tailwind's `sr-only` is
- * `position:absolute` and an absolutely-positioned element is only clipped by an
- * ancestor that is its CONTAINING BLOCK, i.e. a positioned one. The static
- * wrapper was not, so the span painted at the 520px table's right edge and
- * dragged the document's scroll width to 521 on a 390px viewport.
- *
- * It looked completely fine: the table sat inside its rounded card, scrolling
- * its own overflow, while the whole page slid sideways under the user's thumb.
- *
- * The assertion is deliberately BEHAVIOURAL — it scrolls and checks the page
- * moved — rather than comparing scrollWidth to clientWidth. `body` carries
- * `overflow-x: hidden` in index.css, so the two can disagree, and the question
- * that matters to a person holding a phone is whether it moves.
- */
-async function expectNoSidewaysScroll(page: Page): Promise<void> {
-  const moved = await page.evaluate(() => {
-    const before = window.scrollX;
-    window.scrollTo(500, 0);
-    const after = window.scrollX;
-    window.scrollTo(0, 0);
-    return { before, after, scrollW: document.documentElement.scrollWidth };
-  });
-
-  expect(
-    moved.after,
-    `the page slid sideways to x=${moved.after} (scrollWidth ${moved.scrollW}). Something is ` +
-      'escaping its scroll container: check for a position:absolute child (sr-only!) inside ' +
-      'a STATIC overflow-x-auto wrapper.',
-  ).toBe(moved.before);
-}
-
+// No page below is wider than its window, in any project: fixtures/pageWidth.ts measures it.
 for (const path of ['/', '/liquidity', '/earn', '/island', '/swap', '/trust']) {
   test(`${path} does not scroll horizontally at 390px`, async ({ page, walletMock: _w }) => {
     await page.setViewportSize(IPHONE_390);
@@ -167,9 +132,9 @@ for (const path of ['/solana-lp', `/solana-lp?mint=${A_MINT}`]) {
 }
 
 /**
- * /solana-lp opens on what a visitor can DO: Create a pool, Add liquidity and Remove
+ * /solana-lp opens on what a visitor can DO: Open a pool, Add liquidity and Remove
  * liquidity are whole inside the first screen, above the phone's bottom bar where there is
- * one, and under nothing. Pressing Create a pool brings the site's own tokens and the token
+ * one, and under nothing. Pressing Open a pool brings the site's own tokens and the token
  * address field onto the screen under them, so a second press reaches a form.
  *
  * It used to pin the address field alone in the first screen (it had been 1,506px down a
@@ -200,7 +165,7 @@ async function bottomBarHeight(page: Page): Promise<number> {
 }
 
 for (const vp of FIRST_SCREENS) {
-  test(`/solana-lp shows Create a pool, Add liquidity and Remove liquidity in the first screen at ${vp.name}`, async ({ page, walletMock: _w }) => {
+  test(`/solana-lp shows Open a pool, Add liquidity and Remove liquidity in the first screen at ${vp.name}`, async ({ page, walletMock: _w }) => {
     await page.setViewportSize(vp.size);
     await settledSolanaLp(page, '/solana-lp', { gateOpen: true });
     await expect(page.getByTestId('lp-gate-banner'), 'the played LP gate did not open').toHaveCount(0);
@@ -235,20 +200,22 @@ for (const vp of FIRST_SCREENS) {
 
     const finder = page.getByTestId('lp-finder');
     const tasks = finder.getByTestId('lp-tasks');
-    await expect(tasks.getByRole('button')).toHaveText(['Create a pool', 'Add liquidity', 'Remove liquidity']);
+    await expect(tasks.getByRole('button')).toHaveText(['Open a pool', 'Add liquidity', 'Remove liquidity']);
     let firstButtonTop = Infinity;
-    for (const name of ['Create a pool', 'Add liquidity', 'Remove liquidity']) {
+    for (const name of ['Open a pool', 'Add liquidity', 'Remove liquidity']) {
       const box = await onFirstScreen(tasks.getByRole('button', { name, exact: true }), name);
       firstButtonTop = Math.min(firstButtonTop, box.y);
     }
-    // The risk notice is read on the way to them: it is on screen, above them.
-    const risk = (await page.getByTestId('lp-risk-line').boundingBox())!;
-    expect(risk.y, 'the risk line starts above the top of the screen').toBeGreaterThanOrEqual(0);
-    expect(risk.y + risk.height, 'the risk line is not above the three buttons').toBeLessThanOrEqual(firstButtonTop);
+    // No risk line on the page (owner, 2026-10-17: "remove this warning from everywhere"); its
+    // sentence leads the notice's Risks drop-down. The one line on earning is read on the way.
+    await expect(page.getByTestId('lp-risk-line')).toHaveCount(0);
+    const earn = (await page.getByTestId('lp-earn-line').boundingBox())!;
+    expect(earn.y, 'the earn line starts above the top of the screen').toBeGreaterThanOrEqual(0);
+    expect(earn.y + earn.height, 'the earn line is not above the three buttons').toBeLessThanOrEqual(firstButtonTop);
 
     // One press, and what comes next is on the screen: a site token to press, and the
     // address field for any other token. Polled: the page scrolls them up under the buttons.
-    await tasks.getByRole('button', { name: 'Create a pool', exact: true }).click();
+    await tasks.getByRole('button', { name: 'Open a pool', exact: true }).click();
     const token = finder.getByTestId('lp-site-tokens').getByRole('button').first();
     const field = finder.getByLabel(/Token mint address/);
     const seen = (target: Locator) =>
@@ -257,8 +224,8 @@ for (const vp of FIRST_SCREENS) {
         const hit = document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2);
         return b.top >= 0 && Math.round(b.bottom) <= ends && !!hit && (hit === el || el.contains(hit));
       }, screenEnds);
-    await expect.poll(() => seen(token), 'after Create a pool, the first site token is on screen and under nothing').toBe(true);
-    await expect.poll(() => seen(field), 'after Create a pool, the token address field is on screen and under nothing').toBe(true);
+    await expect.poll(() => seen(token), 'after Open a pool, the first site token is on screen and under nothing').toBe(true);
+    await expect.poll(() => seen(field), 'after Open a pool, the token address field is on screen and under nothing').toBe(true);
 
     await expectNoSidewaysScroll(page);
   });

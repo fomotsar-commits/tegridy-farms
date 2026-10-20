@@ -6,6 +6,7 @@ import { VerifiedBadge } from '../components/ui/VerifiedBadge';
 import { CopyButton } from '../components/ui/CopyButton';
 import { shortenAddress } from '../lib/formatting';
 import { ArtImg } from '../components/ArtImg';
+import { CardArt } from '../components/ui/CardArt';
 import {
   TOWELI_ADDRESS,
   TEGRIDY_STAKING_ADDRESS,
@@ -449,9 +450,11 @@ export default function ContractsPage() {
               is still being finished after the relaunch. */}
           <div
             role="status"
-            className="rounded-xl p-4 md:p-5 max-w-[860px]"
+            className="relative isolate rounded-xl p-4 md:p-5 max-w-[860px]"
             style={{ border: '1px solid rgba(245, 158, 11, 0.35)', background: 'rgba(245, 158, 11, 0.07)' }}
           >
+            {/* The two notice cards are contracts idx 8 and 9 (idx 0-7 are the page and the group cards). */}
+            <CardArt pageId="contracts" idx={8} />
             <p className="text-amber-300 text-[13px] font-semibold mb-2" style={{ textShadow: '0 1px 3px rgba(0,0,0,0.8)' }}>
               Relaunch closure: outstanding deploy work
             </p>
@@ -489,9 +492,10 @@ export default function ContractsPage() {
               Sky tint (reassurance) to distinguish from the amber warning above. */}
           <div
             role="note"
-            className="rounded-xl p-4 md:p-5 max-w-[860px] mt-4"
+            className="relative isolate rounded-xl p-4 md:p-5 max-w-[860px] mt-4"
             style={{ border: '1px solid rgba(56, 189, 248, 0.30)', background: 'rgba(56, 189, 248, 0.06)' }}
           >
+            <CardArt pageId="contracts" idx={9} />
             <p className="text-sky-300 text-[13px] font-semibold mb-2" style={{ textShadow: '0 1px 3px rgba(0,0,0,0.8)' }}>
               This app is a convenience, not a dependency
             </p>

@@ -1,15 +1,9 @@
 // @vitest-environment node
 //
-// Four sentences on the site are about the pool program RUNNING on mainnet: three risk lines
-// a person reads before depositing and one paragraph on "The program" card. Until the pool
-// program was upgraded they said "only its admin keys changed" and "built before that
-// instruction was added", which was true of the binary deployed on 2026-09-29 and went false
-// the moment mainnet took the build that has create_lp_metadata. Nothing tied them to that
-// moment, so this does: the local harness pins the binary mainnet runs, and the release that
-// shipped with the upgrade moved that pin and the wording in one commit (MAINNET_RUNBOOK.md,
-// "The create_lp_metadata upgrade"). While the pin is the old binary the old lines must
-// stand; once it is anything else, none of them may. A roll-back moves the pin back, and
-// this then asks for the old lines back with it.
+// Three sentences on the site are about the pool program RUNNING on mainnet. Until its upgrade
+// they said "only its admin keys changed" and "built before that instruction was added". The
+// local harness pins the binary mainnet runs, so this ties the wording to that pin: the old
+// lines stand while it is the old binary, and none may stand once it is anything else.
 
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
@@ -34,12 +28,6 @@ const TRUE_ONLY_BEFORE_THE_UPGRADE = [
     file: 'src/components/solana/lp/SolanaLpSection.tsx',
     says: 'we changed only its admin keys',
     after: 'one added instruction',
-  },
-  {
-    // The short risk line above the finder. It named the admin keys as the only change.
-    file: 'src/components/solana/lp/SolanaLpSection.tsx',
-    says: 'a pool program whose admin-key changes have not had',
-    after: 'a pool program whose changes from Raydium’s have not had',
   },
   {
     file: 'src/components/solana/VenueProgramCard.tsx',
@@ -88,15 +76,14 @@ function problems(deployedBinary: string, source: (file: string) => string): str
 /** The wording before the upgrade, and the wording that shipped with it, one sample per file. */
 const BEFORE_UPGRADE: Record<string, string> = {
   'src/components/solana/lp/LpDisclosures.tsx': "Our pool program is Raydium's, with only its admin keys changed.",
-  'src/components/solana/lp/SolanaLpSection.tsx':
-    'These pools run on a pool program whose admin-key changes have not had their own independent review yet. Our pool program is Raydium’s constant-product pool; we changed only its admin keys',
+  'src/components/solana/lp/SolanaLpSection.tsx': 'Our pool program is Raydium’s constant-product pool; we changed only its admin keys',
   'src/components/solana/VenueProgramCard.tsx': 'The program on Solana today was built before that instruction was added. It gets it only through a program upgrade.',
 };
 const AFTER_UPGRADE: Record<string, string> = {
   'src/components/solana/lp/LpDisclosures.tsx':
     "Our pool program is Raydium's, with its admin keys changed and one added instruction that names pool share tokens.",
   'src/components/solana/lp/SolanaLpSection.tsx':
-    'These pools run on a pool program whose changes from Raydium’s have not had their own independent review yet. Our pool program is Raydium’s constant-product pool, with its admin keys changed and one added instruction that names pool share tokens',
+    'Our pool program is Raydium’s constant-product pool, with its admin keys changed and one added instruction that names pool share tokens',
   'src/components/solana/VenueProgramCard.tsx': 'which lets a pool’s share token carry a name and a picture in wallets.',
 };
 
@@ -115,7 +102,7 @@ describe('site copy about the pool program on mainnet follows the binary the har
     expect(registryExpects(), 'addresses.json, cp-swap-programdata-restart, expect.holdsProgram.sha256').toBe(harnessPins().genesis);
   });
 
-  it('the four lines agree with that binary', () => {
+  it('the three lines agree with that binary', () => {
     expect(problems(harnessPins().genesis ?? '', read)).toEqual([]);
   });
 

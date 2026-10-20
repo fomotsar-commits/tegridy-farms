@@ -54,8 +54,11 @@ interface Props {
   amountInRaw?: bigint | null;
   aggregatorQuote?: { outAmount: string; priceImpactPct?: string } | null;
   aggregatorPending?: boolean;
+  aggregatorRefused?: boolean;
   retry?: number;
   ownUnavailable?: string | null;
+  aggregatorFail?: 'no-route' | 'unavailable' | null;
+  refusedWhy?: string | null;
 }
 
 async function harness() {
@@ -70,9 +73,10 @@ async function harness() {
       amountInRaw: 'amountInRaw' in props ? props.amountInRaw ?? null : 1_000_000_000n,
       aggregatorQuote: 'aggregatorQuote' in props ? props.aggregatorQuote ?? null : { outAmount: '1000000' },
       aggregatorPending: props.aggregatorPending,
+      aggregatorRefused: props.aggregatorRefused,
       retry: props.retry,
     });
-    return <SolanaRouteLine route={route} ownUnavailable={props.ownUnavailable} />;
+    return <SolanaRouteLine route={route} ownUnavailable={props.ownUnavailable} aggregatorFail={props.aggregatorFail} refusedWhy={props.refusedWhy} />;
   };
 }
 
@@ -161,6 +165,61 @@ describe('when the venue AMM is live', () => {
     quoteVenuePools.mockReturnValue(quoted(ours(1_010_000n)));
     await mount({ aggregatorQuote: null, ownUnavailable: 'the pool program could not be checked' });
     await waitFor(() => expect(screen.getByText(/Only our own pool quoted this pair, .* so it cannot fill\./)).toBeInTheDocument());
+  });
+
+  describe('the page found the transaction for Jupiter’s quote refused by its test run', () => {
+    // Jupiter quoted 1,000,000 and our pool 990,000: 1.01% more, as a share of what our pool pays.
+    const REFUSED = 'Jupiter quoted 1.01% more, but its transaction for this trade failed its test run';
+    const line = () => screen.getByTestId('solana-route-line').textContent;
+    /** The line's box is the green one (RouteShell `tone="good"`). */
+    const isGreen = () => /34,\s*197,\s*94/.test(screen.getByTestId('solana-route-line').style.background);
+
+    it('that quote takes no trade from a pool that quotes, and the line says why and by how much, never "Only our pool quoted"', async () => {
+      quoteVenuePools.mockReturnValue(quoted(ours(990_000n)));
+      await mount({ aggregatorQuote: { outAmount: '1000000' }, aggregatorRefused: true });
+      await waitFor(() => expect(line()).toBe(`Route${REFUSED}, so the trade goes to our pool.`));
+      // Not drawn in the green of a route that pays at least as much: this one pays less than a quote.
+      expect(isGreen()).toBe(false);
+    });
+
+    it('the gap is measured against the best of our pools, and a small one is never printed as 0%', async () => {
+      quoteVenuePools.mockReturnValue(quoted(ours(500_000n, 'PooLB'), ours(999_999n, 'PooLA')));
+      await mount({ aggregatorQuote: { outAmount: '1000000' }, aggregatorRefused: true });
+      await waitFor(() => expect(line()).toBe('RouteJupiter quoted under 0.001% more, but its transaction for this trade failed its test run, so the trade goes to our pool.'));
+    });
+
+    it('with no pool of ours quoting, Jupiter is still the route the line names', async () => {
+      quoteVenuePools.mockReturnValue({ state: 'error', candidates: [] });
+      await mount({ aggregatorQuote: { outAmount: '1000000' }, aggregatorRefused: true });
+      await waitFor(() => expect(line()).toBe('RouteJupiter. Our pool could not be quoted this time.'));
+    });
+
+    it('a pool that pays at least as much needs no refusal: the line is the plain comparison', async () => {
+      quoteVenuePools.mockReturnValue(quoted(ours(1_010_000n)));
+      await mount({ aggregatorQuote: { outAmount: '1000000' }, aggregatorRefused: true });
+      await waitFor(() => expect(line()).toBe('RouteOur pool pays 1% more than Jupiter.'));
+      expect(isGreen()).toBe(true);
+    });
+
+    it('the cause the test run gave is said after it, so the trader can act on it; with no refusal on the line it is never said', async () => {
+      const WHY = "The test run paid less than your 0.5% slippage allows. A wider slippage may let Jupiter's transaction run";
+      quoteVenuePools.mockReturnValue(quoted(ours(990_000n)));
+      const { update } = await mount({ aggregatorQuote: { outAmount: '1000000' }, aggregatorRefused: true, refusedWhy: WHY });
+      await waitFor(() => expect(line()).toBe(`Route${REFUSED}, so the trade goes to our pool. ${WHY}.`));
+      update({ aggregatorQuote: { outAmount: '1000000' }, aggregatorRefused: true, refusedWhy: WHY, ownUnavailable: 'the swap code did not load' });
+      await waitFor(() => expect(line()).toMatch(/so the next press tests Jupiter's transaction again\. The test run paid less than your 0\.5% slippage allows\./));
+      // The refusal is over (the plain comparison is back): its cause goes with it.
+      update({ aggregatorQuote: { outAmount: '1000000' }, aggregatorRefused: false, refusedWhy: WHY });
+      await waitFor(() => expect(line()).toBe('RouteJupiter pays 1.01% more than our pool.'));
+    });
+
+    it('when a swap in our pool cannot be prepared here, neither is called the route', async () => {
+      quoteVenuePools.mockReturnValue(quoted(ours(990_000n)));
+      await mount({ aggregatorQuote: { outAmount: '1000000' }, aggregatorRefused: true, ownUnavailable: 'the swap code did not load' });
+      await waitFor(() =>
+        expect(line()).toBe(`Route${REFUSED}, and a swap in our pool cannot be prepared here right now (the swap code did not load), so the next press tests Jupiter's transaction again.`),
+      );
+    });
   });
 
   it('takes the best of several pools', async () => {
@@ -310,6 +369,24 @@ describe('when the venue could not be read', () => {
   });
 });
 
+describe('when Jupiter gave no quote and our venue is not live', () => {
+  // "Quoting Jupiter" is for a quote on its way: once Jupiter answered, what each side found is said.
+  it('the venue could not be read: ours could not be quoted, beside what Jupiter said, never "Quoting"', async () => {
+    readVenue.mockResolvedValue({ kind: 'unreadable', detail: 'HTTP 502' });
+    for (const [fail, said] of [['no-route', 'Jupiter has no route for this pair and amount'], ['unavailable', 'Jupiter could not be asked for a quote just now']] as const) {
+      const view = await mount({ aggregatorQuote: null, aggregatorFail: fail });
+      await waitFor(() => expect(screen.getByTestId('solana-route-line').textContent).toBe(`RouteOur pool could not be quoted this time, and ${said}.`));
+      view.unmount();
+    }
+  });
+
+  it('the venue is not deployed: said beside Jupiter’s no route, never "Quoting"', async () => {
+    readVenue.mockResolvedValue({ kind: 'no-program-id' });
+    await mount({ aggregatorQuote: null, aggregatorFail: 'no-route' });
+    await waitFor(() => expect(screen.getByTestId('solana-route-line').textContent).toBe('RouteOur own pools are not deployed yet, and Jupiter has no route for this pair and amount.'));
+  });
+});
+
 describe('while the aggregator has not answered', () => {
   beforeEach(() => { readVenue.mockResolvedValue({ kind: 'no-program-id' }); });
 
@@ -333,6 +410,14 @@ describe('the words', () => {
       [{ state: 'not-searched', candidates: [] }, {}],
       [{ state: 'absent', candidates: [] }, {}],
       [quoted(ours(1_010_000n)), { aggregatorPending: true }],
+      // Nothing quoted the trade: what each side found is said.
+      ...(['error', 'unquotable', 'not-searched', 'absent'] as const).flatMap((state) =>
+        (['no-route', 'unavailable'] as const).map((fail): [{ state: string; candidates: never[] }, Props] => [
+          { state, candidates: [] },
+          { aggregatorQuote: null, aggregatorFail: fail },
+        ]),
+      ),
+      [quoted(ours(1_010_000n)), { aggregatorQuote: null, aggregatorFail: 'unavailable', ownUnavailable: 'the swap code did not load' }],
     ];
     for (const [q, props] of states) {
       quoteVenuePools.mockReturnValue(q);

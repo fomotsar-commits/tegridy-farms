@@ -19,7 +19,8 @@
 
 import type { Address } from 'viem';
 import {
-  COW_APP_DATA_HASH,
+  COW_PARTNER_FEE_BPS,
+  COW_SWAP_APP_DATA_HASH,
   cowOrderbookUrl,
   type CowOrder,
 } from './cowProtocol';
@@ -105,9 +106,10 @@ export function buildCowSwapQuoteBody(params: {
 
 /** The subset of the CoW /quote response we consume, with amounts as bigints. */
 export interface ParsedCowSwapQuote {
-  sellAmount: bigint; // amount actually sold (before fee under current model)
-  buyAmount: bigint; // solver-quoted buy amount (pre-slippage)
-  feeAmount: bigint; // network fee taken in sell-token units (0 under surplus model)
+  sellAmount: bigint; // amount sold AFTER network costs (CoW subtracted feeAmount from the input)
+  buyAmount: bigint; // buy amount for that sellAmount, CoW's protocol fee already deducted (pre-slippage)
+  feeAmount: bigint; // estimated network cost in sell-token units — a price input, never signed
+  protocolFeeBps: number; // CoW's own fee, already baked into buyAmount
   validTo: number; // quote's own expiry (we set our own on the order)
   quoteId: number | null; // opaque id echoed back to the orderbook when placing
 }
@@ -128,7 +130,8 @@ export function parseCowSwapQuote(raw: unknown): ParsedCowSwapQuote | null {
   if (!q || typeof q !== 'object') return null;
   const quote = q as Record<string, unknown>;
   if (!isDigits(quote.sellAmount) || !isDigits(quote.buyAmount)) return null;
-  // feeAmount is usually "0" under the surplus-fee model but may be absent.
+  // feeAmount is CoW's network-cost estimate (non-zero on a live quote). It feeds
+  // the amount math below; it is NOT a fee to sign — see buildCowSwapOrder.
   const feeRaw = quote.feeAmount;
   const feeAmount = isDigits(feeRaw) ? BigInt(feeRaw) : 0n;
   let sellAmount: bigint;
@@ -145,7 +148,53 @@ export function parseCowSwapQuote(raw: unknown): ParsedCowSwapQuote | null {
       ? quote.validTo
       : Math.floor(Date.now() / 1000) + COW_SWAP_DEFAULT_TTL_SECONDS;
   const quoteId = typeof outer.id === 'number' && Number.isFinite(outer.id) ? outer.id : null;
-  return { sellAmount, buyAmount, feeAmount, validTo, quoteId };
+  // A string on the wire ("2"); fractional values are legal. Absent → none.
+  const protocolFeeRaw = (outer as { protocolFeeBps?: unknown }).protocolFeeBps;
+  const protocolFeeBps = protocolFeeRaw === undefined ? 0 : Number(protocolFeeRaw);
+  if (!Number.isFinite(protocolFeeBps) || protocolFeeBps < 0 || protocolFeeBps >= 10000) return null;
+  return { sellAmount, buyAmount, feeAmount, protocolFeeBps, validTo, quoteId };
+}
+
+// ─── Amounts to sign ────────────────────────────────────────────────────────
+
+export interface CowSwapAmounts {
+  /** The user's whole input: CoW takes network costs out of it at settlement. */
+  sellAmount: bigint;
+  /** What the user receives at the quoted price, after every fee (before slippage). */
+  buyAmountAfterFees: bigint;
+  /** The signed floor: buyAmountAfterFees less the slippage tolerance. */
+  buyAmountMin: bigint;
+  /** The venue's partner fee, in buy-token units, at the quoted price. */
+  partnerFeeAmount: bigint;
+}
+
+/**
+ * SELL-order amounts from a CoW quote, ported line for line from CoW's SDK
+ * (cow-sdk packages/order-book/src/quoteAmountsAndCosts: getQuoteAmountsAndCosts,
+ * getProtocolFeeAmount, getQuoteAmountsAfterPartnerFee, SELL branch). The partner
+ * fee is a share of the trade BEFORE all fees, so the SDK first restores the
+ * network cost and CoW's protocol fee that the quote already took out.
+ */
+export function cowSwapAmounts(
+  quote: ParsedCowSwapQuote,
+  slippageBps: bigint,
+  partnerFeeBps: number = COW_PARTNER_FEE_BPS,
+): CowSwapAmounts {
+  const { sellAmount, buyAmount, feeAmount } = quote;
+  const networkCostInBuy = (buyAmount * feeAmount) / sellAmount;
+  // getProtocolFeeAmount: keep 5 decimal places of bps precision.
+  const protocolFeeBpsBig = BigInt(Math.round(quote.protocolFeeBps * 100_000));
+  const protocolFeeAmount =
+    protocolFeeBpsBig > 0n ? (buyAmount * protocolFeeBpsBig) / (10_000n * 100_000n - protocolFeeBpsBig) : 0n;
+  const buyBeforeAllFees = buyAmount + networkCostInBuy + protocolFeeAmount;
+  const partnerFeeAmount = partnerFeeBps > 0 ? (buyBeforeAllFees * BigInt(partnerFeeBps)) / 10_000n : 0n;
+  const buyAmountAfterFees = buyAmount - partnerFeeAmount;
+  return {
+    sellAmount: sellAmount + feeAmount,
+    buyAmountAfterFees,
+    buyAmountMin: applyBuySlippage(buyAmountAfterFees, slippageBps),
+    partnerFeeAmount,
+  };
 }
 
 // ─── Order construction ─────────────────────────────────────────────────────
@@ -167,25 +216,26 @@ export interface BuiltCowSwapOrder {
 }
 
 /**
- * Build the canonical GPv2 SELL order for a market swap from a parsed quote.
- * The buy amount is the quote haircut by the user's slippage — this is the
- * MEV-protection floor the solver must beat. Sell amount + fee come straight
- * from the quote so the signed order matches what CoW priced. Uses our own
- * appData (COW_APP_DATA_HASH) and a fresh validTo, exactly like the limit path.
+ * Build the canonical GPv2 SELL order for a market swap from a parsed quote, the
+ * way CoW's SDK signs one (`amountsToSign`): sell the user's WHOLE input, sign a
+ * fee of 0, and floor the buy amount at the quote after every fee, less slippage.
+ * CoW's orderbook has rejected any non-zero signed fee since 2024-03-04
+ * (services #2454, `NonZeroFee`): network costs now come out of the limit price.
+ * Uses the market-swap appData (COW_SWAP_APP_DATA_HASH) and a fresh validTo.
  */
 export function buildCowSwapOrder(params: BuildCowSwapOrderParams): BuiltCowSwapOrder {
   const nowSec = Math.floor((params.now ?? Date.now()) / 1000);
   const validTo = params.validTo ?? nowSec + COW_SWAP_DEFAULT_TTL_SECONDS;
-  const buyAmountMin = applyBuySlippage(params.quote.buyAmount, params.slippageBps);
+  const { sellAmount, buyAmountMin } = cowSwapAmounts(params.quote, params.slippageBps);
   const order: CowOrder = {
     sellToken: params.sellToken,
     buyToken: params.buyToken,
     receiver: params.receiver,
-    sellAmount: params.quote.sellAmount,
+    sellAmount,
     buyAmount: buyAmountMin,
     validTo,
-    appData: COW_APP_DATA_HASH,
-    feeAmount: params.quote.feeAmount,
+    appData: COW_SWAP_APP_DATA_HASH,
+    feeAmount: 0n,
     kind: 'sell',
     partiallyFillable: false,
     sellTokenBalance: 'erc20',

@@ -12,6 +12,7 @@ import type { GateDecision } from '../lib/heat/heatOracle';
 import type { GateAuditRow } from '../lib/heat/gateAudit';
 import { HeatCard } from './HeatCard';
 import { GateAuditPanel } from './heat/GateAuditPanel';
+import { CardArt } from './ui/CardArt';
 import { shortenAddress } from '../lib/formatting';
 
 /**
@@ -340,9 +341,11 @@ function Frame({ children, state }: { children: React.ReactNode; state?: GateDec
     // thing that decides whether the wizard leads anywhere.
     <section
       aria-label="Who may plant"
-      className="rounded-2xl p-5 md:p-6"
+      className="relative isolate rounded-2xl p-5 md:p-6"
       style={{ background: 'rgba(6,12,26,0.78)', border: `1px solid ${border}`, backdropFilter: 'blur(10px)', WebkitBackdropFilter: 'blur(10px)' }}
     >
+      {/* One surface for the door on every rail and route that mounts it (/launch, /eth-curve, /curve-launch). */}
+      <CardArt pageId="launch-gate" idx={0} />
       {children}
     </section>
   );

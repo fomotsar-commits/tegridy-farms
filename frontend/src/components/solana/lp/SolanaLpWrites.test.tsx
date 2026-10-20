@@ -4,6 +4,7 @@
 // pools, positions and wallet are fake readers. Nothing here touches a chain.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { RISK_SHORT } from './LpDisclosures';
 import { act, render, screen, waitFor, within, fireEvent } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { PublicKey } from '@solana/web3.js';
@@ -11,6 +12,7 @@ import { LpInner, type LpWritesOverrides } from './SolanaLpSection';
 import type { LpReaders } from './readers';
 import type { TokenSafety } from '../../../lib/solana/lp/tokenSafety';
 import { SOL_QUOTE } from '../../../lib/solana/lp/quotes';
+import { FORECAST_WORDS } from '../../../lib/solana/lp/format';
 import type { PoolSearchRead, PoolView } from '../../../lib/solana/lp/poolFinder';
 import { POOL_STATUS_DISABLE_WITHDRAW, decodeAmmConfig, decodePoolState } from '../../../lib/solana/cpswap/program';
 import type { Position } from '../../../lib/solana/lp/positions';
@@ -157,7 +159,7 @@ describe("mode 'off' (the shipped build)", () => {
     const c = await card();
     expect(c).toHaveAttribute('data-add', 'off');
     expect(c).toHaveAttribute('data-deposits', 'allowed');
-    expect(within(c).getByText(/Adding liquidity from this page is not switched on yet/)).toBeInTheDocument();
+    expect(within(c).getByText(/Adding liquidity here is not switched on yet/)).toBeInTheDocument();
     expect(within(c).queryByRole('button', { name: 'Add liquidity' })).toBeNull();
     expect(screen.getByTestId('lp-disclosure')).toHaveTextContent(/only reads/);
     const row = await screen.findByTestId('lp-position');
@@ -181,7 +183,8 @@ describe('Add liquidity', () => {
     const c = await card();
     expect(await within(c).findByRole('button', { name: 'Add liquidity' })).toBeInTheDocument();
     expect(c).toHaveAttribute('data-add', 'offer');
-    expect(within(c).getByText('These checks run again, on fresh reads, when you press Review.')).toBeInTheDocument();
+    // The checks are said at Review, where they run; nothing about them under the buttons (owner, 2026-10-17).
+    expect(within(c).queryByText('Checks run again on fresh reads when you press Review.')).toBeNull();
     expect(screen.getByTestId('lp-disclosure')).toHaveTextContent(/Opening a pool, adding and removing liquidity here send real transactions/);
     expect(screen.getByTestId('lp-disclosure')).not.toHaveTextContent(/only reads/);
     // A clean token at the market price: the same green pass as ever, and no warning anywhere.
@@ -259,7 +262,7 @@ describe('Add liquidity', () => {
     // check that could not be RUN. It no longer says an outside price is always needed
     // (a pool with no market price at all is offered, with a warning).
     expect(c).toHaveTextContent('We could not check its price against an outside price (Jupiter did not give a price (HTTP 502)).');
-    expect(c).toHaveTextContent('We offer adding liquidity only when every check above could be run, and one of them could not be run just now.');
+    expect(c).toHaveTextContent('Adding is off: a check above could not be run just now.');
     expect(c).not.toHaveTextContent(/only after checking the pool's price against a price from outside it/);
     expect(c).not.toHaveTextContent(/Often that means/);
     // Unread is not a warning: nothing here says deposits are open.
@@ -327,10 +330,13 @@ describe('Add liquidity', () => {
     const before = within(panel).getByTestId('lp-before-you-add');
     expect(before).toHaveTextContent(/Our pool program is Raydium's, with its admin keys changed and one added instruction that names pool share tokens\. Those changes have not had their own independent review yet\./);
     expect(before).toHaveTextContent(/change its fee rates at once/);
-    expect(before).toHaveTextContent(/Jupiter does not send trades to these pools yet/);
+    expect(before).toHaveTextContent("Jupiter does not send trades to these pools yet. This site's own swap sends a trade to this pool only when it pays the trader at least as much as Jupiter does, so fees can be small.");
+    expect(before).toHaveTextContent('When the price moves, you can end up with less than if you had just held both tokens.');
+    // No word on who trades a pool: "mostly bots" was a guess the chain has not borne out.
+    expect(before).not.toHaveTextContent(/\bbots?\b|arbitrage|mostly/i);
     expect(before).toHaveTextContent(/liquidity providers keep 0\.\d{3}%, read from this pool's fee tier just now/);
     expect(before).not.toHaveTextContent(/burned the launch's own pool shares/); // not a launch pool
-    expect(panel).not.toHaveTextContent(/\bAPR\b|\bAPY\b|yield of/i);
+    expect(panel).not.toHaveTextContent(FORECAST_WORDS);
     fireEvent.click(within(panel).getByRole('button', { name: 'Close' }));
     await waitFor(() => expect(screen.queryByTestId('lp-add-panel')).toBeNull());
     expect(add).toHaveFocus();
@@ -555,14 +561,15 @@ describe('Remove liquidity', () => {
   it('a search that finds nothing says the shares are safe; a failed one says it could not read', async () => {
     const v = view();
     const unplaced = position(v, { placement: 'not-found', pool: null, value: null });
-    const placeShareOnChain = vi.fn().mockResolvedValueOnce({ kind: 'not-found' }).mockResolvedValueOnce({ kind: 'unread', detail: 'HTTP 429' });
+    const placeShareOnChain = vi.fn().mockResolvedValueOnce({ kind: 'not-found' }).mockResolvedValueOnce({ kind: 'unread', detail: 'the network is busy; try again in a minute' });
     mount(readers({ positions: vi.fn(async () => ({ kind: 'ok' as const, chainNow: 5n, totalShares: 1, positions: [unplaced] })), placeShareOnChain }), { path: '/pools' });
     const row = await screen.findByTestId('lp-position');
     const find = await within(row).findByRole('button', { name: "Find this share's pool on the chain" });
     fireEvent.click(find);
     expect(await within(row).findByText(/could not find this share’s pool from its recent history\. Your shares are safe/)).toBeInTheDocument();
     fireEvent.click(find);
-    expect(await within(row).findByText(/could not read the chain just now \(HTTP 429\)\. Your shares are safe/)).toBeInTheDocument();
+    // The reader says a busy network in words (positions.ts), and the row prints them.
+    expect(await within(row).findByText(/could not read the chain just now \(the network is busy; try again in a minute\)\. Your shares are safe/)).toBeInTheDocument();
   });
 });
 
@@ -809,6 +816,15 @@ describe('the review', () => {
     const disclosure = within(panel).getByTestId('lp-review-disclosure');
     expect(disclosure).toHaveTextContent(/have not had their own independent review yet/);
     expect(disclosure).toHaveTextContent(/change its fee rates at once/);
+    // Island, answer eighteen: the two risk notices stand once, above the rows. The list under
+    // the panel said them again under the Sign button; it keeps its other lines.
+    expect(within(panel).getAllByText(/have not had their own independent review yet/)).toHaveLength(1);
+    expect(within(panel).getAllByText(/change its fee rates at once/)).toHaveLength(1);
+    expect(within(panel).getAllByText(RISK_SHORT)).toHaveLength(1);
+    expect(within(panel).getByTestId('lp-before-you-add')).toHaveTextContent('When the price moves, you can end up with less than if you had just held both tokens.');
+    // Back on the form, with no review on screen, the list says them again.
+    fireEvent.click(within(panel).getByRole('button', { name: 'Cancel' }));
+    expect(within(panel).getByTestId('lp-before-you-add')).toHaveTextContent(/have not had their own independent review yet/);
   });
 });
 
@@ -868,6 +884,97 @@ describe('a review too old to sign when Sign in wallet is pressed', () => {
     expect(await within(panel).findByTestId('tx-outcome')).toHaveAttribute('data-status', 'confirmed');
     expect(prepare).toHaveBeenCalledTimes(2);
     expect(submitPrepared.mock.calls.map((c: unknown[]) => c[2])).toEqual([fresh]);
+  });
+});
+
+// What a confirmed withdrawal leaves on screen: what came out, from the review's own
+// figures, and the two ways on (the swap, opened on the token; the All pools list). Only the
+// Remove panel's confirmed card says this: the shared outcome card is otherwise unchanged.
+describe('after a confirmed withdrawal', () => {
+  const listed = { listPools: vi.fn(async () => ({ kind: 'ok' as const, list: { pools: [], unread: 0, truncated: false, chainNow: null } })) };
+  const confirmed = () => vi.fn(async (): Promise<TxOutcome> => ({ status: 'confirmed', signature: SIG, slot: 1 }));
+
+  async function removeHalf(o: Partial<LpReaders> = {}, where: () => Promise<HTMLElement> = () => screen.findByTestId('lp-position')) {
+    const v = view();
+    const p = position(v);
+    const summary = lpWithdrawSummary(new PublicKey(v.address), MINT, new PublicKey(p.lpAccount));
+    const api = fakeLpApi({ prepareLpWithdraw: vi.fn(async () => ({ ok: true as const, prepared: prepared(summary) })), submitPrepared: confirmed() });
+    const positions = vi.fn(async () => ({ kind: 'ok' as const, chainNow: 5n, totalShares: 1, positions: [p] }));
+    mount(readers({ positions, ...o }), { api, path: '/pools' });
+    fireEvent.click(await within(await where()).findByRole('button', { name: 'Remove liquidity' }));
+    const panel = await screen.findByTestId('lp-remove-panel');
+    fireEvent.click(within(within(panel).getByRole('group', { name: 'How much to take out' })).getByRole('button', { name: '50%' }));
+    await act(async () => {
+      fireEvent.click(within(panel).getByRole('button', { name: 'Review: remove liquidity' }));
+    });
+    await act(async () => {
+      fireEvent.click(await within(panel).findByRole('button', { name: 'Sign in wallet' }));
+    });
+    const outcome = await within(panel).findByTestId('tx-outcome');
+    expect(outcome).toHaveAttribute('data-status', 'confirmed');
+    return { outcome, positions };
+  }
+
+  it('says what came out, and offers the swap on that token, the All pools list and Close', async () => {
+    const { outcome, positions } = await removeHalf(listed);
+    // The review's figures: 0.05 SOL and 5 of the token, said by the name it read as.
+    expect(within(outcome).getByTestId('lp-removed')).toHaveTextContent(/^You got about 0\.05 SOL and 5 CORN\./);
+    expect(within(outcome).getByRole('link', { name: 'Swap it' })).toHaveAttribute('href', `/solana?in=${M}&out=${SOL_QUOTE.mint}`);
+    expect(within(outcome).getByRole('button', { name: 'Close' })).toBeInTheDocument();
+    const reads = positions.mock.calls.length;
+    fireEvent.click(within(outcome).getByRole('button', { name: 'Add to another pool' }));
+    expect(screen.getByRole('region', { name: 'All pools' })).toHaveFocus();
+    // The pools and positions are read again, as Close has them read.
+    await waitFor(() => expect(positions.mock.calls.length).toBeGreaterThan(reads));
+  });
+
+  it('a section with no pool list offers no "Add to another pool"', async () => {
+    const { outcome } = await removeHalf();
+    expect(within(outcome).getByRole('link', { name: 'Swap it' })).toBeInTheDocument();
+    expect(within(outcome).queryByRole('button', { name: 'Add to another pool' })).toBeNull();
+  });
+
+  it('a set-aside share is not offered the swap, and its token is not named', async () => {
+    const blocked = { ...okToken, verdict: 'blocked', blocks: [{ code: 'extension', text: 'It uses a transfer hook.' }] } as TokenSafety;
+    const { outcome } = await removeHalf({ ...listed, safety: vi.fn(async () => new Map([[M, blocked]])) }, () => screen.findByTestId('lp-positions-set-aside'));
+    expect(within(outcome).getByTestId('lp-removed')).toHaveTextContent(/^You got about 0\.05 SOL and 5 tokens\./);
+    expect(within(outcome).queryByRole('link', { name: 'Swap it' })).toBeNull();
+    expect(within(outcome).getByRole('button', { name: 'Add to another pool' })).toBeInTheDocument();
+  });
+
+  it('a token whose symbol copies a well-known one is not named by it', async () => {
+    const copy = {
+      ...okToken,
+      name: 'USD Coin',
+      symbol: 'USDC',
+      verdict: 'warn',
+      warnings: [{ code: 'copies-known-name', text: 'It calls itself USDC, but it is not USDC.' }],
+    } as TokenSafety;
+    const { outcome } = await removeHalf({ ...listed, safety: vi.fn(async () => new Map([[M, copy]])) });
+    expect(within(outcome).getByTestId('lp-removed')).toHaveTextContent(/^You got about 0\.05 SOL and 5 tokens\./);
+    expect(within(outcome).getByTestId('lp-removed')).not.toHaveTextContent('USDC');
+  });
+
+  it('a confirmed deposit says none of it', async () => {
+    const v = view();
+    const summary = lpDepositSummary(new PublicKey(v.address), MINT);
+    const api = fakeLpApi({ prepareLpDeposit: vi.fn(async () => ({ ok: true as const, prepared: prepared(summary) })), submitPrepared: confirmed() });
+    mount(readers({ ...listed, findPools: vi.fn(async () => search([v])) }), { api });
+    fireEvent.click(await within(await card()).findByRole('button', { name: 'Add liquidity' }));
+    const panel = await screen.findByTestId('lp-add-panel');
+    await within(panel).findByRole('button', { name: 'Max SOL' });
+    fireEvent.change(within(panel).getByLabelText('SOL to add'), { target: { value: '0.1' } });
+    await act(async () => {
+      fireEvent.click(within(panel).getByRole('button', { name: 'Review: add liquidity' }));
+    });
+    await act(async () => {
+      fireEvent.click(await within(panel).findByRole('button', { name: 'Sign in wallet' }));
+    });
+    const outcome = await within(panel).findByTestId('tx-outcome');
+    expect(outcome).toHaveAttribute('data-status', 'confirmed');
+    expect(within(outcome).queryByTestId('lp-removed')).toBeNull();
+    expect(within(outcome).queryByRole('link', { name: 'Swap it' })).toBeNull();
+    expect(within(outcome).queryByRole('button', { name: 'Add to another pool' })).toBeNull();
   });
 });
 

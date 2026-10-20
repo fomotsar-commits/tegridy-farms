@@ -8,6 +8,8 @@ import {
   formatWholeTokens,
   type BurnTally,
 } from '../../lib/bungalowBurn';
+import { CardArt } from '../ui/CardArt';
+import { FinePrint } from '../ui/FinePrint';
 import { HAIR, LEDGER_BG } from './ledger';
 
 const CHAIN_LABEL: Partial<Record<Bungalow['chain'], string>> = { ethereum: 'Ethereum', base: 'Base', solana: 'Solana' };
@@ -31,14 +33,12 @@ export function BungalowBurn({ bungalow }: { bungalow: Bungalow }) {
   const { symbol } = bungalow;
   return (
     <section
-      className="rounded-2xl p-6"
+      className="relative isolate rounded-2xl p-6"
       style={{ background: 'rgba(4,9,18,0.72)', border: '1px solid var(--color-purple-25)' }}
       aria-label={`${symbol} burn`}
     >
+      <CardArt pageId="bungalow-burn" idx={0} />
       <div className="flex items-center gap-3 flex-wrap mb-4">
-        <p className="text-[10px] uppercase tracking-wider" style={{ color: 'var(--color-kyle)' }}>
-          The burn
-        </p>
         <h2 className="heading-luxury text-xl text-white">{symbol} burnt</h2>
         <span className="text-[11px] text-white/45">{CHAIN_LABEL[bungalow.chain]}</span>
         {/* ml-auto, not a spacer: when the row wraps on a phone the button still sits at the right. */}
@@ -58,7 +58,7 @@ export function BungalowBurn({ bungalow }: { bungalow: Bungalow }) {
         <p className="text-[12px] text-white/55">Reading the {symbol} burn…</p>
       ) : burn.status === 'unread' ? (
         <p role="status" className="text-[12px]" style={{ color: AMBER }}>
-          The {symbol} burn could not be read right now. That is an outage, not a zero.
+          The {symbol} burn could not be read. An outage, not a zero.
         </p>
       ) : (
         <p role="status" className="text-[12px]" style={{ color: AMBER }}>
@@ -130,38 +130,41 @@ function BurnLedger({ bungalow, tally }: { bungalow: Bungalow; tally: Extract<Bu
         </dl>
       </div>
 
-      <p className="text-[11px] text-white/60 mt-3">
-        {hasBurnAddress ? (
-          <>
-            Burnt counts {symbol} {listPhrases(ways.map((w) => w.phrase))}.{' '}
-            {uncountedFallRaw !== undefined && (
-              <>
-                This token has a bridge path that could lower its supply without a burn, so a fall in supply is not
-                counted as burnt.{' '}
-              </>
-            )}
-          </>
-        ) : (
-          <>Burnt is the {symbol} destroyed outright: everything ever minted, less the supply on chain now. </>
-        )}
-        Read from {CHAIN_LABEL[bungalow.chain]}. The burn is rounded down to whole tokens. Nothing here refreshes on
-        its own.
-        {proofUrl && proofLabel && (
-          <>
-            {' '}
-            <a
-              href={proofUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              aria-label={`${proofLabel} (opens in new tab)`}
-              className="underline underline-offset-2 text-white/80 hover:text-white"
-            >
-              {/* A no-break space: the arrow never wraps onto a line of its own. */}
-              {proofLabel}{'\u00A0'}↗
-            </a>
-          </>
-        )}
-      </p>
+      {proofUrl && proofLabel && (
+        <p className="text-[11px] text-white/60 mt-3">
+          <a
+            href={proofUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-label={`${proofLabel} (opens in new tab)`}
+            className="underline underline-offset-2 text-white/80 hover:text-white"
+          >
+            {/* A no-break space: the arrow never wraps onto a line of its own. */}
+            {proofLabel}{'\u00A0'}↗
+          </a>
+        </p>
+      )}
+
+      {/* How the figure is counted, one press away (owner, 2026-10-13). */}
+      <FinePrint summary="How it's counted" className="mt-1">
+        <p>
+          {hasBurnAddress ? (
+            <>
+              Burnt counts {symbol} {listPhrases(ways.map((w) => w.phrase))}.{' '}
+              {uncountedFallRaw !== undefined && (
+                <>
+                  This token has a bridge path that could lower its supply without a burn, so a fall in supply is not
+                  counted as burnt.{' '}
+                </>
+              )}
+            </>
+          ) : (
+            <>Burnt is the {symbol} destroyed outright: everything ever minted, less the supply on chain now. </>
+          )}
+          Read from {CHAIN_LABEL[bungalow.chain]}. The burn is rounded down to whole tokens. Nothing here refreshes on
+          its own.
+        </p>
+      </FinePrint>
     </>
   );
 }

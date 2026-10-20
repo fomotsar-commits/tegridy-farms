@@ -2,7 +2,7 @@
 // Users can also import any token by contract address
 
 import { getAddress } from 'viem';
-import { TOWELI_ADDRESS, WETH_ADDRESS } from './constants';
+import { TOWELI_ADDRESS, WETH_ADDRESS, CHAIN_ID } from './constants';
 
 export interface TokenInfo {
   address: string;
@@ -117,6 +117,48 @@ export const DEFAULT_TOKENS: TokenInfo[] = [
     logoURI: '/tokens/steth.png',
   },
 ];
+
+const ETH_TOKEN: TokenInfo = DEFAULT_TOKENS[0]!;
+
+/**
+ * The swap's starting list on each chain it serves. Ethereum keeps DEFAULT_TOKENS.
+ * Base and Robinhood list only what was read on chain: native ETH, the chain's WETH,
+ * and one dollar coin. On Base, Circle's USDC (Circle's mainnet table; symbol USDC, 6
+ * decimals; read 2026-10-17). Circle lists no USDC on Robinhood Chain; there, Paxos's
+ * Global Dollar (USDG), copied from the Uniswap Labs Default token list v22.27.0 and
+ * read on chain 2026-10-18 (name "Global Dollar", symbol USDG, 6 decimals; its Uniswap
+ * V2 pool with WETH held 88.5 WETH and 209,262 USDG). Any other token is added by
+ * pasting its address, as on Ethereum, and stays a custom (exact-amount approval) token.
+ */
+const SWAP_TOKENS_BY_CHAIN: Readonly<Record<number, readonly TokenInfo[]>> = Object.freeze({
+  8453: [
+    ETH_TOKEN,
+    { address: '0x4200000000000000000000000000000000000006', symbol: 'WETH', name: 'Wrapped Ether', decimals: 18, logoURI: '/tokens/weth.png' },
+    { address: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913', symbol: 'USDC', name: 'USD Coin', decimals: 6, logoURI: '/tokens/usdc.png' },
+  ],
+  4663: [
+    ETH_TOKEN,
+    { address: '0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73', symbol: 'WETH', name: 'Wrapped Ether', decimals: 18, logoURI: '/tokens/weth.png' },
+    { address: '0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168', symbol: 'USDG', name: 'Global Dollar', decimals: 6, logoURI: '' },
+  ],
+});
+
+/** The swap's default tokens on `chainId`: Ethereum's list on Ethereum, none on a chain with no list. */
+export function defaultTokensFor(chainId: number): readonly TokenInfo[] {
+  return SWAP_TOKENS_BY_CHAIN[chainId] ?? (chainId === CHAIN_ID ? DEFAULT_TOKENS : []);
+}
+
+/**
+ * The token the Swap and Pools forms open on beside ETH: TOWELI on Ethereum, else the
+ * chain's first listed token that is not ETH or WETH (USDC on Base, USDG on Robinhood
+ * Chain). Null on a chain with nothing else listed. One rule for both forms, so neither
+ * opens on a token the other cannot read.
+ */
+export function headlineTokenFor(chainId: number): TokenInfo | null {
+  const list = defaultTokensFor(chainId);
+  if (chainId === CHAIN_ID) return list.find(t => t.symbol === 'TOWELI') ?? null;
+  return list.find(t => !t.isNative && t.symbol !== 'WETH') ?? null;
+}
 
 // Helper to find a token by address (case-insensitive)
 export function findToken(address: string, customTokens: TokenInfo[] = []): TokenInfo | undefined {

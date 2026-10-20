@@ -13,6 +13,7 @@
  *   /deployer     deployer-report share links (?address=<address>).
  *   /read/<addr>  held-time share links — the card IS the holder's number, and
  *                 is the whole reason the share exists (wave seven, element M).
+ *                 Its picture is the island's painted card for a wallet it reads.
  *
  * HONESTY RULE, one law for every card here: a card ASSERTS NOTHING OF THE
  * VENUE'S OWN. It states what the page measures, identifies the subject, and
@@ -69,6 +70,9 @@ export const config = {
  * functions, not production's). Only the public-facing stamps move.
  */
 const CANONICAL_ORIGIN = "https://memetics.finance";
+// The venue's default card: Bayla at the door, the home page's first picture (index.html
+// carries the same). A page with its own image (the island's painted card) keeps it.
+const VENUE_CARD = `${CANONICAL_ORIGIN}/og.jpg`;
 
 // Social unfurlers only — all fetch previews without executing JS.
 const UNFURL_BOTS = /twitterbot|discordbot|telegrambot|facebookexternalhit|linkedinbot|slackbot|slack-imgproxy|slack-linkexpanding|whatsapp|embedly|pinterest(bot)?|redditbot|skypeuripreview|vkshare|tumblr/i;
@@ -239,7 +243,7 @@ async function tokenIdentity(address) {
 async function trustCard(url) {
   // The PATH is the crawler's; the HOST is ours. See CANONICAL_ORIGIN.
   const pageUrl = CANONICAL_ORIGIN + url.pathname + url.search;
-  const image = `${CANONICAL_ORIGIN}/og.png`;
+  const image = VENUE_CARD;
   const siteName = "Tegridy Farms";
 
   if (url.pathname === "/scan") {
@@ -295,6 +299,11 @@ async function trustCard(url) {
 // from the edge carries no Origin header) for no gain.
 
 const HEAT_BASE = "https://memetics.wtf/api/heat";
+// The island paints a wallet's card itself. A link to a wallet it reads carries that
+// picture; a cold or unread wallet keeps the venue's own, because the island's cold
+// card prints "DAY 0" and the venue never posts a zero. The picture is the crawler's
+// to fetch: this function only names it.
+const CARD_BASE = "https://memetics.wtf/api/card";
 const READ_DESCRIPTION = "Held time counts here. Read any wallet, no wallet needed.";
 const READ_GENERIC_TITLE = "Read any wallet on Jungle Bay Island";
 
@@ -321,7 +330,7 @@ async function heatReading(address) {
 }
 
 async function readCard(url) {
-  const image = `${CANONICAL_ORIGIN}/og.png`;
+  const image = VENUE_CARD;
   const siteName = "memetics.finance";
   const address = (url.pathname.split("/")[2] || "").trim();
 
@@ -346,7 +355,7 @@ async function readCard(url) {
   return respond(ogHtml({
     title: `${r.tier} · ${r.days.toLocaleString("en-US")} days held · ${r.degrees.toFixed(1)}° on Jungle Bay Island`,
     description: READ_DESCRIPTION,
-    image,
+    image: `${CARD_BASE}?w=${address}`,
     url: `${CANONICAL_ORIGIN}/read/${address}`,
     siteName,
   }));
@@ -383,7 +392,7 @@ export default async function middleware(req) {
     return respond(ogHtml({
       title: "Tradermigos — NFT trading floor",
       description: "Browse, trade, and analyze Nakamigos, GNSS Art & Jungle Bay. P2P swaps settled on Seaport, live floors, rarity, and a 1% flat fee that funds the treasury.",
-      image: `${CANONICAL_ORIGIN}/og.png`,
+      image: VENUE_CARD,
       url: `${CANONICAL_ORIGIN}/nakamigos`,
     }));
   }

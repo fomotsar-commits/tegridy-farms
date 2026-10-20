@@ -14,6 +14,7 @@ import {
   type CurveAccount,
   type LaunchState,
 } from '../../../lib/launcher/solana/curve';
+import { CardArt } from '../../ui/CardArt';
 import { Card, Field, ImpactRows, Notice, Row, SlippagePicker } from './ui';
 import { DEFAULT_SLIPPAGE_BPS, TOGGLE_CLS, feeSplitLabel, inputCls, inputStyle } from './uiFormat';
 import { TxFlowView } from './TxFlowView';
@@ -139,7 +140,7 @@ export function CurveTradePanel({
   };
 
   return (
-    <Card title="Trade on the curve" testId="curve-trade-panel" headingRef={headingRef}>
+    <Card title="Trade on the curve" testId="curve-trade-panel" headingRef={headingRef} art={<CardArt pageId="curve-launch" idx={19} />}>
       {flow.state.step !== 'idle' ? (
         <TxFlowView flow={flow} api={api} cluster={gate.cfg.cluster} decimals={decimals} signer={signer} />
       ) : (

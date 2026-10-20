@@ -379,7 +379,7 @@ function reviewWarnings(s: TxSummary): string[] {
  */
 function ReviewWarnings({ id, warnings }: { id: string; warnings: string[] }) {
   return (
-    <div id={id} className="space-y-1" data-testid="tx-review-warnings">
+    <div id={id} className="space-y-1" data-testid="tx-review-warnings" data-review-line="warning">
       <Notice tone="warn">Read these warnings first. Nothing here stops you signing, and each one is a risk to what you put in:</Notice>
       <ul className="list-disc pl-4 text-amber-300/90 space-y-0.5 [overflow-wrap:anywhere]">
         {warnings.map((w, i) => (
@@ -419,8 +419,8 @@ function LpDepositRows({ summary: s }: { summary: Extract<TxSummary, { kind: 'lp
       <Row label="At most" value={`${coinExact(s.max.quote, q)} and ${unitsExact(s.max.token, s.tokenDecimals)} tokens${limited}`} mono={false} />
       <Row label="You get" value={`${unitsExact(s.lpAmount, s.lpDecimals)} pool shares, exactly`} mono={false} />
       <Row label="Your share of the pool" value={`${shareText(s.sharePct.before)} → ${shareText(s.sharePct.after)}`} />
-      <Row label="Price check" value={pricedText(s.price, q)} mono={false} />
-      {s.priceGap && <Row label="Estimated cost of that gap" value={gapCostText(s.priceGap, q)} mono={false} />}
+      <Row label="Price check" value={pricedText(s.price, q)} mono={false} line="market" />
+      {s.priceGap && <Row label="Estimated cost of that gap" value={gapCostText(s.priceGap, q)} mono={false} line="market" />}
       <Row label="Pool fee to add" value="none" mono={false} />
       {s.tokenWarnings.length > 0 && (
         <div className="space-y-1">
@@ -544,8 +544,8 @@ function LpCreateRows({ summary: s }: { summary: Extract<TxSummary, { kind: 'lp-
       <Row label="Fee tier" value={feeTierText(s.config, CREATOR_FEE_SWITCH.publicOpen)} mono={false} />
       {/* Sentences break only between words (mono={false}); only an address row breaks anywhere. */}
       <Row label="You put in" value={`${coinExact(s.put.quote, q)} and ${unitsExact(s.put.token, s.tokenDecimals)} tokens, exactly`} mono={false} />
-      <Row label="Opening price" value={openingPriceText(s.price, q)} mono={false} />
-      {s.priceGap && <Row label="Estimated cost of that gap" value={gapCostText(s.priceGap, q)} mono={false} />}
+      <Row label="Opening price" value={openingPriceText(s.price, q)} mono={false} line="market" />
+      {s.priceGap && <Row label="Estimated cost of that gap" value={gapCostText(s.priceGap, q)} mono={false} line="market" />}
       <Row label="Opens for trading" value="At once (one second after it lands)" mono={false} />
       <Row
         label="Fee to open the pool"
@@ -607,6 +607,21 @@ function venueRouteText(s: Extract<TxSummary, { kind: 'venue-swap' }>): string {
   const a = s.aggregator;
   if (a.kind === 'no-route') return 'Jupiter has no route for this trade, so this pool is the only route';
   if (a.kind === 'unreachable') return 'Jupiter could not be asked just now, so this trade was not compared with it';
+  if (a.kind === 'refused') {
+    const failed = `its transaction for this trade failed its test run${a.earlier ? ' at your last press' : ''}, so it could not be sent`;
+    // By how much, against what THIS swap pays. A pool that has caught up since is not "more".
+    const quotedMore = a.out <= s.quoted.outAmount
+      ? `Jupiter quoted no more than this pool pays, and ${failed}`
+      : `Jupiter quoted ${edgePercent(Number(a.out - s.quoted.outAmount) / Number(s.quoted.outAmount))} more, but ${failed}`;
+    // A refusal this press could not test again is said as that, and its cause is said when it gave one.
+    return [quotedMore, ...(a.earlier ? ['It could not be checked again just now'] : []), ...(a.why ? [a.why] : [])].join('. ');
+  }
+  if (a.kind === 'unchecked') {
+    const why = 'its transaction for this trade could not be test-run on our side, so it was not sent';
+    return a.out <= s.quoted.outAmount
+      ? `Jupiter quoted no more than this pool pays, and ${why}`
+      : `Jupiter quoted ${edgePercent(Number(a.out - s.quoted.outAmount) / Number(s.quoted.outAmount))} more, but ${why}`;
+  }
   const beside = a.when === 'now' ? 'Jupiter quoted just now' : 'the last quote Jupiter gave (it could not be asked again just now)';
   if (s.quoted.outAmount === a.out) return `the same as ${beside}, so the trade stays here`;
   return `${edgePercent(Number(s.quoted.outAmount - a.out) / Number(a.out))} more than ${beside}`;
@@ -637,7 +652,7 @@ function VenueSwapRows({ summary: s }: { summary: Extract<TxSummary, { kind: 've
       <PoolCreatorFeeRow quote={s.quoted} buying={s.paysCoin} sol={(v) => coin(v)} tok={(v) => tok(v)} />
       {/* Measured against the pool's price before the trade, so the pool fee is inside it. */}
       <ImpactRows bps={fractionToBps(s.quoted.priceImpact)} label="Price impact (pool fee included)" />
-      <Row label="Compared with Jupiter" value={venueRouteText(s)} mono={false} />
+      <Row label="Compared with Jupiter" value={venueRouteText(s)} mono={false} line="market" />
       {s.notices.map((n) => (
         <Notice key={n} tone="warn">
           {n}
@@ -782,8 +797,9 @@ export function FeeRows({ prepared, decimals }: { prepared: PreparedTx; decimals
   const share = base !== null && base > 0n ? sharePercent(f.priorityLamports, base) : null;
   return (
     <>
-      <Row label="Network fee" value={SOL(f.baseLamports)} />
+      <Row label="Network fee" value={SOL(f.baseLamports)} line="fee" />
       <Row
+        line="fee"
         label="Priority fee"
         value={
           !f.priorityFeeRead
@@ -792,7 +808,7 @@ export function FeeRows({ prepared, decimals }: { prepared: PreparedTx; decimals
         }
       />
       {!f.priorityFeeRead && (
-        <Notice tone="warn">
+        <Notice tone="warn" line="fee">
           The current fee level could not be read, so no priority fee is added. It may take longer to land.
         </Notice>
       )}
@@ -805,7 +821,7 @@ export function FeeRows({ prepared, decimals }: { prepared: PreparedTx; decimals
           test run below includes everything.
         </p>
       )}
-      <Row label="Test run: your SOL changes by" value={signedSol(prepared.simulated.signerLamportsDelta)} />
+      <Row label="Test run: your SOL changes by" value={signedSol(prepared.simulated.signerLamportsDelta)} line="fee" />
       {prepared.simulated.tokenDeltas
         .filter((t) => t.delta !== 0n)
         .map((t) => (
@@ -897,16 +913,43 @@ function ReviewChanged({ changed, boxRef }: { changed: NonNullable<ReviewState['
   );
 }
 
-/** The line above the buttons: what Sign in wallet will do, or what it is doing. */
+/**
+ * The line above the buttons: what Sign in wallet will do, or what it is doing. Taking
+ * time to read is never a failure here (island, answer eighteen): a review read past its
+ * blockhash is built again at the press, and only a change to what you would sign for
+ * keeps the wallet shut.
+ */
 function signStatus(s: ReviewState): string {
   if (s.renewing) {
-    return 'This review was too old to sign, so it is being built and test-run again on fresh numbers. Your wallet opens next only if every line still reads the same.';
+    return 'Getting fresh numbers and test-running it again before your wallet opens. It opens unless something you would sign for has changed.';
   }
   if (s.checking) return 'Checking the network before your wallet opens…';
   if (s.expired) {
-    return 'This review is too old to sign as it is. Sign in wallet builds it again on fresh numbers first: your wallet opens only if every line still reads the same. If any line reads differently, you are shown which.';
+    return 'Your wallet did not open: the network moved on while this was checked. Sign in wallet builds it again on fresh numbers.';
   }
   return 'Your wallet will show this transaction next. Sign only if it matches what is above.';
+}
+
+/**
+ * While the wallet is open on a transaction built again at the press: what a market or
+ * the network's fees moved since the review was read. Nothing else had changed.
+ */
+function MovedLines({ moved }: { moved: { now: string[]; gone: string[] } }) {
+  const list = (items: string[]) => (
+    <ul className="list-disc pl-4 space-y-0.5 [overflow-wrap:anywhere]">
+      {items.map((line, i) => (
+        <li key={`${i}:${line}`}>{line}</li>
+      ))}
+    </ul>
+  );
+  return (
+    <div className="text-white/55 space-y-1" data-testid="tx-moved">
+      <p>Built again on fresh numbers before your wallet opened. These moved with the market or the network&apos;s fees since you read the review; every other line, and every instruction, is the same:</p>
+      {moved.now.length > 0 && list(moved.now)}
+      {moved.gone.length > 0 && <p>{moved.now.length > 0 ? 'In place of:' : 'No longer on it:'}</p>}
+      {moved.gone.length > 0 && list(moved.gone)}
+    </div>
+  );
 }
 
 function SignatureRow({ signature }: { signature: string }) {
@@ -941,6 +984,8 @@ const NOT_SENT_COPY: Record<NotSent['stage'], string> = {
   sign: 'Not sent. Your wallet did not sign it.',
   send: 'Not sent. The network turned it away before running it.',
 };
+/** A not-sent whose check could not run (NotSent.retry): no verdict on the transaction. */
+const NOT_READ_COPY = 'Not sent. A check this transaction needs could not be run just now, so we did not ask your wallet to sign it. Asking again may work.';
 
 export function TxOutcomeCard({
   outcome,
@@ -952,6 +997,8 @@ export function TxOutcomeCard({
   fees,
   checks = 0,
   kind,
+  resetMeans,
+  confirmedNext,
 }: {
   outcome: TxOutcome;
   /** `null` when there is no signature to link. */
@@ -967,6 +1014,10 @@ export function TxOutcomeCard({
   checks?: number;
   /** What the transaction was for, when known: taking liquidity out again has its own risk to name. */
   kind?: TxKind;
+  /** Under "I checked my wallet: start over" on a sent, unconfirmed one: what that press does and does not do. */
+  resetMeans?: string;
+  /** Under "Done" on a confirmed one: what landed and where to go next, from a panel that says so. */
+  confirmedNext?: ReactNode;
 }) {
   // Done is news; everything else needs the user to read it before acting.
   const a11y = {
@@ -980,6 +1031,7 @@ export function TxOutcomeCard({
       return (
         <div {...a11y} data-testid="tx-outcome" data-status="confirmed">
           <Notice tone="good">Done. The network confirmed it.</Notice>
+          {confirmedNext}
           <SignatureRow signature={outcome.signature} />
           {explorerUrl && <ExplorerLink href={explorerUrl} />}
           <button type="button" onClick={onReset} className="btn-secondary min-h-[44px] w-full py-2 text-[12px] mt-1">
@@ -1046,6 +1098,7 @@ export function TxOutcomeCard({
             <button type="button" onClick={onReset} className="btn-secondary min-h-[44px] w-full py-2 text-[12px]">
               I checked my wallet: start over
             </button>
+            {resetMeans && <p className="text-white/55">{resetMeans}</p>}
           </div>
         );
       }
@@ -1061,7 +1114,7 @@ export function TxOutcomeCard({
     case 'not-sent':
       return (
         <div {...a11y} data-testid="tx-outcome" data-status="not-sent">
-          <Notice tone="warn">{NOT_SENT_COPY[outcome.stage]}</Notice>
+          <Notice tone="warn">{outcome.retry ? NOT_READ_COPY : NOT_SENT_COPY[outcome.stage]}</Notice>
           {outcome.message && <Notice>{outcome.message}</Notice>}
           <Notice>Nothing was charged.</Notice>
           <button type="button" onClick={onReset} className="btn-secondary min-h-[44px] w-full py-2 text-[12px] mt-1">
@@ -1085,6 +1138,9 @@ export function TxFlowView({
   signer,
   extraReview,
   preparingText,
+  onOutcomeReset,
+  resetMeans,
+  afterConfirmed,
 }: {
   flow: TxFlow;
   /** `WriteApi` and `LpWriteApi` both satisfy it. */
@@ -1096,6 +1152,15 @@ export function TxFlowView({
   extraReview?: ReactNode;
   /** What is happening while it builds, when that is more than building (the launch's upload request). */
   preparingText?: string;
+  /** The outcome's own button, when a page does more than start over (the swap page also drops its hold). */
+  onOutcomeReset?: () => void;
+  /** Passed to TxOutcomeCard. */
+  resetMeans?: string;
+  /**
+   * Opt-in: drawn under "Done" when the flow's transaction is confirmed, from what was
+   * signed. Only a panel that passes it changes; every other confirmed card is as it was.
+   */
+  afterConfirmed?: (prepared: PreparedTx | null) => ReactNode;
 }) {
   const s = flow.state;
   // One focus target per step. Moving focus both keeps keyboard users in place (the
@@ -1172,17 +1237,24 @@ export function TxFlowView({
             Sign in wallet
           </button>
           <button type="button" className="btn-secondary min-h-[44px] w-full py-2.5 text-[13px]" onClick={flow.reset}>
-            {s.expired ? 'Start over' : 'Cancel'}
+            {s.expired || s.renewing ? 'Start over' : 'Cancel'}
           </button>
         </div>
       </div>
     );
   }
   if (s.step === 'submitting') {
-    return (
+    const waiting = (
       <p ref={setFocus} tabIndex={-1} role="status" className="text-white/55 outline-none">
         Waiting for your wallet. Approve the transaction there to send it.
       </p>
+    );
+    if (!s.moved) return waiting;
+    return (
+      <div className="space-y-2">
+        {waiting}
+        <MovedLines moved={s.moved} />
+      </div>
     );
   }
   if (s.step === 'sent') {
@@ -1205,12 +1277,14 @@ export function TxFlowView({
       outcome={s.outcome}
       explorerUrl={sig ? api.explorerTxUrl(sig, cluster) : null}
       onRecheck={() => void flow.recheck()}
-      onReset={flow.reset}
+      onReset={onOutcomeReset ?? flow.reset}
       rechecking={s.rechecking}
       boxRef={setFocus}
       fees={s.prepared?.fees ?? null}
       checks={s.checks ?? 0}
       kind={s.prepared?.kind}
+      resetMeans={resetMeans}
+      confirmedNext={s.outcome.status === 'confirmed' && afterConfirmed ? afterConfirmed(s.prepared) : undefined}
     />
   );
 }

@@ -4,6 +4,9 @@ import { usePageTitle } from '../hooks/usePageTitle';
 import { ISLAND_SECTION } from '../lib/navConfig';
 import { VENUE } from '../lib/arrival';
 import { FlamesBoard } from '../components/FlamesBoard';
+import { PageArtBackdrop } from '../components/PageArtBackdrop';
+import { CardArt } from '../components/ui/CardArt';
+import { IslandSoundLinks } from '../components/IslandSound';
 
 /**
  * The four-piece arrival film, on demand.
@@ -22,9 +25,8 @@ const ArrivalFilm = lazy(() =>
  *
  * ⚠️ THE ONE SECTION THAT IS NOT A SectionHost, and the reason is structural
  * rather than aesthetic. Every other section's items are pages with no tab bar
- * of their own, so a strip above them is free. Island's are not: /community,
- * /leaderboard (ActivityPage) and /tokenomics (StatsPage) EACH already own a tab
- * strip, and a route renders exactly one — the same constraint the old Stats
+ * of their own, so a strip above them is free. Island's are not: /community
+ * and /tokenomics (StatsPage) EACH already own a tab strip, and a route renders exactly one — the same constraint the old Stats
  * section's comment was written about. A strip here would either nest two bars
  * or force three hosts to give theirs up.
  *
@@ -45,12 +47,20 @@ const ArrivalFilm = lazy(() =>
 
 /** One line per door: what is actually behind it. Keyed by route. */
 const BLURB: Record<string, string> = {
-  '/gallery': 'Every piece the collective has made, and the artists behind them.',
-  '/nakamigos': 'Trade four collections, browse five more. Our fee is 1%, the same as OpenSea. Not a discount.',
+  '/gallery': 'Every piece, and the artists behind them.',
+  '/nakamigos': 'Trade four collections, browse five more. Our fee is 1%, the same as OpenSea.',
   '/community': 'Grants, bounties and the votes that direct them.',
-  '/leaderboard': 'How the venue scores wallets, and where yours sits.',
   '/tokenomics': 'Supply, the treasury, lifetime fees, and your own tax reports.',
 };
+
+/**
+ * Each door's own art surface, keyed by route so a door leaving the lobby cannot hand
+ * its picture to the next one. island idx 4 was the Venue Score door, deleted
+ * 2026-10-15 (island item 4); keyed by position, Treasury & numbers would have
+ * inherited its art. A door with no entry reuses a registered surface.
+ */
+const DOOR_ART: Record<string, number> = { '/gallery': 1, '/nakamigos': 2, '/community': 3, '/tokenomics': 5 };
+const DOOR_ART_SLOTS = Object.values(DOOR_ART);
 
 export default function IslandPage() {
   usePageTitle('The island', `${VENUE.tagline}. The gallery, the marketplace, the community and the numbers.`);
@@ -67,7 +77,9 @@ export default function IslandPage() {
   const [watching, setWatching] = useState(false);
 
   return (
-    <div className="mx-auto w-full max-w-[900px] px-4 py-8 sm:py-10">
+    <>
+    <PageArtBackdrop pageId="island" />
+    <div className="relative z-10 mx-auto w-full max-w-[900px] px-4 py-8 sm:py-10">
       <header className="mb-7">
         <p className="text-[11px] uppercase tracking-wider label-pill mb-2" style={{ color: 'var(--color-kyle)' }}>
           Jungle Bay Island
@@ -76,8 +88,7 @@ export default function IslandPage() {
           The island
         </h1>
         <p className="text-white/75 text-[14px] md:text-[15px] leading-relaxed max-w-[62ch]">
-          The place itself: its art, its people, its score and its money. Everything here is
-          about the venue rather than about a trade.
+          The place itself: its art, its people and its money.
         </p>
       </header>
 
@@ -121,20 +132,20 @@ export default function IslandPage() {
         </Suspense>
       )}
 
-      {/* NO ArtImg ON THESE CARDS, DELIBERATELY. Every art-backed surface in
-          this app is a registered (pageId, idx) in the studio inventory with a
-          pool behind it — artStudioCoverage.test.ts enforces the registration
-          and /art-studio has to be able to place it. Inventing a new surface for
-          a lobby that is five links is more machinery than the page earns, and
-          an unregistered ArtImg reds CI. `.glass-card` is the repo's existing
-          chrome for exactly this. */}
+      {/* One art surface per door (island idx 1 up), registered in
+          lib/artSurfaces.ts so a studio can place each. These were bare glass
+          on purpose until 2026-10-03, to save the lobby a registration; the
+          owner then asked for art on every card of every tab. Keyed by route
+          (DOOR_ART); a door added to the nav reuses a registered surface rather
+          than rendering one no studio lists. */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        {doors.map((door) => (
+        {doors.map((door, i) => (
           <Link
             key={door.to}
             to={door.to}
-            className="glass-card rounded-2xl min-h-[112px] flex flex-col justify-center p-4 transition-all hover:brightness-125"
+            className="glass-card relative isolate rounded-2xl min-h-[112px] flex flex-col justify-center p-4 transition-all hover:brightness-125"
           >
+            <CardArt pageId="island" idx={DOOR_ART[door.to] ?? DOOR_ART_SLOTS[i % DOOR_ART_SLOTS.length]!} />
             <span className="flex items-center gap-2">
               <span className="text-white text-[15px] font-semibold">{door.label}</span>
               {door.soon && (
@@ -149,6 +160,11 @@ export default function IslandPage() {
           </Link>
         ))}
       </div>
+
+      <p className="mt-6 text-white/60 text-[12px]">
+        sound of the island · <IslandSoundLinks />
+      </p>
     </div>
+    </>
   );
 }

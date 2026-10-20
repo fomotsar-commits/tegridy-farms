@@ -2,6 +2,8 @@ import { useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import { usePageTitle } from '../hooks/usePageTitle';
 import { PageArtBackdrop } from '../components/PageArtBackdrop';
+import { CardArt } from '../components/ui/CardArt';
+import { FinePrint } from '../components/ui/FinePrint';
 import { CheckoutWidget } from '../components/commerce/CheckoutWidget';
 import { InvoiceBuilder } from '../components/commerce/InvoiceBuilder';
 import { SubscriptionPanel } from '../components/commerce/SubscriptionPanel';
@@ -47,6 +49,9 @@ import { usePaymentLink } from '../hooks/usePaymentLink';
 // A URL carrying BOTH names two different invoices. Silently preferring one is
 // how a buyer reads figures from document A and pays the merchant on document B,
 // so the page refuses and offers no pay controls at all.
+//
+// FEWER WORDS (owner, 2026-10-13). The header says how money moves in one line;
+// how the signed link works and the no-keeper note sit in its FinePrint.
 
 type Tab = 'pay' | 'sell' | 'subscriptions';
 
@@ -80,12 +85,22 @@ export default function CheckoutPage() {
         <header>
           <h1 className="text-2xl font-bold text-white">Checkout</h1>
           <p className="mt-2 max-w-3xl text-sm leading-relaxed text-white/75">
-            A merchant signs an exact amount of an exact asset with their own wallet, and the link they hand out
-            IS that signed invoice. A buyer's browser verifies the signature, re-reads the token on chain, shows
-            the exact figure on both sides before signing, and sends the merchant's amount straight to the
-            merchant. Nothing on this venue holds, forwards or escrows any of it, no server here holds a key,
-            and no database has to exist for any of it to work.
+            Buyers pay merchants straight from their wallet. Nothing here holds the funds.
           </p>
+          <FinePrint summary="How it works" className="mt-1">
+            <p>
+              A merchant signs an exact amount of an exact asset with their own wallet, and the link they hand out
+              IS that signed invoice. A buyer's browser verifies the signature, re-reads the token on chain, shows
+              the exact figure on both sides before signing, and sends the merchant's amount straight to the
+              merchant. Nothing on this venue holds, forwards or escrows any of it, no server here holds a key,
+              and no database has to exist for any of it to work.
+            </p>
+            <p>
+              This venue runs no keeper. Nothing on this page executes on a schedule: a subscription charge, a
+              settlement notification and an invoice expiry all happen because somebody with a signer acts, or
+              they do not happen.
+            </p>
+          </FinePrint>
         </header>
 
         <nav className="mt-6 flex flex-wrap gap-2" aria-label="Checkout sections">
@@ -107,17 +122,23 @@ export default function CheckoutPage() {
         <div className="mt-6">
           {tab === 'pay' ? (
             bothPresent ? (
-              <section className="rounded-xl border border-white/15 bg-white/[0.02] p-4">
+              <section className="relative isolate rounded-xl border border-white/15 bg-white/[0.02] p-4">
+                <CardArt pageId="checkout" idx={1} />
                 <h2 className="text-sm font-semibold text-white">This link names two invoices</h2>
                 <p className="mt-2 text-[13px] leading-relaxed text-white/75">
-                  The address bar carries a signed invoice (<code className="text-white/85">#i=…</code>) and a
-                  short-link id (<code className="text-white/85">?invoice=…</code>) at the same time. Those are
-                  two different documents and this page will not choose between them. Open one or the other.
+                  Nothing is offered to pay: this page will not choose between them. Open one or the other.
                 </p>
-                <p className="mt-2 text-[12px] leading-relaxed text-white/60">
-                  Nothing is offered to pay here, because reading the figures from one document and paying
-                  against the other is exactly the mistake a checkout must not make on your behalf.
-                </p>
+                <FinePrint className="mt-1">
+                  <p>
+                    The address bar carries a signed invoice (<code className="text-white/85">#i=…</code>) and a
+                    short-link id (<code className="text-white/85">?invoice=…</code>) at the same time. Those are
+                    two different documents.
+                  </p>
+                  <p>
+                    Reading the figures from one document and paying against the other is exactly the mistake a
+                    checkout must not make on your behalf.
+                  </p>
+                </FinePrint>
               </section>
             ) : (
               <CheckoutWidget invoiceId={invoiceId} link={link} />
@@ -126,12 +147,6 @@ export default function CheckoutPage() {
           {tab === 'sell' ? <InvoiceBuilder /> : null}
           {tab === 'subscriptions' ? <SubscriptionPanel /> : null}
         </div>
-
-        <p className="mt-8 text-[11px] leading-relaxed text-white/45">
-          This venue runs no keeper. Nothing on this page executes on a schedule: a subscription charge, a
-          settlement notification and an invoice expiry all happen because somebody with a signer acts, or
-          they do not happen.
-        </p>
       </div>
     </div>
   );

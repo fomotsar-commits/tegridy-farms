@@ -185,29 +185,14 @@ describe('the exit costs', () => {
   });
 });
 
-// ─── C1: THE SIX LADDERS THAT MUST NOT TAKE A DEPOSIT ───────────────────────
+// ─── C1: the deposit freeze ─────────────────────────────────────────────────
 //
-// docs/LIGHTHOUSE_AUDIT_2026_09_01.md: "Do not let anyone stake on the EVM
-// ladders until C1 is fixed and redeployed." The source was fixed; the pools
-// were not redeployed, and the registry still serves the pre-fix six as live.
-// The UI gate is the only thing standing in front of a first deposit, so these
-// pin the two ways it could silently stop working.
+// A pool on C1_UNSAFE_LADDER_POOLS takes no deposit. The list is empty, so these
+// pin the mechanism: an address added later must still close the gate.
 describe('the C1 deposit freeze', () => {
-  // The freeze is EMPTY as of 2026-09-05: the six pre-fix ladders were redeployed
-  // and the registry repinned, which is the condition it existed to wait for.
-  //
-  // The old coverage test asserted "every live ladder is frozen". That was true
-  // only DURING the freeze, and it did its job on the way out — it refused to pass
-  // until the repin touched all three places at once. Keeping it now would assert
-  // something false. These replace it with the MECHANISM, so the guard is armed
-  // for whoever needs it next rather than pinned to a situation that has passed.
-
   it('stores every entry lowercase, and matches it in any checksum casing', () => {
-    // Vacuous while the list is empty, and ACTIVE the moment an address is added
-    // — which is the point: the next person to freeze a pool gets the casing
-    // guarantee without having to know it was ever a problem. The registry stores
-    // checksummed addresses and wagmi returns checksummed addresses, so a
-    // case-sensitive compare would fail OPEN at every real call site.
+    // The registry and wagmi return checksummed addresses: a case-sensitive
+    // compare would fail open at every real call site.
     for (const entry of C1_UNSAFE_LADDER_POOLS) {
       expect(entry, 'entries must be stored lowercase').toBe(entry.toLowerCase());
       expect(isC1UnsafeLadder(entry)).toBe(true);
@@ -215,25 +200,11 @@ describe('the C1 deposit freeze', () => {
     }
   });
 
-  // THE MECHANISM ITSELF, exercised while the list is legitimately empty.
-  //
-  // WHY THIS IS HERE. Every other test in this block iterates
-  // C1_UNSAFE_LADDER_POOLS, so with the list empty they collectively survive the
-  // gate being DELETED: replacing the body of isC1UnsafeLadder with `return false`
-  // leaves this file 18/18 green. That was measured, not guessed — which means
-  // the one property the freeze depends on, "an address on the list closes the
-  // gate", had no coverage at all, and would be discovered broken by the first
-  // deposit into a pool someone believed was frozen.
-  //
-  // The freeze is empty because it SHOULD be (the six pre-fix ladders were
-  // redeployed 2026-09-05), so there is no honest address to assert on. Instead
-  // this loads the list the shipped function actually reads, drives the real
-  // exported function through it, and restores it. No literal from the registry is
-  // pinned; what is pinned is the wiring — list membership decides the answer,
-  // and the comparison is case-insensitive.
+  // With the list empty, a test that iterates it passes even if the gate is
+  // deleted. This one pushes a temporary entry into the list the shipped
+  // function reads, drives the real function, and restores the list.
   it('closes the gate for an address on the list, in any casing the chain returns', () => {
-    // Checksummed exactly as addresses.json and wagmi would hand it back, and NOT
-    // the casing the list stores — a case-sensitive compare fails OPEN here.
+    // Checksummed as addresses.json and wagmi return it, not as the list stores it.
     const CHECKSUMMED = '0xAbC0000000000000000000000000000000000123';
     const mutable = C1_UNSAFE_LADDER_POOLS as string[];
 
@@ -246,8 +217,7 @@ describe('the C1 deposit freeze', () => {
       expect(isC1UnsafeLadder(CHECKSUMMED.toUpperCase().replace('0X', '0x')), 'listed, upper').toBe(
         true,
       );
-      // And it is still a LIST lookup, not "freeze everything once anything is
-      // frozen" — the gate that traps every pool is its own outage.
+      // Still a list lookup: freezing every pool once one is listed is its own outage.
       expect(isC1UnsafeLadder('0x000000000000000000000000000000000000dEaD')).toBe(false);
     } finally {
       mutable.pop();
@@ -263,12 +233,9 @@ describe('the C1 deposit freeze', () => {
     expect(isC1UnsafeLadder('')).toBe(false);
   });
 
-  // THE ONE THAT STILL GUARDS SOMETHING REAL.
-  //
-  // A frozen address that the registry no longer serves is dead weight: the pool
-  // it names is unreachable, so the entry can never lift and nobody will notice it
-  // is stale. That is how a gate rots into a lie about what is protected. Derived
-  // from addresses.json rather than restated, so a typo cannot satisfy it.
+  // A frozen address the registry no longer serves can never lift: drop it.
+  // Served means a live ladder-* row in addresses.json. A retired row keeps a
+  // dead pool's address on record; it does not serve it.
   it('freezes only pools the registry actually serves', () => {
     const here = dirname(fileURLToPath(import.meta.url));
     const registry = JSON.parse(
@@ -279,7 +246,8 @@ describe('the C1 deposit freeze', () => {
       if (Array.isArray(node)) { node.forEach(walk); return; }
       if (node && typeof node === 'object') {
         const o = node as Record<string, unknown>;
-        if (typeof o.id === 'string' && o.id.startsWith('ladder-') && typeof o.address === 'string') {
+        const live = o.status === 'live';
+        if (typeof o.id === 'string' && o.id.startsWith('ladder-') && live && typeof o.address === 'string') {
           served.add(o.address.toLowerCase());
         }
         Object.values(o).forEach(walk);

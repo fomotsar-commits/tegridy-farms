@@ -99,7 +99,7 @@ describe('nothing-was-asked is not nothing-at-risk', () => {
     const { result } = renderHook(() => useShieldPositions());
     await waitFor(() => expect(result.current.status).toBe('idle'));
     expect(result.current.positions).toEqual([]);
-    expect(result.current.detail).toMatch(/nothing is being watched/i);
+    expect(result.current.detail).toMatch(/nothing is watched until then/i);
   });
 
 });

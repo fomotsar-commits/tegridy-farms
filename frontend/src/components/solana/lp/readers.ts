@@ -4,10 +4,15 @@ import { PROGRAM_ID as LAUNCH_PROGRAM_ID } from '../../../lib/launcher/solana/cu
 import { LIVE_PROGRAM_ID } from '../../../lib/solana/cpswap/program';
 import { withReadCommitment } from '../curve/confirmedRpc';
 import { readTokenSafety, type TokenSafety } from '../../../lib/solana/lp/tokenSafety';
-import { findPools, readFeeTiers, type FeeTierRead, type PoolSearchRead } from '../../../lib/solana/lp/poolFinder';
+import { findPools, readFeeTiers, type FeeTierRead, type PoolSearchRead, type PoolView } from '../../../lib/solana/lp/poolFinder';
+import { readLedger, type LedgerRead } from '../../../lib/solana/lp/ledger';
 import { readOutsidePrice, type OutsidePrice } from '../../../lib/solana/lp/outsidePrice';
+import { readPoolPastPage, type PoolPastPage } from '../../../lib/solana/lp/poolPast';
+import { listPools, type PoolListRead } from '../../../lib/solana/lp/poolList';
 import { placeShareOnChain, readPositions, type ChainPlacement, type PositionsRead } from '../../../lib/solana/lp/positions';
 import type { QuoteCoin } from '../../../lib/solana/lp/quotes';
+import { lpFetch } from '../../../lib/solana/lp/readFetch';
+import { noteResponse } from '../../../lib/solana/lp/rpcBudget';
 import { readWalletFacts, type WalletFacts } from '../../../lib/solana/lp/walletFacts';
 
 /**
@@ -24,7 +29,16 @@ export interface LpReaders {
    * as what the index names, under the same this-token-only filter (poolFinder.ts).
    */
   findPools(mint: PublicKey, also?: readonly string[]): Promise<PoolSearchRead>;
-  outsidePrice(mint: string, decimals: number): Promise<OutsidePrice>;
+  /**
+   * Every pool on the venue, for the list shown before a token is picked (poolList.ts).
+   * Optional: a reader without it shows no list, and every existing fake still fits.
+   */
+  listPools?(): Promise<PoolListRead>;
+  /**
+   * `fresh`: ask Jupiter itself, not the copy the edge shares for 30 seconds
+   * (outsidePrice.ts). The check run again at Review, and a visitor's own Read again.
+   */
+  outsidePrice(mint: string, decimals: number, opts?: { fresh?: boolean }): Promise<OutsidePrice>;
   /** `limit`: how many pool shares to place (each costs one index lookup). */
   positions(owner: PublicKey, limit?: number): Promise<PositionsRead>;
   feeTiers(): Promise<FeeTierRead>;
@@ -39,6 +53,15 @@ export interface LpReaders {
   wallet(owner: PublicKey, tokenMint: string, tokenProgram: string, lpMint: string | null, opts?: { opening?: true; quote?: QuoteCoin }): Promise<WalletFacts>;
   /** Find a share's pool from its own chain history, when our pool index cannot answer (D12). */
   placeShareOnChain(share: { lpMint: string; lpAccount: string }): Promise<ChainPlacement>;
+  /**
+   * History, behind the budget gate (ledger.ts, poolPast.ts): a position's ledger from its
+   * share account's last 20 transactions, and one page of a pool's transactions, classified.
+   * The ledger is read by itself for the first two positions and on a press for the rest
+   * (YourPositions.tsx); the pool's past on a press only (PoolCard.tsx). Optional: a reader
+   * without them shows no history block, and every existing fake still fits.
+   */
+  ledger?(share: { lpAccount: string; lpMint: string; owner: PublicKey; lpAmount: bigint }, view: PoolView, opts?: { before?: string }): Promise<LedgerRead>;
+  poolPast?(view: PoolView, opts?: { before?: string }): Promise<PoolPastPage>;
 }
 
 /**
@@ -59,16 +82,22 @@ export function walletArgs(
 export function browserLpReaders(): LpReaders | null {
   const programId = LIVE_PROGRAM_ID;
   if (!programId) return null;
-  const rpc = withReadCommitment(browserRpc(), 'confirmed');
+  // Every read ends (readFetch.ts); the chain's answers feed the budget (rpcBudget.ts).
+  const rpc = withReadCommitment(browserRpc(lpFetch({ what: 'the chain', onResponse: noteResponse })), 'confirmed');
   const opts = { programId, launchProgramId: LAUNCH_PROGRAM_ID };
+  const indexOpts = { ...opts, fetchImpl: lpFetch({ what: 'the pool index' }) };
+  const jupiter = lpFetch({ what: 'Jupiter' });
   return {
     programId: programId.toBase58(),
     safety: (mints) => readTokenSafety(rpc, mints),
-    findPools: (mint, also) => findPools(rpc, mint, also?.length ? { ...opts, also } : opts),
-    outsidePrice: (mint, decimals) => readOutsidePrice(mint, decimals, { rpc, programId: programId.toBase58() }),
-    positions: (owner, limit) => readPositions(rpc, owner, { ...opts, limit }),
+    findPools: (mint, also) => findPools(rpc, mint, also?.length ? { ...indexOpts, also } : indexOpts),
+    listPools: () => listPools(rpc, indexOpts),
+    outsidePrice: (mint, decimals, o) => readOutsidePrice(mint, decimals, { rpc, programId: programId.toBase58() }, jupiter, undefined, o),
+    positions: (owner, limit) => readPositions(rpc, owner, { ...indexOpts, limit }),
     feeTiers: () => readFeeTiers(rpc, programId),
     wallet: (owner, tokenMint, tokenProgram, lpMint, o) => readWalletFacts(rpc, walletArgs(owner, tokenMint, tokenProgram, lpMint, o)),
     placeShareOnChain: (share) => placeShareOnChain(rpc, opts, share),
+    ledger: (share, view, o) => readLedger(rpc, { ...share, owner: share.owner.toBase58() }, view, programId.toBase58(), o ?? {}),
+    poolPast: (view, o) => readPoolPastPage(rpc, view, programId.toBase58(), o ?? {}),
   };
 }

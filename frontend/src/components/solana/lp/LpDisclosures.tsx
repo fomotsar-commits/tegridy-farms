@@ -1,13 +1,17 @@
+import type { ReactNode } from 'react';
 import type { AmmConfigView } from '../../../lib/solana/cpswap/program';
 import { chargedCreatorFeeRate, feeSplit } from '../../../lib/solana/cpswap/venue';
 import { feeRateText } from '../../../lib/solana/lp/format';
 import { SOL_QUOTE, type QuoteCoin } from '../../../lib/solana/lp/quotes';
 import { Notice, Row } from '../curve/ui';
+import { FinePrint } from '../../ui/FinePrint';
 import { LOCKED_SHARES_TEXT, solAbout, solExact } from './panelKit';
 
 // What a person must know before putting money into one of these pools, said in the
-// panel (always visible) and again on the review. No yield, APR or APY: none has been
-// measured, and none is ever shown.
+// panel (always visible) and again on the review. No forecast of a return is made here:
+// what a pool or a position earned is measured elsewhere, and the one sentence that
+// stretches a measure over time is pace.ts's, with its basis (format.ts FORECAST_WORDS).
+// Where a pool's trades come from is said as the routes that exist, never as a volume.
 
 // True of the pool program RUNNING on mainnet since its upgrade: that build has
 // create_lp_metadata (the instruction that names pool share tokens). Before the upgrade this
@@ -15,14 +19,22 @@ import { LOCKED_SHARES_TEXT, solAbout, solExact } from './panelKit';
 // to the binary the local harness pins, so the two can only move together (a roll-back too).
 const FORK_LINE =
   "Our pool program is Raydium's, with its admin keys changed and one added instruction that names pool share tokens. Those changes have not had their own independent review yet. Put in only what you can afford to lose.";
+/**
+ * The risk in one sentence (owner, 2026-10-17: off the page, first in every Risks drop-down):
+ * what the team's vault can do with no waiting period, and that no outside firm has
+ * checked our changes. Read on chain 2026-10-16; LpDisclosure's small print
+ * (SolanaLpSection.tsx) says it in full, with the addresses. It names no change to the
+ * program, so the pool program's upgrade does not make it false.
+ */
+export const RISK_SHORT =
+  "The team's vault (2 of 2 keys, no waiting period) can pause removing, change fees or replace the program. No outside firm has checked our changes. Only add what you can afford to lose.";
 const VAULT_LINE =
   "The team's vault (a Squads multisig, two signatures) can switch off deposits, withdrawals or swaps on this pool, change its fee rates at once, and upgrade the program. If it switched off withdrawals, you could not take your money out until it switched them back on.";
 const LAUNCH_POOL_LINE =
   "The launch program opened this pool when the token graduated and burned the launch's own pool shares, so that part can never be taken out. You get shares only for what you add, and you can take your part back out. The creator's fee and the venue's share are kept apart in the pool and are not yours.";
 const ROUTING_LINE =
-  'Jupiter does not send trades to these pools yet, so the trades that pay this pool its fees come mostly from bots that trade our pool program directly.';
-const PRICE_MOVES_LINE =
-  'When the price moves, bots trade against the pool, and you can end up with less than if you had just held both tokens.';
+  "Jupiter does not send trades to these pools yet. This site's own swap sends a trade to this pool only when it pays the trader at least as much as Jupiter does, so fees can be small.";
+const PRICE_MOVES_LINE = 'When the price moves, you can end up with less than if you had just held both tokens.';
 
 // ── opening a pool ──
 
@@ -33,14 +45,14 @@ const CREATE_VAULT_LINE =
 /**
  * How a new pool earns, honestly, in short: on the card and the review. Jupiter does not
  * send trades to our pools. This site's own swap does, but only a trade the pool pays at
- * least as much for as Jupiter would (lib/solana/route.ts), so a new pool mostly sees
- * bots that trade our program directly.
+ * least as much for as Jupiter would (lib/solana/route.ts). Any other trade has to be
+ * sent to the pool program by its sender. Who that will be, or how often, is not said.
  */
 export const MONEY_NOTE =
-  "Jupiter does not send trades to our pools. This site's own swap sends a trade to a pool only when that pool pays the trader at least as much as Jupiter does. The rest of the time a new pool earns fees only when bots trade our pool program directly, mostly arbitrage.";
+  "Jupiter does not send trades to our pools. This site's own swap sends a trade to a pool only when that pool pays the trader at least as much as Jupiter does. Any other trade has to come from someone using our pool program directly.";
 
 const MONEY_LINE =
-  "How a new pool earns, honestly: Jupiter does not send trades to our pools. This site's own swap sends a trade to your pool only when your pool pays the trader at least as much as Jupiter does. Every other trade against your pool comes from bots and tools that use our pool program directly, mostly arbitrage, which trades only when your pool's price drifts from the market. Expect little or nothing in fees at first. When the price moves, you can also end up with less than if you had just held both tokens.";
+  "How a new pool earns, honestly: Jupiter does not send trades to our pools. This site's own swap sends a trade to your pool only when your pool pays the trader at least as much as Jupiter does. Any other trade has to come from someone using our pool program directly. Expect little or nothing in fees at first. When the price moves, you can also end up with less than if you had just held both tokens.";
 
 const NOT_THE_POOL_LINE = "Anyone can open other pools for this token, at any price. Yours will not be 'the' pool.";
 
@@ -56,27 +68,44 @@ function lpShareLine(config: AmmConfigView | null, enableCreatorFee: boolean): s
   return `Of each trade, liquidity providers keep ${feeSplit(config).lpKeepsPct.toFixed(3)}%, read from this pool's fee tier just now.${creatorLine} The vault can change that tier's rates at once, and a change applies to what you put in too.`;
 }
 
-export function LpBeforeYouAdd({ launchPool, config, enableCreatorFee }: { launchPool: boolean; config: AmmConfigView | null; enableCreatorFee: boolean }) {
+/**
+ * `reviewing`: a review is on screen, and it says the risk line, the fork line and the
+ * vault line above its rows, so they are not said a second time under its Sign button
+ * (island, answer eighteen: the two risk notices stand once).
+ */
+export function LpBeforeYouAdd({
+  launchPool,
+  config,
+  enableCreatorFee,
+  reviewing = false,
+}: {
+  launchPool: boolean;
+  config: AmmConfigView | null;
+  enableCreatorFee: boolean;
+  reviewing?: boolean;
+}) {
   return (
     <div className="space-y-2" data-testid="lp-before-you-add">
-      <ul className="list-disc pl-4 space-y-1 text-white/75">
-        <li>{FORK_LINE}</li>
-        <li>{VAULT_LINE}</li>
+      <LpRisksDetails>
+        {!reviewing && <li>{RISK_SHORT}</li>}
+        {!reviewing && <li>{FORK_LINE}</li>}
+        {!reviewing && <li>{VAULT_LINE}</li>}
         <li>{PRICE_MOVES_LINE}</li>
         <li>{ROUTING_LINE}</li>
         <li>{lpShareLine(config, enableCreatorFee)}</li>
         {launchPool && <li>{LAUNCH_POOL_LINE}</li>}
-      </ul>
-      <LpRisksDetails />
+      </LpRisksDetails>
     </div>
   );
 }
 
-export function LpRisksDetails() {
+/** The risks, one press away: the form's own lines (`children`) first, then the ones every form shares. */
+export function LpRisksDetails({ children }: { children?: ReactNode }) {
   return (
     <details className="rounded-lg" style={{ border: '1px solid rgba(255,255,255,0.08)' }}>
-      <summary className="min-h-[44px] flex items-center px-3 cursor-pointer text-white/75">More about the risks</summary>
+      <summary className="min-h-[44px] flex items-center px-3 cursor-pointer text-white/75">Risks</summary>
       <ul className="list-disc pl-7 pr-3 pb-3 space-y-1 text-white/65">
+        {children}
         <li>Anyone can open a pool for any token, at any price, so being listed here does not make it &quot;the&quot; pool.</li>
         <li>Whether a token&apos;s creator can still freeze accounts is checked only when you look; it is not watched for you.</li>
         <li>When withdrawals are switched off on a pool, the pool program refuses every withdrawal from it.</li>
@@ -117,6 +146,7 @@ export function LpBeforeYouOpen({
   neverRefunded,
   walletConnected = true,
   coin = SOL_QUOTE,
+  reviewing = false,
 }: {
   fee: bigint;
   neverRefunded: bigint | null;
@@ -124,6 +154,8 @@ export function LpBeforeYouOpen({
   walletConnected?: boolean;
   /** The coin the new pool is paired with. Left out, it is SOL. */
   coin?: QuoteCoin;
+  /** As on `LpBeforeYouAdd`: the review on screen says the risk line, the fork line and the vault line. */
+  reviewing?: boolean;
 }) {
   const deposits =
     neverRefunded !== null
@@ -133,9 +165,10 @@ export function LpBeforeYouOpen({
         : 'account deposits that never come back (the fee tiers list on this page has their amount)';
   return (
     <div className="space-y-2" data-testid="lp-before-you-open">
-      <ul className="list-disc pl-4 space-y-1 text-white/75">
-        <li>{FORK_LINE}</li>
-        <li>{CREATE_VAULT_LINE}</li>
+      <LpRisksDetails>
+        {!reviewing && <li>{RISK_SHORT}</li>}
+        {!reviewing && <li>{FORK_LINE}</li>}
+        {!reviewing && <li>{CREATE_VAULT_LINE}</li>}
         <li>{MONEY_LINE}</li>
         <li>
           Opening costs {solExact(fee)}, paid to the team&apos;s vault, and {deposits}.{' '}
@@ -143,8 +176,7 @@ export function LpBeforeYouOpen({
           {LOCKED_SHARES_TEXT} stay locked in the pool forever; that is the pool program&apos;s rule for every new pool.
         </li>
         <li>{NOT_THE_POOL_LINE}</li>
-      </ul>
-      <LpRisksDetails />
+      </LpRisksDetails>
     </div>
   );
 }
@@ -159,10 +191,13 @@ export function LpReviewDisclosure(p: { kind: 'add'; origin: 'launch-pool' | 'st
     <div className="space-y-1" data-testid="lp-review-disclosure" data-kind={p.kind}>
       {/* On a phone the review is two screens long and its button is at the end of it. */}
       <Notice>Read this through. The Sign in wallet button is at the end of it.</Notice>
-      <Notice tone="warn">{FORK_LINE}</Notice>
-      <Notice>{p.kind === 'create' ? CREATE_VAULT_LINE : VAULT_LINE}</Notice>
-      {p.kind === 'add' && p.origin === 'launch-pool' && <Notice>{LAUNCH_POOL_LINE}</Notice>}
-      {p.kind === 'create' && <Notice>{MONEY_NOTE}</Notice>}
+      <FinePrint summary="Risks">
+        <p>{RISK_SHORT}</p>
+        <p>{FORK_LINE}</p>
+        <p>{p.kind === 'create' ? CREATE_VAULT_LINE : VAULT_LINE}</p>
+        {p.kind === 'add' && p.origin === 'launch-pool' && <p>{LAUNCH_POOL_LINE}</p>}
+        {p.kind === 'create' && <p>{MONEY_NOTE}</p>}
+      </FinePrint>
     </div>
   );
 }

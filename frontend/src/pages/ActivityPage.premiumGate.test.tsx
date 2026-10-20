@@ -4,7 +4,7 @@
  * ActivityPage is the one tabbed host whose selected tab is not simply its URL.
  * While PREMIUM_ACCESS is dark it does two things at once: it drops the Gold Card
  * tab out of the strip (F9 — promoting a tab that dead-ends in a "not deployed"
- * placeholder), and it self-heals `/premium` to the live Points panel rather than
+ * placeholder), and it self-heals `/premium` to the History panel rather than
  * showing that placeholder to whoever followed an old link (F523).
  *
  * WHY THIS FILE EXISTS. That behaviour had no test. It survived the 2026-09-04
@@ -33,9 +33,8 @@ vi.mock('../lib/navConfig', () => ({
   },
 }));
 
-// The four hosted pages are lazy-loaded route content; the subject is the strip
+// The three hosted pages are lazy-loaded route content; the subject is the strip
 // and the panel switch above them.
-vi.mock('./LeaderboardPage', () => ({ default: () => <div>points panel</div> }));
 vi.mock('./PremiumPage', () => ({ default: () => <div>gold panel</div> }));
 vi.mock('./HistoryPage', () => ({ default: () => <div>history panel</div> }));
 vi.mock('./ChangelogPage', () => ({ default: () => <div>changelog panel</div> }));
@@ -59,21 +58,21 @@ describe('while PREMIUM_ACCESS is dark', () => {
   });
 
   it('does not offer Gold Card as a tab', () => {
-    at('/leaderboard');
-    expect(tabNames()).toEqual(['Points', 'History', 'Changelog']);
+    at('/history');
+    expect(tabNames()).toEqual(['History', 'Changelog']);
   });
 
-  it('sends /premium to the Points panel instead of the placeholder', async () => {
+  it('sends /premium to the History panel instead of the placeholder', async () => {
     at('/premium');
-    expect(await screen.findByText('points panel')).toBeInTheDocument();
+    expect(await screen.findByText('history panel')).toBeInTheDocument();
     expect(screen.queryByText('gold panel')).not.toBeInTheDocument();
   });
 
-  it('highlights Points on /premium, so the strip agrees with the panel', () => {
+  it('highlights History on /premium, so the strip agrees with the panel', () => {
     at('/premium');
     // The URL says /premium and the strip has no such tab; the one that IS
     // selected must be the one whose content is actually rendered below.
-    expect(selected()).toHaveTextContent('Points');
+    expect(selected()).toHaveTextContent('History');
     expect(tabNames()).not.toContain('Gold Card');
   });
 
@@ -94,8 +93,8 @@ describe('once PREMIUM_ACCESS is live', () => {
   });
 
   it('restores the Gold Card tab, in its original position', () => {
-    at('/leaderboard');
-    expect(tabNames()).toEqual(['Points', 'Gold Card', 'History', 'Changelog']);
+    at('/history');
+    expect(tabNames()).toEqual(['Gold Card', 'History', 'Changelog']);
   });
 
   it('stops self-healing /premium and shows the real Gold Card', async () => {
@@ -111,12 +110,21 @@ describe('the routes that were never gated', () => {
   });
 
   it.each([
-    ['/leaderboard', 'points panel', 'Points'],
     ['/history', 'history panel', 'History'],
     ['/changelog', 'changelog panel', 'Changelog'],
   ])('%s renders %s with %s selected', async (path, panel, tab) => {
     at(path);
     expect(await screen.findByText(panel)).toBeInTheDocument();
     expect(selected()).toHaveTextContent(tab);
+  });
+});
+
+// Island item 4 (the owner, 2026-10-15): the points program is gone, so no Points tab
+// exists in either state of the gate.
+describe('the points program is gone', () => {
+  it.each([false, true])('no Points tab with PREMIUM_LIVE %s', (live) => {
+    premiumLive = live;
+    at('/history');
+    expect(tabNames()).not.toContain('Points');
   });
 });
