@@ -7,6 +7,13 @@
 *
 !frontend
 !frontend/**
+# The two files outside frontend/ the build reads: the Changelog page's text
+# (frontend/changelogFilesPlugin.ts). Without them every production build failed from
+# #878 (2026-10-19) on: ENOENT /vercel/path0/CHANGELOG.md. A file in an excluded folder
+# cannot be re-included, so `docs` comes back first, and `*` still drops the rest of it.
+!CHANGELOG.md
+!docs
+!docs/CHANGELOG_EARLIER.md
 # Vercel installs deps server-side; never upload node_modules (1.1GB on disk).
 frontend/node_modules
 # Build artefacts — Vercel re-runs `npm run build`; no need to upload.
