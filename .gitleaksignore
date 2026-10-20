@@ -25,3 +25,9 @@ c7f8f33b2a3fe593de41317f8a80548be07dfdbf:solana/guards/provenance.mjs:generic-ap
 # KEY ("test-jup-key-…", no real account). The variable is renamed FAKE_JUP in the
 # commit that adds this line, so the rule has nothing to read on the branch head.
 448e1e7d20e37792f73cbf81d741151e6fcb9027:frontend/api/__tests__/aggregator-jupiter-key.test.js:generic-api-key:15
+#
+# 2026-10-20, PR #911. The range client's test lists the program's instruction names on
+# one line; the `generic-api-key` rule read "...token22_nft', 'increase_liquidity_v2'" as
+# a key. They are function names in public source. The list is one name a line in the
+# commit that adds this entry, so the rule has nothing to read on the branch head.
+5336ecbab594b5e431016103fb062bbe83120ac5:frontend/src/lib/solana/clmm/program.test.ts:generic-api-key:132
