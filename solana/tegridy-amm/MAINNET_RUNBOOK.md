@@ -96,7 +96,7 @@ one. Rent assumes an exact `--max-len` (ProgramData = binary + 45 B header).
 
 | program | ProgramData account | rent at 5,080/byte |
 |---|---|---|
-| `raydium_cp_swap` | **On chain since the upgrade of section 4b:** binary **724,688 B**, sha256 `99a9e73d…` (the build with `create_lp_metadata`). Its ProgramData account was enlarged for it: 724,733 B if the enlarge was the exact 33,048 the pack asks for, which is 3,682,293,880 lamports, about 3.68 SOL (4b's table has the size read after the execute). **What the restart deployed, and what the figure beside this priced:** binary **691,640 B** → ProgramData **691,685 B**: `cp_swap.mainnet.so` sha256 `88b98aa9…`, the rehearsed mainnet build, now the roll-back build (the 2026-08-08 deploy put ~701,925 B on chain, but the restart deploys a fresh binary; not the 793,824 in `solana-ci.yml` either) | **~3.51 SOL** |
+| `raydium_cp_swap` | **On chain since the upgrade of section 4b:** binary **725,176 B**, sha256 `1e55bcdc…` (the build with `create_lp_metadata` and the launch-tier refusal). Its ProgramData account was enlarged for it: 725,221 B if the enlarge was the exact 33,536 the pack asks for, which is 3,684,772,920 lamports, about 3.68 SOL (4b's table has the size read after the execute). **What the restart deployed, and what the figure beside this priced:** binary **691,640 B** → ProgramData **691,685 B**: `cp_swap.mainnet.so` sha256 `88b98aa9…`, the rehearsed mainnet build, now the roll-back build (the 2026-08-08 deploy put ~701,925 B on chain, but the restart deploys a fresh binary; not the 793,824 in `solana-ci.yml` either) | **~3.51 SOL** |
 | `tegridy_launch` | binary **470,728 B** → ProgramData **470,773 B**: `tegridy_launch.mainnet.so` sha256 `a3c41afa…`, the reserve-paid-at-create mainnet build (tag `wip/solana-reserve-at-create`), built twice byte-identical. Mainnet quoted 2,392,177,080 lamports for it on 2026-09-26. (The escrow build it replaces was 483,288 B.) | **~2.39 SOL** |
 | fee-receiver WSOL ATA | already exists (`2sa31zce…`) | 0 |
 | tx fees | | ~0.01 SOL |
@@ -321,10 +321,12 @@ solana program show <PROGRAM_ID>   # verify authority == GRMtSx… + last-deploy
 
 Added 2026-10-06. Brought in line with three rehearsals on 2026-10-08. **Executed since.** It
 was cp-swap's FIRST upgrade on mainnet, of a program that held funded pools. Mainnet now runs
-the new build, `99a9e73d…` (724,688 bytes): the one with `create_lp_metadata` and the security
-text on `memetics.finance`. Until the execute it ran `88b98aa9…` (691,640 bytes), the build
-deployed on 2026-09-29, which is now the roll-back build (E). The source of the new build is
-on `mvp-launch` (pull request #758, merged 2026-10-08 at 07:40 UTC).
+the new build, `1e55bcdc…` (725,176 bytes): the one with `create_lp_metadata`, the security
+text on `memetics.finance`, and the launch-tier refusal (a public `initialize` on fee tier 0
+is refused; "The build moved on 2026-10-19 and 2026-10-20" below). Until the execute it ran
+`88b98aa9…` (691,640 bytes), the build deployed on 2026-09-29, which is now the roll-back
+build (E). The source of the new build is on `mvp-launch`: the instruction and the text from
+pull request #758 (merged 2026-10-08 at 07:40 UTC), the refusal from pull request #899.
 
 **The upgrade as it executed.** Read from mainnet after the execute, by the session that
 shipped the website release of part C. This table is the only place in the repository that
@@ -344,6 +346,62 @@ reads mainnet, sends nothing, and prints the rows only when the program there ha
 new build. Take them from it and never from memory. That test checks the SHAPE of a cell: it
 cannot tell a typed value from a read one. What mainnet itself has to satisfy is the address
 registry's chain check, told in part C.
+
+**The build moved on 2026-10-19 and 2026-10-20, before the execute.** The plan below was
+rehearsed on the 724,688-byte build of 2026-10-06. On the evening of 2026-10-19 the owner ruled
+that the one upgrade also carries pull request #899, the launch-tier refusal: a public
+`initialize` on fee tier 0 (`BHMteE8u…`, the launch tier) returns 6000 `NotApproved`, and
+graduations still open pools there through `initialize_with_permission`, which is unchanged.
+So the file the upgrade installs is a different one. What is true of it:
+
+- **The build.** sha256 `1e55bcdcb10c39ee9678efb697b453cb23415621bded4968c01950629de4fd22`,
+  725,176 bytes. `cargo build-sbf -- --locked` (cargo-build-sbf 2.3.0, platform-tools v1.48,
+  rustc 1.84.1) on clean `git archive` copies, by two sessions: one of #899's head
+  `10ee2dcc4`, one of `c9dda6117`, whose program files are the same. Byte for byte the same.
+  The same build of trunk `71a7bba8` gave the 2026-10-06 build exactly, so the toolchain is the
+  one this section's runs used. The IDL is the same file (`1e8fd792…`): the refusal adds no
+  instruction, account, argument or error. The 2026-10-06 build lacks the refusal and is never
+  to be deployed; the pack keeps it only in its folder of superseded files.
+- **The gate on the commit that is built.** #899 merged, and
+  `git diff 10ee2dcc4 <that commit> -- solana/tegridy-amm/programs/cp-swap solana/tegridy-amm/Cargo.lock`
+  prints nothing. Read before Day 0 and again at #899's merge. The ids the build read:
+
+  | path | id on `10ee2dcc4` |
+  |---|---|
+  | `solana/tegridy-amm/programs/cp-swap` (tree) | `660ee834fd65605158fc8adf94e3a91f638509db` |
+  | `solana/tegridy-amm/Cargo.toml` (blob) | `446771097aec55f5d8fbcd6631c9cc87e17afcca` |
+  | `solana/tegridy-amm/Cargo.lock` (blob) | `43e2ca2ae5d22d91a7a690e822a03b9c80120e0a` |
+
+  If one differs, the pack's file is no longer trunk's program: build twice again and compare.
+- **The numbers moved with the file**, at 5,080 lamports per byte: the binary grows by 33,536
+  bytes (488 more than the 2026-10-06 build), so the enlarge is 33,536 bytes, 170,362,880
+  lamports, and the buffer is 725,213 bytes, 3,684,732,280 lamports. B's cost table and its
+  traps carry these numbers now. Its counts of rehearsal checks are still the earlier build's.
+- **The vault has a 48-hour time lock since 2026-10-19**, so every proposal waits two days
+  after its approvals. The pack was reworked for it: Day 0 funds the paying wallet (7.40 SOL;
+  member A 0.02 more), uploads this build's buffer AND a roll-back buffer, and proposes and
+  approves both; Day 2 executes, checks, sends the name records and proposes the rename and the
+  roll-back buffer's return. B's order below is the plan before the lock. The pack's
+  `START-HERE.md` is the order now.
+- **What ran on `1e55bcdc…`, all on local validators.** #899's mainnet-shaped upgrade (the live
+  binaries at their mainnet ids, tiers 0 and 1 read from mainnet that day, a test key for the
+  vault): a stranger opens a tier-0 pool and pays nothing; enlarge by 33,536 with auto-extend
+  off; upgrade; then a public `initialize` on tier 0 is refused (6000, `initialize.rs:208`),
+  the same pair opens on tier 1 and pays 150,000,000 lamports, the pool opened on tier 0
+  before still swaps, and the live launcher graduates onto tier 0. 12 of 12 checks. CI's
+  migration-rehearsal test on the patched source: 5 of 5, and red on the source before the
+  refusal. The pack under the lock (2026-10-20): mainnet's real lock 50 of 50, and a 90-second
+  lock lived through 65 of 65, in which the check after the upgrade passed on this build:
+  its hash read from the chain, a trade through both pools, `create_lp_metadata` simulated on
+  both share mints (52,286 and 50,786 compute units), and a public `initialize` on tier 0
+  refused at `initialize.rs:208`; after a roll-back that line was no longer refused there. Not
+  run on this build: `prove-lp-metadata.mjs` and the vault-instruction table of part C.
+- **The check after the upgrade gained a part**: it simulates a stranger's public `initialize`
+  of a WSOL/USDC pool on tier 0 and must see it stop with 6000 at `initialize.rs:208`. On
+  mainnet, read-only, on 2026-10-20 (red first): today's program lets it through every gate
+  and it stops only at 6002 `EmptySupply`, because the test puts no tokens in. If that line is
+  the ONLY refused line after the execute, do not roll back (a roll-back leaves tier 0 just as
+  open): stop and ask a session.
 
 **From here to the end of part B, this section is the plan as it stood before the execute.**
 It is kept as written: it is the record of what was rehearsed and what was not, and the
@@ -471,10 +529,12 @@ the finished pack does something else, the line says so and gives the date.
    delegated the call on 2026-10-06. The answer is one. So this upgrade also carries the
    on-chain security text of to-do `O-0929-10` (`docs/TODO_OPERATOR.md`): four values of the
    `security_txt!` macro in `lib.rs`, an email as the first contact, every link on
-   `memetics.finance`. Those strings are in the binary, so the build that has them
-   (`99a9e73d…`) is a different file from the build made earlier that day (`7648994d…`),
-   which must never be deployed. Every hash, size and cost in this section is for
-   `99a9e73d…`. Two checks come with the text:
+   `memetics.finance`. Those strings are in the binary, so the build that has them (724,688
+   bytes on 2026-10-06) is a different file from the build made earlier that day
+   (`7648994d…`), which must never be deployed. The runs in this section were made on that
+   724,688-byte build. Since 2026-10-20 the file the upgrade installs is `1e55bcdc…`, which
+   carries the same text and the launch-tier refusal ("The build moved" above). Two checks
+   come with the text:
    - **Its three links answer, checked from outside our own network, on the day.**
      `curl -sI https://memetics.finance/source/solana/tegridy-amm/SECURITY.md` and
      `curl -sI https://memetics.finance/source/solana/tegridy-amm` each answer `307`, and
@@ -489,9 +549,10 @@ the finished pack does something else, the line says so and gives the date.
      prints `1`. (`memetic.fun` is the old host. It is not inside `memetics.finance`.)
 
    Do not carry numbers across another `lib.rs` edit: rebuild, re-pin and re-run.
-5. **Build from the merged commit, twice, byte for byte the same.** The result is
-   `99a9e73d…` only if `programs/cp-swap/` and `Cargo.lock` are byte for byte what they
-   were on 2026-10-06. If the hash differs, find out why before going on. Run
+5. **Build from the merged commit, twice, byte for byte the same.** As it stood on
+   2026-10-08: the result was the 2026-10-06 build only if `programs/cp-swap/` and
+   `Cargo.lock` were byte for byte what they were that day. (Since 2026-10-20 the gate is the
+   one in "The build moved" above, against `1e55bcdc…` and #899's head.) If the hash differs, find out why before going on. Run
    `node scripts/verify-program-constants.mjs --so <file> --roster cp-swap` on it. Run
    `frontend/scripts/solana-localnet/prove-lp-metadata.mjs` against it on a local validator
    seeded from a fresh read of both pools.
@@ -504,9 +565,8 @@ the finished pack does something else, the line says so and gives the date.
    (about 02:15 UTC on 2026-10-09), the pool program was built twice from merged trunk
    `7a2012c3`: two clean copies of a `git archive` of that commit, with the toolchain of
    the 2026-10-06 build (`cargo-build-sbf` 2.3.0, platform-tools v1.48, rustc 1.84.1). Both
-   builds are 724,688 bytes, sha256
-   `99a9e73dc469755b178d8029196be0ee8f92e557bbd65e15e4511084b6a0fe25`. `cmp` finds each one
-   byte for byte the same as the other and as the file in the pack. The constants check
+   builds are 724,688 bytes, the 2026-10-06 build's hash. `cmp` finds each one byte for byte
+   the same as the other and as the file in the pack of that day. The constants check
    passed on both, the three `grep` lines of gate 4 printed 0, 0 and 1 on both, and
    neither build log holds an "exceeded max offset" line.
 
@@ -527,7 +587,7 @@ the finished pack does something else, the line says so and gives the date.
    did not read CI on `7a2012c3` (gate 2 asks for that only if trunk's `programs/` moves,
    and it has not). It did not rebuild the devnet-shape file or the IDL, or work out the
    pinned delta hash again. What it shows is that a build of trunk IS the file that every
-   run of `99a9e73d…` in this section was made on, so those runs are runs of it.
+   run of the 724,688-byte build in this section was made on, so those runs are runs of it.
 
    **Where these bytes last met a fresh read of both pools.** In the pack's final rehearsal
    on 2026-10-08 (the third pass in the second table above). It read mainnet at slot
@@ -656,8 +716,9 @@ step, and the two "only if" steps when E says so.
   `Program BPFLoaderUpgradeab1e11111111111111111111111 not supported by inner instructions`.
 - **It is not idempotent.** `solana program extend` run a second time enlarges a second time
   and locks the rent a second time. Neither the CLI nor the chain objects. Shown twice: from
-  724,733 to 757,781 bytes in stage 1, and by another 22,808 bytes in the cold run. On
-  mainnet a repeat of 33,048 bytes is another 167,883,840 lamports that nobody gets back.
+  724,733 to 757,781 bytes in stage 1, and by another 22,808 bytes in the cold run (both with
+  the 2026-10-06 build). On mainnet a repeat of 33,536 bytes is another 170,362,880 lamports
+  that nobody gets back.
   The pack's check refuses once the room is there. At the cold run the enlarge command
   itself still ran when repeated. **Fixed in the pack on 2026-10-08:** the enlarge is now a
   script that reads the size, refuses when the room is there, and otherwise sends exactly
@@ -666,8 +727,8 @@ step, and the two "only if" steps when E says so.
   again after a send whose answer could not be read: never more than one enlarge was paid.
   With its gate broken on purpose in a throwaway copy it did enlarge twice, so the gate is
   what stops it. The bare `solana program extend` still repeats: never type it.
-- **The amount comes from the size read on the day**: 724,733 less the data account's size at
-  that moment. 691,685 means 33,048. 724,733 or more means do not enlarge. Never a number
+- **The amount comes from the size read on the day**: 725,221 less the data account's size at
+  that moment. 691,685 means 33,536. 725,221 or more means do not enlarge. Never a number
   copied from a paper.
 - **A stranger may enlarge first.** It costs them at least 10,240 bytes, 52,019,200 lamports
   at 5,080 per byte. Fewer bytes are then missing. The loader takes no step under 10,240
@@ -685,10 +746,10 @@ step, and the two "only if" steps when E says so.
   the wrong thing to watch. The direct check is to simulate the exact enlarge, unsigned, from
   the paying wallet on the day, which the pack's check does. If mainnet refuses it, stop.
 - **Two traps after the enlarge, and again after a roll-back.** `solana program show` prints
-  `Data Length: 724688 (0xb0ed0) bytes` while the program is still the old one: that number
-  is the room, not the program. And `solana program dump` writes 724,688 bytes, the old
-  program followed by 33,048 zeros, whose sha256 is
-  `395940f3ea7ee70ea7a519490e0639a6ec746f506890fe867527a4f349da1f9f`, not `88b98aa9…`. A
+  `Data Length: 725176 (0xb10b8) bytes` while the program is still the old one: that number
+  is the room, not the program. And `solana program dump` writes 725,176 bytes, the old
+  program followed by 33,536 zeros, whose sha256 is
+  `08e427f39fa54ab10275241d7e194f3ee189981260065fa3ddd9bf2b4f47997e`, not `88b98aa9…`. A
   check that pins `88b98aa9…` on a whole dump goes red although nothing is wrong. Hash the
   first 691,640 bytes. Do not trim trailing zeros instead: the deployed file itself ends in
   15 zero bytes.
@@ -723,26 +784,29 @@ step, and the two "only if" steps when E says so.
   then interrupted and resumed. Stages 1 and 2 had added a flag (`--use-rpc`) that the owner
   does not use.
 
-**What it costs.** For the build that carries both changes, at mainnet's rent of 5,080
-lamports per byte, read on chain 2026-10-08 (07:42 UTC). Re-read every one on the day: all of
+**What it costs.** For the build the upgrade installs (`1e55bcdc…`, since 2026-10-20), at
+mainnet's rent of 5,080 lamports per byte, read on chain 2026-10-08 (07:42 UTC) and again on
+2026-10-19. Re-read every one on the day: all of
 them change if `lib.rs` changes or the rent does. The program account holds exactly its
 minimum, with no spare bytes and no spare lamports.
 
 | | |
 |---|---|
-| The build | 724,688 bytes, sha256 `99a9e73dc469755b178d8029196be0ee8f92e557bbd65e15e4511084b6a0fe25`. Built twice from clean copies, byte for byte the same. |
-| Growth of the binary | 33,048 bytes (691,640 to 724,688). The security text is 16 of them: the build with the instruction alone was 724,672. |
-| The enlarge | 167,883,840 lamports (0.1679 SOL), locked for good: the minimum for 724,733 bytes (3,682,293,880) less what the account holds (3,514,410,040). Mainnet's own loader took exactly that from the payer in an unsigned simulation on 2026-10-08. Every repeat pays it again. A roll-back does not give it back. |
-| The upgrade buffer | 3,682,253,240 lamports (3.682 SOL) for its 724,725 bytes. Parked by the first upload transaction, returned by the execute to the wallet the proposal names. |
+| The build | 725,176 bytes, sha256 `1e55bcdcb10c39ee9678efb697b453cb23415621bded4968c01950629de4fd22`. Built twice from clean copies, by two sessions, byte for byte the same. |
+| Growth of the binary | 33,536 bytes (691,640 to 725,176). The launch-tier refusal is 488 of them and the security text 16: the build with the instruction alone was 724,672, and with the text 724,688. |
+| The enlarge | 170,362,880 lamports (0.1704 SOL), locked for good: the minimum for 725,221 bytes (3,684,772,920) less what the account holds (3,514,410,040). Mainnet's own loader took the earlier build's figure (167,883,840 for 33,048 bytes) from the payer in an unsigned simulation on 2026-10-08; 33,536 bytes with auto-extend off were shown enough in #899's local upgrade. Every repeat pays it again. A roll-back does not give it back. |
+| The upgrade buffer | 3,684,732,280 lamports (3.685 SOL) for its 725,213 bytes. Parked by the first upload transaction, returned by the execute to the wallet the proposal names. |
 | The paying wallet's fees | Measured: 721 transactions (the enlarge, 719 for the upload, the hand-over) at 5,000 lamports each, 3,605,000. With the priority fee the pack sets on the upload, the upload alone cost 3,805,414 (210,414 of it priority), so about 3,815,000 in all. |
-| **The paying wallet's peak** | **3,853,742,080 lamports (3.854 SOL)** before any priority fee, about 3,853,950,000 with the pack's. The two name records are paid after the buffer's SOL is back, so they do not raise the peak. (This row used to add them and say 3.88.) **Gate: read the paying wallet's balance before the day and see that it covers this.** No wallet of ours did on 2026-10-08 (07:42 UTC): the first deployer `CqcVvaMvesrSKrUSbqBqr9mLjKLJuYqhaXg1gXpR41cg` held 0.0324 SOL, the owner's wallet `Upmhw8i6RSLXoj4yGzq9ZYLXb4UzZMRm7BSX8BxCdEd` 0.0220, the vault `GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd` 0.0152, member A `5QHzAqbGk3W8qGRBHCMyWjhLXf8YJcs3yPEh14Ymcwgz` 0.1465 and member B `6VHowW4pnD4WTGsXhqBp6yxGgC3EExVmYgebSrRNu2tY` 0.0311. The pack pays from the first deployer and asks for 3.90 SOL to be sent to it first, which leaves 0.079 SOL above the peak. |
+| **The paying wallet's peak** | **Since the pack was reworked for the 48-hour lock (2026-10-19), 7.37667456 SOL**: the enlarge, this buffer and a roll-back buffer (3,514,369,400) parked at once, and the fees of both uploads. The pack asks for 7.40 SOL to be sent to the first deployer, and member A for 0.02 more. What follows in this row is the plan before the lock, for the 2026-10-06 build with one buffer: **3,853,742,080 lamports (3.854 SOL)** before any priority fee, about 3,853,950,000 with the pack's. The two name records are paid after the buffer's SOL is back, so they do not raise the peak. (This row used to add them and say 3.88.) **Gate: read the paying wallet's balance before the day and see that it covers this.** No wallet of ours did on 2026-10-08 (07:42 UTC): the first deployer `CqcVvaMvesrSKrUSbqBqr9mLjKLJuYqhaXg1gXpR41cg` held 0.0324 SOL, the owner's wallet `Upmhw8i6RSLXoj4yGzq9ZYLXb4UzZMRm7BSX8BxCdEd` 0.0220, the vault `GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd` 0.0152, member A `5QHzAqbGk3W8qGRBHCMyWjhLXf8YJcs3yPEh14Ymcwgz` 0.1465 and member B `6VHowW4pnD4WTGsXhqBp6yxGgC3EExVmYgebSrRNu2tY` 0.0311. The pack pays from the first deployer and asks for 3.90 SOL to be sent to it first, which leaves 0.079 SOL above the peak. |
 | One name record | 13,733,800 lamports from whoever calls, plus a 5,000 fee: 3,733,800 rent and Metaplex's flat 10,000,000. Two cost 27,477,600. |
 | The proposals | Paid by the member who proposes, as rent for two Squads records, and not refunded (no rent collector is set): the upgrade 4,556,680 lamports (records of 378 and 262 bytes), the rename 5,247,560, "return a buffer's SOL" 3,886,120. An approval is 5,000 and an execute 5,000. The executes used 34,628 compute units (the upgrade) and 69,485 (the rename), so no compute-budget instruction is needed. On 2026-10-08 member A and member B each held enough for their part. |
-| Spent for good | About 0.21 SOL in all: 0.168 locked in the program account, 0.004 of fees, 0.0275 for two name records, 0.0098 for member A's two proposals. The 3.68 SOL of the buffer is parked and comes back. |
+| Spent for good | About 0.21 SOL in all for the plan before the lock (the reworked pack adds a second upload's fees and two more proposals): 0.170 locked in the program account, 0.004 of fees, 0.0275 for two name records, 0.0098 for member A's two proposals. The 3.68 SOL of the buffer is parked and comes back. |
 
 ### C. What has run on the new binary, and what ships in the same release
 
-Run on `99a9e73d…`, the build that carries both changes. On 2026-10-06, on a local validator
+Run on the 724,688-byte build of 2026-10-06, the one that carried both changes before the
+launch-tier refusal was added. What ran on `1e55bcdc…` is in "The build moved" at the top of
+this section. On 2026-10-06, on a local validator
 with mainnet's feature set and Metaplex cloned. (Both runs had passed earlier that day on
 `7648994d…`, the build with the instruction alone. They were run again because that is a
 different file.) On 2026-10-08, on the rehearsal's chain, after the real enlarge and the real
@@ -791,26 +855,27 @@ the pack neither does nor checks.
   `frontend/src/components/solana/lp/SolanaLpSection.tsx`: both are risk lines a depositor
   reads, and both said the admin keys were the only change, which went false when the
   program was upgraded. They now read: "Our pool program is Raydium's, with its admin keys
-  changed and one added instruction that names pool share tokens. Those changes have not had
-  their own independent review yet." A third, shorter line above the pool finder in
-  `SolanaLpSection.tsx` had the same fault ("whose admin-key changes have not had their own
-  independent review yet") and now says "whose changes from Raydium's". Their tests:
-  `CreatePoolPanel.test.tsx`, `SolanaLpWrites.test.tsx`, `SolanaLpSection.test.tsx` and
-  `SolanaLpPage.mintLink.test.tsx`.
+  changed, one added instruction that names pool share tokens and one added check that keeps
+  the launch fee tier for launches. Those changes have not had their own independent review
+  yet." (A third, shorter risk line above the pool finder said the same; trunk removed it
+  before the upgrade.) Their tests: `CreatePoolPanel.test.tsx` and
+  `SolanaLpWrites.test.tsx`.
 - `frontend/src/components/solana/VenueProgramCard.tsx`: the paragraph that said the program
-  on Solana was built before the instruction was added is gone.
-- The pins of the deployed binary moved to `99a9e73d…`: `PIN_CPSWAP` in
+  on Solana was built before the instruction was added is gone, and its small print names
+  the added check beside the added instruction.
+- The pins of the deployed binary moved to `1e55bcdc…`: `PIN_CPSWAP` in
   `frontend/scripts/solana-localnet/start-validator.sh` and the pool program's line of
   `PINNED_SHA256` in `genesis-accounts.mjs`. The harness loads the new build from the
-  artifacts folder under its own name, `cp_swap.upgrade-99a9e73d.mainnet.so`, with its IDL
+  artifacts folder under its own name, `cp_swap.upgrade-1e55bcdc.mainnet.so`, with its IDL
   and a checksum list of its own (`genesis-accounts.mjs` names the three files). So the
   2026-09-26 release's files and its `SHA256SUMS` are untouched, the release's own
   `verify-release.mjs` still passes, and `cp_swap.mainnet.so` stays there as the roll-back
   build. The release IDL pin and the repo IDL pin are one pin again. The expected bytecode
   hash in `frontend/scripts/addresses.json` and the cp-swap row in §0 here moved with them.
   `frontend/src/test/poolProgramCopy.test.ts` holds the wording to those two harness pins in
-  both directions: it failed this release until all four lines were reworded, and it fails
-  a re-pin to the old build until they are put back (E, the roll-back).
+  both directions: it failed this release until all three places were reworded and named
+  the added check, and it fails a re-pin to the old build until they are put back (E, the
+  roll-back).
 
   **What held this release back until the upgrade had executed was the chain itself.** The
   registry's row for the program's data account carries `expect.holdsProgram`, the new
@@ -953,11 +1018,12 @@ the pack neither does nor checks.
   cold run). In stage 1 both real pools then traded a full round to the exact amounts.
   - Its float: 3,514,369,400 lamports for the buffer, returned on the execute, about 0.0034
     SOL of fees, and 4,556,680 lamports from the proposing member.
-  - The data account does not shrink. It stays 724,733 bytes and the enlarge's rent stays
+  - The data account does not shrink. It stays 725,221 bytes and the enlarge's rent stays
     locked.
-  - The program is then the old file followed by 33,048 zeros, so both traps of B apply:
+  - The program is then the old file followed by 33,536 zeros, so both traps of B apply:
     hash the first 691,640 bytes.
-  - `create_lp_metadata` answers 101 again. Name records stay (D).
+  - `create_lp_metadata` answers 101 again, and tier 0 is open to a public `initialize`
+    again. Name records stay (D).
   - **The website goes back with it, in the same hour.** The risk lines and the pins in
     part C describe the build mainnet runs. After a roll-back that is `88b98aa9…` again, so
     put back what the upgrade's commit changed there: the two harness pins and the address
@@ -974,9 +1040,10 @@ the pack neither does nor checks.
   - The pack estimates fifteen minutes, most of it the upload, and a broken program stays
     broken that long. Uploading the roll-back buffer BEFORE the upgrade executes would make
     it about a minute, at the price of a second 3.51 SOL parked and a peak near 7.37 SOL in
-    the paying wallet (this file's arithmetic, not a measured figure). The pack does not do
-    that. Its buffer check would show one expected refusal until the upgrade has landed.
-    **The owner's call.**
+    the paying wallet (this file's arithmetic, not a measured figure). Its buffer check would
+    show one expected refusal until the upgrade has landed. **Since the pack was reworked for
+    the 48-hour lock (2026-10-19) it does exactly that**: the roll-back buffer is uploaded and
+    its proposal approved on Day 0, and the peak is 7.37667456 SOL.
 - **A frightening line that is not an error.** On Windows a script that stops right after a
   network read can print
   `Assertion failed: !(handle->flags & UV_HANDLE_CLOSING), file src\win\async.c, line 76`.

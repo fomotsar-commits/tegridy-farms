@@ -22,12 +22,15 @@ export function VenueProgramCard() {
       <FinePrint summary="The program">
         <p>
           The AMM is a fork of <strong>raydium-cp-swap</strong>. CI clones the pinned
-          upstream commit, refuses any differing file outside two, and sha256-hashes the
+          upstream commit, refuses any differing file outside three, and sha256-hashes the
           remaining delta against a pinned value. That delta is four authority constants,
-          the program&rsquo;s own name and contact text, comments and one added instruction,
-          which lets a pool&rsquo;s share token carry a name and a picture in wallets. Its
-          caller chooses nothing: the name and the link are fixed in the program. It cannot
-          move pool funds. Whoever calls it pays a small one-time fee for the record.
+          the program&rsquo;s own name and contact text, comments, one added instruction and
+          one added check. The instruction lets a pool&rsquo;s share token carry a name and a
+          picture in wallets. Its caller chooses nothing: the name and the link are fixed in
+          the program. It cannot move pool funds. Whoever calls it pays a small one-time fee
+          for the record. The check keeps the launch fee tier for launches: opening a pool
+          there the public way is refused, and a launch&rsquo;s graduation still opens its
+          pool there.
           The curve, the swap, the deposit and withdraw paths and the fee maths are
           Raydium&rsquo;s, not ours, and the quotes on the swap page run that same maths
           client-side.

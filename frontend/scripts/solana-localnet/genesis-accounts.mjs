@@ -49,9 +49,9 @@
 //   TEGRIDY_RELEASE_ARTIFACTS (default C:/Users/jimbo/solana-launch-release-2026-09-26/artifacts)
 // Since the pool program's upgrade that folder must also hold the upgrade's build, under its
 // own names, beside the release's files (which stay as they are):
-//   cp_swap.upgrade-99a9e73d.mainnet.so          the file that was deployed (the upgrade pack's binary-to-deploy)
-//   raydium_cp_swap.upgrade-99a9e73d.idl.json    its IDL: a copy of solana/tegridy-amm/idl/raydium_cp_swap.json
-//   SHA256SUMS.upgrade-99a9e73d                  one line for each: the sha256, two spaces, the file name
+//   cp_swap.upgrade-1e55bcdc.mainnet.so          the file that was deployed (the upgrade pack's binary-to-deploy)
+//   raydium_cp_swap.upgrade-1e55bcdc.idl.json    its IDL: a copy of solana/tegridy-amm/idl/raydium_cp_swap.json
+//   SHA256SUMS.upgrade-1e55bcdc                  one line for each: the sha256, two spaces, the file name
 // The three wait, already named and checked, in
 //   C:/Users/jimbo/solana-launch-release-2026-09-26/upgrade-day-staged
 // whose README holds the copy commands. Its list ends its lines in LF. A list typed on
@@ -103,19 +103,19 @@ export function baylaMintAuthority() {
 
 /**
  * The pool program's files, as the artifacts folder names them: the build mainnet has run
- * since the upgrade that added `create_lp_metadata` (MAINNET_RUNBOOK.md, section 4b), and
- * the IDL emitted from the same source. They sit beside the 2026-09-26 release's own
+ * since the upgrade that added `create_lp_metadata` and closed fee tier 0 to a public
+ * `initialize` (MAINNET_RUNBOOK.md, section 4b), and the IDL emitted from the same source. They sit beside the 2026-09-26 release's own
  * `cp_swap.mainnet.so` and `raydium_cp_swap.idl.json`, which are what mainnet ran before
  * the upgrade. Those two stay in the folder untouched (the first is the roll-back build)
  * and this harness no longer loads them.
  */
-export const POOL_PROGRAM_SO = 'cp_swap.upgrade-99a9e73d.mainnet.so';
-export const POOL_PROGRAM_IDL = 'raydium_cp_swap.upgrade-99a9e73d.idl.json';
+export const POOL_PROGRAM_SO = 'cp_swap.upgrade-1e55bcdc.mainnet.so';
+export const POOL_PROGRAM_IDL = 'raydium_cp_swap.upgrade-1e55bcdc.idl.json';
 
 /**
  * Every file the validator and the encoder are built on, pinned here by sha256 so a swapped
  * file cannot pass. The two launcher files are the 2026-09-26 release's. The pool program's
- * binary is 724,688 bytes. src/test/poolProgramCopy.test.ts reads its pin from this table
+ * binary is 725,176 bytes. src/test/poolProgramCopy.test.ts reads its pin from this table
  * and from start-validator.sh, and ties the site's wording about the pool program to it.
  *
  * The repo's pool IDL (solana/tegridy-amm/idl/raydium_cp_swap.json) and the folder's copy
@@ -125,9 +125,9 @@ export const POOL_PROGRAM_IDL = 'raydium_cp_swap.upgrade-99a9e73d.idl.json';
  * `create_lp_metadata` taken out is the IDL of the build mainnet ran before.
  */
 export const PINNED_SHA256 = Object.freeze({
-  'cp_swap.upgrade-99a9e73d.mainnet.so': '99a9e73dc469755b178d8029196be0ee8f92e557bbd65e15e4511084b6a0fe25',
+  'cp_swap.upgrade-1e55bcdc.mainnet.so': '1e55bcdcb10c39ee9678efb697b453cb23415621bded4968c01950629de4fd22',
   'tegridy_launch.mainnet.so': 'a3c41afaf9dce3ee5dd5d30061c09d8dfb0bf581ba8f39e1d24524dbb43d3f4d',
-  'raydium_cp_swap.upgrade-99a9e73d.idl.json': '1e8fd7928c0fce6788b880703a1cbfc932e808ab5acadfd5217eb637d739f736',
+  'raydium_cp_swap.upgrade-1e55bcdc.idl.json': '1e8fd7928c0fce6788b880703a1cbfc932e808ab5acadfd5217eb637d739f736',
   'tegridy_launch.idl.json': 'cd9e173c666940f82222a2798dc1c5bc0cf30edf7b32450530e65aa523a3cb31',
 });
 
@@ -135,7 +135,7 @@ export const PINNED_SHA256 = Object.freeze({
  * The checksum list in the artifacts folder that must name each pinned file. The release's
  * own SHA256SUMS is never edited: the upgrade's two files came with a list of their own.
  */
-export const UPGRADE_SUMS = 'SHA256SUMS.upgrade-99a9e73d';
+export const UPGRADE_SUMS = 'SHA256SUMS.upgrade-1e55bcdc';
 const SUMS_FILE = Object.freeze({
   [POOL_PROGRAM_SO]: UPGRADE_SUMS,
   [POOL_PROGRAM_IDL]: UPGRADE_SUMS,

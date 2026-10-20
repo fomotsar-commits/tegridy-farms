@@ -14,11 +14,11 @@ import { LOCKED_SHARES_TEXT, solAbout, solExact } from './panelKit';
 // Where a pool's trades come from is said as the routes that exist, never as a volume.
 
 // True of the pool program RUNNING on mainnet since its upgrade: that build has
-// create_lp_metadata (the instruction that names pool share tokens). Before the upgrade this
+// create_lp_metadata, and its public initialize refuses fee tier 0. Before the upgrade this
 // said "with only its admin keys changed". src/test/poolProgramCopy.test.ts ties the wording
 // to the binary the local harness pins, so the two can only move together (a roll-back too).
 const FORK_LINE =
-  "Our pool program is Raydium's, with its admin keys changed and one added instruction that names pool share tokens. Those changes have not had their own independent review yet. Put in only what you can afford to lose.";
+  "Our pool program is Raydium's, with its admin keys changed, one added instruction that names pool share tokens and one added check that keeps the launch fee tier for launches. Those changes have not had their own independent review yet. Put in only what you can afford to lose.";
 /**
  * The risk in one sentence (owner, 2026-10-17: off the page, first in every Risks drop-down):
  * what the team's vault can do with no waiting period, and that no outside firm has

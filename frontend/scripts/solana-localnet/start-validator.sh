@@ -10,9 +10,10 @@
 # What it loads, and nothing else:
 #   - tegridy-launch and cp-swap: the EXACT .so files mainnet runs, at their mainnet
 #     ids, upgrade authority none. tegridy-launch is the 2026-09-26 release's file.
-#     cp-swap is the build it was upgraded to (99a9e73d…, 724,688 bytes: the one with
-#     create_lp_metadata), which sits in the same folder under its own name with its
-#     own checksum list. The release's cp_swap.mainnet.so (88b98aa9…, what mainnet ran
+#     cp-swap is the build it was upgraded to (1e55bcdc…, 725,176 bytes: the one with
+#     create_lp_metadata, whose public initialize refuses fee tier 0), which sits in the
+#     same folder under its own name with its own checksum list. The release's
+#     cp_swap.mainnet.so (88b98aa9…, what mainnet ran
 #     before the upgrade) stays in that folder and is not loaded. Each file's sha256
 #     must match the checksum list that came with it AND the pins below, or nothing
 #     starts. genesis-accounts.mjs says which three files the upgrade added.
@@ -53,9 +54,9 @@ LAUNCH=64WBTeNcrSHfmBpiqymyifW6FUNNLvJcuiqF9rXmz4q2
 CPSWAP=EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT
 METAPLEX=metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s
 PIN_LAUNCH=a3c41afaf9dce3ee5dd5d30061c09d8dfb0bf581ba8f39e1d24524dbb43d3f4d
-PIN_CPSWAP=99a9e73dc469755b178d8029196be0ee8f92e557bbd65e15e4511084b6a0fe25
-SO_CPSWAP=cp_swap.upgrade-99a9e73d.mainnet.so
-SUMS_CPSWAP=SHA256SUMS.upgrade-99a9e73d
+PIN_CPSWAP=1e55bcdcb10c39ee9678efb697b453cb23415621bded4968c01950629de4fd22
+SO_CPSWAP=cp_swap.upgrade-1e55bcdc.mainnet.so
+SUMS_CPSWAP=SHA256SUMS.upgrade-1e55bcdc
 
 die() { echo "REFUSING: $*" >&2; exit 1; }
 

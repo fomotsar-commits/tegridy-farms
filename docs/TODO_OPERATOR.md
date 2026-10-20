@@ -829,7 +829,8 @@ GIT_HOSTING.md, the runbook's four GitLab lines and `OUR_REPOS` in
 ### ⬜ O-0929-10: four `security_txt!` fields. On chain since the upgrade; one look left
 
 **Where it stands now: the upgrade has executed.** The pool program on mainnet is the build
-that carries the four values below (sha256 `99a9e73d…`, 724,688 bytes). The day, the slot and
+that carries the four values below (sha256 `1e55bcdc…`, 725,176 bytes; the same upgrade also
+closed fee tier 0 to a public pool opening, pull request #899). The day, the slot and
 the transaction are in `solana/tegridy-amm/MAINNET_RUNBOOK.md`, section 4b. The website
 wording that went false with the upgrade shipped with it (runbook 4b, part C).
 
@@ -939,10 +940,12 @@ solana_security_txt::security_txt! {
   and then `2bbd1e55…` came on 2026-10-06 with
   `create_lp_metadata`, the instruction that names a pool's lp token. `5d7baf26…` adds this
   text: eight changed lines, four of them these values and four of them comments.
-- These strings are in the binary, so the build that carries them (`99a9e73d…`, 724,688
-  bytes) is a different file from the build made earlier that day with the instruction alone
-  (`7648994d…`, 724,672 bytes). Runbook 4b has the full hash and what the upgrade costs.
-  Never deploy the earlier build: it still carries the dead links.
+- These strings are in the binary, so the build that carries them (724,688 bytes on
+  2026-10-06) is a different file from the build made earlier that day with the instruction
+  alone (`7648994d…`, 724,672 bytes). The build the upgrade installed carries them too, with
+  the launch-tier refusal of pull request #899 (`1e55bcdc…`, 725,176 bytes). Runbook 4b has
+  the full hash and what the upgrade costs. Never deploy the earlier builds: the first still
+  carries the dead links, and neither has the launch-tier refusal.
 
 **You should see**, before the upgrade:
 `curl -sI https://memetics.finance/source/solana/tegridy-amm/SECURITY.md` answers `307`, and

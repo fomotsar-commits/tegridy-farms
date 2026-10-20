@@ -47,11 +47,14 @@ fallback for pairs we don't host well.
 > upgrade or two" that day and the answer was one: the same upgrade carries the instruction
 > and this text. `diff-guard` was re-pinned for it.
 >
-> **Upgraded: mainnet runs the build that has both.** The Squads vault upgraded the program
-> to the build made from this source on 2026-10-06 (sha256 `99a9e73d…`, 724,688 bytes). It
-> replaced the binary deployed on 2026-09-29 (`88b98aa9…`, 691,640 bytes). The day, the slot
-> and the transaction are recorded in one place: `MAINNET_RUNBOOK.md`, section 4b. It was
-> the program's first upgrade, and neither build has been audited.
+> **Upgraded: mainnet runs the build that has all three.** The same one upgrade also carries
+> the launch-tier gate of pull request #899 (public `initialize` refuses fee tier 0; its own
+> section in this file, "The launch-tier gate in `initialize`"), as the owner ruled on
+> 2026-10-19. The Squads vault upgraded the program to the build made from that source
+> (sha256 `1e55bcdc…`, 725,176 bytes). It replaced the binary deployed on 2026-09-29
+> (`88b98aa9…`, 691,640 bytes). The day, the slot and the transaction are recorded in one
+> place: `MAINNET_RUNBOOK.md`, section 4b. It was the program's first upgrade, and neither
+> build has been audited.
 
 ---
 

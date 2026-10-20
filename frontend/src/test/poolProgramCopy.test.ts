@@ -3,7 +3,8 @@
 // Three sentences on the site are about the pool program RUNNING on mainnet. Until its upgrade
 // they said "only its admin keys changed" and "built before that instruction was added". The
 // local harness pins the binary mainnet runs, so this ties the wording to that pin: the old
-// lines stand while it is the old binary, and none may stand once it is anything else.
+// lines stand while it is the old binary, and once it is anything else none may stand and
+// each place names what the upgrade added (the instruction, and the launch-tier check).
 
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
@@ -22,17 +23,17 @@ const TRUE_ONLY_BEFORE_THE_UPGRADE = [
   {
     file: 'src/components/solana/lp/LpDisclosures.tsx',
     says: "Our pool program is Raydium's, with only its admin keys changed.",
-    after: 'one added instruction',
+    after: ['one added instruction', 'one added check'],
   },
   {
     file: 'src/components/solana/lp/SolanaLpSection.tsx',
     says: 'we changed only its admin keys',
-    after: 'one added instruction',
+    after: ['one added instruction', 'one added check'],
   },
   {
     file: 'src/components/solana/VenueProgramCard.tsx',
     says: 'The program on Solana today was built before that instruction was added.',
-    after: null,
+    after: ['one added check'],
   },
 ] as const;
 
@@ -68,7 +69,9 @@ function problems(deployedBinary: string, source: (file: string) => string): str
     const present = text.includes(line.says);
     if (!upgraded && !present) out.push(`${line.file}: mainnet still runs the binary without the instruction, so it must say "${line.says}"`);
     if (upgraded && present) out.push(`${line.file}: mainnet no longer runs the binary without the instruction, so it must not say "${line.says}"`);
-    if (upgraded && line.after && !text.includes(line.after)) out.push(`${line.file}: after the upgrade the risk line must say "${line.after}"`);
+    for (const after of upgraded ? line.after : []) {
+      if (!text.includes(after)) out.push(`${line.file}: after the upgrade it must say "${after}"`);
+    }
   }
   return out;
 }
@@ -81,10 +84,10 @@ const BEFORE_UPGRADE: Record<string, string> = {
 };
 const AFTER_UPGRADE: Record<string, string> = {
   'src/components/solana/lp/LpDisclosures.tsx':
-    "Our pool program is Raydium's, with its admin keys changed and one added instruction that names pool share tokens.",
+    "Our pool program is Raydium's, with its admin keys changed, one added instruction that names pool share tokens and one added check that keeps the launch fee tier for launches.",
   'src/components/solana/lp/SolanaLpSection.tsx':
-    'Our pool program is Raydium’s constant-product pool, with its admin keys changed and one added instruction that names pool share tokens',
-  'src/components/solana/VenueProgramCard.tsx': 'which lets a pool’s share token carry a name and a picture in wallets.',
+    'Our pool program is Raydium’s constant-product pool, with its admin keys changed, one added instruction that names pool share tokens and one added check that keeps the launch fee tier for launches',
+  'src/components/solana/VenueProgramCard.tsx': 'comments, one added instruction and one added check.',
 };
 
 describe('site copy about the pool program on mainnet follows the binary the harness pins', () => {
@@ -124,7 +127,7 @@ describe('site copy about the pool program on mainnet follows the binary the har
     }
   });
 
-  it('accepts each wording under its own binary only, and refuses a risk line that leaves the instruction out', () => {
+  it('accepts each wording under its own binary only, and refuses a line that leaves out what the upgrade added', () => {
     const another = 'f'.repeat(64);
     expect(problems(BINARY_WITHOUT_THE_INSTRUCTION, (f) => BEFORE_UPGRADE[f] ?? '')).toEqual([]);
     expect(problems(another, (f) => AFTER_UPGRADE[f] ?? '')).toEqual([]);
@@ -133,7 +136,14 @@ describe('site copy about the pool program on mainnet follows the binary the har
     expect(problems(BINARY_WITHOUT_THE_INSTRUCTION, (f) => AFTER_UPGRADE[f] ?? '')).toHaveLength(TRUE_ONLY_BEFORE_THE_UPGRADE.length);
     const silent: Record<string, string> = { ...AFTER_UPGRADE, 'src/components/solana/lp/LpDisclosures.tsx': "Our pool program is Raydium's." };
     expect(problems(another, (f) => silent[f] ?? '')).toEqual([
-      'src/components/solana/lp/LpDisclosures.tsx: after the upgrade the risk line must say "one added instruction"',
+      'src/components/solana/lp/LpDisclosures.tsx: after the upgrade it must say "one added instruction"',
+      'src/components/solana/lp/LpDisclosures.tsx: after the upgrade it must say "one added check"',
     ]);
+    // The wording that named the instruction alone: true of no build the harness pins now.
+    const noCheck: Record<string, string> = {
+      ...AFTER_UPGRADE,
+      'src/components/solana/VenueProgramCard.tsx': 'comments and one added instruction, which lets a pool’s share token carry a name',
+    };
+    expect(problems(another, (f) => noCheck[f] ?? '')).toEqual(['src/components/solana/VenueProgramCard.tsx: after the upgrade it must say "one added check"']);
   });
 });

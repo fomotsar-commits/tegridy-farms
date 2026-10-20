@@ -404,8 +404,8 @@ function checkExpectTypes(entries) {
 //
 // `executable` on a program and `program-owned` on its data account say that A program
 // is there. Neither says which one. Until 2026-10-09 the pool program's rows named a
-// build in their `status` prose ("expected bytecode sha256 99a9e73d…") that mainnet did
-// not run yet, and the chain read was green all the same: prose is not read.
+// build in their `status` prose ("expected bytecode sha256 …") that mainnet did not
+// run yet, and the chain read was green all the same: prose is not read.
 //
 // `expect.holdsProgram: { bytes, sha256 }` on a data account's row is that claim in a
 // form the chain read checks. The upgradeable loader keeps a 45-byte header in front of
@@ -1936,8 +1936,8 @@ function selfTest() {
     keyFailsWith((r) => { r.solana[0].expect = { type: 'program-owned', holdsProgam: { ...want } }; }, 'solana/pool-program-data', 'expect.holdsProgam'),
   );
   t('check 3c rejects holdsProgram on a row that is not a data account', keyFailsWith((r) => { r.solana[0].expect.type = 'executable'; }, 'solana/pool-program-data', 'DATA account'));
-  t('check 3c rejects a SHORTENED sha256', keyFailsWith((r) => { r.solana[0].expect.holdsProgram.sha256 = '99a9e73d…'; }, 'solana/pool-program-data', '64 lowercase hex'));
-  t('check 3c rejects a size written as text', keyFailsWith((r) => { r.solana[0].expect.holdsProgram.bytes = '724,688'; }, 'solana/pool-program-data', 'whole number of bytes'));
+  t('check 3c rejects a SHORTENED sha256', keyFailsWith((r) => { r.solana[0].expect.holdsProgram.sha256 = '1e55bcdc…'; }, 'solana/pool-program-data', '64 lowercase hex'));
+  t('check 3c rejects a size written as text', keyFailsWith((r) => { r.solana[0].expect.holdsProgram.bytes = '725,176'; }, 'solana/pool-program-data', 'whole number of bytes'));
   t('check 3c rejects a holdsProgram with no hash at all', keyFailsWith((r) => { delete r.solana[0].expect.holdsProgram.sha256; }, 'solana/pool-program-data', '64 lowercase hex'));
   t(
     'check 3c rejects an inner key nothing reads (a slot is not evidence of which build runs)',

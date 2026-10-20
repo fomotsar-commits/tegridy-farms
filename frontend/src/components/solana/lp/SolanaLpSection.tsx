@@ -297,11 +297,11 @@ export function LpDisclosure({ programId, mode = 'off', programBelow = true, bar
           {/* The vault risk in one sentence, once on screen and now here (owner, 2026-10-17: "remove this warning from everywhere"). */}
           <p>{RISK_SHORT}</p>
           {/* True of the pool program RUNNING on mainnet since its upgrade to the build that has
-              create_lp_metadata. Before the upgrade this named the admin keys as the only change.
-              src/test/poolProgramCopy.test.ts ties the wording to the binary the local harness pins. */}
+              create_lp_metadata and refuses a public opening on fee tier 0. Before the upgrade this named
+              the admin keys as the only change. src/test/poolProgramCopy.test.ts ties it to the harness pin. */}
           <p>
-            Our pool program is Raydium’s constant-product pool, with its admin keys changed and one added instruction that names pool
-            share tokens (see “The program”{' '}
+            Our pool program is Raydium’s constant-product pool, with its admin keys changed, one added instruction that names pool
+            share tokens and one added check that keeps the launch fee tier for launches (see “The program”{' '}
             {programBelow ? 'below' : 'on the Solana LP tab'}).{' '}
             <strong>Those changes have not had their own independent review yet.</strong> Put in only what you can afford to lose.
           </p>

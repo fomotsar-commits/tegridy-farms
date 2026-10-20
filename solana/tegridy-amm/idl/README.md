@@ -145,8 +145,9 @@ was re-emitted on 2026-10-06 with `anchor idl build -p raydium_cp_swap` (anchor-
 in WSL, no features) from the source that adds `create_lp_metadata`, the instruction that
 gives a pool's lp token a name record. From that day until the upgrade
 (`MAINNET_RUNBOOK.md`, section 4b) it was one instruction ahead of the binary on mainnet.
-The upgrade installed the build made from that same source (sha256 `99a9e73d…`), so the two
-agree again. Everything else in the file is as it was before: take that one instruction
+The upgrade installed a build of that source with one more change, the launch-tier refusal in
+`initialize` (sha256 `1e55bcdc…`). That change adds no instruction, account, argument or
+error, so the IDL emitted with it is this same file, and the two agree again. Everything else in the file is as it was before: take that one instruction
 out, write the rest back as two-space JSON, and the result hashes to `939bc040…`, the IDL of
 the build mainnet ran until the upgrade. The same command run on the source before the
 change reproduces `939bc040…` exactly, which is the control for the new value.

@@ -119,8 +119,19 @@ const NOT_BEFORE = '2026-10-09';
  */
 const ANCHOR = { slot: 454_077_498, atMs: Date.UTC(2026, 9, 7, 1, 38) };
 const SLOTS_PER_SECOND = { slowest: 1.5, fastest: 6 };
-/** The new program, 724,688 bytes, behind the loader's 45-byte header. */
-const SMALLEST_DATA_ACCOUNT = 724_733;
+/**
+ * The new program behind the loader's 45-byte header. Its size is the registry's pin, the
+ * one mainnet's bytes are hashed against, so a re-pin to another build moves this too.
+ */
+const SMALLEST_DATA_ACCOUNT = registeredProgramBytes() + 45;
+function registeredProgramBytes(): number {
+  const registry = JSON.parse(readFileSync(join(ROOT, 'frontend', 'scripts', 'addresses.json'), 'utf-8')) as {
+    solana?: { id?: string; expect?: { holdsProgram?: { bytes?: unknown } } }[];
+  };
+  const bytes = registry.solana?.find((row) => row.id === 'cp-swap-programdata-restart')?.expect?.holdsProgram?.bytes;
+  if (!Number.isInteger(bytes)) throw new Error('addresses.json: cp-swap-programdata-restart has no expect.holdsProgram.bytes');
+  return bytes as number;
+}
 const LARGEST_DATA_ACCOUNT = 10 * 1024 * 1024 + 45;
 
 /** What is wrong with the record. An empty list means every cell has the shape of its fact. */
@@ -240,7 +251,7 @@ describe('the pool program upgrade is on record', () => {
   // The checker above, on records made up for the purpose. Without these it would only ever
   // have been seen failing on the marker, never refusing a wrong value.
   const signature = base58Encode(createHash('sha512').update('a made-up signature for this test').digest());
-  const good: UpgradeRecord = { day: '2026-10-09', slot: '454,790,112', signature, dataAccountBytes: '724,733' };
+  const good: UpgradeRecord = { day: '2026-10-09', slot: '454,790,112', signature, dataAccountBytes: '725,221' };
   const today = new Date('2026-10-10T12:00:00Z');
   const table = (rec: UpgradeRecord) =>
     `intro\n\n${RECORD_OPENS} Read from mainnet.\n\n| | |\n|---|---|\n${(Object.keys(ROWS) as Fact[])
@@ -285,11 +296,14 @@ describe('the pool program upgrade is on record', () => {
     expect(recordProblems({ ...good, day: '2026-10-13' }, new Date('2026-10-14T12:00:00Z'))[0]).toContain('does not fall on 2026-10-13');
     // The transaction: base58 for 64 bytes. An address (32 bytes) and a hex hash are not.
     expect(one({ ...good, signature: 'EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT' })[0]).toContain('not a transaction signature');
-    expect(one({ ...good, signature: '99a9e73dc469755b178d8029196be0ee8f92e557bbd65e15e4511084b6a0fe25' })[0]).toContain('not a transaction signature');
+    expect(one({ ...good, signature: '1e55bcdcb10c39ee9678efb697b453cb23415621bded4968c01950629de4fd22' })[0]).toContain('not a transaction signature');
     expect(one({ ...good, signature: signature.slice(0, -1) + '0' })[0]).toContain('not a transaction signature');
     // The data account: at least the new program and its header.
     expect(one({ ...good, dataAccountBytes: '691,685' })[0]).toContain('does not fit');
-    expect(one({ ...good, dataAccountBytes: '724,688' })[0]).toContain('does not fit');
+    expect(one({ ...good, dataAccountBytes: '725,176' })[0]).toContain('does not fit');
+    // The size the earlier build (without the launch-tier check) needed: 33,048 bytes of
+    // enlarge. The build the upgrade installs needs 33,536, so that account is 488 short.
+    expect(one({ ...good, dataAccountBytes: '724,733' })[0]).toContain('does not fit');
     expect(one({ ...good, dataAccountBytes: 'about 725 KB' })[0]).toContain('not a whole number');
   });
 });
