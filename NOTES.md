@@ -15,6 +15,69 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-10-20: a comment that moves lines changes an Anchor program's build hash
+
+**Believed:** editing only a comment in an Anchor program's source leaves the `.so` byte for byte
+the same, so a build hash pinned before the edit still holds.
+
+**Measured** (WSL, Solana 3.1.11, `cargo build-sbf -- --locked`, tegridy-clmm with a throwaway id):
+splitting one comment line of `lib.rs` into two (and adding a gated `compile_error!`) changed the
+1,523,176-byte build's sha256 from `4180d4a9...` to `cd8f7647...`, same size. Anchor's error paths
+compile in the file and line they were raised from, so every line below the edit moved.
+
+**Do:** pin a build hash only from the exact commit that will be deployed, and rebuild after any
+edit, comments included.
+
+## 2026-10-20: a program address made public before its deploy can be blocked for good with 0.001 SOL
+
+**Believed:** a program's address is safe to publish before the deploy (in the source, on the
+website), because only the holder of its key can deploy there.
+
+**Measured** (`solana/clmm-deploy/rehearsal/rehearse.mjs`, check S1, a local chain, solana-cli
+4.1.1): 0.001 SOL sent to the address's program-data account (the loader's PDA of the program id)
+made `solana program deploy --program-id <that key>` fail, and nothing was created. The loader makes
+that account with a plain create, which refuses an account that already holds SOL, and nobody can
+sign to empty it.
+
+**Do:** keep a program address private until the deploy itself; build from a local branch, deploy,
+then publish. Before any upload, check the data address holds nothing (`addressesFree` in
+`solana/clmm-deploy/scripts/lib/pack.mjs`).
+
+## 2026-10-20: a deploy from a buffer never needs two buffers' worth of SOL
+
+**Believed:** `solana program deploy --buffer` needs the program's data rent on top of the
+buffer's, so an exact-size deploy of a 1.5 MB program peaks at about twice its rent (15.49 SOL on
+mainnet for the range program).
+
+**Measured** (`solana/clmm-deploy/rehearsal/rehearse.mjs`, a local chain, solana-cli 4.1.1): the
+paying wallet held exactly buffer rent + the 36-byte program account + (data rent - buffer rent)
++ 0.03 SOL. The upload left it 0.023 SOL; the deploy then cost it only 0.0012 more, because the
+loader moves the buffer's lamports into the program's data inside the same instruction. Peak on
+mainnet: about 7.77 SOL.
+
+**Do:** fund one buffer's worth plus fees; ask for the measured sum, not twice the rent.
+
+## 2026-10-20: a key the program compares against is not in the `.so` as 32 plain bytes
+
+**Believed:** a program built with `pubkey!("<vault>")` as its admin carries those 32 bytes, so
+searching the build for them proves which admin it names.
+
+**Measured** (the range program's no-features build, 1,523,176 bytes): its own program id is in
+the file; the vault, its admin in seven places, is not. The compiler folds a compared constant into
+instructions. Every check that searched for it refused a correct build.
+
+**Do:** prove the admin on chain: simulate the admin's own call (it must work) and a stranger's
+(it must be refused), and check the source's keys at staging.
+
+## 2026-10-20: vite 8 installs no esbuild
+
+**Believed:** a frontend with vite has esbuild in `node_modules`, so a script can bundle with it.
+
+**Measured** (this repo's `frontend/node_modules`, vite 8.3.0): no `esbuild`; vite 8 bundles with
+`rolldown` (1.2.8 here).
+
+**Do:** bundle with `rolldown` from `frontend/node_modules`, as the owner packs' pages do.
+
 ## 2026-10-20: the list of Raydium's keys also holds the SPL Memo program, so "no transaction touched a deny key" fails on every v2 swap
 
 **Believed:** `solana/guards/upstream/deny-keys.txt` lists Raydium's own addresses, so a run of

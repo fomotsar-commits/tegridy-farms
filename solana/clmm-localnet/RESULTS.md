@@ -9,7 +9,9 @@ mainnet's BAYLA, wrapped SOL, Squads and token programs. 95 checks: 95 pass, non
 Every admin action was signed by the vault's real address through a real Squads 2-of-2 with a time lock. No path
 sent anything to a Raydium address. The fee tiers are the owner's (2026-10-20): of each fee the LPs collected 84%,
 the venue's 10.4% was collectable only by the vault, and the island's 5.6% by its Workshop's role, **or by the
-vault, which can also re-point it** (checks V6 and V9), as in our cp-swap.
+vault, which can also re-point it** (checks V6 and V9), as in our cp-swap. (A fee earned where no LP's range is
+in use, when a swap fills a limit order there, goes to the venue's share.) The vault can pause more than swaps:
+the five powers the internal review lists are in docs/RANGE_POOLS_PLAN.md.
 
 Run 2026-10-20T18:32:50.778Z to 2026-10-20T18:41:17.733Z. Nothing was deployed anywhere, no program key exists, and nothing was
 signed or sent on mainnet: mainnet was only read.

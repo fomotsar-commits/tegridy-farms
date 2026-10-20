@@ -40,7 +40,8 @@ export const ADDR = {
   venuePoolBaylaSol: registry('venue-pool-bayla-sol'),
   wsol: allowedKey('system', 'Wrapped SOL mint'),
   metaplex: allowedKey('system', 'Metaplex Token Metadata program'),
-  program: new PublicKey(Object.keys(allowed.placeholder)[0]),
+  // The id the program's own source declares (the placeholder until the owner's key is in).
+  program: new PublicKey(/#\[cfg\(not\(feature = "devnet"\)\)\]\r?\ndeclare_id!\("(\w+)"\);/.exec(readFileSync(join(PROGRAM_SRC, 'lib.rs'), 'utf-8'))[1]),
   squads: new PublicKey(/SQUADS_V4_PROGRAM_ID = '(\w+)'/.exec(squadsSrc)[1]),
   token: spl.TOKEN_PROGRAM_ID,
   token2022: spl.TOKEN_2022_PROGRAM_ID,

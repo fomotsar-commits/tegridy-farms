@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Range pools: fee tiers</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<div id="net" class="net">Reading the network...</div>
+<main>
+  <h1>Range pools: the two fee tiers</h1>
+  <p class="rule"><b>Approve or execute this proposal only on this page, never in the Squads app or any other tool.</b> This page reads the proposal's stored instructions back from the chain and refuses any that differ from the decided tiers by a single byte. Use one tab of this page at a time.</p>
+  <section id="what"></section>
+  <section class="wallet">
+    <button id="connect">Connect a member wallet</button>
+    <button id="disconnect" hidden>Disconnect / switch wallet</button>
+    <span id="who"></span>
+  </section>
+  <section><h2>Checks</h2><ul id="lines"><li>Not read yet.</li></ul></section>
+  <section id="act"></section>
+  <section><h2>What happened</h2><ul id="log"></ul></section>
+</main>
+<script type="module" src="/app.bundle.js"></script>
+</body>
+</html>

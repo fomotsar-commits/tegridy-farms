@@ -54,7 +54,8 @@ role use the venue's devnet key `GgE6AfEH2AVSrKGckyKMzC6mhtXWiAn39EzAikAsWq5a`.
 
 Also replaced: the on-chain security text (now memetics.finance, our contact, no audit claim),
 the position NFT's name, symbol and link ("Memetics Range Position", "MEM-RANGE",
-`memetics.finance/position/<id>.json`), and three memos that said "raydium".
+`memetics.finance/position/<id>.json`), and three memos that said "raydium" (never sent: Raydium's
+own calls to them are commented out).
 
 **Where the money goes.** Swap fees stay in the pool for the people whose range was in use;
 each position collects its own. The protocol share can be collected only by the vault. The fund
@@ -64,6 +65,23 @@ time, as our cp-swap does. Both take a vault proposal: two signatures and the 48
 This program has no pool-opening fee. Spare SOL goes to the vault. None of these paths can reach a
 Raydium address, because none is in the code. All of this was run on a local chain on 2026-10-20
 (below).
+
+**What else the vault can do, in Raydium's code as kept** (found by the internal review,
+2026-10-20; each takes a vault proposal, two signatures and the 48-hour lock; **the owner is asked
+whether to change the program or keep each one**):
+
+1. Raise any tier's fee, up to 99.99% of a swap, or set the LPs' share to nothing, on every pool of
+   that tier at once (`update_amm_config` has no ceiling).
+2. Pause a pool's withdrawals, fee and reward collection while deposits stay open
+   (`update_pool_status` takes any status). It is also the only brake: in an emergency, a pause
+   takes as long as any proposal, 48 hours.
+3. Take back what is left of a reward someone else funded, after shortening its window
+   (`transfer_reward_owner` moves the reward's authority too).
+4. When a swap fills a limit order where no LP's range is in use, the LPs' 84% of that fee goes to
+   the protocol share (`swap.rs`), so to the venue.
+5. With the frozen-NFT issuer list empty, a position in a pool of a coin whose issuer can freeze it
+   moves freely; that issuer's only remedy is freezing the pool's vault, which stops every LP. So the
+   vault never lets in (support-mint) a coin whose issuer may freeze.
 
 **How a machine checks it, on every pull request** (`.github/workflows/solana-ci.yml`). No
 check fetches anything from Raydium: `solana/guards/upstream/` holds a hash of every upstream
@@ -117,21 +135,32 @@ only.
    deprecated paths the site never uses); each check was first run against a broken input that had
    to turn it red. Harness and results: `solana/clmm-localnet/` and its
    [RESULTS.md](../solana/clmm-localnet/RESULTS.md).
-2. **Fee tiers: decided by the owner 2026-10-20** (below). The two vault proposals are the first
-   mainnet step after the deploy. Risk: a tier, once made, cannot be deleted.
-3. **Serve the position link before any deploy.** Each position NFT keeps the link it was born
-   with, `https://memetics.finance/position/<id>.json`. Today that link returns the site's page,
-   not the position's details. Nothing deploys until it serves them.
+2. **Fee tiers: decided by the owner 2026-10-20** (below). Their one vault proposal is the first
+   mainnet step after the deploy; it executes after its 48-hour lock and after 7 days of public
+   notice in the changelog. Risk: a tier, once made, cannot be deleted.
+3. **Serve the position link before any position can exist.** Each position NFT keeps the link it
+   was born with, `https://memetics.finance/position/<id>.json`. No position can be made before the
+   fee tiers execute, so the page refuses to approve or execute them until the link answers 404 for
+   this program (#912, whose answer must name the program). It is no longer a gate before the
+   deploy: the real address must stay private until the deploy (step 7).
 4. **The client**: reading pools and positions, building instructions. Ported by hand from the
    Apache program (Raydium's SDK is GPL). It opens positions through the Token-2022 path only.
    Risk: a wrong decoder shows wrong numbers.
 5. **The Range tab**: a range picker, one-coin presets, fees earned and a Claim button.
 6. **The swap page's quote through ticks**, so a swap can use our range pools.
-7. **The deploy pack and its rehearsal**: the owner makes the real program key and signs every
-   mainnet step; the placeholder and its gate are removed in one reviewed change (the test-chain
-   gate stays); a verifiable build that is given no features; an exact-size deploy (7.74 SOL
-   locked, not the tool's default of twice the size); the upgrade authority handed to the vault
-   right after the deploy; a devnet run first, then mainnet. Risk: the program's upgrade key
+7. **The deploy pack and its rehearsal: built and rehearsed 2026-10-20** (`solana/clmm-deploy/`,
+   its [README](../solana/clmm-deploy/README.md)). The owner makes the real program key (a key
+   folder of its own) and signs every mainnet step. **The address stays private until the
+   deploy**: anyone who knew it could block it for good with a little SOL at its data address (the
+   rehearsal did it). So `program-id-change.mjs` runs on deploy day on this computer only, two
+   local builds must match, and the change is published right after the deploy, when CI must build
+   the same bytes (`ci-matches-chain.mjs`). The devnet practice run uses a throwaway address. An
+   exact-size deploy (7.74 SOL locked, not the tool's default of twice the size) and the hand-over
+   to the vault in one run; the tiers' proposal on a local page that refuses any other proposal,
+   with member B's approval held to notice + 7 days - 48 hours so the chain's own lock enforces
+   the 7 days. The whole folder ran end to end on a local chain with the owner's own Solana tool
+   and the real page in a browser, every refusal tried. Peak cash: about 7.77 SOL in the paying
+   wallet, on top of the pool pack's if its Day 0 has not run. Risk: the program's upgrade key
    decides who can change it later.
 8. **Our own hard internal review before any mainnet date**: an adversarial review of the
    111-line diff and of the deploy pack, as its own step. **An outside review after launch**
@@ -152,8 +181,9 @@ positions whose range was in use; each position collects its own. How the venue 
 each fee, collected by the vault. How the island earns: 5.6% of each fee, collected by its
 Workshop (`island-workshop-wallet` in `frontend/scripts/addresses.json`). In the program that is
 `trade_fee_rate` 10,000 or 2,500, `protocol_fee_rate` 104,000 and `fund_fee_rate` 56,000 (all per
-million). One vault proposal per tier makes it and points its fund owner at the Workshop
-(`create_amm_config`, then `update_amm_config` with param 4), as cp-swap's tiers were made.
+million). One vault proposal makes both tiers and points each one's fund owner at the Workshop
+(per tier `create_amm_config`, then `update_amm_config` with param 4, as cp-swap's tiers were
+made): one 48-hour wait, and no moment when one tier exists without the other.
 Each tier costs the vault 0.0012 SOL in rent.
 
 **The vault keeps power over the island's share**, as it does in cp-swap: it can collect the fund
@@ -178,7 +208,7 @@ bytes carry over; the costs are at mainnet's rate).
 |---|---|---|---|
 | Deploy the program, exact size (measured: the program's data account) | 1,523,221 bytes | 7.74 SOL rent, locked while it exists | the venue |
 | Deploy with the tool's default (room to grow to twice the size) | 3,046,397 bytes | 15.48 SOL rent | the venue |
-| Upload buffer during deploy | 1,523,213 bytes | 7.74 SOL rent, refunded at the end | the venue |
+| Upload buffer during deploy | 1,523,213 bytes | 7.74 SOL rent, moved into the program's data by the deploy itself | the venue |
 | The program's own account | 36 bytes | 0.0008 SOL rent | the venue |
 | About 1,500 upload transactions, at 5,000 lamports each | | about 0.008 SOL in fees, plus any priority fee | the venue |
 | One fee tier | 117 bytes | 0.0012 SOL rent | the vault |
@@ -189,8 +219,11 @@ bytes carry over; the costs are at mainnet's rate).
 | One reward stream's vault | 165 (SPL Token) or 170 (Token-2022) bytes | 0.0015 SOL rent | whoever funds the reward |
 | One limit order, and once per wallet its counter (81 bytes) | 173 bytes | 0.0015 SOL rent, and 0.0011 once | the order's owner |
 
-So peak cash for an exact-size deploy is about 15.49 SOL, settling at 7.74 SOL locked, with about
-0.01 SOL spent on fees. CI prints the deploy rows again from each build at that day's rate.
+So peak cash for an exact-size deploy is about **7.77 SOL**, not twice the rent: the deploy moves
+the buffer's SOL into the program's data in the same instruction, so the paying wallet never holds
+two buffers' worth (measured in the deploy pack's rehearsal, 2026-10-20). It settles at 7.74 SOL
+locked, with about 0.008 SOL spent on upload fees. CI prints the deploy rows again from each build
+at that day's rate.
 
 **The vault needs SOL before rewards can start.** It held 0.0152 SOL on 2026-10-20 (read at slot
 459,289,546). Two tiers take 0.0025 of it; the operation account, which every reward stream needs
@@ -229,5 +262,7 @@ left the rest to the builder. Decided on that basis:
 ## Still the owner's
 
 1. **The mainnet date**, after the internal review.
-2. **Who does the outside review after launch**, and when.
-3. **The vault's top-up** before the first reward (above).
+2. **The vault's powers in Raydium's code** (the five above): change the program, or keep and
+   publish them. Asked 2026-10-20.
+3. **Who does the outside review after launch**, and when.
+4. **The vault's top-up** before the first reward (above).

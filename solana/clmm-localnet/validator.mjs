@@ -1,7 +1,7 @@
 // Step 2: start solana-test-validator in WSL with the copies setup.mjs wrote, detached so it
 // outlives this process. Our program loads at the placeholder id with the vault as its upgrade
 // authority; no program key exists or is made. `--stop` kills only the PID this script started.
-// usage: node validator.mjs [--real-lock] | --stop     env: CLMM_SO (WSL path of the .so), CLMM_LEDGER
+// usage: node validator.mjs [--real-lock] [--no-clmm] | --stop     env: CLMM_SO (WSL path of the .so), CLMM_LEDGER
 import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -29,7 +29,8 @@ const args = [
   // Ports of its own: another session's validator may hold the defaults on this machine.
   '--reset', '--quiet', '--ledger', LEDGER, '--rpc-port', String(P), '--faucet-port', String(P + 1001),
   '--gossip-port', String(P - 898), '--dynamic-port-range', `${P - 799}-${P - 599}`,
-  '--upgradeable-program', A.program, SO, process.env.CLMM_UPGRADE_AUTH || A.vault,
+  // --no-clmm: the deploy pack's rehearsal deploys the program itself.
+  ...(process.argv.includes('--no-clmm') ? [] : ['--upgradeable-program', A.program, SO, process.env.CLMM_UPGRADE_AUTH || A.vault]),
   '--bpf-program', A.squads, `${W}/mainnet/squads.so`,
   '--bpf-program', A.token2022, `${W}/mainnet/token2022.so`,
   '--bpf-program', A.token, `${W}/mainnet/token.so`,
