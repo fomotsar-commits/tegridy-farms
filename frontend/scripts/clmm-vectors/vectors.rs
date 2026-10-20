@@ -3,9 +3,15 @@
 // runs it there; the copy in the repo is never touched. Inputs come from a fixed seed, so a
 // run is repeatable. Outputs: {"ok": value} or {"err": "<ErrorCode name>"} or {"err": "panic"}.
 
-use crate::instructions::calculate_latest_token_fees;
-use crate::libraries::{big_num::U1024, liquidity_math, sqrt_price_math, swap_math, tick_array_bit_map, tick_math};
-use crate::states::{get_fee_growth_inside, PoolState, TickArrayBitmapExtension, TickState};
+use crate::instructions::{calculate_latest_token_fees, swap_internal};
+use crate::libraries::{big_num::U1024, fixed_point_64, liquidity_math, sqrt_price_math, swap_math, tick_array_bit_map, tick_math};
+use crate::states::pool_test::build_pool;
+use crate::states::tick_array_bitmap_extension_test::build_tick_array_bitmap_extension_info;
+use crate::states::tick_array_test::build_tick_array_with_tick_states;
+use crate::states::{get_fee_growth_inside, AmmConfig, ObservationState, PoolState, TickArrayBitmapExtension, TickArrayState, TickState};
+use anchor_lang::prelude::AccountLoader;
+use std::cell::RefCell;
+use std::collections::{BTreeMap, VecDeque};
 use rand::{rngs::StdRng, Rng, SeedableRng};
 use std::fmt::Write as _;
 use std::panic::{catch_unwind, AssertUnwindSafe};
@@ -284,6 +290,180 @@ fn write_vectors() {
         }
         let _ = write!(out, "{}[{},{},{},{},[{}]]", if first { "" } else { "," }, spacing, words(&bitmap), maps(&pos), maps(&neg), queries);
         first = false;
+    }
+    out.push_str("]");
+    // whole swaps: swap_internal itself, on random pools with positions, resting limit orders,
+    // dynamic fees, every fee-on mode, far bands and price limits
+    out.push_str(",\n\"swapInternal\":[");
+    for case in 0..360 {
+        let spacing: u16 = [1, 10, 60, 120][case % 4];
+        let sp = spacing as i32;
+        let far = spacing == 1 && case % 8 == 0;
+        let centre = if far { r.gen_range(31_000..60_000) * if r.gen_bool(0.5) { 1 } else { -1 } } else { r.gen_range(-30_000..30_000) * (sp / 10).max(1) };
+        let tick_current = centre.clamp(tick_math::MIN_TICK + 2 * sp * 60, tick_math::MAX_TICK - 2 * sp * 60);
+        let lo_p = tick_math::get_sqrt_price_at_tick(tick_current).unwrap();
+        let hi_p = tick_math::get_sqrt_price_at_tick(tick_current + 1).unwrap();
+        let sqrt = if r.gen_bool(0.2) { lo_p } else { r.gen_range(lo_p..hi_p) };
+        let pool = build_pool(tick_current, spacing, sqrt, 0);
+        let fee_on: u8 = r.gen_range(0..3);
+        pool.borrow_mut().set_fee_on(fee_on).unwrap();
+        let block_ts: u32 = 1_760_000_000 + r.gen_range(0..10_000_000);
+        let dynamic = r.gen_bool(0.4);
+        if dynamic {
+            let filter: u16 = r.gen_range(5..60);
+            let decay: u16 = filter + r.gen_range(10..900);
+            let max_va: u32 = r.gen_range(50_000..500_000);
+            pool.borrow_mut().initialize_dynamic_fee_info(tick_current, filter, decay, 5000, r.gen_range(1000..99_999), max_va).unwrap();
+            let mut p = pool.borrow_mut();
+            let mut d = p.dynamic_fee_info;
+            d.volatility_reference = r.gen_range(0..max_va);
+            d.volatility_accumulator = r.gen_range(d.volatility_reference..=max_va);
+            d.tick_spacing_index_reference = d.tick_spacing_index_reference + r.gen_range(-5..5);
+            d.last_update_timestamp = (block_ts as u64).saturating_sub(r.gen_range(0..(decay as u64) * 2));
+            p.dynamic_fee_info = d;
+        }
+        // positions, then resting orders, onto one map of prices
+        let mut ticks: BTreeMap<i32, TickState> = BTreeMap::new();
+        let base = tick_current.div_euclid(sp) * sp;
+        let mut liquidity: u128 = 0;
+        for _ in 0..r.gen_range(1..7) {
+            let lo = base + sp * r.gen_range(-300..60);
+            let hi = lo + sp * r.gen_range(1..400);
+            let (lo, hi) = (lo.max(-443520 / sp * sp), hi.min(443520 / sp * sp));
+            if lo >= hi {
+                continue;
+            }
+            let l = (1u128 << r.gen_range(40..90)) + r.gen_range(0..(1u128 << 40));
+            for (t, net) in [(lo, l as i128), (hi, -(l as i128))] {
+                let e = ticks.entry(t).or_insert_with(|| {
+                    let mut x = TickState::default();
+                    x.tick = t;
+                    x
+                });
+                e.liquidity_gross += l;
+                e.liquidity_net += net;
+            }
+            if lo <= tick_current && tick_current < hi {
+                liquidity += l;
+            }
+        }
+        if r.gen_bool(0.5) {
+            for _ in 0..r.gen_range(1..4) {
+                let t = base + sp * r.gen_range(-40..40);
+                let e = ticks.entry(t).or_insert_with(|| {
+                    let mut x = TickState::default();
+                    x.tick = t;
+                    x
+                });
+                e.orders_amount = wide(&mut r, 56) as u64;
+                if r.gen_bool(0.4) {
+                    e.part_filled_orders_remaining = wide(&mut r, 50) as u64;
+                    e.unfilled_ratio_x64 = r.gen_range(1..fixed_point_64::Q64);
+                    e.order_phase = r.gen_range(1..20);
+                }
+            }
+        }
+        pool.borrow_mut().liquidity = liquidity;
+        let pool_key = pool.borrow().key();
+        let ext_info = build_tick_array_bitmap_extension_info(pool_key);
+        let mut bands: BTreeMap<i32, Vec<TickState>> = BTreeMap::new();
+        for (t, st) in &ticks {
+            if st.liquidity_gross == 0 && st.orders_amount == 0 && st.part_filled_orders_remaining == 0 {
+                continue;
+            }
+            bands.entry(TickArrayState::get_array_start_index(*t, spacing)).or_default().push(*st);
+        }
+        for start in bands.keys() {
+            pool.borrow_mut().flip_tick_array_bit(Some(ext_info), *start).unwrap();
+        }
+        let zfo = r.gen_bool(0.5);
+        let base_in = r.gen_bool(0.5);
+        let amount = wide(&mut r, 64).max(1) as u64;
+        let limit = if r.gen_bool(0.6) {
+            if zfo { tick_math::MIN_SQRT_PRICE_X64 + 1 } else { tick_math::MAX_SQRT_PRICE_X64 - 1 }
+        } else {
+            let t = tick_current + if zfo { -r.gen_range(0..20_000) } else { r.gen_range(1..20_000) };
+            tick_math::get_sqrt_price_at_tick(t.clamp(tick_math::MIN_TICK + 1, tick_math::MAX_TICK - 1)).unwrap()
+        };
+        let cfg = AmmConfig {
+            trade_fee_rate: [100, 2500, 10000, 40000][r.gen_range(0..4)],
+            protocol_fee_rate: [0, 120_000, 160_000][r.gen_range(0..3)],
+            fund_fee_rate: [0, 40_000][r.gen_range(0..2)],
+            tick_spacing: spacing,
+            ..Default::default()
+        };
+
+        // what the quote is given, before the swap changes it
+        let p0 = pool.borrow();
+        let bitmap_words = p0.tick_array_bitmap;
+        let bitmap_bits: Vec<String> = (0..1024).filter(|i| bitmap_words[i / 64] >> (i % 64) & 1 == 1).map(|i| i.to_string()).collect();
+        let d = p0.dynamic_fee_info;
+        let dyn_json = if dynamic {
+            format!(
+                "[{},{},{},{},{},{},{},{},{}]",
+                { d.filter_period }, { d.decay_period }, { d.reduction_factor }, { d.dynamic_fee_control }, { d.max_volatility_accumulator },
+                { d.tick_spacing_index_reference }, { d.volatility_reference }, { d.volatility_accumulator }, { d.last_update_timestamp }
+            )
+        } else {
+            "null".to_string()
+        };
+        let (pb0, pb1, fb0, fb1) = (p0.protocol_fees_token_0, p0.protocol_fees_token_1, p0.fund_fees_token_0, p0.fund_fees_token_1);
+        drop(p0);
+        let ext_loaded = AccountLoader::<TickArrayBitmapExtension>::try_from(ext_info).unwrap();
+        let (pos_maps, neg_maps) = {
+            let e = ext_loaded.load().unwrap();
+            (e.positive_tick_array_bitmap, e.negative_tick_array_bitmap)
+        };
+        let bits_of = |w: &[u64; 8]| format!("[{}]", (0..512).filter(|i| w[i / 64] >> (i % 64) & 1 == 1).map(|i| i.to_string()).collect::<Vec<_>>().join(","));
+        let ext_json = format!(
+            "[[{}],[{}]]",
+            pos_maps.iter().map(bits_of).collect::<Vec<_>>().join(","),
+            neg_maps.iter().map(bits_of).collect::<Vec<_>>().join(",")
+        );
+        let ticks_json: Vec<String> = bands
+            .values()
+            .flatten()
+            .map(|t| {
+                format!(
+                    "[{},{},{},{},{},{},{}]",
+                    { t.tick }, q({ t.liquidity_net }), q({ t.liquidity_gross }), q({ t.orders_amount }),
+                    q({ t.part_filled_orders_remaining }), q({ t.unfilled_ratio_x64 }), q({ t.order_phase })
+                )
+            })
+            .collect();
+
+        // the bands in walking order: the program skips any it does not need
+        let mut order: Vec<i32> = bands.keys().copied().collect();
+        if zfo {
+            order.reverse();
+        }
+        let cells: Vec<RefCell<TickArrayState>> = order.iter().map(|s| build_tick_array_with_tick_states(pool_key, *s, spacing, bands[s].clone())).collect();
+        let mut deque: VecDeque<_> = cells.iter().map(|c| c.borrow_mut()).collect();
+        let obs = RefCell::new(ObservationState::default());
+        obs.borrow_mut().pool_id = pool_key;
+        let res = {
+            let mut p = pool.borrow_mut();
+            let mut o = obs.borrow_mut();
+            outcome(
+                || swap_internal(&cfg, &mut p, &mut deque, &mut o, Some(ext_info), amount, limit, zfo, base_in, block_ts),
+                |v| format!("[{},{},{},{},{},{},{}]", q(v.amount_0), q(v.amount_1), q(v.trade_fee_0), q(v.trade_fee_1), q(v.sqrt_price_x64), q(v.liquidity), v.tick),
+            )
+        };
+        drop(deque);
+        let p1 = pool.borrow();
+        let fees = format!(
+            "[{},{},{},{}]",
+            q({ p1.protocol_fees_token_0 }.wrapping_sub(pb0)), q({ p1.protocol_fees_token_1 }.wrapping_sub(pb1)),
+            q({ p1.fund_fees_token_0 }.wrapping_sub(fb0)), q({ p1.fund_fees_token_1 }.wrapping_sub(fb1))
+        );
+        let _ = write!(
+            out,
+            "{}{{\"spacing\":{},\"tick\":{},\"sqrt\":{},\"liquidity\":{},\"feeOn\":{},\"bitmap\":[{}],\"ext\":{},\"dyn\":{},\"cfg\":[{},{},{}],\"ticks\":[{}],\"zfo\":{},\"baseIn\":{},\"amount\":{},\"limit\":{},\"ts\":{},\"out\":{},\"feesAfter\":{}}}",
+            if case > 0 { "," } else { "" },
+            spacing, tick_current, q(sqrt), q(liquidity), fee_on, bitmap_bits.join(","), ext_json, dyn_json,
+            { cfg.trade_fee_rate }, { cfg.protocol_fee_rate }, { cfg.fund_fee_rate }, ticks_json.join(","),
+            zfo, base_in, q(amount), q(limit), block_ts, res, fees
+        );
     }
     out.push_str("]\n}\n");
 
