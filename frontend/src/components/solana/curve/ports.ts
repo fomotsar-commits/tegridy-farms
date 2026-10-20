@@ -248,6 +248,8 @@ export interface VenueSwapApi {
   swapWriteConfig(): CurveWriteConfig | null;
   readSwapGate(rpc: GateRpc, cfg: CurveWriteConfig | null): Promise<SwapGate>;
   prepareVenueSwap(rpc: WriteRpc, gate: SwapOpenGate, a: VenueSwapArgs): Promise<Prepared>;
+  /** The same swap in one of our range pools: its builder is fetched only when a range pool is pressed. */
+  prepareRangeSwap(rpc: WriteRpc, gate: SwapOpenGate, a: VenueSwapArgs): Promise<Prepared>;
   submitPrepared(rpc: WriteRpc, signer: TxSigner, p: PreparedTx, deps?: SubmitDeps): Promise<TxOutcome>;
   recheckOutcome(rpc: WriteRpc, signature: string, opts?: { lastValidBlockHeight?: number; blockhash?: NoteBlockhash; cfg?: CurveWriteConfig; kind?: LpKind }): Promise<TxOutcome>;
   explorerTxUrl(signature: string, cluster: SolanaCluster): string;

@@ -1,6 +1,8 @@
 import type { AggregatorSeen, Prepared } from '../../launcher/solana/write/types';
 import { aggregatorCandidate, chooseRoute, type RouteCandidate, type RouteDecision } from '../route';
-import type { VenuePoolCandidate } from './venuePools';
+
+/** One of our pools as the route weighs it: a constant-product pool or a range pool, by address. */
+export type OwnPoolLike = RouteCandidate & { venue: 'own-pool'; poolAddress: string };
 
 /**
  * The route, decided again when Buy is pressed: both venues are quoted again and a route
@@ -23,7 +25,7 @@ export const OWN_ROUTE_COPY = {
 const notBuilt = (message: string): Prepared => ({ ok: false, outcome: { status: 'not-sent', stage: 'build', message } });
 
 /** The decision on quotes taken just now. `aggregatorOut` null = the aggregator gave none. */
-export function freshDecision(own: readonly VenuePoolCandidate[], aggregatorOut: bigint | null, aggregatorLabel = 'Jupiter'): RouteDecision {
+export function freshDecision(own: readonly OwnPoolLike[], aggregatorOut: bigint | null, aggregatorLabel = 'Jupiter'): RouteDecision {
   const agg = aggregatorOut === null ? null : aggregatorCandidate({ outAmount: aggregatorOut.toString() }, aggregatorLabel);
   return chooseRoute([...own, agg].filter((c): c is RouteCandidate => c !== null));
 }
@@ -41,7 +43,7 @@ export interface OwnPoolSwapDeps {
    */
   aggregatorSends?(): Promise<boolean>;
   /** Our pools for the pair, read again and quoted. Never throws; none = none could be quoted. */
-  ownPools(): Promise<VenuePoolCandidate[]>;
+  ownPools(): Promise<OwnPoolLike[]>;
   /** Build and test-run the swap in `pool`, refusing if it pays less than the aggregator was seen to. */
   prepare(pool: string, aggregator: AggregatorSeen): Promise<Prepared>;
 }
@@ -87,7 +89,7 @@ export async function prepareOwnPoolSwap(deps: OwnPoolSwapDeps, shownAggregatorO
 }
 
 /** With what the aggregator's transaction would pay in hand: does one of our pools, read again now, take the trade? */
-export async function ownPoolNowWins(ownPools: () => Promise<VenuePoolCandidate[]>, aggregatorOut: bigint): Promise<boolean> {
+export async function ownPoolNowWins(ownPools: () => Promise<OwnPoolLike[]>, aggregatorOut: bigint): Promise<boolean> {
   const own = await ownPools();
   return freshDecision(own, aggregatorOut).chosen?.venue === 'own-pool';
 }
