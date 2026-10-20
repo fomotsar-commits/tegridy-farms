@@ -43,7 +43,6 @@ import type {
   IntentStep,
   Prepared,
   RangeIntent,
-  RangeKind,
   RangeLine,
   RangePins,
   RangePoolLine,
@@ -84,7 +83,7 @@ const TICK_ARRAY_SIZE_BYTES = 10_240;
 const MAX_TOLERANCE_BPS = 5_000;
 const BPF_LOADERS = new Set(['BPFLoaderUpgradeab1e11111111111111111111111', 'BPFLoader2111111111111111111111111111111111']);
 
-const tokenAmountOf = (acc: RawAccount | null): bigint =>
+export const tokenAmountOf = (acc: RawAccount | null): bigint =>
   acc && acc.data.length >= 72 ? new DataView(acc.data.buffer, acc.data.byteOffset, acc.data.byteLength).getBigUint64(64, true) : 0n;
 
 /** Everything one builder reads, in one call so it is one slot. */
@@ -97,7 +96,7 @@ interface Fresh {
   extra: (RawAccount | null)[];
 }
 
-async function readFresh(rpc: WriteRpc, programId: PublicKey, pool: PublicKey, configHint: PublicKey | null, mints: [PublicKey, PublicKey] | null, extra: PublicKey[]): Promise<Fresh | null> {
+export async function readFresh(rpc: WriteRpc, programId: PublicKey, pool: PublicKey, configHint: PublicKey | null, mints: [PublicKey, PublicKey] | null, extra: PublicKey[]): Promise<Fresh | null> {
   const keys = [programId, pool, ...(configHint ? [configHint] : []), ...(mints ?? []), ...extra];
   try {
     const raw = toRaw(keys, await rpc.getMultipleAccountsInfo(keys, 'confirmed'));
@@ -111,10 +110,10 @@ async function readFresh(rpc: WriteRpc, programId: PublicKey, pool: PublicKey, c
   }
 }
 
-const deployed = (a: RawAccount | null) => a !== null && BPF_LOADERS.has(a.owner);
+export const deployed = (a: RawAccount | null) => a !== null && BPF_LOADERS.has(a.owner);
 
 /** The pool as decoded, after the checks every range builder makes of it. A string says why not. */
-function decodePool(programId: PublicKey, address: PublicKey, a: RawAccount | null): PoolStateView | string {
+export function decodePool(programId: PublicKey, address: PublicKey, a: RawAccount | null): PoolStateView | string {
   if (!a || a.owner !== programId.toBase58()) return RANGE_COPY.notAPool;
   const pool = decodePoolState(address.toBase58(), a.data);
   if (!pool) return RANGE_COPY.notAPool;
@@ -126,15 +125,17 @@ function decodePool(programId: PublicKey, address: PublicKey, a: RawAccount | nu
  * the pool's own field and the derivation from its address, the tier is the pool's own and
  * decodes, each mint is owned by the token program the pool's vault uses, the pairing coin
  * is one of the site's own (and on the side and program it says), and the token has no
- * extension that changes what a transfer moves.
+ * extension that changes what a transfer moves. `withRewards` false (a swap, which pays
+ * none): the pool's rewards are not pinned, so their accounts need not be read.
  */
-function rangePins(
+export function rangePins(
   programId: PublicKey,
   pool: PoolStateView,
   config: RawAccount | null,
   mint0: RawAccount | null,
   mint1: RawAccount | null,
   rewardVaults: (RawAccount | null)[],
+  withRewards = true,
 ): { pins: RangePins; pair: Pair; tier: AmmConfigView; tokenDecimals: number } | string {
   const addr = new PublicKey(pool.address);
   const m0 = new PublicKey(pool.tokenMint0);
@@ -164,7 +165,7 @@ function rangePins(
     return LP_COPY.coinChanged(pair.quote.symbol, 'its program or decimals');
   }
   const rewards: RangePins['rewards'] = [];
-  if (poolAllows(pool, POOL_STATUS_BIT.collectReward)) {
+  if (withRewards && poolAllows(pool, POOL_STATUS_BIT.collectReward)) {
     const live = pool.rewardInfos.filter((r) => r.initialized);
     for (let i = 0; i < live.length; i++) {
       const vault = rewardVaults[i];
@@ -202,7 +203,7 @@ function rangePins(
   };
 }
 
-function poolLine(pins: RangePins, pair: Pair, tier: AmmConfigView): RangePoolLine {
+export function poolLine(pins: RangePins, pair: Pair, tier: AmmConfigView): RangePoolLine {
   return {
     pool: pins.address,
     tokenMint: pins.tokenMint,
@@ -225,7 +226,7 @@ const sides = <T>(pair: Pair, v0: T, v1: T): { token: T; quote: T } => (pair.tok
 const toleranceProblem = (bps: number) => (!Number.isInteger(bps) || bps < 0 || bps > MAX_TOLERANCE_BPS ? RANGE_COPY.badTolerance : null);
 
 /** The signer's account for one side, and the question `accountCheck` asks of it. */
-function sideAccount(owner: PublicKey, pins: RangePins, which: 'token' | 'quote', use: AccountWant['use']): { address: PublicKey; want: AccountWant } {
+export function sideAccount(owner: PublicKey, pins: RangePins, which: 'token' | 'quote', use: AccountWant['use']): { address: PublicKey; want: AccountWant } {
   if (which === 'quote') {
     const q: QuoteCoin = pins.quote;
     return { address: associatedTokenAddress(new PublicKey(q.mint), owner, new PublicKey(q.program)), want: coinAccount(owner, q, use) };
@@ -458,7 +459,7 @@ export function prepareRangeClose(rpc: WriteRpc, cfg: CurveWriteConfig, programI
   return prepareDecrease(rpc, cfg, programId, 'range-close', { ...a, percent: 100 });
 }
 
-async function prepareDecrease(rpc: WriteRpc, cfg: CurveWriteConfig, programId: PublicKey, kind: Exclude<RangeKind, 'range-open'>, a: RangeRemoveArgs): Promise<Prepared> {
+async function prepareDecrease(rpc: WriteRpc, cfg: CurveWriteConfig, programId: PublicKey, kind: 'range-remove' | 'range-close', a: RangeRemoveArgs): Promise<Prepared> {
   const bad = toleranceProblem(a.toleranceBps);
   if (bad) return notSent('build', bad);
   if (!Number.isInteger(a.percent) || a.percent < 0 || a.percent > 100) return notSent('build', RANGE_COPY.badPercent);
