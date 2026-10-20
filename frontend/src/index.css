@@ -762,6 +762,12 @@ html:has(:is(input, select, textarea):focus) {
   outline: 2px solid var(--color-purple-75);
   outline-offset: 1px;
 }
+/* The menu's "Jump to" field (NavDrawer.tsx): the rule under it turns green on focus, so the
+   ring above would be a second mark. Here and not as a utility: this file is unlayered, so it
+   outranks Tailwind's focus-visible:outline-none whatever the specificity. */
+.nav-index-search:focus-visible {
+  outline: none;
+}
 
 /* ─── Screen reader only (accessibility) ─── */
 .sr-only {

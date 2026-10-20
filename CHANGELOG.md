@@ -7,6 +7,10 @@ The site's Changelog tab shows both files.
 
 ## [Unreleased]
 
+### 2026-10-19
+
+- The menu is the site's index: every section's word with its pages under it, a Jump to field (Ctrl+K opens it), and the word Menu beside the ☰ on a computer. A room's page gets a numbered line under the top bar, lit as you scroll, one tap to each section.
+
 ### 2026-10-18
 
 - Base and Robinhood Chain: Pools opens on each network's own coins, not Ethereum's TOWELI; Robinhood's Swap opens on ETH to USDG; a refused switch is said.

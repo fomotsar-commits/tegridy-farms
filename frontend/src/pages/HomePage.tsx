@@ -49,6 +49,17 @@ import { BungalowHero } from '../components/bungalow/BungalowHero';
 import { BungalowMarket } from '../components/bungalow/BungalowMarket';
 import { BungalowHolders } from '../components/bungalow/BungalowHolders';
 import { BungalowBurn } from '../components/bungalow/BungalowBurn';
+import { RoomRail, type RoomStop } from '../components/bungalow/RoomRail';
+
+/** A resident's page, section by section, as its rail names them (RoomRail.tsx). Each id is on its slot below. */
+const ROOM_STOPS = {
+  doors: { id: 'room-doors', label: 'Doors' },
+  market: { id: 'room-market', label: 'Market' },
+  burn: { id: 'room-burn', label: 'Burn' },
+  heldTime: { id: 'room-held-time', label: 'Held time' },
+  holders: { id: 'room-holders', label: 'Holders' },
+  lore: { id: 'room-lore', label: 'Lore' },
+} as const satisfies Record<string, RoomStop>;
 import { homeBurnRoom } from '../lib/bungalowBurn';
 
 // F92: persist a valid ?ref= address so attribution survives navigation and
@@ -265,7 +276,22 @@ export default function HomePage() {
       </div>
 
       <div className="relative z-10 max-w-[1200px] mx-auto px-4 md:px-6">
-        <div className="pt-28 pb-20">
+        {/* The room's index (owner, 2026-10-19): its sections, numbered, lit as you scroll, the same
+            gates as the slots they name. A line under the top bar that stays while the cards scroll;
+            from 1440px a rail at the left edge. Keyed by the room, so a door resets it. The venue
+            home has its own sections and no rail. */}
+        {bungalowIdentity && (
+          <RoomRail key={bungalowIdentity.id} stops={[
+            ROOM_STOPS.doors,
+            ...(bungalowIdentity.market ? [ROOM_STOPS.market] : []),
+            ...(burnRoom ? [ROOM_STOPS.burn] : []),
+            ...(bungalowIdentity.address ? [ROOM_STOPS.heldTime, ROOM_STOPS.holders] : []),
+            ...(bungalowIdentity.identity.lore ? [ROOM_STOPS.lore] : []),
+          ]} />
+        )}
+        {/* In a room the rail's 72px box takes the first 72 of the hero's 112px of air (pt-28), so
+            the heading stays where the first frame drew it; docked (1440px up) it takes none. */}
+        <div className={bungalowIdentity ? 'pt-10 min-[1440px]:pt-28 pb-20' : 'pt-28 pb-20'}>
           <m.div className="max-w-xl relative" initial={heroAlreadyOnScreen ? false : { opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>
             {/* Readability scrim — softly darkens the art behind the hero copy so the white
                 text stays legible over light patches of the art (e.g. the pale ape on the
@@ -339,7 +365,10 @@ export default function HomePage() {
                 moved it to the Check overview; see the note where it used to
                 render, below. */}
             {bungalowIdentity ? (
-              <BungalowHero bungalow={bungalowIdentity} />
+              /* The room's first section, for its rail (RoomRail.tsx): the hero and its doors. */
+              <div id={ROOM_STOPS.doors.id}>
+                <BungalowHero bungalow={bungalowIdentity} />
+              </div>
             ) : !isToweliArrival ? (
               /* ARRIVAL IDENTITY 2026-08-27: the venue's own hero is the
                  default first impression. The classic Tegridy cluster below
@@ -637,7 +666,7 @@ export default function HomePage() {
             where the default venue puts its TOWELI stat pills. Renders only
             when the bungalow declares a `market` pool; self-hides otherwise. */}
         {bungalowIdentity?.market && (
-          <div className="pb-8">
+          <div className="pb-8" id={ROOM_STOPS.market.id}>
             <BungalowMarket bungalow={bungalowIdentity} />
           </div>
         )}
@@ -646,7 +675,7 @@ export default function HomePage() {
             token bungalow shows it once, TOWELI included, which has no identity and so
             reaches this slot through its own arrival. */}
         {burnRoom && (
-          <div className={bungalowIdentity ? 'pb-8' : 'pb-16'}>
+          <div className={bungalowIdentity ? 'pb-8' : 'pb-16'} id={ROOM_STOPS.burn.id}>
             <BungalowBurn bungalow={burnRoom} />
           </div>
         )}
@@ -657,7 +686,7 @@ export default function HomePage() {
             second. Same reading as the venue's, presented to the narrower
             question a room asks. */}
         {bungalowIdentity?.address && (
-          <div className="pb-8">
+          <div className="pb-8" id={ROOM_STOPS.heldTime.id}>
             {/* THE ROOM SUPPLIES THE PANEL. `variant="embedded"` drops the card's
                 own chrome, which is right where a host has already introduced it
                 (the launch gate) and wrong here: on a room's full-bleed art the
@@ -706,7 +735,7 @@ export default function HomePage() {
         {/* Who holds her — the venue's own scanner, run on this bungalow's
             token, with its coverage limits stated rather than smoothed over. */}
         {bungalowIdentity?.address && (
-          <div className="pb-16">
+          <div className="pb-16" id={ROOM_STOPS.holders.id}>
             <BungalowHolders bungalow={bungalowIdentity} />
           </div>
         )}
@@ -717,7 +746,7 @@ export default function HomePage() {
             canon copy only): a resident without lore gets NO card rather
             than another resident's story. */}
         {bungalowIdentity?.identity.lore && (
-          <div className="pb-16">
+          <div className="pb-16" id={ROOM_STOPS.lore.id}>
             <div className="relative rounded-2xl overflow-hidden glass-card-animated" style={{ border: '1px solid var(--color-purple-75)' }}>
               <div className="absolute inset-0" aria-hidden="true">
                 <ArtImg pageId="bungalow-lore" idx={0} alt="" loading="lazy" className="w-full h-full object-cover" />
