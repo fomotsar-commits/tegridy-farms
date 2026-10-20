@@ -129,7 +129,16 @@ describe('discriminators are re-hashed, never trusted', () => {
 
   it('every instruction encoded here still exists in the program', () => {
     const lib = rust('lib.rs');
-    for (const name of ['create_pool', 'open_position_with_token22_nft', 'increase_liquidity_v2', 'decrease_liquidity_v2', 'close_position', 'swap_v2']) {
+    // One name a line: gitleaks' generic-api-key rule read "token22_nft', '<name>'" as a key.
+    const names = [
+      'create_pool',
+      'open_position_with_token22_nft',
+      'increase_liquidity_v2',
+      'decrease_liquidity_v2',
+      'close_position',
+      'swap_v2',
+    ];
+    for (const name of names) {
       expect(lib, `${name} missing from the #[program] module`).toContain(`pub fn ${name}`);
     }
   });
