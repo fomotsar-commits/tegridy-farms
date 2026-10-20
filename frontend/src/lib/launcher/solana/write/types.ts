@@ -140,10 +140,17 @@ export interface ActionAvailability {
 export type LpKind = 'lp-deposit' | 'lp-withdraw' | 'lp-create';
 
 /**
+ * A range position (the venue's range program, solana/tegridy-clmm): opening one with its
+ * Token-2022 NFT, taking some or all of its liquidity out (or none: that is how its fees
+ * are collected), and taking everything out and closing it.
+ */
+export type RangeKind = 'range-open' | 'range-remove' | 'range-close';
+
+/**
  * `pool-buy` / `pool-sell`: a graduated launch's own pool, from its launch page.
  * `venue-swap`: any pool of ours for the pair, found by address, from the swap page.
  */
-export type TxKind = 'create' | 'buy' | 'sell' | 'migrate' | 'pool-buy' | 'pool-sell' | 'venue-swap' | LpKind;
+export type TxKind = 'create' | 'buy' | 'sell' | 'migrate' | 'pool-buy' | 'pool-sell' | 'venue-swap' | LpKind | RangeKind;
 
 /**
  * What a watched token account is, so the review can name it and print it in its
@@ -219,7 +226,17 @@ export type IntentStep =
    * `init0` / `init1`. Its open time is always 0 (the decoder refuses any other), so it is
    * not carried.
    */
-  | { kind: 'pool-create'; pool: PublicKey; ammConfig: PublicKey; init0: bigint; init1: bigint };
+  | { kind: 'pool-create'; pool: PublicKey; ammConfig: PublicKey; init0: bigint; init1: bigint }
+  /**
+   * Range program `open_position_with_token22_nft`, decoded: a position in `pool` between
+   * the two ticks, its NFT `nftMint`, at most `max0` / `max1` taken. Liquidity is worked out
+   * by the program from the base side's maximum (`baseIsToken0`).
+   */
+  | { kind: 'range-open'; pool: PublicKey; nftMint: PublicKey; tickLower: number; tickUpper: number; max0: bigint; max1: bigint; baseIsToken0: boolean }
+  /** Range program `decrease_liquidity_v2`: `liquidity` out of `position` (0 = fees only), at least `min0` / `min1` back, plus its fees. */
+  | { kind: 'range-decrease'; pool: PublicKey; position: PublicKey; liquidity: bigint; min0: bigint; min1: bigint }
+  /** Range program `close_position`: the NFT burned, the record closed, their deposits back to the owner. */
+  | { kind: 'range-close'; position: PublicKey; nftMint: PublicKey };
 
 export type TxSummary =
   | {
@@ -308,7 +325,59 @@ export type TxSummary =
   | VenueSwapSummary
   | LpDepositSummary
   | LpWithdrawSummary
-  | LpCreateSummary;
+  | LpCreateSummary
+  | RangeSummary;
+
+/** A range pool and its fee tier, as the review names them. From the builder's own fresh read. */
+export interface RangePoolLine {
+  pool: PublicKey;
+  tokenMint: PublicKey;
+  tokenDecimals: number;
+  quote: QuoteCoin;
+  tokenIsToken0: boolean;
+  /** Per million of each swap, and per million OF THAT FEE to the venue's accounts (protocol plus fund). */
+  tradeFeeRate: number;
+  venueShareRate: number;
+}
+
+/** The range, in the pool's ticks and as prices (whole coin per whole token), lowest first. */
+export interface RangeLine {
+  tickLower: number;
+  tickUpper: number;
+  minPrice: number;
+  maxPrice: number;
+  /** What the range holds at the price now: it earns only while it holds both. */
+  holds: 'both' | 'token-only' | 'coin-only';
+}
+
+export type RangeSummary =
+  | ({
+      kind: 'range-open';
+      nftMint: PublicKey;
+      /** Decoded from the bytes, in token and coin base units. */
+      max: { token: bigint; quote: bigint };
+      /** What the fresh read says the program will take now. */
+      quoted: { token: bigint; quote: bigint };
+      /** The deposits this opening pays (the position, its NFT, any new price band); shown, never a fee. */
+      rentLamports: bigint;
+      unwrapsWsol: boolean;
+      notices: string[];
+    } & { poolLine: RangePoolLine; range: RangeLine })
+  | ({
+      kind: 'range-remove' | 'range-close';
+      position: PublicKey;
+      /** The share of the position's liquidity taken out: 0 collects fees only. */
+      percent: number;
+      liquidity: bigint;
+      /** Decoded from the bytes. */
+      min: { token: bigint; quote: bigint };
+      /** What the fresh read says comes back now, before fees. */
+      quoted: { token: bigint; quote: bigint };
+      /** Fees owed now, from the fresh read; null when they could not be worked out. */
+      fees: { token: bigint; quote: bigint } | null;
+      unwrapsWsol: boolean;
+      notices: string[];
+    } & { poolLine: RangePoolLine; range: RangeLine });
 
 /**
  * What the aggregator answered for the trade a swap in our own pool was compared with.
@@ -603,7 +672,53 @@ export interface PreToken {
  * What `intent.ts` needs to judge a transaction for one signer: a launch-program
  * transaction (`CurveIntent`), or adding or removing liquidity (`PoolIntent`).
  */
-export type IntentContext = CurveIntent | PoolIntent | SwapIntent;
+export type IntentContext = CurveIntent | PoolIntent | SwapIntent | RangeIntent;
+
+/**
+ * A range pool, as checked while preparing (write/range.ts `rangePins`): the pool, its
+ * tier, vaults, mints and their programs read in one fresh read, every one also derived or
+ * cross-checked, and the pairing coin looked up in the site's own list.
+ */
+export interface RangePins {
+  program: PublicKey;
+  address: PublicKey;
+  ammConfig: PublicKey;
+  observation: PublicKey;
+  tickSpacing: number;
+  token0Mint: PublicKey;
+  token1Mint: PublicKey;
+  token0Program: PublicKey;
+  token1Program: PublicKey;
+  vault0: PublicKey;
+  vault1: PublicKey;
+  tokenMint: PublicKey;
+  tokenProgram: PublicKey;
+  quote: QuoteCoin;
+  quoteIsToken0: boolean;
+  /** The pool's rewards, in its order, when they can be collected; each collected into the signer's own account. */
+  rewards: Array<{ vault: PublicKey; mint: PublicKey; program: PublicKey }>;
+  status: number;
+}
+
+/** A range position, as read and checked while preparing. */
+export interface RangePositionPins {
+  address: PublicKey;
+  nftMint: PublicKey;
+  tickLower: number;
+  tickUpper: number;
+  liquidity: bigint;
+}
+
+export interface RangeIntent {
+  kind: RangeKind;
+  signer: PublicKey;
+  cfg: CurveWriteConfig;
+  maxPriorityLamports: bigint;
+  pins: RangePins;
+  /** The position changed (remove, close), or the new one's NFT mint (open): a fresh key that signs. */
+  position: RangePositionPins | null;
+  nftMint: PublicKey | null;
+}
 
 /** A launch, a curve trade, a graduation or a launch pool's swap. Every field it had before liquidity stays required. */
 export interface CurveIntent {

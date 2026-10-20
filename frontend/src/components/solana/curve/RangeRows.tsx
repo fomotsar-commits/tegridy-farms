@@ -1,0 +1,82 @@
+import { formatSol, formatTokenAmount } from '../../../lib/launcher/solana/curve';
+import { formatSolPrice } from '../../../lib/solana/lp/format';
+import { Notice, Row } from './ui';
+import type { RangeSummary } from './ports';
+
+/**
+ * The review of a range-position transaction. Every amount is the prepared transaction's:
+ * maxima and minima decoded from its bytes, the rest from the builder's own fresh read.
+ * What the position earns, and that it earns nothing out of range, is said on every review.
+ */
+
+const coinText = (v: bigint, decimals: number, symbol: string, native: boolean) =>
+  native ? `${formatSol(v, 9)} SOL` : `${formatTokenAmount(v, decimals, decimals).text} ${symbol}`;
+
+/** Per million as a percent, exactly: 10,000 is 1%, 160,000 (of the fee) is 16%. */
+function perMillionPercent(rate: number): string {
+  return `${Number((rate / 10_000).toFixed(4))}%`;
+}
+
+export function RangeRows({ summary: s }: { summary: RangeSummary }) {
+  const l = s.poolLine;
+  const q = l.quote;
+  const token = (v: bigint) => `${formatTokenAmount(v, l.tokenDecimals, l.tokenDecimals).text} tokens`;
+  const coin = (v: bigint) => coinText(v, q.decimals, q.symbol, q.native);
+  const both = (a: { token: bigint; quote: bigint }) => `${token(a.token)} and ${coin(a.quote)}`;
+  const range = `${formatSolPrice(s.range.minPrice)} to ${formatSolPrice(s.range.maxPrice)} ${q.symbol} per token`;
+  const holds =
+    s.range.holds === 'both'
+      ? 'In range now: it earns while the price stays inside it.'
+      : s.range.holds === 'token-only'
+        ? 'Above the price now, holding the token only: it earns nothing until the price rises into it.'
+        : `Below the price now, holding ${q.symbol} only: it earns nothing until the price falls into it.`;
+  return (
+    <>
+      <Row label="Range pool" value={l.pool.toBase58()} />
+      <Row label="Token (mint)" value={l.tokenMint.toBase58()} />
+      <Row label="Paired with" value={q.symbol} mono={false} />
+      <Row
+        label="Swap fee"
+        value={`${perMillionPercent(l.tradeFeeRate)} of each swap through your range; the venue's accounts keep ${perMillionPercent(l.venueShareRate)} of that fee, read from the pool's fee tier`}
+        mono={false}
+      />
+      <Row label="Range" value={range} mono={false} />
+      <Notice tone={s.range.holds === 'both' ? 'info' : 'warn'}>{holds} Out of range, a position earns nothing.</Notice>
+      {s.kind === 'range-open' ? (
+        <>
+          <Row label="You put in about" value={both(s.quoted)} mono={false} />
+          <Row label="At most" value={both(s.max)} mono={false} />
+          <Row label="You get" value="one position NFT. Whoever holds it can take this position out." mono={false} />
+          <Notice>
+            {!q.native
+              ? `Your ${q.symbol} is spent straight from your own ${q.symbol} account.`
+              : s.unwrapsWsol
+                ? 'Your SOL is wrapped for the deposit and the account is closed at the end, so anything not used comes back as plain SOL.'
+                : 'Your SOL is wrapped for the deposit, and anything not used stays in your wrapped-SOL account.'}
+          </Notice>
+        </>
+      ) : (
+        <>
+          <Row label="Position" value={s.position.toBase58()} />
+          <Row label="Taking out" value={s.percent === 0 ? 'no liquidity: the fees only' : `${s.percent}% of its liquidity`} mono={false} />
+          {s.percent > 0 && <Row label="You get about" value={both(s.quoted)} mono={false} />}
+          {s.percent > 0 && <Row label="At least" value={both(s.min)} mono={false} />}
+          <Row label="Fees it has earned" value={s.fees ? both(s.fees) : 'could not be worked out just now; they are paid out in full all the same'} mono={false} />
+          {s.kind === 'range-close' && (
+            <Notice>The position&apos;s NFT is burned and its record closed, and their deposits come back to you.</Notice>
+          )}
+          {q.native && (
+            <Notice>
+              {s.unwrapsWsol ? 'SOL comes back as plain SOL.' : 'SOL comes back into your wrapped-SOL account, which you already had.'}
+            </Notice>
+          )}
+        </>
+      )}
+      {s.notices.map((n) => (
+        <Notice key={n} tone="warn">
+          {n}
+        </Notice>
+      ))}
+    </>
+  );
+}

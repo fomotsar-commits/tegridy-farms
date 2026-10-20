@@ -66,6 +66,9 @@ const KNOWN: Record<TradeKind, true> = {
   'lp-deposit': true,
   'lp-withdraw': true,
   'lp-create': true,
+  'range-open': true,
+  'range-remove': true,
+  'range-close': true,
 };
 const TRADE_KINDS: ReadonlySet<string> = new Set(Object.keys(KNOWN));
 

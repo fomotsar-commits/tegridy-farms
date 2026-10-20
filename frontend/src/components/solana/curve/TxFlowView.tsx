@@ -8,6 +8,7 @@ import { TOO_NEW_WHY } from '../../../lib/solana/lp/ownPrice';
 import { edgePercent } from '../../../lib/solana/route';
 import type { FeeSplitView, NotSent, PreparedTx, SolanaCluster, TokenRole, TxKind, TxOutcome, TxSigner, TxSummary, TxViewApi } from './ports';
 import { reviewLines } from './reviewLines';
+import { RangeRows } from './RangeRows';
 import type { ReviewState, TxFlow } from './useTxFlow';
 import { quoteCoin, type QuoteCoin } from '../../../lib/solana/lp/quotes';
 import type { PriceReference } from '../../../lib/solana/lp/poolHealth';
@@ -197,6 +198,10 @@ export function SummaryRows({
       return <LpWithdrawRows summary={summary} />;
     case 'lp-create':
       return <LpCreateRows summary={summary} />;
+    case 'range-open':
+    case 'range-remove':
+    case 'range-close':
+      return <RangeRows summary={summary} />;
     default:
       // A new kind of transaction is a compile error here until it has rows.
       return noRowsFor(summary);
@@ -774,6 +779,9 @@ const RENT_ROW_LABEL: Record<TxKind, string> = {
   'lp-withdraw': 'One-time deposit for your new token account (it stays in that account)',
   'lp-create':
     "One-time account deposits: the new pool's own accounts (never returned) and your pool-share account (yours to close later)",
+  'range-open': 'One-time deposits: your position and its NFT (back when you close it), and any new price band of the pool (never returned)',
+  'range-remove': 'One-time deposit for a new token account of yours (it stays in that account)',
+  'range-close': 'One-time deposit for a new token account of yours (it stays in that account)',
 };
 
 /**
@@ -842,6 +850,9 @@ const TITLES: Record<PreparedTx['kind'], string> = {
   'lp-deposit': 'Review: add liquidity',
   'lp-withdraw': 'Review: remove liquidity',
   'lp-create': 'Review: open a pool',
+  'range-open': 'Review: open a range position',
+  'range-remove': 'Review: take out of your range position',
+  'range-close': 'Review: close your range position',
 };
 
 export function TxReview({

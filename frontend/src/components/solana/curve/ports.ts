@@ -77,6 +77,8 @@ export type {
   OpenGate,
   Prepared,
   PreparedTx,
+  RangeKind,
+  RangeSummary,
   SimulatedEffect,
   SolanaCluster,
   SubmitDeps,
