@@ -211,6 +211,10 @@ function poolLine(pins: RangePins, pair: Pair, tier: AmmConfigView): RangePoolLi
     tokenIsToken0: pair.tokenIsToken0,
     tradeFeeRate: tier.tradeFeeRate,
     venueShareRate: tier.protocolFeeRate + tier.fundFeeRate,
+    protocolFeeRate: tier.protocolFeeRate,
+    fundFeeRate: tier.fundFeeRate,
+    owner: tier.owner,
+    fundOwner: tier.fundOwner,
   };
 }
 

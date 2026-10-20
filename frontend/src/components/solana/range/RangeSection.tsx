@@ -16,6 +16,7 @@ import { RANGE_PROGRAM_ID } from '../../../lib/solana/clmm/program';
 import { readFeeTiers, readPairPools, readWalletPositions, type Read, type RangePool, type WalletPositionsRead } from '../../../lib/solana/clmm/read';
 import type { AmmConfigView } from '../../../lib/solana/clmm/program';
 import { feePaidIn, feeSplit } from '../../../lib/solana/clmm/feeText';
+import { rangeVenueEarns } from '../../../lib/solana/clmm/venueEarns';
 import { pairOf, priceAtSqrt, type Pair } from '../../../lib/solana/clmm/rangeMath';
 import { CardArt } from '../../ui/CardArt';
 import { FinePrint } from '../../ui/FinePrint';
@@ -261,10 +262,19 @@ const NOTE_WHAT = {
 /**
  * How a range position pays, said where the deposit is (never folded away): what LPs earn
  * and what the venue keeps, both read from the chosen pool's fee tier, and that a position
- * out of range earns nothing. The workings sit in the fine print.
+ * out of range earns nothing. Where the venue's cut goes is said as the /solana-lp Rates
+ * card says it: the agreed split in the fine print, any other wallet in bold in plain sight.
  */
 function HowItPays({ pool, pair }: { pool: RangePool | null; pair: Pair | null }) {
   const s = pool ? feeSplit(pool.config) : null;
+  const venue = pool ? rangeVenueEarns(pool.config) : null;
+  const wallets = venue && (
+    <div className="space-y-1">
+      {venue.wallets.map((w) => (
+        <Row key={w.address} label={w.label} value={w.address} />
+      ))}
+    </div>
+  );
   return (
     <Card title="How a range position earns" testId="range-earns" art={<CardArt pageId="range-pools" idx={0} />}>
       {s ? (
@@ -276,9 +286,24 @@ function HowItPays({ pool, pair }: { pool: RangePool | null; pair: Pair | null }
           Each swap through your range pays the pool’s fee. Positions whose range the price is in share most of it, and the venue keeps a part; pick a pool to see both, read from its fee tier on the chain.
         </p>
       )}
+      {/* Venue money going anywhere but the agreed split is said in plain sight, in bold (owner, 2026-10-10). */}
+      {venue?.elsewhere && (
+        <div data-testid="range-venue-elsewhere" className="space-y-1">
+          <p className="text-amber-200 text-[12px]">
+            <strong>{venue.where}</strong>
+          </p>
+          {wallets}
+        </div>
+      )}
       <Notice tone="warn">Out of range, a position earns nothing. Once the price leaves your range, the position is all one coin until the price comes back.</Notice>
       <FinePrint summary="How it works">
         <div className="space-y-2 text-white/70 text-[11px]">
+          {venue && !venue.elsewhere && (
+            <>
+              <p>{venue.where}</p>
+              {wallets}
+            </>
+          )}
           <p>You pick a lowest and a highest price. Your coins work only while the pool’s price is between them, so a narrow range earns more of each fee while it lasts and stops earning sooner.</p>
           <p>As the price moves through your range, the pool swaps your coins for you: rising, it sells the token for the other coin; falling, it buys the token. At either end you hold one coin only.</p>
           {pair && pool && (

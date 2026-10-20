@@ -174,6 +174,8 @@ describe('opening a range position', () => {
     expect(s.quoted.quote > 0n && s.max.quote >= s.quoted.quote).toBe(true);
     expect(s.range.holds).toBe('both');
     expect(s.poolLine.tradeFeeRate).toBe(10_000);
+    // The tier's own parts and the wallets that collect them, for the review's split line.
+    expect([s.poolLine.protocolFeeRate, s.poolLine.fundFeeRate, s.poolLine.owner, s.poolLine.fundOwner]).toEqual([104_000, 56_000, PublicKey.default.toBase58(), PublicKey.default.toBase58()]);
     expect(s.poolLine.venueShareRate).toBe(160_000);
     expect(s.unwrapsWsol).toBe(true);
     const kinds = p.steps.map((x) => x.kind).filter((k) => !k.startsWith('compute'));

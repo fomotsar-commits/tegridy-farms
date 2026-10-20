@@ -9,6 +9,8 @@ import { getTickAtSqrtPrice } from '../../../lib/solana/clmm/math';
 import { encodeAmmConfig, encodePool, encodePosition } from '../../../lib/solana/clmm/encode.fixture';
 import type { RangePool, Read, WalletPosition, WalletPositionsRead } from '../../../lib/solana/clmm/read';
 import type { CurveWriteConfig, Prepared, RangeWriteApi } from '../curve/ports';
+import { PLATFORM_TREASURY_VAULT } from '../../../lib/launcher/solana/curve/program';
+import { WORKSHOP_WALLET } from '../../../lib/launcher/solana/write/plant';
 import { RangeInner, type RangeReaders } from './RangeSection';
 
 /**
@@ -43,8 +45,12 @@ function sqrtAt(num: bigint, den: bigint): bigint {
 const SQRT = sqrtAt(3n, 10_000n);
 const TICK = getTickAtSqrtPrice(SQRT);
 
-function tier(rates: Partial<{ tradeFeeRate: number; protocolFeeRate: number; fundFeeRate: number }> = {}): AmmConfigView {
-  return decodeAmmConfig(CONFIG.toBase58(), encodeAmmConfig({ index: 0, tradeFeeRate: 10_000, protocolFeeRate: 160_000, fundFeeRate: 0, tickSpacing: 120, ...rates }))!;
+/** The agreed island split by default (owner, 2026-10-20): of each fee, 10.4% to the vault and 5.6% to the Workshop. */
+function tier(rates: Partial<{ tradeFeeRate: number; protocolFeeRate: number; fundFeeRate: number; owner: PublicKey; fundOwner: PublicKey }> = {}): AmmConfigView {
+  return decodeAmmConfig(
+    CONFIG.toBase58(),
+    encodeAmmConfig({ index: 0, tradeFeeRate: 10_000, protocolFeeRate: 104_000, fundFeeRate: 56_000, tickSpacing: 120, owner: PLATFORM_TREASURY_VAULT, fundOwner: WORKSHOP_WALLET, ...rates }),
+  )!;
 }
 
 function poolOn(config: AmmConfigView): RangePool {
@@ -113,6 +119,22 @@ describe('how a range position earns', () => {
     // Visible, not folded into the fine print.
     const warning = within(card).getByText(/Out of range, a position earns nothing/);
     expect(warning.closest('details')).toBeNull();
+    // Where the venue's cut goes, as the Rates card says it: the agreed split, in the fine print.
+    const split = within(card).getByText(/The venue’s cut is split: 65% to the team’s shared wallet, .* and 35% to the island’s Workshop, the island’s agreed share\./);
+    expect(split.closest('details')).not.toBeNull();
+    expect(card.textContent).toContain(PLATFORM_TREASURY_VAULT.toBase58());
+    expect(card.textContent).toContain(WORKSHOP_WALLET.toBase58());
+    expect(within(card).queryByTestId('range-venue-elsewhere')).toBeNull();
+  });
+
+  it('a tier that sends part of the venue’s cut to any other wallet is said in bold, in plain sight, naming it', async () => {
+    const stranger = key(77);
+    const t = tier({ fundOwner: stranger });
+    show(readers({ tiers: { kind: 'ok', value: [t] }, pools: { kind: 'ok', value: [poolOn(t)] } }));
+    const flag = await screen.findByTestId('range-venue-elsewhere');
+    expect(flag.closest('details')).toBeNull();
+    expect(flag.querySelector('strong')?.textContent).toMatch(/goes somewhere other than the agreed split .*: the island’s part/);
+    expect(flag.textContent).toContain(stranger.toBase58());
   });
 
   it('a tier with another split is said with that split: nothing is hard-coded', async () => {
