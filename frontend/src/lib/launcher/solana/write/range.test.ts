@@ -29,9 +29,9 @@ import { getDeltaAmountsSigned, getLiquidityFromSingleAmount0, getLiquidityFromS
 import { positionNftAccount } from '../../../solana/clmm/ix';
 import { encodeAmmConfig, encodePool, encodePosition, encodeTickArray } from '../../../solana/clmm/encode.fixture';
 import { decodeIntent } from './intent';
-import { RANGE_COPY, prepareRangeClose, prepareRangeOpen, prepareRangeRemove } from './range';
+import { RANGE_COPY, prepareRangeClose, prepareRangeOpen, prepareRangeRemove, stepsProblem } from './range';
 import { FakeChain, cfgLocal, openAccount, rent, type SimHandler } from './testkit.fixture';
-import type { PreparedTx, RangeIntent, RangeSummary, WriteRpc } from './types';
+import type { IntentStep, PreparedTx, RangeIntent, RangeSummary, WriteRpc } from './types';
 
 const W = (c: FakeChain) => c as unknown as WriteRpc;
 const PROG = Keypair.generate().publicKey;
@@ -367,6 +367,33 @@ describe('the checker refuses every change to a range transaction', () => {
     expect(body(p).some((ix) => ix.programId.equals(TOKEN_2022_PROGRAM_ID))).toBe(false);
     const create = SystemProgram.createAccount({ fromPubkey: ME, newAccountPubkey: Keypair.generate().publicKey, lamports: 1, space: 82, programId: TOKEN_PROGRAM_ID });
     expect(decodeIntent([...body(p), create], intentOf(p)).ok).toBe(false);
+  });
+});
+
+describe('the review holds the decoded steps to the plan', () => {
+  // A changed amount in a well-formed opening still decodes: this comparison is what refuses it.
+  it('the built opening matches, and a changed maximum, an added close, a different SOL wrap or a dropped account do not', async () => {
+    const c = ready(chainWith());
+    const p = ok(await prepareRangeOpen(W(c), cfgLocal, PROG, { owner: ME, pool: POOL, ...inRange, side: 'token', amount: 5_000_000n, toleranceBps: 100 }));
+    const r = decodeIntent(body(p), intentOf(p));
+    if (!r.ok) throw new Error(r.reason);
+    const steps = r.steps;
+    const open = steps.find((s) => s.kind === 'range-open') as Extract<IntentStep, { kind: 'range-open' }>;
+    const wrap = steps.find((s) => s.kind === 'wrap-sol') as Extract<IntentStep, { kind: 'wrap-sol' }>;
+    const creates = steps.filter((s) => s.kind === 'create-token-account').map((s) => (s as Extract<IntentStep, { kind: 'create-token-account' }>).address);
+    const want = {
+      own: (s: IntentStep) => s.kind === 'range-open' && s.max0 === open.max0 && s.max1 === open.max1,
+      wraps: wrap.lamports,
+      opens: creates,
+      closes: steps.some((s) => s.kind === 'close-wsol'),
+    };
+    expect(stepsProblem(steps, want)).toBeNull();
+    const swap = (from: IntentStep, to: IntentStep) => steps.map((s) => (s === from ? to : s));
+    expect(stepsProblem(swap(open, { ...open, max0: open.max0 + 1n }), want)).not.toBeNull();
+    expect(stepsProblem([...steps, { kind: 'range-close', position: Keypair.generate().publicKey, nftMint: Keypair.generate().publicKey }], want)).not.toBeNull();
+    expect(stepsProblem(swap(wrap, { ...wrap, lamports: wrap.lamports + 1n }), want)).not.toBeNull();
+    expect(stepsProblem(steps, { ...want, opens: [...creates, Keypair.generate().publicKey] })).not.toBeNull();
+    expect(stepsProblem(steps, { ...want, closes: !want.closes })).not.toBeNull();
   });
 });
 
