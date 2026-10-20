@@ -212,10 +212,8 @@ export function RangeOpenCard(p: {
       </p>
       {p.why ? (
         <Notice tone="warn">{p.why}</Notice>
-      ) : p.write && r && plan ? (
-        <OpenFlow {...p} onBusy={onBusy} write={p.write} range={r} side={side} amount={amount!} tolerance={tolerance} setTolerance={setTolerance} />
       ) : (
-        p.write && <WalletNeeded state={p.signerState} />
+        p.write && r && plan && <OpenFlow {...p} onBusy={onBusy} write={p.write} range={r} side={side} amount={amount!} tolerance={tolerance} setTolerance={setTolerance} />
       )}
       {!p.canOpen && !p.why && <Notice>Amounts here are only worked out: opening a position is not switched on here.</Notice>}
       {/* Said beside every deposit, never folded away. */}
