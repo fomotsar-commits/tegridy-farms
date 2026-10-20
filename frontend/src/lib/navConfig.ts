@@ -345,35 +345,59 @@ const UNSECTIONED_PAGES: NavItem[] = [
   { to: '/lore', label: 'Lore' },
 ];
 
+/** One group of the menu's index: a word, and every page under it. */
+export interface IndexGroup {
+  /** The group's word: a section's heading, or "Records". */
+  heading: string;
+  /** Where the word itself goes, read at render (Swap follows the room). The records have none. */
+  readonly to?: string;
+  /** Its pages in tab order, on today. An off page is left out, as its strip leaves it out. */
+  items: readonly NavItem[];
+  /** The group's picture in the menu: `nav-drawer:N` in /art-studio (artSurfaces.ts). */
+  art: number;
+}
+
 /**
- * The drawer's "More" list: features no bar word or drawer row names, one tap each (owner,
- * 2026-10-18: "a lot of our features got shadowed, so let's put them in the side nav until we
- * can organize them better"). Each keeps its tab on its own page. An off page is left out, as
- * its strip leaves it out; a gated one (NFT finance, Community, Gold Card) rides its gate.
- * /airdrop and /vesting stay out: their rails are undeployed (navConfig.test.ts).
+ * What the index calls a page: its tab label, which reads under the group's word ("Ethereum"
+ * under Swap, "NFT Loans" under Lock), unless that only repeats the word, then its own name
+ * ("The island" under Island). `label` stays the canonical, pinned name.
  */
-const MORE_ORDER: { to: string; label?: string }[] = [
-  { to: '/nakamigos' },
-  // The page's own title: "Borrow on NFTs" is one of its three parts.
-  { to: '/nft-finance', label: 'NFT Finance' },
-  { to: '/gallery' },
-  { to: '/terminal' },
-  { to: '/chart' },
-  { to: '/alerts' },
-  { to: '/copy-trading' },
-  { to: '/yield' },
-  { to: '/checkout' },
-  { to: '/premium' },
-  { to: '/community' },
-  { to: '/tokenomics' },
-  { to: '/history' },
-  { to: '/lore' },
+export function indexName(group: IndexGroup, item: NavItem): string {
+  return item.tabLabel && item.tabLabel !== group.heading ? item.tabLabel : item.label;
+}
+
+function indexGroup(section: NavSection, art: number, extra: readonly NavItem[] = []): IndexGroup {
+  return {
+    heading: section.heading,
+    get to() {
+      return section.primaryTo ?? section.hub;
+    },
+    items: [...section.items, ...extra].filter((i) => !i.soon),
+    art,
+  };
+}
+
+/**
+ * The menu's index (owner, 2026-10-18: the shadowed features went in the side nav "until we can
+ * organize them better"; 2026-10-19: organise them, on the desktop too). Every section with its
+ * pages, in the order a visitor moves: find the island, trade, pool, lock, launch, check; then
+ * the records. A gated page (NFT finance, Community, Gold Card) rides its gate. /airdrop and
+ * /vesting stay out: their rails are undeployed (navConfig.test.ts). Dashboard joins once a
+ * wallet connects (NavDrawer.tsx).
+ */
+export const INDEX_GROUPS: readonly IndexGroup[] = [
+  // The venue's own pages no section claims (the Gold Card, History, Lore) are the island's.
+  indexGroup(ISLAND_SECTION, 3, UNSECTIONED_PAGES),
+  indexGroup(SWAP_SECTION, 5),
+  indexGroup(POOLS_SECTION, 1),
+  indexGroup(LOCK_SECTION, 6),
+  indexGroup(LAUNCH_SECTION, 7),
+  indexGroup(CHECK_SECTION, 2),
+  { heading: 'Records', items: DRAWER_LINKS, art: 0 },
 ];
 
-export const DRAWER_MORE: readonly NavItem[] = MORE_ORDER.flatMap(({ to, label }) => {
-  const item = [...MORE_NAV, ...UNSECTIONED_PAGES].find((i) => i.to === to);
-  return item && !item.soon ? [{ to, label: label ?? item.label }] : [];
-});
+/** Every page the index lists, flat, each once: what navReach.test.ts starts from. */
+export const INDEX_PAGES: readonly NavItem[] = INDEX_GROUPS.flatMap((g) => g.items);
 
 /** Every listed destination, exactly once: the sections, the drawer's own links and Dashboard. */
 export const ALL_NAV: NavItem[] = [

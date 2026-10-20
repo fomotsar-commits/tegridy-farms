@@ -1,8 +1,8 @@
 // The island's venue review, item 1, as the owner took it on 2026-10-03: the bar reads
 // Island · Lock · Launch · Swap at every width (Heat and Rooms became Island on 2026-10-18),
-// Pools, Check and a More list of every feature no word names live in one drawer that
-// opens at every width, the footer is eight links on one screen, and no bar or tab strip says
-// Soon. Walked on the production build at a phone, an iPad held upright and a laptop.
+// one menu opens at every width and is the site's index, every section's word with its pages
+// under it (owner, 2026-10-19), the footer is eight links on one screen, and no bar or tab
+// strip says Soon. Walked on the production build at a phone, an iPad held upright and a laptop.
 import { test, expect, type Page } from '@playwright/test';
 
 test.use({ serviceWorkers: 'block' });
@@ -66,38 +66,28 @@ for (const size of SIZES) {
       }
     });
 
-    test('the drawer opens and carries Pools, Check and the More list; Pools opens the Solana LP tab', async ({ page }) => {
+    test("the menu is the site's index: every section's word with its pages under it, two columns at most; Pools opens the Solana LP tab", async ({ page }) => {
       await open(page, '/');
       await page.getByRole('button', { name: 'Open navigation menu' }).click();
       const drawer = page.getByRole('dialog', { name: 'Navigation menu' });
       await expect(drawer).toBeVisible();
-      for (const row of ['Pools', 'Check']) {
-        await expect(drawer.getByRole('link', { name: row, exact: true }), row).toBeVisible();
+      const index = drawer.getByRole('navigation', { name: 'Site index' });
+      await expect(index.getByRole('heading', { level: 2 })).toHaveText(['Island', 'Swap', 'Pools', 'Lock', 'Launch', 'Check', 'Records']);
+      for (const word of ['Island', 'Swap', 'Pools', 'Lock', 'Launch', 'Check']) {
+        await expect(index.getByRole('link', { name: word, exact: true }), word).toBeVisible();
       }
-      await expect(drawer.getByRole('link', { name: 'Island', exact: true }), 'Island is a bar word').toHaveCount(0);
-      // Owner, 2026-10-18: the features no word names, the two the owner named first.
-      const more = drawer.getByRole('list', { name: 'More' }).getByRole('link');
-      await expect(more.nth(0)).toHaveText('Marketplace');
-      await expect(more.nth(1)).toHaveText('NFT Finance');
-      // One row per line, aligned: .nav-link is inline-flex on touch widths (index.css). The More
-      // list may run in two columns: each column stacks, and the first is on the rows' left edge.
-      const boxes = await drawer.getByRole('link').evaluateAll((as) => as.map((a) => {
-        const b = a.getBoundingClientRect();
-        return { top: Math.round(b.top), left: Math.round(b.left), more: Boolean(a.closest('ul[aria-labelledby="nav-drawer-more"]')) };
-      }));
-      const columns = new Map<number, number[]>();
-      for (const [i, b] of boxes.entries()) {
-        if (!b.more) expect(b.left, `drawer link ${i + 1} is not aligned with the first`).toBe(boxes[0]!.left);
-        columns.set(b.left, [...(columns.get(b.left) ?? []), b.top]);
+      // Owner, 2026-10-18: the shadowed features, each one tap; 2026-10-19: organised, under their words.
+      for (const [word, name] of [['Island', 'Marketplace'], ['Lock', 'NFT Loans'], ['Check', 'Charting'], ['Island', 'Lore']] as const) {
+        await expect(index.getByRole('region', { name: word }).getByRole('link', { name, exact: true }), `${name} under ${word}`).toBeVisible();
       }
-      expect(columns.size, 'the menu runs in more than two columns').toBeLessThanOrEqual(2);
-      expect(columns.has(boxes[0]!.left)).toBe(true);
-      for (const [left, tops] of columns) {
-        for (let i = 1; i < tops.length; i++) {
-          expect(tops[i]!, `two links share a line at x=${left}`).toBeGreaterThan(tops[i - 1]!);
-        }
-      }
-      await drawer.getByRole('link', { name: 'Pools', exact: true }).click();
+      // The groups run in one, two or three columns, never more; no word is cut short, and the
+      // index runs off the screen neither sideways nor under the picture.
+      const lefts = await index.getByRole('heading', { level: 2 }).evaluateAll((hs) => hs.map((h) => Math.round(h.getBoundingClientRect().left)));
+      expect(new Set(lefts).size, 'the index runs in more than three columns').toBeLessThanOrEqual(3);
+      const cut = await index.getByRole('link').evaluateAll((as) => as.filter((a) => a.scrollWidth > a.clientWidth + 1).map((a) => a.textContent));
+      expect(cut, 'a word in the index is cut short').toEqual([]);
+      expect(await index.evaluate((n) => n.scrollWidth <= n.clientWidth + 1), 'the index scrolls sideways').toBe(true);
+      await index.getByRole('link', { name: 'Pools', exact: true }).click();
       await expect.poll(() => new URL(page.url()).pathname).toBe('/solana-lp');
       await expect(page.getByRole('tab', { name: 'Solana LP', exact: true })).toHaveAttribute('aria-selected', 'true', { timeout: 30_000 });
     });

@@ -535,7 +535,7 @@ describe('useSwap on Base and Robinhood Chain (2026-10-17)', () => {
     expect(toast.error).toHaveBeenCalledWith('Please switch to Base');
   });
 
-  it('opens Base on ETH to Circle USDC, and Robinhood on ETH with nothing picked', () => {
+  it('opens Base on ETH to Circle USDC, and Robinhood on ETH to Global Dollar (USDG)', () => {
     wagmiState.chainId = 8453;
     const base = renderHook(() => useSwap({ chainId: 8453 })).result.current;
     expect(base.fromToken?.isNative).toBe(true);
@@ -544,7 +544,9 @@ describe('useSwap on Base and Robinhood Chain (2026-10-17)', () => {
     wagmiState.chainId = 4663;
     const rh = renderHook(() => useSwap({ chainId: 4663 })).result.current;
     expect(rh.fromToken?.isNative).toBe(true);
-    expect(rh.toToken).toBeNull();
+    // From the Uniswap Labs Default list, read on chain 2026-10-18 (lib/tokenList.ts).
+    expect(rh.toToken?.address).toBe('0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168');
+    expect(rh.toToken?.symbol).toBe('USDG');
   });
 
   it('resets the pair and the amount when the form moves to another chain', () => {

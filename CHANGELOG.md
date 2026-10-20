@@ -9,10 +9,12 @@ The site's Changelog tab shows both files.
 
 ### 2026-10-19
 
+- The menu is the site's index: every section's word with its pages under it, a Jump to field (Ctrl+K opens it), and the word Menu beside the ☰ on a computer. A room's page gets a numbered line under the top bar, lit as you scroll, one tap to each section.
 - The home shows the venue's all-time volume, counted every hour, with the time it was counted.
 
 ### 2026-10-18
 
+- Base and Robinhood Chain: Pools opens on each network's own coins, not Ethereum's TOWELI; Robinhood's Swap opens on ETH to USDG; a refused switch is said.
 - Heat and Rooms are now Island; the menu gains More.
 - The home: the chain row gains ROBINHOOD, which opens the curve on Robinhood Chain, and BASE now opens the curve on Base (it opened your wallet's chain, or Ethereum with no wallet). The home's Swap and Add SOL + BAYLA cards each have the network drop-down; picking another network opens that network's Swap or Pools page.
 - The Changelog tab (/changelog) now shows this list.
