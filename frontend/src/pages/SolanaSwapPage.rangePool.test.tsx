@@ -68,7 +68,10 @@ function preparedRangeSwap(a: VenueSwapArgs, out: bigint): PreparedTx {
     kind: 'range-swap',
     summary: {
       kind: 'range-swap',
-      poolLine: { pool: a.pool, tokenMint: a.outputMint, tokenDecimals: 6, quote: SOL_QUOTE, tokenIsToken0: true, tradeFeeRate: 10_000, venueShareRate: 160_000 },
+      poolLine: {
+        pool: a.pool, tokenMint: a.outputMint, tokenDecimals: 6, quote: SOL_QUOTE, tokenIsToken0: true, tradeFeeRate: 10_000, venueShareRate: 160_000,
+        protocolFeeRate: 104_000, fundFeeRate: 56_000, owner: 'GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd', fundOwner: 'G2EHPseTXetHbBvvRDs27XQyXfQikXXyxP9uMbsKrbu',
+      },
       paysCoin: true, amountIn: a.amountIn, minimumAmountOut: (out * 9_950n) / 10_000n, quotedOut: out, bandsCrossed: 1, aggregator: a.aggregator,
       unwrapsWsol: true, wsolHeldBefore: 0n, notices: [],
     },
@@ -321,7 +324,8 @@ describe('range pools in the route', () => {
     expect(args).toMatchObject({ amountIn: 100_000_000n, aggregator: { kind: 'quoted', out: 1_000_000n, when: 'now' } });
     // The review is the range pool's own, with its fee and the venue's share from the tier.
     expect(screen.getByText('Range pool')).toBeInTheDocument();
-    expect(screen.getByText(/the venue's accounts keep 16% of that fee/)).toBeInTheDocument();
+    expect(screen.getByText(/it keeps 16% of each swap’s fee \(0\.16% of the swap\)/)).toBeInTheDocument();
+    expect(screen.getByText(/The venue’s cut is split: 65% to the team’s shared wallet/)).toBeInTheDocument();
     await signOnReview();
     await waitFor(() => expect(h.submitPrepared).toHaveBeenCalledTimes(1));
     expect((h.submitPrepared.mock.calls[0]![2] as PreparedTx).kind).toBe('range-swap');

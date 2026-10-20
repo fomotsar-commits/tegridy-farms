@@ -7,6 +7,7 @@ import { feeRateText, formatSolPrice, tradeCostText } from '../../../lib/solana/
 import { TOO_NEW_WHY } from '../../../lib/solana/lp/ownPrice';
 import { edgePercent } from '../../../lib/solana/route';
 import { perMillionPercent } from '../../../lib/solana/clmm/feeText';
+import { rangeVenueEarns } from '../../../lib/solana/clmm/venueEarns';
 import type { FeeSplitView, NotSent, PreparedTx, SolanaCluster, TokenRole, TxKind, TxOutcome, TxSigner, TxSummary, TxViewApi } from './ports';
 import { reviewLines } from './reviewLines';
 import { RangeRows } from './RangeRows';
@@ -697,6 +698,7 @@ function VenueSwapRows({ summary: s }: { summary: Extract<TxSummary, { kind: 've
 function RangeSwapRows({ summary: s }: { summary: Extract<TxSummary, { kind: 'range-swap' }> }) {
   const l = s.poolLine;
   const q = l.quote;
+  const venue = rangeVenueEarns(l);
   const tokenName = quoteCoin(l.tokenMint.toBase58())?.symbol ?? 'tokens';
   const tok = (v: bigint, exact = false) => `${exact ? unitsExact(v, l.tokenDecimals) : tokenText(v, l.tokenDecimals)} ${tokenName}`;
   const coin = (v: bigint, exact = false) => (exact ? coinExact(v, q) : coinAbout(v, q));
@@ -711,9 +713,16 @@ function RangeSwapRows({ summary: s }: { summary: Extract<TxSummary, { kind: 'ra
       <Row label="You receive at least" value={get(s.minimumAmountOut, true)} />
       <Row
         label="Pool fee (inside what you pay)"
-        value={`${perMillionPercent(l.tradeFeeRate)} of what you pay; the venue's accounts keep ${perMillionPercent(l.venueShareRate)} of that fee and the positions your trade passes through share the rest, read from the pool's fee tier`}
+        value={`${perMillionPercent(l.tradeFeeRate)} of what you pay. The positions your trade passes through share what the venue does not keep: it keeps ${venue.cut}, read from the pool's fee tier.`}
         mono={false}
       />
+      {venue.elsewhere ? (
+        <Notice tone="bad">
+          <strong>{venue.where}</strong> {venue.wallets.map((w) => `${w.label}: ${w.address}`).join('. ')}.
+        </Notice>
+      ) : (
+        <Notice>{venue.where}</Notice>
+      )}
       <Row label="Price bands it may cross" value={String(s.bandsCrossed)} mono={false} />
       <Row label="Compared with Jupiter" value={routeText(s.aggregator, s.quotedOut)} mono={false} line="market" />
       {s.notices.map((n) => (
