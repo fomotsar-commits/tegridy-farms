@@ -113,8 +113,9 @@ only.
 1. **Program tests on a local chain: done 2026-10-20.** Every instruction a visitor or the venue
    uses ran on a local validator against copies of mainnet's BAYLA, wrapped SOL, Squads and token
    programs, with each admin action signed by the vault's real address through a real Squads
-   2-of-2 and a time lock. Each check was first run against a broken input that had to turn it
-   red. Harness and results: `solana/clmm-localnet/` and its
+   2-of-2 and a time lock. 95 checks over 35 of the program's 39 instructions (the other four are
+   deprecated paths the site never uses); each check was first run against a broken input that had
+   to turn it red. Harness and results: `solana/clmm-localnet/` and its
    [RESULTS.md](../solana/clmm-localnet/RESULTS.md).
 2. **Fee tiers: decided by the owner 2026-10-20** (below). The two vault proposals are the first
    mainnet step after the deploy. Risk: a tier, once made, cannot be deleted.
@@ -209,7 +210,8 @@ left the rest to the builder. Decided on that basis:
 
 1. **Position NFTs: Token-2022 only.** The site never offers the Metaplex path, so no outside
    program is paid. The program still has that path; a stranger calling it directly pays
-   Metaplex from their own wallet, never from the venue's.
+   Metaplex from their own wallet, never from the venue's (measured 2026-10-20: 0.01 SOL kept in
+   the name record, the vault untouched).
 2. **Anyone may open a pool**, as with our cp-swap today.
 3. **The limit-order keeper is the vault.** Settling an order takes two signatures; the coins can
    only go to the order's owner.

@@ -25,7 +25,7 @@ try {
   for (let i = 0; ; i++) {
     const ok = await fetch(RPC, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{"jsonrpc":"2.0","id":1,"method":"getHealth"}' }).then((r) => r.json()).then((j) => j.result === 'ok').catch(() => false);
     if (ok) break;
-    if (i > 90) throw new Error('validator did not come up; see <ledger>.out in WSL');
+    if (i > 240) throw new Error('validator did not come up; see <ledger>.out in WSL');
     await new Promise((r) => setTimeout(r, 1000));
   }
   node('suite.mjs');

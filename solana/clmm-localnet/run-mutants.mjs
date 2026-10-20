@@ -3,7 +3,7 @@
 // pass every check, with the program's bytes and source unchanged.
 // Three chains run side by side, each with its own ports, ledger and work folder; a sweep uses a
 // 3 s lock (CLMM_TIME_LOCK) unless the mutant sets its own. The restore run uses the default lock.
-// usage: node run-mutants.mjs [id ...]      writes mutants-<date>.json into CLMM_WORK
+// usage: node run-mutants.mjs [id ...]      writes mutants-<start time>.json into CLMM_WORK
 import { spawn, execFileSync } from 'node:child_process';
 import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
@@ -39,7 +39,9 @@ async function worker(i) {
     if (existsSync(f)) rmSync(f);
     const t0 = Date.now();
     const env = { ...process.env, CLMM_WORK: work, CLMM_PORT: String(20899 + 2000 * i), CLMM_LEDGER: `/root/clmm-p1/ledger-w${i}`, CLMM_TIME_LOCK: '3', ...(MUTANTS[id].env || {}) };
-    const r = await run(['--mutant', id], env);
+    // A run whose target was never judged (a validator that did not start, under load) gets one more try.
+    let r = await run(['--mutant', id], env);
+    if (!existsSync(f)) r = await run(['--mutant', id], env);
     const res = existsSync(f) ? JSON.parse(readFileSync(f, 'utf-8')) : null;
     const target = res?.checks.find((c) => c.id === MUTANTS[id].target);
     const red = !!target && !target.pass;
@@ -63,7 +65,7 @@ out.restore = {
 out.restore.ok = !!res && out.restore.cleanFailed.length === 0 && out.restore.programShaAfter === shaBefore && out.restore.sourceTreeAfter === treeBefore && !out.restore.sourceDirty;
 out.finished = new Date().toISOString();
 out.mutants.sort((a, b) => ids.indexOf(a.id) - ids.indexOf(b.id));
-writeFileSync(join(WORK, `mutants-${out.started.slice(0, 10)}.json`), JSON.stringify(out, null, 1));
+writeFileSync(join(WORK, `mutants-${out.started.replace(/[:.]/g, '-')}.json`), JSON.stringify(out, null, 1));
 const missed = out.mutants.filter((m) => !m.red);
 console.log(`\n${out.mutants.length} mutants, ${out.mutants.length - missed.length} red, ${missed.length} not red${missed.length ? ': ' + missed.map((m) => m.id).join(', ') : ''}`);
 console.log(`restore: ${out.restore.ok ? 'proven' : 'NOT proven'} (clean ${out.restore.cleanChecks} checks, failed [${out.restore.cleanFailed}], program ${out.restore.programShaAfter.slice(0, 12)}, source ${out.restore.sourceDirty ? 'DIRTY' : 'clean'})`);

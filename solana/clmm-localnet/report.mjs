@@ -9,9 +9,14 @@ import { MUTANTS } from './mutants.mjs';
 const j = (f) => JSON.parse(readFileSync(join(WORK, f), 'utf-8'));
 const clean = j('results-clean.json');
 const man = j('manifest.json');
-const mfile = process.argv[2] || readdirSync(WORK).filter((f) => /^mutants-.*\.json$/.test(f)).sort().pop();
-const sweep = mfile ? j(mfile) : null;
+// Every sweep in the work folder, oldest first: a later run of the same broken input wins, and
+// the restore that counts is the last sweep's.
+const sweeps = readdirSync(WORK).filter((f) => /^mutants-.*\.json$/.test(f)).sort().map(j);
+const sweep = sweeps.length
+  ? { ...sweeps.at(-1), mutants: Object.values(Object.fromEntries(sweeps.flatMap((x) => x.mutants).map((m) => [m.id, m]))), runs: sweeps.length }
+  : null;
 const perByte = man.mainnetRent.perByte;
+const offCount = readFileSync(join(WORK, 'deactivate-features.txt'), 'utf-8').split('\n').filter(Boolean).length;
 const sol = (l) => (Number(l) / 1e9).toFixed(4);
 const mainnetCost = (bytes) => (bytes + 128) * perByte;
 const esc = (s) => String(s).replace(/\|/g, '\\|');
@@ -71,21 +76,27 @@ signed or sent on mainnet: mainnet was only read.
   is needed). Solana tools 3.1.11 in WSL (CI pins 3.1.10), sha256 \`${sweep?.programSha ?? 'see manifest'}\`,
   loaded at the placeholder id \`${man.addresses.program}\` with the vault as upgrade authority.
 - **Copied from mainnet** (read at slot ${man.accounts.multisig.slot.toLocaleString('en-US')}, ${man.readAt.slice(0, 16)}Z): the programs Squads v4, Token-2022, SPL Token,
-  Associated Token, Memo and Metaplex (each byte-identical to mainnet's, sha256 in the manifest); the BAYLA mint
+  Associated Token, Memo and Metaplex (each byte-identical to mainnet's: table below); the BAYLA mint
   \`${man.addresses.bayla}\`; the wrapped-SOL mint; the Squads multisig \`${man.addresses.multisig}\`;
   Squads' own published IDL. Every address came from \`frontend/scripts/addresses.json\`, \`solana/guards/allowed-keys.json\`
   or the frontend's Squads constant.
 - **What differs from mainnet, and nothing else**: the multisig's two member keys are local test keys and its
   172,800 s time lock is **${clean.localTimeLock} s** (threshold 2, no config authority and proposal numbering stay
   mainnet's, so its vault 0 is the real vault \`${man.addresses.vault}\`); BAYLA's mint had a local mint authority
-  until the test wallets were funded, then none, as on mainnet (check S2); the 29 runtime features mainnet has not
+  until the test wallets were funded, then none, as on mainnet (check S2); the ${offCount} runtime features mainnet has not
   switched on were switched off (\`features.mjs\`), including the raise of the program-call depth limit from 4 to 8.
 - **Starting price**: the venue's BAYLA/SOL pool on mainnet, ${man.venuePrice.solPerBayla.toExponential(4)} SOL per BAYLA.
+
+| Program copied from mainnet | Address | Bytes | sha256 | Last deployed (slot) |
+|---|---|---|---|---|
+${Object.entries(man.programs).map(([k, p]) => `| ${k} | \`${p.address}\` | ${p.bytes.toLocaleString('en-US')} | \`${p.sha256}\` | ${p.lastDeploySlot ? p.lastDeploySlot.toLocaleString('en-US') : 'not upgradeable'} |`).join('\n')}
 
 ## Every check
 
 "Red first" names the broken input each check was run against before it passed: the check had to come out FAIL on
 it. ${unred.length ? `**Not seen red first: ${unred.join(', ')}.** Until each is, its pass proves less than the others.` : `Every check was seen red first.`}
+Each broken input ran alone on a fresh chain and stopped once its check was judged; those runs used a 3 s lock to save
+time (the clean runs use ${clean.localTimeLock} s). ${sweep ? `The restore after them: a clean run from nothing, ${sweep.restore.cleanChecks} checks, ${sweep.restore.cleanFailed.length ? `**failed ${sweep.restore.cleanFailed.join(', ')}**` : 'none failed'}, the program's sha256 \`${sweep.restore.programShaAfter}\` as before and its source unchanged.` : ''}
 
 | ID | Instruction | What was checked | Clean run | Red first | Counts |
 |---|---|---|---|---|---|

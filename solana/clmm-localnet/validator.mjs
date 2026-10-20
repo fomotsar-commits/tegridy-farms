@@ -48,4 +48,6 @@ const cmd = `solana-test-validator ${args.map(q).join(' ')}`;
 writeFileSync(join(WORK, 'validator-command.txt'), cmd + '\n');
 console.log(`${args.length} args, ${multisigFile}, program ${SO}`);
 process.exit(sh(`[ -f ${PID} ] && grep -q solana-test-validator /proc/$(cat ${PID})/cmdline 2>/dev/null && { echo already running; exit 1; }; ` +
-  `setsid nohup ${cmd} > ${LEDGER}.out 2>&1 < /dev/null & echo $! > ${PID}; echo started pid $(cat ${PID})`));
+  // nohup first, so the hang-up of this exiting shell cannot reach it before setsid detaches it.
+  `nohup setsid ${cmd} > ${LEDGER}.out 2>&1 < /dev/null & P=$!; echo $P > ${PID}; sleep 2; ` +
+  `kill -0 $P 2>/dev/null && echo started pid $P || { echo validator exited at once; tail -5 ${LEDGER}.out; exit 1; }`));

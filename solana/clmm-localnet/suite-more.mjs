@@ -169,15 +169,22 @@ export async function more(c, h, s) {
 
   // ---- the old swap, and the Metaplex position path -------------------------------------
   {
+    // Same call on both pools, with the tick arrays that exist in the swap's direction, so the only
+    // difference is the coin: the refusal must name the BAYLA side's account.
     const onB = mut('X16');
-    const [pool, inM, outM, obs] = onB ? [poolB, WSOL, USD, PDA.observation(poolB)] : [poolA, WSOL, BAYLA, obsA];
+    const [pool, inM, outM, obs, arr] = onB ? [poolB, WSOL, USD, PDA.observation(poolB), arraysB] : [poolA, WSOL, BAYLA, obsA, arrays];
     const p = await account('PoolState', pool);
-    const t = arrayStart(p.tick_current, p.tick_spacing);
+    const zeroForOne = inM.equals(p.token_mint_0);
+    const cur = arrayStart(p.tick_current, p.tick_spacing);
+    const ex = []; for (const t of arr) if (await conn.getAccountInfo(PDA.tickArray(pool, t))) ex.push(t);
+    const ord = (zeroForOne ? ex.filter((t) => t <= cur).sort((a, b) => b - a) : ex.filter((t) => t >= cur).sort((a, b) => a - b)).map((t) => PDA.tickArray(pool, t));
     const r = await send('the old swap (SPL Token only)', [ix('swap', {
       payer: dave.publicKey, amm_config: onB ? cfg1 : cfg0, pool_state: pool, input_token_account: ata(dave.publicKey, inM), output_token_account: ata(dave.publicKey, outM),
-      input_vault: PDA.vault(pool, inM), output_vault: PDA.vault(pool, outM), observation_state: obs, tick_array: PDA.tickArray(pool, t),
-    }, { amount: 10_000_000n, other_amount_threshold: 0n, sqrt_price_limit_x64: 0n, is_base_input: true })], [dave], { expectFail: true });
-    check('X16', 'swap (old)', 'the old swap cannot move a Token-2022 coin, so it cannot trade BAYLA', !r.ok, `refused: ${errName(r)}`);
+      input_vault: PDA.vault(pool, inM), output_vault: PDA.vault(pool, outM), observation_state: obs, tick_array: ord[0],
+    }, { amount: 10_000_000n, other_amount_threshold: 0n, sqrt_price_limit_x64: 0n, is_base_input: true }, ord.slice(1).map((k) => ({ pubkey: k })))], [dave], { expectFail: true });
+    const onBayla = ['output_token_account', 'output_vault'].includes(r.error?.account);
+    check('X16', 'swap (old)', "the old swap cannot move a Token-2022 coin, so it cannot trade BAYLA: it is refused at BAYLA's own account", !r.ok && onBayla,
+      r.ok ? 'it went through' : `refused: ${errName(r)} at ${r.error?.account ?? 'no named account'}`);
   }
   {
     const p = await account('PoolState', poolA);

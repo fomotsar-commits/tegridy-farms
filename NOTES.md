@@ -68,10 +68,15 @@ session's validator held a `wsl.exe` client open; once that ended, WSL's machine
 (`uptime` 17 s) and took every process with it, that other session's validator included, leaving
 stale PID files whose numbers a new process may reuse.
 
+With four validators starting at once, about one start in ten also died at birth under
+`setsid nohup cmd &`: empty log, ledger untouched, a PID file naming nothing. The exiting shell's
+hang-up reached it before `setsid` detached it; `nohup setsid cmd &` (hang-up ignored first) and a
+2-second `kill -0` check stopped it.
+
 **Do:** hold a `wsl.exe` client open for the length of the run (`spawn('wsl', ['-e','bash','-lc',
-'exec sleep 86400'])`, killed at the end), keep the validator's PID in a file, and treat that PID as
-yours only if `/proc/<pid>/cmdline` names `solana-test-validator` (`solana/clmm-localnet/run.mjs`,
-`validator.mjs`).
+'exec sleep 86400'])`, killed at the end), start with `nohup setsid`, confirm the PID is alive
+before saying it started, and treat a PID as yours only if `/proc/<pid>/cmdline` names
+`solana-test-validator` (`solana/clmm-localnet/run.mjs`, `validator.mjs`).
 
 ## 2026-10-19: a dev-server walk that stubs every /api/ request renders a blank page, because the app imports from /api/_lib/
 

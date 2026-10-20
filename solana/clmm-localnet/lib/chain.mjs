@@ -26,6 +26,7 @@ function readError(err, logs) {
   const custom = err?.InstructionError?.[1]?.Custom;
   return {
     program, name: anchor ? anchor[1] : null, code: anchor ? Number(anchor[2]) : custom ?? null,
+    account: (logs || []).map((l) => /AnchorError caused by account: (\w+)\./.exec(l)).find(Boolean)?.[1] ?? null,
     raw: JSON.stringify(err), index: err?.InstructionError?.[0] ?? null,
   };
 }

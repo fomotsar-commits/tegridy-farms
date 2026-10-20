@@ -5,21 +5,23 @@
 **What it means.** The range-pool program (our copy of Raydium's concentrated-liquidity program, built the way a
 release would be) ran every instruction a visitor or the venue would use on a local chain, against copies of
 mainnet's BAYLA, wrapped SOL, Squads and token programs. 95 checks: 95 pass, none fail.
-**No mutant sweep has been run.**
+95 of 95 broken inputs turned their check red first; the clean run after them passed every check with the program and its source unchanged (restore proven).
 Every admin action was signed by the vault's real address through a real Squads 2-of-2 with a time lock. No path
-sent anything to a Raydium address, and the venue's share was collectable only by the vault.
+sent anything to a Raydium address. The fee tiers are the owner's (2026-10-20): of each fee the LPs collected 84%,
+the venue's 10.4% was collectable only by the vault, and the island's 5.6% by its Workshop's role, **or by the
+vault, which can also re-point it** (checks V6 and V9), as in our cp-swap.
 
-Run 2026-10-20T17:01:45.465Z to 2026-10-20T17:09:55.285Z. Nothing was deployed anywhere, no program key exists, and nothing was
+Run 2026-10-20T18:32:50.778Z to 2026-10-20T18:41:17.733Z. Nothing was deployed anywhere, no program key exists, and nothing was
 signed or sent on mainnet: mainnet was only read.
 
 ## The local chain
 
 - **Program**: `solana/tegridy-clmm` built with `cargo build-sbf --features placeholder-id -- --locked` (the
   release shape CI builds; every role is the vault, so no `devnet`/`localnet` feature and no `test-chain-keys`
-  is needed). Solana tools 3.1.11 in WSL (CI pins 3.1.10), sha256 `see manifest`,
+  is needed). Solana tools 3.1.11 in WSL (CI pins 3.1.10), sha256 `3f61d3ae01a57133ffd81bb22dbe5dba0e0845c6313b16313b460c13a661c73b`,
   loaded at the placeholder id `RangePoo1PLACEHo1DERnotDep1oyed111111111111` with the vault as upgrade authority.
-- **Copied from mainnet** (read at slot 459,305,700, 2026-10-20T17:01Z): the programs Squads v4, Token-2022, SPL Token,
-  Associated Token, Memo and Metaplex (each byte-identical to mainnet's, sha256 in the manifest); the BAYLA mint
+- **Copied from mainnet** (read at slot 459,330,827, 2026-10-20T18:32Z): the programs Squads v4, Token-2022, SPL Token,
+  Associated Token, Memo and Metaplex (each byte-identical to mainnet's: table below); the BAYLA mint
   `7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump`; the wrapped-SOL mint; the Squads multisig `EVGSnRZFWqjCaWR7z2xKbSXnuddY8upevEQK5HFmj6NK`;
   Squads' own published IDL. Every address came from `frontend/scripts/addresses.json`, `solana/guards/allowed-keys.json`
   or the frontend's Squads constant.
@@ -30,108 +32,119 @@ signed or sent on mainnet: mainnet was only read.
   switched on were switched off (`features.mjs`), including the raise of the program-call depth limit from 4 to 8.
 - **Starting price**: the venue's BAYLA/SOL pool on mainnet, 5.9711e-6 SOL per BAYLA.
 
+| Program copied from mainnet | Address | Bytes | sha256 | Last deployed (slot) |
+|---|---|---|---|---|
+| squads | `SQDS4ep65T869zMMBKyuUq6aD6EgTu8psMjkvj52pCf` | 1,470,416 | `dec8d3e0fae58c7c8f2416e5f67c25e673f047afd6dd2bba4a47e0b29a01d34c` | 302,582,236 |
+| token2022 | `TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb` | 1,382,016 | `0999dbf708971e723b08d1caafc988826a59c6001ed6dc02260da07defbe1469` | 427,147,035 |
+| token | `TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA` | 108,600 | `8190d3f7ceb6cb7a7a8d8924bff89f9f611e15ce1f806f2b6237f3311a98f697` | 419,472,000 |
+| ata | `ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL` | 105,032 | `6804554e69fd3a58caa191dc4a58f4c67223d30ca28ab8987f39fc18d2f7374d` | not upgradeable |
+| memo | `MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr` | 74,800 | `f520eaf096361abbb9639ea4dc3e5388a87b9330e121f476607b87c46ef67954` | not upgradeable |
+| metaplex | `metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s` | 793,991 | `31f0a627dba051a938de650464e55cc5397a4be0fd496929c1f9cf02fe5e9011` | 380,725,176 |
+
 ## Every check
 
 "Red first" names the broken input each check was run against before it passed: the check had to come out FAIL on
-it. Checks with no broken input of their own: S0, S1, S2, S3, T1, T2, T3, T4, T5, T6, T7, T8, T9, P1, P2, P3, L1, L2, L3, L4, L5, L6, L7, L9, L8, W1, W2, W3, W4, W5, W6, W7, F1, F2, F3, F4, F5, V1, V2, V3, V5, V6, V7, V8, R1, R2, R3, R4, R5, R6, R7A, R7, R8, R9, R10, R12, R11, O1, O2, O3, O4, O5, O6, O7, O8, O9, A3, A1, A2, V9, E3, E1, E2, C1, X1, X2, X3, X4, X6, X7, X8, X9, X10, X11, X12, X13, X14, X15, X16, X17, G1, G2, G3, G4, G5. Each of these reads a value an earlier red-first check already guards, or is a setup fact.
+it. Every check was seen red first.
+Each broken input ran alone on a fresh chain and stopped once its check was judged; those runs used a 3 s lock to save
+time (the clean runs use 10 s). The restore after them: a clean run from nothing, 95 checks, none failed, the program's sha256 `3f61d3ae01a57133ffd81bb22dbe5dba0e0845c6313b16313b460c13a661c73b` as before and its source unchanged.
 
 | ID | Instruction | What was checked | Clean run | Red first | Counts |
 |---|---|---|---|---|---|
-| S0 | `setup` | vault 0 of the multisig (registry row squads-multisig) is the registry vault | pass | no broken input (see below) | GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd |
-| S1 | `setup` | local multisig: 2 of 2, members are the two local keys, lock 10 s (mainnet 172800 s, threshold 2) | pass | no broken input (see below) | next proposal 15, as on mainnet |
-| S2 | `setup` | BAYLA's mint is mainnet's byte for byte, except its supply (the test wallets' coins) | pass | no broken input (see below) | 408 bytes, 472,000,000 BAYLA minted locally |
-| S3 | `setup` | the vault's wrapped-SOL account here is the one the registry names (cpswap-fee-receiver-wsol-ata) | pass | no broken input (see below) | 2sa31zceMSTAAbSu5wfSnNA6sBYzS7r97nvZYaQouEXa |
-| T1 | `create_amm_config` | a stranger cannot make a fee tier | pass | no broken input (see below) | refused: NotApproved |
-| T2 | `Squads: vault_transaction_execute` | one approval of two cannot execute a vault action | pass | no broken input (see below) | proposal 15: Active, execute InvalidProposalStatus |
-| T3 | `Squads: proposal_approve` | someone outside the multisig cannot approve | pass | no broken input (see below) | refused: NotAMember |
-| T4 | `Squads: vault_transaction_execute` | an execute sent before the 10 s lock runs out is refused, and the proposal stays approved | pass | no broken input (see below) | refused: TimeLockNotReleased |
-| T5 | `create_amm_config` | the vault makes fee tier 0 through Squads, executed only after the lock | pass | no broken input (see below) | proposal 16, executed 10 s after the second approval |
-| T6 | `create_amm_config + update_amm_config` | one proposal makes tier 0 (1%, spacing 120) with the split: 104,000 per million of each fee to the venue (owner: the vault), 56,000 to the island (fund owner: its Workshop) | pass | no broken input (see below) | protocol 104000, fund 56000 per million; fund owner G2EHPseT... |
-| T7 | `create_amm_config + update_amm_config` | one proposal makes tier 1 (0.25%, spacing 60) with the same split and the same two owners | pass | no broken input (see below) | proposal 17 |
-| T8 | `update_amm_config` | a stranger cannot change a fee tier | pass | no broken input (see below) | refused: NotApproved |
-| T9 | `update_amm_config` | the vault changes a tier and changes it back | pass | no broken input (see below) | 100000 then 104000 per million |
-| P1 | `create_pool` | the pool opens with the given price, no liquidity, empty vaults, opener as owner | pass | no broken input (see below) | 1 BAYLA = 5.9711e-6 SOL, tick 51210 |
-| P2 | `create_pool` | opening takes no coins from the opener: only the rent of its five accounts and the fee | pass | no broken input (see below) | 0.06148464 SOL rent locally |
-| P3 | `create_pool` | a pool opens on the 0.25% tier with spacing 60 | pass | no broken input (see below) | tick -17149 |
-| L1 | `open_position_with_token22_nft` | a range around the price takes both coins, within the caps, and the pool vaults receive exactly that | pass | no broken input (see below) | 3,999,999.999998 BAYLA + 23.758005772 SOL, ticks 42000..60360, 120060 CU |
-| L2 | `open_position_with_token22_nft` | the position is a Token-2022 NFT (supply 1, 0 decimals) held by its owner, named "Memetics Range Position", "MEM-RANGE", linking memetics.finance/position/<position>.json | pass | no broken input (see below) | https://memetics.finance/position/5hWVFeqt8kP9BcopLbtwzj5casYfoUc76fpmkcB1WSsu.json |
-| L3 | `open_position_with_token22_nft` | a BAYLA-only position above the price takes BAYLA and not one lamport of SOL | pass | no broken input (see below) | 4,999,999.999999 BAYLA, 0 lamports, ticks 40200..48480 |
-| L4 | `open_position_with_token22_nft` | a SOL-only position below the price takes SOL and not one unit of BAYLA | pass | no broken input (see below) | 15 SOL, 0 BAYLA base units, ticks 53760..62160 |
-| L5 | `open_position_with_token22_nft` | a far-away BAYLA-only position opens (it should earn nothing below) | pass | no broken input (see below) | ticks 14280..21240 |
-| L6 | `open_position_with_token22_nft` | without the name record the NFT mint is smaller (a choice the client makes) | pass | no broken input (see below) | 202 vs 469 bytes |
-| L7 | `increase_liquidity_v2` | adding to a position raises its liquidity and takes both coins | pass | no broken input (see below) | +1,999,999.999997 BAYLA, +11.879002886 SOL, 49220 CU |
-| L9 | `decrease_liquidity_v2` | removing a quarter lowers liquidity by exactly that and pays both coins back to the owner | pass | no broken input (see below) | 1,499,999.999997 BAYLA, 8.909252164 SOL back, 45582 CU |
-| L8 | `decrease_liquidity_v2` | only the holder of the position NFT can withdraw from it | pass | no broken input (see below) | refused: ConstraintTokenOwner |
-| W1 | `swap_v2` | a buy moves the price up into the BAYLA-only range and across into another tick array | pass | no broken input (see below) | 5.9711e-6 -> 1.3136e-5 SOL per BAYLA, 1 array boundary crossed, 68877 CU |
-| W2 | `swap_v2` | the trader's coins and the pool's vaults move by exactly the same amounts | pass | no broken input (see below) | paid 69.985831379 SOL, got 7,333,378.874345 BAYLA |
-| W3 | `swap_v2` | of a 1% swap, 0.104% of what the trader paid waits for the venue and 0.056% for the island | pass | no broken input (see below) | venue 0.072785263 SOL (0.10400%), island 0.039192064 SOL (0.05600%) of 69.985831379 SOL |
-| W4 | `swap_v2` | a sell moves the price the other way, across several tick arrays, into the SOL-only range | pass | no broken input (see below) | 1.3136e-5 -> 2.9855e-6, 2 boundaries, 87046 CU |
-| W5 | `swap_v2` | the same split in the other coin | pass | no broken input (see below) | venue 15,456.652566 BAYLA (0.10400%), island 8,322.812919 BAYLA (0.05600%) |
-| W6 | `swap_v2` | an exact-output buy delivers exactly what was asked, for no more than the cap | pass | no broken input (see below) | got 100,000 BAYLA for 0.302611754 SOL |
-| W7 | `swap_v2` | a swap that would pay less than the trader asked is refused and moves nothing | pass | no broken input (see below) | refused: TooLittleOutputReceived |
-| F1 | `decrease_liquidity_v2 (0)` | the wide range collects fees in both coins and keeps its liquidity | pass | no broken input (see below) | 76,562.713715 BAYLA + 0.300043184 SOL |
-| F2 | `decrease_liquidity_v2 (0)` | the BAYLA-only range, which both swaps passed, earned fees in both coins | pass | no broken input (see below) | 28,430.083303 BAYLA + 0.288627707 SOL |
-| F3 | `decrease_liquidity_v2 (0)` | the SOL-only range earned BAYLA fees from the sell that reached it | pass | no broken input (see below) | 19,647.513229 BAYLA + 0.001030884 SOL |
-| F4 | `decrease_liquidity_v2 (0)` | a range no swap reached earned nothing | pass | no broken input (see below) | 0 + 0 base units |
-| F5 | `swap_v2 + decrease_liquidity_v2` | of every fee the LPs collected 84%, 10.4% waits for the venue and 5.6% for the island; together they are 1% of what traders paid | pass | no broken input (see below) | BAYLA: LPs 84.000%, venue 10.400%, island 5.600%; SOL: LPs 84.000%, venue 10.400%, island 5.600%; fee 1.000% and 1.000% of input |
-| V1 | `collect_protocol_fee` | a stranger cannot collect the venue's share | pass | no broken input (see below) | refused: NotApproved |
-| V2 | `collect_protocol_fee` | the vault collects exactly the venue's share that built up, and the pool's count goes to zero | pass | no broken input (see below) | 15,456.652566 BAYLA + 0.073099979 SOL, proposal 20 |
-| V3 | `collect_protocol_fee` | the venue's share landed in token accounts the vault owns | pass | no broken input (see below) | GRMtSx, GRMtSx |
-| V5 | `collect_fund_fee` | a stranger cannot collect the island's share | pass | no broken input (see below) | refused: NotApproved |
-| V6 | `update_amm_config (param 4)` | the vault can point a tier's fund share at any account, at any time (an admin path over the island's share) | pass | no broken input (see below) | fund owner re-pointed by one vault proposal |
-| V7 | `collect_fund_fee` | the fund owner collects exactly the island's share that built up, into its own accounts | pass | no broken input (see below) | 8,322.812919 BAYLA + 0.039361525 SOL |
-| V8 | `update_amm_config (param 4)` | tier 0's fund owner is the Workshop again | pass | no broken input (see below) |  |
-| R1 | `create_operation_account` | the vault creates the operation account rewards need | pass | no broken input (see below) |  |
-| R2 | `initialize_reward` | the vault funds a 1 BAYLA a second reward for 7 days: exactly 604,800 BAYLA leave the vault for the reward vault | pass | no broken input (see below) | 604,800 BAYLA |
-| R3 | `initialize_reward` | a stranger cannot set up a reward on the pool | pass | no broken input (see below) | refused: NotApproved |
-| R4 | `initialize_reward` | the pool's opener funds a second reward from her own coins | pass | no broken input (see below) | 302,400 REWARD |
-| R5 | `set_reward_params` | before a reward opens, the vault can move its window (here to 90 s, paying 90 BAYLA more) | pass | no broken input (see below) | window 1792515957..1792516047, paid 90 BAYLA |
-| R6 | `update_reward_infos` | anyone can bring the reward counters up to date | pass | no broken input (see below) | 6130 CU |
-| R7A | `decrease_liquidity_v2 (rewards)` | an LP in range collects both rewards, no more than the stream paid so far | pass | no broken input (see below) | 17.802444 BAYLA after 30 s, 13.351833 REWARD |
-| R7 | `decrease_liquidity_v2 (rewards)` | a position out of range earns no reward | pass | no broken input (see below) | 0 + 0 base units |
-| R8 | `decrease_liquidity_v2 (rewards)` | over the whole window the LPs together collect what the stream emitted (90 BAYLA), never more | pass | no broken input (see below) | 89.999999 of 90 BAYLA |
-| R9 | `collect_remaining_rewards` | after the end the vault takes back everything the stream did not owe | pass | no broken input (see below) | 604,800 BAYLA back |
-| R10 | `collect_remaining_rewards` | a reward still running cannot be taken back | pass | no broken input (see below) | refused: NotApproved |
-| R12 | `transfer_reward_owner` | a stranger cannot take over a pool's rewards | pass | no broken input (see below) | refused: NotApproved |
-| R11 | `transfer_reward_owner` | the vault can hand a pool's owner and reward authority to someone else | pass | no broken input (see below) | pool B owner: bob |
-| O1 | `open_limit_order` | the order takes exactly its BAYLA into the pool and records owner, price and side | pass | no broken input (see below) | tick 56280 (3.5968e-6 SOL per BAYLA) |
-| O2 | `increase_limit_order` | adding to an order raises its total | pass | no broken input (see below) | 1,500,000 BAYLA |
-| O3 | `decrease_limit_order` | cutting an unfilled order pays the coins back to its owner | pass | no broken input (see below) | 200,000 BAYLA back |
-| O4 | `swap_v2 (fills the order)` | a buy moves the price past the order | pass | no broken input (see below) | 3.0062e-6 -> 4.4783e-6 |
-| O5 | `settle_limit_order` | a stranger cannot settle someone's order | pass | no broken input (see below) | refused: ConstraintRaw |
-| O6 | `settle_limit_order` | the keeper (the vault) cannot settle an order into its own account | pass | no broken input (see below) | refused: ConstraintTokenOwner |
-| O7 | `settle_limit_order` | the keeper settles the filled order; the SOL goes to the order's owner, at the order's price, and the vault gets nothing | pass | no broken input (see below) | 4.675803056 SOL for 1,300,000 BAYLA (expected 4.675803), proposal 29 |
-| O8 | `close_limit_order` | closing the order refunds its rent to the order's owner, none to the keeper | pass | no broken input (see below) | 0.00209496 SOL to erin |
-| O9 | `decrease_limit_order + close_limit_order` | an owner can cancel an order in full and close it herself | pass | no broken input (see below) | all 200,000 BAYLA and 0.00209496 SOL rent back |
-| A3 | `update_pool_status` | a stranger cannot pause a pool | pass | no broken input (see below) | refused: ConstraintAddress |
-| A1 | `update_pool_status` | when the vault pauses swaps, a swap is refused | pass | no broken input (see below) | refused: NotApproved |
-| A2 | `update_pool_status` | after the vault lifts the pause, swaps work again | pass | no broken input (see below) | 219,025.587978 BAYLA |
-| V9 | `collect_fund_fee` | the vault, as admin, can also collect the island's share itself, into its own accounts, while the Workshop is the fund owner (the program allows the admin or the fund owner, as cp-swap does) | pass | no broken input (see below) | 0 BAYLA + 0.01406464 SOL to the vault, proposal 33 |
-| E3 | `collect_excess_lamports` | a stranger cannot sweep spare SOL | pass | no broken input (see below) | refused: NotApproved |
-| E1 | `collect_excess_lamports` | the vault receives exactly the spare SOL, and the BAYLA in the pool is untouched | pass | no broken input (see below) | 0.8 SOL to the vault |
-| E2 | `collect_excess_lamports` | the sweep cannot take LPs' SOL out of the wrapped-SOL vault: its balance and lamports are unchanged | pass | no broken input (see below) | swept only the 0.1 SOL gift; balance 32.520705163 SOL kept |
-| C1 | `close_position` | closing burns the NFT, closes its mint, account and record, and refunds all three rents to the owner | pass | no broken input (see below) | 0.00906888 SOL back |
-| X1 | `update_operation_account` | a stranger cannot make anyone an operator | pass | no broken input (see below) | refused: NotApproved |
-| X2 | `update_operation_account + initialize_reward` | the third reward may only be set up by the vault or an operator: carol, made an operator by the vault, can | pass | no broken input (see below) | 0.6048 USD funded |
-| X3 | `update_operation_account` | the vault adds and removes operators and whitelisted reward coins | pass | no broken input (see below) | add, remove, both seen |
-| X4 | `create_pool` | a coin with an unusual Token-2022 feature (a permanent delegate) cannot get a pool by default | pass | no broken input (see below) | refused: NotSupportMint |
-| X6 | `create_support_mint_associated` | a stranger cannot let an unusual coin in | pass | no broken input (see below) | refused: NotApproved |
-| X7 | `create_pool + create_support_mint_associated` | once the vault lets a coin in, anyone can open its pool | pass | no broken input (see below) | pool opened |
-| X8 | `close_support_mint_associated` | the vault can withdraw the pass | pass | no broken input (see below) | closed |
-| X9 | `create_dynamic_fee_config` | a stranger cannot make a dynamic fee setting | pass | no broken input (see below) | refused: NotApproved |
-| X10 | `create_dynamic_fee_config + update_dynamic_fee_config` | the vault makes a dynamic fee setting and changes it | pass | no broken input (see below) | decay 600 -> 900 s |
-| X11 | `create_customizable_pool` | anyone can open a pool that takes its fee in one coin only, with the dynamic fee the vault set | pass | no broken input (see below) | fee_on 1, decay 900 s |
-| X12 | `create_permission_pda` | a stranger cannot grant the right to open extra pools | pass | no broken input (see below) | refused: NotApproved |
-| X13 | `create_permissioned_pool` | a permission holder can open another pool for a pair that has one | pass | no broken input (see below) | pool #1 opened |
-| X14 | `close_permission_pda` | once the vault withdraws the permission, no more extra pools | pass | no broken input (see below) | refused: AccountNotInitialized |
-| X15 | `swap_router_base_in` | a two-hop route through both tiers spends exactly the BAYLA in, pays USD out, and leaves no SOL behind | pass | no broken input (see below) | 100,000 BAYLA -> 79.236486 USD, 92852 CU, 1026 bytes |
-| X16 | `swap (old)` | the old swap cannot move a Token-2022 coin, so it cannot trade BAYLA | pass | no broken input (see below) | refused: AccountOwnedByWrongProgram |
-| X17 | `open_position_v2` | the old path still works for a stranger, who pays Metaplex from her own wallet; the vault pays nothing | pass | no broken input (see below) | Metaplex name record 607 bytes; 0.01 SOL above its rent stays in it as Metaplex's fee |
-| G1 | `every transaction` | no transaction touched any of the 39 keys Raydium's code hard-codes, except the SPL Memo program, which the deny list also carries; it was only named, never paid | pass | no broken input (see below) | 188 transactions, 188 accounts; Memo named in 25; no other deny key |
-| G2 | `every transaction` | every account any transaction touched is one this run made or named (wallets, vault, pools, programs) | pass | no broken input (see below) | 188 accounts, all named |
-| G3 | `every transaction` | every coin that moved anywhere landed with a test wallet, the vault or a pool | pass | no broken input (see below) | all landed with named owners |
-| G4 | `the program itself` | the running program's bytes hold none of Raydium's 39 keys, as bytes or as text | pass | no broken input (see below) | 1523176 bytes searched |
-| G5 | `the program itself` | the local program sits at the placeholder id with the vault as its upgrade authority (the deploy pack decides the real one) | pass | no broken input (see below) | program data 1523221 bytes |
+| S0 | `setup` | vault 0 of the multisig (registry row squads-multisig) is the registry vault | pass | red: vault 0 is derived at index 1 instead of 0 | GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd |
+| S1 | `setup` | local multisig: 2 of 2, members are the two local keys, lock 10 s (mainnet 172800 s, threshold 2) | pass | red: the local multisig is 1 of 2 | next proposal 15, as on mainnet |
+| S2 | `setup` | BAYLA's mint is mainnet's byte for byte, except its supply (the test wallets' coins) | pass | red: BAYLA is minted to the test wallets but its mint authority is left in place | 408 bytes, 472,000,000 BAYLA minted locally |
+| S3 | `setup` | the vault's wrapped-SOL account here is the one the registry names (cpswap-fee-receiver-wsol-ata) | pass | red: the vault's wrapped-SOL account is derived for the multisig account instead of the vault | 2sa31zceMSTAAbSu5wfSnNA6sBYzS7r97nvZYaQouEXa |
+| T1 | `create_amm_config` | a stranger cannot make a fee tier | pass | red: the fee tier is created by the vault through Squads instead of by a stranger directly | refused: NotApproved |
+| T2 | `Squads: vault_transaction_execute` | one approval of two cannot execute a vault action | pass | red: the local multisig is 1 of 2 (CLMM_THRESHOLD=1) | proposal 15: Active, execute InvalidProposalStatus |
+| T3 | `Squads: proposal_approve` | someone outside the multisig cannot approve | pass | red: the second approval comes from member B instead of a non-member | refused: NotAMember |
+| T4 | `Squads: vault_transaction_execute` | an execute sent before the 10 s lock runs out is refused, and the proposal stays approved | pass | red: the local multisig has no time lock (CLMM_TIME_LOCK=0) | refused: TimeLockNotReleased |
+| T5 | `create_amm_config` | the vault makes fee tier 0 through Squads, executed only after the lock | pass | red: member B never approves tier 0's proposal | proposal 16, executed 13 s after the second approval |
+| T6 | `create_amm_config + update_amm_config` | one proposal makes tier 0 (1%, spacing 120) with the split: 104,000 per million of each fee to the venue (owner: the vault), 56,000 to the island (fund owner: its Workshop) | pass | red: tier 0's proposal leaves out the step that points its fund share at the Workshop | protocol 104000, fund 56000 per million; fund owner G2EHPseTXetHbBvvRDs27XQyXfQikXXyxP9uMbsKrbu |
+| T7 | `create_amm_config + update_amm_config` | one proposal makes tier 1 (0.25%, spacing 60) with the same split and the same two owners | pass | red: tier 1's proposal leaves out the step that points its fund share at the Workshop | proposal 17 |
+| T8 | `update_amm_config` | a stranger cannot change a fee tier | pass | red: the fee-tier change is signed by the vault through Squads instead of by a stranger | refused: NotApproved |
+| T9 | `update_amm_config` | the vault changes a tier and changes it back | pass | red: the change back to 104,000 is never proposed | 100000 then 104000 per million |
+| P1 | `create_pool` | the pool opens with the given price, no liquidity, empty vaults, opener as owner | pass | red: pool A opens at twice the square-root price it was given | 1 BAYLA = 5.9711e-6 SOL, tick 51210 |
+| P2 | `create_pool` | opening takes no coins from the opener: only the rent of its five accounts and the fee | pass | red: the pool-opening transaction also moves 1 BAYLA base unit out of the opener | 0.06148464 SOL rent locally |
+| P3 | `create_pool` | a pool opens on the 0.25% tier with spacing 60 | pass | red: pool B is opened against tier 0 instead of tier 1 | tick -17149 |
+| L1 | `open_position_with_token22_nft` | a range around the price takes both coins, within the caps, and the pool vaults receive exactly that | pass | red: alice's range is placed wholly above the price | 3,999,999.999998 BAYLA + 23.758005772 SOL, ticks 42000..60360, 121543 CU |
+| L2 | `open_position_with_token22_nft` | the position is a Token-2022 NFT (supply 1, 0 decimals) held by its owner, named "Memetics Range Position", "MEM-RANGE", linking memetics.finance/position/<position>.json | pass | red: the position is opened without its name record (with_metadata false) | https://memetics.finance/position/6criLDitVT3yTMRhMN5rmKdBHDyNXuoK3jQH1qgyFLZb.json |
+| L3 | `open_position_with_token22_nft` | a BAYLA-only position above the price takes BAYLA and not one lamport of SOL | pass | red: bob's BAYLA-only range is widened to straddle the price | 4,999,999.999999 BAYLA, 0 lamports, ticks 40200..48480 |
+| L4 | `open_position_with_token22_nft` | a SOL-only position below the price takes SOL and not one unit of BAYLA | pass | red: carol's SOL-only range is widened to straddle the price | 15 SOL, 0 BAYLA base units, ticks 53760..62160 |
+| L5 | `open_position_with_token22_nft` | a far-away BAYLA-only position opens (it should earn nothing below) | pass | red: dave's position is opened with no BAYLA | ticks 14280..21240 |
+| L6 | `open_position_with_token22_nft` | without the name record the NFT mint is smaller (a choice the client makes) | pass | red: erin's position is opened with the name record after all | 202 vs 469 bytes |
+| L7 | `increase_liquidity_v2` | adding to a position raises its liquidity and takes both coins | pass | red: the increase is sent with both caps at 0 | +1,999,999.999997 BAYLA, +11.879002886 SOL, 49220 CU |
+| L9 | `decrease_liquidity_v2` | removing a quarter lowers liquidity by exactly that and pays both coins back to the owner | pass | red: the removal is sent with 0 liquidity | 1,499,999.999997 BAYLA, 8.909252164 SOL back, 45582 CU |
+| L8 | `decrease_liquidity_v2` | only the holder of the position NFT can withdraw from it | pass | red: alice, who holds the NFT, withdraws instead of a stranger | refused: ConstraintTokenOwner |
+| W1 | `swap_v2` | a buy moves the price up into the BAYLA-only range and across into another tick array | pass | red: the buy stops before the next band of prices (price limit inside the current tick array) | 5.9711e-6 -> 1.3136e-5 SOL per BAYLA, 1 array boundary crossed, 68829 CU |
+| W2 | `swap_v2` | the trader's coins and the pool's vaults move by exactly the same amounts | pass | red: the swap transaction also moves 1 lamport of wrapped SOL to bob | paid 69.985831379 SOL, got 7,333,378.874345 BAYLA |
+| W3 | `swap_v2` | of a 1% swap, 0.104% of what the trader paid waits for the venue and 0.056% for the island | pass | red: the 1% tier is created with the old plan split (16% to the venue, nothing to the island) | venue 0.072785263 SOL (0.10400%), island 0.039192064 SOL (0.05600%) of 69.985831379 SOL |
+| W4 | `swap_v2` | a sell moves the price the other way, across several tick arrays, into the SOL-only range | pass | red: the sell stops at 0.95x, above the SOL-only range | 1.3136e-5 -> 2.9855e-6, 2 boundaries, 87015 CU |
+| W5 | `swap_v2` | the same split in the other coin | pass | red: the 1% tier is created with the old plan split | venue 15,456.652566 BAYLA (0.10400%), island 8,322.812919 BAYLA (0.05600%) |
+| W6 | `swap_v2` | an exact-output buy delivers exactly what was asked, for no more than the cap | pass | red: the exact-output buy is sent as an exact-input one | got 100,000 BAYLA for 0.302611754 SOL |
+| W7 | `swap_v2` | a swap that would pay less than the trader asked is refused and moves nothing | pass | red: the swap asks for no minimum output | refused: TooLittleOutputReceived |
+| F1 | `decrease_liquidity_v2 (0)` | the wide range collects fees in both coins and keeps its liquidity | pass | red: alice collects once before the measured collect | 76,562.713715 BAYLA + 0.300043184 SOL |
+| F2 | `decrease_liquidity_v2 (0)` | the BAYLA-only range, which both swaps passed, earned fees in both coins | pass | red: bob collects once before the measured collect | 28,430.083303 BAYLA + 0.288627707 SOL |
+| F3 | `decrease_liquidity_v2 (0)` | the SOL-only range earned BAYLA fees from the sell that reached it | pass | red: carol collects once before the measured collect | 19,647.513229 BAYLA + 0.001030884 SOL |
+| F4 | `decrease_liquidity_v2 (0)` | a range no swap reached earned nothing | pass | red: dave's far position is placed where the swaps pass | 0 + 0 base units |
+| F5 | `swap_v2 + decrease_liquidity_v2` | of every fee the LPs collected 84%, 10.4% waits for the venue and 5.6% for the island; together they are 1% of what traders paid | pass | red: the 1% tier is created with the old plan split | BAYLA: LPs 84.000%, venue 10.400%, island 5.600%; SOL: LPs 84.000%, venue 10.400%, island 5.600%; fee 1.000% and 1.000% of input |
+| V1 | `collect_protocol_fee` | a stranger cannot collect the venue's share | pass | red: the protocol fee is collected by the vault through Squads instead of by a stranger | refused: NotApproved |
+| V2 | `collect_protocol_fee` | the vault collects exactly the venue's share that built up, and the pool's count goes to zero | pass | red: the vault asks for 1 base unit of the venue's share, not all of it | 15,456.652566 BAYLA + 0.073099979 SOL, proposal 20 |
+| V3 | `collect_protocol_fee` | the venue's share landed in token accounts the vault owns | pass | red: the vault's collection is sent to mallory's token accounts | GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd |
+| V5 | `collect_fund_fee` | a stranger cannot collect the island's share | pass | red: the fund share is collected by the vault through Squads instead of by a stranger | refused: NotApproved |
+| V6 | `update_amm_config (param 4)` | the vault can point a tier's fund share at any account, at any time (an admin path over the island's share) | pass | red: the re-point names the Workshop again instead of another account | fund owner re-pointed by one vault proposal |
+| V7 | `collect_fund_fee` | the fund owner collects exactly the island's share that built up, into its own accounts | pass | red: a stranger, not the fund owner, collects the island's share | 8,322.812919 BAYLA + 0.039361525 SOL |
+| V8 | `update_amm_config (param 4)` | tier 0's fund owner is the Workshop again | pass | red: the vault never points the fund owner back at the Workshop |  |
+| R1 | `create_operation_account` | the vault creates the operation account rewards need | pass | red: the operation account is never created |  |
+| R2 | `initialize_reward` | the vault funds a 1 BAYLA a second reward for 7 days: exactly 604,800 BAYLA leave the vault for the reward vault | pass | red: the reward is funded at 0.5 BAYLA a second | 604,800 BAYLA |
+| R3 | `initialize_reward` | a stranger cannot set up a reward on the pool | pass | red: the reward is set up by the pool opener instead of a stranger | refused: NotApproved |
+| R4 | `initialize_reward` | the pool's opener funds a second reward from her own coins | pass | red: the second reward is funded at 0.25 REWARD a second | 302,400 REWARD |
+| R5 | `set_reward_params` | before a reward opens, the vault can move its window (here to 90 s, paying 90 BAYLA more) | pass | red: the new window is 100 s, not 90 | window 1792521437..1792521527, paid 90 BAYLA |
+| R6 | `update_reward_infos` | anyone can bring the reward counters up to date | pass | red: the update names the price history instead of the pool | 6131 CU |
+| R7A | `decrease_liquidity_v2 (rewards)` | an LP in range collects both rewards, no more than the stream paid so far | pass | red: alice collects before the stream opens | 20.176103 BAYLA after 34 s, 14.83537 REWARD |
+| R7 | `decrease_liquidity_v2 (rewards)` | a position out of range earns no reward | pass | red: dave's far position is placed in range | 0 + 0 base units |
+| R8 | `decrease_liquidity_v2 (rewards)` | over the whole window the LPs together collect what the stream emitted (90 BAYLA), never more | pass | red: alice never collects after the end | 89.999998 of 90 BAYLA |
+| R9 | `collect_remaining_rewards` | after the end the vault takes back everything the stream did not owe | pass | red: the vault tries to take back alice's running reward instead | 604,800 BAYLA back |
+| R10 | `collect_remaining_rewards` | a reward still running cannot be taken back | pass | red: the vault takes back the ended stream again instead of alice taking back a running one | refused: NotApproved |
+| R12 | `transfer_reward_owner` | a stranger cannot take over a pool's rewards | pass | red: the pool is handed over by the vault instead of by a stranger | refused: NotApproved |
+| R11 | `transfer_reward_owner` | the vault can hand a pool's owner and reward authority to someone else | pass | red: the vault hands pool B to carol instead of bob | pool B owner: bob |
+| O1 | `open_limit_order` | the order takes exactly its BAYLA into the pool and records owner, price and side | pass | red: the order is placed for 999,999 BAYLA | tick 56280 (3.5968e-6 SOL per BAYLA) |
+| O2 | `increase_limit_order` | adding to an order raises its total | pass | red: the order is raised by 400,000 | 1,500,000 BAYLA |
+| O3 | `decrease_limit_order` | cutting an unfilled order pays the coins back to its owner | pass | red: the order is cut by 100,000 | 200,000 BAYLA back |
+| O4 | `swap_v2 (fills the order)` | a buy moves the price past the order | pass | red: the buy stops at 0.55x, short of the order | 3.0062e-6 -> 4.4783e-6 |
+| O5 | `settle_limit_order` | a stranger cannot settle someone's order | pass | red: the order's owner settles instead of a stranger | refused: ConstraintRaw |
+| O6 | `settle_limit_order` | the keeper (the vault) cannot settle an order into its own account | pass | red: the keeper settles into the order owner's account instead of its own | refused: ConstraintTokenOwner |
+| O7 | `settle_limit_order` | the keeper settles the filled order; the SOL goes to the order's owner, at the order's price, and the vault gets nothing | pass | red: the buy stops short of the order, so nothing is filled | 4.675803056 SOL for 1,300,000 BAYLA (expected 4.675803), proposal 29 |
+| O8 | `close_limit_order` | closing the order refunds its rent to the order's owner, none to the keeper | pass | red: the close names the vault as the rent receiver | 0.00209496 SOL to erin |
+| O9 | `decrease_limit_order + close_limit_order` | an owner can cancel an order in full and close it herself | pass | red: erin cancels only half of the second order | all 200,000 BAYLA and 0.00209496 SOL rent back |
+| A3 | `update_pool_status` | a stranger cannot pause a pool | pass | red: the pause is sent by the vault through Squads instead of by a stranger | refused: ConstraintAddress |
+| A1 | `update_pool_status` | when the vault pauses swaps, a swap is refused | pass | red: the pool is not paused before the swap | refused: NotApproved |
+| A2 | `update_pool_status` | after the vault lifts the pause, swaps work again | pass | red: the vault never lifts the pause | 219,025.587978 BAYLA |
+| V9 | `collect_fund_fee` | the vault, as admin, can also collect the island's share itself, into its own accounts, while the Workshop is the fund owner (the program allows the admin or the fund owner, as cp-swap does) | pass | red: a stranger, not the vault, collects the island's share | 0 BAYLA + 0.01406464 SOL to the vault, proposal 33 |
+| E3 | `collect_excess_lamports` | a stranger cannot sweep spare SOL | pass | red: the sweep is sent by the vault through Squads instead of by a stranger | refused: NotApproved |
+| E1 | `collect_excess_lamports` | the vault receives exactly the spare SOL, and the BAYLA in the pool is untouched | pass | red: the sweep leaves out the BAYLA vault | 0.8 SOL to the vault |
+| E2 | `collect_excess_lamports` | the sweep cannot take LPs' SOL out of the wrapped-SOL vault: its balance and lamports are unchanged | pass | red: a swap lands between the two reads of the wrapped-SOL vault | swept only the 0.1 SOL gift; balance 32.520705163 SOL kept |
+| C1 | `close_position` | closing burns the NFT, closes its mint, account and record, and refunds all three rents to the owner | pass | red: carol closes without withdrawing first | 0.00907584 SOL back |
+| X1 | `update_operation_account` | a stranger cannot make anyone an operator | pass | red: the operator is added by the vault through Squads instead of by a stranger | refused: NotApproved |
+| X2 | `update_operation_account + initialize_reward` | the third reward may only be set up by the vault or an operator: carol, made an operator by the vault, can | pass | red: carol is never made an operator | 0.6048 USD funded |
+| X3 | `update_operation_account` | the vault adds and removes operators and whitelisted reward coins | pass | red: REWARD is never taken off the whitelist | add, remove, both seen |
+| X4 | `create_pool` | a coin with an unusual Token-2022 feature (a permanent delegate) cannot get a pool by default | pass | red: the coin is made without the permanent delegate | refused: NotSupportMint |
+| X6 | `create_support_mint_associated` | a stranger cannot let an unusual coin in | pass | red: the pass is issued by the vault through Squads instead of by a stranger | refused: NotApproved |
+| X7 | `create_pool + create_support_mint_associated` | once the vault lets a coin in, anyone can open its pool | pass | red: the pool is opened without passing the pass | pool opened |
+| X8 | `close_support_mint_associated` | the vault can withdraw the pass | pass | red: the vault never withdraws ODD's pass | closed |
+| X9 | `create_dynamic_fee_config` | a stranger cannot make a dynamic fee setting | pass | red: the dynamic fee setting is made by the vault instead of by a stranger | refused: NotApproved |
+| X10 | `create_dynamic_fee_config + update_dynamic_fee_config` | the vault makes a dynamic fee setting and changes it | pass | red: the decay period is never changed | decay 600 -> 900 s |
+| X11 | `create_customizable_pool` | anyone can open a pool that takes its fee in one coin only, with the dynamic fee the vault set | pass | red: the custom pool is opened without the dynamic fee | fee_on 1, decay 900 s |
+| X12 | `create_permission_pda` | a stranger cannot grant the right to open extra pools | pass | red: the permission is granted by the vault instead of by a stranger | refused: NotApproved |
+| X13 | `create_permissioned_pool` | a permission holder can open another pool for a pair that has one | pass | red: the vault never grants the permission | pool #1 opened |
+| X14 | `close_permission_pda` | once the vault withdraws the permission, no more extra pools | pass | red: the vault never withdraws the permission | refused: AccountNotInitialized |
+| X15 | `swap_router_base_in` | a two-hop route through both tiers spends exactly the BAYLA in, pays USD out, and leaves no SOL behind | pass | red: the route asks for 2^62 USD base units out | 100,000 BAYLA -> 79.236486 USD, 92853 CU, 1026 bytes |
+| X16 | `swap (old)` | the old swap cannot move a Token-2022 coin, so it cannot trade BAYLA: it is refused at BAYLA's own account | pass | red: the old swap is run on the SPL-only SOL/USD pool instead | refused: AccountOwnedByWrongProgram at output_token_account |
+| X17 | `open_position_v2` | the old path still works for a stranger, who pays Metaplex from her own wallet; the vault pays nothing | pass | red: the old path is used without the Metaplex name record | Metaplex name record 607 bytes; 0.01 SOL above its rent stays in it as Metaplex's fee |
+| G1 | `every transaction` | no transaction touched any of the 39 keys Raydium's code hard-codes, except the SPL Memo program, which the deny list also carries; it was only named, never paid | pass | red: one transaction also sends 1 lamport to a key Raydium hard-codes | 188 transactions, 188 accounts; Memo named in 25; no other deny key |
+| G2 | `every transaction` | every account any transaction touched is one this run made or named (wallets, vault, pools, programs) | pass | red: one transaction also sends 1 lamport to a key nothing in the run made | 188 accounts, all named |
+| G3 | `every transaction` | every coin that moved anywhere landed with a test wallet, the vault or a pool | pass | red: one transaction also moves 1 BAYLA unit to an owner nothing in the run named | all landed with named owners |
+| G4 | `the program itself` | the running program's bytes hold none of Raydium's 39 keys, as bytes or as text | pass | red: a Raydium key is written into a copy of the running program's bytes | 1523176 bytes searched |
+| G5 | `the program itself` | the local program sits at the placeholder id with the vault as its upgrade authority (the deploy pack decides the real one) | pass | red: the chain loads the program with the System Program as its upgrade authority | program data 1523221 bytes |
 
 ## Instructions covered
 
@@ -210,20 +223,50 @@ Measured on the local chain. Mainnet cost is (bytes + 128) x 5,080 lamports, mai
 
 | Transaction | Compute units | Bytes (limit 1,232) |
 |---|---|---|
-| a stranger opens a position the old way, with a Metaplex name record | 139,150 | 930 |
-| alice: open position | 120,060 | 896 |
-| dave: open position | 118,675 | 896 |
-| alice adds SOL and USD to pool B | 114,078 | 896 |
-| carol: open position | 110,728 | 896 |
-| bob: open position | 107,461 | 896 |
-| dave routes BAYLA -> SOL -> USD | 92,852 | 1026 |
-| erin-nometa: open position | 90,799 | 896 |
-| dave sells BAYLA for SOL, down through every range | 87,046 | 779 |
+| a stranger opens a position the old way, with a Metaplex name record | 134,650 | 930 |
+| alice adds SOL and USD to pool B | 130,595 | 896 |
+| alice: open position | 121,543 | 896 |
+| carol: open position | 119,773 | 896 |
+| dave: open position | 114,127 | 896 |
+| bob: open position | 108,961 | 896 |
+| erin-nometa: open position | 93,816 | 896 |
+| dave routes BAYLA -> SOL -> USD | 92,853 | 1026 |
+| dave sells BAYLA for SOL, down through every range | 87,015 | 779 |
 | carol withdraws everything | 77,179 | 879 |
 | a visitor opens a custom pool: fee in SOL only, dynamic fee on | 70,919 | 665 |
-| dave buys BAYLA with SOL, up through two ranges | 68,877 | 845 |
-| carol: collect rewards after the end | 65,862 | 879 |
-| dave opens the ODD pool with the pass | 65,831 | 671 |
+| dave buys BAYLA with SOL, up through two ranges | 68,829 | 845 |
+| alice: collect rewards | 67,988 | 879 |
+| carol: collect rewards after the end | 65,863 | 879 |
+
+## What surprised us
+
+1. **The vault keeps power over the island's 5.6%.** As admin it can collect the fund share itself, into any
+   account, and re-point a tier's fund owner at any time (V6, V9). The same is true of our cp-swap. Each takes a
+   vault proposal, so two signatures and the 48-hour lock, which the island can watch for.
+2. **The vault cannot pay for rewards today.** Every reward stream, even one a pool's opener pays for, needs the
+   operation account first (3,529 bytes, 0.0186 SOL at mainnet's rate), made and paid by the vault. The vault held
+   0.0152 SOL on 2026-10-20. Two tiers take 0.0025 more.
+3. **Raydium's key list also holds the SPL Memo program.** `solana/guards/upstream/deny-keys.txt` is every key
+   Raydium's code writes, less three system keys, so it carries Memo, which every v2 swap and withdrawal must name.
+   G1 went red on it in the first run; it now treats Memo as named-only and fails on any other key.
+4. **`cargo build-sbf` writes a fresh program key** (`target/deploy/raydium_clmm-keypair.json`) when none exists. A
+   plain `solana program deploy` would use it. It was deleted; nothing here used it.
+5. **A BAYLA pool's BAYLA vault is 170 bytes, not 165** (Token-2022 adds 5), so a pool is 8,194 bytes. The cost is
+   still 0.0449 SOL.
+6. **The spare-SOL sweep does not reach LPs' wrapped SOL.** Mainnet's own Token program let the vault sweep exactly
+   the 0.1 SOL gift sitting above a wrapped-SOL vault's rent and balance; the LPs' 32.5 SOL stayed (E2).
+7. **A reward not yet open can be given any window by the vault** (here 90 s): the 7-day minimum binds only when a
+   reward is made, or extended by someone who is not the admin. That is how the whole life of a stream, including
+   taking back what it did not pay (604,800 BAYLA), ran in minutes on the release build (R5 to R9).
+8. **The old position path still works for anyone** (`open_position_v2` with a Metaplex name record). The stranger
+   who uses it leaves 0.01 SOL of their own with Metaplex (X17); the vault pays nothing. The site never offers it.
+9. **Once the vault makes any dynamic fee setting, any visitor can open a pool with it, on either tier, with its fee
+   taken in one coin only** (X11). The vault should make one only on purpose.
+10. **Two things the local chain could not do.** It cannot wait out the real 172,800 s lock: the same Squads check
+    refused an early execute at 10 s (T4) and accepted one after (T5). And it cannot sign as the island's Workshop:
+    a local key stood in for it in the fund-owner role (V7), then the tier was pointed back at the Workshop (V8).
+11. **WSL here has no network, and stops its machine about a minute after the last `wsl.exe` client exits**,
+    detached validators and all. The harness reads mainnet from Windows and holds a client open for each run.
 
 ## How to run
 
