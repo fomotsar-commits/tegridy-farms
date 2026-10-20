@@ -251,7 +251,7 @@ describe('taking out, collecting and closing', () => {
     const c = ready(chainWith());
     const { position } = withPosition(c);
     const p = ok(await prepareRangeRemove(W(c), cfgLocal, PROG, { owner: ME, position, percent: 50, toleranceBps: 100 }));
-    const s = p.summary as Extract<RangeSummary, { kind: 'range-remove' }>;
+    const s = p.summary as Exclude<RangeSummary, { kind: 'range-open' }>;
     expect(s.liquidity).toBe(5n * 10n ** 11n);
     expect(s.min.token).toBe((s.quoted.token * 9_900n) / 10_000n);
     expect(s.percent).toBe(50);
@@ -262,7 +262,7 @@ describe('taking out, collecting and closing', () => {
     const c = ready(chainWith());
     const { position } = withPosition(c, { fees: [7n, 9n] });
     const p = ok(await prepareRangeRemove(W(c), cfgLocal, PROG, { owner: ME, position, percent: 0, toleranceBps: 100 }));
-    const s = p.summary as Extract<RangeSummary, { kind: 'range-remove' }>;
+    const s = p.summary as Exclude<RangeSummary, { kind: 'range-open' }>;
     expect([s.liquidity, s.min.token, s.min.quote]).toEqual([0n, 0n, 0n]);
     expect(s.fees).toEqual(TOKEN_IS_0 ? { token: 7n, quote: 9n } : { token: 9n, quote: 7n });
     const empty = ready(chainWith());

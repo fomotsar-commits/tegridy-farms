@@ -229,6 +229,11 @@ test.describe('routes that are not audited', () => {
           timeout: ROUTE_MOUNT_TIMEOUT,
         });
       }
+      if (route.gate === 'not-yet-routed') {
+        // Still assert the production behaviour: no route, so the not-found page and not the surface.
+        await page.goto(route.path);
+        await expect(page.getByRole('heading', { level: 2, name: 'Page Not Found' })).toBeVisible({ timeout: ROUTE_MOUNT_TIMEOUT });
+      }
       test.skip(true, `${route.path}: ${route.why}`);
     });
   }
