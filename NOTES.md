@@ -15,6 +15,64 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-10-20: the list of Raydium's keys also holds the SPL Memo program, so "no transaction touched a deny key" fails on every v2 swap
+
+**Believed:** `solana/guards/upstream/deny-keys.txt` lists Raydium's own addresses, so a run of
+the range-pool program that touches none of them pays Raydium nothing, and a run that touches one
+has found a leak.
+
+**Measured** (`solana/clmm-localnet`, check G1, 135 transactions): the one deny key touched was
+`MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr`, SPL's Memo program, which `swap_v2` and the v2
+withdrawals must name (`address = anchor_spl::memo::ID`). The list is every key Raydium's two
+repositories write, less the three system keys `allowed-keys.json` names, so it also holds Memo
+and four stablecoin mints.
+
+**Do:** in a runtime check, treat Memo as named-only (a program, never paid) and fail on any other
+deny key; take its address from the crate the program builds with, not from memory.
+
+## 2026-10-20: `cargo build-sbf` writes a fresh program key beside the program when none exists
+
+**Believed:** building a program makes no keys; a program key exists only when someone runs
+`solana-keygen`.
+
+**Measured** (WSL, Solana 3.1.11, `cargo build-sbf --features placeholder-id -- --locked` in a
+copy of `solana/tegridy-clmm`): `target/deploy/raydium_clmm-keypair.json` appeared next to the
+1,523,176-byte `.so`. A plain `solana program deploy target/deploy/raydium_clmm.so` would use it
+and claim that random address as the program id.
+
+**Do:** delete it after every build that is not the owner's deploy (`shred -u`); the deploy pack
+names its key file explicitly.
+
+## 2026-10-20: a Squads vault can sign on a local chain at its real address
+
+**Believed:** testing admin actions "signed by the vault" locally needs a build whose admin is a
+local key (`localnet`, `devnet`), so the release build's own admin checks are never run.
+
+**Measured:** a Squads vault's address comes from its multisig's address and the vault index,
+not from the members. Loading mainnet's multisig account (`EVGSnRZFWqjCaWR7z2xKbSXnuddY8upevEQK5HFmj6NK`) with its two member keys
+swapped for local keys and its time lock shortened (bytes 74..78) gave vault 0 = the real vault
+`GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd`, and the release-shaped build's every admin check accepted it through
+`vault_transaction_execute` (`solana/clmm-localnet`, checks T1 to T9).
+
+**Do:** keep the threshold and config authority as mainnet's, write the member keys sorted, and
+keep each member's permission mask.
+
+## 2026-10-20: a validator detached inside WSL still dies when the last `wsl.exe` client exits
+
+**Believed:** `solana-test-validator` started in WSL with `setsid nohup ... &` keeps running until
+it is stopped, whatever happens on the Windows side.
+
+**Measured:** started from Node with `spawn('wsl', ['-e','bash','-lc', cmd])`, it exited 0 when the
+Windows side ended. Detached with `setsid nohup`, it ran for a 25-minute suite only while another
+session's validator held a `wsl.exe` client open; once that ended, WSL's machine restarted
+(`uptime` 17 s) and took every process with it, that other session's validator included, leaving
+stale PID files whose numbers a new process may reuse.
+
+**Do:** hold a `wsl.exe` client open for the length of the run (`spawn('wsl', ['-e','bash','-lc',
+'exec sleep 86400'])`, killed at the end), keep the validator's PID in a file, and treat that PID as
+yours only if `/proc/<pid>/cmdline` names `solana-test-validator` (`solana/clmm-localnet/run.mjs`,
+`validator.mjs`).
+
 ## 2026-10-19: a dev-server walk that stubs every /api/ request renders a blank page, because the app imports from /api/_lib/
 
 **Believed:** on `vite dev`, which has no serverless functions, answering every same-origin
