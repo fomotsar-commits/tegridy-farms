@@ -457,7 +457,7 @@ describe('your positions: a share too small to take out', () => {
 // (owner, 2026-10-17: "remove this warning from everywhere"): it leads the notice's Risks.
 describe('the order of the section', () => {
   const RISK_LINE =
-    "The team's vault (2 of 2 keys, no waiting period) can pause removing, change fees or replace the program. No outside firm has checked our changes. Only add what you can afford to lose.";
+    "The team's vault can pause removing, change fees or replace the program, 48 hours after both its keys approve. No outside firm has checked our changes. Only add what you can afford to lose.";
   const ORDER = ['lp-earn-line', 'lp-finder', 'lp-positions', 'fee-tiers', 'lp-routes', 'lp-disclosure'];
   const parts = () => [...screen.getByTestId('lp-section').children].map((c) => c.getAttribute('data-testid'));
   // A gate that could not be read: its banner is the top of the section's write half.
@@ -490,12 +490,13 @@ describe('the order of the section', () => {
     expect(line.textContent).not.toContain('—');
   });
 
-  // The vault's powers, read on chain 2026-10-16: the pool program's admin and its upgrade
-  // authority are both vault 0 of a 2-of-2 Squads multisig with a time lock of 0 seconds.
-  it('the vault sentence names what the team’s vault can do, with how many keys and no wait, and keeps the afford-to-lose clause', () => {
+  // The vault's powers: the pool program's admin and its upgrade authority are both vault 0 of
+  // a 2-of-2 Squads multisig whose time lock is 172,800 s since Squads #14 (read 2026-10-20).
+  it('the vault sentence names what the team’s vault can do, with both keys and the 48-hour wait, and keeps the afford-to-lose clause', () => {
     mount(readers(), '/solana-lp');
     const line = within(screen.getByTestId('lp-disclosure')).getByText(RISK_LINE).textContent ?? '';
-    expect(line).toContain('(2 of 2 keys, no waiting period)');
+    expect(line).toContain('48 hours after both its keys approve');
+    expect(line).not.toMatch(/no waiting period|at once/);
     expect(line).toContain('can pause removing');
     expect(line).toContain('change fees');
     expect(line).toContain('replace the program');
@@ -523,10 +524,11 @@ describe('the order of the section', () => {
     expect(small!.querySelector('p')).toBe(sentence);
     expect(small).toHaveTextContent(/have not had their own independent review yet/);
     for (const fact of [
-      'Read on chain 2026-10-16',
+      'Read on chain 2026-10-20',
       `one key is both the admin of pool program ${CP_SWAP_PROGRAM_ID.toBase58()} and the only key that can replace it`,
       `That key is the team’s vault ${PLATFORM_TREASURY_VAULT.toBase58()}, vault 0 of the Squads multisig ${PLATFORM_TREASURY_MULTISIG.toBase58()}`,
-      'needs 2 of its 2 keys to sign, has no waiting period (a time lock of 0 seconds), and only those 2 keys, together, can change its rules',
+      'The multisig needs 2 of its 2 keys to approve anything the vault does. Since 2026-10-19 each approved action then waits 48 hours (a time lock of 172,800 seconds) before it can run.',
+      'Only those 2 keys, together, can change its rules, and such a change waits 48 hours too.',
       'The vault can switch off adding, removing or trading on any pool.',
       'replace the program',
       'Every pool’s coins sit in accounts that program controls, so a replacement could move them.',
@@ -534,6 +536,7 @@ describe('the order of the section', () => {
     ]) {
       expect(small).toHaveTextContent(fact);
     }
+    expect(small).not.toHaveTextContent(/no waiting period|time lock of 0|at once/);
   });
 
   // Where a pool's fees come from is said as the routes that exist, and no more. Every trade

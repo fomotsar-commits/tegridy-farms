@@ -7,6 +7,10 @@ The site's Changelog tab shows both files.
 
 ## [Unreleased]
 
+### 2026-10-20
+
+- Solana pools: the Risks drop-down on every add, open and review, and the pools page's small print, now say that each change the team's vault makes (pausing removals, changing fees, replacing the pool program) waits 48 hours after both its keys approve. They said it had no waiting period, which stopped being true on 2026-10-19.
+
 ### 2026-10-19
 
 - The menu is the site's index: every section's word with its pages under it, a Jump to field (Ctrl+K opens it), and the word Menu beside the ☰ on a computer. A room's page gets a numbered line under the top bar, lit as you scroll, one tap to each section.
