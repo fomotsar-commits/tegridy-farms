@@ -427,6 +427,25 @@ covered its main button. Portalled to `document.body`, the same dialog covered b
 **So:** a dialog opened from inside a card renders through `createPortal(…, document.body)`. Any
 ancestor with a transform, filter or `will-change` becomes the containing block and the stacking
 context of a fixed child.
+## 2026-10-18: a `?raw` import of a file outside `frontend/` is denied, and allowing the file does not fix it
+
+**Believed:** a file outside the Vite root can be imported as text with `?raw` once that file is
+listed in `server.fs.allow`.
+
+**Measured** (Vite 8.3, `frontend/`, 2026-10-18, building #878):
+`import t from '../../../CHANGELOG.md?raw'` fails with `Denied ID <path>?raw`, in vitest and in
+the dev server. Listing the file itself in `server.fs.allow` changed nothing. Vite's
+`isServerAccessDeniedForTransform` checks the id with and without its `?raw` query, and
+`isFileInTargetPath` matches the id that carries the query only against a directory entry. So
+only a directory (the repo root) clears it, and that lets the dev server serve every file in
+the repo.
+
+**Do:** read the file in a small plugin and hand its text over as a virtual module
+(`frontend/changelogFilesPlugin.ts`, #878: `load()` reads the two named files and exports their
+text; `vite.config.ts` and `vitest.config.ts` both register it). A virtual id starts with `\0`,
+so it skips the file-serving check. Keep the plugin in its own file and import it with its `.ts`
+extension: when `vitest.config.ts` imports `vite.config.ts`, Vite prints the
+`configLoader: 'native'` warning for `vite.config.ts`'s extensionless imports.
 
 ## 2026-10-17: Solscan values a pool's address at its rent; the pool's coins are in its vaults
 
