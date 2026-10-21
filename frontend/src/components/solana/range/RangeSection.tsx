@@ -8,6 +8,7 @@ import { SolanaProviders } from '../SolanaProviders';
 import { browserRpc, type SolanaRpc } from '../../../lib/launcher/solana/curve/rpc';
 import { lpWriteMode, type LpWriteMode } from '../../../lib/launcher/solana/lpWriteFlag';
 import { lpFetch } from '../../../lib/solana/lp/readFetch';
+import { readOutsidePrice, type OutsidePrice } from '../../../lib/solana/lp/outsidePrice';
 import { noteResponse } from '../../../lib/solana/lp/rpcBudget';
 import { parseMintInput } from '../../../lib/solana/lp/mintInput';
 import { QUOTE_COINS, quoteCoin } from '../../../lib/solana/lp/quotes';
@@ -56,6 +57,8 @@ export interface RangeReaders {
   feeTiers(): Promise<Read<AmmConfigView[]>>;
   pairPools(mintA: string, mintB: string, tiers: AmmConfigView[]): Promise<Read<RangePool[]>>;
   walletPositions(owner: string): Promise<Read<WalletPositionsRead>>;
+  /** Jupiter's price, refused when it comes through a range pool: the opening's market check. */
+  outsidePrice(mint: string, decimals: number, opts?: { fresh?: boolean }): Promise<OutsidePrice>;
 }
 
 // eslint-disable-next-line react-refresh/only-export-components
@@ -65,6 +68,7 @@ export function browserRangeReaders(rpc: SolanaRpc, programId: PublicKey): Range
     feeTiers: () => readFeeTiers(rpc, programId),
     pairPools: (a, b, tiers) => readPairPools(rpc, programId, a, b, tiers),
     walletPositions: (owner) => readWalletPositions(rpc, programId, new PublicKey(owner)),
+    outsidePrice: (mint, decimals, o) => readOutsidePrice(mint, decimals, { rpc, programId: programId.toBase58() }, lpFetch({ what: 'Jupiter' }), undefined, o),
   };
 }
 
@@ -226,6 +230,7 @@ export function RangeInner({ readers, load, mode }: { readers: RangeReaders; loa
           write={write}
           rpc={writeRpc}
           programId={programId}
+          reads={readers}
           signerState={signerState}
           pending={pending}
           held={held || busyBy.positions}
@@ -310,8 +315,8 @@ function HowItPays({ pool, pair }: { pool: RangePool | null; pair: Pair | null }
             <p>{`Fees in this pool are paid ${feePaidIn(pool.pool.feeOn, pair.tokenIsToken0 ? tokenWord(pair) : pair.quote.symbol, pair.tokenIsToken0 ? pair.quote.symbol : tokenWord(pair))}, and stay with your position until you claim them.`}</p>
           )}
           <p>Your position is an NFT in your wallet. Whoever holds the NFT can take the position out, so keep it as you would the coins.</p>
-          <p>Opening a position pays refundable deposits for its record and its NFT, and for a band of prices nobody has used yet. Closing the position gives its own deposits back.</p>
-          <p>The range program is the venue’s own. Your coins sit in the pool’s vaults, which only the program moves.</p>
+          <p>Opening a position pays deposits for its record and its NFT, which come back when you close it. A band of prices nobody has used yet also takes a deposit that never comes back, about 0.072 SOL each at today’s rent.</p>
+          <p>Your coins sit in the pool’s vaults, which only the range program moves. The team’s vault can switch that program’s pools off or replace it: see Risks beside the deposit.</p>
         </div>
       </FinePrint>
     </Card>

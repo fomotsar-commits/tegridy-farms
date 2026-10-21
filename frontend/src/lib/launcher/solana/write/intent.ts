@@ -795,20 +795,21 @@ function range(ix: TransactionInstruction, c: IntentContext): IntentStep {
   };
   if (startsWith(d, IX_OPEN_POSITION_WITH_TOKEN22_NFT)) {
     if (ctx.kind !== 'range-open' || !ctx.nftMint) return refuse('it opens a position, and this transaction is not an opening');
-    if (d.length !== 8 + 16 + 16 + 16 + 1 + 2) refuse('an opening of the wrong size');
+    // A fixed liquidity and no base side (its option byte None: 58 bytes). With a base side the
+    // program works the liquidity out at the price the opening lands at, a sandwich's price.
+    if (d.length !== 8 + 16 + 16 + 16 + 1 + 1) refuse('an opening of the wrong size');
     const tickLower = i32(d, 8);
     const tickUpper = i32(d, 12);
-    if (u128(d, 24) !== 0n) refuse('the opening names its own liquidity, and this site lets the program work it out from one coin');
+    const liquidity = u128(d, 24);
+    if (ctx.openLiquidity === undefined || liquidity !== ctx.openLiquidity) refuse('the opening names a liquidity this site did not plan');
+    if (liquidity === 0n) refuse('the opening puts nothing in');
     const max0 = u64(d, 40);
     const max1 = u64(d, 48);
     if (d[56] !== 1) refuse('the position’s NFT would carry no name or link');
-    if (d[57] !== 1 || (d[58] !== 0 && d[58] !== 1)) refuse('the opening does not say which coin its liquidity is worked out from');
-    const baseIsToken0 = d[58] === 1;
     const { min, max } = usableTickBounds(p.tickSpacing);
     if (!(tickLower < tickUpper) || tickLower < min || tickUpper > max || tickLower % p.tickSpacing !== 0 || tickUpper % p.tickSpacing !== 0) {
       refuse('the range is not one a position may use');
     }
-    if ((baseIsToken0 ? max0 : max1) === 0n) refuse('the opening puts nothing in');
     same(
       openPositionWithToken22NftIx({
         programId: p.program,
@@ -820,14 +821,14 @@ function range(ix: TransactionInstruction, c: IntentContext): IntentStep {
         tokenAccount1: own1,
         tickLower,
         tickUpper,
-        liquidity: 0n,
+        liquidity,
         amount0Max: max0,
         amount1Max: max1,
-        baseFlag: baseIsToken0,
+        baseFlag: null,
       }),
       'the opening',
     );
-    return { kind: 'range-open', pool: p.address, nftMint: ctx.nftMint, tickLower, tickUpper, max0, max1, baseIsToken0 };
+    return { kind: 'range-open', pool: p.address, nftMint: ctx.nftMint, tickLower, tickUpper, liquidity, max0, max1 };
   }
   if (startsWith(d, IX_DECREASE_LIQUIDITY_V2)) {
     if (ctx.kind === 'range-open' || !ctx.position) return refuse('it takes liquidity out, and this transaction is an opening');

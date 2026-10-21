@@ -25,10 +25,13 @@ import { useReturnFocus, useTxFlow } from '../curve/useTxFlow';
 import type { CurveSignerState } from '../curve/useCurveSigner';
 import type { PendingTradesState } from '../curve/usePendingTrades';
 import type { CurveWriteConfig, RangeWriteApi, WriteRpc } from '../curve/ports';
+import type { RangeOpenReads } from '../../../lib/launcher/solana/write/range';
+import { RangeReviewDisclosure, RangeRisks } from './RangeRisks';
 import { bothAmounts, coinAmount, priceText, tokenAmount, tokenName, tokenWord } from './rangeText';
 import { useFlowReports } from './useRangeData';
 
-const TOLERANCE_HINT = 'If the price moves more than this before your deposit runs, it is refused and only the network fee is spent.';
+const TOLERANCE_HINT =
+  'Your deposit takes at most this much more of either coin than shown. If the price moves enough to need more before it runs, it is refused and only the network fee is spent.';
 
 /**
  * Pick a range and put liquidity in it. The presets and the two prices give a range of
@@ -44,6 +47,7 @@ export function RangeOpenCard(p: {
   write: { api: RangeWriteApi; cfg: CurveWriteConfig } | null;
   rpc: WriteRpc;
   programId: PublicKey;
+  reads: RangeOpenReads;
   signerState: CurveSignerState;
   pending: PendingTradesState;
   held: boolean;
@@ -216,6 +220,7 @@ export function RangeOpenCard(p: {
         p.write && r && plan && <OpenFlow {...p} onBusy={onBusy} write={p.write} range={r} side={side} amount={amount!} tolerance={tolerance} setTolerance={setTolerance} />
       )}
       {!p.canOpen && !p.why && <Notice>Amounts here are only worked out: opening a position is not switched on here.</Notice>}
+      <RangeRisks />
       {/* Said beside every deposit, never folded away. */}
       <Notice tone="warn">Out of range, a position earns nothing. {plan ? `This one is worth ${tokenAmount(pair, pair.tokenIsToken0 ? plan.amount0 : plan.amount1)} and ${coinAmount(pair, pair.tokenIsToken0 ? plan.amount1 : plan.amount0)} at today’s price.` : ''}</Notice>
     </Card>
@@ -229,6 +234,7 @@ function OpenFlow(p: {
   write: { api: RangeWriteApi; cfg: CurveWriteConfig };
   rpc: WriteRpc;
   programId: PublicKey;
+  reads: RangeOpenReads;
   signerState: CurveSignerState;
   pending: PendingTradesState;
   held: boolean;
@@ -258,7 +264,7 @@ function OpenFlow(p: {
       amount: p.amount,
       toleranceBps: Number(p.tolerance),
     };
-    void flow.prepare(() => api.prepareRangeOpen(p.rpc, cfg, p.programId, args), { repeatable: true });
+    void flow.prepare(() => api.prepareRangeOpen(p.rpc, cfg, p.programId, p.reads, args), { repeatable: true });
   };
   if (busy) {
     return (
@@ -269,6 +275,7 @@ function OpenFlow(p: {
         decimals={p.pair.tokenDecimals}
         signer={signer}
         preparingText="Reading the pool again and test-running your deposit on the network…"
+        extraReview={<RangeReviewDisclosure />}
       />
     );
   }
