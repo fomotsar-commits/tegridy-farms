@@ -11,6 +11,7 @@ The site's Changelog tab shows both files.
 
 - Add with one coin on a Solana pool no longer says "Withdraw any time": it says there is no lock, but the team's vault can pause removing.
 - A pool's price, the one you press to flip every pool's price, is easier to tap: its press area is 44 px tall, and the price looks the same.
+- On a phone, a press on the bottom edge of the venue card's Program address on /pools and /solana-lp now copies that address; it copied the Config address under it.
 - A room's numbered line on a phone now slides to show the section you are reading; it had lit Holders and Lore off its right edge.
 
 ### 2026-10-19
