@@ -104,7 +104,11 @@ jobs:
           # is already known to be in scope.
           [ -n "${PR:-}" ] || { echo "not a pull_request — in scope by trigger"; say true; }
 
-          files=$(gh api --paginate "repos/$REPO/pulls/$PR/files" --jq '.[].filename')
+          files=$(gh api --paginate "repos/$REPO/pulls/$PR/files" \
+            --jq '.[] | .filename, (.previous_filename // empty)') || {
+            echo "::warning::gh could not list every changed file, running the real job"
+            say true
+          }
           if [ -z "$files" ]; then
             echo "::warning::could not list this PR's changed files — running the real job"
             say true
@@ -191,6 +195,7 @@ jobs:
         env:
           ETH_RPC: ${{ vars.ETH_RPC || '' }}
           BASE_RPC: ${{ vars.BASE_RPC || '' }}
+          RH_RPC: ${{ vars.RH_RPC || '' }}
         run: |
           set -euo pipefail
           node scripts/verify-ladder-builds.mjs | tee /tmp/ladders.txt
@@ -219,6 +224,11 @@ jobs:
           # Who holds each authority and what each fee tier charges (check 3d).
           grep -q 'field read: [1-9][0-9]* accounts considered' /tmp/onchain.txt || {
             echo "::error title=No authority read happened::verify-addresses.mjs --onchain did not read who holds our Solana authorities. Green here would mean 'nothing was checked'."
+            exit 1
+          }
+          # The multisig's threshold, members, time lock and config authority (check 3c).
+          grep -q 'multisig read: [1-9][0-9]* considered' /tmp/onchain.txt || {
+            echo "::error title=No multisig read happened::verify-addresses.mjs --onchain did not read the Squads multisig's settings. Green here would mean 'nothing was checked'."
             exit 1
           }
 

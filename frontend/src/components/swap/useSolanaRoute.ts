@@ -46,6 +46,20 @@ function readPools(programId: string, inputMint: string, outputMint: string, als
   }).catch((e: unknown): VenuePoolsRead => ({ kind: 'unread', detail: e instanceof Error ? e.message : String(e) }));
 }
 
+/**
+ * Our pools for one pair, read now and quoted for `amountIn`, for a caller outside this
+ * hook (the island order quotes five pairs at once). The same reads as the hook: an
+ * unreadable venue or pool read is null, never "no pool"; a venue that is provably not
+ * deployed, or a pair our pools do not trade, is none.
+ */
+export async function readOwnPoolsFor(inputMint: string, outputMint: string, amountIn: bigint): Promise<VenuePoolCandidate[] | null> {
+  const venue = await venueStatusOnce();
+  if (venue.kind === 'unreadable') return null;
+  if (venue.kind !== 'live') return [];
+  const quoted = quoteVenuePools(await readPools(venue.programId, inputMint, outputMint), inputMint, amountIn);
+  return quoted.state === 'error' ? null : quoted.candidates;
+}
+
 export interface SolanaRouteInput {
   inputMint: string;
   outputMint: string;
