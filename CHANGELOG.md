@@ -10,6 +10,7 @@ The site's Changelog tab shows both files.
 ### 2026-10-20
 
 - A pool's price, the one you press to flip every pool's price, is easier to tap: its press area is 44 px tall, and the price looks the same.
+- A room's numbered line on a phone now slides to show the section you are reading; it had lit Holders and Lore off its right edge.
 
 ### 2026-10-19
 
