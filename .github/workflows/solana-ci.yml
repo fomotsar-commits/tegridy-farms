@@ -1,9 +1,10 @@
 name: solana-ci
 
 # Tegridy CP-AMM (solana/tegridy-amm): a fork of raydium-cp-swap that differs from
-# it by four authority constants, the program's own name and contact text and one
-# added instruction (create_lp_metadata, which names a pool's lp token), plus
-# tegridy-launch, our own bonding curve that graduates into it.
+# it by four authority constants, the program's own name and contact text, one
+# added instruction (create_lp_metadata, which names a pool's lp token) and one
+# refusal (public initialize on fee tier 0), plus tegridy-launch, our own bonding
+# curve that graduates into it.
 # Gates:
 #   1. diff-guard  — proves the fork's delta from pinned audited upstream is
 #      EXACTLY the pinned hash. Not a file allowlist: the previous version accepted
