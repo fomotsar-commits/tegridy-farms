@@ -25,6 +25,8 @@ import { MevProtectionPanel } from '../components/swap/MevProtectionPanel';
 import { TokenSelectModal } from '../components/swap/TokenSelectModal';
 import { ChainSwitch } from '../components/swap/ChainSwitch';
 import { ChainSwapAvailability } from '../components/swap/ChainSwapAvailability';
+import { IslandBasketEvm } from '../components/swap/IslandBasketEvm';
+import { evmBasketFor } from '../lib/islandBasket';
 import { ArtImg } from '../components/ArtImg';
 import { CardArt } from '../components/ui/CardArt';
 import { FinePrint } from '../components/ui/FinePrint';
@@ -317,6 +319,13 @@ export default function TradePage() {
                 quote read is public RPC, no wallet needed. Only the action button
                 gates on connect, so a visitor can price a swap before connecting. */}
             <>
+                {/* One amount split across every island coin on this chain (owner, 2026-10-18).
+                    Only where the island has coins: Ethereum and Base. */}
+                {evmBasketFor(swapChainId) && (
+                  <div className="flex justify-end mb-3">
+                    <IslandBasketEvm chainId={swapChainId} slippagePct={swap.slippage} />
+                  </div>
+                )}
                 {/* AUDIT FIX FE-HIGH-6: permanent unverified-token banner.
                     Custom tokens (anything not in DEFAULT_TOKENS) get a
                     sticky reminder above the swap form so the user is
