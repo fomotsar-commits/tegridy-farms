@@ -7,6 +7,10 @@ The site's Changelog tab shows both files.
 
 ## [Unreleased]
 
+### 2026-10-21
+
+- Opening a new pool on Ethereum, Base or Robinhood Chain: the form shows the market price from that network's Uniswap V2 pool, Match the market price fills the other amount at it, and a price you type off the market says how far off it is.
+
 ### 2026-10-20
 
 - A room's numbered line on a phone now slides to show the section you are reading; it had lit Holders and Lore off its right edge.

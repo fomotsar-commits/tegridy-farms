@@ -183,6 +183,11 @@ export function useAddLiquidity(tokenA: TokenInfo | null, tokenB: TokenInfo | nu
   const lpUnread = pairExists && !!data
     && (data[2]?.status !== 'success' || data[3]?.status !== 'success');
   const isEmptyPool = !pairExists || (!reservesUnread && reserveA === 0n && reserveB === 0n);
+  // The same fact, only once it was READ: the factory answered (no pair), or the pair's
+  // reserves answered 0 and 0. isEmptyPool is also true while those reads are still out,
+  // which is fine for a banner but not for offering to set the pool's price.
+  const knownNewPool = pairAddress !== undefined
+    && (!pairExists || (reserves !== undefined && reserveA === 0n && reserveB === 0n));
 
   // Calculate price ratio (B per A)
   const priceRatio = useMemo(() => {
@@ -478,6 +483,7 @@ export function useAddLiquidity(tokenA: TokenInfo | null, tokenB: TokenInfo | nu
     pairAddress: pairExists ? pairAddress : null,
     pairExists,
     isEmptyPool,
+    knownNewPool,
     reservesUnread,
     lpUnread,
     involvesETH,
