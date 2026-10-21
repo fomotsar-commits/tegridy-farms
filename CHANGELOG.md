@@ -9,6 +9,7 @@ The site's Changelog tab shows both files.
 
 ### 2026-10-20
 
+- On a phone, a press on the bottom edge of the venue card's Program address on /pools and /solana-lp now copies that address; it copied the Config address under it.
 - A room's numbered line on a phone now slides to show the section you are reading; it had lit Holders and Lore off its right edge.
 
 ### 2026-10-19
