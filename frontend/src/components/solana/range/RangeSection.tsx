@@ -14,7 +14,7 @@ import { parseMintInput } from '../../../lib/solana/lp/mintInput';
 import { QUOTE_COINS, quoteCoin } from '../../../lib/solana/lp/quotes';
 import { BAYLA_MINT } from '../../../lib/solana/lp/tokenSafety';
 import { RANGE_PROGRAM_ID } from '../../../lib/solana/clmm/program';
-import { LIVE_PROGRAM_ID } from '../../../lib/solana/cpswap/program';
+import { ownPoolPrograms } from '../../../lib/solana/lp/ownPools';
 import { readFeeTiers, readPairPools, readWalletPositions, type Read, type RangePool, type WalletPositionsRead } from '../../../lib/solana/clmm/read';
 import type { AmmConfigView } from '../../../lib/solana/clmm/program';
 import { feePaidIn, feeSplit } from '../../../lib/solana/clmm/feeText';
@@ -62,15 +62,6 @@ export interface RangeReaders {
   outsidePrice(mint: string, decimals: number, opts?: { fresh?: boolean }): Promise<OutsidePrice>;
 }
 
-/**
- * Our pool programs a market price must not come through: the range program and our
- * constant-product pools. A pushed pool of ours is never its own "outside" price.
- */
-// eslint-disable-next-line react-refresh/only-export-components
-export function ownPoolPrograms(rangeProgram: PublicKey): string[] {
-  return [rangeProgram.toBase58(), ...(LIVE_PROGRAM_ID ? [LIVE_PROGRAM_ID.toBase58()] : [])];
-}
-
 // eslint-disable-next-line react-refresh/only-export-components
 export function browserRangeReaders(rpc: SolanaRpc, programId: PublicKey): RangeReaders {
   return {
@@ -78,7 +69,7 @@ export function browserRangeReaders(rpc: SolanaRpc, programId: PublicKey): Range
     feeTiers: () => readFeeTiers(rpc, programId),
     pairPools: (a, b, tiers) => readPairPools(rpc, programId, a, b, tiers),
     walletPositions: (owner) => readWalletPositions(rpc, programId, new PublicKey(owner)),
-    outsidePrice: (mint, decimals, o) => readOutsidePrice(mint, decimals, { rpc, programId: ownPoolPrograms(programId) }, lpFetch({ what: 'Jupiter' }), undefined, o),
+    outsidePrice: (mint, decimals, o) => readOutsidePrice(mint, decimals, { rpc, programId: ownPoolPrograms([programId.toBase58()]) }, lpFetch({ what: 'Jupiter' }), undefined, o),
   };
 }
 

@@ -14,7 +14,7 @@ import type { RangeSummary } from './ports';
 const key = (n: number) => new PublicKey(new Uint8Array(32).fill(n));
 const STRANGER = key(77).toBase58();
 
-function opening(owners: { owner: string; fundOwner: string }): RangeSummary {
+function opening(owners: { owner: string; fundOwner: string }, notices: string[] = []): RangeSummary {
   return {
     kind: 'range-open',
     nftMint: key(1),
@@ -22,7 +22,8 @@ function opening(owners: { owner: string; fundOwner: string }): RangeSummary {
     quoted: { token: 5_000_000n, quote: 990_000n },
     rentLamports: 7_000_000n,
     unwrapsWsol: true,
-    notices: [],
+    notices,
+    price: { state: 'agrees', pool: 0.0003, reference: 0.0003, diff: 0 },
     poolLine: {
       pool: key(2), tokenMint: key(3), tokenDecimals: 6, quote: SOL_QUOTE, tokenIsToken0: true,
       tradeFeeRate: 10_000, venueShareRate: 160_000, protocolFeeRate: 104_000, fundFeeRate: 56_000, ...owners,
@@ -62,6 +63,40 @@ describe('the range review’s fee lines', () => {
     const first = screen.getByTestId('tx-review-venue-elsewhere');
     expect(first.querySelector('strong')?.textContent).toMatch(/does not follow the agreed split .* 16% of each fee \(0\.16% of the swap\) to the team’s shared wallet, 0% of each fee \(0% of the swap\) to the island’s Workshop\./);
     expect(before(first, screen.getByText('Range pool'))).toBe(true);
+  });
+
+  it('an opening’s own notices (its price check) are said first, above every row, once; the review says “this pool’s price”', () => {
+    const off = 'This pool’s price is 9.1% below the outside price (Jupiter’s). Anyone can open a range pool at any price.';
+    render(<TxReview prepared={prepared(opening({ owner: PLATFORM_TREASURY_VAULT.toBase58(), fundOwner: WORKSHOP_WALLET.toBase58() }, [off]))} decimals={6} display={(x) => x} />);
+    const box = screen.getByTestId('tx-review-warnings');
+    expect(box).toHaveTextContent(off);
+    expect(before(box, screen.getByText('Range pool'))).toBe(true);
+    expect(screen.getAllByText(off)).toHaveLength(1);
+    expect(screen.getByRole('heading').getAttribute('aria-describedby')).toContain(box.id);
+  });
+
+  it('a range off the price says it is off THIS POOL’s price, not the market’s', () => {
+    const o = opening({ owner: PLATFORM_TREASURY_VAULT.toBase58(), fundOwner: WORKSHOP_WALLET.toBase58() }) as Extract<RangeSummary, { kind: 'range-open' }>;
+    render(<RangeRows summary={{ ...o, range: { ...o.range, holds: 'token-only' } }} />);
+    expect(document.body.textContent).toContain('Above this pool’s price now, holding the token only');
+  });
+
+  it('a removal’s notices stay among its rows: nothing on a removal gives a reason to wait', () => {
+    const removal: RangeSummary = {
+      ...(opening({ owner: PLATFORM_TREASURY_VAULT.toBase58(), fundOwner: WORKSHOP_WALLET.toBase58() }) as Extract<RangeSummary, { kind: 'range-open' }>),
+      kind: 'range-remove', position: key(9), percent: 50, liquidity: 1n, min: { token: 1n, quote: 1n }, quoted: { token: 1n, quote: 1n }, fees: null, notices: ['A notice about your account.'],
+    } as unknown as RangeSummary;
+    render(<TxReview prepared={prepared(removal)} decimals={6} display={(x) => x} />);
+    expect(screen.queryByTestId('tx-review-warnings')).toBeNull();
+    expect(screen.getByText('A notice about your account.')).toBeInTheDocument();
+  });
+
+  it('a tier where nobody collects anything ends its bold line cleanly, with no stray period', () => {
+    const none = opening({ owner: PLATFORM_TREASURY_VAULT.toBase58(), fundOwner: WORKSHOP_WALLET.toBase58() }) as Extract<RangeSummary, { kind: 'range-open' }>;
+    render(<TxReview prepared={prepared({ ...none, poolLine: { ...none.poolLine, protocolFeeRate: 0, fundFeeRate: 0, venueShareRate: 0 } })} decimals={6} display={(x) => x} />);
+    const first = screen.getByTestId('tx-review-venue-elsewhere');
+    expect(first.textContent).not.toMatch(/\s\.$/);
+    expect(first.textContent?.trim().endsWith('to the island’s Workshop.')).toBe(true);
   });
 
   it('the agreed split puts nothing above the rows', () => {

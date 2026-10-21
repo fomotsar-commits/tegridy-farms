@@ -11,7 +11,10 @@ import type { RangePool, Read, WalletPosition, WalletPositionsRead } from '../..
 import type { CurveWriteConfig, Prepared, RangeWriteApi } from '../curve/ports';
 import { PLATFORM_TREASURY_VAULT } from '../../../lib/launcher/solana/curve/program';
 import { WORKSHOP_WALLET } from '../../../lib/launcher/solana/write/plant';
-import { RangeInner, ownPoolPrograms, type RangeReaders } from './RangeSection';
+import { RangeInner, type RangeReaders } from './RangeSection';
+import { ownPoolPrograms } from '../../../lib/solana/lp/ownPools';
+import { RANGE_PROGRAM_ADDRESS } from '../../../lib/solana/clmm/programId';
+import { PROGRAM_ID as LAUNCH_PROGRAM_ID } from '../../../lib/launcher/solana/curve/program';
 import type { OutsidePrice } from '../../../lib/solana/lp/outsidePrice';
 import { LIVE_PROGRAM_ID } from '../../../lib/solana/cpswap/program';
 import { depositFrom, pairOf, planFromCeiling, presetRange } from '../../../lib/solana/clmm/rangeMath';
@@ -240,8 +243,15 @@ describe('picking a range', () => {
     expect(open.textContent).toContain('so this pool’s price cannot be checked against a market price');
   });
 
-  it('a market price is never taken through our own pools: the range program and our other pool program', () => {
-    expect(ownPoolPrograms(PROG)).toEqual([PROG.toBase58(), LIVE_PROGRAM_ID!.toBase58()]);
+  it('a market price is never taken through our own pools: our range, constant-product and launch programs, and the one the page reads', () => {
+    expect(new Set(ownPoolPrograms([PROG.toBase58()]))).toEqual(new Set([LIVE_PROGRAM_ID!.toBase58(), RANGE_PROGRAM_ADDRESS, LAUNCH_PROGRAM_ID.toBase58(), PROG.toBase58()]));
+  });
+
+  it('a market price that could not be read is said as unread: never as agreeing, never as 0%', async () => {
+    show(readers({ market: { kind: 'unread', detail: 'Jupiter’s price came through our own pools, so it is not an outside price' } }));
+    const open = await screen.findByTestId('range-open');
+    await waitFor(() => expect(open.textContent).toContain('Market price (Jupiter)could not be read just now (Jupiter’s price came through our own pools, so it is not an outside price)'));
+    expect(open.textContent).not.toMatch(/0% (above|below)|the market price\. Anyone can open/);
   });
 
   it('SOL only, below: holds SOL only and the amount is of SOL', async () => {
@@ -412,6 +422,7 @@ function openSummary(): RangeSummary {
     rentLamports: 9_375_120n,
     unwrapsWsol: true,
     notices: [],
+    price: { state: 'agrees', pool: 0.0003, reference: 0.0003, diff: 0 },
     poolLine: {
       pool: POOL, tokenMint: new PublicKey(BAYLA_MINT), tokenDecimals: 6, quote: SOL_QUOTE, tokenIsToken0: BAYLA_IS_0,
       tradeFeeRate: 10_000, venueShareRate: 160_000, protocolFeeRate: 104_000, fundFeeRate: 56_000,

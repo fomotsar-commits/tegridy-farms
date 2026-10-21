@@ -6,7 +6,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
 import { ClmmMathError, MAX_SQRT_PRICE_X64, MIN_SQRT_PRICE_X64, getSqrtPriceAtTick } from './math';
-import { MAX_FEE_RATE_NUMERATOR, UPSTREAM_MAX_FEE_RATE_NUMERATOR, computeSwap, quoteSwap, swapInternal, tickSpacingIndexFromTick, type SwapQuoteArgs } from './quote';
+import { MAX_FEE_RATE_NUMERATOR, computeSwap, quoteSwap, quoteSwapAsRaydium, swapInternal, tickSpacingIndexFromTick, type SwapQuoteArgs } from './quote';
 import { getArrayStartIndex } from './bitmap';
 import { TICK_ARRAY_SIZE, type TickArrayView, type TickStateView } from './program';
 
@@ -284,15 +284,32 @@ describe('the fee ceiling', () => {
       blockTimestamp: ts,
     };
     const ours = quoteSwap(a);
-    const raydiums = quoteSwap({ ...a, maxFeeRate: UPSTREAM_MAX_FEE_RATE_NUMERATOR });
+    const raydiums = quoteSwapAsRaydium(a);
     if (ours.kind !== 'ok' || raydiums.kind !== 'ok') throw new Error('quote');
     // Exact in, one step: the fee is the amount times the rate, rounded up.
     expect(ours.tradeFee).toBe(40_000n);
     expect(raydiums.tradeFee).toBe(100_000n);
-    // No other ceiling is taken: below ours, the quote would promise more than the program pays.
+    // Our pools' quote takes no ceiling from its arguments: one smuggled in is ignored.
+    const smuggled = quoteSwap({ ...a, maxFeeRate: 1 } as SwapQuoteArgs);
+    expect(smuggled.kind === 'ok' && smuggled.tradeFee).toBe(40_000n);
+    // No other ceiling reaches the walk: below ours, a quote would promise more than the program pays.
     for (const bad of [0, 30_000, 39_999, 40_001]) {
-      expect(() => quoteSwap({ ...a, maxFeeRate: bad as typeof MAX_FEE_RATE_NUMERATOR }), String(bad)).toThrow(RangeError);
+      expect(() => swapInternal({ ...a }, bad as typeof MAX_FEE_RATE_NUMERATOR), String(bad)).toThrow(RangeError);
     }
+  });
+
+  it('no app code quotes with Raydium’s ceiling: the replay quote is for tests only', () => {
+    const root = resolve(__dirname, '../../../..');
+    const callers: string[] = [];
+    const walk = (dir: string) => {
+      for (const e of readdirSync(join(root, dir), { withFileTypes: true })) {
+        const p = `${dir}/${e.name}`;
+        if (e.isDirectory()) walk(p);
+        else if (/\.(ts|tsx)$/.test(e.name) && !/\.test\.tsx?$/.test(e.name) && readFileSync(join(root, p), 'utf8').includes('quoteSwapAsRaydium')) callers.push(p);
+      }
+    };
+    walk('src');
+    expect(callers).toEqual(['src/lib/solana/clmm/quote.ts']);
   });
 });
 

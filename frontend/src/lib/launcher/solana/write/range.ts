@@ -510,6 +510,7 @@ export async function prepareRangeOpen(rpc: WriteRpc, cfg: CurveWriteConfig, pro
         rentLamports: positionRent + bandRent,
         unwrapsWsol: plan2?.closeAfter ?? false,
         notices,
+        price: check,
         poolLine: poolLine(pins, pair, tier),
         range: rangeLine(pair, pool, range),
       };
