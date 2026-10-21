@@ -16,14 +16,15 @@ import { PLACEHOLDER_PROGRAM_ADDRESS, RANGE_PROGRAM_ADDRESS } from './programId'
 /* ─────────────────────────────── identity ───────────────────────────────── */
 
 /**
- * The id the program source declares until the deploy pack: nobody holds its key and no
- * release build accepts it, so nothing can ever run there.
+ * The id the program source declared before the deploy: nobody holds its key and no release
+ * build accepts it, so nothing can ever run there.
  */
 export const PLACEHOLDER_PROGRAM_ID = new PublicKey(PLACEHOLDER_PROGRAM_ADDRESS);
 
 /**
  * Every range-pool read and write goes through this key, made from the one constant in
- * programId.ts. While it is the placeholder, every range-pool surface stays hidden.
+ * programId.ts: the program deployed 2026-10-21 and held by the vault. program.test.ts holds
+ * it equal to the source's declare_id!.
  */
 export const RANGE_PROGRAM_ID: PublicKey = new PublicKey(RANGE_PROGRAM_ADDRESS);
 

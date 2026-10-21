@@ -80,6 +80,8 @@ export interface SwapQuoteArgs {
   sqrtPriceLimitX64: bigint;
   /** Unix seconds the swap is expected to run at. The dynamic fee and open time read it. */
   blockTimestamp: number;
+  /** The program's ceiling on a fee rate: ours unless a swap from another build is replayed. */
+  maxFeeRate?: number;
 }
 
 export interface SwapInternalResult {
@@ -300,7 +302,10 @@ export function matchLimitOrder(
 
 /* ─────────────────────────────── dynamic fee ────────────────────────────── */
 
-export const MAX_FEE_RATE_NUMERATOR = 100_000;
+/** Our program's ceiling on any fee rate, 4% (pool_fee.rs; quote.test.ts holds them equal). */
+export const MAX_FEE_RATE_NUMERATOR = 40_000;
+/** The same ceiling in Raydium's own program, 10%: for replaying swaps that ran there. */
+export const UPSTREAM_MAX_FEE_RATE_NUMERATOR = 100_000;
 const VOLATILITY_ACCUMULATOR_SCALE = 10_000n;
 const REDUCTION_FACTOR_DENOMINATOR = 10_000n;
 const DYNAMIC_FEE_CONTROL_DENOMINATOR = 100_000n;
@@ -314,13 +319,13 @@ export function tickSpacingIndexFromTick(tickIndex: number, tickSpacing: number)
 const i32 = (v: number) => (v < -(2 ** 31) || v > 2 ** 31 - 1 ? fail('ArithmeticOverflow') : v);
 
 /** `compute_dynamic_fee_rate`. */
-function dynamicFeeRate(d: DynamicFeeInfoView, tickSpacing: number): number {
+function dynamicFeeRate(d: DynamicFeeInfoView, tickSpacing: number, cap: number): number {
   const crossed = BigInt(d.volatilityAccumulator) * BigInt(tickSpacing);
   if (crossed > 0xffff_ffffn) fail('ArithmeticOverflow');
   const squared = crossed * crossed;
   const denominator = DYNAMIC_FEE_CONTROL_DENOMINATOR * VOLATILITY_ACCUMULATOR_SCALE * VOLATILITY_ACCUMULATOR_SCALE;
   const rate = mulDivCeil(BigInt(d.dynamicFeeControl), squared, denominator, U128_MAX) ?? fail('CalculateOverflow');
-  return rate > BigInt(MAX_FEE_RATE_NUMERATOR) ? MAX_FEE_RATE_NUMERATOR : Number(rate);
+  return rate > BigInt(cap) ? cap : Number(rate);
 }
 
 /* ─────────────────────────────── swap_internal ──────────────────────────── */
@@ -343,6 +348,7 @@ const cloneTick = (t: TickStateView): MutableTick => ({ ...t, rewardGrowthsOutsi
 export function swapInternal(a: Omit<SwapQuoteArgs, 'sqrtPriceLimitX64'> & { sqrtPriceLimitX64: bigint }): SwapInternalResult {
   const { pool, config, zeroForOne } = a;
   const spacing = pool.tickSpacing;
+  const cap = a.maxFeeRate ?? MAX_FEE_RATE_NUMERATOR;
   const limit = a.sqrtPriceLimitX64;
   const blockTimestamp = BigInt(a.blockTimestamp >>> 0); // `oracle::block_timestamp()` is a u32
   if (a.amount === 0n) fail('ZeroAmountSpecified');
@@ -431,9 +437,9 @@ export function swapInternal(a: Omit<SwapQuoteArgs, 'sqrtPriceLimitX64'> & { sqr
   };
   const totalFeeRate = (): number => {
     if (!s.dyn) return config.tradeFeeRate;
-    const total = config.tradeFeeRate + dynamicFeeRate(s.dyn, spacing);
+    const total = config.tradeFeeRate + dynamicFeeRate(s.dyn, spacing, cap);
     if (total > 0xffff_ffff) fail('ArithmeticOverflow');
-    return Math.min(total, MAX_FEE_RATE_NUMERATOR);
+    return Math.min(total, cap);
   };
   /** `get_spacing_bounded_price`: with a dynamic fee, a step stops at each spacing boundary. */
   const spacingBounded = (target: bigint): [boolean, bigint, number | null] => {

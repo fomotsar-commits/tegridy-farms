@@ -2,8 +2,8 @@ use crate::error::ErrorCode;
 use crate::states::*;
 use anchor_lang::prelude::*;
 
-// Maximum fee rate numerator, 10%
-pub const MAX_FEE_RATE_NUMERATOR: u32 = 100_000;
+// Maximum fee rate numerator, 4% (memetics.finance): no tier and no dynamic fee charges more
+pub const MAX_FEE_RATE_NUMERATOR: u32 = 40_000;
 
 // Scale factor for the on-chain `volatility_accumulator` unit.
 // `volatility_accumulator` is updated as: `volatility_reference + index_delta * SCALE`,

@@ -779,7 +779,7 @@ export const SURFACES: Surface[] = [
   { group: 'Pools · Solana LP', pageId: 'venue-amm', idx: 0, label: 'Venue status card' },
   { group: 'Pools · Solana LP', pageId: 'venue-amm', idx: 1, label: 'The program card' },
 
-  // Pools · Range (hidden while the range program's id is the placeholder; 'swap' idx 0 is its backdrop too)
+  // Pools · Range (hidden until range pools open; 'swap' idx 0 is its backdrop too)
   { group: 'Pools · Range', pageId: 'range-pools', idx: 0, label: 'How a range position earns' },
   { group: 'Pools · Range', pageId: 'range-pools', idx: 1, label: 'Pick a pool' },
   { group: 'Pools · Range', pageId: 'range-pools', idx: 2, label: 'Pick your range (a pool picked)' },

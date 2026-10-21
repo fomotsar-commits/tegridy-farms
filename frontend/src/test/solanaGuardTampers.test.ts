@@ -280,6 +280,7 @@ describe('a pin, the reviewed patch or the allow-list changes in a pull request 
   it('refuses other work beside a changed guard file, and passes one that is new or alone', () => {
     const pin = 'M\tsolana/guards/upstream/cp-swap.diff\nM\tsolana/tegridy-amm/programs/cp-swap/src/lib.rs\n';
     expect(repinAlone(pin)).toEqual([]);
+    expect(repinAlone(`${pin}M\tsolana/tegridy-amm/tests/tegridy-launch-migration.test.ts\n`)).toEqual([]);
     expect(repinAlone(`${pin}M\tfrontend/src/App.tsx\n`).join('\n')).toContain('frontend/src/App.tsx: this pull request changes solana/guards/upstream/cp-swap.diff');
     expect(repinAlone('M\tsolana/guards/allowed-keys.json\nM\t.github/workflows/ci.yml\n')).toHaveLength(1);
     expect(repinAlone('A\tsolana/guards/key-guard.mjs\nM\tfrontend/src/App.tsx\n')).toEqual([]);
