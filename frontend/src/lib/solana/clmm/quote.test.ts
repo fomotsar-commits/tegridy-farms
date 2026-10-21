@@ -1,8 +1,9 @@
 // @vitest-environment node
 // Reads the program's own vectors off disk.
 import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { createHash } from 'node:crypto';
+import { readFileSync, readdirSync } from 'node:fs';
+import { join, relative, resolve, sep } from 'node:path';
 
 import { ClmmMathError, MAX_SQRT_PRICE_X64, MIN_SQRT_PRICE_X64, getSqrtPriceAtTick } from './math';
 import { MAX_FEE_RATE_NUMERATOR, UPSTREAM_MAX_FEE_RATE_NUMERATOR, computeSwap, quoteSwap, swapInternal, tickSpacingIndexFromTick, type SwapQuoteArgs } from './quote';
@@ -22,6 +23,7 @@ import { TICK_ARRAY_SIZE, type TickArrayView, type TickStateView } from './progr
 
 type Outcome = { ok: unknown } | { err: string };
 const V = JSON.parse(readFileSync(resolve(__dirname, '__fixtures__', 'program-vectors.json'), 'utf8')) as {
+  programSource: { sha256: string };
   computeSwap: unknown[][];
   swapInternal: SwapCase[];
 };
@@ -92,8 +94,6 @@ function argsOf(c: SwapCase): Omit<SwapQuoteArgs, 'sqrtPriceLimitX64'> & { sqrtP
     amount: BigInt(c.amount),
     sqrtPriceLimitX64: BigInt(c.limit),
     blockTimestamp: c.ts,
-    // The vectors ran on the source before our 4% ceiling (#931): Raydium's 10%.
-    maxFeeRate: UPSTREAM_MAX_FEE_RATE_NUMERATOR,
   };
 }
 
@@ -216,6 +216,32 @@ describe('the dynamic fee index', () => {
     expect(tickSpacingIndexFromTick(-60, 60)).toBe(-1);
     expect(tickSpacingIndexFromTick(-61, 60)).toBe(-2);
     expect(getSqrtPriceAtTick(0)).toBe(1n << 64n);
+  });
+});
+
+describe('the vectors are the deployed program’s', () => {
+  // run.sh stamps the hash of the program source it ran (every .rs file under
+  // programs/amm/src, by path then content, carriage returns dropped). A change to the
+  // program without new vectors fails here, so the vectors cannot quietly describe an older program.
+  it('the fixture was made from the program source in this repo', () => {
+    const root = resolve(__dirname, '../../../../../solana/tegridy-clmm/programs/amm/src');
+    const files: string[] = [];
+    const walk = (dir: string) => {
+      for (const e of readdirSync(dir, { withFileTypes: true })) {
+        const p = join(dir, e.name);
+        if (e.isDirectory()) walk(p);
+        else if (e.name.endsWith('.rs')) files.push(relative(root, p).split(sep).join('/'));
+      }
+    };
+    walk(root);
+    files.sort();
+    const h = createHash('sha256');
+    for (const f of files) {
+      h.update(`${f}\n`);
+      h.update(readFileSync(join(root, f), 'utf8').replace(/\r/g, ''));
+    }
+    expect(files.length).toBeGreaterThan(50);
+    expect(h.digest('hex')).toBe(V.programSource.sha256);
   });
 });
 
