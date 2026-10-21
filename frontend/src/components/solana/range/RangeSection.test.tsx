@@ -11,7 +11,11 @@ import type { RangePool, Read, WalletPosition, WalletPositionsRead } from '../..
 import type { CurveWriteConfig, Prepared, RangeWriteApi } from '../curve/ports';
 import { PLATFORM_TREASURY_VAULT } from '../../../lib/launcher/solana/curve/program';
 import { WORKSHOP_WALLET } from '../../../lib/launcher/solana/write/plant';
-import { RangeInner, type RangeReaders } from './RangeSection';
+import { RangeInner, ownPoolPrograms, type RangeReaders } from './RangeSection';
+import type { OutsidePrice } from '../../../lib/solana/lp/outsidePrice';
+import { LIVE_PROGRAM_ID } from '../../../lib/solana/cpswap/program';
+import { depositFrom, pairOf, planFromCeiling, presetRange } from '../../../lib/solana/clmm/rangeMath';
+import { bothAmounts } from './rangeText';
 import { RANGE_RISK_SHORT } from './RangeRisks';
 import { prepared } from '../curve/fakeWriteApi.fixture';
 import { SOL_QUOTE } from '../../../lib/solana/lp/quotes';
@@ -87,14 +91,17 @@ function fakeApi(): RangeWriteApi {
   };
 }
 
-function readers(o: { tiers?: Read<AmmConfigView[]>; pools?: Read<RangePool[]>; positions?: Read<WalletPositionsRead> } = {}): RangeReaders {
+/** Jupiter's price for BAYLA by default: the pool's own, 0.0003 SOL. */
+const MARKET_AGREES: OutsidePrice = { kind: 'ok', solPerToken: 0.0003, source: 'Jupiter' };
+
+function readers(o: { tiers?: Read<AmmConfigView[]>; pools?: Read<RangePool[]>; positions?: Read<WalletPositionsRead>; market?: OutsidePrice } = {}): RangeReaders {
   const t = tier();
   return {
     programId: PROG,
     feeTiers: vi.fn(async () => o.tiers ?? { kind: 'ok' as const, value: [t] }),
     pairPools: vi.fn(async () => o.pools ?? { kind: 'ok' as const, value: [poolOn(t)] }),
     walletPositions: vi.fn(async () => o.positions ?? { kind: 'ok' as const, value: { positions: [], unread: [] } }),
-    outsidePrice: vi.fn(async () => ({ kind: 'no-route' as const, detail: 'Jupiter has no route for this token' })),
+    outsidePrice: vi.fn(async () => o.market ?? MARKET_AGREES),
   };
 }
 
@@ -179,26 +186,69 @@ describe('picking a pool', () => {
     show(readers());
     const card = await screen.findByTestId('range-pools');
     await waitFor(() => expect(card.textContent).toContain('1% fee per swap'));
-    expect(card.textContent).toContain('Price now 0.0003 SOL per BAYLA');
+    expect(card.textContent).toContain('Pool price now 0.0003 SOL per BAYLA');
   });
 });
 
 describe('picking a range', () => {
-  it('BAYLA only, above today’s price: holds BAYLA only, takes no SOL, and says it earns nothing until the price rises', async () => {
+  it('BAYLA only, above this pool’s price: holds BAYLA only, takes no SOL, and says it earns nothing until the price rises', async () => {
     show(readers());
     const open = await screen.findByTestId('range-open');
-    fireEvent.click(within(open).getByRole('button', { name: 'BAYLA only, above today’s price' }));
-    expect(open.textContent).toContain('This range is above today’s price, so it holds BAYLA only.');
+    fireEvent.click(within(open).getByRole('button', { name: 'BAYLA only, above this pool’s price' }));
+    expect(open.textContent).toContain('This range is above this pool’s price, so it holds BAYLA only.');
     fireEvent.change(within(open).getByLabelText(/How much BAYLA to put in/), { target: { value: '1000' } });
     const plan = await within(open).findByTestId('range-plan');
-    expect(plan.textContent).toMatch(/You put in about\s*1,000 BAYLA and 0 SOL/);
+    expect(plan.textContent).toMatch(/You put in about\s*990\.\d+ BAYLA and 0 SOL/);
+  });
+
+  it('the card’s “You put in about” is the review’s: planned from the amount less the tolerance, as the builder plans it', async () => {
+    show(readers());
+    const open = await screen.findByTestId('range-open');
+    fireEvent.click(within(open).getByRole('button', { name: 'Wide' }));
+    fireEvent.change(within(open).getByLabelText(/How much BAYLA to put in/), { target: { value: '2.5' } });
+    const plan = await within(open).findByTestId('range-plan');
+    const view = poolOn(tier()).pool;
+    const pair = pairOf(view)!;
+    const range = presetRange(pair, view, 'wide');
+    if (typeof range !== 'object') throw new Error('range');
+    const want = depositFrom(pair, view, range, 'token', planFromCeiling(2_500_000n, 100))!;
+    expect(plan.textContent).toContain(bothAmounts(pair, want.amount0, want.amount1));
+  });
+
+  it('shows this pool’s price beside the market’s (Jupiter), and warns before Review when they differ', async () => {
+    show(readers({ market: { kind: 'ok', solPerToken: 0.0004, source: 'Jupiter' } }));
+    const open = await screen.findByTestId('range-open');
+    await waitFor(() => expect(open.textContent).toContain('Market price (Jupiter)0.0004 SOL per BAYLA'));
+    expect(open.textContent).toContain('This pool’s price now0.0003 SOL per BAYLA');
+    const warning = within(open).getByText(/^This pool’s price is 25% below the market price\. Anyone can open a range pool at any price/);
+    // Before the presets and before Review.
+    const presets = within(open).getByRole('group', { name: 'Range presets' });
+    expect(warning.compareDocumentPosition(presets) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('a market price that agrees is shown, with no warning', async () => {
+    show(readers());
+    const open = await screen.findByTestId('range-open');
+    await waitFor(() => expect(open.textContent).toContain('Market price (Jupiter)0.0003 SOL per BAYLA'));
+    expect(open.textContent).not.toMatch(/the market price\. Anyone can open/);
+  });
+
+  it('no route on Jupiter is said beside this pool’s price, never read as agreeing', async () => {
+    show(readers({ market: { kind: 'no-route', detail: 'Jupiter has no route for this token' } }));
+    const open = await screen.findByTestId('range-open');
+    await waitFor(() => expect(open.textContent).toContain('Market price (Jupiter)none: Jupiter has no route for this pair'));
+    expect(open.textContent).toContain('so this pool’s price cannot be checked against a market price');
+  });
+
+  it('a market price is never taken through our own pools: the range program and our other pool program', () => {
+    expect(ownPoolPrograms(PROG)).toEqual([PROG.toBase58(), LIVE_PROGRAM_ID!.toBase58()]);
   });
 
   it('SOL only, below: holds SOL only and the amount is of SOL', async () => {
     show(readers());
     const open = await screen.findByTestId('range-open');
     fireEvent.click(within(open).getByRole('button', { name: 'SOL only, below' }));
-    expect(open.textContent).toContain('This range is below today’s price, so it holds SOL only.');
+    expect(open.textContent).toContain('This range is below this pool’s price, so it holds SOL only.');
     expect(within(open).getByLabelText(/How much SOL to put in/)).toBeTruthy();
   });
 
@@ -347,7 +397,7 @@ describe('the words', () => {
     show(readers({ positions: { kind: 'ok', value: { positions: [positionOf({ n: 5, lower: -1200, upper: 1200, status: 'above', fees: null }, rp)], unread: [] } } }));
     await screen.findByTestId('range-position');
     const open = await screen.findByTestId('range-open');
-    fireEvent.click(within(open).getByRole('button', { name: 'BAYLA only, above today’s price' }));
+    fireEvent.click(within(open).getByRole('button', { name: 'BAYLA only, above this pool’s price' }));
     expect(document.body.textContent).not.toContain('—');
   });
 });

@@ -54,6 +54,21 @@ function lossAt(pair: Pair, range: TickRange, liquidity: bigint, amount0: bigint
   }
 }
 
+export type MarketGap =
+  | { state: 'agrees' | 'disagrees'; pool: number; reference: number; diff: number }
+  | { state: 'no-market'; detail: string }
+  | { state: 'unread'; detail: string };
+
+/** The pool's price against the outside one, before any deposit: what the card shows beside the pool's price. */
+export function marketGap(pair: Pair, sqrtPriceX64: bigint, outside: OutsidePrice, coinOutside: OutsidePrice | null): MarketGap {
+  const reference = referenceOf(pair, outside, coinOutside);
+  if (typeof reference !== 'number') return reference;
+  if (!Number.isFinite(reference) || reference <= 0) return { state: 'unread', detail: 'the outside price is not a positive number' };
+  const pool = priceNumber(priceAtSqrt(pair, sqrtPriceX64));
+  const diff = pool / reference - 1;
+  return { state: Math.abs(diff) <= PRICE_TOLERANCE ? 'agrees' : 'disagrees', pool, reference, diff };
+}
+
 export function rangePriceCheck(a: {
   pair: Pair;
   sqrtPriceX64: bigint;
@@ -64,11 +79,8 @@ export function rangePriceCheck(a: {
   outside: OutsidePrice;
   coinOutside: OutsidePrice | null;
 }): RangePriceCheck {
-  const reference = referenceOf(a.pair, a.outside, a.coinOutside);
-  if (typeof reference !== 'number') return reference;
-  if (!Number.isFinite(reference) || reference <= 0) return { state: 'unread', detail: 'the outside price is not a positive number' };
-  const pool = priceNumber(priceAtSqrt(a.pair, a.sqrtPriceX64));
-  const diff = pool / reference - 1;
-  if (Math.abs(diff) <= PRICE_TOLERANCE) return { state: 'agrees', pool, reference, diff };
-  return { state: 'disagrees', pool, reference, diff, lossQuote: lossAt(a.pair, a.range, a.liquidity, a.amount0, a.amount1, reference) };
+  const gap = marketGap(a.pair, a.sqrtPriceX64, a.outside, a.coinOutside);
+  if (gap.state === 'no-market' || gap.state === 'unread') return gap;
+  if (gap.state === 'agrees') return { ...gap, state: 'agrees' };
+  return { ...gap, state: 'disagrees', lossQuote: lossAt(a.pair, a.range, a.liquidity, a.amount0, a.amount1, gap.reference) };
 }

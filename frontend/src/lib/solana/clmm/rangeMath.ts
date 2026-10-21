@@ -229,6 +229,14 @@ export function depositFrom(
   }
 }
 
+/**
+ * The amount a deposit is planned from, so that the typed amount stays its ceiling: the typed
+ * amount less the tolerance. The card and the builder both use it, so they show one figure.
+ */
+export function planFromCeiling(amount: bigint, bps: number): bigint {
+  return (amount * 10_000n) / BigInt(10_000 + bps);
+}
+
 /** A ceiling `bps` above an amount, rounded up: the most a deposit may take if the price moves. */
 export function withTolerance(amount: bigint, bps: number): bigint {
   if (!Number.isInteger(bps) || bps < 0 || bps > 10_000) throw new RangeError('tolerance must be 0 to 10,000 basis points');

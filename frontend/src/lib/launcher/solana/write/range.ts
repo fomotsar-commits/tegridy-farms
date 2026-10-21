@@ -37,7 +37,7 @@ import {
   type PoolStateView,
 } from '../../../solana/clmm/program';
 import { getArrayStartIndex } from '../../../solana/clmm/bitmap';
-import { depositFrom, holdsNow, lessTolerance, pairOf, priceNumber, rangePrices, withTolerance, type Pair, type TickRange } from '../../../solana/clmm/rangeMath';
+import { depositFrom, holdsNow, lessTolerance, pairOf, planFromCeiling, priceNumber, rangePrices, withTolerance, type Pair, type TickRange } from '../../../solana/clmm/rangeMath';
 import { MAX_OWN_PRIORITY_LAMPORTS } from './budget';
 import { LP_COPY, accountCheck, coinAccount, rentOf, toRaw, type AccountWant } from './liquidity';
 import { bodySteps, buildAndSimulate, notSent } from './prepare';
@@ -142,7 +142,8 @@ function decodePool(programId: PublicKey, address: PublicKey, a: RawAccount | nu
  * the pool's own field and the derivation from its address, the tier is the pool's own and
  * decodes, each mint is owned by the token program the pool's vault uses, the pairing coin
  * is one of the site's own (and on the side and program it says), and the token has no
- * extension that changes what a transfer moves.
+ * extension that changes what a transfer moves. `withRewards` false (an opening, which carries
+ * no reward account): the pool's rewards are not pinned, so their accounts need not be read.
  */
 function rangePins(
   programId: PublicKey,
@@ -151,6 +152,7 @@ function rangePins(
   mint0: RawAccount | null,
   mint1: RawAccount | null,
   rewardVaults: (RawAccount | null)[],
+  withRewards = true,
 ): { pins: RangePins; pair: Pair; tier: AmmConfigView; tokenDecimals: number } | string {
   const addr = new PublicKey(pool.address);
   const m0 = new PublicKey(pool.tokenMint0);
@@ -180,7 +182,7 @@ function rangePins(
     return LP_COPY.coinChanged(pair.quote.symbol, 'its program or decimals');
   }
   const rewards: RangePins['rewards'] = [];
-  if (poolAllows(pool, POOL_STATUS_BIT.collectReward)) {
+  if (withRewards && poolAllows(pool, POOL_STATUS_BIT.collectReward)) {
     const live = pool.rewardInfos.filter((r) => r.initialized);
     for (let i = 0; i < live.length; i++) {
       const vault = rewardVaults[i];
@@ -306,7 +308,8 @@ export async function prepareRangeOpen(rpc: WriteRpc, cfg: CurveWriteConfig, pro
   if (!deployed(fresh.program)) return notSent('build', RANGE_COPY.notDeployed);
   const pool = decodePool(programId, a.pool, fresh.pool);
   if (typeof pool === 'string') return notSent('build', pool);
-  const pinned = rangePins(programId, pool, fresh.config, fresh.mint0, fresh.mint1, []);
+  // A pool that pays a reward opens like any other: the program updates rewards from the pool alone.
+  const pinned = rangePins(programId, pool, fresh.config, fresh.mint0, fresh.mint1, [], false);
   if (typeof pinned === 'string') return notSent('build', pinned);
   const { pins, pair, tier } = pinned;
   if (!poolAllows(pool, POOL_STATUS_BIT.openPositionOrIncreaseLiquidity)) return notSent('build', RANGE_COPY.addingPaused);
@@ -346,7 +349,7 @@ export async function prepareRangeOpen(rpc: WriteRpc, cfg: CurveWriteConfig, pro
   // only that coin, so a sandwich passed.) The plan is made from the typed amount less the
   // tolerance, so the typed amount stays the most it takes of that coin.
   const range: TickRange = { tickLower: a.tickLower, tickUpper: a.tickUpper };
-  const planAmount = (a.amount * 10_000n) / BigInt(10_000 + a.toleranceBps);
+  const planAmount = planFromCeiling(a.amount, a.toleranceBps);
   const plan = depositFrom(pair, pool, range, a.side, planAmount);
   if (!plan) return notSent('build', RANGE_COPY.buysNothing);
   const typed0 = (a.side === 'token') === pair.tokenIsToken0;

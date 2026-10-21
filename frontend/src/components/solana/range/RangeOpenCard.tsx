@@ -1,10 +1,11 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { PublicKey } from '@solana/web3.js';
 import { parseDecimalToBaseUnits } from '../../../lib/launcher/solana/curve';
 import {
   depositFrom,
   holdsNow,
   parsePrice,
+  planFromCeiling,
   presetRange,
   priceAtSqrt,
   rangeFromPrices,
@@ -26,8 +27,10 @@ import type { CurveSignerState } from '../curve/useCurveSigner';
 import type { PendingTradesState } from '../curve/usePendingTrades';
 import type { CurveWriteConfig, RangeWriteApi, WriteRpc } from '../curve/ports';
 import type { RangeOpenReads } from '../../../lib/launcher/solana/write/range';
+import { marketGap, type MarketGap } from '../../../lib/solana/clmm/priceCheck';
+import type { OutsidePrice } from '../../../lib/solana/lp/outsidePrice';
 import { RangeReviewDisclosure, RangeRisks } from './RangeRisks';
-import { bothAmounts, coinAmount, priceText, tokenAmount, tokenName, tokenWord } from './rangeText';
+import { bothAmounts, coinAmount, priceNumberText, priceText, tokenAmount, tokenName, tokenWord } from './rangeText';
 import { useFlowReports } from './useRangeData';
 
 const TOLERANCE_HINT =
@@ -35,9 +38,9 @@ const TOLERANCE_HINT =
 
 /**
  * Pick a range and put liquidity in it. The presets and the two prices give a range of
- * usable ticks (rangeMath.ts); the amount is of ONE coin and the program works out the
- * other side from it, as the review shows. Press Review and the builder reads the pool
- * again and test-runs the deposit (write/range.ts `prepareRangeOpen`).
+ * usable ticks (rangeMath.ts), from this pool's price, shown beside the market's. The typed
+ * amount of ONE coin is the most the deposit takes of it: a fixed liquidity is planned from
+ * it less the tolerance, both coins capped. Review reads the pool again and test-runs it.
  */
 export function RangeOpenCard(p: {
   pool: RangePool;
@@ -70,6 +73,32 @@ export function RangeOpenCard(p: {
   };
 
   const now = priceAtSqrt(pair, v.sqrtPriceX64);
+  // The market's price beside this pool's own, read when the pool is picked (Review asks again, fresh).
+  // Kept with the pool and price it was read for, so a stale answer is never shown for another.
+  const gapKey = `${v.address}:${v.sqrtPriceX64}`;
+  const [read, setRead] = useState<{ key: string; gap: MarketGap } | null>(null);
+  const gap = read?.key === gapKey ? read.gap : null;
+  const reads = p.reads;
+  useEffect(() => {
+    let live = true;
+    const pr = pair;
+    const ask = (mint: string, decimals: number) =>
+      reads.outsidePrice(mint, decimals).catch((e: unknown): OutsidePrice => ({ kind: 'unread', detail: e instanceof Error ? e.message : String(e) }));
+    void Promise.all([ask(pr.tokenMint, pr.tokenDecimals), pr.quote.native ? Promise.resolve(null) : ask(pr.quote.mint, pr.quote.decimals)]).then(([token, coin]) => {
+      if (live) setRead({ key: `${v.address}:${v.sqrtPriceX64}`, gap: marketGap(pr, v.sqrtPriceX64, token, coin) });
+    });
+    return () => {
+      live = false;
+    };
+  }, [reads, pair, v.address, v.sqrtPriceX64]);
+  const marketText =
+    gap === null
+      ? 'reading…'
+      : gap.state === 'no-market'
+        ? 'none: Jupiter has no route for this pair'
+        : gap.state === 'unread'
+          ? `could not be read just now (${gap.detail})`
+          : priceNumberText(pair, gap.reference);
   const range = useMemo(() => {
     if (preset) return presetRange(pair, v, preset);
     const min = parsePrice(minText);
@@ -83,7 +112,8 @@ export function RangeOpenCard(p: {
   const side = holds === 'token-only' ? 'token' : holds === 'coin-only' ? 'coin' : chosenSide;
   const decimals = side === 'token' ? pair.tokenDecimals : pair.quoteDecimals;
   const amount = amountText ? parseDecimalToBaseUnits(amountText, decimals) : null;
-  const plan = r && amount !== null && amount > 0n ? depositFrom(pair, v, r, side, amount) : null;
+  // Planned as the builder plans it, so the card and the review show one figure.
+  const plan = r && amount !== null && amount > 0n ? depositFrom(pair, v, r, side, planFromCeiling(amount, Number(tolerance ?? 0n))) : null;
 
   const pick = (to: Preset) => {
     const pr = presetRange(pair, v, to);
@@ -95,9 +125,9 @@ export function RangeOpenCard(p: {
     }
   };
   const PRESETS: { id: Preset; label: string }[] = [
-    { id: 'close', label: 'Close to today’s price' },
+    { id: 'close', label: 'Close to this pool’s price' },
     { id: 'wide', label: 'Wide' },
-    { id: 'token-above', label: `${tokenName(pair)} only, above today’s price` },
+    { id: 'token-above', label: `${tokenName(pair)} only, above this pool’s price` },
     { id: 'coin-below', label: `${pair.quote.symbol} only, below` },
   ];
 
@@ -116,16 +146,25 @@ export function RangeOpenCard(p: {
 
   const holdsLine =
     holds === 'token-only'
-      ? `This range is above today’s price, so it holds ${tokenWord(pair)} only. It sells ${tokenWord(pair)} for ${pair.quote.symbol} as the price rises through it, and earns nothing until the price reaches it.`
+      ? `This range is above this pool’s price, so it holds ${tokenWord(pair)} only. It sells ${tokenWord(pair)} for ${pair.quote.symbol} as the price rises through it, and earns nothing until the price reaches it.`
       : holds === 'coin-only'
-        ? `This range is below today’s price, so it holds ${pair.quote.symbol} only. It buys ${tokenWord(pair)} as the price falls through it, and earns nothing until the price reaches it.`
+        ? `This range is below this pool’s price, so it holds ${pair.quote.symbol} only. It buys ${tokenWord(pair)} as the price falls through it, and earns nothing until the price reaches it.`
         : holds === 'both'
-          ? 'Today’s price is inside this range, so it holds both coins and earns from the first swap.'
+          ? 'This pool’s price is inside this range, so it holds both coins and earns from the first swap.'
           : null;
 
   return (
     <Card title="Pick your range" testId="range-open" art={<CardArt pageId="range-pools" idx={2} />}>
-      <Row label="Price now" value={priceText(pair, now)} mono={false} />
+      <Row label="This pool’s price now" value={priceText(pair, now)} mono={false} />
+      <Row label="Market price (Jupiter)" value={marketText} mono={false} />
+      {gap?.state === 'disagrees' && (
+        <Notice tone="warn">
+          {`This pool’s price is ${Number((Math.abs(gap.diff) * 100).toFixed(1))}% ${gap.diff > 0 ? 'above' : 'below'} the market price. Anyone can open a range pool at any price, and a deposit at a price off the market loses value when trading moves it back. The presets below start from this pool’s price. Review checks again and estimates the loss.`}
+        </Notice>
+      )}
+      {gap?.state === 'no-market' && (
+        <Notice tone="warn">Jupiter has no route for this pair, so this pool’s price cannot be checked against a market price. Anyone can open a range pool at any price.</Notice>
+      )}
       <fieldset disabled={busy} className="space-y-2 min-w-0 disabled:opacity-70">
       <div className="flex flex-wrap gap-2" role="group" aria-label="Range presets">
         {PRESETS.map((x) => (
@@ -222,7 +261,7 @@ export function RangeOpenCard(p: {
       {!p.canOpen && !p.why && <Notice>Amounts here are only worked out: opening a position is not switched on here.</Notice>}
       <RangeRisks />
       {/* Said beside every deposit, never folded away. */}
-      <Notice tone="warn">Out of range, a position earns nothing. {plan ? `This one is worth ${tokenAmount(pair, pair.tokenIsToken0 ? plan.amount0 : plan.amount1)} and ${coinAmount(pair, pair.tokenIsToken0 ? plan.amount1 : plan.amount0)} at today’s price.` : ''}</Notice>
+      <Notice tone="warn">Out of range, a position earns nothing. {plan ? `This one is worth ${tokenAmount(pair, pair.tokenIsToken0 ? plan.amount0 : plan.amount1)} and ${coinAmount(pair, pair.tokenIsToken0 ? plan.amount1 : plan.amount0)} at this pool’s price.` : ''}</Notice>
     </Card>
   );
 }
