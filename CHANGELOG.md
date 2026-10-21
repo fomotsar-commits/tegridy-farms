@@ -7,25 +7,28 @@ The site's Changelog tab shows both files.
 
 ## [Unreleased]
 
-### 2026-10-20
+### 2026-10-21
 
 - Add with one coin on a Solana pool no longer says "Withdraw any time": it says there is no lock, but the team's vault can pause removing.
 - A pool's price, the one you press to flip every pool's price, is easier to tap: its press area is 44 px tall, and the price looks the same.
 - On a phone, a press on the bottom edge of the venue card's Program address on /pools and /solana-lp now copies that address; it copied the Config address under it.
-- A room's numbered line on a phone now slides to show the section you are reading; it had lit Holders and Lore off its right edge.
 - Solana pools: the Risks drop-down on every add, open and review, and the pools page's small print, now say that each change the team's vault makes (pausing removals, changing fees, replacing the pool program) waits 48 hours after both its keys approve. They said it had no waiting period, which stopped being true on 2026-10-19.
+- The home shows the venue's all-time volume, counted every hour, with the time it was counted.
+- On a wide screen the page column steps up with the screen, from 1536px, and a room lays its cards on a grid: the price chart beside the burn, held time and holders, the lore across all.
+- Swap: one amount buys every island coin on the chain.
+- Room staking on Ethereum and Base: the card reads the early-exit penalty from the pool it shows instead of assuming 25%. Today's six pools still charge a flat 25%; the pools the owner deploys next keep the ladder's law, the time left on your lock over four years capped at 75%, and the card quotes each position the moment they go live.
+- The marketplace fee is now 0.5%, half OpenSea's 1%.
+
+### 2026-10-20
+
+- A room's numbered line on a phone now slides to show the section you are reading; it had lit Holders and Lore off its right edge.
 
 ### 2026-10-19
 
 - The menu is the site's index: every section's word with its pages under it, a Jump to field (Ctrl+K opens it), and the word Menu beside the ☰ on a computer. A room's page gets a numbered line under the top bar, lit as you scroll, one tap to each section.
-- The home shows the venue's all-time volume, counted every hour, with the time it was counted.
-- On a wide screen the page column steps up with the screen, from 1536px, and a room lays its cards on a grid: the price chart beside the burn, held time and holders, the lore across all.
 
 ### 2026-10-18
 
-- Swap: one amount buys every island coin on the chain.
-- Room staking on Ethereum and Base: the card reads the early-exit penalty from the pool it shows instead of assuming 25%. Today's six pools still charge a flat 25%; the pools the owner deploys next keep the ladder's law, the time left on your lock over four years capped at 75%, and the card quotes each position the moment they go live.
-- The marketplace fee is now 0.5%, half OpenSea's 1%.
 - Base and Robinhood Chain: Pools opens on each network's own coins, not Ethereum's TOWELI; Robinhood's Swap opens on ETH to USDG; a refused switch is said.
 - Heat and Rooms are now Island; the menu gains More.
 - The home: the chain row gains ROBINHOOD, which opens the curve on Robinhood Chain, and BASE now opens the curve on Base (it opened your wallet's chain, or Ethereum with no wallet). The home's Swap and Add SOL + BAYLA cards each have the network drop-down; picking another network opens that network's Swap or Pools page.
@@ -341,17 +344,6 @@ The site's Changelog tab shows both files.
 - Staking cards say how the island reads a locked bag.
 - The heat explainer reads the island's sentences.
 - Bungalow links open once, on the room's hero.
-
-### 2026-09-21
-
-- The BAYLA staking cards are rebuilt, and the wrong readings the rebuild turned up are fixed.
-- The changelog page can name the builder of a change beside its date.
-- memetic.fun is no longer treated as a name for this venue.
-
-### 2026-09-20
-
-- tegridyfarms.vercel.app redirects to memetics.finance instead of serving a second copy of the venue.
-- The footer carries the owner's permanent Discord invite.
 
 ## Earlier
 

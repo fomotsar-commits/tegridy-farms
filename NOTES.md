@@ -29,6 +29,26 @@ pin follow, and `npm install --package-lock-only` afterwards changes nothing.
 
 **Do:** to land a transitive at the oldest release that works, install it as a direct dependency
 at that version and uninstall it. Then check the lock is stable with a second lock-only install.
+## 2026-10-21: a button "detached from the DOM" under a click was not re-mounted; it left by itself, and the click raced it
+
+**Believed:** a `locator.click` call log reading "element is visible, enabled and stable … element
+was detached from the DOM, retrying" on the Tradermigos splash meant the app re-mounted the button
+under the tap: a parent re-render, a key change, a lazy chunk swapping it.
+
+**Measured** (Playwright 1.62, production build on `vite preview`, Windows WebKit, 2026-10-21): a
+MutationObserver counted one mount (+0.6 s), the exit's class (+2.6 s) and one unmount (+4.0 s),
+never a second mount; CI's call log never printed a second "locator resolved to". The splash has
+left by itself at 3.2 s since 2026-10-14. On WebKit `/nakamigos` drew about 0 frames per 250 ms
+(`/risks` and `/swap` about 12) with timers on time, and Playwright's "stable" check counts frames,
+so the click was still checking when the splash left, then waited for a button that never came
+back, to the 120 s test timeout. Turning off filters, shadows, CSS animations, `will-change` or
+canvas each left the frames at 0; hiding every image and background brought the landing's back,
+not the splash's.
+
+**Do:** before calling a detach a re-mount, look for a second "locator resolved to" in the log.
+Never click a control that removes itself on a timer; wait for what replaces it. To make a lost
+race certain in a test, keep the target moving (a linear `translate` animation, `!important` past
+the reduced-motion rule) so no click can find it stable.
 ## 2026-10-20: a press area made of padding and a matching negative margin loses its lower part to the rows after it
 
 **Believed:** `py-3.5 -my-3.5` on an inline-block in a list of rows makes a 44px press area
@@ -58,26 +78,6 @@ E19's `not.toMatch(/APR|APY|yield of/i)` on the section's text failed once on a 
 **Do:** before reading a red e2e-solana run as your change, run the same tests on trunk against the same
 validator (`-g` on the failing titles takes about 20 minutes). Match copy guards on word boundaries, or
 on text with the addresses taken out.
-## 2026-10-21: a button "detached from the DOM" under a click was not re-mounted; it left by itself, and the click raced it
-
-**Believed:** a `locator.click` call log reading "element is visible, enabled and stable … element
-was detached from the DOM, retrying" on the Tradermigos splash meant the app re-mounted the button
-under the tap: a parent re-render, a key change, a lazy chunk swapping it.
-
-**Measured** (Playwright 1.62, production build on `vite preview`, Windows WebKit, 2026-10-21): a
-MutationObserver counted one mount (+0.6 s), the exit's class (+2.6 s) and one unmount (+4.0 s),
-never a second mount; CI's call log never printed a second "locator resolved to". The splash has
-left by itself at 3.2 s since 2026-10-14. On WebKit `/nakamigos` drew about 0 frames per 250 ms
-(`/risks` and `/swap` about 12) with timers on time, and Playwright's "stable" check counts frames,
-so the click was still checking when the splash left, then waited for a button that never came
-back, to the 120 s test timeout. Turning off filters, shadows, CSS animations, `will-change` or
-canvas each left the frames at 0; hiding every image and background brought the landing's back,
-not the splash's.
-
-**Do:** before calling a detach a re-mount, look for a second "locator resolved to" in the log.
-Never click a control that removes itself on a timer; wait for what replaces it. To make a lost
-race certain in a test, keep the target moving (a linear `translate` animation, `!important` past
-the reduced-motion rule) so no click can find it stable.
 ## 2026-10-20: where two buttons' padded press areas meet, `relative` only picks which one loses
 
 **Believed:** a padded press area that loses its lower part to the rows after it is fixed by
@@ -91,6 +91,29 @@ Config, later in the page, took Program's bottom 3px of press, 1px more than the
 
 **Do:** split the padding so the two reaches into the shared gap add up to less than the gap
 (1px clear held on all four devices), each area still 44px or more. Certify by the sweep.
+## 2026-10-20: a build step that reads a file outside frontend/ passes every local build and every CI job, and fails every production deploy
+
+**Believed:** a Vite plugin that reads `../CHANGELOG.md` is safe once `vite build` passes locally
+and in CI, because Vercel builds the same repository.
+
+**Measured** (Vercel build logs, `npx vercel inspect dpl_EnewCRdDML6XsV2PkmxTZrhV2N5a --logs`,
+2026-10-19/20): every production build from #878 on stopped at
+`[plugin changelog-files] Error: ENOENT: no such file or directory, open '/vercel/path0/CHANGELOG.md'`.
+`.vercelignore` opens with `*` and re-includes only `frontend/`, so the upload has no repo-root
+files, while a local or CI checkout has all of them. Three merges (#878, #882, #893) went in over
+about ten hours and none went live. The site kept serving the build before them, and nothing went
+red where anyone was looking: previews are skipped for this project, so every PR showed the usual
+skipped Vercel check.
+
+**Also measured:** re-including the file alone is not enough when it sits in a folder.
+`*` then `!docs/CHANGELOG_EARLIER.md` still leaves it out under the `ignore` package (git's rule:
+a file can't come back while its folder is excluded). It takes `!docs` first, and `*` still keeps
+the rest of `docs/` out.
+
+**Do:** after a merge, read the merge commit's `Vercel` status, not the PR's
+(`gh api repos/<owner>/<repo>/commits/<sha>/statuses`); "merged" is not "live". For a file a build
+reads from outside the uploaded folder, add the `.vercelignore` line and a test that evaluates the
+ignore file against the plugin's own file list.
 ## 2026-10-19: drpc's free tier says it caps eth_getLogs at 10,000 blocks, but it refuses anything over 100
 
 **Believed:** keyless Ethereum logs come from `eth.drpc.org` in windows under 10,000 blocks (the
@@ -122,29 +145,6 @@ swap's own input is the SwapEvent's plus the fee (0.06965 + 0.00035 = 0.07 SOL i
 
 **Do:** count our factories' pairs only. For Jupiter, read the leg from its events, adding the
 fee back when it came off the input; that matches fee ÷ rate without knowing the rate.
-## 2026-10-20: a build step that reads a file outside frontend/ passes every local build and every CI job, and fails every production deploy
-
-**Believed:** a Vite plugin that reads `../CHANGELOG.md` is safe once `vite build` passes locally
-and in CI, because Vercel builds the same repository.
-
-**Measured** (Vercel build logs, `npx vercel inspect dpl_EnewCRdDML6XsV2PkmxTZrhV2N5a --logs`,
-2026-10-19/20): every production build from #878 on stopped at
-`[plugin changelog-files] Error: ENOENT: no such file or directory, open '/vercel/path0/CHANGELOG.md'`.
-`.vercelignore` opens with `*` and re-includes only `frontend/`, so the upload has no repo-root
-files, while a local or CI checkout has all of them. Three merges (#878, #882, #893) went in over
-about ten hours and none went live. The site kept serving the build before them, and nothing went
-red where anyone was looking: previews are skipped for this project, so every PR showed the usual
-skipped Vercel check.
-
-**Also measured:** re-including the file alone is not enough when it sits in a folder.
-`*` then `!docs/CHANGELOG_EARLIER.md` still leaves it out under the `ignore` package (git's rule:
-a file can't come back while its folder is excluded). It takes `!docs` first, and `*` still keeps
-the rest of `docs/` out.
-
-**Do:** after a merge, read the merge commit's `Vercel` status, not the PR's
-(`gh api repos/<owner>/<repo>/commits/<sha>/statuses`); "merged" is not "live". For a file a build
-reads from outside the uploaded folder, add the `.vercelignore` line and a test that evaluates the
-ignore file against the plugin's own file list.
 ## 2026-10-19: `forge coverage --ir-minimum` over a whole suite needs more RAM than a runner has, and `--match-path` does not shrink its compile
 
 **Believed:** the weekly coverage job was red because it lacked the IR-minimum workaround for
