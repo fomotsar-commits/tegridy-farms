@@ -393,7 +393,8 @@ test.describe('a BAYLA/USDC pool (chromium only)', () => {
     await expect(card).toHaveAttribute('data-origin', 'standard');
     await expect(card).toHaveAttribute('data-price', 'agrees');
     await expect(card).toHaveAttribute('data-deposits', 'allowed');
-    await expect(card).toContainText(`1 token = ${formatSolPrice(S.market)} USDC`);
+    // The card names a token the site lists by its symbol (PoolCard.tsx tokenUnits).
+    await expect(card).toContainText(`1 BAYLA = ${formatSolPrice(S.market)} USDC`);
 
     const { panel } = await openAdd(p, S.pool, USDC_COIN);
     await expect(panel.getByTestId('lp-add-coin-risk')).toContainText(USDC_RISK);
