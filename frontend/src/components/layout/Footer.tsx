@@ -55,7 +55,7 @@ export function Footer() {
         borderTop: '1px solid var(--color-purple-20)',
       }}
     >
-      <div className="max-w-[1200px] mx-auto px-4 md:px-6">
+      <div className="page-column mx-auto px-4 md:px-6">
         <div className="accent-divider" />
 
         <div className="pt-8 pb-3 grid gap-5 md:grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)] md:gap-10 md:items-start">

@@ -189,6 +189,47 @@ the pattern in its own command line, so it matched and got SIGTERM.
 
 **Do:** make the pattern unable to match its own text: `pkill -f '[s]olana-test-validator --ledger …'`.
 Or kill by a pid you saved when you started the process.
+## 2026-10-19: Tailwind v4 cannot order `2xl:` against `min-[1920px]:`, so the px rule lands first and loses
+
+**Believed:** `2xl:grid-cols-3 min-[1920px]:grid-cols-6` reads mobile-first, as `md:` and `lg:`
+do: three columns from 1536px, six from 1920px.
+
+**Measured:** a Playwright screenshot of the BAYLA door at 1920 (`npx vite --port 5199` of the
+worktree) still showed three columns. Tailwind v4 sorts min-width variants by value only when
+they share a unit; `2xl` is `96rem`, `1920px` is not comparable, so the arbitrary one was
+emitted first and the later `2xl` rule won at every width above 1536. `min-[120rem]` sorts
+after `2xl` and the six columns appeared. The repo's `min-[1440px]:` + `min-[1700px]:` pairs
+work because both are px. Beside a named breakpoint, write an arbitrary min-width in rem.
+
+## 2026-10-19: a container query is not a drop-in for a viewport breakpoint when the column's padding changes on that breakpoint
+
+**Believed:** a card's `md:grid-cols-3 lg:grid-cols-6` could become `@min-[42rem]:grid-cols-3
+@min-[58rem]:grid-cols-6` on the card itself, so the same card adapts to a narrower slot on a
+wide screen with no change at any window width: in the 1200px column (`px-4 md:px-6`) a `p-6`
+card's content box is exactly 672px (42rem) at a 768px window and 928px (58rem) at 1024px.
+
+**Measured** (Playwright, Chromium, `vite` dev of the BAYLA door, screenshots hashed before and
+after): identical at 390, 810, 1280, 1440 and 1535; different at 768 and 1024. The card's content
+box by `getComputedStyle`: 687px at a 767px window, 672px at 768, 927px at 1023, 928px at 1024.
+The column's padding steps from 16px to 24px at md, so the card SHRINKS by 16px as md turns on,
+and it is already 42rem wide from a 752px window where md is still off: the container query is
+on 16px early, and no single card width maps to the breakpoint. (At exactly 768 and 1024 the
+shots differed too, in the sliver of card above the fold; that cause was not run down.) What
+worked: keep the viewport breakpoints and add the narrow-slot ones behind a prop that the one
+host with a narrow slot passes (`wideGrid`, `HomePage.tsx`). The slot's width is then a function
+of the window alone, every other host is untouched by construction, and all seven widths hashed
+the same again.
+
+## 2026-10-19: Git Bash hands a Node script `/bayla` as `C:/Program Files/Git/bayla`
+
+**Believed:** `node shoot.mjs /bayla 1920` passes the route through.
+
+**Measured:** the script navigated to `http://localhost:5199C:/Program Files/Git/bayla`. MSYS
+path conversion rewrites any argument that starts with `/`. `MSYS_NO_PATHCONV=1 node shoot.mjs
+/bayla 1920` passes it untouched (PowerShell has no such rule). Also, an ESM script in the
+scratchpad cannot `import '@playwright/test'`, since resolution starts from the script's own
+folder: `createRequire('<worktree>/frontend/package.json')('@playwright/test')` loads the
+worktree's copy.
 
 ## 2026-10-19: a dev-server walk that stubs every /api/ request renders a blank page, because the app imports from /api/_lib/
 

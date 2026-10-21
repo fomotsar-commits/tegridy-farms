@@ -55,7 +55,7 @@ export function EvmBungalowDashboardPanel({ bungalow }: { bungalow: Bungalow }) 
 
   return (
     // The same page column as the Solana sibling: without it every card ran edge to edge.
-    <div className="relative z-10 max-w-[1200px] mx-auto px-4 md:px-6 pt-8 pb-16 space-y-4">
+    <div className="relative z-10 page-column mx-auto px-4 md:px-6 pt-8 pb-16 space-y-4">
       {/* Header card: who this is + wallet position + the standing CTAs. */}
       <section
         className="relative isolate rounded-2xl p-6"

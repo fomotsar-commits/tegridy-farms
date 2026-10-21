@@ -19,6 +19,7 @@ The site's Changelog tab shows both files.
 
 - The menu is the site's index: every section's word with its pages under it, a Jump to field (Ctrl+K opens it), and the word Menu beside the ☰ on a computer. A room's page gets a numbered line under the top bar, lit as you scroll, one tap to each section.
 - The home shows the venue's all-time volume, counted every hour, with the time it was counted.
+- On a wide screen the page column steps up with the screen, from 1536px, and a room lays its cards on a grid: the price chart beside the burn, held time and holders, the lore across all.
 
 ### 2026-10-18
 
