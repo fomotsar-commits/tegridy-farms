@@ -6,6 +6,17 @@ first. The site's Changelog tab shows this file under that one. When a day leave
 
 ## Days
 
+### 2026-09-21
+
+- The BAYLA staking cards are rebuilt, and the wrong readings the rebuild turned up are fixed.
+- The changelog page can name the builder of a change beside its date.
+- memetic.fun is no longer treated as a name for this venue.
+
+### 2026-09-20
+
+- tegridyfarms.vercel.app redirects to memetics.finance instead of serving a second copy of the venue.
+- The footer carries the owner's permanent Discord invite.
+
 ### 2026-09-19
 
 - The dead Discord invite and the retired Telegram handle are gone from the footer.

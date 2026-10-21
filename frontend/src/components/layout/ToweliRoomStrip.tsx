@@ -24,7 +24,7 @@ export function ToweliRoomStrip() {
       className="relative z-20 border-b text-[12px] md:text-[13px]"
       style={{ background: 'rgba(6,12,26,0.85)', borderColor: 'var(--color-purple-20)' }}
     >
-      <div className="max-w-[1200px] mx-auto px-4 md:px-6 py-1 flex flex-wrap items-center justify-between gap-x-4">
+      <div className="page-column mx-auto px-4 md:px-6 py-1 flex flex-wrap items-center justify-between gap-x-4">
         <p className="text-white/85 py-2" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>
           You are in the{' '}
           <Link to="/toweli" className="underline underline-offset-4 hover:text-white">

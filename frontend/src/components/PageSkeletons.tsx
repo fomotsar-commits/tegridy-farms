@@ -50,7 +50,7 @@ export const SwapSkeleton = React.memo(function SwapSkeleton() {
 /** Farm page skeleton — stats row, staking card, pool cards */
 export const FarmSkeleton = React.memo(function FarmSkeleton() {
   return (
-    <div role="status" aria-busy="true" aria-live="polite" aria-label="Loading farm" className="max-w-[1200px] mx-auto pt-8 px-4 space-y-6">
+    <div role="status" aria-busy="true" aria-live="polite" aria-label="Loading farm" className="page-column mx-auto pt-8 px-4 space-y-6">
       <div className="skeleton h-8 w-48 mb-2" />
       <div className="skeleton h-5 w-64 mb-6" />
       {/* Stats row */}
@@ -91,7 +91,7 @@ export const FarmSkeleton = React.memo(function FarmSkeleton() {
 /** Dashboard page skeleton — stat grid, chart area */
 export const DashboardSkeleton = React.memo(function DashboardSkeleton() {
   return (
-    <div role="status" aria-busy="true" aria-live="polite" aria-label="Loading dashboard" className="max-w-[1200px] mx-auto pt-8 px-4 space-y-6">
+    <div role="status" aria-busy="true" aria-live="polite" aria-label="Loading dashboard" className="page-column mx-auto pt-8 px-4 space-y-6">
       <div className="skeleton h-8 w-48 mb-6" />
       {/* Stats grid */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
