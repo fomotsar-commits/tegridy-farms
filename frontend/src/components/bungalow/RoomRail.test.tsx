@@ -1,7 +1,7 @@
 // The room's rail (owner, 2026-10-19): the page's own index, the sections the room renders,
 // numbered, lit as you scroll, one tap to each.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent, within } from '@testing-library/react';
+import { render, screen, fireEvent, within, act } from '@testing-library/react';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
@@ -27,7 +27,29 @@ beforeEach(() => {
   window.matchMedia = vi.fn().mockReturnValue({ matches: false }) as unknown as typeof window.matchMedia;
   window.scrollTo = vi.fn() as unknown as typeof window.scrollTo;
 });
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+});
+
+/**
+ * jsdom lays nothing out, so this lays the strip out as a 390px phone does (live walk,
+ * 2026-10-20): a 366px list starting 12px in, six stops 100px apart and 90px wide, 600px in all.
+ * The list's own scrollTo moves its scrollLeft, and every stop's box moves with it.
+ */
+function layOutPhoneStrip({ docked = false } = {}) {
+  const ol = screen.getByRole('navigation', { name: 'On this page' }).querySelector('ol')!;
+  let scrollLeft = 0;
+  Object.defineProperty(ol, 'clientWidth', { configurable: true, value: 366 });
+  Object.defineProperty(ol, 'scrollWidth', { configurable: true, value: docked ? 366 : 600 });
+  Object.defineProperty(ol, 'scrollLeft', { configurable: true, get: () => scrollLeft, set: (v: number) => { scrollLeft = v; } });
+  const box = (left: number, width: number) => ({ left, right: left + width, width, top: 64, bottom: 136, height: 72, x: left, y: 64, toJSON: () => ({}) });
+  ol.getBoundingClientRect = () => box(12, 366);
+  [...ol.children].forEach((li, i) => { li.getBoundingClientRect = () => box(12 + i * 100 - scrollLeft, 90); });
+  const scrollTo = vi.fn((o: ScrollToOptions) => { scrollLeft = o.left ?? scrollLeft; });
+  ol.scrollTo = scrollTo as unknown as typeof ol.scrollTo;
+  return { ol, scrollTo, swipeTo: (x: number) => { scrollLeft = x; } };
+}
 
 describe('RoomRail', () => {
   it("lists the room's sections in page order, numbered, the first lit until the page scrolls", () => {
@@ -76,6 +98,76 @@ describe('RoomRail', () => {
     expect(src).toMatch(/burnRoom \? \[ROOM_STOPS\.burn\]/);
     expect(src).toMatch(/bungalowIdentity\.address \? \[ROOM_STOPS\.heldTime, ROOM_STOPS\.holders\]/);
     expect(src).toMatch(/bungalowIdentity\.identity\.lore \? \[ROOM_STOPS\.lore\]/);
+  });
+
+  // Live walk, 2026-10-20: on a 390px phone the strip shows four of six stops, and reading Holders
+  // or Lore lit a word off its right edge. The strip now brings the lit stop into view itself.
+  describe('the lit stop stays in view on the strip', () => {
+    it('a tap on a stop past the edge slides the strip to centre it (Lore: 500 − (366 − 90) / 2)', () => {
+      render(<Room stops={STOPS} />);
+      const { scrollTo } = layOutPhoneStrip();
+      fireEvent.click(screen.getByRole('link', { name: 'Lore' }));
+      expect(scrollTo).toHaveBeenCalledWith({ left: 362, behavior: 'smooth' });
+    });
+
+    it('scrolling the page onto a section whose stop is off the edge slides the strip, and only the strip', () => {
+      let fire: (entries: Partial<IntersectionObserverEntry>[]) => void = () => {};
+      vi.stubGlobal('IntersectionObserver', class {
+        constructor(cb: typeof fire) { fire = cb; }
+        observe() {}
+        disconnect() {}
+      });
+      render(<Room stops={STOPS} />);
+      const { scrollTo } = layOutPhoneStrip();
+      act(() => fire([{ isIntersecting: true, target: document.getElementById('room-holders')!, boundingClientRect: { top: 200 } as DOMRect }]));
+      expect(screen.getByRole('link', { name: 'Holders' })).toHaveAttribute('aria-current', 'location');
+      expect(scrollTo).toHaveBeenCalledWith({ left: 262, behavior: 'smooth' });
+      expect(window.scrollTo).not.toHaveBeenCalled();
+    });
+
+    it('a lit stop already in full view leaves the strip where it is', () => {
+      render(<Room stops={STOPS} />);
+      const { scrollTo } = layOutPhoneStrip();
+      fireEvent.click(screen.getByRole('link', { name: 'Market' }));
+      expect(scrollTo).not.toHaveBeenCalled();
+    });
+
+    it('a stop under the faded right edge counts as out of view', () => {
+      render(<Room stops={STOPS} />);
+      const { scrollTo, swipeTo } = layOutPhoneStrip();
+      // Swiped 40px along: the strip shows 40 to 406, and Held time (300 to 390) ends inside the
+      // last 28px, where the list fades to nothing. On screen, but not readable.
+      swipeTo(40);
+      fireEvent.click(screen.getByRole('link', { name: 'Held time' }));
+      expect(scrollTo).toHaveBeenCalledWith({ left: 162, behavior: 'smooth' });
+    });
+
+    it('going back to the first stop slides the strip back to its start, without easing for a reduced-motion visitor', () => {
+      render(<Room stops={STOPS} />);
+      const { scrollTo } = layOutPhoneStrip();
+      fireEvent.click(screen.getByRole('link', { name: 'Lore' }));
+      window.matchMedia = vi.fn((q: string) => ({ matches: q.includes('reduced-motion') })) as unknown as typeof window.matchMedia;
+      fireEvent.click(screen.getByRole('link', { name: 'Doors' }));
+      expect(scrollTo).toHaveBeenLastCalledWith({ left: 0, behavior: 'auto' });
+    });
+
+    it('docked (nothing to scroll), the list is left alone', () => {
+      render(<Room stops={STOPS} />);
+      const { scrollTo } = layOutPhoneStrip({ docked: true });
+      fireEvent.click(screen.getByRole('link', { name: 'Lore' }));
+      expect(scrollTo).not.toHaveBeenCalled();
+    });
+
+    it("a re-render with the same sections does not pull back a strip the visitor swiped along", () => {
+      // HomePage builds its stops array anew on every render (live price polling re-renders it).
+      const { rerender } = render(<Room stops={STOPS} />);
+      const { scrollTo, swipeTo } = layOutPhoneStrip();
+      fireEvent.click(screen.getByRole('link', { name: 'Lore' }));
+      expect(scrollTo).toHaveBeenCalledTimes(1);
+      swipeTo(0);
+      rerender(<Room stops={STOPS.map((s) => ({ ...s }))} />);
+      expect(scrollTo).toHaveBeenCalledTimes(1);
+    });
   });
 
   // CI, 2026-10-19: the heading moved 2px from the first frame to the page (156.5 then 154.5)
