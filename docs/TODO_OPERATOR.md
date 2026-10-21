@@ -132,8 +132,8 @@ gh workflow run solana-deploy-artifact.yml --repo fomotsar-commits/tegridy-farms
   call.
 - **The pool-program upgrade** (O-1009-4): its pack was reworked on 2026-10-19 for the 48-hour
   lock and now prepares a roll-back on Day 0, so the paying wallet
-  `CqcVvaMvesrSKrUSbqBqr9mLjKLJuYqhaXg1gXpR41cg` needs 7.40 SOL, not 3.90. Its START-HERE has the
-  steps.
+  `CqcVvaMvesrSKrUSbqBqr9mLjKLJuYqhaXg1gXpR41cg` needs 7.40 SOL, not 3.90, and member A needs
+  0.02 SOL. Its START-HERE has the steps. The three to-dos below now say so (2026-10-20).
 - **Every vault action now waits 48 hours after its second approval** (Squads #14, 2026-10-19),
   an emergency pause too.
 
@@ -322,10 +322,11 @@ nothing is lost.
   `node scripts/streamflow-receipt-name.mjs` (signs nothing), then the same with
   `--broadcast --keypair <the pool authority's key file>`. The dry run passed on 2026-10-14.
   [was O-1009-5]
-- ⬜ **The pool-program upgrade** (the LP receipt names): 3.90 SOL in the deploy wallet
-  `CqcVvaMvesrSKrUSbqBqr9mLjKLJuYqhaXg1gXpR41cg` (about 3.68 comes back), both multisig members on
-  the pack's own page, approving each wallet prompt within about 30 seconds of pressing Check.
-  Tell a session first: #776 goes out in the same hour. [was O-1009-4]
+- ⬜ **The pool-program upgrade** (the LP receipt names): 7.40 SOL in the deploy wallet
+  `CqcVvaMvesrSKrUSbqBqr9mLjKLJuYqhaXg1gXpR41cg` and 0.02 SOL to member A `5QHzAqbGk3W8qGRBHCMyWjhLXf8YJcs3yPEh14Ymcwgz`
+  (about 7.20 comes back: 3.68 on Day 2, 3.51 on Day 4), both multisig members on the pack's own
+  page, in three sittings 48 hours apart. Tell a session first: #776 goes out in the hour of
+  Day 2's execute. [was O-1009-4]
 - ⬜ **The TOWELI staking top-up** you decided on 2026-09-17 (see the money list for the gap).
   Say which wallet; a session re-reads the numbers before and after. [was O-1009-1]
 - ⬜ **BAYLA ladder rewards stop 2026-12-23T15:32Z** unless reloaded. Decide the amount and the
@@ -437,10 +438,11 @@ made under "the rest", now settled and being built:
 - ⬜ **The TOWELI staking top-up** you decided on 2026-09-17. Not sent when last read
   (2026-10-09); about 2.45M TOWELI short then. Say which wallet; a session re-reads the numbers
   before and after. [was O-1009-1]
-- ⬜ **The pool-program upgrade:** 3.90 SOL in the deploy wallet
-  `CqcVvaMvesrSKrUSbqBqr9mLjKLJuYqhaXg1gXpR41cg`, about 3.68 SOL of it comes back, so it costs
-  about 0.22 SOL. Both multisig members sign on the pack's own page. #776 goes out in the same
-  hour. [was O-1009-4]
+- ⬜ **The pool-program upgrade:** 7.40 SOL in the deploy wallet
+  `CqcVvaMvesrSKrUSbqBqr9mLjKLJuYqhaXg1gXpR41cg` and 0.02 SOL to member A
+  `5QHzAqbGk3W8qGRBHCMyWjhLXf8YJcs3yPEh14Ymcwgz`. About 7.20 SOL comes back (3.68 on Day 2, 3.51 on Day 4), so it
+  costs about 0.22 SOL. Both multisig members sign on the pack's own page, in three sittings 48
+  hours apart. #776 goes out in the hour of Day 2's execute. [was O-1009-4]
 - ⬜ **Name the staking receipt:** about 0.00024 SOL. Steps 3 and 4 of the 2026-10-07 section
   below. [was O-1009-5]
 - ⬜ **BAYLA ladder rewards stop 2026-12-23T15:32Z** unless reloaded. Decide the amount and the
@@ -497,10 +499,11 @@ above, with what each costs. That list is the one to work from.
 - ✅ **O-1009-3: answered on 2026-10-10: yes.** The two Solana programs are inside the security
   policy (O-0929-12, PR #775, which you merged that day). It had to be settled before the
   pool-program upgrade, and it is.
-- ⬜ **O-1009-4: the pool-program upgrade.** The pack is ready. It needs 3.90 SOL in the deploy
-  wallet `CqcVvaMvesrSKrUSbqBqr9mLjKLJuYqhaXg1gXpR41cg` (about 3.68 comes back) and both
-  multisig members, on the pack's own page and never in the Squads app. Tell a session before
-  you start: draft PR #776 has to go out in the same hour, and not before.
+- ⬜ **O-1009-4: the pool-program upgrade.** The pack is ready. It needs 7.40 SOL in the deploy
+  wallet `CqcVvaMvesrSKrUSbqBqr9mLjKLJuYqhaXg1gXpR41cg` (about 7.20 comes back: 3.68 on Day 2,
+  3.51 on Day 4), 0.02 SOL for member A `5QHzAqbGk3W8qGRBHCMyWjhLXf8YJcs3yPEh14Ymcwgz`, and both multisig members,
+  on the pack's own page and never in the Squads app. Tell a session before you start: draft PR
+  #776 has to go out in the hour of Day 2's execute, and not before.
 - ⬜ **O-1009-5: name the staking receipt.** Steps 3 and 4 of the 2026-10-07 section below. Not run
   as of 2026-10-09.
 - ⬜ **O-1009-6: two forms.** Jupiter verification for BAYLA (its pack is in the release folder),

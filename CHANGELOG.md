@@ -13,6 +13,7 @@ The site's Changelog tab shows both files.
 - A pool's price, the one you press to flip every pool's price, is easier to tap: its press area is 44 px tall, and the price looks the same.
 - On a phone, a press on the bottom edge of the venue card's Program address on /pools and /solana-lp now copies that address; it copied the Config address under it.
 - A room's numbered line on a phone now slides to show the section you are reading; it had lit Holders and Lore off its right edge.
+- Solana pools: the Risks drop-down on every add, open and review, and the pools page's small print, now say that each change the team's vault makes (pausing removals, changing fees, replacing the pool program) waits 48 hours after both its keys approve. They said it had no waiting period, which stopped being true on 2026-10-19.
 
 ### 2026-10-19
 
