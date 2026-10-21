@@ -263,7 +263,7 @@ describe('the real tree', () => {
     expect(DENY).toHaveLength(39);
     expect(DENY).toContain(RAYDIUM_ADMIN);
     expect(DENY).toContain('CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK');
-    expect(judge({ ours: OURS, deny: DENY, allow: ALLOW }).counts).toEqual({ found: 22, deny: 39, allowed: 22 });
+    expect(judge({ ours: OURS, deny: DENY, allow: ALLOW }).counts).toEqual({ found: 23, deny: 39, allowed: 23 });
   });
 
   it('finds no cargo config, toolchain file or source swap above any program', () => {
