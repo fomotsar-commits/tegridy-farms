@@ -30,7 +30,7 @@ Raydium, whose open code we copy.
   commit Raydium's lock named (`43a0303b9c2a23a00508816bd6d5a2e9381f143c`), unchanged, with its
   two licence files. So the build fetches nothing from Raydium.
 - **It builds.** Built locally (Solana 3.1.11 tools in WSL, one patch release newer than
-  upstream's pin; CI builds on the exact 3.1.10), offline: 1,523,176 bytes, no stack-size
+  upstream's pin; CI builds on the exact 3.1.10), offline: 1,523,176 bytes (1,522,736 after the vault-power fixes of 2026-10-20), no stack-size
   warning. Raydium's own 200 unit tests pass on the copy (1 skipped, as upstream skips it). A
   build without the `placeholder-id` setting is refused, and so is a build with `devnet` or
   `localnet` unless `test-chain-keys` is also named.
@@ -227,9 +227,9 @@ bytes carry over; the costs are at mainnet's rate).
 
 | What | Size | Cost | Who pays |
 |---|---|---|---|
-| Deploy the program, exact size (measured: the program's data account) | 1,523,221 bytes | 7.74 SOL rent, locked while it exists | the venue |
-| Deploy with the tool's default (room to grow to twice the size) | 3,046,397 bytes | 15.48 SOL rent | the venue |
-| Upload buffer during deploy | 1,523,213 bytes | 7.74 SOL rent, moved into the program's data by the deploy itself | the venue |
+| Deploy the program, exact size (measured: the program's data account, with the vault-power fixes) | 1,522,781 bytes | 7.74 SOL rent, locked while it exists | the venue |
+| Deploy with the tool's default (room to grow to twice the size) | 3,045,517 bytes | 15.47 SOL rent | the venue |
+| Upload buffer during deploy | 1,522,773 bytes | 7.74 SOL rent, moved into the program's data by the deploy itself | the venue |
 | The program's own account | 36 bytes | 0.0008 SOL rent | the venue |
 | About 1,500 upload transactions, at 5,000 lamports each | | about 0.008 SOL in fees, plus any priority fee | the venue |
 | One fee tier | 117 bytes | 0.0012 SOL rent | the vault |
