@@ -3,7 +3,7 @@
 import { describe, it, expect } from 'vitest';
 import { createHash } from 'node:crypto';
 import { readFileSync, readdirSync } from 'node:fs';
-import { join, relative, resolve, sep } from 'node:path';
+import { join, resolve } from 'node:path';
 
 import { ClmmMathError, MAX_SQRT_PRICE_X64, MIN_SQRT_PRICE_X64, getSqrtPriceAtTick } from './math';
 import { MAX_FEE_RATE_NUMERATOR, UPSTREAM_MAX_FEE_RATE_NUMERATOR, computeSwap, quoteSwap, swapInternal, tickSpacingIndexFromTick, type SwapQuoteArgs } from './quote';
@@ -219,28 +219,31 @@ describe('the dynamic fee index', () => {
   });
 });
 
-describe('the vectors are the deployed program’s', () => {
-  // run.sh stamps the hash of the program source it ran (every .rs file under
-  // programs/amm/src, by path then content, carriage returns dropped). A change to the
-  // program without new vectors fails here, so the vectors cannot quietly describe an older program.
-  it('the fixture was made from the program source in this repo', () => {
-    const root = resolve(__dirname, '../../../../../solana/tegridy-clmm/programs/amm/src');
-    const files: string[] = [];
-    const walk = (dir: string) => {
-      for (const e of readdirSync(dir, { withFileTypes: true })) {
-        const p = join(dir, e.name);
-        if (e.isDirectory()) walk(p);
-        else if (e.name.endsWith('.rs')) files.push(relative(root, p).split(sep).join('/'));
+describe('the vectors were made from this repo’s program source', () => {
+  // run.sh stamps the hash of everything that decides the program's maths: the .rs files under
+  // programs/amm/src, vendor/, both Cargo.toml and Cargo.lock (by path then content, carriage
+  // returns dropped). This holds that stamp to the repo's copy, so a change to any of it without
+  // new vectors fails here. It neither re-runs the Rust nor reads the program on chain.
+  it('the fixture’s stamp is the hash of the program source in this repo', () => {
+    const root = resolve(__dirname, '../../../../../solana/tegridy-clmm');
+    const files: string[] = ['Cargo.toml', 'Cargo.lock', 'programs/amm/Cargo.toml'];
+    const walk = (dir: string, keep: (name: string) => boolean) => {
+      for (const e of readdirSync(join(root, dir), { withFileTypes: true })) {
+        const p = `${dir}/${e.name}`;
+        if (e.isDirectory()) walk(p, keep);
+        else if (keep(e.name)) files.push(p);
       }
     };
-    walk(root);
+    walk('programs/amm/src', (n) => n.endsWith('.rs'));
+    walk('vendor', () => true);
     files.sort();
     const h = createHash('sha256');
     for (const f of files) {
       h.update(`${f}\n`);
       h.update(readFileSync(join(root, f), 'utf8').replace(/\r/g, ''));
     }
-    expect(files.length).toBeGreaterThan(50);
+    expect(files.filter((f) => f.startsWith('vendor/')).length).toBeGreaterThan(10);
+    expect(files.length).toBeGreaterThan(60);
     expect(h.digest('hex')).toBe(V.programSource.sha256);
   });
 });
@@ -286,6 +289,10 @@ describe('the fee ceiling', () => {
     // Exact in, one step: the fee is the amount times the rate, rounded up.
     expect(ours.tradeFee).toBe(40_000n);
     expect(raydiums.tradeFee).toBe(100_000n);
+    // No other ceiling is taken: below ours, the quote would promise more than the program pays.
+    for (const bad of [0, 30_000, 39_999, 40_001]) {
+      expect(() => quoteSwap({ ...a, maxFeeRate: bad as typeof MAX_FEE_RATE_NUMERATOR }), String(bad)).toThrow(RangeError);
+    }
   });
 });
 
