@@ -304,19 +304,21 @@ export function LpDisclosure({ programId, mode = 'off', programBelow = true, bar
             {programBelow ? 'below' : 'on the Solana LP tab'}).{' '}
             <strong>Those changes have not had their own independent review yet.</strong> Put in only what you can afford to lose.
           </p>
-          {/* Read on chain 2026-10-16. The vault's powers are the pool program's admin instructions (update_pool_status,
+          {/* Multisig read 2026-10-20, finalized slot 459,251,370: threshold 2 of 2 members, time_lock 172,800 (Squads #14),
+              no config authority. The vault's powers are the pool program's admin instructions (update_pool_status,
               update_amm_config, create_amm_config, collect_protocol_fee, collect_fund_fee) and its upgrade authority. */}
           <p>
-            Read on chain 2026-10-16: one key is both the admin of pool program{' '}
+            Read on chain 2026-10-20: one key is both the admin of pool program{' '}
             <span className="font-mono break-all">EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT</span> and the only key that can replace it.
             That key is the team’s vault <span className="font-mono break-all">GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd</span>, vault 0
             of the Squads multisig <span className="font-mono break-all">EVGSnRZFWqjCaWR7z2xKbSXnuddY8upevEQK5HFmj6NK</span>. The multisig
-            needs 2 of its 2 keys to sign, has no waiting period (a time lock of 0 seconds), and only those 2 keys, together, can change
-            its rules.
+            needs 2 of its 2 keys to approve anything the vault does. Since 2026-10-19 each approved action then waits 48 hours (a time
+            lock of 172,800 seconds) before it can run. Only those 2 keys, together, can change its rules, and such a change waits 48
+            hours too.
           </p>
           <p>
-            The vault can switch off adding, removing or trading on any pool. It can change any fee tier’s fees, and who collects the
-            venue’s share, at once, and that applies to pools already open. It can add fee tiers, collect the venue’s share of trading
+            The vault can switch off adding, removing or trading on any pool. It can change any fee tier’s fees and who collects the
+            venue’s share, and that applies to pools already open. It can add fee tiers, collect the venue’s share of trading
             fees, and replace the program. Every pool’s coins sit in accounts that program controls, so a replacement could move
             them. If it switched off removing on a pool, you could not take your money out of that pool until it switched removing
             back on.

@@ -335,14 +335,15 @@ Run it before each merge, in Git Bash, from a clone outside OneDrive:
 
 ```bash
 bash scripts/ci/local-gates.sh root        # minutes: the repo-root self-tests and script tests
-bash scripts/ci/local-gates.sh frontend    # lint, types, unit, build, e2e (about 40 minutes)
+bash scripts/ci/local-gates.sh frontend    # lint, types, unit, build, e2e (about 3 hours: e2e is 3,232 tests on one worker)
 bash scripts/ci/local-gates.sh contracts   # forge build, every test slice, fuzz (slow)
 bash scripts/ci/local-gates.sh solana      # the Rust math and layout tests, when rustc/cargo exist
 bash scripts/ci/local-gates.sh all
 ```
 
 It prints a PASS, FAIL or SKIP table and exits non-zero on any FAIL. Every command it runs
-is one CI runs, word for word; the guard test fails otherwise. Gates CI runs as inline
+is one CI runs, word for word, with the variables ci.yml sets on that step and no others
+(the build's BAYLA ladder addresses, read from ci.yml); the guard test fails otherwise. Gates CI runs as inline
 scripts (the bytecode size budget, the anvil e2e run, Slither, the Solana SBF builds and
 validator suites) are listed as "CI only". Set `LOCAL_GATES_SKIP_INSTALL=1` to skip
 `npm ci` when `node_modules` is fresh. The contracts area refuses to run forge where a
