@@ -349,9 +349,10 @@ describe('range pools in the route', () => {
     await waitFor(() => expect(receive()).toBe('1.02'));
     fireEvent.click(buy);
     expect(await screen.findByText('Review your swap', {}, { timeout: 20_000 })).toBeInTheDocument();
-    expect(screen.getByText('Pool fee (taken from what you receive)')).toBeInTheDocument();
-    expect(screen.getByText(/^1% of what you receive\./)).toBeInTheDocument();
-    expect(screen.queryByText(/of what you pay/)).toBeNull();
+    // The rate's basis: the pool's payout before the fee, not what reaches the trader.
+    expect(screen.getByText('Pool fee (taken before it reaches you)')).toBeInTheDocument();
+    expect(screen.getByText(/^1% of what the pool pays out, taken before it reaches you\./)).toBeInTheDocument();
+    expect(screen.queryByText(/of what you pay|of what you receive/)).toBeNull();
   });
 
   it('a range tier whose fund owner is the vault takes the island’s share: the swap review says so in bold, first', async () => {
@@ -362,8 +363,13 @@ describe('range pools in the route', () => {
     await waitFor(() => expect(receive()).toBe('1.02'));
     fireEvent.click(buy);
     expect(await screen.findByText('Review your swap', {}, { timeout: 20_000 })).toBeInTheDocument();
-    const bold = [...document.querySelectorAll('strong')].map((x) => x.textContent ?? '');
-    expect(bold.some((t) => /does not follow the agreed split .* 16% of each fee \(0\.16% of the swap\) to the team’s shared wallet, 0% of each fee \(0% of the swap\) to the island’s Workshop\./.test(t))).toBe(true);
+    const first = screen.getByTestId('tx-review-venue-elsewhere');
+    expect(first.querySelector('strong')?.textContent).toMatch(/does not follow the agreed split .* 16% of each fee \(0\.16% of the swap\) to the team’s shared wallet, 0% of each fee \(0% of the swap\) to the island’s Workshop\./);
+    // First: above every row of the review, said once.
+    const before = (a: Element, b: Element) => (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
+    expect(before(first, screen.getByText('Range pool'))).toBe(true);
+    expect(before(first, screen.getByText('You pay'))).toBe(true);
+    expect(document.querySelectorAll('[data-testid="tx-review"] strong')).toHaveLength(1);
     expect(screen.queryByText(/The venue’s cut is split:/)).toBeNull();
   });
 

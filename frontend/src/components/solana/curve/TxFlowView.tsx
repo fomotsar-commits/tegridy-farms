@@ -7,7 +7,6 @@ import { feeRateText, formatSolPrice, tradeCostText } from '../../../lib/solana/
 import { TOO_NEW_WHY } from '../../../lib/solana/lp/ownPrice';
 import { edgePercent } from '../../../lib/solana/route';
 import { perMillionPercent } from '../../../lib/solana/clmm/feeText';
-import { rangeVenueEarns } from '../../../lib/solana/clmm/venueEarns';
 import type { FeeSplitView, NotSent, PreparedTx, SolanaCluster, TokenRole, TxKind, TxOutcome, TxSigner, TxSummary, TxViewApi } from './ports';
 import { reviewLines } from './reviewLines';
 import { RangeRows } from './RangeRows';
@@ -384,7 +383,7 @@ const gapCostText = (g: PriceGap, q: QuoteCoin) =>
  * first, in bold, above every row (owner, 2026-10-10). On a phone the rows are two screens.
  */
 function rangeVenueFirst(s: TxSummary): RangeVenueEarns | null {
-  if (s.kind !== 'range-open' && s.kind !== 'range-remove' && s.kind !== 'range-close') return null;
+  if (s.kind !== 'range-open' && s.kind !== 'range-remove' && s.kind !== 'range-close' && s.kind !== 'range-swap') return null;
   const venue = rangeVenueEarns(s.poolLine);
   return venue.elsewhere ? venue : null;
 }
@@ -734,17 +733,12 @@ function RangeSwapRows({ summary: s }: { summary: Extract<TxSummary, { kind: 'ra
       <Row label="You receive at least" value={get(s.minimumAmountOut, true)} />
       {/* The pool's fee_on says which side the fee comes out of for this direction. */}
       <Row
-        label={s.feeOnInput ? 'Pool fee (inside what you pay)' : 'Pool fee (taken from what you receive)'}
-        value={`${perMillionPercent(l.tradeFeeRate)} of what you ${s.feeOnInput ? 'pay' : 'receive'}. The positions your trade passes through share what the venue does not keep: it keeps ${venue.cut}, read from the pool's fee tier.`}
+        label={s.feeOnInput ? 'Pool fee (inside what you pay)' : 'Pool fee (taken before it reaches you)'}
+        value={`${perMillionPercent(l.tradeFeeRate)} of ${s.feeOnInput ? 'what you pay' : 'what the pool pays out, taken before it reaches you'}. The positions your trade passes through share what the venue does not keep: it keeps ${venue.cut}, read from the pool's fee tier.`}
         mono={false}
       />
-      {venue.elsewhere ? (
-        <Notice tone="bad">
-          <strong>{venue.where}</strong> {venue.wallets.map((w) => `${w.label}: ${w.address}`).join('. ')}.
-        </Notice>
-      ) : (
-        <Notice>{venue.where}</Notice>
-      )}
+      {/* Anything but the agreed split is said once, in bold, at the top of the review. */}
+      {!venue.elsewhere && <Notice>{venue.where}</Notice>}
       <Row label="Price bands it may cross" value={String(s.bandsCrossed)} mono={false} />
       <Row label="Compared with Jupiter" value={routeText(s.aggregator, s.quotedOut)} mono={false} line="market" />
       {s.notices.map((n) => (
