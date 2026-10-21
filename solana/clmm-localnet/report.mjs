@@ -13,7 +13,7 @@ const man = j('manifest.json');
 // the restore that counts is the last sweep's.
 const sweeps = readdirSync(WORK).filter((f) => /^mutants-.*\.json$/.test(f)).sort().map(j);
 const sweep = sweeps.length
-  ? { ...sweeps.at(-1), mutants: Object.values(Object.fromEntries(sweeps.flatMap((x) => x.mutants).map((m) => [m.id, m]))), runs: sweeps.length }
+  ? { ...sweeps.at(-1), mutants: Object.values(Object.fromEntries(sweeps.flatMap((x) => x.mutants.map((m) => ({ ...m, programSha: x.programSha }))).map((m) => [m.id, m]))), runs: sweeps.length }
   : null;
 const perByte = man.mainnetRent.perByte;
 const offCount = readFileSync(join(WORK, 'deactivate-features.txt'), 'utf-8').split('\n').filter(Boolean).length;
@@ -60,14 +60,14 @@ const out = `# Range pools on a local chain: results
 **What it means.** The range-pool program (our copy of Raydium's concentrated-liquidity program, built the way a
 release would be) ran every instruction a visitor or the venue would use on a local chain, against copies of
 mainnet's BAYLA, wrapped SOL, Squads and token programs. ${clean.checks.length} checks: ${clean.checks.length - failed.length} pass${failed.length ? `, **${failed.length} fail (${failed.map((c) => c.id).join(', ')})**` : ', none fail'}.
-${sweep ? `${sweep.mutants.filter((m) => m.red).length} of ${sweep.mutants.length} broken inputs turned their check red first; ${sweep.restore.ok ? 'the clean run after them passed every check with the program and its source unchanged (restore proven)' : '**the restore was NOT proven**'}.` : '**No mutant sweep has been run.**'}
+${sweep ? `${sweep.mutants.filter((m) => m.red).length} of ${sweep.mutants.length} broken inputs turned their check red first${(() => { const here = sweep.mutants.filter((m) => m.programSha === sweep.programSha).length; return here === sweep.mutants.length ? '' : ` (${here} against this build, the rest, whose checks did not change, against the build before it)`; })()}; ${sweep.restore.ok ? 'the clean run after them passed every check with the program and its source unchanged (restore proven)' : '**the restore was NOT proven**'}.` : '**No mutant sweep has been run.**'}
 Every admin action was signed by the vault's real address through a real Squads 2-of-2 with a time lock. No path
 sent anything to a Raydium address. The fee tiers are the owner's (2026-10-20): of each fee the LPs collected 84%,
 the venue's 10.4% was collectable only by the vault, and the island's 5.6% only by its Workshop's role: the vault
 is refused (check V9), though one proposal can **re-point the island's share** (check V6). No tier may charge
 more than 4% of a swap or give the venue and the island more than 16% of each fee, made or changed (K1 to K5),
-and a dynamic fee is held to 4% too (K6). A reward's unpaid rest goes back only to its funder, whoever owns the
-pool (R11, R13, R14). (A fee earned where no LP's range is in use, when a swap fills a limit order there, goes to
+and a dynamic fee is held to 4% too (K6). A reward's unpaid rest goes back only to whoever started it, whoever owns
+the pool (R11, R13, R14). (A fee earned where no LP's range is in use, when a swap fills a limit order there, goes to
 the venue's share.) What the vault can still do, the pause of any part of a pool included, is in
 docs/RANGE_POOLS_PLAN.md.
 

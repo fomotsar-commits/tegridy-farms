@@ -151,9 +151,11 @@ only.
 1. **Program tests on a local chain: done 2026-10-20.** Every instruction a visitor or the venue
    uses ran on a local validator against copies of mainnet's BAYLA, wrapped SOL, Squads and token
    programs, with each admin action signed by the vault's real address through a real Squads
-   2-of-2 and a time lock. 95 checks over 35 of the program's 39 instructions (the other four are
+   2-of-2 and a time lock. 104 checks over 35 of the program's 39 instructions (the other four are
    deprecated paths the site never uses); each check was first run against a broken input that had
-   to turn it red. Harness and results: `solana/clmm-localnet/` and its
+   to turn it red. After the owner's ruling on the vault's powers, the checks of the three fixes (K1-K6,
+   R11, R13, R14, V9) were also seen failing on the unchanged program, then all 104 passed on the
+   changed one. Harness and results: `solana/clmm-localnet/` and its
    [RESULTS.md](../solana/clmm-localnet/RESULTS.md).
 2. **Fee tiers: decided by the owner 2026-10-20** (below). Their one vault proposal is the first
    mainnet step after the deploy; it executes after its 48-hour lock and after 7 days of public
