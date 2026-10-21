@@ -1,7 +1,7 @@
 // The add / remove page names the chain its form is on. Picked from the network drop-down with
 // no wallet (`?c=`), or the wallet's chain once one is connected; a wallet's chain always wins,
-// so a write is never addressed to a chain the URL names. Off mainnet the Ethereum pool table
-// is not shown over a Base form, and the money line says how the venue earns there.
+// so a write is never addressed to a chain the URL names. Off mainnet that chain's own pool list
+// replaces the Ethereum table, and the money line says how the venue earns there.
 import { beforeEach, describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
@@ -26,6 +26,9 @@ vi.mock('../components/swap/LiquidityTab', async () => {
 vi.mock('../components/farm/ILCalculator', () => ({ ILCalculator: () => null }));
 vi.mock('../components/liquidity/LiquidityPrimer', () => ({ LiquidityPrimer: () => null }));
 vi.mock('../components/liquidity/VenuePoolTable', () => ({ VenuePoolTable: () => <div data-testid="pool-table" /> }));
+vi.mock('../components/liquidity/ChainPoolTable', () => ({
+  ChainPoolTable: ({ chainId }: { chainId: number }) => <div data-testid="chain-pools">{chainId}</div>,
+}));
 
 import LiquidityPage from './LiquidityPage';
 
@@ -47,6 +50,7 @@ describe('/liquidity on the picked chain', () => {
     at('/liquidity');
     expect(screen.getByText(/^Ethereum pools\./)).toBeInTheDocument();
     expect(screen.getByTestId('pool-table')).toBeInTheDocument();
+    expect(screen.queryByTestId('chain-pools')).toBeNull();
     expect(screen.getByTestId('form')).toHaveTextContent('1');
   });
 
@@ -58,9 +62,11 @@ describe('/liquidity on the picked chain', () => {
     expect(screen.getByText(/^Base pools\./)).toHaveTextContent(/all to providers until the venue switches on its one-sixth cut for that pool, which goes to the venue's fee Safe/);
     expect(screen.queryByText(/TOWELI\/ETH/)).toBeNull();
     expect(screen.queryByTestId('pool-table')).toBeNull();
+    expect(screen.getByTestId('chain-pools')).toHaveTextContent('8453');
     expect(screen.getByTestId('form')).toHaveTextContent('8453');
-    // ...and the fine print under it says the same, not Ethereum's TOWELI/ETH split.
-    expect(screen.getByText(/only on a pool where it has switched that on\. There is no pool here yet/)).toBeInTheDocument();
+    // ...and the fine print under it says the same, not Ethereum's TOWELI/ETH split. Whether a
+    // pool has the cut on is that pool's own kLast, which its row in the list reads.
+    expect(screen.getByText(/only on a pool where it has switched that on\. Each pool in the list says whether it has/)).toBeInTheDocument();
     expect(screen.queryByText(/since 16 October 2026/)).toBeNull();
   });
 

@@ -29,7 +29,8 @@ vi.mock('./TokenSelectModal', () => ({
   ),
 }));
 
-import { LiquidityTab } from './LiquidityTab';
+import { LiquidityTab, type LiquidityPick } from './LiquidityTab';
+import { DEFAULT_TOKENS } from '../../lib/tokenList';
 
 const tokenB = () => screen.getByText('Token B').closest('.mb-3')!.querySelector('button')!;
 const pickerSymbols = () => [...screen.getByTestId('picker').querySelectorAll('li')].map((li) => li.textContent);
@@ -73,5 +74,28 @@ describe('the add / remove form on each network', () => {
     expect(amountB).toBeDisabled();
     expect(screen.getByTestId('liquidity-submit')).toHaveTextContent('Pick token B');
     expect(screen.getByRole('alert')).toHaveTextContent('switch to Ethereum, Robinhood Chain or Base to view pool data');
+  });
+
+  // The page's pool list (ChainPoolTable) opens the form on the pool picked, on its chain only.
+  const brbPick = (mode: LiquidityPick['mode']): LiquidityPick => ({
+    chainId: 8453,
+    a: DEFAULT_TOKENS[0]!,
+    b: { address: '0x0e86eFe5Ba52336c2173AD69EE726e054619e0d8', symbol: 'BRB', name: 'BRB', decimals: 18, logoURI: '' },
+    mode,
+  });
+
+  it('opens on a pool picked from the list, in the mode picked', () => {
+    const { unmount } = render(<LiquidityTab chainId={8453} pick={brbPick('add')} />);
+    expect(tokenB()).toHaveTextContent('BRB');
+    unmount();
+    render(<LiquidityTab chainId={8453} pick={brbPick('remove')} />);
+    expect(screen.getByRole('button', { name: 'Remove' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByText('Your LP in ETH / BRB')).toBeInTheDocument();
+  });
+
+  it("ignores a pick made on another chain: its address is another contract here", () => {
+    render(<LiquidityTab chainId={4663} pick={brbPick('remove')} />);
+    expect(tokenB()).toHaveTextContent('USDG');
+    expect(screen.getByRole('button', { name: 'Add' })).toHaveAttribute('aria-pressed', 'true');
   });
 });

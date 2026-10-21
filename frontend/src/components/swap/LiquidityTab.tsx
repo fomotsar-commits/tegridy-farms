@@ -15,7 +15,15 @@ import { formatTokenAmount, formatNumber } from '../../lib/formatting';
 import { ArtImg } from '../ArtImg';
 import { FinePrint } from '../ui/FinePrint';
 
-type LiquidityMode = 'add' | 'remove';
+export type LiquidityMode = 'add' | 'remove';
+
+/** A pool picked from the page's pool list: the form opens on it, on that chain only. */
+export interface LiquidityPick {
+  readonly chainId: number;
+  readonly a: TokenInfo;
+  readonly b: TokenInfo;
+  readonly mode: LiquidityMode;
+}
 
 /** "Ethereum, Base or Robinhood Chain": every chain the form runs on, read from the registry. */
 const VENUE_CHAIN_NAMES = (() => {
@@ -97,10 +105,11 @@ function loadCustomTokens(chainId: number): TokenInfo[] {
 
 /**
  * `chainId`: the page's chain (useLiquidityChainId); without it, wagmi's chain as before.
- * The page mounts this with `key={chainId}`, so a network change starts a fresh pair and
- * reloads that chain's pasted tokens.
+ * The page keys this on the chain and on each pick, so a network change starts a fresh pair
+ * and reloads that chain's pasted tokens, and `pick` (a pool from the page's list) opens it
+ * on that pair and mode.
  */
-export function LiquidityTab({ chainId: chainIdProp }: { chainId?: number } = {}) {
+export function LiquidityTab({ chainId: chainIdProp, pick }: { chainId?: number; pick?: LiquidityPick | null } = {}) {
   const { address, isConnected } = useAccount();
   const walletChainId = useChainId();
   const chainId = chainIdProp ?? walletChainId;
@@ -117,13 +126,15 @@ export function LiquidityTab({ chainId: chainIdProp }: { chainId?: number } = {}
 
   const ethToken = DEFAULT_TOKENS.find(t => t.symbol === 'ETH')!;
 
-  const [mode, setMode] = useState<LiquidityMode>('add');
-  const [tokenA, setTokenA] = useState<TokenInfo>(ethToken);
+  // A pick made on another chain is ignored: its addresses mean another contract here.
+  const picked = pick && pick.chainId === chainId ? pick : null;
+  const [mode, setMode] = useState<LiquidityMode>(picked?.mode ?? 'add');
+  const [tokenA, setTokenA] = useState<TokenInfo>(picked?.a ?? ethToken);
   // Token B opens on the chain's headline token, the one the swap opens on (USDC on Base,
   // USDG on Robinhood Chain). Never Ethereum's TOWELI off Ethereum: that address holds no
   // token there, and the form opened on a balance it could not read. Null on a chain with
   // nothing listed but ETH and WETH: the visitor picks or pastes one.
-  const [tokenB, setTokenB] = useState<TokenInfo | null>(() => headlineTokenFor(chainId));
+  const [tokenB, setTokenB] = useState<TokenInfo | null>(() => picked?.b ?? headlineTokenFor(chainId));
   const symB = tokenB?.symbol ?? 'Token B';
   const decimalsB = tokenB?.decimals ?? 18;
   const [showPicker, setShowPicker] = useState<'A' | 'B' | null>(null);

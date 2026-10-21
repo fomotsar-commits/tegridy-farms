@@ -1,8 +1,9 @@
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { usePageTitle } from '../hooks/usePageTitle';
 import { PageArtBackdrop } from '../components/PageArtBackdrop';
 import { usePoolTVL } from '../hooks/usePoolTVL';
-import { LiquidityTab } from '../components/swap/LiquidityTab';
+import { LiquidityTab, type LiquidityPick } from '../components/swap/LiquidityTab';
 import { useLiquidityChainId } from '../hooks/useLiquidityChainId';
 import { CHAIN_ID } from '../lib/constants';
 import { getChainConfig } from '../lib/chains/registry';
@@ -10,6 +11,7 @@ import { liquidityVenueOn } from '../lib/chains/liquidityVenue';
 import { ILCalculator } from '../components/farm/ILCalculator';
 import { LiquidityPrimer } from '../components/liquidity/LiquidityPrimer';
 import { VenuePoolTable } from '../components/liquidity/VenuePoolTable';
+import { ChainPoolTable } from '../components/liquidity/ChainPoolTable';
 import { FinePrint } from '../components/ui/FinePrint';
 import { lpWriteMode, type LpWriteMode } from '../lib/launcher/solana/lpWriteFlag';
 
@@ -68,6 +70,9 @@ export default function LiquidityPage() {
   const headerChainId = liquidityVenueOn(liquidityChainId) ? liquidityChainId : CHAIN_ID;
   const onMainnet = headerChainId === CHAIN_ID;
   const chainName = getChainConfig(headerChainId)?.name ?? 'Ethereum';
+  // A pool picked from the list, and a count that remounts the form on every pick.
+  const [pick, setPick] = useState<{ pool: LiquidityPick; n: number } | null>(null);
+  const onPick = (pool: LiquidityPick) => setPick((prev) => ({ pool, n: (prev?.n ?? 0) + 1 }));
 
   return (
     <>
@@ -126,7 +131,7 @@ export default function LiquidityPage() {
             <p>
               Providers split the 0.3% swap fee by pool share. The venue can take one sixth of it,
               paid to its fee Safe as new pool shares, but only on a pool where it has switched that
-              on. There is no pool here yet, so none has it on (read 17 October 2026).
+              on. Each pool in the list says whether it has.
             </p>
           )}
           <p>
@@ -138,18 +143,19 @@ export default function LiquidityPage() {
         </FinePrint>
       </header>
 
-      {/* The table lists Ethereum's pools; on another chain the form below reads that chain's pair. */}
-      {onMainnet && <VenuePoolTable poolData={poolData} />}
+      {/* Ethereum's one pool, or the pools in this chain's own factory, read live. */}
+      {onMainnet
+        ? <VenuePoolTable poolData={poolData} />
+        : <ChainPoolTable chainId={headerChainId} onPick={onPick} />}
 
-      {/* The form. `id` so the table's "Provide liquidity" buttons can jump to
-          it without a route change — the pool is already the venue's only pair,
-          so a navigation would land the visitor back on this same page. */}
+      {/* The form. `id` so a table's buttons jump to it without a route change; a pick
+          from the chain's list opens it on that pair, and only on the chain it was read on. */}
       <section id="provide" className="mt-8 scroll-mt-5">
         <h2 className="text-white text-lg font-semibold mb-1">Add or remove liquidity</h2>
         <FinePrint summary="Details" className="mb-2">
           <p>Both sides, priced off the pool&apos;s current reserves.</p>
         </FinePrint>
-        <LiquidityTab key={liquidityChainId} chainId={liquidityChainId} />
+        <LiquidityTab key={`${liquidityChainId}:${pick?.n ?? 0}`} chainId={liquidityChainId} pick={pick?.pool} />
       </section>
 
       {/* The four answers for a first-timer, after the form (owner, 2026-10-14: the actions first). */}

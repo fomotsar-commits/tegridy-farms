@@ -9,6 +9,7 @@ The site's Changelog tab shows both files.
 
 ### 2026-10-20
 
+- Base and Robinhood Chain: Liquidity lists the venue's own pools on that network, with what each holds and how its 0.3% fee is split; Add or Remove opens the form on that pool.
 - A room's numbered line on a phone now slides to show the section you are reading; it had lit Holders and Lore off its right edge.
 
 ### 2026-10-19
@@ -338,11 +339,6 @@ The site's Changelog tab shows both files.
 - The BAYLA staking cards are rebuilt, and the wrong readings the rebuild turned up are fixed.
 - The changelog page can name the builder of a change beside its date.
 - memetic.fun is no longer treated as a name for this venue.
-
-### 2026-09-20
-
-- tegridyfarms.vercel.app redirects to memetics.finance instead of serving a second copy of the venue.
-- The footer carries the owner's permanent Discord invite.
 
 ## Earlier
 
