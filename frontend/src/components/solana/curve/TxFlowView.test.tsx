@@ -1317,6 +1317,17 @@ describe('built again at the press: what shuts the wallet and what only moved', 
     expect(now.some((l) => /5\.6% of each fee .* to the team’s shared wallet/.test(l))).toBe(true);
   });
 
+  it('a range swap whose tier’s split moved between its wallets (the same 16%): shut, never signed unread', async () => {
+    const swap = (protocol: number, fund: number): TxSummary => ({
+      kind: 'range-swap', poolLine: { ...rangeOpen({ protocol, fund }).poolLine }, paysCoin: true, amountIn: 100_000_000n, minimumAmountOut: 1_000_000n,
+      quotedOut: 1_010_000n, bandsCrossed: 1, feeOnInput: true, aggregator: { kind: 'unreachable' }, unwrapsWsol: true, wsolHeldBefore: 0n, notices: [],
+    });
+    const fresh = again(swap(56_000, 104_000), CAP);
+    const { api, state } = await pressPastItsClock(prepared(swap(104_000, 56_000), CAP), fresh);
+    expect(api.submitPrepared).not.toHaveBeenCalled();
+    expect(state).toMatchObject({ step: 'review', prepared: fresh });
+  });
+
   it('a range opening whose price gap moved a little, its warning in the same words: the wallet opens with the fresh transaction', async () => {
     const fresh = again(rangeOpen({ diff: -0.046, cost: '0.0023 SOL' }), CAP);
     const { api } = await pressPastItsClock(prepared(rangeOpen({ diff: -0.04 }), CAP), fresh);

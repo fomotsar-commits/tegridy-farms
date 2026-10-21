@@ -89,6 +89,7 @@ import { OWN_ROUTE_COPY, freshDecision, ownPoolNowWins, prepareOwnPoolSwap, with
 import { applySlippage } from '../lib/launcher/solana/curve/math';
 import { tradeCostText } from '../lib/solana/lp/format';
 import { perMillionPercent } from '../lib/solana/clmm/feeText';
+import { isFeeOnInput } from '../lib/solana/clmm/program';
 import { quietEnding } from '../components/swap/quietSwap';
 import { checkDcaPair, dcaToken2022Copy, DCA_MIN_PER_BUY_USD, DCA_UNREAD_COPY, DCA_UNREAD_NOTE, type DcaPairCheck } from '../lib/solana/swap/dcaPair';
 import { CHECK_KEEPS_FAILING, HELD_NOT_SENT, LOST_ANSWER_TITLE, OWN_POOL_REVIEW_OFFER, lostAnswerCopy, nothingSentCopy } from '../lib/solana/swap/walletCopy';
@@ -2629,7 +2630,7 @@ export function SolanaSwapInner({ home = false }: { home?: boolean } = {}) {
                 <span>Pool fee (inside the quote)</span>
                 <span className="font-mono">
                   {isRangeCandidate(ownBest)
-                    ? perMillionPercent(ownBest.range.config.tradeFeeRate)
+                    ? `${perMillionPercent(ownBest.range.config.tradeFeeRate)} of ${isFeeOnInput(ownBest.range.pool.feeOn, payToken.mint === ownBest.range.pool.tokenMint0) ? 'what you pay' : 'what the pool pays out'}`
                     : ownBest.view.config ? tradeCostText(ownBest.view.config, ownBest.view.snapshot.pool.enableCreatorFee) : '–'}
                 </span>
               </div>

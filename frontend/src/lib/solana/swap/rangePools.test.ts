@@ -4,7 +4,7 @@ import { Keypair, PublicKey } from '@solana/web3.js';
 import type { SolanaRpc } from '../../launcher/solana/curve/rpc';
 import { BAYLA_MINT, WSOL_MINT } from '../lp/tokenSafety';
 import { getSqrtPriceAtTick } from '../clmm/math';
-import { deriveAmmConfig, deriveObservation, derivePool, deriveTickArray, deriveVault, sortMints } from '../clmm/program';
+import { POOL_STATE_OFFSETS, deriveAmmConfig, deriveObservation, derivePool, deriveTickArray, deriveVault, sortMints } from '../clmm/program';
 import { quoteSwap } from '../clmm/quote';
 import { encodeAmmConfig, encodePool, encodeTickArray } from '../clmm/encode.fixture';
 import { TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID } from '../cpswap/ix';
@@ -34,7 +34,7 @@ const DEEP = [-7_200, -14_400, -21_600, -28_800, -36_000];
 /** Token-2022's TransferFeeConfig extension (type 1, 108 bytes): a fee on every transfer, which the builder refuses. */
 const TRANSFER_FEE: [number, number] = [1, 108];
 
-function chain(o: { band?: boolean; pool?: boolean; deep?: boolean; transferFee?: boolean; frozenVault?: 0 | 1; vaultMissing?: boolean; secondPool?: boolean } = {}) {
+function chain(o: { band?: boolean; pool?: boolean; deep?: boolean; transferFee?: boolean; frozenVault?: 0 | 1; vaultMissing?: boolean; secondPool?: boolean; dynamicFee?: boolean } = {}) {
   const accts = new Map<string, { owner: string; data: Uint8Array }>();
   const calls: string[][] = [];
   // The two mints (BAYLA a Token-2022 coin, SOL a classic one) and the pool's two vaults.
@@ -48,14 +48,14 @@ function chain(o: { band?: boolean; pool?: boolean; deep?: boolean; transferFee?
   }
   accts.set(CONFIG.toBase58(), { owner: PROG.toBase58(), data: encodeAmmConfig({ index: 0, tradeFeeRate: 10_000, protocolFeeRate: 160_000, fundFeeRate: 0, tickSpacing: 120 }) });
   if (o.pool !== false) {
-    accts.set(POOL.toBase58(), {
-      owner: PROG.toBase58(),
-      data: encodePool({
-        ammConfig: CONFIG, mint0: M0, mint1: M1, vault0: deriveVault(PROG, POOL, M0), vault1: deriveVault(PROG, POOL, M1), observation: deriveObservation(PROG, POOL),
-        decimals0: 6, decimals1: 9, tickSpacing: 120, liquidity: o.deep ? L * 5n : L, sqrtPriceX64: SQRT, tickCurrent: TICK,
-        bitmapBits: o.deep ? [512, ...DEEP.map((d) => 512 + d / 7_200)] : [512],
-      }),
+    const data = encodePool({
+      ammConfig: CONFIG, mint0: M0, mint1: M1, vault0: deriveVault(PROG, POOL, M0), vault1: deriveVault(PROG, POOL, M1), observation: deriveObservation(PROG, POOL),
+      decimals0: 6, decimals1: 9, tickSpacing: 120, liquidity: o.deep ? L * 5n : L, sqrtPriceX64: SQRT, tickCurrent: TICK,
+      bitmapBits: o.deep ? [512, ...DEEP.map((d) => 512 + d / 7_200)] : [512],
     });
+    // A dynamic fee: its control byte set, so the pool's dynamic-fee record is not all zero.
+    if (o.dynamicFee) data[POOL_STATE_OFFSETS.dynamicFeeInfo + 6] = 1;
+    accts.set(POOL.toBase58(), { owner: PROG.toBase58(), data });
   }
   if (o.deep) {
     accts.set(deriveTickArray(PROG, POOL, 0).toBase58(), { owner: PROG.toBase58(), data: encodeTickArray(POOL, 0, 120, [{ tick: 1200, liquidityNet: -L * 5n, liquidityGross: L * 5n }]) });
@@ -179,6 +179,13 @@ describe('reading range pools for a swap', () => {
     const c = chain();
     await readRangeRoutePools(c.rpc, WSOL_MINT, BAYLA_MINT, { programId: PROG, visible: true });
     expect(c.calls.some((k) => k[0] === CLOCK && k.includes(deriveVault(PROG, POOL, M0).toBase58()) && k.includes(M1.toBase58()))).toBe(true);
+  });
+
+  it('a pool with a dynamic fee is no candidate: it charges more than the tier’s rate the form and review state', async () => {
+    const read = await readRangeRoutePools(chain({ dynamicFee: true }).rpc, WSOL_MINT, BAYLA_MINT, { programId: PROG, visible: true });
+    if (read.kind !== 'ok') throw new Error(read.kind);
+    expect(read.pools[0]!.range.pool.dynamicFeeInfo).not.toBeNull();
+    expect(quoteRangePools(read, WSOL_MINT, 1_000_000n)).toEqual({ state: 'unquotable', candidates: [] });
   });
 
   it('a vault that does not read makes the answer an error, never "no pool" and never a quote', async () => {

@@ -45,6 +45,7 @@ export const RANGE_SWAP_COPY = {
   tooLarge: `This trade would walk through more than ${MAX_SWAP_BANDS} price bands of the pool, more than one swap here carries. Try a smaller amount.`,
   partFill: 'This pool cannot fill the whole trade at any price. Try a smaller amount.',
   bandUnread: 'A price band the pool marks as used did not read, so the swap could not be priced. Try again in a moment.',
+  dynamicFee: 'This range pool charges a fee that rises when the market moves fast, which this site cannot state before you sign yet, so it does not swap here.',
 } as const;
 
 export type RangeSwapArgs = VenueSwapArgs;
@@ -143,6 +144,8 @@ export async function prepareRangeSwap(rpc: WriteRpc, cfg: CurveWriteConfig, pro
   if (typeof pinned === 'string') return notSent('build', pinned);
   const { pins, tier } = pinned;
   if (!poolAllows(pool, POOL_STATUS_BIT.swap)) return notSent('build', RANGE_SWAP_COPY.swapsPaused);
+  // The review states the tier's rate; a dynamic fee charges more than that, up to 4%.
+  if (pool.dynamicFeeInfo !== null) return notSent('build', RANGE_SWAP_COPY.dynamicFee);
   const chainNow = chainTimeOf(fresh.extra[0] ?? null);
   if (chainNow === null) return notSent('build', VENUE_SWAP_COPY.noClock);
   const bandsAt = extAddress ? 2 : 1;

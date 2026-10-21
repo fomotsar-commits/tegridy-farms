@@ -12,6 +12,7 @@ import { associatedTokenAddress } from '../curve/ix';
 import {
   FEE_ON_TOKEN_0_ONLY,
   IX_SWAP_V2,
+  POOL_STATE_OFFSETS,
   POOL_STATUS_BIT,
   decodePoolState,
   decodeTickArray,
@@ -53,7 +54,7 @@ const WSOL_ATA = associatedTokenAddress(WSOL_MINT, ME);
 const NOW = 1_800_000_000n;
 const NOT_ASKED: AggregatorSeen = { kind: 'unreachable' };
 
-function chainWith(o: { status?: number; deploy?: boolean; bandMissing?: boolean; frozenVault?: 0 | 1; vaultMissing?: boolean; token2022?: boolean; tokens?: bigint | null; feeOn?: number } = {}): FakeChain {
+function chainWith(o: { status?: number; deploy?: boolean; bandMissing?: boolean; frozenVault?: 0 | 1; vaultMissing?: boolean; token2022?: boolean; tokens?: bigint | null; feeOn?: number; dynamicFee?: boolean } = {}): FakeChain {
   const c = new FakeChain();
   if (o.deploy !== false) {
     const pd = Keypair.generate().publicKey;
@@ -73,6 +74,8 @@ function chainWith(o: { status?: number; deploy?: boolean; bandMissing?: boolean
       status: o.status, bitmapBits: [512], feeOn: o.feeOn,
     }),
   });
+  // A dynamic fee: its control byte set, so the pool's dynamic-fee record is not all zero.
+  if (o.dynamicFee) c.accounts.get(POOL.toBase58())!.data[POOL_STATE_OFFSETS.dynamicFeeInfo + 6] = 1;
   // The pool's two vaults: a frozen one moves nothing in or out.
   [MINT0, MINT1].forEach((mint, i) => {
     if (o.vaultMissing && i === 1) return;
@@ -214,6 +217,11 @@ describe('a swap in a range pool', () => {
     const noClock = chainWith();
     setClock(noClock, null);
     expect(await msg(noClock)).toBe(VENUE_SWAP_COPY.noClock);
+  });
+
+  it('refuses a pool with a dynamic fee: the review states the tier’s rate, and it would charge more', async () => {
+    const r = await prepareRangeSwap(W(chainWith({ dynamicFee: true })), cfgLocal, PROG, sell());
+    expect(r.ok ? null : r.outcome.message).toBe(RANGE_SWAP_COPY.dynamicFee);
   });
 
   it('refuses a pool whose vault is frozen: nothing moves in or out of it', async () => {

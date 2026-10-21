@@ -59,7 +59,7 @@ const ownCandidate = (out: bigint) => ({
 const RANGE_TIER = { address: TIER1, index: 0, tradeFeeRate: 10_000, protocolFeeRate: 160_000, fundFeeRate: 0, tickSpacing: 120 };
 const rangeCandidate = (out: bigint) => ({
   venue: 'own-pool', outAmount: out, label: 'venue range pool', poolAddress: RANGE_POOL, priceImpact: 0.002,
-  range: { pool: { address: RANGE_POOL }, config: RANGE_TIER }, quote: { outAmount: out, priceImpact: 0.002, bands: [0] },
+  range: { pool: { address: RANGE_POOL, tokenMint0: BAYLA_MINT, feeOn: h.rangeFeeOn.value }, config: RANGE_TIER }, quote: { outAmount: out, priceImpact: 0.002, bands: [0] },
 });
 /** The prepared range swap the (fake) range builder hands back, for the real review. */
 function preparedRangeSwap(a: VenueSwapArgs, out: bigint): PreparedTx {
@@ -108,6 +108,8 @@ const h = vi.hoisted(() => ({
   feeOnInput: { value: true },
   /** The range tier's fund_owner: the island's Workshop by the agreed split. */
   fundOwner: { value: 'G2EHPseTXetHbBvvRDs27XQyXfQikXXyxP9uMbsKrbu' },
+  /** The range pool's fee_on: 0 in the coin each swap pays in; 1 in token 0 only. */
+  rangeFeeOn: { value: 0 },
   readRangeRoutePools: vi.fn(),
   prepareRangeSwap: vi.fn(),
   getQuote: vi.fn(),
@@ -240,6 +242,7 @@ const OPEN_GATE = { kind: 'open', cfg: { programId: new PublicKey(LAUNCH), cpSwa
 beforeEach(() => {
   h.feeOnInput.value = true;
   h.fundOwner.value = 'G2EHPseTXetHbBvvRDs27XQyXfQikXXyxP9uMbsKrbu';
+  h.rangeFeeOn.value = 0;
   window.history.replaceState(null, '', `/solana?out=${BAYLA_MINT}`);
   localStorage.clear();
   sessionStorage.clear();
@@ -320,7 +323,8 @@ describe('range pools in the route', () => {
     h.rangeOut.value = 1_020_000n;
     const buy = await readyToBuy();
     await waitFor(() => expect(receive()).toBe('1.02'));
-    expect(screen.getByTestId('own-pool-fee').textContent).toMatch(/1%/);
+    // A rate with its basis, as the review says it.
+    expect(screen.getByTestId('own-pool-fee').textContent).toMatch(/1% of what you pay/);
     fireEvent.click(buy);
     expect(await screen.findByText('Review your swap', {}, { timeout: 20_000 })).toBeInTheDocument();
     expect(h.prepareRangeSwap).toHaveBeenCalledTimes(1);
@@ -341,12 +345,15 @@ describe('range pools in the route', () => {
     expect(getActivity(USER.toBase58())[0]).toMatchObject({ sig: SIG, summary: 'Bought ≈1.02 BAYLA with 0.1 SOL, in our own pool' });
   });
 
-  it('a pool whose fee comes out of what the trade pays out says so on the review, not "of what you pay"', async () => {
+  it('a pool whose fee comes out of what the trade pays out says so on the form and the review, not "of what you pay"', async () => {
     h.rangeOn.value = true;
     h.rangeOut.value = 1_020_000n;
     h.feeOnInput.value = false;
+    // Fees in token 0 (BAYLA) only, and SOL paid in: the fee comes out of the BAYLA paid out.
+    h.rangeFeeOn.value = 1;
     const buy = await readyToBuy();
     await waitFor(() => expect(receive()).toBe('1.02'));
+    expect(screen.getByTestId('own-pool-fee').textContent).toMatch(/1% of what the pool pays out/);
     fireEvent.click(buy);
     expect(await screen.findByText('Review your swap', {}, { timeout: 20_000 })).toBeInTheDocument();
     // The rate's basis: the pool's payout before the fee, not what reaches the trader.
