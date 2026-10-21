@@ -15,6 +15,26 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-10-21: a property test that rejects nearly every draw of a branch fails "at random", and Raydium's compute_swap_step_test is one
+
+**Believed:** a red `compute_swap_step_test` in the range program's `clmm-build` ("amount_used (2)
+should equal amount_remaining (1) when target not reached") means the program can pay a swap
+wrong, and a test that passes most runs checks every branch it names.
+
+**Measured** (2026-10-21, a WSL copy of the deployed source): the test is wrong, not the program.
+For an exact output with the fee on the output coin it adds the fee to what the user received
+and expects the amount asked, which holds only at a zero fee (raydium-io/raydium-clmm `c6789199`).
+It fails rarely because its `prop_assume!` bounds reject all but about one draw in a million of
+that kind: about 0.02 such cases in a 65,536-case run (`bf7c2413` set the count), so a few runs
+in 100 go red. A test drawing each kind directly (`programs/amm/tests/swap_math_fee_rule.rs`)
+runs about 10,000 of those steps per run; the user got exactly the amount asked in every one.
+
+**Do:** read a property test's reject counts (`global rejects: ... times at <line>` in its
+failure output) before trusting a branch it names. Draw each branch directly instead of
+rejecting into it, and assert per-branch counts so a later sampler change cannot quietly empty
+one. Kill a mutant per guarded line: here two of four survived upstream's price and liquidity
+ranges until prices were drawn by tick and liquidity up to 2^80.
+
 ## 2026-10-21: npm always takes the newest release in a transitive range, so the floor needs an override or a hand edit
 
 **Believed:** when a fixed package asks for a newer transitive (vite 8.3.3 asks for rolldown
