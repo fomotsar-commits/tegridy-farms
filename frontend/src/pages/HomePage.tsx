@@ -275,7 +275,7 @@ export default function HomePage() {
         />
       </div>
 
-      <div className="relative z-10 max-w-[1200px] mx-auto px-4 md:px-6">
+      <div className="relative z-10 page-column mx-auto px-4 md:px-6">
         {/* The room's index (owner, 2026-10-19): its sections, numbered, lit as you scroll, the same
             gates as the slots they name. A line under the top bar that stays while the cards scroll;
             from 1440px a rail at the left edge. Keyed by the room, so a door resets it. The venue
@@ -662,15 +662,24 @@ export default function HomePage() {
           )}
         </div>
 
+        {/* THE ROOM'S CARDS ON A WIDE SCREEN (owner, 2026-10-19). From 1536px the page column
+            steps up (page-column, index.css) and a room with a market lays its cards on a
+            grid: the market and its chart across two thirds, the burn, held time and holders
+            stacked beside it, the lore across the whole. Under 1536px neither wrapper has a
+            box (the stack is display: contents), so a phone, an iPad and a 1280px laptop read
+            as before. Page order is kept, so the rail's numbers and its scroll-spy hold. */}
+        <div className={bungalowIdentity?.market ? '2xl:grid 2xl:grid-cols-12 2xl:gap-x-8' : undefined}>
         {/* The bungalow's market — her own pool's chart + numbers, in the slot
             where the default venue puts its TOWELI stat pills. Renders only
             when the bungalow declares a `market` pool; self-hides otherwise. */}
         {bungalowIdentity?.market && (
-          <div className="pb-8" id={ROOM_STOPS.market.id}>
-            <BungalowMarket bungalow={bungalowIdentity} />
+          <div className="pb-8 2xl:col-span-8" id={ROOM_STOPS.market.id}>
+            <BungalowMarket bungalow={bungalowIdentity} wideGrid />
           </div>
         )}
 
+        {/* Beside the market from 1536px: the three short readings, stacked. */}
+        <div className={bungalowIdentity?.market ? 'contents 2xl:block 2xl:col-span-4' : 'contents'}>
         {/* The burn: how much of this token's supply is gone, read from its chain. Every
             token bungalow shows it once, TOWELI included, which has no identity and so
             reaches this slot through its own arrival. */}
@@ -735,10 +744,12 @@ export default function HomePage() {
         {/* Who holds her — the venue's own scanner, run on this bungalow's
             token, with its coverage limits stated rather than smoothed over. */}
         {bungalowIdentity?.address && (
-          <div className="pb-16" id={ROOM_STOPS.holders.id}>
-            <BungalowHolders bungalow={bungalowIdentity} />
+          <div className="pb-16 2xl:pb-8" id={ROOM_STOPS.holders.id}>
+            {/* In the stack beside the market, where the card is a third of the column. */}
+            <BungalowHolders bungalow={bungalowIdentity} wideGrid={Boolean(bungalowIdentity.market)} />
           </div>
         )}
+        </div>
 
         {/* Jungle Bay bungalow lore — the resident's story card, rendered
             only in its own skin, in the slot where the TOWELI fee-economy
@@ -746,7 +757,7 @@ export default function HomePage() {
             canon copy only): a resident without lore gets NO card rather
             than another resident's story. */}
         {bungalowIdentity?.identity.lore && (
-          <div className="pb-16" id={ROOM_STOPS.lore.id}>
+          <div className="pb-16 2xl:col-span-12" id={ROOM_STOPS.lore.id}>
             <div className="relative rounded-2xl overflow-hidden glass-card-animated" style={{ border: '1px solid var(--color-purple-75)' }}>
               <div className="absolute inset-0" aria-hidden="true">
                 <ArtImg pageId="bungalow-lore" idx={0} alt="" loading="lazy" className="w-full h-full object-cover" />
@@ -774,6 +785,7 @@ export default function HomePage() {
             </div>
           </div>
         )}
+        </div>
 
         {/* WAVE SEVEN, element C: THE THREE PATHS, on the same gate. This is where
             the hero's three CTAs went. Since answer twenty they stand on the second

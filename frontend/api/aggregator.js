@@ -501,6 +501,13 @@ export default async function handler(req, res) {
     return handleTape(req, res);
   }
 
+  // `?resource=venue-volume`: the all-time volume the hourly venue-volume.yml counts,
+  // summed from Supabase and cached at the edge. Above `const provider`, like the rest.
+  if (req.query.resource === "venue-volume") {
+    const { handleVenueVolume } = await import("./_lib/venueVolume.js");
+    return handleVenueVolume(req, res);
+  }
+
   // FLAT function at /api/aggregator. AUDIT FIX 2026-07-10: Vercel's nested /
   // catch-all dynamic function routing under /api/aggregator (both
   // `[provider]/[...path]` and a single `[...slug]`) did NOT route reliably with
