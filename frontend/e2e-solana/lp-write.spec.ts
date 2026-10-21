@@ -26,7 +26,7 @@ import {
   reassignAtaOwner, sol, swapDirect, tokenAmount, wrapSol, CP_SWAP_PROGRAM, LAUNCH_PROGRAM, type PoolFacts,
 } from './fixtures/chain';
 import {
-  closeTokenAccount, createClassicToken, createSolPool, createToken2022MetadataOnly, createTransferFeeToken, freezeVault,
+  closeTokenAccount, createClassicToken, createLaunchTierPool, createSolPool, createToken2022MetadataOnly, createTransferFeeToken, freezeVault,
   squatStandard, transferLp, transferTokens, type CreatedPool,
 } from './fixtures/lp';
 import { SOL_COIN } from './fixtures/coins';
@@ -69,7 +69,8 @@ async function books(owner: PublicKey, f: PoolFacts): Promise<Books> {
 
 // ════════════════════════════════════════════════════════════════════════════
 // GROUP A: chromium AND mobile-chrome. One clean classic token, its pools on tier 1
-// ("pool A") and tier 0 ("pool B") at the stub price, opened by the creator; wallet B.
+// ("pool A") and tier 0 ("pool B", opened the permissioned way) at the stub price, both
+// funded by the creator, who holds every share; wallet B.
 // ════════════════════════════════════════════════════════════════════════════
 
 const A = {} as { creator: Keypair; walletB: Keypair; mint: PublicKey; poolA: CreatedPool; poolB: CreatedPool; prices: Prices };
@@ -81,7 +82,7 @@ test.describe('group A (chromium and mobile-chrome)', () => {
     A.walletB = await fundedKeypair(10);
     A.mint = await createClassicToken(A.creator, { supply: 10_000_000n * UNIT, name: { name: 'E2E Write A', symbol: 'EWRA' } });
     A.poolA = await createSolPool(A.creator, A.mint, { configIndex: 1, sol: sol(2), tokens: 2_000_000n * UNIT, at: 'standard' });
-    A.poolB = await createSolPool(A.creator, A.mint, { configIndex: 0, sol: sol(1), tokens: 1_000_000n * UNIT, at: 'standard' });
+    A.poolB = await createLaunchTierPool(A.creator, A.mint, { sol: sol(1), tokens: 1_000_000n * UNIT });
     await transferTokens(A.creator, A.walletB.publicKey, A.mint, 2_000_000n * UNIT);
     A.prices = priced(A.mint);
   });
@@ -308,7 +309,7 @@ test.describe('group B (chromium only)', () => {
     const name = (n: string, s: string) => ({ name: n, symbol: s });
     const classic = (owner: Keypair, n: string, s: string, supply = 10_000_000n * UNIT, o: { freezable?: boolean } = {}) =>
       createClassicToken(owner, { supply, name: name(n, s), freezable: o.freezable });
-    const pool = (c: Keypair, m: PublicKey, configIndex: 0 | 1, s: number, t: bigint, at: 'standard' | 'fresh' = 'standard', tokenProgram?: PublicKey) =>
+    const pool = (c: Keypair, m: PublicKey, configIndex: 1, s: number, t: bigint, at: 'standard' | 'fresh' = 'standard', tokenProgram?: PublicKey) =>
       createSolPool(c, m, { configIndex, sol: sol(s), tokens: t * UNIT, at, tokenProgram });
 
     B.pusher = await fundedKeypair(20);
@@ -319,7 +320,7 @@ test.describe('group B (chromium only)', () => {
         B.creator1 = await fundedKeypair(20);
         B.t1 = await classic(B.creator1, 'E2E Write B1', 'EWB1');
         B.a1 = await pool(B.creator1, B.t1, 1, 2, 2_000_000n);
-        B.b1 = await pool(B.creator1, B.t1, 0, 1, 1_000_000n);
+        B.b1 = await createLaunchTierPool(B.creator1, B.t1, { sol: sol(1), tokens: 1_000_000n * UNIT });
         B.w6 = await fundedKeypair(3);
         B.w13 = await fundedKeypair(2);
         await transferTokens(B.creator1, B.w6.publicKey, B.t1, 1_000_000n * UNIT);
@@ -336,7 +337,7 @@ test.describe('group B (chromium only)', () => {
       (async () => {
         B.creator3 = await fundedKeypair(5);
         B.t3 = await createToken2022MetadataOnly(B.creator3, { name: 'E2E Meta Only 2022', symbol: 'EMETA22', supply: 10_000_000n * UNIT });
-        B.p3 = await pool(B.creator3, B.t3, 0, 1, 1_000_000n, 'standard', TOKEN_2022_PROGRAM_ID);
+        B.p3 = await pool(B.creator3, B.t3, 1, 1, 1_000_000n, 'standard', TOKEN_2022_PROGRAM_ID);
         B.w3 = await fundedKeypair(3);
         await transferTokens(B.creator3, B.w3.publicKey, B.t3, 100_000n * UNIT);
       })(),
@@ -370,9 +371,9 @@ test.describe('group B (chromium only)', () => {
         B.ts = await classic(B.stranger, 'E2E Write Squat', 'EWSQ');
         B.squat = await squatStandard(B.stranger, B.ts, { priceX: 100, openTimeFromNow: TEN_YEARS });
         B.tf = await classic(B.stranger, 'E2E Write Freeze', 'EWFZ', 10_000_000n * UNIT, { freezable: true });
-        B.pf = await pool(B.stranger, B.tf, 0, 1, 1_000_000n);
+        B.pf = await pool(B.stranger, B.tf, 1, 1, 1_000_000n);
         B.tf2 = await classic(B.stranger, 'E2E Write Freeze 2', 'EWFZ2', 10_000_000n * UNIT, { freezable: true });
-        B.pf2 = await pool(B.stranger, B.tf2, 0, 0.5, 500_000n);
+        B.pf2 = await pool(B.stranger, B.tf2, 1, 0.5, 500_000n);
       })(),
       (async () => {
         B.creator11 = await fundedKeypair(5);
@@ -382,7 +383,7 @@ test.describe('group B (chromium only)', () => {
         B.creator15 = await fundedKeypair(3);
         B.t15 = await classic(B.creator15, 'E2E Write Dust', 'EWDUST', 2_000_000n * UNIT);
         // 0.0001 SOL against 10^12 token units: the fewest shares that pay both sides is about 3,163.
-        B.p15 = await createSolPool(B.creator15, B.t15, { configIndex: 0, sol: 100_000n, tokens: 1_000_000_000_000n, at: 'standard' });
+        B.p15 = await createSolPool(B.creator15, B.t15, { configIndex: 1, sol: 100_000n, tokens: 1_000_000_000_000n, at: 'standard' });
         B.b15 = await fundedKeypair(1);
       })(),
       (async () => {

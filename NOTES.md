@@ -15,6 +15,37 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-10-21: npm always takes the newest release in a transitive range, so the floor needs an override or a hand edit
+
+**Believed:** when a fixed package asks for a newer transitive (vite 8.3.3 asks for rolldown
+`~1.2.11`), npm resolves it to the newest match (1.2.14, a week old), and holding it at the floor
+means an `overrides` entry, which blocks the next bump, or editing the lockfile by hand.
+
+**Measured** (npm 11.21.0, `frontend/package-lock.json`, 2026-10-21): `npm install -D
+rolldown@1.2.11 --package-lock-only`, then `npm uninstall -D rolldown --package-lock-only`. The
+second command drops the direct dependency and keeps the 1.2.11 node, because it still satisfies
+vite's range. package.json ends as it started, rolldown's 15 bindings and its `@oxc-project/types`
+pin follow, and `npm install --package-lock-only` afterwards changes nothing.
+
+**Do:** to land a transitive at the oldest release that works, install it as a direct dependency
+at that version and uninstall it. Then check the lock is stable with a second lock-only install.
+
+## 2026-10-20: the local Solana e2e suite is not green on trunk, because no CI job runs it
+
+**Believed:** `frontend/e2e-solana` passes on trunk with today's pool program, so after moving its
+tier-0 fixtures a run on the upgrade build should come back fully green.
+
+**Measured** (WSL validator, the four LP specs on chromium and mobile-chrome, 2026-10-20): trunk
+`50b34098f` on the release build already fails P1, P6, P19, E1, E18, E20 and two lp-read tests. They
+check page copy and a 44 px tap target that /pools has since changed (`aa3973a46`, `d3e239d31`,
+`36a08925c`). Each failure restarts the worker, and fresh fixtures then fail E2 and E16 too. Separately,
+E19's `not.toMatch(/APR|APY|yield of/i)` on the section's text failed once on a random pool address
+(`DYbyM8apn7KA5g1ApYWR…`): base58 keys can spell those letters, so the check flakes.
+
+**Do:** before reading a red e2e-solana run as your change, run the same tests on trunk against the same
+validator (`-g` on the failing titles takes about 20 minutes). Match copy guards on word boundaries, or
+on text with the addresses taken out.
+
 ## 2026-10-20: Base's public RPCs answer eth_call but refuse eth_getLogs, so "no PairCreated found" from them is a search that did not run
 
 **Believed:** the three Base hosts in `viemChains.ts` can find a factory's `PairCreated` event, as

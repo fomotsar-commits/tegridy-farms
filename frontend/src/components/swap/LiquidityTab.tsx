@@ -5,13 +5,14 @@ import { CONNECT_ETHEREUM_WALLET } from '../../lib/copy';
 import { formatUnits, parseUnits } from 'viem';
 import { toast } from 'sonner';
 import { useAddLiquidity } from '../../hooks/useAddLiquidity';
+import { useUniswapV2MarketPrice, matchAtMarket, gapFromMarketBps, formatMarketPrice } from '../../hooks/useUniswapV2MarketPrice';
 import { DEFAULT_TOKENS, defaultTokensFor, headlineTokenFor, type TokenInfo } from '../../lib/tokenList';
 import { TokenSelectModal } from './TokenSelectModal';
 import { getTxUrl } from '../../lib/explorer';
 import { CHAIN_ID } from '../../lib/constants';
 import { liquidityVenueOn } from '../../lib/chains/liquidityVenue';
 import { CONFIGURED_CHAIN_IDS, getChainConfig } from '../../lib/chains/registry';
-import { formatTokenAmount, formatNumber } from '../../lib/formatting';
+import { formatTokenAmount, formatNumber, shortenAddress } from '../../lib/formatting';
 import { ArtImg } from '../ArtImg';
 import { FinePrint } from '../ui/FinePrint';
 
@@ -40,6 +41,20 @@ const SLIPPAGE_BPS = [10, 50, 100, 200] as const;
 const blockNegativeKey = (e: React.KeyboardEvent<HTMLInputElement>) => {
   if (e.key === '-' || e.key === 'e') e.preventDefault();
 };
+
+/** A typed amount in base units, or null when it is empty, zero or does not parse. */
+const toUnits = (v: string, decimals: number): bigint | null => {
+  if (!v) return null;
+  try {
+    const n = parseUnits(v, decimals);
+    return n > 0n ? n : null;
+  } catch { return null; }
+};
+
+/** A gap under this many basis points reads as "matches the market". */
+const MATCHES_BPS = 10;
+/** From this gap up, the form says what opening off the market costs. */
+const WARN_BPS = 300;
 
 // MULTICHAIN (2026-08-20): chain-scoped key, matching useSwap's
 // `tegridy_custom_tokens_v2_${CHAIN_ID}` pattern. The unscoped predecessor key
@@ -142,6 +157,7 @@ export function LiquidityTab({ chainId: chainIdProp, pick }: { chainId?: number;
 
   const [amountA, setAmountA] = useState('');
   const [amountB, setAmountB] = useState('');
+  const [lastEdited, setLastEdited] = useState<'A' | 'B'>('A');
   const [removePct, setRemovePct] = useState(0);
   const [slippageBps, setSlippageBps] = useState<number>(50);
 
@@ -205,12 +221,38 @@ export function LiquidityTab({ chainId: chainIdProp, pick }: { chainId?: number;
   // Auto-pair inputs
   const handleAmountAChange = (v: string) => {
     setAmountA(v);
+    setLastEdited('A');
     if (!liq.isEmptyPool) setAmountB(liq.getAmountB(v));
   };
   const handleAmountBChange = (v: string) => {
     setAmountB(v);
+    setLastEdited('B');
     if (!liq.isEmptyPool) setAmountA(liq.getAmountA(v));
   };
+
+  // A NEW pool opens at whatever price its two amounts set. Offer the market's: the
+  // Uniswap V2 pool for the same pair on this chain (hooks/useUniswapV2MarketPrice.ts).
+  // Only once the pool is KNOWN to be new: on a pool with reserves the amounts already
+  // follow the pool's own price, and while that read is out nothing is known yet.
+  const market = useUniswapV2MarketPrice(tokenA, tokenB, chainId, mode === 'add' && liq.knownNewPool);
+  const marketChain = chainId === CHAIN_ID ? 'Ethereum' : (venue?.name ?? '');
+  const pairLabel = `${tokenA.symbol}/${symB}`;
+  const unitsA = toUnits(amountA, tokenA.decimals);
+  const unitsB = tokenB ? toUnits(amountB, tokenB.decimals) : null;
+  // The side typed last drives, as on Solana's Open a pool: Match fills the OTHER box.
+  const matchFrom: 'A' | 'B' | null = lastEdited === 'B' && unitsB !== null ? 'B' : unitsA !== null ? 'A' : unitsB !== null ? 'B' : null;
+  const matchMarket = () => {
+    if (market.price.kind !== 'ok' || !tokenB) return;
+    const { reserveA, reserveB } = market.price;
+    if (matchFrom === 'A' && unitsA !== null) setAmountB(formatUnits(matchAtMarket(unitsA, reserveA, reserveB), tokenB.decimals));
+    if (matchFrom === 'B' && unitsB !== null) setAmountA(formatUnits(matchAtMarket(unitsB, reserveB, reserveA), tokenA.decimals));
+  };
+  const marketGapBps = market.price.kind === 'ok' && unitsA !== null && unitsB !== null
+    ? gapFromMarketBps(unitsA, unitsB, market.price.reserveA, market.price.reserveB)
+    : null;
+  const marketPrice = market.price.kind === 'ok'
+    ? Number(formatUnits(market.price.reserveB, decimalsB)) / Number(formatUnits(market.price.reserveA, tokenA.decimals))
+    : 0;
 
   // Reset amounts when token pair changes
   useEffect(() => {
@@ -434,6 +476,51 @@ export function LiquidityTab({ chainId: chainIdProp, pick }: { chainId?: number;
                   className="flex-1 bg-transparent text-right text-white text-[18px] font-mono outline-none min-w-0" />
               </div>
             </div>
+
+            {/* The market price a new pool can open at. Drawn only once the pool is known to
+                be new (market.price is 'off' otherwise). */}
+            {market.price.kind !== 'off' && (
+              <div data-testid="liquidity-market" className="mb-3 rounded-lg p-3 text-[11px] space-y-2"
+                style={{ background: 'rgba(0,0,0,0.35)', border: '1px solid rgba(255,255,255,0.12)' }}>
+                <p className="text-white/80">
+                  {market.price.kind === 'reading' && <>Market price: reading Uniswap V2 on {marketChain}…</>}
+                  {market.price.kind === 'none' && <>No Uniswap V2 pool for {pairLabel} on {marketChain}, so there is no market price to match. You set the first price yourself.</>}
+                  {market.price.kind === 'unread' && <>The market price could not be read from Uniswap V2 on {marketChain}.</>}
+                  {market.price.kind === 'ok' && <>Market price (Uniswap V2 on {marketChain}): <span className="text-white font-mono">1 {tokenA.symbol} = {formatMarketPrice(marketPrice)} {symB}</span></>}
+                </p>
+                {market.price.kind === 'ok' && (
+                  <button type="button" data-testid="liquidity-match" onClick={matchMarket} disabled={matchFrom === null}
+                    className="w-full py-2 min-h-[40px] rounded-lg text-[12px] font-medium text-white transition-colors disabled:opacity-50"
+                    style={{ background: 'var(--color-purple-40)', border: '1px solid var(--color-purple-60)' }}>
+                    {matchFrom === null ? 'Type an amount to match the market price' : 'Match the market price'}
+                  </button>
+                )}
+                {market.price.kind === 'unread' && (
+                  <button type="button" onClick={market.readAgain}
+                    className="w-full py-2 min-h-[40px] rounded-lg text-[12px] font-medium text-white"
+                    style={{ background: 'rgba(0,0,0,0.35)', border: '1px solid rgba(255,255,255,0.12)' }}>
+                    Read the market price again
+                  </button>
+                )}
+                {marketGapBps !== null && (
+                  <p data-testid="liquidity-market-gap" className={Math.abs(marketGapBps) >= WARN_BPS ? 'text-amber-300' : 'text-white/80'}>
+                    {Math.abs(marketGapBps) < MATCHES_BPS
+                      ? 'Your price matches the market.'
+                      : <>Your price is {(Math.abs(marketGapBps) / 100).toFixed(1)}% {marketGapBps > 0 ? 'above' : 'below'} the market.{Math.abs(marketGapBps) >= WARN_BPS && ' Traders will trade your pool back to the market price, and you lose the difference.'}</>}
+                  </p>
+                )}
+                {market.price.kind === 'ok' && (
+                  <FinePrint summary="Where this price comes from">
+                    <p>
+                      The Uniswap V2 pool {shortenAddress(market.price.pair)} on {marketChain}, which
+                      holds {formatTokenAmount(formatUnits(market.price.reserveA, tokenA.decimals))} {tokenA.symbol} and{' '}
+                      {formatTokenAmount(formatUnits(market.price.reserveB, decimalsB))} {symB}. It is the pool our
+                      swap compares against. A small pool&apos;s price can be far off: check it before you add.
+                    </p>
+                  </FinePrint>
+                )}
+              </div>
+            )}
 
             {/* Pool stats — transparent so the page background shows through */}
             {liq.pairExists && !liq.isEmptyPool && (

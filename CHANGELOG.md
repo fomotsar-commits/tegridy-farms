@@ -7,9 +7,14 @@ The site's Changelog tab shows both files.
 
 ## [Unreleased]
 
+### 2026-10-21
+
+- Notice: range pools get two fee tiers, 1% and 0.25% of each swap, no sooner than seven days from this day. Of each fee, 84% stays with the liquidity providers whose range is in use, 10.4% goes to memetics.finance and 5.6% to Jungle Bay Island.
+- Opening a new pool on Ethereum, Base or Robinhood Chain: the form shows the market price from that network's Uniswap V2 pool, Match the market price fills the other amount at it, and a price you type off the market says how far off it is.
+- Base and Robinhood Chain: Liquidity lists the venue's own pools on that network, with what each holds and how its 0.3% fee is split; Add or Remove opens the form on that pool.
+
 ### 2026-10-20
 
-- Base and Robinhood Chain: Liquidity lists the venue's own pools on that network, with what each holds and how its 0.3% fee is split; Add or Remove opens the form on that pool.
 - A room's numbered line on a phone now slides to show the section you are reading; it had lit Holders and Lore off its right edge.
 
 ### 2026-10-19
