@@ -53,7 +53,7 @@ const WSOL_ATA = associatedTokenAddress(WSOL_MINT, ME);
 const NOW = 1_800_000_000n;
 const NOT_ASKED: AggregatorSeen = { kind: 'unreachable' };
 
-function chainWith(o: { status?: number; deploy?: boolean; bandMissing?: boolean; frozenVault?: 0 | 1; token2022?: boolean; tokens?: bigint | null; feeOn?: number } = {}): FakeChain {
+function chainWith(o: { status?: number; deploy?: boolean; bandMissing?: boolean; frozenVault?: 0 | 1; vaultMissing?: boolean; token2022?: boolean; tokens?: bigint | null; feeOn?: number } = {}): FakeChain {
   const c = new FakeChain();
   if (o.deploy !== false) {
     const pd = Keypair.generate().publicKey;
@@ -75,6 +75,7 @@ function chainWith(o: { status?: number; deploy?: boolean; bandMissing?: boolean
   });
   // The pool's two vaults: a frozen one moves nothing in or out.
   [MINT0, MINT1].forEach((mint, i) => {
+    if (o.vaultMissing && i === 1) return;
     const vault = deriveVault(PROG, POOL, mint);
     const state = { state: o.frozenVault === i ? (2 as const) : (1 as const) };
     if (mint.equals(TOKEN) && o.token2022) c.token2022Account(vault, mint, POOL, 10n ** 15n, state);
@@ -220,6 +221,9 @@ describe('a swap in a range pool', () => {
       const r = await prepareRangeSwap(W(chainWith({ frozenVault })), cfgLocal, PROG, sell());
       expect(r.ok ? null : r.outcome.message, `vault ${frozenVault}`).toBe(RANGE_COPY.vaultFrozen);
     }
+    // A vault that did not read is never taken as open.
+    const r = await prepareRangeSwap(W(chainWith({ vaultMissing: true })), cfgLocal, PROG, sell());
+    expect(r.ok ? null : r.outcome.message).toBe(RANGE_COPY.poolChanged('its vaults'));
   });
 
   it('buying a Token-2022 token into a new account pays that account’s own deposit: 170 bytes, not 165', async () => {
