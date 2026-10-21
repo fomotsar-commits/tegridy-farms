@@ -48,7 +48,7 @@ export EMISSION_BUDGET="${EMISSION_BUDGET:-1000000000000000000000000}"    # 1,00
 export BRIBE_FEE_BPS="${BRIBE_FEE_BPS:-300}"                              # 3% (max 500)
 export PROTOCOL_FEE_BPS="${PROTOCOL_FEE_BPS:-500}"                        # 5% lending (max 1000)
 export MONTHLY_FEE="${MONTHLY_FEE:-10000000000000000000000}"             # 10,000 TOWELI/mo (read from old PremiumAccess)
-NFT_POOL_FEE_BPS="${NFT_POOL_FEE_BPS:-50}"                                # 0.5% NFTPoolFactory
+NFT_POOL_FEE_BPS="${NFT_POOL_FEE_BPS:-25}"                                # 0.25% NFTPoolFactory (owner call 2026-10-18)
 
 # ── RPC: public read endpoint for dry-run; Flashbots private send-path for broadcast ──
 export ETH_RPC_URL="${ETH_RPC_URL:-https://ethereum-rpc.publicnode.com}"
@@ -110,7 +110,7 @@ run() {
 run 1 "1/8 GaugeController" "script/DeployGaugeController.s.sol:DeployGaugeControllerScript"
 run 2 "2/8 VoteIncentives"  "script/DeployVoteIncentives.s.sol:DeployVoteIncentivesScript"
 run 3 "3/8 PremiumAccess"   "script/DeployPremiumAccess.s.sol:DeployPremiumAccessScript"
-( export PROTOCOL_FEE_BPS="$NFT_POOL_FEE_BPS"; run 4 "4/8 NFTPoolFactory (0.5% fee)" "script/DeployNFTPoolFactory.s.sol:DeployNFTPoolFactoryScript" )
+( export PROTOCOL_FEE_BPS="$NFT_POOL_FEE_BPS"; run 4 "4/8 NFTPoolFactory (0.25% fee)" "script/DeployNFTPoolFactory.s.sol:DeployNFTPoolFactoryScript" )
 run 5 "5/8 NFTLending"      "script/DeployNFTLending.s.sol:DeployNFTLendingScript"
 run 6 "6/8 MemeBountyBoard" "script/DeployMemeBountyBoard.s.sol:DeployMemeBountyBoardScript"
 run 7 "7/8 CommunityGrants" "script/DeployCommunityGrants.s.sol:DeployCommunityGrantsScript"

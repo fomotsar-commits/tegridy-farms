@@ -54,7 +54,7 @@ export MULTISIG=0xA36053477568Fb5382492F3A5970D35Fe896b7F8      # current govern
 export EMISSION_BUDGET=1000000000000000000000000                # Gauge: 1,000,000 TOWELI/epoch — REVIEW
 export BRIBE_FEE_BPS=300                                        # VoteIncentives: 3% — REVIEW (max 500)
 export PROTOCOL_FEE_BPS=500                                     # lending: 5% — REVIEW (max 1000)
-export NFT_POOL_FEE_BPS=50                                      # NFTPoolFactory: 0.5% — REVIEW (used as PROTOCOL_FEE_BPS for that deploy)
+export NFT_POOL_FEE_BPS=25                                      # NFTPoolFactory: 0.25%, owner call 2026-10-18 (used as PROTOCOL_FEE_BPS for that deploy)
 export MONTHLY_FEE=10000000000000000000000                     # PremiumAccess: 10,000 TOWELI/mo (last-known live, read from old contract)
 ```
 
