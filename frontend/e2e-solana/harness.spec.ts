@@ -11,7 +11,7 @@ import {
 } from '@solana/spl-token';
 import {
   CP_SWAP_PROGRAM, LAUNCH_PROGRAM, METAPLEX, WSOL, ata, chain, globalConfig, metadataAddress, expectedOpeningBuy, sol, fundedKeypair,
-  poolFacts, tokenAmount, wrapSol, type PoolFacts, CREATE_POOL_FEE_RECEIVER, poolsFor,
+  poolFacts, tokenAmount, wrapSol, type PoolFacts, CREATE_POOL_FEE_RECEIVER, poolsFor, poolProgramBuild,
 } from './fixtures/chain';
 import { BAYLA_MINT, PLANT_HALF, WORKSHOP_BAYLA_ACCOUNT, baylaAccount } from './fixtures/bayla';
 import { checkTransaction, LAUNCH_INDEX } from './fixtures/walletGuard';
@@ -357,9 +357,9 @@ test.describe('the test wallet guard: adding and removing liquidity', () => {
     w = await fundedKeypair(5);
     holder = await fundedKeypair(1);
     const tok = await createClassicToken(w, { supply: 10_000_000n * UNIT, name: { name: 'E2E Harness LP', symbol: 'EHLP' } });
-    classic = await poolFacts((await createSolPool(w, tok, { configIndex: 0, sol: sol(1), tokens: 1_000_000n * UNIT, at: 'standard' })).address);
+    classic = await poolFacts((await createSolPool(w, tok, { configIndex: 1, sol: sol(1), tokens: 1_000_000n * UNIT, at: 'standard' })).address);
     t22 = await createToken2022MetadataOnly(w, { name: 'E2E Harness 2022', symbol: 'EH22', supply: 10_000_000n * UNIT });
-    t22Pool = await poolFacts((await createSolPool(w, t22, { configIndex: 0, sol: sol(0.5), tokens: 500_000n * UNIT, at: 'standard', tokenProgram: TOKEN_2022_PROGRAM_ID })).address);
+    t22Pool = await poolFacts((await createSolPool(w, t22, { configIndex: 1, sol: sol(0.5), tokens: 500_000n * UNIT, at: 'standard', tokenProgram: TOKEN_2022_PROGRAM_ID })).address);
     // Wrapped SOL the holder had BEFORE any transaction below (the kept case).
     await wrapSol(holder, sol(0.05));
     // A share of the classic pool of its own, so it can be held to ITS account.
@@ -485,7 +485,7 @@ test.describe('the test wallet guard: adding and removing liquidity', () => {
     const cases: [string, SwapTxOpts['over'], RegExp][] = [
       ["a stranger's account for the same token", { outputTokenAccount: ata(tokenMint, stranger, tokenProg) }, /OUTPUT account is not your own/],
       ['the classic-seeded address for a Token-2022 token', { outputTokenAccount: ata(tokenMint, w.publicKey, TOKEN_PROGRAM_ID) }, /OUTPUT account is not your own/],
-      ["fee tier 1's settings on a tier 0 pool", { ammConfig: deriveAmmConfig(CP_SWAP_PROGRAM, 1) }, /amm_config is not the pool's own fee settings/],
+      ["fee tier 0's settings on a tier 1 pool", { ammConfig: deriveAmmConfig(CP_SWAP_PROGRAM, 0) }, /amm_config is not the pool's own fee settings/],
       ["another pool's vault", { outputVault: new PublicKey(s.solIs0 ? classic.pool.token1Vault : classic.pool.token0Vault) }, /output_vault is not the pool's own/],
       ['the classic token program for the Token-2022 side', { outputTokenProgram: TOKEN_PROGRAM_ID }, /output_token_program is not the pool's own/],
       ['another price record', { observationState: new PublicKey(classic.pool.observationKey) }, /observation_state is not the pool's own/],
@@ -607,6 +607,25 @@ test.describe('the test wallet guard: opening a pool', () => {
   test('H13: refuses an opening on fee tier 0 (the launch tier), by name', async () => {
     const { bytes } = await openingTx(opener.publicKey, mint, { tier: 0 });
     await expect(checkTransaction(bytes, opener.publicKey)).rejects.toThrow(/launch tier \(fee tier 0\)/);
+  });
+
+  // The program's own rule beside the guard's. The upgraded build refuses a public opening on
+  // tier 0 at initialize.rs:208; the release build let it through. Simulated, so nothing lands.
+  test('H23: the chain refuses a public opening on fee tier 0 once the pool program is upgraded, and only on that tier', async () => {
+    const build = await poolProgramBuild();
+    const simulate = async (bytes: Uint8Array) =>
+      (await chain().simulateTransaction(VersionedTransaction.deserialize(bytes), { sigVerify: false, replaceRecentBlockhash: true, commitment: 'confirmed' })).value;
+    const tier0 = await simulate((await openingTx(opener.publicKey, mint, { tier: 0 })).bytes);
+    const logs0 = (tier0.logs ?? []).join('\n');
+    if (build.launchTierClosed) {
+      expect(tier0.err, logs0).toEqual({ InstructionError: [5, { Custom: 6000 }] });
+      expect(logs0).toMatch(/initialize\.rs:208\. Error Code: NotApproved/);
+    } else {
+      expect(tier0.err, `the release build opens it: ${logs0}`).toBeNull();
+    }
+    // The same opening on tier 1 passes on either build: the refusal is the tier's alone.
+    const tier1 = await simulate((await openingTx(opener.publicKey, mint, { fresh: Keypair.generate() })).bytes);
+    expect(tier1.err, (tier1.logs ?? []).join('\n')).toBeNull();
   });
 
   test('H14: refuses an opening whose open_time is not 0', async () => {

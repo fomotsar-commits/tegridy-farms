@@ -12,10 +12,11 @@
 // release artifacts. Where neither exists the suite is skipped and says so; a skip is
 // "not checked", never "passed".
 import { describe, it, expect } from 'vitest';
+import { PublicKey } from '@solana/web3.js';
 import {
   loadVerifiedIdls, goldenMismatches, encodeIdlAccount, buildGenesisAccounts, rentExempt,
   rehearsalGlobalValues, e2eGlobalValues, ammConfigValues, ammConfig1Values, e2eAmmConfigValues, mainnetConfigMismatches, derived, readGolden,
-  baylaMintStandIn, baylaMintAuthority, usdcMintStandIn, usdcMintAuthority, USDC_MINT, TOKEN_PROGRAM,
+  baylaMintStandIn, baylaMintAuthority, usdcMintStandIn, usdcMintAuthority, launchTierOpener, USDC_MINT, TOKEN_PROGRAM,
   LAUNCH_PROGRAM, CP_SWAP_PROGRAM, VAULT, DEPLOYER, BAYLA_MINT, TOKEN_2022_PROGRAM,
 } from './genesis-accounts.mjs';
 
@@ -180,6 +181,25 @@ describe.skipIf(!idls)('e2e genesis accounts', () => {
     expect(accts['bayla-mint.json']).toEqual(baylaMintStandIn());
     // A pool may pair a token with USDC: its stand-in mint is seeded at its real address too.
     expect(accts['usdc-mint.json']).toEqual(usdcMintStandIn());
+  });
+
+  it('seeds a Permission for the launch-tier opener, a test key, where initialize_with_permission looks for it', () => {
+    const accts = Object.fromEntries(buildGenesisAccounts(idls).map((a) => [a.file, a.json]));
+    const opener = launchTierOpener().publicKey;
+    const [at] = PublicKey.findProgramAddressSync([Buffer.from('permission'), opener.toBuffer()], CP_SWAP_PROGRAM);
+    const p = accts['permission-opener.json'];
+    expect(p.pubkey).toBe(at.toBase58());
+    expect(p.account.owner).toBe(CP_SWAP_PROGRAM.toBase58());
+    expect(p.account.lamports).toBe(rentExempt(p.account.space));
+    // The launcher's Permission with only the authority changed: same layout, same size.
+    const mig = Buffer.from(accts['permission.json'].account.data[0], 'base64');
+    const b = Buffer.from(p.account.data[0], 'base64');
+    expect(b.length).toBe(mig.length);
+    expect(b.subarray(0, 8).equals(mig.subarray(0, 8))).toBe(true);
+    expect(b.subarray(8, 40).equals(opener.toBuffer())).toBe(true);
+    expect(b.subarray(40).equals(mig.subarray(40))).toBe(true);
+    // Its own phrase: not a stand-in mint's key, not the launcher's.
+    for (const k of [baylaMintAuthority().publicKey, usdcMintAuthority().publicKey, derived().migAuth]) expect(opener.equals(k)).toBe(false);
   });
 it('config 1 (the public tier) is config 0 with ONLY its bump, index and fee fields changed', () => {
     const c0 = encodeIdlAccount(idls.cpIdl, 'AmmConfig', ammConfigValues());

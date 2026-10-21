@@ -14,7 +14,8 @@
 #   - Metaplex Token Metadata, cloned from mainnet at genesis (read-only).
 #   - The genesis accounts from genesis-accounts.mjs: GlobalConfig, AmmConfig index 0 and
 #     index 1 (the public tier the vault is proposing; see ammConfig1Values),
-#     the cp-swap Permission for ["migauth"], the vault GRMtSx… and its WSOL account,
+#     the cp-swap Permissions for ["migauth"] and for the e2e's launch-tier opener (a test
+#     key, genesis-accounts.mjs launchTierOpener), the vault GRMtSx… and its WSOL account,
 #     and the stand-in $BAYLA mint 7hmVkPX…pump (mainnet's bytes; only its mint authority
 #     is a test key, so the e2e can give makers $BAYLA for the plant).
 #   - The mainnet feature set (read-only clone), so the runtime behaves as mainnet's.
@@ -61,7 +62,7 @@ die() { echo "REFUSING: $*" >&2; exit 1; }
 # ── 2. the genesis accounts exist and are the ones the manifest describes ─────
 [ -f "$ACC/manifest.json" ] || die "no $ACC/manifest.json: run 'node scripts/solana-localnet/genesis-accounts.mjs' on Windows first"
 ACCOUNT_ARGS=()
-for f in global amm-config amm-config-1 permission vault fee-ata bayla-mint usdc-mint; do
+for f in global amm-config amm-config-1 permission permission-opener vault fee-ata bayla-mint usdc-mint; do
   [ -f "$ACC/$f.json" ] || die "missing $ACC/$f.json"
   ACCOUNT_ARGS+=(--account - "$ACC/$f.json")
 done
