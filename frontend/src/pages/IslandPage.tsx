@@ -80,9 +80,9 @@ export default function IslandPage() {
   return (
     <>
     <PageArtBackdrop pageId="island" />
-    {/* The home's column (1200px), not 900px: the three cards below sit side by side as they do
-        on the home, and a third of 900px is narrower than a phone. */}
-    <div className="relative z-10 mx-auto w-full max-w-[1200px] px-4 md:px-6 py-8 sm:py-10">
+    {/* The home's column (page-column), not 900px: the three cards below sit side by side as
+        they do on the home, and a third of 900px is narrower than a phone. */}
+    <div className="relative z-10 mx-auto w-full page-column px-4 md:px-6 py-8 sm:py-10">
       <header className="mb-7">
         <p className="text-[11px] uppercase tracking-wider label-pill mb-2" style={{ color: 'var(--color-kyle)' }}>
           Jungle Bay Island
