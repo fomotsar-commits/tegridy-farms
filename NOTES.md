@@ -15,6 +15,20 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-10-20: a press area made of padding and a matching negative margin loses its lower part to the rows after it
+
+**Believed:** `py-3.5 -my-3.5` on an inline-block in a list of rows makes a 44px press area
+that moves nothing, and a 44px `getBoundingClientRect().height` proves it.
+
+**Measured** (/pools price flip, production build, chromium at 390, 820 and 1280, hit-tested
+every 0.5px down the box): the box was 45.9px on a pool card and 48.3px in All pools, but a
+press landed on it over only 39 to 42px. The next row's text and the "No trades yet" tag come
+later in the page, paint over the box's lower 6 to 7px, and take the press. Nothing above it
+did. With `relative` on the button it is painted above them and the whole box answers.
+
+**Do:** give such a button `relative` (it stays under the z-50 bars), and certify the area by
+hit tests down the box, not by its height. The 2026-10-14 entry on `::before` is the same trap.
+
 ## 2026-10-20: the local Solana e2e suite is not green on trunk, because no CI job runs it
 
 **Believed:** `frontend/e2e-solana` passes on trunk with today's pool program, so after moving its
