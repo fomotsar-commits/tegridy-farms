@@ -292,7 +292,7 @@ describe('the real tree', () => {
     const lib = readFileSync(join(REPO_ROOT, 'solana', 'tegridy-clmm', 'programs', 'amm', 'src', 'lib.rs'), 'utf-8').replace(/\r/g, '');
     // The state is read from the source: the id a build with no features compiles.
     const release = /#\[cfg\(not\(feature = "devnet"\)\)\]\ndeclare_id!\("(\w+)"\);/.exec(lib)?.[1];
-    expect(release).toBeTruthy();
+    if (!release) throw new Error('lib.rs has no declare_id! for a build with no features');
     if (release === PLACEHOLDER) {
       expect(placeholderGate(lib, PLACEHOLDER)).toEqual([]);
       return;
