@@ -171,11 +171,6 @@ export async function phases(c, h) {
     check('V3', 'collect_protocol_fee', "the venue's share landed in token accounts the vault owns", owners.every((o) => o.equals(VAULT)), [...new Set(owners.map((o) => o.toBase58()))].join(', '));
   }
   {
-    const m = mut('V5') ? (await vaultRun('V5 mutant: the vault collects', [feeIx('collect_fund_fee', VAULT, ata(mallory.publicKey, M0), ata(mallory.publicKey, M1))])).execute
-      : await send("a stranger collects the island's share", [feeIx('collect_fund_fee', mallory.publicKey, ata(mallory.publicKey, M0), ata(mallory.publicKey, M1))], [mallory], { expectFail: true });
-    check('V5', 'collect_fund_fee', "a stranger cannot collect the island's share", failedWith(m, 'NotApproved'), `refused: ${errName(m)}`);
-  }
-  {
     // The Workshop's own signature cannot be made here, so a local key stands in for it in the
     // fund-owner role. Pointing the tier at it, and back, is itself the admin's re-point path.
     const standIn = K.workshopStandIn;
@@ -183,6 +178,12 @@ export async function phases(c, h) {
     const moved = (await account('AmmConfig', cfg0)).fund_owner.equals(standIn.publicKey);
     check('V6', 'update_amm_config (param 4)', "the vault can point a tier's fund share at any account, at any time (an admin path over the island's share)", moved, 'fund owner re-pointed by one vault proposal');
     for (const m of [M0, M1]) await must('stand-in token account', [ataIx(standIn.publicKey, standIn.publicKey, m)], [standIn]);
+    {
+      // Its broken input is the fund owner itself, who may collect.
+      const who = mut('V5') ? standIn : mallory;
+      const m = await send("a stranger collects the island's share", [feeIx('collect_fund_fee', who.publicKey, ata(who.publicKey, M0), ata(who.publicKey, M1))], [who], { expectFail: !mut('V5') });
+      check('V5', 'collect_fund_fee', "a stranger cannot collect the island's share", failedWith(m, 'NotApproved'), `refused: ${errName(m)}`);
+    }
     const p0 = await pool();
     const r0 = ata(standIn.publicKey, M0); const r1 = ata(standIn.publicKey, M1);
     const b = [await tok(r0), await tok(r1)];
@@ -291,9 +292,52 @@ export async function phases(c, h) {
     const tr = (authority, to = bob.publicKey) => ix('transfer_reward_owner', { authority, pool_state: poolB }, { new_owner: to });
     const m = mut('R12') ? (await vaultRun('R12 mutant: vault', [tr(VAULT)])).execute : await send('a stranger takes a pool over', [tr(mallory.publicKey)], [mallory], { expectFail: true });
     check('R12', 'transfer_reward_owner', "a stranger cannot take over a pool's rewards", failedWith(m, 'NotApproved'), `refused: ${errName(m)}`);
-    await mustVault("vault hands pool B's reward authority to bob", [tr(VAULT, mut('R11') ? carol.publicKey : bob.publicKey)]);
+    // A reward on pool B funded by alice, its opener; before it opens the vault moves it to a
+    // short window (paying that window itself), then hands the pool to bob.
+    const rvB = reg(PDA.rewardVault(poolB, REWARD), 'pool B reward vault REWARD');
+    let now = await clockNow();
+    await must('alice funds a REWARD reward on pool B', [ix('initialize_reward', {
+      reward_funder: alice.publicKey, funder_token_account: ata(alice.publicKey, REWARD), amm_config: c.cfg1, pool_state: poolB, operation_state: op,
+      reward_token_mint: REWARD, reward_token_vault: rvB, reward_token_program: prog(REWARD),
+    }, { param: { open_time: BigInt(now + 3600), end_time: BigInt(now + 3600 + WEEK), emissions_per_second_x64: 1_000n << 64n } })], [alice]);
+    const alicePaid = await tok(rvB);
+    await must("the vault's REWARD, to pay a short window", [ataIx(K.rewardMintAuthority.publicKey, VAULT, REWARD),
+      spl.createMintToInstruction(REWARD, ata(VAULT, REWARD), K.rewardMintAuthority.publicKey, 1_000_000n, [], ADDR.token)], [K.rewardMintAuthority]);
+    now = await clockNow();
+    const winB = { open: now + LOCAL_TIME_LOCK + 25 }; winB.end = winB.open + 30;
+    const vaultBefore = await tok(ata(VAULT, REWARD));
+    await mustVault("vault moves pool B's reward to a 30 s window", [ix('set_reward_params', { authority: VAULT, amm_config: c.cfg1, pool_state: poolB, operation_state: op },
+      { reward_index: 0, emissions_per_second_x64: 1_000n << 64n, open_time: BigInt(winB.open), end_time: BigInt(winB.end) },
+      [{ pubkey: rvB }, { pubkey: ata(VAULT, REWARD) }, { pubkey: REWARD, isWritable: false }])]);
+    const vaultPaid = vaultBefore - (await tok(ata(VAULT, REWARD)));
+    const before = (await account('PoolState', poolB)).reward_infos.map((r) => r.authority.toBase58());
+    await mustVault('vault hands pool B to bob', [tr(VAULT, mut('R11') ? carol.publicKey : bob.publicKey)]);
     const pb = await account('PoolState', poolB);
-    check('R11', 'transfer_reward_owner', "the vault can hand a pool's owner and reward authority to someone else", pb.owner.equals(bob.publicKey) && pb.reward_infos.every((r) => r.authority.equals(bob.publicKey)), 'pool B owner: bob');
+    check('R11', 'transfer_reward_owner', "the vault can hand a pool to someone else, and each reward's authority stays with whoever funded it",
+      pb.owner.equals(bob.publicKey) && pb.reward_infos[0].authority.equals(alice.publicKey) && pb.reward_infos.every((r, i) => r.authority.toBase58() === before[i]),
+      `pool B owner ${h.names.get(pb.owner.toBase58()) ?? pb.owner.toBase58()}, reward authority ${h.names.get(pb.reward_infos[0].authority.toBase58()) ?? pb.reward_infos[0].authority.toBase58()}`);
+    while ((await clockNow()) < winB.end + 3) await wait(1000);
+    await must('update pool B reward counters after its end', [ix('update_reward_infos', { pool_state: poolB })], [mallory]);
+    const remB = (k) => ix('collect_remaining_rewards', { reward_funder: k.publicKey, funder_token_account: ata(k.publicKey, REWARD), pool_state: poolB, reward_token_vault: rvB, reward_vault_mint: REWARD }, { reward_index: 0 });
+    {
+      const who = mut('R13') ? alice : bob;
+      const r = await send("pool B's new owner takes back the reward's unpaid rest", [remB(who)], [who], { expectFail: !mut('R13') });
+      // Two key checks can fire there; the authority's logs alice's key as its Right value.
+      const authorityFired = (r.logs ?? []).join(' ').includes(alice.publicKey.toBase58());
+      check('R13', 'collect_remaining_rewards', "a pool's new owner cannot take back the unpaid rest of a reward someone else funded", failedWith(r, 'RequireKeysEqViolated') && authorityFired,
+        `refused: ${errName(r)}${authorityFired ? " (the reward is alice's)" : ''}`);
+    }
+    {
+      const who = mut('R14') ? bob : alice;
+      const ri = (await account('PoolState', poolB)).reward_infos[0];
+      const inVault = await tok(rvB); const b0 = await tok(ata(who.publicKey, REWARD));
+      const r = await send("alice takes back her reward's unpaid rest", [remB(who)], [who], { expectFail: mut('R14') });
+      const back = (await tok(ata(who.publicKey, REWARD))) - b0;
+      const want = inVault - (ri.reward_total_emitted - ri.reward_claimed);
+      check('R14', 'collect_remaining_rewards', "after the end, the funder takes back the unpaid rest of her reward, whoever owns the pool now, and with it what the vault paid in to move the window: a top-up of someone else's reward goes to its funder",
+        r.ok && back === want && back === alicePaid + vaultPaid && vaultPaid > 0n && ri.reward_total_emitted === ri.reward_claimed,
+        r.ok ? `${fmt(back, 6)} REWARD back to ${h.names.get(who.publicKey.toBase58())}: ${fmt(alicePaid, 6)} hers, ${fmt(vaultPaid, 6)} the vault's` : `refused: ${errName(r)}`);
+    }
   }
   phaseDone('phase7');
 
@@ -403,12 +447,29 @@ export async function phases(c, h) {
     const p0 = await pool();
     const r0 = ata(VAULT, M0); const r1 = ata(VAULT, M1);
     const b = [await tok(r0), await tok(r1)];
-    const r = mut('V9') ? { executed: false, execute: await send('V9 mutant: a stranger collects', [feeIx('collect_fund_fee', mallory.publicKey, r0, r1)], [mallory], { expectFail: true }) }
-      : await vaultRun("vault collects the island's share itself", [feeIx('collect_fund_fee', VAULT, r0, r1)]);
+    // Raydium's code let the admin collect the island's share too; the venue removed that.
+    // The broken input: the vault collects the venue's share, which it may.
+    const r = await vaultRun(mut('V9') ? "V9 mutant: the vault collects the venue's share" : "the vault tries to collect the island's share",
+      [feeIx(mut('V9') ? 'collect_protocol_fee' : 'collect_fund_fee', VAULT, r0, r1)]);
     const got = [(await tok(r0)) - b[0], (await tok(r1)) - b[1]];
-    check('V9', 'collect_fund_fee', "the vault, as admin, can also collect the island's share itself, into its own accounts, while the Workshop is the fund owner (the program allows the admin or the fund owner, as cp-swap does)",
-      r.executed && got[0] === p0.fund_fees_token_0 && got[1] === p0.fund_fees_token_1 && got[0] + got[1] > 0n,
-      r.executed ? `${fmt(baylaIs0 ? got[0] : got[1], 6)} BAYLA + ${fmt(baylaIs0 ? got[1] : got[0], 9)} SOL to the vault, proposal ${r.index}` : `refused: ${errName(r.execute)}`);
+    const p1 = await pool();
+    check('V9', 'collect_fund_fee', "the vault cannot collect the island's share, even while the Workshop is the fund owner: only the fund owner can",
+      !r.executed && failedWith(r.execute, 'NotApproved') && got[0] === 0n && got[1] === 0n && p1.fund_fees_token_0 === p0.fund_fees_token_0 && p1.fund_fees_token_1 === p0.fund_fees_token_1,
+      r.executed ? `executed: ${fmt(baylaIs0 ? got[0] : got[1], 6)} BAYLA + ${fmt(baylaIs0 ? got[1] : got[0], 9)} SOL to the vault, proposal ${r.index}` : `refused: ${errName(r.execute)}`);
+  }
+  {
+    // Kept on purpose and disclosed (the owner's ruling): the vault can still move the island's
+    // share, by pointing the tier's fund owner at itself. Its broken input skips that step.
+    const p0 = await pool();
+    const r0 = ata(VAULT, M0); const r1 = ata(VAULT, M1);
+    const b = [await tok(r0), await tok(r1)];
+    const point = (to) => ix('update_amm_config', { owner: VAULT, amm_config: cfg0 }, { param: 4, value: 0 }, [{ pubkey: to, isWritable: false }]);
+    const r = await vaultRun("vault points tier 0's island share at itself, collects it, and points it back", [
+      ...(mut('V10') ? [] : [point(VAULT)]), feeIx('collect_fund_fee', VAULT, r0, r1), point(c.WORKSHOP)]);
+    const got = [(await tok(r0)) - b[0], (await tok(r1)) - b[1]];
+    check('V10', 'update_amm_config (param 4) + collect_fund_fee', "kept and disclosed: in one proposal the vault can point a tier's island share at itself, collect it, and point it back",
+      r.executed && got[0] === p0.fund_fees_token_0 && got[1] === p0.fund_fees_token_1 && got[0] + got[1] > 0n && (await account('AmmConfig', cfg0)).fund_owner.equals(c.WORKSHOP),
+      r.executed ? `${fmt(baylaIs0 ? got[0] : got[1], 6)} BAYLA + ${fmt(baylaIs0 ? got[1] : got[0], 9)} SOL, proposal ${r.index}` : `refused: ${errName(r.execute)}`);
   }
   {
     const gift = { [poolA.toBase58()]: 500_000_000n, [obsA.toBase58()]: 250_000_000n, [vaultOf(BAYLA).toBase58()]: 50_000_000n, [vaultOf(WSOL).toBase58()]: 100_000_000n };
@@ -483,7 +544,7 @@ export async function ledgerChecks(c, h) {
   const unknown = [...keysAll].filter((k) => !known.has(k));
   check('G2', 'every transaction', 'every account any transaction touched is one this run made or named (wallets, vault, pools, programs)', unknown.length === 0, unknown.length ? `unknown: ${unknown.slice(0, 3).join(', ')}` : `${keysAll.size} accounts, all named`);
   {
-    const ours = new Set([...Object.values(K).map((k) => k.publicKey.toBase58()), VAULT.toBase58(), poolA.toBase58(), poolB.toBase58()]);
+    const ours = new Set([...Object.values(K).map((k) => k.publicKey.toBase58()), VAULT.toBase58(), poolA.toBase58(), poolB.toBase58(), ...(c.extraPools ?? []).map((p) => p.toBase58())]);
     const bad = [];
     for (const r of ledger) {
       const pre = new Map((r.meta.preTokenBalances || []).map((b) => [b.accountIndex, BigInt(b.uiTokenAmount.amount)]));

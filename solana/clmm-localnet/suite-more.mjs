@@ -108,6 +108,69 @@ export async function more(c, h, s) {
       r.ok ? `fee_on ${p.fee_on}, decay ${p.dynamic_fee_info.decay_period} s` : errName(r));
   }
 
+  // ---- the 4% ceiling holds a dynamic fee too ------------------------------------------------
+  // Pool D sits on tier 8 (3%) with a strong dynamic fee. A first swap moves the price many steps;
+  // a second, inside the filter period, then pays the raised rate on all of it: above 4% without
+  // the ceiling, exactly 4% with it, and 3% with no dynamic fee at all.
+  {
+    const cfg8 = reg(PDA.ammConfig(8), 'fee tier 8 (3%)');
+    const TIER8 = { index: 8, tick_spacing: 10, trade_fee_rate: 30_000, protocol_fee_rate: 104_000, fund_fee_rate: 56_000 };
+    await mustVault('vault makes tier 8 (3%)', [ix('create_amm_config', { owner: VAULT, amm_config: cfg8 }, TIER8)]);
+    const dfc1 = reg(PDA.dynamicFee(1), 'dynamic fee config 1 (strong)');
+    await mustVault('vault makes a strong dynamic fee setting', [ix('create_dynamic_fee_config', { owner: VAULT, dynamic_fee_config: dfc1 },
+      { index: 1, filter_period: 120, decay_period: 600, reduction_factor: 5_000, dynamic_fee_control: 99_999, max_volatility_accumulator: 350_000 })]);
+    const [D0, D1] = order(WSOL, USD);
+    const poolD = regPool(PDA.pool(cfg8, D0, D1), 'pool D (SOL/USD, 3%, dynamic)', D0, D1);
+    c.extraPools = [...(c.extraPools ?? []), poolD];
+    const sqrtD = D0.equals(WSOL) ? sqrtPriceX64(180 * 1e6, 1e9) : sqrtPriceX64(1e9, 180 * 1e6);
+    await must('alice opens pool D with the strong dynamic fee', [ix('create_customizable_pool', poolIxAccounts(alice.publicKey, cfg8, D0, D1, poolD),
+      { customizable_params: { sqrt_price_x64: sqrtD, collect_fee_on: 0, enable_dynamic_fee: !mut('K6') } }, [{ pubkey: dfc1, isWritable: false }])], [alice]);
+    const sp = TIER8.tick_spacing;
+    const t0 = (await account('PoolState', poolD)).tick_current;
+    const lower = alignDown(t0 - 300, sp); const upper = alignDown(t0 + 300, sp);
+    const taL = arrayStart(lower, sp); const taU = arrayStart(upper, sp);
+    for (const a of new Set([taL, taU])) reg(PDA.tickArray(poolD, a), `pool D tick array ${a}`);
+    const nft = Keypair.generate();
+    reg(nft.publicKey, 'pool D position NFT mint'); reg(PDA.position(nft.publicKey), 'pool D position');
+    reg(spl.getAssociatedTokenAddressSync(nft.publicKey, alice.publicKey, false, ADDR.token2022), 'pool D position NFT account');
+    const vD0 = PDA.vault(poolD, D0); const vD1 = PDA.vault(poolD, D1);
+    await must('alice adds a narrow range to pool D', [ix('open_position_with_token22_nft', {
+      payer: alice.publicKey, position_nft_owner: alice.publicKey, position_nft_mint: nft.publicKey,
+      position_nft_account: spl.getAssociatedTokenAddressSync(nft.publicKey, alice.publicKey, false, ADDR.token2022), pool_state: poolD, protocol_position: SystemProgram.programId,
+      tick_array_lower: PDA.tickArray(poolD, taL), tick_array_upper: PDA.tickArray(poolD, taU), personal_position: PDA.position(nft.publicKey),
+      token_account_0: ata(alice.publicKey, D0), token_account_1: ata(alice.publicKey, D1), token_vault_0: vD0, token_vault_1: vD1, vault_0_mint: D0, vault_1_mint: D1,
+    }, {
+      tick_lower_index: lower, tick_upper_index: upper, tick_array_lower_start_index: taL, tick_array_upper_start_index: taU,
+      liquidity: 0n, amount_0_max: D0.equals(WSOL) ? 2n * 10n ** 9n : 400n * 10n ** 6n, amount_1_max: D0.equals(WSOL) ? 400n * 10n ** 6n : 2n * 10n ** 9n,
+      with_metadata: false, base_flag: D0.equals(WSOL),
+    })], [alice, nft]);
+    // SOL in: the price of SOL falls, ticks move toward the lower array.
+    const solIs0 = D0.equals(WSOL);
+    const swapD = async (amount) => {
+      const cur = arrayStart((await account('PoolState', poolD)).tick_current, sp);
+      const list = [...new Set([taL, taU])];
+      const ordered = solIs0 ? list.filter((s) => s <= cur).sort((a, b) => b - a) : list.filter((s) => s >= cur).sort((a, b) => a - b);
+      return ix('swap_v2', {
+        payer: alice.publicKey, amm_config: cfg8, pool_state: poolD, input_token_account: ata(alice.publicKey, WSOL), output_token_account: ata(alice.publicKey, USD),
+        input_vault: PDA.vault(poolD, WSOL), output_vault: PDA.vault(poolD, USD), observation_state: PDA.observation(poolD), input_vault_mint: WSOL, output_vault_mint: USD,
+      }, { amount, other_amount_threshold: 0n, sqrt_price_limit_x64: 0n, is_base_input: true },
+      [{ pubkey: PDA.bitmap(poolD) }, ...ordered.map((s) => ({ pubkey: PDA.tickArray(poolD, s) }))]);
+    };
+    await must('alice swaps 1.5 SOL into pool D, moving its price many steps', [await swapD(15n * 10n ** 8n)], [alice]);
+    const mid = await account('PoolState', poolD);
+    const moved = Math.abs(mid.tick_current - t0) / sp;
+    const amount = 10n ** 7n; // 0.01 SOL
+    const protoBefore = solIs0 ? mid.protocol_fees_token_0 : mid.protocol_fees_token_1;
+    await must('alice swaps 0.01 SOL more, inside the filter period', [await swapD(amount)], [alice]);
+    const end = await account('PoolState', poolD);
+    const proto = (solIs0 ? end.protocol_fees_token_0 : end.protocol_fees_token_1) - protoBefore;
+    const t8 = await account('AmmConfig', cfg8);
+    const rate = Number(proto) * 1e6 / t8.protocol_fee_rate / Number(amount) * 1e6; // per million of the swap
+    check('K6', 'swap_v2 (dynamic fee)', 'a swap through a pool whose dynamic fee would add more than 1% to its 3% pays exactly 4%, the ceiling',
+      end.dynamic_fee_info.volatility_accumulator >= 120_000 && rate <= 40_000 * 1.0001 && rate >= 40_000 * 0.999,
+      `${moved.toFixed(1)} steps moved, volatility ${end.dynamic_fee_info.volatility_accumulator}, second swap paid ${(rate / 1e4).toFixed(3)}%`);
+  }
+
   // ---- a permission and a second pool for the same pair ----------------------------------
   const perm = reg(PDA.permission(erin.publicKey), 'erin permission');
   const permIx = (name, owner) => ix(name, { owner, permission_authority: erin.publicKey, permission: perm });

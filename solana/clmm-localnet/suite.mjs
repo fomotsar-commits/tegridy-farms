@@ -225,6 +225,31 @@ let pendingIndex;
   const end = (await account('AmmConfig', cfg1)).protocol_fee_rate;
   check('T9', 'update_amm_config', 'the vault changes a tier and changes it back', mid === 100_000 && end === 104_000, `${mid} then ${end} per million`);
 }
+// The ceilings (the owner's ruling, 2026-10-20): at most 4% of a swap, and at most 16% of each fee
+// to the venue and the island together, when a tier is made and when it is changed. Tier 9 sits
+// exactly at both; the pool on it (phase 11) shows a dynamic fee held to the same 4%.
+const cfg9 = reg(PDA.ammConfig(9), 'fee tier 9 (at the ceilings)');
+const TIER9 = { index: 9, tick_spacing: 10, trade_fee_rate: 40_000, protocol_fee_rate: 104_000, fund_fee_rate: 56_000 };
+const refusedAsOver = (r) => !r.executed && failedWith(r.execute, 'RequireGteViolated');
+{
+  const r = await vaultRun('the vault tries a tier above 4%', [tierIx({ ...TIER9, trade_fee_rate: mut('K1') ? 40_000 : 40_001 })]);
+  check('K1', 'create_amm_config', 'the vault cannot make a tier that charges more than 4% of a swap', refusedAsOver(r) && !(await conn.getAccountInfo(cfg9)), r.executed ? 'made' : `refused: ${errName(r.execute)}`);
+}
+{
+  const r = await vaultRun('the vault tries a tier above 16% for the venue and the island', [tierIx({ ...TIER9, protocol_fee_rate: mut('K2') ? 104_000 : 104_001 })]);
+  check('K2', 'create_amm_config', 'the vault cannot make a tier that gives the venue and the island together more than 16% of each fee', refusedAsOver(r) && !(await conn.getAccountInfo(cfg9)),
+    r.executed ? 'made' : `refused: ${errName(r.execute)}`);
+}
+if (!(await conn.getAccountInfo(cfg9))) await mustVault('vault makes tier 9, exactly at both ceilings', [tierIx(TIER9)]);
+for (const [id, param, field, over, ok, what] of [
+  ['K3', 0, 'trade_fee_rate', 40_001, 40_000, 'raise a tier above 4% of a swap'],
+  ['K4', 1, 'protocol_fee_rate', 104_001, 104_000, "raise the venue's part past the 16% ceiling"],
+  ['K5', 2, 'fund_fee_rate', 56_001, 56_000, "raise the island's part past the 16% ceiling"],
+]) {
+  const r = await vaultRun(`the vault tries to ${what}`, [ix('update_amm_config', { owner: VAULT, amm_config: cfg9 }, { param, value: mut(id) ? ok : over })]);
+  const t = await account('AmmConfig', cfg9);
+  check(id, 'update_amm_config', `the vault cannot ${what}`, refusedAsOver(r) && t[field] === TIER9[field], r.executed ? `changed to ${t[field]}` : `refused: ${errName(r.execute)}`);
+}
 phaseDone('phase1');
 
 // =============================================================================================
@@ -418,7 +443,7 @@ const liqIx = (name, key, args, remaining = []) => {
 }
 phaseDone('phase3');
 
-const ctx = { WORKSHOP, checks, sizes, known, positions, arrays, K, members, VAULT, BAYLA, WSOL, REWARD, USD, M0, M1, baylaIs0, poolA, poolB, vA0, vA1, obsA, bitmapA, cfg0, cfg1, S, raw, human, sqrtOf, range, SPACING, BAYLA_UNIT, man, vaultStartLamports };
+const ctx = { WORKSHOP, checks, sizes, known, positions, arrays, K, members, VAULT, BAYLA, WSOL, REWARD, USD, M0, M1, baylaIs0, poolA, poolB, vA0, vA1, obsA, bitmapA, cfg0, cfg1, cfg9, TIER9, S, raw, human, sqrtOf, range, SPACING, BAYLA_UNIT, man, vaultStartLamports };
 const { phases } = await import('./suite-phases.mjs');
 await phases(ctx, { check, phaseDone, must, mustVault, vaultRun, measure, tok, sol, errName, failedWith, fmt, reg, ata, ataIx, prog, setProg, mut, pool, liqIx, finish, names });
 finish('complete');

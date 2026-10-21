@@ -28,10 +28,12 @@ The two fee tiers, as you decided on 2026-10-20 (docs/RANGE_POOLS_PLAN.md in the
 
 How money moves once pools are open: an LP earns 84% of the fee of every swap that trades through
 their range. The venue's 10.4% collects in the pool and only the vault can take it out. The island's
-5.6% collects too; the Workshop can take it out, **and so can the vault**, by a proposal (two
-approvals and 48 hours), which can also point the island's share somewhere else. That is Raydium's
-code, kept as it is. When a swap fills a limit order where no LP's range is in use, the LPs' 84%
-goes to the venue instead. Nobody pays anything to Raydium, ever.
+5.6% collects too, and only the Workshop can take it out. **The vault can still move it**: one
+proposal (two approvals and 48 hours) can point the island's share at another account, the vault
+included, and collect it there. No tier can charge more than 4% of a swap, or give the venue and the
+island more than 16% of each fee together. When a swap fills a limit order where no LP's range is in
+use, the LPs' 84% goes to the venue instead. Nobody pays anything to Raydium, ever. What else the
+vault can do is listed in `docs/RANGE_POOLS_PLAN.md` ("What else the vault can still do").
 
 ## The sittings
 

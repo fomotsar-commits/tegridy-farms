@@ -63,10 +63,13 @@ mainnet's BAYLA, wrapped SOL, Squads and token programs. ${clean.checks.length} 
 ${sweep ? `${sweep.mutants.filter((m) => m.red).length} of ${sweep.mutants.length} broken inputs turned their check red first; ${sweep.restore.ok ? 'the clean run after them passed every check with the program and its source unchanged (restore proven)' : '**the restore was NOT proven**'}.` : '**No mutant sweep has been run.**'}
 Every admin action was signed by the vault's real address through a real Squads 2-of-2 with a time lock. No path
 sent anything to a Raydium address. The fee tiers are the owner's (2026-10-20): of each fee the LPs collected 84%,
-the venue's 10.4% was collectable only by the vault, and the island's 5.6% by its Workshop's role, **or by the
-vault, which can also re-point it** (checks V6 and V9), as in our cp-swap. (A fee earned where no LP's range is
-in use, when a swap fills a limit order there, goes to the venue's share.) The vault can pause more than swaps:
-the five powers the internal review lists are in docs/RANGE_POOLS_PLAN.md.
+the venue's 10.4% was collectable only by the vault, and the island's 5.6% only by its Workshop's role: the vault
+is refused (check V9), though one proposal can **re-point the island's share** (check V6). No tier may charge
+more than 4% of a swap or give the venue and the island more than 16% of each fee, made or changed (K1 to K5),
+and a dynamic fee is held to 4% too (K6). A reward's unpaid rest goes back only to its funder, whoever owns the
+pool (R11, R13, R14). (A fee earned where no LP's range is in use, when a swap fills a limit order there, goes to
+the venue's share.) What the vault can still do, the pause of any part of a pool included, is in
+docs/RANGE_POOLS_PLAN.md.
 
 Run ${clean.started} to ${clean.finished}. Nothing was deployed anywhere, no program key exists, and nothing was
 signed or sent on mainnet: mainnet was only read.

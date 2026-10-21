@@ -62,32 +62,46 @@ own calls to them are commented out).
 **Where the money goes.** Swap fees stay in the pool for the people whose range was in use;
 each position collects its own. The protocol share can be collected only by the vault. The fund
 share can be collected only by the tier's fund owner, the island's Workshop: Raydium's code let
-the admin collect it too, and the venue removed that (the owner's ruling, 2026-10-20). **The vault
-can still move the island's share**: one proposal re-points a tier's fund owner (`update_amm_config`
-param 4), and the new owner then collects. No tier may charge more than 4% of a swap, nor give the
-venue and the island together more than 16% of each fee; both are checked when a tier is made and
-when it is changed, and a dynamic fee is held to the same 4%. Moving a pool's owner no longer moves
-who may take back the unpaid rest of a reward: that stays with whoever funded it. This program has
-no pool-opening fee. Spare SOL goes to the vault. None of these paths can reach a Raydium address,
-because none is in the code. Each path was run on a local chain (below).
+the admin collect it too, and the venue removed that (the owner's ruling, 2026-10-20). No tier may
+charge more than 4% of a swap, nor give the venue and the island together more than 16% of each
+fee; both are checked when a tier is made and when it is changed, and a dynamic fee is held to the
+same 4%. Two exceptions: a fee is rounded up to the coin's smallest unit, so a very small swap can
+pay more than 4% (and a Token-2022 coin's own transfer fee comes on top); and when a swap fills a
+limit order where no LP's range is in use, the LPs' share of that fee goes to the venue's share.
+The ceilings bind every tier this build makes; a later upgrade must check any tier made before it.
+This program has no pool-opening fee. Spare SOL goes to the vault. None of these paths can reach a
+Raydium address, because none is in the code. Each path was run on a local chain (below).
 
-**What the vault can still do**, each by a proposal (two signatures, then 48 hours), kept on
-purpose (the owner's ruling, 2026-10-20):
+**How the vault can still move the island's share**, each by a proposal (two signatures, then 48
+hours):
 
-1. **Pause any part of a pool**, LP withdrawals and the collection of fees and rewards included,
-   while deposits stay open (`update_pool_status`). It is the only brake there is.
+- point a tier's fund owner at another account, itself included, and then collect as the fund
+  owner; the re-point, the collection and the re-point back can sit in one proposal (check V10);
+- re-split a tier: set the island's part to nothing, then raise the venue's part into the room,
+  within the 16% ceiling;
+- let in a Token-2022 coin (support-mint) whose owner can move coins out of any account (a
+  permanent delegate), which would reach the pool's vault: so the vault lets in no such coin.
+
+**What else the vault can still do**, kept on purpose (the owner's ruling, 2026-10-20):
+
+1. **Pause a pool**: deposits, LP withdrawals with their fees and rewards, swaps and new limit
+   orders, in any mix (`update_pool_status`). A pause does not stop the venue or the island
+   collecting their shares, nor a limit order's owner taking their coins out. It is the only brake
+   there is.
 2. **Nothing it does is fast**: a pause, like every vault action, takes effect 48 hours after its
    second approval at the earliest. The lock protects everyone from a hasty change, and it also
-   means the brake is slow.
-3. Point a tier's island share at another owner (above).
-4. Change a tier's fee within the 4% and 16% ceilings, on every pool of that tier at once.
-5. Shorten a reward's window or lower its rate; the unpaid rest still goes back to its funder.
-6. Upgrade the program itself: the vault holds its upgrade authority.
+   means the brake is slow. One exception would be an operation owner: a key the vault adds
+   (`update_operation_account`) can change any pool's reward window and rate at once, with no
+   proposal. So the vault adds none.
+3. Change a tier's fee within the 4% and 16% ceilings, on every pool of that tier at once.
+4. Move a reward's window before it opens, or change its rate, paying for what it adds. After the
+   end the unpaid rest goes back to whoever started the reward, with anything the vault paid in, so
+   the vault never tops up a reward it did not start. If that person loses their key, the rest
+   stays in the pool for good. Moving a pool's owner now changes only who may start new rewards.
+5. Upgrade the program itself: the vault holds its upgrade authority.
 
-Also in Raydium's code: when a swap fills a limit order where no LP's range is in use, the LPs'
-share of that fee goes to the venue's share. With the frozen-NFT issuer list empty, the vault
-never lets in a coin whose issuer may freeze it (its only remedy would be freezing the pool's
-vault, which stops every LP).
+Also: with the frozen-NFT issuer list empty, the vault never lets in a coin whose issuer may freeze
+it (its only remedy would be freezing the pool's vault, which stops every LP).
 
 **How a machine checks it, on every pull request** (`.github/workflows/solana-ci.yml`). No
 check fetches anything from Raydium: `solana/guards/upstream/` holds a hash of every upstream
@@ -192,10 +206,9 @@ million). One vault proposal makes both tiers and points each one's fund owner a
 made): one 48-hour wait, and no moment when one tier exists without the other.
 Each tier costs the vault 0.0012 SOL in rent.
 
-**The vault keeps power over the island's share**, as it does in cp-swap: it can collect the fund
-share itself, into any account, and can re-point a tier's fund owner at any time. Both were run
-on the local chain (checks V6 and V9). Each takes a vault proposal: two signatures and the
-48-hour lock, which the island can watch for.
+**The vault can still move the island's share** by a proposal ("How the vault can still move the
+island's share", above), but it can no longer collect it directly (check V9: refused). The island
+can watch for such a proposal through its 48 hours.
 
 Sources: our cp-swap's own tiers (`CapqvAA9HvERTwzmE26xrtFhMaNcaXXoQUADpBWqWjKy` and
 `BHMteE8u6LAppswQmFmd2h7hp1fCfWtGahvVJnhRk8jW`) carry the same 104,000 and 56,000 since Squads
@@ -266,8 +279,8 @@ left the rest to the builder. Decided on that basis:
    the upgrade authority goes to the vault right after the deploy; devnet first.
 4. **The vault's powers**: "Fix 1, 2, 4; keep 3, 5", with a 4% fee ceiling. Fixed in the program:
    only the Workshop collects the island's share; fees at most 4% of a swap and 16% of each fee to the
-   venue and the island together; a reward's unpaid rest stays with its funder. Kept and disclosed
-   ("What the vault can still do", above): the pause of any part of a pool, and the 48 hours.
+   venue and the island together; a reward's unpaid rest stays with whoever started it. Kept and
+   disclosed ("What else the vault can still do", above): the pause, and the 48 hours.
 
 ## Still the owner's
 
