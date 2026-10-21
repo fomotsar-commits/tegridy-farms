@@ -164,6 +164,31 @@ is the runner killing a step for memory, not a timeout; a `| tail` on the step h
 printed, so sample memory to the log live. Do not repeat these compiles in WSL: three of them took
 the whole WSL service down (`Wsl/Service/E_UNEXPECTED`, back after 20 to 60 s), and a poll loop
 that calls `wsl` every few seconds keeps it down.
+## 2026-10-19: a pool-program upgrade's file hash and enlarge size can be known before the pack is rebuilt
+
+**Believed:** the hash of the file an upgrade pack uploads is only known once the pack is
+rebuilt, and the enlarge size only once the real upload is tried.
+
+**Measured** (WSL, 2026-10-19): `cargo build-sbf -- --locked` (2.3.0, platform-tools v1.48,
+rustc 1.84.1) in `programs/cp-swap` of a clean `git archive` of trunk `71a7bba8` gave
+`99a9e73d…`, 724,688 bytes: byte for byte the pack's file, built on another day in other folders.
+The same build of a source change gives that change's pack hash. On a local validator holding
+mainnet's binary, `solana program extend <id> <new − current bytes>` and then
+`solana program deploy --no-auto-extend` upgraded with no error, so that byte count is enough.
+
+**Do:** before rebuilding a pack for a source change, build its archive this way and quote the
+hash. Prove the enlarge number with `--no-auto-extend`, so the CLI can't quietly enlarge for you.
+
+## 2026-10-19: `pkill -f` sent through `wsl -e bash -lc "…"` kills the shell that runs it
+
+**Believed:** `pkill -f '<pattern>'` never matches itself, so it is safe as a one-liner.
+
+**Measured** (2026-10-19): `wsl -e bash -lc "pkill -f 'ledger-old'; …"` returned exit 15 and
+never ran the rest. pkill skips its own process, not its parent: the `bash -lc` process carries
+the pattern in its own command line, so it matched and got SIGTERM.
+
+**Do:** make the pattern unable to match its own text: `pkill -f '[s]olana-test-validator --ledger …'`.
+Or kill by a pid you saved when you started the process.
 
 ## 2026-10-19: a dev-server walk that stubs every /api/ request renders a blank page, because the app imports from /api/_lib/
 
