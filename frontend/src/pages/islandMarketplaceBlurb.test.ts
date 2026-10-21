@@ -31,8 +31,9 @@ describe("the island's marketplace line", () => {
     expect(line).not.toMatch(/^Buy and sell the art\./);
   });
 
+  // 0.5% since the owner's call of 2026-10-18 (PLATFORM_FEE_BPS = 50).
   it('keeps the fee honest and dash-free', () => {
-    expect(line).toMatch(/1%/);
+    expect(line).toMatch(/\b0\.5%/);
     expect(line).not.toMatch(/\u2014/);
   });
 });

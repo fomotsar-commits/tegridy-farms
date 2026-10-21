@@ -81,7 +81,11 @@ function listing(token) {
     parameters: {
       offerer: OWNER,
       offer: [{ itemType: 2, token, identifierOrCriteria: "1", startAmount: "1" }],
-      consideration: [{ itemType: 0, token: "0x0000000000000000000000000000000000000000", startAmount: "1000000000000000000", recipient: OWNER }],
+      // createNativeListing's split of 1 ETH: the seller's share, then 0.5% to the treasury.
+      consideration: [
+        { itemType: 0, token: "0x0000000000000000000000000000000000000000", startAmount: "995000000000000000", recipient: OWNER },
+        { itemType: 0, token: "0x0000000000000000000000000000000000000000", startAmount: "5000000000000000", recipient: "0x7D2620243EdAd69Ec81A53c4A063B07995A4Bd7d" },
+      ],
       startTime: String(nowSec),
       endTime: String(nowSec + 7 * 24 * 3600),
       salt: "0x123",

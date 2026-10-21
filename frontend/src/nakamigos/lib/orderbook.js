@@ -1,9 +1,8 @@
 /**
  * Native Orderbook Client SDK — interact with our own order storage.
- * Creates Seaport-compatible signed orders at a flat 1% platform fee routed
- * to the Tegridy treasury Safe. (OpenSea has charged ~1% since Sep 2025 —
- * don't market this as a fee discount; the edge is that fees fund the
- * protocol treasury and fills have no marketplace dependency.)
+ * Creates Seaport-compatible signed orders at a flat 0.5% platform fee routed
+ * to the Tegridy treasury Safe: half of OpenSea's 1% (owner's call, 2026-10-18).
+ * Fees fund the protocol treasury and fills have no marketplace dependency.
  * Pattern from Blur's native orderbook and Reservoir's open protocol.
  *
  * Orders are standard Seaport v1.5 orders that can be fulfilled by
@@ -365,9 +364,8 @@ export async function fulfillNativeOrder(order) {
 }
 
 // ═══ CREATE NATIVE LISTING ═══
-// List an NFT on our orderbook at a flat 1% fee routed to the Tegridy treasury.
-// (OpenSea has charged ~1% since Sep 2025 — don't market this as a fee discount;
-// the edge is treasury-funding fees + no marketplace dependency. See header.)
+// List an NFT on our orderbook at a flat 0.5% fee routed to the Tegridy treasury
+// (half of OpenSea's 1%). See header.
 
 export async function createNativeListing({ contract, tokenId, priceEth, expirationHours = 168 }) {
   // Refused before setApprovalForAll: the venue lists only what it can settle.
@@ -408,7 +406,7 @@ export async function createNativeListing({ contract, tokenId, priceEth, expirat
     const now = Math.floor(Date.now() / 1000);
     const endTime = now + expirationHours * 3600;
 
-    // Platform fee: 1% of price
+    // Platform fee: PLATFORM_FEE_BPS (0.5%) of price
     const platformFee = (priceWei * BigInt(PLATFORM_FEE_BPS)) / 10000n;
     const sellerReceives = priceWei - platformFee;
 
@@ -637,7 +635,7 @@ export async function createNativeBundleListing({ items, priceEth, expirationHou
     const now = Math.floor(Date.now() / 1000);
     const endTime = now + expirationHours * 3600;
 
-    // Platform fee: 1% of the TOTAL bundle price (same split as a single listing).
+    // Platform fee: PLATFORM_FEE_BPS (0.5%) of the TOTAL bundle price (same split as a single listing).
     const platformFee = (priceWei * BigInt(PLATFORM_FEE_BPS)) / 10000n;
     const sellerReceives = priceWei - platformFee;
 

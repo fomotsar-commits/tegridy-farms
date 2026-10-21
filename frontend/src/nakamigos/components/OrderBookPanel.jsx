@@ -14,13 +14,12 @@ import NativeListingsList from "./NativeListingsList";
 
 // ═══ ORDER BOOK PANEL ═══
 // Two sections:
-//   1. Native Listings Table — browse & buy from our 1% fee orderbook
+//   1. Native Listings Table — browse & buy from our 0.5% fee orderbook
 //   2. Depth Chart — bid/ask spread visualization (existing)
 
-// Both marketplaces charge ~1% now (OpenSea has charged ~1% since Sep 2025), so
-// this is fee PARITY, not a discount — don't market a savings %. The native edge
-// is that fees fund the Tegridy treasury and fills have no marketplace dependency.
-const NATIVE_FEE_PCT = PLATFORM_FEE_BPS / 100; // 1%
+// Our 0.5% is half of OpenSea's 1% (owner's call, 2026-10-18). Fees fund the Tegridy
+// treasury and fills have no marketplace dependency.
+const NATIVE_FEE_PCT = PLATFORM_FEE_BPS / 100; // 0.5
 
 // ── Native Listings Table ──
 function NativeListingsTable({ wallet, onConnect, addToast, floorPrice }) {

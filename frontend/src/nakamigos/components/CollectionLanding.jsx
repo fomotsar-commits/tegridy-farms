@@ -960,7 +960,7 @@ export default function CollectionLanding() {
           <span>{VENUE_COLLECTIONS.length} trade here</span>
         </div>
 
-        {/* The money line stays visible: what the venue takes (flat 1% to the
+        {/* The money line stays visible: what the venue takes (flat 0.5% to the
             protocol treasury, on-chain Seaport settlement). The full sentence
             it used to be sits in the small print below, word for word. */}
         <div style={{
@@ -970,7 +970,7 @@ export default function CollectionLanding() {
           marginTop: 12,
           letterSpacing: "0.04em",
         }}>
-          {`Flat 1% fee on the ${VENUE_COLLECTIONS.length} collections that trade here. It funds the treasury.`}
+          {`Flat 0.5% fee on the ${VENUE_COLLECTIONS.length} collections that trade here. It funds the treasury.`}
         </div>
 
           <div style={{ display: "flex", justifyContent: "center", marginTop: 2 }}>
@@ -979,7 +979,7 @@ export default function CollectionLanding() {
                 {`Browse, Buy, Sell / List and Make offer open the ${COLLECTIONS[DEFAULT_COLLECTION].name} collection. For another collection, open its card below.`}
               </p>
               <p style={{ margin: 0 }}>
-                {`Native listings: one flat 1% fee on the ${VENUE_COLLECTIONS.length} collections that trade here, every fee funds the treasury`}
+                {`Native listings: one flat 0.5% fee on the ${VENUE_COLLECTIONS.length} collections that trade here, every fee funds the treasury`}
               </p>
               <p style={{ margin: 0 }}>
                 A collection that trades elsewhere shows that market's numbers here and opens there.

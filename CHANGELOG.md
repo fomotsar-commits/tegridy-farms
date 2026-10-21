@@ -22,6 +22,7 @@ The site's Changelog tab shows both files.
 
 - Swap: one amount buys every island coin on the chain.
 - Room staking on Ethereum and Base: the card reads the early-exit penalty from the pool it shows instead of assuming 25%. Today's six pools still charge a flat 25%; the pools the owner deploys next keep the ladder's law, the time left on your lock over four years capped at 75%, and the card quotes each position the moment they go live.
+- The marketplace fee is now 0.5%, half OpenSea's 1%.
 - Base and Robinhood Chain: Pools opens on each network's own coins, not Ethereum's TOWELI; Robinhood's Swap opens on ETH to USDG; a refused switch is said.
 - Heat and Rooms are now Island; the menu gains More.
 - The home: the chain row gains ROBINHOOD, which opens the curve on Robinhood Chain, and BASE now opens the curve on Base (it opened your wallet's chain, or Ethereum with no wallet). The home's Swap and Add SOL + BAYLA cards each have the network drop-down; picking another network opens that network's Swap or Pools page.
