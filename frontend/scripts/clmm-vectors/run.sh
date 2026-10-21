@@ -18,9 +18,10 @@ tar -C "$repo/solana/tegridy-clmm" --exclude=target --exclude=.anchor -cf - . | 
 cp "$here/vectors.rs" "$scratch/programs/amm/src/vectors.rs"
 printf '\n#[cfg(test)]\nmod vectors;\n' >> "$scratch/programs/amm/src/lib.rs"
 (cd "$scratch" && VECTORS_OUT="$scratch/vectors.json" cargo test --locked -p raydium-clmm --lib vectors::write_vectors -- --exact --quiet >&2)
-# Which program source the vectors came from: every .rs file under programs/amm/src, by path
-# then content, carriage returns dropped. quote.test.ts recomputes it from the repo's copy and
-# fails when the program changes and the vectors were not made again.
-src_sha="$(cd "$repo/solana/tegridy-clmm/programs/amm/src" && find . -type f -name '*.rs' | sed 's|^\./||' | LC_ALL=C sort | while read -r f; do printf '%s\n' "$f"; tr -d '\r' < "$f"; done | sha256sum | cut -d' ' -f1)"
+# Which program source the vectors came from: everything that decides its maths (the .rs files
+# under programs/amm/src, vendor/, both Cargo.toml and Cargo.lock), by path then content,
+# carriage returns dropped. quote.test.ts recomputes it from the repo's copy and fails when any
+# of it changes and the vectors were not made again.
+src_sha="$(cd "$repo/solana/tegridy-clmm" && { printf '%s\n' Cargo.toml Cargo.lock programs/amm/Cargo.toml; find programs/amm/src -type f -name '*.rs'; find vendor -type f; } | LC_ALL=C sort | while read -r f; do printf '%s\n' "$f"; tr -d '\r' < "$f"; done | sha256sum | cut -d' ' -f1)"
 printf '{\n"programSource":{"sha256":"%s"},' "$src_sha"
 tail -c +2 "$scratch/vectors.json"
