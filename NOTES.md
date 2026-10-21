@@ -2400,6 +2400,149 @@ card under the same hang gave up by itself after about 81 s, because viem's tran
 failure (an `AbortController` and a timer, cleared on answer and on unmount). Test it with a
 fetch that only ever ends by being aborted, under fake timers.
 
+## 2026-10-03: no Ethereum connect can ask a wallet for Solana, and a note saying so stops no one
+
+**Believed:** a wallet that holds both networks (Trust, MetaMask, Phantom), picked in the header's
+connect list, can be offered Solana as well; and where it cannot, a sentence on the page saying
+"the top Connect does not connect Solana" is enough.
+
+**Measured:** the owner picked Trust from the header on a Solana pool and Trust's approval sheet
+listed Ethereum, Robinhood Chain and Base: exactly wagmi's chains `[1, 4663, 8453]`. The proposal is
+`eip155` only by construction, not by configuration: `@wagmi/connectors` 8.2.0
+`walletConnect.js:8` has `const NAMESPACE = 'eip155'`, `@walletconnect/ethereum-provider` 2.25.0
+has `namespace = "eip155"` as a class field, and wagmi's `WalletConnectParameters` type removes
+`chains`, `methods` and `events` from what a caller may pass. The note had been live for two days
+(PR #681). The Solana connect button it pointed at sat 786px down on a 915px-tall Android page,
+1900px down on /pools and 2300px down on /curve-launch.
+
+**Do:** do not look for an option that adds Solana to an Ethereum connect; there is none short of
+replacing the connector. Make the button people already tap do the right thing for the page: on a
+Solana page it opens that page's Solana list, and elsewhere it asks which network first
+(`frontend/src/lib/solanaSurface.ts`, `components/layout/WalletSheet.tsx`). Jumper's "select an
+ecosystem" step and Uniswap's one chip listing both wallets are the same answer.
+
+---
+
+## 2026-10-03: a child's first effect runs before `WalletProvider` is listening
+
+**Believed:** a component under `@solana/wallet-adapter-react`'s `WalletProvider` may call
+`connect()` from its own mount effect, the way a click handler does.
+
+**Measured:** React runs a child's effects before its parent's, and `WalletProviderBase` attaches
+`adapter.on('connect', …)` and starts autoConnect in ITS effects. A wallet that awaits a popup
+emits `connect` later and nothing shows. A trusted Wallet Standard wallet with accounts already
+present (Trust's in-app browser after a first approval; any test fake that emits with no await)
+emits synchronously, before the listener exists. Result, with a fake that emits synchronously:
+`connectCalls === 1`, provider `publicKey === null`, and every later connect returns early on
+`wallet.adapter.connected`. Stuck until a reload. The same ordering makes the provider's first
+visible state `connecting: false` even when a restore is about to start one effect later.
+
+**Do:** never act on a queued or deferred connect in a mount effect under `WalletProvider`. Wait a
+render (gate on something only a later render can see; `SolanaSurfaceBridge` gates on its own
+report showing in an external store), and treat "not connecting" as unknown until then. A test fake
+must emit `connect` with no await to expose this; one that awaits hides it.
+
+---
+
+## 2026-10-03: `requestAnimationFrame` is not "after the close" when the close was asked for from an effect
+
+**Believed:** to hand over from one dialog to the next, close the first and open the second on the
+next animation frame; by then the first has released the page.
+
+**Measured:** `components/ui/Modal.tsx` locks `body` overflow in an effect and restores it in the
+cleanup. The Solana wallet list reads the COMPUTED overflow in a layout effect as it opens and
+writes that value back when it closes. A `setState` made inside a passive effect is rendered by a
+later Scheduler task, and nothing orders that task before a frame. When the frame came first, the
+list mounted in the same commit that closed the sheet, read `hidden` as the page's own state, and
+put `hidden` back on close: no scroll until a reload, focus on `<body>`. On the built app, first
+Solana connect from the home page: locked in 1 try of 10 at full CPU, 7 of 10 at 2x slowdown,
+10 of 10 at 4x. A close made in a click handler is flushed synchronously, so only the
+effect-driven path raced, and manual testing on a desktop never saw it. jsdom with `act()` hides
+it, and the e2e suite runs with reduced motion, which nearly does.
+
+**Do:** use no clock. Leave "what to open next" in a ref, close the first dialog, and open the
+next from a `useEffect` keyed on the first dialog's `open`. In the commit that closes it React runs
+every effect cleanup before any effect body, so the lock is released and focus handed back first.
+Pin it with the real second dialog in a unit test (`document.body.style.overflow === ''` and focus
+after it closes) and with `Emulation.setCPUThrottlingRate { rate: 4 }` over CDP in the e2e.
+
+---
+
+## 2026-10-03: `.then(ok, failed)` on a Vite `import()` never hears a failed stylesheet, and an in-place retry cannot work
+
+**Believed:** `import('./Chunk').then(use, onFail)` reports every way that load can fail, and a
+"tap to try again" that runs the import again will fetch it again.
+
+**Measured:** Vite compiles `import()` into a preload helper that also loads the chunk's CSS, and
+the helper is what rejects when a stylesheet fails. With `.then(ok, failed)` attached to the inner
+import, aborting `SolanaProviders-*.css` left the row on "Loading…" past the e2e's 8 s allowance,
+until the row's own 15 s limit; with `try { await import() } catch` the failure showed inside the
+8 s (e2e, both forms run). A
+browser does not refetch a failed chunk or stylesheet in the same tab, and after a deploy the old
+file name is gone, so retrying in place can only fail again. The e2e first passed on the broken
+form because the time limit eventually printed the same words.
+
+**Do:** await a dynamic import inside `try`, make the retry a page reload and say so, and give a
+"loading" state a limit. In the test, allow less time than the limit, or the limit passes it.
+
+---
+
+## 2026-10-03: `font-mono` is the device's own font, so Windows measures the narrowest case; simulate the widest with a width, not a font
+
+**Believed:** a header chip that fits at 360px here fits at 360px; and the widest device font can
+be simulated in Playwright by swapping the font family and adding a little letter-spacing.
+
+**Measured:** `.font-mono` resolves to the system stack, not the self-hosted face. Nine characters
+at 11.5px are 56.9px in Consolas (Windows), 62.1px in Liberation Mono (CI) and on Android, 64px in
+SF Mono (iPhone). The 360px header row has 0px to spare, so the chip that fit on Windows overflowed
+by 3px at the widest case, and by 1px at 800px. Then the simulation itself failed: with
+`font-family: "Courier New", "Liberation Mono"; letter-spacing: 0.02em` the same code measured
+over 0.615em per character in one CI run and 0.6001em in the next, three attempts running. Which
+font a name resolves to on a runner, and whether a quarter-pixel of spacing survives glyph
+rounding, is the runner's business.
+
+**Do:** sweep a width-critical element at the widest case, and set that case as a WIDTH:
+`span { display: block; flex: none; width: 5.58em }` for nine characters at 0.62em, checked with
+`toBeCloseTo(0.62, 2)` before the sweep is trusted. Nothing had swept a connected header at all;
+`e2e/topbar-solana-connect.spec.ts` does.
+
+---
+
+## 2026-10-03: the wallet adapter saves a wallet's name when its row is tapped, not when it connects
+
+**Believed:** `localStorage.walletName` set means a Solana wallet was connected here, so it is the
+thing to restore on.
+
+**Measured:** `WalletProvider` writes `walletName` in `select()`, before any connect, and clears it
+only on a connect error or a disconnect. On a phone the usual row is "Open app", which hands the
+page to the wallet's app and returns normally: the name stays saved in a browser where that wallet
+can never connect. A restore keyed on it downloaded `vendor-solana` (405 KB raw, about 105 KB
+compressed) plus the provider chunk on every page load, for nothing.
+
+**Do:** restore on a flag that only a real connection writes (set when an address is first
+reported, cleared when that same connection reports none), and require the saved name as well.
+
+---
+
+## 2026-10-03: gitleaks reads `const KEY = '<a Solana address>'` as a credential, and scans every commit of the pull request
+
+**Believed:** a made-up public address in a test cannot trip the secret scanner, and if it does,
+renaming the variable in a new commit clears it.
+
+**Measured:** `generic-api-key` needs a keyword (`key`, `token`, `secret`, `auth`, …) before the
+assignment plus an entropy of about 3.5 or more; `const KEY = 'Bq6j…'` scored 4.74 and failed
+"Scan for secrets" on PR #706. The action runs `git log -p <first commit>^..<head>`, so the line in
+the first commit still fails after a later commit renames it. Rewriting the branch is not available
+(a forced branch move is refused here). A `.gitleaksignore` line with the finding's fingerprint
+(`<commit>:<file>:<rule>:<line>`) clears exactly that one line of that one commit, and the new root
+file then failed `frontDoor.test.ts`, whose `ROOT_ALLOWLIST` names every entry tracked at the root.
+
+**Do:** never name test data `key`, `token` or `secret`. If a finding is already pushed, add its
+fingerprint to `.gitleaksignore`, rename the variable in the same commit, and do not widen
+`.gitleaks.toml`'s allowlist for a value that is not a real public id on trunk.
+
+---
+
 ## 2026-10-03: minted minus today's supply is what was burnt
 
 **Believed:** for a fixed-supply ERC-20, everything ever minted minus `totalSupply()` is the
@@ -3716,6 +3859,78 @@ against GitHub says nothing about the day the links fail over to GitLab.
 **Do:** check a source link's path against `git ls-files`, never against the host's status
 code. `frontend/src/test/sourceLinks.test.ts` does this for every literal path in the code
 and for every link the pages that link source render.
+
+---
+
+## 2026-09-26 — the "Treasury Safe" row in one chain's table is an address nobody controls on another chain
+
+**Believed:** the treasury Safe is the treasury everywhere, so one `VITE_SWAP_FEE_RECIPIENT`
+could serve every chain, and a checker that finds the var set has found it fine.
+
+**Measured:** production baked `0x796c22ff58F24e4a5d07683d8A5c03Ec54dB38C0`, the README's
+Base-section "Treasury Safe", as ParaSwap's `partnerAddress` on Ethereum quotes.
+`eth_getCode` returned 171 bytes (a SafeProxy) on Base and `0x` on Ethereum. ParaSwap's fee
+vault credits the partner address, and only that address can withdraw, so a mainnet credit
+there waits until someone deploys that Safe on mainnet. Nothing was lost, only because the
+venue never builds a ParaSwap transaction. `verify-env.mjs` reported the gate `OK`.
+
+The address is recoverable. An `eth_call` of `createProxyWithNonce` on the mainnet
+SafeProxyFactory, with the singleton, initializer and salt from the Base broadcast
+(`contracts/broadcast/DeployRoleSafes.s.sol/8453/run-latest.json`), returned exactly
+`0x796c22ff58F24e4a5d07683d8A5c03Ec54dB38C0`. The resulting Safe has the owners in the
+initializer, not any owners changed later on Base.
+
+**Do:** treat a Safe address as a (chain, address) pair. Accept a money recipient only if
+it is the registry's entry for the chain the money moves on, and fail closed otherwise
+(`lib/fees/swapFee.ts` does this now). Where a var's hazard is a wrong value, a presence
+check is not a check: compare the value too, and never echo it.
+
+---
+
+## 2026-09-25 — a differential test against a generated fixture proves the port matches the program as it was, not as it is
+
+**Believed:** `math.test.ts` replays 3,815 rows produced by compiling the real `curve.rs`, so
+while it is green the TypeScript port quotes what the program executes.
+
+**Measured:** the fixture was generated on 2026-08-01 at `3cc2b0ba`. On 2026-08-18,
+`b990f8b2` made `quote_sell` refuse a sell whose whole proceeds go to the fee
+(`ZeroAmount`) and added a `ShareTooHigh` variant to `CurveError`. The port never got the
+check, and CI stayed green for 38 days: it replays the committed rows and never regenerates
+them. The generator's exhaustive `match` on `CurveError` had also stopped compiling, so the
+tool that would have shown the drift could not run. Rebuilt and rerun on 2026-09-25, it
+changed 6 of 820 `quoteSell` rows from `['1','1','0']` to `'ZeroAmount'`. On the trade page
+that was "You receive 0 SOL" for a sell the program rejects.
+
+**Do:** read a green differential as "matches the fixture". When the source of truth
+changes, regenerate before trusting it, and make the generator's build part of the gate
+that runs the program's own tests.
+
+---
+
+## 2026-09-25 — MetaMask's "Malicious" pill is a stored domain label, not a reading of the site
+
+**Believed:** if MetaMask calls a dapp malicious, it is reacting to something the site does
+(a signature on load, an unlimited approval, a scam list someone put it on), so the fix is in
+the code or on a public blocklist.
+
+**Measured:** the red "Malicious — flagged as unsafe" pill on MetaMask's connect screen is
+drawn when `GET https://dapp-scanning.api.cx.metamask.io/v2/scan?url=<host>` answers
+`recommendedAction` `BLOCK` or `WARN` (extension v13.50.0, `multichain-accounts-connect-page.tsx`
+~525-684). The unversioned `/scan?url=<host>` gives the reason: for memetics.finance and
+memetic.fun it was `DRAINER / CRITICAL / "Domain identified as a wallet drainer."` The label
+covered the whole domain: a made-up subdomain that does not resolve in DNS came back `BLOCK`,
+and memetic.fun stayed `BLOCK` while serving a page with no wallet code at all. Neither domain was
+on eth-phishing-detect, MetaMask's stalelist or hotlist, ChainPatrol, ScamSniffer, Phantom's list,
+GoPlus or Google Safe Browsing. An instrumented wallet across 27 routes saw only EIP-6963 discovery
+and a silent `eth_accounts` on load. Separately, every obscure `*.vercel.app` host tested came back
+`BLOCK` by default, including live sites and our own deployment URL, while popular ones were `NONE`.
+The wallet caches a verdict for one minute (`DEFAULT_URL_SCAN_CACHE_TTL`, phishing-controller).
+
+**Do:** check the verdict with `curl` before touching code; the full-page "Deceptive site" block is
+a different mechanism (the eth-phishing-detect lists), and so is its dispute. Clearing the pill
+takes a vendor dispute (Blockaid's project verification), and asking to be allowlisted rather than
+just cleared. Never send users to a hostname, alias or preview URL until `v2/scan` answers `NONE`
+for it. `scripts/monitoring/walletReputationWatch.mjs` asks MetaMask what it asks, hourly.
 
 ---
 
