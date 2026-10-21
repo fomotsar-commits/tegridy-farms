@@ -63,6 +63,7 @@ gate root "one-shot guard self-test" . node scripts/oneshot-guard.mjs --self-tes
 gate root "git-hosting script tests" . bash scripts/git-hosting/test/run-all.sh
 gate root "monitoring rules" . node --test contracts/monitoring/lib/arbLinkage.test.mjs scripts/monitoring/lib/pausePlan.test.mjs
 gate root "endpoint redaction" . node --test scripts/lib/redact-url.test.mjs
+gate root "lcov merge unit tests" . node --test scripts/lib/lcov-merge.test.mjs
 gate root "ops runner unit tests" . node --test scripts/ops/env-file.test.mjs scripts/ops/supabase-backup.test.mjs scripts/ops/run-job.test.mjs scripts/ops/pull-github-backups.test.mjs scripts/ops/heartbeat.test.mjs
 gate root "act wrapper verdict self-test" . bash scripts/ci/act-job.sh --self-test
 
