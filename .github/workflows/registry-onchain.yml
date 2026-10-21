@@ -191,6 +191,7 @@ jobs:
         env:
           ETH_RPC: ${{ vars.ETH_RPC || '' }}
           BASE_RPC: ${{ vars.BASE_RPC || '' }}
+          RH_RPC: ${{ vars.RH_RPC || '' }}
         run: |
           set -euo pipefail
           node scripts/verify-ladder-builds.mjs | tee /tmp/ladders.txt

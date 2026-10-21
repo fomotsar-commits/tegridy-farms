@@ -139,6 +139,24 @@ gh workflow run solana-deploy-artifact.yml --repo fomotsar-commits/tegridy-farms
 
 ---
 
+## 🔴 2026-10-18: the room ladders keep the ladder's law (six broadcasts, your signature)
+
+Owner's word, 2026-10-18: "the staking exit needs to be 75 on solana eth base robinhood", then,
+with the island's answer on the split (section 4), "The six room ladders keep the ladder's law":
+an early exit costs the time left on the lock over four years, capped at 75%, as the BAYLA ladder
+charges it. PR #885 ships `LighthouseLadder.sol` with that schedule (`penaltyFor`, cap
+`MAX_EARLY_EXIT_PENALTY_BPS` 7_500, both doors), a deploy gate that refuses a flat rate or another
+cap (L-INV-13 to 16), a funding script that refuses the flat builds, and a room card that reads
+the pool it shows: a flat 25% on the six live pools, each position's own quote on the new ones,
+no copy switch. The six live ladders still charge a flat 25% until you redeploy them: `docs/LADDER_EXIT_75_REDEPLOY.md`, phases A to E, Base first with QR as
+the rehearsal, PEPE on Ethereum last, then hand the six addresses to an agent for the repin PR.
+TOWELI staking's 75% is the venue's own call, PR #824, unchanged. The BAYLA ladder on Solana already
+charges this schedule. The Streamflow rooms have no early exit. Robinhood has no room ladder and no
+room coin ("do the same for robinhood too even though we wont be using it right now"): the kit is
+prepared, not deployed, and deploys one under the same law with one command the day a room lives
+there (`ROBINHOOD_STAKING_TOKEN=... ./script/ladders-75.sh robinhood ...`), the fee-remittance Safe
+as notifier; rehearsed on a 4663 fork with WETH standing in.
+
 ## 🔴 2026-10-16: done tonight, and what changed on your list
 
 Newer than the 2026-10-15 section below. That section's lists still stand, except where an item

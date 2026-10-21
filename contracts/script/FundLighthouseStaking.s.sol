@@ -18,6 +18,8 @@ interface ILadderProbe {
     function MIN_BOOST() external view returns (uint256);
     function MIN_BOOST_BPS() external view returns (uint256);
     function BPS() external view returns (uint256);
+    function MAX_EARLY_EXIT_PENALTY_BPS() external view returns (uint256);
+    function penaltyFor(uint256 amount, uint64 lockEnd) external view returns (uint256);
 }
 
 /// @title  FundLighthouseStaking - the funding ceremony for an EVM lighthouse.
@@ -95,6 +97,22 @@ contract FundLighthouseStakingScript is Script {
                 == (minStake * ILadderProbe(poolAddr).MIN_BOOST_BPS()) / ILadderProbe(poolAddr).BPS(),
             "POOL: MIN_BOOST drifted from MIN_STAKE"
         );
+        // Owner, 2026-10-18: the room ladders keep the ladder's law (the time left
+        // over four years, capped at 75%). The 2026-09-05 six carry the audited
+        // floor and a flat 25% exit, and until the registry is repinned they are the
+        // ladder addresses most likely to be pasted here. A flat-rate build has no
+        // schedule to ask; a build with the cap but a flat rate fails the quote.
+        uint256 cap;
+        try ILadderProbe(poolAddr).MAX_EARLY_EXIT_PENALTY_BPS() returns (uint256 v) {
+            cap = v;
+        } catch {
+            revert("POOL: ladder has no exit schedule (a flat-rate build, retired) - redeploy first");
+        }
+        require(cap == 7_500, "POOL: ladder exit cap is not 75% - not the ladder's law");
+        require(
+            ILadderProbe(poolAddr).penaltyFor(1e18, uint64(block.timestamp + 365 days)) == 0.25e18,
+            "POOL: ladder exit is not the time left over four years - not the ladder's law"
+        );
     }
 
     function run() external {
@@ -120,7 +138,7 @@ contract FundLighthouseStakingScript is Script {
         // The build is the one thing an operator cannot see from the address,
         // and it is the difference between a funded pool and a funded theft.
         if (isLadder) {
-            console.log("Build:               LADDER (post-fix: MIN_STAKE 100e18 verified on-chain)");
+            console.log("Build:               LADDER (MIN_STAKE 100e18 and the ladder's law verified on-chain)");
             console.log("Reminder:            STAKE AN HONEST POSITION BEFORE THIS NOTIFY.");
             console.log("                     MIN_STAKE stops a wei-scale divisor; it cannot stop");
             console.log("                     the first real staker earning the whole emission.");
