@@ -205,7 +205,7 @@
 > pub const SWAP_MEMO_MSG: &'static [u8] = b"memetics_swap";
 === programs/amm/src/states/config.rs ===
 7a8,10
-> /// memetics.finance: the protocol and the fund together take at most 16% of each fee.
+> /// memetics.finance: a tier's protocol and fund rates together are at most 16% of each fee.
 > pub const MAX_PROTOCOL_AND_FUND_FEE_RATE: u32 = 160_000;
 > 
 === programs/amm/src/states/pool_fee.rs ===
