@@ -123,7 +123,8 @@ test('a clean pool: token ok, pool read from chain, deposits pass the checks, fe
   // Both fee tiers are read from the chain.
   await expect(ui.lp.feeTiers(p)).toHaveCount(2);
   for (const t of await ui.lp.feeTiers(p).all()) await expect(t).toHaveAttribute('data-state', 'live');
-  await expect(ui.lp.feeTiers(p).nth(1)).toContainText('0.15 SOL');
+  // The public tier's fee to open a pool, read live: the Rates card's line under its table.
+  await expect(p.getByTestId('lp-open-cost')).toContainText('Open a pool: 0.15 SOL + ');
   await expect(ui.lp.disclosure(p)).toContainText('have not had their own independent review yet');
   // The price was checked against Jupiter (stubbed), and the server index was asked.
   expect(a.jup.asked).toContain(clean.toBase58());
