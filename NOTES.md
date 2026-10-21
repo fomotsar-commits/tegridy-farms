@@ -91,6 +91,37 @@ Config, later in the page, took Program's bottom 3px of press, 1px more than the
 
 **Do:** split the padding so the two reaches into the shared gap add up to less than the gap
 (1px clear held on all four devices), each area still 44px or more. Certify by the sweep.
+## 2026-10-19: drpc's free tier says it caps eth_getLogs at 10,000 blocks, but it refuses anything over 100
+
+**Believed:** keyless Ethereum logs come from `eth.drpc.org` in windows under 10,000 blocks (the
+2026-10-14 entry below), and an empty Blockscout answer means no logs.
+
+**Measured** (2026-10-19, the all-time volume counter's backfill): drpc answered "ranges over
+10000 blocks are not supported on free plan" to windows of 5,000, 1,000 and 300 blocks, and
+returned logs at 100. `ethereum-rpc.publicnode.com` and `base-rpc.publicnode.com` served 5,000-block
+windows near the head and "Archive requests require a personal token" from 20,000 blocks back.
+Blockscout v1 `getLogs` returned the pair's whole history in one call; its empty answer is exactly
+`{"message":"No logs found","result":[],"status":"0"}`, and `/api/v2/main-page/blocks` gives the
+block it has indexed to.
+
+**Do:** read recent windows from publicnode; read older ranges from Blockscout, accepting only its
+`OK` or exact `No logs found` shape, and only up to its indexed block, so a rate-limited or lagging
+answer cannot pass as a range with no swaps (`frontend/scripts/lib/venue-volume-chain.mjs`).
+
+## 2026-10-19: a SwapFeeRouter swap is also a Swap log on our pair, so adding the two counts it twice
+
+**Believed:** the venue's Ethereum volume is the pair's Swap logs plus the router's `SwapExecuted`.
+
+**Measured:** the router's one swap (tx
+`0x7bc084a4304ad497222b7d666863a91ded491b8af2fb1062509387c3bdba415c`, block 25,723,600) is also one of the pair's
+29 Swap logs: `router()` is the Tegridy router, whose `factory()` is our factory. The hand read of
+2026-10-19 said 68 swaps; there were 67. On Solana, a Jupiter `route` that takes our fee from the
+input emits its `FeeEvent` first and a `SwapEvent` whose input is already net of the fee, so the
+swap's own input is the SwapEvent's plus the fee (0.06965 + 0.00035 = 0.07 SOL in tx
+`4zSJhJGt9DEGqmzy4Vi4DCxpQE6WH9NDX4KzDzbyf8cuaT4XJx1cu84eyxAxhmL3cYY8E5rNpUGnFskoSq3X5J2o`).
+
+**Do:** count our factories' pairs only. For Jupiter, read the leg from its events, adding the
+fee back when it came off the input; that matches fee ÷ rate without knowing the rate.
 
 ## 2026-10-19: a dev-server walk that stubs every /api/ request renders a blank page, because the app imports from /api/_lib/
 

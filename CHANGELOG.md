@@ -17,6 +17,7 @@ The site's Changelog tab shows both files.
 ### 2026-10-19
 
 - The menu is the site's index: every section's word with its pages under it, a Jump to field (Ctrl+K opens it), and the word Menu beside the ☰ on a computer. A room's page gets a numbered line under the top bar, lit as you scroll, one tap to each section.
+- The home shows the venue's all-time volume, counted every hour, with the time it was counted.
 
 ### 2026-10-18
 
