@@ -37,9 +37,9 @@ pub fn create_amm_config(
     protocol_fee_rate: u32,
     fund_fee_rate: u32,
 ) -> Result<()> {
-    require_gt!(FEE_RATE_DENOMINATOR_VALUE, trade_fee_rate);
+    require_gte!(MAX_FEE_RATE_NUMERATOR, trade_fee_rate);
     require_gte!(
-        FEE_RATE_DENOMINATOR_VALUE,
+        MAX_PROTOCOL_AND_FUND_FEE_RATE,
         fund_fee_rate + protocol_fee_rate
     );
     require_gte!(MAX_TICK_SPACING, tick_spacing);
