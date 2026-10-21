@@ -7,7 +7,7 @@ import { resolve } from 'node:path';
 import { gunzipSync } from 'node:zlib';
 import { PublicKey } from '@solana/web3.js';
 
-import { quoteSwap } from './quote';
+import { UPSTREAM_MAX_FEE_RATE_NUMERATOR, quoteSwap } from './quote';
 import { decodeAmmConfig, decodeBitmapExtension, decodePoolState, decodeTickArray, deriveTickArray, type TickArrayView } from './program';
 
 /**
@@ -94,6 +94,8 @@ describe.each(REC.swaps.map((s) => [s.tx.signature.slice(0, 12), s] as const))('
       pool, config, extension, band: (start) => bands.get(start),
       zeroForOne: s.tx.zeroForOne, isBaseInput: ask.isBaseInput, amount: ask.amount,
       sqrtPriceLimitX64: ask.limit, blockTimestamp: s.tx.blockTime,
+      // These swaps ran in Raydium's own program, whose fee ceiling is 10%.
+      maxFeeRate: UPSTREAM_MAX_FEE_RATE_NUMERATOR,
     });
     expect(q.kind, JSON.stringify(q, (_, v) => (typeof v === 'bigint' ? v.toString() : v))).toBe('ok');
     if (q.kind !== 'ok') return;

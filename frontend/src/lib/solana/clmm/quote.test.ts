@@ -5,7 +5,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 import { ClmmMathError, MAX_SQRT_PRICE_X64, MIN_SQRT_PRICE_X64, getSqrtPriceAtTick } from './math';
-import { computeSwap, quoteSwap, swapInternal, tickSpacingIndexFromTick, type SwapQuoteArgs } from './quote';
+import { MAX_FEE_RATE_NUMERATOR, UPSTREAM_MAX_FEE_RATE_NUMERATOR, computeSwap, quoteSwap, swapInternal, tickSpacingIndexFromTick, type SwapQuoteArgs } from './quote';
 import { getArrayStartIndex } from './bitmap';
 import { TICK_ARRAY_SIZE, type TickArrayView, type TickStateView } from './program';
 
@@ -92,6 +92,8 @@ function argsOf(c: SwapCase): Omit<SwapQuoteArgs, 'sqrtPriceLimitX64'> & { sqrtP
     amount: BigInt(c.amount),
     sqrtPriceLimitX64: BigInt(c.limit),
     blockTimestamp: c.ts,
+    // The vectors ran on the source before our 4% ceiling (#931): Raydium's 10%.
+    maxFeeRate: UPSTREAM_MAX_FEE_RATE_NUMERATOR,
   };
 }
 
@@ -216,3 +218,48 @@ describe('the dynamic fee index', () => {
     expect(getSqrtPriceAtTick(0)).toBe(1n << 64n);
   });
 });
+
+describe('the fee ceiling', () => {
+  it('our program’s ceiling is the one its source declares: 4% of a swap', () => {
+    const src = readFileSync(resolve(__dirname, '../../../../../solana/tegridy-clmm/programs/amm/src/states/pool_fee.rs'), 'utf8');
+    const declared = /pub const MAX_FEE_RATE_NUMERATOR: u32 = ([\d_]+);/.exec(src)?.[1];
+    expect(Number(declared?.replace(/_/g, ''))).toBe(MAX_FEE_RATE_NUMERATOR);
+    expect(MAX_FEE_RATE_NUMERATOR).toBe(40_000);
+  });
+
+  it('a dynamic fee stops at our 4%, and at 10% only when a swap in Raydium’s program is replayed', () => {
+    const spacing = 60;
+    const L = 10n ** 15n;
+    const ticks = Array.from({ length: TICK_ARRAY_SIZE }, emptyTick);
+    ticks[0] = { ...emptyTick(), tick: 0, liquidityNet: L, liquidityGross: L };
+    ticks[59] = { ...emptyTick(), tick: 3_540, liquidityNet: -L, liquidityGross: L };
+    const band: TickArrayView = { address: 'band 0', poolId: 'pool', startTickIndex: 0, ticks, initializedTickCount: 2 };
+    const ts = 1_800_000_000;
+    const a: SwapQuoteArgs = {
+      pool: {
+        tickCurrent: 1_800, sqrtPriceX64: getSqrtPriceAtTick(1_800), liquidity: L, tickSpacing: spacing, feeOn: 0, status: 0,
+        tickArrayBitmap: words([512], 16), openTime: 0n,
+        // A volatility far past the ceiling: 360,000 per million before any cap.
+        dynamicFeeInfo: {
+          filterPeriod: 10, decayPeriod: 60, reductionFactor: 5_000, dynamicFeeControl: 100_000, maxVolatilityAccumulator: 1_000_000,
+          tickSpacingIndexReference: tickSpacingIndexFromTick(1_800, spacing), volatilityReference: 100_000, volatilityAccumulator: 100_000, lastUpdateTimestamp: BigInt(ts),
+        },
+      },
+      config: { tradeFeeRate: 10_000, protocolFeeRate: 104_000, fundFeeRate: 56_000 },
+      band: (s) => (s === 0 ? band : undefined),
+      extension: null,
+      zeroForOne: false,
+      isBaseInput: true,
+      amount: 1_000_000n,
+      sqrtPriceLimitX64: 0n,
+      blockTimestamp: ts,
+    };
+    const ours = quoteSwap(a);
+    const raydiums = quoteSwap({ ...a, maxFeeRate: UPSTREAM_MAX_FEE_RATE_NUMERATOR });
+    if (ours.kind !== 'ok' || raydiums.kind !== 'ok') throw new Error('quote');
+    // Exact in, one step: the fee is the amount times the rate, rounded up.
+    expect(ours.tradeFee).toBe(40_000n);
+    expect(raydiums.tradeFee).toBe(100_000n);
+  });
+});
+

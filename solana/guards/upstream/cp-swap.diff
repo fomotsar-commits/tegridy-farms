@@ -285,6 +285,13 @@
 <     pub const ID: Pubkey = pubkey!("Rayv2LG4tFSMizZhMP8aSUYxDPjV8qJtx2NQY9RKYZy");
 ---
 >     pub const ID: Pubkey = pubkey!("GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd");
+=== src/instructions/initialize.rs ===
+204a205,209
+>     // TEGRIDY FORK: index 0 is the launch tier (no opening fee, the lowest trade fee).
+>     // Only graduations open pools on it, through initialize_with_permission.
+>     if ctx.accounts.amm_config.index == 0 {
+>         return err!(ErrorCode::NotApproved);
+>     }
 === Cargo.toml ===
 4c4
 < description = "Raydium constant product AMM, supports Token2022 and without Openbook"

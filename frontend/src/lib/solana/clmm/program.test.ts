@@ -98,12 +98,13 @@ function declaredLen(name: string): number {
 }
 
 describe('identity', () => {
-  it('the one program-id constant is the id the program source declares, the placeholder today', () => {
+  it('the one program-id constant is the id the program source declares: the program deployed 2026-10-21', () => {
     const lib = rust('lib.rs');
     const declared = /#\[cfg\(not\(feature = "devnet"\)\)\]\s*declare_id!\("([1-9A-HJ-NP-Za-km-z]+)"\)/.exec(lib);
     expect(declared?.[1]).toBe(P.RANGE_PROGRAM_ID.toBase58());
-    expect(P.RANGE_PROGRAM_ID.equals(P.PLACEHOLDER_PROGRAM_ID)).toBe(true);
-    expect(P.rangeProgramNamed()).toBe(false);
+    expect(P.RANGE_PROGRAM_ID.toBase58()).toBe('7ghzbbmq59QEbdweSzM1ggpeBH1Q2CyxZg4Tr2x8Aso');
+    expect(P.rangeProgramNamed()).toBe(true);
+    expect(P.rangeProgramNamed(P.PLACEHOLDER_PROGRAM_ID)).toBe(false);
     expect(P.rangeProgramNamed(new PublicKey('11111111111111111111111111111112'))).toBe(true);
   });
 });
