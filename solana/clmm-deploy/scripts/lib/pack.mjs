@@ -135,7 +135,7 @@ export const BINARY = CFG.binary ? path.join(PACK, CFG.binary.file) : null; // n
 export function checkBinary(R) {
   const b = BINARY && fs.existsSync(BINARY) ? fs.readFileSync(BINARY) : null;
   if (!R.check(!!b && b.length === CFG.binary.bytes && sha256(b) === CFG.binary.sha256,
-    `${CFG.binary.file}: ${num(CFG.binary.bytes)} bytes, sha256 ${CFG.binary.sha256} (the build CI printed and a local rebuild matched)`,
+    `${CFG.binary.file}: ${num(CFG.binary.bytes)} bytes, sha256 ${CFG.binary.sha256} (${CFG.kind === 'mainnet' ? 'two separate builds of the same commit matched; CI builds it again after the deploy' : 'the build this folder was staged with'})`,
     `${CFG.binary.file} is missing or is NOT the reviewed build (${b ? `sha256 ${sha256(b)}, ${num(b.length)} bytes` : 'no such file'}). Do not upload anything`)) return null;
   R.check(b.indexOf(pk(CFG.programId).toBuffer()) >= 0, `the build names its own program id ${CFG.programId}`, `the build does NOT name the program id ${CFG.programId}: it was built for another id`);
   const deny = CFG.denyKeys.filter((k) => b.indexOf(pk(k).toBuffer()) >= 0 || b.indexOf(Buffer.from(k)) >= 0);
