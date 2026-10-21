@@ -757,7 +757,7 @@ function OneCoinInner({
       {(phase.kind === 'form' || phase.kind === 'planning') && (
         <>
           <p data-testid="lp-one-what" className="text-white text-[14px] leading-relaxed">
-            A share of the {tokenName}/{coin.symbol} pool and its fee on every trade. Withdraw any time. No lock.
+            A share of the {tokenName}/{coin.symbol} pool and its fee on every trade. No lock, but the team&apos;s vault can pause removing.
           </p>
           <div role="group" aria-label="Pay with" className="flex gap-2">
             {(['quote', 'token'] as const).map((side) => (

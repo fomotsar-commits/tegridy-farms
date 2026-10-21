@@ -107,9 +107,9 @@ for (const path of ['/', '/liquidity', '/earn', '/island', '/swap', '/trust']) {
 const A_MINT = '4k3Dyjzvzp8eMZWUXbBCjEvwSkkk59S5iCNLY3QrkX6R';
 
 /**
- * /solana-lp on the played venue, settled: the LP section is up and both fee tiers read.
- * `gateOpen`: the venue also answers the LP gate, so the page is as production shows it,
- * with no "could not check the network" banner above the finder.
+ * /solana-lp (or /pools, which mounts the same section) on the played venue, settled: the
+ * LP section is up and both fee tiers read. `gateOpen`: the venue also answers the LP gate,
+ * so the page is as production shows it, with no "could not check the network" banner.
  */
 async function settledSolanaLp(page: Page, path: string, { gateOpen = false } = {}): Promise<void> {
   const venue = await playLiveVenue(page, { gateOpen });
@@ -350,6 +350,48 @@ test('/solana-lp: the venue status card\'s Refresh and copy buttons are 44px pre
   }
   await expectNoSidewaysScroll(page);
 });
+
+/**
+ * The card's two copy buttons, hit-tested every 0.5px down each box: a box's height says
+ * nothing about who a press there reaches. On a phone the Program and Config chips wrap
+ * onto two rows, and both press areas reached into the 12px between them: Config, later
+ * in the page, took Program's bottom 3px, so a press there copied the wrong address
+ * (measured 2026-10-20, at 390 only). Swept at 4px in from each button's left edge, which
+ * at 390 is over the other chip's button too.
+ */
+for (const path of ['/pools', '/solana-lp']) {
+  test(`${path}: each venue copy button answers a press over 44px and never copies the other address, at 390, 820 and 1280`, async ({ page, walletMock: _w }) => {
+    await page.setViewportSize(IPHONE_390);
+    await settledSolanaLp(page, path, { gateOpen: true });
+    await page.evaluate(() => document.fonts.ready);
+    const card = page.getByRole('region', { name: 'Venue status' });
+    await expect(card.getByRole('heading', { name: 'Pools are open' })).toBeVisible();
+    for (const width of [390, 820, 1280]) {
+      await page.setViewportSize({ width, height: 900 });
+      const sweeps = await card.evaluate((el) => {
+        const copies = Array.from(el.querySelectorAll('button')).filter((b) => b.title === 'Copy to clipboard');
+        return copies.map((copy) => {
+          // Centred, as a thumb scrolls: clear of the sticky tab strip and the bottom bar.
+          copy.scrollIntoView({ block: 'center' });
+          const b = copy.getBoundingClientRect();
+          let own = 0;
+          let other = 0;
+          for (let y = b.top + 0.25; y < b.bottom; y += 0.5) {
+            const hit = document.elementFromPoint(b.left + 4, y);
+            if (hit && copy.contains(hit)) own += 0.5;
+            else if (hit && copies.some((c) => c !== copy && c.contains(hit))) other += 0.5;
+          }
+          return { label: copy.parentElement?.firstElementChild?.textContent ?? '?', height: b.height, own, other };
+        });
+      });
+      expect(sweeps.map((s) => s.label), `at ${width}px: one chip for the pool program and one for its config`).toEqual(['Program', 'Config']);
+      for (const s of sweeps) {
+        expect(s.other, `at ${width}px a press on ${s.label} copies the other address over ${s.other}px`).toBe(0);
+        expect(s.own, `at ${width}px ${s.label} answers over ${s.own}px of its ${s.height}px box`).toBeGreaterThanOrEqual(FLOOR);
+      }
+    }
+  });
+}
 
 /**
  * The two links that lead between the Solana LP tab and the Venue AMM tab are a line of

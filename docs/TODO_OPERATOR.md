@@ -142,10 +142,44 @@ gh workflow run solana-deploy-artifact.yml --repo fomotsar-commits/tegridy-farms
   call.
 - **The pool-program upgrade** (O-1009-4): its pack was reworked on 2026-10-19 for the 48-hour
   lock and now prepares a roll-back on Day 0, so the paying wallet
-  `CqcVvaMvesrSKrUSbqBqr9mLjKLJuYqhaXg1gXpR41cg` needs 7.40 SOL, not 3.90. Its START-HERE has the
-  steps.
+  `CqcVvaMvesrSKrUSbqBqr9mLjKLJuYqhaXg1gXpR41cg` needs 7.40 SOL, not 3.90, and member A needs
+  0.02 SOL. Its START-HERE has the steps. The three to-dos below now say so (2026-10-20).
 - **Every vault action now waits 48 hours after its second approval** (Squads #14, 2026-10-19),
   an emergency pause too.
+
+---
+
+## 🔴 2026-10-18: the room ladders keep the ladder's law (six broadcasts, your signature)
+
+Owner's word, 2026-10-18: "the staking exit needs to be 75 on solana eth base robinhood", then,
+with the island's answer on the split (section 4), "The six room ladders keep the ladder's law":
+an early exit costs the time left on the lock over four years, capped at 75%, as the BAYLA ladder
+charges it. PR #885 ships `LighthouseLadder.sol` with that schedule (`penaltyFor`, cap
+`MAX_EARLY_EXIT_PENALTY_BPS` 7_500, both doors), a deploy gate that refuses a flat rate or another
+cap (L-INV-13 to 16), a funding script that refuses the flat builds, and a room card that reads
+the pool it shows: a flat 25% on the six live pools, each position's own quote on the new ones,
+no copy switch. The six live ladders still charge a flat 25% until you redeploy them: `docs/LADDER_EXIT_75_REDEPLOY.md`, phases A to E, Base first with QR as
+the rehearsal, PEPE on Ethereum last, then hand the six addresses to an agent for the repin PR.
+TOWELI staking's 75% is the venue's own call, PR #824, unchanged. The BAYLA ladder on Solana already
+charges this schedule. The Streamflow rooms have no early exit. Robinhood has no room ladder and no
+room coin ("do the same for robinhood too even though we wont be using it right now"): the kit is
+prepared, not deployed, and deploys one under the same law with one command the day a room lives
+there (`ROBINHOOD_STAKING_TOKEN=... ./script/ladders-75.sh robinhood ...`), the fee-remittance Safe
+as notifier; rehearsed on a 4663 fork with WETH standing in.
+
+---
+
+## 🔴 2026-10-18: ship the NFT pool royalty fix (a new factory)
+
+- ⬜ **Pause the old NFT pool factory** `0xbB8E49Ba4e3A85E2B8B70e00208770F429B56F5B` from the Safe
+  `0xA36053477568Fb5382492F3A5970D35Fe896b7F8`: one `pause()`, free, and `unpause()` undoes it. Its pool template pays a buy's royalty out of the pool's own
+  ETH, so a hostile collection can drain any pool made on it, and the NFT AMM tab lets anyone make
+  one today. It has 0 pools, so nothing is lost yet.
+- ⬜ **Deploy the new factory** with your key: one transaction, about 0.001 ETH at today's gas.
+  It takes 0.25% a swap, your call of 2026-10-18 (the live one takes 0.5%). Then run the fork
+  check. Every command and what you should see:
+  [`NFT_POOL_FACTORY_REDEPLOY.md`](NFT_POOL_FACTORY_REDEPLOY.md). One call first: who owns it
+  (the default is the same Safe as today).
 
 ---
 
@@ -251,6 +285,11 @@ nothing is lost.
   `frontend/supabase/migrations/027_analytics_events_retention.sql`. Its first run deletes
   analytics older than 90 days, so export first if you want the old totals. Merging #695 before
   027 turns the hourly Data Retention job red.
+- ⬜ **Migration 028, after the all-time volume PR merges** (free). Paste
+  `frontend/supabase/migrations/028_venue_volume.sql` in the SQL editor (it needs only
+  `public.schema_migrations`, not 027). Then Actions > Venue Volume > Run workflow once: the first
+  run reads all of history in a few minutes; after that it runs hourly by itself. Until 028 is in,
+  the job counts nothing and stays green, and the home page says the volume could not be read.
 - ⬜ **One sitting with real phones** [was O-1009-8], now with #722 (the Solana wallet list on a
   phone): on Android, does Phantom open its app, and does it connect by itself inside Phantom; in
   Trust's own browser, is Trust listed once; does the list fit a small phone. On a 320 by 568
@@ -293,10 +332,11 @@ nothing is lost.
   `node scripts/streamflow-receipt-name.mjs` (signs nothing), then the same with
   `--broadcast --keypair <the pool authority's key file>`. The dry run passed on 2026-10-14.
   [was O-1009-5]
-- ⬜ **The pool-program upgrade** (the LP receipt names): 3.90 SOL in the deploy wallet
-  `CqcVvaMvesrSKrUSbqBqr9mLjKLJuYqhaXg1gXpR41cg` (about 3.68 comes back), both multisig members on
-  the pack's own page, approving each wallet prompt within about 30 seconds of pressing Check.
-  Tell a session first: #776 goes out in the same hour. [was O-1009-4]
+- ⬜ **The pool-program upgrade** (the LP receipt names): 7.40 SOL in the deploy wallet
+  `CqcVvaMvesrSKrUSbqBqr9mLjKLJuYqhaXg1gXpR41cg` and 0.02 SOL to member A `5QHzAqbGk3W8qGRBHCMyWjhLXf8YJcs3yPEh14Ymcwgz`
+  (about 7.20 comes back: 3.68 on Day 2, 3.51 on Day 4), both multisig members on the pack's own
+  page, in three sittings 48 hours apart. Tell a session first: #776 goes out in the hour of
+  Day 2's execute. [was O-1009-4]
 - ⬜ **The TOWELI staking top-up** you decided on 2026-09-17 (see the money list for the gap).
   Say which wallet; a session re-reads the numbers before and after. [was O-1009-1]
 - ⬜ **BAYLA ladder rewards stop 2026-12-23T15:32Z** unless reloaded. Decide the amount and the
@@ -408,10 +448,11 @@ made under "the rest", now settled and being built:
 - ⬜ **The TOWELI staking top-up** you decided on 2026-09-17. Not sent when last read
   (2026-10-09); about 2.45M TOWELI short then. Say which wallet; a session re-reads the numbers
   before and after. [was O-1009-1]
-- ⬜ **The pool-program upgrade:** 3.90 SOL in the deploy wallet
-  `CqcVvaMvesrSKrUSbqBqr9mLjKLJuYqhaXg1gXpR41cg`, about 3.68 SOL of it comes back, so it costs
-  about 0.22 SOL. Both multisig members sign on the pack's own page. #776 goes out in the same
-  hour. [was O-1009-4]
+- ⬜ **The pool-program upgrade:** 7.40 SOL in the deploy wallet
+  `CqcVvaMvesrSKrUSbqBqr9mLjKLJuYqhaXg1gXpR41cg` and 0.02 SOL to member A
+  `5QHzAqbGk3W8qGRBHCMyWjhLXf8YJcs3yPEh14Ymcwgz`. About 7.20 SOL comes back (3.68 on Day 2, 3.51 on Day 4), so it
+  costs about 0.22 SOL. Both multisig members sign on the pack's own page, in three sittings 48
+  hours apart. #776 goes out in the hour of Day 2's execute. [was O-1009-4]
 - ⬜ **Name the staking receipt:** about 0.00024 SOL. Steps 3 and 4 of the 2026-10-07 section
   below. [was O-1009-5]
 - ⬜ **BAYLA ladder rewards stop 2026-12-23T15:32Z** unless reloaded. Decide the amount and the
@@ -468,10 +509,11 @@ above, with what each costs. That list is the one to work from.
 - ✅ **O-1009-3: answered on 2026-10-10: yes.** The two Solana programs are inside the security
   policy (O-0929-12, PR #775, which you merged that day). It had to be settled before the
   pool-program upgrade, and it is.
-- ⬜ **O-1009-4: the pool-program upgrade.** The pack is ready. It needs 3.90 SOL in the deploy
-  wallet `CqcVvaMvesrSKrUSbqBqr9mLjKLJuYqhaXg1gXpR41cg` (about 3.68 comes back) and both
-  multisig members, on the pack's own page and never in the Squads app. Tell a session before
-  you start: draft PR #776 has to go out in the same hour, and not before.
+- ⬜ **O-1009-4: the pool-program upgrade.** The pack is ready. It needs 7.40 SOL in the deploy
+  wallet `CqcVvaMvesrSKrUSbqBqr9mLjKLJuYqhaXg1gXpR41cg` (about 7.20 comes back: 3.68 on Day 2,
+  3.51 on Day 4), 0.02 SOL for member A `5QHzAqbGk3W8qGRBHCMyWjhLXf8YJcs3yPEh14Ymcwgz`, and both multisig members,
+  on the pack's own page and never in the Squads app. Tell a session before you start: draft PR
+  #776 has to go out in the hour of Day 2's execute, and not before.
 - ⬜ **O-1009-5: name the staking receipt.** Steps 3 and 4 of the 2026-10-07 section below. Not run
   as of 2026-10-09.
 - ⬜ **O-1009-6: two forms.** Jupiter verification for BAYLA (its pack is in the release folder),
