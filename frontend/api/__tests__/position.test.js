@@ -199,16 +199,20 @@ describe("real accounts of the live range program whose layout the venue's copy 
   const tier = decodeFeeTier(bytes(FIX.config.gz));
   const fee = tier.tradeFeeRate;
   const nftMintOf = (buf) => new PublicKey(buf.subarray(9, 41)).toBase58();
-  /** The fixture's tier with its rates and wallets set to the island's agreed split. */
-  const agreed = () => {
+  /** The fixture's tier with its rates and wallets set: by default, to the island's agreed split. */
+  const tierWith = ({ owner = PLATFORM_TREASURY_VAULT, fundOwner = WORKSHOP_WALLET, protocol = 104_000, fund = 56_000 } = {}) => {
     const b = Uint8Array.from(bytes(FIX.config.gz));
     const v = new DataView(b.buffer);
-    b.set(PLATFORM_TREASURY_VAULT.toBytes(), 11);
-    v.setUint32(43, 104_000, true);
-    v.setUint32(53, 56_000, true);
-    b.set(WORKSHOP_WALLET.toBytes(), 61);
+    b.set(owner.toBytes(), 11);
+    v.setUint32(43, protocol, true);
+    v.setUint32(53, fund, true);
+    b.set(fundOwner.toBytes(), 61);
     return decodeFeeTier(b);
   };
+  const agreed = () => tierWith();
+  const STRANGER = new PublicKey("Stranger11111111111111111111111111111111111");
+  const docFor = (t) => buildPositionMetadata({ id: FIX.position.address, position, pool, tier: t });
+  const attrsOf = (doc) => Object.fromEntries(doc.attributes.map((a) => [a.trait_type, a.value]));
 
   it("decode, and agree with each other", () => {
     expect(position.poolId).toBe(FIX.pool.address);
@@ -249,20 +253,49 @@ describe("real accounts of the live range program whose layout the venue's copy 
   });
 
   it("says how positions earn and how the venue earns, with the basis, from the tier's own rates and wallets", () => {
-    const doc = buildPositionMetadata({ id: FIX.position.address, position, pool, tier: agreed() });
+    const doc = docFor(agreed());
     expect(doc.description).toContain(
-      "Each swap through its range pays a 1% fee: positions in range share 84% of it (0.84% of the swap), split by their liquidity there, and the venue keeps 16% (0.16% of the swap), 10.4% to the team’s shared wallet and 5.6% to the island’s Workshop.",
+      "Each swap through its range pays a 1% fee: positions in range share 84% of it (0.84% of the swap), split by their liquidity there, and the venue keeps 16% (0.16% of the swap): 10.4% of the fee (0.104% of the swap) to the team’s shared wallet, 5.6% of the fee (0.056% of the swap) to the island’s Workshop.",
     );
     expect(doc.description).not.toMatch(/WARNING/);
-    const attr = Object.fromEntries(doc.attributes.map((a) => [a.trait_type, a.value]));
-    expect([attr["Positions’ share of the fee"], attr["Venue’s share of the fee"], attr["To the team’s shared wallet"], attr["To the island’s Workshop"]]).toEqual(["84%", "16%", "10.4%", "5.6%"]);
+    const attr = attrsOf(doc);
+    expect([attr["Positions’ share of the fee"], attr["Venue’s share of the fee"], attr["Venue’s cut follows the agreed split"]]).toEqual(["84%", "16%", "Yes"]);
+    expect([attr["To the team’s shared wallet"], attr["To the island’s Workshop"]]).toEqual(["10.4% of the fee (0.104% of the swap)", "5.6% of the fee (0.056% of the swap)"]);
     expect([attr["Fee tier owner"], attr["Fund owner"]]).toEqual([TEAM_VAULT, ISLAND_WORKSHOP]);
+  });
+
+  it("each share follows the wallet that actually collects it: a stranger as the tier's owner leaves the team nothing", () => {
+    const doc = docFor(tierWith({ owner: STRANGER }));
+    expect(doc.description.startsWith("WARNING: the venue’s cut of each swap does not follow the agreed split")).toBe(true);
+    expect(doc.description).toContain(
+      "As this fee tier stands: 0% of the fee (0% of the swap) to the team’s shared wallet, 5.6% of the fee (0.056% of the swap) to the island’s Workshop, 10.4% of the fee (0.104% of the swap) to " + STRANGER.toBase58() + ".",
+    );
+    const attr = attrsOf(doc);
+    expect(attr["To the team’s shared wallet"]).toBe("0% of the fee (0% of the swap)");
+    expect(attr[`To another wallet, ${STRANGER.toBase58()}`]).toBe("10.4% of the fee (0.104% of the swap)");
+    expect(attr["Venue’s cut follows the agreed split"]).toBe("NO: see the warning");
+  });
+
+  it("the vault as fund owner (the program's default) takes the island's share: said first, never as the agreed split", () => {
+    const doc = docFor(tierWith({ fundOwner: PLATFORM_TREASURY_VAULT }));
+    expect(doc.description.startsWith("WARNING: the venue’s cut of each swap does not follow the agreed split")).toBe(true);
+    expect(doc.description).toContain("As this fee tier stands: 16% of the fee (0.16% of the swap) to the team’s shared wallet, 0% of the fee (0% of the swap) to the island’s Workshop.");
+    expect(doc.description).not.toContain("all to the team");
+    const attr = attrsOf(doc);
+    expect([attr["To the team’s shared wallet"], attr["To the island’s Workshop"]]).toEqual(["16% of the fee (0.16% of the swap)", "0% of the fee (0% of the swap)"]);
+  });
+
+  it("the agreed wallets at other rates are not the agreed split either", () => {
+    for (const rates of [{ protocol: 160_000, fund: 0 }, { protocol: 104_000, fund: 96_000 }, { protocol: 0, fund: 56_000 }]) {
+      const doc = docFor(tierWith(rates));
+      expect(doc.description.startsWith("WARNING: the venue’s cut of each swap does not follow the agreed split"), JSON.stringify(rates)).toBe(true);
+    }
   });
 
   it("a tier that pays any other wallet is said first, as a warning naming it", () => {
     // The live fixture is Raydium's own tier: both its wallets are Raydium's.
-    const doc = buildPositionMetadata({ id: FIX.position.address, position, pool, tier });
-    expect(doc.description.startsWith("WARNING: part of the venue’s cut of each swap goes somewhere other than the agreed split")).toBe(true);
+    const doc = docFor(tier);
+    expect(doc.description.startsWith("WARNING: the venue’s cut of each swap does not follow the agreed split")).toBe(true);
     expect(doc.description).toContain(tier.owner);
     expect(doc.description).toContain(tier.fundOwner);
   });
@@ -422,7 +455,10 @@ describe("the handler", () => {
     const res = mockRes();
     await handlePosition(req({ id }), res, { programId: OURS });
     expect(res.statusCode).toBe(200);
+    // The caller's limiter ran and set its counts: the document still carries none of them.
+    expect(checkRateLimit).toHaveBeenCalledTimes(1);
     expect(Object.keys(res.headers).filter((h) => h.startsWith("X-RateLimit"))).toEqual([]);
+    expect(res.headers["Cache-Control"]).toBe("s-maxage=60, stale-while-revalidate=600");
   });
 
   it("refuses a malformed link, other methods, and answers a preflight", async () => {

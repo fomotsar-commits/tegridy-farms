@@ -41,12 +41,15 @@ export const POOL_STATE = { len: 1544, disc: [247, 237, 227, 245, 215, 195, 222,
 export const AMM_CONFIG = { len: 117, disc: [218, 244, 33, 104, 203, 203, 43, 111], owner: 11, protocolFeeRate: 43, tradeFeeRate: 47, fundFeeRate: 53, fundOwner: 61 };
 
 /**
- * The island's agreed split of the venue's cut (owner, 2026-10-20): the protocol part to the
- * team's shared wallet, the fund part to the island's Workshop. position.test.js holds both
- * equal to the site's own constants. Any other wallet is said first, as a warning.
+ * The island's agreed split of the venue's cut (owner, 2026-10-20): of each fee, 10.4% (the
+ * protocol part) to the team's shared wallet and 5.6% (the fund part) to the island's
+ * Workshop. position.test.js holds the wallets equal to the site's own constants. A tier
+ * that differs in any way is said first, as a warning.
  */
 export const TEAM_VAULT = "GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd";
 export const ISLAND_WORKSHOP = "G2EHPseTXetHbBvvRDs27XQyXfQikXXyxP9uMbsKrbu";
+export const AGREED_PROTOCOL_RATE = 104_000;
+export const AGREED_FUND_RATE = 56_000;
 
 /** Coins the venue names; any other shows as its address, never a name it claims. */
 const KNOWN = {
@@ -162,34 +165,50 @@ export function feePercent(rate) {
 /** Per million as a percent, to four decimals of a percent: 8400 = "0.84%", 104000 = "10.4%". */
 const perMillion = (rate) => `${Number((rate / 10000).toFixed(4))}%`;
 
+const walletName = (a) => (a === TEAM_VAULT ? "the team’s shared wallet" : a === ISLAND_WORKSHOP ? "the island’s Workshop" : a);
+
+/**
+ * What each wallet collects of each fee, by the wallet that ACTUALLY collects it: the tier's
+ * `owner` takes the protocol part, its `fund_owner` the fund part, and one wallet named by
+ * both takes both. The team's wallet and the Workshop are always listed, at 0 when they get
+ * nothing; any other wallet only when it gets something.
+ */
+export function collectors(tier) {
+  const take = new Map([[TEAM_VAULT, 0], [ISLAND_WORKSHOP, 0]]);
+  take.set(tier.owner, (take.get(tier.owner) ?? 0) + tier.protocolFeeRate);
+  take.set(tier.fundOwner, (take.get(tier.fundOwner) ?? 0) + tier.fundFeeRate);
+  return [...take].filter(([a, rate]) => rate > 0 || a === TEAM_VAULT || a === ISLAND_WORKSHOP).map(([address, rate]) => ({ address, rate }));
+}
+
+/** True only for exactly the agreed split: the protocol part, 10.4%, to the team; the fund part, 5.6%, to the Workshop. */
+export function isAgreedSplit(tier) {
+  return tier.owner === TEAM_VAULT && tier.fundOwner === ISLAND_WORKSHOP && tier.protocolFeeRate === AGREED_PROTOCOL_RATE && tier.fundFeeRate === AGREED_FUND_RATE;
+}
+
 /**
  * How the swap fee is shared, said the way the site's Range tab says it (clmm/venueEarns.ts):
- * what positions in range share, what the venue keeps and where it goes. Every figure and
- * wallet is the tier's own. A part collected by any wallet but the agreed one is `stray`.
+ * what positions in range share, what the venue keeps, and what each wallet collects of the
+ * fee and of the swap. Every figure and wallet is the tier's own; anything but the agreed
+ * split is said first, as a warning.
  */
 function feeShare(tier) {
   const venue = tier.protocolFeeRate + tier.fundFeeRate;
-  const strays = [
-    ...(tier.protocolFeeRate > 0 && tier.owner !== TEAM_VAULT ? [{ part: "the team’s part", address: tier.owner }] : []),
-    ...(tier.fundFeeRate > 0 && tier.fundOwner !== ISLAND_WORKSHOP && tier.fundOwner !== TEAM_VAULT ? [{ part: "the island’s part", address: tier.fundOwner }] : []),
-  ];
-  const where =
-    strays.length > 0
-      ? ""
-      : tier.fundFeeRate > 0 && tier.fundOwner === ISLAND_WORKSHOP
-        ? `, ${perMillion(tier.protocolFeeRate)} to the team’s shared wallet and ${perMillion(tier.fundFeeRate)} to the island’s Workshop`
-        : ", all to the team’s shared wallet";
+  const ofSwap = (rate) => perMillion((tier.tradeFeeRate * rate) / 1_000_000);
+  const takes = collectors(tier).map((c) => ({ ...c, name: walletName(c.address), ofFee: perMillion(c.rate), ofSwap: ofSwap(c.rate) }));
+  const list = takes.map((c) => `${c.ofFee} of the fee (${c.ofSwap} of the swap) to ${c.name}`).join(", ");
+  const agreed = isAgreedSplit(tier);
   return {
     fee: feePercent(tier.tradeFeeRate),
     lpOfFee: perMillion(1_000_000 - venue),
     lpOfSwap: perMillion((tier.tradeFeeRate * (1_000_000 - venue)) / 1_000_000),
     venueOfFee: perMillion(venue),
-    venueOfSwap: perMillion((tier.tradeFeeRate * venue) / 1_000_000),
-    where,
-    warning:
-      strays.length > 0
-        ? `WARNING: part of the venue’s cut of each swap goes somewhere other than the agreed split (the team’s shared wallet and the island’s Workshop): ${strays.map((x) => `${x.part} to ${x.address}`).join(" and ")}. `
-        : "",
+    venueOfSwap: ofSwap(venue),
+    takes,
+    agreed,
+    where: agreed ? `: ${list}` : "",
+    warning: agreed
+      ? ""
+      : `WARNING: the venue’s cut of each swap does not follow the agreed split (10.4% of the fee to the team’s shared wallet and 5.6% to the island’s Workshop). As this fee tier stands: ${list}. `,
   };
 }
 
@@ -215,8 +234,11 @@ export function buildPositionMetadata({ id, position, pool, tier }) {
     { trait_type: "Swap fee", value: share.fee },
     { trait_type: "Positions’ share of the fee", value: share.lpOfFee },
     { trait_type: "Venue’s share of the fee", value: share.venueOfFee },
-    { trait_type: "To the team’s shared wallet", value: perMillion(tier.protocolFeeRate) },
-    { trait_type: "To the island’s Workshop", value: tier.fundOwner === ISLAND_WORKSHOP ? perMillion(tier.fundFeeRate) : "0%" },
+    { trait_type: "Venue’s cut follows the agreed split", value: share.agreed ? "Yes" : "NO: see the warning" },
+    ...share.takes.map((c) => ({
+      trait_type: c.address === TEAM_VAULT || c.address === ISLAND_WORKSHOP ? `To ${c.name}` : `To another wallet, ${c.address}`,
+      value: `${c.ofFee} of the fee (${c.ofSwap} of the swap)`,
+    })),
     { trait_type: "Fee tier owner", value: tier.owner },
     { trait_type: "Fund owner", value: tier.fundOwner },
     { trait_type: "Lowest price", value: low ? `${low} ${b} per ${a}` : "unread" },
