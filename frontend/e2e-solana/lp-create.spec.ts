@@ -23,7 +23,7 @@ import {
   wrapSol, CP_SWAP_PROGRAM,
 } from './fixtures/chain';
 import {
-  CREATE_POOL_FEE_RECEIVER, createClassicToken, createSolPool, createToken2022MetadataOnly, createTransferHookToken, freshPricedToken, squatStandard,
+  CREATE_POOL_FEE_RECEIVER, createClassicToken, createLaunchTierPool, createSolPool, createToken2022MetadataOnly, createTransferHookToken, freshPricedToken, squatStandard,
   transferTokens, type CreatedPool, type JupiterStub,
 } from './fixtures/lp';
 import {
@@ -520,7 +520,8 @@ test.describe('group B (chromium only)', () => {
       (async () => {
         B.c6 = await fundedKeypair(5);
         B.t6 = await freshPricedToken(B.c6, book);
-        B.p6 = await createSolPool(B.c6, B.t6, { configIndex: 0, sol: sol(1), tokens: 1_000_000n * UNIT, at: 'standard' });
+        // On tier 0, so P6 can take tier 1 out of the page's reads and this pool's own tier stays.
+        B.p6 = await createLaunchTierPool(B.c6, B.t6, { sol: sol(1), tokens: 1_000_000n * UNIT });
       })(),
       (async () => {
         B.c8 = await fundedKeypair(5);
