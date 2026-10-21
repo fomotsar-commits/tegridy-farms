@@ -10,6 +10,7 @@ The site's Changelog tab shows both files.
 ### 2026-10-21
 
 - /island and /bayla have the home's Swap, Lock BAYLA and Add SOL + BAYLA cards.
+- A room's lore and the staking pool it has on record are one press away, under Read the story and its coin's staking.
 - Add with one coin on a Solana pool no longer says "Withdraw any time": it says there is no lock, but the team's vault can pause removing.
 - A pool's price, the one you press to flip every pool's price, is easier to tap: its press area is 44 px tall, and the price looks the same.
 - On a phone, a press on the bottom edge of the venue card's Program address on /pools and /solana-lp now copies that address; it copied the Config address under it.
