@@ -9,6 +9,7 @@ The site's Changelog tab shows both files.
 
 ### 2026-10-21
 
+- Solana LP: every pool card now shows what is in the pool, its price, the outside price and the difference in plain view, above the deposit checks and the Add buttons. They were inside More about this pool.
 - Notice: range pools get two fee tiers, 1% and 0.25% of each swap, no sooner than seven days from this day. Of each fee, 84% stays with the liquidity providers whose range is in use, 10.4% goes to memetics.finance and 5.6% to Jungle Bay Island.
 
 ### 2026-10-20
