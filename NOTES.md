@@ -15,6 +15,23 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-10-21: a concentrated-liquidity deposit with liquidity 0 and a base coin is protected on that coin only, so a sandwich passes
+
+**Believed:** an `open_position` / `increase_liquidity` sent with `liquidity: 0`, a base coin
+(`base_flag: Some`) and a tolerance maximum on both coins is refused when the price moves past
+the tolerance either way.
+
+**Read** (the range program's `add_liquidity`, `solana/tegridy-clmm/programs/amm/src/instructions/open_position.rs`,
+which Raydium's CLMM shares): with liquidity 0 the program works the liquidity out from the base
+coin's maximum at the price the deposit lands at, so the base coin always fits its maximum. Only
+the other coin's maximum can refuse, and only for a move that raises it. A price pushed the other
+way (front-run, then back-run) passes, and the deposit goes in at the pushed price: the review on
+#915 found it, and a test replaying the program's rule lets the old opening through a 300-tick move one way.
+
+**Do:** send the liquidity planned from a fresh read with `base_flag: None` and a tolerance
+ceiling on both coins; then a move either way raises one side past its ceiling. To keep the typed
+amount as the most it takes, plan from the amount less the tolerance.
+
 ## 2026-10-21: npm always takes the newest release in a transitive range, so the floor needs an override or a hand edit
 
 **Believed:** when a fixed package asks for a newer transitive (vite 8.3.3 asks for rolldown
