@@ -104,7 +104,11 @@ jobs:
           # is already known to be in scope.
           [ -n "${PR:-}" ] || { echo "not a pull_request — in scope by trigger"; say true; }
 
-          files=$(gh api --paginate "repos/$REPO/pulls/$PR/files" --jq '.[].filename')
+          files=$(gh api --paginate "repos/$REPO/pulls/$PR/files" \
+            --jq '.[] | .filename, (.previous_filename // empty)') || {
+            echo "::warning::gh could not list every changed file, running the real job"
+            say true
+          }
           if [ -z "$files" ]; then
             echo "::warning::could not list this PR's changed files — running the real job"
             say true
