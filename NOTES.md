@@ -45,6 +45,26 @@ E19's `not.toMatch(/APR|APY|yield of/i)` on the section's text failed once on a 
 **Do:** before reading a red e2e-solana run as your change, run the same tests on trunk against the same
 validator (`-g` on the failing titles takes about 20 minutes). Match copy guards on word boundaries, or
 on text with the addresses taken out.
+## 2026-10-21: a button "detached from the DOM" under a click was not re-mounted; it left by itself, and the click raced it
+
+**Believed:** a `locator.click` call log reading "element is visible, enabled and stable … element
+was detached from the DOM, retrying" on the Tradermigos splash meant the app re-mounted the button
+under the tap: a parent re-render, a key change, a lazy chunk swapping it.
+
+**Measured** (Playwright 1.62, production build on `vite preview`, Windows WebKit, 2026-10-21): a
+MutationObserver counted one mount (+0.6 s), the exit's class (+2.6 s) and one unmount (+4.0 s),
+never a second mount; CI's call log never printed a second "locator resolved to". The splash has
+left by itself at 3.2 s since 2026-10-14. On WebKit `/nakamigos` drew about 0 frames per 250 ms
+(`/risks` and `/swap` about 12) with timers on time, and Playwright's "stable" check counts frames,
+so the click was still checking when the splash left, then waited for a button that never came
+back, to the 120 s test timeout. Turning off filters, shadows, CSS animations, `will-change` or
+canvas each left the frames at 0; hiding every image and background brought the landing's back,
+not the splash's.
+
+**Do:** before calling a detach a re-mount, look for a second "locator resolved to" in the log.
+Never click a control that removes itself on a timer; wait for what replaces it. To make a lost
+race certain in a test, keep the target moving (a linear `translate` animation, `!important` past
+the reduced-motion rule) so no click can find it stable.
 
 ## 2026-10-19: a dev-server walk that stubs every /api/ request renders a blank page, because the app imports from /api/_lib/
 
