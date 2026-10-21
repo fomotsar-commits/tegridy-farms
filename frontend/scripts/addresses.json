@@ -231,7 +231,11 @@
       "custody": "multisig, threshold 2 (read on-chain at data offset 72)",
       "status": "live",
       "expect": {
-        "type": "program-owned"
+        "type": "squads-multisig",
+        "threshold": 2,
+        "members": 2,
+        "timeLock": 172800,
+        "configAuthority": "none"
       }
     },
     {
