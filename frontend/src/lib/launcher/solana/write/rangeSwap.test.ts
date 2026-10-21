@@ -6,10 +6,11 @@
 // wallet or a stranger could make to the swap is refused.
 import { describe, it, expect } from 'vitest';
 import { Keypair, PublicKey, SystemProgram, TransactionInstruction, type VersionedTransaction } from '@solana/web3.js';
-import { ASSOCIATED_TOKEN_PROGRAM_ID, TOKEN_PROGRAM_ID, WSOL_MINT } from '../curve/program';
+import { ASSOCIATED_TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID, WSOL_MINT } from '../curve/program';
 import { BPF_LOADER_UPGRADEABLE_ID } from '../curve/read';
 import { associatedTokenAddress } from '../curve/ix';
 import {
+  FEE_ON_TOKEN_0_ONLY,
   IX_SWAP_V2,
   POOL_STATUS_BIT,
   decodePoolState,
@@ -26,6 +27,7 @@ import { quoteSwap } from '../../../solana/clmm/quote';
 import { encodeAmmConfig, encodePool, encodeTickArray } from '../../../solana/clmm/encode.fixture';
 import { decodeIntent } from './intent';
 import { RANGE_SWAP_COPY, prepareRangeSwap, rangeSwapStepsProblem } from './rangeSwap';
+import { RANGE_COPY } from './range';
 import { VENUE_SWAP_COPY } from './venueSwap';
 import { FakeChain, cfgLocal, openAccount, rent, setClock, type SimHandler } from './testkit.fixture';
 import type { AggregatorSeen, IntentStep, PreparedTx, RangeIntent, RangeSwapSummary, WriteRpc } from './types';
@@ -44,11 +46,14 @@ const TICK = 600;
 const SQRT = getSqrtPriceAtTick(TICK) + 12_345n;
 const L = 10n ** 13n;
 const TOKEN_ATA = associatedTokenAddress(TOKEN, ME, TOKEN_PROGRAM_ID);
+/** The wallet's account for the token when the token is a Token-2022 coin (170 bytes, not 165). */
+const TOKEN_ATA_2022 = associatedTokenAddress(TOKEN, ME, TOKEN_2022_PROGRAM_ID);
+const tokenAtaOf = (c: FakeChain) => (c.accounts.get(TOKEN.toBase58())!.owner.equals(TOKEN_2022_PROGRAM_ID) ? TOKEN_ATA_2022 : TOKEN_ATA);
 const WSOL_ATA = associatedTokenAddress(WSOL_MINT, ME);
 const NOW = 1_800_000_000n;
 const NOT_ASKED: AggregatorSeen = { kind: 'unreachable' };
 
-function chainWith(o: { status?: number; deploy?: boolean; bandMissing?: boolean } = {}): FakeChain {
+function chainWith(o: { status?: number; deploy?: boolean; bandMissing?: boolean; frozenVault?: 0 | 1; token2022?: boolean; tokens?: bigint | null; feeOn?: number } = {}): FakeChain {
   const c = new FakeChain();
   if (o.deploy !== false) {
     const pd = Keypair.generate().publicKey;
@@ -65,8 +70,15 @@ function chainWith(o: { status?: number; deploy?: boolean; bandMissing?: boolean
       ammConfig: CONFIG, mint0: MINT0, mint1: MINT1,
       vault0: deriveVault(PROG, POOL, MINT0), vault1: deriveVault(PROG, POOL, MINT1), observation: deriveObservation(PROG, POOL),
       decimals0: TOKEN_IS_0 ? 6 : 9, decimals1: TOKEN_IS_0 ? 9 : 6, tickSpacing: SPACING, liquidity: L, sqrtPriceX64: SQRT, tickCurrent: TICK,
-      status: o.status, bitmapBits: [512],
+      status: o.status, bitmapBits: [512], feeOn: o.feeOn,
     }),
+  });
+  // The pool's two vaults: a frozen one moves nothing in or out.
+  [MINT0, MINT1].forEach((mint, i) => {
+    const vault = deriveVault(PROG, POOL, mint);
+    const state = { state: o.frozenVault === i ? (2 as const) : (1 as const) };
+    if (mint.equals(TOKEN) && o.token2022) c.token2022Account(vault, mint, POOL, 10n ** 15n, state);
+    else c.tokenAccount(vault, mint, POOL, 10n ** 15n, state);
   });
   // One position across ticks 0 to 1200: the liquidity a small swap walks through.
   if (!o.bandMissing) {
@@ -79,10 +91,14 @@ function chainWith(o: { status?: number; deploy?: boolean; bandMissing?: boolean
       ]),
     });
   }
-  c.mint(TOKEN, { decimals: 6 });
+  if (o.token2022) c.mint2022(TOKEN, [], { decimals: 6 });
+  else c.mint(TOKEN, { decimals: 6 });
   c.mint(WSOL_MINT, { decimals: 9 });
   c.fund(ME, 50_000_000_000);
-  c.tokenAccount(TOKEN_ATA, TOKEN, ME, 1_000_000_000_000n);
+  if (o.tokens !== null) {
+    if (o.token2022) c.token2022Account(TOKEN_ATA_2022, TOKEN, ME, o.tokens ?? 1_000_000_000_000n);
+    else c.tokenAccount(TOKEN_ATA, TOKEN, ME, o.tokens ?? 1_000_000_000_000n);
+  }
   setClock(c, NOW);
   c.simulate = swapSim;
   return c;
@@ -113,14 +129,15 @@ const swapSim: SimHandler = (vtx: VersionedTransaction, config, chain) => {
   if (q.kind !== 'ok') return { err: { InstructionError: [2, { Custom: 6029 }] }, logs: [], unitsConsumed: 1 };
   if (q.amountOut < floor) return { err: { InstructionError: [2, { Custom: 6022 }] }, logs: [`Program ${PROG.toBase58()} failed: TooLittleOutputReceived`], unitsConsumed: 40_000 };
   const wrapped = ixs.filter((i) => i.program.equals(SystemProgram.programId)).reduce((n, i) => n + new DataView(i.data.buffer, i.data.byteOffset, i.data.byteLength).getBigUint64(4, true), 0n);
-  const paidToOpen = ixs.filter((i) => i.program.equals(ASSOCIATED_TOKEN_PROGRAM_ID)).reduce((n, i) => n + openAccount(chain, i.accounts[1]!, 165).paid, 0);
+  const tokenAta = tokenAtaOf(chain);
+  const paidToOpen = ixs.filter((i) => i.program.equals(ASSOCIATED_TOKEN_PROGRAM_ID)).reduce((n, i) => n + openAccount(chain, i.accounts[1]!, i.accounts[1]!.equals(TOKEN_ATA_2022) ? 170 : 165).paid, 0);
   const closesWsol = ixs.some((i) => i.program.equals(TOKEN_PROGRAM_ID) && i.data[0] === 9);
   const wsolBefore = amountAt(chain, WSOL_ATA) ?? 0n;
   const wsolLamports = openAccount(chain, WSOL_ATA).lamports;
   const paysToken = zeroForOne === TOKEN_IS_0;
   const dToken = paysToken ? -amount : q.amountOut;
   const dSol = paysToken ? q.amountOut : -amount;
-  const tokenBefore = amountAt(chain, TOKEN_ATA) ?? 0n;
+  const tokenBefore = amountAt(chain, tokenAta) ?? 0n;
   if (tokenBefore + dToken < 0n || wsolBefore + wrapped + dSol < 0n) return { err: { InstructionError: [2, { Custom: 1 }] }, logs: [], unitsConsumed: 1 };
   if (!config?.accounts) return { err: null, logs: [], unitsConsumed: 90_000 };
   const wsolAfter = wsolBefore + wrapped + dSol;
@@ -131,7 +148,7 @@ const swapSim: SimHandler = (vtx: VersionedTransaction, config, chain) => {
     unitsConsumed: 90_000,
     accounts: chain.post(config.accounts.addresses, {
       [ME.toBase58()]: { lamportsDelta: signerDelta },
-      [TOKEN_ATA.toBase58()]: { tokenAmount: tokenBefore + dToken, mint: TOKEN, owner: ME },
+      [tokenAta.toBase58()]: { tokenAmount: tokenBefore + dToken, mint: TOKEN, owner: ME },
       [WSOL_ATA.toBase58()]: closesWsol ? { closed: true } : { tokenAmount: wsolAfter, mint: WSOL_MINT, owner: ME },
     }),
   };
@@ -196,6 +213,30 @@ describe('a swap in a range pool', () => {
     const noClock = chainWith();
     setClock(noClock, null);
     expect(await msg(noClock)).toBe(VENUE_SWAP_COPY.noClock);
+  });
+
+  it('refuses a pool whose vault is frozen: nothing moves in or out of it', async () => {
+    for (const frozenVault of [0, 1] as const) {
+      const r = await prepareRangeSwap(W(chainWith({ frozenVault })), cfgLocal, PROG, sell());
+      expect(r.ok ? null : r.outcome.message, `vault ${frozenVault}`).toBe(RANGE_COPY.vaultFrozen);
+    }
+  });
+
+  it('buying a Token-2022 token into a new account pays that account’s own deposit: 170 bytes, not 165', async () => {
+    const p = ok(await prepareRangeSwap(W(chainWith({ token2022: true, tokens: null })), cfgLocal, PROG, buy()));
+    expect(p.steps.some((x) => x.kind === 'create-token-account' && x.address.equals(TOKEN_ATA_2022))).toBe(true);
+    expect(p.fees.newAccountRentLamports).toBe(BigInt(rent(170)));
+  });
+
+  it('says which side the pool fee comes out of, from the pool’s fee_on and the direction', async () => {
+    const side = async (feeOn: number | undefined, a: ReturnType<typeof sell>) => (ok(await prepareRangeSwap(W(chainWith({ feeOn })), cfgLocal, PROG, a)).summary as RangeSwapSummary).feeOnInput;
+    expect(await side(undefined, sell())).toBe(true);
+    expect(await side(undefined, buy())).toBe(true);
+    // Fees in token 0 only: paying token 0 in, it comes out of what is paid; paying token 1, out of what comes out.
+    const pays0 = TOKEN_IS_0 ? sell() : buy();
+    const pays1 = TOKEN_IS_0 ? buy() : sell();
+    expect(await side(FEE_ON_TOKEN_0_ONLY, pays0)).toBe(true);
+    expect(await side(FEE_ON_TOKEN_0_ONLY, pays1)).toBe(false);
   });
 });
 

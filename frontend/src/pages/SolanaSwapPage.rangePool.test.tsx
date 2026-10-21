@@ -72,7 +72,7 @@ function preparedRangeSwap(a: VenueSwapArgs, out: bigint): PreparedTx {
         pool: a.pool, tokenMint: a.outputMint, tokenDecimals: 6, quote: SOL_QUOTE, tokenIsToken0: true, tradeFeeRate: 10_000, venueShareRate: 160_000,
         protocolFeeRate: 104_000, fundFeeRate: 56_000, owner: 'GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd', fundOwner: 'G2EHPseTXetHbBvvRDs27XQyXfQikXXyxP9uMbsKrbu',
       },
-      paysCoin: true, amountIn: a.amountIn, minimumAmountOut: (out * 9_950n) / 10_000n, quotedOut: out, bandsCrossed: 1, aggregator: a.aggregator,
+      paysCoin: true, amountIn: a.amountIn, minimumAmountOut: (out * 9_950n) / 10_000n, quotedOut: out, bandsCrossed: 1, feeOnInput: h.feeOnInput.value, aggregator: a.aggregator,
       unwrapsWsol: true, wsolHeldBefore: 0n, notices: [],
     },
   };
@@ -104,6 +104,8 @@ const h = vi.hoisted(() => ({
   /** Whether range pools show, what the range pool pays (null: it does not quote), and its builder. */
   rangeOn: { value: false },
   rangeOut: { value: null as bigint | null },
+  /** The range pool's fee side for this trade (its fee_on): out of what is paid in, or out of what comes out. */
+  feeOnInput: { value: true },
   readRangeRoutePools: vi.fn(),
   prepareRangeSwap: vi.fn(),
   getQuote: vi.fn(),
@@ -234,6 +236,7 @@ configure({ asyncUtilTimeout: 20_000 });
 const OPEN_GATE = { kind: 'open', cfg: { programId: new PublicKey(LAUNCH), cpSwapProgram: new PublicKey(PROGRAM), cluster: 'mainnet' } };
 
 beforeEach(() => {
+  h.feeOnInput.value = true;
   window.history.replaceState(null, '', `/solana?out=${BAYLA_MINT}`);
   localStorage.clear();
   sessionStorage.clear();
@@ -326,11 +329,26 @@ describe('range pools in the route', () => {
     expect(screen.getByText('Range pool')).toBeInTheDocument();
     expect(screen.getByText(/it keeps 16% of each swap’s fee \(0\.16% of the swap\)/)).toBeInTheDocument();
     expect(screen.getByText(/The venue’s cut is split: 65% to the team’s shared wallet/)).toBeInTheDocument();
+    expect(screen.getByText('Pool fee (inside what you pay)')).toBeInTheDocument();
+    expect(screen.getByText(/^1% of what you pay\./)).toBeInTheDocument();
     await signOnReview();
     await waitFor(() => expect(h.submitPrepared).toHaveBeenCalledTimes(1));
     expect((h.submitPrepared.mock.calls[0]![2] as PreparedTx).kind).toBe('range-swap');
     await waitFor(() => expect(h.toast.success).toHaveBeenCalledWith('Bought BAYLA', expect.objectContaining({ description: expect.stringContaining('1.02 BAYLA') })));
     expect(getActivity(USER.toBase58())[0]).toMatchObject({ sig: SIG, summary: 'Bought ≈1.02 BAYLA with 0.1 SOL, in our own pool' });
+  });
+
+  it('a pool whose fee comes out of what the trade pays out says so on the review, not "of what you pay"', async () => {
+    h.rangeOn.value = true;
+    h.rangeOut.value = 1_020_000n;
+    h.feeOnInput.value = false;
+    const buy = await readyToBuy();
+    await waitFor(() => expect(receive()).toBe('1.02'));
+    fireEvent.click(buy);
+    expect(await screen.findByText('Review your swap', {}, { timeout: 20_000 })).toBeInTheDocument();
+    expect(screen.getByText('Pool fee (taken from what you receive)')).toBeInTheDocument();
+    expect(screen.getByText(/^1% of what you receive\./)).toBeInTheDocument();
+    expect(screen.queryByText(/of what you pay/)).toBeNull();
   });
 
   it('shown, a range pool that pays less leaves the trade with our other pool', async () => {

@@ -711,9 +711,10 @@ function RangeSwapRows({ summary: s }: { summary: Extract<TxSummary, { kind: 'ra
       <Row label="You pay" value={pay(s.amountIn, true)} />
       <Row label="You receive (quoted)" value={get(s.quotedOut)} />
       <Row label="You receive at least" value={get(s.minimumAmountOut, true)} />
+      {/* The pool's fee_on says which side the fee comes out of for this direction. */}
       <Row
-        label="Pool fee (inside what you pay)"
-        value={`${perMillionPercent(l.tradeFeeRate)} of what you pay. The positions your trade passes through share what the venue does not keep: it keeps ${venue.cut}, read from the pool's fee tier.`}
+        label={s.feeOnInput ? 'Pool fee (inside what you pay)' : 'Pool fee (taken from what you receive)'}
+        value={`${perMillionPercent(l.tradeFeeRate)} of what you ${s.feeOnInput ? 'pay' : 'receive'}. The positions your trade passes through share what the venue does not keep: it keeps ${venue.cut}, read from the pool's fee tier.`}
         mono={false}
       />
       {venue.elsewhere ? (

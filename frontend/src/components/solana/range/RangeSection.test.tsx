@@ -375,6 +375,8 @@ describe('the risks, beside the deposit and on the review', () => {
     expect(risks).toHaveTextContent(/Those changes have not had an outside review/);
     expect(risks).toHaveTextContent(/applies to positions already open in its pools/);
     expect(risks).toHaveTextContent(/Jupiter does not send trades to range pools/);
+    // With range pools in the swap route, the site's own swap is where their trades come from.
+    expect(risks).toHaveTextContent(/This site’s own swap sends a trade to one only when it pays the trader at least as much as Jupiter does/);
     const earns = screen.getByTestId('range-earns');
     expect(earns).toHaveTextContent(/A band of prices nobody has used yet also takes a deposit that never comes back, about 0\.072 SOL each/);
     expect(earns).not.toHaveTextContent(/refundable/);

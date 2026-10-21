@@ -402,6 +402,8 @@ export interface RangeSwapSummary {
   quotedOut: bigint;
   /** The price bands the swap may walk through, from the fresh quote. */
   bandsCrossed: number;
+  /** The pool's `fee_on` for this direction: the fee comes out of what is paid in, or out of what comes out. */
+  feeOnInput: boolean;
   /** What the aggregator was seen to pay for the same trade: the swap was held to it. */
   aggregator: AggregatorSeen;
   unwrapsWsol: boolean;

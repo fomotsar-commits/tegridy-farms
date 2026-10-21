@@ -2,14 +2,14 @@ import type { PublicKey } from '@solana/web3.js';
 import type { SolanaRpc } from '../../launcher/solana/curve/rpc';
 import { clipDetail } from '../../launcher/solana/curve/read';
 import { getMultipleAccounts } from '../lp/accounts';
-import { CLOCK_SYSVAR, chainTimeOf } from '../lp/poolFinder';
+import { CLOCK_SYSVAR, chainTimeOf, tokenVault } from '../lp/poolFinder';
 import { readPair, type QuoteCoin } from '../lp/quotes';
 import { RANGE_PROGRAM_ID, type BitmapExtensionView, type TickArrayView } from '../clmm/program';
 import { rangePoolsVisible } from '../clmm/programId';
 import { MAX_SWAP_BANDS, quoteSwap } from '../clmm/quote';
 import { readBandsNear, readExtension, readFeeTiers, readPairPools, type RangePool } from '../clmm/read';
 import type { RouteCandidate } from '../route';
-import type { OwnPoolsState } from './venuePools';
+import { tokenProblemOf, type OwnPoolsState } from './venuePools';
 
 /**
  * Our range pools for a swap's pair, and what each pays, beside our other pools
@@ -25,7 +25,8 @@ export type RangeRouteRead =
       kind: 'ok';
       tokenMint: string;
       quote: QuoteCoin;
-      pools: { range: RangePool; ext: BitmapExtensionView | null; bands: Map<number, TickArrayView> }[];
+      /** `blocked`: why the builder would refuse this pool's swap (a mint it cannot build for, a frozen vault), or null. */
+      pools: { range: RangePool; ext: BitmapExtensionView | null; bands: Map<number, TickArrayView>; blocked: string | null }[];
       /** Pools found whose bands did not read. */
       unread: number;
       chainNow: bigint | null;
@@ -46,20 +47,33 @@ export async function readRangeRoutePools(
     if (tiers.kind === 'unread') return { kind: 'unread', detail: tiers.detail };
     const found = await readPairPools(rpc, programId, pair.tokenMint, pair.quote.mint, tiers.value);
     if (found.kind === 'unread') return { kind: 'unread', detail: found.detail };
+    // The clock, and each pool's two mints and two vaults, in one read: a pool the builder
+    // refuses is no candidate, so its quote never stands beside Jupiter's.
+    const [clock, ...held] = await getMultipleAccounts(rpc, [
+      CLOCK_SYSVAR,
+      ...found.value.flatMap((r) => [r.pool.tokenMint0, r.pool.tokenMint1, r.pool.tokenVault0, r.pool.tokenVault1]),
+    ]);
     const pools: Extract<RangeRouteRead, { kind: 'ok' }>['pools'] = [];
     let unread = 0;
     await Promise.all(
-      found.value.map(async (range) => {
+      found.value.map(async (range, i) => {
+        const [m0, m1, v0, v1] = held.slice(i * 4, i * 4 + 4).map((a) => a ?? null);
+        const problem = tokenProblemOf(m0 ?? null) ?? tokenProblemOf(m1 ?? null);
+        const vaults = problem === null ? [tokenVault(v0 ?? null, m0!.owner), tokenVault(v1 ?? null, m1!.owner)] : [];
+        if (problem === null && vaults.some((v) => v === null)) {
+          unread++;
+          return;
+        }
+        const blocked = problem ?? (vaults.some((v) => v!.frozen) ? 'a vault of the pool is frozen' : null);
         try {
           const ext = await readExtension(rpc, programId, range.pool);
           const bands = await readBandsNear(rpc, programId, range.pool, ext, MAX_SWAP_BANDS);
-          pools.push({ range, ext, bands });
+          pools.push({ range, ext, bands, blocked });
         } catch {
           unread++;
         }
       }),
     );
-    const [clock] = await getMultipleAccounts(rpc, [CLOCK_SYSVAR]).catch(() => [null]);
     pools.sort((a, b) => (a.range.pool.address < b.range.pool.address ? -1 : 1));
     return { kind: 'ok', tokenMint: pair.tokenMint, quote: pair.quote, pools, unread, chainNow: chainTimeOf(clock ?? null) };
   } catch (e) {
@@ -75,17 +89,20 @@ export interface RangePoolCandidate extends RouteCandidate {
   quote: { outAmount: bigint; priceImpact: number; bands: number[] };
 }
 
-/** How far the pool's price moves, as a fraction of where it started. */
-function priceMove(before: bigint, after: bigint): number {
-  if (before === 0n) return 0;
-  const r = Number((after * 1_000_000_000_000n) / before) / 1e12;
-  return Math.abs(1 - r * r);
+/**
+ * How much less the trade gets than the pool's price before it would give, as a fraction,
+ * the pool fee included: the own-pool quote's measure (cpswap/read.ts), which the page labels so.
+ */
+function impactOf(sqrtBefore: bigint, zeroForOne: boolean, amountIn: bigint, out: bigint): number {
+  const s = Number(sqrtBefore) / 2 ** 64;
+  const spotOut = zeroForOne ? Number(amountIn) * s * s : Number(amountIn) / (s * s);
+  return spotOut > 0 && Number.isFinite(spotOut) ? Math.max(0, (spotOut - Number(out)) / spotOut) : 0;
 }
 
 /**
  * Quote `amountIn` of `inputMint` in every range pool read, as the program walks its bands.
- * A pool that would need more bands than one swap carries, cannot fill the trade, or is not
- * open gives no candidate.
+ * A pool the builder refuses (`blocked`), that would need more bands than one swap carries,
+ * cannot fill the trade, or is not open gives no candidate: `unquotable`, never "no pool".
  */
 export function quoteRangePools(
   read: RangeRouteRead,
@@ -97,8 +114,8 @@ export function quoteRangePools(
   if (read.kind === 'unread') return { state: 'error', candidates: [] };
   const now = read.chainNow !== null ? Number(read.chainNow) : viewerNowSecs;
   const candidates: RangePoolCandidate[] = [];
-  for (const { range, ext, bands } of read.pools) {
-    if (amountIn <= 0n) continue;
+  for (const { range, ext, bands, blocked } of read.pools) {
+    if (amountIn <= 0n || blocked !== null) continue;
     const p = range.pool;
     const zeroForOne = inputMint === p.tokenMint0;
     if (!zeroForOne && inputMint !== p.tokenMint1) continue;
@@ -114,14 +131,15 @@ export function quoteRangePools(
       blockTimestamp: now,
     });
     if (q.kind !== 'ok' || !q.filled || q.amountOut <= 0n || q.bands.length > MAX_SWAP_BANDS) continue;
+    const priceImpact = impactOf(p.sqrtPriceX64, zeroForOne, amountIn, q.amountOut);
     candidates.push({
       venue: 'own-pool',
       outAmount: q.amountOut,
       label: 'venue range pool',
       poolAddress: p.address,
-      priceImpact: priceMove(p.sqrtPriceX64, q.sqrtPriceX64),
+      priceImpact,
       range,
-      quote: { outAmount: q.amountOut, priceImpact: priceMove(p.sqrtPriceX64, q.sqrtPriceX64), bands: q.bands },
+      quote: { outAmount: q.amountOut, priceImpact, bands: q.bands },
     });
   }
   if (candidates.length) return { state: 'quoted', candidates };

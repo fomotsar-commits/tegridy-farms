@@ -7,6 +7,8 @@ import { getSqrtPriceAtTick } from '../clmm/math';
 import { deriveAmmConfig, deriveObservation, derivePool, deriveTickArray, deriveVault, sortMints } from '../clmm/program';
 import { quoteSwap } from '../clmm/quote';
 import { encodeAmmConfig, encodePool, encodeTickArray } from '../clmm/encode.fixture';
+import { TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID } from '../cpswap/ix';
+import { encodeMint, encodeMint2022, encodeTokenAccountWith } from '../../launcher/solana/write/testkit.fixture';
 import { mergeOwnStates, quoteRangePools, readRangeRoutePools } from './rangePools';
 
 /**
@@ -26,9 +28,21 @@ const CLOCK = 'SysvarC1ock11111111111111111111111111111111';
 /** Five positions from 1200 down to each of five bands below: a long sell walks six bands. */
 const DEEP = [-7_200, -14_400, -21_600, -28_800, -36_000];
 
-function chain(o: { band?: boolean; pool?: boolean; deep?: boolean } = {}) {
+/** Token-2022's TransferFeeConfig extension (type 1, 108 bytes): a fee on every transfer, which the builder refuses. */
+const TRANSFER_FEE: [number, number] = [1, 108];
+
+function chain(o: { band?: boolean; pool?: boolean; deep?: boolean; transferFee?: boolean; frozenVault?: 0 | 1; vaultMissing?: boolean } = {}) {
   const accts = new Map<string, { owner: string; data: Uint8Array }>();
   const calls: string[][] = [];
+  // The two mints (BAYLA a Token-2022 coin, SOL a classic one) and the pool's two vaults.
+  for (const [i, m] of [M0, M1].entries()) {
+    const bayla = m.toBase58() === BAYLA_MINT;
+    const program = (bayla ? TOKEN_2022_PROGRAM_ID : TOKEN_PROGRAM_ID).toBase58();
+    accts.set(m.toBase58(), { owner: program, data: bayla ? encodeMint2022(o.transferFee ? [TRANSFER_FEE] : [], { decimals: 6 }) : encodeMint({ decimals: 9 }) });
+    if (o.vaultMissing && i === 1) continue;
+    const state = o.frozenVault === i ? (2 as const) : (1 as const);
+    accts.set(deriveVault(PROG, POOL, m).toBase58(), { owner: program, data: encodeTokenAccountWith(m, POOL, 10n ** 12n, { state }) });
+  }
   accts.set(CONFIG.toBase58(), { owner: PROG.toBase58(), data: encodeAmmConfig({ index: 0, tradeFeeRate: 10_000, protocolFeeRate: 160_000, fundFeeRate: 0, tickSpacing: 120 }) });
   if (o.pool !== false) {
     accts.set(POOL.toBase58(), {
@@ -130,6 +144,37 @@ describe('reading range pools for a swap', () => {
     const c = chain({ band: false });
     const read = await readRangeRoutePools(c.rpc, WSOL_MINT, BAYLA_MINT, { programId: PROG, visible: true });
     expect(quoteRangePools(read, WSOL_MINT, 1_000_000n).state).toBe('error');
+  });
+
+  it('a pool whose token takes a fee on transfers, or whose vault is frozen, is no candidate: unquotable, never priced beside Jupiter', async () => {
+    for (const o of [{ transferFee: true }, { frozenVault: 0 as const }, { frozenVault: 1 as const }]) {
+      const read = await readRangeRoutePools(chain(o).rpc, WSOL_MINT, BAYLA_MINT, { programId: PROG, visible: true });
+      expect(quoteRangePools(read, WSOL_MINT, 1_000_000n), JSON.stringify(o)).toEqual({ state: 'unquotable', candidates: [] });
+    }
+    // The mints and vaults are read with the clock, in one call.
+    const c = chain();
+    await readRangeRoutePools(c.rpc, WSOL_MINT, BAYLA_MINT, { programId: PROG, visible: true });
+    expect(c.calls.some((k) => k[0] === CLOCK && k.includes(deriveVault(PROG, POOL, M0).toBase58()) && k.includes(M1.toBase58()))).toBe(true);
+  });
+
+  it('a vault that does not read makes the answer an error, never "no pool" and never a quote', async () => {
+    const read = await readRangeRoutePools(chain({ vaultMissing: true }).rpc, WSOL_MINT, BAYLA_MINT, { programId: PROG, visible: true });
+    expect(quoteRangePools(read, WSOL_MINT, 1_000_000n)).toEqual({ state: 'error', candidates: [] });
+  });
+
+  it('price impact is what the trade gets less than the pool’s price before it, the pool fee included', async () => {
+    const read = await readRangeRoutePools(chain().rpc, WSOL_MINT, BAYLA_MINT, { programId: PROG, visible: true });
+    // A trade too small to move the price still pays the 1% fee: about 1%, not about nothing.
+    const tiny = quoteRangePools(read, WSOL_MINT, 1_000_000n).candidates[0]!;
+    const impact = tiny.quote.priceImpact;
+    expect(impact).toBeGreaterThan(0.0099);
+    expect(impact).toBeLessThan(0.0102);
+    expect(tiny.priceImpact).toBe(impact);
+    // At the pool's price before the trade, what the trade got is (1 - impact) of it.
+    const s = Number(SQRT) / 2 ** 64;
+    const zeroForOne = WSOL_MINT === M0.toBase58();
+    const spot = zeroForOne ? 1_000_000 * s * s : 1_000_000 / (s * s);
+    expect(Number(tiny.outAmount) / spot).toBeCloseTo(1 - impact, 9);
   });
 
   it('a pair with no range pool on any tier is absent', async () => {

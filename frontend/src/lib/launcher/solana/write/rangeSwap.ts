@@ -16,6 +16,7 @@ import { getArrayStartIndex, initializedTickArrayStarts } from '../../../solana/
 import { MAX_SWAP_BANDS, quoteSwap } from '../../../solana/clmm/quote';
 import {
   POOL_STATUS_BIT,
+  isFeeOnInput,
   decodeBitmapExtension,
   decodeTickArray,
   deriveBitmapExtension,
@@ -26,7 +27,8 @@ import {
   type TickArrayView,
 } from '../../../solana/clmm/program';
 import type { RawAccount } from '../../../solana/lp/accounts';
-import { CLOCK_SYSVAR, chainTimeOf } from '../../../solana/lp/poolFinder';
+import { CLOCK_SYSVAR, chainTimeOf, tokenVault } from '../../../solana/lp/poolFinder';
+import { tokenAccountSize } from '../../../solana/lp/tokenAccountSize';
 import { readPair } from '../../../solana/lp/quotes';
 import { MAX_OWN_PRIORITY_LAMPORTS } from './budget';
 import { accountCheck, rentOf, toRaw } from './liquidity';
@@ -104,11 +106,14 @@ export async function prepareRangeSwap(rpc: WriteRpc, cfg: CurveWriteConfig, pro
   // bands are chosen again from it below.
   const extAddress = peek.tickSpacing < 15 ? deriveBitmapExtension(programId, a.pool) : null;
   let starts = bandsAhead(peek, null, zeroForOne);
+  // The clock, the far-band map, the bands, then the pool's two vaults: a frozen one moves nothing.
   const read = async (s: number[]) =>
     readFresh(rpc, programId, a.pool, new PublicKey(peek.ammConfig), [new PublicKey(peek.tokenMint0), new PublicKey(peek.tokenMint1)], [
       new PublicKey(CLOCK_SYSVAR),
       ...(extAddress ? [extAddress] : []),
       ...s.map((x) => deriveTickArray(programId, a.pool, x)),
+      new PublicKey(peek.tokenVault0),
+      new PublicKey(peek.tokenVault1),
     ]);
   let fresh = await read(starts);
   if (!fresh) return notSent('build', VENUE_SWAP_COPY.poolUnread);
@@ -140,7 +145,13 @@ export async function prepareRangeSwap(rpc: WriteRpc, cfg: CurveWriteConfig, pro
   if (!poolAllows(pool, POOL_STATUS_BIT.swap)) return notSent('build', RANGE_SWAP_COPY.swapsPaused);
   const chainNow = chainTimeOf(fresh.extra[0] ?? null);
   if (chainNow === null) return notSent('build', VENUE_SWAP_COPY.noClock);
-  const bandRaw = fresh.extra.slice(extAddress ? 2 : 1);
+  const bandsAt = extAddress ? 2 : 1;
+  const bandRaw = fresh.extra.slice(bandsAt, bandsAt + starts.length);
+  const [vault0, vault1] = fresh.extra.slice(bandsAt + starts.length);
+  const v0 = tokenVault(vault0 ?? null, pins.token0Program.toBase58());
+  const v1 = tokenVault(vault1 ?? null, pins.token1Program.toBase58());
+  if (!v0 || !v1) return notSent('build', RANGE_COPY.poolChanged('its vaults'));
+  if (v0.frozen || v1.frozen) return notSent('build', RANGE_COPY.vaultFrozen);
   const bands = new Map<number, TickArrayView>();
   for (let i = 0; i < starts.length; i++) {
     const raw = bandRaw[i] ?? null;
@@ -186,9 +197,13 @@ export async function prepareRangeSwap(rpc: WriteRpc, cfg: CurveWriteConfig, pro
   let tokenAcc: RawAccount | null;
   let coinAcc: RawAccount | null;
   let rentTokenAccount: bigint;
+  // The account paid into is sized by its own mint: 170 bytes for a Token-2022 coin such as BAYLA.
+  const outMintRaw = (zeroForOne ? fresh.mint1 : fresh.mint0) ?? null;
+  const outSize = coin.native && !paysCoin ? 165 : outMintRaw ? tokenAccountSize(outMintRaw) : 'its mint was not read';
+  if (typeof outSize === 'string') return notSent('build', RANGE_COPY.cannotSize(outSize));
   try {
     [tokenAcc, coinAcc] = toRaw([tokenIn.address, coinIn.address], await rpc.getMultipleAccountsInfo([tokenIn.address, coinIn.address], 'confirmed')) as [RawAccount | null, RawAccount | null];
-    rentTokenAccount = rentOf(await rpc.getMinimumBalanceForRentExemption(165));
+    rentTokenAccount = rentOf(await rpc.getMinimumBalanceForRentExemption(outSize));
   } catch {
     return notSent('build', VENUE_SWAP_COPY.poolUnread);
   }
@@ -321,6 +336,7 @@ export async function prepareRangeSwap(rpc: WriteRpc, cfg: CurveWriteConfig, pro
         minimumAmountOut: s.minimumAmountOut,
         quotedOut: q.amountOut,
         bandsCrossed: walked.length,
+        feeOnInput: isFeeOnInput(pool.feeOn, zeroForOne),
         aggregator: a.aggregator,
         unwrapsWsol: bodySteps(steps).some((x) => x.kind === 'close-wsol'),
         wsolHeldBefore: plan ? plan.heldBefore : 0n,
