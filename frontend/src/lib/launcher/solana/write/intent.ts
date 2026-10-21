@@ -789,8 +789,8 @@ function range(ix: TransactionInstruction, c: IntentContext): IntentStep {
   };
   if (startsWith(d, IX_OPEN_POSITION_WITH_TOKEN22_NFT)) {
     if (ctx.kind !== 'range-open' || !ctx.nftMint) return refuse('it opens a position, and this transaction is not an opening');
-    // A fixed liquidity and no base side: with a base side the program works the liquidity
-    // out at whatever price the opening lands at and checks only that coin's maximum.
+    // A fixed liquidity and no base side (its option byte None: 58 bytes). With a base side the
+    // program works the liquidity out at the price the opening lands at, a sandwich's price.
     if (d.length !== 8 + 16 + 16 + 16 + 1 + 1) refuse('an opening of the wrong size');
     const tickLower = i32(d, 8);
     const tickUpper = i32(d, 12);
@@ -800,7 +800,6 @@ function range(ix: TransactionInstruction, c: IntentContext): IntentStep {
     const max0 = u64(d, 40);
     const max1 = u64(d, 48);
     if (d[56] !== 1) refuse('the position’s NFT would carry no name or link');
-    if (d[57] !== 0) refuse('the opening lets the program work its liquidity out from one coin, which checks only that coin’s maximum');
     const { min, max } = usableTickBounds(p.tickSpacing);
     if (!(tickLower < tickUpper) || tickLower < min || tickUpper > max || tickLower % p.tickSpacing !== 0 || tickUpper % p.tickSpacing !== 0) {
       refuse('the range is not one a position may use');
