@@ -342,7 +342,8 @@ bash scripts/ci/local-gates.sh all
 ```
 
 It prints a PASS, FAIL or SKIP table and exits non-zero on any FAIL. Every command it runs
-is one CI runs, word for word; the guard test fails otherwise. Gates CI runs as inline
+is one CI runs, word for word, with the variables ci.yml sets on that step and no others
+(the build's BAYLA ladder addresses, read from ci.yml); the guard test fails otherwise. Gates CI runs as inline
 scripts (the bytecode size budget, the anvil e2e run, Slither, the Solana SBF builds and
 validator suites) are listed as "CI only". Set `LOCAL_GATES_SKIP_INSTALL=1` to skip
 `npm ci` when `node_modules` is fresh. The contracts area refuses to run forge where a

@@ -68,7 +68,7 @@ describe('CLAUDE.md', () => {
     const gates = read('scripts', 'ci', 'local-gates.sh')
       .split('\n')
       .flatMap((l) => {
-        const m = /^\s*gate \w+ "[^"]*" (\S+) (.+)$/.exec(l);
+        const m = /^\s*(?:[A-Z][A-Z0-9_]*=\S+ )*gate \w+ "[^"]*" (\S+) (.+)$/.exec(l);
         return m ? [{ dir: posix.normalize(m[1]), cmd: m[2].replace(/\s+/g, ' ').trim() }] : [];
       });
     expect(gates.length, 'local-gates.sh lists no gate').toBeGreaterThan(0);
