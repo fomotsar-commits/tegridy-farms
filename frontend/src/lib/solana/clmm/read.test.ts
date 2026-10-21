@@ -2,7 +2,7 @@
 import { describe, it, expect } from 'vitest';
 import { Keypair, PublicKey } from '@solana/web3.js';
 import type { SolanaRpc } from '../../launcher/solana/curve/rpc';
-import { TOKEN_2022_PROGRAM_ID } from '../cpswap/ix';
+import { TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID } from '../cpswap/ix';
 import { getDeltaAmountsSigned, getSqrtPriceAtTick } from './math';
 import { decodePoolState, deriveAmmConfig, deriveObservation, derivePersonalPosition, derivePool, deriveTickArray, deriveVault, sortMints } from './program';
 import { encodeAmmConfig, encodePool, encodePosition, encodeTickArray } from './encode.fixture';
@@ -29,7 +29,8 @@ interface Acct { owner: PublicKey; data: Uint8Array }
 
 class Chain {
   accounts = new Map<string, Acct>();
-  tokenAccounts: { pubkey: PublicKey; mint: PublicKey; amount: bigint }[] = [];
+  /** The wallet's token accounts; `program` defaults to Token-2022. */
+  tokenAccounts: { pubkey: PublicKey; mint: PublicKey; amount: bigint; program?: PublicKey }[] = [];
   calls: string[] = [];
   set(k: PublicKey, a: Acct) { this.accounts.set(k.toBase58(), a); return this; }
   rpc: SolanaRpc = async (method, params) => {
@@ -39,14 +40,17 @@ class Chain {
       return { value: (params[0] as string[]).map((k) => { const a = this.accounts.get(k); return a ? wire(a) : null; }) };
     }
     if (method === 'getTokenAccountsByOwner') {
+      const program = (params[1] as { programId: string }).programId;
       return {
-        value: this.tokenAccounts.map((t) => {
-          const d = new Uint8Array(170);
-          d.set(t.mint.toBytes(), 0);
-          d.set(ME.toBytes(), 32);
-          new DataView(d.buffer).setBigUint64(64, t.amount, true);
-          return { pubkey: t.pubkey.toBase58(), account: wire({ owner: TOKEN_2022_PROGRAM_ID, data: d }) };
-        }),
+        value: this.tokenAccounts
+          .filter((t) => (t.program ?? TOKEN_2022_PROGRAM_ID).toBase58() === program)
+          .map((t) => {
+            const d = new Uint8Array(program === TOKEN_PROGRAM_ID.toBase58() ? 165 : 170);
+            d.set(t.mint.toBytes(), 0);
+            d.set(ME.toBytes(), 32);
+            new DataView(d.buffer).setBigUint64(64, t.amount, true);
+            return { pubkey: t.pubkey.toBase58(), account: wire({ owner: new PublicKey(program), data: d }) };
+          }),
       };
     }
     throw new Error(`the proxy refuses ${method}`);
@@ -213,6 +217,20 @@ describe("a wallet's positions", () => {
     if (r.kind !== 'ok') throw new Error(r.detail);
     expect(r.value.positions.map((p) => p.position.nftMint)).not.toContain(gone.toBase58());
     expect(r.value.positions).toHaveLength(1);
+  });
+
+  it('a position whose NFT is a classic SPL token is found too, and says which kind it is', async () => {
+    const { c } = walletWith();
+    const nft = Keypair.generate().publicKey;
+    const nftAccount = Keypair.generate().publicKey;
+    c.set(derivePersonalPosition(PROG, nft), { owner: PROG, data: encodePosition({ nftMint: nft, pool: POOL, tickLower: LOWER, tickUpper: UPPER, liquidity: L }) });
+    c.tokenAccounts.push({ pubkey: nftAccount, mint: nft, amount: 1n, program: TOKEN_PROGRAM_ID });
+    const r = await readWalletPositions(c.rpc, PROG, ME);
+    if (r.kind !== 'ok') throw new Error(r.detail);
+    expect(r.value.positions.map((p) => [p.position.nftMint, p.nftProgram])).toEqual(
+      expect.arrayContaining([[nft.toBase58(), 'token'], [expect.any(String), 'token-2022']]),
+    );
+    expect(r.value.positions.find((p) => p.nftProgram === 'token')!.nftAccount).toBe(nftAccount.toBase58());
   });
 
   it('a wallet with no position reads as none, from the chain', async () => {

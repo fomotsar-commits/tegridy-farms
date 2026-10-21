@@ -12,6 +12,10 @@ import type { CurveWriteConfig, Prepared, RangeWriteApi } from '../curve/ports';
 import { PLATFORM_TREASURY_VAULT } from '../../../lib/launcher/solana/curve/program';
 import { WORKSHOP_WALLET } from '../../../lib/launcher/solana/write/plant';
 import { RangeInner, type RangeReaders } from './RangeSection';
+import { RANGE_RISK_SHORT } from './RangeRisks';
+import { prepared } from '../curve/fakeWriteApi.fixture';
+import { SOL_QUOTE } from '../../../lib/solana/lp/quotes';
+import type { RangeSummary } from '../../../lib/launcher/solana/write/types';
 
 /**
  * The Range tab as a visitor meets it, on fake reads (web3's address derivation cannot run
@@ -61,10 +65,10 @@ function poolOn(config: AmmConfigView): RangePool {
   return { pool: decodePoolState(POOL.toBase58(), data)!, config };
 }
 
-function positionOf(o: { n: number; lower: number; upper: number; status: WalletPosition['status']; fees: WalletPosition['fees']; liquidity?: bigint }, rp: RangePool): WalletPosition {
+function positionOf(o: { n: number; lower: number; upper: number; status: WalletPosition['status']; fees: WalletPosition['fees']; liquidity?: bigint; nftProgram?: WalletPosition['nftProgram'] }, rp: RangePool): WalletPosition {
   const nft = key(40 + o.n);
   const position = decodePersonalPosition(key(60 + o.n).toBase58(), encodePosition({ nftMint: nft, pool: POOL, tickLower: o.lower, tickUpper: o.upper, liquidity: o.liquidity ?? 10n ** 9n }))!;
-  return { position, nftAccount: key(80 + o.n).toBase58(), pool: rp.pool, config: rp.config, status: o.status, amounts: { amount0: 1_000_000n, amount1: 2_000_000_000n }, fees: o.fees, rewardsOwed: [0n, 0n, 0n] };
+  return { position, nftAccount: key(80 + o.n).toBase58(), nftProgram: o.nftProgram ?? 'token-2022', pool: rp.pool, config: rp.config, status: o.status, amounts: { amount0: 1_000_000n, amount1: 2_000_000_000n }, fees: o.fees, rewardsOwed: [0n, 0n, 0n] };
 }
 
 const cfg: CurveWriteConfig = { programId: key(9), cpSwapProgram: key(10), cluster: 'localnet' } as CurveWriteConfig;
@@ -297,6 +301,19 @@ describe('your positions', () => {
     expect(vi.mocked(api.prepareRangeClose).mock.calls[0]![3].position.toBase58()).toBe(w.position.address);
   });
 
+  it('a position held as a classic SPL-Token NFT is listed, says this site cannot take it out yet, and offers no button that would fail', async () => {
+    wallet.publicKey = ME;
+    wallet.signTransaction = vi.fn();
+    const rp = poolOn(tier());
+    const w = positionOf({ n: 5, lower: -1200, upper: 1200, status: 'in-range', fees: { fee0: 3n, fee1: 4n }, nftProgram: 'token' }, rp);
+    show(readers({ positions: { kind: 'ok', value: { positions: [w], unread: [] } } }));
+    const row = await screen.findByTestId('range-position');
+    expect(row).toHaveTextContent(w.position.address);
+    expect(row).toHaveTextContent('This position’s NFT is a classic SPL token, and this site takes out only positions whose NFT is a Token-2022 one');
+    expect(row).toHaveTextContent('It is still yours');
+    for (const name of ['Claim fees', 'Remove', 'Close']) expect(within(row).queryByRole('button', { name })).toBeNull();
+  });
+
   it('positions that did not read are said as unread, never as none', async () => {
     wallet.publicKey = ME;
     show(readers({ positions: { kind: 'unread', detail: 'down' } }));
@@ -324,5 +341,60 @@ describe('the words', () => {
     const open = await screen.findByTestId('range-open');
     fireEvent.click(within(open).getByRole('button', { name: 'BAYLA only, above today’s price' }));
     expect(document.body.textContent).not.toContain('—');
+  });
+});
+
+/** A built opening as the review shows it: the agreed split, both coins in. */
+function openSummary(): RangeSummary {
+  return {
+    kind: 'range-open',
+    nftMint: key(30),
+    max: { token: 2_500_000n, quote: 800_000n },
+    quoted: { token: 2_475_000n, quote: 792_000n },
+    rentLamports: 9_375_120n,
+    unwrapsWsol: true,
+    notices: [],
+    poolLine: {
+      pool: POOL, tokenMint: new PublicKey(BAYLA_MINT), tokenDecimals: 6, quote: SOL_QUOTE, tokenIsToken0: BAYLA_IS_0,
+      tradeFeeRate: 10_000, venueShareRate: 160_000, protocolFeeRate: 104_000, fundFeeRate: 56_000,
+      owner: PLATFORM_TREASURY_VAULT.toBase58(), fundOwner: WORKSHOP_WALLET.toBase58(),
+    },
+    range: { tickLower: TICK - 1_200, tickUpper: TICK + 1_200, minPrice: 0.00027, maxPrice: 0.00033, holds: 'both' },
+  };
+}
+
+describe('the risks, beside the deposit and on the review', () => {
+  it('the deposit has a Risks list: what the vault can do, its wait as read, no outside review; a band’s deposit never comes back', async () => {
+    show(readers());
+    const open = await screen.findByTestId('range-open');
+    const risks = within(open).getByTestId('range-risks');
+    expect(risks).toHaveTextContent(RANGE_RISK_SHORT);
+    expect(risks).toHaveTextContent(/each of its actions waits 48 hours, as read on chain on 2026-10-21/);
+    expect(risks).toHaveTextContent(/switch off openings, withdrawals or swaps on a range pool/);
+    expect(risks).toHaveTextContent(/replace the range program/);
+    expect(risks).toHaveTextContent(/Those changes have not had an outside review/);
+    expect(risks).toHaveTextContent(/applies to positions already open in its pools/);
+    expect(risks).toHaveTextContent(/Jupiter does not send trades to range pools/);
+    const earns = screen.getByTestId('range-earns');
+    expect(earns).toHaveTextContent(/A band of prices nobody has used yet also takes a deposit that never comes back, about 0\.072 SOL each/);
+    expect(earns).not.toHaveTextContent(/refundable/);
+    expect(earns).not.toHaveTextContent(/The range program is the venue’s own/);
+  });
+
+  it('a prepared opening shows the review with the risk lines above its rows', async () => {
+    wallet.publicKey = ME;
+    wallet.signTransaction = vi.fn();
+    const api = fakeApi();
+    vi.mocked(api.prepareRangeOpen).mockResolvedValue({ ok: true, prepared: prepared(openSummary()) });
+    show(readers(), api);
+    const open = await screen.findByTestId('range-open');
+    fireEvent.click(within(open).getByRole('button', { name: 'Wide' }));
+    fireEvent.change(within(open).getByLabelText(/How much BAYLA to put in/), { target: { value: '2.5' } });
+    const review = await within(open).findByRole('button', { name: 'Review: open this position' });
+    await waitFor(() => expect((review as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(review);
+    const disclosure = await within(open).findByTestId('range-review-disclosure');
+    expect(disclosure).toHaveTextContent(RANGE_RISK_SHORT);
+    expect(disclosure).toHaveTextContent(/you could not take your money out until it switched them back on/);
   });
 });

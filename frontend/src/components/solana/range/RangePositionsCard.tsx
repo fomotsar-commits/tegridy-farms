@@ -23,7 +23,7 @@ const PERCENTS = [25, 50, 75, 100] as const;
 type Action = { kind: 'claim' | 'remove' | 'close'; position: string };
 
 /**
- * The wallet's range positions, found through its own Token-2022 accounts (read.ts). Each
+ * The wallet's range positions, found through its NFTs of either token program (read.ts). Each
  * says whether it is in range now, what it holds and the fees it has earned, with Claim
  * (a take of nothing, which pays the fees), Remove and Close. A position that did not
  * read is listed as such, never left out.
@@ -129,7 +129,11 @@ function PositionRow(p: {
       <Row label="Holds now" value={w.amounts ? both(w.amounts.amount0, w.amounts.amount1) : 'could not be worked out just now'} mono={false} />
       <Row label="Fees earned" value={w.fees ? both(w.fees.fee0, w.fees.fee1) : 'could not be worked out just now; Claim pays them in full all the same'} mono={false} />
       <Row label="Position" value={id} />
-      {p.action ? (
+      {w.nftProgram === 'token' ? (
+        <Notice>
+          This position’s NFT is a classic SPL token, and this site takes out only positions whose NFT is a Token-2022 one, so it cannot claim, remove or close this one yet. It is still yours: the range program takes it out for whoever holds the NFT.
+        </Notice>
+      ) : p.action ? (
         <ActionPanel
           {...p}
           pair={pair}

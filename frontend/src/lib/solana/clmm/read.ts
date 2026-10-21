@@ -2,7 +2,7 @@ import { PublicKey } from '@solana/web3.js';
 import type { SolanaRpc } from '../../launcher/solana/curve/rpc';
 import { clipDetail } from '../../launcher/solana/curve/read';
 import { getMultipleAccounts, getTokenAccountsByOwner, type RawAccount } from '../lp/accounts';
-import { TOKEN_2022_PROGRAM_ID } from '../cpswap/ix';
+import { TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID } from '../cpswap/ix';
 import { getArrayStartIndex, initializedTickArrayStarts, isOverflowDefaultTickarrayBitmap } from './bitmap';
 import { ClmmMathError, calculateLatestTokenFees, getDeltaAmountsSigned, getFeeGrowthInside } from './math';
 import {
@@ -158,8 +158,13 @@ export function rangeStatus(pool: Pick<PoolStateView, 'tickCurrent'>, p: Pick<Pe
 /** One position, as the Range tab shows it. A figure that could not be worked out is null. */
 export interface WalletPosition {
   position: PersonalPositionView;
-  /** The wallet's Token-2022 account holding the position's NFT. */
+  /** The wallet's account holding the position's NFT. */
   nftAccount: string;
+  /**
+   * The NFT's token program. The range program opens positions with either kind of NFT;
+   * this site opens Token-2022 ones and takes out only those.
+   */
+  nftProgram: 'token-2022' | 'token';
   pool: PoolStateView;
   config: AmmConfigView;
   status: RangeStatus;
@@ -181,17 +186,23 @@ export interface WalletPositionsRead {
 export function readWalletPositions(rpc: SolanaRpc, programId: PublicKey, owner: PublicKey): Promise<Read<WalletPositionsRead>> {
   return guard(async () => {
     const toBase58 = (b: Uint8Array) => new PublicKey(b).toBase58();
-    const held = (await getTokenAccountsByOwner(rpc, owner.toBase58(), TOKEN_2022_PROGRAM_ID.toBase58(), toBase58)).filter((t) => t.amount === 1n);
+    // Both token programs: a position opened elsewhere can carry a classic SPL-Token NFT.
+    const kinds = [
+      { program: TOKEN_2022_PROGRAM_ID, nftProgram: 'token-2022' as const },
+      { program: TOKEN_PROGRAM_ID, nftProgram: 'token' as const },
+    ];
+    const lists = await Promise.all(kinds.map((k) => getTokenAccountsByOwner(rpc, owner.toBase58(), k.program.toBase58(), toBase58)));
+    const held = lists.flatMap((l, i) => l.filter((t) => t.amount === 1n).map((t) => ({ ...t, nftProgram: kinds[i]!.nftProgram })));
     if (held.length === 0) return { positions: [], unread: [] };
     const records = held.map((t) => derivePersonalPosition(programId, new PublicKey(t.mint)).toBase58());
     const recAccounts = await getMultipleAccounts(rpc, records);
-    const found: { position: PersonalPositionView; nftAccount: string }[] = [];
+    const found: { position: PersonalPositionView; nftAccount: string; nftProgram: WalletPosition['nftProgram'] }[] = [];
     recAccounts.forEach((a, i) => {
-      // Most Token-2022 coins a wallet holds one of are not positions: no record at that address.
+      // Most coins a wallet holds one of are not positions: no record at that address.
       if (a === null || !owned(a, programId)) return;
       const position = decodePersonalPosition(records[i]!, a.data);
       if (!position || position.nftMint !== held[i]!.mint) unreadable('a position record did not decode');
-      found.push({ position: position!, nftAccount: held[i]!.address });
+      found.push({ position: position!, nftAccount: held[i]!.address, nftProgram: held[i]!.nftProgram });
     });
     if (found.length === 0) return { positions: [], unread: [] };
 
@@ -233,7 +244,7 @@ export function readWalletPositions(rpc: SolanaRpc, programId: PublicKey, owner:
 
     const positions: WalletPosition[] = [];
     const unread: WalletPositionsRead['unread'] = [];
-    for (const { position, nftAccount } of found) {
+    for (const { position, nftAccount, nftProgram } of found) {
       const pool = pools.get(position.poolId);
       const config = pool ? configs.get(pool.ammConfig) : undefined;
       if (!pool || !config) {
@@ -268,6 +279,7 @@ export function readWalletPositions(rpc: SolanaRpc, programId: PublicKey, owner:
       positions.push({
         position,
         nftAccount,
+        nftProgram,
         pool,
         config,
         status: rangeStatus(pool, position),

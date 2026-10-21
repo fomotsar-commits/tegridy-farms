@@ -315,8 +315,8 @@ function HowItPays({ pool, pair }: { pool: RangePool | null; pair: Pair | null }
             <p>{`Fees in this pool are paid ${feePaidIn(pool.pool.feeOn, pair.tokenIsToken0 ? tokenWord(pair) : pair.quote.symbol, pair.tokenIsToken0 ? pair.quote.symbol : tokenWord(pair))}, and stay with your position until you claim them.`}</p>
           )}
           <p>Your position is an NFT in your wallet. Whoever holds the NFT can take the position out, so keep it as you would the coins.</p>
-          <p>Opening a position pays refundable deposits for its record and its NFT, and for a band of prices nobody has used yet. Closing the position gives its own deposits back.</p>
-          <p>The range program is the venue’s own. Your coins sit in the pool’s vaults, which only the program moves.</p>
+          <p>Opening a position pays deposits for its record and its NFT, which come back when you close it. A band of prices nobody has used yet also takes a deposit that never comes back, about 0.072 SOL each at today’s rent.</p>
+          <p>Your coins sit in the pool’s vaults, which only the range program moves. The team’s vault can switch that program’s pools off or replace it: see Risks beside the deposit.</p>
         </div>
       </FinePrint>
     </Card>

@@ -26,6 +26,7 @@ import type { CurveSignerState } from '../curve/useCurveSigner';
 import type { PendingTradesState } from '../curve/usePendingTrades';
 import type { CurveWriteConfig, RangeWriteApi, WriteRpc } from '../curve/ports';
 import type { RangeOpenReads } from '../../../lib/launcher/solana/write/range';
+import { RangeReviewDisclosure, RangeRisks } from './RangeRisks';
 import { bothAmounts, coinAmount, priceText, tokenAmount, tokenName, tokenWord } from './rangeText';
 import { useFlowReports } from './useRangeData';
 
@@ -219,6 +220,7 @@ export function RangeOpenCard(p: {
         p.write && r && plan && <OpenFlow {...p} onBusy={onBusy} write={p.write} range={r} side={side} amount={amount!} tolerance={tolerance} setTolerance={setTolerance} />
       )}
       {!p.canOpen && !p.why && <Notice>Amounts here are only worked out: opening a position is not switched on here.</Notice>}
+      <RangeRisks />
       {/* Said beside every deposit, never folded away. */}
       <Notice tone="warn">Out of range, a position earns nothing. {plan ? `This one is worth ${tokenAmount(pair, pair.tokenIsToken0 ? plan.amount0 : plan.amount1)} and ${coinAmount(pair, pair.tokenIsToken0 ? plan.amount1 : plan.amount0)} at today’s price.` : ''}</Notice>
     </Card>
@@ -273,6 +275,7 @@ function OpenFlow(p: {
         decimals={p.pair.tokenDecimals}
         signer={signer}
         preparingText="Reading the pool again and test-running your deposit on the network…"
+        extraReview={<RangeReviewDisclosure />}
       />
     );
   }
