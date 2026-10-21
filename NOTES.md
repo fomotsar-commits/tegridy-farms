@@ -15,6 +15,30 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-10-20: in Raydium's range-pool program, a top-up of someone else's reward goes to that reward's starter
+
+**Believed:** when the admin (our vault) pays into a reward a pool's opener started, by re-windowing
+or topping it up, whatever is not paid out comes back to the vault.
+
+**Measured** (`solana/clmm-localnet`, check R14, a local chain): the vault paid 30,000 base units to
+move alice's reward on pool B to a 30 s window; after the end, `collect_remaining_rewards` gave
+alice her 604,800,000 and the vault's 30,000. The unpaid rest goes to `reward_info.authority`, the
+reward's starter, whoever paid in.
+
+**Do:** the vault never tops up or re-windows a reward it did not start.
+
+## 2026-10-20: Git Bash rewrites a `/root/...` path inside an environment variable it hands to node
+
+**Believed:** `CLMM_SO=/root/clmm-p1/.../raydium_clmm.so node run.mjs` in Git Bash passes that WSL
+path through, as it would on Linux.
+
+**Measured** (Git Bash on Windows 11, node 24): the validator was started with
+`C:/Program Files/Git/root/clmm-p1/...` and exited at once. MSYS converts anything that looks like a
+POSIX path, in arguments and in the environment of a native program.
+
+**Do:** set such variables from PowerShell (`$env:CLMM_SO = '/root/...'`), or exclude them with
+`MSYS2_ENV_CONV_EXCL=CLMM_SO`.
+
 ## 2026-10-20: a comment that moves lines changes an Anchor program's build hash
 
 **Believed:** editing only a comment in an Anchor program's source leaves the `.so` byte for byte
