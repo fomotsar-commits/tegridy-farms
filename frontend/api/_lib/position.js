@@ -230,9 +230,11 @@ function setPositionHeaders(res) {
   res.setHeader("X-Content-Type-Options", "nosniff");
 }
 
-const notHere = (res, error, seconds) => {
+// Every 404 names the program it serves. The deploy pack's page asks a random address and
+// approves a fee tier only when the answer is the no-position 404 for the deployed id.
+const notHere = (res, error, seconds, program) => {
   res.setHeader("Cache-Control", `s-maxage=${seconds}`);
-  return res.status(404).json({ error });
+  return res.status(404).json({ error, program });
 };
 
 /** `programId` is for tests; the site serves RANGE_PROGRAM_ID only. */
@@ -253,15 +255,15 @@ export async function handlePosition(req, res, { programId = RANGE_PROGRAM_ID } 
     return res.status(400).json({ error: "Malformed position link" });
   }
   if (programId === PLACEHOLDER_PROGRAM_ID) {
-    return notHere(res, "Range pools are not open yet, so there is no position at this address.", 60);
+    return notHere(res, "Range pools are not open yet, so there is no position at this address.", 60, programId);
   }
 
   try {
     const [account] = await getAccounts([id]);
     // A position opened a moment ago may not be visible yet: a short cache, never a long one.
-    if (!account) return notHere(res, "No range position at this address.", 15);
+    if (!account) return notHere(res, "No range position at this address.", 15, programId);
     const position = account.owner === programId ? decodePosition(account.data) : null;
-    if (!position) return notHere(res, "This address is not a range position of memetics.finance.", 300);
+    if (!position) return notHere(res, "This address is not a range position of memetics.finance.", 300, programId);
 
     const [poolAccount] = await getAccounts([position.poolId]);
     const pool = poolAccount?.owner === programId ? decodePool(poolAccount.data) : null;

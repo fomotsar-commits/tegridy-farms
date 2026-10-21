@@ -271,6 +271,8 @@ describe("the handler", () => {
     expect(res.headers["Content-Type"]).toContain("application/json");
     expect(res.headers["Access-Control-Allow-Origin"]).toBe("*");
     expect(fetch).not.toHaveBeenCalled();
+    // It names the program it serves: a check against the deployed id sees the placeholder.
+    expect(res.body.program).toBe(PLACEHOLDER_PROGRAM_ID);
   });
 
   it("a deployed program's position answers 200 JSON, publicly, with a short edge cache", async () => {
@@ -290,6 +292,9 @@ describe("the handler", () => {
     await handlePosition(req({ id }), res, { programId: OURS });
     expect(res.statusCode).toBe(404);
     expect(res.headers["Cache-Control"]).toBe("s-maxage=15");
+    // Exactly this body: the deploy pack's page asks a random address and checks both fields
+    // before every fee-tier approval, so a link serving any other program is refused there.
+    expect(res.body).toEqual({ error: "No range position at this address.", program: OURS });
   });
 
   it("an account another program owns is not a position here", async () => {
@@ -297,6 +302,7 @@ describe("the handler", () => {
     const res = mockRes();
     await handlePosition(req({ id }), res, { programId: OURS });
     expect(res.statusCode).toBe(404);
+    expect(res.body.program).toBe(OURS);
   });
 
   it("a failed read is a 503 that is never cached, and never a document with gaps", async () => {
