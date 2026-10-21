@@ -265,7 +265,7 @@ pub mod tick_array_bitmap_extension_test {
             .0,
         ));
         let owner = Box::leak(Box::new(
-            Pubkey::from_str("RangePoo1PLACEHo1DERnotDep1oyed111111111111").unwrap(), // Changed by memetics.finance: this copy's program id
+            Pubkey::from_str("7ghzbbmq59QEbdweSzM1ggpeBH1Q2CyxZg4Tr2x8Aso").unwrap(), // Changed by memetics.finance: this copy's program id
         ));
         let lamports_ref: &mut u64 = Box::leak(Box::new(1_000_000_000_u64));
         let data: &mut [u8] =

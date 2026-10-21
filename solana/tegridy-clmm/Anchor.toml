@@ -10,8 +10,8 @@ resolution = true
 skip-lint = false
 
 [programs.localnet]
-# memetics.finance: the placeholder id in lib.rs, until the deploy pack makes the real one.
-raydium_clmm = "RangePoo1PLACEHo1DERnotDep1oyed111111111111"
+# memetics.finance: the venue's program id (lib.rs).
+raydium_clmm = "7ghzbbmq59QEbdweSzM1ggpeBH1Q2CyxZg4Tr2x8Aso"
 
 [provider]
 cluster = "localnet"
