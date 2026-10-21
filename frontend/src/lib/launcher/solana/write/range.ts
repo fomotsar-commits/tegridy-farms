@@ -15,6 +15,10 @@ import { formatTokenAmount } from '../curve/format';
 import type { QuoteCoin } from '../../../solana/lp/quotes';
 import { BUILDABLE_EXTENSIONS, decodeMintAccount, extensionPlain } from '../../../solana/lp/tokenSafety';
 import type { RawAccount } from '../../../solana/lp/accounts';
+import type { OutsidePrice } from '../../../solana/lp/outsidePrice';
+import { tokenVault } from '../../../solana/lp/poolFinder';
+import { tokenAccountSize } from '../../../solana/lp/tokenAccountSize';
+import { rangePriceCheck } from '../../../solana/clmm/priceCheck';
 import { closePositionIx, decreaseLiquidityV2Ix, openPositionWithToken22NftIx, positionNftAccount } from '../../../solana/clmm/ix';
 import { calculateLatestTokenFees, getDeltaAmountsSigned, getFeeGrowthInside, usableTickBounds, ClmmMathError } from '../../../solana/clmm/math';
 import {
@@ -62,6 +66,18 @@ export const RANGE_COPY = {
   poolChanged: (what: string) => `This range pool no longer matches what the page read (${what}). Read it again.`,
   tokenNot: (why: string) => `This site does not build for this token in a range pool: ${why}.`,
   addingPaused: 'Opening positions in this pool is switched off by the venue’s vault right now.',
+  withdrawalsOff:
+    'Withdrawals are switched off on this pool by the venue’s vault, so money put in now could not be taken out until the vault switches them back on. Nothing was built.',
+  vaultFrozen: 'One of this pool’s vaults is frozen by its coin’s issuer, so nothing can move in or out of the pool, for anyone. Nothing was built.',
+  cannotSize: (why: string) => `This site cannot size your account for a coin of this pool (${why}), so nothing was built.`,
+  priceOff: (pct: string, side: 'above' | 'below', loss: string | null) =>
+    `This pool’s price is ${pct} ${side} the outside price (Jupiter’s). Anyone can open a range pool at any price. ` +
+    (loss === null
+      ? 'What a move back to the outside price would cost you at these amounts could not be worked out.'
+      : `At these amounts, a move back to the outside price would take up to about ${loss} of what you put in. That is an estimate.`),
+  noMarket: 'Jupiter has no route for this pair, so this pool’s price could not be checked against an outside price. Anyone can open a range pool at any price.',
+  priceUnread: (why: string) =>
+    `The outside price could not be read just now (${why}), so this pool’s price was not checked against it. Anyone can open a range pool at any price.`,
   removingPaused: 'Taking liquidity out of this pool is switched off by the venue’s vault right now.',
   collectingPaused: 'Collecting fees from this pool is switched off by the venue’s vault right now.',
   badRange: 'That range is not one a position may use in this pool.',
@@ -250,14 +266,19 @@ export interface RangeOpenArgs {
   pool: PublicKey;
   tickLower: number;
   tickUpper: number;
-  /** The coin the amount is of; the program works the liquidity out from it. */
+  /** The coin the amount is of: the most the opening takes of that coin. */
   side: 'token' | 'coin';
   amount: bigint;
-  /** How far the other coin's amount may rise if the price moves before this lands. */
+  /** How far either coin's amount may rise if the price moves before this lands. */
   toleranceBps: number;
 }
 
-export async function prepareRangeOpen(rpc: WriteRpc, cfg: CurveWriteConfig, programId: PublicKey, a: RangeOpenArgs): Promise<Prepared> {
+/** The outside market price, asked fresh at Review (the LP deposit's reader, outsidePrice.ts). */
+export interface RangeOpenReads {
+  outsidePrice(mint: string, decimals: number, opts?: { fresh?: boolean }): Promise<OutsidePrice>;
+}
+
+export async function prepareRangeOpen(rpc: WriteRpc, cfg: CurveWriteConfig, programId: PublicKey, reads: RangeOpenReads, a: RangeOpenArgs): Promise<Prepared> {
   const bad = toleranceProblem(a.toleranceBps);
   if (bad) return notSent('build', bad);
   if (a.amount <= 0n) return notSent('build', 'Enter an amount above zero.');
@@ -278,7 +299,8 @@ export async function prepareRangeOpen(rpc: WriteRpc, cfg: CurveWriteConfig, pro
   const startUpper = getArrayStartIndex(a.tickUpper, peek.tickSpacing);
   const bands = [...new Set([startLower, startUpper])].map((s) => deriveTickArray(programId, a.pool, s));
   const quote = pairPeek.quote;
-  const extraKeys = bands;
+  // The bands, then the pool's two vaults: a frozen vault takes nothing in or out.
+  const extraKeys = [...bands, new PublicKey(peek.tokenVault0), new PublicKey(peek.tokenVault1)];
   const fresh = await readFresh(rpc, programId, a.pool, new PublicKey(peek.ammConfig), [new PublicKey(peek.tokenMint0), new PublicKey(peek.tokenMint1)], extraKeys);
   if (!fresh) return notSent('build', RANGE_COPY.readFailed);
   if (!deployed(fresh.program)) return notSent('build', RANGE_COPY.notDeployed);
@@ -288,36 +310,75 @@ export async function prepareRangeOpen(rpc: WriteRpc, cfg: CurveWriteConfig, pro
   if (typeof pinned === 'string') return notSent('build', pinned);
   const { pins, pair, tier } = pinned;
   if (!poolAllows(pool, POOL_STATUS_BIT.openPositionOrIncreaseLiquidity)) return notSent('build', RANGE_COPY.addingPaused);
+  // Money put in while withdrawals are off could not come back out (the LP deposit refuses the same).
+  if (!poolAllows(pool, POOL_STATUS_BIT.decreaseLiquidity)) return notSent('build', RANGE_COPY.withdrawalsOff);
+  const vaults = fresh.extra.slice(bands.length);
+  const v0 = tokenVault(vaults[0] ?? null, pins.token0Program.toBase58());
+  const v1 = tokenVault(vaults[1] ?? null, pins.token1Program.toBase58());
+  if (!v0 || !v1) return notSent('build', RANGE_COPY.poolChanged('its vaults'));
+  if (v0.frozen || v1.frozen) return notSent('build', RANGE_COPY.vaultFrozen);
 
-  // The signer's two accounts, read now that the token's program is known.
+  // The signer's two accounts, read now that the token's program is known. An account this
+  // opens is sized by its own mint: 170 bytes for a Token-2022 coin such as BAYLA, not 165.
   const tokenSide = sideAccount(a.owner, pins, 'token', 'source');
   const coinSide = sideAccount(a.owner, pins, 'quote', 'source');
+  const tokenMintRaw = pair.tokenIsToken0 ? fresh.mint0 : fresh.mint1;
+  const coinMintRaw = pair.tokenIsToken0 ? fresh.mint1 : fresh.mint0;
+  const tokenSize = tokenMintRaw ? tokenAccountSize(tokenMintRaw) : 'its mint was not read';
+  const coinSize = quote.native ? 165 : coinMintRaw ? tokenAccountSize(coinMintRaw) : 'its mint was not read';
+  if (typeof tokenSize === 'string') return notSent('build', RANGE_COPY.cannotSize(tokenSize));
+  if (typeof coinSize === 'string') return notSent('build', RANGE_COPY.cannotSize(coinSize));
   let accounts: (RawAccount | null)[];
-  let rents: { position: bigint; nftMint: bigint; nftAccount: bigint; band: bigint; tokenAccount: bigint };
+  let rents: { position: bigint; nftMint: bigint; nftAccount: bigint; band: bigint; tokenAccount: bigint; coinAccount: bigint };
   try {
     accounts = toRaw([tokenSide.address, coinSide.address, a.owner], await rpc.getMultipleAccountsInfo([tokenSide.address, coinSide.address, a.owner], 'confirmed'));
-    const [position, nftMint, nftAccount, band, tokenAccount] = await Promise.all(
-      [PERSONAL_POSITION_SIZE, NFT_MINT_SIZE_BOUND, NFT_ACCOUNT_SIZE, TICK_ARRAY_SIZE_BYTES, 165].map((n) => rpc.getMinimumBalanceForRentExemption(n)),
+    const [position, nftMint, nftAccount, band, tokenAccount, coinAccount] = await Promise.all(
+      [PERSONAL_POSITION_SIZE, NFT_MINT_SIZE_BOUND, NFT_ACCOUNT_SIZE, TICK_ARRAY_SIZE_BYTES, tokenSize, coinSize].map((n) => rpc.getMinimumBalanceForRentExemption(n)),
     );
-    rents = { position: rentOf(position), nftMint: rentOf(nftMint), nftAccount: rentOf(nftAccount), band: rentOf(band), tokenAccount: rentOf(tokenAccount) };
+    rents = { position: rentOf(position), nftMint: rentOf(nftMint), nftAccount: rentOf(nftAccount), band: rentOf(band), tokenAccount: rentOf(tokenAccount), coinAccount: rentOf(coinAccount) };
   } catch {
     return notSent('build', RANGE_COPY.readFailed);
   }
   const [tokenAcc, coinAcc] = accounts as [RawAccount | null, RawAccount | null, RawAccount | null];
 
-  // 2. The deposit, from the fresh price.
+  // 2. A FIXED liquidity with a ceiling on BOTH coins: a price move either way raises one
+  // side past its ceiling and the program refuses it. (Liquidity 0 with a base side checks
+  // only that coin, so a sandwich passed.) The plan is made from the typed amount less the
+  // tolerance, so the typed amount stays the most it takes of that coin.
   const range: TickRange = { tickLower: a.tickLower, tickUpper: a.tickUpper };
-  const plan = depositFrom(pair, pool, range, a.side, a.amount);
+  const planAmount = (a.amount * 10_000n) / BigInt(10_000 + a.toleranceBps);
+  const plan = depositFrom(pair, pool, range, a.side, planAmount);
   if (!plan) return notSent('build', RANGE_COPY.buysNothing);
-  const base0 = plan.baseIsToken0;
-  // The base side is the amount typed, exactly: the program works the liquidity out from it.
-  const max0 = base0 ? a.amount : withTolerance(plan.amount0, a.toleranceBps);
-  const max1 = base0 ? withTolerance(plan.amount1, a.toleranceBps) : a.amount;
+  const typed0 = (a.side === 'token') === pair.tokenIsToken0;
+  const ceil = (amount: bigint, typed: boolean) => {
+    const m = withTolerance(amount, a.toleranceBps);
+    return typed && m > a.amount ? a.amount : m;
+  };
+  const max0 = ceil(plan.amount0, typed0);
+  const max1 = ceil(plan.amount1, !typed0);
   const max = sides(pair, max0, max1);
   const quoted = sides(pair, plan.amount0, plan.amount1);
 
-  // 3. The accounts the coins come from. SOL is wrapped from the wallet itself.
+  // 2b. The pool's price against the outside market, asked fresh: anyone can open a range
+  // pool at any price, and a deposit at a price off the market is arbitraged back.
   const notices: string[] = [];
+  const ask = async (mint: string, decimals: number): Promise<OutsidePrice> => {
+    try {
+      return await reads.outsidePrice(mint, decimals, { fresh: true });
+    } catch (e) {
+      return { kind: 'unread', detail: e instanceof Error ? e.message : String(e) };
+    }
+  };
+  const [outside, coinOutside] = await Promise.all([ask(pins.tokenMint.toBase58(), pair.tokenDecimals), quote.native ? null : ask(quote.mint, quote.decimals)]);
+  const check = rangePriceCheck({ pair, sqrtPriceX64: pool.sqrtPriceX64, range, liquidity: plan.liquidity, amount0: plan.amount0, amount1: plan.amount1, outside, coinOutside });
+  if (check.state === 'disagrees') {
+    const pct = `${Number((Math.abs(check.diff) * 100).toFixed(1))}%`;
+    const loss = check.lossQuote === null ? null : `${formatTokenAmount(check.lossQuote, quote.decimals, 6).text} ${quote.symbol}`;
+    notices.push(RANGE_COPY.priceOff(pct, check.diff > 0 ? 'above' : 'below', loss));
+  } else if (check.state === 'no-market') notices.push(RANGE_COPY.noMarket);
+  else if (check.state === 'unread') notices.push(RANGE_COPY.priceUnread(check.detail));
+
+  // 3. The accounts the coins come from. SOL is wrapped from the wallet itself.
   const tokenCheck = accountCheck(tokenAcc, tokenSide.want);
   if (tokenCheck.refuse) return notSent('build', tokenCheck.refuse);
   notices.push(...tokenCheck.notices);
@@ -378,24 +439,36 @@ export async function prepareRangeOpen(rpc: WriteRpc, cfg: CurveWriteConfig, pro
       tokenAccount1: own1,
       tickLower: a.tickLower,
       tickUpper: a.tickUpper,
-      liquidity: 0n,
+      liquidity: plan.liquidity,
       amount0Max: max0,
       amount1Max: max1,
-      baseFlag: base0,
+      baseFlag: null,
     }),
   );
   if (plan2) body.push(...closeWsolIxs(plan2, a.owner));
 
   const bandRent = BigInt(fresh.extra.slice(0, bands.length).filter((b) => b === null || b.owner !== programId.toBase58()).length) * rents.band;
   const positionRent = rents.position + rents.nftMint + rents.nftAccount;
+  // What the accounts this opens keep as deposits, each sized by its own mint.
   const openedRent = (pre: { tokens: Map<string, { exists: boolean }> }) =>
-    opens.filter((k) => !(pre.tokens.get(k.toBase58())?.exists ?? false) && !(plan2 && k.equals(plan2.ata) && plan2.closeAfter)).length;
+    opens
+      .filter((k) => !(pre.tokens.get(k.toBase58())?.exists ?? false) && !(plan2 && k.equals(plan2.ata) && plan2.closeAfter))
+      .reduce((sum, k) => sum + (k.equals(tokenSide.address) ? rents.tokenAccount : rents.coinAccount), 0n);
 
   const tokenAccounts: WatchList['tokenAccounts'] = [{ account: tokenSide.address, mint: pins.tokenMint, role: 'token', decimals: pair.tokenDecimals }];
   if (plan2) tokenAccounts.push({ account: plan2.ata, mint: WSOL_MINT, role: 'wsol', decimals: 9 });
   else tokenAccounts.push({ account: coinSide.address, mint: new PublicKey(quote.mint), role: 'quote', decimals: quote.decimals });
 
-  const intent: RangeIntent = { kind: 'range-open', signer: a.owner, cfg, maxPriorityLamports: MAX_OWN_PRIORITY_LAMPORTS, pins, position: null, nftMint: nft.publicKey };
+  const intent: RangeIntent = {
+    kind: 'range-open',
+    signer: a.owner,
+    cfg,
+    maxPriorityLamports: MAX_OWN_PRIORITY_LAMPORTS,
+    pins,
+    position: null,
+    nftMint: nft.publicKey,
+    openLiquidity: plan.liquidity,
+  };
   return buildAndSimulate(rpc, {
     kind: 'range-open',
     body,
@@ -403,7 +476,7 @@ export async function prepareRangeOpen(rpc: WriteRpc, cfg: CurveWriteConfig, pro
     intent,
     watch: { signer: a.owner, tokenAccounts },
     expect: (pre, r): Expectation => {
-      const accountRents = BigInt(openedRent(pre)) * r.tokenAccount;
+      const accountRents = openedRent(pre);
       const tokenRow = { account: tokenSide.address, mint: pins.tokenMint, minDelta: -max.token, maxDelta: 2n ** 64n };
       if (!plan2) {
         return {
@@ -418,10 +491,10 @@ export async function prepareRangeOpen(rpc: WriteRpc, cfg: CurveWriteConfig, pro
         tokens: [tokenRow, { account: plan2.ata, mint: WSOL_MINT, minDelta: kept, maxDelta: plan2.closeAfter ? 0n : kept + max.quote }],
       };
     },
-    newAccountRent: (pre, r) => positionRent + bandRent + BigInt(openedRent(pre)) * r.tokenAccount,
+    newAccountRent: (pre) => positionRent + bandRent + openedRent(pre),
     summarize: (steps): TxSummary | string => {
       const problem = stepsProblem(steps, {
-        own: (s) => s.kind === 'range-open' && s.tickLower === a.tickLower && s.tickUpper === a.tickUpper && s.max0 === max0 && s.max1 === max1 && s.baseIsToken0 === base0,
+        own: (s) => s.kind === 'range-open' && s.tickLower === a.tickLower && s.tickUpper === a.tickUpper && s.max0 === max0 && s.max1 === max1 && s.liquidity === plan.liquidity,
         wraps: plan2 && max.quote > 0n ? max.quote : null,
         opens,
         closes: plan2?.closeAfter ?? false,
@@ -541,12 +614,13 @@ async function prepareDecrease(rpc: WriteRpc, cfg: CurveWriteConfig, programId: 
   let accounts: (RawAccount | null)[];
   const rewardRecipients = pins.rewards.map((r) => associatedTokenAddress(r.mint, a.owner, r.program));
   try {
-    const keys = [tokenSide.address, coinSide.address, ...rewardRecipients];
+    const keys = [tokenSide.address, coinSide.address, ...rewardRecipients, ...pins.rewards.map((r) => r.mint)];
     accounts = toRaw(keys, await rpc.getMultipleAccountsInfo(keys, 'confirmed'));
   } catch {
     return notSent('build', RANGE_COPY.readFailed);
   }
   const [tokenAcc, coinAcc] = accounts as [RawAccount | null, RawAccount | null];
+  const rewardMintRaw = accounts.slice(2 + rewardRecipients.length);
   const notices: string[] = [];
   const tokenCheck = accountCheck(tokenAcc, tokenSide.want);
   if (tokenCheck.refuse) return notSent('build', tokenCheck.refuse);
@@ -579,6 +653,25 @@ async function prepareDecrease(rpc: WriteRpc, cfg: CurveWriteConfig, programId: 
     body.push(openAta(a.owner, rewardRecipients[i]!, r.mint, r.program));
     opens.push(rewardRecipients[i]!);
   });
+  // What each account this opens keeps as a deposit, sized by its own mint (170 bytes for a
+  // Token-2022 coin such as BAYLA, not 165).
+  const mintOf = (k: PublicKey): RawAccount | null | 'wsol' => {
+    if (wsol && k.equals(wsol.ata)) return 'wsol';
+    if (k.equals(tokenSide.address)) return (pair.tokenIsToken0 ? fresh.mint0 : fresh.mint1) ?? null;
+    if (k.equals(coinSide.address)) return (pair.tokenIsToken0 ? fresh.mint1 : fresh.mint0) ?? null;
+    return rewardMintRaw[rewardRecipients.findIndex((x) => x.equals(k))] ?? null;
+  };
+  const openRents = new Map<string, bigint>();
+  for (const k of opens) {
+    const m = mintOf(k);
+    const size = m === 'wsol' ? 165 : m ? tokenAccountSize(m) : 'its mint was not read';
+    if (typeof size === 'string') return notSent('build', RANGE_COPY.cannotSize(size));
+    try {
+      openRents.set(k.toBase58(), rentOf(await rpc.getMinimumBalanceForRentExemption(size)));
+    } catch {
+      return notSent('build', RANGE_COPY.readFailed);
+    }
+  }
   const own0 = associatedTokenAddress(pins.token0Mint, a.owner, pins.token0Program);
   const own1 = associatedTokenAddress(pins.token1Mint, a.owner, pins.token1Program);
   const positionPins: RangePositionPins = { address: a.position, nftMint, tickLower: position.tickLowerIndex, tickUpper: position.tickUpperIndex, liquidity: position.liquidity };
@@ -605,8 +698,10 @@ async function prepareDecrease(rpc: WriteRpc, cfg: CurveWriteConfig, programId: 
   const tokenAccounts: WatchList['tokenAccounts'] = [{ account: tokenSide.address, mint: pins.tokenMint, role: 'token', decimals: pair.tokenDecimals }];
   if (wsol) tokenAccounts.push({ account: wsol.ata, mint: WSOL_MINT, role: 'wsol', decimals: 9 });
   else tokenAccounts.push({ account: coinSide.address, mint: new PublicKey(pins.quote.mint), role: 'quote', decimals: pins.quote.decimals });
-  const openedRent = (pre: { tokens: Map<string, { exists: boolean }> }, rent: bigint) =>
-    BigInt(opens.filter((k) => !(pre.tokens.get(k.toBase58())?.exists ?? false) && !(wsol && k.equals(wsol.ata) && wsol.closeAfter)).length) * rent;
+  const openedRent = (pre: { tokens: Map<string, { exists: boolean }> }) =>
+    opens
+      .filter((k) => !(pre.tokens.get(k.toBase58())?.exists ?? false) && !(wsol && k.equals(wsol.ata) && wsol.closeAfter))
+      .reduce((sum, k) => sum + (openRents.get(k.toBase58()) ?? 0n), 0n);
 
   const intent: RangeIntent = { kind, signer: a.owner, cfg, maxPriorityLamports: MAX_OWN_PRIORITY_LAMPORTS, pins, position: positionPins, nftMint: null };
   return buildAndSimulate(rpc, {
@@ -615,16 +710,16 @@ async function prepareDecrease(rpc: WriteRpc, cfg: CurveWriteConfig, programId: 
     extraSigners: [],
     intent,
     watch: { signer: a.owner, tokenAccounts },
-    expect: (pre, r): Expectation => {
+    expect: (pre): Expectation => {
       const tokenRow = { account: tokenSide.address, mint: pins.tokenMint, minDelta: min.token, maxDelta: 2n ** 64n };
-      const rent = openedRent(pre, r.tokenAccount);
+      const rent = openedRent(pre);
       if (!wsol) return { maxSolOut: rent, tokens: [tokenRow, { account: coinSide.address, mint: new PublicKey(pins.quote.mint), minDelta: min.quote, maxDelta: 2n ** 64n }] };
       // SOL out of the position: closed, it arrives as plain SOL; kept, as wrapped SOL.
       return wsol.closeAfter
         ? { maxSolOut: rent, minSolIn: min.quote > rent ? min.quote - rent : 0n, tokens: [tokenRow, { account: wsol.ata, mint: WSOL_MINT, minDelta: 0n, maxDelta: 0n }] }
         : { maxSolOut: rent, tokens: [tokenRow, { account: wsol.ata, mint: WSOL_MINT, minDelta: min.quote, maxDelta: 2n ** 64n }] };
     },
-    newAccountRent: (pre, r) => openedRent(pre, r.tokenAccount),
+    newAccountRent: (pre) => openedRent(pre),
     summarize: (steps): TxSummary | string => {
       const problem = stepsProblem(steps, {
         own: (s) => s.kind === 'range-decrease' && s.liquidity === liquidity && s.min0 === min0 && s.min1 === min1 && s.position.equals(a.position),

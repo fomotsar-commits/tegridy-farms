@@ -25,10 +25,12 @@ import { useReturnFocus, useTxFlow } from '../curve/useTxFlow';
 import type { CurveSignerState } from '../curve/useCurveSigner';
 import type { PendingTradesState } from '../curve/usePendingTrades';
 import type { CurveWriteConfig, RangeWriteApi, WriteRpc } from '../curve/ports';
+import type { RangeOpenReads } from '../../../lib/launcher/solana/write/range';
 import { bothAmounts, coinAmount, priceText, tokenAmount, tokenName, tokenWord } from './rangeText';
 import { useFlowReports } from './useRangeData';
 
-const TOLERANCE_HINT = 'If the price moves more than this before your deposit runs, it is refused and only the network fee is spent.';
+const TOLERANCE_HINT =
+  'Your deposit takes at most this much more of either coin than shown. If the price moves enough to need more before it runs, it is refused and only the network fee is spent.';
 
 /**
  * Pick a range and put liquidity in it. The presets and the two prices give a range of
@@ -44,6 +46,7 @@ export function RangeOpenCard(p: {
   write: { api: RangeWriteApi; cfg: CurveWriteConfig } | null;
   rpc: WriteRpc;
   programId: PublicKey;
+  reads: RangeOpenReads;
   signerState: CurveSignerState;
   pending: PendingTradesState;
   held: boolean;
@@ -229,6 +232,7 @@ function OpenFlow(p: {
   write: { api: RangeWriteApi; cfg: CurveWriteConfig };
   rpc: WriteRpc;
   programId: PublicKey;
+  reads: RangeOpenReads;
   signerState: CurveSignerState;
   pending: PendingTradesState;
   held: boolean;
@@ -258,7 +262,7 @@ function OpenFlow(p: {
       amount: p.amount,
       toleranceBps: Number(p.tolerance),
     };
-    void flow.prepare(() => api.prepareRangeOpen(p.rpc, cfg, p.programId, args), { repeatable: true });
+    void flow.prepare(() => api.prepareRangeOpen(p.rpc, cfg, p.programId, p.reads, args), { repeatable: true });
   };
   if (busy) {
     return (

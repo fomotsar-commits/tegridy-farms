@@ -88,12 +88,16 @@ export function parsePrice(text: string): Price | null {
   return num > 0n ? { num, den } : null;
 }
 
-/** The tick at (or just below) a price, in the pool's own tick order. */
-function rawTickAt(p: Pair, price: Price): number {
-  const sqrt = p.tokenIsToken0
+/** The pool's sqrt price (Q64.64) at a price in coin per token, in the pool's own order. */
+export function sqrtAtPrice(p: Pair, price: Price): bigint {
+  return p.tokenIsToken0
     ? sqrtPriceX64FromPrice(price.num, price.den, p.tokenDecimals, p.quoteDecimals)
     : sqrtPriceX64FromPrice(price.den, price.num, p.quoteDecimals, p.tokenDecimals);
-  return getTickAtSqrtPrice(sqrt);
+}
+
+/** The tick at (or just below) a price, in the pool's own tick order. */
+function rawTickAt(p: Pair, price: Price): number {
+  return getTickAtSqrtPrice(sqrtAtPrice(p, price));
 }
 
 /** A range as the program keeps it: two usable ticks, lower below upper. */

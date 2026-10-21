@@ -228,11 +228,11 @@ export type IntentStep =
    */
   | { kind: 'pool-create'; pool: PublicKey; ammConfig: PublicKey; init0: bigint; init1: bigint }
   /**
-   * Range program `open_position_with_token22_nft`, decoded: a position in `pool` between
-   * the two ticks, its NFT `nftMint`, at most `max0` / `max1` taken. Liquidity is worked out
-   * by the program from the base side's maximum (`baseIsToken0`).
+   * Range program `open_position_with_token22_nft`, decoded: `liquidity` in `pool` between
+   * the two ticks, its NFT `nftMint`, at most `max0` / `max1` taken. No base side: the
+   * program refuses the opening when either coin would pass its maximum.
    */
-  | { kind: 'range-open'; pool: PublicKey; nftMint: PublicKey; tickLower: number; tickUpper: number; max0: bigint; max1: bigint; baseIsToken0: boolean }
+  | { kind: 'range-open'; pool: PublicKey; nftMint: PublicKey; tickLower: number; tickUpper: number; liquidity: bigint; max0: bigint; max1: bigint }
   /** Range program `decrease_liquidity_v2`: `liquidity` out of `position` (0 = fees only), at least `min0` / `min1` back, plus its fees. */
   | { kind: 'range-decrease'; pool: PublicKey; position: PublicKey; liquidity: bigint; min0: bigint; min1: bigint }
   /** Range program `close_position`: the NFT burned, the record closed, their deposits back to the owner. */
@@ -723,6 +723,8 @@ export interface RangeIntent {
   /** The position changed (remove, close), or the new one's NFT mint (open): a fresh key that signs. */
   position: RangePositionPins | null;
   nftMint: PublicKey | null;
+  /** An opening's liquidity, planned from the fresh read: the only liquidity it may name. */
+  openLiquidity?: bigint;
 }
 
 /** A launch, a curve trade, a graduation or a launch pool's swap. Every field it had before liquidity stays required. */

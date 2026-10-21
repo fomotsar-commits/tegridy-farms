@@ -8,6 +8,7 @@ import { SolanaProviders } from '../SolanaProviders';
 import { browserRpc, type SolanaRpc } from '../../../lib/launcher/solana/curve/rpc';
 import { lpWriteMode, type LpWriteMode } from '../../../lib/launcher/solana/lpWriteFlag';
 import { lpFetch } from '../../../lib/solana/lp/readFetch';
+import { readOutsidePrice, type OutsidePrice } from '../../../lib/solana/lp/outsidePrice';
 import { noteResponse } from '../../../lib/solana/lp/rpcBudget';
 import { parseMintInput } from '../../../lib/solana/lp/mintInput';
 import { QUOTE_COINS, quoteCoin } from '../../../lib/solana/lp/quotes';
@@ -56,6 +57,8 @@ export interface RangeReaders {
   feeTiers(): Promise<Read<AmmConfigView[]>>;
   pairPools(mintA: string, mintB: string, tiers: AmmConfigView[]): Promise<Read<RangePool[]>>;
   walletPositions(owner: string): Promise<Read<WalletPositionsRead>>;
+  /** Jupiter's price, refused when it comes through a range pool: the opening's market check. */
+  outsidePrice(mint: string, decimals: number, opts?: { fresh?: boolean }): Promise<OutsidePrice>;
 }
 
 // eslint-disable-next-line react-refresh/only-export-components
@@ -65,6 +68,7 @@ export function browserRangeReaders(rpc: SolanaRpc, programId: PublicKey): Range
     feeTiers: () => readFeeTiers(rpc, programId),
     pairPools: (a, b, tiers) => readPairPools(rpc, programId, a, b, tiers),
     walletPositions: (owner) => readWalletPositions(rpc, programId, new PublicKey(owner)),
+    outsidePrice: (mint, decimals, o) => readOutsidePrice(mint, decimals, { rpc, programId: programId.toBase58() }, lpFetch({ what: 'Jupiter' }), undefined, o),
   };
 }
 
@@ -226,6 +230,7 @@ export function RangeInner({ readers, load, mode }: { readers: RangeReaders; loa
           write={write}
           rpc={writeRpc}
           programId={programId}
+          reads={readers}
           signerState={signerState}
           pending={pending}
           held={held || busyBy.positions}

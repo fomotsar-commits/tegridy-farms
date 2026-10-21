@@ -90,6 +90,7 @@ function readers(o: { tiers?: Read<AmmConfigView[]>; pools?: Read<RangePool[]>; 
     feeTiers: vi.fn(async () => o.tiers ?? { kind: 'ok' as const, value: [t] }),
     pairPools: vi.fn(async () => o.pools ?? { kind: 'ok' as const, value: [poolOn(t)] }),
     walletPositions: vi.fn(async () => o.positions ?? { kind: 'ok' as const, value: { positions: [], unread: [] } }),
+    outsidePrice: vi.fn(async () => ({ kind: 'no-route' as const, detail: 'Jupiter has no route for this token' })),
   };
 }
 
@@ -201,7 +202,8 @@ describe('picking a range', () => {
     wallet.publicKey = ME;
     wallet.signTransaction = vi.fn();
     const api = fakeApi();
-    show(readers(), api);
+    const r = readers();
+    show(r, api);
     const open = await screen.findByTestId('range-open');
     fireEvent.click(within(open).getByRole('button', { name: 'Wide' }));
     fireEvent.change(within(open).getByLabelText(/How much BAYLA to put in/), { target: { value: '2.5' } });
@@ -209,9 +211,11 @@ describe('picking a range', () => {
     await waitFor(() => expect((review as HTMLButtonElement).disabled).toBe(false));
     fireEvent.click(review);
     await waitFor(() => expect(api.prepareRangeOpen).toHaveBeenCalledTimes(1));
-    const [, gotCfg, gotProgram, args] = vi.mocked(api.prepareRangeOpen).mock.calls[0]!;
+    const [, gotCfg, gotProgram, gotReads, args] = vi.mocked(api.prepareRangeOpen).mock.calls[0]!;
     expect(gotCfg).toBe(cfg);
     expect(gotProgram.equals(PROG)).toBe(true);
+    // The opening's market check asks the section's own reader, which refuses a range pool's price.
+    expect(gotReads).toBe(r);
     expect(args.owner.equals(ME)).toBe(true);
     expect(args.pool.equals(POOL)).toBe(true);
     expect([args.side, args.amount, args.toleranceBps]).toEqual(['token', 2_500_000n, 100]);
