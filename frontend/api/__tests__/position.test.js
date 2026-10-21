@@ -122,7 +122,9 @@ describe("held to the program source", () => {
     const lib = rust("lib.rs");
     const declared = /#\[cfg\(not\(feature = "devnet"\)\)\]\s*declare_id!\("([1-9A-HJ-NP-Za-km-z]+)"\)/.exec(lib);
     expect(declared?.[1]).toBe(RANGE_PROGRAM_ID);
-    expect(RANGE_PROGRAM_ID).toBe(PLACEHOLDER_PROGRAM_ID);
+    // The program deployed 2026-10-21, held by the vault (read on chain: its upgrade authority).
+    expect(RANGE_PROGRAM_ID).toBe("7ghzbbmq59QEbdweSzM1ggpeBH1Q2CyxZg4Tr2x8Aso");
+    expect(RANGE_PROGRAM_ID).not.toBe(PLACEHOLDER_PROGRAM_ID);
   });
 
   it("the NFT's name, symbol and link are what the program writes, keyed by the position's record", () => {
@@ -266,13 +268,22 @@ describe("the handler", () => {
   it("while the program id is the placeholder, every link is a 404, and the chain is not asked", async () => {
     const fetch = stubAccounts(table());
     const res = mockRes();
-    await handlePosition(req({ id }), res);
+    await handlePosition(req({ id }), res, { programId: PLACEHOLDER_PROGRAM_ID });
     expect(res.statusCode).toBe(404);
     expect(res.headers["Content-Type"]).toContain("application/json");
     expect(res.headers["Access-Control-Allow-Origin"]).toBe("*");
     expect(fetch).not.toHaveBeenCalled();
     // It names the program it serves: a check against the deployed id sees the placeholder.
     expect(res.body.program).toBe(PLACEHOLDER_PROGRAM_ID);
+  });
+
+  it("as served, a random address answers the deploy page's 404 for the deployed program, asking the chain", async () => {
+    const fetch = stubAccounts({});
+    const res = mockRes();
+    await handlePosition(req({ id: `${id}.json` }), res);
+    expect(res.statusCode).toBe(404);
+    expect(res.body).toEqual({ error: "No range position at this address.", program: "7ghzbbmq59QEbdweSzM1ggpeBH1Q2CyxZg4Tr2x8Aso" });
+    expect(fetch).toHaveBeenCalled();
   });
 
   it("a deployed program's position answers 200 JSON, publicly, with a short edge cache", async () => {

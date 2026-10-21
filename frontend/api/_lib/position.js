@@ -16,15 +16,14 @@
 import { checkGlobalLimit } from "./ratelimit.js";
 import { logSafe } from "./logSafe.js";
 
-/** The id the program source declares until the deploy pack: nobody holds its key. */
+/** The id the program source declared before the deploy: nobody holds its key, so no link is served for it. */
 export const PLACEHOLDER_PROGRAM_ID = "RangePoo1PLACEHo1DERnotDep1oyed111111111111";
 
 /**
- * The range program. position.test.js holds it equal to the program's declare_id!, as
- * src/lib/solana/clmm/program.ts does for the site. While it is the placeholder no account
- * can be owned by it, so every link answers 404 without asking the chain.
+ * The range program, deployed 2026-10-21 and held by the vault. position.test.js holds it
+ * equal to the program's declare_id!, as src/lib/solana/clmm/program.ts does for the site.
  */
-export const RANGE_PROGRAM_ID = PLACEHOLDER_PROGRAM_ID;
+export const RANGE_PROGRAM_ID = "7ghzbbmq59QEbdweSzM1ggpeBH1Q2CyxZg4Tr2x8Aso";
 
 /** The NFT's own name and symbol, as the program writes them (position.test.js pins both). */
 export const POSITION_NAME = "Memetics Range Position";
