@@ -15,6 +15,20 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-10-20: where two buttons' padded press areas meet, `relative` only picks which one loses
+
+**Believed:** a padded press area that loses its lower part to the rows after it is fixed by
+`relative` on the button (the 2026-10-20 entry on padding and a matching negative margin).
+
+**Measured** (venue status card on /pools and /solana-lp, production build, chromium,
+mobile-chrome, iPhone and iPad, hit-tested every 0.5px down each box): on a phone the Program
+and Config copy chips wrap onto rows 12px apart, and each 46px area reached 7px out of its chip.
+Config, later in the page, took Program's bottom 3px of press, 1px more than the boxes overlap.
+`relative` on either button only moves the loss to the other.
+
+**Do:** split the padding so the two reaches into the shared gap add up to less than the gap
+(1px clear held on all four devices), each area still 44px or more. Certify by the sweep.
+
 ## 2026-10-19: a dev-server walk that stubs every /api/ request renders a blank page, because the app imports from /api/_lib/
 
 **Believed:** on `vite dev`, which has no serverless functions, answering every same-origin
