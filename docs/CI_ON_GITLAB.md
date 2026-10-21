@@ -335,7 +335,7 @@ Run it before each merge, in Git Bash, from a clone outside OneDrive:
 
 ```bash
 bash scripts/ci/local-gates.sh root        # minutes: the repo-root self-tests and script tests
-bash scripts/ci/local-gates.sh frontend    # lint, types, unit, build, e2e (about 40 minutes)
+bash scripts/ci/local-gates.sh frontend    # lint, types, unit, build, e2e (about 3 hours: e2e is 3,232 tests on one worker)
 bash scripts/ci/local-gates.sh contracts   # forge build, every test slice, fuzz (slow)
 bash scripts/ci/local-gates.sh solana      # the Rust math and layout tests, when rustc/cargo exist
 bash scripts/ci/local-gates.sh all
