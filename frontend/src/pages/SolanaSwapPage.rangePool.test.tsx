@@ -70,7 +70,7 @@ function preparedRangeSwap(a: VenueSwapArgs, out: bigint): PreparedTx {
       kind: 'range-swap',
       poolLine: {
         pool: a.pool, tokenMint: a.outputMint, tokenDecimals: 6, quote: SOL_QUOTE, tokenIsToken0: true, tradeFeeRate: 10_000, venueShareRate: 160_000,
-        protocolFeeRate: 104_000, fundFeeRate: 56_000, owner: 'GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd', fundOwner: 'G2EHPseTXetHbBvvRDs27XQyXfQikXXyxP9uMbsKrbu',
+        protocolFeeRate: 104_000, fundFeeRate: 56_000, owner: 'GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd', fundOwner: h.fundOwner.value,
       },
       paysCoin: true, amountIn: a.amountIn, minimumAmountOut: (out * 9_950n) / 10_000n, quotedOut: out, bandsCrossed: 1, feeOnInput: h.feeOnInput.value, aggregator: a.aggregator,
       unwrapsWsol: true, wsolHeldBefore: 0n, notices: [],
@@ -106,6 +106,8 @@ const h = vi.hoisted(() => ({
   rangeOut: { value: null as bigint | null },
   /** The range pool's fee side for this trade (its fee_on): out of what is paid in, or out of what comes out. */
   feeOnInput: { value: true },
+  /** The range tier's fund_owner: the island's Workshop by the agreed split. */
+  fundOwner: { value: 'G2EHPseTXetHbBvvRDs27XQyXfQikXXyxP9uMbsKrbu' },
   readRangeRoutePools: vi.fn(),
   prepareRangeSwap: vi.fn(),
   getQuote: vi.fn(),
@@ -237,6 +239,7 @@ const OPEN_GATE = { kind: 'open', cfg: { programId: new PublicKey(LAUNCH), cpSwa
 
 beforeEach(() => {
   h.feeOnInput.value = true;
+  h.fundOwner.value = 'G2EHPseTXetHbBvvRDs27XQyXfQikXXyxP9uMbsKrbu';
   window.history.replaceState(null, '', `/solana?out=${BAYLA_MINT}`);
   localStorage.clear();
   sessionStorage.clear();
@@ -328,7 +331,7 @@ describe('range pools in the route', () => {
     // The review is the range pool's own, with its fee and the venue's share from the tier.
     expect(screen.getByText('Range pool')).toBeInTheDocument();
     expect(screen.getByText(/it keeps 16% of each swap’s fee \(0\.16% of the swap\)/)).toBeInTheDocument();
-    expect(screen.getByText(/The venue’s cut is split: 65% to the team’s shared wallet/)).toBeInTheDocument();
+    expect(screen.getByText(/The venue’s cut is split: 10\.4% of each fee \(0\.104% of the swap\) to the team’s shared wallet/)).toBeInTheDocument();
     expect(screen.getByText('Pool fee (inside what you pay)')).toBeInTheDocument();
     expect(screen.getByText(/^1% of what you pay\./)).toBeInTheDocument();
     await signOnReview();
@@ -349,6 +352,19 @@ describe('range pools in the route', () => {
     expect(screen.getByText('Pool fee (taken from what you receive)')).toBeInTheDocument();
     expect(screen.getByText(/^1% of what you receive\./)).toBeInTheDocument();
     expect(screen.queryByText(/of what you pay/)).toBeNull();
+  });
+
+  it('a range tier whose fund owner is the vault takes the island’s share: the swap review says so in bold, first', async () => {
+    h.rangeOn.value = true;
+    h.rangeOut.value = 1_020_000n;
+    h.fundOwner.value = 'GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd';
+    const buy = await readyToBuy();
+    await waitFor(() => expect(receive()).toBe('1.02'));
+    fireEvent.click(buy);
+    expect(await screen.findByText('Review your swap', {}, { timeout: 20_000 })).toBeInTheDocument();
+    const bold = [...document.querySelectorAll('strong')].map((x) => x.textContent ?? '');
+    expect(bold.some((t) => /does not follow the agreed split .* 16% of each fee \(0\.16% of the swap\) to the team’s shared wallet, 0% of each fee \(0% of the swap\) to the island’s Workshop\./.test(t))).toBe(true);
+    expect(screen.queryByText(/The venue’s cut is split:/)).toBeNull();
   });
 
   it('shown, a range pool that pays less leaves the trade with our other pool', async () => {
