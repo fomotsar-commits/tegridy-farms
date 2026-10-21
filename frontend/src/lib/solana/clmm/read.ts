@@ -45,6 +45,14 @@ export const BANDS_EACH_SIDE = 4;
 
 const owned = (a: RawAccount | null, programId: PublicKey) => a !== null && a.owner === programId.toBase58();
 
+/**
+ * An empty account the System program owns, at an address the program never used: what
+ * anyone makes by sending SOL there. It is the chain's answer that nothing was created, so
+ * it reads as absent; without this, a sub-cent transfer would break the Range tab for good.
+ */
+const neverCreated = (a: RawAccount | null) => a === null || (a.owner === SYSTEM_PROGRAM && a.data.length === 0);
+const SYSTEM_PROGRAM = '11111111111111111111111111111111';
+
 function unreadable(what: string): never {
   throw new Error(what);
 }
@@ -64,7 +72,7 @@ export function readFeeTiers(rpc: SolanaRpc, programId: PublicKey): Promise<Read
     const accounts = await getMultipleAccounts(rpc, addresses);
     const tiers: AmmConfigView[] = [];
     accounts.forEach((a, i) => {
-      if (a === null) return;
+      if (neverCreated(a)) return;
       if (!owned(a, programId)) unreadable(`fee tier ${i}'s address holds an account the program does not own`);
       const t = decodeAmmConfig(addresses[i]!, a!.data);
       if (!t || t.index !== i) unreadable(`fee tier ${i} did not decode`);
@@ -88,7 +96,7 @@ export function readPairPools(rpc: SolanaRpc, programId: PublicKey, mintA: strin
     const accounts = await getMultipleAccounts(rpc, addresses);
     const out: RangePool[] = [];
     accounts.forEach((a, i) => {
-      if (a === null) return;
+      if (neverCreated(a)) return;
       if (!owned(a, programId)) unreadable('a pool address holds an account the program does not own');
       const pool = decodePoolState(addresses[i]!, a!.data);
       if (!pool || pool.ammConfig !== tiers[i]!.address) unreadable('a pool did not decode');
@@ -102,8 +110,8 @@ export function readPairPools(rpc: SolanaRpc, programId: PublicKey, mintA: strin
 export async function readExtension(rpc: SolanaRpc, programId: PublicKey, pool: PoolStateView): Promise<BitmapExtensionView | null> {
   if (pool.tickSpacing >= 15) return null;
   const address = deriveBitmapExtension(programId, new PublicKey(pool.address)).toBase58();
-  const [a] = await getMultipleAccounts(rpc, [address]);
-  if (!a) return null;
+  const a = (await getMultipleAccounts(rpc, [address]))[0] ?? null;
+  if (a === null || neverCreated(a)) return null;
   if (!owned(a, programId)) unreadable('the far-band map is not the program’s');
   const ext = decodeBitmapExtension(address, a.data);
   if (!ext || ext.poolId !== pool.address) unreadable('the far-band map did not decode');

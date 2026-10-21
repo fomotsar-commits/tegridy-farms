@@ -23,6 +23,7 @@ const SPACING = 120;
 const TICK = 600;
 const SQRT = getSqrtPriceAtTick(TICK) + 99n;
 const Q64 = 1n << 64n;
+const SYSTEM = new PublicKey('11111111111111111111111111111111');
 
 interface Acct { owner: PublicKey; data: Uint8Array }
 
@@ -77,6 +78,20 @@ describe('fee tiers', () => {
     expect(r.kind).toBe('ok');
     if (r.kind !== 'ok') return;
     expect(r.value.map((t) => [t.index, t.tradeFeeRate, t.protocolFeeRate + t.fundFeeRate])).toEqual([[0, 2_500, 160_000], [1, 5_000, 160_000]]);
+  });
+
+  it('SOL sent to an unused tier address (an empty account the system owns) is the chain saying "never created": absent, not unread', async () => {
+    const funded = withTiers().set(deriveAmmConfig(PROG, 5), { owner: SYSTEM, data: new Uint8Array(0) });
+    const r = await readFeeTiers(funded.rpc, PROG);
+    expect(r.kind === 'ok' && r.value.map((t) => t.index)).toEqual([0, 1]);
+    // The same at an unopened pool's address: the pair reads, with no pool there.
+    const c = withTiers().set(POOL, { owner: SYSTEM, data: new Uint8Array(0) });
+    const tiers = await readFeeTiers(c.rpc, PROG);
+    if (tiers.kind !== 'ok') throw new Error('tiers');
+    expect(await readPairPools(c.rpc, PROG, TOKEN.toBase58(), WSOL.toBase58(), tiers.value)).toEqual({ kind: 'ok', value: [] });
+    // A system account WITH data is not that answer: still unread.
+    const odd = withTiers().set(deriveAmmConfig(PROG, 5), { owner: SYSTEM, data: new Uint8Array(8) });
+    expect((await readFeeTiers(odd.rpc, PROG)).kind).toBe('unread');
   });
 
   it('a tier address held by another program, a tier that does not decode, or a failed call is unread', async () => {
