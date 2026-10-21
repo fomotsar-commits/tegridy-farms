@@ -46,17 +46,23 @@ fallback for pairs we don't host well.
 > `memetics.finance` (see "The on-chain security text" below). The owner delegated "one
 > upgrade or two" that day and the answer is one: the same upgrade carries the instruction
 > and this text. `diff-guard` was re-pinned for it.
+>
+> **2026-10-19: public `initialize` refuses fee tier 0, in source.** Only graduations open
+> pools on the launch tier now (see "The launch-tier gate" below). It rides the same one
+> upgrade, so the pack's program file is rebuilt. `diff-guard` was re-pinned for it.
 
 ---
 
 ## The entire code diff from upstream
 
 Exactly **four authority/identity constants** across **two files** (`lib.rs` and
-`instructions/admin/create_support_mint_associated.rs`) **plus one added instruction**,
-`create_lp_metadata`, all of it in `lib.rs`. **No other code**: all swap, curve,
-and fee math is byte-identical to upstream, and no upstream instruction is changed. After
-the fork, **no external party retains any authority on this program**; every authority is
-the Tegridy admin/treasury.
+`instructions/admin/create_support_mint_associated.rs`), **plus one added instruction**,
+`create_lp_metadata`, all of it in `lib.rs`, **plus one added refusal** in
+`instructions/initialize.rs` (since 2026-10-19: public `initialize` refuses fee tier 0, see
+"The launch-tier gate" below). **No other code**: all swap, curve, and fee math is
+byte-identical to upstream, and no other upstream instruction is changed. After the fork,
+**no external party retains any authority on this program**; every authority is the Tegridy
+admin/treasury.
 
 Two pieces of text differ as well, and both are in the hashed delta: the program's on-chain
 security text (the `security_txt!` macro at the top of `lib.rs`, see "The on-chain security
@@ -212,7 +218,7 @@ binary; `scripts/verify-program-constants.mjs` carries them as FORBIDDEN.
 Verify the minimality of the diff at any time (also enforced automatically by `solana-ci.yml`):
 ```bash
 git clone https://github.com/raydium-io/raydium-cp-swap /tmp/up && git -C /tmp/up checkout 78f254e
-diff -rq /tmp/up/programs/cp-swap/src programs/cp-swap/src   # only 2 files differ: lib.rs and create_support_mint_associated.rs
+diff -rq /tmp/up/programs/cp-swap/src programs/cp-swap/src   # only 3 files differ: lib.rs, create_support_mint_associated.rs, initialize.rs
 ```
 That shows WHICH files differ, not what changed inside them, and `lib.rs` holds the whole
 dispatcher and, since 2026-10-06, the added instruction. The CI guard therefore also hashes
@@ -221,6 +227,66 @@ file list.
 
 The current devnet values (`BvBkt84Z…`, `GgE6AfEH…`) are **throwaway devnet keypairs**
 in `keys/` (gitignored, never committed, no real value).
+
+### The launch-tier gate in `initialize` (2026-10-19)
+
+**What it does.** Public `initialize` refuses fee tier 0 with upstream's own `NotApproved`
+(6000). Five added lines beside upstream's `disable_create_pool` check; no upstream line
+changed. No account, argument or error code changes, so the IDL is byte for byte the same.
+
+**Why.** Tier 0 (`BHMteE8u…`) is the launch tier: no opening fee, a 0.25% trade fee. Only
+graduations should land there. Before this, anyone calling the program directly could open a
+pool on it and skip the 0.15 SOL opening fee and the 1% public tier (`CapqvAA9…`). The site
+already refused tier 0 (`intent.ts`); the program did not. Read on mainnet at slot
+458,890,755: no pool on tier 0, seven on tier 1, so the gap was never used.
+
+**What still opens pools on tier 0.** `initialize_with_permission`, untouched. Only accounts
+the admin (the Squads vault) granted a `Permission` can call it. Mainnet holds one (read
+2026-10-19, slot 458,897,459): `5H38YE…`, for tegridy-launch's migration authority
+`BS8oMxW2…`. Graduation keeps working. Pools already on tier 0 keep trading.
+
+**How it was proved, 2026-10-19.**
+
+| run | chain | result |
+|---|---|---|
+| `tests/tegridy-launch-migration.test.ts` (CI's migration-rehearsal), pre-fix build | local, CI's patched build | the new case fails: `expected '' to include 'NotApproved'`; the other 4 pass |
+| the same, fixed build | the same | 5 of 5, graduation onto tier 0 included |
+| upgrade rehearsal | local, mainnet-shaped: the live binaries `88b98aa9…` and `a3c41afa…` at their mainnet ids, tiers 0 and 1 read from mainnet that day, a test key standing in for the vault | before: a stranger opens a tier-0 pool and pays nothing. Enlarge 33,536 bytes, upgrade to the fixed build with auto-extend off. After: tier 0 refused (6000, `initialize.rs:208`), also with no preflight; the same pair opens on tier 1 and pays 0.15 SOL; the pre-upgrade tier-0 pool still swaps; the live launcher graduates onto tier 0 (creator-fee capable, LP burned, no opening fee). 12 of 12 checks. |
+
+The mainnet build is `cargo build-sbf -- --locked` (cargo-build-sbf 2.3.0, platform-tools
+v1.48, rustc 1.84.1) on a clean `git archive`. The same build of trunk before this change
+gives `99a9e73d…` (724,688 bytes), byte for byte the upgrade pack's file, so the toolchain
+matches the pack's. With this change it gives `1e55bcdcb10c39ee9678efb697b453cb23415621bded4968c01950629de4fd22`
+(725,176 bytes). `scripts/verify-program-constants.mjs --roster cp-swap` passes on it.
+
+#### Upgrade runbook (owner)
+
+Nothing here has been sent. **One upgrade or two is the owner's call.** Combined with the
+pending upgrade (`create_lp_metadata` and the security text, MAINNET_RUNBOOK.md §4b and its
+pack), it adds no proposal of its own: one 48-hour wait and one buffer. Shipped later on its
+own, it costs a second wait, a second ~3.7 SOL buffer and a pack of its own. Until the owner
+rules, the pack stays on `99a9e73d…`. The steps below are the combined path.
+
+1. **Merge this change first, then the pack takes the new file.** The pack's file `99a9e73d…`
+   lacks the gate, and its checksums, buffer check and rehearsal numbers change with the file.
+   Build the new file from the merge commit, twice, from clean copies; both must be
+   `1e55bcdc…`, 725,176 bytes, if nothing else in `programs/cp-swap/` or `Cargo.lock` moved.
+   A different hash: find out why before going on.
+2. **The enlarge grows by 488 bytes.** Mainnet's program holds 691,640 bytes (read
+   2026-10-19, slot 458,894,898). The new file needs **33,536** more (the old pack file needed
+   33,048). The pack's enlarge step reads the number itself. At that day's rent (5,080
+   lamports a byte) the extra 488 bytes cost about 0.0025 SOL.
+3. **The buffer** holds 725,213 bytes: 3.685 SOL of rent at slot 458,896,223, returned to the
+   spill account when the upgrade executes. Hand its authority to the vault, read it back and
+   hash it, exactly as the pack does today.
+4. **The proposal**, then the 48-hour wait, then approve and execute, as the pack says.
+5. **After it executes** (read-only, no key): the program's bytes hash to `1e55bcdc…`; a
+   public `initialize` on tier 0 simulated from any wallet that holds both tokens is refused
+   with 6000 `NotApproved`; the pack's trade simulations through both pools still pass.
+
+**Roll-back** is the pack's roll-back file, today's mainnet binary `88b98aa9…`. It removes
+the gate and `create_lp_metadata` together, and it is a vault proposal with the same 48-hour
+wait.
 
 ---
 

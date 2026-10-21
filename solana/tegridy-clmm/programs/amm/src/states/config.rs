@@ -5,6 +5,9 @@ pub const AMM_CONFIG_SEED: &str = "amm_config";
 
 pub const FEE_RATE_DENOMINATOR_VALUE: u32 = 1_000_000;
 
+/// memetics.finance: a tier's protocol and fund rates together are at most 16% of each fee.
+pub const MAX_PROTOCOL_AND_FUND_FEE_RATE: u32 = 160_000;
+
 pub const MAX_TICK_SPACING: u16 = 1000;
 
 /// Holds the current owner of the factory

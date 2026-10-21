@@ -21,8 +21,6 @@ devnet = []
 localnet = []
 paramset = []
 idl-build = ["anchor-lang/idl-build", "anchor-spl/idl-build"]
-# memetics.finance: builds with the placeholder program id. Never for a release (lib.rs).
-placeholder-id = []
 # memetics.finance: lets devnet or localnet build at all (lib.rs). Never for a release.
 test-chain-keys = []
 
