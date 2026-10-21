@@ -72,7 +72,7 @@ function deployed(chain: FakeChain, program: PublicKey) {
   chain.set(pd, { lamports: 10_000_000, owner: BPF_LOADER_UPGRADEABLE_ID, data: new Uint8Array(64) });
 }
 
-function chainWith(o: { status?: number; deploy?: boolean; tokens?: bigint | null; token2022?: boolean; frozenVault?: 0 | 1 } = {}): FakeChain {
+function chainWith(o: { status?: number; deploy?: boolean; tokens?: bigint | null; token2022?: boolean; frozenVault?: 0 | 1; vaultMissing?: boolean } = {}): FakeChain {
   const c = new FakeChain();
   if (o.deploy !== false) deployed(c, PROG);
   c.set(CONFIG, { lamports: rent(117), owner: PROG, data: encodeAmmConfig({ index: 0, tradeFeeRate: 10_000, protocolFeeRate: 104_000, fundFeeRate: 56_000, tickSpacing: SPACING, owner: TIER_OWNER, fundOwner: FUND_OWNER }) });
@@ -91,6 +91,7 @@ function chainWith(o: { status?: number; deploy?: boolean; tokens?: bigint | nul
   c.mint(WSOL_MINT, { decimals: 9 });
   // The pool's two vaults: either one frozen by its coin's issuer stops every deposit and withdrawal.
   [VAULT0, VAULT1].forEach((v, i) => {
+    if (o.vaultMissing && i === 1) return;
     const mint = i === 0 ? MINT0 : MINT1;
     const state = { state: o.frozenVault === i ? (2 as const) : (1 as const) };
     if (mint.equals(TOKEN) && o.token2022) c.token2022Account(v, mint, POOL, 10n ** 12n, state);
@@ -294,6 +295,8 @@ describe('opening a range position', () => {
     expect(await msg(chainWith({ status: 1 << POOL_STATUS_BIT.decreaseLiquidity }))).toBe(RANGE_COPY.withdrawalsOff);
     expect(await msg(chainWith({ frozenVault: 0 }))).toBe(RANGE_COPY.vaultFrozen);
     expect(await msg(chainWith({ frozenVault: 1 }))).toBe(RANGE_COPY.vaultFrozen);
+    // A vault that did not read is never taken as open.
+    expect(await msg(chainWith({ vaultMissing: true }))).toBe(RANGE_COPY.poolChanged('its vaults'));
   });
 
   it('names a fixed liquidity with a ceiling on both coins, so a price pushed either way past the tolerance is refused', async () => {
