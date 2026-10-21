@@ -13,7 +13,7 @@
 // that program is not a position here. A failed read is a 503, never a 404 a wallet would
 // keep, and never a partial document.
 
-import { checkGlobalLimit } from "./ratelimit.js";
+import { checkGlobalLimit, checkRateLimit } from "./ratelimit.js";
 import { logSafe } from "./logSafe.js";
 
 /** The id the program source declared before the deploy: nobody holds its key, so no link is served for it. */
@@ -36,9 +36,17 @@ const SOLANA_ADDRESS_RE = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
 const RPC_TIMEOUT_MS = 6000;
 
 /** Account layouts, recomputed from the program's structs by position.test.js. */
-export const PERSONAL_POSITION = { len: 281, disc: [70, 111, 150, 126, 230, 15, 25, 117], poolId: 41, tickLower: 73, tickUpper: 77, liquidity: 81 };
+export const PERSONAL_POSITION = { len: 281, disc: [70, 111, 150, 126, 230, 15, 25, 117], nftMint: 9, poolId: 41, tickLower: 73, tickUpper: 77, liquidity: 81 };
 export const POOL_STATE = { len: 1544, disc: [247, 237, 227, 245, 215, 195, 222, 70], ammConfig: 9, mint0: 73, mint1: 105, decimals0: 233, decimals1: 234, tickSpacing: 235 };
-export const AMM_CONFIG = { len: 117, disc: [218, 244, 33, 104, 203, 203, 43, 111], tradeFeeRate: 47 };
+export const AMM_CONFIG = { len: 117, disc: [218, 244, 33, 104, 203, 203, 43, 111], owner: 11, protocolFeeRate: 43, tradeFeeRate: 47, fundFeeRate: 53, fundOwner: 61 };
+
+/**
+ * The island's agreed split of the venue's cut (owner, 2026-10-20): the protocol part to the
+ * team's shared wallet, the fund part to the island's Workshop. position.test.js holds both
+ * equal to the site's own constants. Any other wallet is said first, as a warning.
+ */
+export const TEAM_VAULT = "GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd";
+export const ISLAND_WORKSHOP = "G2EHPseTXetHbBvvRDs27XQyXfQikXXyxP9uMbsKrbu";
 
 /** Coins the venue names; any other shows as its address, never a name it claims. */
 const KNOWN = {
@@ -90,6 +98,8 @@ export function decodePosition(buf) {
   if (!isKind(buf, PERSONAL_POSITION)) return null;
   const d = view(buf);
   return {
+    // The one NFT that controls the position: the document names it, so a copy pointing here cannot pass for it.
+    nftMint: base58(buf.subarray(PERSONAL_POSITION.nftMint, PERSONAL_POSITION.nftMint + 32)),
     poolId: base58(buf.subarray(PERSONAL_POSITION.poolId, PERSONAL_POSITION.poolId + 32)),
     tickLower: d.getInt32(PERSONAL_POSITION.tickLower, true),
     tickUpper: d.getInt32(PERSONAL_POSITION.tickUpper, true),
@@ -112,10 +122,21 @@ export function decodePool(buf) {
   };
 }
 
-/** The fee tier's swap fee, per million, or null when the bytes are not a fee tier. */
-export function decodeTradeFeeRate(buf) {
+/**
+ * The fee tier's rates (per million: the swap fee of each swap, the protocol and fund parts
+ * of that fee) and the two wallets that collect those parts, or null when the bytes are not
+ * a fee tier.
+ */
+export function decodeFeeTier(buf) {
   if (!isKind(buf, AMM_CONFIG)) return null;
-  return view(buf).getUint32(AMM_CONFIG.tradeFeeRate, true);
+  const d = view(buf);
+  return {
+    tradeFeeRate: d.getUint32(AMM_CONFIG.tradeFeeRate, true),
+    protocolFeeRate: d.getUint32(AMM_CONFIG.protocolFeeRate, true),
+    fundFeeRate: d.getUint32(AMM_CONFIG.fundFeeRate, true),
+    owner: base58(buf.subarray(AMM_CONFIG.owner, AMM_CONFIG.owner + 32)),
+    fundOwner: base58(buf.subarray(AMM_CONFIG.fundOwner, AMM_CONFIG.fundOwner + 32)),
+  };
 }
 
 const shortAddress = (a) => `${a.slice(0, 4)}…${a.slice(-4)}`;
@@ -138,23 +159,66 @@ export function feePercent(rate) {
   return rest ? `${whole}.${rest}%` : `${whole}%`;
 }
 
+/** Per million as a percent, to four decimals of a percent: 8400 = "0.84%", 104000 = "10.4%". */
+const perMillion = (rate) => `${Number((rate / 10000).toFixed(4))}%`;
+
+/**
+ * How the swap fee is shared, said the way the site's Range tab says it (clmm/venueEarns.ts):
+ * what positions in range share, what the venue keeps and where it goes. Every figure and
+ * wallet is the tier's own. A part collected by any wallet but the agreed one is `stray`.
+ */
+function feeShare(tier) {
+  const venue = tier.protocolFeeRate + tier.fundFeeRate;
+  const strays = [
+    ...(tier.protocolFeeRate > 0 && tier.owner !== TEAM_VAULT ? [{ part: "the team’s part", address: tier.owner }] : []),
+    ...(tier.fundFeeRate > 0 && tier.fundOwner !== ISLAND_WORKSHOP && tier.fundOwner !== TEAM_VAULT ? [{ part: "the island’s part", address: tier.fundOwner }] : []),
+  ];
+  const where =
+    strays.length > 0
+      ? ""
+      : tier.fundFeeRate > 0 && tier.fundOwner === ISLAND_WORKSHOP
+        ? `, ${perMillion(tier.protocolFeeRate)} to the team’s shared wallet and ${perMillion(tier.fundFeeRate)} to the island’s Workshop`
+        : ", all to the team’s shared wallet";
+  return {
+    fee: feePercent(tier.tradeFeeRate),
+    lpOfFee: perMillion(1_000_000 - venue),
+    lpOfSwap: perMillion((tier.tradeFeeRate * (1_000_000 - venue)) / 1_000_000),
+    venueOfFee: perMillion(venue),
+    venueOfSwap: perMillion((tier.tradeFeeRate * venue) / 1_000_000),
+    where,
+    warning:
+      strays.length > 0
+        ? `WARNING: part of the venue’s cut of each swap goes somewhere other than the agreed split (the team’s shared wallet and the island’s Workshop): ${strays.map((x) => `${x.part} to ${x.address}`).join(" and ")}. `
+        : "",
+  };
+}
+
 /** The metadata document a wallet reads, from the three accounts. */
-export function buildPositionMetadata({ id, position, pool, tradeFeeRate }) {
+export function buildPositionMetadata({ id, position, pool, tier }) {
   const a = coinName(pool.mint0);
   const b = coinName(pool.mint1);
   const low = priceAtTick(position.tickLower, pool.decimals0, pool.decimals1);
   const high = priceAtTick(position.tickUpper, pool.decimals0, pool.decimals1);
   const range = low && high ? `from ${low} to ${high} ${b} per ${a}` : `between ticks ${position.tickLower} and ${position.tickUpper}`;
-  const fee = feePercent(tradeFeeRate);
+  const share = feeShare(tier);
   const description =
+    share.warning +
     `A range position in a memetics.finance pool of ${a} and ${b}, ${range}. ` +
-    `It earns its share of the pool's ${fee} swap fee only while the price is inside that range; outside it, it earns nothing. ` +
-    `Whoever holds this NFT can take its coins and fees out.`;
+    `Each swap through its range pays a ${share.fee} fee: positions in range share ${share.lpOfFee} of it (${share.lpOfSwap} of the swap), split by their liquidity there, and the venue keeps ${share.venueOfFee} (${share.venueOfSwap} of the swap)${share.where}. ` +
+    `It earns only while the price is inside its range; outside it, it earns nothing. ` +
+    `Only the NFT with mint ${position.nftMint} controls this position; any other NFT showing this page is a copy.`;
   const attributes = [
+    { trait_type: "NFT mint", value: position.nftMint },
     { trait_type: "Pool", value: position.poolId },
     { trait_type: "Token 0", value: pool.mint0 },
     { trait_type: "Token 1", value: pool.mint1 },
-    { trait_type: "Swap fee", value: fee },
+    { trait_type: "Swap fee", value: share.fee },
+    { trait_type: "Positions’ share of the fee", value: share.lpOfFee },
+    { trait_type: "Venue’s share of the fee", value: share.venueOfFee },
+    { trait_type: "To the team’s shared wallet", value: perMillion(tier.protocolFeeRate) },
+    { trait_type: "To the island’s Workshop", value: tier.fundOwner === ISLAND_WORKSHOP ? perMillion(tier.fundFeeRate) : "0%" },
+    { trait_type: "Fee tier owner", value: tier.owner },
+    { trait_type: "Fund owner", value: tier.fundOwner },
     { trait_type: "Lowest price", value: low ? `${low} ${b} per ${a}` : "unread" },
     { trait_type: "Highest price", value: high ? `${high} ${b} per ${a}` : "unread" },
     { trait_type: "Lower tick", value: position.tickLower },
@@ -245,14 +309,21 @@ export async function handlePosition(req, res, { programId = RANGE_PROGRAM_ID } 
     res.setHeader("Cache-Control", "no-store");
     return res.status(405).json({ error: "Method not allowed" });
   }
-  const underCap = await checkGlobalLimit(res, { limit: Number(process.env.POSITION_GLOBAL_RPM) || 600, windowSec: 60, identifier: "position" });
-  if (!underCap) return;
-
+  // A malformed link costs nothing: it is refused before any limiter is charged.
   const id = resolveId(req.query);
   if (!id) {
     res.setHeader("Cache-Control", "no-store");
     return res.status(400).json({ error: "Malformed position link" });
   }
+  // Each caller has its own bucket ahead of the shared breaker, so one caller cannot spend the
+  // breaker every wallet's read (and the deploy page's 404 check) needs. A refusal is never cached.
+  res.setHeader("Cache-Control", "no-store");
+  const perCaller = await checkRateLimit(req, res, { limit: Number(process.env.POSITION_IP_RPM) || 60, windowSec: 60, identifier: "position-ip" });
+  if (!perCaller) return;
+  // One caller's counts must not ride on a document the edge keeps for everyone.
+  for (const h of ["X-RateLimit-Limit", "X-RateLimit-Remaining", "X-RateLimit-Reset"]) res.removeHeader?.(h);
+  const underCap = await checkGlobalLimit(res, { limit: Number(process.env.POSITION_GLOBAL_RPM) || 600, windowSec: 60, identifier: "position" });
+  if (!underCap) return;
   if (programId === PLACEHOLDER_PROGRAM_ID) {
     return notHere(res, "Range pools are not open yet, so there is no position at this address.", 60, programId);
   }
@@ -268,11 +339,11 @@ export async function handlePosition(req, res, { programId = RANGE_PROGRAM_ID } 
     const pool = poolAccount?.owner === programId ? decodePool(poolAccount.data) : null;
     if (!pool) throw new Error("the position's pool did not read");
     const [configAccount] = await getAccounts([pool.ammConfig]);
-    const tradeFeeRate = configAccount?.owner === programId ? decodeTradeFeeRate(configAccount.data) : null;
-    if (tradeFeeRate === null) throw new Error("the pool's fee tier did not read");
+    const tier = configAccount?.owner === programId ? decodeFeeTier(configAccount.data) : null;
+    if (tier === null) throw new Error("the pool's fee tier did not read");
 
     res.setHeader("Cache-Control", "s-maxage=60, stale-while-revalidate=600");
-    return res.status(200).json(buildPositionMetadata({ id, position, pool, tradeFeeRate }));
+    return res.status(200).json(buildPositionMetadata({ id, position, pool, tier }));
   } catch (err) {
     console.error("position:", logSafe(err));
     res.setHeader("Cache-Control", "no-store");

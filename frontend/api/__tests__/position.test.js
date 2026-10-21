@@ -7,6 +7,7 @@
 // for a read that merely failed (a wallet keeps a 404).
 
 import { describe, it, expect, vi, afterEach } from "vitest";
+import { PublicKey } from "@solana/web3.js";
 import { createHash, randomBytes } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
@@ -17,6 +18,9 @@ vi.mock("../_lib/ratelimit.js", () => ({
   checkGlobalLimit: vi.fn(async () => true),
 }));
 
+import { checkGlobalLimit, checkRateLimit } from "../_lib/ratelimit.js";
+import { PLATFORM_TREASURY_VAULT } from "../../src/lib/launcher/solana/curve/program";
+import { WORKSHOP_WALLET } from "../../src/lib/launcher/solana/write/plant";
 import {
   AMM_CONFIG,
   PERSONAL_POSITION,
@@ -29,8 +33,10 @@ import {
   base58,
   buildPositionMetadata,
   decodePool,
+  decodeFeeTier,
   decodePosition,
-  decodeTradeFeeRate,
+  ISLAND_WORKSHOP,
+  TEAM_VAULT,
   feePercent,
   handlePosition,
   isAddress,
@@ -50,6 +56,9 @@ function mockRes() {
     setHeader(k, v) {
       this.headers[k] = v;
     },
+    removeHeader(k) {
+      delete this.headers[k];
+    },
     status(c) {
       this.statusCode = c;
       return this;
@@ -67,6 +76,7 @@ const req = (query, method = "GET") => ({ method, headers: {}, query });
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  vi.clearAllMocks();
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -162,15 +172,17 @@ describe("held to the program source", () => {
 
   it("PersonalPositionState, PoolState and AmmConfig layouts", () => {
     const pos = offsets("states/personal_position.rs", "PersonalPositionState", 8);
-    expect([pos.pool_id, pos.tick_lower_index, pos.tick_upper_index, pos.liquidity, pos.total]).toEqual([
-      PERSONAL_POSITION.poolId, PERSONAL_POSITION.tickLower, PERSONAL_POSITION.tickUpper, PERSONAL_POSITION.liquidity, PERSONAL_POSITION.len,
+    expect([pos.nft_mint, pos.pool_id, pos.tick_lower_index, pos.tick_upper_index, pos.liquidity, pos.total]).toEqual([
+      PERSONAL_POSITION.nftMint, PERSONAL_POSITION.poolId, PERSONAL_POSITION.tickLower, PERSONAL_POSITION.tickUpper, PERSONAL_POSITION.liquidity, PERSONAL_POSITION.len,
     ]);
     const pool = offsets("states/pool.rs", "PoolState", 8);
     expect([pool.amm_config, pool.token_mint_0, pool.token_mint_1, pool.mint_decimals_0, pool.mint_decimals_1, pool.tick_spacing, pool.total]).toEqual([
       POOL_STATE.ammConfig, POOL_STATE.mint0, POOL_STATE.mint1, POOL_STATE.decimals0, POOL_STATE.decimals1, POOL_STATE.tickSpacing, POOL_STATE.len,
     ]);
     const cfg = offsets("states/config.rs", "AmmConfig", 8);
-    expect([cfg.trade_fee_rate, cfg.total]).toEqual([AMM_CONFIG.tradeFeeRate, AMM_CONFIG.len]);
+    expect([cfg.owner, cfg.protocol_fee_rate, cfg.trade_fee_rate, cfg.fund_fee_rate, cfg.fund_owner, cfg.total]).toEqual([
+      AMM_CONFIG.owner, AMM_CONFIG.protocolFeeRate, AMM_CONFIG.tradeFeeRate, AMM_CONFIG.fundFeeRate, AMM_CONFIG.fundOwner, AMM_CONFIG.len,
+    ]);
     expect(PERSONAL_POSITION.disc).toEqual(disc("PersonalPositionState"));
     expect(POOL_STATE.disc).toEqual(disc("PoolState"));
     expect(AMM_CONFIG.disc).toEqual(disc("AmmConfig"));
@@ -184,7 +196,19 @@ const bytes = (gz) => Uint8Array.from(gunzipSync(Buffer.from(gz, "base64")));
 describe("real accounts of the live range program whose layout the venue's copy shares", () => {
   const position = decodePosition(bytes(FIX.position.gz));
   const pool = decodePool(bytes(FIX.pool.gz));
-  const fee = decodeTradeFeeRate(bytes(FIX.config.gz));
+  const tier = decodeFeeTier(bytes(FIX.config.gz));
+  const fee = tier.tradeFeeRate;
+  const nftMintOf = (buf) => new PublicKey(buf.subarray(9, 41)).toBase58();
+  /** The fixture's tier with its rates and wallets set to the island's agreed split. */
+  const agreed = () => {
+    const b = Uint8Array.from(bytes(FIX.config.gz));
+    const v = new DataView(b.buffer);
+    b.set(PLATFORM_TREASURY_VAULT.toBytes(), 11);
+    v.setUint32(43, 104_000, true);
+    v.setUint32(53, 56_000, true);
+    b.set(WORKSHOP_WALLET.toBytes(), 61);
+    return decodeFeeTier(b);
+  };
 
   it("decode, and agree with each other", () => {
     expect(position.poolId).toBe(FIX.pool.address);
@@ -198,12 +222,12 @@ describe("real accounts of the live range program whose layout the venue's copy 
   });
 
   it("make a document with the pool, the coins, the range in prices and the fee", () => {
-    const doc = buildPositionMetadata({ id: FIX.position.address, position, pool, tradeFeeRate: fee });
+    const doc = buildPositionMetadata({ id: FIX.position.address, position, pool, tier: agreed() });
     expect(doc.name).toBe(POSITION_NAME);
     expect(doc.symbol).toBe(POSITION_SYMBOL);
     expect(doc.image).toBe(POSITION_IMAGE);
     expect(doc.description).toContain("pool of SOL and 98kf…pump, from ");
-    expect(doc.description).toContain("1% swap fee");
+    expect(doc.description).toContain("pays a 1% fee");
     expect(doc.description).toContain("outside it, it earns nothing");
     expect(doc.description).not.toMatch(/—/);
     const attr = Object.fromEntries(doc.attributes.map((a) => [a.trait_type, a.value]));
@@ -212,6 +236,40 @@ describe("real accounts of the live range program whose layout the venue's copy 
     expect(attr.Liquidity).toBe(position.liquidity.toString());
     expect(attr["Lowest price"]).toMatch(/^[0-9.e+-]+ 98kf…pump per SOL$/);
     expect(Number(attr["Lowest price"].split(" ")[0])).toBeLessThan(Number(attr["Highest price"].split(" ")[0]));
+  });
+
+  it("names the one NFT that controls the position, so a copy pointing here cannot pass for it", () => {
+    const mint = nftMintOf(bytes(FIX.position.gz));
+    expect(position.nftMint).toBe(mint);
+    const doc = buildPositionMetadata({ id: FIX.position.address, position, pool, tier: agreed() });
+    const attr = Object.fromEntries(doc.attributes.map((a) => [a.trait_type, a.value]));
+    expect(attr["NFT mint"]).toBe(mint);
+    expect(doc.description).toContain(`Only the NFT with mint ${mint} controls this position; any other NFT showing this page is a copy.`);
+    expect(doc.description).not.toContain("Whoever holds this NFT");
+  });
+
+  it("says how positions earn and how the venue earns, with the basis, from the tier's own rates and wallets", () => {
+    const doc = buildPositionMetadata({ id: FIX.position.address, position, pool, tier: agreed() });
+    expect(doc.description).toContain(
+      "Each swap through its range pays a 1% fee: positions in range share 84% of it (0.84% of the swap), split by their liquidity there, and the venue keeps 16% (0.16% of the swap), 10.4% to the team’s shared wallet and 5.6% to the island’s Workshop.",
+    );
+    expect(doc.description).not.toMatch(/WARNING/);
+    const attr = Object.fromEntries(doc.attributes.map((a) => [a.trait_type, a.value]));
+    expect([attr["Positions’ share of the fee"], attr["Venue’s share of the fee"], attr["To the team’s shared wallet"], attr["To the island’s Workshop"]]).toEqual(["84%", "16%", "10.4%", "5.6%"]);
+    expect([attr["Fee tier owner"], attr["Fund owner"]]).toEqual([TEAM_VAULT, ISLAND_WORKSHOP]);
+  });
+
+  it("a tier that pays any other wallet is said first, as a warning naming it", () => {
+    // The live fixture is Raydium's own tier: both its wallets are Raydium's.
+    const doc = buildPositionMetadata({ id: FIX.position.address, position, pool, tier });
+    expect(doc.description.startsWith("WARNING: part of the venue’s cut of each swap goes somewhere other than the agreed split")).toBe(true);
+    expect(doc.description).toContain(tier.owner);
+    expect(doc.description).toContain(tier.fundOwner);
+  });
+
+  it("the agreed wallets are the site's own", () => {
+    expect(TEAM_VAULT).toBe(PLATFORM_TREASURY_VAULT.toBase58());
+    expect(ISLAND_WORKSHOP).toBe(WORKSHOP_WALLET.toBase58());
   });
 });
 
@@ -328,6 +386,43 @@ describe("the handler", () => {
     const res2 = mockRes();
     await handlePosition(req({ id }), res2, { programId: OURS });
     expect(res2.statusCode).toBe(503);
+  });
+
+  it("a malformed link is a 400 before any limiter is charged", async () => {
+    const res = mockRes();
+    await handlePosition(req({ id: "not-an-address" }), res, { programId: OURS });
+    expect(res.statusCode).toBe(400);
+    expect(checkRateLimit).not.toHaveBeenCalled();
+    expect(checkGlobalLimit).not.toHaveBeenCalled();
+  });
+
+  it("each caller has its own bucket ahead of the shared breaker: one caller spent out cannot drain it", async () => {
+    const fetch = stubAccounts({});
+    vi.mocked(checkRateLimit).mockImplementationOnce(async (_req, r) => {
+      r.status(429).json({ error: "Too many requests" });
+      return false;
+    });
+    const res = mockRes();
+    await handlePosition(req({ id }), res, { programId: OURS });
+    expect(res.statusCode).toBe(429);
+    expect(vi.mocked(checkRateLimit).mock.calls[0][2]).toMatchObject({ identifier: "position-ip", windowSec: 60 });
+    expect(checkGlobalLimit).not.toHaveBeenCalled();
+    expect(fetch).not.toHaveBeenCalled();
+    expect(res.headers["Cache-Control"]).toBe("no-store");
+  });
+
+  it("a caller's rate headers never ride on a document the edge keeps for others", async () => {
+    stubAccounts(table());
+    vi.mocked(checkRateLimit).mockImplementationOnce(async (_req, r) => {
+      r.setHeader("X-RateLimit-Limit", "60");
+      r.setHeader("X-RateLimit-Remaining", "59");
+      r.setHeader("X-RateLimit-Reset", "1");
+      return true;
+    });
+    const res = mockRes();
+    await handlePosition(req({ id }), res, { programId: OURS });
+    expect(res.statusCode).toBe(200);
+    expect(Object.keys(res.headers).filter((h) => h.startsWith("X-RateLimit"))).toEqual([]);
   });
 
   it("refuses a malformed link, other methods, and answers a preflight", async () => {
