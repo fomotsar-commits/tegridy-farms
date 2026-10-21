@@ -105,11 +105,8 @@ export interface RouteSpec {
 export const ROUTE_MOUNT_TIMEOUT = 20_000;
 
 /**
- * The Tradermigos splash gets its own, larger budget. It is not a lazy chunk
- * behind Suspense — it is a full-viewport animated intro that runs a loading
- * sequence before it reaches `ready`, and on WebKit with nine workers sharing
- * one preview server it has been measured past 20s. This is the one surface in
- * the app whose mount time is a product decision rather than a network cost.
+ * The Tradermigos splash and the landing after it get a larger budget: on WebKit
+ * with nine workers sharing one preview server they have been measured past 20s.
  */
 export const SPLASH_MOUNT_TIMEOUT = 60_000;
 
@@ -183,20 +180,13 @@ export async function waitForQuiescence(
 }
 
 /**
- * `/nakamigos` opens on the Tradermigos splash, a full-viewport gate with no
- * `main` behind it until dismissed. Splash persistence is per-mount by product
- * decision (no sessionStorage flag — see nakamigos/App.jsx), so there is
- * nothing to pre-seed and the gate has to be driven the way a user drives it.
+ * `/nakamigos` as a first visit: the splash plays, leaves by itself within 3.2 s,
+ * and the landing's `main` follows. Never tap it: a tap only skips ahead, and on a
+ * WebKit worker drawing few frames a click's "stable" check outlasts the splash,
+ * then waits on a button that is gone (e2e/nakamigos-splash.spec.ts).
  */
 export async function gotoNakamigos(page: Page): Promise<void> {
   await page.goto('/nakamigos');
-  // The splash root is itself the control (role="button", tabIndex 0,
-  // self-focusing). Click it rather than pressing Enter: the "OR PRESS ENTER
-  // TO SKIP" affordance is desktop-only (`!isMobile` in SplashScreen.jsx), so
-  // a keypress path passes on chromium and times out on iPhone and iPad.
-  const splash = page.getByRole('button', { name: /tradermigos/i }).first();
-  await splash.waitFor({ timeout: SPLASH_MOUNT_TIMEOUT });
-  await splash.click();
   await page.locator('main').first().waitFor({ state: 'attached', timeout: SPLASH_MOUNT_TIMEOUT });
   await page.locator('main').first().getByRole('heading', { level: 1 }).waitFor({ timeout: SPLASH_MOUNT_TIMEOUT });
 }

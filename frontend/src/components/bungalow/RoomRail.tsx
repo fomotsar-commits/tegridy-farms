@@ -15,8 +15,9 @@ const FADE = 28;
  * The room's own index: one entry per section its page renders (HomePage.tsx names them, in page
  * order), numbered, the one on screen lit, one tap to each. Under 1440px a strip that stays under
  * the top bar while the cards scroll; from 1440px a rail fixed at the left edge, numbers and rules,
- * with the words from 1700px, where the gutter beside the 1200px column has room for them. A room
- * with one section has no index to show. No art on it: a fixed strip is never an art surface.
+ * with the words from 1700px, where the gutter beside the page column (page-column, index.css) has
+ * room for them at each of its steps. A room with one section has no index to show. No art on it:
+ * a fixed strip is never an art surface.
  */
 export function RoomRail({ stops }: { stops: readonly RoomStop[] }) {
   const ref = useRef<HTMLElement>(null);

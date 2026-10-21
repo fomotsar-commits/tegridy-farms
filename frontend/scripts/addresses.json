@@ -228,10 +228,14 @@
       "id": "squads-multisig",
       "address": "EVGSnRZFWqjCaWR7z2xKbSXnuddY8upevEQK5HFmj6NK",
       "role": "Squads v4 multisig. The intended destination for program upgrade authority and for fee custody.",
-      "custody": "multisig, threshold 2 (read on-chain at data offset 72)",
+      "custody": "multisig, threshold 2 of 2 members (read on-chain at data offset 72), time lock 172,800 s (48 hours) since Squads #14 on 2026-10-19: every vault and config transaction runs at the earliest 48 hours after its second approval. Read at finalized slot 459,251,370 (2026-10-20)",
       "status": "live",
       "expect": {
-        "type": "program-owned"
+        "type": "squads-multisig",
+        "threshold": 2,
+        "members": 2,
+        "timeLock": 172800,
+        "configAuthority": "none"
       }
     },
     {
@@ -429,7 +433,7 @@
       "id": "bayla-ladder-programdata",
       "address": "FormQpVVwmM3Rpyh6qrpCLmMRuPamTvV6vx7VD8yt3Dw",
       "role": "ProgramData account for bayla-ladder — PDA of the BPF upgradeable loader, seeds [program id]. Holds the deployed bytecode and the upgrade authority. THIS is the account that answers 'is the ladder live', because `solana program close` deletes it and leaves the program stub executable-flagged.",
-      "custody": "UPGRADE AUTHORITY IS squads-vault `GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd`, the vault of the Squads multisig (threshold 2, time_lock 0). Read at finalized slot 455,314,128 (2026-10-10): option byte 1, authority GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd. HISTORY: from the deploy on 2026-09-20 until 2026-09-30 it was `Fu7mNAv67sRbKynEp7gpPLaaEGHcE2R5Sq89AMTEtTb6` (bayla-ladder-deployer), a single operator-held key, and this row carried a red mark saying the handover had not happened; that was the read at finalized slot 448,901,426. The deployer handed it over itself with the loader's SetAuthority at slot 451,986,389 (2026-09-30T14:05:22Z). A Squads vault cannot hand it on by accident: any further change needs two of the multisig's members.",
+      "custody": "UPGRADE AUTHORITY IS squads-vault `GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd`, the vault of the Squads multisig (threshold 2; time_lock 0 at this read, 172,800 s since Squads #14 on 2026-10-19). Read at finalized slot 455,314,128 (2026-10-10): option byte 1, authority GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd. HISTORY: from the deploy on 2026-09-20 until 2026-09-30 it was `Fu7mNAv67sRbKynEp7gpPLaaEGHcE2R5Sq89AMTEtTb6` (bayla-ladder-deployer), a single operator-held key, and this row carried a red mark saying the handover had not happened; that was the read at finalized slot 448,901,426. The deployer handed it over itself with the loader's SetAuthority at slot 451,986,389 (2026-09-30T14:05:22Z). A Squads vault cannot hand it on by accident: any further change needs two of the multisig's members.",
       "status": "LIVE. 515,397 bytes, 2,618,867,000 lamports of rent, last deployed slot 448,851,661; all three unchanged at finalized slot 455,314,128 (2026-10-10), so the program has not been upgraded since its deploy. `expect.type: program-owned` is the tripwire the closed programs above needed and did not have: if this program is ever closed, the account goes to value:null and the chain read fails with 'registry expects this account to exist and it DOES NOT' rather than passing on a stale executable flag.",
       "expect": {
         "type": "program-owned"
@@ -479,7 +483,7 @@
       "id": "bayla-ladder-deployer",
       "address": "Fu7mNAv67sRbKynEp7gpPLaaEGHcE2R5Sq89AMTEtTb6",
       "role": "Deployer of bayla-ladder. It holds NEITHER of the ladder's authorities now. From the deploy on 2026-09-20 until 2026-09-30 it held both: the ProgramData upgrade authority AND the pool's `authority` field (set_deposit_cap, notify_reward, set_degraded, the authority handover itself); both are squads-vault today, and so is the IDL authority. WHAT IT STILL HOLDS, read at finalized slot 455,316,026 (2026-10-10): the `authority` field of the five Streamflow stake pools registered here (lighthouse-bobo, lighthouse-soy, lighthouse-brainlet, lighthouse-rizz, lighthouse-bayla), which it took over from GCCSLE7dBPMijj5F4pDxe592mcGAK83N84R2w5HPauV9 on 2026-09-21T09:21:46Z (slot 449,013,404). Compiled into the build as the only key that could call initialize_pool. Rotated 2026-09-20 away from GCCSLE7dBPMijj5F4pDxe592mcGAK83N84R2w5HPauV9, which was also a devnet faucet hot key in a cloud-synced folder.",
-      "custody": "single key, operator-held, generated outside any cloud-synced folder. BOTH LADDER AUTHORITIES HAVE MOVED to squads-vault GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd (multisig EVGSnRZFWqjCaWR7z2xKbSXnuddY8upevEQK5HFmj6NK, threshold 2, time_lock 0): pool.authority on 2026-09-30T06:31:33Z (slot 451,884,482), and the upgrade authority with the IDL authority on 2026-09-30T14:05:22Z (slot 451,986,389). Read at finalized slots 455,314,128 to 455,314,130 (2026-10-10): this key is on none of the three, and pool.pendingAuthority is unset. It can no longer upgrade the ladder or change its pool. It is still one key over the five Streamflow pools named in the role. HISTORY: until 2026-10-10 this row said, with a red mark, that neither move had happened and that one key could upgrade the program; that was the chain at slot 448,901,426 (2026-09-20).",
+      "custody": "single key, operator-held, generated outside any cloud-synced folder. BOTH LADDER AUTHORITIES HAVE MOVED to squads-vault GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd (multisig EVGSnRZFWqjCaWR7z2xKbSXnuddY8upevEQK5HFmj6NK, threshold 2; time_lock 0 until Squads #14 set 172,800 s on 2026-10-19): pool.authority on 2026-09-30T06:31:33Z (slot 451,884,482), and the upgrade authority with the IDL authority on 2026-09-30T14:05:22Z (slot 451,986,389). Read at finalized slots 455,314,128 to 455,314,130 (2026-10-10): this key is on none of the three, and pool.pendingAuthority is unset. It can no longer upgrade the ladder or change its pool. It is still one key over the five Streamflow pools named in the role. HISTORY: until 2026-10-10 this row said, with a red mark, that neither move had happened and that one key could upgrade the program; that was the chain at slot 448,901,426 (2026-09-20).",
       "status": "live and funded: 180,150,400 lamports (0.1801504 SOL) at finalized slot 455,314,130 (2026-10-10), system-owned; it was 211,679,240 on 2026-09-20. Its BAYLA ATA is DsGFcoYREF44GJxYofDKJXbxhY2oEMoAewELUMn89Wqc (Token-2022, derived and matched), which is where the reward funding came from; that ATA is deliberately NOT a separate row, because nothing in this repo references it and rule 4 reaches only the files it names.",
       "expect": {
         "type": "wallet",
@@ -2013,6 +2017,9 @@
     }
   ],
   "robinhood": [
+    {
+      "$comment": "ROOM LADDER ON ROBINHOOD CHAIN: PREPARED, NOT DEPLOYED (2026-10-18). Owner: the room ladders keep the ladder's law (an early exit costs the time left on the lock over four years, capped at 75%, as the BAYLA ladder charges it) on Ethereum, Base and Robinhood, 'even though we wont be using it right now'. No room coin lives on this chain and no ladder exists here; there is NO address, and nothing in this section may be read as a live ladder. What is ready: contracts/script/DeployLighthouseLadder.s.sol accepts chain 4663 with the ladder's law (L-INV-13 to 16; test/vendor/DeployLighthouseLadderGate.t.sol deploys there), contracts/script/ladders-75.sh takes ROBINHOOD_STAKING_TOKEN and deploys one pool with the fee-remittance Safe below as rewardsDistribution, and docs/LADDER_EXIT_75_REDEPLOY.md has the phases. Rehearsed 2026-10-18 on an anvil fork of 4663 with this chain's WETH as a stand-in token. The notifier is l2-fee-remittance-safe 0xfc5D5018E557941A3BB7Ff057d1B0c2eCC09fbf1, which on 4663 reads 171 bytes of code, owners 0x14898258122C0740106391E6e8E4F17F3b6d456E and 0x28d7CB2F4D73C2750Ba0055c771871fec79260f8, threshold 2, nonce 0 (the same Safe as Base, never executed here). The ladder reads no sequencer feed. The day a room lives here: deploy with that command, read back MAX_EARLY_EXIT_PENALTY_BPS() == 7500 and penaltyFor(1e18, now + one year) == 0.25e18 on robinhoodchain.blockscout.com, then register the pool as ladder-<room> with its broadcast. No veTOWELI on any L2, ever: this is only the room ladder."
+    },
     {
       "id": "attested-sequencer-uptime-feed",
       "address": "0x12a249A027AA7DdF184E824b4bb63ba031A39fEC",

@@ -34,7 +34,11 @@ const PriceChart = lazy(() =>
  *    so the strip can never imply a liveness it doesn't have;
  *  - the source is named and linked, so any figure can be checked.
  */
-export function BungalowMarket({ bungalow }: { bungalow: Bungalow }) {
+/** `wideGrid`: the card sits in a room's wide-screen grid (HomePage.tsx), eight of twelve columns
+ *  from 1536px, where six tiles abreast are too tight until 1920px. Elsewhere it is as wide as the
+ *  page (the dashboard panels, the door landing) and its tiles follow the window as they always did.
+ *  120rem, not 1920px: Tailwind orders min-width variants only in one unit, and 2xl is 96rem. */
+export function BungalowMarket({ bungalow, wideGrid = false }: { bungalow: Bungalow; wideGrid?: boolean }) {
   const market = bungalow.market ?? null;
   const { market: data, isLoading, error, freshness, refresh } = usePoolMarket(
     market?.network ?? null,
@@ -75,7 +79,7 @@ export function BungalowMarket({ bungalow }: { bungalow: Bungalow }) {
       </div>
 
       {/* Stat strip */}
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-5">
+      <div className={`grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-5${wideGrid ? ' 2xl:grid-cols-3 min-[120rem]:grid-cols-6' : ''}`}>
         <Stat label="Price" value={fmtUsd(data?.priceUsd ?? null)} />
         <Stat
           label="24h"
