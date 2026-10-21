@@ -26,6 +26,8 @@ import {
   PERSONAL_POSITION,
   PLACEHOLDER_PROGRAM_ID,
   POOL_STATE,
+  MAX_FEE_RATE,
+  perMillion,
   POSITION_IMAGE,
   POSITION_NAME,
   POSITION_SYMBOL,
@@ -176,9 +178,12 @@ describe("held to the program source", () => {
       PERSONAL_POSITION.nftMint, PERSONAL_POSITION.poolId, PERSONAL_POSITION.tickLower, PERSONAL_POSITION.tickUpper, PERSONAL_POSITION.liquidity, PERSONAL_POSITION.len,
     ]);
     const pool = offsets("states/pool.rs", "PoolState", 8);
-    expect([pool.amm_config, pool.token_mint_0, pool.token_mint_1, pool.mint_decimals_0, pool.mint_decimals_1, pool.tick_spacing, pool.total]).toEqual([
-      POOL_STATE.ammConfig, POOL_STATE.mint0, POOL_STATE.mint1, POOL_STATE.decimals0, POOL_STATE.decimals1, POOL_STATE.tickSpacing, POOL_STATE.len,
+    expect([pool.amm_config, pool.token_mint_0, pool.token_mint_1, pool.mint_decimals_0, pool.mint_decimals_1, pool.tick_spacing, pool.dynamic_fee_info, pool.total]).toEqual([
+      POOL_STATE.ammConfig, POOL_STATE.mint0, POOL_STATE.mint1, POOL_STATE.decimals0, POOL_STATE.decimals1, POOL_STATE.tickSpacing, POOL_STATE.dynamicFeeInfo, POOL_STATE.len,
     ]);
+    expect(POOL_STATE.dynamicFeeInfoLen).toBe(80);
+    // The fee ceiling the page says for a dynamic fee is the program's own.
+    expect(rust("states/pool_fee.rs")).toContain(`pub const MAX_FEE_RATE_NUMERATOR: u32 = ${MAX_FEE_RATE.toLocaleString("en-US").replace(/,/g, "_")};`);
     const cfg = offsets("states/config.rs", "AmmConfig", 8);
     expect([cfg.owner, cfg.protocol_fee_rate, cfg.trade_fee_rate, cfg.fund_fee_rate, cfg.fund_owner, cfg.total]).toEqual([
       AMM_CONFIG.owner, AMM_CONFIG.protocolFeeRate, AMM_CONFIG.tradeFeeRate, AMM_CONFIG.fundFeeRate, AMM_CONFIG.fundOwner, AMM_CONFIG.len,
@@ -283,6 +288,26 @@ describe("real accounts of the live range program whose layout the venue's copy 
     expect(doc.description).not.toContain("all to the team");
     const attr = attrsOf(doc);
     expect([attr["To the team’s shared wallet"], attr["To the island’s Workshop"]]).toEqual(["16% of the fee (0.16% of the swap)", "0% of the fee (0% of the swap)"]);
+  });
+
+  it("a pool with a dynamic fee pays the tier's rate and more: every share of the swap is said as a floor, with the program's ceiling", () => {
+    const b = Uint8Array.from(bytes(FIX.pool.gz));
+    b[POOL_STATE.dynamicFeeInfo + 6] = 1;
+    const dynamicPool = decodePool(b);
+    expect([pool.dynamicFee, dynamicPool.dynamicFee]).toEqual([false, true]);
+    const doc = buildPositionMetadata({ id: FIX.position.address, position, pool: dynamicPool, tier: agreed() });
+    expect(doc.description).toContain(
+      "Each swap through its range pays a fee of at least 1% (more while the price moves fast, at most 4%): positions in range share 84% of it (at least 0.84% of the swap), split by their liquidity there, and the venue keeps 16% (at least 0.16% of the swap): 10.4% of the fee (at least 0.104% of the swap) to the team’s shared wallet,",
+    );
+    const attr = attrsOf(doc);
+    expect([attr["Swap fee"], attr["To the island’s Workshop"]]).toEqual(["at least 1%, at most 4%", "5.6% of the fee (at least 0.056% of the swap)"]);
+    expect(attrsOf(docFor(agreed()))["Swap fee"]).toBe("1%");
+  });
+
+  it("a real share too small for four decimals of a percent is said as under that, never as 0%", () => {
+    expect([perMillion(0), perMillion(1), perMillion(0.01), perMillion(8_400)]).toEqual(["0%", "0.0001%", "<0.0001%", "0.84%"]);
+    const doc = docFor(tierWith({ protocol: 1 }));
+    expect(doc.description).toContain("0.0001% of the fee (<0.0001% of the swap) to the team’s shared wallet");
   });
 
   it("the agreed wallets at other rates are not the agreed split either", () => {

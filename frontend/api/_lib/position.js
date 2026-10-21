@@ -37,7 +37,10 @@ const RPC_TIMEOUT_MS = 6000;
 
 /** Account layouts, recomputed from the program's structs by position.test.js. */
 export const PERSONAL_POSITION = { len: 281, disc: [70, 111, 150, 126, 230, 15, 25, 117], nftMint: 9, poolId: 41, tickLower: 73, tickUpper: 77, liquidity: 81 };
-export const POOL_STATE = { len: 1544, disc: [247, 237, 227, 245, 215, 195, 222, 70], ammConfig: 9, mint0: 73, mint1: 105, decimals0: 233, decimals1: 234, tickSpacing: 235 };
+export const POOL_STATE = { len: 1544, disc: [247, 237, 227, 245, 215, 195, 222, 70], ammConfig: 9, mint0: 73, mint1: 105, decimals0: 233, decimals1: 234, tickSpacing: 235, dynamicFeeInfo: 1096, dynamicFeeInfoLen: 80 };
+
+/** The most a swap's fee can be, base and dynamic together: the program's MAX_FEE_RATE_NUMERATOR (pool_fee.rs, held by position.test.js). */
+export const MAX_FEE_RATE = 40_000;
 export const AMM_CONFIG = { len: 117, disc: [218, 244, 33, 104, 203, 203, 43, 111], owner: 11, protocolFeeRate: 43, tradeFeeRate: 47, fundFeeRate: 53, fundOwner: 61 };
 
 /**
@@ -122,6 +125,8 @@ export function decodePool(buf) {
     decimals0: buf[POOL_STATE.decimals0],
     decimals1: buf[POOL_STATE.decimals1],
     tickSpacing: d.getUint16(POOL_STATE.tickSpacing, true),
+    // The program charges a dynamic fee on top of the tier's rate when this is set (all zero = none).
+    dynamicFee: buf.subarray(POOL_STATE.dynamicFeeInfo, POOL_STATE.dynamicFeeInfo + POOL_STATE.dynamicFeeInfoLen).some((b) => b !== 0),
   };
 }
 
@@ -162,8 +167,11 @@ export function feePercent(rate) {
   return rest ? `${whole}.${rest}%` : `${whole}%`;
 }
 
-/** Per million as a percent, to four decimals of a percent: 8400 = "0.84%", 104000 = "10.4%". */
-const perMillion = (rate) => `${Number((rate / 10000).toFixed(4))}%`;
+/** Per million as a percent, to four decimals of a percent: 8400 = "0.84%", 104000 = "10.4%". A share too small for that is "<0.0001%", never "0%". */
+export const perMillion = (rate) => {
+  const pct = Number((rate / 10000).toFixed(4));
+  return rate > 0 && pct === 0 ? "<0.0001%" : `${pct}%`;
+};
 
 const walletName = (a) => (a === TEAM_VAULT ? "the team’s shared wallet" : a === ISLAND_WORKSHOP ? "the island’s Workshop" : a);
 
@@ -191,16 +199,19 @@ export function isAgreedSplit(tier) {
  * fee and of the swap. Every figure and wallet is the tier's own; anything but the agreed
  * split is said first, as a warning.
  */
-function feeShare(tier) {
+function feeShare(tier, dynamicFee) {
   const venue = tier.protocolFeeRate + tier.fundFeeRate;
-  const ofSwap = (rate) => perMillion((tier.tradeFeeRate * rate) / 1_000_000);
+  // With a dynamic fee the swap pays the tier's rate and more, so each share of the swap is a floor.
+  const floor = dynamicFee ? "at least " : "";
+  const ofSwap = (rate) => `${floor}${perMillion((tier.tradeFeeRate * rate) / 1_000_000)}`;
   const takes = collectors(tier).map((c) => ({ ...c, name: walletName(c.address), ofFee: perMillion(c.rate), ofSwap: ofSwap(c.rate) }));
   const list = takes.map((c) => `${c.ofFee} of the fee (${c.ofSwap} of the swap) to ${c.name}`).join(", ");
   const agreed = isAgreedSplit(tier);
   return {
-    fee: feePercent(tier.tradeFeeRate),
+    fee: dynamicFee ? `fee of at least ${feePercent(tier.tradeFeeRate)} (more while the price moves fast, at most ${feePercent(MAX_FEE_RATE)})` : `${feePercent(tier.tradeFeeRate)} fee`,
+    feeAttribute: dynamicFee ? `at least ${feePercent(tier.tradeFeeRate)}, at most ${feePercent(MAX_FEE_RATE)}` : feePercent(tier.tradeFeeRate),
     lpOfFee: perMillion(1_000_000 - venue),
-    lpOfSwap: perMillion((tier.tradeFeeRate * (1_000_000 - venue)) / 1_000_000),
+    lpOfSwap: ofSwap(1_000_000 - venue),
     venueOfFee: perMillion(venue),
     venueOfSwap: ofSwap(venue),
     takes,
@@ -219,11 +230,11 @@ export function buildPositionMetadata({ id, position, pool, tier }) {
   const low = priceAtTick(position.tickLower, pool.decimals0, pool.decimals1);
   const high = priceAtTick(position.tickUpper, pool.decimals0, pool.decimals1);
   const range = low && high ? `from ${low} to ${high} ${b} per ${a}` : `between ticks ${position.tickLower} and ${position.tickUpper}`;
-  const share = feeShare(tier);
+  const share = feeShare(tier, pool.dynamicFee === true);
   const description =
     share.warning +
     `A range position in a memetics.finance pool of ${a} and ${b}, ${range}. ` +
-    `Each swap through its range pays a ${share.fee} fee: positions in range share ${share.lpOfFee} of it (${share.lpOfSwap} of the swap), split by their liquidity there, and the venue keeps ${share.venueOfFee} (${share.venueOfSwap} of the swap)${share.where}. ` +
+    `Each swap through its range pays a ${share.fee}: positions in range share ${share.lpOfFee} of it (${share.lpOfSwap} of the swap), split by their liquidity there, and the venue keeps ${share.venueOfFee} (${share.venueOfSwap} of the swap)${share.where}. ` +
     `It earns only while the price is inside its range; outside it, it earns nothing. ` +
     `Only the NFT with mint ${position.nftMint} controls this position; any other NFT showing this page is a copy.`;
   const attributes = [
@@ -231,7 +242,7 @@ export function buildPositionMetadata({ id, position, pool, tier }) {
     { trait_type: "Pool", value: position.poolId },
     { trait_type: "Token 0", value: pool.mint0 },
     { trait_type: "Token 1", value: pool.mint1 },
-    { trait_type: "Swap fee", value: share.fee },
+    { trait_type: "Swap fee", value: share.feeAttribute },
     { trait_type: "Positions’ share of the fee", value: share.lpOfFee },
     { trait_type: "Venue’s share of the fee", value: share.venueOfFee },
     { trait_type: "Venue’s cut follows the agreed split", value: share.agreed ? "Yes" : "NO: see the warning" },
@@ -337,8 +348,9 @@ export async function handlePosition(req, res, { programId = RANGE_PROGRAM_ID } 
     res.setHeader("Cache-Control", "no-store");
     return res.status(400).json({ error: "Malformed position link" });
   }
-  // Each caller has its own bucket ahead of the shared breaker, so one caller cannot spend the
-  // breaker every wallet's read (and the deploy page's 404 check) needs. A refusal is never cached.
+  // Each caller (an IPv6 caller by its /64) has its own bucket ahead of the shared breaker. Knobs:
+  // POSITION_IP_RPM (60) and POSITION_GLOBAL_RPM (600); about 10 callers can still fill the breaker,
+  // and a big indexer on one address can meet 429s. Only uncached reads count; refusals are no-store.
   res.setHeader("Cache-Control", "no-store");
   const perCaller = await checkRateLimit(req, res, { limit: Number(process.env.POSITION_IP_RPM) || 60, windowSec: 60, identifier: "position-ip" });
   if (!perCaller) return;
