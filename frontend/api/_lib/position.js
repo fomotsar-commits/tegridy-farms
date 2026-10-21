@@ -173,6 +173,13 @@ export const perMillion = (rate) => {
   return rate > 0 && pct === 0 ? "<0.0001%" : `${pct}%`;
 };
 
+/** A share of each swap (per million of the swap) rounded DOWN to four decimals of a percent: never more than it is. */
+export const perMillionDown = (rate) => {
+  if (rate <= 0) return "0%";
+  const whole = Math.floor(rate);
+  return whole === 0 ? "<0.0001%" : `${whole / 10000}%`;
+};
+
 const walletName = (a) => (a === TEAM_VAULT ? "the team’s shared wallet" : a === ISLAND_WORKSHOP ? "the island’s Workshop" : a);
 
 /**
@@ -201,15 +208,20 @@ export function isAgreedSplit(tier) {
  */
 function feeShare(tier, dynamicFee) {
   const venue = tier.protocolFeeRate + tier.fundFeeRate;
-  // With a dynamic fee the swap pays the tier's rate and more, so each share of the swap is a floor.
-  const floor = dynamicFee ? "at least " : "";
-  const ofSwap = (rate) => `${floor}${perMillion((tier.tradeFeeRate * rate) / 1_000_000)}`;
+  // With a dynamic fee below the program's ceiling the swap pays the tier's rate and more, so
+  // each share of the swap is a floor; a wallet that gets nothing gets nothing either way.
+  const dynamic = dynamicFee && tier.tradeFeeRate < MAX_FEE_RATE;
+  const ofSwap = (rate) => {
+    const v = (tier.tradeFeeRate * rate) / 1_000_000;
+    if (v <= 0 || !dynamic) return perMillionDown(v);
+    return v < 1 ? "more than 0%" : `at least ${perMillionDown(v)}`;
+  };
   const takes = collectors(tier).map((c) => ({ ...c, name: walletName(c.address), ofFee: perMillion(c.rate), ofSwap: ofSwap(c.rate) }));
   const list = takes.map((c) => `${c.ofFee} of the fee (${c.ofSwap} of the swap) to ${c.name}`).join(", ");
   const agreed = isAgreedSplit(tier);
   return {
-    fee: dynamicFee ? `fee of at least ${feePercent(tier.tradeFeeRate)} (more while the price moves fast, at most ${feePercent(MAX_FEE_RATE)})` : `${feePercent(tier.tradeFeeRate)} fee`,
-    feeAttribute: dynamicFee ? `at least ${feePercent(tier.tradeFeeRate)}, at most ${feePercent(MAX_FEE_RATE)}` : feePercent(tier.tradeFeeRate),
+    fee: dynamic ? `fee of at least ${feePercent(tier.tradeFeeRate)} (more while the price moves fast, at most ${feePercent(MAX_FEE_RATE)})` : `${feePercent(tier.tradeFeeRate)} fee`,
+    feeAttribute: dynamic ? `at least ${feePercent(tier.tradeFeeRate)}, at most ${feePercent(MAX_FEE_RATE)}` : feePercent(tier.tradeFeeRate),
     lpOfFee: perMillion(1_000_000 - venue),
     lpOfSwap: ofSwap(1_000_000 - venue),
     venueOfFee: perMillion(venue),
