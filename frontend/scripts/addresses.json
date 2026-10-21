@@ -491,6 +491,69 @@
       }
     },
     {
+      "$comment": "range pools: tegridy-clmm, the venue's copy of Raydium's concentrated-liquidity program (solana/tegridy-clmm, docs/RANGE_POOLS_PLAN.md). Three separate facts, said plainly. REGISTERED: this block. DEPLOYED: yes, on mainnet-beta 2026-10-21, read below. WIRED: NO at this writing (2026-10-21): no page of the site on mvp-launch sends a transaction to it, and it has no fee tier yet, so nobody can open a pool on it. Every address here was DERIVED and matched, not transcribed: the ProgramData is the upgradeable loader's PDA of the program id, each tier is the program's PDA [\"amm_config\", index as u16 big-endian], and the fee-tier proposal's two accounts are Squads v4 PDAs of squads-multisig and transaction index 19. Read on mainnet-beta at finalized slots 459,709,863 to 459,711,538 (2026-10-21)."
+    },
+    {
+      "id": "range-clmm-program",
+      "address": "7ghzbbmq59QEbdweSzM1ggpeBH1Q2CyxZg4Tr2x8Aso",
+      "role": "`tegridy-clmm` program id: the venue's range-pool program, Raydium CLMM at upstream ed1eb41519d5355755f7df52b43fa9610938b60b with only its identity changed (solana/guards/provenance.mjs pins the difference). Executable, owned by BPFLoaderUpgradeab1e11111111111111111111111; its 36-byte stub names ProgramData 5MsddzsfUWfEWixTynrss4MMjnD3dneFFkdm4XpCqMWG, registered below. Its admin and its fee and spare-SOL owners are compiled in as squads-vault (solana/tegridy-clmm/README.md).",
+      "custody": "the program id keypair is spent: it claimed the address at the deploy and authorises nothing afterwards. What can still change this program is the UPGRADE AUTHORITY on its ProgramData, squads-vault since one second after the deploy. See range-clmm-programdata.",
+      "status": "DEPLOYED 2026-10-21T07:01:36Z (slot 459,538,347, transaction 3r9igyYDGHzW8g8NWfrFMvFuRiveyb3rP4UPj3JrWH52MaRzghXKgHPCEJtJmxChoyb8rYMyXqqK5o3hcBpUNgKa, paid by tegridy-launch-deployer). The build is 1,522,736 bytes, sha256 fcb88758fdd6280f6035859c00b963c9285a7c5291393043a57051c86c37e8cc, from the source mvp-launch carries since d8adfe97b384aa354456b0ad40e5508e0b094c52 (#931). solana/clmm-deploy/ci-matches-chain.mjs on CI run 39637529423 (the solana-ci push run of d8adfe97) found CI's own build byte for byte the program on chain. NOT WIRED: see the block's note; range-clmm-amm-config-0 and -1 below do not exist yet. `expect.type: executable` alone does not show it can run (a closed program keeps the flag); range-clmm-programdata holds that claim.",
+      "expect": {
+        "type": "executable"
+      }
+    },
+    {
+      "id": "range-clmm-programdata",
+      "address": "5MsddzsfUWfEWixTynrss4MMjnD3dneFFkdm4XpCqMWG",
+      "role": "ProgramData account for tegridy-clmm: PDA of the BPF upgradeable loader, seeds [range-clmm-program], derived and matched. Holds the deployed bytecode and the upgrade authority, and answers 'is the range program live': closing a program deletes this account and leaves the stub executable-flagged.",
+      "custody": "UPGRADE AUTHORITY IS squads-vault `GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd` (squads-multisig: 2 of 2, time lock 172,800 s). The deployer handed it over in the next transaction: the loader's SetAuthority at slot 459,538,353 (2026-10-21T07:01:37Z, transaction 4N7tBZzhJhb8hqefgPie1VjsHSZ5oEtqz2dFVB66XGbRN61cSUzkg2uB29b6YxijDQRHuX9GN6QGakVYVD7zFz7f), logged 'New authority Some(GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd)'. Read at finalized slot 459,709,863: option byte 1, authority GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd. solanaFields asserts it on every chain read.",
+      "status": "LIVE. 1,522,781 bytes (the 45-byte header and the 1,522,736-byte build), 7,736,377,720 lamports of rent, last deployed slot 459,538,347; unchanged at finalized slot 459,711,538, so the program has not been upgraded since its deploy. `expect.type: program-owned` fails the moment this account is closed.",
+      "expect": {
+        "type": "program-owned"
+      }
+    },
+    {
+      "id": "range-clmm-amm-config-0",
+      "address": "9makve2QUjz3FpwqHzqioY2DLmiQ73VVtcuYYHnm9kvR",
+      "role": "tegridy-clmm AmmConfig index 0 under range-clmm-program, seeds [\"amm_config\", 0u16 big-endian], bump 255, derived and matched: the 1% tier as range-clmm-tiers-transaction-19 makes it, create_amm_config(0, tick spacing 120, trade fee 10,000 per million of each swap, protocol fee 104,000 and fund fee 56,000 per million of that fee), then its fund owner set to island-workshop-wallet. So of each fee, 84% stays with the liquidity providers in range, 10.4% to squads-vault and 5.6% to the island's Workshop (the CHANGELOG notice of 2026-10-21).",
+      "custody": "program-derived, no key. Once created it is owned by range-clmm-program; its owner field is squads-vault and its fund owner island-workshop-wallet.",
+      "status": "NOT YET CREATED: value:null at finalized slot 459,710,510 (2026-10-21). `expect.type: absent` is a tripwire: the day the fee-tier proposal executes, the chain read goes red here, and this row must become program-owned, with its fee fields asserted in solanaFields.",
+      "expect": {
+        "type": "absent"
+      }
+    },
+    {
+      "id": "range-clmm-amm-config-1",
+      "address": "CYfA3WyMS9Ygx2Z988d5Uk4KsuBRsDZqkqXy9hhroW6Q",
+      "role": "tegridy-clmm AmmConfig index 1 under range-clmm-program, seeds [\"amm_config\", 1u16 big-endian], bump 255, derived and matched: the 0.25% tier as range-clmm-tiers-transaction-19 makes it, create_amm_config(1, tick spacing 60, trade fee 2,500 per million of each swap, protocol fee 104,000 and fund fee 56,000 per million of that fee), then its fund owner set to island-workshop-wallet. The same split as range-clmm-amm-config-0.",
+      "custody": "program-derived, no key. Once created it is owned by range-clmm-program; its owner field is squads-vault and its fund owner island-workshop-wallet.",
+      "status": "NOT YET CREATED: value:null at finalized slot 459,710,510 (2026-10-21). `expect.type: absent` is a tripwire: the day the fee-tier proposal executes, the chain read goes red here, and this row must become program-owned, with its fee fields asserted in solanaFields.",
+      "expect": {
+        "type": "absent"
+      }
+    },
+    {
+      "id": "range-clmm-tiers-transaction-19",
+      "address": "CL6cZ2zDsmA72f6ncLYz1UcSLcQ41kL4WRTtFGy5BmNM",
+      "role": "Squads v4 vault transaction 19 of squads-multisig, seeds [\"multisig\", multisig, \"transaction\", 19u64 little-endian] under SQDS4ep65T869zMMBKyuUq6aD6EgTu8psMjkvj52pCf, derived and matched: the fee-tier proposal. Its stored message is byte for byte the one solana/clmm-deploy/scripts/lib/tiers.mjs compiles (the page's `isOurs`, read 2026-10-21T17:22:43Z): both tiers above, then each tier's fund owner set to island-workshop-wallet.",
+      "custody": "program-derived, owned by the Squads v4 program; only a member of squads-multisig can execute it.",
+      "status": "LIVE, created 2026-10-21T13:42:48Z (slot 459,649,865, transaction 5XZuPgxthnJZyBCtcaPw5p1xnqyetb9phudUSurr1uCkNXtsuXRB69xg3LkcV71AJqNHJvUvPFw6ECWiqZo2uzzk, signed by squads member 6VHowW4pnD4WTGsXhqBp6yxGgC3EExVmYgebSrRNu2tY). 416 bytes. Not executed: see range-clmm-tiers-proposal-19.",
+      "expect": {
+        "type": "program-owned"
+      }
+    },
+    {
+      "id": "range-clmm-tiers-proposal-19",
+      "address": "DvGQ2Hhdqn8i9TJMTkMC7adxiWujxeSJEm77ctZkWBfg",
+      "role": "Squads v4 proposal for vault transaction 19, seeds [\"multisig\", multisig, \"transaction\", 19u64 little-endian, \"proposal\"] under SQDS4ep65T869zMMBKyuUq6aD6EgTu8psMjkvj52pCf, derived and matched.",
+      "custody": "program-derived, owned by the Squads v4 program.",
+      "status": "APPROVED 2 of 2, NOT EXECUTED. Member 6VHowW4pnD4WTGsXhqBp6yxGgC3EExVmYgebSrRNu2tY created and approved it at 2026-10-21T13:42:48Z; member 5QHzAqbGk3W8qGRBHCMyWjhLXf8YJcs3yPEh14Ymcwgz approved at 13:45:21Z (slot 459,650,577, transaction 2CXCRAHzRGhTniquvdecQugMSfoZw56BdndVcuQs2sRGmzR6FhvWVMvZxeYYKonqjfZVNfFCkhDK8gU312XqHCc8). Read at finalized slot 459,710,510: status Approved at 13:45:21Z. So the chain's 48-hour lock is over at 2026-10-23T13:45:21Z, while the fee notice allows the tiers only from 2026-10-28T13:41:21Z (seven days from its merge, recorded by 5-record-notice.mjs). Between those times only the deploy pack's page holds it (tiers.mjs `decide` offers execute from the notice's seventh day); the Squads app does not read the notice.",
+      "expect": {
+        "type": "program-owned"
+      }
+    },
+    {
       "$comment": "The plant (island ruling 2, 2026-10-01): every Solana launch on /curve-launch burns 50,000 $BAYLA and sends 50,000 $BAYLA to the island's Workshop, in its own create transaction (frontend/src/lib/launcher/solana/write/plant.ts). These three addresses are pinned there and in plant.test.ts, which re-derives the Workshop's $BAYLA account. Read on mainnet-beta 2026-10-01 at slots 452,503,566 to 452,505,319. None of them is ours: the island owns the Workshop, and nobody owns the mint."
     },
     {
@@ -2083,6 +2146,7 @@
       "cp-swap-programdata-restart": { "layout": "programdata", "upgradeAuthority": "squads-vault" },
       "tegridy-launch-programdata-restart": { "layout": "programdata", "upgradeAuthority": "squads-vault" },
       "bayla-ladder-programdata": { "layout": "programdata", "upgradeAuthority": "squads-vault" },
+      "range-clmm-programdata": { "layout": "programdata", "upgradeAuthority": "squads-vault" },
       "bayla-ladder-idl": { "layout": "anchor-idl", "owner": "bayla-ladder-program", "authority": "squads-vault" },
       "bayla-ladder-pool": { "layout": "bayla-ladder-pool", "owner": "bayla-ladder-program", "authority": "squads-vault", "pendingAuthority": "system-program" },
       "cp-swap-amm-config-restart": {
