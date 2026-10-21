@@ -33,13 +33,18 @@ describe('the range review’s fee lines', () => {
   it('the agreed split is said plainly', () => {
     render(<RangeRows summary={opening({ owner: PLATFORM_TREASURY_VAULT.toBase58(), fundOwner: WORKSHOP_WALLET.toBase58() })} />);
     expect(screen.getByText(/it keeps 16% of each swap’s fee \(0\.16% of the swap\)/)).toBeInTheDocument();
-    expect(screen.getByText(/The venue’s cut is split: 65% to the team’s shared wallet/)).toBeInTheDocument();
+    expect(screen.getByText(/The venue’s cut is split: 10\.4% of each fee \(0\.104% of the swap\) to the team’s shared wallet/)).toBeInTheDocument();
     expect(document.querySelector('strong')).toBeNull();
   });
 
   it('any other wallet is said in bold, with its address', () => {
     render(<RangeRows summary={opening({ owner: PLATFORM_TREASURY_VAULT.toBase58(), fundOwner: STRANGER })} />);
-    expect(document.querySelector('strong')?.textContent).toMatch(/goes somewhere other than the agreed split/);
+    expect(document.querySelector('strong')?.textContent).toMatch(/does not follow the agreed split/);
     expect(document.body.textContent).toContain(STRANGER);
+  });
+
+  it('the vault collecting the island’s part is said in bold too, with what each wallet gets', () => {
+    render(<RangeRows summary={opening({ owner: PLATFORM_TREASURY_VAULT.toBase58(), fundOwner: PLATFORM_TREASURY_VAULT.toBase58() })} />);
+    expect(document.querySelector('strong')?.textContent).toMatch(/does not follow the agreed split .* 16% of each fee \(0\.16% of the swap\) to the team’s shared wallet, 0% of each fee \(0% of the swap\) to the island’s Workshop\./);
   });
 });

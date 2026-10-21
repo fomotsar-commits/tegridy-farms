@@ -125,7 +125,7 @@ describe('how a range position earns', () => {
     const warning = within(card).getByText(/Out of range, a position earns nothing/);
     expect(warning.closest('details')).toBeNull();
     // Where the venue's cut goes, as the Rates card says it: the agreed split, in the fine print.
-    const split = within(card).getByText(/The venue’s cut is split: 65% to the team’s shared wallet, .* and 35% to the island’s Workshop, the island’s agreed share\./);
+    const split = within(card).getByText(/The venue’s cut is split: 10\.4% of each fee \(0\.104% of the swap\) to the team’s shared wallet, .* and 5\.6% of each fee \(0\.056% of the swap\) to the island’s Workshop, the island’s agreed share\./);
     expect(split.closest('details')).not.toBeNull();
     expect(card.textContent).toContain(PLATFORM_TREASURY_VAULT.toBase58());
     expect(card.textContent).toContain(WORKSHOP_WALLET.toBase58());
@@ -138,8 +138,16 @@ describe('how a range position earns', () => {
     show(readers({ tiers: { kind: 'ok', value: [t] }, pools: { kind: 'ok', value: [poolOn(t)] } }));
     const flag = await screen.findByTestId('range-venue-elsewhere');
     expect(flag.closest('details')).toBeNull();
-    expect(flag.querySelector('strong')?.textContent).toMatch(/goes somewhere other than the agreed split .*: the island’s part/);
+    expect(flag.querySelector('strong')?.textContent).toMatch(/does not follow the agreed split .* 5\.6% of each fee \(0\.056% of the swap\) to another wallet\./);
     expect(flag.textContent).toContain(stranger.toBase58());
+  });
+
+  it('the vault as the tier’s fund owner (the program’s default) loses the island its share: said in bold, in plain sight', async () => {
+    const t = tier({ fundOwner: PLATFORM_TREASURY_VAULT });
+    show(readers({ tiers: { kind: 'ok', value: [t] }, pools: { kind: 'ok', value: [poolOn(t)] } }));
+    const flag = await screen.findByTestId('range-venue-elsewhere');
+    expect(flag.closest('details')).toBeNull();
+    expect(flag.querySelector('strong')?.textContent).toMatch(/16% of each fee \(0\.16% of the swap\) to the team’s shared wallet, 0% of each fee \(0% of the swap\) to the island’s Workshop\./);
   });
 
   it('a tier with another split is said with that split: nothing is hard-coded', async () => {
