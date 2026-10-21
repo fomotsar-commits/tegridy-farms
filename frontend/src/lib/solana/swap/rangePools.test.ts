@@ -20,6 +20,9 @@ const PROG = Keypair.generate().publicKey;
 const { token0: M0, token1: M1 } = sortMints(new PublicKey(BAYLA_MINT), new PublicKey(WSOL_MINT));
 const CONFIG = deriveAmmConfig(PROG, 0);
 const POOL = derivePool(PROG, CONFIG, M0, M1);
+/** A second tier with its own pool for the pair, read whole. */
+const CONFIG1 = deriveAmmConfig(PROG, 1);
+const POOL1 = derivePool(PROG, CONFIG1, M0, M1);
 const TICK = 600;
 const SQRT = getSqrtPriceAtTick(TICK) + 7n;
 const L = 10n ** 13n;
@@ -31,7 +34,7 @@ const DEEP = [-7_200, -14_400, -21_600, -28_800, -36_000];
 /** Token-2022's TransferFeeConfig extension (type 1, 108 bytes): a fee on every transfer, which the builder refuses. */
 const TRANSFER_FEE: [number, number] = [1, 108];
 
-function chain(o: { band?: boolean; pool?: boolean; deep?: boolean; transferFee?: boolean; frozenVault?: 0 | 1; vaultMissing?: boolean } = {}) {
+function chain(o: { band?: boolean; pool?: boolean; deep?: boolean; transferFee?: boolean; frozenVault?: 0 | 1; vaultMissing?: boolean; secondPool?: boolean } = {}) {
   const accts = new Map<string, { owner: string; data: Uint8Array }>();
   const calls: string[][] = [];
   // The two mints (BAYLA a Token-2022 coin, SOL a classic one) and the pool's two vaults.
@@ -61,6 +64,27 @@ function chain(o: { band?: boolean; pool?: boolean; deep?: boolean; transferFee?
     accts.set(deriveTickArray(PROG, POOL, 0).toBase58(), {
       owner: PROG.toBase58(),
       data: encodeTickArray(POOL, 0, 120, [
+        { tick: 0, liquidityNet: L, liquidityGross: L },
+        { tick: 1200, liquidityNet: -L, liquidityGross: L },
+      ]),
+    });
+  }
+  if (o.secondPool) {
+    accts.set(CONFIG1.toBase58(), { owner: PROG.toBase58(), data: encodeAmmConfig({ index: 1, tradeFeeRate: 10_000, protocolFeeRate: 160_000, fundFeeRate: 0, tickSpacing: 120 }) });
+    accts.set(POOL1.toBase58(), {
+      owner: PROG.toBase58(),
+      data: encodePool({
+        ammConfig: CONFIG1, mint0: M0, mint1: M1, vault0: deriveVault(PROG, POOL1, M0), vault1: deriveVault(PROG, POOL1, M1), observation: deriveObservation(PROG, POOL1),
+        decimals0: 6, decimals1: 9, tickSpacing: 120, liquidity: L, sqrtPriceX64: SQRT, tickCurrent: TICK, bitmapBits: [512],
+      }),
+    });
+    for (const m of [M0, M1]) {
+      const program = (m.toBase58() === BAYLA_MINT ? TOKEN_2022_PROGRAM_ID : TOKEN_PROGRAM_ID).toBase58();
+      accts.set(deriveVault(PROG, POOL1, m).toBase58(), { owner: program, data: encodeTokenAccountWith(m, POOL1, 10n ** 12n) });
+    }
+    accts.set(deriveTickArray(PROG, POOL1, 0).toBase58(), {
+      owner: PROG.toBase58(),
+      data: encodeTickArray(POOL1, 0, 120, [
         { tick: 0, liquidityNet: L, liquidityGross: L },
         { tick: 1200, liquidityNet: -L, liquidityGross: L },
       ]),
@@ -160,6 +184,11 @@ describe('reading range pools for a swap', () => {
   it('a vault that does not read makes the answer an error, never "no pool" and never a quote', async () => {
     const read = await readRangeRoutePools(chain({ vaultMissing: true }).rpc, WSOL_MINT, BAYLA_MINT, { programId: PROG, visible: true });
     expect(quoteRangePools(read, WSOL_MINT, 1_000_000n)).toEqual({ state: 'error', candidates: [] });
+    // That pool alone is unread: another pool of the pair, read whole, still quotes.
+    const both = await readRangeRoutePools(chain({ vaultMissing: true, secondPool: true }).rpc, WSOL_MINT, BAYLA_MINT, { programId: PROG, visible: true });
+    if (both.kind !== 'ok') throw new Error(both.kind);
+    expect([both.unread, both.pools.map((p) => p.range.pool.address)]).toEqual([1, [POOL1.toBase58()]]);
+    expect(quoteRangePools(both, WSOL_MINT, 1_000_000n).candidates.map((c) => c.poolAddress)).toEqual([POOL1.toBase58()]);
   });
 
   it('price impact is what the trade gets less than the pool’s price before it, the pool fee included', async () => {
