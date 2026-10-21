@@ -438,8 +438,8 @@ export const ROUTES: readonly RouteSpec[] = [
     tabOf: 'PoolsHostPage · range-pools',
     gate: 'not-yet-routed',
     why:
-      'The Range tab is routed only while rangePoolsVisible() (lib/solana/clmm/programId.ts): never while ' +
-      'the range program id is the placeholder, except in a `--mode range-preview` build. The suite runs ' +
+      'The Range tab is routed only while rangePoolsVisible() (lib/solana/clmm/programId.ts): never until ' +
+      'the owner opens range pools (RANGE_POOLS_OPEN), except in a `--mode range-preview` build. The suite runs ' +
       'the production build, where the path is the not-found page; the sweep asserts that instead.',
     knownViolations: [],
   },

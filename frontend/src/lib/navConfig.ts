@@ -145,7 +145,7 @@ export const NAV_SECTIONS: NavSection[] = [
       { to: '/liquidity', label: 'Liquidity', tabLabel: 'Add / Remove' },
       // Ungated, like /pools: the page mounts its LP section only once the venue reads live.
       { to: '/solana-lp', label: 'Solana LP' },
-      // Hidden, with no route, while the range program's id is the placeholder (clmm/programId.ts).
+      // Hidden, with no route, until range pools open (RANGE_POOLS_OPEN, clmm/programId.ts).
       ...(rangePoolsVisible() ? [{ to: '/range-pools', label: 'Range pools', tabLabel: 'Range' }] : []),
       // Ungated: a live probe of the venue's AMM that states when it is undeployed.
       { to: '/pools', label: 'Venue AMM' },

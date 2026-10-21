@@ -11,8 +11,8 @@ const RangeSection = lazy(() => import('../components/solana/range/RangeSection'
 /**
  * /range-pools, the Range tab: liquidity between two prices, in the venue's own range
  * program. Listed and routed only while `rangePoolsVisible()` (clmm/programId.ts), which
- * is false for every build while the program id is the placeholder; the check here keeps
- * the section unmounted even if the page is reached some other way.
+ * is false for every build until the owner opens range pools; the check here keeps the
+ * section unmounted even if the page is reached some other way.
  */
 export default function RangePoolsPage() {
   usePageTitle('Range pools', PAGE_DESCRIPTION);
@@ -43,4 +43,4 @@ export default function RangePoolsPage() {
 
 const PAGE_DESCRIPTION = 'Liquidity between two prices you pick, in the venue’s own range pools on Solana, read from the chain.';
 const HERO_LINE = 'Put liquidity in between two prices you pick. It earns while the price is between them.';
-const HERO_NOT_OPEN = 'Range pools open here once the venue’s range program is on the network.';
+const HERO_NOT_OPEN = 'Range pools open here once their fee tiers are set on the network.';
