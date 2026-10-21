@@ -79,8 +79,8 @@ export const COPIES = {
     take: (p) => p.startsWith('programs/cp-swap/'),
     map: (p) => p.replace(/^programs\/cp-swap\//, ''),
     delta: 'cp-swap.diff',
-    deltaSha256: '5d7baf2682af807a7b1c330a1ca6a10d65b0393f20a33e26555f86323354f2f1',
-    patched: ['src/lib.rs', 'src/instructions/admin/create_support_mint_associated.rs', 'Cargo.toml'],
+    deltaSha256: '42f378caa75f89b554596067e20898ce9dbc6a02af9d51d2086bc0c5ffc4251e',
+    patched: ['src/lib.rs', 'src/instructions/admin/create_support_mint_associated.rs', 'src/instructions/initialize.rs', 'Cargo.toml'],
     oursOnly: [],
     // The workspace cargo builds cp-swap in. Its manifest (patch tables, the release profile,
     // members) is pinned whole; its lock, for the crates cp-swap compiles; programs/ holds only
@@ -102,6 +102,8 @@ export const REPIN_MAY_TOUCH = [
   'solana/tegridy-amm/Cargo.toml',
   'solana/tegridy-amm/Cargo.lock',
   'solana/tegridy-amm/TEGRIDY_FORK.md',
+  // A patch that changes behaviour carries its validator test (solana-ci.yml runs them).
+  'solana/tegridy-amm/tests/',
   'docs/RANGE_POOLS_PLAN.md',
   'CHANGELOG.md',
   'frontend/src/test/solanaGuardTampers.test.ts',

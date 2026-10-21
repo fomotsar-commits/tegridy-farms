@@ -49,7 +49,7 @@ const ArrivalFilm = lazy(() =>
 /** One line per door: what is actually behind it. Keyed by route. */
 const BLURB: Record<string, string> = {
   '/gallery': 'Every piece, and the artists behind them.',
-  '/nakamigos': 'Trade four collections, browse five more. Our fee is 1%, the same as OpenSea.',
+  '/nakamigos': 'Trade four collections, browse five more. Our fee is 0.5%, half of OpenSea’s 1%.',
   '/community': 'Grants, bounties and the votes that direct them.',
   '/tokenomics': 'Supply, the treasury, lifetime fees, and your own tax reports.',
 };

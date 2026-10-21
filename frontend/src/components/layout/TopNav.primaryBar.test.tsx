@@ -3,7 +3,7 @@
 // SectionHost.test.tsx that every section item survives as a tab on its host.
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, within, fireEvent } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, useLocation } from 'react-router-dom';
 
 vi.mock('@rainbow-me/rainbowkit', () => ({
   ConnectButton: Object.assign(() => null, { Custom: () => null }),
@@ -32,9 +32,14 @@ vi.mock('../ArtImg', () => ({ ArtImg: () => null }));
 
 import { TopNav } from './TopNav';
 import { ThemeProvider } from '../../contexts/ThemeContext';
-import { BAR_NAV, DRAWER_MORE, DRAWER_SECTIONS, MORE_NAV } from '../../lib/navConfig';
+import { BAR_NAV, INDEX_GROUPS, indexName } from '../../lib/navConfig';
 
 const WORDS = ['Island', 'Lock', 'Launch', 'Swap'];
+
+/** Where the router is: what "Jump to" opened. */
+function Where() {
+  return <div data-testid="where">{useLocation().pathname}</div>;
+}
 
 function mount(path = '/', connected = false) {
   mockIsConnected.value = connected;
@@ -42,6 +47,7 @@ function mount(path = '/', connected = false) {
     <MemoryRouter initialEntries={[path]}>
       <ThemeProvider>
         <TopNav />
+        <Where />
       </ThemeProvider>
     </MemoryRouter>,
   );
@@ -111,7 +117,7 @@ describe('TopNav: the bar', () => {
   });
 });
 
-describe('TopNav: the drawer', () => {
+describe('TopNav: the menu', () => {
   it('opens at every width: neither its button nor its panel hides at 800px', () => {
     const drawer = openDrawer();
     const button = screen.getByRole('button', { name: /open navigation menu/i });
@@ -120,32 +126,29 @@ describe('TopNav: the drawer', () => {
     }
   });
 
-  it('carries Pools and Check, one row each, with Pools first and on Solana LP', () => {
-    const drawer = openDrawer();
-    const rows = DRAWER_SECTIONS.map((s) => within(drawer).getByRole('link', { name: s.heading }));
-    expect(rows.map((r) => r.textContent)).toEqual(['Pools', 'Check']);
-    expect(rows[0]).toHaveAttribute('href', '/solana-lp');
-    expect(rows[1]).toHaveAttribute('href', '/trust');
-  });
-
   // Owner, 2026-10-18: "put marketplace, nft finance, and other things here that dont have a
-  // direct access on the app".
-  it('carries the More list, one link per feature no word names, Marketplace and NFT Finance first', () => {
+  // direct access on the app"; 2026-10-19: organise them, on the desktop as on a phone.
+  it("is the site's index: one group per section, in the order a visitor moves, then the records", () => {
     const drawer = openDrawer();
-    const links = within(within(drawer).getByRole('list', { name: 'More' })).getAllByRole('link');
-    expect(links.map((l) => [l.textContent, l.getAttribute('href')])).toEqual(DRAWER_MORE.map((i) => [i.label, i.to]));
-    expect(links.slice(0, 2).map((l) => l.textContent)).toEqual(['Marketplace', 'NFT Finance']);
+    const index = within(drawer).getByRole('navigation', { name: 'Site index' });
+    expect(within(index).getAllByRole('heading', { level: 2 }).map((h) => h.textContent)).toEqual(
+      ['Island', 'Swap', 'Pools', 'Lock', 'Launch', 'Check', 'Records'],
+    );
   });
 
-  it("does not repeat the bar's words or print the tabs", () => {
+  it("lists every page under its group's word, named as its tab is; Pools lands on Solana LP, Check on the overview", () => {
     const drawer = openDrawer();
-    for (const w of WORDS) {
-      expect(within(drawer).queryByRole('link', { name: w }), `${w} is on the bar already`).toBeNull();
+    for (const group of INDEX_GROUPS) {
+      const region = within(drawer).getByRole('region', { name: group.heading });
+      if (group.to !== undefined) {
+        expect(within(region).getByRole('link', { name: group.heading })).toHaveAttribute('href', group.to);
+      }
+      const pages = within(region).getAllByRole('link').filter((l) => l.textContent !== group.heading);
+      expect(pages.map((l) => [l.textContent, l.getAttribute('href')]), group.heading)
+        .toEqual(group.items.map((i) => [indexName(group, i), i.to]));
     }
-    // The More list is the one place a tab's page is named, on purpose.
-    const listed = new Set([...DRAWER_SECTIONS.map((s) => s.primaryTo ?? s.hub), ...DRAWER_MORE.map((i) => i.to)]);
-    const reprinted = MORE_NAV.filter((i) => !listed.has(i.to) && within(drawer).queryAllByText(i.label).length > 0);
-    expect(reprinted.map((i) => i.label), 'the drawer is printing tab rows again').toEqual([]);
+    expect(within(drawer).getByRole('link', { name: 'Pools' })).toHaveAttribute('href', '/solana-lp');
+    expect(within(drawer).getByRole('link', { name: 'Check' })).toHaveAttribute('href', '/trust');
   });
 
   it('carries the records and the developer API', () => {
@@ -163,15 +166,48 @@ describe('TopNav: the drawer', () => {
     expect(within(openDrawer('/', true)).getByRole('link', { name: 'Dashboard' })).toHaveAttribute('href', '/dashboard');
   });
 
-  it('marks the row of the page you are on', () => {
+  it('marks the group and the page you are on', () => {
     const drawer = openDrawer('/scan');
     expect(within(drawer).getByRole('link', { name: 'Check' })).toHaveAttribute('aria-current', 'page');
+    expect(within(drawer).getByRole('link', { name: 'Scanner' })).toHaveAttribute('aria-current', 'page');
     expect(within(drawer).getByRole('link', { name: 'Pools' })).not.toHaveAttribute('aria-current');
+    expect(within(drawer).getByRole('link', { name: 'Gallery' })).not.toHaveAttribute('aria-current');
   });
 
-  it('marks the More link of the page you are on', () => {
-    const drawer = openDrawer('/gallery');
-    expect(within(drawer).getByRole('link', { name: 'Gallery' })).toHaveAttribute('aria-current', 'page');
-    expect(within(drawer).getByRole('link', { name: 'Marketplace' })).not.toHaveAttribute('aria-current');
+  // The framer-motion stand-in above hands out a new component on every `m.div` read, so a
+  // re-render remounts the panel: query the dialog and its field afresh after each change.
+  const dialog = () => screen.getByRole('dialog', { name: 'Navigation menu' });
+  const field = () => within(dialog()).getByRole('searchbox', { name: 'Jump to a page' });
+
+  it('Jump to narrows the index to the pages called that, and Enter opens the first', () => {
+    openDrawer();
+    fireEvent.change(field(), { target: { value: 'chart' } });
+    expect(within(dialog()).getAllByRole('link').map((l) => l.textContent)).toEqual(['Check', 'Charting']);
+    fireEvent.keyDown(field(), { key: 'Enter' });
+    expect(screen.queryByRole('dialog', { name: 'Navigation menu' })).toBeNull();
+    expect(screen.getByTestId('where').textContent).toBe('/chart');
+  });
+
+  it("keeps a group whole when its own word is typed, and says so when nothing is called that", () => {
+    openDrawer();
+    fireEvent.change(field(), { target: { value: 'pools' } });
+    expect(within(dialog()).getAllByRole('link').map((l) => l.textContent)).toEqual(['Pools', 'Add / Remove', 'Solana LP', 'Venue AMM', 'Zap']);
+    fireEvent.change(field(), { target: { value: 'zebra' } });
+    expect(within(dialog()).queryAllByRole('link')).toEqual([]);
+    expect(within(dialog()).getByRole('status').textContent).toMatch(/zebra/);
+  });
+
+  it('opens from Ctrl+K with the cursor in Jump to, and closes on it again', () => {
+    mount();
+    fireEvent.keyDown(window, { key: 'k', ctrlKey: true });
+    const drawer = screen.getByRole('dialog', { name: 'Navigation menu' });
+    expect(within(drawer).getByRole('searchbox', { name: 'Jump to a page' })).toHaveFocus();
+    fireEvent.keyDown(window, { key: 'k', ctrlKey: true });
+    expect(screen.queryByRole('dialog', { name: 'Navigation menu' })).toBeNull();
+  });
+
+  it('leaves the cursor where it was when the button is tapped: a phone keeps its keyboard down', () => {
+    const drawer = openDrawer();
+    expect(within(drawer).getByRole('searchbox', { name: 'Jump to a page' })).not.toHaveFocus();
   });
 });

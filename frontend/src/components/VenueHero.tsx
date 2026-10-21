@@ -4,6 +4,7 @@ import { clearFirstFrameDraft, peekFirstFrameDraft } from '../lib/firstFrameDraf
 import { heatExampleLine, VENUE, OPEN_VENUE_WELCOME_EVENT } from '../lib/arrival';
 import { heatLaunchFloor } from '../lib/heat/heatGateConfig';
 import { tierAtFloor } from '../lib/heat/heatOracle';
+import { VenueVolume } from './VenueVolume';
 import { HeatCard } from './HeatCard';
 import { FinePrint } from './ui/FinePrint';
 
@@ -77,6 +78,8 @@ export function VenueHero() {
 export function VenueHeroFooter() {
   return (
     <>
+      {/* The all-time volume, counted hourly (VenueVolume.tsx). */}
+      <VenueVolume />
       {/* The venue never opens its welcome by itself: this pill is the door to the tour. */}
       <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1">
         <button

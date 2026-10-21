@@ -1,5 +1,6 @@
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAccount, useChainId, useSwitchChain } from 'wagmi';
+import { toast } from 'sonner';
 import type { NavItem } from '../lib/navConfig';
 import { BUNGALOWS } from '../lib/bungalows';
 import {
@@ -78,7 +79,12 @@ export function useSectionChain(items: readonly NavItem[], activeTo: string, cop
     navigate(chainHref(to, chain));
     const evm = venueChain(chain).evmChainId;
     if (evm !== null && tabChains(to) !== 'any' && isConnected && walletChainId !== evm) {
-      switchChain({ chainId: evm });
+      // Swap and Pools follow the wallet, so a switch the wallet refuses leaves the page on
+      // the wallet's network. Say so, instead of the pick quietly snapping back.
+      const name = venueChain(chain).name;
+      switchChain({ chainId: evm }, {
+        onError: () => toast.error(`Your wallet did not switch to ${name}. Switch it in your wallet to use ${name} here.`),
+      });
     }
   };
 

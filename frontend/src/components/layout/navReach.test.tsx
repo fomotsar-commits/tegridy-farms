@@ -22,7 +22,7 @@ import {
   BAR_NAV,
   DASHBOARD_NAV,
   DRAWER_LINKS,
-  DRAWER_MORE,
+  INDEX_PAGES,
   DRAWER_SECTIONS,
   ISLAND_SECTION,
   NAV_SECTIONS,
@@ -70,7 +70,7 @@ function starts(): string[] {
     ...BAR_NAV.map((w) => w.to),
     ...DRAWER_SECTIONS.map((s) => s.primaryTo ?? s.hub),
     ...DRAWER_LINKS.map((l) => l.to),
-    ...DRAWER_MORE.map((i) => i.to),
+    ...INDEX_PAGES.map((i) => i.to), // the menu's index: every section's pages, one tap each
     DASHBOARD_NAV.to, // a drawer row once a wallet connects
     ...footer,
   ].map((to) => to.split('#')[0]!);

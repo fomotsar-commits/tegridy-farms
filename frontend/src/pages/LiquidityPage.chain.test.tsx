@@ -7,15 +7,22 @@ import { render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 
 const wallet = vi.hoisted(() => ({ isConnected: false, chainId: 1 }));
+const formMounts = vi.hoisted(() => ({ count: 0 }));
 vi.mock('wagmi', () => ({
   useAccount: () => ({ isConnected: wallet.isConnected }),
   useChainId: () => wallet.chainId,
 }));
 vi.mock('../hooks/usePageTitle', () => ({ usePageTitle: () => {} }));
 vi.mock('../hooks/usePoolTVL', () => ({ usePoolTVL: () => ({}) }));
-vi.mock('../components/swap/LiquidityTab', () => ({
-  LiquidityTab: ({ chainId }: { chainId?: number }) => <div data-testid="form">{chainId}</div>,
-}));
+vi.mock('../components/swap/LiquidityTab', async () => {
+  const { useEffect } = await import('react');
+  return {
+    LiquidityTab: ({ chainId }: { chainId?: number }) => {
+      useEffect(() => { formMounts.count += 1; }, []);
+      return <div data-testid="form">{chainId}</div>;
+    },
+  };
+});
 vi.mock('../components/farm/ILCalculator', () => ({ ILCalculator: () => null }));
 vi.mock('../components/liquidity/LiquidityPrimer', () => ({ LiquidityPrimer: () => null }));
 vi.mock('../components/liquidity/VenuePoolTable', () => ({ VenuePoolTable: () => <div data-testid="pool-table" /> }));
@@ -32,6 +39,7 @@ const at = (url: string) =>
 beforeEach(() => {
   wallet.isConnected = false;
   wallet.chainId = 1;
+  formMounts.count = 0;
 });
 
 describe('/liquidity on the picked chain', () => {
@@ -71,6 +79,23 @@ describe('/liquidity on the picked chain', () => {
     expect(screen.queryByText(/until the venue switches on its one-sixth cut for that pool/)).toBeNull();
     // The form gets the wallet's chain and refuses it there, as before.
     expect(screen.getByTestId('form')).toHaveTextContent('42161');
+  });
+
+  // Walked live 2026-10-18: the form kept the pair (and the pasted tokens) of the chain it
+  // was first mounted on, so a wallet moving to Base still held Ethereum's TOWELI.
+  it('starts the form afresh when the wallet moves to another network', () => {
+    wallet.isConnected = true;
+    wallet.chainId = 1;
+    const view = at('/liquidity');
+    expect(formMounts.count).toBe(1);
+    wallet.chainId = 8453;
+    view.rerender(
+      <MemoryRouter initialEntries={['/liquidity']}>
+        <LiquidityPage />
+      </MemoryRouter>,
+    );
+    expect(screen.getByTestId('form')).toHaveTextContent('8453');
+    expect(formMounts.count).toBe(2);
   });
 
   it("ignores ?c= once a wallet is connected: the wallet's chain is the one that signs", () => {

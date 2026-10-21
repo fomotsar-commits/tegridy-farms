@@ -98,6 +98,7 @@ export const PAGE_ROUTES: Record<string, string> = {
   terminal: '/terminal',
   developer: '/developers',
   'nav-drawer': '/',
+  'island-basket': '/swap',
   'legacy-exit': '/earn/toweli',
   wizard: '/nft-finance',
   // 2026-10-03: the pageIds minted for card art, plus the older ones that had
@@ -599,12 +600,18 @@ export const SURFACES: Surface[] = [
   // happen to be on, so the Live-page preview can't scroll to them (it will
   // report "not found"). Use the Art tab to place them.
   { group: 'Popups', pageId: 'nav-drawer', idx: 0, label: 'MO3 — Mobile nav drawer' },
-  // The menu's rows, each with its own picture (NavDrawer.tsx ROW_ART), and its More list's (MORE_ART).
-  { group: 'Popups', pageId: 'nav-drawer', idx: 1, label: 'MO3a — Menu row: Pools' },
-  { group: 'Popups', pageId: 'nav-drawer', idx: 2, label: 'MO3b — Menu row: Check' },
-  { group: 'Popups', pageId: 'nav-drawer', idx: 3, label: 'MO3c — Menu: the More list' },
+  // The index's groups, each with its own picture (navConfig.ts INDEX_GROUPS `art`; Dashboard's
+  // is NavDrawer.tsx DASHBOARD_ART). 0 is the menu's own, and the Records group's.
+  { group: 'Popups', pageId: 'nav-drawer', idx: 1, label: 'MO3a — Menu group: Pools' },
+  { group: 'Popups', pageId: 'nav-drawer', idx: 2, label: 'MO3b — Menu group: Check' },
+  { group: 'Popups', pageId: 'nav-drawer', idx: 3, label: 'MO3c — Menu group: Island' },
   { group: 'Popups', pageId: 'nav-drawer', idx: 4, label: 'MO3d — Menu row: Dashboard' },
+  { group: 'Popups', pageId: 'nav-drawer', idx: 5, label: 'MO3e — Menu group: Swap' },
+  { group: 'Popups', pageId: 'nav-drawer', idx: 6, label: 'MO3f — Menu group: Lock' },
+  { group: 'Popups', pageId: 'nav-drawer', idx: 7, label: 'MO3g — Menu group: Launch' },
   { group: 'Popups', pageId: 'legacy-exit', idx: 0, label: 'MO6 — Legacy staking notice' },
+  // "Buy all bungalows" on the swap card (IslandBasket.tsx).
+  { group: 'Popups', pageId: 'island-basket', idx: 0, label: 'MO7 — Buy all bungalows' },
 
   // Launchpad wizard (gated) — the last cards in the app that had no art at all.
   { group: 'Launchpad wizard', pageId: 'wizard', idx: 0, label: 'WZ1 — Arweave upload cost' },

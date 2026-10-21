@@ -316,7 +316,7 @@ function Inner({ bungalow }: { bungalow: Bungalow & { identity: BungalowIdentity
         <ArtImg pageId="bungalow-dashboard" idx={0} alt="" loading="lazy" className="w-full h-full object-cover" />
         <div className="absolute inset-0" style={{ background: 'rgba(6,12,26,0.6)' }} />
       </div>
-      <div className="relative z-10 max-w-[1200px] mx-auto px-4 md:px-6 pt-8 pb-16">
+      <div className="relative z-10 page-column mx-auto px-4 md:px-6 pt-8 pb-16">
         <div className="mb-6">
           <h1 className="heading-luxury text-3xl md:text-5xl text-white tracking-tight mb-3">
             {bungalow.symbol} Dashboard.

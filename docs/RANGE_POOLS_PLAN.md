@@ -69,7 +69,7 @@ can re-run it, and `git diff solana/guards/upstream` must then show no change.
 
 1. **Same code as Raydium's, plus only the reviewed patch** (`solana/guards/provenance.mjs`, in
    `diff-guard` and `clmm-guards`). Range pools: 79 upstream files, 12 patched. cp-swap: its
-   whole package, 37 files, 3 patched. `vendor/uint`: 16 files, none patched. Undoing the patch
+   whole package, 37 files, 4 patched. `vendor/uint`: 16 files, none patched. Undoing the patch
    on our file must give back Raydium's exact file. No file may be added anywhere in either
    package, a `build.rs` included. The patch and the lockfile are each pinned by hash, so even a
    crate swapped for another version Raydium's lock lists fails. cp-swap's workspace is pinned

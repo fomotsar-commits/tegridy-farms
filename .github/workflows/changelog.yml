@@ -1,0 +1,56 @@
+name: Changelog
+
+# The site's Changelog tab is built from CHANGELOG.md, so a pull request into mvp-launch
+# that changes what a visitor gets (the site's code, its API or its public files) adds a
+# line there. A change no visitor can see says so in its description, on a line that
+# starts "No changelog:" and gives the reason. Tests alone do not count as a change.
+on:
+  pull_request:
+    branches: [mvp-launch]
+    types: [opened, synchronize, reopened, edited]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  line:
+    name: A visitor-facing change has a changelog line
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Compare the changed files with CHANGELOG.md
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          BODY: ${{ github.event.pull_request.body }}
+        run: |
+          set -euo pipefail
+          files=$(gh api --paginate "repos/$REPO/pulls/$PR/files" --jq '.[].filename')
+          if [ -z "$files" ]; then
+            echo "::error::This pull request's file list could not be read."
+            exit 1
+          fi
+          if grep -qx 'CHANGELOG.md' <<<"$files"; then
+            echo "CHANGELOG.md is in this change."
+            exit 0
+          fi
+          visible=$(grep -E '^frontend/(src|api|public)/|^frontend/index\.html$' <<<"$files" \
+            | grep -v -E '\.test\.[cm]?[jt]sx?$|/__tests__/|^frontend/src/test/' || true)
+          if [ -z "$visible" ]; then
+            echo "No visitor-facing file changed."
+            exit 0
+          fi
+          if printf '%s\n' "$BODY" | tr -d '\r' | grep -qiE '^[[:space:]]*No changelog:[[:space:]]*[^[:space:]]'; then
+            echo "The description says why there is no line."
+            exit 0
+          fi
+          echo "::error::These files change what a visitor gets, and CHANGELOG.md has no line for it."
+          printf '%s\n' "$visible" | head -20
+          echo "Add one plain line under today's date in CHANGELOG.md, or put 'No changelog: <reason>' in the description."
+          exit 1
