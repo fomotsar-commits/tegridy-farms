@@ -18,9 +18,6 @@ pub fn transfer_reward_owner<'info>(
     new_owner: Pubkey,
 ) -> Result<()> {
     let mut pool_state = ctx.accounts.pool_state.load_mut()?;
-    for reward_info in &mut pool_state.reward_infos {
-        reward_info.authority = new_owner;
-    }
     pool_state.owner = new_owner;
     Ok(())
 }

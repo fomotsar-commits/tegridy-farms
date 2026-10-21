@@ -115,6 +115,22 @@
 <     pub const ID: Pubkey = pubkey!("projjosVCPQH49d5em7VYS7fJZzaqKixqKtus7yk416");
 ---
 >     pub const ID: Pubkey = pubkey!("GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd");
+=== programs/amm/src/instructions/admin/collect_fund_fee.rs ===
+9,10c9,10
+<     /// Only admin or fund_owner can collect fee now
+<     #[account(constraint = (owner.key() == amm_config.fund_owner || owner.key() == crate::admin::ID) @ ErrorCode::NotApproved)]
+---
+>     /// Only fund_owner can collect fee now
+>     #[account(constraint = (owner.key() == amm_config.fund_owner) @ ErrorCode::NotApproved)]
+=== programs/amm/src/instructions/admin/create_amm_config.rs ===
+40c40
+<     require_gt!(FEE_RATE_DENOMINATOR_VALUE, trade_fee_rate);
+---
+>     require_gte!(MAX_FEE_RATE_NUMERATOR, trade_fee_rate);
+42c42
+<         FEE_RATE_DENOMINATOR_VALUE,
+---
+>         MAX_PROTOCOL_AND_FUND_FEE_RATE,
 === programs/amm/src/instructions/admin/create_permission_pda.rs ===
 5a6
 > // Changed by memetics.finance (tegridy-clmm): the venue's keys replace upstream's here.
@@ -137,6 +153,24 @@
 <     pub const ID: Pubkey = pubkey!("RayVyjyJQz9vAi126A4sGexKnSU1XeZaHTRcM1mZMPY");
 ---
 >     pub const ID: Pubkey = pubkey!("GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd");
+=== programs/amm/src/instructions/admin/transfer_reward_owner.rs ===
+21,23d20
+<     for reward_info in &mut pool_state.reward_infos {
+<         reward_info.authority = new_owner;
+<     }
+=== programs/amm/src/instructions/admin/update_amm_config.rs ===
+63c63
+<         FEE_RATE_DENOMINATOR_VALUE,
+---
+>         MAX_PROTOCOL_AND_FUND_FEE_RATE,
+71c71
+<     require_gt!(FEE_RATE_DENOMINATOR_VALUE, trade_fee_rate);
+---
+>     require_gte!(MAX_FEE_RATE_NUMERATOR, trade_fee_rate);
+79c79
+<         FEE_RATE_DENOMINATOR_VALUE,
+---
+>         MAX_PROTOCOL_AND_FUND_FEE_RATE,
 === programs/amm/src/instructions/collect_remaining_rewards.rs ===
 12c12,13
 < pub const COLLECT_REMAINING_MEMO_MSG: &'static [u8] = b"raydium_collect_remaining";
@@ -169,6 +203,18 @@
 ---
 > // Changed by memetics.finance (tegridy-clmm): the venue's name in the memo.
 > pub const SWAP_MEMO_MSG: &'static [u8] = b"memetics_swap";
+=== programs/amm/src/states/config.rs ===
+7a8,10
+> /// memetics.finance: the protocol and the fund together take at most 16% of each fee.
+> pub const MAX_PROTOCOL_AND_FUND_FEE_RATE: u32 = 160_000;
+> 
+=== programs/amm/src/states/pool_fee.rs ===
+5,6c5,6
+< // Maximum fee rate numerator, 10%
+< pub const MAX_FEE_RATE_NUMERATOR: u32 = 100_000;
+---
+> // Maximum fee rate numerator, 4% (memetics.finance): no tier and no dynamic fee charges more
+> pub const MAX_FEE_RATE_NUMERATOR: u32 = 40_000;
 === programs/amm/src/states/tickarray_bitmap_extension.rs ===
 268c268
 <             Pubkey::from_str("CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK").unwrap(),
