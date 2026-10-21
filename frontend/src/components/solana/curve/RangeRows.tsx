@@ -26,8 +26,8 @@ export function RangeRows({ summary: s }: { summary: RangeSummary }) {
     s.range.holds === 'both'
       ? 'In range now: it earns while the price stays inside it.'
       : s.range.holds === 'token-only'
-        ? 'Above the price now, holding the token only: it earns nothing until the price rises into it.'
-        : `Below the price now, holding ${q.symbol} only: it earns nothing until the price falls into it.`;
+        ? 'Above this pool’s price now, holding the token only: it earns nothing until the price rises into it.'
+        : `Below this pool’s price now, holding ${q.symbol} only: it earns nothing until the price falls into it.`;
   return (
     <>
       <Row label="Range pool" value={l.pool.toBase58()} />
@@ -72,11 +72,13 @@ export function RangeRows({ summary: s }: { summary: RangeSummary }) {
           )}
         </>
       )}
-      {s.notices.map((n) => (
-        <Notice key={n} tone="warn">
-          {n}
-        </Notice>
-      ))}
+      {/* An opening's notices are said first, above every row (TxFlowView `reviewWarnings`); a removal's stay here. */}
+      {s.kind !== 'range-open' &&
+        s.notices.map((n) => (
+          <Notice key={n} tone="warn">
+            {n}
+          </Notice>
+        ))}
     </>
   );
 }

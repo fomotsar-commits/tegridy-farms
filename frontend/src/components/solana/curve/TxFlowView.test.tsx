@@ -10,6 +10,8 @@ import type { Prepared, PreparedTx, TxOutcome, TxSigner, TxSummary, WriteApi, Wr
 import { SOL_QUOTE } from '../../../lib/solana/lp/quotes';
 import { PRICE_TOLERANCE, TOO_NEW_WARNING, gapCostFraction, noPriceClause } from '../../../lib/solana/lp/poolHealth';
 import { TOO_NEW_WHY } from '../../../lib/solana/lp/ownPrice';
+import { PLATFORM_TREASURY_VAULT } from '../../../lib/launcher/solana/curve/program';
+import { RANGE_COPY } from '../../../lib/launcher/solana/write/range';
 
 const SOL_1 = 1_000_000_000n;
 const MINT_X = KEY(15);
@@ -1289,6 +1291,43 @@ describe('built again at the press: what shuts the wallet and what only moved', 
         gone: [expect.stringMatching(/^At most: 0\.101 SOL/), expect.stringMatching(/^Price check: 0\.4% above/)],
       },
     });
+  });
+
+  // A range opening: its split line is one of the review's own; its price check runs like a deposit's.
+  type RangeOpen = Extract<TxSummary, { kind: 'range-open' }>;
+  const STRANGER = KEY(77).toBase58();
+  const rangeOpen = (o: { protocol?: number; fund?: number; diff?: number; cost?: string } = {}): RangeOpen => ({
+    kind: 'range-open', nftMint: KEY(50), max: { token: 5_000_000n, quote: 1_000_000n }, quoted: { token: 4_950_000n, quote: 990_000n },
+    rentLamports: 7_000_000n, unwrapsWsol: true,
+    notices: o.diff === undefined ? [] : [RANGE_COPY.priceOff(`${Number((Math.abs(o.diff) * 100).toFixed(1))}%`, 'below', o.cost ?? '0.002 SOL')],
+    price: o.diff === undefined ? { state: 'agrees', pool: 0.0003, reference: 0.0003, diff: 0 } : { state: 'disagrees', pool: 0.0003, reference: 0.0003 / (1 + o.diff), diff: o.diff, lossQuote: 2_000_000n },
+    poolLine: {
+      pool: KEY(51), tokenMint: KEY(52), tokenDecimals: 6, quote: SOL_QUOTE, tokenIsToken0: true, tradeFeeRate: 10_000, venueShareRate: 160_000,
+      protocolFeeRate: o.protocol ?? 104_000, fundFeeRate: o.fund ?? 56_000, owner: PLATFORM_TREASURY_VAULT.toBase58(), fundOwner: STRANGER,
+    },
+    range: { tickLower: 0, tickUpper: 1200, minPrice: 0.0002, maxPrice: 0.0005, holds: 'both' },
+  });
+
+  it('a range tier whose split moved between its wallets (the same 16% in all): shut, and the new split is listed', async () => {
+    const fresh = again(rangeOpen({ protocol: 56_000, fund: 104_000 }), CAP);
+    const { api, state } = await pressPastItsClock(prepared(rangeOpen(), CAP), fresh);
+    expect(api.submitPrepared).not.toHaveBeenCalled();
+    expect(state).toMatchObject({ step: 'review', prepared: fresh, replaced: { n: 1 } });
+    const now = state.step === 'review' ? (state.replaced?.now ?? []) : [];
+    expect(now.some((l) => /5\.6% of each fee .* to the team’s shared wallet/.test(l))).toBe(true);
+  });
+
+  it('a range opening whose price gap moved a little, its warning in the same words: the wallet opens with the fresh transaction', async () => {
+    const fresh = again(rangeOpen({ diff: -0.046, cost: '0.0023 SOL' }), CAP);
+    const { api } = await pressPastItsClock(prepared(rangeOpen({ diff: -0.04 }), CAP), fresh);
+    expect(signed(api)).toEqual([fresh]);
+  });
+
+  it(`a range opening whose price ran more than ${PRICE_RUN * 100}% further off: shut`, async () => {
+    const fresh = again(rangeOpen({ diff: -0.08, cost: '0.004 SOL' }), CAP);
+    const { api, state } = await pressPastItsClock(prepared(rangeOpen({ diff: -0.04 }), CAP), fresh);
+    expect(api.submitPrepared).not.toHaveBeenCalled();
+    expect(state).toMatchObject({ step: 'review', prepared: fresh });
   });
 
   it('a market move over different instructions: shut, and the page says it cannot call it the same', async () => {

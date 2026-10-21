@@ -26,6 +26,7 @@ import type { OwnPoolQuote } from '../../../solana/cpswap/read';
 import type { PriceCheck } from '../../../solana/lp/poolHealth';
 import type { QuoteCoin } from '../../../solana/lp/quotes';
 import type { SafetyReason } from '../../../solana/lp/tokenSafety';
+import type { RangePriceCheck } from '../../../solana/clmm/priceCheck';
 
 export type SolanaCluster = 'mainnet' | 'devnet' | 'localnet';
 
@@ -367,6 +368,8 @@ export type RangeSummary =
       rentLamports: bigint;
       unwrapsWsol: boolean;
       notices: string[];
+      /** The pool's price against the outside one, read fresh (clmm/priceCheck.ts): a run past 3% shows the review again. */
+      price: RangePriceCheck;
     } & { poolLine: RangePoolLine; range: RangeLine })
   | ({
       kind: 'range-remove' | 'range-close';

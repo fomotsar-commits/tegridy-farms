@@ -361,8 +361,32 @@ const gapCostText = (g: PriceGap, q: QuoteCoin) =>
   g.lossQuote === null ? 'could not be worked out' : `up to about ${coinExact(g.lossQuote, q)} of what you put in`;
 
 /**
+ * A range review whose fee tier is not the agreed split: where the venue's cut goes, said
+ * first, in bold, above every row (owner, 2026-10-10). It is one of the review's OWN lines,
+ * not a warning: any change to it, numbers included, shows the review again before signing.
+ */
+function rangeVenueFirst(s: TxSummary): RangeVenueEarns | null {
+  if (s.kind !== 'range-open' && s.kind !== 'range-remove' && s.kind !== 'range-close') return null;
+  const venue = rangeVenueEarns(s.poolLine);
+  return venue.elsewhere ? venue : null;
+}
+
+function VenueFirst({ id, venue }: { id: string; venue: RangeVenueEarns }) {
+  const wallets = venue.wallets.map((w) => `${w.label}: ${w.address}`).join('. ');
+  return (
+    <div id={id} data-testid="tx-review-venue-elsewhere">
+      <Notice tone="bad">
+        <strong>{venue.where}</strong>
+        {wallets && ` ${wallets}.`}
+      </Notice>
+    </div>
+  );
+}
+
+/**
  * What the builder says must be read before this is signed (`summary.warnings`: a price
- * that is off and what it may cost, no market price, a copied name, a freezable token).
+ * that is off and what it may cost, no market price, a copied name, a freezable token;
+ * a range opening's `notices`: its own price check, and its accounts).
  * Only adding and opening carry any. A removal never does: nothing here may give someone
  * a reason to wait before taking their money out.
  *
@@ -373,27 +397,8 @@ const gapCostText = (g: PriceGap, q: QuoteCoin) =>
  * Here it is read out when the review opens, like a token its creator can freeze. It is
  * said once: the rows below do not repeat it.
  */
-/**
- * A range review whose fee tier is not the agreed split: where the venue's cut goes, said
- * first, in bold, above every row (owner, 2026-10-10). On a phone the rows are two screens.
- */
-function rangeVenueFirst(s: TxSummary): RangeVenueEarns | null {
-  if (s.kind !== 'range-open' && s.kind !== 'range-remove' && s.kind !== 'range-close') return null;
-  const venue = rangeVenueEarns(s.poolLine);
-  return venue.elsewhere ? venue : null;
-}
-
-function VenueFirst({ id, venue }: { id: string; venue: RangeVenueEarns }) {
-  return (
-    <div id={id} data-testid="tx-review-venue-elsewhere" data-review-line="warning">
-      <Notice tone="bad">
-        <strong>{venue.where}</strong> {venue.wallets.map((w) => `${w.label}: ${w.address}`).join('. ')}.
-      </Notice>
-    </div>
-  );
-}
-
 function reviewWarnings(s: TxSummary): string[] {
+  if (s.kind === 'range-open') return s.notices;
   if (s.kind !== 'lp-deposit' && s.kind !== 'lp-create') return [];
   return s.quote.risk ? [...s.warnings, s.quote.risk] : s.warnings;
 }
