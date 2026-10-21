@@ -560,7 +560,7 @@ export async function ledgerChecks(c, h) {
     const hits = DENY.filter((k) => bytes.indexOf(new PublicKey(k).toBuffer()) >= 0 || bytes.indexOf(Buffer.from(k)) >= 0);
     check('G4', 'the program itself', "the running program's bytes hold none of Raydium's 39 keys, as bytes or as text", hits.length === 0, `${bytes.length} bytes searched`);
     const authority = new PublicKey(pd.data.subarray(13, 45));
-    check('G5', 'the program itself', 'the local program sits at the placeholder id with the vault as its upgrade authority (the deploy pack decides the real one)', authority.equals(VAULT) && pd.data[12] === 1, `program data ${pd.data.length} bytes`);
+    check('G5', 'the program itself', 'the local program sits at the id lib.rs declares with the vault as its upgrade authority', authority.equals(VAULT) && pd.data[12] === 1, `program data ${pd.data.length} bytes`);
     await measure('program data account (the program\'s code)', new PublicKey(prog.data.subarray(4, 36)), 'deployer');
     await measure('program account', ADDR.program, 'deployer');
   }

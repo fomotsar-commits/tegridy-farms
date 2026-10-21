@@ -1,5 +1,5 @@
 // Step 2: start solana-test-validator in WSL with the copies setup.mjs wrote, detached so it
-// outlives this process. Our program loads at the placeholder id with the vault as its upgrade
+// outlives this process. Our program loads at the id lib.rs declares, with the vault as its upgrade
 // authority; no program key exists or is made. `--stop` kills only the PID this script started.
 // usage: node validator.mjs [--real-lock] [--no-clmm] | --stop     env: CLMM_SO (WSL path of the .so), CLMM_LEDGER
 import { spawnSync } from 'node:child_process';

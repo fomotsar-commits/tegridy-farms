@@ -12,8 +12,9 @@ It never deploys, never makes a program key and never signs on mainnet: mainnet 
   project of its own: it uses the frontend's `@solana/web3.js` and `@solana/spl-token`.
 - WSL with Solana's tools (`solana-test-validator`, `cargo build-sbf`), and the program built there:
   copy `solana/tegridy-clmm` to WSL's own disk and run
-  `cargo build-sbf --features placeholder-id -- --locked` in `programs/amm`. The build writes a
-  fresh `target/deploy/raydium_clmm-keypair.json`: delete it, nothing uses it.
+  `cargo build-sbf -- --locked` in `programs/amm` (the release build, at the deployed id lib.rs
+  declares; RESULTS.md ran before the id change, with `--features placeholder-id`). The build
+  writes a fresh `target/deploy/raydium_clmm-keypair.json`: delete it, nothing uses it.
 - Mainnet reads from Windows (WSL here has no network): `MAINNET_RPC`, default the public endpoint.
 
 ## Steps
