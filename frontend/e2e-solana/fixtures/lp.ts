@@ -5,13 +5,14 @@
 // never from the page under test. Pools are created with the frontend's own
 // cpswap/ix.ts initializeIx (its first real execution against the mainnet binary), on
 // fee tier 1 at the standard address, or at a fresh signing keypair when that address
-// is taken: the same two paths the create flow will use.
-import { randomUUID } from 'node:crypto';
+// is taken: the same two paths the create flow will use. A pool on fee tier 0 comes from
+// createLaunchTierPool, the permissioned way, as the upgraded program requires.
+import { createHash, randomUUID } from 'node:crypto';
 import {
   Keypair, PublicKey, SystemProgram, Transaction, TransactionInstruction, sendAndConfirmTransaction,
 } from '@solana/web3.js';
 import {
-  AuthorityType, ExtensionType, MINT_SIZE, TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID,
+  ASSOCIATED_TOKEN_PROGRAM_ID, AuthorityType, ExtensionType, MINT_SIZE, TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID,
   createAssociatedTokenAccountIdempotentInstruction, createCloseAccountInstruction, createFreezeAccountInstruction,
   createInitializeMetadataPointerInstruction, createInitializeMint2Instruction, createInitializeTransferFeeConfigInstruction, createInitializeTransferHookInstruction,
   createMintToInstruction, createSetAuthorityInstruction, createSyncNativeInstruction, createTransferCheckedInstruction,
@@ -19,7 +20,9 @@ import {
 } from '@solana/spl-token';
 import type { BrowserContext, Route } from '@playwright/test';
 import { initializeIx } from '../../src/lib/solana/cpswap/ix';
-import { deriveAmmConfig, deriveLpMint, derivePool, deriveVault, sortMints } from '../../src/lib/solana/cpswap/program';
+import { deriveAmmConfig, deriveAuthority, deriveLpMint, deriveObservation, derivePool, deriveVault, sortMints } from '../../src/lib/solana/cpswap/program';
+// @ts-expect-error -- a plain .mjs module shared with the validator scripts; it has no types
+import { launchTierOpener } from '../../scripts/solana-localnet/genesis-accounts.mjs';
 import { CP_SWAP_PROGRAM, CREATE_POOL_FEE_RECEIVER, LOCALNET_RPC, METAPLEX, WSOL, accountOwner, assertLocalCluster, chain, metadataAddress, mintFacts, tokenAmount } from './chain';
 import { BAYLA_COIN, SOL_COIN, USDC_COIN, type Coin } from './coins';
 
@@ -178,7 +181,7 @@ export interface CreatedPool {
 export async function createPairPool(
   creator: Keypair,
   mint: PublicKey,
-  o: { coin: Coin; configIndex: 0 | 1; coinAmount: bigint; tokens: bigint; openTime?: bigint; at: 'standard' | 'fresh'; tokenProgram?: PublicKey },
+  o: { coin: Coin; configIndex: 1; coinAmount: bigint; tokens: bigint; openTime?: bigint; at: 'standard' | 'fresh'; tokenProgram?: PublicKey },
 ): Promise<CreatedPool> {
   const config = deriveAmmConfig(CP_SWAP_PROGRAM, o.configIndex);
   const { token0, token1, flipped } = sortMints(o.coin.mint, mint);
@@ -224,10 +227,75 @@ export async function createPairPool(
 export function createSolPool(
   creator: Keypair,
   mint: PublicKey,
-  o: { configIndex: 0 | 1; sol: bigint; tokens: bigint; openTime?: bigint; at: 'standard' | 'fresh'; tokenProgram?: PublicKey },
+  o: { configIndex: 1; sol: bigint; tokens: bigint; openTime?: bigint; at: 'standard' | 'fresh'; tokenProgram?: PublicKey },
 ): Promise<CreatedPool> {
   return createPairPool(creator, mint, { coin: SOL_COIN, configIndex: o.configIndex, coinAmount: o.sol, tokens: o.tokens, openTime: o.openTime, at: o.at, tokenProgram: o.tokenProgram });
 }
+
+/** Anchor's instruction discriminator: the first 8 bytes of sha256("global:<name>"). */
+const IX_INITIALIZE_WITH_PERMISSION = createHash('sha256').update('global:initialize_with_permission').digest().subarray(0, 8);
+
+/**
+ * Open a TOKEN/SOL pool on fee tier 0, the launch tier, at its standard address. The upgraded
+ * pool program refuses a public `initialize` there, so this goes the way a graduation does:
+ * `initialize_with_permission`, paid by the test key genesis gave a Permission
+ * (launchTierOpener). `creator` sends the SOL, the tokens and the opener's rent, is recorded as
+ * the pool's creator and ends holding every share. Like a launch pool, it charges the tier's
+ * creator fee, in SOL. Works on the program before and after the upgrade.
+ */
+export async function createLaunchTierPool(
+  creator: Keypair,
+  mint: PublicKey,
+  o: { sol: bigint; tokens: bigint; tokenProgram?: PublicKey },
+): Promise<CreatedPool> {
+  const opener = launchTierOpener() as Keypair;
+  const config = deriveAmmConfig(CP_SWAP_PROGRAM, 0);
+  const { token0, token1 } = sortMints(WSOL, mint);
+  const solIs0 = token0.equals(WSOL);
+  const tokenProgram = o.tokenProgram ?? TOKEN_PROGRAM_ID;
+  const address = derivePool(CP_SWAP_PROGRAM, config, token0, token1);
+  const lpMint = deriveLpMint(CP_SWAP_PROGRAM, address);
+  const openerSol = getAssociatedTokenAddressSync(WSOL, opener.publicKey);
+  const openerToken = getAssociatedTokenAddressSync(mint, opener.publicKey, false, tokenProgram);
+  const openerLp = getAssociatedTokenAddressSync(lpMint, opener.publicKey);
+  const { decimals } = await mintFacts(mint);
+  await send([
+    // The rent of the accounts the opening makes (pool, vaults, share mint and account, price record), with room.
+    SystemProgram.transfer({ fromPubkey: creator.publicKey, toPubkey: opener.publicKey, lamports: 100_000_000 }),
+    createAssociatedTokenAccountIdempotentInstruction(creator.publicKey, openerSol, opener.publicKey, WSOL),
+    SystemProgram.transfer({ fromPubkey: creator.publicKey, toPubkey: openerSol, lamports: o.sol }),
+    createSyncNativeInstruction(openerSol),
+    createAssociatedTokenAccountIdempotentInstruction(creator.publicKey, openerToken, opener.publicKey, mint, tokenProgram),
+    createTransferCheckedInstruction(getAssociatedTokenAddressSync(mint, creator.publicKey, false, tokenProgram), mint, openerToken, creator.publicKey, o.tokens, decimals, [], tokenProgram),
+  ], [creator]);
+  const [permission] = PublicKey.findProgramAddressSync([Buffer.from('permission'), opener.publicKey.toBuffer()], CP_SWAP_PROGRAM);
+  const meta = (pubkey: PublicKey, isWritable = false, isSigner = false) => ({ pubkey, isSigner, isWritable });
+  const init = new TransactionInstruction({
+    programId: CP_SWAP_PROGRAM,
+    // The order of InitializeWithPermission (initialize_with_permission.rs).
+    keys: [
+      meta(opener.publicKey, true, true), meta(creator.publicKey), meta(config), meta(deriveAuthority(CP_SWAP_PROGRAM)), meta(address, true),
+      meta(token0), meta(token1), meta(lpMint, true),
+      meta(solIs0 ? openerSol : openerToken, true), meta(solIs0 ? openerToken : openerSol, true), meta(openerLp, true),
+      meta(deriveVault(CP_SWAP_PROGRAM, address, token0), true), meta(deriveVault(CP_SWAP_PROGRAM, address, token1), true),
+      meta(CREATE_POOL_FEE_RECEIVER, true), meta(deriveObservation(CP_SWAP_PROGRAM, address), true), meta(permission),
+      meta(TOKEN_PROGRAM_ID), meta(solIs0 ? TOKEN_PROGRAM_ID : tokenProgram), meta(solIs0 ? tokenProgram : TOKEN_PROGRAM_ID),
+      meta(ASSOCIATED_TOKEN_PROGRAM_ID), meta(SystemProgram.programId),
+    ],
+    // init_amount_0, init_amount_1, open_time 0, then creator_fee_on: the SOL side, as a graduation chooses (1 = token 0, 2 = token 1).
+    data: Buffer.concat([IX_INITIALIZE_WITH_PERMISSION, u64(solIs0 ? o.sol : o.tokens), u64(solIs0 ? o.tokens : o.sol), u64(0n), Buffer.from([solIs0 ? 1 : 2])]),
+  });
+  const signature = await send([init], [opener]);
+  const shares = (await tokenAmount(openerLp)) ?? 0n;
+  const creatorLp = getAssociatedTokenAddressSync(lpMint, creator.publicKey);
+  await send([
+    createAssociatedTokenAccountIdempotentInstruction(creator.publicKey, creatorLp, creator.publicKey, lpMint),
+    createTransferCheckedInstruction(openerLp, lpMint, creatorLp, opener.publicKey, shares, 9),
+  ], [creator, opener]);
+  return { address, lpMint, config, standard: true, signature };
+}
+
+const u64 = (n: bigint) => { const b = Buffer.alloc(8); b.writeBigUInt64LE(n); return b; };
 
 /**
  * The token's freeze authority freezes the pool's own vault for that token, so nothing
