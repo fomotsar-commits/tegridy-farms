@@ -122,6 +122,29 @@ swap's own input is the SwapEvent's plus the fee (0.06965 + 0.00035 = 0.07 SOL i
 
 **Do:** count our factories' pairs only. For Jupiter, read the leg from its events, adding the
 fee back when it came off the input; that matches fee ÷ rate without knowing the rate.
+## 2026-10-20: a build step that reads a file outside frontend/ passes every local build and every CI job, and fails every production deploy
+
+**Believed:** a Vite plugin that reads `../CHANGELOG.md` is safe once `vite build` passes locally
+and in CI, because Vercel builds the same repository.
+
+**Measured** (Vercel build logs, `npx vercel inspect dpl_EnewCRdDML6XsV2PkmxTZrhV2N5a --logs`,
+2026-10-19/20): every production build from #878 on stopped at
+`[plugin changelog-files] Error: ENOENT: no such file or directory, open '/vercel/path0/CHANGELOG.md'`.
+`.vercelignore` opens with `*` and re-includes only `frontend/`, so the upload has no repo-root
+files, while a local or CI checkout has all of them. Three merges (#878, #882, #893) went in over
+about ten hours and none went live. The site kept serving the build before them, and nothing went
+red where anyone was looking: previews are skipped for this project, so every PR showed the usual
+skipped Vercel check.
+
+**Also measured:** re-including the file alone is not enough when it sits in a folder.
+`*` then `!docs/CHANGELOG_EARLIER.md` still leaves it out under the `ignore` package (git's rule:
+a file can't come back while its folder is excluded). It takes `!docs` first, and `*` still keeps
+the rest of `docs/` out.
+
+**Do:** after a merge, read the merge commit's `Vercel` status, not the PR's
+(`gh api repos/<owner>/<repo>/commits/<sha>/statuses`); "merged" is not "live". For a file a build
+reads from outside the uploaded folder, add the `.vercelignore` line and a test that evaluates the
+ignore file against the plugin's own file list.
 
 ## 2026-10-19: a dev-server walk that stubs every /api/ request renders a blank page, because the app imports from /api/_lib/
 
