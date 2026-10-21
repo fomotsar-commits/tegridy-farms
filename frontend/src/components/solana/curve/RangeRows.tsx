@@ -38,13 +38,8 @@ export function RangeRows({ summary: s }: { summary: RangeSummary }) {
         value={`${perMillionPercent(l.tradeFeeRate)} of each swap through your range. Positions in range share what the venue does not keep: it keeps ${venue.cut}, read from the pool's fee tier.`}
         mono={false}
       />
-      {venue.elsewhere ? (
-        <Notice tone="bad">
-          <strong>{venue.where}</strong> {venue.wallets.map((w) => `${w.label}: ${w.address}`).join('. ')}.
-        </Notice>
-      ) : (
-        <Notice>{venue.where}</Notice>
-      )}
+      {/* Anything but the agreed split is said once, in bold, at the top of the review (TxFlowView). */}
+      {!venue.elsewhere && <Notice>{venue.where}</Notice>}
       <Row label="Range" value={range} mono={false} />
       <Notice tone={s.range.holds === 'both' ? 'info' : 'warn'}>{holds} Out of range, a position earns nothing.</Notice>
       {s.kind === 'range-open' ? (

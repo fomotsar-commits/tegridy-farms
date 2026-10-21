@@ -72,7 +72,7 @@ function deployed(chain: FakeChain, program: PublicKey) {
   chain.set(pd, { lamports: 10_000_000, owner: BPF_LOADER_UPGRADEABLE_ID, data: new Uint8Array(64) });
 }
 
-function chainWith(o: { status?: number; deploy?: boolean; tokens?: bigint | null; token2022?: boolean; frozenVault?: 0 | 1; vaultMissing?: boolean } = {}): FakeChain {
+function chainWith(o: { status?: number; deploy?: boolean; tokens?: bigint | null; token2022?: boolean; frozenVault?: 0 | 1; vaultMissing?: boolean; reward?: boolean } = {}): FakeChain {
   const c = new FakeChain();
   if (o.deploy !== false) deployed(c, PROG);
   c.set(CONFIG, { lamports: rent(117), owner: PROG, data: encodeAmmConfig({ index: 0, tradeFeeRate: 10_000, protocolFeeRate: 104_000, fundFeeRate: 56_000, tickSpacing: SPACING, owner: TIER_OWNER, fundOwner: FUND_OWNER }) });
@@ -84,6 +84,8 @@ function chainWith(o: { status?: number; deploy?: boolean; tokens?: bigint | nul
       vault0: VAULT0, vault1: VAULT1,
       observation: deriveObservation(PROG, POOL),
       decimals0: D0, decimals1: D1, tickSpacing: SPACING, liquidity: L_POOL, sqrtPriceX64: SQRT, tickCurrent: TICK, status: o.status,
+      // A reward the vault set up on the pool: its mint and vault.
+      rewards: o.reward ? [{ mint: Keypair.generate().publicKey, vault: Keypair.generate().publicKey }] : undefined,
     }),
   });
   if (o.token2022) c.mint2022(TOKEN, [], { decimals: 6 });
@@ -297,6 +299,15 @@ describe('opening a range position', () => {
     expect(await msg(chainWith({ frozenVault: 1 }))).toBe(RANGE_COPY.vaultFrozen);
     // A vault that did not read is never taken as open.
     expect(await msg(chainWith({ vaultMissing: true }))).toBe(RANGE_COPY.poolChanged('its vaults'));
+  });
+
+  it('a pool that pays a reward opens like any other: an opening carries no reward account', async () => {
+    const c = ready(chainWith({ reward: true }));
+    const view = decodePoolState(POOL.toBase58(), c.accounts.get(POOL.toBase58())!.data)!;
+    expect(view.rewardInfos.filter((r) => r.initialized)).toHaveLength(1);
+    const p = ok(await prepareRangeOpen(W(c), cfgLocal, PROG, READS, { owner: ME, pool: POOL, ...inRange, side: 'token', amount: 5_000_000n, toleranceBps: 100 }));
+    expect(p.kind).toBe('range-open');
+    expect(decodeIntent(body(p), intentOf(p)).ok).toBe(true);
   });
 
   it('names a fixed liquidity with a ceiling on both coins, so a price pushed either way past the tolerance is refused', async () => {

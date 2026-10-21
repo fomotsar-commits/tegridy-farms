@@ -11,6 +11,7 @@ import { rangeVenueEarns } from '../../../lib/solana/clmm/venueEarns';
 import type { FeeSplitView, NotSent, PreparedTx, SolanaCluster, TokenRole, TxKind, TxOutcome, TxSigner, TxSummary, TxViewApi } from './ports';
 import { reviewLines } from './reviewLines';
 import { RangeRows } from './RangeRows';
+import { rangeVenueEarns, type RangeVenueEarns } from '../../../lib/solana/clmm/venueEarns';
 import type { ReviewState, TxFlow } from './useTxFlow';
 import { quoteCoin, type QuoteCoin } from '../../../lib/solana/lp/quotes';
 import type { PriceReference } from '../../../lib/solana/lp/poolHealth';
@@ -378,6 +379,26 @@ const gapCostText = (g: PriceGap, q: QuoteCoin) =>
  * Here it is read out when the review opens, like a token its creator can freeze. It is
  * said once: the rows below do not repeat it.
  */
+/**
+ * A range review whose fee tier is not the agreed split: where the venue's cut goes, said
+ * first, in bold, above every row (owner, 2026-10-10). On a phone the rows are two screens.
+ */
+function rangeVenueFirst(s: TxSummary): RangeVenueEarns | null {
+  if (s.kind !== 'range-open' && s.kind !== 'range-remove' && s.kind !== 'range-close') return null;
+  const venue = rangeVenueEarns(s.poolLine);
+  return venue.elsewhere ? venue : null;
+}
+
+function VenueFirst({ id, venue }: { id: string; venue: RangeVenueEarns }) {
+  return (
+    <div id={id} data-testid="tx-review-venue-elsewhere" data-review-line="warning">
+      <Notice tone="bad">
+        <strong>{venue.where}</strong> {venue.wallets.map((w) => `${w.label}: ${w.address}`).join('. ')}.
+      </Notice>
+    </div>
+  );
+}
+
 function reviewWarnings(s: TxSummary): string[] {
   if (s.kind !== 'lp-deposit' && s.kind !== 'lp-create') return [];
   return s.quote.risk ? [...s.warnings, s.quote.risk] : s.warnings;
@@ -942,11 +963,15 @@ export function TxReview({
 }) {
   const warnings = reviewWarnings(prepared.summary);
   const warningsId = useId();
+  const venue = rangeVenueFirst(prepared.summary);
+  const venueId = useId();
+  const describedBy = [venue ? venueId : null, warnings.length > 0 ? warningsId : null].filter(Boolean).join(' ') || undefined;
   return (
     <div className="space-y-2" data-testid="tx-review">
-      <h3 ref={headingRef} tabIndex={-1} aria-describedby={warnings.length > 0 ? warningsId : undefined} className="text-white font-semibold text-[12px] outline-none">
+      <h3 ref={headingRef} tabIndex={-1} aria-describedby={describedBy} className="text-white font-semibold text-[12px] outline-none">
         {TITLES[prepared.kind]}
       </h3>
+      {venue && <VenueFirst id={venueId} venue={venue} />}
       {warnings.length > 0 && <ReviewWarnings id={warningsId} warnings={warnings} />}
       {extra}
       <SummaryRows summary={prepared.summary} decimals={decimals} display={display} />

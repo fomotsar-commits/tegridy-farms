@@ -5,6 +5,8 @@ import { PLATFORM_TREASURY_VAULT } from '../../../lib/launcher/solana/curve/prog
 import { WORKSHOP_WALLET } from '../../../lib/launcher/solana/write/plant';
 import { SOL_QUOTE } from '../../../lib/solana/lp/quotes';
 import { RangeRows } from './RangeRows';
+import { TxReview } from './TxFlowView';
+import { prepared } from './fakeWriteApi.fixture';
 import type { RangeSummary } from './ports';
 
 /** A range position's review says the fee, the venue's cut and where that cut goes, from the pool's tier. */
@@ -37,14 +39,34 @@ describe('the range review’s fee lines', () => {
     expect(document.querySelector('strong')).toBeNull();
   });
 
-  it('any other wallet is said in bold, with its address', () => {
-    render(<RangeRows summary={opening({ owner: PLATFORM_TREASURY_VAULT.toBase58(), fundOwner: STRANGER })} />);
-    expect(document.querySelector('strong')?.textContent).toMatch(/does not follow the agreed split/);
-    expect(document.body.textContent).toContain(STRANGER);
+  /** The review as a person meets it: heading, then whatever is said first, then the rows. */
+  const review = (owners: { owner: string; fundOwner: string }) => render(<TxReview prepared={prepared(opening(owners))} decimals={6} display={(x) => x} />);
+  /** True when `a` comes before `b` in the page. */
+  const before = (a: Element, b: Element) => (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
+
+  it('any other wallet is said in bold, with its address, at the top of the review, before every row', () => {
+    review({ owner: PLATFORM_TREASURY_VAULT.toBase58(), fundOwner: STRANGER });
+    const first = screen.getByTestId('tx-review-venue-elsewhere');
+    expect(first.querySelector('strong')?.textContent).toMatch(/does not follow the agreed split/);
+    expect(first.textContent).toContain(STRANGER);
+    expect(before(first, screen.getByText('Range pool'))).toBe(true);
+    expect(before(first, screen.getByText('You put in about'))).toBe(true);
+    // Said once: the rows do not repeat it.
+    expect(document.querySelectorAll('strong')).toHaveLength(1);
+    // A screen reader says it when the review opens.
+    expect(screen.getByRole('heading').getAttribute('aria-describedby')).toContain(first.id);
   });
 
-  it('the vault collecting the island’s part is said in bold too, with what each wallet gets', () => {
-    render(<RangeRows summary={opening({ owner: PLATFORM_TREASURY_VAULT.toBase58(), fundOwner: PLATFORM_TREASURY_VAULT.toBase58() })} />);
-    expect(document.querySelector('strong')?.textContent).toMatch(/does not follow the agreed split .* 16% of each fee \(0\.16% of the swap\) to the team’s shared wallet, 0% of each fee \(0% of the swap\) to the island’s Workshop\./);
+  it('the vault collecting the island’s part is said in bold too, first, with what each wallet gets', () => {
+    review({ owner: PLATFORM_TREASURY_VAULT.toBase58(), fundOwner: PLATFORM_TREASURY_VAULT.toBase58() });
+    const first = screen.getByTestId('tx-review-venue-elsewhere');
+    expect(first.querySelector('strong')?.textContent).toMatch(/does not follow the agreed split .* 16% of each fee \(0\.16% of the swap\) to the team’s shared wallet, 0% of each fee \(0% of the swap\) to the island’s Workshop\./);
+    expect(before(first, screen.getByText('Range pool'))).toBe(true);
+  });
+
+  it('the agreed split puts nothing above the rows', () => {
+    review({ owner: PLATFORM_TREASURY_VAULT.toBase58(), fundOwner: WORKSHOP_WALLET.toBase58() });
+    expect(screen.queryByTestId('tx-review-venue-elsewhere')).toBeNull();
+    expect(screen.getByText(/The venue’s cut is split: 10\.4% of each fee/)).toBeInTheDocument();
   });
 });

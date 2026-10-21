@@ -19,7 +19,12 @@ export function coinAmount(p: Pair, v: bigint): string {
 
 /** A price as "0.0003 SOL per BAYLA". */
 export function priceText(p: Pair, price: Price): string {
-  return `${formatSolPrice(priceNumber(price))} ${p.quote.symbol} per ${quoteCoin(p.tokenMint)?.symbol ?? 'token'}`;
+  return priceNumberText(p, priceNumber(price));
+}
+
+/** A price already a number (the market's, from Jupiter), said the same way. */
+export function priceNumberText(p: Pair, price: number): string {
+  return `${formatSolPrice(price)} ${p.quote.symbol} per ${quoteCoin(p.tokenMint)?.symbol ?? 'token'}`;
 }
 
 /** Token 0 and token 1 amounts as this pair reads them: the token first, then the coin. */

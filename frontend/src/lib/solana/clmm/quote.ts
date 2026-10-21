@@ -80,8 +80,12 @@ export interface SwapQuoteArgs {
   sqrtPriceLimitX64: bigint;
   /** Unix seconds the swap is expected to run at. The dynamic fee and open time read it. */
   blockTimestamp: number;
-  /** The program's ceiling on a fee rate: ours unless a swap from another build is replayed. */
-  maxFeeRate?: number;
+  /**
+   * The program's ceiling on a fee rate: ours (4%), or Raydium's (10%) only to replay a swap
+   * that ran in Raydium's program. Nothing else: a lower one would quote a smaller fee than
+   * the program takes, and more coins out than the trader gets.
+   */
+  maxFeeRate?: typeof MAX_FEE_RATE_NUMERATOR | typeof UPSTREAM_MAX_FEE_RATE_NUMERATOR;
 }
 
 export interface SwapInternalResult {
@@ -349,6 +353,9 @@ export function swapInternal(a: Omit<SwapQuoteArgs, 'sqrtPriceLimitX64'> & { sqr
   const { pool, config, zeroForOne } = a;
   const spacing = pool.tickSpacing;
   const cap = a.maxFeeRate ?? MAX_FEE_RATE_NUMERATOR;
+  if (cap !== MAX_FEE_RATE_NUMERATOR && cap !== UPSTREAM_MAX_FEE_RATE_NUMERATOR) {
+    throw new RangeError(`maxFeeRate is a program's own ceiling, ${MAX_FEE_RATE_NUMERATOR} or ${UPSTREAM_MAX_FEE_RATE_NUMERATOR}, never ${String(cap)}`);
+  }
   const limit = a.sqrtPriceLimitX64;
   const blockTimestamp = BigInt(a.blockTimestamp >>> 0); // `oracle::block_timestamp()` is a u32
   if (a.amount === 0n) fail('ZeroAmountSpecified');
