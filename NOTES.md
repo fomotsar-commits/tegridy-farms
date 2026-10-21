@@ -235,6 +235,71 @@ answered. How long the CI runner's hash took was not measured.
 **Do:** when real-async work runs before the timer, have the stub fetch resolve a promise,
 wait for it in real time, then start the watch, counting from that moment.
 
+## 2026-10-18: a staking pot paid over four years cannot run short, but upstream Synthetix strands every stretch with nobody staked
+
+**Believed:** a reward rate set by hand is fine while someone watches the pot; Synthetix
+`notifyRewardAmount` can be dropped in as it is; a contract over EIP-170 is fixed by shaving
+small things; and one edited contract is a quick rebuild.
+
+**Measured** (PR #824, the new `TegridyStaking`, commits `c57c22e6` and `cef7720c`):
+- Each funding sets `rate = (received + still scheduled) / (4 * 365 days)`, so a day pays the
+  pot ÷ 1,460 and the total paid cannot pass the total received. The old contract's rate is set
+  by the admin and is tied to nothing it holds. `MAX_REWARD_RATE` (1e18 wei a second) turns into
+  a pot ceiling: one schedule tops out at 126,144,000 TOWELI.
+- Upstream Synthetix keeps its clock running while nothing is staked (here also while paused),
+  credits nobody, and leaves that stretch out of the next funding's leftover, so it stays in the
+  contract for good. Funding before the first stake is the usual case. The fix moves the end back
+  by the skipped stretch: `if (periodFinish > lastUpdateTime) periodFinish += now - lastUpdateTime`
+  (`StakingRewardLib.accumulateRewards`).
+- Size, limit 24,576 B, ratchet 24,489 B: written inline, 24,693 B. Three small cuts (two
+  constants made internal, the rate-cap check and one event dropped): 24,548 B, with a check
+  lost. The end date moved out of the library's state struct into host code, plus those cuts:
+  24,629 B. A two-line inline unpause instead of a call to the private settle routine: +39 B.
+  The whole funding body moved into the delegatecalled `StakingRewardLib`, no cuts: 24,356 B
+  (the library went from 7,760 to 8,506 B).
+- 64 test and script files import `TegridyStaking.sol`, so one edit meant a full `via_ir`
+  rebuild: 1 h 58 min, solc sampled at 18.2 GB. A scratch copy of `src/`, `test/` and `script/`
+  with lib paths made absolute in `foundry.toml` built the contract alone
+  (`forge build src/TegridyStaking.sol`) in 14.5 s, and
+  `FOUNDRY_SPARSE_MODE=true forge test --match-path <file>` ran one suite in about 4 min. Sparse
+  mode still parses every test file: with `script/` left out it failed with "Source not found".
+- The full suite after the change: 3,039 passed, 26 failed, each failure a test written for a
+  fixed rate: a rate in the constructor, TOWELI sent straight to the contract, a shortfall rig
+  that needed emission to outrun the pot (it no longer can), a known-defect test asserting the
+  over-mint the schedule removes, and a top-up test that funded an empty pool (whose end now
+  moves back).
+
+**Do:** pay a reward pot on a fund-backed schedule and move its end back over any stretch that
+pays nobody. Near EIP-170, move the biggest body into a library before cutting checks, and
+measure each candidate with a one-contract build in a scratch copy. When the rate model changes,
+keep each old test's property and rebuild its rig: simulate a loss with `deal()` instead of
+over-emission.
+
+## 2026-10-18: a plain `git worktree remove` empties a junction's target, and Git Bash splits a `C:/` folder on `PATH` at its colon
+
+**Believed:** removing a worktree removes only the worktree; a `C:/...` folder put first on
+`PATH` in Git Bash is searched first; and adding `MSYS_NO_PATHCONV=1` is always harmless.
+
+**Measured** (2026-10-18, Git for Windows 2.53.0, Windows 11, while archiving idle sessions):
+- One app-made worktree under `.claude\worktrees` had `frontend\node_modules` as a junction to
+  the main checkout's `node_modules`. The app's archive setting says an archived session's
+  worktree is removed unless it has uncommitted changes (read in the settings text, not run).
+  In a scratch repo with `node_modules` gitignored and junctioned to a 7-entry folder, a plain
+  `git worktree remove` (no `--force`) exited 0 and left the target with 0 entries. Not ignored,
+  the junction made it refuse ("contains modified or untracked files"). `cmd /c rmdir <link>`
+  (no `/s`) removed the link and left all 7.
+- `PATH="C:/.../fakebin:$PATH"`: Git Bash splits `PATH` at every colon, so the first entry was
+  `C` and the next `/Users/...`, and `command -v gh` found the real `gh`. With
+  `$(cygpath -u C:/.../fakebin)` the fake ran.
+- `MSYS_NO_PATHCONV=1 git -C /c/Users/... rev-parse HEAD` failed with "cannot change to
+  '/c/Users/...'". Without the variable, or with `C:/Users/...`, it worked: `git.exe` is a
+  native program and needs the conversion the variable switches off.
+
+**Do:** before a worktree is removed or its session archived, list its junctions
+(`cmd /c dir /AL <folder>` shows `<JUNCTION>`), unlink each with `cmd /c rmdir <link>`, and
+count the target's entries before and after. In Git Bash, put folders on `PATH` only in `/c/...`
+form (`cygpath -u`). When a command sets `MSYS_NO_PATHCONV=1`, pass every path as `C:/...`.
+
 ## 2026-10-18: a coin with no name in a wallet can still be a room's coin, and a pool someone else opens gives no signal
 
 **Believed:** a pool whose coin shows no name in a wallet pairs some stranger's coin, and a
