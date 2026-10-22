@@ -414,6 +414,7 @@ function connectSolana(pathname: string) {
   requestSolanaOpen();
 }
 
+// Colours that change on hover are classes, never inline style: an inline colour beats hover:text-*.
 const CONNECT_BTN =
   'inline-flex items-center justify-center gap-2 min-h-[44px] px-4 border font-mono text-[11px] uppercase tracking-[0.14em] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#22c55e]';
 
@@ -422,7 +423,7 @@ function ConnectButtons({ solana, evm }: { solana: boolean; evm: boolean }) {
   return (
     <div className="flex flex-wrap gap-2">
       {!solana && (
-        <button type="button" onClick={() => connectSolana(pathname)} className={`${CONNECT_BTN} border-[#4CAF50]/70 hover:bg-[#4CAF50] hover:text-[#05080f]`} style={{ color: EDITORIAL_INK }}>
+        <button type="button" onClick={() => connectSolana(pathname)} className={`${CONNECT_BTN} border-[#4CAF50]/70 text-[#f5e4b8] hover:bg-[#4CAF50] hover:text-[#05080f]`}>
           <span aria-hidden="true">◎</span> Connect Solana wallet
         </button>
       )}
@@ -430,7 +431,7 @@ function ConnectButtons({ solana, evm }: { solana: boolean; evm: boolean }) {
         <ConnectButton.Custom>
           {({ openConnectModal, mounted }) => (
             <button type="button" onClick={openConnectModal} disabled={!mounted}
-              className={`${CONNECT_BTN} border-[#8b5cf6]/70 hover:bg-[#8b5cf6] hover:text-[#05080f]`} style={{ color: EDITORIAL_INK }}>
+              className={`${CONNECT_BTN} border-[#8b5cf6]/70 text-[#f5e4b8] hover:bg-[#8b5cf6] hover:text-[#05080f]`}>
               <span aria-hidden="true">Ξ</span> {CONNECT_ETHEREUM_WALLET}
             </button>
           )}
@@ -607,8 +608,8 @@ export function IslandDashboard({ headingLevel = 2 }: { headingLevel?: 1 | 2 }) 
             <div className="mt-3 flex flex-wrap items-center justify-between gap-x-6">
               {/* The venue's OWN earning surface: its pools belong to the factory this venue deployed. */}
               <Link to="/liquidity"
-                className="group/lp inline-flex items-center gap-2 min-h-[44px] font-mono text-[11px] uppercase tracking-[0.14em] no-underline transition-colors hover:text-[#22c55e]"
-                style={{ color: EDITORIAL_INK }}>
+                // The colour is a class: an inline colour would beat hover:text-*.
+                className="group/lp inline-flex items-center gap-2 min-h-[44px] font-mono text-[11px] uppercase tracking-[0.14em] no-underline text-[#f5e4b8] transition-colors hover:text-[#22c55e]">
                 Provide liquidity on venue pools
                 <span aria-hidden="true" className="transition-transform duration-300 group-hover/lp:translate-x-1">→</span>
               </Link>

@@ -65,8 +65,10 @@ export function IslandBasketButton({ count, symbols, onOpen }: { count: number; 
       // Not "Buy …" first: the form's own Buy button is the one a reader (or a script) looks for by that word.
       aria-label={`Island order: Buy all bungalows, ${count} coins`}
       data-testid="island-basket-open"
-      className="group/stub relative isolate inline-grid grid-cols-[auto_minmax(0,1fr)] items-stretch max-w-full min-h-[40px] overflow-hidden text-left transition-colors duration-300 hover:bg-[#22c55e] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#22c55e] focus-visible:ring-offset-1 focus-visible:ring-offset-[#05080f]"
-      style={{ background: 'rgba(5,8,15,0.92)', border: `1px solid rgba(245,228,184,0.4)`, color: EDITORIAL_INK, textShadow: 'none' }}
+      // Colours that change on hover are classes, never inline style: an inline background
+      // beats hover:bg-*, and the stub went near-black on near-black (walked 2026-10-22).
+      className="group/stub relative isolate inline-grid grid-cols-[auto_minmax(0,1fr)] items-stretch max-w-full min-h-[40px] overflow-hidden text-left border border-[#f5e4b8]/40 bg-[#05080f]/90 text-[#f5e4b8] transition-colors duration-300 hover:bg-[#22c55e] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#22c55e] focus-visible:ring-offset-1 focus-visible:ring-offset-[#05080f]"
+      style={{ textShadow: 'none' }}
     >
       {/* The stub's number, on its perforated edge. */}
       <span
@@ -184,8 +186,9 @@ export function IslandBasketDialog(p: {
               type="button"
               disabled={p.locked}
               onClick={() => p.setUsd(v)}
-              className="min-h-[36px] px-3 border font-mono text-[11px] tracking-[0.1em] transition-colors disabled:opacity-50 hover:border-[#22c55e]"
-              style={p.usd === v ? { background: GREEN, borderColor: GREEN, color: '#05080f' } : { borderColor: INK_DIM, color: EDITORIAL_INK }}
+              className={`min-h-[36px] px-3 border font-mono text-[11px] tracking-[0.1em] transition-colors disabled:opacity-50 ${
+                p.usd === v ? 'bg-[#22c55e] border-[#22c55e] text-[#05080f]' : 'border-[#f5e4b8]/30 text-[#f5e4b8] hover:border-[#22c55e]'
+              }`}
             >
               ${v}
             </button>
@@ -256,8 +259,8 @@ export function BasketCta({ label, disabled, onClick }: { label: string; disable
       onClick={onClick}
       disabled={disabled}
       data-testid="island-basket-buy"
-      className="group/cta flex w-full min-h-[52px] items-center justify-between gap-3 px-4 font-black uppercase leading-none tracking-[-0.01em] text-[15px] transition-colors hover:bg-[#f5e4b8] disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:bg-[#22c55e] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#f5e4b8] focus-visible:ring-offset-2 focus-visible:ring-offset-[#05080f]"
-      style={{ ...HEADING_FONT, background: GREEN, color: '#05080f', textShadow: 'none' }}
+      className="group/cta flex w-full min-h-[52px] items-center justify-between gap-3 px-4 font-black uppercase leading-none tracking-[-0.01em] text-[15px] bg-[#22c55e] text-[#05080f] transition-colors hover:bg-[#f5e4b8] disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:bg-[#22c55e] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#f5e4b8] focus-visible:ring-offset-2 focus-visible:ring-offset-[#05080f]"
+      style={{ ...HEADING_FONT, textShadow: 'none' }}
     >
       <span>{label}</span>
       <span aria-hidden="true" className="transition-transform duration-300 group-hover/cta:translate-x-1">→</span>
