@@ -18,6 +18,8 @@ import { isLauncherEnabled } from './launcher/config';
 import { curveChainNames, isCurveLive } from './launcher/curveChains';
 // Web3-free on purpose: this module is in the main bundle.
 import { isCurveWriteEnabled } from './launcher/solana/curveWriteFlag';
+// String-only, for the same reason: the range program's id and whether its tab shows.
+import { rangePoolsVisible } from './solana/clmm/programId';
 // No entry is keyed to the unhosted indexer (isIndexerConfigured). Each off mark
 // below reads a rail this build already carries, so it is a computed fact.
 import { hasChartableMarket } from './chart/markets';
@@ -143,6 +145,8 @@ export const NAV_SECTIONS: NavSection[] = [
       { to: '/liquidity', label: 'Liquidity', tabLabel: 'Add / Remove' },
       // Ungated, like /pools: the page mounts its LP section only once the venue reads live.
       { to: '/solana-lp', label: 'Solana LP' },
+      // Hidden, with no route, until range pools open (RANGE_POOLS_OPEN, clmm/programId.ts).
+      ...(rangePoolsVisible() ? [{ to: '/range-pools', label: 'Range pools', tabLabel: 'Range' }] : []),
       // Ungated: a live probe of the venue's AMM that states when it is undeployed.
       { to: '/pools', label: 'Venue AMM' },
       // On: every leg runs on deployed contracts; a missing vault is named on the page.

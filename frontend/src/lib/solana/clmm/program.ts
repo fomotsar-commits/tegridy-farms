@@ -1,4 +1,5 @@
 import { PublicKey } from '@solana/web3.js';
+import { PLACEHOLDER_PROGRAM_ADDRESS, RANGE_PROGRAM_ADDRESS } from './programId';
 
 /**
  * The range-pool program: identity, PDAs, account layouts and decoders.
@@ -18,13 +19,14 @@ import { PublicKey } from '@solana/web3.js';
  * The id the program source declared before the deploy: nobody holds its key and no release
  * build accepts it, so nothing can ever run there.
  */
-export const PLACEHOLDER_PROGRAM_ID = new PublicKey('RangePoo1PLACEHo1DERnotDep1oyed111111111111');
+export const PLACEHOLDER_PROGRAM_ID = new PublicKey(PLACEHOLDER_PROGRAM_ADDRESS);
 
 /**
- * THE ONE CONSTANT every range-pool read and write goes through: the program deployed
- * 2026-10-21 and held by the vault. program.test.ts holds it equal to the source's declare_id!.
+ * Every range-pool read and write goes through this key, made from the one constant in
+ * programId.ts: the program deployed 2026-10-21 and held by the vault. program.test.ts holds
+ * it equal to the source's declare_id!.
  */
-export const RANGE_PROGRAM_ID: PublicKey = new PublicKey('7ghzbbmq59QEbdweSzM1ggpeBH1Q2CyxZg4Tr2x8Aso');
+export const RANGE_PROGRAM_ID: PublicKey = new PublicKey(RANGE_PROGRAM_ADDRESS);
 
 /** True once RANGE_PROGRAM_ID names a real program. Not proof it is deployed: reads ask the chain. */
 export function rangeProgramNamed(programId: PublicKey = RANGE_PROGRAM_ID): boolean {
