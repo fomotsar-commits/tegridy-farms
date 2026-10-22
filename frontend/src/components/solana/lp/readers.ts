@@ -7,6 +7,7 @@ import { readTokenSafety, type TokenSafety } from '../../../lib/solana/lp/tokenS
 import { findPools, readFeeTiers, type FeeTierRead, type PoolSearchRead, type PoolView } from '../../../lib/solana/lp/poolFinder';
 import { readLedger, type LedgerRead } from '../../../lib/solana/lp/ledger';
 import { readOutsidePrice, type OutsidePrice } from '../../../lib/solana/lp/outsidePrice';
+import { ownPoolPrograms } from '../../../lib/solana/lp/ownPools';
 import { readPoolPastPage, type PoolPastPage } from '../../../lib/solana/lp/poolPast';
 import { listPools, type PoolListRead } from '../../../lib/solana/lp/poolList';
 import { placeShareOnChain, readPositions, type ChainPlacement, type PositionsRead } from '../../../lib/solana/lp/positions';
@@ -92,7 +93,7 @@ export function browserLpReaders(): LpReaders | null {
     safety: (mints) => readTokenSafety(rpc, mints),
     findPools: (mint, also) => findPools(rpc, mint, also?.length ? { ...indexOpts, also } : indexOpts),
     listPools: () => listPools(rpc, indexOpts),
-    outsidePrice: (mint, decimals, o) => readOutsidePrice(mint, decimals, { rpc, programId: programId.toBase58() }, jupiter, undefined, o),
+    outsidePrice: (mint, decimals, o) => readOutsidePrice(mint, decimals, { rpc, programId: ownPoolPrograms([programId.toBase58()]) }, jupiter, undefined, o),
     positions: (owner, limit) => readPositions(rpc, owner, { ...indexOpts, limit }),
     feeTiers: () => readFeeTiers(rpc, programId),
     wallet: (owner, tokenMint, tokenProgram, lpMint, o) => readWalletFacts(rpc, walletArgs(owner, tokenMint, tokenProgram, lpMint, o)),

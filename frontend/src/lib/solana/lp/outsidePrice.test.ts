@@ -114,6 +114,17 @@ describe('readOutsidePrice', () => {
     expect(r).toMatchObject({ kind: 'unread', detail: expect.stringMatching(/our own pools/) });
   });
 
+  it('a guard naming several of our programs (a range opening: the range program and our other pools) refuses a price through any of them', async () => {
+    const other = Keypair.generate().publicKey.toBase58();
+    for (const owner of [PROGRAM.toBase58(), other]) {
+      const g = { ...guard({ [ROUTE_POOL]: owner }), programId: [PROGRAM.toBase58(), other] };
+      const r = await readOutsidePrice(MINT, 6, g, jupiter(0.0042) as unknown as typeof fetch);
+      expect(r, owner).toMatchObject({ kind: 'unread', detail: expect.stringMatching(/our own pools/) });
+    }
+    const outside = { ...guard(), programId: [PROGRAM.toBase58(), other] };
+    expect((await readOutsidePrice(MINT, 6, outside, jupiter(0.0042) as unknown as typeof fetch)).kind).toBe('ok');
+  });
+
   it('a quote without its route, or a route we could not check, is not an outside price', async () => {
     for (const plan of [null, [], [{ swapInfo: { ammKey: 'nope' } }]]) {
       expect((await readOutsidePrice(MINT, 6, guard(), jupiter(0.0042, 0.01, 6, plan) as unknown as typeof fetch)).kind).toBe('unread');

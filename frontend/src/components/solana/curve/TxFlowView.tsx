@@ -8,6 +8,8 @@ import { TOO_NEW_WHY } from '../../../lib/solana/lp/ownPrice';
 import { edgePercent } from '../../../lib/solana/route';
 import type { FeeSplitView, NotSent, PreparedTx, SolanaCluster, TokenRole, TxKind, TxOutcome, TxSigner, TxSummary, TxViewApi } from './ports';
 import { reviewLines } from './reviewLines';
+import { RangeRows } from './RangeRows';
+import { rangeVenueEarns, type RangeVenueEarns } from '../../../lib/solana/clmm/venueEarns';
 import type { ReviewState, TxFlow } from './useTxFlow';
 import { quoteCoin, type QuoteCoin } from '../../../lib/solana/lp/quotes';
 import type { PriceReference } from '../../../lib/solana/lp/poolHealth';
@@ -197,6 +199,10 @@ export function SummaryRows({
       return <LpWithdrawRows summary={summary} />;
     case 'lp-create':
       return <LpCreateRows summary={summary} />;
+    case 'range-open':
+    case 'range-remove':
+    case 'range-close':
+      return <RangeRows summary={summary} />;
     default:
       // A new kind of transaction is a compile error here until it has rows.
       return noRowsFor(summary);
@@ -355,8 +361,32 @@ const gapCostText = (g: PriceGap, q: QuoteCoin) =>
   g.lossQuote === null ? 'could not be worked out' : `up to about ${coinExact(g.lossQuote, q)} of what you put in`;
 
 /**
+ * A range review whose fee tier is not the agreed split: where the venue's cut goes, said
+ * first, in bold, above every row (owner, 2026-10-10). It is one of the review's OWN lines,
+ * not a warning: any change to it, numbers included, shows the review again before signing.
+ */
+function rangeVenueFirst(s: TxSummary): RangeVenueEarns | null {
+  if (s.kind !== 'range-open' && s.kind !== 'range-remove' && s.kind !== 'range-close') return null;
+  const venue = rangeVenueEarns(s.poolLine, s.poolLine.feeCeiling);
+  return venue.elsewhere ? venue : null;
+}
+
+function VenueFirst({ id, venue }: { id: string; venue: RangeVenueEarns }) {
+  const wallets = venue.wallets.map((w) => `${w.label}: ${w.address}`).join('. ');
+  return (
+    <div id={id} data-testid="tx-review-venue-elsewhere">
+      <Notice tone="bad">
+        <strong>{venue.where}</strong>
+        {wallets && ` ${wallets}.`}
+      </Notice>
+    </div>
+  );
+}
+
+/**
  * What the builder says must be read before this is signed (`summary.warnings`: a price
- * that is off and what it may cost, no market price, a copied name, a freezable token).
+ * that is off and what it may cost, no market price, a copied name, a freezable token;
+ * a range opening's `warnings`: its own price check).
  * Only adding and opening carry any. A removal never does: nothing here may give someone
  * a reason to wait before taking their money out.
  *
@@ -368,6 +398,7 @@ const gapCostText = (g: PriceGap, q: QuoteCoin) =>
  * said once: the rows below do not repeat it.
  */
 function reviewWarnings(s: TxSummary): string[] {
+  if (s.kind === 'range-open') return s.poolLine.quote.risk ? [...s.warnings, s.poolLine.quote.risk] : s.warnings;
   if (s.kind !== 'lp-deposit' && s.kind !== 'lp-create') return [];
   return s.quote.risk ? [...s.warnings, s.quote.risk] : s.warnings;
 }
@@ -774,6 +805,9 @@ const RENT_ROW_LABEL: Record<TxKind, string> = {
   'lp-withdraw': 'One-time deposit for your new token account (it stays in that account)',
   'lp-create':
     "One-time account deposits: the new pool's own accounts (never returned) and your pool-share account (yours to close later)",
+  'range-open': 'One-time deposits: your position and its NFT (back when you close it), and any new price band of the pool (never returned)',
+  'range-remove': 'One-time deposit for a new token account of yours (it stays in that account)',
+  'range-close': 'One-time deposit for a new token account of yours (it stays in that account)',
 };
 
 /**
@@ -842,6 +876,9 @@ const TITLES: Record<PreparedTx['kind'], string> = {
   'lp-deposit': 'Review: add liquidity',
   'lp-withdraw': 'Review: remove liquidity',
   'lp-create': 'Review: open a pool',
+  'range-open': 'Review: open a range position',
+  'range-remove': 'Review: take out of your range position',
+  'range-close': 'Review: close your range position',
 };
 
 export function TxReview({
@@ -861,11 +898,15 @@ export function TxReview({
 }) {
   const warnings = reviewWarnings(prepared.summary);
   const warningsId = useId();
+  const venue = rangeVenueFirst(prepared.summary);
+  const venueId = useId();
+  const describedBy = [venue ? venueId : null, warnings.length > 0 ? warningsId : null].filter(Boolean).join(' ') || undefined;
   return (
     <div className="space-y-2" data-testid="tx-review">
-      <h3 ref={headingRef} tabIndex={-1} aria-describedby={warnings.length > 0 ? warningsId : undefined} className="text-white font-semibold text-[12px] outline-none">
+      <h3 ref={headingRef} tabIndex={-1} aria-describedby={describedBy} className="text-white font-semibold text-[12px] outline-none">
         {TITLES[prepared.kind]}
       </h3>
+      {venue && <VenueFirst id={venueId} venue={venue} />}
       {warnings.length > 0 && <ReviewWarnings id={warningsId} warnings={warnings} />}
       {extra}
       <SummaryRows summary={prepared.summary} decimals={decimals} display={display} />

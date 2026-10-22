@@ -38,6 +38,7 @@ import type { GateRpc } from '../../../lib/launcher/solana/write/config';
 import type { CreateLaunchInput } from '../../../lib/launcher/solana/write/launch';
 import type { LpDepositArgs, LpPrepareReads, LpWithdrawArgs } from '../../../lib/launcher/solana/write/liquidity';
 import type { LpCreateArgs } from '../../../lib/launcher/solana/write/createPool';
+import type { RangeOpenArgs, RangeOpenReads, RangeRemoveArgs } from '../../../lib/launcher/solana/write/range';
 import type { VenueSwapArgs } from '../../../lib/launcher/solana/write/venueSwap';
 import type { PlantBalance } from '../../../lib/launcher/solana/write/plant';
 import type { LaunchPool, LaunchPoolRead } from '../../../lib/launcher/solana/discover/pool';
@@ -77,6 +78,8 @@ export type {
   OpenGate,
   Prepared,
   PreparedTx,
+  RangeKind,
+  RangeSummary,
   SimulatedEffect,
   SolanaCluster,
   SubmitDeps,
@@ -217,6 +220,22 @@ export interface LpWriteApi {
   explorerTxUrl(signature: string, cluster: SolanaCluster): string;
   /** `page: 'token'` for a mint: Solscan's token page, not its account page. */
   explorerAddressUrl(address: string, cluster: SolanaCluster, page?: 'account' | 'token'): string;
+  meta: Pick<MetadataApi, 'displaySafe'>;
+}
+
+/**
+ * Range positions on the Range tab. Its own loader (`components/solana/range/rangeWriteApi.ts`),
+ * fetched only while range pools show and LP's switch is not 'off'. The program is named by
+ * the page (`clmm/programId.ts`); every builder checks it is deployed before it builds.
+ */
+export interface RangeWriteApi {
+  rangeWriteConfig(): CurveWriteConfig | null;
+  prepareRangeOpen(rpc: WriteRpc, cfg: CurveWriteConfig, programId: PublicKey, reads: RangeOpenReads, a: RangeOpenArgs): Promise<Prepared>;
+  prepareRangeRemove(rpc: WriteRpc, cfg: CurveWriteConfig, programId: PublicKey, a: RangeRemoveArgs): Promise<Prepared>;
+  prepareRangeClose(rpc: WriteRpc, cfg: CurveWriteConfig, programId: PublicKey, a: Omit<RangeRemoveArgs, 'percent'>): Promise<Prepared>;
+  submitPrepared(rpc: WriteRpc, signer: TxSigner, p: PreparedTx, deps?: SubmitDeps): Promise<TxOutcome>;
+  recheckOutcome(rpc: WriteRpc, signature: string, opts?: { lastValidBlockHeight?: number }): Promise<TxOutcome>;
+  explorerTxUrl(signature: string, cluster: SolanaCluster): string;
   meta: Pick<MetadataApi, 'displaySafe'>;
 }
 
