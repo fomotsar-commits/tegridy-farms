@@ -42,6 +42,8 @@ describe('<VenueVolume />', () => {
     expect(screen.queryByText(/not up to date/)).toBeNull();
     // GitHub fires the "hourly" job every few hours, so the small print says that.
     expect(screen.getByText(/Counted every few hours\./)).toBeTruthy();
+    // The job counts our factory's pools on every EVM chain it reads, Base included.
+    expect(screen.getByText(/our pools on Ethereum, Base and Robinhood\./)).toBeTruthy();
     vi.useRealTimers();
   });
 

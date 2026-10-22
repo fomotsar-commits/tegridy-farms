@@ -40,7 +40,8 @@ export function VenueVolume() {
           <FinePrint summary="What counts">
             <p>
               {volume.swaps.toLocaleString('en-US')} swaps in our Solana pools, Jupiter swaps made here, and our
-              Ethereum pool. Each is valued in dollars the hour it is counted. Counted every few hours.
+              pools on Ethereum, Base and Robinhood. Each is valued in dollars the hour it is counted. Counted every
+              few hours.
             </p>
           </FinePrint>
         </>
