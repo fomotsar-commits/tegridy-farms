@@ -10,6 +10,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { CFG, PACK, args, connect, cluster, rpcFor, clock, Report, main, Unread } from './lib/pack.mjs';
+import { noticeEnds } from './lib/tiers.mjs';
 
 async function get(url, json) {
   let r;
@@ -76,7 +77,9 @@ if (process.argv[1]?.endsWith('5-record-notice.mjs')) await main(async () => {
     return R.end('', 'The notice is not public.');
   }
   const start = new Date(Math.max(Date.parse(seenAt), Date.parse(f.continuousSince))).toISOString();
-  const opens = new Date(Date.parse(start) + CFG.notice.days * 86400_000).toISOString();
+  const end = noticeEnds(CFG, { start: Date.parse(start) / 1000 });
+  if (!end.ok) { R.refuse(end.why); return R.end('', 'The date the notice names does not read.'); }
+  const opens = new Date(end.at * 1000).toISOString();
   R.pass(`every commit since ${f.firstCommit} (${f.continuousSince}) carries the line${f.gapBefore ? `; the commit before it, ${f.gapBefore}, did not` : ''}`);
   R.pass(`recorded: first seen public at ${seenAt} by the network's clock; the notice runs from ${start}, so the fee tiers may execute from ${opens}, not before`);
   return R.end(`the notice is public. The tiers may execute from ${opens}. Run this again within the hour before the approval and before the execute.`, '');

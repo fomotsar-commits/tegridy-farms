@@ -64,8 +64,8 @@ anywhere public, and do not send the key file to anyone or move it.
 3. **Right after the deploy**, the session publishes the change. The repo's checks build the program
    again and must get the very same bytes as the program on chain. The website's pull requests for
    range pools take the address and go live, the position link (#912) first.
-4. **The fee tiers**: a notice in the changelog, the proposal, and its execute 7 days after the
-   notice. The mainnet folder's START-HERE.md walks you through them.
+4. **The fee tiers**: a notice in the changelog, the proposal, and its execute once the notice's
+   date has come. The mainnet folder's START-HERE.md walks you through them.
 
 Each merge to `mvp-launch` needs your word.
 

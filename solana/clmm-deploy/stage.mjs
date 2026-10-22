@@ -10,6 +10,7 @@
 //   --kind mainnet    --binary <so> --rebuilt <a second build's so> --expect-sha256 <hex> --rehearsal <results> [--out <dir>]
 //   --kind rehearsal  --binary <so> --out <dir> --rpc <local rpc> --program-key <file> --payer-key <file>
 //                     --notice-days <d> --notice-repo <url> --position-base <url> [--port <n>] [--pool-pack-peak <lamports>]
+//                     [--notice-not-before <ISO time, UTC>]  a notice that names its own date (mainnet: 2026-10-23T14:00:00Z)
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync, copyFileSync } from 'node:fs';
@@ -90,7 +91,11 @@ const TIERS = [
   { index: 0, tickSpacing: 120, tradeFeeRate: 10_000, protocolFeeRate: 104_000, fundFeeRate: 56_000 },
   { index: 1, tickSpacing: 60, tradeFeeRate: 2_500, protocolFeeRate: 104_000, fundFeeRate: 56_000 },
 ];
-const NOTICE_LINE = '- Notice: range pools get two fee tiers, 1% and 0.25% of each swap, no sooner than seven days from this day. Of each fee, 84% stays with the liquidity providers whose range is in use, 10.4% goes to memetics.finance and 5.6% to Jungle Bay Island.';
+// The owner's ruling of 2026-10-22 ("update the promise date"): #19's second approval came through the
+// Squads app on 2026-10-21, so the chain allows its execute from 2026-10-23T13:45:21Z. The notice now
+// names its own date instead of counting seven days. This line must match CHANGELOG.md byte for byte.
+const NOTICE_LINE = '- Notice, updated: range pools get two fee tiers, 1% and 0.25% of each swap, no sooner than 2026-10-23 14:00 UTC (it said seven days from 2026-10-21). Of each fee, 84% stays with the liquidity providers whose range is in use, 10.4% goes to memetics.finance and 5.6% to Jungle Bay Island.';
+const NOTICE_NOT_BEFORE = '2026-10-23T14:00:00Z';
 
 async function rpc(url, method, params = []) {
   const r = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }) });
@@ -194,6 +199,7 @@ const cfg = {
   tiers: TIERS, timeLock,
   notice: {
     line: NOTICE_LINE, days: KIND === 'rehearsal' ? Number(opt('--notice-days')) : 7, files: ['CHANGELOG.md', 'docs/CHANGELOG_EARLIER.md'],
+    ...(KIND === 'mainnet' ? { notBefore: NOTICE_NOT_BEFORE } : KIND === 'rehearsal' && opt('--notice-not-before') ? { notBefore: opt('--notice-not-before') } : {}),
     repo: KIND === 'rehearsal'
       ? { api: `${opt('--notice-repo')}/api`, raw: `${opt('--notice-repo')}/raw`, branch: 'mvp-launch' }
       : { api: 'https://api.github.com/repos/fomotsar-commits/tegridy-farms', raw: 'https://raw.githubusercontent.com/fomotsar-commits/tegridy-farms', branch: 'mvp-launch' },
@@ -271,7 +277,7 @@ if (binary) {
     FEES_SOL: SOL(fees, 4), TIERS_SOL: SOL(tierRent * 2n, 4), OP_SOL: SOL(opRent, 4), MEMBER_A_SOL: SOL(vtRent + prRent + 5000n, 4),
     NEED_PAYER: (Math.ceil(Number(need) / 1e7) / 100).toFixed(2), SPENT_SOL: SOL(dataRent + progRent + fees, 3),
     POOL_PEAK: cfg.poolPack ? SOL(cfg.poolPack.peakLamports, 3) : '0',
-    CU_PRICE: String(cfg.cuPrice), MAINNET_RPC: RPCS.mainnet, PORT: String(cfg.page.port), BUFFER_KEY_FILE: cfg.bufferKeyFile, NOTICE_LINE,
+    CU_PRICE: String(cfg.cuPrice), MAINNET_RPC: RPCS.mainnet, PORT: String(cfg.page.port), BUFFER_KEY_FILE: cfg.bufferKeyFile, NOTICE_LINE, NOTICE_WHEN: cfg.notice.notBefore ? `${cfg.notice.notBefore.replace('T', ' ').replace(':00Z', ' UTC')}` : `${cfg.notice.days} days after the notice`,
     REHEARSAL: reh ? rehearsalWords(reh) : 'Not yet run for this folder.',
   });
 }

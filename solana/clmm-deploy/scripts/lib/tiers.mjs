@@ -286,22 +286,25 @@ export function decide(cfg, s) {
   }
   const pr = open.proposal;
   const at = (t) => new Date(t * 1000).toISOString().replace('.000', '');
-  const days = cfg.notice.days * 86400;
+  const named = cfg.notice.notBefore != null;
+  if (named && !noticeEnds(cfg, { start: 0 }).ok) return { action: null, lines: [...lines, { ok: false, w: noticeEnds(cfg, { start: 0 }).why }] };
+  const when = named ? 'the date the notice names' : `${cfg.notice.days} days after the notice`;
   if (pr.status === 'Active') {
     if (pr.approved.includes(s.member)) return { action: null, lines: [...lines, { ok: true, w: `#${open.index} has your approval; the other member approves next` }] };
     if (!(member.mask & 2)) return { action: null, lines: [...lines, { ok: false, w: 'this member may not approve' }] };
     // The approval that starts the lock waits until the lock would end no sooner than the notice's
-    // days: then the chain itself holds the execute until then, whatever tool is used.
+    // end: then the chain itself holds the execute until then, whatever tool is used.
     const n = noticeState(cfg, s.notice, s.clock);
     if (!n.ok) return { action: null, lines: [...lines, { ok: false, w: n.why }] };
     ok(n.words);
     if (!s.positionLink?.ok) return { action: null, lines: [...lines, { ok: false, w: s.positionLink?.why ?? 'the position link was not asked' }] };
     ok(s.positionLink.why);
-    const from = n.start + days - s.ms.timeLock;
-    if (s.clock < from) return { action: null, lines: [...lines, { ok: true, w: `#${open.index} waits for your approval from ${at(from)} by the network's clock, so that its ${lockWanted / 3600}-hour lock ends no sooner than ${cfg.notice.days} days after the notice (${at(n.start + days)})` }] };
+    const ends = noticeEnds(cfg, n).at;
+    const from = ends - s.ms.timeLock;
+    if (s.clock < from) return { action: null, lines: [...lines, { ok: true, w: `#${open.index} waits for your approval from ${at(from)} by the network's clock, so that its ${lockWanted / 3600}-hour lock ends no sooner than ${when} (${at(ends)})` }] };
     return { action: 'approve', index: open.index, lines: [...lines, { ok: true, w: `#${open.index} is this page's proposal, waiting for your approval. Yours is the last one needed: it starts the ${lockWanted / 3600}-hour time lock` }] };
   }
-  // Approved: the lock (the chain holds it), then the notice's days (this page holds them).
+  // Approved: the lock (the chain holds it), then the notice's end (this page holds it).
   const lockEnds = pr.timestamp + s.ms.timeLock;
   if (s.clock < lockEnds) return { action: null, lines: [...lines, { ok: true, w: `#${open.index} has both approvals. The time lock holds it until ${at(lockEnds)} by the network's clock` }] };
   ok(`approved at ${at(pr.timestamp)}; the time lock was over at ${at(lockEnds)}`);
@@ -310,9 +313,23 @@ export function decide(cfg, s) {
   ok(n.words);
   if (!s.positionLink?.ok) return { action: null, lines: [...lines, { ok: false, w: s.positionLink?.why ?? 'the position link was not asked' }] };
   ok(s.positionLink.why);
-  if (s.clock < n.start + days) return { action: null, lines: [...lines, { ok: true, w: `the tiers may execute from ${at(n.start + days)} (${cfg.notice.days} days after the notice), by the network's clock` }] };
-  ok(`the fee notice has been public for ${cfg.notice.days} days, without a gap`);
+  const ends = noticeEnds(cfg, n).at;
+  if (s.clock < ends) return { action: null, lines: [...lines, { ok: true, w: `the tiers may execute from ${at(ends)} (${when}), by the network's clock` }] };
+  ok(named ? `the fee notice is public and the date the notice names (${at(ends)}) has passed` : `the fee notice has been public for ${cfg.notice.days} days, without a gap`);
   return { action: 'execute', index: open.index, lines };
+}
+
+/** When the notice lets the tiers execute, in unix seconds. A notice counted in days ends `days`
+ *  after it went public (n.start). A notice that names its own date (cfg.notice.notBefore, an ISO
+ *  time in UTC: the owner's ruling of 2026-10-22) ends at that date, or when it went public if that
+ *  came later: a notice cannot end before anyone could read it. */
+export function noticeEnds(cfg, n) {
+  const nb = cfg.notice.notBefore;
+  if (nb == null) return { ok: true, at: n.start + cfg.notice.days * 86400 };
+  if (typeof nb !== 'string' || !/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$/.test(nb) || !Number.isFinite(Date.parse(nb))) {
+    return { ok: false, why: `the date the notice names does not read as a time (${JSON.stringify(nb)}): stop and ask` };
+  }
+  return { ok: true, at: Math.max(n.start, Date.parse(nb) / 1000) };
 }
 
 /** The recorded notice (5-record-notice.mjs), checked: every time parses and is in order, the check
