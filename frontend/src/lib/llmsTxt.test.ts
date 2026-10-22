@@ -240,7 +240,6 @@ describe('every generated number equals its source', () => {
     const terms = {
       minLockSeconds: [Number(ladder.MIN_LOCK_SECS), solConstant(sol, 'MIN_LOCK_DURATION')],
       maxLockSeconds: [Number(ladder.MAX_LOCK_SECS), solConstant(sol, 'MAX_LOCK_DURATION')],
-      earlyExitBps: [Number(ladder.PENALTY_BPS), solConstant(sol, 'EARLY_EXIT_PENALTY_BPS')],
       minBoostBps: [Number(ladder.MIN_BOOST_BPS), solConstant(sol, 'MIN_BOOST_BPS')],
       maxBoostBps: [Number(ladder.MAX_BOOST_BPS), solConstant(sol, 'MAX_BOOST_BPS')],
     } as const;
@@ -248,6 +247,14 @@ describe('every generated number equals its source', () => {
       expect(constant, `${field}: lighthouseLadder.ts disagrees with LighthouseLadder.sol`).toBe(onChain);
       expect(facts.ladderStaking[field as keyof typeof terms], `${field} is not read from its constant`).toBe(constant);
     }
+    // The exit is the one term the Solidity is NOT the truth for: the build charges the
+    // ladder's law (time left over four years, capped at MAX_PENALTY_BPS, pinned to the
+    // .sol in lighthouseLadder.test.ts) while the six pools the registry ships charge a
+    // flat 25% until the owner redeploys them. The page says what is live, shape and
+    // number, and the daily verifier holds both to the chain.
+    expect(Number(ladder.MAX_PENALTY_BPS)).toBe(solConstant(sol, 'MAX_EARLY_EXIT_PENALTY_BPS'));
+    expect(facts.ladderStaking.earlyExitSchedule, 'the exit shape is not the live one').toBe(ladder.LIVE_LADDER_EXIT_SCHEDULE);
+    expect(facts.ladderStaking.earlyExitBps, 'the exit is not the live number').toBe(Number(ladder.LIVE_LADDER_EXIT_BPS));
     // The rendered line, read on its own: these numbers happen to equal TOWELI's, so a
     // check anywhere in the file would pass on the TOWELI line. The ladder pools carry
     // no JBAC bonus, and saying they do would be false on every one of them.
@@ -256,7 +263,9 @@ describe('every generated number equals its source', () => {
     expect(line).toContain(
       `: locks from ${duration(terms.minLockSeconds[0])} to ${duration(terms.maxLockSeconds[0])}; ` +
         `boost from ${multiplier(terms.minBoostBps[0])} to ${multiplier(terms.maxBoostBps[0])}; ` +
-        `leaving a lock early costs ${percent(terms.earlyExitBps[0])} of the amount staked.`,
+        (ladder.LIVE_LADDER_EXIT_SCHEDULE === 'time-left'
+          ? `leaving a lock early costs the time left on it over ${duration(terms.maxLockSeconds[0])} as a share of the amount staked, capped at ${percent(Number(ladder.LIVE_LADDER_EXIT_BPS))}.`
+          : `leaving a lock early costs ${percent(Number(ladder.LIVE_LADDER_EXIT_BPS))} of the amount staked.`),
     );
     expect(line).not.toContain('JBAC');
   });

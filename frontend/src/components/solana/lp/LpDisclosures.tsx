@@ -21,15 +21,15 @@ const FORK_LINE =
   "Our pool program is Raydium's, with its admin keys changed, one added instruction that names pool share tokens and one added check that keeps the launch fee tier for launches. Those changes have not had their own independent review yet. Put in only what you can afford to lose.";
 /**
  * The risk in one sentence (owner, 2026-10-17: off the page, first in every Risks drop-down):
- * what the team's vault can do with no waiting period, and that no outside firm has
- * checked our changes. Read on chain 2026-10-16; LpDisclosure's small print
- * (SolanaLpSection.tsx) says it in full, with the addresses. It names no change to the
- * program, so the pool program's upgrade does not make it false.
+ * what the team's vault can do, that each change waits 48 hours after both keys approve
+ * (Squads #14's time lock, read on chain 2026-10-20), and that no outside firm has checked our
+ * changes. LpDisclosure's small print (SolanaLpSection.tsx) says it in full, with the
+ * addresses. It names no change to the program, so the pool program's upgrade leaves it true.
  */
 export const RISK_SHORT =
-  "The team's vault (2 of 2 keys, no waiting period) can pause removing, change fees or replace the program. No outside firm has checked our changes. Only add what you can afford to lose.";
+  "The team's vault can pause removing, change fees or replace the program, 48 hours after both its keys approve. No outside firm has checked our changes. Only add what you can afford to lose.";
 const VAULT_LINE =
-  "The team's vault (a Squads multisig, two signatures) can switch off deposits, withdrawals or swaps on this pool, change its fee rates at once, and upgrade the program. If it switched off withdrawals, you could not take your money out until it switched them back on.";
+  "The team's vault (a Squads multisig, two signatures) can switch off deposits, withdrawals or swaps on this pool, change its fee rates, and upgrade the program. Each change waits 48 hours after both have signed. If it switched off withdrawals, you could not take your money out until it switched them back on.";
 const LAUNCH_POOL_LINE =
   "The launch program opened this pool when the token graduated and burned the launch's own pool shares, so that part can never be taken out. You get shares only for what you add, and you can take your part back out. The creator's fee and the venue's share are kept apart in the pool and are not yours.";
 const ROUTING_LINE =
@@ -40,7 +40,7 @@ const PRICE_MOVES_LINE = 'When the price moves, you can end up with less than if
 
 /** What the vault can do to a pool this site opens, and to the tier it opens on. */
 const CREATE_VAULT_LINE =
-  "The team's vault (a Squads multisig, two signatures) can switch off deposits, withdrawals or swaps on this pool, change the public fee tier's rates and its fee to open a pool at once, and upgrade the program. If it switched off withdrawals, you could not take your money out until it switched them back on.";
+  "The team's vault (a Squads multisig, two signatures) can switch off deposits, withdrawals or swaps on this pool, change the public fee tier's rates and its fee to open a pool, and upgrade the program. Each change waits 48 hours after both have signed. If it switched off withdrawals, you could not take your money out until it switched them back on.";
 
 /**
  * How a new pool earns, honestly, in short: on the card and the review. Jupiter does not
@@ -65,7 +65,7 @@ function lpShareLine(config: AmmConfigView | null, enableCreatorFee: boolean): s
   if (!config) return "This pool's fee settings could not be read, so what liquidity providers keep of each trade is not shown.";
   const creator = chargedCreatorFeeRate(config, enableCreatorFee);
   const creatorLine = creator > 0n ? ` Traders also pay this pool's creator ${feeRateText(creator)} of each trade on top; that part is not yours.` : '';
-  return `Of each trade, liquidity providers keep ${feeSplit(config).lpKeepsPct.toFixed(3)}%, read from this pool's fee tier just now.${creatorLine} The vault can change that tier's rates at once, and a change applies to what you put in too.`;
+  return `Of each trade, liquidity providers keep ${feeSplit(config).lpKeepsPct.toFixed(3)}%, read from this pool's fee tier just now.${creatorLine} The vault can change that tier's rates. A change waits 48 hours after both its keys approve, then applies to what you put in too.`;
 }
 
 /**

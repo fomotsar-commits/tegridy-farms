@@ -426,6 +426,14 @@ function isDexscreenerUrl(url: string): boolean {
 }
 
 /**
+ * The room whose coin the venue's three cards swap to, lock and pool (components/HomeModules.tsx;
+ * owner, 2026-10-16: "the bayla staking module and the lp pool module"). The cards are on the
+ * home, the island lobby and this room's own door (owner, 2026-10-19), and on no other room's:
+ * they are this coin's, and a room speaks only of its own (docs/FACE_LAWS.md, law 21).
+ */
+export const CARDS_ROOM_ID = 'bayla';
+
+/**
  * The LP door (island, answer twenty): one press from a room to the Add form of its coin's SOL pool,
  * with the token and the pool already answered. A room with no pool on the venue gets none.
  */

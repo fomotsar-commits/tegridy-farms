@@ -62,7 +62,7 @@ test.beforeAll(async () => {
   realPool = await createSolPool(stranger, squatted, { configIndex: 1, sol: sol(3), tokens: 3_000_000n * UNIT, at: 'fresh' });
 
   freezable = await createClassicToken(stranger, { freezable: true, supply: 10_000_000n * UNIT, name: { name: 'E2E Freezable', symbol: 'EFRZ' } });
-  freezePool = await createSolPool(stranger, freezable, { configIndex: 0, sol: sol(1), tokens: 1_000_000n * UNIT, at: 'standard' });
+  freezePool = await createSolPool(stranger, freezable, { configIndex: 1, sol: sol(1), tokens: 1_000_000n * UNIT, at: 'standard' });
 
   hooked = await createTransferHookToken(stranger);
 });
@@ -123,7 +123,8 @@ test('a clean pool: token ok, pool read from chain, deposits pass the checks, fe
   // Both fee tiers are read from the chain.
   await expect(ui.lp.feeTiers(p)).toHaveCount(2);
   for (const t of await ui.lp.feeTiers(p).all()) await expect(t).toHaveAttribute('data-state', 'live');
-  await expect(ui.lp.feeTiers(p).nth(1)).toContainText('0.15 SOL');
+  // The public tier's fee to open a pool, read live: the Rates card's line under its table.
+  await expect(p.getByTestId('lp-open-cost')).toContainText('Open a pool: 0.15 SOL + ');
   await expect(ui.lp.disclosure(p)).toContainText('have not had their own independent review yet');
   // The price was checked against Jupiter (stubbed), and the server index was asked.
   expect(a.jup.asked).toContain(clean.toBase58());
@@ -182,7 +183,7 @@ test('a freezable token is allowed with a warning, on the token and on its pool,
   );
   const card = poolCard(p, freezePool.address);
   await expect(card).toContainText('At the standard address for its fee tier');
-  await expect(card).toContainText('Fee tier 0');
+  await expect(card).toContainText('Fee tier 1');
   await expect(card).toHaveAttribute('data-price', 'agrees');
   await expect(card).toHaveAttribute('data-deposits', 'allowed');
   // Never a clean pass: the heading says there are warnings, and the pool's own is listed under it.

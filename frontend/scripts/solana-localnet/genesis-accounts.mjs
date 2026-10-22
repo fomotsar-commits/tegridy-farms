@@ -279,7 +279,8 @@ export function derived() {
   // Index 1 is BIG-endian u16 in the seed, like index 0: [0, 1].
   const [ammConfig1, ammBump1] = pda([Buffer.from('amm_config'), Buffer.from([0, 1])], CP_SWAP_PROGRAM);
   const [permission] = pda([Buffer.from('permission'), migAuth.toBuffer()], CP_SWAP_PROGRAM);
-  return { global, globalBump, migAuth, ammConfig, ammBump, ammConfig1, ammBump1, permission };
+  const [openerPermission] = pda([Buffer.from('permission'), launchTierOpener().publicKey.toBuffer()], CP_SWAP_PROGRAM);
+  return { global, globalBump, migAuth, ammConfig, ammBump, ammConfig1, ammBump1, permission, openerPermission };
 }
 
 // ── the values ───────────────────────────────────────────────────────────────
@@ -397,6 +398,21 @@ export function permissionValues() {
   return { authority: derived().migAuth };
 }
 
+/**
+ * The e2e's launch-tier opener: a TEST key from a fixed phrase. From the pool program's
+ * upgrade on, a public `initialize` on fee tier 0 is refused; only `initialize_with_permission`
+ * opens a pool there, for a payer the program's admin gave a Permission. Genesis seeds one
+ * for this key. On mainnet no Permission names it, so it opens nothing there.
+ */
+export function launchTierOpener() {
+  return Keypair.fromSeed(crypto.createHash('sha256').update('tegridy e2e: local launch-tier opener').digest());
+}
+
+/** The test opener's Permission: what `create_permission_pda` writes for that key. */
+export function openerPermissionValues() {
+  return { authority: launchTierOpener().publicKey };
+}
+
 function accountJson(pubkey, owner, data, lamports = rentExempt(data.length)) {
   return {
     pubkey: pubkey.toBase58(),
@@ -496,6 +512,7 @@ export function buildGenesisAccounts({ launchIdl, cpIdl }) {
     { file: 'amm-config.json', json: accountJson(d.ammConfig, CP_SWAP_PROGRAM, encodeIdlAccount(cpIdl, 'AmmConfig', e2eAmmConfigValues())) },
     { file: 'amm-config-1.json', json: accountJson(d.ammConfig1, CP_SWAP_PROGRAM, encodeIdlAccount(cpIdl, 'AmmConfig', ammConfig1Values())) },
     { file: 'permission.json', json: accountJson(d.permission, CP_SWAP_PROGRAM, encodeIdlAccount(cpIdl, 'Permission', permissionValues())) },
+    { file: 'permission-opener.json', json: accountJson(d.openerPermission, CP_SWAP_PROGRAM, encodeIdlAccount(cpIdl, 'Permission', openerPermissionValues())) },
     { file: 'vault.json', json: { pubkey: vault.pubkey, account: { ...vault.account, rentEpoch: 0 } } },
     { file: 'fee-ata.json', json: { pubkey: feeAta.pubkey, account: { ...feeAta.account, rentEpoch: 0 } } },
     { file: 'bayla-mint.json', json: baylaMintStandIn() },

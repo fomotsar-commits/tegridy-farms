@@ -410,6 +410,13 @@ jobs:
         working-directory: .
         run: node --test scripts/lib/redact-url.test.mjs
 
+      # contracts-coverage.yml joins its per-slice lcov files with scripts/lib/lcov-merge.mjs;
+      # a merge that drops or double counts a line moves the coverage ratchet. Bare node.
+      - name: lcov merge unit tests
+        if: ${{ !cancelled() }}
+        working-directory: .
+        run: node --test scripts/lib/lcov-merge.test.mjs
+
       # scripts/ops/: the weekly pull of GitHub's backups, the heartbeat step in
       # synthetic-monitor.yml, and the failover runner for this repo's crons. Bare node
       # plus gpg, tar and bash, which ubuntu-latest has; a missing tool FAILS, never skips.
