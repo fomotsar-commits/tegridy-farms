@@ -397,8 +397,12 @@ jobs:
           grep -q 'paramset is for tests' /tmp/clmm-paramset.log \
             || { echo "::error::the paramset build failed, but not at its gate"; tail -40 /tmp/clmm-paramset.log; exit 1; }
           echo "paramset refused at its gate, as it must be"
-      - name: Upstream's own unit tests
-        run: cargo test --locked --lib
+      # Skipped: upstream's compute_swap_step_test adds the fee to the net output of an exact
+      # output with the fee on output, which holds only at a zero fee (solana/tegridy-clmm/README.md).
+      - name: Upstream's own unit tests, but the one with the wrong rule
+        run: cargo test --locked --lib -- --exact --skip libraries::swap_math::swap_math_test::compute_swap_step_test
+      - name: compute_swap's rule in all four swap kinds, in place of the skipped test
+        run: cargo test --locked --test swap_math_fee_rule
 
   build:
     needs: scope
