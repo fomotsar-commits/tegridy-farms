@@ -17,6 +17,7 @@ import { SolanaProviders } from '../components/solana/SolanaProviders';
 import { SolanaConnectButton } from '../components/solana/SolanaConnectButton';
 import { ChainSwitch } from '../components/swap/ChainSwitch';
 import { SolanaRouteLine } from '../components/swap/SolanaRouteLine';
+import { FillScoreLine } from '../components/swap/FillScoreLine';
 import { IslandBasketSolana } from '../components/swap/IslandBasketSolana';
 import type { SolBasketCoin } from '../lib/islandBasket';
 import { useSolanaRoute } from '../components/swap/useSolanaRoute';
@@ -2787,6 +2788,7 @@ export function SolanaSwapInner({ home = false }: { home?: boolean } = {}) {
               </>
             )}
           </p>
+          <FillScoreLine />
             </fieldset>
             </>
           ) : mode === 'limit' ? (

@@ -109,7 +109,7 @@ function botsOf(source) {
   return EVM_CHAINS[source]?.bots ?? new Set();
 }
 
-function postgrest(env, fetchImpl) {
+export function postgrest(env, fetchImpl) {
   return async (path, init = {}) => {
     const r = await fetchImpl(`${env.SUPABASE_URL}/rest/v1/${path}`, {
       ...init,
