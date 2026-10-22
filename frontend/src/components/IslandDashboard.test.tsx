@@ -135,6 +135,18 @@ describe('IslandDashboard: what is drawn, from what was read', () => {
     expect(screen.getAllByText('$312.50')).toHaveLength(1);
   });
 
+  it('says which chain a coin is on when the same word is held on two (ETH on Ethereum and on Base)', () => {
+    board.value = wallet({
+      evmAddress: '0x1111111111111111111111111111111111111111',
+      holdings: [
+        leg('e', 'your Ethereum coins', { status: 'ok', rows: [holding({ key: 'ethereum:eth', symbol: 'ETH', chain: 'ethereum', roomId: null, to: null, amount: '0.1', usd: 300 })] }),
+        leg('b', 'your Base coins', { status: 'ok', rows: [holding({ key: 'base:eth', symbol: 'ETH', chain: 'base', roomId: null, to: null, amount: '0.05', usd: 100 }), holding({ key: 'base:qr', symbol: 'QR', chain: 'base', roomId: 'qr', to: '/qr', usd: 100 })] }),
+      ],
+    });
+    mount();
+    expect(screen.getByRole('img', { name: 'Holdings by value: ETH on Ethereum 60%, ETH on Base 20%, QR 20%' })).toBeInTheDocument();
+  });
+
   it('draws no split, and no share, while a coin has no price or a part is unread', () => {
     board.value = wallet({
       evmAddress: '0x1111111111111111111111111111111111111111',

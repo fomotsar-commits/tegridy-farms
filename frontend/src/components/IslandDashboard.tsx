@@ -64,6 +64,11 @@ function doorOf(id: string) {
 const accentOf = (roomId: string | null) => (roomId ? BUNGALOWS.find((b) => b.id === roomId)?.accent : undefined);
 const colorOf = (roomId: string | null, chain: WalletChain) => accentOf(roomId) ?? CHAIN_DOT[chain] ?? GREEN;
 
+/** A coin's word in a key or on the tape: with its chain when the same word is held on another chain too (ETH on Ethereum and on Base). */
+function keyWord(symbol: string, chain: WalletChain, all: readonly { symbol: string }[]): string {
+  return all.filter((r) => r.symbol === symbol).length > 1 ? `${symbol} on ${WALLET_CHAIN_LABEL[chain]}` : symbol;
+}
+
 /** A row rises into place, each a beat after the last; still with reduced motion. */
 const rise = (i: number) =>
   prefersReducedMotion()
@@ -353,7 +358,7 @@ function LegBlock<T extends { key: string }>({ n, title, legs, empty, render }: 
 
 /** The holdings' worth split by coin: a bar to scale, and the key. Whole totals only. */
 function HoldingsSplit({ shares }: { shares: HoldingShare[] }) {
-  const said = shares.map((s) => `${s.symbol} ${pctText(s.pct)}`).join(', ');
+  const said = shares.map((s) => `${keyWord(s.symbol, s.chain, shares)} ${pctText(s.pct)}`).join(', ');
   return (
     <div data-testid="holdings-split" className="lg:col-span-2">
       <div role="img" aria-label={`Holdings by value: ${said}`} className="flex h-1.5 w-full gap-px overflow-hidden">
@@ -365,7 +370,7 @@ function HoldingsSplit({ shares }: { shares: HoldingShare[] }) {
         {shares.map((s) => (
           <li key={s.key} className="inline-flex items-center gap-1.5 tabular-nums">
             <span className="w-1.5 h-1.5" style={{ background: colorOf(s.roomId, s.chain) }} />
-            {s.symbol} {pctText(s.pct)}
+            {keyWord(s.symbol, s.chain, shares)} {pctText(s.pct)}
           </li>
         ))}
       </ul>
@@ -387,7 +392,7 @@ function WalletTape({ rows }: { rows: HoldingRow[] }) {
             {rows.map((r) => (
               <span key={`${copy}-${r.key}`} className="inline-flex items-center gap-2 pr-8 whitespace-nowrap">
                 <span className="w-1.5 h-1.5" style={{ background: colorOf(r.roomId, r.chain) }} />
-                {r.symbol} <span className="text-[#f5e4b8]/90">{r.amount}</span>
+                {keyWord(r.symbol, r.chain, rows)} <span className="text-[#f5e4b8]/90">{r.amount}</span>
               </span>
             ))}
           </span>

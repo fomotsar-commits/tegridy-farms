@@ -79,9 +79,11 @@ export function IslandBasketButton({ count, symbols, onOpen }: { count: number; 
         <span className="whitespace-nowrap font-black uppercase leading-none tracking-[-0.01em] text-[12px]" style={HEADING_FONT}>
           Buy all bungalows
         </span>
+        {/* w-0 min-w-full: the tape fills the column but asks for no width of its own, so the
+            stub is as wide as its word, not as wide as the run (seven coins would be 500px). */}
         <span
           aria-hidden="true"
-          className="relative block w-full overflow-hidden font-mono text-[9px] uppercase tracking-[0.14em] leading-none text-[#f5e4b8]/65 group-hover/stub:text-[#05080f]/75"
+          className="relative block w-0 min-w-full overflow-hidden font-mono text-[9px] uppercase tracking-[0.14em] leading-none text-[#f5e4b8]/65 group-hover/stub:text-[#05080f]/75"
           style={{ WebkitMaskImage: TAPE_MASK, maskImage: TAPE_MASK }}
         >
           <span className="editorial-tape" style={{ '--tape-s': `${Math.max(12, symbols.length * 3)}s` } as CSSProperties}>
