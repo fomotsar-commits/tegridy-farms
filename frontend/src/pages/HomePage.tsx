@@ -42,6 +42,7 @@ import { bungalowTradeBlurb, CARDS_ROOM_ID, getBungalowIdentity, stakePoolMember
 import { arrivalVoice, VENUE, OPEN_VENUE_WELCOME_EVENT } from '../lib/arrival';
 import { VenueHero, VenueHeroFooter } from '../components/VenueHero';
 import { VenueCards } from '../components/VenueCards';
+import { IslandDashboard } from '../components/IslandDashboard';
 import { HeatCard } from '../components/HeatCard';
 import { VenueDoors } from '../components/VenueDoors';
 import { ThreePaths } from '../components/ThreePaths';
@@ -516,9 +517,13 @@ export default function HomePage() {
           </m.div>
 
           {/* The venue's cards, swap, stake and add liquidity (owner, 2026-10-16), in a row of
-              their own under the hero, then the hero's tour and island line. */}
+              their own under the hero, then the hero's tour and island line. The island's dashboard
+              sits on top of them (owner, 2026-10-21: "put the dashboard on top of it"). */}
           {!bungalowIdentity && !isToweliArrival && (
             <>
+              <div className="mt-8">
+                <IslandDashboard />
+              </div>
               <VenueCards />
               <VenueHeroFooter />
             </>

@@ -10,6 +10,8 @@ The site's Changelog tab shows both files.
 ### 2026-10-22
 
 - Solana pools: every coin shows its ticker. A coin that is not one of the island's shows the ticker it gives itself, with its whole address under it, on the All pools list, its pool card and Your positions. One that copies the ticker of one of ours, or of SOL, USDC or USDT, reads “fake”, as in “fake SOY”.
+- The home has the island's dashboard on top of the Swap, Lock BAYLA and Add SOL + BAYLA cards: every pool on the island, numbered, with its picture, its chain and its lock terms. /dashboard shows the same.
+- The home's Add SOL + BAYLA card stays in its place while its pool is being read, and says so if the read fails; it used to disappear until the read came back.
 - Solana pools' Rates card says each part of the venue's cut as a share of the fee and of the trade, and says in bold, in plain sight, when a fee tier pays anything but the agreed split: the island's part kept by the team's vault, another wallet, or other rates. Before, a tier that sent the island's part to the vault read as fine.
 - The home's all-time volume says it counts our pools on Base and Robinhood as well as Ethereum, and is counted every few hours, which is how often it runs. It says "not up to date" only after nine hours with no count, or when a count fails.
 - Solana LP: every pool card now shows what is in the pool, its price, the outside price and the difference in plain view, above the deposit checks and the Add buttons. They were inside More about this pool.
