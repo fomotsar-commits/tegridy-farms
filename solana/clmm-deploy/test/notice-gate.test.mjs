@@ -42,6 +42,8 @@ test('from the named date it offers the execute', () => {
   assert.equal(d.action, 'execute');
   assert.equal(d.index, 19);
   assert.ok(d.lines.some((l) => l.ok && /date the notice names \(2026-10-23T14:00:00Z\) has passed/.test(l.w)));
+  // One second earlier the lock is over but the named date is not: no execute.
+  assert.equal(decide(cfg(NAMED), state({ clock: T('2026-10-23T13:59:59Z') })).action, null);
 });
 
 test('the chain\'s lock still comes first: a named date that has passed does not open a locked proposal', () => {
@@ -59,7 +61,10 @@ test('a named date before the notice went public waits for the notice instead', 
 });
 
 test('a named date that does not read as a time refuses everything', () => {
-  for (const bad of ['2026-10-23 14:00', 'soon', '2026-10-23T14:00:00+01:00', 1761228000]) {
+  // A zone-less time would be read as the computer's local time: east of UTC, an early execute.
+  for (const bad of ['2026-10-23 14:00', 'soon', '2026-10-23T14:00:00+01:00', 1761228000, '2026-10-23T14:00:00',
+    '2026-10-23T14:00:00.000Z', '2026-02-30T14:00:00Z', '2026-10-23T24:00:00Z', '2026-10-23T14:00:60Z',
+    ' 2026-10-23T14:00:00Z', '2026-10-23T14:00:00Z\n', '']) {
     const d = decide(cfg({ notBefore: bad }), state({ clock: T('2026-10-30T00:00:00Z') }));
     assert.equal(d.action, null, `notBefore ${bad}`);
     assert.ok(d.lines.some((l) => !l.ok && /date the notice names does not read as a time/.test(l.w)), `notBefore ${bad}`);
@@ -73,7 +78,25 @@ test('the approval that starts the lock waits until the lock would end no sooner
   assert.equal(before.action, null);
   assert.match(before.lines.at(-1).w, /waits for your approval from 2026-10-24T14:00:00Z/);
   assert.match(before.lines.at(-1).w, /no sooner than the date the notice names \(2026-10-26T14:00:00Z\)/);
+  assert.equal(decide(cfg(later), s(T('2026-10-24T13:59:59Z'))).action, null);
   assert.equal(decide(cfg(later), s(T('2026-10-24T14:00:00Z'))).action, 'approve');
+});
+
+test('a notice that went public after the date it names says so, and holds to that time', () => {
+  const past = { notBefore: '2026-10-22T00:00:00Z' }; // the line went public at 04:00, after it
+  const open = decide(cfg(past), state({ clock: T('2026-10-23T14:00:00Z') }));
+  assert.equal(open.action, 'execute');
+  assert.ok(open.lines.some((l) => l.ok && /when the notice went public, after the date it names \(2026-10-22T04:00:00Z\) has passed/.test(l.w)));
+});
+
+test('only an Approved proposal with an approval time reaches the execute', () => {
+  for (const status of ['Executing', 'Draft', 'Rejected', 'Cancelled']) {
+    const d = decide(cfg(NAMED), state({ clock: T('2026-10-30T00:00:00Z'), status, approvedAt: status === 'Executing' ? null : T('2026-10-21T13:45:21Z') }));
+    assert.equal(d.action, null, status);
+  }
+  const noTime = decide(cfg(NAMED), state({ clock: T('2026-10-30T00:00:00Z'), approvedAt: null }));
+  assert.equal(noTime.action, null);
+  assert.ok(noTime.lines.some((l) => !l.ok && /not Approved with an approval time/.test(l.w)));
 });
 
 test('without a named date nothing changes: the notice still runs its days', () => {

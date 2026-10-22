@@ -288,7 +288,8 @@ export function decide(cfg, s) {
   const at = (t) => new Date(t * 1000).toISOString().replace('.000', '');
   const named = cfg.notice.notBefore != null;
   if (named && !noticeEnds(cfg, { start: 0 }).ok) return { action: null, lines: [...lines, { ok: false, w: noticeEnds(cfg, { start: 0 }).why }] };
-  const when = named ? 'the date the notice names' : `${cfg.notice.days} days after the notice`;
+  const whenFor = (n) => (!named ? `${cfg.notice.days} days after the notice`
+    : noticeEnds(cfg, n).at > Date.parse(cfg.notice.notBefore) / 1000 ? 'when the notice went public, after the date it names' : 'the date the notice names');
   if (pr.status === 'Active') {
     if (pr.approved.includes(s.member)) return { action: null, lines: [...lines, { ok: true, w: `#${open.index} has your approval; the other member approves next` }] };
     if (!(member.mask & 2)) return { action: null, lines: [...lines, { ok: false, w: 'this member may not approve' }] };
@@ -301,10 +302,11 @@ export function decide(cfg, s) {
     ok(s.positionLink.why);
     const ends = noticeEnds(cfg, n).at;
     const from = ends - s.ms.timeLock;
-    if (s.clock < from) return { action: null, lines: [...lines, { ok: true, w: `#${open.index} waits for your approval from ${at(from)} by the network's clock, so that its ${lockWanted / 3600}-hour lock ends no sooner than ${when} (${at(ends)})` }] };
+    if (s.clock < from) return { action: null, lines: [...lines, { ok: true, w: `#${open.index} waits for your approval from ${at(from)} by the network's clock, so that its ${lockWanted / 3600}-hour lock ends no sooner than ${whenFor(n)} (${at(ends)})` }] };
     return { action: 'approve', index: open.index, lines: [...lines, { ok: true, w: `#${open.index} is this page's proposal, waiting for your approval. Yours is the last one needed: it starts the ${lockWanted / 3600}-hour time lock` }] };
   }
   // Approved: the lock (the chain holds it), then the notice's end (this page holds it).
+  if (pr.status !== 'Approved' || !Number.isFinite(pr.timestamp)) return { action: null, lines: [...lines, { ok: false, w: `#${open.index} is ${pr.status}, not Approved with an approval time: stop and ask` }] };
   const lockEnds = pr.timestamp + s.ms.timeLock;
   if (s.clock < lockEnds) return { action: null, lines: [...lines, { ok: true, w: `#${open.index} has both approvals. The time lock holds it until ${at(lockEnds)} by the network's clock` }] };
   ok(`approved at ${at(pr.timestamp)}; the time lock was over at ${at(lockEnds)}`);
@@ -314,8 +316,8 @@ export function decide(cfg, s) {
   if (!s.positionLink?.ok) return { action: null, lines: [...lines, { ok: false, w: s.positionLink?.why ?? 'the position link was not asked' }] };
   ok(s.positionLink.why);
   const ends = noticeEnds(cfg, n).at;
-  if (s.clock < ends) return { action: null, lines: [...lines, { ok: true, w: `the tiers may execute from ${at(ends)} (${when}), by the network's clock` }] };
-  ok(named ? `the fee notice is public and the date the notice names (${at(ends)}) has passed` : `the fee notice has been public for ${cfg.notice.days} days, without a gap`);
+  if (s.clock < ends) return { action: null, lines: [...lines, { ok: true, w: `the tiers may execute from ${at(ends)} (${whenFor(n)}), by the network's clock` }] };
+  ok(named ? `the fee notice is public and ${whenFor(n)} (${at(ends)}) has passed` : `the fee notice has been public for ${cfg.notice.days} days, without a gap`);
   return { action: 'execute', index: open.index, lines };
 }
 
@@ -326,7 +328,9 @@ export function decide(cfg, s) {
 export function noticeEnds(cfg, n) {
   const nb = cfg.notice.notBefore;
   if (nb == null) return { ok: true, at: n.start + cfg.notice.days * 86400 };
-  if (typeof nb !== 'string' || !/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$/.test(nb) || !Number.isFinite(Date.parse(nb))) {
+  // Strict: UTC with a Z, whole seconds, and it must read back unchanged (no 24:00, no Feb 30).
+  if (typeof nb !== 'string' || !/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$/.test(nb) || !Number.isFinite(Date.parse(nb))
+    || new Date(Date.parse(nb)).toISOString().replace('.000Z', 'Z') !== nb) {
     return { ok: false, why: `the date the notice names does not read as a time (${JSON.stringify(nb)}): stop and ask` };
   }
   return { ok: true, at: Math.max(n.start, Date.parse(nb) / 1000) };
