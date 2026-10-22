@@ -7,9 +7,14 @@ The site's Changelog tab shows both files.
 
 ## [Unreleased]
 
+### 2026-10-22
+
+- Notice, updated: range pools get two fee tiers, 1% and 0.25% of each swap, no sooner than 2026-10-23 14:00 UTC (it said seven days from 2026-10-21). Of each fee, 84% stays with the liquidity providers whose range is in use, 10.4% goes to memetics.finance and 5.6% to Jungle Bay Island.
+
 ### 2026-10-21
 
-- Notice: range pools get two fee tiers, 1% and 0.25% of each swap, no sooner than seven days from this day. Of each fee, 84% stays with the liquidity providers whose range is in use, 10.4% goes to memetics.finance and 5.6% to Jungle Bay Island.
+- /island and /bayla have the home's Swap, Lock BAYLA and Add SOL + BAYLA cards.
+- A room's lore and the staking pool it has on record are one press away, under Read the story and its coin's staking.
 - Add with one coin on a Solana pool no longer says "Withdraw any time": it says there is no lock, but the team's vault can pause removing.
 - A pool's price, the one you press to flip every pool's price, is easier to tap: its press area is 44 px tall, and the price looks the same.
 - On a phone, a press on the bottom edge of the venue card's Program address on /pools and /solana-lp now copies that address; it copied the Config address under it.

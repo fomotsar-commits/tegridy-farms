@@ -15,6 +15,41 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-10-22: Blockscout trails the finalized head, so a reader that waits for it to reach the head never finishes
+
+**Believed:** an indexer that has caught up with the chain covers every block up to the finalized
+one, so "read old history from Blockscout up to the head" is one call.
+
+**Measured** (the volume counter's first live run on GitHub, 2026-10-22 02:13Z): eth.blockscout.com
+had indexed to 26,245,041 while the finalized head was 26,245,050, nine blocks short, so the guard
+refused the whole Ethereum range. On Base, `base-rpc.publicnode.com` refused logs 50,000 blocks back
+(about 28 hours) as archive, `mainnet.base.org` answered every `eth_getLogs` with "request limit
+reached", `base.blockscout.com` answered 403 (Cloudflare) from this machine, and `base.drpc.org`
+served any age in 100-block windows.
+
+**Do:** take from an indexer only up to the block it says it has indexed and read the rest from an
+RPC; when no indexer answers, shrink the RPC window to the free limit instead of failing.
+
+## 2026-10-21: a property test that rejects nearly every draw of a branch fails "at random", and Raydium's compute_swap_step_test is one
+
+**Believed:** a red `compute_swap_step_test` in the range program's `clmm-build` ("amount_used (2)
+should equal amount_remaining (1) when target not reached") means the program can pay a swap
+wrong, and a test that passes most runs checks every branch it names.
+
+**Measured** (2026-10-21, a WSL copy of the deployed source): the test is wrong, not the program.
+For an exact output with the fee on the output coin it adds the fee to what the user received
+and expects the amount asked, which holds only at a zero fee (raydium-io/raydium-clmm `c6789199`).
+It fails rarely because its `prop_assume!` bounds reject all but about one draw in a million of
+that kind: about 0.02 such cases in a 65,536-case run (`bf7c2413` set the count), so a few runs
+in 100 go red. A test drawing each kind directly (`programs/amm/tests/swap_math_fee_rule.rs`)
+runs about 10,000 of those steps per run; the user got exactly the amount asked in every one.
+
+**Do:** read a property test's reject counts (`global rejects: ... times at <line>` in its
+failure output) before trusting a branch it names. Draw each branch directly instead of
+rejecting into it, and assert per-branch counts so a later sampler change cannot quietly empty
+one. Kill a mutant per guarded line: here two of four survived upstream's price and liquidity
+ranges until prices were drawn by tick and liquidity up to 2^80.
+
 ## 2026-10-21: npm always takes the newest release in a transitive range, so the floor needs an override or a hand edit
 
 **Believed:** when a fixed package asks for a newer transitive (vite 8.3.3 asks for rolldown
@@ -230,6 +265,156 @@ path conversion rewrites any argument that starts with `/`. `MSYS_NO_PATHCONV=1 
 scratchpad cannot `import '@playwright/test'`, since resolution starts from the script's own
 folder: `createRequire('<worktree>/frontend/package.json')('@playwright/test')` loads the
 worktree's copy.
+
+## 2026-10-20: in Raydium's range-pool program, a top-up of someone else's reward goes to that reward's starter
+
+**Believed:** when the admin (our vault) pays into a reward a pool's opener started, by re-windowing
+or topping it up, whatever is not paid out comes back to the vault.
+
+**Measured** (`solana/clmm-localnet`, check R14, a local chain): the vault paid 30,000 base units to
+move alice's reward on pool B to a 30 s window; after the end, `collect_remaining_rewards` gave
+alice her 604,800,000 and the vault's 30,000. The unpaid rest goes to `reward_info.authority`, the
+reward's starter, whoever paid in.
+
+**Do:** the vault never tops up or re-windows a reward it did not start.
+
+## 2026-10-20: Git Bash rewrites a `/root/...` path inside an environment variable it hands to node
+
+**Believed:** `CLMM_SO=/root/clmm-p1/.../raydium_clmm.so node run.mjs` in Git Bash passes that WSL
+path through, as it would on Linux.
+
+**Measured** (Git Bash on Windows 11, node 24): the validator was started with
+`C:/Program Files/Git/root/clmm-p1/...` and exited at once. MSYS converts anything that looks like a
+POSIX path, in arguments and in the environment of a native program.
+
+**Do:** set such variables from PowerShell (`$env:CLMM_SO = '/root/...'`), or exclude them with
+`MSYS2_ENV_CONV_EXCL=CLMM_SO`.
+
+## 2026-10-20: a comment that moves lines changes an Anchor program's build hash
+
+**Believed:** editing only a comment in an Anchor program's source leaves the `.so` byte for byte
+the same, so a build hash pinned before the edit still holds.
+
+**Measured** (WSL, Solana 3.1.11, `cargo build-sbf -- --locked`, tegridy-clmm with a throwaway id):
+splitting one comment line of `lib.rs` into two (and adding a gated `compile_error!`) changed the
+1,523,176-byte build's sha256 from `4180d4a9...` to `cd8f7647...`, same size. Anchor's error paths
+compile in the file and line they were raised from, so every line below the edit moved.
+
+**Do:** pin a build hash only from the exact commit that will be deployed, and rebuild after any
+edit, comments included.
+
+## 2026-10-20: a program address made public before its deploy can be blocked for good with 0.001 SOL
+
+**Believed:** a program's address is safe to publish before the deploy (in the source, on the
+website), because only the holder of its key can deploy there.
+
+**Measured** (`solana/clmm-deploy/rehearsal/rehearse.mjs`, check S1, a local chain, solana-cli
+4.1.1): 0.001 SOL sent to the address's program-data account (the loader's PDA of the program id)
+made `solana program deploy --program-id <that key>` fail, and nothing was created. The loader makes
+that account with a plain create, which refuses an account that already holds SOL, and nobody can
+sign to empty it.
+
+**Do:** keep a program address private until the deploy itself; build from a local branch, deploy,
+then publish. Before any upload, check the data address holds nothing (`addressesFree` in
+`solana/clmm-deploy/scripts/lib/pack.mjs`).
+
+## 2026-10-20: a deploy from a buffer never needs two buffers' worth of SOL
+
+**Believed:** `solana program deploy --buffer` needs the program's data rent on top of the
+buffer's, so an exact-size deploy of a 1.5 MB program peaks at about twice its rent (15.49 SOL on
+mainnet for the range program).
+
+**Measured** (`solana/clmm-deploy/rehearsal/rehearse.mjs`, a local chain, solana-cli 4.1.1): the
+paying wallet held exactly buffer rent + the 36-byte program account + (data rent - buffer rent)
++ 0.03 SOL. The upload left it 0.023 SOL; the deploy then cost it only 0.0012 more, because the
+loader moves the buffer's lamports into the program's data inside the same instruction. Peak on
+mainnet: about 7.77 SOL.
+
+**Do:** fund one buffer's worth plus fees; ask for the measured sum, not twice the rent.
+
+## 2026-10-20: a key the program compares against is not in the `.so` as 32 plain bytes
+
+**Believed:** a program built with `pubkey!("<vault>")` as its admin carries those 32 bytes, so
+searching the build for them proves which admin it names.
+
+**Measured** (the range program's no-features build, 1,523,176 bytes): its own program id is in
+the file; the vault, its admin in seven places, is not. The compiler folds a compared constant into
+instructions. Every check that searched for it refused a correct build.
+
+**Do:** prove the admin on chain: simulate the admin's own call (it must work) and a stranger's
+(it must be refused), and check the source's keys at staging.
+
+## 2026-10-20: vite 8 installs no esbuild
+
+**Believed:** a frontend with vite has esbuild in `node_modules`, so a script can bundle with it.
+
+**Measured** (this repo's `frontend/node_modules`, vite 8.3.0): no `esbuild`; vite 8 bundles with
+`rolldown` (1.2.8 here).
+
+**Do:** bundle with `rolldown` from `frontend/node_modules`, as the owner packs' pages do.
+
+## 2026-10-20: the list of Raydium's keys also holds the SPL Memo program, so "no transaction touched a deny key" fails on every v2 swap
+
+**Believed:** `solana/guards/upstream/deny-keys.txt` lists Raydium's own addresses, so a run of
+the range-pool program that touches none of them pays Raydium nothing, and a run that touches one
+has found a leak.
+
+**Measured** (`solana/clmm-localnet`, check G1, 135 transactions): the one deny key touched was
+`MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr`, SPL's Memo program, which `swap_v2` and the v2
+withdrawals must name (`address = anchor_spl::memo::ID`). The list is every key Raydium's two
+repositories write, less the three system keys `allowed-keys.json` names, so it also holds Memo
+and four stablecoin mints.
+
+**Do:** in a runtime check, treat Memo as named-only (a program, never paid) and fail on any other
+deny key; take its address from the crate the program builds with, not from memory.
+
+## 2026-10-20: `cargo build-sbf` writes a fresh program key beside the program when none exists
+
+**Believed:** building a program makes no keys; a program key exists only when someone runs
+`solana-keygen`.
+
+**Measured** (WSL, Solana 3.1.11, `cargo build-sbf --features placeholder-id -- --locked` in a
+copy of `solana/tegridy-clmm`): `target/deploy/raydium_clmm-keypair.json` appeared next to the
+1,523,176-byte `.so`. A plain `solana program deploy target/deploy/raydium_clmm.so` would use it
+and claim that random address as the program id.
+
+**Do:** delete it after every build that is not the owner's deploy (`shred -u`); the deploy pack
+names its key file explicitly.
+
+## 2026-10-20: a Squads vault can sign on a local chain at its real address
+
+**Believed:** testing admin actions "signed by the vault" locally needs a build whose admin is a
+local key (`localnet`, `devnet`), so the release build's own admin checks are never run.
+
+**Measured:** a Squads vault's address comes from its multisig's address and the vault index,
+not from the members. Loading mainnet's multisig account (`EVGSnRZFWqjCaWR7z2xKbSXnuddY8upevEQK5HFmj6NK`) with its two member keys
+swapped for local keys and its time lock shortened (bytes 74..78) gave vault 0 = the real vault
+`GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd`, and the release-shaped build's every admin check accepted it through
+`vault_transaction_execute` (`solana/clmm-localnet`, checks T1 to T9).
+
+**Do:** keep the threshold and config authority as mainnet's, write the member keys sorted, and
+keep each member's permission mask.
+
+## 2026-10-20: a validator detached inside WSL still dies when the last `wsl.exe` client exits
+
+**Believed:** `solana-test-validator` started in WSL with `setsid nohup ... &` keeps running until
+it is stopped, whatever happens on the Windows side.
+
+**Measured:** started from Node with `spawn('wsl', ['-e','bash','-lc', cmd])`, it exited 0 when the
+Windows side ended. Detached with `setsid nohup`, it ran for a 25-minute suite only while another
+session's validator held a `wsl.exe` client open; once that ended, WSL's machine restarted
+(`uptime` 17 s) and took every process with it, that other session's validator included, leaving
+stale PID files whose numbers a new process may reuse.
+
+With four validators starting at once, about one start in ten also died at birth under
+`setsid nohup cmd &`: empty log, ledger untouched, a PID file naming nothing. The exiting shell's
+hang-up reached it before `setsid` detached it; `nohup setsid cmd &` (hang-up ignored first) and a
+2-second `kill -0` check stopped it.
+
+**Do:** hold a `wsl.exe` client open for the length of the run (`spawn('wsl', ['-e','bash','-lc',
+'exec sleep 86400'])`, killed at the end), start with `nohup setsid`, confirm the PID is alive
+before saying it started, and treat a PID as yours only if `/proc/<pid>/cmdline` names
+`solana-test-validator` (`solana/clmm-localnet/run.mjs`, `validator.mjs`).
 
 ## 2026-10-19: a dev-server walk that stubs every /api/ request renders a blank page, because the app imports from /api/_lib/
 

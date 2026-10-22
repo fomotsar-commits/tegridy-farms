@@ -218,6 +218,78 @@ describe("the EVM cursor: finalized blocks, each read once, in windows", () => {
   });
 });
 
+// The first live run (2026-10-22): Blockscout was 9 blocks behind the finalized head, and
+// Base's first pair had no start block. An RPC here refuses what `refuses(from, to)` says.
+describe("old ranges: Blockscout up to what it has indexed, else smaller RPC windows", () => {
+  const PAIR = "0x55875887b43c2e23ae424af0fc8606fdb058a481";
+  const lastLog = Math.max(...FX.evmLogs.map((l) => Number(l.blockNumber)));
+  const inRange = (from, to) => FX.evmLogs.filter((l) => Number(l.blockNumber) >= from && Number(l.blockNumber) <= to);
+  function rpc({ head, refuses, weth = EVM_CHAINS.ethereum.weth }) {
+    const ranges = [];
+    const call = async (method, params) => {
+      if (method === "eth_getBlockByNumber") return { number: "0x" + head.toString(16), timestamp: "0x6a000000" };
+      if (method === "eth_getLogs") {
+        const from = Number(params[0].fromBlock);
+        const to = Number(params[0].toBlock);
+        if (refuses(from, to)) throw new Error("refused");
+        ranges.push([from, to]);
+        return inRange(from, to);
+      }
+      const data = params[0].data;
+      if (data === "0x574f2ba3") return "0x" + "1".padStart(64, "0");
+      if (data.startsWith("0x1e3dd18b")) return "0x" + PAIR.slice(2).padStart(64, "0");
+      if (data === "0x0dfe1681") return "0x" + "420698cfdeddea6bc78d59bc17798113ad278f9d".padStart(64, "0");
+      return "0x" + weth.slice(2).toLowerCase().padStart(64, "0");
+    };
+    return { call, ranges };
+  }
+  const blockscout = (indexed) => {
+    const asked = [];
+    const fetchImpl = async (url) => {
+      if (url.includes("/api/v2/")) return new Response(JSON.stringify([{ height: indexed }]));
+      const u = new URL(url);
+      const from = Number(u.searchParams.get("fromBlock"));
+      const to = Number(u.searchParams.get("toBlock"));
+      asked.push([from, to]);
+      const result = inRange(from, to);
+      return new Response(JSON.stringify(result.length ? { status: "1", message: "OK", result } : { status: "0", message: "No logs found", result: [] }));
+    };
+    return { fetchImpl, asked };
+  };
+
+  it("reads Blockscout only up to the block it has indexed, and the newest blocks from the RPC", async () => {
+    const head = lastLog + 50;
+    const f = rpc({ head, refuses: (from) => from < head - 20_000 });
+    const bs = blockscout(head - 9);
+    const r = await readEvmChain(f.call, EVM_CHAINS.ethereum, null, { fetchImpl: bs.fetchImpl });
+    expect(r.swaps).toHaveLength(29);
+    expect(new Set(r.swaps.map((s) => s.id)).size).toBe(29);
+    expect(bs.asked).toEqual([[EVM_CHAINS.ethereum.startBlock, head - 9]]);
+    expect(f.ranges).toEqual([[head - 8, head]]);
+    expect(r.cursor.block).toBe(head);
+  });
+
+  it("without Blockscout, shrinks the window to 100 blocks instead of giving up", async () => {
+    const head = lastLog + 50;
+    const from = head - 999;
+    const f = rpc({ head, refuses: (a, b) => b - a + 1 > 100 });
+    const down = async () => new Response("<html>Just a moment...</html>", { status: 403 });
+    const r = await readEvmChain(f.call, EVM_CHAINS.ethereum, { block: from - 1, pairs: [{ address: PAIR, wethSide: 1 }] }, { fetchImpl: down });
+    expect(r.swaps).toHaveLength(inRange(from, head).length);
+    expect(r.swaps.length).toBeGreaterThan(0);
+    expect(f.ranges[0][0]).toBe(from);
+    expect(f.ranges.at(-1)[1]).toBe(head);
+    expect(Math.max(...f.ranges.map(([a, b]) => b - a + 1))).toBe(100);
+  });
+
+  it("starts Base at the block its first pair was created", async () => {
+    const f = rpc({ head: 52_884_800, refuses: () => false, weth: EVM_CHAINS.base.weth });
+    const r = await readEvmChain(f.call, EVM_CHAINS.base, null, { fetchImpl: async () => new Response("", { status: 403 }) });
+    expect(f.ranges[0][0]).toBe(52_884_793);
+    expect(r.cursor.pairs).toEqual([{ address: PAIR, wethSide: 1 }]);
+  });
+});
+
 describe("Blockscout, for ranges the RPCs no longer serve", () => {
   const PAIR = "0x55875887b43c2e23ae424af0fc8606fdb058a481";
   const answer = (indexed, logs) => async (url) =>
