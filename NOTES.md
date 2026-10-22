@@ -45,6 +45,35 @@ served any age in 100-block windows.
 **Do:** take from an indexer only up to the block it says it has indexed and read the rest from an
 RPC; when no indexer answers, shrink the RPC window to the free limit instead of failing.
 
+## 2026-10-21: GitHub calls a train CONFLICTING when it shares two merge bases with trunk, though git merges it cleanly
+
+**Believed:** `git merge-tree --write-tree` exiting 0 against trunk means GitHub will call the
+pull request mergeable and run its CI.
+
+**Measured** (train #928, 2026-10-21): the train carried #922, whose branch held #910's two commits
+unchanged. #910 then merged on its own (`8147c6aeb`). The train and trunk now had two merge bases
+(`cf385ec45` and `51e3036b6`, from `git merge-base --all`). `git merge-tree` exited 0, while
+`gh pr view 928 --json mergeable` read CONFLICTING and no workflow ran. Merging trunk into the
+train changed no file (`80e26e098`) and made it mergeable; CI started.
+
+**Do:** when a train carries a PR whose commits another PR also carries, and that one lands alone,
+merge trunk into the train at once. After every trunk move, read `mergeable` from GitHub, not
+only `merge-tree`.
+
+## 2026-10-21: a train ships each PR's head as it was when the train was cut, and a DIRTY PR can already be red
+
+**Believed:** merging a train closes every PR it carries, and a PR listed as DIRTY only needs trunk.
+
+**Measured** (train #928, merged 2026-10-21 15:40Z): 23 of its 24 PRs closed as merged. #903 stayed
+open: a trunk merge (`e4b78095d`) was pushed to its branch at about 13:59Z, after the train took
+its head `2e397e5e9`. Separately, #895 had been listed as "DIRTY, bring trunk in", but its last
+E2E run, from 2026-10-19, was red (`/bayla` at 432 to 488 words, against a 320 cap). A DIRTY PR
+runs no new CI, so that red sat on the page unread until the train ran it again.
+
+**Do:** before cutting a train, read each DIRTY PR's last run for reds. Right before merging,
+check that every carried PR's current head is in the train (`git merge-base --is-ancestor`).
+Close by hand any PR GitHub leaves open.
+
 ## 2026-10-21: a property test that rejects nearly every draw of a branch fails "at random", and Raydium's compute_swap_step_test is one
 
 **Believed:** a red `compute_swap_step_test` in the range program's `clmm-build` ("amount_used (2)
@@ -64,6 +93,23 @@ failure output) before trusting a branch it names. Draw each branch directly ins
 rejecting into it, and assert per-branch counts so a later sampler change cannot quietly empty
 one. Kill a mutant per guarded line: here two of four survived upstream's price and liquidity
 ranges until prices were drawn by tick and liquidity up to 2^80.
+
+## 2026-10-21: a concentrated-liquidity deposit with liquidity 0 and a base coin is protected on that coin only, so a sandwich passes
+
+**Believed:** an `open_position` / `increase_liquidity` sent with `liquidity: 0`, a base coin
+(`base_flag: Some`) and a tolerance maximum on both coins is refused when the price moves past
+the tolerance either way.
+
+**Read** (the range program's `add_liquidity`, `solana/tegridy-clmm/programs/amm/src/instructions/open_position.rs`,
+which Raydium's CLMM shares): with liquidity 0 the program works the liquidity out from the base
+coin's maximum at the price the deposit lands at, so the base coin always fits its maximum. Only
+the other coin's maximum can refuse, and only for a move that raises it. A price pushed the other
+way (front-run, then back-run) passes, and the deposit goes in at the pushed price: the review on
+#915 found it, and a test replaying the program's rule lets the old opening through a 300-tick move one way.
+
+**Do:** send the liquidity planned from a fresh read with `base_flag: None` and a tolerance
+ceiling on both coins; then a move either way raises one side past its ceiling. To keep the typed
+amount as the most it takes, plan from the amount less the tolerance.
 
 ## 2026-10-21: hiding one layer at a time finds nothing when a page's frame cost is a sum, and headless Windows WebKit pays it per pixel
 
