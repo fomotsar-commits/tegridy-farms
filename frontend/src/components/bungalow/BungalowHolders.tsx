@@ -30,7 +30,10 @@ import { FinePrint } from '../ui/FinePrint';
  * privilege. So the card asks first. The market strip above it stays automatic:
  * that is one cheap HTTP read, not a scan.
  */
-export function BungalowHolders({ bungalow }: { bungalow: Bungalow }) {
+/** `wideGrid`: the card sits in a room's wide-screen grid (HomePage.tsx), four of twelve columns from
+ *  1536px, where its tiles go two abreast until 1920px (120rem: one unit with 2xl's 96rem, or
+ *  Tailwind cannot order the two). Elsewhere it is as wide as the page. */
+export function BungalowHolders({ bungalow, wideGrid = false }: { bungalow: Bungalow; wideGrid?: boolean }) {
   const address = bungalow.address ?? '';
   // Pass the chain through — collapsing base to 'ethereum' would scan a Base
   // token's 0x address on the wrong chain (the scan rail reads all three).
@@ -84,7 +87,7 @@ export function BungalowHolders({ bungalow }: { bungalow: Bungalow }) {
             <p className="text-white/85 text-[13px] flex-1 min-w-[240px]">{a.headline}</p>
           </div>
 
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <div className={`grid grid-cols-2 md:grid-cols-4 gap-3${wideGrid ? ' 2xl:grid-cols-2 min-[120rem]:grid-cols-4' : ''}`}>
             <Stat label="Top 1" value={pct(m.topN.top1)} />
             <Stat label="Top 5" value={pct(m.topN.top5)} />
             <Stat label="Top 10" value={pct(m.topN.top10)} />

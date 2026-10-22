@@ -98,6 +98,7 @@ export const PAGE_ROUTES: Record<string, string> = {
   terminal: '/terminal',
   developer: '/developers',
   'nav-drawer': '/',
+  'island-basket': '/swap',
   'legacy-exit': '/earn/toweli',
   wizard: '/nft-finance',
   // 2026-10-03: the pageIds minted for card art, plus the older ones that had
@@ -609,6 +610,8 @@ export const SURFACES: Surface[] = [
   { group: 'Popups', pageId: 'nav-drawer', idx: 6, label: 'MO3f — Menu group: Lock' },
   { group: 'Popups', pageId: 'nav-drawer', idx: 7, label: 'MO3g — Menu group: Launch' },
   { group: 'Popups', pageId: 'legacy-exit', idx: 0, label: 'MO6 — Legacy staking notice' },
+  // "Buy all bungalows" on the swap card (IslandBasket.tsx).
+  { group: 'Popups', pageId: 'island-basket', idx: 0, label: 'MO7 — Buy all bungalows' },
 
   // Launchpad wizard (gated) — the last cards in the app that had no art at all.
   { group: 'Launchpad wizard', pageId: 'wizard', idx: 0, label: 'WZ1 — Arweave upload cost' },

@@ -680,7 +680,8 @@ test.describe('group B (chromium only)', () => {
     await connect(p);
     const tier1Row = ui.lp.feeTiers(p).and(p.locator('[data-index="1"]'));
     await expect(tier1Row).toHaveAttribute('data-state', 'absent', { timeout: 60_000 });
-    await expect(tier1Row).toContainText('Tier 1');
+    // The Rates card names a tier by its kind of pool (RatesAndRoutes.tsx tierName).
+    await expect(tier1Row).toContainText('Public pools');
     await expect(tier1Row).toContainText('not created yet');
     await expect(createCard(p)).toHaveAttribute('data-create', 'tier-not-open', { timeout: 60_000 });
     await expect(createCard(p)).toContainText(
@@ -1284,9 +1285,12 @@ test.describe('group B (chromium only)', () => {
     await connect(p);
     await expect(createCard(p)).toHaveAttribute('data-create', 'offer', { timeout: 60_000 });
     await expect(createCard(p)).toContainText(MONEY);
-    const body = (await p.locator('body').innerText()).replace(/\s+/g, ' ');
+    // The page's lines for "on" sit in small print (the hero's and the status card's Details,
+    // the Swap routes card's How it works): textContent reads them folded. The status card
+    // is under the LP section, so its line says "above".
+    const body = ((await p.locator('main').textContent()) ?? '').replace(/\s+/g, ' ');
     expect(body).toContain('This site reads pools and shares, and below you can add liquidity to a pool whose checks pass, take yours out, or open a new pool on the public fee tier (the pools section says whether that can be done right now).');
-    expect(body).toContain('This site can add and remove liquidity, and open new pools on the public fee tier (the pools section below says whether it can right now).');
+    expect(body).toContain('This site can add and remove liquidity, and open new pools on the public fee tier (the pools section above says whether it can right now).');
     // Whether tier 1 exists is said only by the create card's live read, never by fixed page copy.
     expect(body).not.toMatch(/once (the public fee tier|that tier) exists/);
     expect(body).toContain('to our pool when ours pays at least as much as Jupiter, and through Jupiter when it does not.');
@@ -1300,10 +1304,11 @@ test.describe('group B (chromium only)', () => {
     expect(rows['Fee tier']).toBe(tierText(t1));
     expect(tierText(t1)).not.toBe(tierText(t0));
     await expect(ui.review(p).getByTestId('lp-review-disclosure')).toContainText(MONEY);
-    // No "yield" anywhere in the section: what a pool or a position earned is said as a
-    // measure from the chain (the section's own sentence says so), never as a forecast.
-    const section = (await ui.lp.section(p).innerText()).replace(/\s+/g, ' ');
-    expect(section).not.toMatch(/APR|APY|yield/i);
+    // No "yield" anywhere in the section, small print included: what a pool or a position
+    // earned is said as a measure from the chain (the Risks sentence says so), never as a
+    // forecast. Whole words only: a random base58 address can spell "apr" or "apy".
+    const section = ((await ui.lp.section(p).textContent()) ?? '').replace(/\s+/g, ' ');
+    expect(section).not.toMatch(/\bAPR\b|\bAPY\b|\byield/i);
     expect(section).toContain('What this page says a pool or a position earned is measured from the chain, and is never a forecast.');
     expect(section).not.toMatch(/earn fees on every trade/i);
     await press(p.getByRole('button', { name: 'Cancel', exact: true }), 'Cancel');

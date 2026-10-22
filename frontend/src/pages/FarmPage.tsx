@@ -385,7 +385,7 @@ function ToweliFarm() {
               (LPFarmingSection renders its own "Connect to stake" CTA, and the
               ConnectPrompt below remains the action-card slot). Additive — the
               jungle art hero and ConnectPrompt are untouched. */}
-          <div className="max-w-[1200px] mx-auto px-4 md:px-6 pb-4">
+          <div className="page-column mx-auto px-4 md:px-6 pb-4">
             <BackToEarn />
             {/* The thing a logged-out visitor came to press is Connect, so the
                 action card is the FIRST card, not the last: on a 390px phone it
@@ -463,7 +463,7 @@ function ToweliFarm() {
       </div>
 
       <ErrorBoundary>
-      <div className="relative z-10 max-w-[1200px] mx-auto px-4 md:px-6 pt-20 pb-28 md:pb-12">
+      <div className="relative z-10 page-column mx-auto px-4 md:px-6 pt-20 pb-28 md:pb-12">
         <BackToEarn />
         {/* Wrong-chain banner via shared primitive. Replaces the inlined
             switch-CTA block added in Phase 4.3 — behavior identical, just
