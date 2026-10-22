@@ -75,7 +75,7 @@ describe('where a range pool’s venue cut goes', () => {
   });
 
   it('on a pool with a dynamic fee the tab says each share as a floor, or on a 0% tier a range to the pool’s own ceiling', () => {
-    const dynamic = { dynamicFeeInfo: { dynamicFeeControl: 100_000, maxVolatilityAccumulator: 100_000 }, tickSpacing: 120 } as Parameters<typeof poolFeeCeiling>[0];
+    const dynamic = { dynamicFeeInfo: { dynamicFeeControl: 99_999, maxVolatilityAccumulator: 100_000 }, tickSpacing: 120 } as Parameters<typeof poolFeeCeiling>[0];
     const one = feeSplit(tier(), poolFeeCeiling(dynamic, 10_000));
     expect([one.fee, one.lpOfSwap, one.venueOfSwap]).toEqual(['1% to 4%', 'at least 0.84%', 'at least 0.16%']);
     const zero = feeSplit(tier({ tradeFeeRate: 0 }), poolFeeCeiling(dynamic, 0));

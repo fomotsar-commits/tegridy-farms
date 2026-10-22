@@ -264,6 +264,24 @@ const openAta = (owner: PublicKey, address: PublicKey, mint: PublicKey, program:
 
 // ── opening ──────────────────────────────────────────────────────────────────
 
+/**
+ * A coin whose holder can freeze accounts, on either side, in the LP deposit's words
+ * (tokenSafety.ts freezeWarning); a pairing coin with its own risk line (USDC: Circle) is
+ * said from it on the review instead, once. A mint that does not decode is refused, never
+ * passed as one that cannot be frozen.
+ */
+export function freezeLines(pair: Pick<Pair, 'tokenMint' | 'quote'>, tokenMint: RawAccount | null, coinMint: RawAccount | null): string[] | { refuse: string } {
+  const sides: [string, string, RawAccount | null][] = [[quoteCoin(pair.tokenMint)?.symbol ?? 'The token', pair.tokenMint, tokenMint]];
+  if (!pair.quote.native && !pair.quote.risk) sides.push([pair.quote.symbol, pair.quote.mint, coinMint]);
+  const lines: string[] = [];
+  for (const [name, mint, raw] of sides) {
+    const d = raw ? decodeMintAccount(raw.owner, raw.data) : null;
+    if (!d || !d.ok) return { refuse: RANGE_COPY.tokenNot(d ? d.reason : 'its mint was not read') };
+    if (d.value.freezeAuthority) lines.push(`${name}: ${freezeWarning(mint, d.value.freezeAuthority).text}`);
+  }
+  return lines;
+}
+
 export interface RangeOpenArgs {
   owner: PublicKey;
   pool: PublicKey;
@@ -381,14 +399,9 @@ export async function prepareRangeOpen(rpc: WriteRpc, cfg: CurveWriteConfig, pro
     warnings.push(RANGE_COPY.priceOff(pct, check.diff > 0 ? 'above' : 'below', loss));
   } else if (check.state === 'no-market') warnings.push(RANGE_COPY.noMarket);
   else if (check.state === 'unread') warnings.push(RANGE_COPY.priceUnread(check.detail));
-  // A coin whose holder can freeze accounts, on either side, in the LP deposit's words (tokenSafety.ts).
-  // A pairing coin with its own risk line (USDC: Circle) has it said from its QuoteCoin instead, once.
-  const freezable: [string, string, RawAccount | null][] = [[quoteCoin(pins.tokenMint.toBase58())?.symbol ?? 'The token', pins.tokenMint.toBase58(), tokenMintRaw ?? null]];
-  if (!quote.native && !quote.risk) freezable.push([quote.symbol, quote.mint, coinMintRaw ?? null]);
-  for (const [name, mint, raw] of freezable) {
-    const d = raw ? decodeMintAccount(raw.owner, raw.data) : null;
-    if (d?.ok && d.value.freezeAuthority) warnings.push(`${name}: ${freezeWarning(mint, d.value.freezeAuthority).text}`);
-  }
+  const freezes = freezeLines(pair, tokenMintRaw ?? null, coinMintRaw ?? null);
+  if (!Array.isArray(freezes)) return notSent('build', freezes.refuse);
+  warnings.push(...freezes);
   // The accounts' notices are the review's own lines, apart from the price warnings (as a deposit's are).
   const notices: string[] = [];
 

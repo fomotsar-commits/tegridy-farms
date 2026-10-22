@@ -7,7 +7,7 @@ import { BAYLA_MINT, WSOL_MINT } from '../../../lib/solana/lp/tokenSafety';
 import { decodeAmmConfig, decodePersonalPosition, decodePoolState, sortMints, type AmmConfigView } from '../../../lib/solana/clmm/program';
 import { getTickAtSqrtPrice } from '../../../lib/solana/clmm/math';
 import { encodeAmmConfig, encodePool, encodePosition } from '../../../lib/solana/clmm/encode.fixture';
-import type { RangePool, Read, WalletPosition, WalletPositionsRead } from '../../../lib/solana/clmm/read';
+import type { MintFreeze, RangePool, Read, WalletPosition, WalletPositionsRead } from '../../../lib/solana/clmm/read';
 import type { CurveWriteConfig, Prepared, RangeWriteApi } from '../curve/ports';
 import { PLATFORM_TREASURY_VAULT } from '../../../lib/launcher/solana/curve/program';
 import { WORKSHOP_WALLET } from '../../../lib/launcher/solana/write/plant';
@@ -97,7 +97,7 @@ function fakeApi(): RangeWriteApi {
 /** Jupiter's price for BAYLA by default: the pool's own, 0.0003 SOL. */
 const MARKET_AGREES: OutsidePrice = { kind: 'ok', solPerToken: 0.0003, source: 'Jupiter' };
 
-function readers(o: { tiers?: Read<AmmConfigView[]>; pools?: Read<RangePool[]>; positions?: Read<WalletPositionsRead>; market?: OutsidePrice; freeze?: Read<string | null> } = {}): RangeReaders {
+function readers(o: { tiers?: Read<AmmConfigView[]>; pools?: Read<RangePool[]>; positions?: Read<WalletPositionsRead>; market?: OutsidePrice; freeze?: Read<MintFreeze> } = {}): RangeReaders {
   const t = tier();
   return {
     programId: PROG,
@@ -105,7 +105,7 @@ function readers(o: { tiers?: Read<AmmConfigView[]>; pools?: Read<RangePool[]>; 
     pairPools: vi.fn(async () => o.pools ?? { kind: 'ok' as const, value: [poolOn(t)] }),
     walletPositions: vi.fn(async () => o.positions ?? { kind: 'ok' as const, value: { positions: [], unread: [] } }),
     outsidePrice: vi.fn(async () => o.market ?? MARKET_AGREES),
-    freezeAuthority: vi.fn(async () => o.freeze ?? { kind: 'ok' as const, value: null }),
+    freezeAuthority: vi.fn(async () => o.freeze ?? { kind: 'ok' as const, value: { kind: 'mint' as const, freezeAuthority: null } }),
   };
 }
 
@@ -164,7 +164,7 @@ describe('how a range position earns', () => {
   it('a pool with a dynamic fee: the card says the fee as a range and each share of the swap as a floor, as the position link does', async () => {
     const t = tier();
     const base = poolOn(t);
-    const dyn: RangePool = { ...base, pool: { ...base.pool, dynamicFeeInfo: { ...(base.pool.dynamicFeeInfo ?? {}), dynamicFeeControl: 100_000, maxVolatilityAccumulator: 100_000 } as NonNullable<RangePool['pool']['dynamicFeeInfo']> } };
+    const dyn: RangePool = { ...base, pool: { ...base.pool, dynamicFeeInfo: { ...(base.pool.dynamicFeeInfo ?? {}), dynamicFeeControl: 99_999, maxVolatilityAccumulator: 100_000 } as NonNullable<RangePool['pool']['dynamicFeeInfo']> } };
     show(readers({ pools: { kind: 'ok', value: [dyn] } }));
     const card = await screen.findByTestId('range-earns');
     await waitFor(() => expect(card.textContent).toContain('pays a 1% to 4% fee'));
@@ -266,9 +266,17 @@ describe('picking a range', () => {
   it('a token with a live freeze authority is said where it is picked, in the LP deposit’s words; none says nothing, an unread check says so', async () => {
     const freezable = key(91).toBase58();
     const auth = key(92).toBase58();
-    show(readers({ freeze: { kind: 'ok', value: auth } }), fakeApi(), 'on', `/range-pools?mint=${freezable}`);
+    show(readers({ freeze: { kind: 'ok', value: { kind: 'mint', freezeAuthority: auth } } }), fakeApi(), 'on', `/range-pools?mint=${freezable}`);
     const card = await screen.findByTestId('range-pools');
     await waitFor(() => expect(within(card).getByTestId('range-token-freeze')).toHaveTextContent(`Its creator can freeze any account that holds it (freeze authority ${auth}), a pool’s own vault and your own account included.`));
+  });
+
+  it('an address that is not a token mint is said as that, apart from a check that failed', async () => {
+    const notMint = key(93).toBase58();
+    show(readers({ freeze: { kind: 'ok', value: { kind: 'not-a-mint', detail: 'the account is not owned by a token program' } } }), fakeApi(), 'on', `/range-pools?mint=${notMint}`);
+    const card = await screen.findByTestId('range-pools');
+    await waitFor(() => expect(within(card).getByTestId('range-token-freeze')).toHaveTextContent('This address is not a token mint (the account is not owned by a token program)'));
+    expect(within(card).getByTestId('range-token-freeze')).not.toHaveTextContent('could not be read');
   });
 
   it('no freeze authority: nothing is said; a freeze check that did not read: said as unread, never as safe', async () => {

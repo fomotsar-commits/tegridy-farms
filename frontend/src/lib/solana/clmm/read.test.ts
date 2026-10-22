@@ -6,7 +6,8 @@ import { TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID } from '../cpswap/ix';
 import { getDeltaAmountsSigned, getSqrtPriceAtTick } from './math';
 import { decodePoolState, deriveAmmConfig, deriveObservation, derivePersonalPosition, derivePool, deriveTickArray, deriveVault, sortMints } from './program';
 import { encodeAmmConfig, encodePool, encodePosition, encodeTickArray } from './encode.fixture';
-import { positionNeedsExtension, rangeStatus, readBandsNear, readFeeTiers, readPairPools, readWalletPositions } from './read';
+import { positionNeedsExtension, rangeStatus, readBandsNear, readFeeTiers, readFreezeAuthority, readPairPools, readWalletPositions } from './read';
+import { encodeMint } from '../../launcher/solana/write/testkit.fixture';
 
 /**
  * The range program's reads against a fake RPC that answers only the two calls the proxy
@@ -237,6 +238,24 @@ describe("a wallet's positions", () => {
     const c = withTiers();
     const r = await readWalletPositions(c.rpc, PROG, ME);
     expect(r).toEqual({ kind: 'ok', value: { positions: [], unread: [] } });
+  });
+});
+
+describe("a token's freeze authority, where it is picked", () => {
+  const MINT = Keypair.generate().publicKey;
+  it('a mint: its freeze authority, or null for none', async () => {
+    const auth = Keypair.generate().publicKey;
+    const frozen = new Chain().set(MINT, { owner: TOKEN_PROGRAM_ID, data: encodeMint({ decimals: 6, freezeAuthority: auth }) });
+    expect(await readFreezeAuthority(frozen.rpc, MINT.toBase58())).toEqual({ kind: 'ok', value: { kind: 'mint', freezeAuthority: auth.toBase58() } });
+    const clean = new Chain().set(MINT, { owner: TOKEN_PROGRAM_ID, data: encodeMint({ decimals: 6 }) });
+    expect(await readFreezeAuthority(clean.rpc, MINT.toBase58())).toEqual({ kind: 'ok', value: { kind: 'mint', freezeAuthority: null } });
+  });
+
+  it('no account, or one that is not a mint, is not-a-mint; a read that failed is unread: never "cannot be frozen"', async () => {
+    expect(await readFreezeAuthority(new Chain().rpc, MINT.toBase58())).toMatchObject({ kind: 'ok', value: { kind: 'not-a-mint' } });
+    const stranger = new Chain().set(MINT, { owner: SYSTEM, data: new Uint8Array(82) });
+    expect(await readFreezeAuthority(stranger.rpc, MINT.toBase58())).toMatchObject({ kind: 'ok', value: { kind: 'not-a-mint' } });
+    expect(await readFreezeAuthority(async () => { throw new Error('down'); }, MINT.toBase58())).toMatchObject({ kind: 'unread' });
   });
 });
 
