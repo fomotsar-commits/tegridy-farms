@@ -8,12 +8,12 @@ import type { TokenSafety } from '../../../lib/solana/lp/tokenSafety';
 import { FORECAST_WORDS } from '../../../lib/solana/lp/format';
 import { SOL_QUOTE } from '../../../lib/solana/lp/quotes';
 import type { PoolSearchRead, PoolView } from '../../../lib/solana/lp/poolFinder';
-import { POOL_STATUS_DISABLE_WITHDRAW, decodeAmmConfig, decodePoolState } from '../../../lib/solana/cpswap/program';
+import { POOL_STATUS_DISABLE_WITHDRAW, decodeAmmConfig, decodePoolState, type AmmConfigView } from '../../../lib/solana/cpswap/program';
 import type { Position } from '../../../lib/solana/lp/positions';
 import { ExplorerLink, Row } from '../curve/ui';
 import { buildPool, key } from '../../../lib/solana/lp/testkit.fixture';
 import { fakeLpApi, unusedGateRpc } from './fakeLpWriteApi.fixture';
-import { recordedFeeTiers, recordedTier } from '../../../lib/solana/cpswap/mainnetVenueReplay.fixture';
+import { recordedFeeTiers, recordedTier, splitFeeTiers } from '../../../lib/solana/cpswap/mainnetVenueReplay.fixture';
 import { CP_SWAP_PROGRAM_ID, PLATFORM_TREASURY_MULTISIG, PLATFORM_TREASURY_VAULT } from '../../../lib/launcher/solana/curve/program';
 
 const wallet = vi.hoisted(() => ({ publicKey: null as null | { toBase58(): string } }));
@@ -572,8 +572,8 @@ describe('the rates: what a trade pays, what stays in the pool, what the venue t
     return screen.getByTestId('fee-tiers');
   };
 
-  it('on the tiers mainnet holds: the numbers in plain sight, every sentence and the wallet one press away', async () => {
-    const r = readers({ feeTiers: vi.fn(async () => recordedFeeTiers()) });
+  it('on the tiers mainnet holds: the numbers in plain sight, every sentence and both wallets one press away', async () => {
+    const r = readers({ feeTiers: vi.fn(async () => splitFeeTiers()) });
     mount(r, '/pools');
     const rates = await card();
     expect(within(rates).getByRole('heading', { level: 2 })).toHaveTextContent('Rates');
@@ -594,9 +594,12 @@ describe('the rates: what a trade pays, what stays in the pool, what the venue t
     const sources = within(rates).getByTestId('lp-venue-sources');
     expect(within(sources).getAllByRole('listitem').slice(0, 2).map((li) => li.textContent)).toEqual(['0.16% of each trade in a public pool.', '0.15 SOL when a public pool is opened.']);
     expect(within(sources).getAllByRole('listitem')[2]).toHaveTextContent(/a swap sent through Jupiter/);
-    expect(rates).toHaveTextContent(/the team’s shared wallet, which needs two signatures and can change the pool rates\./);
-    // The cut goes to the shared vault, so its wallet is one press away: short, the whole address a press further.
+    expect(rates).toHaveTextContent(
+      'Of each trade’s fee, 10.4% (0.104% of the trade) goes to the team’s shared wallet, which needs two signatures and can change the pool rates, and 5.6% (0.056% of the trade) to the island’s Workshop, the island’s agreed share.',
+    );
+    // The cut follows the agreed split, so both wallets are one press away: short, the whole address a press further.
     expect(within(rates).queryByTestId('lp-venue-elsewhere')).toBeNull();
+    expect(within(rates).getByRole('group', { name: 'Island’s Workshop' }).closest('details')).not.toBeNull();
     const wallet = within(rates).getByRole('group', { name: 'Team’s shared wallet' });
     expect(wallet.closest('details')).not.toBeNull();
     expect(wallet).toHaveTextContent('GRMt…8osd');
@@ -622,17 +625,34 @@ describe('the rates: what a trade pays, what stays in the pool, what the venue t
     expect(rates).not.toHaveTextContent(/0\.84%|0\.16%|\b1% fee|0\.15 SOL/);
   });
 
-  // Venue money going anywhere but the shared vault is said in plain sight, in bold (owner, 2026-10-10).
-  it('a tier that sends the venue’s cut to another wallet says so in plain sight, in bold, with the wallet', async () => {
-    const other = recordedFeeTiers();
+  // Venue money going anywhere but the agreed split is said in plain sight, in bold (owner, 2026-10-10).
+  const flagged = async (over: Partial<AmmConfigView>) => {
+    const other = splitFeeTiers();
     if (other.kind !== 'ok') throw new Error('the recording did not read');
-    other.tiers[1] = { ...other.tiers[1]!, config: { ...other.tiers[1]!.config!, protocolOwner: OTHER } };
+    other.tiers[1] = { ...other.tiers[1]!, config: { ...other.tiers[1]!.config!, ...over } };
     mount(readers({ feeTiers: vi.fn(async () => other) }), '/pools');
-    const rates = await card();
-    const flag = within(rates).getByTestId('lp-venue-elsewhere');
+    const flag = within(await card()).getByTestId('lp-venue-elsewhere');
     expect(flag.closest('details')).toBeNull();
-    expect(flag.querySelector('strong')).toHaveTextContent(/^The cut of each trade goes to the wallet this fee tier names\./);
-    expect(within(flag).getByRole('group', { name: 'Wallet this fee tier names' })).toBeInTheDocument();
+    expect(flag.querySelector('strong')).toHaveTextContent(/^The venue’s cut does not follow the agreed split \(10\.4% of each trade’s fee to the team’s shared wallet, 5\.6% to the island’s Workshop\)\. /);
+    return flag;
+  };
+
+  it('a tier that sends part of the venue’s cut to another wallet says so in plain sight, in bold, with the wallet', async () => {
+    const flag = await flagged({ protocolOwner: OTHER });
+    expect(flag.querySelector('strong')).toHaveTextContent(/this tier sends nothing to the team’s shared wallet, 5\.6% \(0\.056% of the trade\) to the island’s Workshop and 10\.4% \(0\.104% of the trade\) to another wallet\./);
+    expect(within(flag).getByRole('group', { name: 'Another wallet, 10.4% of each trade’s fee' })).toHaveTextContent('Fu7m…tTb6');
+  });
+
+  it('a fund owner that is the team’s vault (the program’s default) keeps the island’s part: said in bold, not as the agreed split', async () => {
+    const flag = await flagged({ fundOwner: VAULT });
+    expect(flag.querySelector('strong')).toHaveTextContent(/this tier sends 16% \(0\.16% of the trade\) to the team’s shared wallet and nothing to the island’s Workshop\./);
+    expect(within(flag).getByRole('group', { name: 'Team’s shared wallet, 16% of each trade’s fee' })).toBeInTheDocument();
+    expect(within(flag).getByRole('group', { name: 'Island’s Workshop' })).toBeInTheDocument();
+  });
+
+  it('the right wallets at other rates: said in bold too', async () => {
+    const flag = await flagged({ protocolFeeRate: 120_000n, fundFeeRate: 40_000n });
+    expect(flag.querySelector('strong')).toHaveTextContent(/this tier sends 12% \(0\.12% of the trade\) to the team’s shared wallet and 4% \(0\.04% of the trade\) to the island’s Workshop\./);
   });
 
   it('still reading, a read that failed, tiers that are not there: each said, and none prints a pool rate or a wallet', async () => {

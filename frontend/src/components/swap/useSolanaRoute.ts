@@ -5,6 +5,8 @@ import { PROGRAM_ID as LAUNCH_PROGRAM_ID } from '../../lib/launcher/solana/curve
 import { readVenue, type VenueStatus } from '../../lib/solana/cpswap/read';
 import { aggregatorCandidate, chooseRoute, type RouteCandidate, type RouteDecision } from '../../lib/solana/route';
 import { quoteVenuePools, readVenuePools, rememberingFetch, type OwnPoolsState, type VenuePoolCandidate, type VenuePoolsRead } from '../../lib/solana/swap/venuePools';
+import { mergeOwnStates, quoteRangePools, readRangeRoutePools, type RangePoolCandidate, type RangeRouteRead } from '../../lib/solana/swap/rangePools';
+import { rangePoolsVisible } from '../../lib/solana/clmm/programId';
 import { withReadCommitment } from '../solana/curve/confirmedRpc';
 
 /**
@@ -45,6 +47,18 @@ function readPools(programId: string, inputMint: string, outputMint: string, als
     also,
   }).catch((e: unknown): VenuePoolsRead => ({ kind: 'unread', detail: e instanceof Error ? e.message : String(e) }));
 }
+
+/** Our range pools for the pair: read only while range pools show (clmm/programId.ts). */
+function readRange(inputMint: string, outputMint: string): Promise<RangeRouteRead> {
+  return readRangeRoutePools(withReadCommitment(browserRpc(), 'confirmed'), inputMint, outputMint).catch(
+    (e: unknown): RangeRouteRead => ({ kind: 'unread', detail: e instanceof Error ? e.message : String(e) }),
+  );
+}
+
+/** One of our pools that quoted: a constant-product pool, or a range pool (`range` set). */
+export type OwnCandidate = VenuePoolCandidate | RangePoolCandidate;
+
+export const isRangeCandidate = (c: OwnCandidate): c is RangePoolCandidate => 'range' in c;
 
 /**
  * Our pools for one pair, read now and quoted for `amountIn`, for a caller outside this
@@ -88,7 +102,7 @@ export interface SolanaRoute {
   /** What became of our own pools for this pair and amount. `pending`: the read is in flight. */
   own: 'pending' | OwnPoolsState;
   /** Our pools that quoted this amount. */
-  candidates: VenuePoolCandidate[];
+  candidates: OwnCandidate[];
   /** The decision for this pair, amount and aggregator quote; null before there is one. */
   decision: RouteDecision | null;
   /** The aggregator quoted more and is left out of the decision: its transaction failed its test run. */
@@ -99,7 +113,9 @@ export interface SolanaRoute {
   /** An amount is typed and an answer it waits on (the aggregator's or the venue's) is still on its way. */
   asking: boolean;
   /** Read our pools again now and quote `amountIn` of the pay token; null when they could not be read. Never throws. */
-  refresh(amountIn: bigint): Promise<VenuePoolCandidate[] | null>;
+  refresh(amountIn: bigint): Promise<OwnCandidate[] | null>;
+  /** Is this address one of our range pools, as last read? Its swap is built by the range builder. */
+  isRangePool(address: string): boolean;
   /** Drop the read in hand and read again (a trade, or a press, found the pool changed). */
   forget(): void;
 }
@@ -114,6 +130,16 @@ export function useSolanaRoute({ inputMint, outputMint, amountInRaw, aggregatorQ
   const [forgot, setForgot] = useState(0);
   const pairKey = [inputMint, outputMint].sort().join('|');
   const hasAmount = amountInRaw !== null && amountInRaw > 0n;
+  // Fixed for the life of a build: false while the range program's id is the placeholder.
+  const rangeOn = rangePoolsVisible();
+  const [rangePools, setRangePools] = useState<{ key: string; read: RangeRouteRead; at: number } | null>(null);
+  const rangeHeld = useRef(rangePools);
+  const rangeInFlight = useRef<string | null>(null);
+  // Every range pool any read found, by address: the press asks here which builder a pool needs.
+  const rangeAddresses = useRef(new Set<string>());
+  const noteRange = (read: RangeRouteRead) => {
+    if (read.kind === 'ok') for (const p of read.pools) rangeAddresses.current.add(p.range.pool.address);
+  };
   const programId = venue?.kind === 'live' ? venue.programId : null;
 
   useEffect(() => {
@@ -140,8 +166,25 @@ export function useSolanaRoute({ inputMint, outputMint, amountInRaw, aggregatorQ
   const shownFor = (key: string) => (shownPools.current.key === key ? shownPools.current.addresses : []);
   useEffect(() => {
     held.current = pools;
+    rangeHeld.current = rangePools;
     onScreen.current = pairKey;
-  }, [pools, pairKey]);
+  }, [pools, rangePools, pairKey]);
+
+  // Our range pools, read the same way: once per pair with an amount, again when stale.
+  useEffect(() => {
+    if (!rangeOn || !hasAmount) return;
+    const h = rangeHeld.current;
+    if (h && h.key === pairKey && h.read.kind !== 'unread' && Date.now() - h.at < POOLS_FRESH_MS) return;
+    if (rangeInFlight.current === pairKey) return;
+    rangeInFlight.current = pairKey;
+    void readRange(inputMint, outputMint).then((read) => {
+      noteRange(read);
+      if (rangeInFlight.current === pairKey) rangeInFlight.current = null;
+      if (onScreen.current === pairKey) setRangePools({ key: pairKey, read, at: Date.now() });
+    });
+    // inputMint and outputMint are read through pairKey: a flip is the same pools.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rangeOn, pairKey, hasAmount, amountInRaw, retry, forgot]);
 
   // One read per pair, once there is an amount. An amount typed over a fresh read
   // quotes from it; over a stale one, or one that failed, it reads again. A keystroke
@@ -166,15 +209,25 @@ export function useSolanaRoute({ inputMint, outputMint, amountInRaw, aggregatorQ
     () => (read && hasAmount ? quoteVenuePools(read, inputMint, amountInRaw) : null),
     [read, hasAmount, inputMint, amountInRaw],
   );
+  const rangeRead = rangePools && rangePools.key === pairKey ? rangePools.read : null;
+  const rangeQuoted = useMemo(
+    () => (rangeRead && hasAmount ? quoteRangePools(rangeRead, inputMint, amountInRaw) : null),
+    [rangeRead, hasAmount, inputMint, amountInRaw],
+  );
 
   // A venue that is provably not deployed has no pools ('absent'); an UNREADABLE venue
   // proves nothing and is 'error', never 'absent'.
-  const own: SolanaRoute['own'] =
+  const cpOwn: SolanaRoute['own'] =
     venue === null ? 'pending' : venue.kind === 'live' ? (quoted?.state ?? 'pending') : venue.kind === 'unreadable' ? 'error' : 'absent';
-  const candidates = useMemo(() => (venue?.kind === 'live' ? (quoted?.candidates ?? []) : []), [venue, quoted]);
+  // With range pools hidden this is `cpOwn`, unchanged.
+  const own = mergeOwnStates(cpOwn, rangeOn && hasAmount ? (rangeQuoted?.state ?? 'pending') : null);
+  const candidates = useMemo<OwnCandidate[]>(
+    () => [...(venue?.kind === 'live' ? (quoted?.candidates ?? []) : []), ...(rangeQuoted?.candidates ?? [])],
+    [venue, quoted, rangeQuoted],
+  );
   useEffect(() => {
     const kept = shownFor(pairKey);
-    const added = candidates.map((c) => c.poolAddress).filter((a) => !kept.includes(a));
+    const added = candidates.filter((c) => !isRangeCandidate(c)).map((c) => c.poolAddress).filter((a) => !kept.includes(a));
     if (added.length > 0 || shownPools.current.key !== pairKey) shownPools.current = { key: pairKey, addresses: [...kept, ...added] };
   }, [pairKey, candidates]);
 
@@ -190,25 +243,35 @@ export function useSolanaRoute({ inputMint, outputMint, amountInRaw, aggregatorQ
   const decision = useMemo(() => (refusedAway ? chooseRoute(candidates) : quotedRoute), [refusedAway, candidates, quotedRoute]);
 
   const refresh = useCallback(
-    async (amountIn: bigint): Promise<VenuePoolCandidate[] | null> => {
+    async (amountIn: bigint): Promise<OwnCandidate[] | null> => {
+      // Range pools add to the answer and never take from it: one that did not read is left out.
+      const rangeNow = rangeOn
+        ? readRange(inputMint, outputMint).then((r) => {
+            noteRange(r);
+            if (onScreen.current === pairKey) setRangePools({ key: pairKey, read: r, at: Date.now() });
+            return quoteRangePools(r, inputMint, amountIn).candidates;
+          })
+        : Promise.resolve([] as RangePoolCandidate[]);
       const v = await venueStatusOnce();
       // What the press found is the page's venue from now on: a venue that failed at load included.
       setVenue(v);
       if (v.kind === 'unreadable') return null;
-      if (v.kind !== 'live') return [];
-      const fresh = await readPools(v.programId, inputMint, outputMint, shownFor(pairKey));
+      if (v.kind !== 'live') return [...(await rangeNow)];
+      const [fresh, ranged] = await Promise.all([readPools(v.programId, inputMint, outputMint, shownFor(pairKey)), rangeNow]);
       if (onScreen.current === pairKey) setPools({ key: pairKey, read: fresh, at: Date.now() });
       const q = quoteVenuePools(fresh, inputMint, amountIn);
-      return q.state === 'error' ? null : q.candidates;
+      return q.state === 'error' ? null : [...q.candidates, ...ranged];
     },
-    [inputMint, outputMint, pairKey],
+    [inputMint, outputMint, pairKey, rangeOn],
   );
+  const isRangePool = useCallback((address: string) => rangeAddresses.current.has(address), []);
   const forget = useCallback(() => {
     setPools(null);
+    setRangePools(null);
     setForgot((n) => n + 1);
   }, []);
 
   const refusedEdge = refusedAway ? (quotedRoute?.edge ?? null) : null;
 
-  return { venue, own, candidates, decision, aggregatorRefused: refusedAway, refusedEdge, aggregatorLabel, asking: hasAmount && (aggregatorPending || venue === null), refresh, forget };
+  return { venue, own, candidates, decision, aggregatorRefused: refusedAway, refusedEdge, aggregatorLabel, asking: hasAmount && (aggregatorPending || venue === null), refresh, forget, isRangePool };
 }
