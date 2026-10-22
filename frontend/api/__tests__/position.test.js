@@ -387,13 +387,13 @@ describe("real accounts of the live range program whose layout the venue's copy 
     const fee = rust("states/pool_fee.rs");
     expect(fee).toContain("pub const VOLATILITY_ACCUMULATOR_SCALE: u16 = 10_000;");
     expect(fee).toContain("pub const DYNAMIC_FEE_CONTROL_DENOMINATOR: u32 = 100_000;");
-    const dyn = /fn compute_dynamic_fee_rate\([\s\S]*?\n    \}/.exec(swap)[0];
+    const dyn = /fn compute_dynamic_fee_rate\([\s\S]*?\n {4}\}/.exec(swap)[0];
     expect(dyn).toContain("dynamic_fee_info.volatility_accumulator * tick_spacing as u32");
     expect(dyn).toContain("u64::from(crossed) * u64::from(crossed)");
     expect(dyn).toMatch(/U128::from\(DYNAMIC_FEE_CONTROL_DENOMINATOR\)\s*\*\s*U128::from\(VOLATILITY_ACCUMULATOR_SCALE\)\s*\*\s*U128::from\(VOLATILITY_ACCUMULATOR_SCALE\)/);
     expect(dyn).toContain(".mul_div_ceil(U128::from(squared), denominator)");
     expect(dyn).toMatch(/if fee_rate > MAX_FEE_RATE_NUMERATOR as u128 \{\s*Ok\(MAX_FEE_RATE_NUMERATOR\)/);
-    const total = /fn get_total_fee_rate\([\s\S]*?\n    \}/.exec(swap)[0];
+    const total = /fn get_total_fee_rate\([\s\S]*?\n {4}\}/.exec(swap)[0];
     expect(total).toContain("let total_fee_rate = self.base_fee_rate + dynamic_fee_rate;");
     expect(total).toContain("total_fee_rate.min(MAX_FEE_RATE_NUMERATOR)");
     // The volatility accumulator is capped at max_volatility_accumulator, so that is its top.
