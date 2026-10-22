@@ -10,14 +10,14 @@ const answer = (over: Record<string, unknown> = {}) => ({
   swaps: 67,
   unpricedSwaps: 0,
   asOf: '2026-10-19T16:00:00.000Z',
-  staleAt: '2026-10-19T19:00:00.000Z',
+  staleAt: '2026-10-20T01:00:00.000Z',
   ...over,
 });
 
 describe('parseVenueVolume', () => {
   it('turns a cached "current" answer behind once its staleAt has passed', () => {
     expect(parseVenueVolume(answer(), NOW).state).toBe('current');
-    expect(parseVenueVolume(answer(), Date.parse('2026-10-19T19:00:01Z')).state).toBe('behind');
+    expect(parseVenueVolume(answer(), Date.parse('2026-10-20T01:00:01Z')).state).toBe('behind');
     expect(parseVenueVolume(answer({ state: 'behind' }), NOW).state).toBe('behind');
   });
 
@@ -40,6 +40,8 @@ describe('<VenueVolume />', () => {
     expect(await screen.findByText('$2,481')).toBeTruthy();
     expect(screen.getByText(/^as of /)).toBeTruthy();
     expect(screen.queryByText(/not up to date/)).toBeNull();
+    // GitHub fires the "hourly" job every few hours, so the small print says that.
+    expect(screen.getByText(/Counted every few hours\./)).toBeTruthy();
     vi.useRealTimers();
   });
 

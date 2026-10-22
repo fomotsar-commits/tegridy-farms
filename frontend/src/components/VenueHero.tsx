@@ -112,7 +112,7 @@ export function VenueCards() {
 export function VenueHeroFooter() {
   return (
     <>
-      {/* The all-time volume, counted hourly (VenueVolume.tsx). */}
+      {/* The all-time volume, counted every few hours (VenueVolume.tsx). */}
       <VenueVolume />
       {/* The venue never opens its welcome by itself: this pill is the door to the tour. */}
       <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1">
