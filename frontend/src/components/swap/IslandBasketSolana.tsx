@@ -318,6 +318,7 @@ export function IslandBasketSolana(p: {
       : { tone: 'err', text: s.why };
     return {
       key: coin.room,
+      room: coin.room,
       symbol: coin.symbol,
       venue,
       pays: r?.out != null ? `≈ ${shortAmount(Number(fromBaseUnits(r.out.toString(), coin.decimals)))}` : quoting || (!shown && orderKey) ? null : '–',
@@ -359,7 +360,7 @@ export function IslandBasketSolana(p: {
 
   return (
     <>
-      <IslandBasketButton count={n} onOpen={() => setOpen(true)} />
+      <IslandBasketButton count={n} symbols={SOL_BASKET.map((c) => c.symbol)} onOpen={() => setOpen(true)} />
       <IslandBasketDialog
         open={open}
         onClose={() => setOpen(false)}
