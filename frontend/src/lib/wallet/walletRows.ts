@@ -127,6 +127,44 @@ export function holdingsTotal(legs: readonly Leg<HoldingRow>[]): { kind: 'total'
   return { kind: 'total', usd: rows.reduce((s, r) => s + (r.usd ?? 0), 0) };
 }
 
+/** One coin's share of the holdings' worth. */
+export interface HoldingShare {
+  key: string;
+  symbol: string;
+  roomId: string | null;
+  chain: WalletChain;
+  /** Percent of the whole, 0–100. */
+  pct: number;
+}
+
+/**
+ * Each priced coin's share of the holdings' worth, largest first. For a whole total only
+ * (holdingsTotal 'total'): over a partial read the shares would be of a figure that leaves a
+ * coin out, so the board draws none then.
+ */
+export function holdingShares(rows: readonly HoldingRow[]): HoldingShare[] {
+  const total = rows.reduce((s, r) => s + (r.usd ?? 0), 0);
+  if (!(total > 0)) return [];
+  return rows
+    .filter((r) => (r.usd ?? 0) > 0)
+    .map((r) => ({ key: r.key, symbol: r.symbol, roomId: r.roomId, chain: r.chain, pct: ((r.usd ?? 0) / total) * 100 }))
+    .sort((a, b) => b.pct - a.pct);
+}
+
+/** A share in words: "<1%", else whole percent. */
+export function pctText(pct: number): string {
+  return pct < 1 ? '<1%' : `${Math.round(pct)}%`;
+}
+
+/** A position's share of the ladder, read from its own facts ("4.00×"); null when it has none. */
+export function boostOf(facts: readonly string[]): number | null {
+  for (const f of facts) {
+    const m = /^(\d+(?:\.\d+)?)×$/.exec(f);
+    if (m) return Number(m[1]);
+  }
+  return null;
+}
+
 /** A failure's message, short enough for one line. */
 export function clipReason(e: unknown): string {
   const s = e instanceof Error ? e.message : String(e);

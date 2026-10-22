@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react';
+import { useState, type CSSProperties, type ReactNode } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { AnimatePresence, m } from 'framer-motion';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
@@ -10,7 +10,10 @@ import { CONNECT_ETHEREUM_WALLET } from '../lib/copy';
 import { hasMixedSolanaSection } from '../lib/routeVoice';
 import { getSolanaSurfaceState, requestSolanaOpen, shortSolanaAddress, wantOwnSolana } from '../lib/solanaSurface';
 import { CHAIN_LABEL, hasLadder, rowTerms, venuePoolRows, type VenuePoolRow } from '../lib/venuePools';
-import { WALLET_CHAIN_LABEL, fmtUsd, holdingsTotal, type HoldingRow, type NamedLeg, type PositionRow, type WalletChain } from '../lib/wallet/walletRows';
+import {
+  WALLET_CHAIN_LABEL, boostOf, fmtUsd, holdingShares, holdingsTotal, pctText,
+  type HoldingRow, type HoldingShare, type NamedLeg, type PositionRow, type WalletChain,
+} from '../lib/wallet/walletRows';
 import { EDITORIAL_BG, EDITORIAL_EASE, EDITORIAL_GRAIN, EDITORIAL_INK, HEADING_FONT, pad2 } from '../lib/editorial';
 import { useWalletBoard } from '../hooks/useWalletBoard';
 import { CardArt } from './ui/CardArt';
@@ -19,13 +22,18 @@ import { FinePrint } from './ui/FinePrint';
 /**
  * The island's dashboard (owner, 2026-10-21: "give it an avantegarde upgrade" and "put the
  * dashboard on top of" the home's three cards; 2026-10-22: "things that matter like positions on
- * the website and what the wallet holds"). It renders on the venue home, above the cards, and as
- * the venue's /dashboard page.
+ * the website and what the wallet holds", then "avantegarde cutting edge"). It renders on the
+ * venue home, above the cards, and as the venue's /dashboard page.
  *
  * First the connected wallets: what they hold (SOL, ETH and every island coin, with USD where a
  * price was read) and their positions on this site (locks, stakes, pool shares), each read from
  * the chain by the reader its own page uses (hooks/useWalletBoard.ts). A part that could not be
  * read says so, by name, with Try again; it is never a zero or an empty list.
+ *
+ * What is drawn is only what was read: the holdings' worth split by coin (a bar, and each coin's
+ * share on its row) only when every coin held was read and priced; a tape of the coins held only
+ * when every holdings leg was read; a lock's place on the ladder from the boost its own pool
+ * reported. Nothing here is estimated.
  *
  * Then every pool on the island, one press away, as a numbered index. That list reads no chain
  * (VenuePoolIndex.tsx says why): its rows and terms come from the registry (lib/venuePools.ts).
@@ -40,6 +48,7 @@ const GREEN = '#22c55e';
 const CHAIN_DOT: Record<string, string> = { solana: '#4CAF50', ethereum: '#8b5cf6', base: '#2151f5' };
 // An outlined word: body's text-shadow (index.css) would fill the hollow letters black.
 const OUTLINE = { WebkitTextStroke: `1.5px ${EDITORIAL_INK}`, color: 'transparent', textShadow: 'none' } as const;
+const TAPE_MASK = 'linear-gradient(90deg, transparent, #000 5%, #000 95%, transparent)';
 
 function prefersReducedMotion(): boolean {
   // matchMedia, not framer's hook: the page tests mock framer-motion without it.
@@ -52,6 +61,15 @@ function doorOf(id: string) {
   return b ? doorArt(b) : null;
 }
 
+const accentOf = (roomId: string | null) => (roomId ? BUNGALOWS.find((b) => b.id === roomId)?.accent : undefined);
+const colorOf = (roomId: string | null, chain: WalletChain) => accentOf(roomId) ?? CHAIN_DOT[chain] ?? GREEN;
+
+/** A row rises into place, each a beat after the last; still with reduced motion. */
+const rise = (i: number) =>
+  prefersReducedMotion()
+    ? {}
+    : { initial: { opacity: 0, y: 10 }, animate: { opacity: 1, y: 0 }, transition: { duration: 0.55, ease: EDITORIAL_EASE, delay: Math.min(i, 10) * 0.05 } };
+
 /**
  * The lock ladder drawn to scale: every staking program on the island grows a lock's share in a
  * straight line, from the floor at seven days to the ceiling at four years (lib/ladder/program.ts
@@ -63,6 +81,26 @@ function LadderWedge({ className = '' }: { className?: string }) {
   return (
     <svg width="40" height={h} viewBox={`0 0 40 ${h}`} aria-hidden="true" className={`flex-shrink-0 ${className}`}>
       <path d={`M0 ${h} L40 ${h} L40 0 L0 ${h - floor} Z`} fill="currentColor" />
+    </svg>
+  );
+}
+
+/** A lock's place on that ladder, from the boost its pool read: a green mark on the wedge. */
+function LockMark({ boost }: { boost: number }) {
+  const w = 40;
+  const h = 14;
+  const lo = MIN_BOOST_BPS / 10_000;
+  const hi = MAX_BOOST_BPS / 10_000;
+  const x = Math.max(0, Math.min(1, (boost - lo) / (hi - lo))) * w;
+  const floor = (MIN_BOOST_BPS / MAX_BOOST_BPS) * h;
+  return (
+    <svg
+      width={w} height={h} viewBox={`0 0 ${w} ${h}`} role="img"
+      aria-label={`${boost.toFixed(2)}× on the ladder, from ${lo.toFixed(2)}× to ${hi.toFixed(2)}×`}
+      className="flex-shrink-0 text-[#f5e4b8]/40"
+    >
+      <path d={`M0 ${h} L${w} ${h} L${w} 0 L0 ${h - floor} Z`} fill="currentColor" />
+      <rect x={Math.max(0, Math.min(w - 2, x - 1))} y="0" width="2" height={h} fill={GREEN} />
     </svg>
   );
 }
@@ -189,6 +227,15 @@ function RowRules({ accent }: { accent?: string }) {
   );
 }
 
+/** The row's number, from 768px; the picture carries the row on a phone. */
+function Index({ n }: { n: number }) {
+  return (
+    <span aria-hidden="true" className="hidden md:block self-start pt-1 font-mono text-[11px] tracking-[0.12em] tabular-nums text-[#f5e4b8]/45 transition-colors group-hover/row:text-[#22c55e]">
+      {pad2(n)}
+    </span>
+  );
+}
+
 function Arrow() {
   return (
     <span aria-hidden="true"
@@ -201,13 +248,12 @@ function Arrow() {
   );
 }
 
-const accentOf = (roomId: string | null) => (roomId ? BUNGALOWS.find((b) => b.id === roomId)?.accent : undefined);
-
-/** One coin the wallet holds: its picture, its word and chain, the amount and what it is worth. */
-function HoldingItem({ row, onShow }: { row: HoldingRow; onShow: () => void }) {
+/** One coin the wallet holds: its number, picture, word and chain, the amount, its worth and its share. */
+function HoldingItem({ n, row, share, onShow }: { n: number; row: HoldingRow; share: number | undefined; onShow: () => void }) {
   const body = (
     <>
       <RowRules accent={accentOf(row.roomId)} />
+      <Index n={n} />
       <Thumb roomId={row.roomId} chain={row.chain} />
       <span className="min-w-0">
         <span className="block truncate font-black leading-[0.95] tracking-[-0.045em] text-[24px] md:text-[30px] transition-[transform,color] duration-300 ease-out group-hover/row:translate-x-1.5 group-hover/row:text-white" style={HEADING_FONT}>
@@ -217,14 +263,18 @@ function HoldingItem({ row, onShow }: { row: HoldingRow; onShow: () => void }) {
       </span>
       <span className="text-right">
         <span className="block font-black leading-none tracking-[-0.03em] text-[20px] md:text-[26px] tabular-nums" style={HEADING_FONT}>{row.amount}</span>
-        <span className="mt-1 block font-mono text-[11px] tracking-[0.04em] text-[#f5e4b8]/65 tabular-nums">{row.usd !== null ? fmtUsd(row.usd) : 'no price read'}</span>
+        <span className="mt-1 block font-mono text-[11px] tracking-[0.04em] text-[#f5e4b8]/65 tabular-nums">
+          <span>{row.usd !== null ? fmtUsd(row.usd) : 'no price read'}</span>
+          {/* Its share of the whole, only while the whole is known (holdingShares). */}
+          {share !== undefined && <span className="text-[#22c55e]"> · {pctText(share)}</span>}
+        </span>
       </span>
       {row.to ? <Arrow /> : <span aria-hidden="true" />}
     </>
   );
-  const cls = `${ROW_CLASS} grid-cols-[2.75rem_minmax(0,1fr)_auto_2.5rem]`;
+  const cls = `${ROW_CLASS} grid-cols-[2.75rem_minmax(0,1fr)_auto_2.5rem] md:grid-cols-[2rem_2.75rem_minmax(0,1fr)_auto_2.5rem]`;
   return (
-    <li>
+    <m.li {...rise(n - 1)}>
       {row.to ? (
         <Link to={row.to} aria-label={`${row.symbol}: ${row.amount}, open its room`} onMouseEnter={onShow} onFocus={onShow} className={cls} style={{ color: EDITORIAL_INK }}>
           {body}
@@ -232,21 +282,26 @@ function HoldingItem({ row, onShow }: { row: HoldingRow; onShow: () => void }) {
       ) : (
         <div className={cls} onMouseEnter={onShow}>{body}</div>
       )}
-    </li>
+    </m.li>
   );
 }
 
-/** One position on this site: what it is, its read facts, and the door to it. */
-function PositionItem({ row, onShow }: { row: PositionRow; onShow: () => void }) {
+/** One position on this site: what it is, its read facts, its place on the ladder, and the door to it. */
+function PositionItem({ n, row, onShow }: { n: number; row: PositionRow; onShow: () => void }) {
+  const boost = boostOf(row.facts);
   return (
-    <li>
+    <m.li {...rise(n - 1)}>
       <Link to={row.to} aria-label={`${row.title}: ${row.facts.join(', ')}. Open it`} onMouseEnter={onShow} onFocus={onShow}
-        className={`${ROW_CLASS} grid-cols-[2.75rem_minmax(0,1fr)_2.5rem] md:grid-cols-[2.75rem_minmax(0,14rem)_minmax(0,1fr)_2.5rem]`} style={{ color: EDITORIAL_INK }}>
+        className={`${ROW_CLASS} grid-cols-[2.75rem_minmax(0,1fr)_2.5rem] md:grid-cols-[2rem_2.75rem_minmax(0,14rem)_minmax(0,1fr)_2.5rem]`} style={{ color: EDITORIAL_INK }}>
         <RowRules accent={accentOf(row.roomId)} />
+        <Index n={n} />
         <Thumb roomId={row.roomId} chain={row.chain} />
         <span className="min-w-0">
-          <span className="block font-black leading-[0.95] tracking-[-0.045em] text-[20px] md:text-[24px] transition-[transform,color] duration-300 ease-out group-hover/row:translate-x-1.5 group-hover/row:text-white" style={HEADING_FONT}>
-            {row.title}
+          <span className="flex items-center gap-2.5 min-w-0">
+            <span className="truncate font-black leading-[0.95] tracking-[-0.045em] text-[20px] md:text-[24px] transition-[transform,color] duration-300 ease-out group-hover/row:translate-x-1.5 group-hover/row:text-white" style={HEADING_FONT}>
+              {row.title}
+            </span>
+            {boost !== null && <LockMark boost={boost} />}
           </span>
           <span className="mt-1 block font-mono text-[10px] uppercase tracking-[0.12em] text-[#f5e4b8]/60"><ChainMark chain={row.chain} /></span>
           {/* A phone: the facts under the title. */}
@@ -259,13 +314,13 @@ function PositionItem({ row, onShow }: { row: PositionRow; onShow: () => void })
         </span>
         <Arrow />
       </Link>
-    </li>
+    </m.li>
   );
 }
 
 /** A numbered part of the board: its rows, then whatever is still reading or could not be read. */
 function LegBlock<T extends { key: string }>({ n, title, legs, empty, render }: {
-  n: number; title: string; legs: NamedLeg<T>[]; empty: ReactNode; render: (row: T) => ReactNode;
+  n: number; title: string; legs: NamedLeg<T>[]; empty: ReactNode; render: (row: T, i: number) => ReactNode;
 }) {
   const rows = legs.flatMap((l) => (l.leg.status === 'ok' ? l.leg.rows : []));
   const loading = legs.some((l) => l.leg.status === 'loading');
@@ -275,6 +330,7 @@ function LegBlock<T extends { key: string }>({ n, title, legs, empty, render }: 
       <h3 className="flex items-baseline gap-3 pb-2 border-b border-white/25 font-mono text-[11px] uppercase tracking-[0.16em] text-[#f5e4b8]/70">
         <span className="tabular-nums text-[#22c55e]">{pad2(n)}</span>
         {title}
+        {rows.length > 0 && <span className="ml-auto tabular-nums text-[#f5e4b8]/45">{pad2(rows.length)}</span>}
       </h3>
       {rows.length > 0 && <ol className="min-w-0">{rows.map(render)}</ol>}
       {loading && (
@@ -292,6 +348,52 @@ function LegBlock<T extends { key: string }>({ n, title, legs, empty, render }: 
         <p className="py-3 text-[13px] text-[#f5e4b8]/70">{empty}</p>
       )}
     </section>
+  );
+}
+
+/** The holdings' worth split by coin: a bar to scale, and the key. Whole totals only. */
+function HoldingsSplit({ shares }: { shares: HoldingShare[] }) {
+  const said = shares.map((s) => `${s.symbol} ${pctText(s.pct)}`).join(', ');
+  return (
+    <div data-testid="holdings-split" className="lg:col-span-2">
+      <div role="img" aria-label={`Holdings by value: ${said}`} className="flex h-1.5 w-full gap-px overflow-hidden">
+        {shares.map((s) => (
+          <span key={s.key} className="h-full min-w-[2px]" style={{ width: `${s.pct}%`, background: colorOf(s.roomId, s.chain) }} />
+        ))}
+      </div>
+      <ul aria-hidden="true" className="mt-2 flex flex-wrap gap-x-4 gap-y-1 font-mono text-[10px] uppercase tracking-[0.12em] text-[#f5e4b8]/60">
+        {shares.map((s) => (
+          <li key={s.key} className="inline-flex items-center gap-1.5 tabular-nums">
+            <span className="w-1.5 h-1.5" style={{ background: colorOf(s.roomId, s.chain) }} />
+            {s.symbol} {pctText(s.pct)}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+/** The coins held, on a tape between hairlines: the rows below carry the words. */
+function WalletTape({ rows }: { rows: HoldingRow[] }) {
+  return (
+    <div
+      aria-hidden="true"
+      className="relative mt-5 overflow-hidden border-y border-white/[0.14] py-2 font-mono text-[10.5px] uppercase tracking-[0.16em] text-[#f5e4b8]/60"
+      style={{ WebkitMaskImage: TAPE_MASK, maskImage: TAPE_MASK }}
+    >
+      <div className="editorial-tape" style={{ '--tape-s': `${Math.max(24, rows.length * 7)}s` } as CSSProperties}>
+        {[0, 1].map((copy) => (
+          <span key={copy} className="inline-flex items-center">
+            {rows.map((r) => (
+              <span key={`${copy}-${r.key}`} className="inline-flex items-center gap-2 pr-8 whitespace-nowrap">
+                <span className="w-1.5 h-1.5" style={{ background: colorOf(r.roomId, r.chain) }} />
+                {r.symbol} <span className="text-[#f5e4b8]/90">{r.amount}</span>
+              </span>
+            ))}
+          </span>
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -379,9 +481,10 @@ export function IslandDashboard({ headingLevel = 2 }: { headingLevel?: 1 | 2 }) 
   const reduce = prefersReducedMotion();
   const connected = Boolean(board.solanaAddress || board.evmAddress);
 
+  const heldRows = board.holdings.flatMap((l) => (l.leg.status === 'ok' ? l.leg.rows : []));
   // The frame shows the row under the pointer, else the wallet's first row with a room, else the first pool.
   const walletRooms = [
-    ...board.holdings.flatMap((l) => (l.leg.status === 'ok' ? l.leg.rows : [])),
+    ...heldRows,
     ...board.positions.flatMap((l) => (l.leg.status === 'ok' ? l.leg.rows : [])),
   ].flatMap((r) => (r.roomId ? [r.roomId] : []));
   const [hovered, setHovered] = useState<{ roomId: string; caption: string; n: number } | null>(null);
@@ -393,6 +496,10 @@ export function IslandDashboard({ headingLevel = 2 }: { headingLevel?: 1 | 2 }) 
   };
 
   const total = holdingsTotal(board.holdings.map((l) => l.leg));
+  // Shares and the tape only over a whole read: a part left out would misstate the rest.
+  const shares = total.kind === 'total' ? holdingShares(heldRows) : [];
+  const shareOf = new Map(shares.map((s) => [s.key, s.pct]));
+  const everyLegRead = board.holdings.length > 0 && board.holdings.every((l) => l.leg.status === 'ok');
 
   return (
     <section
@@ -438,7 +545,7 @@ export function IslandDashboard({ headingLevel = 2 }: { headingLevel?: 1 | 2 }) 
         {connected && (
           <div className="flex flex-col items-start lg:items-end">
             <span className="font-mono text-[10px] uppercase tracking-[0.16em] text-[#f5e4b8]/55">Holdings</span>
-            <span className="font-black leading-none tracking-[-0.05em] text-[44px] lg:text-[60px] tabular-nums" style={HEADING_FONT}>
+            <span className="font-black leading-none tracking-[-0.05em] text-[52px] lg:text-[72px] tabular-nums" style={HEADING_FONT}>
               {total.kind === 'total' ? fmtUsd(total.usd) : total.kind === 'none' ? '$0' : '—'}
             </span>
             {total.kind === 'partial' && (
@@ -448,7 +555,11 @@ export function IslandDashboard({ headingLevel = 2 }: { headingLevel?: 1 | 2 }) 
             )}
           </div>
         )}
+
+        {shares.length > 0 && <HoldingsSplit shares={shares} />}
       </header>
+
+      {connected && everyLegRead && heldRows.length > 0 && <WalletTape rows={heldRows} />}
 
       <div className="relative grid lg:grid-cols-[minmax(0,1fr)_minmax(0,21rem)] gap-x-10">
         <div className="min-w-0">
@@ -456,10 +567,10 @@ export function IslandDashboard({ headingLevel = 2 }: { headingLevel?: 1 | 2 }) 
             <>
               <LegBlock n={1} title="Holdings" legs={board.holdings}
                 empty="No SOL, ETH or island coins in this wallet."
-                render={(r) => <HoldingItem key={r.key} row={r} onShow={show(r.roomId, `${r.symbol} · ${WALLET_CHAIN_LABEL[r.chain]}`, 1)} />} />
+                render={(r, i) => <HoldingItem key={r.key} n={i + 1} row={r} share={shareOf.get(r.key)} onShow={show(r.roomId, `${r.symbol} · ${WALLET_CHAIN_LABEL[r.chain]}`, 1)} />} />
               <LegBlock n={2} title="Positions" legs={board.positions}
                 empty="No locks, stakes or pool shares here yet. Every pool is listed below."
-                render={(r) => <PositionItem key={r.key} row={r} onShow={show(r.roomId, `${r.title} · ${WALLET_CHAIN_LABEL[r.chain]}`, 2)} />} />
+                render={(r, i) => <PositionItem key={r.key} n={i + 1} row={r} onShow={show(r.roomId, `${r.title} · ${WALLET_CHAIN_LABEL[r.chain]}`, 2)} />} />
               {(!board.solanaAddress || !board.evmAddress) && (
                 <div className="mt-5 flex flex-wrap items-center gap-3">
                   <span className="text-[13px] text-[#f5e4b8]/70">Hold coins on the other chain too?</span>
@@ -503,7 +614,8 @@ export function IslandDashboard({ headingLevel = 2 }: { headingLevel?: 1 | 2 }) 
                 </p>
                 <p>
                   &ldquo;Lock 7d–4y, 0.40×–4.00×&rdquo; is a lock ladder: lock from seven days to four years for
-                  that share of the pool&rsquo;s rewards, growing evenly with the lock, as the wedge draws it.
+                  that share of the pool&rsquo;s rewards, growing evenly with the lock, as the wedge draws it. A
+                  green mark on a lock&rsquo;s wedge is where that lock sits, from the share its pool reported.
                 </p>
                 <p>
                   No rate is shown here because none is read here. Twelve pools across three chains would be

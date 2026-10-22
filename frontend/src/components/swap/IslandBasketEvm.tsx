@@ -225,6 +225,7 @@ export function IslandBasketEvm({ chainId, slippagePct }: { chainId: number; sli
     const out = r && r.via !== 'none' ? r.out : null;
     return {
       key: `${coin.room}-${coin.token}`,
+      room: coin.room,
       symbol: coin.symbol,
       tag: coin.bridged ? `from ${coin.bridged.from === 'ethereum' ? 'Ethereum' : 'Solana'}` : undefined,
       venue: venueWord(r),
@@ -264,7 +265,7 @@ export function IslandBasketEvm({ chainId, slippagePct }: { chainId: number; sli
 
   return (
     <>
-      <IslandBasketButton count={n} onOpen={() => setOpen(true)} />
+      <IslandBasketButton count={n} symbols={coins.map((c) => c.symbol)} onOpen={() => setOpen(true)} />
       <IslandBasketDialog
         open={open}
         onClose={() => setOpen(false)}

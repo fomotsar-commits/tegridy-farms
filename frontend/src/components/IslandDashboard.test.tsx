@@ -119,6 +119,61 @@ describe('IslandDashboard: the wallet', () => {
   });
 });
 
+describe('IslandDashboard: what is drawn, from what was read', () => {
+  const sol = '7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU';
+
+  it('draws the holdings by value, and each coin’s share on its row, once every coin is priced', () => {
+    board.value = wallet({
+      solanaAddress: sol,
+      holdings: [leg('h', 'your Solana coins', { status: 'ok', rows: [holding({ symbol: 'SOL', roomId: null, to: null, amount: '1.5', usd: 300 }), holding({})] })],
+    });
+    mount();
+    expect(screen.getByRole('img', { name: 'Holdings by value: SOL 96%, BAYLA 4%' })).toBeInTheDocument();
+    const holdings = screen.getByRole('region', { name: 'Holdings' });
+    expect(within(holdings).getByRole('link', { name: /BAYLA: 52,000/ })).toHaveTextContent('4%');
+    // The total is printed once; the split says shares, not dollars.
+    expect(screen.getAllByText('$312.50')).toHaveLength(1);
+  });
+
+  it('draws no split, and no share, while a coin has no price or a part is unread', () => {
+    board.value = wallet({
+      evmAddress: '0x1111111111111111111111111111111111111111',
+      holdings: [leg('h', 'your Ethereum coins', { status: 'ok', rows: [holding({ usd: 10 }), holding({ symbol: 'PEPE', usd: null, roomId: 'pepe', to: '/pepe' })] })],
+    });
+    const { unmount } = mount();
+    expect(screen.queryByTestId('holdings-split')).toBeNull();
+    expect(screen.getByRole('region', { name: 'Holdings' })).not.toHaveTextContent('%');
+    unmount();
+    board.value = wallet({
+      solanaAddress: sol,
+      holdings: [leg('h', 'your Solana coins', { status: 'ok', rows: [holding({ usd: 10 })] }), leg('e', 'your Ethereum coins', { status: 'unread', detail: '429' })],
+    });
+    mount();
+    expect(screen.queryByTestId('holdings-split')).toBeNull();
+  });
+
+  it('marks a lock’s place on the ladder from the share its pool reported, and nothing for a lock without one', () => {
+    board.value = wallet({
+      solanaAddress: sol,
+      positions: [leg('p', 'your BAYLA locks', { status: 'ok', rows: [position({}), position({ title: 'BAYLA / SOL pool', facts: ['0.12% of the pool'], to: '/solana-lp' })] })],
+    });
+    mount();
+    expect(screen.getByRole('img', { name: `4.00× on the ladder, from ${(MIN_BOOST_BPS / 10_000).toFixed(2)}× to ${(MAX_BOOST_BPS / 10_000).toFixed(2)}×` })).toBeInTheDocument();
+    expect(screen.getAllByRole('img', { name: /on the ladder/ })).toHaveLength(1);
+  });
+
+  it('numbers the rows it draws, as the pool index does', () => {
+    board.value = wallet({
+      solanaAddress: sol,
+      holdings: [leg('h', 'your Solana coins', { status: 'ok', rows: [holding({ symbol: 'SOL', roomId: null, to: null, amount: '1.5', usd: 300 }), holding({})] })],
+    });
+    mount();
+    const items = within(screen.getByRole('region', { name: 'Holdings' })).getAllByRole('listitem');
+    expect(items[0]).toHaveTextContent('01');
+    expect(items[1]).toHaveTextContent('02');
+  });
+});
+
 describe('IslandDashboard: every pool on the island', () => {
   it('lists every pool, each opening its own room', () => {
     mount();
