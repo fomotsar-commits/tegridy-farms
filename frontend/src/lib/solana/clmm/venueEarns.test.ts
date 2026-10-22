@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { PLATFORM_TREASURY_VAULT } from '../../launcher/solana/curve/program';
 import { WORKSHOP_WALLET } from '../../launcher/solana/write/plant';
 import { rangeVenueEarns } from './venueEarns';
+import { feeSplit } from './feeText';
 
 /**
  * Where a range pool's venue cut goes, from the fee tier's own rates and wallets, by the
@@ -55,6 +56,21 @@ describe('where a range pool’s venue cut goes', () => {
     const both = rangeVenueEarns(tier({ owner: STRANGER, fundOwner: STRANGER }));
     expect(both.wallets).toEqual([{ label: 'Another wallet, 16% of each fee (0.16% of the swap)', address: STRANGER }]);
     expect(rangeVenueEarns(tier({ owner: WORKSHOP })).elsewhere).toBe(true);
+  });
+
+  it('a cut taken from positions rounds UP, as the position link says it: a 0.3333% tier', () => {
+    const v = rangeVenueEarns(tier({ tradeFeeRate: 3_333 }));
+    // The venue 0.053328% of each swap, the team 0.0346632%, the Workshop 0.0186648%.
+    expect(v.cut).toBe('16% of each swap’s fee (0.0534% of the swap)');
+    expect(v.where).toContain('10.4% of each fee (0.0347% of the swap) to the team’s shared wallet');
+    expect(v.where).toContain('5.6% of each fee (0.0187% of the swap) to the island’s Workshop');
+  });
+
+  it('the card’s split of each swap uses the same rule: positions DOWN, the venue’s cut UP, a sliver never 0%', () => {
+    const s = feeSplit({ tradeFeeRate: 3_333, protocolFeeRate: 104_000, fundFeeRate: 56_000 });
+    expect([s.lpOfSwap, s.venueOfSwap]).toEqual(['0.2799%', '0.0534%']);
+    expect(feeSplit({ tradeFeeRate: 1, protocolFeeRate: 1, fundFeeRate: 0 }).venueOfSwap).toBe('<0.0001%');
+    expect(feeSplit({ tradeFeeRate: 10_000, protocolFeeRate: 104_000, fundFeeRate: 56_000 })).toMatchObject({ lpOfSwap: '0.84%', venueOfSwap: '0.16%' });
   });
 
   it('the agreed wallets at other rates are not the agreed split either', () => {

@@ -22,6 +22,7 @@ import { rangeVenueEarns } from '../../../lib/solana/clmm/venueEarns';
 import { pairOf, priceAtSqrt, type Pair } from '../../../lib/solana/clmm/rangeMath';
 import { CardArt } from '../../ui/CardArt';
 import { FinePrint } from '../../ui/FinePrint';
+import { CoinRiskNotice } from '../lp/LpDisclosures';
 import { withReadCommitment } from '../curve/confirmedRpc';
 import { RANGE_PENDING_SCOPE } from '../curve/pendingTrade';
 import { PendingTradeCard } from '../curve/PendingTradeCard';
@@ -183,6 +184,8 @@ export function RangeInner({ readers, load, mode }: { readers: RangeReaders; loa
             </button>
           ))}
         </div>
+        {/* What the pairing coin adds to the risks (Circle can freeze a pool's USDC), where it is chosen; the review says it again. */}
+        <CoinRiskNotice coin={coin} />
         {tiers.read?.kind === 'unread' || pools.read?.kind === 'unread' ? (
           <div className="space-y-2">
             <Notice tone="warn">The range pools could not be read just now. This does not mean there are none.</Notice>

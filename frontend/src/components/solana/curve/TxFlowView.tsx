@@ -391,7 +391,7 @@ function VenueFirst({ id, venue }: { id: string; venue: RangeVenueEarns }) {
 /**
  * What the builder says must be read before this is signed (`summary.warnings`: a price
  * that is off and what it may cost, no market price, a copied name, a freezable token;
- * a range opening's `notices`: its own price check, and its accounts).
+ * a range opening's `warnings`: its own price check).
  * Only adding and opening carry any. A removal never does: nothing here may give someone
  * a reason to wait before taking their money out.
  *
@@ -403,7 +403,7 @@ function VenueFirst({ id, venue }: { id: string; venue: RangeVenueEarns }) {
  * said once: the rows below do not repeat it.
  */
 function reviewWarnings(s: TxSummary): string[] {
-  if (s.kind === 'range-open') return s.notices;
+  if (s.kind === 'range-open') return s.poolLine.quote.risk ? [...s.warnings, s.poolLine.quote.risk] : s.warnings;
   if (s.kind !== 'lp-deposit' && s.kind !== 'lp-create') return [];
   return s.quote.risk ? [...s.warnings, s.quote.risk] : s.warnings;
 }

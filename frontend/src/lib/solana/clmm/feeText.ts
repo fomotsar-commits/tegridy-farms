@@ -1,3 +1,4 @@
+import { shareOfSwap } from '../../../../api/_lib/shareOfSwap.js';
 import { FEE_ON_TOKEN_0_ONLY, FEE_ON_TOKEN_1_ONLY, type AmmConfigView } from './program';
 
 /** Rates the program keeps per million, as a percent, exactly: 10,000 is 1%, 160,000 (of a fee) is 16%. */
@@ -24,9 +25,10 @@ export function feeSplit(t: Pick<AmmConfigView, 'tradeFeeRate' | 'protocolFeeRat
   return {
     fee: perMillionPercent(t.tradeFeeRate),
     lpOfFee: perMillionPercent(1_000_000 - venue),
-    lpOfSwap: perMillionPercent((t.tradeFeeRate * (1_000_000 - venue)) / 1_000_000),
+    // The position link's rule (api/_lib/shareOfSwap.js): positions DOWN, the venue's cut UP.
+    lpOfSwap: shareOfSwap(t.tradeFeeRate, 1_000_000 - venue, 'positions'),
     venueOfFee: perMillionPercent(venue),
-    venueOfSwap: perMillionPercent((t.tradeFeeRate * venue) / 1_000_000),
+    venueOfSwap: shareOfSwap(t.tradeFeeRate, venue, 'deduction'),
   };
 }
 

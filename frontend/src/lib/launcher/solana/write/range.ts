@@ -363,7 +363,7 @@ export async function prepareRangeOpen(rpc: WriteRpc, cfg: CurveWriteConfig, pro
 
   // 2b. The pool's price against the outside market, asked fresh: anyone can open a range
   // pool at any price, and a deposit at a price off the market is arbitraged back.
-  const notices: string[] = [];
+  const warnings: string[] = [];
   const ask = async (mint: string, decimals: number): Promise<OutsidePrice> => {
     try {
       return await reads.outsidePrice(mint, decimals, { fresh: true });
@@ -376,9 +376,11 @@ export async function prepareRangeOpen(rpc: WriteRpc, cfg: CurveWriteConfig, pro
   if (check.state === 'disagrees') {
     const pct = `${Number((Math.abs(check.diff) * 100).toFixed(1))}%`;
     const loss = check.lossQuote === null ? null : `${formatTokenAmount(check.lossQuote, quote.decimals, 6).text} ${quote.symbol}`;
-    notices.push(RANGE_COPY.priceOff(pct, check.diff > 0 ? 'above' : 'below', loss));
-  } else if (check.state === 'no-market') notices.push(RANGE_COPY.noMarket);
-  else if (check.state === 'unread') notices.push(RANGE_COPY.priceUnread(check.detail));
+    warnings.push(RANGE_COPY.priceOff(pct, check.diff > 0 ? 'above' : 'below', loss));
+  } else if (check.state === 'no-market') warnings.push(RANGE_COPY.noMarket);
+  else if (check.state === 'unread') warnings.push(RANGE_COPY.priceUnread(check.detail));
+  // The accounts' notices are the review's own lines, apart from the price warnings (as a deposit's are).
+  const notices: string[] = [];
 
   // 3. The accounts the coins come from. SOL is wrapped from the wallet itself.
   const tokenCheck = accountCheck(tokenAcc, tokenSide.want);
@@ -510,6 +512,7 @@ export async function prepareRangeOpen(rpc: WriteRpc, cfg: CurveWriteConfig, pro
         rentLamports: positionRent + bandRent,
         unwrapsWsol: plan2?.closeAfter ?? false,
         notices,
+        warnings,
         price: check,
         poolLine: poolLine(pins, pair, tier),
         range: rangeLine(pair, pool, range),

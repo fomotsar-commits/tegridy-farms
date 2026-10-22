@@ -3,7 +3,7 @@ import { render, screen } from '@testing-library/react';
 import { PublicKey } from '@solana/web3.js';
 import { PLATFORM_TREASURY_VAULT } from '../../../lib/launcher/solana/curve/program';
 import { WORKSHOP_WALLET } from '../../../lib/launcher/solana/write/plant';
-import { SOL_QUOTE } from '../../../lib/solana/lp/quotes';
+import { SOL_QUOTE, USDC_QUOTE } from '../../../lib/solana/lp/quotes';
 import { RangeRows } from './RangeRows';
 import { TxReview } from './TxFlowView';
 import { prepared } from './fakeWriteApi.fixture';
@@ -14,7 +14,7 @@ import type { RangeSummary } from './ports';
 const key = (n: number) => new PublicKey(new Uint8Array(32).fill(n));
 const STRANGER = key(77).toBase58();
 
-function opening(owners: { owner: string; fundOwner: string }, notices: string[] = []): RangeSummary {
+function opening(owners: { owner: string; fundOwner: string }, warnings: string[] = [], notices: string[] = [], quote = SOL_QUOTE): RangeSummary {
   return {
     kind: 'range-open',
     nftMint: key(1),
@@ -23,9 +23,10 @@ function opening(owners: { owner: string; fundOwner: string }, notices: string[]
     rentLamports: 7_000_000n,
     unwrapsWsol: true,
     notices,
+    warnings,
     price: { state: 'agrees', pool: 0.0003, reference: 0.0003, diff: 0 },
     poolLine: {
-      pool: key(2), tokenMint: key(3), tokenDecimals: 6, quote: SOL_QUOTE, tokenIsToken0: true,
+      pool: key(2), tokenMint: key(3), tokenDecimals: 6, quote, tokenIsToken0: true,
       tradeFeeRate: 10_000, venueShareRate: 160_000, protocolFeeRate: 104_000, fundFeeRate: 56_000, ...owners,
     },
     range: { tickLower: 0, tickUpper: 1200, minPrice: 0.0002, maxPrice: 0.0005, holds: 'both' },
@@ -79,6 +80,22 @@ describe('the range review’s fee lines', () => {
     const o = opening({ owner: PLATFORM_TREASURY_VAULT.toBase58(), fundOwner: WORKSHOP_WALLET.toBase58() }) as Extract<RangeSummary, { kind: 'range-open' }>;
     render(<RangeRows summary={{ ...o, range: { ...o.range, holds: 'token-only' } }} />);
     expect(document.body.textContent).toContain('Above this pool’s price now, holding the token only');
+  });
+
+  it('an opening’s account notices are its own lines, among its rows, not in the warnings box', () => {
+    const delegated = 'Your token account has a delegate who can move 5 of its tokens.';
+    render(<TxReview prepared={prepared(opening({ owner: PLATFORM_TREASURY_VAULT.toBase58(), fundOwner: WORKSHOP_WALLET.toBase58() }, [], [delegated]))} decimals={6} display={(x) => x} />);
+    expect(screen.queryByTestId('tx-review-warnings')).toBeNull();
+    const line = screen.getByText(delegated);
+    expect(line.closest('[data-review-line]')).toBeNull();
+  });
+
+  it('a USDC range opening says Circle can freeze the pool’s USDC, first, once', () => {
+    render(<TxReview prepared={prepared(opening({ owner: PLATFORM_TREASURY_VAULT.toBase58(), fundOwner: WORKSHOP_WALLET.toBase58() }, [], [], USDC_QUOTE))} decimals={6} display={(x) => x} />);
+    const box = screen.getByTestId('tx-review-warnings');
+    expect(box).toHaveTextContent(USDC_QUOTE.risk!);
+    expect(screen.getAllByText(USDC_QUOTE.risk!)).toHaveLength(1);
+    expect(before(box, screen.getByText('Range pool'))).toBe(true);
   });
 
   it('a removal’s notices stay among its rows: nothing on a removal gives a reason to wait', () => {

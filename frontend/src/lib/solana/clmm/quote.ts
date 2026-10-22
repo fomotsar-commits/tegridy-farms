@@ -306,7 +306,7 @@ export function matchLimitOrder(
 /** Our program's ceiling on any fee rate, 4% (pool_fee.rs; quote.test.ts holds them equal). */
 export const MAX_FEE_RATE_NUMERATOR = 40_000;
 /** The same ceiling in Raydium's own program, 10%: for replaying swaps that ran there. */
-export const UPSTREAM_MAX_FEE_RATE_NUMERATOR = 100_000;
+const UPSTREAM_MAX_FEE_RATE_NUMERATOR = 100_000;
 const VOLATILITY_ACCUMULATOR_SCALE = 10_000n;
 const REDUCTION_FACTOR_DENOMINATOR = 10_000n;
 const DYNAMIC_FEE_CONTROL_DENOMINATOR = 100_000n;
@@ -343,16 +343,18 @@ interface Band {
 const cloneTick = (t: TickStateView): MutableTick => ({ ...t, rewardGrowthsOutsideX64: [...t.rewardGrowthsOutsideX64] });
 
 /**
- * swap.rs `swap_internal`, on copies. Throws `ClmmMathError` where the program errors, and
- * `NeedsBand` when the walk reaches a band it was not given.
+ * swap.rs `swap_internal` in one of OUR pools (our program's 4% fee ceiling), on copies.
+ * Throws `ClmmMathError` where the program errors, and `NeedsBand` when the walk reaches a
+ * band it was not given.
  */
-export function swapInternal(a: Omit<SwapQuoteArgs, 'sqrtPriceLimitX64'> & { sqrtPriceLimitX64: bigint }, cap: FeeCeiling = MAX_FEE_RATE_NUMERATOR): SwapInternalResult {
+export function swapInternal(a: Omit<SwapQuoteArgs, 'sqrtPriceLimitX64'> & { sqrtPriceLimitX64: bigint }): SwapInternalResult {
+  return swapInternalWith(a, MAX_FEE_RATE_NUMERATOR);
+}
+
+/** The same walk with a program's own fee ceiling: only quoteWith passes Raydium's. */
+function swapInternalWith(a: Omit<SwapQuoteArgs, 'sqrtPriceLimitX64'> & { sqrtPriceLimitX64: bigint }, cap: FeeCeiling): SwapInternalResult {
   const { pool, config, zeroForOne } = a;
   const spacing = pool.tickSpacing;
-  // A lower ceiling would quote a smaller fee than a program takes, and more coins out than it pays.
-  if (cap !== MAX_FEE_RATE_NUMERATOR && cap !== UPSTREAM_MAX_FEE_RATE_NUMERATOR) {
-    throw new RangeError(`a fee ceiling is a program's own, ${MAX_FEE_RATE_NUMERATOR} or ${UPSTREAM_MAX_FEE_RATE_NUMERATOR}, never ${String(cap)}`);
-  }
   const limit = a.sqrtPriceLimitX64;
   const blockTimestamp = BigInt(a.blockTimestamp >>> 0); // `oracle::block_timestamp()` is a u32
   if (a.amount === 0n) fail('ZeroAmountSpecified');
@@ -615,8 +617,8 @@ function writeBack(band: Band, tick: MutableTick, spacing: number) {
 /**
  * A quote for `swap_v2` in one of OUR pools: swap_internal plus the checks swap_v2 makes
  * around it (open time, both amounts non-zero, a full fill when no limit is given), with our
- * program's 4% fee ceiling. Every refusal the program would make is `refused`; it throws only
- * on a programming error.
+ * program's 4% fee ceiling. What those make the program refuse is `refused`, with its error
+ * name; the slippage threshold and the account checks are the caller's.
  */
 export function quoteSwap(a: SwapQuoteArgs): SwapQuote {
   return quoteWith(a, MAX_FEE_RATE_NUMERATOR);
@@ -635,7 +637,7 @@ function quoteWith(a: SwapQuoteArgs, cap: FeeCeiling): SwapQuote {
   try {
     if (!(BigInt(Math.floor(a.blockTimestamp)) > a.pool.openTime)) return { kind: 'refused', code: 'RequireGtViolated' };
     const limit = a.sqrtPriceLimitX64 === 0n ? (a.zeroForOne ? MIN_SQRT_PRICE_X64 + 1n : MAX_SQRT_PRICE_X64 - 1n) : a.sqrtPriceLimitX64;
-    const r = swapInternal({ ...a, sqrtPriceLimitX64: limit }, cap);
+    const r = swapInternalWith({ ...a, sqrtPriceLimitX64: limit }, cap);
     if (r.amount0 === 0n || r.amount1 === 0n) return { kind: 'refused', code: 'TooSmallInputOrOutputAmount' };
     const [amountIn, amountOut] = a.zeroForOne ? [r.amount0, r.amount1] : [r.amount1, r.amount0];
     const filled = (a.isBaseInput ? amountIn : amountOut) === a.amount;

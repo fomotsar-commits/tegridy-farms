@@ -1299,7 +1299,8 @@ describe('built again at the press: what shuts the wallet and what only moved', 
   const rangeOpen = (o: { protocol?: number; fund?: number; diff?: number; cost?: string } = {}): RangeOpen => ({
     kind: 'range-open', nftMint: KEY(50), max: { token: 5_000_000n, quote: 1_000_000n }, quoted: { token: 4_950_000n, quote: 990_000n },
     rentLamports: 7_000_000n, unwrapsWsol: true,
-    notices: o.diff === undefined ? [] : [RANGE_COPY.priceOff(`${Number((Math.abs(o.diff) * 100).toFixed(1))}%`, 'below', o.cost ?? '0.002 SOL')],
+    notices: [],
+    warnings: o.diff === undefined ? [] : [RANGE_COPY.priceOff(`${Number((Math.abs(o.diff) * 100).toFixed(1))}%`, 'below', o.cost ?? '0.002 SOL')],
     price: o.diff === undefined ? { state: 'agrees', pool: 0.0003, reference: 0.0003, diff: 0 } : { state: 'disagrees', pool: 0.0003, reference: 0.0003 / (1 + o.diff), diff: o.diff, lossQuote: 2_000_000n },
     poolLine: {
       pool: KEY(51), tokenMint: KEY(52), tokenDecimals: 6, quote: SOL_QUOTE, tokenIsToken0: true, tradeFeeRate: 10_000, venueShareRate: 160_000,
@@ -1328,10 +1329,19 @@ describe('built again at the press: what shuts the wallet and what only moved', 
     expect(state).toMatchObject({ step: 'review', prepared: fresh });
   });
 
-  it('a range opening whose price gap moved a little, its warning in the same words: the wallet opens with the fresh transaction', async () => {
+  // Only the price gap differs here, over the same bytes: what the gap check alone decides.
+  // A real rebuild of an opening always signs a fresh NFT key, so it is always shown again (next test).
+  it('the price-gap check alone does not shut a range opening for a small move in the same words', async () => {
     const fresh = again(rangeOpen({ diff: -0.046, cost: '0.0023 SOL' }), CAP);
     const { api } = await pressPastItsClock(prepared(rangeOpen({ diff: -0.04 }), CAP), fresh);
     expect(signed(api)).toEqual([fresh]);
+  });
+
+  it('a range opening built again signs a fresh NFT key: never the same bytes, so the review is always shown again', async () => {
+    const fresh = again(rangeOpen({ diff: -0.046, cost: '0.0023 SOL' }), { ...CAP, tx: txOf(CREATOR, ix([9])) });
+    const { api, state } = await pressPastItsClock(prepared(rangeOpen({ diff: -0.04 }), CAP), fresh);
+    expect(api.submitPrepared).not.toHaveBeenCalled();
+    expect(state).toMatchObject({ step: 'review', prepared: fresh });
   });
 
   it(`a range opening whose price ran more than ${PRICE_RUN * 100}% further off: shut`, async () => {

@@ -289,26 +289,31 @@ describe('the fee ceiling', () => {
     // Exact in, one step: the fee is the amount times the rate, rounded up.
     expect(ours.tradeFee).toBe(40_000n);
     expect(raydiums.tradeFee).toBe(100_000n);
-    // Our pools' quote takes no ceiling from its arguments: one smuggled in is ignored.
-    const smuggled = quoteSwap({ ...a, maxFeeRate: 1 } as SwapQuoteArgs);
-    expect(smuggled.kind === 'ok' && smuggled.tradeFee).toBe(40_000n);
-    // No other ceiling reaches the walk: below ours, a quote would promise more than the program pays.
-    for (const bad of [0, 30_000, 39_999, 40_001]) {
-      expect(() => swapInternal({ ...a }, bad as typeof MAX_FEE_RATE_NUMERATOR), String(bad)).toThrow(RangeError);
+    // Our pools' quote and walk take no ceiling from their arguments: one smuggled in, Raydium's
+    // real 10% included, is ignored (at 10% a slippage floor would come out looser than ours).
+    for (const smuggledCap of [1, 100_000]) {
+      const smuggled = quoteSwap({ ...a, maxFeeRate: smuggledCap } as SwapQuoteArgs);
+      expect(smuggled.kind === 'ok' && smuggled.tradeFee, String(smuggledCap)).toBe(40_000n);
+      const walked = (swapInternal as (x: unknown, cap?: number) => ReturnType<typeof swapInternal>)({ ...a, sqrtPriceLimitX64: getSqrtPriceAtTick(3_540) }, smuggledCap);
+      expect(walked.tradeFee1, `walk ${smuggledCap}`).toBe(40_000n);
     }
   });
 
-  it('no app code quotes with Raydium’s ceiling: the replay quote is for tests only', () => {
+  it('no app code quotes with Raydium’s ceiling: the replay quote and the 10% ceiling are for tests only', () => {
     const root = resolve(__dirname, '../../../..');
     const callers: string[] = [];
     const walk = (dir: string) => {
       for (const e of readdirSync(join(root, dir), { withFileTypes: true })) {
         const p = `${dir}/${e.name}`;
         if (e.isDirectory()) walk(p);
-        else if (/\.(ts|tsx)$/.test(e.name) && !/\.test\.tsx?$/.test(e.name) && readFileSync(join(root, p), 'utf8').includes('quoteSwapAsRaydium')) callers.push(p);
+        else if (/\.(ts|tsx|js|jsx|mjs|cjs)$/.test(e.name) && !/\.test\.[cm]?[jt]sx?$/.test(e.name)) {
+          const text = readFileSync(join(root, p), 'utf8');
+          if (/quoteSwapAsRaydium|UPSTREAM_MAX_FEE_RATE_NUMERATOR|swapInternalWith/.test(text)) callers.push(p);
+        }
       }
     };
     walk('src');
+    walk('api');
     expect(callers).toEqual(['src/lib/solana/clmm/quote.ts']);
   });
 });
