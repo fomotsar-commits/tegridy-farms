@@ -102,9 +102,10 @@ describe('the pool card reads like a pool', () => {
   });
 
   // Owner, 2026-10-17: "i dont want people to see too much text unless they want to". In view:
-  // the fee split, trading and deposits, and Add; the price, what the pool earned and what a trade
-  // pays are under More about this pool, in the order they had.
-  it('keeps the fee split and the deposit checks in view, and the price, what it earned and the fees a press away', () => {
+  // the fee split, the price, trading and deposits, and Add; what the pool earned and what a trade
+  // pays are under More about this pool. The price came out of it on 2026-10-21 (owner: "super
+  // important info about the pool").
+  it('keeps the fee split, the price and the deposit checks in view, and what it earned and the fees a press away', () => {
     const card = mount(view());
     const more = within(card).getByTestId('lp-pool-more');
     expect(more).not.toHaveAttribute('open');
@@ -112,17 +113,22 @@ describe('the pool card reads like a pool', () => {
     const deposits = within(card).getByTestId('lp-pool-deposits');
     expect(more).not.toContainElement(split);
     expect(more).not.toContainElement(deposits);
-    expect(follows(split, deposits)).toBe(true);
-    const price = within(more).getByText('Price here');
+    // Every price row is on the card itself, between the fee split and the deposit checks.
+    for (const label of ['In the pool', 'Price here', 'Outside price (Jupiter)', 'Difference']) {
+      const row = within(card).getByText(label, { exact: true });
+      expect(more, label).not.toContainElement(row);
+      expect(row, label).toBeVisible();
+      expect(follows(split, row), label).toBe(true);
+      expect(follows(row, deposits), label).toBe(true);
+    }
     const earned = within(more).getByTestId('lp-pool-earned');
     const history = within(more).getByRole('button', { name: POOL_PAST_BUTTON });
     const fees = within(more).getByText('Of that fee');
-    expect(follows(price, earned)).toBe(true);
     expect(follows(earned, history)).toBe(true);
     expect(follows(history, fees)).toBe(true);
     expect(within(card).getAllByRole('heading', { level: 4 }).map((h) => h.textContent)).toEqual([
-      'Trading and deposits',
       'Price',
+      'Trading and deposits',
       'What this pool earned',
       'What each trade pays',
     ]);
@@ -133,9 +139,12 @@ describe('the pool card reads like a pool', () => {
     const value = within(card).getByText('Difference', { exact: true }).nextElementSibling!;
     expect(value.textContent).toMatch(/^\d+\.\d% below the outside price$/);
     expect(value).toHaveClass('text-amber-300/90');
-    // The warning itself is in view, with the deposit checks; the figure it rests on is a press away.
-    expect(within(card).getByTestId('lp-pool-more')).not.toContainElement(within(card).getByTestId('lp-pool-warnings'));
-    expect(within(card).getByTestId('lp-pool-more')).toContainElement(within(card).getByText('Difference'));
+    // The warning and the figure it rests on are both in view, the figure first.
+    const warnings = within(card).getByTestId('lp-pool-warnings');
+    expect(within(card).getByTestId('lp-pool-more')).not.toContainElement(warnings);
+    expect(within(card).getByTestId('lp-pool-more')).not.toContainElement(value as HTMLElement);
+    expect(value).toBeVisible();
+    expect(follows(value, warnings)).toBe(true);
     // A price that agrees stays a plain figure.
     cleanup();
     const plain = within(mount(view())).getByText('Difference', { exact: true }).nextElementSibling!;

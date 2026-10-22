@@ -319,11 +319,6 @@ export function PoolCard({
   );
   const facts = (
     <>
-        <Part title="Price">
-          <Row label="In the pool" value={`${quoteText(view.quoteReserve, view.quote)} and ${tokenText(view.tokenReserve, tokenDecimals, unit.many)}`} mono={false} />
-          <PriceRows price={price} quote={view.quote} unit={unit} />
-        </Part>
-
         <Part title="What this pool earned">
           {earned && (
             <div data-testid="lp-pool-earned" className="space-y-1 text-white/80 text-[12px]">
@@ -371,9 +366,9 @@ export function PoolCard({
   );
 
   // In the order a visitor asks, and only that in view (owner, 2026-10-17: "i dont want people
-  // to see too much text unless they want to"): which pool, how its fee splits (what LPs keep,
-  // what the venue takes), whether it can be used, and Add. Its price, what it earned, what a
-  // trade pays and its address are under More about this pool, word for word.
+  // to see too much text unless they want to"): which pool, how its fee splits, what it holds and
+  // its price against the outside one (owner, 2026-10-21: "super important"), whether it can be
+  // used, and Add. What it earned, what a trade pays and its addresses are under More about this pool.
   return (
     <li
       ref={cardRef}
@@ -407,6 +402,12 @@ export function PoolCard({
         </p>
         {/* A creator fee goes to a third party: the wallet it is paid to stays in view (owner, 2026-10-10). */}
         {creatorRate > 0n && openedBy}
+
+        {/* Above the checks and Add: a warning about the price gap reads after the figures it rests on. */}
+        <Part title="Price">
+          <Row label="In the pool" value={`${quoteText(view.quoteReserve, view.quote)} and ${tokenText(view.tokenReserve, tokenDecimals, unit.many)}`} mono={false} />
+          <PriceRows price={price} quote={view.quote} unit={unit} />
+        </Part>
 
         <Part title="Trading and deposits">
           {swaps.tone === 'good' && health.withdrawals === 'open' ? (

@@ -21,6 +21,12 @@ repository:
 - the build: compiles with no features, prints the sha256 a deploy must match, and refuses a
   `devnet` or `localnet` build without `test-chain-keys`.
 
+Upstream's unit tests run as they are, but one: `compute_swap_step_test` (in `swap_math.rs`)
+expects, for an exact output with the fee on the output coin, the fee plus what the user
+received to equal the amount asked, which holds only at a zero fee. CI skips it, and
+`programs/amm/tests/swap_math_fee_rule.rs`, our own file beside upstream's, checks the rule
+for all four swap kinds.
+
 Its own workspace, because upstream builds with Anchor 1.0.2 and Solana 3.1.10 and the three
 programs in `../tegridy-amm` stay on Anchor 0.32.1. Plan, costs and owner decisions:
 `docs/RANGE_POOLS_PLAN.md`.

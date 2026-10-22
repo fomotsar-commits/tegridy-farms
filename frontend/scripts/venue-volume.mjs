@@ -152,6 +152,18 @@ async function writeRow(db, row, next) {
   if (r.status !== 201) throw new Error(`first write refused (HTTP ${r.status})`);
 }
 
+// Each source stops reading after this long and saves what it read, so a long backfill
+// spreads over hourly runs instead of hitting the job's 30-minute timeout.
+const SOURCE_BUDGET_MS = 8 * 60 * 1000;
+
+function defaultDeps(fetchImpl) {
+  return {
+    solana: solanaRpc({ fetchImpl }),
+    evm: (name) => evmRpc({ fetchImpl, rpcs: EVM_CHAINS[name].rpcs, pauseMs: 200 }),
+    fetchImpl,
+  };
+}
+
 export async function main({
   env = process.env,
   fetchImpl = globalThis.fetch,
@@ -179,11 +191,7 @@ export async function main({
     return 1;
   }
   const rows = new Map(read.body.map((r) => [r.source, r]));
-  const d = deps ?? {
-    solana: solanaRpc({ fetchImpl }),
-    evm: (name) => evmRpc({ fetchImpl, rpcs: EVM_CHAINS[name].rpcs }),
-    fetchImpl,
-  };
+  const d = deps ?? defaultDeps(fetchImpl);
   const priceCache = {};
   const priceOf = async (sym) => (priceCache[sym] ??= await spotPrice(sym, fetchImpl));
 
@@ -191,9 +199,26 @@ export async function main({
   for (const source of sources) {
     const row = rows.get(source) ?? null;
     try {
-      const got = await readers[source](row?.cursor ?? null, d);
+      const got = await readers[source](row?.cursor ?? null, { ...d, deadline: Date.now() + SOURCE_BUDGET_MS });
       const totals = await addUp(row, got.swaps, priceOf, botsOf(source));
       const now = new Date().toISOString();
+      if (got.incomplete) {
+        // Keep what was read and resume from it next run; the source stays as counted as it
+        // was (never, on a first backfill), so the site shows no figure for a partial read.
+        const msg = `partly read, resumes next run: ${got.incomplete}`.slice(0, 300);
+        await writeRow(db, row, {
+          source,
+          ...totals,
+          cursor: got.cursor,
+          counted_to: row?.counted_to ?? null,
+          last_ok_at: row?.last_ok_at ?? null,
+          last_error: msg,
+          last_error_at: now,
+        });
+        failed++;
+        error(`::error title=Volume source ${source} not finished::+${got.swaps.length} swap(s) saved; ${msg}`);
+        continue;
+      }
       await writeRow(db, row, {
         source,
         ...totals,
@@ -220,19 +245,19 @@ export async function main({
 }
 
 async function dryRunAll({ fetchImpl, deps, sources, readers, log, error }) {
-  const d = deps ?? {
-    solana: solanaRpc({ fetchImpl }),
-    evm: (name) => evmRpc({ fetchImpl, rpcs: EVM_CHAINS[name].rpcs }),
-    fetchImpl,
-  };
+  const d = deps ?? defaultDeps(fetchImpl);
   const priceCache = {};
   const priceOf = async (sym) => (priceCache[sym] ??= await spotPrice(sym, fetchImpl));
   let failed = 0;
   for (const source of sources) {
     try {
-      const got = await readers[source](null, d);
+      const got = await readers[source](null, { ...d, deadline: Date.now() + SOURCE_BUDGET_MS });
       const t = await addUp(null, got.swaps, priceOf, botsOf(source));
       log(`${source}: ${t.swaps} swaps, $${t.usd.toFixed(2)} (bots ${t.bot_swaps} / $${t.bot_usd.toFixed(2)}, unpriced ${t.unpriced}) to ${got.countedTo}`);
+      if (got.incomplete) {
+        failed++;
+        error(`${source}: stopped at block ${got.cursor.block}: ${got.incomplete}`);
+      }
     } catch (e) {
       failed++;
       error(`${source}: not counted: ${e?.message ?? e}`);
