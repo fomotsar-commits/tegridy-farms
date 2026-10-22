@@ -166,10 +166,10 @@ const facts: WalletFacts = {
   rents: { walletFloor: 890_880n, tokenAccount165: 2_039_280n },
 };
 
-function readers(v: PoolView): LpReaders {
+function readers(v: PoolView, safety: TokenSafety = okToken): LpReaders {
   return {
     programId: LP_PROGRAM,
-    safety: vi.fn(async () => new Map([[M, okToken]])),
+    safety: vi.fn(async () => new Map([[M, safety]])),
     findPools: vi.fn(async () => search(v)),
     outsidePrice: vi.fn(async (mint: string) => ({ kind: 'ok' as const, solPerToken: mint === M ? 0.01 : 1, source: 'Jupiter' as const })),
     positions: vi.fn(async () => ({ kind: 'ok' as const, positions: [], chainNow: 1n, totalShares: 0 })),
@@ -180,11 +180,11 @@ function readers(v: PoolView): LpReaders {
 }
 
 /** The pool's card, its "Add with one coin" pressed. */
-async function openOneCoin(v: PoolView = view()) {
+async function openOneCoin(v: PoolView = view(), safety: TokenSafety = okToken) {
   const writes: LpWritesOverrides = { mode: 'on', load: vi.fn(async () => fakeLpApi()), gateRpc: unusedGateRpc };
   render(
     <MemoryRouter initialEntries={[`/pools?mint=${M}`]}>
-      <LpInner readers={readers(v)} writes={writes} />
+      <LpInner readers={readers(v, safety)} writes={writes} />
     </MemoryRouter>,
   );
   const card = await screen.findByTestId('lp-pool');
@@ -244,6 +244,18 @@ describe('Add with one coin', () => {
     expect(within(review).getByRole('button', { name: 'Sign in wallet' })).toBeEnabled();
     expect(wallet.sendTransaction).not.toHaveBeenCalled();
     expect(wallet.signTransaction).not.toHaveBeenCalled();
+  });
+
+  it('a coin whose ticker copies USDC is said as "fake USDC" on the form, never as USDC', async () => {
+    const copy = { ...okToken, name: 'USD Coin', symbol: 'USDC', verdict: 'warn', warnings: [{ code: 'copies-known-name', text: 'It calls itself USDC, but it is not USDC.' }] } as TokenSafety;
+    await openOneCoin(view(), copy);
+    const panel = await screen.findByTestId('lp-one-coin-panel');
+    await within(panel).findByText(/after both steps/);
+    fireEvent.change(within(panel).getByLabelText('SOL to put in'), { target: { value: '1' } });
+    fireEvent.click(within(panel).getByRole('button', { name: 'Review: add with one coin' }));
+    const review = await within(panel).findByTestId('lp-one-review');
+    expect(review).toHaveTextContent(/This pool would pay[\d.,]+ fake USDC/);
+    expect(review).not.toHaveTextContent(/\d USDC/);
   });
 
   it('a step 2 this wallet owes on this pool opens as step 2: step 1 is not offered', async () => {

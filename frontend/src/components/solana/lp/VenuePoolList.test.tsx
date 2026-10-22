@@ -42,10 +42,12 @@ function search(mint: string, views: PoolView[]): PoolSearchRead {
   };
 }
 
-const ok = (pools: PoolView[], o: { unread?: number; truncated?: boolean; chainNow?: bigint | null } = {}): PoolListRead => ({
+const ok = (pools: PoolView[], o: { unread?: number; truncated?: boolean; chainNow?: bigint | null; safety?: TokenSafety[] } = {}): PoolListRead => ({
   kind: 'ok',
-  list: { pools, unread: o.unread ?? 0, truncated: o.truncated ?? false, chainNow: o.chainNow ?? null },
+  list: { pools, unread: o.unread ?? 0, truncated: o.truncated ?? false, chainNow: o.chainNow ?? null, safety: new Map((o.safety ?? []).map((s) => [s.mint, s])) },
 });
+/** The check read for `mint`: it calls itself `symbol`. */
+const calls = (mint: string, symbol: string): TokenSafety => ({ ...okToken(mint), symbol } as TokenSafety);
 
 function readers(o: Partial<LpReaders> = {}): LpReaders {
   const corn = view(CORN);
@@ -88,6 +90,36 @@ describe('All pools: every pool on the venue, before a token is picked', () => {
     const rows = await screen.findAllByTestId('lp-all-pools-row');
     expect(within(rows[1]!).getByText(C)).toBeInTheDocument();
     expect(within(rows[0]!).queryByText(BAYLA_MINT)).toBeNull();
+  });
+
+  it('a coin that is not ours shows its own ticker in the heading, the holdings and the price, with its whole address', async () => {
+    mount(readers({ listPools: vi.fn(async () => ok([view(CORN)], { safety: [calls(C, 'CRYING')] })) }));
+    const [row] = await screen.findAllByTestId('lp-all-pools-row');
+    expect(row).toHaveTextContent('CRYING / SOL · 1% tier');
+    expect(row).toHaveTextContent(/Holds 10 SOL and 1,000 CRYING/);
+    expect(row).toHaveTextContent('1 CRYING = 0.01 SOL');
+    expect(within(row!).getByText(C)).toBeInTheDocument();
+    expect(within(row!).getByRole('button', { name: 'View CRYING / SOL · 1% tier' })).toBeInTheDocument();
+  });
+
+  it('a coin copying one of our tickers reads "fake" everywhere on its row, and never heads a row as the real one', async () => {
+    const soy = view(new PublicKey('8zsZESzrGoYVi1dVH4QNWXJ2EfW4v287aEGNiDvQpump'), 20n * 10n ** 9n);
+    mount(readers({ listPools: vi.fn(async () => ok([soy, view(CORN)], { safety: [calls(C, 'SOY')] })) }));
+    const [real, copy] = await screen.findAllByTestId('lp-all-pools-row');
+    expect(real).toHaveTextContent('SOY / SOL · 1% tier');
+    expect(copy).toHaveTextContent('fake SOY / SOL · 1% tier');
+    expect(copy).toHaveTextContent(/Holds 10 SOL and 1,000 fake SOY/);
+    expect(copy).toHaveTextContent('1 fake SOY = 0.01 SOL');
+    expect(within(copy!).getByText(C)).toBeInTheDocument();
+    expect(screen.getByTestId('lp-all-pools')).toHaveTextContent('one that copies the ticker of one of ours, or of SOL, USDC or USDT, reads “fake”');
+  });
+
+  it('a coin whose check was not read is headed by its short address and counted in tokens', async () => {
+    mount(readers({ listPools: vi.fn(async () => ok([view(CORN)], { safety: [{ kind: 'unread', mint: C, detail: 'HTTP 429' }] })) }));
+    const [row] = await screen.findAllByTestId('lp-all-pools-row');
+    expect(row).toHaveTextContent(`${C.slice(0, 4)}…${C.slice(-4)} / SOL · 1% tier`);
+    expect(row).toHaveTextContent('1 token = 0.01 SOL');
+    expect(within(row!).getByText(C)).toBeInTheDocument();
   });
 
   it('a pairing coin on the token side (USDC in USDC / SOL) is named as the coin, by its address', async () => {

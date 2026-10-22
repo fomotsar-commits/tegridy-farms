@@ -64,12 +64,12 @@ describe('the pool card reads like a pool', () => {
     expect(card).not.toHaveTextContent('Standard address, fee tier');
   });
 
-  it('a token the site does not list is headed by its short address, never by what it calls itself', () => {
+  it('a token off the registry that calls itself BAYLA is headed "fake BAYLA", never BAYLA', () => {
     const card = mount(view(UNLISTED));
-    expect(within(card).getByRole('heading', { level: 3 }).textContent).toBe(`${shortAddress(UNLISTED)} / SOL · 1% tier`);
-    // Its token check says it calls itself BAYLA; the amounts do not take that name.
-    expect(rowValue(card, 'In the pool')).toMatch(/ tokens$/);
-    expect(rowValue(card, 'Price here')).toMatch(/^1 token = /);
+    expect(within(card).getByRole('heading', { level: 3 }).textContent).toBe('fake BAYLA / SOL · 1% tier');
+    // Its token check says it calls itself BAYLA; the amounts say the same "fake BAYLA".
+    expect(rowValue(card, 'In the pool')).toMatch(/ fake BAYLA$/);
+    expect(rowValue(card, 'Price here')).toMatch(/^1 fake BAYLA = /);
   });
 
   it('prints no address whole before a press; each is short, and a press shows the whole one', () => {
