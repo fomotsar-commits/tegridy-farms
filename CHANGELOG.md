@@ -11,6 +11,8 @@ The site's Changelog tab shows both files.
 
 - Notice, updated: range pools get two fee tiers, 1% and 0.25% of each swap, no sooner than 2026-10-23 14:00 UTC (it said seven days from 2026-10-21). Of each fee, 84% stays with the liquidity providers whose range is in use, 10.4% goes to memetics.finance and 5.6% to Jungle Bay Island.
 - With reduced motion on, the Tradermigos splash holds its art still, every piece in sight, with no sparks or flashes; the pieces had kept bouncing.
+- Opening a new pool on Ethereum, Base or Robinhood Chain: the form shows the market price from that network's Uniswap V2 pool, Match the market price fills the other amount at it, and a price you type off the market says how far off it is.
+- Base and Robinhood Chain: Liquidity lists the venue's own pools on that network, with what each holds and how its 0.3% fee is split; Add or Remove opens the form on that pool.
 
 ### 2026-10-21
 
@@ -25,8 +27,6 @@ The site's Changelog tab shows both files.
 - Swap: one amount buys every island coin on the chain.
 - Room staking on Ethereum and Base: the card reads the early-exit penalty from the pool it shows instead of assuming 25%. Today's six pools still charge a flat 25%; the pools the owner deploys next keep the ladder's law, the time left on your lock over four years capped at 75%, and the card quotes each position the moment they go live.
 - The marketplace fee is now 0.5%, half OpenSea's 1%.
-- Opening a new pool on Ethereum, Base or Robinhood Chain: the form shows the market price from that network's Uniswap V2 pool, Match the market price fills the other amount at it, and a price you type off the market says how far off it is.
-- Base and Robinhood Chain: Liquidity lists the venue's own pools on that network, with what each holds and how its 0.3% fee is split; Add or Remove opens the form on that pool.
 
 ### 2026-10-20
 
