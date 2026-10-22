@@ -20,9 +20,11 @@ Raydium, whose open code we copy.
   slot 451,479,902 (2026-09-29 00:27 UTC), two minutes before this commit was merged, and the live
   binary holds an error text ("Lamports calculate error") that first appears in this commit's
   branch. It holds nothing from Raydium's later, unmerged change. **Not proven, very likely.**
-- **What changed.** Only identity, plus two build guards. 111 changed lines in 12 files: the
-  roles and names in the next section, a gate that refuses a test-chain build (below), and
-  the one line that reads `uint` from our own folder. Every other program file is byte for
+- **What changed.** Identity, two build guards, and three of the vault's powers cut (the owner's
+  ruling, 2026-10-20). 135 changed lines in 18 files: the roles and names in the next section, a
+  gate that refuses a test-chain build (below), the one line that reads `uint` from our own folder,
+  and 24 lines that hold fees to 4% and the venue and island to 16% of each fee, let only the fund
+  owner collect the island's share, and keep a reward's take-back with its funder. Every other program file is byte for
   byte Raydium's. `Cargo.lock` is Raydium's, pruned to the program's own 317 crates. `README.md`
   is ours. `vendor/uint` is Raydium's copy of the `uint` crate (MIT or Apache-2.0) at the
   commit Raydium's lock named (`43a0303b9c2a23a00508816bd6d5a2e9381f143c`), unchanged, with its
@@ -42,8 +44,8 @@ role use the venue's devnet key `GgE6AfEH2AVSrKGckyKMzC6mhtXWiAn39EzAikAsWq5a`.
 
 | Role | Raydium's address | Ours | What it can do |
 |---|---|---|---|
-| Program id | `CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK` | a placeholder, `RangePoo1PLACEHo1DERnotDep1oyed111111111111` | Nothing: nobody holds its key and no release build accepts it |
-| Admin | `GThUX1Atko4tqhN2NaiTazWSeFWMuiUvfFnyJyUghFMJ` | vault | Make fee tiers, pause a pool, collect any fee to any account |
+| Program id | `CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK` | `7ghzbbmq59QEbdweSzM1ggpeBH1Q2CyxZg4Tr2x8Aso`, made by the owner on 2026-10-21 | Claimed by the first deploy; afterwards only its upgrade authority, the vault, can change the program |
+| Admin | `GThUX1Atko4tqhN2NaiTazWSeFWMuiUvfFnyJyUghFMJ` | vault | Make and change fee tiers (at most 4% of a swap; at most 16% of each fee to the venue and the island together), pause a pool, collect the protocol's share |
 | Protocol-fee owner | `projjosVCPQH49d5em7VYS7fJZzaqKixqKtus7yk416` | vault | Collect the protocol's share of swap fees |
 | Fund-fee owner | `FundHfY8oo8J9KYGyfXFFuQCHe7Z1VBNmsj84eMcdYs4` | vault | Collect the fund's share of swap fees |
 | Spare-SOL collector | `Ray9LdYRLXsHzL8pr3Ceahfiz8MsS2pZagzHo1ckdfJ` | vault | Sweep SOL sent to a pool's accounts above what they need |
@@ -57,9 +59,48 @@ the position NFT's name, symbol and link ("Memetics Range Position", "MEM-RANGE"
 `memetics.finance/position/<id>.json`), and three memos that said "raydium".
 
 **Where the money goes.** Swap fees stay in the pool for the people whose range was in use;
-each position collects its own. The protocol and fund shares (set per fee tier by the admin)
-can be collected only by the vault. This program has no pool-opening fee. Spare SOL goes to the
-vault. None of these paths can reach a Raydium address, because none is in the code.
+each position collects its own. The protocol share can be collected only by the vault. The fund
+share can be collected only by the tier's fund owner, the island's Workshop: Raydium's code let
+the admin collect it too, and the venue removed that (the owner's ruling, 2026-10-20). No tier may
+charge more than 4% of a swap, nor give the venue and the island together more than 16% of each
+fee; both are checked when a tier is made and when it is changed, and a dynamic fee is held to the
+same 4%. Two exceptions: a fee is rounded up to the coin's smallest unit, so a very small swap can
+pay more than 4% (and a Token-2022 coin's own transfer fee comes on top); and when a swap fills a
+limit order where no LP's range is in use, the LPs' share of that fee goes to the venue's share.
+The ceilings bind every tier this build makes; a later upgrade must check any tier made before it.
+This program has no pool-opening fee. Spare SOL goes to the vault. None of these paths can reach a
+Raydium address, because none is in the code. Each path was run on a local chain (below).
+
+**How the vault can still move the island's share**, each by a proposal (two signatures, then 48
+hours):
+
+- point a tier's fund owner at another account, itself included, and then collect as the fund
+  owner; the re-point, the collection and the re-point back can sit in one proposal (check V10);
+- re-split a tier: set the island's part to nothing, then raise the venue's part into the room,
+  within the 16% ceiling;
+- let in a Token-2022 coin (support-mint) whose owner can move coins out of any account (a
+  permanent delegate), which would reach the pool's vault: so the vault lets in no such coin.
+
+**What else the vault can still do**, kept on purpose (the owner's ruling, 2026-10-20):
+
+1. **Pause a pool**: deposits, LP withdrawals with their fees and rewards, swaps and new limit
+   orders, in any mix (`update_pool_status`). A pause does not stop the venue or the island
+   collecting their shares, nor a limit order's owner taking their coins out. It is the only brake
+   there is.
+2. **Nothing it does is fast**: a pause, like every vault action, takes effect 48 hours after its
+   second approval at the earliest. The lock protects everyone from a hasty change, and it also
+   means the brake is slow. One exception would be an operation owner: a key the vault adds
+   (`update_operation_account`) can change any pool's reward window and rate at once, with no
+   proposal. So the vault adds none.
+3. Change a tier's fee within the 4% and 16% ceilings, on every pool of that tier at once.
+4. Move a reward's window before it opens, or change its rate, paying for what it adds. After the
+   end the unpaid rest goes back to whoever started the reward, with anything the vault paid in, so
+   the vault never tops up a reward it did not start. If that person loses their key, the rest
+   stays in the pool for good. Moving a pool's owner now changes only who may start new rewards.
+5. Upgrade the program itself: the vault holds its upgrade authority.
+
+Also: with the frozen-NFT issuer list empty, the vault never lets in a coin whose issuer may freeze
+it (its only remedy would be freezing the pool's vault, which stops every LP).
 
 **How a machine checks it, on every pull request** (`.github/workflows/solana-ci.yml`). No
 check fetches anything from Raydium: `solana/guards/upstream/` holds a hash of every upstream
@@ -68,7 +109,7 @@ from fresh clones by `node solana/guards/provenance.mjs --regenerate <scratch fo
 can re-run it, and `git diff solana/guards/upstream` must then show no change.
 
 1. **Same code as Raydium's, plus only the reviewed patch** (`solana/guards/provenance.mjs`, in
-   `diff-guard` and `clmm-guards`). Range pools: 79 upstream files, 12 patched. cp-swap: its
+   `diff-guard` and `clmm-guards`). Range pools: 79 upstream files, 18 patched. cp-swap: its
    whole package, 37 files, 4 patched. `vendor/uint`: 16 files, none patched. Undoing the patch
    on our file must give back Raydium's exact file. No file may be added anywhere in either
    package, a `build.rs` included. The patch and the lockfile are each pinned by hash, so even a

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { routeVoice, isToweliRoomPage, isSolanaPage, TOWELI_ROOM_PATHS } from './routeVoice';
+import { routeVoice, isToweliRoomPage, isSolanaPage, hasMixedSolanaSection, TOWELI_ROOM_PATHS } from './routeVoice';
 import { BUNGALOWS } from './bungalows';
 
 describe('routeVoice (wave seven, row Q)', () => {
@@ -86,5 +86,24 @@ describe("isSolanaPage: where the top bar's Connect connects Solana", () => {
     expect(isSolanaPage('/dashboard', { chain: 'base' })).toBe(false);
     expect(isSolanaPage('/dashboard', null)).toBe(false);
     expect(isSolanaPage('/dashboard')).toBe(false);
+  });
+});
+
+// The home, the island lobby and BAYLA's door carry the same three cards (components/VenueCards.tsx),
+// whose Solana connection is the top bar's there. Missed on a page that has them, the top bar
+// mounts a second connection beside the cards', and the two disagree (owner, 2026-10-19: the
+// cards on the island page, then on /bayla: "on here").
+describe('hasMixedSolanaSection: the pages whose cards are the Solana connection', () => {
+  it("is the home, the island lobby and BAYLA's door, as the router matches them", () => {
+    for (const p of ['/', '', '/island', '/island/', '/Island', '/ISLAND', '/%69sland', '/bayla', '/bayla/', '/BAYLA']) {
+      expect(hasMixedSolanaSection(p), p).toBe(true);
+    }
+  });
+
+  // Another room's door: the cards are BAYLA's coin's (lib/bungalows.ts CARDS_ROOM_ID).
+  it('is no other page, and no other room', () => {
+    for (const p of ['/gallery', '/bobo', '/pepe', '/toweli', '/baylax', '/islands', '/island/x', '/solana', '/earn/bayla', '/%E0%A4%A']) {
+      expect(hasMixedSolanaSection(p), p).toBe(false);
+    }
   });
 });

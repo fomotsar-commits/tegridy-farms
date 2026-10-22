@@ -344,7 +344,7 @@ function normalizeOffer(order) {
 
 
 // ─── Criteria-offer platform fee (2026-08-22 fee-leak audit) ────────────────
-// Item offers have always carried the 1% Tegridy consideration line; collection
+// Item offers have always carried the Tegridy consideration line (PLATFORM_FEE_BPS); collection
 // and trait offers shipped with OpenSea's `offers/build` response verbatim — no
 // Tegridy line at all. Parity is implemented here but ships OFF: OpenSea's
 // criteria_offers endpoint has not yet been PROVEN to accept an extra

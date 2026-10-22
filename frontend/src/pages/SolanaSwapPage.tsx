@@ -17,6 +17,8 @@ import { SolanaProviders } from '../components/solana/SolanaProviders';
 import { SolanaConnectButton } from '../components/solana/SolanaConnectButton';
 import { ChainSwitch } from '../components/swap/ChainSwitch';
 import { SolanaRouteLine } from '../components/swap/SolanaRouteLine';
+import { IslandBasketSolana } from '../components/swap/IslandBasketSolana';
+import type { SolBasketCoin } from '../lib/islandBasket';
 import { useSolanaRoute } from '../components/swap/useSolanaRoute';
 import { useVenueSwap } from '../components/swap/useVenueSwap';
 import { useReturnFocus, type OnSettled } from '../components/solana/curve/useTxFlow';
@@ -1801,6 +1803,29 @@ export function SolanaSwapInner({ home = false }: { home?: boolean } = {}) {
   }
 
   /**
+   * A coin of the island order that our own pool wins: its share goes on this form, in SOL,
+   * where our pool's review buys it (every swap in our pool shows its review first).
+   */
+  function takeOwnLeg(coin: SolBasketCoin, lamports: bigint) {
+    if (held) return;
+    setMode('swap');
+    setPayToken(SOL);
+    setUsdMode(false);
+    setAmount(fromBaseUnits(lamports.toString(), SOL.decimals));
+    const known = findSolToken(coin.mint);
+    if (known) {
+      setBuyToken(known);
+      return;
+    }
+    resolveMint(coin.mint)
+      .then((t) => {
+        if (t) setBuyToken(t);
+        else toast.error('Not loaded', { description: `${coin.symbol} could not be loaded into the form. Pick it there to buy it.` });
+      })
+      .catch(() => toast.error('Not loaded', { description: `${coin.symbol} could not be loaded into the form. Pick it there to buy it.` }));
+  }
+
+  /**
    * The trade goes to our own pool: build it, test-run it and show its review. Every
    * number is read again when it is built, and the route is decided again on fresh
    * quotes from both venues (swap/ownPoolRoute.ts): if Jupiter pays more by then,
@@ -2360,7 +2385,18 @@ export function SolanaSwapInner({ home = false }: { home?: boolean } = {}) {
               <VenueSwapFlow swap={venueSwap} extraReview={reviewAverage} />
             </Suspense>
           ) : mode === 'swap' ? (
-            // Held while a trade is on its way, by either route (`held`).
+            <>
+            {/* One amount split across every island coin on Solana (owner, 2026-10-18). */}
+            <div className="flex justify-end mb-2">
+              <IslandBasketSolana
+                slippageBps={slippageBps}
+                priority={speed}
+                pending={venueSwap.pending}
+                onOwnLeg={takeOwnLeg}
+                busy={held || pendingNote}
+              />
+            </div>
+            {/* Held while a trade is on its way, by either route (`held`). */}
             <fieldset disabled={held} className="border-0 p-0 m-0 min-w-0">
           {/* You pay */}
           <div className="mb-1">
@@ -2752,6 +2788,7 @@ export function SolanaSwapInner({ home = false }: { home?: boolean } = {}) {
             )}
           </p>
             </fieldset>
+            </>
           ) : mode === 'limit' ? (
             <LimitTab payToken={payToken} buyToken={buyToken} shieldWarnings={shieldWarnings} needsAck={needsAck} ack={ack} setAck={onAck} onPickPay={() => setPicker('pay')} onPickBuy={() => setPicker('buy')} />
           ) : (
