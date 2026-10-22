@@ -10,6 +10,7 @@ vi.mock('../components/ui/CardArt', () => ({
 }));
 vi.mock('../components/ArtImg', () => ({ ArtImg: () => null }));
 vi.mock('../hooks/usePageTitle', () => ({ usePageTitle: () => {} }));
+vi.mock('../components/VenueCards', () => ({ VenueCards: () => <div data-testid="venue-cards" /> }));
 
 import IslandPage from './IslandPage';
 
@@ -36,5 +37,18 @@ describe('the island lobby doors', () => {
       </MemoryRouter>,
     );
     expect(container.textContent).not.toMatch(/\bscore\b/i);
+  });
+
+  // The home's three cards, swap, lock BAYLA and add SOL + BAYLA, are on the lobby too (owner,
+  // 2026-10-19: "lets put them there again"), above the board and the doors.
+  it("carry the home's three cards, above the doors", () => {
+    render(
+      <MemoryRouter initialEntries={['/island']}>
+        <IslandPage />
+      </MemoryRouter>,
+    );
+    const cards = screen.getByTestId('venue-cards');
+    const firstDoor = screen.getByRole('link', { name: /^Gallery/ });
+    expect(cards.compareDocumentPosition(firstDoor) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 });
