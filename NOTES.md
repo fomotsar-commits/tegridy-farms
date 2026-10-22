@@ -82,6 +82,46 @@ way (front-run, then back-run) passes, and the deposit goes in at the pushed pri
 ceiling on both coins; then a move either way raises one side past its ceiling. To keep the typed
 amount as the most it takes, plan from the amount less the tolerance.
 
+## 2026-10-21: hiding one layer at a time finds nothing when a page's frame cost is a sum, and headless Windows WebKit pays it per pixel
+
+**Believed:** that Playwright WebKit drawing almost no animation frames on /nakamigos, while
+its timers ran close to on time, meant one heavy layer that hiding layers one at a time would
+find. And that this frame count says how an iPad runs the page.
+
+**Measured:** 2026-10-21, a production build on `vite preview`, Playwright 1.62.1, the
+`ipad-safari` descriptor (810x1080, DPR 2), reduced motion on as in every e2e project. An
+init script ran its own `requestAnimationFrame` loop and counted frames per 250 ms over the
+Tradermigos splash (0.75 to 3.2 s), two runs per row. Windows WebKit:
+
+- As built: 0.1 to 0.2. Hiding any one of the splash's eleven layers: still 0.1 to 0.2.
+- Keeping only one layer: all hidden 6.5, backdrop 4.9, title block 3.8, spotlight 3.5,
+  grain 3.5, sparks 2.6, bokeh 2.0, grid/scanline/vignette 1.1, aurora 0.3, the ten art
+  pieces 0.2 (canvas and dust motes: no cost). Per frame that adds about 1.2 s for the
+  pieces, 0.8 s for the aurora, 0.2 s for the overlays and 13 to 90 ms for each of the rest:
+  about one frame per 2.5 s, which is what the page as built draws.
+- It is paid per pixel. Aurora with its 80/80/100px blurs 0.3, blurs at 8px 1.5, blurs off
+  3.5. Art images alone: 1 piece 3.5, 3 pieces 2.0, 10 pieces 0.8. DPR 1 instead of 2 made
+  every layer about four times faster (images 0.8 to 3.0, all hidden 6.5 to 13.5). During
+  the splash timers ran at most 0.3 s late, so most of the time went off the main thread.
+- Same build and viewport in Chromium: 3.6 to 6.1 on the splash, with SwiftShader and with
+  the Intel GPU (D3D11) alike. Its main thread was 61% busy over the splash (style 26%,
+  script 14%), about 35 ms per frame on this desktop CPU.
+- The landing after the splash is a separate stall that ends: main-thread stalls of 0.6 to
+  3.4 s, then about 15 per 250 ms from 3 to 5 s after it mounts (1.5 to 2.5 s with images
+  hidden).
+- Linux WebKit (WSL Ubuntu 24.04, the release CI runs, same Playwright): the splash also
+  starves (0.1 to 1.8; 7.8 to 11.4 with its layers hidden), but there the main thread stalls
+  0.3 to 2.1 s at a time and /risks and /swap also drew almost nothing for 2 to 18 s after
+  load, so Linux does not single the route out. CI run 39535606941 failed /nakamigos on the
+  two WebKit projects only.
+
+**Do:** bisect a frame cost both ways, hide one and keep only one. When no single hide helps
+and every keep-one costs something, the cost is a sum: rank layers by their keep-one rates.
+Change DPR once: a rate that moves about four times is paid per pixel by the compositor, not
+by the page's script. A headless WebKit frame count is a fact about the test browser; what an
+iPad draws on the same page stays unmeasured until a real one is timed (Safari's Web
+Inspector, Timelines).
+
 ## 2026-10-21: npm always takes the newest release in a transitive range, so the floor needs an override or a hand edit
 
 **Believed:** when a fixed package asks for a newer transitive (vite 8.3.3 asks for rolldown
