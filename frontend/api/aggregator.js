@@ -435,6 +435,15 @@ export default async function handler(req, res) {
     return handleRecord(req, res);
   }
 
+  // `?resource=position` answers a range position NFT's link, `/position/:id.json` (a
+  // vercel.json rewrite), with its metadata read from chain. Every position NFT keeps that
+  // link forever, so like the record route it must never fall to the SPA's HTML. Public by
+  // design: wallets fetch it with no Origin. See _lib/position.js.
+  if (req.query.resource === "position") {
+    const { handlePosition } = await import("./_lib/position.js");
+    return handlePosition(req, res);
+  }
+
   // `?resource=airdrop` is the hosted airdrop manifest store: a claimant fetches THEIR
   // OWN leaf and proof, and a creator publishes the list before funding. There is
   // deliberately no branch that returns the recipient list — an airdrop recipient list
@@ -499,6 +508,13 @@ export default async function handler(req, res) {
   if (req.query.resource === "tape") {
     const { handleTape } = await import("./_lib/tape.js");
     return handleTape(req, res);
+  }
+
+  // `?resource=venue-volume`: the all-time volume the hourly venue-volume.yml counts,
+  // summed from Supabase and cached at the edge. Above `const provider`, like the rest.
+  if (req.query.resource === "venue-volume") {
+    const { handleVenueVolume } = await import("./_lib/venueVolume.js");
+    return handleVenueVolume(req, res);
   }
 
   // FLAT function at /api/aggregator. AUDIT FIX 2026-07-10: Vercel's nested /

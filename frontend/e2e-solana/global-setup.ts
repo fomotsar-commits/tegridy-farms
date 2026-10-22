@@ -3,6 +3,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { PublicKey } from '@solana/web3.js';
 import { checkLaunchEconomics } from '../src/lib/launcher/solana/curve/config';
 import { globalPda } from '../src/lib/launcher/solana/curve/program';
 import { deriveAmmConfig } from '../src/lib/solana/cpswap/program';
@@ -53,6 +54,15 @@ export default async function globalSetup(): Promise<void> {
     const got = (await chain().getAccountInfo(deriveAmmConfig(CP_SWAP_PROGRAM, index), 'confirmed'))?.data;
     if (!got || !Buffer.from(got).equals(want)) throw new Error(`the validator's AmmConfig index ${index} is not the seeded one: restart start-validator.sh after genesis-accounts.mjs`);
     if (!Buffer.from(got).equals(mainnet)) throw new Error(`the validator's AmmConfig index ${index} is not mainnet's bytes (golden/${goldenFile})`);
+  }
+  // The launch-tier opener's Permission (genesis-accounts.mjs launchTierOpener): the specs open
+  // their tier-0 pools through it, the one way the upgraded pool program allows.
+  const seededPerm = path.join(HERE, '..', 'scripts', 'solana-localnet', '.accounts', 'permission-opener.json');
+  if (!fs.existsSync(seededPerm)) throw new Error(`${seededPerm} is missing: run node scripts/solana-localnet/genesis-accounts.mjs`);
+  const perm = JSON.parse(fs.readFileSync(seededPerm, 'utf8'));
+  const permInfo = await chain().getAccountInfo(new PublicKey(perm.pubkey), 'confirmed');
+  if (!permInfo || !permInfo.owner.equals(CP_SWAP_PROGRAM) || !Buffer.from(permInfo.data).equals(Buffer.from(perm.account.data[0], 'base64'))) {
+    throw new Error('the validator has no Permission for the launch-tier opener: run genesis-accounts.mjs, then restart start-validator.sh');
   }
   // The stand-in $BAYLA mint (the plant burns and moves it): the seeded bytes, apart from the
   // supply, which the specs change by minting to makers and by every plant's burn.

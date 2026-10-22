@@ -6,7 +6,7 @@ import { parseUnits, formatUnits } from 'viem';
 import { toast } from 'sonner';
 import { ERC20_ABI, SWAP_FEE_ROUTER_ABI, UNISWAP_V2_ROUTER_ABI } from '../lib/contracts';
 import { CHAIN_ID } from '../lib/constants';
-import { type TokenInfo, defaultTokensFor } from '../lib/tokenList';
+import { type TokenInfo, defaultTokensFor, headlineTokenFor } from '../lib/tokenList';
 import { swapVenueOn } from '../lib/chains/swapVenue';
 import { decodeRevertReason } from '../lib/revertDecoder';
 import { trackSwap } from '../lib/analytics';
@@ -71,12 +71,10 @@ async function verifyCustomTokenOnChain(
   }
 }
 
-/** The pair the form opens on: ETH into the chain's headline token (none on Robinhood). */
+/** The pair the form opens on: ETH into the chain's headline token (lib/tokenList.ts). */
 function startingPair(chain: number): [TokenInfo | null, TokenInfo | null] {
-  const list = defaultTokensFor(chain);
-  const eth = list.find(t => t.isNative) ?? null;
-  const headline = chain === CHAIN_ID ? 'TOWELI' : chain === 8453 ? 'USDC' : null;
-  return [eth, headline ? (list.find(t => t.symbol === headline) ?? null) : null];
+  const eth = defaultTokensFor(chain).find(t => t.isNative) ?? null;
+  return [eth, headlineTokenFor(chain)];
 }
 
 // AUDIT FIX D-FE-L1: chain-scope the storage key. Pre-fix, custom tokens

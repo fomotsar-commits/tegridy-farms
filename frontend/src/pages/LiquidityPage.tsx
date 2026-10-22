@@ -149,7 +149,7 @@ export default function LiquidityPage() {
         <FinePrint summary="Details" className="mb-2">
           <p>Both sides, priced off the pool&apos;s current reserves.</p>
         </FinePrint>
-        <LiquidityTab chainId={liquidityChainId} />
+        <LiquidityTab key={liquidityChainId} chainId={liquidityChainId} />
       </section>
 
       {/* The four answers for a first-timer, after the form (owner, 2026-10-14: the actions first). */}

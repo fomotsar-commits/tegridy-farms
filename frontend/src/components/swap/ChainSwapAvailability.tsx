@@ -1,4 +1,6 @@
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
+import { useAccount, useSwitchChain } from 'wagmi';
+import { toast } from 'sonner';
 import { CardArt } from '../ui/CardArt';
 import { FinePrint } from '../ui/FinePrint';
 // FROM ./registry, NOT the ../../lib/chains barrel — deliberate, and the same
@@ -10,6 +12,13 @@ import { FinePrint } from '../ui/FinePrint';
 // would not LOAD, which reports as 'all passed' with one fewer file.
 import { getChainConfig } from '../../lib/chains/registry';
 import { CHAIN_ID } from '../../lib/constants';
+
+/** The visitor's own query (the open tab) with the swap's chain set to Ethereum. */
+function ethereumParams(params: URLSearchParams): string {
+  const next = new URLSearchParams(params);
+  next.set('c', String(CHAIN_ID));
+  return next.toString();
+}
 
 /**
  * Says WHY a trade tab is inert on a chain the app serves.
@@ -35,6 +44,9 @@ export function ChainSwapAvailability({ chainId, swapTab = false }: {
   swapTab?: boolean;
 }) {
   const config = getChainConfig(chainId);
+  const { isConnected } = useAccount();
+  const { switchChain } = useSwitchChain();
+  const [params] = useSearchParams();
 
   // Unconfigured chain → the app-wide wrong-network banner owns that state, and
   // two banners saying different things about one wallet is worse than one.
@@ -69,9 +81,24 @@ export function ChainSwapAvailability({ chainId, swapTab = false }: {
         <Link to={curveHref} className="text-emerald-300 hover:text-emerald-200 underline">
           Trade on the {config.name} curve &rarr;
         </Link>
-        <Link to="/swap" className="text-white/60 hover:text-white/80 underline">
-          Switch your wallet to Ethereum for {swaps ? 'these tabs' : 'swaps'}
-        </Link>
+        {/* The swap follows a connected wallet's chain, so only the wallet can move it: a
+            link to /swap left the visitor on this same chain. With no wallet, `?c=` picks
+            the chain, so the same tab opens on Ethereum. */}
+        {isConnected ? (
+          <button
+            type="button"
+            onClick={() => switchChain({ chainId: CHAIN_ID }, {
+              onError: () => toast.error('Your wallet did not switch to Ethereum. Switch it in your wallet to use these tabs.'),
+            })}
+            className="text-white/60 hover:text-white/80 underline"
+          >
+            Switch your wallet to Ethereum for {swaps ? 'these tabs' : 'swaps'}
+          </button>
+        ) : (
+          <Link to={`/swap?${ethereumParams(params)}`} className="text-white/60 hover:text-white/80 underline">
+            Open {swaps ? 'these tabs' : 'swaps'} on Ethereum
+          </Link>
+        )}
       </div>
       {!swaps && (
         <FinePrint summary="Why">
