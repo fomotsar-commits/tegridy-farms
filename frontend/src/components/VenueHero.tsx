@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { clearFirstFrameDraft, peekFirstFrameDraft } from '../lib/firstFrameDraft';
 import { heatExampleLine, VENUE, OPEN_VENUE_WELCOME_EVENT } from '../lib/arrival';
@@ -7,25 +7,6 @@ import { tierAtFloor } from '../lib/heat/heatOracle';
 import { VenueVolume } from './VenueVolume';
 import { HeatCard } from './HeatCard';
 import { FinePrint } from './ui/FinePrint';
-import { ErrorBoundary } from './ui/ErrorBoundary';
-import { noteOwnSolanaFailed } from '../lib/solanaSurface';
-
-const HomeModules = lazy(() => import('./HomeModules'));
-
-/** The pages the home's cards come from, when the cards' code did not load. */
-function ModulesUnloaded() {
-  // The cards' connection is the top bar's Solana one on the home: its wallet sheet says the load failed.
-  useEffect(() => {
-    noteOwnSolanaFailed();
-  }, []);
-  return (
-    <p className="mt-2 mb-2 flex flex-wrap gap-x-4 text-[13px]">
-      <Link to="/solana" className="underline underline-offset-4" style={{ color: 'var(--color-kyle)' }}>Swap</Link>
-      <Link to="/earn/bayla" className="underline underline-offset-4" style={{ color: 'var(--color-kyle)' }}>Stake BAYLA</Link>
-      <Link to="/solana-lp" className="underline underline-offset-4" style={{ color: 'var(--color-kyle)' }}>Add liquidity</Link>
-    </p>
-  );
-}
 
 /**
  * The venue's arrival hero, shown when no bungalow is entered. It claims no yield and no
@@ -93,22 +74,7 @@ export function VenueHero() {
   );
 }
 
-/**
- * The home's cards, swap, stake and add liquidity (owner, 2026-10-16), in their own row under
- * the hero: the hero column is too narrow for three side by side. Lazy: the Solana wallet stack
- * loads after the hero has painted. If its code cannot load, the pages they come from are linked.
- */
-export function VenueCards() {
-  return (
-    <ErrorBoundary fallback={() => <ModulesUnloaded />}>
-      <Suspense fallback={null}>
-        <HomeModules />
-      </Suspense>
-    </ErrorBoundary>
-  );
-}
-
-/** Under the cards: the tour, the four steps and the island line. */
+/** Under the cards (components/VenueCards.tsx; the hero column is too narrow for three side by side): the tour, the four steps and the island line. */
 export function VenueHeroFooter() {
   return (
     <>
