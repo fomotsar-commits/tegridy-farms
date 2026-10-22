@@ -141,11 +141,12 @@ export interface ActionAvailability {
 export type LpKind = 'lp-deposit' | 'lp-withdraw' | 'lp-create';
 
 /**
- * A range position (the venue's range program, solana/tegridy-clmm): opening one with its
- * Token-2022 NFT, taking some or all of its liquidity out (or none: that is how its fees
- * are collected), and taking everything out and closing it.
+ * The venue's range program (solana/tegridy-clmm): opening a position with its Token-2022
+ * NFT, taking some or all of its liquidity out (or none: that is how its fees are
+ * collected), taking everything out and closing it, and `range-swap`: the swap page's swap
+ * in one of its pools.
  */
-export type RangeKind = 'range-open' | 'range-remove' | 'range-close';
+export type RangeKind = 'range-open' | 'range-remove' | 'range-close' | 'range-swap';
 
 /**
  * `pool-buy` / `pool-sell`: a graduated launch's own pool, from its launch page.
@@ -237,7 +238,9 @@ export type IntentStep =
   /** Range program `decrease_liquidity_v2`: `liquidity` out of `position` (0 = fees only), at least `min0` / `min1` back, plus its fees. */
   | { kind: 'range-decrease'; pool: PublicKey; position: PublicKey; liquidity: bigint; min0: bigint; min1: bigint }
   /** Range program `close_position`: the NFT burned, the record closed, their deposits back to the owner. */
-  | { kind: 'range-close'; position: PublicKey; nftMint: PublicKey };
+  | { kind: 'range-close'; position: PublicKey; nftMint: PublicKey }
+  /** A swap in a range pool: exact in, no price limit, the floor on what comes out. */
+  | { kind: 'range-swap'; pool: PublicKey; inputMint: PublicKey; outputMint: PublicKey; amountIn: bigint; minimumAmountOut: bigint };
 
 export type TxSummary =
   | {
@@ -327,7 +330,8 @@ export type TxSummary =
   | LpDepositSummary
   | LpWithdrawSummary
   | LpCreateSummary
-  | RangeSummary;
+  | RangeSummary
+  | RangeSwapSummary;
 
 /** A range pool and its fee tier, as the review names them. From the builder's own fresh read. */
 export interface RangePoolLine {
@@ -391,6 +395,29 @@ export type RangeSummary =
       unwrapsWsol: boolean;
       notices: string[];
     } & { poolLine: RangePoolLine; range: RangeLine });
+
+/**
+ * A swap in one of our range pools, as the review shows it. The amounts are decoded from
+ * the prepared transaction's bytes; `quotedOut` is from the fresh read it was built on.
+ */
+export interface RangeSwapSummary {
+  kind: 'range-swap';
+  poolLine: RangePoolLine;
+  /** True when the coin is paid in and the token comes out; false the other way round. */
+  paysCoin: boolean;
+  amountIn: bigint;
+  minimumAmountOut: bigint;
+  quotedOut: bigint;
+  /** The price bands the swap may walk through, from the fresh quote. */
+  bandsCrossed: number;
+  /** The pool's `fee_on` for this direction: the fee comes out of what is paid in, or out of what comes out. */
+  feeOnInput: boolean;
+  /** What the aggregator was seen to pay for the same trade: the swap was held to it. */
+  aggregator: AggregatorSeen;
+  unwrapsWsol: boolean;
+  wsolHeldBefore: bigint;
+  notices: string[];
+}
 
 /**
  * What the aggregator answered for the trade a swap in our own pool was compared with.
@@ -731,6 +758,8 @@ export interface RangeIntent {
   /** The position changed (remove, close), or the new one's NFT mint (open): a fresh key that signs. */
   position: RangePositionPins | null;
   nftMint: PublicKey | null;
+  /** A swap only: the mint paid in, and the bands (and far-band map) its quote walks, in order. */
+  swap?: { inputMint: PublicKey; bands: PublicKey[]; extension: PublicKey | null };
   /** An opening's liquidity, planned from the fresh read: the only liquidity it may name. */
   openLiquidity?: bigint;
 }

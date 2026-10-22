@@ -34,7 +34,7 @@ export type VenuePoolsRead =
     };
 
 /** Why a quote of this token would not be what a swap pays, or null. The builder's own rule. */
-function tokenProblemOf(mint: RawAccount | null): string | null {
+export function tokenProblemOf(mint: RawAccount | null): string | null {
   if (!mint) return 'the token’s mint was not found';
   const d = decodeMintAccount(mint.owner, mint.data);
   if (!d.ok) return d.reason;

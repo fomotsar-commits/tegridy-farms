@@ -100,6 +100,9 @@ export interface SwapInternalResult {
   bands: number[];
 }
 
+/** The most price bands one swap from this site walks: each is an account its transaction carries. */
+export const MAX_SWAP_BANDS = 5;
+
 export type SwapQuote =
   | ({
       kind: 'ok';

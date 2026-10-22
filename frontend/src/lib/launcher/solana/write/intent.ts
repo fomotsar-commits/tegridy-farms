@@ -76,8 +76,8 @@ import {
 } from './metaplex';
 import { isLpKind } from './lpKinds';
 import { isRangeKind } from './rangeKinds';
-import { closePositionIx, decreaseLiquidityV2Ix, openPositionWithToken22NftIx, type PoolRef } from '../../../solana/clmm/ix';
-import { IX_CLOSE_POSITION, IX_DECREASE_LIQUIDITY_V2, IX_OPEN_POSITION_WITH_TOKEN22_NFT, type RewardInfoView } from '../../../solana/clmm/program';
+import { closePositionIx, decreaseLiquidityV2Ix, openPositionWithToken22NftIx, swapV2Ix, type PoolRef } from '../../../solana/clmm/ix';
+import { IX_CLOSE_POSITION, IX_DECREASE_LIQUIDITY_V2, IX_OPEN_POSITION_WITH_TOKEN22_NFT, IX_SWAP_V2, type RewardInfoView } from '../../../solana/clmm/program';
 import { usableTickBounds } from '../../../solana/clmm/math';
 import {
   BAYLA_DECIMALS,
@@ -133,6 +133,12 @@ function asCurve(c: IntentContext): CurveIntent {
   if (isSwapIntent(c)) return refuse('a pool swap reaches a program it never uses');
   if (isRangeIntent(c)) return refuse('a range-position transaction reaches a program it never uses');
   return c;
+}
+
+/** A range opening in a SOL pool, or a range swap paying in SOL: the only range transactions that wrap SOL. */
+function rangePutsSolIn(ctx: RangeIntent): boolean {
+  if (!pinnedQuote(ctx).native) return false;
+  return ctx.kind === 'range-open' || (ctx.kind === 'range-swap' && !!ctx.swap && ctx.swap.inputMint.equals(WSOL_MINT));
 }
 
 /** Does this swap pay in SOL? Only then may it move SOL into the signer's wrapped-SOL account. */
@@ -221,7 +227,7 @@ function system(ix: TransactionInstruction, ctx: IntentContext): IntentStep {
     // A pool paired with USDC or BAYLA takes no SOL, so its transactions wrap none.
     if (isPoolIntent(ctx) && !pinnedQuote(ctx).native) refuse('it wraps SOL, and this pool is not paired with SOL');
     if (isSwapIntent(ctx) && !swapPaysSol(ctx)) refuse('it wraps SOL, and this swap does not pay in SOL');
-    if (isRangeIntent(ctx) && !(ctx.kind === 'range-open' && pinnedQuote(ctx).native)) refuse('it wraps SOL, and only an opening in a SOL pool puts SOL in');
+    if (isRangeIntent(ctx) && !rangePutsSolIn(ctx)) refuse('it wraps SOL, and only an opening in a SOL pool or a swap paying in SOL puts SOL in');
     if (d.length !== 12) refuse('a SOL transfer of the wrong size');
     expectKeyCount(ix, 2, 'SOL transfer');
     if (!key(ix, 0).equals(ctx.signer)) refuse('a SOL transfer from someone other than you');
@@ -252,7 +258,7 @@ function token(ix: TransactionInstruction, ctx: IntentContext): IntentStep {
       // SyncNative
       if (isPoolIntent(ctx) && !pinnedQuote(ctx).native) refuse('it wraps SOL, and this pool is not paired with SOL');
       if (isSwapIntent(ctx) && !swapPaysSol(ctx)) refuse('it wraps SOL, and this swap does not pay in SOL');
-      if (isRangeIntent(ctx) && !(ctx.kind === 'range-open' && pinnedQuote(ctx).native)) refuse('it wraps SOL, and only an opening in a SOL pool puts SOL in');
+      if (isRangeIntent(ctx) && !rangePutsSolIn(ctx)) refuse('it wraps SOL, and only an opening in a SOL pool or a swap paying in SOL puts SOL in');
       expectKeyCount(ix, 1, 'sync wrapped SOL');
       if (d.length !== 1) refuse('sync wrapped SOL of the wrong size');
       if (!key(ix, 0).equals(wsolAta)) refuse('syncs an account that is not your wrapped-SOL account');
@@ -739,7 +745,7 @@ function rangeAta(
 ): IntentStep {
   const p = ctx.pins;
   pinnedQuote(ctx);
-  const reward = ctx.kind === 'range-open' ? undefined : p.rewards.find((r) => r.mint.equals(a.mint));
+  const reward = ctx.kind === 'range-remove' || ctx.kind === 'range-close' ? p.rewards.find((r) => r.mint.equals(a.mint)) : undefined;
   const program = a.mint.equals(p.token0Mint)
     ? p.token0Program
     : a.mint.equals(p.token1Mint)
@@ -849,6 +855,40 @@ function range(ix: TransactionInstruction, c: IntentContext): IntentStep {
     );
     return { kind: 'range-decrease', pool: p.address, position: ctx.position.address, liquidity, min0, min1 };
   }
+  if (startsWith(d, IX_SWAP_V2)) {
+    const sw = ctx.swap;
+    if (ctx.kind !== 'range-swap' || !sw) return refuse('it swaps in a range pool, and this transaction is not a swap');
+    if (d.length !== 8 + 8 + 8 + 16 + 1) refuse('a swap of the wrong size');
+    const amountIn = u64(d, 8);
+    const minimumAmountOut = u64(d, 16);
+    if (u128(d, 24) !== 0n) refuse('the swap carries a price limit this site never sets');
+    if (d[40] !== 1) refuse('the swap does not name the amount you pay in');
+    if (amountIn === 0n) refuse('the swap pays in nothing');
+    if (minimumAmountOut === 0n) refuse('the swap accepts any price: its floor on what comes out is zero');
+    const zeroForOne = sw.inputMint.equals(p.token0Mint);
+    if (!zeroForOne && !sw.inputMint.equals(p.token1Mint)) refuse('the swap pays in a coin this pool does not hold');
+    const [inMint, inProgram, outMint, outProgram] = zeroForOne
+      ? [p.token0Mint, p.token0Program, p.token1Mint, p.token1Program]
+      : [p.token1Mint, p.token1Program, p.token0Mint, p.token0Program];
+    same(
+      swapV2Ix({
+        programId: p.program,
+        payer: ctx.signer,
+        pool: { ...pool, ammConfig: p.ammConfig.toBase58(), observationKey: p.observation.toBase58() },
+        zeroForOne,
+        inputTokenAccount: associatedTokenAddress(inMint, ctx.signer, inProgram),
+        outputTokenAccount: associatedTokenAddress(outMint, ctx.signer, outProgram),
+        tickArrays: sw.bands,
+        bitmapExtension: sw.extension,
+        amount: amountIn,
+        otherAmountThreshold: minimumAmountOut,
+        sqrtPriceLimitX64: 0n,
+        isBaseInput: true,
+      }),
+      'the swap',
+    );
+    return { kind: 'range-swap', pool: p.address, inputMint: inMint, outputMint: outMint, amountIn, minimumAmountOut };
+  }
   if (startsWith(d, IX_CLOSE_POSITION)) {
     if (ctx.kind !== 'range-close' || !ctx.position) return refuse('it closes a position, and this transaction is not a closing');
     same(closePositionIx({ programId: p.program, nftOwner: ctx.signer, nftMint: ctx.position.nftMint }), 'the closing');
@@ -888,6 +928,8 @@ export const PROGRAMS_BY_KIND: Readonly<Record<TxKind, ReadonlySet<ProgramFamily
   'range-open': new Set<ProgramFamily>(['compute', 'system', 'token', 'ata', 'range']),
   'range-remove': new Set<ProgramFamily>(['compute', 'token', 'ata', 'range']),
   'range-close': new Set<ProgramFamily>(['compute', 'token', 'ata', 'range']),
+  // The swap page's swap in a range pool: as a swap in our other pools, in the range program.
+  'range-swap': new Set<ProgramFamily>(['compute', 'system', 'token', 'ata', 'range']),
 };
 
 /**
@@ -967,8 +1009,8 @@ export function decodeIntent(
     // A range transaction holds its own steps once each, and nothing of the others'.
     if (isRangeIntent(ctx)) {
       const count = (k: IntentStep['kind']) => steps.filter((s) => s.kind === k).length;
-      const want = { 'range-open': [1, 0, 0], 'range-remove': [0, 1, 0], 'range-close': [0, 1, 1] }[ctx.kind];
-      if (count('range-open') !== want[0] || count('range-decrease') !== want[1] || count('range-close') !== want[2]) {
+      const want = { 'range-open': [1, 0, 0, 0], 'range-remove': [0, 1, 0, 0], 'range-close': [0, 1, 1, 0], 'range-swap': [0, 0, 0, 1] }[ctx.kind];
+      if (count('range-open') !== want[0] || count('range-decrease') !== want[1] || count('range-close') !== want[2] || count('range-swap') !== want[3]) {
         refuse('it does not hold exactly the range-position steps it is for');
       }
       const dec = steps.find((s) => s.kind === 'range-decrease');

@@ -6,6 +6,7 @@ import { CREATOR_FEE_SWITCH, feeSplit } from '../../../lib/solana/cpswap/venue';
 import { feeRateText, formatSolPrice, tradeCostText } from '../../../lib/solana/lp/format';
 import { TOO_NEW_WHY } from '../../../lib/solana/lp/ownPrice';
 import { edgePercent } from '../../../lib/solana/route';
+import { perMillionPercent } from '../../../lib/solana/clmm/feeText';
 import type { FeeSplitView, NotSent, PreparedTx, SolanaCluster, TokenRole, TxKind, TxOutcome, TxSigner, TxSummary, TxViewApi } from './ports';
 import { reviewLines } from './reviewLines';
 import { RangeRows } from './RangeRows';
@@ -48,6 +49,8 @@ function tradeLamports(s: TxSummary): bigint | null {
       return s.quote.outAmount;
     case 'venue-swap':
       return !s.coin.native ? null : s.paysCoin ? s.amountIn : s.quoted.outAmount;
+    case 'range-swap':
+      return !s.poolLine.quote.native ? null : s.paysCoin ? s.amountIn : s.quotedOut;
     case 'create':
       return s.openingBuy ? s.openingBuy.quote.lamportsIn : null;
     // A pool paired with USDC or BAYLA moves none of the trade in SOL, so a fee has
@@ -203,6 +206,8 @@ export function SummaryRows({
     case 'range-remove':
     case 'range-close':
       return <RangeRows summary={summary} />;
+    case 'range-swap':
+      return <RangeSwapRows summary={summary} />;
     default:
       // A new kind of transaction is a compile error here until it has rows.
       return noRowsFor(summary);
@@ -366,7 +371,7 @@ const gapCostText = (g: PriceGap, q: QuoteCoin) =>
  * not a warning: any change to it, numbers included, shows the review again before signing.
  */
 function rangeVenueFirst(s: TxSummary): RangeVenueEarns | null {
-  if (s.kind !== 'range-open' && s.kind !== 'range-remove' && s.kind !== 'range-close') return null;
+  if (s.kind !== 'range-open' && s.kind !== 'range-remove' && s.kind !== 'range-close' && s.kind !== 'range-swap') return null;
   const venue = rangeVenueEarns(s.poolLine, s.poolLine.feeCeiling);
   return venue.elsewhere ? venue : null;
 }
@@ -635,27 +640,33 @@ function LpCreateRows({ summary: s }: { summary: Extract<TxSummary, { kind: 'lp-
  * asked is said as that, never as having no route.
  */
 function venueRouteText(s: Extract<TxSummary, { kind: 'venue-swap' }>): string {
-  const a = s.aggregator;
+  return routeText(s.aggregator, s.quoted.outAmount);
+}
+
+type AggregatorSeen = Extract<TxSummary, { kind: 'venue-swap' }>['aggregator'];
+
+/** The same comparison for any of our pools: `out` is what that pool's swap was quoted to pay. */
+function routeText(a: AggregatorSeen, out: bigint): string {
   if (a.kind === 'no-route') return 'Jupiter has no route for this trade, so this pool is the only route';
   if (a.kind === 'unreachable') return 'Jupiter could not be asked just now, so this trade was not compared with it';
   if (a.kind === 'refused') {
     const failed = `its transaction for this trade failed its test run${a.earlier ? ' at your last press' : ''}, so it could not be sent`;
     // By how much, against what THIS swap pays. A pool that has caught up since is not "more".
-    const quotedMore = a.out <= s.quoted.outAmount
+    const quotedMore = a.out <= out
       ? `Jupiter quoted no more than this pool pays, and ${failed}`
-      : `Jupiter quoted ${edgePercent(Number(a.out - s.quoted.outAmount) / Number(s.quoted.outAmount))} more, but ${failed}`;
+      : `Jupiter quoted ${edgePercent(Number(a.out - out) / Number(out))} more, but ${failed}`;
     // A refusal this press could not test again is said as that, and its cause is said when it gave one.
     return [quotedMore, ...(a.earlier ? ['It could not be checked again just now'] : []), ...(a.why ? [a.why] : [])].join('. ');
   }
   if (a.kind === 'unchecked') {
     const why = 'its transaction for this trade could not be test-run on our side, so it was not sent';
-    return a.out <= s.quoted.outAmount
+    return a.out <= out
       ? `Jupiter quoted no more than this pool pays, and ${why}`
-      : `Jupiter quoted ${edgePercent(Number(a.out - s.quoted.outAmount) / Number(s.quoted.outAmount))} more, but ${why}`;
+      : `Jupiter quoted ${edgePercent(Number(a.out - out) / Number(out))} more, but ${why}`;
   }
   const beside = a.when === 'now' ? 'Jupiter quoted just now' : 'the last quote Jupiter gave (it could not be asked again just now)';
-  if (s.quoted.outAmount === a.out) return `the same as ${beside}, so the trade stays here`;
-  return `${edgePercent(Number(s.quoted.outAmount - a.out) / Number(a.out))} more than ${beside}`;
+  if (out === a.out) return `the same as ${beside}, so the trade stays here`;
+  return `${edgePercent(Number(out - a.out) / Number(a.out))} more than ${beside}`;
 }
 
 /**
@@ -684,6 +695,57 @@ function VenueSwapRows({ summary: s }: { summary: Extract<TxSummary, { kind: 've
       {/* Measured against the pool's price before the trade, so the pool fee is inside it. */}
       <ImpactRows bps={fractionToBps(s.quoted.priceImpact)} label="Price impact (pool fee included)" />
       <Row label="Compared with Jupiter" value={venueRouteText(s)} mono={false} line="market" />
+      {s.notices.map((n) => (
+        <Notice key={n} tone="warn">
+          {n}
+        </Notice>
+      ))}
+      <Notice>
+        {!q.native
+          ? s.paysCoin
+            ? `Your ${q.symbol} is spent straight from your own ${q.symbol} account. Nothing is wrapped.`
+            : `The ${q.symbol} is paid straight into your own ${q.symbol} account. Nothing is wrapped.`
+          : `${s.paysCoin ? 'Your SOL is wrapped into a token account for the swap' : 'The pool pays out wrapped SOL'}${
+              s.unwrapsWsol
+                ? ', and that account is closed at the end, so you get plain SOL back.'
+                : '. You already had a wrapped SOL account, so it is left open with its balance.'
+            }`}
+      </Notice>
+    </>
+  );
+}
+
+/**
+ * A swap in one of our range pools from the swap page. The amounts are decoded from the
+ * transaction; the pool and its fee tier are from the read it was built on. The fee and
+ * the venue's share of it are the tier's, said with their basis.
+ */
+function RangeSwapRows({ summary: s }: { summary: Extract<TxSummary, { kind: 'range-swap' }> }) {
+  const l = s.poolLine;
+  const q = l.quote;
+  const venue = rangeVenueEarns(l);
+  const tokenName = quoteCoin(l.tokenMint.toBase58())?.symbol ?? 'tokens';
+  const tok = (v: bigint, exact = false) => `${exact ? unitsExact(v, l.tokenDecimals) : tokenText(v, l.tokenDecimals)} ${tokenName}`;
+  const coin = (v: bigint, exact = false) => (exact ? coinExact(v, q) : coinAbout(v, q));
+  const [pay, get] = s.paysCoin ? [coin, tok] : [tok, coin];
+  return (
+    <>
+      <Row label="Range pool" value={l.pool.toBase58()} />
+      <Row label="Token (mint)" value={l.tokenMint.toBase58()} />
+      <Row label="Paired with" value={q.symbol} mono={false} />
+      <Row label="You pay" value={pay(s.amountIn, true)} />
+      <Row label="You receive (quoted)" value={get(s.quotedOut)} />
+      <Row label="You receive at least" value={get(s.minimumAmountOut, true)} />
+      {/* The pool's fee_on says which side the fee comes out of for this direction. */}
+      <Row
+        label={s.feeOnInput ? 'Pool fee (inside what you pay)' : 'Pool fee (taken before it reaches you)'}
+        value={`${perMillionPercent(l.tradeFeeRate)} of ${s.feeOnInput ? 'what you pay' : 'what the pool pays out, taken before it reaches you'}. The positions your trade passes through share what the venue does not keep: it keeps ${venue.cut}, read from the pool's fee tier.`}
+        mono={false}
+      />
+      {/* Anything but the agreed split is said once, in bold, at the top of the review. */}
+      {!venue.elsewhere && <Notice>{venue.where}</Notice>}
+      <Row label="Price bands it may cross" value={String(s.bandsCrossed)} mono={false} />
+      <Row label="Compared with Jupiter" value={routeText(s.aggregator, s.quotedOut)} mono={false} line="market" />
       {s.notices.map((n) => (
         <Notice key={n} tone="warn">
           {n}
@@ -739,7 +801,7 @@ function deltaRow(t: PreparedTx['simulated']['tokenDeltas'][number], prepared: P
   // both its name and its decimals come from the summary's coin. So a wrong or missing tag
   // cannot call it wrapped SOL, and a token with 9 decimals cannot make 250 USDC read as 0.25.
   // A swap from the swap page names its pool's coin the same way.
-  const poolCoin = isLpSummary(summary) ? summary.quote : summary.kind === 'venue-swap' ? summary.coin : null;
+  const poolCoin = isLpSummary(summary) ? summary.quote : summary.kind === 'venue-swap' ? summary.coin : 'poolLine' in summary ? summary.poolLine.quote : null;
   const coin = poolCoin && !poolCoin.native && t.mint.toBase58() === poolCoin.mint ? poolCoin : null;
   if (coin) return { label: `Test run: your ${coin.symbol} changes by`, value: `${sign}${tokenText(amount, coin.decimals)}` };
   return { label: testRunLabel(prepared.kind, t.role ?? 'token'), value: `${sign}${tokenText(amount, t.decimals ?? decimals)}` };
@@ -808,6 +870,7 @@ const RENT_ROW_LABEL: Record<TxKind, string> = {
   'range-open': 'One-time deposits: your position and its NFT (back when you close it), and any new price band of the pool (never returned)',
   'range-remove': 'One-time deposit for a new token account of yours (it stays in that account)',
   'range-close': 'One-time deposit for a new token account of yours (it stays in that account)',
+  'range-swap': 'One-time deposit for your new token account (it stays in that account)',
 };
 
 /**
@@ -879,6 +942,7 @@ const TITLES: Record<PreparedTx['kind'], string> = {
   'range-open': 'Review: open a range position',
   'range-remove': 'Review: take out of your range position',
   'range-close': 'Review: close your range position',
+  'range-swap': 'Review your swap',
 };
 
 export function TxReview({
