@@ -15,7 +15,7 @@ import { QUOTE_COINS, quoteCoin } from '../../../lib/solana/lp/quotes';
 import { BAYLA_MINT } from '../../../lib/solana/lp/tokenSafety';
 import { RANGE_PROGRAM_ID } from '../../../lib/solana/clmm/program';
 import { ownPoolPrograms } from '../../../lib/solana/lp/ownPools';
-import { readFeeTiers, readFreezeAuthority, readPairPools, readWalletPositions, type Read, type RangePool, type WalletPositionsRead } from '../../../lib/solana/clmm/read';
+import { readFeeTiers, readFreezeAuthority, readPairPools, readWalletPositions, type MintFreeze, type Read, type RangePool, type WalletPositionsRead } from '../../../lib/solana/clmm/read';
 import { freezeWarning } from '../../../lib/solana/lp/tokenSafety';
 import type { AmmConfigView } from '../../../lib/solana/clmm/program';
 import { feePaidIn, feeSplit, poolFeeCeiling } from '../../../lib/solana/clmm/feeText';
@@ -60,8 +60,8 @@ export interface RangeReaders {
   feeTiers(): Promise<Read<AmmConfigView[]>>;
   pairPools(mintA: string, mintB: string, tiers: AmmConfigView[]): Promise<Read<RangePool[]>>;
   walletPositions(owner: string): Promise<Read<WalletPositionsRead>>;
-  /** The token's freeze authority, or null for none: said where the token is picked. */
-  freezeAuthority(mint: string): Promise<Read<string | null>>;
+  /** The token's freeze authority, or that the address is not a mint: said where the token is picked. */
+  freezeAuthority(mint: string): Promise<Read<MintFreeze>>;
   /** Jupiter's price, refused when it comes through a range pool: the opening's market check. */
   outsidePrice(mint: string, decimals: number, opts?: { fresh?: boolean }): Promise<OutsidePrice>;
 }
@@ -280,13 +280,20 @@ const NOTE_WHAT = {
  * token is picked, as the LP deposit says it: a known coin's own line (USDC: Circle), or the
  * chain's freeze authority. A read that failed is said as that, never as "cannot be frozen".
  */
-function TokenFreezeNotice({ mint, read }: { mint: string; read: Read<string | null> | null }) {
+function TokenFreezeNotice({ mint, read }: { mint: string; read: Read<MintFreeze> | null }) {
   const known = quoteCoin(mint);
   if (known?.risk) return <CoinRiskNotice coin={known} />;
-  if (read?.kind === 'ok' && read.value) {
+  if (read?.kind === 'ok' && read.value.kind === 'mint' && read.value.freezeAuthority) {
     return (
       <div data-testid="range-token-freeze">
-        <Notice tone="warn">{freezeWarning(mint, read.value).text}</Notice>
+        <Notice tone="warn">{freezeWarning(mint, read.value.freezeAuthority).text}</Notice>
+      </div>
+    );
+  }
+  if (read?.kind === 'ok' && read.value.kind === 'not-a-mint') {
+    return (
+      <div data-testid="range-token-freeze">
+        <Notice tone="warn">{`This address is not a token mint (${read.value.detail}), so there is nothing here to put in a pool.`}</Notice>
       </div>
     );
   }

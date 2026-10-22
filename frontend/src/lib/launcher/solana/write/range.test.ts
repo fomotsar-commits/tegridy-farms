@@ -31,7 +31,9 @@ import { encodeAmmConfig, encodePool, encodePosition, encodeTickArray } from '..
 import { pairOf, priceAtSqrt, priceNumber } from '../../../solana/clmm/rangeMath';
 import type { OutsidePrice } from '../../../solana/lp/outsidePrice';
 import { decodeIntent } from './intent';
-import { RANGE_COPY, prepareRangeClose, prepareRangeOpen, prepareRangeRemove, stepsProblem, type RangeOpenReads } from './range';
+import { RANGE_COPY, freezeLines, prepareRangeClose, prepareRangeOpen, prepareRangeRemove, stepsProblem, type RangeOpenReads } from './range';
+import { encodeMint } from './testkit.fixture';
+import { BAYLA_QUOTE, SOL_QUOTE, USDC_QUOTE } from '../../../solana/lp/quotes';
 import { FakeChain, cfgLocal, openAccount, rent, type SimHandler } from './testkit.fixture';
 import type { IntentStep, PreparedTx, RangeIntent, RangeSummary, WriteRpc } from './types';
 
@@ -309,6 +311,28 @@ describe('opening a range position', () => {
     expect(warnings).toContain(`The token: Its creator can freeze any account that holds it (freeze authority ${auth.toBase58()}), a pool’s own vault and your own account included. While a pool’s vault is frozen, nobody can take liquidity out of that pool.`);
     const clean = ok(await prepareRangeOpen(W(ready(chainWith())), cfgLocal, PROG, READS, args));
     expect((clean.summary as Extract<RangeSummary, { kind: 'range-open' }>).warnings.some((w) => /freeze/.test(w))).toBe(false);
+  });
+
+  it('freeze lines, on either side: a freezable pairing coin (BAYLA, say) too; USDC once; a mint that does not decode is refused', () => {
+    const auth = Keypair.generate().publicKey;
+    const mintOf = (o: { freezeAuthority?: PublicKey } = {}) => ({ address: 'm', owner: TOKEN_PROGRAM_ID.toBase58(), lamports: 1, data: encodeMint({ decimals: 6, ...o }) });
+    const token = Keypair.generate().publicKey.toBase58();
+    const wording = `Its creator can freeze any account that holds it (freeze authority ${auth.toBase58()}), a pool’s own vault and your own account included. While a pool’s vault is frozen, nobody can take liquidity out of that pool.`;
+    // The pairing coin's side: BAYLA has no risk line of its own, so a freeze authority on it is read and said.
+    expect(freezeLines({ tokenMint: token, quote: BAYLA_QUOTE }, mintOf(), mintOf({ freezeAuthority: auth }))).toEqual([`BAYLA: ${wording}`]);
+    expect(freezeLines({ tokenMint: token, quote: BAYLA_QUOTE }, mintOf({ freezeAuthority: auth }), mintOf())).toEqual([`The token: ${wording}`]);
+    expect(freezeLines({ tokenMint: token, quote: SOL_QUOTE }, mintOf(), null)).toEqual([]);
+    // USDC as the pairing coin: said from its own line on the review (quote.risk), so not here: once.
+    expect(freezeLines({ tokenMint: token, quote: USDC_QUOTE }, mintOf(), mintOf({ freezeAuthority: auth }))).toEqual([]);
+    // USDC as the token: its issuer's wording, once.
+    const usdc = freezeLines({ tokenMint: USDC_QUOTE.mint, quote: SOL_QUOTE }, mintOf({ freezeAuthority: auth }), null) as string[];
+    expect(usdc).toHaveLength(1);
+    expect(usdc[0]).toMatch(/^USDC: Its issuer can freeze any account that holds it .* That is how USDC is built\.$/);
+    // A mint that does not decode, or did not read, is refused, never passed as clean.
+    const garbage = { address: 'm', owner: TOKEN_PROGRAM_ID.toBase58(), lamports: 1, data: new Uint8Array(10) };
+    const bad = freezeLines({ tokenMint: token, quote: SOL_QUOTE }, garbage, null);
+    expect(Array.isArray(bad) ? 'passed as clean' : bad.refuse).toMatch(/^This site does not build for this token in a range pool: /);
+    expect(freezeLines({ tokenMint: token, quote: SOL_QUOTE }, null, null)).toEqual({ refuse: RANGE_COPY.tokenNot('its mint was not read') });
   });
 
   it('a pool that pays a reward opens like any other: an opening carries no reward account', async () => {

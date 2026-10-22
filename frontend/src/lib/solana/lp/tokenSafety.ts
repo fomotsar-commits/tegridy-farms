@@ -346,10 +346,6 @@ export type TokenSafety =
     };
 
 /**
- * The verdict for one mint from its account and its Metaplex metadata account (either
- * may be null = absent). Pure.
- */
-/**
  * What a live freeze authority means, in the words every deposit says it (an LP deposit, a
  * range opening): its holder can freeze any account of the token, a pool's vault included,
  * and a frozen vault lets nobody take liquidity out.
@@ -367,6 +363,10 @@ export function freezeWarning(mint: string, freezeAuthority: string): { code: 'f
   };
 }
 
+/**
+ * The verdict for one mint from its account and its Metaplex metadata account (either
+ * may be null = absent). Pure.
+ */
 export function classifyToken(mint: string, mintAccount: RawAccount | null, metaplexAccount: RawAccount | null): TokenSafety {
   if (!mintAccount) return { kind: 'absent', mint };
   const blocks: SafetyReason[] = [];

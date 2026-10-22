@@ -293,14 +293,20 @@ export function readWalletPositions(rpc: SolanaRpc, programId: PublicKey, owner:
   });
 }
 
-/** A token's freeze authority as the chain has it, or null for none: what the LP deposit's token check reads. */
-export function readFreezeAuthority(rpc: SolanaRpc, mint: string): Promise<Read<string | null>> {
-  return guard(async () => {
+/** A mint's freeze authority (null for none), or why the address is not a token mint at all. */
+export type MintFreeze = { kind: 'mint'; freezeAuthority: string | null } | { kind: 'not-a-mint'; detail: string };
+
+/**
+ * A token's freeze authority as the chain has it: what the LP deposit's token check reads.
+ * An address with no account, or one that is not a mint, is `not-a-mint`; a read that failed
+ * is `unread`. Neither is ever "cannot be frozen".
+ */
+export function readFreezeAuthority(rpc: SolanaRpc, mint: string): Promise<Read<MintFreeze>> {
+  return guard(async (): Promise<MintFreeze> => {
     const [a] = await getMultipleAccounts(rpc, [mint]);
-    if (!a) unreadable('the token’s mint was not found');
-    const d = decodeMintAccount(a!.owner, a!.data);
-    if (!d.ok) unreadable(d.reason);
-    return d.ok ? d.value.freezeAuthority : null;
+    if (!a) return { kind: 'not-a-mint', detail: 'there is no account at this address' };
+    const d = decodeMintAccount(a.owner, a.data);
+    return d.ok ? { kind: 'mint', freezeAuthority: d.value.freezeAuthority } : { kind: 'not-a-mint', detail: d.reason };
   });
 }
 
