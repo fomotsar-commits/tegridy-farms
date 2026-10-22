@@ -58,7 +58,8 @@ export const COPIES = {
       'programs/amm/src/states/tickarray_bitmap_extension.rs',
       'programs/amm/src/util/token.rs',
     ],
-    oursOnly: ['README.md'],
+    // The test in place of upstream's compute_swap_step_test, which solana-ci.yml skips.
+    oursOnly: ['README.md', 'programs/amm/tests/swap_math_fee_rule.rs'],
     nested: ['vendor/uint'],
     // Raydium's lock pruned to the program's own crates, with uint read from vendor/uint.
     // Any change, even to a version upstream's lock also lists, needs a re-pin here.
