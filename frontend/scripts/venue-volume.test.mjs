@@ -13,6 +13,7 @@ import {
   USDC_MINT,
   VENUE_PROGRAM,
   blockscoutLogs,
+  evmRpc,
   decodePool,
   evmSwapLeg,
   jupiterSwap,
@@ -22,7 +23,7 @@ import {
   unbase58,
 } from "./lib/venue-volume-chain.mjs";
 import { addUp, legUsd, main, spotPrice } from "./venue-volume.mjs";
-import { VOLUME_SOURCES } from "../api/_lib/venueVolumePolicy.js";
+import { VOLUME_SOURCES, summarize } from "../api/_lib/venueVolumePolicy.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const FX = JSON.parse(readFileSync(join(HERE, "fixtures", "venue-volume", "mainnet.json"), "utf-8"));
@@ -290,6 +291,104 @@ describe("old ranges: Blockscout up to what it has indexed, else smaller RPC win
   });
 });
 
+// GitHub's runners, 2026-10-22: Base's backfill (about 450 windows of 100 blocks) got HTTP 429
+// partway through, every run, and a run that stopped saved nothing, so it never caught up.
+describe("a backfill that is throttled partway keeps what it read and resumes", () => {
+  const PAIR = "0x55875887b43c2e23ae424af0fc8606fdb058a481";
+  const lastLog = Math.max(...FX.evmLogs.map((l) => Number(l.blockNumber)));
+  const inRange = (from, to) => FX.evmLogs.filter((l) => Number(l.blockNumber) >= from && Number(l.blockNumber) <= to);
+  const cursorAt = (block) => ({ block, pairs: [{ address: PAIR, wethSide: 1 }] });
+  function rpc({ head, refuses }) {
+    const ranges = [];
+    const call = async (method, params) => {
+      if (method === "eth_getBlockByNumber") return { number: "0x" + head.toString(16), timestamp: "0x6a000000" };
+      if (method === "eth_getLogs") {
+        const from = Number(params[0].fromBlock);
+        const to = Number(params[0].toBlock);
+        if (refuses(from, to)) throw new Error("eth_getLogs: https://mainnet.base.org HTTP 429");
+        ranges.push([from, to]);
+        return inRange(from, to);
+      }
+      return "0x" + "1".padStart(64, "0");
+    };
+    return { call, ranges };
+  }
+  const noBlockscout = async () => new Response("", { status: 403 });
+
+  it("returns the swaps it read and a cursor at the last block read, with no countedTo", async () => {
+    const head = lastLog + 50;
+    const start = head - 999;
+    const throttledFrom = head - 499;
+    const f = rpc({ head, refuses: (a, b) => b - a + 1 > 100 || b >= throttledFrom });
+    const r = await readEvmChain(f.call, EVM_CHAINS.ethereum, cursorAt(start - 1), { fetchImpl: noBlockscout });
+    expect(r.incomplete).toMatch(/429/);
+    expect(r.countedTo).toBeNull();
+    expect(r.cursor.block).toBe(throttledFrom - 1);
+    expect(r.swaps).toHaveLength(inRange(start, throttledFrom - 1).length);
+
+    const g = rpc({ head, refuses: (a, b) => b - a + 1 > 100 });
+    const next = await readEvmChain(g.call, EVM_CHAINS.ethereum, r.cursor, { fetchImpl: noBlockscout });
+    expect(g.ranges[0][0]).toBe(throttledFrom);
+    expect(next.incomplete).toBeUndefined();
+    expect(next.cursor.block).toBe(head);
+    expect(r.swaps.length + next.swaps.length).toBe(inRange(start, head).length);
+  });
+
+  it("stops when the run's time is up, and says so", async () => {
+    const head = lastLog + 50;
+    const f = rpc({ head, refuses: (a, b) => b - a + 1 > 100 });
+    let clock = 0;
+    const r = await readEvmChain(f.call, EVM_CHAINS.ethereum, cursorAt(head - 1000), {
+      fetchImpl: noBlockscout,
+      deadline: 3,
+      now: () => clock++,
+    });
+    expect(r.incomplete).toMatch(/out of time/);
+    expect(r.cursor.block).toBe(f.ranges.at(-1)[1]);
+    expect(r.cursor.block).toBeLessThan(head);
+  });
+
+  it("saves a partial first read, and the source still counts as never counted", async () => {
+    const db = fakeDb();
+    const readers = { base: async () => ({ swaps: oneUsdcSwap, cursor: { block: 9, pairs: [] }, countedTo: null, incomplete: "HTTP 429" }) };
+    expect(await main({ env, fetchImpl: db.fetchImpl, deps: {}, sources: ["base"], readers, ...quiet })).toBe(1);
+    const row = db.rows.get("base");
+    expect(row).toMatchObject({ swaps: 1, usd: 3, cursor: { block: 9, pairs: [] }, counted_to: null, last_ok_at: null });
+    expect(row.last_error).toMatch(/resumes next run/);
+    const others = VOLUME_SOURCES.filter((x) => x !== "base").map((source) => ({
+      source, swaps: 1, usd: 1, counted_to: "2026-10-22T05:00:00Z", last_ok_at: "2026-10-22T05:00:00Z",
+    }));
+    expect(summarize([...others, row], Date.parse("2026-10-22T05:10:00Z"))).toEqual({ state: "unread" });
+  });
+
+  it("after the first full count, a partial read keeps when it was last complete", async () => {
+    const db = fakeDb([{ source: "base", swaps: 5, usd: 50, cursor: { block: 1, pairs: [] }, counted_to: "2026-10-22T04:00:00Z", last_ok_at: "2026-10-22T04:05:00Z", version: 3 }]);
+    const readers = { base: async () => ({ swaps: oneUsdcSwap, cursor: { block: 7, pairs: [] }, countedTo: null, incomplete: "HTTP 429" }) };
+    await main({ env, fetchImpl: db.fetchImpl, deps: {}, sources: ["base"], readers, ...quiet });
+    expect(db.rows.get("base")).toMatchObject({ swaps: 6, cursor: { block: 7 }, counted_to: "2026-10-22T04:00:00Z", last_ok_at: "2026-10-22T04:05:00Z", version: 4 });
+  });
+});
+
+describe("the EVM RPC: patient with a rate limit, quick with a refusal", () => {
+  const ok = () => new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result: "0x1" }));
+  it("waits longer after a 429 than the old 2, 4 and 6 seconds, then succeeds", async () => {
+    let n = 0;
+    const waits = [];
+    const fetchImpl = async () => (++n <= 2 ? new Response("Too Many Requests", { status: 429 }) : ok());
+    const call = evmRpc({ fetchImpl, rpcs: ["https://a"], wait: async (ms) => waits.push(ms) });
+    expect(await call("eth_blockNumber", [])).toBe("0x1");
+    expect(waits).toEqual([5000, 15000]);
+  });
+
+  it("does not wait on a range every endpoint refuses", async () => {
+    const waits = [];
+    const refuse = async () => new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, error: { code: 35, message: "ranges over 10000 blocks are not supported on free plan" } }), { status: 400 });
+    const call = evmRpc({ fetchImpl: refuse, rpcs: ["https://a", "https://b"], wait: async (ms) => waits.push(ms) });
+    await expect(call("eth_getLogs", [{}])).rejects.toThrow(/ranges over/);
+    expect(waits).toEqual([]);
+  });
+});
+
 describe("Blockscout, for ranges the RPCs no longer serve", () => {
   const PAIR = "0x55875887b43c2e23ae424af0fc8606fdb058a481";
   const answer = (indexed, logs) => async (url) =>
@@ -421,6 +520,10 @@ describe("main: totals and cursor are written together, or not at all", () => {
 });
 
 describe("pins", () => {
+  it("Base reads through every keyless RPC that serves its old blocks", () => {
+    expect(EVM_CHAINS.base.rpcs).toEqual(expect.arrayContaining(["https://base.drpc.org", "https://base.gateway.tenderly.co"]));
+  });
+
   it("every venue address the reader uses is in scripts/addresses.json", () => {
     const registry = readFileSync(join(HERE, "addresses.json"), "utf-8").toLowerCase();
     const used = [VENUE_PROGRAM, ...JUPITER_FEE_ACCOUNTS, ...Object.values(EVM_CHAINS).map((c) => c.factory), EVM_CHAINS.ethereum.weth];

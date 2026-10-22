@@ -10,6 +10,7 @@ The site's Changelog tab shows both files.
 ### 2026-10-22
 
 - Notice, updated: range pools get two fee tiers, 1% and 0.25% of each swap, no sooner than 2026-10-23 14:00 UTC (it said seven days from 2026-10-21). Of each fee, 84% stays with the liquidity providers whose range is in use, 10.4% goes to memetics.finance and 5.6% to Jungle Bay Island.
+- With reduced motion on, the Tradermigos splash holds its art still, every piece in sight, with no sparks or flashes; the pieces had kept bouncing.
 
 ### 2026-10-21
 
