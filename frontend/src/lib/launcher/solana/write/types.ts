@@ -367,7 +367,10 @@ export type RangeSummary =
       /** The deposits this opening pays (the position, its NFT, any new price band); shown, never a fee. */
       rentLamports: bigint;
       unwrapsWsol: boolean;
+      /** About the signer's own accounts: the review's own lines. */
       notices: string[];
+      /** The price check's words, said first on the review (a price off the market, no market, a read that failed). */
+      warnings: string[];
       /** The pool's price against the outside one, read fresh (clmm/priceCheck.ts): a run past 3% shows the review again. */
       price: RangePriceCheck;
     } & { poolLine: RangePoolLine; range: RangeLine })

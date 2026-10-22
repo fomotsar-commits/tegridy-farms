@@ -243,6 +243,14 @@ describe('picking a range', () => {
     expect(open.textContent).toContain('so this pool’s price cannot be checked against a market price');
   });
 
+  it('paired with USDC, the picker says Circle can freeze the pool’s USDC, where the coin is chosen', async () => {
+    show(readers());
+    const card = await screen.findByTestId('range-pools');
+    expect(within(card).queryByTestId('lp-coin-risk')).toBeNull();
+    fireEvent.click(within(card).getByRole('button', { name: 'With USDC' }));
+    await waitFor(() => expect(within(card).getByTestId('lp-coin-risk')).toHaveTextContent(/Circle/));
+  });
+
   it('a market price is never taken through our own pools: our range, constant-product and launch programs, and the one the page reads', () => {
     expect(new Set(ownPoolPrograms([PROG.toBase58()]))).toEqual(new Set([LIVE_PROGRAM_ID!.toBase58(), RANGE_PROGRAM_ADDRESS, LAUNCH_PROGRAM_ID.toBase58(), PROG.toBase58()]));
   });
@@ -422,6 +430,7 @@ function openSummary(): RangeSummary {
     rentLamports: 9_375_120n,
     unwrapsWsol: true,
     notices: [],
+    warnings: [],
     price: { state: 'agrees', pool: 0.0003, reference: 0.0003, diff: 0 },
     poolLine: {
       pool: POOL, tokenMint: new PublicKey(BAYLA_MINT), tokenDecimals: 6, quote: SOL_QUOTE, tokenIsToken0: BAYLA_IS_0,

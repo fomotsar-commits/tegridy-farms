@@ -1,5 +1,6 @@
 import { PLATFORM_TREASURY_VAULT } from '../../launcher/solana/curve/program';
 import { WORKSHOP_WALLET } from '../../launcher/solana/write/plant';
+import { shareOfSwap } from '../../../../api/_lib/shareOfSwap.js';
 import { perMillionPercent } from './feeText';
 import type { AmmConfigView } from './program';
 
@@ -33,7 +34,8 @@ export function rangeVenueEarns(t: Tier): RangeVenueEarns {
   const vault = PLATFORM_TREASURY_VAULT.toBase58();
   const workshop = WORKSHOP_WALLET.toBase58();
   const venue = t.protocolFeeRate + t.fundFeeRate;
-  const ofSwap = (rate: number) => perMillionPercent((t.tradeFeeRate * rate) / 1_000_000);
+  // A cut taken from positions rounds UP, as the position link says it (api/_lib/shareOfSwap.js).
+  const ofSwap = (rate: number) => shareOfSwap(t.tradeFeeRate, rate, 'deduction');
   const cut = `${perMillionPercent(venue)} of each swap’s fee (${ofSwap(venue)} of the swap)`;
   // Each wallet's take, the team's and the Workshop's always listed (at 0 when they get nothing).
   const take = new Map<string, number>([[vault, 0], [workshop, 0]]);

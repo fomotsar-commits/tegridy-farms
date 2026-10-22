@@ -325,7 +325,10 @@ describe('opening a range position', () => {
 describe('the pool’s price against the outside market, asked fresh at Review', () => {
   const notices = async (reads: RangeOpenReads) => {
     const p = ok(await prepareRangeOpen(W(ready(chainWith())), cfgLocal, PROG, reads, { owner: ME, pool: POOL, ...inRange, side: 'token', amount: 5_000_000n, toleranceBps: 100 }));
-    return (p.summary as Extract<RangeSummary, { kind: 'range-open' }>).notices;
+    // The price check's words; the accounts' notices are kept apart from them.
+    const summary = p.summary as Extract<RangeSummary, { kind: 'range-open' }>;
+    expect(summary.notices.some((n) => /outside price|Anyone can open a range pool/.test(n))).toBe(false);
+    return summary.warnings;
   };
   const priceLine = (n: string[]) => n.find((x) => /outside price|Anyone can open a range pool/.test(x)) ?? null;
 

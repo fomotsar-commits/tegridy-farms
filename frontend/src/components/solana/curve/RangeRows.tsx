@@ -72,13 +72,12 @@ export function RangeRows({ summary: s }: { summary: RangeSummary }) {
           )}
         </>
       )}
-      {/* An opening's notices are said first, above every row (TxFlowView `reviewWarnings`); a removal's stay here. */}
-      {s.kind !== 'range-open' &&
-        s.notices.map((n) => (
-          <Notice key={n} tone="warn">
-            {n}
-          </Notice>
-        ))}
+      {/* The accounts' notices: own lines. An opening's price warnings are said first, above every row (TxFlowView). */}
+      {s.notices.map((n) => (
+        <Notice key={n} tone="warn">
+          {n}
+        </Notice>
+      ))}
     </>
   );
 }
