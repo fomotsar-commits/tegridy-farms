@@ -9,6 +9,7 @@ The site's Changelog tab shows both files.
 
 ### 2026-10-22
 
+- The dashboard shows your connected wallets: the SOL, ETH and island coins they hold, with dollar values where a price was read, and your positions here (locks, stakes and pool shares) with amounts, unlock dates and what each has earned. A part that could not be read says so, with Try again. Every pool on the island is one press away under it.
 - The home has the island's dashboard on top of the Swap, Lock BAYLA and Add SOL + BAYLA cards: every pool on the island, numbered, with its picture, its chain and its lock terms. /dashboard shows the same.
 - The home's Add SOL + BAYLA card stays in its place while its pool is being read, and says so if the read fails; it used to disappear until the read came back.
 - Solana LP: every pool card now shows what is in the pool, its price, the outside price and the difference in plain view, above the deposit checks and the Add buttons. They were inside More about this pool.
