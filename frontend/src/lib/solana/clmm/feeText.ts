@@ -1,5 +1,5 @@
-import { shareOfSwap } from '../../../../api/_lib/shareOfSwap.js';
-import { FEE_ON_TOKEN_0_ONLY, FEE_ON_TOKEN_1_ONLY, type AmmConfigView } from './program';
+import { feeCeiling, swapShareText } from '../../../../api/_lib/shareOfSwap.js';
+import { FEE_ON_TOKEN_0_ONLY, FEE_ON_TOKEN_1_ONLY, type AmmConfigView, type PoolStateView } from './program';
 
 /** Rates the program keeps per million, as a percent, exactly: 10,000 is 1%, 160,000 (of a fee) is 16%. */
 export function perMillionPercent(rate: number): string {
@@ -20,15 +20,26 @@ export interface FeeSplit {
   venueOfSwap: string;
 }
 
-export function feeSplit(t: Pick<AmmConfigView, 'tradeFeeRate' | 'protocolFeeRate' | 'fundFeeRate'>): FeeSplit {
+/** The most a pool's swap fee can be, from its dynamic-fee record (shareOfSwap.js), or null for none. */
+export function poolFeeCeiling(pool: Pick<PoolStateView, 'dynamicFeeInfo' | 'tickSpacing'>, tradeFeeRate: number): number | null {
+  return feeCeiling(tradeFeeRate, pool.dynamicFeeInfo, pool.tickSpacing);
+}
+
+/**
+ * The fee and its split, by the position link's rule (api/_lib/shareOfSwap.js). `ceiling`
+ * (poolFeeCeiling) on a pool whose fee can rise above its tier's rate: the fee is a range and
+ * each share of the swap a floor, or on a 0% tier a range up to that pool's own ceiling.
+ */
+export function feeSplit(t: Pick<AmmConfigView, 'tradeFeeRate' | 'protocolFeeRate' | 'fundFeeRate'>, ceiling: number | null = null): FeeSplit {
   const venue = t.protocolFeeRate + t.fundFeeRate;
+  const rises = ceiling !== null && ceiling > t.tradeFeeRate;
   return {
-    fee: perMillionPercent(t.tradeFeeRate),
+    fee: rises ? `${perMillionPercent(t.tradeFeeRate)} to ${perMillionPercent(ceiling)}` : perMillionPercent(t.tradeFeeRate),
     lpOfFee: perMillionPercent(1_000_000 - venue),
-    // The position link's rule (api/_lib/shareOfSwap.js): positions DOWN, the venue's cut UP.
-    lpOfSwap: shareOfSwap(t.tradeFeeRate, 1_000_000 - venue, 'positions'),
+    // Positions DOWN, the venue's cut UP.
+    lpOfSwap: swapShareText(t.tradeFeeRate, 1_000_000 - venue, 'positions', ceiling),
     venueOfFee: perMillionPercent(venue),
-    venueOfSwap: shareOfSwap(t.tradeFeeRate, venue, 'deduction'),
+    venueOfSwap: swapShareText(t.tradeFeeRate, venue, 'deduction', ceiling),
   };
 }
 

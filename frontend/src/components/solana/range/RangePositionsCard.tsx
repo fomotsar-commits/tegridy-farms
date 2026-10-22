@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { PublicKey } from '@solana/web3.js';
 import { pairOf, rangePrices, type Pair } from '../../../lib/solana/clmm/rangeMath';
 import type { Read, WalletPosition, WalletPositionsRead } from '../../../lib/solana/clmm/read';
-import { feeSplit } from '../../../lib/solana/clmm/feeText';
+import { feeSplit, poolFeeCeiling } from '../../../lib/solana/clmm/feeText';
 import { formatSolPrice } from '../../../lib/solana/lp/format';
 import { priceNumber } from '../../../lib/solana/clmm/rangeMath';
 import { CardArt } from '../../ui/CardArt';
@@ -110,7 +110,7 @@ function PositionRow(p: {
 }) {
   const { w } = p;
   const pair = pairOf(w.pool);
-  const split = feeSplit(w.config);
+  const split = feeSplit(w.config, poolFeeCeiling(w.pool, w.config.tradeFeeRate));
   const id = w.position.address;
   const status =
     w.status === 'in-range'

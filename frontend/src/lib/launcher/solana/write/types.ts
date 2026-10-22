@@ -332,6 +332,8 @@ export type TxSummary =
 /** A range pool and its fee tier, as the review names them. From the builder's own fresh read. */
 export interface RangePoolLine {
   pool: PublicKey;
+  /** The pool's highest fee per million (a dynamic fee's top), or null when its fee is the tier's alone. */
+  feeCeiling: number | null;
   tokenMint: PublicKey;
   tokenDecimals: number;
   quote: QuoteCoin;

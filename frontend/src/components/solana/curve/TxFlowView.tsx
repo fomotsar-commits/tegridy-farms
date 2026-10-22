@@ -367,7 +367,7 @@ const gapCostText = (g: PriceGap, q: QuoteCoin) =>
  */
 function rangeVenueFirst(s: TxSummary): RangeVenueEarns | null {
   if (s.kind !== 'range-open' && s.kind !== 'range-remove' && s.kind !== 'range-close') return null;
-  const venue = rangeVenueEarns(s.poolLine);
+  const venue = rangeVenueEarns(s.poolLine, s.poolLine.feeCeiling);
   return venue.elsewhere ? venue : null;
 }
 

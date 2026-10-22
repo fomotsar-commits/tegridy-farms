@@ -1,6 +1,6 @@
 import { formatSol, formatTokenAmount } from '../../../lib/launcher/solana/curve';
 import { formatSolPrice } from '../../../lib/solana/lp/format';
-import { perMillionPercent } from '../../../lib/solana/clmm/feeText';
+import { feeSplit } from '../../../lib/solana/clmm/feeText';
 import { rangeVenueEarns } from '../../../lib/solana/clmm/venueEarns';
 import { Notice, Row } from './ui';
 import type { RangeSummary } from './ports';
@@ -17,7 +17,8 @@ const coinText = (v: bigint, decimals: number, symbol: string, native: boolean) 
 export function RangeRows({ summary: s }: { summary: RangeSummary }) {
   const l = s.poolLine;
   const q = l.quote;
-  const venue = rangeVenueEarns(l);
+  const venue = rangeVenueEarns(l, l.feeCeiling);
+  const fee = feeSplit(l, l.feeCeiling).fee;
   const token = (v: bigint) => `${formatTokenAmount(v, l.tokenDecimals, l.tokenDecimals).text} tokens`;
   const coin = (v: bigint) => coinText(v, q.decimals, q.symbol, q.native);
   const both = (a: { token: bigint; quote: bigint }) => `${token(a.token)} and ${coin(a.quote)}`;
@@ -35,7 +36,7 @@ export function RangeRows({ summary: s }: { summary: RangeSummary }) {
       <Row label="Paired with" value={q.symbol} mono={false} />
       <Row
         label="Swap fee"
-        value={`${perMillionPercent(l.tradeFeeRate)} of each swap through your range. Positions in range share what the venue does not keep: it keeps ${venue.cut}, read from the pool's fee tier.`}
+        value={`${fee} of each swap through your range. Positions in range share what the venue does not keep: it keeps ${venue.cut}, read from the pool's fee tier.`}
         mono={false}
       />
       {/* Anything but the agreed split is said once, in bold, at the top of the review (TxFlowView). */}

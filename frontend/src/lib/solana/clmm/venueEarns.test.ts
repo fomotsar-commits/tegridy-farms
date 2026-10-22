@@ -2,7 +2,8 @@ import { describe, it, expect } from 'vitest';
 import { PLATFORM_TREASURY_VAULT } from '../../launcher/solana/curve/program';
 import { WORKSHOP_WALLET } from '../../launcher/solana/write/plant';
 import { rangeVenueEarns } from './venueEarns';
-import { feeSplit } from './feeText';
+import { feeSplit, poolFeeCeiling } from './feeText';
+import { buildPositionMetadata } from '../../../../api/_lib/position.js';
 
 /**
  * Where a range pool's venue cut goes, from the fee tier's own rates and wallets, by the
@@ -71,6 +72,36 @@ describe('where a range pool’s venue cut goes', () => {
     expect([s.lpOfSwap, s.venueOfSwap]).toEqual(['0.2799%', '0.0534%']);
     expect(feeSplit({ tradeFeeRate: 1, protocolFeeRate: 1, fundFeeRate: 0 }).venueOfSwap).toBe('<0.0001%');
     expect(feeSplit({ tradeFeeRate: 10_000, protocolFeeRate: 104_000, fundFeeRate: 56_000 })).toMatchObject({ lpOfSwap: '0.84%', venueOfSwap: '0.16%' });
+  });
+
+  it('on a pool with a dynamic fee the tab says each share as a floor, or on a 0% tier a range to the pool’s own ceiling', () => {
+    const dynamic = { dynamicFeeInfo: { dynamicFeeControl: 100_000, maxVolatilityAccumulator: 100_000 }, tickSpacing: 120 } as Parameters<typeof poolFeeCeiling>[0];
+    const one = feeSplit(tier(), poolFeeCeiling(dynamic, 10_000));
+    expect([one.fee, one.lpOfSwap, one.venueOfSwap]).toEqual(['1% to 4%', 'at least 0.84%', 'at least 0.16%']);
+    const zero = feeSplit(tier({ tradeFeeRate: 0 }), poolFeeCeiling(dynamic, 0));
+    expect([zero.fee, zero.lpOfSwap, zero.venueOfSwap]).toEqual(['0% to 4%', '0% to 3.36%', '0% to 0.64%']);
+    expect(rangeVenueEarns(tier({ tradeFeeRate: 0 }), poolFeeCeiling(dynamic, 0)).cut).toBe('16% of each swap’s fee (0% to 0.64% of the swap)');
+    // No dynamic fee: the figures as before.
+    expect(feeSplit(tier(), poolFeeCeiling({ dynamicFeeInfo: null, tickSpacing: 120 } as Parameters<typeof poolFeeCeiling>[0], 10_000)).venueOfSwap).toBe('0.16%');
+  });
+
+  it('the tab and the position link say the same shares of a swap on the same dynamic pool', () => {
+    const own = { dynamicFeeControl: 10_000, maxVolatilityAccumulator: 1_000 };
+    for (const tradeFeeRate of [0, 3_333, 10_000]) {
+      const ceiling = poolFeeCeiling({ dynamicFeeInfo: own, tickSpacing: 120 } as Parameters<typeof poolFeeCeiling>[0], tradeFeeRate);
+      const s = feeSplit(tier({ tradeFeeRate }), ceiling);
+      const doc = buildPositionMetadata({
+        id: 'P',
+        position: { nftMint: 'N', poolId: 'Q', tickLower: 0, tickUpper: 1200, liquidity: 1n },
+        pool: { ammConfig: 'C', mint0: 'So11111111111111111111111111111111111111112', mint1: 'M', decimals0: 9, decimals1: 6, tickSpacing: 120, dynamicFee: true, ...own },
+        tier: { ...tier({ tradeFeeRate }), owner: VAULT, fundOwner: WORKSHOP },
+      });
+      expect(doc.description, String(tradeFeeRate)).toContain(`share 84% of it (${s.lpOfSwap} of the swap)`);
+      expect(doc.description, String(tradeFeeRate)).toContain(`the venue keeps 16% (${s.venueOfSwap} of the swap)`);
+      const team = rangeVenueEarns(tier({ tradeFeeRate }), ceiling).where;
+      const teamShare = /10\.4% of each fee \(([^)]+) of the swap\)/.exec(team)![1];
+      expect(doc.description, String(tradeFeeRate)).toContain(`10.4% of the fee (${teamShare} of the swap) to the team’s shared wallet`);
+    }
   });
 
   it('the agreed wallets at other rates are not the agreed split either', () => {
