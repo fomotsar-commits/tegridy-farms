@@ -45,6 +45,7 @@ import {
   priceAtTick,
   resolveId,
 } from "../_lib/position.js";
+import { shareOfSwap } from "../_lib/shareOfSwap.js";
 
 const FE = process.cwd();
 const CLMM = resolve(FE, "..", "solana", "tegridy-clmm", "programs", "amm", "src");
@@ -181,7 +182,7 @@ describe("held to the program source", () => {
     expect([pool.amm_config, pool.token_mint_0, pool.token_mint_1, pool.mint_decimals_0, pool.mint_decimals_1, pool.tick_spacing, pool.dynamic_fee_info, pool.total]).toEqual([
       POOL_STATE.ammConfig, POOL_STATE.mint0, POOL_STATE.mint1, POOL_STATE.decimals0, POOL_STATE.decimals1, POOL_STATE.tickSpacing, POOL_STATE.dynamicFeeInfo, POOL_STATE.len,
     ]);
-    expect(POOL_STATE.dynamicFeeInfoLen).toBe(80);
+    expect(POOL_STATE.dynamicFeeInfoLen).toBe(offsets("states/pool_fee.rs", "DynamicFeeInfo", 0).total);
     // The fee ceiling the page says for a dynamic fee is the program's own.
     expect(rust("states/pool_fee.rs")).toContain(`pub const MAX_FEE_RATE_NUMERATOR: u32 = ${MAX_FEE_RATE.toLocaleString("en-US").replace(/,/g, "_")};`);
     const cfg = offsets("states/config.rs", "AmmConfig", 8);
@@ -308,6 +309,56 @@ describe("real accounts of the live range program whose layout the venue's copy 
     expect([perMillion(0), perMillion(1), perMillion(0.01), perMillion(8_400)]).toEqual(["0%", "0.0001%", "<0.0001%", "0.84%"]);
     const doc = docFor(tierWith({ protocol: 1 }));
     expect(doc.description).toContain("0.0001% of the fee (<0.0001% of the swap) to the team’s shared wallet");
+  });
+
+  it("a share of the swap: what positions get rounds DOWN, what is taken from them rounds UP", () => {
+    expect([shareOfSwap(0, 840_000, "positions"), shareOfSwap(1, 1, "deduction"), shareOfSwap(3_333, 840_000, "positions"), shareOfSwap(3_333, 160_000, "deduction"), shareOfSwap(10_000, 840_000, "positions")]).toEqual([
+      "0%", "<0.0001%", "0.2799%", "0.0534%", "0.84%",
+    ]);
+    // An agreed tier at 0.3333%: positions 0.279972% of each swap (said 0.2799%), the venue
+    // 0.053328% (0.0534%), the team 0.0346632% (0.0347%), the Workshop 0.0186648% (0.0187%).
+    const doc = docFor({ ...agreed(), tradeFeeRate: 3_333 });
+    const shown = [...doc.description.matchAll(/\(([0-9.]+)% of the swap\)/g)].map((m) => Number(m[1]));
+    expect(shown).toHaveLength(4);
+    const [positions, venue, team, workshop] = shown;
+    const exact = (share) => (3_333 * share) / 1_000_000 / 10_000;
+    expect(positions).toBe(0.2799);
+    expect(positions <= exact(840_000) && positions > exact(840_000) - 0.0001).toBe(true);
+    for (const [got, share] of [[venue, 160_000], [team, 104_000], [workshop, 56_000]]) {
+      expect(got >= exact(share) && got < exact(share) + 0.0001, String(share)).toBe(true);
+    }
+    const attr = attrsOf(doc);
+    expect([attr["To the team’s shared wallet"], attr["To the island’s Workshop"]]).toEqual(["10.4% of the fee (0.0347% of the swap)", "5.6% of the fee (0.0187% of the swap)"]);
+  });
+
+  it("a dynamic pool on a 0% tier pays the dynamic part alone: each share reads from 0% up to the ceiling, never a flat 0%", () => {
+    const b = Uint8Array.from(bytes(FIX.pool.gz));
+    b[POOL_STATE.dynamicFeeInfo + 6] = 1;
+    const doc = buildPositionMetadata({ id: FIX.position.address, position, pool: decodePool(b), tier: { ...agreed(), tradeFeeRate: 0 } });
+    expect(doc.description).toContain("pays a fee of 0% to 4%, rising while the price moves fast: positions in range share 84% of it (0% to 3.36% of the swap)");
+    expect(doc.description).toContain("the venue keeps 16% (0% to 0.64% of the swap): 10.4% of the fee (0% to 0.416% of the swap) to the team’s shared wallet");
+    expect(doc.description).not.toMatch(/\(0% of the swap\)/);
+    expect(attrsOf(doc)["Swap fee"]).toBe("0% to 4%");
+  });
+
+  it("on a dynamic pool, a wallet that gets nothing is said to get 0%, and a sliver as more than 0%, never 'at least 0%'", () => {
+    const b = Uint8Array.from(bytes(FIX.pool.gz));
+    b[POOL_STATE.dynamicFeeInfo + 6] = 1;
+    const dynamicPool = decodePool(b);
+    const stranger = buildPositionMetadata({ id: FIX.position.address, position, pool: dynamicPool, tier: tierWith({ owner: STRANGER }) });
+    expect(stranger.description).toContain("0% of the fee (0% of the swap) to the team’s shared wallet");
+    expect(stranger.description).not.toMatch(/at least 0%|at least <0\.0001%/);
+    const sliver = buildPositionMetadata({ id: FIX.position.address, position, pool: dynamicPool, tier: tierWith({ protocol: 1 }) });
+    expect(sliver.description).toContain("0.0001% of the fee (more than 0% of the swap) to the team’s shared wallet");
+  });
+
+  it("a 4% tier on a dynamic pool is already at the program's ceiling: said as a plain 4%, never 'at least 4% … at most 4%'", () => {
+    const b = Uint8Array.from(bytes(FIX.pool.gz));
+    b[POOL_STATE.dynamicFeeInfo + 6] = 1;
+    const doc = buildPositionMetadata({ id: FIX.position.address, position, pool: decodePool(b), tier: { ...agreed(), tradeFeeRate: MAX_FEE_RATE } });
+    expect(doc.description).toContain("pays a 4% fee:");
+    expect(doc.description).not.toContain("at least 4%");
+    expect(attrsOf(doc)["Swap fee"]).toBe("4%");
   });
 
   it("the agreed wallets at other rates are not the agreed split either", () => {

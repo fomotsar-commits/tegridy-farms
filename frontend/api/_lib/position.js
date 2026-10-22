@@ -15,6 +15,7 @@
 
 import { checkGlobalLimit, checkRateLimit } from "./ratelimit.js";
 import { logSafe } from "./logSafe.js";
+import { shareOfSwap } from "./shareOfSwap.js";
 
 /** The id the program source declared before the deploy: nobody holds its key, so no link is served for it. */
 export const PLACEHOLDER_PROGRAM_ID = "RangePoo1PLACEHo1DERnotDep1oyed111111111111";
@@ -194,26 +195,42 @@ export function isAgreedSplit(tier) {
 }
 
 /**
- * How the swap fee is shared, said the way the site's Range tab says it (clmm/venueEarns.ts):
+ * How the swap fee is shared, with the Range tab's rule for a share of the swap
+ * (shareOfSwap.js: positions rounded down, the venue's and each wallet's cut rounded up):
  * what positions in range share, what the venue keeps, and what each wallet collects of the
  * fee and of the swap. Every figure and wallet is the tier's own; anything but the agreed
  * split is said first, as a warning.
  */
 function feeShare(tier, dynamicFee) {
   const venue = tier.protocolFeeRate + tier.fundFeeRate;
-  // With a dynamic fee the swap pays the tier's rate and more, so each share of the swap is a floor.
-  const floor = dynamicFee ? "at least " : "";
-  const ofSwap = (rate) => `${floor}${perMillion((tier.tradeFeeRate * rate) / 1_000_000)}`;
-  const takes = collectors(tier).map((c) => ({ ...c, name: walletName(c.address), ofFee: perMillion(c.rate), ofSwap: ofSwap(c.rate) }));
+  // A dynamic fee below the program's ceiling charges the tier's rate and more, so each share
+  // of the swap is a floor; on a 0% tier it is the dynamic part alone, from 0% to the ceiling.
+  const dynamic = dynamicFee && tier.tradeFeeRate < MAX_FEE_RATE;
+  const ofSwap = (share, side) => {
+    if (share <= 0) return "0%";
+    const base = shareOfSwap(tier.tradeFeeRate, share, side);
+    if (!dynamic) return base;
+    if (tier.tradeFeeRate === 0) return `0% to ${shareOfSwap(MAX_FEE_RATE, share, side)}`;
+    return base === "<0.0001%" ? "more than 0%" : `at least ${base}`;
+  };
+  const takes = collectors(tier).map((c) => ({ ...c, name: walletName(c.address), ofFee: perMillion(c.rate), ofSwap: ofSwap(c.rate, "deduction") }));
   const list = takes.map((c) => `${c.ofFee} of the fee (${c.ofSwap} of the swap) to ${c.name}`).join(", ");
   const agreed = isAgreedSplit(tier);
   return {
-    fee: dynamicFee ? `fee of at least ${feePercent(tier.tradeFeeRate)} (more while the price moves fast, at most ${feePercent(MAX_FEE_RATE)})` : `${feePercent(tier.tradeFeeRate)} fee`,
-    feeAttribute: dynamicFee ? `at least ${feePercent(tier.tradeFeeRate)}, at most ${feePercent(MAX_FEE_RATE)}` : feePercent(tier.tradeFeeRate),
+    fee: !dynamic
+      ? `${feePercent(tier.tradeFeeRate)} fee`
+      : tier.tradeFeeRate === 0
+        ? `fee of 0% to ${feePercent(MAX_FEE_RATE)}, rising while the price moves fast`
+        : `fee of at least ${feePercent(tier.tradeFeeRate)} (more while the price moves fast, at most ${feePercent(MAX_FEE_RATE)})`,
+    feeAttribute: !dynamic
+      ? feePercent(tier.tradeFeeRate)
+      : tier.tradeFeeRate === 0
+        ? `0% to ${feePercent(MAX_FEE_RATE)}`
+        : `at least ${feePercent(tier.tradeFeeRate)}, at most ${feePercent(MAX_FEE_RATE)}`,
     lpOfFee: perMillion(1_000_000 - venue),
-    lpOfSwap: ofSwap(1_000_000 - venue),
+    lpOfSwap: ofSwap(1_000_000 - venue, "positions"),
     venueOfFee: perMillion(venue),
-    venueOfSwap: ofSwap(venue),
+    venueOfSwap: ofSwap(venue, "deduction"),
     takes,
     agreed,
     where: agreed ? `: ${list}` : "",
