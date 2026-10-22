@@ -15,7 +15,7 @@
 
 import { checkGlobalLimit, checkRateLimit } from "./ratelimit.js";
 import { logSafe } from "./logSafe.js";
-import { shareOfSwap } from "./shareOfSwap.js";
+import { MAX_FEE_RATE, feeCeiling, swapShareText } from "./shareOfSwap.js";
 
 /** The id the program source declared before the deploy: nobody holds its key, so no link is served for it. */
 export const PLACEHOLDER_PROGRAM_ID = "RangePoo1PLACEHo1DERnotDep1oyed111111111111";
@@ -40,8 +40,8 @@ const RPC_TIMEOUT_MS = 6000;
 export const PERSONAL_POSITION = { len: 281, disc: [70, 111, 150, 126, 230, 15, 25, 117], nftMint: 9, poolId: 41, tickLower: 73, tickUpper: 77, liquidity: 81 };
 export const POOL_STATE = { len: 1544, disc: [247, 237, 227, 245, 215, 195, 222, 70], ammConfig: 9, mint0: 73, mint1: 105, decimals0: 233, decimals1: 234, tickSpacing: 235, dynamicFeeInfo: 1096, dynamicFeeInfoLen: 80 };
 
-/** The most a swap's fee can be, base and dynamic together: the program's MAX_FEE_RATE_NUMERATOR (pool_fee.rs, held by position.test.js). */
-export const MAX_FEE_RATE = 40_000;
+/** The most a swap's fee can be (shareOfSwap.js; position.test.js holds it to pool_fee.rs). */
+export { MAX_FEE_RATE };
 export const AMM_CONFIG = { len: 117, disc: [218, 244, 33, 104, 203, 203, 43, 111], owner: 11, protocolFeeRate: 43, tradeFeeRate: 47, fundFeeRate: 53, fundOwner: 61 };
 
 /**
@@ -128,6 +128,9 @@ export function decodePool(buf) {
     tickSpacing: d.getUint16(POOL_STATE.tickSpacing, true),
     // The program charges a dynamic fee on top of the tier's rate when this is set (all zero = none).
     dynamicFee: buf.subarray(POOL_STATE.dynamicFeeInfo, POOL_STATE.dynamicFeeInfo + POOL_STATE.dynamicFeeInfoLen).some((b) => b !== 0),
+    // DynamicFeeInfo's dynamic_fee_control (+6) and max_volatility_accumulator (+10): how high it can go.
+    dynamicFeeControl: d.getUint32(POOL_STATE.dynamicFeeInfo + 6, true),
+    maxVolatilityAccumulator: d.getUint32(POOL_STATE.dynamicFeeInfo + 10, true),
   };
 }
 
@@ -195,24 +198,17 @@ export function isAgreedSplit(tier) {
 }
 
 /**
- * How the swap fee is shared, with the Range tab's rule for a share of the swap
- * (shareOfSwap.js: positions rounded down, the venue's and each wallet's cut rounded up):
- * what positions in range share, what the venue keeps, and what each wallet collects of the
- * fee and of the swap. Every figure and wallet is the tier's own; anything but the agreed
- * split is said first, as a warning.
+ * How the swap fee is shared, by the rule in shareOfSwap.js (positions rounded down, the
+ * venue's and each wallet's cut rounded up, a floor or a range up to the pool's own ceiling
+ * on a dynamic fee): what positions in range share, what the venue keeps, and what each
+ * wallet collects of the fee and of the swap. Every figure and wallet is the tier's own;
+ * anything but the agreed split is said first, as a warning.
  */
-function feeShare(tier, dynamicFee) {
+function feeShare(tier, pool) {
   const venue = tier.protocolFeeRate + tier.fundFeeRate;
-  // A dynamic fee below the program's ceiling charges the tier's rate and more, so each share
-  // of the swap is a floor; on a 0% tier it is the dynamic part alone, from 0% to the ceiling.
-  const dynamic = dynamicFee && tier.tradeFeeRate < MAX_FEE_RATE;
-  const ofSwap = (share, side) => {
-    if (share <= 0) return "0%";
-    const base = shareOfSwap(tier.tradeFeeRate, share, side);
-    if (!dynamic) return base;
-    if (tier.tradeFeeRate === 0) return `0% to ${shareOfSwap(MAX_FEE_RATE, share, side)}`;
-    return base === "<0.0001%" ? "more than 0%" : `at least ${base}`;
-  };
+  const ceiling = pool.dynamicFee === true ? feeCeiling(tier.tradeFeeRate, pool, pool.tickSpacing) : null;
+  const dynamic = ceiling !== null && ceiling > tier.tradeFeeRate;
+  const ofSwap = (share, side) => swapShareText(tier.tradeFeeRate, share, side, ceiling);
   const takes = collectors(tier).map((c) => ({ ...c, name: walletName(c.address), ofFee: perMillion(c.rate), ofSwap: ofSwap(c.rate, "deduction") }));
   const list = takes.map((c) => `${c.ofFee} of the fee (${c.ofSwap} of the swap) to ${c.name}`).join(", ");
   const agreed = isAgreedSplit(tier);
@@ -220,13 +216,13 @@ function feeShare(tier, dynamicFee) {
     fee: !dynamic
       ? `${feePercent(tier.tradeFeeRate)} fee`
       : tier.tradeFeeRate === 0
-        ? `fee of 0% to ${feePercent(MAX_FEE_RATE)}, rising while the price moves fast`
-        : `fee of at least ${feePercent(tier.tradeFeeRate)} (more while the price moves fast, at most ${feePercent(MAX_FEE_RATE)})`,
+        ? `fee of 0% to ${feePercent(ceiling)}, rising while the price moves fast`
+        : `fee of at least ${feePercent(tier.tradeFeeRate)} (more while the price moves fast, at most ${feePercent(ceiling)})`,
     feeAttribute: !dynamic
       ? feePercent(tier.tradeFeeRate)
       : tier.tradeFeeRate === 0
-        ? `0% to ${feePercent(MAX_FEE_RATE)}`
-        : `at least ${feePercent(tier.tradeFeeRate)}, at most ${feePercent(MAX_FEE_RATE)}`,
+        ? `0% to ${feePercent(ceiling)}`
+        : `at least ${feePercent(tier.tradeFeeRate)}, at most ${feePercent(ceiling)}`,
     lpOfFee: perMillion(1_000_000 - venue),
     lpOfSwap: ofSwap(1_000_000 - venue, "positions"),
     venueOfFee: perMillion(venue),
@@ -247,7 +243,7 @@ export function buildPositionMetadata({ id, position, pool, tier }) {
   const low = priceAtTick(position.tickLower, pool.decimals0, pool.decimals1);
   const high = priceAtTick(position.tickUpper, pool.decimals0, pool.decimals1);
   const range = low && high ? `from ${low} to ${high} ${b} per ${a}` : `between ticks ${position.tickLower} and ${position.tickUpper}`;
-  const share = feeShare(tier, pool.dynamicFee === true);
+  const share = feeShare(tier, pool);
   const description =
     share.warning +
     `A range position in a memetics.finance pool of ${a} and ${b}, ${range}. ` +
