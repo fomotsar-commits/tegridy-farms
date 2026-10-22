@@ -38,6 +38,8 @@ const RPC_TIMEOUT_MS = 6000;
 
 /** Account layouts, recomputed from the program's structs by position.test.js. */
 export const PERSONAL_POSITION = { len: 281, disc: [70, 111, 150, 126, 230, 15, 25, 117], nftMint: 9, poolId: 41, tickLower: 73, tickUpper: 77, liquidity: 81 };
+/** DynamicFeeInfo's fields the link reads, from the struct's start (position.test.js recomputes them from pool_fee.rs). */
+export const DYNAMIC_FEE_INFO = { dynamicFeeControl: 6, maxVolatilityAccumulator: 10 };
 export const POOL_STATE = { len: 1544, disc: [247, 237, 227, 245, 215, 195, 222, 70], ammConfig: 9, mint0: 73, mint1: 105, decimals0: 233, decimals1: 234, tickSpacing: 235, dynamicFeeInfo: 1096, dynamicFeeInfoLen: 80 };
 
 /** The most a swap's fee can be (shareOfSwap.js; position.test.js holds it to pool_fee.rs). */
@@ -128,9 +130,9 @@ export function decodePool(buf) {
     tickSpacing: d.getUint16(POOL_STATE.tickSpacing, true),
     // The program charges a dynamic fee on top of the tier's rate when this is set (all zero = none).
     dynamicFee: buf.subarray(POOL_STATE.dynamicFeeInfo, POOL_STATE.dynamicFeeInfo + POOL_STATE.dynamicFeeInfoLen).some((b) => b !== 0),
-    // DynamicFeeInfo's dynamic_fee_control (+6) and max_volatility_accumulator (+10): how high it can go.
-    dynamicFeeControl: d.getUint32(POOL_STATE.dynamicFeeInfo + 6, true),
-    maxVolatilityAccumulator: d.getUint32(POOL_STATE.dynamicFeeInfo + 10, true),
+    // DynamicFeeInfo's dynamic_fee_control and max_volatility_accumulator: how high it can go.
+    dynamicFeeControl: d.getUint32(POOL_STATE.dynamicFeeInfo + DYNAMIC_FEE_INFO.dynamicFeeControl, true),
+    maxVolatilityAccumulator: d.getUint32(POOL_STATE.dynamicFeeInfo + DYNAMIC_FEE_INFO.maxVolatilityAccumulator, true),
   };
 }
 
