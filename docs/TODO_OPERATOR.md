@@ -29,6 +29,43 @@ stop and say so — a surprise is information.
 
 ---
 
+## 🔴 2026-10-22: two merges only you can press (#930 now, #776 on Day 2)
+
+A session's merge was refused on 2026-10-22 as a production deploy, after a general "merge". A
+second word that names the one PR ("merge 930") has let a merge through before, but not always.
+So press these two yourself, or name each one to a session when it is ready. Each takes one
+command.
+
+- ⬜ **Merge #930** (notes only: 40 added lines in `NOTES.md`, nothing removed, no change a visitor
+  sees). Trunk is merged into it. On 2026-10-22 its checks were still running, with none failed.
+  When it is done, check it first:
+
+  ```bash
+  gh pr view 930 --json mergeStateStatus,headRefOid --jq '"\(.mergeStateStatus) \(.headRefOid)"'
+  ```
+
+  **You should see** `CLEAN` and a head that begins `c63cd3d9e`. Then:
+
+  ```bash
+  gh pr merge 930 --merge --match-head-commit c63cd3d9ec2aa22e5d73321a20e0ec224aea9583
+  ```
+
+  If the head is different, or it says anything but `CLEAN`, do not merge: ask a session to look.
+  (#933, the splash art held still under reduced motion, merged 2026-10-22 at 10:36 UTC and is
+  live.)
+
+- ⬜ **Merge #776 within the hour after the pool upgrade executes on Day 2** (pool proposal #15,
+  from 2026-10-23 06:37 UTC, after the ladder's #17). Not before: until the execute, everything
+  #776 says about mainnet is false. It is a draft, level with trunk at `cdacf9c49`, and keeps
+  three checks red on purpose until the execute. The steps are the checklist at the top of its
+  description, in order: the pack's check after the upgrade, the four values of the record
+  (`read-upgrade-record.mjs`), the changelog line, the copy of the three staged files (then
+  `genesis-accounts.mjs` must end `wrote 9 accounts`), trunk merged in again, the checks, and
+  only then your merge. A session does every step but the merge: tell one "the pool upgrade
+  executed" and give it the minute.
+
+---
+
 ## 2026-10-21: the position link's two limits (nothing to do unless wallets report refusals)
 
 A range position NFT's link, `/position/<id>.json`, has two limits, both Vercel env vars:
