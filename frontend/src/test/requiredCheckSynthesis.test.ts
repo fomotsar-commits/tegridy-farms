@@ -221,24 +221,20 @@ describe('the shape that cannot regress into the companion recipe', () => {
     expect(bad, 'these gates skip when the scope job itself failed, which reports success').toEqual([]);
   });
 
+  const SCOPED = ['ci.yml', 'codeql.yml', 'contracts-ci.yml', 'registry-onchain.yml', 'slither.yml', 'solana-ci.yml'];
+
   it('finds scope jobs at all, so the rule above is not asserted over nothing', () => {
     const scoped = sources().filter((f) => /^ {2}scope:$/m.test(readFileSync(join(WORKFLOW_DIR, f), 'utf-8')));
-    expect(scoped.sort()).toEqual(
-      ['ci.yml', 'codeql.yml', 'contracts-ci.yml', 'registry-onchain.yml', 'slither.yml', 'solana-ci.yml'].sort(),
-    );
+    expect(scoped.sort()).toEqual([...SCOPED].sort());
   });
 
-  it('ci.yml and codeql.yml narrow pull requests only, and read both sides of a rename', () => {
+  it('ci.yml and codeql.yml narrow pull requests only', () => {
     // Neither has a push path filter, so the scope job itself answers run=true for every
-    // event that is not a pull request. A rename lists its old path too: a code file
-    // moved into docs/ is still a code change.
+    // event that is not a pull request.
     for (const f of ['ci.yml', 'codeql.yml']) {
       const src = readFileSync(join(WORKFLOW_DIR, f), 'utf-8');
       expect(src, `${f}: a push or schedule must run everything`).toMatch(
         /\[ -n "\$\{PR:-\}" \] \|\| \{[^\n]*say true; \}/,
-      );
-      expect(src, `${f}: the file list must include previous_filename`).toContain(
-        '.filename, (.previous_filename // empty)',
       );
       expect(src, `${f}: only an all-docs diff may skip`).toMatch(
         /diff-scope\.mjs --outside \\\n +'\*\*\/\*\.md' \\\n +'docs\/\*\*'\)\n/,
@@ -246,11 +242,22 @@ describe('the shape that cannot regress into the companion recipe', () => {
     }
   });
 
-  it('ci.yml and codeql.yml run everything when listing the files fails part way', () => {
+  it('every scope job reads both sides of a rename', () => {
+    // The files API lists a rename under its new path only. A code file moved into
+    // docs/, or a solana/ file moved out of solana/, is still a change to the tree it left.
+    for (const f of SCOPED) {
+      const src = readFileSync(join(WORKFLOW_DIR, f), 'utf-8');
+      expect(src, `${f}: the file list must include previous_filename`).toContain(
+        '.filename, (.previous_filename // empty)',
+      );
+    }
+  });
+
+  it('every scope job runs the real work when listing the files fails part way', () => {
     // gh prints each page as it arrives, and the list is sorted by path, so docs/ comes
     // before frontend/. A failure on a later page leaves a docs-only list behind, and
     // without -e the script would go on to answer false for a code PR.
-    for (const f of ['ci.yml', 'codeql.yml']) {
+    for (const f of SCOPED) {
       const src = readFileSync(join(WORKFLOW_DIR, f), 'utf-8');
       expect(src, `${f}: a failed gh listing must say true`).toMatch(
         /files=\$\(gh api --paginate [^\n]*\\\n +--jq '[^\n]*'\) \|\| \{\n[^\n]*::warning::[^\n]*\n +say true\n +\}\n/,

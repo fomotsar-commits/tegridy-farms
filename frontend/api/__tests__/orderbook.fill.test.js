@@ -547,13 +547,21 @@ describe("orderbook create — F10 seaportOrderHash claim verification", () => {
       offerer,
       zone: "0x0000000000000000000000000000000000000000",
       offer: [{ itemType: 2, token: NAKAMIGOS, identifierOrCriteria: "42", startAmount: "1", endAmount: "1" }],
+      // createNativeListing's split of 1 ETH: the seller's share, then 0.5% to the treasury.
       consideration: [{
         itemType: 0,
         token: "0x0000000000000000000000000000000000000000",
         identifierOrCriteria: "0",
-        startAmount: "1000000000000000000",
-        endAmount: "1000000000000000000",
+        startAmount: "995000000000000000",
+        endAmount: "995000000000000000",
         recipient: offerer,
+      }, {
+        itemType: 0,
+        token: "0x0000000000000000000000000000000000000000",
+        identifierOrCriteria: "0",
+        startAmount: "5000000000000000",
+        endAmount: "5000000000000000",
+        recipient: "0x7D2620243EdAd69Ec81A53c4A063B07995A4Bd7d",
       }],
       orderType: 0, // FULL_OPEN (was a stale pre-2026-06-10 fixture; 2 = FULL_RESTRICTED is unbuyable with a zero zone, and the server now refuses it)
       startTime: String(now),
@@ -561,7 +569,7 @@ describe("orderbook create — F10 seaportOrderHash claim verification", () => {
       zoneHash: "0x0000000000000000000000000000000000000000000000000000000000000000",
       salt: "0",
       conduitKey: "0x0000007b02230091a7ed01230072f7006a004d60a8d4e71d599b8104250f0000",
-      totalOriginalConsiderationItems: 1,
+      totalOriginalConsiderationItems: 2,
     };
     return {
       action: "create",

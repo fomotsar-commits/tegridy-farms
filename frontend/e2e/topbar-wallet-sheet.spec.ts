@@ -113,19 +113,42 @@ test('on a page with no Solana section a first visit downloads no Solana code; C
 
 // THE HOME'S CARDS (owner, 2026-10-16) bring their own Solana connection to a page that connects
 // Ethereum too. The top bar keeps asking which network, and its Solana row opens the cards' list:
-// one connection, so a wallet connected in either place is connected in both.
+// one connection, so a wallet connected in either place is connected in both. The island lobby
+// and BAYLA's door carry the same cards (owner, 2026-10-19).
 // MUTATION CHECK: TopNav.tsx, drop `&& !solanaMixed`. This must fail (the top bar turns Solana-only).
-test('on the home page the top bar still asks which network, and Solana opens the cards’ wallet list', async ({ page }) => {
-  await page.goto('/');
-  await expect(page.getByTestId('home-modules')).toBeVisible({ timeout: 30_000 });
-  await topBarConnect(page).click();
-  await expect(connectSheet(page).getByRole('listitem')).toHaveText([/^Solana/, /^Ethereum, Base, Robinhood Chain/]);
-  await solanaRow(page).click();
-  await expect(solanaList(page)).toBeVisible({ timeout: 30_000 });
-  await expect(solanaList(page).getByText('Trust Wallet')).toBeVisible();
-  await solanaList(page).getByRole('button', { name: 'Close' }).click();
-  await expect(solanaList(page)).toHaveCount(0);
-  await expect(topBarConnect(page)).toBeVisible();
+for (const [path, where] of [['/', 'the home page'], ['/island', 'the island lobby'], ['/bayla', 'BAYLA’s door']] as const) {
+  test(`on ${where} the top bar still asks which network, and Solana opens the cards’ wallet list`, async ({ page }) => {
+    await page.goto(path);
+    await expect(page.getByTestId('home-modules')).toBeVisible({ timeout: 30_000 });
+    await topBarConnect(page).click();
+    await expect(connectSheet(page).getByRole('listitem')).toHaveText([/^Solana/, /^Ethereum, Base, Robinhood Chain/]);
+    await solanaRow(page).click();
+    await expect(solanaList(page)).toBeVisible({ timeout: 30_000 });
+    await expect(solanaList(page).getByText('Trust Wallet')).toBeVisible();
+    await solanaList(page).getByRole('button', { name: 'Close' }).click();
+    await expect(solanaList(page)).toHaveCount(0);
+    await expect(topBarConnect(page)).toBeVisible();
+  });
+}
+
+// The cards are BAYLA's coin's: another room's door draws none, and never loads their code
+// (lib/bungalows.ts CARDS_ROOM_ID). React asks for a lazy chunk while it renders it, in the same
+// pass as the room's price card below it, so once that card shows the request has been made.
+// NOT the room's heading: the door's static first frame (DoorFrame) shows it before the page
+// itself has rendered, and a check on it passed with every room drawing the cards.
+test('another Solana room’s door does not carry BAYLA’s cards', async ({ page }) => {
+  const cardsCode = /\/assets\/HomeModules-[^/]*\.js(\?.*)?$/;
+  const asked: string[] = [];
+  page.on('request', (r) => {
+    if (cardsCode.test(r.url())) asked.push(r.url());
+  });
+  await page.goto('/bobo');
+  await expect(page.getByRole('heading', { name: 'BOBO price' })).toBeVisible({ timeout: 30_000 });
+  // A request already on its way when the card showed is still heard.
+  const late = await page.waitForRequest(cardsCode, { timeout: 3_000 }).then(() => true, () => false);
+  expect(asked, 'the cards’ code is not asked for on BOBO’s door').toEqual([]);
+  expect(late, 'the cards’ code is not asked for on BOBO’s door').toBe(false);
+  await expect(page.getByTestId('home-modules')).toHaveCount(0);
 });
 
 test('where the Solana wallets cannot be loaded, the sheet says so instead of loading for ever', async ({ page }) => {

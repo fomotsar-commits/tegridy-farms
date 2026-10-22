@@ -55,7 +55,7 @@ export function EvmBungalowDashboardPanel({ bungalow }: { bungalow: Bungalow }) 
 
   return (
     // The same page column as the Solana sibling: without it every card ran edge to edge.
-    <div className="relative z-10 max-w-[1200px] mx-auto px-4 md:px-6 pt-8 pb-16 space-y-4">
+    <div className="relative z-10 page-column mx-auto px-4 md:px-6 pt-8 pb-16 space-y-4">
       {/* Header card: who this is + wallet position + the standing CTAs. */}
       <section
         className="relative isolate rounded-2xl p-6"
@@ -131,7 +131,7 @@ export function EvmBungalowDashboardPanel({ bungalow }: { bungalow: Bungalow }) 
           and exit() do not exist at all), so a staker would have paid gas for
           a real Approve and then watched every follow-up revert. Its copy
           also promised "no locks, withdraw free at any time" about a pool
-          with 0-4 year locks and a 25% early-exit penalty.
+          with 0-4 year locks and an early-exit penalty.
           The fix is the shape both other dashboards already use: state the
           position, and send people to the one surface that owns the writes.
           A second write-capable copy of the staking UI is a divergence

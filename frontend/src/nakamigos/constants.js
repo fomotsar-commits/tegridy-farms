@@ -456,10 +456,11 @@ export const OPENSEA_FEE_RECIPIENT = "0x0000a26b00c1F0DF003000390027140000fAa719
 // 1% — OpenSea fee since Sep 2025. May vary per collection. Consider fetching from OpenSea API.
 export const OPENSEA_FEE_BPS = 100;
 
-// Platform fee — 1% on all trades
+// Platform fee: 0.5% on every native trade, half of OpenSea's 1% (owner's call, 2026-10-18).
+// api/_lib/platform-fee.js holds the server's copy; a test keeps the two equal.
 // RELAUNCH 2026-06-06: route to new 2-of-2 treasury Safe (was EOA 0xE9B7aB…, now only a Safe signer)
 export const PLATFORM_FEE_RECIPIENT = "0x7D2620243EdAd69Ec81A53c4A063B07995A4Bd7d";
-export const PLATFORM_FEE_BPS = 100; // 1%
+export const PLATFORM_FEE_BPS = 50; // 0.5%
 
 // ── Bundle listing feature flag ──────────────────────────────────────────────
 // Multi-NFT "list as a package" (one atomic Seaport order, one price). This is a
