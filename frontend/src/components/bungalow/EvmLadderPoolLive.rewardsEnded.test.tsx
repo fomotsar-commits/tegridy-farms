@@ -1,7 +1,7 @@
 // An EVM ladder whose reward period has ENDED takes no new stake (owner, 2026-10-14):
 // one line with the date periodFinish returned, no amount field, no Approve or Stake.
 // Claim stays. A pool paying 0 now (never funded, or a rate of 0, as QR reads today)
-// takes none either: a lock would earn nothing and leaving early costs 25%. A
+// takes none either: a lock would earn nothing and leaving early costs the penalty. A
 // never-funded pool is "not started", never "ended". An end or a rate that could not
 // be read holds Stake (money review 2026-10-14, m-3 and m-4). A live one keeps it.
 import { describe, it, expect, vi, beforeEach } from 'vitest';

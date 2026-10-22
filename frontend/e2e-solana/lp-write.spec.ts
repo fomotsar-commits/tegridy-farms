@@ -947,7 +947,7 @@ test.describe('group B (chromium only)', () => {
     await expect(routed).toHaveAttribute('data-price', 'unread');
     await expect(routed).toHaveAttribute('data-add', 'checks');
     await expect(routed).toContainText('came through our own pools');
-    await expect(routed).toContainText('We offer adding liquidity only when every check above could be run, and one of them could not be run just now.');
+    await expect(routed).toContainText('Adding is off: a check above could not be run just now.');
     await expect(ui.lp.poolWarnings(routed)).toHaveCount(0);
     await expect(ui.lp.addButton(routed)).toHaveCount(0);
 
@@ -980,18 +980,21 @@ test.describe('group B (chromium only)', () => {
     const tierText = (f: PoolFacts) =>
       // The pool's own creator-fee switch decides whether the tier's creator fee is in the cost.
       `${f.ammConfig.index}: traders pay ${tradeCostText(f.ammConfig, f.pool.enableCreatorFee)}; LPs keep ${feeSplit(f.ammConfig).lpKeepsPct.toFixed(3)}% of each trade`;
+    // Whole words only: a random base58 address in the section can spell "apr" or "apy"
+    // (DYbyM8apn7KA5g1ApYWR… failed it once).
+    const NO_YIELD = /\bAPR\b|\bAPY\b|yield of/i;
     const seen: string[] = [];
     for (const pool of [B.a1, B.b1]) {
       const { panel } = await addAndReview(a, pool.address, '0.05');
       const { rows, f } = await reviewDeposit(a, panel, pool.address, 'sol', sol(0.05));
       expect(rows['Fee tier']).toBe(tierText(f));
       seen.push(rows['Fee tier']!);
-      expect((await ui.lp.section(p).innerText())).not.toMatch(/APR|APY|yield of/i);
+      expect((await ui.lp.section(p).innerText())).not.toMatch(NO_YIELD);
       await press(p.getByRole('button', { name: 'Cancel', exact: true }), 'Cancel');
       await press(panel.getByRole('button', { name: 'Close', exact: true }), 'close the panel');
     }
     expect(seen[0]).not.toBe(seen[1]);
-    expect(await ui.lp.section(p).innerText()).not.toMatch(/APR|APY|yield of/i);
+    expect(await ui.lp.section(p).innerText()).not.toMatch(NO_YIELD);
     expect(a.wallet.records).toEqual([]);
     expect(a.rpc.violations).toEqual([]);
     await a.ctx.close();
@@ -1033,7 +1036,8 @@ test.describe('group B (chromium only)', () => {
     await connect(p);
     const aside = p.getByTestId('lp-positions-set-aside');
     await expect(aside).toBeVisible({ timeout: 60_000 });
-    if (!(await aside.evaluate((el) => (el as HTMLDetailsElement).open))) await press(aside.locator('summary'), 'set-aside list');
+    // The list's own summary: each share in it has a "More about this share" summary too.
+    if (!(await aside.evaluate((el) => (el as HTMLDetailsElement).open))) await press(aside.locator(':scope > summary'), 'set-aside list');
     const row = positionRow(p, B.pfee.address);
     await expect(row).toContainText('Set aside: this site does not open or add to pools for its token.');
     // The row's "Token check" value.

@@ -12,10 +12,7 @@ import { useSectionChain } from '../hooks/useSectionChain';
 import { POOLS_SECTION } from '../lib/navConfig';
 import { useVenueStatus } from '../hooks/useVenueStatus';
 import { isSolanaSwapLive } from '../lib/solana';
-import { BUNGALOWS, bungalowLpDoor, stakePoolMembersOnly } from '../lib/bungalows';
-
-/** The room whose pool and liquidity the home offers (owner, 2026-10-16: "the bayla staking module and the lp pool module"). */
-const HOME_ROOM_ID = 'bayla';
+import { BUNGALOWS, bungalowLpDoor, CARDS_ROOM_ID, stakePoolMembersOnly } from '../lib/bungalows';
 
 // The swap page's own form, in its home mode. Its own chunk, so the other two cards never wait on it.
 const SolanaSwapInner = lazy(() => import('../pages/SolanaSwapPage').then((m) => ({ default: m.SolanaSwapInner })));
@@ -39,12 +36,12 @@ function PoolsNetwork() {
  * LP section of /solana-lp), in a short mode, so every check before a signature is theirs.
  * ONE SolanaProviders for all three: a second WalletProvider reads the saved wallet only when
  * it mounts, so a visitor who connected in one card would look disconnected in another until
- * a reload. It is also the top bar's Solana connection on the home (`mixed`, lib/routeVoice.ts
- * hasMixedSolanaSection), so it mounts even when no card has anything on record to act on;
- * such a card is not drawn.
+ * a reload. It is also the top bar's Solana connection on the home, the island lobby and BAYLA's
+ * door (`mixed`, lib/routeVoice.ts hasMixedSolanaSection), so it mounts even when no card has
+ * anything on record to act on; such a card is not drawn.
  */
 export default function HomeModules({ readers: given }: { readers?: LpReaders } = {}) {
-  const room = BUNGALOWS.find((b) => b.id === HOME_ROOM_ID);
+  const room = BUNGALOWS.find((b) => b.id === CARDS_ROOM_ID);
   const readers = useMemo(() => given ?? browserLpReaders(), [given]);
   // As on /solana-lp: the LP card is drawn only once a chain read says the venue is open.
   const { status } = useVenueStatus();

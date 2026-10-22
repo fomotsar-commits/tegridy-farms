@@ -434,7 +434,9 @@ export const LIGHTHOUSE_STAKING_ABI = [
 
 // ─── Island lighthouse LADDER (contracts/src/LighthouseLadder.sol) ───────────
 // The locked build that supersedes the plain StakingRewards pools: 0d..4y
-// locks, 1.00x..4.00x boost, 25% early-exit penalty, an always-open emergency
+// locks, 1.00x..4.00x boost, an early exit the card reads from the pool (the live
+// six answer a flat EARLY_EXIT_PENALTY_BPS of 25%; the ladder's-law build answers
+// MAX_EARLY_EXIT_PENALTY_BPS and quotes penaltyFor per position), an always-open emergency
 // hatch, and reward payouts capped at balanceOf(pool) - totalSupply() so a
 // payout can never spend principal. `withdraw` is deliberately NOT the
 // canonical selector here — it takes a position id, not an amount, and reusing
@@ -463,6 +465,8 @@ export const LIGHTHOUSE_LADDER_ABI = [
   { type: 'function', name: 'rewardsToken', inputs: [], outputs: [{ name: '', type: 'address' }], stateMutability: 'view' },
   { type: 'function', name: 'MAX_LOCK_DURATION', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
   { type: 'function', name: 'EARLY_EXIT_PENALTY_BPS', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
+  { type: 'function', name: 'MAX_EARLY_EXIT_PENALTY_BPS', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
+  { type: 'function', name: 'penaltyFor', inputs: [{ name: 'amount', type: 'uint256' }, { name: 'lockEnd', type: 'uint64' }], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
 ] as const;
 
 // ─── TegridyLending (P2P NFT-Collateralized Lending) ───────────

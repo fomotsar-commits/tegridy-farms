@@ -10,15 +10,17 @@ import type { LpWriteMode } from '../../lib/launcher/solana/lpWriteFlag';
 
 const CARD = { background: 'rgba(4,9,18,0.90)', border: '1px solid var(--color-purple-25)' } as const;
 
-// A finger-sized press area that leaves the card the height it was: padding around the
-// small text, taken back by the same negative margin. Refresh is one 16.5px line, so
-// 14px above and below makes 44.5px (and 8px each side makes it 56px wide); a copy
-// button is one 18px line, so the same 14px makes 46px. Growing the buttons themselves
-// to 44px made the card 55px taller on a phone and 41px on a desktop. The keyboard's ring
-// goes round the words (`ring-on-words`, index.css), not round that area: there it stood
-// 9px out of a chip on each side and touched the heading under Refresh.
+// A finger-sized press area that leaves the card the height it was: padding round the small
+// text, taken back by the same negative margin. Refresh is one 16.5px line, so 14px above
+// and below makes 44.5px. The keyboard's ring goes round the words (`ring-on-words`, index.css).
 const REFRESH = 'px-2 -mx-2 py-3.5 -my-3.5 text-white/50 hover:text-white text-[11px] underline underline-offset-2 ring-on-words';
+// A copy button is one 18px line in a chip that adds 7px each side, so 14px reaches 7px out
+// of it: 46px. The live card's two chips wrap on a phone onto rows 12px apart, so there the
+// first reaches 8px up (to the heading) and 5px down, the second 6px up and 7px down (short
+// of Details): 45px each, and neither reaches the other.
 const COPY_PRESS = 'py-3.5 -my-3.5 ring-on-words';
+const COPY_PRESS_FIRST = 'pt-[15px] -mt-[15px] pb-3 -mb-3 ring-on-words';
+const COPY_PRESS_SECOND = 'pt-[13px] -mt-[13px] pb-3.5 -mb-3.5 ring-on-words';
 
 // What this site can do with the pools follows LP's own switch (lpWriteFlag.ts). Whether
 // the public fee tier takes new pools is said only by the create card's live read.
@@ -75,8 +77,8 @@ export function VenueStatusCard({ status, onRefresh, lpMode, feeSheetBelow = tru
           <p className="text-white/80 text-[13px] leading-relaxed mb-2">New pools on fee tier {status.config.index} are switched off.</p>
         )}
         <div className="flex flex-wrap gap-3 text-[12px]">
-          <Addr label="Program" value={status.programId} />
-          <Addr label="Config" value={status.config.address} />
+          <Addr label="Program" value={status.programId} press={COPY_PRESS_FIRST} />
+          <Addr label="Config" value={status.config.address} press={COPY_PRESS_SECOND} />
         </div>
         <FinePrint summary="Details" className="mt-2">
           <p>
@@ -165,12 +167,12 @@ export function VenueStatusCard({ status, onRefresh, lpMode, feeSheetBelow = tru
   );
 }
 
-function Addr({ label, value }: { label: string; value: string }) {
+function Addr({ label, value, press = COPY_PRESS }: { label: string; value: string; press?: string }) {
   return (
     <span className="inline-flex items-center gap-2 rounded-lg px-2.5 py-1.5"
       style={{ background: 'rgba(0,0,0,0.5)', border: '1px solid var(--color-kyle-40)' }}>
       <span className="text-[10px] uppercase tracking-wider" style={{ color: 'var(--color-kyle)' }}>{label}</span>
-      <CopyButton text={value} display={`${value.slice(0, 4)}…${value.slice(-4)}`} className={`font-mono text-[12px] ${COPY_PRESS}`} wordsClassName="ring-words" style={{ color: 'var(--color-kyle)' }} />
+      <CopyButton text={value} display={`${value.slice(0, 4)}…${value.slice(-4)}`} className={`font-mono text-[12px] ${press}`} wordsClassName="ring-words" style={{ color: 'var(--color-kyle)' }} />
     </span>
   );
 }

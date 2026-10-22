@@ -7,6 +7,7 @@ import { FlamesBoard } from '../components/FlamesBoard';
 import { PageArtBackdrop } from '../components/PageArtBackdrop';
 import { CardArt } from '../components/ui/CardArt';
 import { IslandSoundLinks } from '../components/IslandSound';
+import { VenueCards } from '../components/VenueCards';
 
 /**
  * The four-piece arrival film, on demand.
@@ -48,7 +49,7 @@ const ArrivalFilm = lazy(() =>
 /** One line per door: what is actually behind it. Keyed by route. */
 const BLURB: Record<string, string> = {
   '/gallery': 'Every piece, and the artists behind them.',
-  '/nakamigos': 'Trade four collections, browse five more. Our fee is 1%, the same as OpenSea.',
+  '/nakamigos': 'Trade four collections, browse five more. Our fee is 0.5%, half of OpenSea’s 1%.',
   '/community': 'Grants, bounties and the votes that direct them.',
   '/tokenomics': 'Supply, the treasury, lifetime fees, and your own tax reports.',
 };
@@ -79,7 +80,9 @@ export default function IslandPage() {
   return (
     <>
     <PageArtBackdrop pageId="island" />
-    <div className="relative z-10 mx-auto w-full max-w-[900px] px-4 py-8 sm:py-10">
+    {/* The home's column (page-column), not 900px: the three cards below sit side by side as
+        they do on the home, and a third of 900px is narrower than a phone. */}
+    <div className="relative z-10 mx-auto w-full page-column px-4 md:px-6 py-8 sm:py-10">
       <header className="mb-7">
         <p className="text-[11px] uppercase tracking-wider label-pill mb-2" style={{ color: 'var(--color-kyle)' }}>
           Jungle Bay Island
@@ -91,6 +94,13 @@ export default function IslandPage() {
           The place itself: its art, its people and its money.
         </p>
       </header>
+
+      {/* The home's three cards, swap, lock BAYLA and add SOL + BAYLA (owner, 2026-10-19: "we had
+          put the three modules on the homepage ... lets put them there again"). The same row
+          as the home's, with its one Solana connection (lib/routeVoice.ts hasMixedSolanaSection). */}
+      <div className="mb-6">
+        <VenueCards />
+      </div>
 
       {/* WAVE SEVEN, element G: the lobby OPENS with the board. Twenty-five rows here
           rather than the home's five, because someone who walked to /island came

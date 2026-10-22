@@ -1,25 +1,14 @@
 name: Contracts Coverage
 
-# THE NIGHTLY CRON THAT WAS ALWAYS REFERENCED AND NEVER EXISTED.
+# Weekly line coverage over contracts/src, held by a ratchet: .github/coverage-floor.json.
+# It lives here, not in contracts-ci.yml, because it is slow and allowed to fail. There is
+# no "no floor file, pass anyway" path: an unarmed ratchet is a green over nothing, so a
+# missing file fails the run and prints the JSON to commit.
 #
-# contracts-ci.yml carried a coverage step disabled three ways at once —
-# `if: ${{ false }}`, `|| true`, and `continue-on-error: true` — whose comment
-# said it "runs on the nightly cron with full coverage". No such workflow was
-# ever committed. Coverage last ran on 2026-05-17, and even then could not
-# have failed.
-#
-# Keeping it out of PR-blocking CI is correct: `forge coverage` on this
-# codebase takes 15-30 minutes on a 2-core hosted runner, and a 30-minute tax
-# on every PR is how a check gets deleted. So it lives here, on its own
-# schedule, where it is allowed to take as long as it takes AND is allowed to
-# fail.
-#
-# WHAT MAKES IT A GATE: a ratchet, `.github/coverage-floor.json`. Coverage that
-# only ever gets printed is a number nobody reads. This run recomputes line
-# coverage over contracts/src and fails if it has dropped below the committed
-# floor. There is deliberately no "no floor file, pass anyway" path — an
-# unarmed ratchet is the same green-over-nothing this workflow was written to
-# replace — so the first run fails and prints the exact JSON to commit.
+# One slice per job, the slices of .github/contracts-test-slices.json. A single
+# `forge coverage` over the whole suite compiles ~480 files under --ir-minimum and is killed
+# at about 15 GB on a 16 GB runner. Each slice compiles only its own tests (the rest are
+# `--skip`ped), peaks near 7.5 GB, and the lcov files are merged by line after.
 
 on:
   schedule:
@@ -39,10 +28,42 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  slices:
+    name: coverage slices
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      matrix: ${{ steps.emit.outputs.matrix }}
+      count: ${{ steps.emit.outputs.count }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+
+      - name: Every test file is sliced or explicitly excluded
+        run: node scripts/check-test-slice-coverage.mjs
+
+      - name: Emit matrix
+        id: emit
+        run: |
+          set -euo pipefail
+          MATRIX="$(node scripts/check-test-slice-coverage.mjs --emit-matrix)"
+          echo "matrix=${MATRIX}" >> "$GITHUB_OUTPUT"
+          COUNT="$(node -e 'console.log(JSON.parse(process.argv[1]).include.length)' "$MATRIX")"
+          echo "count=${COUNT}" >> "$GITHUB_OUTPUT"
+
   coverage:
-    name: forge coverage + floor ratchet
+    name: coverage - ${{ matrix.slice }}
+    needs: slices
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.slices.outputs.matrix) }}
     defaults:
       run:
         working-directory: contracts
@@ -56,24 +77,121 @@ jobs:
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@908c540300062bd5a7e473851cdb4282204cee09 # v1.9.1
         with:
-          # PINNED 2026-08-27 (was `stable`, which FLOATS) — see the build job in
+          # PINNED 2026-08-27 (was `stable`, which FLOATS) - see the build job in
           # contracts-ci.yml for the incident. Bump ALL 7 sites together, never one.
           version: v1.7.1
 
-      # --ir-minimum is load-bearing, not a speed knob. foundry.toml sets
-      # via_ir = true, and `forge coverage` under full via_ir loses the source
-      # mapping it needs to attribute hits — it either errors or reports
-      # nonsense. --ir-minimum compiles with the minimum IR settings that keep
-      # the mapping intact.
-      #
-      # NO `|| true`. If coverage cannot run, that is the finding.
-      - name: forge coverage
+      - name: Set up Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+
+      # --ir-minimum is load-bearing: foundry.toml sets via_ir, and plain `forge coverage`
+      # drops it and dies on stack-too-deep. These cannot be built under it, so the run
+      # leaves them out and the number does not count them:
+      #   src/TegridyTokenURIReader.sol  string.concat with 20+ arguments: Yul stack-too-deep.
+      #                                  Its test, and the one Deep_DropLaunchpad test that
+      #                                  imports it, go with it.
+      # `--no-match-contract EIP170Size` drops tests that assert the OPTIMIZED bytecode size.
+      - name: forge coverage (${{ matrix.slice }})
+        id: forge
+        env:
+          SLICE: ${{ matrix.slice }}
+          SLICE_NO_MATCH_TEST: ${{ matrix.noMatchTest }}
+          FOUNDRY_FUZZ_RUNS: 256
+          FOUNDRY_INVARIANT_RUNS: 32
+          FOUNDRY_INVARIANT_DEPTH: 256
         run: |
           set -euo pipefail
-          forge coverage --ir-minimum --report summary --report lcov | tee /tmp/coverage.txt
+          UNBUILDABLE=(
+            src/TegridyTokenURIReader.sol
+            test/TegridyTokenURIReader.t.sol
+            test/Deep_DropLaunchpad_2026_05_01.t.sol
+          )
+          for f in "${UNBUILDABLE[@]}"; do
+            test -f "$f" || { echo "::error::$f is on the coverage skip list and no longer exists"; exit 1; }
+          done
+
+          node ../scripts/check-test-slice-coverage.mjs --expect "$SLICE" | sort > /tmp/keep.txt
+          find test -name '*.t.sol' | sort > /tmp/all.txt
+          test -s /tmp/keep.txt || { echo "::error::slice $SLICE names no test file"; exit 1; }
+          echo "slice $SLICE compiles $(wc -l < /tmp/keep.txt) of $(wc -l < /tmp/all.txt) test files"
+
+          SKIPS=(--skip script)
+          for f in "${UNBUILDABLE[@]}"; do SKIPS+=(--skip "$f"); done
+          while read -r f; do SKIPS+=(--skip "$f"); done < <(comm -23 /tmp/all.txt /tmp/keep.txt)
+
+          # A failing forge must not stop the lcov upload, or the slice leaves nothing to read.
+          if ! forge coverage --ir-minimum "${SKIPS[@]}" \
+               --no-match-contract 'EIP170Size' --no-match-test "$SLICE_NO_MATCH_TEST" \
+               --report summary --report lcov; then
+            echo "failed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Upload this slice's lcov
+        uses: actions/upload-artifact@50769540e7f4bd5e21e526ee35c689e35e0d6874 # v4.4.0
+        if: ${{ !cancelled() }}
+        with:
+          name: lcov-${{ matrix.slice }}
+          path: contracts/lcov.info
+          retention-days: 30
+          if-no-files-found: error
+
+      - name: Fail the slice if forge failed
+        if: ${{ steps.forge.outputs.failed == 'true' }}
+        env:
+          SLICE: ${{ matrix.slice }}
+        run: |
+          echo "::error title=Coverage slice failed::forge coverage failed on slice $SLICE. Coverage over part of the suite is not the repo's number, so the merge will not run."
+          exit 1
+
+  merge:
+    name: merge slices + floor ratchet
+    needs: [slices, coverage]
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: contracts
+
+    steps:
+      - name: Every slice finished
+        working-directory: .
+        env:
+          COVERAGE_RESULT: ${{ needs.coverage.result }}
+        run: |
+          if [ "$COVERAGE_RESULT" != "success" ]; then
+            echo "::error title=Coverage not measured::at least one slice did not finish ($COVERAGE_RESULT). A number over part of the tests is not the repo's number, so nothing is compared to the floor."
+            exit 1
+          fi
+
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+
+      - name: Download the slices' lcov
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: lcov-*
+          path: contracts/slices
+
+      # Merged by line: a line is hit if any slice hit it. See scripts/lib/lcov-merge.mjs.
+      - name: Merge the slices
+        env:
+          EXPECTED: ${{ needs.slices.outputs.count }}
+        run: |
+          set -euo pipefail
+          FOUND="$(ls slices/*/lcov.info | wc -l)"
+          [ "$FOUND" = "$EXPECTED" ] || { echo "::error::expected $EXPECTED slice reports, found $FOUND"; exit 1; }
+          node ../scripts/lib/lcov-merge.mjs lcov.info slices/*/lcov.info
 
       # Parse LCOV rather than the human summary: LF/LH records are a stable
-      # format, the summary table's columns are not. Scoped to src/ — coverage
+      # format, the summary table's columns are not. Scoped to src/ - coverage
       # of test/ and script/ is not a number anyone should be ratcheting.
       - name: Compute line coverage over src/
         id: cov
@@ -86,7 +204,7 @@ jobs:
 
           def scoped(path: str) -> bool:
               # OUR src/, never a dependency's. Vendored trees under lib/ have
-              # their own src/ directories and would otherwise be averaged in —
+              # their own src/ directories and would otherwise be averaged in -
               # which both inflates the number and makes the ratchet move when
               # a submodule bumps.
               p = "/" + path.replace("\\", "/")
@@ -113,6 +231,7 @@ jobs:
       - name: Enforce the floor
         env:
           UPDATE_FLOOR: ${{ inputs.update_floor }}
+          SLICE_COUNT: ${{ needs.slices.outputs.count }}
         run: |
           set -euo pipefail
           FLOOR_FILE=../.github/coverage-floor.json
@@ -121,9 +240,13 @@ jobs:
             echo ""
             echo "| | |"
             echo "|---|---|"
+            echo "| slices | ${SLICE_COUNT} |"
             echo "| files | ${COV_FILES} |"
             echo "| lines hit | ${COV_LINES_HIT} / ${COV_LINES_FOUND} |"
             echo "| line coverage | **${COV_PCT}%** |"
+            echo ""
+            echo "Not in this number: \`src/TegridyTokenURIReader.sol\` (cannot be built under \`--ir-minimum\`)"
+            echo "and the tests that assert optimized bytecode size."
           } >> "$GITHUB_STEP_SUMMARY"
 
           if [ "$UPDATE_FLOOR" = "true" ]; then
@@ -145,7 +268,7 @@ jobs:
           # A floor of 0 is the armed-but-unmeasured state: the file exists so
           # this job can complete, but nothing has ever measured this tree, so
           # the comparison below cannot fail and this run proves nothing. That
-          # has to be visible on the run itself — a green check whose green
+          # has to be visible on the run itself - a green check whose green
           # means "no opinion" is the shape this whole workflow was written to
           # replace. Warning, not failure: failing here would make the cron red
           # until an operator does the one thing a red cron discourages.
@@ -167,13 +290,11 @@ jobs:
           print(f"OK: {got:.2f}% >= {floor:.2f}%")
           PY
 
-      - name: Upload lcov
+      - name: Upload merged lcov
         uses: actions/upload-artifact@50769540e7f4bd5e21e526ee35c689e35e0d6874 # v4.4.0
         if: ${{ !cancelled() }}
         with:
           name: contracts-lcov
-          path: |
-            contracts/lcov.info
-            /tmp/coverage.txt
+          path: contracts/lcov.info
           retention-days: 30
           if-no-files-found: warn
