@@ -4,10 +4,10 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { PublicKey, SystemProgram, Keypair, spl, LAMPORTS_PER_SOL } from './lib/deps.mjs';
-import { ADDR, WORK, DENY, LOCAL_TIME_LOCK, MAINNET_TIME_LOCK, registry } from './lib/config.mjs';
-import { conn, send, airdrop, kp, ledger, clockNow, wait } from './lib/chain.mjs';
+import { ADDR, WORK, LOCAL_TIME_LOCK, MAINNET_TIME_LOCK, registry } from './lib/config.mjs';
+import { conn, send, airdrop, kp, ledger } from './lib/chain.mjs';
 import { asVault, readMultisig, approveIx, squadsPdas, checkIdl, vaultPda } from './lib/squads.mjs';
-import { ix, PDA, account, events, sqrtPriceX64, tickAt, alignDown, arrayStart, order, ataOf, consts } from './lib/clmm.mjs';
+import { ix, PDA, account, sqrtPriceX64, tickAt, alignDown, arrayStart, order, ataOf } from './lib/clmm.mjs';
 import { MUTANTS } from './mutants.mjs';
 
 const MUT = process.env.CLMM_MUTANT || '';
@@ -262,7 +262,6 @@ const vA0 = reg(PDA.vault(poolA, M0), 'pool A vault 0');
 const vA1 = reg(PDA.vault(poolA, M1), 'pool A vault 1');
 const obsA = reg(PDA.observation(poolA), 'pool A price history');
 const bitmapA = reg(PDA.bitmap(poolA), 'pool A range map');
-const vaultOf = (mint) => (mint.equals(M0) ? vA0 : vA1);
 // Prices: S is SOL per BAYLA. The program's price is token 1 per token 0 in base units.
 const S = man.venuePrice.solPerBayla;
 const raw = (s) => (baylaIs0 ? s * 1e3 : 1e-3 / s);

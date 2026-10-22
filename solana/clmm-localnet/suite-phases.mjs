@@ -1,14 +1,12 @@
 // Phases 4 to 10 of suite.mjs: swaps, fees, the venue's share, rewards, limit orders, admin
 // actions, and the checks over every transaction of the run.
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
-import { PublicKey, SystemProgram, Keypair, spl, LAMPORTS_PER_SOL } from './lib/deps.mjs';
-import { ADDR, WORK, DENY, LOCAL_TIME_LOCK } from './lib/config.mjs';
+import { PublicKey, SystemProgram, Keypair, spl } from './lib/deps.mjs';
+import { ADDR, DENY, LOCAL_TIME_LOCK } from './lib/config.mjs';
 import { conn, send, ledger, clockNow, wait } from './lib/chain.mjs';
-import { ix, PDA, account, events, tickAt, alignDown, arrayStart, consts } from './lib/clmm.mjs';
+import { ix, PDA, account, tickAt, alignDown, arrayStart, consts } from './lib/clmm.mjs';
 
 export async function phases(c, h) {
-  const { positions, arrays, K, VAULT, BAYLA, WSOL, REWARD, M0, M1, baylaIs0, poolA, poolB, vA0, vA1, obsA, bitmapA, cfg0, S, raw, human, sqrtOf, range, SPACING, BAYLA_UNIT, known } = c;
+  const { positions, arrays, K, VAULT, BAYLA, WSOL, REWARD, M0, M1, baylaIs0, poolA, poolB, vA0, vA1, obsA, bitmapA, cfg0, S, raw, human, sqrtOf, SPACING, BAYLA_UNIT } = c;
   const { check, phaseDone, must, mustVault, vaultRun, measure, tok, sol, errName, failedWith, fmt, reg, ata, ataIx, prog, mut, pool, liqIx } = h;
   const { alice, bob, carol, dave, erin, mallory } = K;
   const vaultOf = (m) => (m.equals(M0) ? vA0 : vA1);

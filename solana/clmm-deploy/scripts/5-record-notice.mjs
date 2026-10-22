@@ -11,10 +11,12 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { CFG, PACK, args, connect, cluster, rpcFor, clock, Report, main, Unread } from './lib/pack.mjs';
 import { noticeEnds } from './lib/tiers.mjs';
+import { allowedUrl } from './lib/hosts.mjs';
 
 async function get(url, json) {
+  const to = allowedUrl(url, { loopback: CFG.kind === 'rehearsal' });
   let r;
-  try { r = await fetch(url, { headers: { accept: json ? 'application/vnd.github+json' : 'text/plain', 'user-agent': 'memetics-range-pools-notice' } }); } catch (e) { throw new Unread(`UNREAD: ${url} could not be read (${e.message})`); }
+  try { r = await fetch(to, { headers: { accept: json ? 'application/vnd.github+json' : 'text/plain', 'user-agent': 'memetics-range-pools-notice' } }); } catch (e) { throw new Unread(`UNREAD: ${url} could not be read (${e.message})`); }
   if (!json && r.status === 404) return null;
   if (!r.ok) throw new Unread(`UNREAD: ${url} answered HTTP ${r.status}${r.status === 403 || r.status === 429 ? ' (GitHub limits how often it may be asked: wait an hour)' : ''}`);
   return json ? r.json() : r.text();
@@ -67,10 +69,22 @@ if (process.argv[1]?.endsWith('5-record-notice.mjs')) await main(async () => {
   const now = new Date(net * 1000).toISOString();
   const file = path.join(PACK, 'owner-run', 'notice.json');
   fs.mkdirSync(path.dirname(file), { recursive: true });
-  const before = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf-8')) : null;
+  let before = null;
+  try { before = JSON.parse(fs.readFileSync(file, 'utf-8')); } catch (e) { if (e.code !== 'ENOENT') throw e; }
   const seenAt = before?.line === CFG.notice.line && before.seenAt ? before.seenAt : f.live ? now : null;
   const rec = { line: CFG.notice.line, seenAt, live: f.live, continuousSince: f.continuousSince, firstCommit: f.firstCommit, headSha: f.head, commits: f.commits, checkedAt: now };
-  if (seenAt) fs.writeFileSync(file, JSON.stringify(rec, null, 2) + '\n');
+  // GitHub's answer is written only in the shapes the page reads, and whole: a temp file, renamed.
+  const time = (x) => typeof x === 'string' && /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(\.\d+)?Z$/.test(x);
+  const sha = (x) => typeof x === 'string' && /^[0-9a-f]{40}$/.test(x);
+  if (!(time(rec.seenAt ?? now) && time(rec.checkedAt) && typeof rec.live === 'boolean' && Number.isSafeInteger(rec.commits) && rec.commits >= 0
+    && sha(rec.headSha) && (rec.continuousSince === null || time(rec.continuousSince)) && (rec.firstCommit === null || sha(rec.firstCommit)))) {
+    throw new Unread(`UNREAD: GitHub answered in a shape this script does not take: ${JSON.stringify(rec).slice(0, 300)}`);
+  }
+  if (seenAt) {
+    const tmp = `${file}.${process.pid}.tmp`;
+    fs.writeFileSync(tmp, JSON.stringify(rec, null, 2) + '\n', { flag: 'wx' });
+    fs.renameSync(tmp, file);
+  }
   R.note(`read ${f.commits} commits of ${CFG.notice.repo.branch}'s merge line, up to ${f.head}`);
   if (!f.live) {
     R.refuse(`the line is NOT in ${CFG.notice.files.join(' or ')} at ${CFG.notice.repo.branch}'s newest commit. The notice is that line, merged to ${CFG.notice.repo.branch}; ${seenAt ? 'it was there before: stop and ask' : 'wait until it is, then run this again'}`);

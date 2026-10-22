@@ -14,6 +14,7 @@ import { createRequire } from 'node:module';
 import { dirname, join, resolve } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
+import { allowedUrl } from '../scripts/lib/hosts.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const DEPLOY = resolve(HERE, '..');
@@ -247,7 +248,7 @@ try {
   const rec = () => JSON.parse(readFileSync(join(PACK, 'owner-run', 'notice.json'), 'utf-8'));
   const positionLink = async () => {
     const u = `${CFG.positionLink.base}${web3.Keypair.generate().publicKey.toBase58()}.json`;
-    const x = await fetch(u); const j = await x.json().catch(() => null);
+    const x = await fetch(allowedUrl(u, { loopback: true })); const j = await x.json().catch(() => null);
     return x.status === 404 && j?.error === CFG.positionLink.expect && j?.program === CFG.programId ? { ok: true, why: 'the position link is live for this program' } : { ok: false, why: `not live for this program (${JSON.stringify(j)})` };
   };
   const sha = (b) => Promise.resolve(createRequire(import.meta.url)('node:crypto').createHash('sha256').update(b).digest('hex'));

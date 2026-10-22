@@ -57,7 +57,9 @@ function splitTop(s) {
 /** Struct bodies keyed by name, with the attributes written just above each. */
 function structs(src) {
   const out = {};
-  const re = /((?:#\[[^\]]*(?:\[[^\]]*\][^\]]*)*\]\s*)*)pub struct (\w+)(?:<[^>{]*>)?\s*\{/g;
+  // An attribute is #[...] holding single non-bracket characters or one level of [...]: no two
+  // repeats can match the same text, so the scan stays linear.
+  const re = /((?:#\[(?:[^[\]]|\[[^[\]]*\])*\]\s*)*)pub struct (\w+)(?:<[^>{]*>)?\s*\{/g;
   let m;
   while ((m = re.exec(src))) {
     const body = matched(src, m.index + m[0].length - 1);

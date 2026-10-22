@@ -18,6 +18,7 @@ import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, r
 import { createRequire } from 'node:module';
 import { basename, dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { allowedUrl } from './scripts/lib/hosts.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = resolve(HERE, '..', '..');
@@ -102,7 +103,7 @@ const TIERS_ONLY = argv.includes('--tiers-only');
 if (TIERS_ONLY && KIND !== 'mainnet') fail('--tiers-only is for a mainnet folder');
 
 async function rpc(url, method, params = []) {
-  const r = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }) });
+  const r = await fetch(allowedUrl(url, { loopback: KIND === 'rehearsal' }), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }) });
   const j = await r.json();
   if (j.error) fail(`${url} ${method}: ${JSON.stringify(j.error)}`);
   return j.result;
@@ -241,6 +242,12 @@ const { makeCore } = await import(new URL('./scripts/lib/tiers.mjs', import.meta
 if (programId) {
   const core = makeCore({ web3, cfg });
   cfg.squads.vaultTransactionBytes = vtBytes(3 + 4 + 32 * core.EXPECTED.message.accountKeys.length + 4 + core.EXPECTED.message.instructions.reduce((s, ix) => s + 1 + 4 + ix.accountIndexes.length + 4 + ix.data.length / 2, 0) + 4);
+}
+// What the chains answered goes into config.json only in the shapes it must have.
+const isKey = (k) => { try { return new web3.PublicKey(k).toBase58() === k; } catch { return false; } };
+if (!Object.values(cfg.genesis).every(isKey) || cfg.addr.loader !== 'BPFLoaderUpgradeab1e11111111111111111111111'
+  || !members.every(isKey) || members.length !== 2 || !Number.isSafeInteger(cfg.timeLock) || cfg.timeLock < 0) {
+  rmSync(TMP, { recursive: true, force: true }); fail('a chain answered in a shape this folder does not take: nothing was written');
 }
 writeFileSync(join(TMP, 'config.json'), JSON.stringify(cfg, null, 2) + '\n');
 

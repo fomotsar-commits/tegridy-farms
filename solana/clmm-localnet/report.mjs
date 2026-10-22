@@ -4,7 +4,6 @@ import { readFileSync, writeFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { WORK } from './lib/config.mjs';
 import { spec } from './lib/clmm.mjs';
-import { MUTANTS } from './mutants.mjs';
 
 const j = (f) => JSON.parse(readFileSync(join(WORK, f), 'utf-8'));
 const clean = j('results-clean.json');
@@ -19,7 +18,8 @@ const perByte = man.mainnetRent.perByte;
 const offCount = readFileSync(join(WORK, 'deactivate-features.txt'), 'utf-8').split('\n').filter(Boolean).length;
 const sol = (l) => (Number(l) / 1e9).toFixed(4);
 const mainnetCost = (bytes) => (bytes + 128) * perByte;
-const esc = (s) => String(s).replace(/\|/g, '\\|');
+// A markdown table cell: the backslash first, so the pipe's escape cannot be undone.
+const esc = (s) => String(s).replace(/\\/g, '\\\\').replace(/\|/g, '\\|');
 
 const redBy = new Map();
 for (const m of sweep?.mutants || []) redBy.set(m.target, m);

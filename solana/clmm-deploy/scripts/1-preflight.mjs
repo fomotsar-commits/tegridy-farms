@@ -28,7 +28,7 @@ await main(async () => {
   console.log('A. This folder');
   const build = checkBinary(R);
   const v = spawnSync(CFG.solanaExe, ['--version'], { encoding: 'utf8' });
-  R.check(new RegExp(`^solana-cli ${CFG.cli.replace(/\./g, '\\.')} `).test((v.stdout ?? '').trim()), `your Solana tool is ${(v.stdout ?? '').trim()}`, `the Solana tool at ${CFG.solanaExe} did not answer as version ${CFG.cli} (${(v.stdout ?? '').trim() || v.error?.message || 'no answer'})`);
+  R.check((v.stdout ?? '').trim().startsWith(`solana-cli ${CFG.cli} `), `your Solana tool is ${(v.stdout ?? '').trim()}`, `the Solana tool at ${CFG.solanaExe} did not answer as version ${CFG.cli} (${(v.stdout ?? '').trim() || v.error?.message || 'no answer'})`);
   const payer = addressOfKeyFile(CFG.keyFiles.payer);
   R.check(payer === CFG.addr.deployWallet, `the paying wallet's key file is ${CFG.keyFiles.payer}, address ${payer}`, `the key file ${CFG.keyFiles.payer} is ${payer ? `the address ${payer}` : 'missing or unreadable'}, not the paying wallet ${CFG.addr.deployWallet}`);
   const progAddr = addressOfKeyFile(CFG.keyFiles.program);

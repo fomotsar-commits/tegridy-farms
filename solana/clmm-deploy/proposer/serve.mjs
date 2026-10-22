@@ -11,6 +11,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { CFG, PACK, web3 } from '../scripts/lib/pack.mjs'; // checks the folder against SHA256SUMS
+import { allowedUrl } from '../scripts/lib/hosts.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const NET = { rehearsal: 'local', mainnet: 'mainnet' }[CFG.kind];
@@ -29,7 +30,7 @@ const FILES = { '/': ['index.html', 'text/html; charset=utf-8'], '/app.bundle.js
 async function positionLink() {
   const url = `${CFG.positionLink.base}${web3.Keypair.generate().publicKey.toBase58()}.json`;
   try {
-    const r = await fetch(url, { redirect: 'manual', headers: { accept: 'application/json' } });
+    const r = await fetch(allowedUrl(url, { loopback: NET === 'local' }), { redirect: 'manual', headers: { accept: 'application/json' } });
     const j = await r.json().catch(() => null);
     if (r.status === 404 && j?.error === CFG.positionLink.expect && j?.program === CFG.programId) return { ok: true, why: `the position link is live on the website for this program (${url})` };
     return { ok: false, why: `the position link at ${url} answers ${r.status} ${JSON.stringify(j)?.slice(0, 140) ?? 'not JSON'}, not a 404 for this program: the website must serve range positions for ${CFG.programId} before any pool can be opened` };
@@ -45,7 +46,7 @@ async function relay(res, send, body, to, allowed) {
   for (const c of calls) if (c.method === 'sendTransaction') console.log(`${new Date().toISOString()}  relaying a signed transaction to ${NET}`);
   try {
     // What was checked is what is sent: the parsed calls, written out again.
-    const r = await fetch(to, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(msg) });
+    const r = await fetch(allowedUrl(to, { loopback: NET === 'local' }), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(msg) });
     return send(r.status, 'application/json', await r.text());
   } catch (e) { return send(502, 'application/json', JSON.stringify({ jsonrpc: '2.0', id: calls[0]?.id ?? null, error: { code: -32000, message: `the network could not be reached: ${e.message}` } })); }
 }
