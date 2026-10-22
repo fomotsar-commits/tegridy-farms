@@ -109,6 +109,7 @@ export const PAGE_ROUTES: Record<string, string> = {
   'flames-board': '/',
   'three-paths': '/',
   'venue-doors': '/',
+  'island-dashboard': '/',
   'yield-calculator': '/',
   'bungalow-dashboard': '/dashboard',
   portfolio: '/dashboard',
@@ -639,6 +640,7 @@ export const SURFACES: Surface[] = [
   { group: 'Home', pageId: 'three-paths', idx: 1, label: 'Three paths card 2 (Marketplace)' },
   { group: 'Home', pageId: 'three-paths', idx: 2, label: 'Three paths card 3 (Launch)' },
   { group: 'Home', pageId: 'venue-doors', idx: 0, label: 'Hall of doors panel (venue home)' },
+  { group: 'Home', pageId: 'island-dashboard', idx: 0, label: 'Dashboard panel (venue home, above the three cards; also /dashboard)' },
   { group: 'Home', pageId: 'yield-calculator', idx: 0, label: 'Yield calculator (TOWELI room, not connected)' },
 
   // Dashboard
