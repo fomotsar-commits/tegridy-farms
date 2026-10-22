@@ -329,7 +329,7 @@ describe('Add liquidity', () => {
     expect(panel).toHaveAccessibleName('Add liquidity to this pool');
     const before = within(panel).getByTestId('lp-before-you-add');
     expect(before).toHaveTextContent(/Our pool program is Raydium's, with only its admin keys changed\. Those changes have not had their own independent review yet\./);
-    expect(before).toHaveTextContent(/change its fee rates at once/);
+    expect(before).toHaveTextContent(/change its fee rates, and upgrade the program. Each change waits 48 hours after both have signed./);
     expect(before).toHaveTextContent("Jupiter does not send trades to these pools yet. This site's own swap sends a trade to this pool only when it pays the trader at least as much as Jupiter does, so fees can be small.");
     expect(before).toHaveTextContent('When the price moves, you can end up with less than if you had just held both tokens.');
     // No word on who trades a pool: "mostly bots" was a guess the chain has not borne out.
@@ -815,11 +815,11 @@ describe('the review', () => {
     expect(await within(panel).findByRole('heading', { name: 'Review: add liquidity' })).toBeInTheDocument();
     const disclosure = within(panel).getByTestId('lp-review-disclosure');
     expect(disclosure).toHaveTextContent(/have not had their own independent review yet/);
-    expect(disclosure).toHaveTextContent(/change its fee rates at once/);
+    expect(disclosure).toHaveTextContent(/change its fee rates, and upgrade the program. Each change waits 48 hours after both have signed./);
     // Island, answer eighteen: the two risk notices stand once, above the rows. The list under
     // the panel said them again under the Sign button; it keeps its other lines.
     expect(within(panel).getAllByText(/have not had their own independent review yet/)).toHaveLength(1);
-    expect(within(panel).getAllByText(/change its fee rates at once/)).toHaveLength(1);
+    expect(within(panel).getAllByText(/change its fee rates, and upgrade the program. Each change waits 48 hours after both have signed./)).toHaveLength(1);
     expect(within(panel).getAllByText(RISK_SHORT)).toHaveLength(1);
     expect(within(panel).getByTestId('lp-before-you-add')).toHaveTextContent('When the price moves, you can end up with less than if you had just held both tokens.');
     // Back on the form, with no review on screen, the list says them again.
@@ -1003,7 +1003,7 @@ describe('adding to a launch pool that charges the creator fee', () => {
     mount(readers({ findPools: vi.fn(async () => search([off])) }));
     fireEvent.click(await within(await card()).findByRole('button', { name: 'Add liquidity' }));
     const before = await screen.findByTestId('lp-before-you-add');
-    expect(before).toHaveTextContent("Of each trade, liquidity providers keep 0.200%, read from this pool's fee tier just now. The vault can change");
+    expect(before).toHaveTextContent("Of each trade, liquidity providers keep 0.200%, read from this pool's fee tier just now. The vault can change that tier's rates. A change waits 48 hours after both its keys approve");
     // ("creator" alone also names the token's creator, in the freeze-account risk line.)
     expect(before).not.toHaveTextContent(/pool's creator|creator fee/i);
   });

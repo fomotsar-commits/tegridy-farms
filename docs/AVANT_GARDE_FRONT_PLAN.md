@@ -41,12 +41,21 @@ An index of the room's own page: **Doors · Market · Burn · Held time · Holde
 
 It reads the sections the room actually renders, so a resident without lore gets no Lore entry. It carries no art: a fixed strip is never an art surface (art-system rule).
 
+### 5. The width (the second pull request)
+
+One rule for the column, `page-column` in `index.css`: 1,200px, then 1,360px from 1,536px, 1,600px from 1,920px and 1,800px from 2,560px. The bar, the Index's rows, the footer, every 1,200px host and the first frame's `.ff-wrap` read it, so the bar's logo stays over the page's edge and the hero does not move when React takes over. Under 1,536px nothing changes.
+
+A room with a market lays its cards on a grid from 1,536px: the market and its chart across eight of twelve columns, the burn, the held time and the holders stacked in the other four, the lore across all twelve. The hero stays where it is, at the left of the column with the resident's art composed beside it; the cards were not moved up next to it because the market card would have covered the muse. The market's six stats and the holders' four go fewer abreast in their narrower slots until 1,920px, by a prop the room's page passes, since the same cards render full width on the dashboard panels and the door landing (a container query could not do it: the column's padding changes at the same breakpoints the tiles flip on, so no card width maps to them).
+
+The Rail keeps its breakpoints: each column step leaves its gutter wider than the docked rail, and its words from 1,700px fit in every band.
+
 ## Not in this round
 
-- A wider column past 1,536px.
 - A hall of every room inside the Index.
 - The Rail on the venue home (its sections differ).
 
 ## How it is checked
 
 Unit tests on navConfig, TopNav, NavDrawer and RoomRail. Playwright screenshots at 390, 810 and 1280 of the Index and of the BAYLA door, looked at, not only asserted.
+
+The width: `src/lib/pageColumn.test.ts` pins the steps, the first frame's copy of them and that no page keeps a column of its own; `e2e/wide-screen.spec.ts` measures the bar, the page, the footer, the room's grid and the rail at each step's first and last pixel, 1,280 to 3,400. Screenshots of the BAYLA door at 1,280, 1,536, 1,920 and 2,560, looked at; the 1,280 one hashes the same before and after.

@@ -227,14 +227,37 @@ contract LighthouseLadderTest is Test {
         pool.withdrawPosition(id);
     }
 
-    function test_earlyExitPaysTheFullPenaltyAndPenaltyStaysInThePool() public {
+    /// THE LADDER'S LAW (owner, 2026-10-18): the penalty is the time left on the lock
+    /// over four years, capped at 75%, as the BAYLA ladder charges it. A one-year
+    /// lock left at once costs 365/1460 of principal, exactly 25%.
+    function test_earlyExitPaysTheTimeLeftOverFourYearsAndItStaysInThePool() public {
         uint256 id = _stake(alice, STAKE, YEAR);
         uint256 before = token.balanceOf(alice);
         vm.prank(alice);
         pool.earlyExit(id);
-        assertEq(token.balanceOf(alice) - before, (STAKE * 75) / 100, "25% penalty taken");
-        assertEq(token.balanceOf(address(pool)), STAKE / 4, "penalty stays as reward budget");
+        assertEq(token.balanceOf(alice) - before, (STAKE * 75) / 100, "one year left costs 25%");
+        assertEq(token.balanceOf(address(pool)), (STAKE * 25) / 100, "penalty stays as reward budget");
         assertEq(pool.totalSupply(), 0, "no principal claim remains");
+    }
+
+    /// The price falls as the lock runs down: the same one-year lock with a day left
+    /// costs 1/1460, and a seven-day lock left at once costs 7/1460 (about 0.48%).
+    function test_earlyExitPriceFallsAsTheLockRunsDown() public {
+        uint256 id = _stake(alice, STAKE, YEAR);
+        vm.warp(block.timestamp + YEAR - 1 days);
+        uint256 before = token.balanceOf(alice);
+        vm.prank(alice);
+        pool.earlyExit(id);
+        uint256 penalty = STAKE - (token.balanceOf(alice) - before);
+        assertApproxEqAbs(penalty, STAKE / 1460, 1e6, "a day left costs 1/1460");
+
+        uint256 id2 = _stake(bob, STAKE, 7 days);
+        uint256 before2 = token.balanceOf(bob);
+        vm.prank(bob);
+        pool.earlyExit(id2);
+        uint256 penalty2 = STAKE - (token.balanceOf(bob) - before2);
+        assertApproxEqAbs(penalty2, (STAKE * 7) / 1460, 1e6, "seven days left costs 7/1460");
+        assertLt(penalty2, (STAKE * 5) / 1000, "under half a percent, never a flat rate");
     }
 
     function test_maturedPositionCannotBeAccidentallyPenalised() public {
@@ -254,9 +277,27 @@ contract LighthouseLadderTest is Test {
         vm.prank(alice);
         pool.emergencyWithdraw(id);
         // Principal back minus the same penalty — it escapes a broken reward
-        // path, it is not a way to dodge the lock.
-        assertEq(token.balanceOf(alice) - before, (STAKE * 75) / 100);
+        // path, it is not a way to dodge the lock. Four years left: the 75% cap.
+        assertEq(token.balanceOf(alice) - before, (STAKE * 25) / 100, "the cap binds at four years");
         assertEq(pool.totalSupply(), 0);
+    }
+
+    /// Both early doors charge the same price at the same moment, or every leaver
+    /// takes the cheaper one (the BAYLA ladder's rule, kept here).
+    function test_bothEarlyDoorsChargeTheSamePrice() public {
+        uint256 a = _stake(alice, STAKE, 2 * YEAR);
+        uint256 b = _stake(bob, STAKE, 2 * YEAR);
+        vm.warp(block.timestamp + YEAR / 2);
+        uint256 quoted = pool.penaltyFor(STAKE, uint64(block.timestamp + YEAR + YEAR / 2));
+        uint256 ab = token.balanceOf(alice);
+        uint256 bb = token.balanceOf(bob);
+        vm.prank(alice);
+        pool.earlyExit(a);
+        vm.prank(bob);
+        pool.emergencyWithdraw(b);
+        assertEq(STAKE - (token.balanceOf(alice) - ab), quoted, "earlyExit charges the quote");
+        assertEq(STAKE - (token.balanceOf(bob) - bb), quoted, "emergencyWithdraw charges the same");
+        assertEq(quoted, (STAKE * 3) / 8, "a year and a half left is 37.5%");
     }
 
     function test_emergencyWithdrawAfterLockIsPenaltyFree() public {
@@ -266,6 +307,25 @@ contract LighthouseLadderTest is Test {
         vm.prank(alice);
         pool.emergencyWithdraw(id);
         assertEq(token.balanceOf(alice) - before, STAKE, "matured emergency exit keeps everything");
+    }
+
+    /// The schedule, pinned the way the deploy script checks it (L-INV-13 to 16)
+    /// and the funding script refuses it: the cap is 75%, four years left pays
+    /// the cap, three years still does, one year pays 25%, a matured lock pays
+    /// nothing. Mutation check: script/mutate-ladder-exit.sh makes the schedule a
+    /// flat 75%, then moves the cap to 25%, and expects this file red both times.
+    function test_theLaddersLaw_timeLeftOverFourYearsCappedAt75() public view {
+        uint64 now_ = uint64(block.timestamp);
+        assertEq(pool.MAX_EARLY_EXIT_PENALTY_BPS(), 7_500, "the cap");
+        assertEq(pool.BPS(), 10_000, "of principal, in basis points");
+        assertEq(pool.penaltyFor(1e18, now_ + 4 * 365 days), 0.75e18, "four years left: the cap");
+        assertEq(pool.penaltyFor(1e18, now_ + 3 * 365 days), 0.75e18, "three years left: still the cap");
+        assertEq(pool.penaltyFor(1e18, now_ + 2 * 365 days), 0.5e18, "two years left: half");
+        assertEq(pool.penaltyFor(1e18, now_ + 365 days), 0.25e18, "one year left: a quarter");
+        assertEq(pool.penaltyFor(1e18, now_), 0, "matured: free");
+        assertEq(pool.penaltyFor(1e18, now_ - 1), 0, "long matured: free");
+        // Four years and a day of lock still caps: time left is clamped to four years.
+        assertEq(pool.penaltyFor(1e18, now_ + 4 * 365 days + 1 days), 0.75e18, "clamped");
     }
 
     // ─────────────────── OTHER REVIEW FINDINGS ───────────────────

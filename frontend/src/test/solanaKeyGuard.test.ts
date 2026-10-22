@@ -263,7 +263,7 @@ describe('the real tree', () => {
     expect(DENY).toHaveLength(39);
     expect(DENY).toContain(RAYDIUM_ADMIN);
     expect(DENY).toContain('CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK');
-    expect(judge({ ours: OURS, deny: DENY, allow: ALLOW }).counts).toEqual({ found: 22, deny: 39, allowed: 22 });
+    expect(judge({ ours: OURS, deny: DENY, allow: ALLOW }).counts).toEqual({ found: 23, deny: 39, allowed: 23 });
   });
 
   it('finds no cargo config, toolchain file or source swap above any program', () => {
@@ -288,8 +288,23 @@ describe('the real tree', () => {
     expect(clmm).not.toContain('CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK');
   });
 
-  it('keeps the placeholder gate in tegridy-clmm while its id is the placeholder', () => {
-    const lib = readFileSync(join(REPO_ROOT, 'solana', 'tegridy-clmm', 'programs', 'amm', 'src', 'lib.rs'), 'utf-8');
-    expect(placeholderGate(lib, Object.keys(ALLOW.placeholder)[0])).toEqual([]);
+  it('keeps the placeholder gate in tegridy-clmm while its id is the placeholder, and none once the id is real', () => {
+    const lib = readFileSync(join(REPO_ROOT, 'solana', 'tegridy-clmm', 'programs', 'amm', 'src', 'lib.rs'), 'utf-8').replace(/\r/g, '');
+    // The state is read from the source: the id a build with no features compiles.
+    const release = /#\[cfg\(not\(feature = "devnet"\)\)\]\ndeclare_id!\("(\w+)"\);/.exec(lib)?.[1];
+    if (!release) throw new Error('lib.rs has no declare_id! for a build with no features');
+    if (release === PLACEHOLDER) {
+      expect(placeholderGate(lib, PLACEHOLDER)).toEqual([]);
+      return;
+    }
+    // After solana/clmm-deploy/program-id-change.mjs: the owner's id, no placeholder anywhere, no
+    // gate left, and a devnet build's id that is not the release's.
+    const devnet = /#\[cfg\(feature = "devnet"\)\]\ndeclare_id!\("(\w+)"\);/.exec(lib)?.[1];
+    expect(ALLOW.ours[release]).toBeTruthy();
+    expect(devnet).toBeTruthy();
+    expect(devnet).not.toBe(release);
+    expect(lib).not.toContain(PLACEHOLDER);
+    expect(JSON.stringify(ALLOW)).not.toContain(PLACEHOLDER);
+    expect(lib).not.toMatch(/placeholder-id/);
   });
 });
