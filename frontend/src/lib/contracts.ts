@@ -129,6 +129,8 @@ export const UNISWAP_V2_PAIR_ABI = [
   { type: 'function', name: 'token1', inputs: [], outputs: [{ name: '', type: 'address' }], stateMutability: 'view' },
   { type: 'function', name: 'totalSupply', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
   { type: 'function', name: 'balanceOf', inputs: [{ name: 'owner', type: 'address' }], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
+  // Zero until the venue's one-sixth cut is switched on for the pair (TegridyPair.harvest).
+  { type: 'function', name: 'kLast', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
 ] as const;
 
 // ─── Chainlink ──────────────────────────────────────────────────

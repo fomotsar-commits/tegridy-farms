@@ -452,6 +452,20 @@ hang-up reached it before `setsid` detached it; `nohup setsid cmd &` (hang-up ig
 before saying it started, and treat a PID as yours only if `/proc/<pid>/cmdline` names
 `solana-test-validator` (`solana/clmm-localnet/run.mjs`, `validator.mjs`).
 
+## 2026-10-20: Base's public RPCs answer eth_call but refuse eth_getLogs, so "no PairCreated found" from them is a search that did not run
+
+**Believed:** the three Base hosts in `viemChains.ts` can find a factory's `PairCreated` event, as
+they read its `allPairsLength()`.
+
+**Measured** (viem `getLogs` from Node, 2026-10-20/21, Base factory `0x12a2…9fEC`): every 2,000-block
+window on `mainnet.base.org` failed ("RPC Request failed"), `base-rpc.publicnode.com` refused a
+500-block window ("Invalid parameters"), and `base.drpc.org` failed six 500-block windows in a row.
+The same hosts answered every `eth_call`. `base.blockscout.com/api/v2` gave curl a Cloudflare
+challenge page. A loop that swallows those errors prints "not found" for a pair that exists.
+
+**Do:** count the failed windows and say "did not complete" when any failed. Read the pair's own
+state by `eth_call` (`allPairs(i)`, `token0`, `getReserves`), which these hosts do serve.
+
 ## 2026-10-19: a dev-server walk that stubs every /api/ request renders a blank page, because the app imports from /api/_lib/
 
 **Believed:** on `vite dev`, which has no serverless functions, answering every same-origin
