@@ -15,6 +15,37 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-10-22: an inline `style` colour silently cancels every `hover:` class on the element
+
+**Believed:** a Tailwind `hover:bg-[#22c55e]` on a button works whatever else the
+element carries, so a base colour may live in `style={{ background }}` while the
+hover state lives in a class.
+
+**Measured** (branch build of PR #954, Playwright chromium, `getComputedStyle` after
+`locator.hover()`): the "Buy all bungalows" stub with `style={{ background:
+'rgba(5,8,15,0.92)' }}` and `hover:bg-[#22c55e]` read `backgroundColor:
+rgba(5, 8, 15, 0.92)` on hover while its inner span's `group-hover:text-[#05080f]` had
+already turned the ink `rgb(5, 8, 15)`: near-black on near-black, an empty box. An
+inline declaration outranks any class, hover variants included, and no lint or test
+says so; jsdom unit tests pass because they never compute styles. With the
+background moved to `bg-[#05080f]/90` the same read gave `rgb(34, 197, 94)`. Two
+dashboard controls shipped a week earlier had the same shape (`style={{ color }}` plus
+`hover:text-*`) and had never changed colour on hover.
+
+**Do:** a colour that changes on hover, focus or `group-hover` is a class, and so is
+its resting value; keep `style` for what no class expresses (a per-row accent read
+from data, a font family). Verify a hover state by computed style in a real
+browser, not by the class list.
+
+### Incidental
+
+- An `inline-grid` whose column holds a `width: max-content` marquee grows to the
+  whole run (a seven-ticker tape made the stub 510 px). `w-0 min-w-full` on the
+  tape's wrapper fills the column without asking for any width.
+- A clipped `page.screenshot({ clip })` taken after `locator.hover()` can catch the
+  card's own hover transform mid-move and show the wrong element; `locator.screenshot()`
+  re-resolves the box.
+
 ## 2026-10-22: a backfill that saves nothing when it stops never finishes on GitHub's shared runners
 
 **Believed:** a history read that works from this machine works the same in a scheduled
