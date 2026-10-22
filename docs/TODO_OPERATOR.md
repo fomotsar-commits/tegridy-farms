@@ -31,8 +31,10 @@ stop and say so — a surprise is information.
 
 ## 🔴 2026-10-22: two merges only you can press (#930 now, #776 on Day 2)
 
-Sessions here cannot merge: the permission check refuses `gh pr merge` as a production deploy,
-even with your word. So these two are yours. Each takes one command.
+A session's merge was refused on 2026-10-22 as a production deploy, after a general "merge". A
+second word that names the one PR ("merge 930") has let a merge through before, but not always.
+So press these two yourself, or name each one to a session when it is ready. Each takes one
+command.
 
 - ⬜ **Merge #930** (notes only: 40 added lines in `NOTES.md`, nothing removed, no change a visitor
   sees). Trunk is merged into it. On 2026-10-22 its checks were still running, with none failed.
