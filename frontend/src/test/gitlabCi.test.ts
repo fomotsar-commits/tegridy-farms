@@ -28,6 +28,7 @@ const EXCLUDED: Record<string, string> = {
   'error-retention.yml': 'Schedule only, and it holds the Supabase service key, which this runner never gets; off GitHub api/errors.js purges after each stored report.',
   'contracts-coverage.yml': 'Schedule and dispatch only; not run off GitHub, by decision.',
   'mirror-to-gitlab.yml': 'GitHub only: it copies the branches and tags on GitHub to GitLab; on GitLab it would push the project to itself.',
+  'venue-volume.yml': 'Schedule only, and it holds the Supabase service key, which this runner never gets; off GitHub the count waits and the site says it is not up to date.',
   'changelog.yml': 'GitHub only: it reads a GitHub pull request\'s file list and description through the GitHub API; a merge request has neither there.',
 };
 const REPLACED: Record<string, { job: string; why: string }> = {
@@ -344,14 +345,34 @@ describe('the secret scan reads nothing the change controls', () => {
 /** A command as a comparable string: line continuations joined, whitespace collapsed. */
 const norm = (s: string) => s.replace(/\\\r?\n/g, ' ').replace(/\s+/g, ' ').trim();
 
-/** Every `gate <area> "<label>" <dir> <command>` line in local-gates.sh. */
-function gates(): { area: string; command: string }[] {
+/** A `[NAME=value ...] gate <area> "<label>" <dir> <command>` line of local-gates.sh. */
+const GATE = /^\s*((?:[A-Z][A-Z0-9_]*=\S+ )*)gate (root|frontend|contracts|solana) "[^"]*" \S+ (.+)$/;
+function gates(): { area: string; env: [string, string][]; command: string }[] {
   return read('scripts', 'ci', 'local-gates.sh')
     .split(/\r?\n/)
     .flatMap((l) => {
-      const m = /^\s*gate (root|frontend|contracts|solana) "[^"]*" \S+ (.+)$/.exec(l);
-      return m ? [{ area: m[1], command: norm(m[2]) }] : [];
+      const m = GATE.exec(l);
+      if (!m) return [];
+      const env = m[1].split(' ').filter(Boolean).map((a): [string, string] => [a.slice(0, a.indexOf('=')), a.slice(a.indexOf('=') + 1)]);
+      return [{ area: m[2], env, command: norm(m[3]) }];
     });
+}
+
+/** ci.yml's steps: each one-line `run:` command, and the names its `env:` sets to a literal. */
+function ciSteps(): { command: string; env: string[] }[] {
+  const steps: { command: string; env: string[] }[] = [];
+  let inEnv = false;
+  for (const line of code(read('.github', 'workflows', 'ci.yml').split(/\r?\n/))) {
+    if (/^ {6}- /.test(line)) steps.push({ command: '', env: [] });
+    const step = steps.at(-1);
+    const key = /^ {6}[- ] ([a-z-]+):\s*(.*)$/.exec(line);
+    if (key) inEnv = key[1] === 'env';
+    if (!step) continue;
+    if (key?.[1] === 'run') step.command = norm(key[2]);
+    const v = inEnv ? /^ {10}([A-Z][A-Z0-9_]*):\s*(.*)$/.exec(line) : null;
+    if (v && !v[2].includes('${{')) step.env.push(v[1]);
+  }
+  return steps;
 }
 
 /** Every script line CI runs: workflow `run:` lines and .gitlab-ci.yml script items. */
@@ -387,5 +408,41 @@ describe('local-gates.sh runs only what CI runs', () => {
     const commands = new Set(gates().map((g) => g.command));
     const missing = named.filter((c) => !commands.has(c));
     expect(missing, 'add a `gate <area> "<label>" <dir> <command>` line for each to scripts/ci/local-gates.sh').toEqual([]);
+  });
+
+  // The root and frontend gates are ci.yml's. It sets a variable on a step, so the gate for that
+  // step's command gets the same names and no other gate gets any: the ladder addresses the
+  // build needs turn three unit tests red when the whole run has them. Secrets are CI's alone.
+  it('gives each root and frontend gate exactly the variables ci.yml sets on its step', () => {
+    const steps = ciSteps();
+    expect(steps.filter((s) => s.command === 'npm run build' && s.env.length).length, 'guards the guard').toBeGreaterThan(0);
+    const wanted = (c: string) => [...new Set(steps.filter((s) => s.command === c).flatMap((s) => s.env))].sort();
+    const wrong = gates()
+      .filter((g) => g.area === 'root' || g.area === 'frontend')
+      .map((g) => ({ command: g.command, has: g.env.map(([n]) => n).sort(), wants: wanted(g.command) }))
+      .filter((g) => g.has.join() !== g.wants.join());
+    expect(wrong).toEqual([]);
+  });
+
+  it('reads each of those values from ci.yml, and lets no caller hand one to every gate', () => {
+    const lines = code(read('scripts', 'ci', 'local-gates.sh').split(/\r?\n/));
+    const ci = code(read('.github', 'workflows', 'ci.yml').split(/\r?\n/));
+    const set = gates().flatMap((g) => g.env);
+    expect(set.length, 'guards the guard').toBeGreaterThan(0);
+    const firstGate = lines.findIndex((l) => GATE.test(l));
+    for (const [name, value] of set) {
+      // `$var`, where var is read from ci.yml by a sed expression the value is checked against.
+      const v = /^\$([a-z_]+)$/.exec(value)?.[1];
+      expect(lines.map((l) => l.trim()), `${name}=${value}`).toContain(`${v}=$(from_workflow ci.yml 's/^ *${name}: *\\([[:alnum:]]*\\) *$/\\1/p')`);
+      const inCi = new Set(ci.flatMap((l) => new RegExp(`^ *${name}: *(\\S*) *$`).exec(l)?.[1] ?? []));
+      expect([...inCi].filter((x) => !/^[A-Za-z0-9]+$/.test(x)), `ci.yml's ${name} as sed reads it`).toEqual([]);
+      expect(inCi.size, `every ci.yml step gives ${name} one value`).toBe(1);
+      // Unset before any gate, so a caller's shell cannot hand it to the rest; set nowhere else.
+      const unset = lines.findIndex((l) => /^unset /.test(l) && l.split(/\s+/).includes(name));
+      expect(unset, `unset ${name} before the first gate`).toBeGreaterThan(-1);
+      expect(unset).toBeLessThan(firstGate);
+      const elsewhere = lines.filter((l) => !GATE.test(l) && (new RegExp(`\\b${name}=`).test(l) || (/\b(export|declare)\b/.test(l) && l.includes(name))));
+      expect(elsewhere).toEqual([]);
+    }
   });
 });

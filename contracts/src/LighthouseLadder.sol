@@ -51,14 +51,15 @@ import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
  * ───────────────────────────── THE EXIT HATCHES ──────────────────────────────
  *
  *   withdrawPosition   after the lock ends — principal + rewards, no penalty
- *   earlyExit          before it ends      — principal - 25%, rewards paid
+ *   earlyExit          before it ends      — principal minus the time left over
+ *                                            four years (capped at 75%), rewards paid
  *   emergencyWithdraw  ALWAYS, any time    — principal only, touching the
  *                                            reward path not at all
  *
  * `emergencyWithdraw` is the last resort and is deliberately ungated by time:
  * it is the hatch for a broken reward token or a wedged accumulator, so gating
  * it behind `lockEnd` would shut it in exactly the case it exists for. It is
- * not a way to dodge the lock — an early emergency exit pays the same 25%
+ * not a way to dodge the lock — an early emergency exit pays the same
  * penalty; what it buys is an exit that needs nothing from the reward engine.
  *
  * ────────────────────────────── HARDENING NOTES ──────────────────────────────
@@ -141,11 +142,18 @@ contract LighthouseLadder is ReentrancyGuard {
     ///      drift apart — the drift between them is precisely what the
     ///      three-wei position exploited.
     uint256 public constant MIN_BOOST = (MIN_STAKE * MIN_BOOST_BPS) / BPS;
-    /// @notice Paid by anyone leaving before their lock ends. It stays in the
-    ///         pool as reward budget — no treasury address, no external call,
-    ///         nothing to misconfigure, and the people who kept their word are
-    ///         the ones it accrues to.
-    uint256 public constant EARLY_EXIT_PENALTY_BPS = 2_500; // 25%
+    /// @notice THE LADDER'S LAW (owner, 2026-10-18, the island's answer on the
+    ///         split, section 4): leaving early costs the time left on the lock
+    ///         over four years, capped at 75%, veYFI's schedule as the BAYLA ladder
+    ///         charges it (bayla-ladder math.rs penalty_for). It stays in the pool
+    ///         as reward budget: no treasury address, no external call, and the
+    ///         people who kept their word are the ones it accrues to.
+    uint256 public constant MAX_EARLY_EXIT_PENALTY_BPS = 7_500;
+    /// @dev veYFI's SCALE, and its MAX_PENALTY_RATIO derived from the cap above so
+    ///      the two cannot disagree. The deploy script pins the schedule (L-INV-13
+    ///      to 16) and the funding script refuses a flat rate or another cap.
+    uint256 public constant PENALTY_SCALE = 1e18;
+    uint256 public constant MAX_PENALTY_RATIO = (PENALTY_SCALE * MAX_EARLY_EXIT_PENALTY_BPS) / BPS;
     /// @notice Bounds the per-account loop in `positionsOf`.
     uint256 public constant MAX_POSITIONS = 20;
 
@@ -362,6 +370,25 @@ contract LighthouseLadder is ReentrancyGuard {
         emit Withdrawn(msg.sender, id, p.amount, 0);
     }
 
+    /// @notice What leaving now would cost a position of `amount` locked until
+    ///         `lockEnd`: amount * min(time left / four years, 75%). Zero once the
+    ///         lock has ended. Both early doors charge exactly this, so no door is
+    ///         cheaper than the other. Same two floors, in the same order, as the
+    ///         BAYLA ladder: the leaver never pays a unit more than the schedule.
+    function penaltyFor(uint256 amount, uint64 lockEnd) public view returns (uint256) {
+        if (block.timestamp >= lockEnd) return 0;
+        uint256 timeLeft = lockEnd - block.timestamp;
+        if (timeLeft > MAX_LOCK_DURATION) timeLeft = MAX_LOCK_DURATION;
+        uint256 ratio = (timeLeft * PENALTY_SCALE) / MAX_LOCK_DURATION;
+        if (ratio > MAX_PENALTY_RATIO) ratio = MAX_PENALTY_RATIO;
+        // SLITHER 2026-10-19: the ratio is floored at 1e18 before it meets the amount, as
+        // veYFI and the BAYLA ladder (math.rs penalty_for) do it, so the two ladders quote
+        // the same wei for the same inputs. The flooring costs under amount / 1e18, less
+        // than a wei per whole token, and always in the leaver's favour.
+        // slither-disable-next-line divide-before-multiply
+        return (amount * ratio) / PENALTY_SCALE;
+    }
+
     /// @notice Leave before the lock ends: principal minus the penalty, plus
     ///         rewards. The penalty stays in the pool as reward budget.
     function earlyExit(uint256 id) public nonReentrant updateReward(msg.sender) {
@@ -372,7 +399,7 @@ contract LighthouseLadder is ReentrancyGuard {
         // AUDIT C1: pay before closing — see withdrawPosition above.
         _payRewards(msg.sender);
         _close(id, p);
-        uint256 penalty = (p.amount * EARLY_EXIT_PENALTY_BPS) / BPS;
+        uint256 penalty = penaltyFor(p.amount, p.lockEnd);
         uint256 out = p.amount - penalty;
         stakingToken.safeTransfer(msg.sender, out);
         emit Withdrawn(msg.sender, id, out, penalty);
@@ -399,10 +426,8 @@ contract LighthouseLadder is ReentrancyGuard {
     function emergencyWithdraw(uint256 id) external nonReentrant updateReward(msg.sender) {
         Position memory p = _owned(id);
         _close(id, p);
-        uint256 out = p.amount;
-        if (block.timestamp < p.lockEnd) {
-            out = p.amount - (p.amount * EARLY_EXIT_PENALTY_BPS) / BPS;
-        }
+        // penaltyFor is zero once the lock has ended, so a matured hatch is free.
+        uint256 out = p.amount - penaltyFor(p.amount, p.lockEnd);
         stakingToken.safeTransfer(msg.sender, out);
         emit EmergencyWithdrawn(msg.sender, id, out);
     }

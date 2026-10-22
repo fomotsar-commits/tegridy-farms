@@ -5,36 +5,65 @@ import "forge-std/Script.sol";
 import {TegridyNFTPoolFactory} from "../src/TegridyNFTPoolFactory.sol";
 
 /// @title  DeployNFTPoolFactory — per-wave deploy for the restored Sudoswap-style NFT AMM
-/// @notice Clone-factory (EIP-1167) for per-collection bonding-curve pools. The owner is
-///         set DIRECTLY to the multisig in the constructor (OwnableNoRenounce(_owner)), so
-///         no separate handover is needed. Individual pools are user-deployed clones via
-///         factory.createPool(...). PROTOCOL_FEE_BPS is deploy-time policy — REVIEW.
-/// @dev    Env: MULTISIG (becomes owner), PROTOCOL_FEE_BPS (default 50 = 0.5% last-known),
+/// @notice Clone-factory (EIP-1167) for per-collection bonding-curve pools. The constructor
+///         deploys the pool template and stores it as the immutable poolImplementation, so a
+///         template fix ships only as a new factory (runbook: docs/NFT_POOL_FACTORY_REDEPLOY.md).
+///         The owner is set DIRECTLY to the multisig in the constructor; no handover step.
+/// @dev    Env: MULTISIG (becomes owner), PROTOCOL_FEE_BPS (default 25: 0.25%, half the live 0.5%),
 ///         TREASURY (protocol fee recipient), WETH.
 contract DeployNFTPoolFactoryScript is Script {
-    function run() external {
-        address multisig = vm.envAddress("MULTISIG");
-        uint256 protocolFeeBps = vm.envOr("PROTOCOL_FEE_BPS", uint256(50)); // REVIEW — 0.5% last-known live value
-        address treasury = vm.envAddress("TREASURY");
-        address weth = vm.envAddress("WETH");
-        require(multisig != address(0), "set MULTISIG");
-        require(treasury != address(0) && weth != address(0), "zero env");
-        // 2026-07-15 pre-deploy hardening: fleet-standard mainnet + Safe-owner guards. Owner is
-        // set DIRECTLY in the ctor (no 2-step recovery), so the code.length check is critical.
-        require(block.chainid == 1, "MAINNET_ONLY: gated features deploy to Ethereum mainnet");
-        require(multisig.code.length > 0, "MULTISIG must be a contract (Safe)");
+    uint256 public constant DEFAULT_PROTOCOL_FEE_BPS = 25;
+
+    struct Config {
+        address multisig;
+        uint256 protocolFeeBps;
+        address treasury;
+        address weth;
+    }
+
+    function run() external returns (TegridyNFTPoolFactory factory) {
+        Config memory cfg = Config({
+            multisig: vm.envAddress("MULTISIG"),
+            protocolFeeBps: vm.envOr("PROTOCOL_FEE_BPS", DEFAULT_PROTOCOL_FEE_BPS),
+            treasury: vm.envAddress("TREASURY"),
+            weth: vm.envAddress("WETH")
+        });
+        _validate(cfg);
 
         vm.startBroadcast();
         console2.log("Deployer:", msg.sender);
-        console2.log("Protocol fee (bps):", protocolFeeBps);
-        // owner = multisig directly (constructor arg) — no transferOwnership needed.
-        TegridyNFTPoolFactory factory = new TegridyNFTPoolFactory(multisig, protocolFeeBps, treasury, weth);
-        console2.log("TegridyNFTPoolFactory deployed (owner=multisig):", address(factory));
+        factory = new TegridyNFTPoolFactory(cfg.multisig, cfg.protocolFeeBps, cfg.treasury, cfg.weth);
         vm.stopBroadcast();
 
+        _assertDeployInvariants(cfg, factory);
+        console2.log("TegridyNFTPoolFactory deployed (owner=multisig):", address(factory));
+        console2.log("Pool template (poolImplementation):", factory.poolImplementation());
+        console2.log("Protocol fee (bps):", cfg.protocolFeeBps);
         console2.log("");
-        console2.log("=== NEXT (operator) ===");
-        console2.log("1. Set TEGRIDY_NFT_POOL_FACTORY_ADDRESS in frontend/src/lib/constants.ts ->", address(factory));
-        console2.log("   (pools are user-created clones via createPool -- no per-pool deploy script)");
+        console2.log("=== NEXT (operator): docs/NFT_POOL_FACTORY_REDEPLOY.md, step 3 ===");
+    }
+
+    /// @notice Test entrypoint: same validation and read-backs, no env or broadcast.
+    function runForTest(Config memory cfg) external returns (TegridyNFTPoolFactory factory) {
+        _validate(cfg);
+        factory = new TegridyNFTPoolFactory(cfg.multisig, cfg.protocolFeeBps, cfg.treasury, cfg.weth);
+        _assertDeployInvariants(cfg, factory);
+    }
+
+    function _validate(Config memory cfg) internal view {
+        require(cfg.multisig != address(0), "set MULTISIG");
+        require(cfg.treasury != address(0) && cfg.weth != address(0), "zero env");
+        // Owner is set in the ctor with no 2-step recovery, so it must be a contract (a Safe).
+        require(block.chainid == 1, "MAINNET_ONLY: gated features deploy to Ethereum mainnet");
+        require(cfg.multisig.code.length > 0, "MULTISIG must be a contract (Safe)");
+    }
+
+    function _assertDeployInvariants(Config memory cfg, TegridyNFTPoolFactory factory) internal view {
+        require(factory.owner() == cfg.multisig, "owner != MULTISIG");
+        require(factory.protocolFeeBps() == cfg.protocolFeeBps, "fee != PROTOCOL_FEE_BPS");
+        require(factory.protocolFeeRecipient() == cfg.treasury, "fee recipient != TREASURY");
+        require(factory.weth() == cfg.weth, "weth != WETH");
+        require(factory.poolImplementation().code.length > 0, "no pool template");
+        require(factory.getPoolCount() == 0, "fresh factory has pools");
     }
 }
