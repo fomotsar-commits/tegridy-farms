@@ -9,7 +9,8 @@ The site's Changelog tab shows both files.
 
 ### 2026-10-22
 
-- Solana pools: every coin shows its ticker. A coin that is not one of the island's shows the ticker it gives itself, with its whole address under it, on the All pools list, its pool card and Your positions. One that copies the ticker of one of ours, or of SOL, USDC or USDT, reads “fake”, as in “fake SOY”.
+- Swap: Buy all bungalows is a numbered ticket stub with the order's coins running on a tape, and the order it opens is a numbered sheet with each coin's door picture and a strip that shows the order's progress. The dashboard draws what the wallet holds by value, each coin's share of it, a tape of the coins held, and each lock's place on the ladder.
+- The dashboard shows your connected wallets: the SOL, ETH and island coins they hold, with dollar values where a price was read, and your positions here (locks, stakes and pool shares) with amounts, unlock dates and what each has earned. A part that could not be read says so, with Try again. Every pool on the island is one press away under it.
 - The home has the island's dashboard on top of the Swap, Lock BAYLA and Add SOL + BAYLA cards: every pool on the island, numbered, with its picture, its chain and its lock terms. /dashboard shows the same.
 - The home's Add SOL + BAYLA card stays in its place while its pool is being read, and says so if the read fails; it used to disappear until the read came back.
 - Solana pools' Rates card says each part of the venue's cut as a share of the fee and of the trade, and says in bold, in plain sight, when a fee tier pays anything but the agreed split: the island's part kept by the team's vault, another wallet, or other rates. Before, a tier that sent the island's part to the vault read as fine.
@@ -19,6 +20,7 @@ The site's Changelog tab shows both files.
 - With reduced motion on, the Tradermigos splash holds its art still, every piece in sight, with no sparks or flashes; the pieces had kept bouncing.
 - Opening a new pool on Ethereum, Base or Robinhood Chain: the form shows the market price from that network's Uniswap V2 pool, Match the market price fills the other amount at it, and a price you type off the market says how far off it is.
 - Base and Robinhood Chain: Liquidity lists the venue's own pools on that network, with what each holds and how its 0.3% fee is split; Add or Remove opens the form on that pool.
+- Solana pools: every coin shows its ticker. A coin that is not one of the island's shows the ticker it gives itself, with its whole address under it, on the All pools list, its pool card and Your positions. One that copies the ticker of one of ours, or of SOL, USDC or USDT, reads “fake”, as in “fake SOY”.
 
 ### 2026-10-21
 
