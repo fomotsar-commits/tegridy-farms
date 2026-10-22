@@ -84,6 +84,27 @@ not the splash's.
 Never click a control that removes itself on a timer; wait for what replaces it. To make a lost
 race certain in a test, keep the target moving (a linear `translate` animation, `!important` past
 the reduced-motion rule) so no click can find it stable.
+
+## 2026-10-21: art laid out to move can bury a piece once held still, and a bounding-box check passes it
+
+**Believed:** under reduced motion, holding the Tradermigos splash's pieces where they spawn keeps
+every piece in sight, and a check that each piece's box is on screen proves it.
+
+**Measured** (production build, Playwright 1.62.1, chromium 1280x720 and ipad-safari 810x1080, 20
+loads each, 2026-10-21): held where they spawn, the most-covered desktop piece had 1-32% of its
+picture in sight (median 9%), and the on-screen box check passed every piece. The spawn rule clamps
+two zones to points 128 px apart at 1280x720, so one tall piece sits under another. Choosing the
+draw order alone still left 9% in 2 loads of 20. Easing overlaps apart first (a tenth of each
+overlap per round, 100 rounds), then drawing the most buried last, kept every piece at 31% or more
+on seeds 4 to 40, on both devices.
+
+**Do:** count what a visitor sees with the browser's own hit test: turn `pointer-events` on for the
+pictures, sample `document.elementFromPoint` on a grid, turn it back off. Step a
+`requestAnimationFrame` loop with `page.clock`, which fakes rAF too: `runFor(100)` fires about six
+frames whatever WebKit's starved compositor draws. A `clock.pauseAt` aimed at the page's
+`Date.now()` plus 10 ms landed in the past on chromium, and plus 200 ms did once under two workers:
+catch "Cannot fast-forward to the past" and aim again.
+
 ## 2026-10-20: a press area made of padding and a matching negative margin loses its lower part to the rows after it
 
 **Believed:** `py-3.5 -my-3.5` on an inline-block in a list of rows makes a 44px press area
