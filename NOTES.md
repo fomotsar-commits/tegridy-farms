@@ -15,6 +15,21 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-10-22: Blockscout trails the finalized head, so a reader that waits for it to reach the head never finishes
+
+**Believed:** an indexer that has caught up with the chain covers every block up to the finalized
+one, so "read old history from Blockscout up to the head" is one call.
+
+**Measured** (the volume counter's first live run on GitHub, 2026-10-22 02:13Z): eth.blockscout.com
+had indexed to 26,245,041 while the finalized head was 26,245,050, nine blocks short, so the guard
+refused the whole Ethereum range. On Base, `base-rpc.publicnode.com` refused logs 50,000 blocks back
+(about 28 hours) as archive, `mainnet.base.org` answered every `eth_getLogs` with "request limit
+reached", `base.blockscout.com` answered 403 (Cloudflare) from this machine, and `base.drpc.org`
+served any age in 100-block windows.
+
+**Do:** take from an indexer only up to the block it says it has indexed and read the rest from an
+RPC; when no indexer answers, shrink the RPC window to the free limit instead of failing.
+
 ## 2026-10-21: npm always takes the newest release in a transitive range, so the floor needs an override or a hand edit
 
 **Believed:** when a fixed package asks for a newer transitive (vite 8.3.3 asks for rolldown
