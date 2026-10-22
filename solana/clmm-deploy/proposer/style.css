@@ -1,0 +1,13 @@
+body { margin: 0; font: 16px/1.5 system-ui, sans-serif; background: #fff; color: #111; }
+main { max-width: 860px; margin: 0 auto; padding: 16px; }
+.net { padding: 10px 16px; font-weight: 700; background: #ddd; }
+.net.mainnet { background: #ffd400; color: #000; }
+.net.local { background: #cfe8ff; }
+.rule { background: #fff4c2; padding: 10px; border-left: 4px solid #c90; }
+h1 { font-size: 24px; } h2 { font-size: 18px; margin-top: 24px; }
+table { border-collapse: collapse; width: 100%; } td, th { border: 1px solid #ccc; padding: 4px 8px; text-align: left; font-size: 14px; }
+code { word-break: break-all; }
+#lines li { margin: 4px 0; } .ok { color: #075; } .stop { color: #b00; font-weight: 600; }
+#act button { font-size: 18px; padding: 10px 18px; margin: 8px 8px 8px 0; }
+.ready { background: #e6f7ea; border: 2px solid #075; padding: 10px; } .halt { background: #fde8e8; border: 2px solid #b00; padding: 10px; }
+button { cursor: pointer; }

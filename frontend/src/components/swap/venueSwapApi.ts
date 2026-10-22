@@ -30,6 +30,11 @@ async function build(): Promise<VenueSwapApi> {
     swapWriteConfig: () => config.swapWriteConfig(),
     readSwapGate: (rpc, cfg) => config.readSwapGate(rpc, cfg),
     prepareVenueSwap: venueSwap.prepareVenueSwap,
+    // Fetched only on a press that a range pool takes: no other swap downloads the range builder.
+    prepareRangeSwap: async (rpc, gate, a) => {
+      const [rangeSwap, clmm] = await Promise.all([import('../../lib/launcher/solana/write/rangeSwap'), import('../../lib/solana/clmm/program')]);
+      return rangeSwap.prepareRangeSwap(rpc, gate.cfg, clmm.RANGE_PROGRAM_ID, a);
+    },
     submitPrepared: submit.submitPrepared,
     recheckOutcome: (rpc, signature, opts) => submit.recheckOutcome(rpc, signature, opts ?? {}),
     explorerTxUrl: config.explorerTxUrl,

@@ -23,8 +23,8 @@ export const EVM_SWAP_TOPIC = "0xd78ad95fa46c994b6551d0da85fc275fe613ce37657fb8d
 // Our factories. The SwapFeeRouter is not read: it swaps through these pairs, so its
 // swaps are already their Swap logs (the 2026-10-19 hand read counted one twice).
 // startBlock is where a first run reads from when the factory already has pairs. The RPCs
-// serve only recent logs (publicnode about two days, drpc 100 blocks a call), so older
-// ranges come from Blockscout.
+// serve only recent logs (publicnode about a day on Base, two on Ethereum; drpc any age,
+// 100 blocks a call), so older ranges come from Blockscout, or from drpc a little at a time.
 export const EVM_CHAINS = {
   ethereum: {
     rpcs: ["https://ethereum-rpc.publicnode.com", "https://eth.drpc.org"],
@@ -35,11 +35,12 @@ export const EVM_CHAINS = {
     bots: new Set(["0x6338afee3ff32599bff2ce3d8b7604bd6d6a41a7"]),
   },
   base: {
-    rpcs: ["https://base-rpc.publicnode.com", "https://mainnet.base.org"],
+    rpcs: ["https://base-rpc.publicnode.com", "https://base.drpc.org", "https://base.gateway.tenderly.co", "https://mainnet.base.org"],
     blockscout: "https://base.blockscout.com",
     factory: "0x12a249A027AA7DdF184E824b4bb63ba031A39fEC",
     weth: "0x4200000000000000000000000000000000000006",
-    startBlock: null,
+    // Its first pair, BRB/WETH, was created here (tx 0x3795131f…039d, 2026-10-21); none before.
+    startBlock: 52884793,
     bots: new Set(),
   },
   robinhood: {
@@ -52,6 +53,7 @@ export const EVM_CHAINS = {
   },
 };
 const LOG_SPAN = 5000;
+const MIN_LOG_SPAN = 100;
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -293,53 +295,109 @@ export async function readJupiter(call, cursor = {}) {
   return { swaps, cursor: next, countedTo };
 }
 
-/** EVM JSON-RPC over a list of endpoints: the first that answers wins. */
-export function evmRpc({ fetchImpl = globalThis.fetch, rpcs, wait = sleep } = {}) {
+// Waits before the next round: short after a dropped connection or a 5xx, long after a
+// rate limit (GitHub's shared runners get throttled partway through a backfill).
+const RETRY_WAITS_MS = [2000, 4000, 6000];
+const LIMITED_WAITS_MS = [5000, 15000, 30000, 60000];
+const isRateLimit = (status, text) => status === 429 || /rate.?limit|request limit|too many requests/i.test(text);
+
+/**
+ * EVM JSON-RPC over a list of endpoints: the first that answers wins. A refusal from every
+ * endpoint (range too big, archive only) is final at once; a rate limit or an outage is
+ * retried after a wait, longer for a rate limit. `pauseMs` spaces out calls.
+ */
+export function evmRpc({ fetchImpl = globalThis.fetch, rpcs, wait = sleep, pauseMs = 0 } = {}) {
   return async function call(method, params) {
     let last = "";
-    for (let round = 0; round < 3; round++) {
+    for (let round = 0; ; round++) {
+      if (pauseMs) await wait(pauseMs);
+      let limited = false;
+      let transient = false;
       for (const url of rpcs) {
         try {
           const r = await postJson(fetchImpl, url, { jsonrpc: "2.0", id: 1, method, params });
-          if (!r.ok) {
-            last = `${url} HTTP ${r.status}`;
-            continue;
+          const text = await r.text();
+          let j = null;
+          try {
+            j = JSON.parse(text);
+          } catch {
+            // not JSON: judged by its status below
           }
-          const j = await r.json();
-          if (j.error) {
-            last = `${url} ${JSON.stringify(j.error).slice(0, 160)}`;
-            continue;
-          }
-          return j.result;
+          if (r.ok && j && !j.error) return j.result;
+          const why = j?.error ? JSON.stringify(j.error) : `HTTP ${r.status}`;
+          last = `${url} ${why.slice(0, 160)}`;
+          if (isRateLimit(r.status, why)) limited = true;
+          else if (r.status >= 500 || !j) transient = true;
         } catch (e) {
           last = `${url} ${e.message}`;
+          transient = true;
         }
       }
-      await wait(2000 * (round + 1));
+      const waits = limited ? LIMITED_WAITS_MS : RETRY_WAITS_MS;
+      if ((!limited && !transient) || round >= waits.length) break;
+      await wait(waits[round]);
     }
     throw new Error(`${method}: ${last}`);
   };
 }
 
-/** Swap logs in [from, to]: RPC windows, and Blockscout for the rest once the RPCs refuse. */
-async function swapLogs(call, chain, addresses, from, to, fetchImpl) {
+/**
+ * Swap logs in [from, to]. Each window goes to the RPCs. When they refuse one (old blocks),
+ * Blockscout reads up to the block it has indexed and the RPCs take the rest; without a
+ * Blockscout answer the window shrinks to 100 blocks (drpc's free limit). When even that
+ * fails, or the run's time is up, it returns what it read so far: `through` is the last
+ * block read and `stopped` says why, so the caller can save that much and resume.
+ */
+async function swapLogs(call, chain, addresses, from, to, { fetchImpl, deadline = Infinity, now = Date.now }) {
   const logs = [];
+  let span = LOG_SPAN;
+  let blockscoutDown = !chain.blockscout;
   while (from <= to) {
-    const end = Math.min(to, from + LOG_SPAN - 1);
-    let got;
+    if (now() > deadline) return { logs, through: from - 1, stopped: "out of time for this run" };
+    const end = Math.min(to, from + span - 1);
     try {
-      got = await call("eth_getLogs", [
-        { address: addresses, topics: [EVM_SWAP_TOPIC], fromBlock: "0x" + from.toString(16), toBlock: "0x" + end.toString(16) },
-      ]);
+      logs.push(
+        ...(await call("eth_getLogs", [
+          { address: addresses, topics: [EVM_SWAP_TOPIC], fromBlock: "0x" + from.toString(16), toBlock: "0x" + end.toString(16) },
+        ])),
+      );
+      from = end + 1;
+      continue;
     } catch (e) {
-      if (!chain.blockscout) throw e;
-      for (const a of addresses) logs.push(...(await blockscoutLogs(chain.blockscout, a, from, to, fetchImpl)));
-      return logs;
+      const got = blockscoutDown ? null : await fromBlockscout(chain.blockscout, addresses, from, to, fetchImpl).catch(() => null);
+      if (got) {
+        logs.push(...got.logs);
+        from = got.through + 1;
+        continue;
+      }
+      blockscoutDown = true;
+      if (span <= MIN_LOG_SPAN) return { logs, through: from - 1, stopped: e.message };
+      span = Math.max(MIN_LOG_SPAN, Math.floor(span / 5));
     }
-    logs.push(...got);
-    from = end + 1;
   }
-  return logs;
+  return { logs, through: to, stopped: null };
+}
+
+/** Every pair's logs from Blockscout for [from, the block it has indexed], or null. */
+async function fromBlockscout(base, addresses, from, to, fetchImpl) {
+  const through = Math.min(to, await blockscoutIndexed(base, fetchImpl));
+  if (through < from) return null;
+  const logs = [];
+  for (const a of addresses) logs.push(...(await blockscoutLogs(base, a, from, through, fetchImpl)));
+  return { logs, through };
+}
+
+async function blockscoutGet(url, fetchImpl) {
+  const r = await fetchImpl(url, { signal: AbortSignal.timeout(30_000) });
+  if (!r.ok) throw new Error(`blockscout HTTP ${r.status}`);
+  return r.json();
+}
+
+/** The newest block Blockscout has indexed. */
+export async function blockscoutIndexed(base, fetchImpl) {
+  const height = Number((await blockscoutGet(`${base}/api/v2/main-page/blocks`, fetchImpl))?.[0]?.height);
+  if (!Number.isSafeInteger(height)) throw new Error("blockscout did not say what it has indexed");
+  return height;
 }
 
 /**
@@ -348,16 +406,10 @@ async function swapLogs(call, chain, addresses, from, to, fetchImpl) {
  * answer must never read as a range with no swaps. Halves the range at its 1,000 cap.
  */
 export async function blockscoutLogs(base, address, from, to, fetchImpl) {
-  const get = async (url) => {
-    const r = await fetchImpl(url, { signal: AbortSignal.timeout(30_000) });
-    if (!r.ok) throw new Error(`blockscout HTTP ${r.status}`);
-    return r.json();
-  };
-  const blocks = await get(`${base}/api/v2/main-page/blocks`);
-  const indexed = Number(blocks?.[0]?.height);
+  const indexed = await blockscoutIndexed(base, fetchImpl);
   if (!(indexed >= to)) throw new Error(`blockscout has indexed to ${indexed}, not ${to}`);
   const read = async (a, b) => {
-    const j = await get(`${base}/api?module=logs&action=getLogs&address=${address}&topic0=${EVM_SWAP_TOPIC}&fromBlock=${a}&toBlock=${b}`);
+    const j = await blockscoutGet(`${base}/api?module=logs&action=getLogs&address=${address}&topic0=${EVM_SWAP_TOPIC}&fromBlock=${a}&toBlock=${b}`, fetchImpl);
     const ok = j?.status === "1" && j.message === "OK" && Array.isArray(j.result);
     const none = j?.status === "0" && j.message === "No logs found" && Array.isArray(j.result) && j.result.length === 0;
     if (!ok && !none) throw new Error(`blockscout getLogs: ${JSON.stringify(j).slice(0, 120)}`);
@@ -376,8 +428,10 @@ const addrWord = (hex) => "0x" + hex.slice(-40).toLowerCase();
  * One chain's new Swap logs on every pair of our factory, up to its finalized block.
  * Pairs are listed at "latest", which is past the finalized block, so a pair born in
  * a window is known before its window is read. No pairs: the cursor jumps to the head.
+ * A read that stops short returns its swaps, a cursor at the last block read, no
+ * countedTo, and `incomplete` saying why.
  */
-export async function readEvmChain(call, chain, cursor, { fetchImpl = globalThis.fetch } = {}) {
+export async function readEvmChain(call, chain, cursor, { fetchImpl = globalThis.fetch, deadline, now } = {}) {
   const head = await call("eth_getBlockByNumber", ["finalized", false]);
   const headBlock = Number(BigInt(head.number));
   const countedTo = new Date(Number(BigInt(head.timestamp)) * 1000).toISOString();
@@ -393,14 +447,16 @@ export async function readEvmChain(call, chain, cursor, { fetchImpl = globalThis
   let from = cursor ? cursor.block + 1 : chain.startBlock;
   if (pairs.length && from == null) throw new Error("this factory has pairs and no start block to read them from");
   const swaps = [];
+  let read = { logs: [], through: headBlock, stopped: null };
   if (pairs.length && from <= headBlock) {
     const side = new Map(pairs.map((p) => [p.address, p.wethSide]));
-    const logs = await swapLogs(call, chain, pairs.map((p) => p.address), from, headBlock, fetchImpl);
-    for (const log of logs) {
+    read = await swapLogs(call, chain, pairs.map((p) => p.address), from, headBlock, { fetchImpl, deadline, now });
+    for (const log of read.logs) {
       if (log.removed) continue;
       const { raw, sender } = evmSwapLeg(log, side.get(log.address.toLowerCase()));
       swaps.push({ leg: raw === null ? null : { mint: "WETH", raw }, payer: sender, id: `${log.transactionHash}:${log.logIndex}` });
     }
   }
+  if (read.stopped) return { swaps, cursor: { block: read.through, pairs }, countedTo: null, incomplete: read.stopped };
   return { swaps, cursor: { block: headBlock, pairs }, countedTo };
 }

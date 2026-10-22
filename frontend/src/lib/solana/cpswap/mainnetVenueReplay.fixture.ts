@@ -49,6 +49,30 @@ export function recordedTier(index: 0 | 1): AmmConfigView {
 }
 
 /**
+ * Both fee tiers' bytes as mainnet holds them since the island split (Squads #13, executed
+ * 2026-10-19), read with getMultipleAccounts at finalized slot 459,685,071 on 2026-10-21.
+ * The recording above predates the split: its tier 1 sends the whole 16% to the vault.
+ */
+export const SPLIT_TIER_BYTES = {
+  0: '2vQhaMvLK2/9AAAAxAkAAAAAAADQ+wEAAAAAAHARAQAAAAAAAAAAAAAAAADlHNw/6eW4EcmokvPIdZLieSu4EBsSqEDvnU52HLfxSAPZGg5/+tHuG4mkK5QI8T4VwAVH8hK0ZE69i5NuyA38iBMAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=',
+  1: '2vQhaMvLK2//AAEAECcAAAAAAABAlgEAAAAAAMDaAAAAAAAAgNHwCAAAAADlHNw/6eW4EcmokvPIdZLieSu4EBsSqEDvnU52HLfxSAPZGg5/+tHuG4mkK5QI8T4VwAVH8hK0ZE69i5NuyA38AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=',
+} as const;
+
+/** A fee tier as mainnet holds it since the split, decoded from `SPLIT_TIER_BYTES` with the repo's decoder. */
+export function splitTier(index: 0 | 1): AmmConfigView {
+  const config = decodeAmmConfig(index === 0 ? RECORDING.tier0 : RECORDING.tier1, bytes(SPLIT_TIER_BYTES[index]));
+  if (!config) throw new Error(`the split fee tier ${index} does not decode`);
+  return config;
+}
+
+/** `recordedFeeTiers` with both tiers as mainnet holds them since the split. */
+export function splitFeeTiers(): FeeTierRead {
+  const read = recordedFeeTiers();
+  if (read.kind !== 'ok') throw new Error('the recording did not read');
+  return { ...read, tiers: read.tiers.map((t) => ({ ...t, config: splitTier(t.index as 0 | 1) })) };
+}
+
+/**
  * What the fee-tier card's `readFeeTiers` returns over the recording, built without
  * deriving an address (derivation cannot run under jsdom). mainnetVenue.test.ts holds
  * that the read path returns exactly this.

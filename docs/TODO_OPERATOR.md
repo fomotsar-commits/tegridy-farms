@@ -29,6 +29,45 @@ stop and say so — a surprise is information.
 
 ---
 
+## 🔴 2026-10-22: two merges only you can press (#930 done, #776 on Day 2)
+
+A session's merge was refused on 2026-10-22 as a production deploy, after a general "merge". A
+second word that names the one PR ("merge 930") has let a merge through before, but not always.
+So press these two yourself, or name each one to a session when it is ready. Each takes one
+command.
+
+- ✅ **Done 2026-10-22 10:53 UTC** (merge commit `592ad1833`, Vercel deployed it 11:04 UTC).
+  **Merge #930** (notes only: 40 added lines in `NOTES.md`, nothing removed, no change a visitor
+  sees). Trunk is merged into it. On 2026-10-22 its checks were still running, with none failed.
+  When it is done, check it first:
+
+  ```bash
+  gh pr view 930 --json mergeStateStatus,headRefOid --jq '"\(.mergeStateStatus) \(.headRefOid)"'
+  ```
+
+  **You should see** `CLEAN` and a head that begins `c63cd3d9e`. Then:
+
+  ```bash
+  gh pr merge 930 --merge --match-head-commit c63cd3d9ec2aa22e5d73321a20e0ec224aea9583
+  ```
+
+  If the head is different, or it says anything but `CLEAN`, do not merge: ask a session to look.
+  (#933, the splash art held still under reduced motion, merged 2026-10-22 at 10:36 UTC and is
+  live.)
+
+- ⬜ **Merge #776 within the hour after the pool upgrade executes on Day 2** (pool proposal #15,
+  executable from 2026-10-23 06:20:22 UTC, read on chain 2026-10-22; the ladder's #17 follows at
+  06:37:12). Not before: until the execute, everything
+  #776 says about mainnet is false. It is a draft, level with trunk at `cdacf9c49`, and keeps
+  three checks red on purpose until the execute. The steps are the checklist at the top of its
+  description, in order: the pack's check after the upgrade, the four values of the record
+  (`read-upgrade-record.mjs`), the changelog line, the copy of the three staged files (then
+  `genesis-accounts.mjs` must end `wrote 9 accounts`), trunk merged in again, the checks, and
+  only then your merge. A session does every step but the merge: tell one "the pool upgrade
+  executed" and give it the minute.
+
+---
+
 ## 2026-10-21: the position link's two limits (nothing to do unless wallets report refusals)
 
 A range position NFT's link, `/position/<id>.json`, has two limits, both Vercel env vars:
@@ -41,10 +80,11 @@ var, or add a Vercel firewall rate rule on `/position/*`.
 
 ## 🔴 2026-10-20: the BAYLA ladder's four-year upgrade and the December refill
 
-Newer than every section below. You decided on 2026-10-19: keep the four-year change. Its Day 0
-was done on 2026-10-21, earlier than the 11-16 to 11-30 first planned: vault proposal #17 was
-approved by both members at 06:37:12 UTC. This section replaces the 2026-10-15 item "BAYLA ladder
-rewards stop 2026-12-23T15:32Z" [was O-1009-10].
+Newer than every section below. You decided on 2026-10-19: keep the four-year change, with the
+upgrade's Day 0 between Mon 2026-11-16 and Mon 2026-11-30. **Day 0 was brought forward and done
+on 2026-10-21:** ladder proposal #17, approved by both members at 06:37:12 UTC, can execute from
+Fri 2026-10-23 06:37:12 UTC (read on chain 2026-10-22). This section replaces the 2026-10-15
+item "BAYLA ladder rewards stop 2026-12-23T15:32Z" [was O-1009-10].
 
 **What the upgrade changes.** One number in the ladder program: how long a refill of the reward
 pot is paid out over, 90 days today and 4 years after. The 2,000,000 refill of 2026-09-24 pays
@@ -94,10 +134,10 @@ weight, so about 8.8% of any refill comes back to you.
 
 | When | What | Who |
 |---|---|---|
-| ✅ Before Day 0 | GitHub's build of the four-year program printed `e0fd775d…` (2026-10-20). The paying wallet and member A were funded. | you |
-| ✅ **Day 0, done Wed 2026-10-21** | Steps 1 to 14 of `C:\Users\jimbo\solana-launch-release-2026-09-26\ladder-four-year-upgrade-2026-10\START-HERE.md`: proposal #17, both approvals by 06:37:12. | you, both members |
-| **Day 2, from Fri 2026-10-23 06:37:12** | Steps 15 and 16: execute #17, check. Then tell a session: its pull request (branch `feat/bayla-ladder-four-year-gated`) goes out. | either member |
-| ✅ By Fri 12-18 | The refill page: built and rehearsed on 2026-10-20. It refuses unless the four-year program is live, and offers Execute only once the window has ended. | a session |
+| ✅ Before Day 0 (done) | Start GitHub's build of the four-year program (below). Send 2.65 SOL to the paying wallet and 0.06 SOL to member A (below). | you |
+| ✅ **Day 0, done 2026-10-21** (planned Mon 11-16 to Mon 11-30) | Steps 1 to 14 of `C:\Users\jimbo\solana-launch-release-2026-09-26\ladder-four-year-upgrade-2026-10\START-HERE.md`: upload, hand over, propose, approve. About 40 minutes. Proposal #17. | you, both members |
+| **Day 2, Fri 10-23 from 06:37:12** (48 hours after step 14; the page names the minute) | Steps 15 and 16: execute, check. Then merge its pull request, #942 (branch `feat/bayla-ladder-four-year-gated`). | either member |
+| ✅ Done 2026-10-20 (due by Fri 12-18) | The refill page is built (the ladder pack's refill step). It must refuse unless the four-year program is live. | a session |
 | Fri 12-18 to Sun 12-20 | A session runs the ladder's sweep (anyone may: it moves 35,713.98 BAYLA of emergency-exit fees into the pot). Send the refill BAYLA to the vault's BAYLA account `4HUXwHSie4q52eZiazheRqTHCABQZXJ4Yx3GkdBAwavy`, a tiny test amount first. Member A proposes the refill on the refill page. | you, member A, a session |
 | **By Mon 12-21 15:32:16** | Member B's approval, the second one. The 48 hours run from it. | member B |
 | **Wed 12-23 15:32:16, or just after** | Execute the refill. Rewards then run to 2030-12-22. Every hour later pays stakers nothing. | either member |
@@ -286,7 +326,8 @@ nothing is lost.
   `frontend/supabase/migrations/027_analytics_events_retention.sql`. Its first run deletes
   analytics older than 90 days, so export first if you want the old totals. Merging #695 before
   027 turns the hourly Data Retention job red.
-- ⬜ **Migration 028, after the all-time volume PR merges** (free). Paste
+- ✅ **Done 2026-10-22 ~02:10 UTC** (first count 02:12 UTC; the home page's volume line is live).
+  **Migration 028, after the all-time volume PR merges** (free). Paste
   `frontend/supabase/migrations/028_venue_volume.sql` in the SQL editor (it needs only
   `public.schema_migrations`, not 027). Then Actions > Venue Volume > Run workflow once: the first
   run reads all of history in a few minutes; after that it runs hourly by itself. Until 028 is in,
@@ -297,7 +338,7 @@ nothing is lost.
   screen it scrolls about 50px because of the "No wallet was found in this browser" note: fewer
   words there is your call. Also: a Galaxy inside Phantom, adding liquidity from Trust on Android,
   the room doors and `/nb1` on an iPhone.
-- ⬜ **#837** (points, Venue Score, tiers and competitions removed): you said to merge it when its
+- ✅ **Merged 2026-10-17 02:22 UTC.** **#837** (points, Venue Score, tiers and competitions removed): you said to merge it when its
   checks are green. It waits for the /scan test fix to clear trunk first.
 - ⬜ **GitHub security switches** (Dependency graph, Dependabot alerts, secret scanning, push
   protection) and **branch protection on `mvp-launch`** (none today, and its one ruleset is
@@ -333,14 +374,17 @@ nothing is lost.
   `node scripts/streamflow-receipt-name.mjs` (signs nothing), then the same with
   `--broadcast --keypair <the pool authority's key file>`. The dry run passed on 2026-10-14.
   [was O-1009-5]
-- ⬜ **The pool-program upgrade** (the LP receipt names): 7.40 SOL in the deploy wallet
+- ✅ **Day 0 done 2026-10-21**: proposals #15 (the upgrade) and #16 (the roll-back) approved by
+  both members; #15 can execute from 2026-10-23 06:20:22 UTC. Day 2 is in the 2026-10-22 section
+  above. **The pool-program upgrade** (the LP receipt names): 7.40 SOL in the deploy wallet
   `CqcVvaMvesrSKrUSbqBqr9mLjKLJuYqhaXg1gXpR41cg` and 0.02 SOL to member A `5QHzAqbGk3W8qGRBHCMyWjhLXf8YJcs3yPEh14Ymcwgz`
   (about 7.20 comes back: 3.68 on Day 2, 3.51 on Day 4), both multisig members on the pack's own
   page, in three sittings 48 hours apart. Tell a session first: #776 goes out in the hour of
   Day 2's execute. [was O-1009-4]
 - ⬜ **The TOWELI staking top-up** you decided on 2026-09-17 (see the money list for the gap).
   Say which wallet; a session re-reads the numbers before and after. [was O-1009-1]
-- ⬜ **BAYLA ladder rewards stop 2026-12-23T15:32Z** unless reloaded. Decide the amount and the
+- ➡️ **Moved to the 2026-10-20 section above** (the amount, who pays, and the steps).
+  **BAYLA ladder rewards stop 2026-12-23T15:32Z** unless reloaded. Decide the amount and the
   source by mid-November. [was O-1009-10]
 - ⬜ **The other Ethereum redeploys** the audit fixes in #799 owe: the referral splitter alone
   (about 3.85M gas), beyond the staking release and the launchpad above.
@@ -449,21 +493,28 @@ made under "the rest", now settled and being built:
 - ⬜ **The TOWELI staking top-up** you decided on 2026-09-17. Not sent when last read
   (2026-10-09); about 2.45M TOWELI short then. Say which wallet; a session re-reads the numbers
   before and after. [was O-1009-1]
-- ⬜ **The pool-program upgrade:** 7.40 SOL in the deploy wallet
+- ✅ **Day 0 done 2026-10-21** (see the 2026-10-15 list and the 2026-10-22 section).
+  **The pool-program upgrade:** 7.40 SOL in the deploy wallet
   `CqcVvaMvesrSKrUSbqBqr9mLjKLJuYqhaXg1gXpR41cg` and 0.02 SOL to member A
   `5QHzAqbGk3W8qGRBHCMyWjhLXf8YJcs3yPEh14Ymcwgz`. About 7.20 SOL comes back (3.68 on Day 2, 3.51 on Day 4), so it
   costs about 0.22 SOL. Both multisig members sign on the pack's own page, in three sittings 48
   hours apart. #776 goes out in the hour of Day 2's execute. [was O-1009-4]
 - ⬜ **Name the staking receipt:** about 0.00024 SOL. Steps 3 and 4 of the 2026-10-07 section
   below. [was O-1009-5]
-- ⬜ **BAYLA ladder rewards stop 2026-12-23T15:32Z** unless reloaded. Decide the amount and the
+- ➡️ **Moved to the 2026-10-20 section above.**
+  **BAYLA ladder rewards stop 2026-12-23T15:32Z** unless reloaded. Decide the amount and the
   source by mid-November; the multisig's own BAYLA account is funded first, then both members
   sign. [was O-1009-10]
-- ⬜ **Deploy the range program** (after #800 and its later phases): about 7.74 SOL of rent locked
+- ✅ **Done 2026-10-21 07:01 UTC**: live on mainnet, its upgrade authority the vault (registry
+  rows `range-clmm-program` and `range-clmm-programdata`).
+  **Deploy the range program** (after #800 and its later phases): about 7.74 SOL of rent locked
   while the program exists, and about 15.48 SOL in hand during the deploy (half of it comes back
   at the end), plus about 0.01 SOL of fees. Figures from `docs/RANGE_POOLS_PLAN.md` on #800's
   branch, at the rent rate read 2026-10-14.
-- ⬜ **The range fee tiers** proposed in `docs/RANGE_POOLS_PLAN.md` (#800): 1% and 0.25%, liquidity
+- ⬜ **Proposed and approved by both members 2026-10-21** (Squads #19, 13:45:21 UTC). It may
+  execute from 2026-10-23 14:00 UTC, the date the public notice gives. Each tier's 16% is now
+  10.4% to the vault and 5.6% to the island's Workshop (registry rows `range-clmm-amm-config-0`
+  and `-1`). **The range fee tiers** proposed in `docs/RANGE_POOLS_PLAN.md` (#800): 1% and 0.25%, liquidity
   providers keep 84% of each fee and the venue 16%. They need the vault's signature, about
   0.0012 SOL of rent each. A tier, once made, cannot be removed.
 - ⬜ **An outside review of the range program.** No quote yet.
@@ -502,7 +553,8 @@ above, with what each costs. That list is the one to work from.
 
 - ⬜ **O-1009-1: send the TOWELI staking top-up** you decided on 2026-09-17. It had not been sent
   when read on 2026-10-09. Say which wallet it comes from; a session re-reads the numbers after.
-- ⬜ **O-1009-2: database migrations, before 2026-10-16.** 026 is not applied (the hourly retention
+- ✅ **Done 2026-10-16 for 024, 025 and 026** (see the 2026-10-15 list; 027 is still open there).
+  **O-1009-2: database migrations, before 2026-10-16.** 026 is not applied (the hourly retention
   job says so), and the Privacy page says error reports start on the 16th. Paste 024, 025 and 026
   by hand in the SQL editor, in that order, in one sitting. Add 027 if you want the 90-day
   analytics limit (PR #695): its first run deletes older analytics for good, so export first if
@@ -510,7 +562,8 @@ above, with what each costs. That list is the one to work from.
 - ✅ **O-1009-3: answered on 2026-10-10: yes.** The two Solana programs are inside the security
   policy (O-0929-12, PR #775, which you merged that day). It had to be settled before the
   pool-program upgrade, and it is.
-- ⬜ **O-1009-4: the pool-program upgrade.** The pack is ready. It needs 7.40 SOL in the deploy
+- ✅ **Day 0 done 2026-10-21** (see the 2026-10-15 list and the 2026-10-22 section).
+  **O-1009-4: the pool-program upgrade.** The pack is ready. It needs 7.40 SOL in the deploy
   wallet `CqcVvaMvesrSKrUSbqBqr9mLjKLJuYqhaXg1gXpR41cg` (about 7.20 comes back: 3.68 on Day 2,
   3.51 on Day 4), 0.02 SOL for member A `5QHzAqbGk3W8qGRBHCMyWjhLXf8YJcs3yPEh14Ymcwgz`, and both multisig members,
   on the pack's own page and never in the Squads app. Tell a session before you start: draft PR
@@ -527,7 +580,8 @@ above, with what each costs. That list is the one to work from.
   the room doors and `/nb1` on an iPhone.
 - ⬜ **O-1009-9: send the island its reply** (the answer-seventeen block), if it has not gone. The
   next block must also say the BAYLA tick box went on 2026-10-08 (PR #769).
-- ⬜ **O-1009-10: BAYLA ladder rewards stop 2026-12-23T15:32Z.** Decide the amount and where the
+- ➡️ **Moved to the 2026-10-20 section above.**
+  **O-1009-10: BAYLA ladder rewards stop 2026-12-23T15:32Z.** Decide the amount and where the
   BAYLA comes from by mid-November. The reload is signed by both multisig members from the
   multisig's own BAYLA account, which has to be funded first.
 - ⬜ **O-1009-11: look at two cloud sessions on claude.ai/code.** They wrote
