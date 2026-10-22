@@ -42,13 +42,16 @@ vault can do is listed in `docs/RANGE_POOLS_PLAN.md` ("What else the vault can s
 | 1 | done | the program's key (the key folder) | nobody |
 | 2 | any day | the devnet practice run, in its own folder: `{{DEVNET_PACK}}` | the paying wallet, on devnet |
 | **3** | after sitting 2 went as written | **the deploy**: upload, deploy, hand-over to the vault. About one hour | the paying wallet |
-| **4** | once the website's position link is live (a session says so) | **the notice and the proposal**: the changelog line goes public, member A proposes. 20 minutes | member A |
-| **5** | 5 days after the notice (the page names the minute) | **member B approves**: this starts the 48-hour lock, which then ends 7 days after the notice | member B |
-| **6** | 48 hours after sitting 5 (the page names the minute) | **the execute**: both tiers are made | either member |
+| **4** | done 2026-10-21 | **the notice and the proposal**: the changelog line went public, #19 was proposed | member B |
+| **5** | done 2026-10-21 | **the second approval** of #19, through the Squads app: the chain's 48-hour lock ended 2026-10-23 13:45:21 UTC | member A |
+| **6** | from {{NOTICE_WHEN}} (the page names the minute) | **the execute**: both tiers are made | either member |
 
-Why it is spread out: the notice tells everyone, in the public changelog, what the fees will be, 7
-days before they apply. Member B's approval waits until day 5, so the chain's own 48-hour lock ends
-on day 7: from then on the tiers cannot execute early whatever tool anyone uses.
+Why this date: the notice tells everyone, in the public changelog, what the fees will be and from
+when. It first said seven days from 2026-10-21. #19's second approval came the same day through the
+Squads app, so the chain allows its execute from 2026-10-23 13:45:21 UTC. On 2026-10-22 you updated
+the notice to name its own date, {{NOTICE_WHEN}}. This page holds the execute until that date or the
+chain's lock, whichever is later. Any other tool could execute #19 from the lock's end, so execute
+it only on this page.
 
 **The pool pack shares two things with this folder.** It pays from the same wallet (see the money,
 below), and its proposals are numbered #15 to #18 in its paper. Make the tier proposal (sitting 4)
@@ -238,11 +241,12 @@ open a pool on it yet.
 node "{{PACK}}\scripts\5-record-notice.mjs"
 ```
 
-You should see: `PASS    : recorded: first seen public at <TIME> by the network's clock; the notice runs from <TIME>, so the fee tiers may execute from <TIME + 7 DAYS>, not before`.
+You should see: `PASS    : recorded: first seen public at <TIME> by the network's clock; the notice runs from <TIME>, so the fee tiers may execute from <TIME>, not before`. That time is {{NOTICE_WHEN}}, or the time the line went public if that came later.
 
 Run this step again within the hour before steps 14 and 15: the page wants a fresh check. It looks
-at every merge to mvp-launch since the notice: if one of them ever lacked the line, the 7 days start
-again from the merge that brought it back. So leave the line where it is.
+at every merge to mvp-launch since the notice: if one of them ever lacked the line, the notice starts
+again from the merge that brought it back, and the execute waits for that time if it comes after
+{{NOTICE_WHEN}}. So leave the line where it is.
 
 **Step 12. Start the page.** (Nobody signs.) Leave this window open until the end of the sitting.
 
@@ -269,7 +273,9 @@ You should see: every line under "Checks" starting with `OK`, and **Ready.** wit
 You should see: `Done: proposal #N is created and you approved it.` (N is the next proposal number;
 the page always shows the right one.) Stop the page (Ctrl+C in its window).
 
-# SITTING 5: MEMBER B APPROVES (from day 5 after the notice)
+# SITTING 5: THE SECOND APPROVAL (48 hours before the notice's date at the earliest)
+
+#19 already has both approvals (2026-10-21): skip to sitting 6. This sitting is for a new proposal only.
 
 **Step 14.** Run step 11 again, then step 12, then:
 
@@ -287,11 +293,11 @@ and the button **Approve proposal #N**.
 You should see: `Done: you approved proposal #N.`, then after **Check again**:
 `#N has both approvals. The time lock holds it until <TIME> by the network's clock`. Stop the page.
 
-# SITTING 6: THE EXECUTE (48 hours after sitting 5)
+# SITTING 6: THE EXECUTE (from {{NOTICE_WHEN}}, and 48 hours after the second approval)
 
 **Step 15.** Run step 11 again, then step 12, and connect either member.
 
-You should see: `OK: the fee notice has been public for 7 days, without a gap` and the button
+You should see: `OK: the fee notice is public and the date the notice names (<TIME>) has passed` and the button
 **EXECUTE proposal #N**. If instead it names a later time, come back then.
 
 Click **EXECUTE proposal #N** and approve in your wallet. (The vault pays the tiers' {{TIERS_SOL}} SOL.)

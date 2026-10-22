@@ -33,9 +33,12 @@ only by the deploy itself:
    `error`): the page refuses to approve or execute the tiers until
    `https://memetics.finance/position/<random>.json` answers 404 for this program.
 5. **The fee tiers**: the notice line merged to CHANGELOG.md; `5-record-notice.mjs` walks
-   mvp-launch's merge line on GitHub and restarts the 7 days at any merge without the line; member A
-   proposes on the page; member B's approval (which starts the 48-hour lock) is offered only from
-   notice + 7 days - 48 hours, so the chain itself holds the execute to the 7 days; the execute.
+   mvp-launch's merge line on GitHub and restarts the notice at any merge without the line; member A
+   proposes on the page; the second approval (which starts the 48-hour lock) is offered only from the
+   notice's end - 48 hours, so the chain itself holds the execute to the notice; the execute. The
+   notice ends 7 days after it went public, or at the date it names (`notice.notBefore`; mainnet:
+   2026-10-23 14:00 UTC, the owner's ruling of 2026-10-22 after #19 was approved around the page).
+   Tests of that gate: `node --test "solana/clmm-deploy/test/*.test.mjs"`.
 
 ## Files
 

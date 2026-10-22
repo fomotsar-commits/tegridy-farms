@@ -158,8 +158,13 @@ only.
    changed one. Harness and results: `solana/clmm-localnet/` and its
    [RESULTS.md](../solana/clmm-localnet/RESULTS.md).
 2. **Fee tiers: decided by the owner 2026-10-20** (below). Their one vault proposal is the first
-   mainnet step after the deploy; it executes after its 48-hour lock and after 7 days of public
-   notice in the changelog. Risk: a tier, once made, cannot be deleted.
+   mainnet step after the deploy; it executes after its 48-hour lock and after the public notice in
+   the changelog. Risk: a tier, once made, cannot be deleted. **2026-10-21/22:** the program was
+   deployed 2026-10-21 (`7ghzbbmq59QEbdweSzM1ggpeBH1Q2CyxZg4Tr2x8Aso`, CI's rebuild matches the
+   chain); the notice went public the same day and the proposal is #19. #19's second approval came
+   through the Squads app minutes after the first, so the chain allows its execute from
+   2026-10-23 13:45:21 UTC. The owner then ruled (2026-10-22) to update the promise date: the notice
+   now names 2026-10-23 14:00 UTC, and the page holds the execute until then.
 3. **Serve the position link before any position can exist.** Each position NFT keeps the link it
    was born with, `https://memetics.finance/position/<id>.json`. No position can be made before the
    fee tiers execute, so the page refuses to approve or execute them until the link answers 404 for
@@ -179,8 +184,9 @@ only.
    the same bytes (`ci-matches-chain.mjs`). The devnet practice run uses a throwaway address. An
    exact-size deploy (7.74 SOL locked, not the tool's default of twice the size) and the hand-over
    to the vault in one run; the tiers' proposal on a local page that refuses any other proposal,
-   with member B's approval held to notice + 7 days - 48 hours so the chain's own lock enforces
-   the 7 days. The whole folder ran end to end on a local chain with the owner's own Solana tool
+   with the second approval held to the notice's end - 48 hours so the chain's own lock enforces
+   the notice (an approval made around the page skips that hold: then only the page holds the
+   execute, see step 2). The whole folder ran end to end on a local chain with the owner's own Solana tool
    and the real page in a browser, every refusal tried. Peak cash: about 7.77 SOL in the paying
    wallet, on top of the pool pack's if its Day 0 has not run. Risk: the program's upgrade key
    decides who can change it later.
