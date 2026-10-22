@@ -25,3 +25,15 @@ c7f8f33b2a3fe593de41317f8a80548be07dfdbf:solana/guards/provenance.mjs:generic-ap
 # KEY ("test-jup-key-…", no real account). The variable is renamed FAKE_JUP in the
 # commit that adds this line, so the rule has nothing to read on the branch head.
 448e1e7d20e37792f73cbf81d741151e6fcb9027:frontend/api/__tests__/aggregator-jupiter-key.test.js:generic-api-key:15
+#
+# 2026-10-20, PR #911. The range client's test listed the program's instruction names on
+# one line, and the generic-api-key rule took one name for a key. They are function names
+# in public source; the list is one name a line since. The first fingerprint is that line.
+# The next four are this entry's first wording, which quoted the flagged words and so was
+# flagged itself, once in each of the four range branches (#911, #913, #915, #916). This
+# wording quotes nothing.
+5336ecbab594b5e431016103fb062bbe83120ac5:frontend/src/lib/solana/clmm/program.test.ts:generic-api-key:132
+9ca544e070bc5a51bfcd382d35bc39f929d32a55:.gitleaksignore:generic-api-key:30
+143fced7e65d06c3191cdb64fff86496d6c882c1:.gitleaksignore:generic-api-key:30
+a0bafd057be3908533ba7c63a792b14d59740396:.gitleaksignore:generic-api-key:30
+ddf8b25d41c5286459d5726ceb153a25061bd1b6:.gitleaksignore:generic-api-key:30

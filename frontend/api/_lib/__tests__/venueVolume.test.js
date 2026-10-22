@@ -56,8 +56,11 @@ describe("summarize", () => {
     expect(summarize(rows, NOW).state).toBe("current");
   });
 
-  it("is behind when the oldest count is more than three hours old", () => {
-    expect(summarize(allRows(), Date.parse("2026-10-19T19:00:01Z")).state).toBe("behind");
+  it("stays current through GitHub's late runs, and is behind after nine hours", () => {
+    // The longest gap measured between runs, 7.8 h, plus the ~16 min an EVM count trails.
+    expect(summarize(allRows(), Date.parse("2026-10-20T00:05:00Z")).state).toBe("current");
+    expect(summarize(allRows(), Date.parse("2026-10-20T01:00:00Z")).state).toBe("current");
+    expect(summarize(allRows(), Date.parse("2026-10-20T01:00:01Z")).state).toBe("behind");
   });
 });
 
