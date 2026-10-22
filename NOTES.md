@@ -15,6 +15,21 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-10-22: a backfill that saves nothing when it stops never finishes on GitHub's shared runners
+
+**Believed:** a history read that works from this machine works the same in a scheduled
+workflow, so an all-or-nothing write is enough.
+
+**Measured** (venue-volume.yml runs 39725739438 and 39726068637, 2026-10-22 05:02Z and 05:06Z):
+Base's backlog was about 45,000 blocks, which the keyless RPCs serve only 100 blocks a call
+(`base.drpc.org`, `base.gateway.tenderly.co`; publicnode answers "archive", `mainnet.base.org`
+"request limit reached"). Both runs were cut off by HTTP 429 after about 100 seconds, kept
+nothing, and the backlog grew by about 1,800 blocks an hour. The same read from this machine
+finished in 332 seconds.
+
+**Do:** save progress as windows succeed and resume from it, with a time budget per run and
+a long wait after a 429; keep the source marked as never counted until it reaches the head once.
+
 ## 2026-10-22: Blockscout trails the finalized head, so a reader that waits for it to reach the head never finishes
 
 **Believed:** an indexer that has caught up with the chain covers every block up to the finalized
