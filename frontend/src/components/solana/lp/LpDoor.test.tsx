@@ -192,10 +192,11 @@ describe('the home card', () => {
     expect(within(card).getByRole('button', { name: 'Add liquidity' })).toBeInTheDocument();
     // Its pool is read with the lookup, whatever the index lists.
     expect(r.findPools).toHaveBeenCalledWith(expect.anything(), [sol.address]);
-    // How LPs earn and what the venue takes, in view; the price and the rest a press away.
+    // How LPs earn, what the venue takes and the pool's price, in view; the rest a press away.
     expect(within(card).getByTestId('lp-pool-split')).toHaveTextContent(/^LPs keep [\d.]+% of each trade, the venue [\d.]+%\.$/);
     expect(within(card).getByTestId('lp-pool-more')).not.toHaveAttribute('open');
-    expect(within(within(card).getByTestId('lp-pool-more')).getByText('Price')).toBeInTheDocument();
+    expect(within(card).getByText('Price here', { exact: true })).toBeVisible();
+    expect(within(within(card).getByTestId('lp-pool-more')).queryByText('Price', { exact: true })).toBeNull();
     // Nothing to search with, nothing else to open, no clean token card.
     expect(screen.queryByTestId('lp-tasks')).toBeNull();
     expect(screen.queryByRole('textbox', { name: /Token mint address/ })).toBeNull();
@@ -384,7 +385,7 @@ describe('the screen the door opens', () => {
 
   it('says what the share is in one sentence, and the vault risk is one closed Risks under the button', async () => {
     const panel = await door();
-    expect(within(panel).getByTestId('lp-one-what')).toHaveTextContent('A share of the CORN/SOL pool and its fee on every trade. Withdraw any time. No lock.');
+    expect(within(panel).getByTestId('lp-one-what')).toHaveTextContent("A share of the CORN/SOL pool and its fee on every trade. No lock, but the team's vault can pause removing.");
     const review = within(panel).getByRole('button', { name: 'Review: add with one coin' });
     // Off the page (owner, 2026-10-17: "remove this warning from everywhere"), one press away.
     const risk = within(panel).getByTestId('lp-one-risk');
@@ -394,6 +395,14 @@ describe('the screen the door opens', () => {
     expect(review.compareDocumentPosition(risk) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     // The two signatures are named before the first press.
     expect(within(panel).getByTestId('lp-one-line')).toHaveTextContent('Two signatures: the swap, then the add.');
+  });
+
+  // The team's vault can switch removing off on any of our pools (update_pool_status, admin only),
+  // so the panel may not promise a removal "any time", as the pools page may not (PoolsPage.test.tsx).
+  it('never promises withdrawing any time, and says the vault can pause removing', async () => {
+    const panel = await door();
+    expect(panel.textContent).not.toMatch(/\bany ?time\b/i);
+    expect(within(panel).getByTestId('lp-one-what')).toHaveTextContent(/vault can pause removing/);
   });
 
   it('a percent fills the amount from the wallet: 50% is half of Max', async () => {

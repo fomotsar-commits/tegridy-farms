@@ -46,7 +46,7 @@ name: solana-ci
 #      upstream's unit tests, and prices the deploy at the rent rate read from mainnet.
 on:
   push:
-    paths: ["solana/**", ".github/workflows/solana-ci.yml"]
+    paths: ["solana/**", ".github/workflows/solana-ci.yml", "frontend/src/lib/launcher/solana/curve/curveVectors.fixture.ts"]
   # NO `paths:` HERE, deliberately — see the `scope` job. A workflow-level
   # path filter on a pull_request is what forced the `-not-applicable.yml`
   # shim, and the shim is what let a failing gate be reported as a pass.
@@ -108,7 +108,11 @@ jobs:
           # is already known to be in scope.
           [ -n "${PR:-}" ] || { echo "not a pull_request — in scope by trigger"; say true; }
 
-          files=$(gh api --paginate "repos/$REPO/pulls/$PR/files" --jq '.[].filename')
+          files=$(gh api --paginate "repos/$REPO/pulls/$PR/files" \
+            --jq '.[] | .filename, (.previous_filename // empty)') || {
+            echo "::warning::gh could not list every changed file, running the real job"
+            say true
+          }
           if [ -z "$files" ]; then
             echo "::warning::could not list this PR's changed files — running the real job"
             say true
@@ -122,7 +126,8 @@ jobs:
 
           verdict=$(printf '%s\n' "$files" | node .github/scripts/diff-scope.mjs \
             'solana/**' \
-            '.github/workflows/solana-ci.yml')
+            '.github/workflows/solana-ci.yml' \
+            'frontend/src/lib/launcher/solana/curve/curveVectors.fixture.ts')
           case "$verdict" in
             true|false) say "$verdict" ;;
             *) echo "::warning::diff-scope returned '$verdict' — running the real job"; say true ;;
@@ -223,8 +228,22 @@ jobs:
           sed -i '/not(feature = "test-chain-keys")/,+1d' /tmp/clmm-gate/programs/amm/src/lib.rs
           refused $KG --ours solana/tegridy-clmm --clmm-lib /tmp/clmm-gate/programs/amm/src/lib.rs
           because "lacks the compile_error! gate"
-          # A release refuses the placeholder program id.
-          refused $KG --release --ours solana/tegridy-clmm; because "is the placeholder program id"
+          # A release refuses the placeholder program id. Once the owner's id is in, a release passes,
+          # and the placeholder put back is refused again.
+          if grep -q 'RangePoo1PLACEHo1DERnotDep1oyed111111111111' solana/guards/allowed-keys.json; then
+            refused $KG --release --ours solana/tegridy-clmm; because "is the placeholder program id"
+          else
+            ALL="--ours solana/tegridy-amm/programs/cp-swap --ours solana/tegridy-clmm --ours solana/tegridy-amm/programs/tegridy-launch --ours solana/tegridy-amm/programs/bayla-ladder --clmm-lib solana/tegridy-clmm/programs/amm/src/lib.rs"
+            $KG --release $ALL > /tmp/release.log 2>&1 || { echo "::error::a release of the real id is refused"; cat /tmp/release.log; exit 1; }
+            # The placeholder put back in the release's place, with its allow-list entry back too:
+            # --release itself must refuse it (not merely "on no allow-list").
+            cp -r solana/tegridy-clmm /tmp/clmm-ph
+            ID=$(grep -A1 '^#\[cfg(not(feature = "devnet"))\]$' /tmp/clmm-ph/programs/amm/src/lib.rs | sed -n 's/^declare_id!("\([1-9A-HJ-NP-Za-km-z]*\)");$/\1/p')
+            [ -n "$ID" ] || { echo "::error::lib.rs declares no release program id"; exit 1; }
+            sed -i "s/$ID/RangePoo1PLACEHo1DERnotDep1oyed111111111111/g" /tmp/clmm-ph/programs/amm/src/lib.rs
+            node -e 'const f=require("fs"),a=JSON.parse(f.readFileSync("solana/guards/allowed-keys.json","utf8"));a.placeholder={RangePoo1PLACEHo1DERnotDep1oyed111111111111:"the placeholder, put back for this check"};f.writeFileSync("/tmp/allow-ph.json",JSON.stringify(a))'
+            refused $KG --allow /tmp/allow-ph.json --release --ours /tmp/clmm-ph; because "is the placeholder program id"
+          fi
           # Raydium's admin in tegridy-launch, which graduates its pools into cp-swap.
           cp -r solana/tegridy-amm/programs/tegridy-launch /tmp/launch-key
           echo "// $RAYDIUM_ADMIN" >> /tmp/launch-key/src/lib.rs
@@ -263,17 +282,36 @@ jobs:
         run: |
           sh -c "$(curl -sSfL https://release.anza.xyz/${CLMM_SOLANA_VERSION}/install)"
           echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
+      # While lib.rs declares the placeholder, a build needs `placeholder-id`. Once the owner's
+      # real id is in (program-id-change.mjs), the release is the build with no features at all,
+      # and its sha256 below is the one the deploy pack pins.
+      - name: Which program id the source declares
+        id: idstate
+        run: |
+          # The id a build with no features compiles: the line after the not(devnet) cfg.
+          MAIN=$(grep -A1 '^#\[cfg(not(feature = "devnet"))\]$' src/lib.rs | sed -n 's/^declare_id!("\([1-9A-HJ-NP-Za-km-z]*\)");$/\1/p')
+          [ -n "$MAIN" ] || { echo "::error::lib.rs declares no release program id"; exit 1; }
+          if [ "$MAIN" = "RangePoo1PLACEHo1DERnotDep1oyed111111111111" ]; then
+            echo "features=placeholder-id" >> "$GITHUB_OUTPUT"; echo "placeholder=true" >> "$GITHUB_OUTPUT"
+            echo "the placeholder id: building with --features placeholder-id"
+          else
+            echo "features=" >> "$GITHUB_OUTPUT"; echo "placeholder=false" >> "$GITHUB_OUTPUT"
+            echo "a real program id: building the release, with no features"
+          fi
       # The same two guards as cp-swap's build: build-sbf can exit 0 having compiled nothing,
       # and a 4 KB stack overflow is only a linker warning.
-      - name: Build with the placeholder id
+      - name: Build
+        env:
+          FEATURES: ${{ steps.idstate.outputs.features }}
         run: |
           set -euo pipefail
           SO=../../target/deploy/raydium_clmm.so
           rm -f "$SO"
-          cargo build-sbf --features placeholder-id -- --locked 2>&1 | tee /tmp/clmm-build.log
+          build() { if [ -n "$FEATURES" ]; then cargo build-sbf --features "$FEATURES" -- --locked; else cargo build-sbf -- --locked; fi; }
+          build 2>&1 | tee /tmp/clmm-build.log
           if [ ! -f "$SO" ]; then
             echo "::warning::first cargo build-sbf produced no artifact (toolchain install only), retrying"
-            cargo build-sbf --features placeholder-id -- --locked 2>&1 | tee -a /tmp/clmm-build.log
+            build 2>&1 | tee -a /tmp/clmm-build.log
           fi
           [ -f "$SO" ] || { echo "::error::cargo build-sbf exited 0 but produced no $SO"; exit 1; }
           if grep -q "exceeded max offset" /tmp/clmm-build.log; then
@@ -283,6 +321,21 @@ jobs:
           fi
           ls -l "$SO"
           sha256sum "$SO"
+          # The build writes a fresh program key beside the program when none exists. Nothing
+          # may deploy with it: the deploy pack names the owner's key file. Removed here.
+          rm -f ../../target/deploy/raydium_clmm-keypair.json
+          if [ "${FEATURES}" = "" ]; then
+            { echo "### tegridy-clmm release build"; echo; echo "sha256 \`$(sha256sum "$SO" | cut -d' ' -f1)\`, $(stat -c%s "$SO") bytes"; } >> "$GITHUB_STEP_SUMMARY"
+          fi
+      # Kept only from mvp-launch itself: a pull request's or a fork's build is never the one kept.
+      - name: Keep the release build
+        if: steps.idstate.outputs.placeholder == 'false' && github.event_name == 'push' && github.ref == 'refs/heads/mvp-launch'
+        uses: actions/upload-artifact@50769540e7f4bd5e21e526ee35c689e35e0d6874 # v4.4.0
+        with:
+          name: tegridy-clmm-release
+          path: solana/tegridy-clmm/target/deploy/raydium_clmm.so
+          if-no-files-found: error
+          retention-days: 90
       # Rent is a refundable deposit. Read from mainnet at run time; a failed read says so
       # rather than printing a figure nobody read.
       - name: Deploy rent at today's rate
@@ -306,6 +359,7 @@ jobs:
             echo "| upload buffer, refunded after deploy | $((BYTES + 37)) | $(rent $((BYTES + 37))) |"
           } | tee -a "$GITHUB_STEP_SUMMARY"
       - name: A build without the placeholder feature is refused
+        if: steps.idstate.outputs.placeholder == 'true'
         run: |
           set -uo pipefail
           if cargo build-sbf -- --locked > /tmp/clmm-refused.log 2>&1; then
@@ -318,11 +372,13 @@ jobs:
       # devnet hands every power to one test key and localnet reads the admin from the build's
       # environment: neither may build unless test-chain-keys is also named.
       - name: A devnet or localnet build is refused without test-chain-keys
+        env:
+          FEATURES: ${{ steps.idstate.outputs.features }}
         run: |
           set -uo pipefail
           for F in devnet localnet; do
             if CLMM_LOCALNET_ADMIN=GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd \
-              cargo build-sbf --features "placeholder-id,$F" -- --locked > "/tmp/clmm-$F.log" 2>&1; then
+              cargo build-sbf --features "${FEATURES:+$FEATURES,}$F" -- --locked > "/tmp/clmm-$F.log" 2>&1; then
               echo "::error::a $F build without test-chain-keys succeeded"
               exit 1
             fi
@@ -330,8 +386,23 @@ jobs:
               || { echo "::error::the $F build failed, but not at the test-chain gate"; tail -40 "/tmp/clmm-$F.log"; exit 1; }
             echo "$F refused at the test-chain gate, as it must be"
           done
-      - name: Upstream's own unit tests
-        run: cargo test --locked --lib
+      # paramset (test-length reward periods) gets its gate with the real id (program-id-change.mjs).
+      - name: A paramset build is refused without test-chain-keys
+        if: steps.idstate.outputs.placeholder == 'false'
+        run: |
+          set -uo pipefail
+          if cargo build-sbf --features paramset -- --locked > /tmp/clmm-paramset.log 2>&1; then
+            echo "::error::a paramset build without test-chain-keys succeeded"; exit 1
+          fi
+          grep -q 'paramset is for tests' /tmp/clmm-paramset.log \
+            || { echo "::error::the paramset build failed, but not at its gate"; tail -40 /tmp/clmm-paramset.log; exit 1; }
+          echo "paramset refused at its gate, as it must be"
+      # Skipped: upstream's compute_swap_step_test adds the fee to the net output of an exact
+      # output with the fee on output, which holds only at a zero fee (solana/tegridy-clmm/README.md).
+      - name: Upstream's own unit tests, but the one with the wrong rule
+        run: cargo test --locked --lib -- --exact --skip libraries::swap_math::swap_math_test::compute_swap_step_test
+      - name: compute_swap's rule in all four swap kinds, in place of the skipped test
+        run: cargo test --locked --test swap_math_fee_rule
 
   build:
     needs: scope
@@ -434,6 +505,34 @@ jobs:
         run: |
           rustc --edition 2021 --test src/curve.rs -o /tmp/curve_test
           /tmp/curve_test
+
+      # math.test.ts proves the frontend port against curveVectors.fixture.ts, so the
+      # fixture must be exactly what tools/gen_curve_vectors.rs prints when built
+      # against the curve.rs above. Whole-line `//` comments and blank lines are
+      # dropped on both sides, so a note may sit anywhere in the fixture body; any
+      # other difference fails. To regenerate: the recipe in the fixture's header.
+      - name: Frontend curve fixture matches curve.rs
+        run: |
+          set -euo pipefail
+          FIXTURE="$GITHUB_WORKSPACE/frontend/src/lib/launcher/solana/curve/curveVectors.fixture.ts"
+          T=$(mktemp -d)
+          cp src/curve.rs "$T/curve_pub.rs"
+          cp ../../tools/gen_curve_vectors.rs "$T/"
+          (cd "$T" && rustc --edition 2021 -O --diagnostic-width=200 -o gen gen_curve_vectors.rs) || {
+            echo "::error::tools/gen_curve_vectors.rs does not compile against this curve.rs (rustc's error is above)"
+            exit 1
+          }
+          rows() { sed -e '/^[[:space:]]*\/\//d' -e '/^[[:space:]]*$/d'; }
+          "$T/gen" | tail -n +2 | rows > "$T/generated"
+          sed -n '/^export const FEE_UP_VECTORS/,$p' "$FIXTURE" | rows > "$T/fixture"
+          [ -s "$T/generated" ] || { echo "::error::the generator printed no rows"; exit 1; }
+          if ! diff -u --label fixture --label generated "$T/fixture" "$T/generated" > "$T/diff"; then
+            echo "::error::curveVectors.fixture.ts is not what gen_curve_vectors.rs prints against this curve.rs. Regenerate it with the recipe in its header."
+            head -n 40 "$T/diff"
+            echo "($(wc -l < "$T/diff") diff lines in all)"
+            exit 1
+          fi
+          echo "fixture matches the generator: $(wc -l < "$T/generated") lines"
 
       - name: Install Solana CLI ${{ env.SOLANA_VERSION }}
         run: |

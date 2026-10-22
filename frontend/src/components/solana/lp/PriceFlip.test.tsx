@@ -122,4 +122,17 @@ describe('a press on any pool price turns every pool price round', () => {
     fireEvent.click(flip);
     expect(screen.getByRole('button', { name: `1 SOL = ${BAYLA_PER_SOL.toLocaleString('en-US')} BAYLA` })).toHaveAttribute('title', 'Show every pool’s price per 1 BAYLA');
   });
+
+  // Owner, 2026-10-20: the press area grows to 44px and the price looks the same. The LP
+  // section's 44px rule is checked in a browser only by e2e-solana, which no CI job runs.
+  it('is pressed over 44px of height on any line of 16px or more, and moves nothing round it', () => {
+    render(<ul>{card(view(BAYLA_MINT), 0.0000047)}</ul>);
+    const [flip] = screen.getAllByTestId('lp-price-flip');
+    // 14px of padding above and below, taken back by the same negative margin, painted
+    // above the rows after it (in a browser they took a press on its lower 6 to 7px otherwise).
+    expect(flip).toHaveClass('inline-block', 'py-3.5', '-my-3.5', 'relative');
+    // The ring goes round the words, not round the area over the rows beside it (index.css).
+    expect(flip).toHaveClass('ring-on-words');
+    expect(flip.querySelector('.ring-words')).toHaveTextContent(`1 BAYLA = ${formatSolPrice(POOL_PRICE)} SOL`);
+  });
 });
