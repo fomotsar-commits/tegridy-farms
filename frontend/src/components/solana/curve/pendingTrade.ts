@@ -25,6 +25,8 @@ import type { TxKind } from './ports';
 export const curveTradeScope = (mint: string): string => 'curve-launch:pending-trade:' + mint;
 /** Where every liquidity note lives, whatever its pool. */
 export const LP_PENDING_SCOPE = 'lp:pending';
+/** Where every range-position note lives. A note holds every range form until the chain answers for it. */
+export const RANGE_PENDING_SCOPE = 'range:pending';
 /** The prefix of the swap page's per-wallet scopes. A note an older build kept under this bare key (one tab's) is not read. */
 export const SWAP_PENDING_SCOPE = 'swap:pending';
 /** Where the swap page keeps the notes of one wallet: every swap it signed here, either route, any pair. */
@@ -66,6 +68,10 @@ const KNOWN: Record<TradeKind, true> = {
   'lp-deposit': true,
   'lp-withdraw': true,
   'lp-create': true,
+  'range-open': true,
+  'range-remove': true,
+  'range-close': true,
+  'range-swap': true,
 };
 const TRADE_KINDS: ReadonlySet<string> = new Set(Object.keys(KNOWN));
 
