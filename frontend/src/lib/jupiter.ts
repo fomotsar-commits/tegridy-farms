@@ -9,6 +9,7 @@
 // runs fee-free, so an arbitrary pair can never break. No own program.
 import { PublicKey, VersionedTransaction } from '@solana/web3.js';
 import { getAssociatedTokenAddressSync } from '@solana/spl-token';
+import { deliveredByRoute } from './solana/swap/jupiterEvents';
 import {
   JUPITER_PROXY_BASE,
   JUPITER_TOKENS_BASE,
@@ -442,30 +443,39 @@ export interface SwapSimulation {
   jupiterIncorrectTokenProgram: boolean;
   /** Why it refused, when the runtime itself said (refusalCause). `reason` may be a program's own print. */
   cause?: SwapRefusalCause | null;
+  /** On a pass: what the route's own events deliver to the trader. Absent when they cannot say. */
+  delivered?: { mint: string; amount: bigint };
+}
+
+type SimAnswer = { error?: unknown; result?: { value?: { err?: unknown; logs?: string[]; innerInstructions?: unknown } } };
+
+async function simulateOnce(b64Tx: string, inner: boolean, signal?: AbortSignal): Promise<SimAnswer> {
+  const config = { encoding: 'base64', replaceRecentBlockhash: true, sigVerify: false, commitment: 'processed', ...(inner ? { innerInstructions: true } : {}) };
+  const res = await fetch(SOLANA_RPC_PROXY_PATH, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'simulateTransaction', params: [b64Tx, config] }),
+    signal,
+  });
+  if (!res.ok) throw new Error(`Simulation failed (${res.status})`);
+  return (await res.json()) as SimAnswer;
 }
 
 /**
  * Pre-sign simulation of a built swap tx via our RPC proxy. Catches reverting
  * swaps (honeypots, freeze, slippage, insufficient balance) BEFORE the user
- * signs — saving gas. Best-effort: callers should FAIL OPEN if this throws.
+ * signs, and on a pass reads what the route delivers. An RPC that refuses the
+ * inner-instructions option is asked again without it. Callers decide what a throw means.
  */
 export async function simulateSwap(b64Tx: string, signal?: AbortSignal): Promise<SwapSimulation> {
-  const res = await fetch(SOLANA_RPC_PROXY_PATH, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-    body: JSON.stringify({
-      jsonrpc: '2.0',
-      id: 1,
-      method: 'simulateTransaction',
-      params: [b64Tx, { encoding: 'base64', replaceRecentBlockhash: true, sigVerify: false, commitment: 'processed' }],
-    }),
-    signal,
-  });
-  if (!res.ok) throw new Error(`Simulation failed (${res.status})`);
-  const json = (await res.json()) as { result?: { value?: { err?: unknown; logs?: string[] } } };
+  let json = await simulateOnce(b64Tx, true, signal);
+  if (json.error !== undefined) json = await simulateOnce(b64Tx, false, signal);
   const value = json.result?.value;
   if (!value) throw new Error('No simulation result');
-  if (value.err === null || value.err === undefined) return { ok: true, reason: null, jupiterIncorrectTokenProgram: false };
+  if (value.err === null || value.err === undefined) {
+    const delivered = deliveredByRoute(value.innerInstructions);
+    return { ok: true, reason: null, jupiterIncorrectTokenProgram: false, ...(delivered ? { delivered } : {}) };
+  }
   return {
     ok: false,
     reason: parseSimError(value.err, value.logs),

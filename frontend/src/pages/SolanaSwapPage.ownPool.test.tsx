@@ -705,6 +705,28 @@ describe('the route is held again when Buy is pressed', () => {
     await waitFor(() => expect(routeLine()).toMatch(/Our pool matches Jupiter, so the trade stays here/));
   });
 
+  it('Jupiter quoted more than our pool, but its test run pays less: our pool takes the trade, nothing is sent', async () => {
+    h.ownOut.value = 990_000n;
+    // The quote says 1,000,000; the transaction built from it delivers 980,000 in its test run.
+    h.simulateSwap.mockResolvedValue({ ok: true, reason: null, jupiterIncorrectTokenProgram: false, delivered: { mint: BAYLA_MINT, amount: 980_000n } });
+    const buy = await readyToBuy();
+    await waitFor(() => expect(routeLine()).toMatch(/Jupiter pays/));
+    fireEvent.click(buy);
+    await waitFor(() => expect(h.toast.error).toHaveBeenCalledWith('Route changed', { description: OWN_ROUTE_COPY.ownNowWins }));
+    expect(h.buildSwapTransaction).toHaveBeenCalledTimes(1);
+    expect(h.sendTransaction).not.toHaveBeenCalled();
+  });
+
+  it('a test run that pays at least the quote changes nothing: Jupiter’s transaction goes to the wallet', async () => {
+    h.ownOut.value = 990_000n;
+    h.simulateSwap.mockResolvedValue({ ok: true, reason: null, jupiterIncorrectTokenProgram: false, delivered: { mint: BAYLA_MINT, amount: 1_000_400n } });
+    const buy = await readyToBuy();
+    await waitFor(() => expect(routeLine()).toMatch(/Jupiter pays/));
+    fireEvent.click(buy);
+    await waitFor(() => expect(h.sendTransaction).toHaveBeenCalledTimes(1));
+    expect(h.toast.error).not.toHaveBeenCalledWith('Route changed', expect.anything());
+  });
+
   it('Buy pressed while our pool was still being read: it is read before anything is sent, and takes the trade it wins', async () => {
     // The first read of our pools never answers; Jupiter's quote lands and Buy is live.
     h.readVenuePools.mockImplementationOnce(() => new Promise(() => {}));

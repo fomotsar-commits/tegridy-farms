@@ -206,6 +206,31 @@ describe('simulateSwap reports the 6014 as a structured flag, not as text', () =
   });
 });
 
+// The decoding itself is held to a recorded mainnet test run in swap/jupiterEvents.test.ts.
+describe('simulateSwap reads what the route delivers on a pass', () => {
+  it('asks the RPC for inner instructions, and passes with no figure when there are none', async () => {
+    const { simulateSwap } = await load();
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ jsonrpc: '2.0', id: 1, result: { value: { err: null, logs: [] } } }), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    expect(await simulateSwap(SWAP_TX)).toEqual({ ok: true, reason: null, jupiterIncorrectTokenProgram: false });
+    const body = JSON.parse(String(((fetchMock.mock.calls[0] as unknown[])[1] as RequestInit).body));
+    expect(body.params[1]).toMatchObject({ innerInstructions: true, sigVerify: false, replaceRecentBlockhash: true });
+  });
+
+  it('an RPC that refuses the option is asked again without it, and its answer stands', async () => {
+    const { simulateSwap } = await load();
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ jsonrpc: '2.0', id: 1, error: { code: -32602, message: 'Invalid params: unknown field innerInstructions' } }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ jsonrpc: '2.0', id: 1, result: { value: { err: ERR_6014_AT_2, logs: LOGS_JUP_6014 } } }), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    const sim = await simulateSwap(SWAP_TX);
+    expect(sim).toMatchObject({ ok: false, jupiterIncorrectTokenProgram: true });
+    const second = JSON.parse(String(((fetchMock.mock.calls[1] as unknown[])[1] as RequestInit).body));
+    expect(second.params[1].innerInstructions).toBeUndefined();
+  });
+});
+
 describe('refusalCause: why a test run refused, only from lines no program can print', () => {
   it('Jupiter’s own 6001, raised by Jupiter: the price limit', async () => {
     const { refusalCause } = await load();

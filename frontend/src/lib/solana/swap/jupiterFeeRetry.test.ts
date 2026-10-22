@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { prepareJupiterSwap, refusalWhy, refusedSaid, NO_SITE_FEE_ROUTE_COPY, REFUSED_COPY, type FeeRetryDeps } from './jupiterFeeRetry';
+import { prepareJupiterSwap, refusalWhy, refusedSaid, asTested, testedShort, NO_SITE_FEE_ROUTE_COPY, REFUSED_COPY, type FeeRetryDeps } from './jupiterFeeRetry';
 import type { JupiterQuote, SwapSimulation } from '../../jupiter';
 
 /**
@@ -332,5 +332,39 @@ describe('"Swap would fail" says only what the network wrote, never a line a pro
   it('the fixed sentence says nothing was sent, plainly, with no em dash', () => {
     expect(REFUSED_COPY).toBe("Jupiter's transaction for this trade failed its test run, so nothing was sent.");
     expect(REFUSED_COPY).not.toMatch(/—/);
+  });
+});
+
+describe('the test run’s figure: what the transaction pays, carried to the page', () => {
+  const paying = (amount: bigint, mint = BAYLA): SwapSimulation => ({ ...OK, delivered: { mint, amount } });
+
+  it('a ready swap carries what its own test run delivered of the output, first build or rebuild', async () => {
+    const first = await prepareJupiterSwap(deps({ simulateSwap: async () => paying(21_600_000_000n) }), ARGS);
+    expect(first).toMatchObject({ status: 'ready', swapTransaction: 'TX_FEE', tested: 21_600_000_000n });
+    const rebuilt = await prepareJupiterSwap(deps({ simulateSwap: async (tx) => (tx === 'TX_FEE' ? JUP_6014 : paying(21_700_000_000n)) }), ARGS);
+    expect(rebuilt).toMatchObject({ status: 'ready', swapTransaction: 'TX_NO_FEE', tested: 21_700_000_000n });
+  });
+
+  it('no figure when the events named another mint or none', async () => {
+    const other = await prepareJupiterSwap(deps({ simulateSwap: async () => paying(5n, SOL) }), ARGS);
+    expect(other).not.toHaveProperty('tested');
+    expect(await prepareJupiterSwap(deps({ simulateSwap: async () => OK }), ARGS)).not.toHaveProperty('tested');
+  });
+
+  it('asTested: the quote, or a copy at the lower tested figure, never a higher one', () => {
+    expect(asTested(FEE_QUOTE, undefined)).toBe(FEE_QUOTE);
+    expect(asTested(FEE_QUOTE, 21_651_030_522n)).toBe(FEE_QUOTE);
+    expect(asTested(FEE_QUOTE, 99_000_000_000n)).toBe(FEE_QUOTE);
+    const low = asTested(FEE_QUOTE, 21_600_000_000n);
+    expect(low).toEqual({ ...FEE_QUOTE, outAmount: '21600000000' });
+    expect(FEE_QUOTE.outAmount).toBe('21651030522');
+  });
+
+  it('testedShort: 0.10% under the quote or more', () => {
+    const at = (out: string) => ({ ...FEE_QUOTE, outAmount: out });
+    expect(testedShort(at('10000'), at('9990'))).toBe(true);
+    expect(testedShort(at('10000'), at('9991'))).toBe(false);
+    expect(testedShort(at('10000'), at('10000'))).toBe(false);
+    expect(testedShort(at('x'), at('1'))).toBe(false);
   });
 });
