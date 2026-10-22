@@ -15,9 +15,10 @@ import { QUOTE_COINS, quoteCoin } from '../../../lib/solana/lp/quotes';
 import { BAYLA_MINT } from '../../../lib/solana/lp/tokenSafety';
 import { RANGE_PROGRAM_ID } from '../../../lib/solana/clmm/program';
 import { ownPoolPrograms } from '../../../lib/solana/lp/ownPools';
-import { readFeeTiers, readPairPools, readWalletPositions, type Read, type RangePool, type WalletPositionsRead } from '../../../lib/solana/clmm/read';
+import { readFeeTiers, readFreezeAuthority, readPairPools, readWalletPositions, type Read, type RangePool, type WalletPositionsRead } from '../../../lib/solana/clmm/read';
+import { freezeWarning } from '../../../lib/solana/lp/tokenSafety';
 import type { AmmConfigView } from '../../../lib/solana/clmm/program';
-import { feePaidIn, feeSplit } from '../../../lib/solana/clmm/feeText';
+import { feePaidIn, feeSplit, poolFeeCeiling } from '../../../lib/solana/clmm/feeText';
 import { rangeVenueEarns } from '../../../lib/solana/clmm/venueEarns';
 import { pairOf, priceAtSqrt, type Pair } from '../../../lib/solana/clmm/rangeMath';
 import { CardArt } from '../../ui/CardArt';
@@ -59,6 +60,8 @@ export interface RangeReaders {
   feeTiers(): Promise<Read<AmmConfigView[]>>;
   pairPools(mintA: string, mintB: string, tiers: AmmConfigView[]): Promise<Read<RangePool[]>>;
   walletPositions(owner: string): Promise<Read<WalletPositionsRead>>;
+  /** The token's freeze authority, or null for none: said where the token is picked. */
+  freezeAuthority(mint: string): Promise<Read<string | null>>;
   /** Jupiter's price, refused when it comes through a range pool: the opening's market check. */
   outsidePrice(mint: string, decimals: number, opts?: { fresh?: boolean }): Promise<OutsidePrice>;
 }
@@ -70,6 +73,7 @@ export function browserRangeReaders(rpc: SolanaRpc, programId: PublicKey): Range
     feeTiers: () => readFeeTiers(rpc, programId),
     pairPools: (a, b, tiers) => readPairPools(rpc, programId, a, b, tiers),
     walletPositions: (owner) => readWalletPositions(rpc, programId, new PublicKey(owner)),
+    freezeAuthority: (mint) => readFreezeAuthority(rpc, mint),
     outsidePrice: (mint, decimals, o) => readOutsidePrice(mint, decimals, { rpc, programId: ownPoolPrograms([programId.toBase58()]) }, lpFetch({ what: 'Jupiter' }), undefined, o),
   };
 }
@@ -101,6 +105,7 @@ export function RangeInner({ readers, load, mode }: { readers: RangeReaders; loa
   const finished = useCallback(() => setNonce((n) => n + 1), []);
 
   const tiers = useChainRead(`tiers:${programId.toBase58()}`, nonce, () => readers.feeTiers());
+  const freeze = useChainRead(`freeze:${tokenMint}`, nonce, () => readers.freezeAuthority(tokenMint));
   const tierList = tiers.read?.kind === 'ok' ? tiers.read.value : null;
   const pools = useChainRead(tierList ? `pools:${tokenMint}:${coin.mint}:${tierList.length}` : null, nonce, () => readers.pairPools(tokenMint, coin.mint, tierList ?? []));
   const poolList = pools.read?.kind === 'ok' ? pools.read.value : null;
@@ -164,6 +169,7 @@ export function RangeInner({ readers, load, mode }: { readers: RangeReaders; loa
 
       <Card title="Pick a pool" testId="range-pools" art={<CardArt pageId="range-pools" idx={1} />}>
         <Row label="Token" value={quoteCoin(tokenMint)?.symbol ?? tokenMint} mono={!quoteCoin(tokenMint)} />
+        <TokenFreezeNotice mint={tokenMint} read={freeze.read} />
         {raw && parsed && !parsed.ok && <Notice tone="warn">{`The token in the link is not one this page can read (${parsed.reason}). Showing BAYLA.`}</Notice>}
         {parsed?.ok && tokenMint !== BAYLA_MINT && (
           <button type="button" className="underline text-white/70 min-h-[44px]" onClick={clearToken}>
@@ -202,7 +208,7 @@ export function RangeInner({ readers, load, mode }: { readers: RangeReaders; loa
         ) : (
           <div className="space-y-2" role="group" aria-label="Pools by fee">
             {poolList.map((x) => {
-              const s = feeSplit(x.config);
+              const s = feeSplit(x.config, poolFeeCeiling(x.pool, x.config.tradeFeeRate));
               const pr = pairOf(x.pool);
               const on = x.pool.address === pool?.pool.address;
               return (
@@ -270,14 +276,40 @@ const NOTE_WHAT = {
 } as const;
 
 /**
+ * Whether the token's holder can freeze accounts, the pool's vault included, said where the
+ * token is picked, as the LP deposit says it: a known coin's own line (USDC: Circle), or the
+ * chain's freeze authority. A read that failed is said as that, never as "cannot be frozen".
+ */
+function TokenFreezeNotice({ mint, read }: { mint: string; read: Read<string | null> | null }) {
+  const known = quoteCoin(mint);
+  if (known?.risk) return <CoinRiskNotice coin={known} />;
+  if (read?.kind === 'ok' && read.value) {
+    return (
+      <div data-testid="range-token-freeze">
+        <Notice tone="warn">{freezeWarning(mint, read.value).text}</Notice>
+      </div>
+    );
+  }
+  if (read?.kind === 'unread') {
+    return (
+      <div data-testid="range-token-freeze">
+        <Notice tone="warn">{`Whether this token’s creator can freeze accounts could not be read just now (${read.detail}). Review checks it again.`}</Notice>
+      </div>
+    );
+  }
+  return null;
+}
+
+/**
  * How a range position pays, said where the deposit is (never folded away): what LPs earn
  * and what the venue keeps, both read from the chosen pool's fee tier, and that a position
  * out of range earns nothing. Where the venue's cut goes is said as the /solana-lp Rates
  * card says it: the agreed split in the fine print, any other wallet in bold in plain sight.
  */
 function HowItPays({ pool, pair }: { pool: RangePool | null; pair: Pair | null }) {
-  const s = pool ? feeSplit(pool.config) : null;
-  const venue = pool ? rangeVenueEarns(pool.config) : null;
+  const ceiling = pool ? poolFeeCeiling(pool.pool, pool.config.tradeFeeRate) : null;
+  const s = pool ? feeSplit(pool.config, ceiling) : null;
+  const venue = pool ? rangeVenueEarns(pool.config, ceiling) : null;
   const wallets = venue && (
     <div className="space-y-1">
       {venue.wallets.map((w) => (

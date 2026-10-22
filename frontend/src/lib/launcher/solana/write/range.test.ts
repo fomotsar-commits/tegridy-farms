@@ -72,7 +72,7 @@ function deployed(chain: FakeChain, program: PublicKey) {
   chain.set(pd, { lamports: 10_000_000, owner: BPF_LOADER_UPGRADEABLE_ID, data: new Uint8Array(64) });
 }
 
-function chainWith(o: { status?: number; deploy?: boolean; tokens?: bigint | null; token2022?: boolean; frozenVault?: 0 | 1; vaultMissing?: boolean; reward?: boolean } = {}): FakeChain {
+function chainWith(o: { status?: number; deploy?: boolean; tokens?: bigint | null; token2022?: boolean; frozenVault?: 0 | 1; vaultMissing?: boolean; reward?: boolean; freezeAuthority?: PublicKey } = {}): FakeChain {
   const c = new FakeChain();
   if (o.deploy !== false) deployed(c, PROG);
   c.set(CONFIG, { lamports: rent(117), owner: PROG, data: encodeAmmConfig({ index: 0, tradeFeeRate: 10_000, protocolFeeRate: 104_000, fundFeeRate: 56_000, tickSpacing: SPACING, owner: TIER_OWNER, fundOwner: FUND_OWNER }) });
@@ -88,8 +88,8 @@ function chainWith(o: { status?: number; deploy?: boolean; tokens?: bigint | nul
       rewards: o.reward ? [{ mint: Keypair.generate().publicKey, vault: Keypair.generate().publicKey }] : undefined,
     }),
   });
-  if (o.token2022) c.mint2022(TOKEN, [], { decimals: 6 });
-  else c.mint(TOKEN, { decimals: 6 });
+  if (o.token2022) c.mint2022(TOKEN, [], { decimals: 6, freezeAuthority: o.freezeAuthority });
+  else c.mint(TOKEN, { decimals: 6, freezeAuthority: o.freezeAuthority });
   c.mint(WSOL_MINT, { decimals: 9 });
   // The pool's two vaults: either one frozen by its coin's issuer stops every deposit and withdrawal.
   [VAULT0, VAULT1].forEach((v, i) => {
@@ -299,6 +299,16 @@ describe('opening a range position', () => {
     expect(await msg(chainWith({ frozenVault: 1 }))).toBe(RANGE_COPY.vaultFrozen);
     // A vault that did not read is never taken as open.
     expect(await msg(chainWith({ vaultMissing: true }))).toBe(RANGE_COPY.poolChanged('its vaults'));
+  });
+
+  it('a token whose creator can freeze it is said first on the review, in the LP deposit’s words; one that cannot says nothing', async () => {
+    const auth = Keypair.generate().publicKey;
+    const args = { owner: ME, pool: POOL, ...inRange, side: 'token' as const, amount: 5_000_000n, toleranceBps: 100 };
+    const frozen = ok(await prepareRangeOpen(W(ready(chainWith({ freezeAuthority: auth }))), cfgLocal, PROG, READS, args));
+    const warnings = (frozen.summary as Extract<RangeSummary, { kind: 'range-open' }>).warnings;
+    expect(warnings).toContain(`The token: Its creator can freeze any account that holds it (freeze authority ${auth.toBase58()}), a pool’s own vault and your own account included. While a pool’s vault is frozen, nobody can take liquidity out of that pool.`);
+    const clean = ok(await prepareRangeOpen(W(ready(chainWith())), cfgLocal, PROG, READS, args));
+    expect((clean.summary as Extract<RangeSummary, { kind: 'range-open' }>).warnings.some((w) => /freeze/.test(w))).toBe(false);
   });
 
   it('a pool that pays a reward opens like any other: an opening carries no reward account', async () => {

@@ -3,6 +3,7 @@ import type { SolanaRpc } from '../../launcher/solana/curve/rpc';
 import { clipDetail } from '../../launcher/solana/curve/read';
 import { getMultipleAccounts, getTokenAccountsByOwner, type RawAccount } from '../lp/accounts';
 import { TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID } from '../cpswap/ix';
+import { decodeMintAccount } from '../lp/tokenSafety';
 import { getArrayStartIndex, initializedTickArrayStarts, isOverflowDefaultTickarrayBitmap } from './bitmap';
 import { ClmmMathError, calculateLatestTokenFees, getDeltaAmountsSigned, getFeeGrowthInside } from './math';
 import {
@@ -289,6 +290,17 @@ export function readWalletPositions(rpc: SolanaRpc, programId: PublicKey, owner:
       });
     }
     return { positions, unread };
+  });
+}
+
+/** A token's freeze authority as the chain has it, or null for none: what the LP deposit's token check reads. */
+export function readFreezeAuthority(rpc: SolanaRpc, mint: string): Promise<Read<string | null>> {
+  return guard(async () => {
+    const [a] = await getMultipleAccounts(rpc, [mint]);
+    if (!a) unreadable('the token’s mint was not found');
+    const d = decodeMintAccount(a!.owner, a!.data);
+    if (!d.ok) unreadable(d.reason);
+    return d.ok ? d.value.freezeAuthority : null;
   });
 }
 

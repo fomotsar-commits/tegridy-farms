@@ -12,8 +12,8 @@ import { Keypair, PublicKey, type TransactionInstruction } from '@solana/web3.js
 import { TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID, WSOL_MINT } from '../curve/program';
 import { associatedTokenAddress } from '../curve/ix';
 import { formatTokenAmount } from '../curve/format';
-import type { QuoteCoin } from '../../../solana/lp/quotes';
-import { BUILDABLE_EXTENSIONS, decodeMintAccount, extensionPlain } from '../../../solana/lp/tokenSafety';
+import { quoteCoin, type QuoteCoin } from '../../../solana/lp/quotes';
+import { BUILDABLE_EXTENSIONS, decodeMintAccount, extensionPlain, freezeWarning } from '../../../solana/lp/tokenSafety';
 import type { RawAccount } from '../../../solana/lp/accounts';
 import type { OutsidePrice } from '../../../solana/lp/outsidePrice';
 import { tokenVault } from '../../../solana/lp/poolFinder';
@@ -38,6 +38,7 @@ import {
 } from '../../../solana/clmm/program';
 import { getArrayStartIndex } from '../../../solana/clmm/bitmap';
 import { depositFrom, holdsNow, lessTolerance, pairOf, planFromCeiling, priceNumber, rangePrices, withTolerance, type Pair, type TickRange } from '../../../solana/clmm/rangeMath';
+import { poolFeeCeiling } from '../../../solana/clmm/feeText';
 import { MAX_OWN_PRIORITY_LAMPORTS } from './budget';
 import { LP_COPY, accountCheck, coinAccount, rentOf, toRaw, type AccountWant } from './liquidity';
 import { bodySteps, buildAndSimulate, notSent } from './prepare';
@@ -219,9 +220,10 @@ export function rangePins(
   };
 }
 
-export function poolLine(pins: RangePins, pair: Pair, tier: AmmConfigView): RangePoolLine {
+export function poolLine(pins: RangePins, pair: Pair, tier: AmmConfigView, pool: PoolStateView): RangePoolLine {
   return {
     pool: pins.address,
+    feeCeiling: poolFeeCeiling(pool, tier.tradeFeeRate),
     tokenMint: pins.tokenMint,
     tokenDecimals: pair.tokenDecimals,
     quote: pair.quote,
@@ -379,6 +381,14 @@ export async function prepareRangeOpen(rpc: WriteRpc, cfg: CurveWriteConfig, pro
     warnings.push(RANGE_COPY.priceOff(pct, check.diff > 0 ? 'above' : 'below', loss));
   } else if (check.state === 'no-market') warnings.push(RANGE_COPY.noMarket);
   else if (check.state === 'unread') warnings.push(RANGE_COPY.priceUnread(check.detail));
+  // A coin whose holder can freeze accounts, on either side, in the LP deposit's words (tokenSafety.ts).
+  // A pairing coin with its own risk line (USDC: Circle) has it said from its QuoteCoin instead, once.
+  const freezable: [string, string, RawAccount | null][] = [[quoteCoin(pins.tokenMint.toBase58())?.symbol ?? 'The token', pins.tokenMint.toBase58(), tokenMintRaw ?? null]];
+  if (!quote.native && !quote.risk) freezable.push([quote.symbol, quote.mint, coinMintRaw ?? null]);
+  for (const [name, mint, raw] of freezable) {
+    const d = raw ? decodeMintAccount(raw.owner, raw.data) : null;
+    if (d?.ok && d.value.freezeAuthority) warnings.push(`${name}: ${freezeWarning(mint, d.value.freezeAuthority).text}`);
+  }
   // The accounts' notices are the review's own lines, apart from the price warnings (as a deposit's are).
   const notices: string[] = [];
 
@@ -514,7 +524,7 @@ export async function prepareRangeOpen(rpc: WriteRpc, cfg: CurveWriteConfig, pro
         notices,
         warnings,
         price: check,
-        poolLine: poolLine(pins, pair, tier),
+        poolLine: poolLine(pins, pair, tier, pool),
         range: rangeLine(pair, pool, range),
       };
     },
@@ -746,7 +756,7 @@ async function prepareDecrease(rpc: WriteRpc, cfg: CurveWriteConfig, programId: 
         fees: feesSides,
         unwrapsWsol: wsol?.closeAfter ?? false,
         notices,
-        poolLine: poolLine(pins, pair, tier),
+        poolLine: poolLine(pins, pair, tier, pool),
         range: rangeLine(pair, pool, range),
       };
     },

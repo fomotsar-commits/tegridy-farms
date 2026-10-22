@@ -69,7 +69,7 @@ function preparedRangeSwap(a: VenueSwapArgs, out: bigint): PreparedTx {
     summary: {
       kind: 'range-swap',
       poolLine: {
-        pool: a.pool, tokenMint: a.outputMint, tokenDecimals: 6, quote: SOL_QUOTE, tokenIsToken0: true, tradeFeeRate: 10_000, venueShareRate: 160_000,
+        pool: a.pool, feeCeiling: null, tokenMint: a.outputMint, tokenDecimals: 6, quote: SOL_QUOTE, tokenIsToken0: true, tradeFeeRate: 10_000, venueShareRate: 160_000,
         protocolFeeRate: 104_000, fundFeeRate: 56_000, owner: 'GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd', fundOwner: h.fundOwner.value,
       },
       paysCoin: true, amountIn: a.amountIn, minimumAmountOut: (out * 9_950n) / 10_000n, quotedOut: out, bandsCrossed: 1, feeOnInput: h.feeOnInput.value, aggregator: a.aggregator,

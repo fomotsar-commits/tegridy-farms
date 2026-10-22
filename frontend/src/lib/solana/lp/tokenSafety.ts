@@ -349,6 +349,24 @@ export type TokenSafety =
  * The verdict for one mint from its account and its Metaplex metadata account (either
  * may be null = absent). Pure.
  */
+/**
+ * What a live freeze authority means, in the words every deposit says it (an LP deposit, a
+ * range opening): its holder can freeze any account of the token, a pool's vault included,
+ * and a frozen vault lets nobody take liquidity out.
+ */
+export function freezeWarning(mint: string, freezeAuthority: string): { code: 'freeze-authority' | 'freeze-authority-accepted'; text: string } {
+  if (FREEZE_AUTHORITY_ACCEPTED.has(mint)) {
+    return {
+      code: 'freeze-authority-accepted',
+      text: `Its issuer can freeze any account that holds it (freeze authority ${freezeAuthority}), a pool’s own vault and your own account included. While a pool’s vault is frozen, nobody can take liquidity out of that pool. That is how ${mint === USDC_MINT ? 'USDC' : 'USDT'} is built.`,
+    };
+  }
+  return {
+    code: 'freeze-authority',
+    text: `Its creator can freeze any account that holds it (freeze authority ${freezeAuthority}), a pool’s own vault and your own account included. While a pool’s vault is frozen, nobody can take liquidity out of that pool.`,
+  };
+}
+
 export function classifyToken(mint: string, mintAccount: RawAccount | null, metaplexAccount: RawAccount | null): TokenSafety {
   if (!mintAccount) return { kind: 'absent', mint };
   const blocks: SafetyReason[] = [];
@@ -377,19 +395,7 @@ export function classifyToken(mint: string, mintAccount: RawAccount | null, meta
   const f = decoded.value;
   if (!f.isInitialized) blocks.push({ code: 'not-initialized', text: 'This token mint was never set up.' });
 
-  if (f.freezeAuthority) {
-    if (FREEZE_AUTHORITY_ACCEPTED.has(mint)) {
-      warnings.push({
-        code: 'freeze-authority-accepted',
-        text: `Its issuer can freeze any account that holds it (freeze authority ${f.freezeAuthority}), a pool’s own vault and your own account included. While a pool’s vault is frozen, nobody can take liquidity out of that pool. That is how ${mint === USDC_MINT ? 'USDC' : 'USDT'} is built.`,
-      });
-    } else {
-      warnings.push({
-        code: 'freeze-authority',
-        text: `Its creator can freeze any account that holds it (freeze authority ${f.freezeAuthority}), a pool’s own vault and your own account included. While a pool’s vault is frozen, nobody can take liquidity out of that pool.`,
-      });
-    }
-  }
+  if (f.freezeAuthority) warnings.push(freezeWarning(mint, f.freezeAuthority));
 
   // The four stablecoins the pool program takes by name, whatever their extensions.
   const takenByName = RAYDIUM_WHITELISTED_MINTS.has(mint);

@@ -26,6 +26,7 @@ function opening(owners: { owner: string; fundOwner: string }, warnings: string[
     warnings,
     price: { state: 'agrees', pool: 0.0003, reference: 0.0003, diff: 0 },
     poolLine: {
+      feeCeiling: null,
       pool: key(2), tokenMint: key(3), tokenDecimals: 6, quote, tokenIsToken0: true,
       tradeFeeRate: 10_000, venueShareRate: 160_000, protocolFeeRate: 104_000, fundFeeRate: 56_000, ...owners,
     },
@@ -114,6 +115,12 @@ describe('the range review’s fee lines', () => {
     const first = screen.getByTestId('tx-review-venue-elsewhere');
     expect(first.textContent).not.toMatch(/\s\.$/);
     expect(first.textContent?.trim().endsWith('to the island’s Workshop.')).toBe(true);
+  });
+
+  it('a pool with a dynamic fee: the review says the fee as a range and the venue’s cut as a floor', () => {
+    const o = opening({ owner: PLATFORM_TREASURY_VAULT.toBase58(), fundOwner: WORKSHOP_WALLET.toBase58() }) as Extract<RangeSummary, { kind: 'range-open' }>;
+    render(<RangeRows summary={{ ...o, poolLine: { ...o.poolLine, feeCeiling: 40_000 } }} />);
+    expect(screen.getByText(/^1% to 4% of each swap through your range\. .* it keeps 16% of each swap’s fee \(at least 0\.16% of the swap\)/)).toBeInTheDocument();
   });
 
   it('the agreed split puts nothing above the rows', () => {

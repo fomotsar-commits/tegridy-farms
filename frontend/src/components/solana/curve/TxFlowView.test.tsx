@@ -1303,6 +1303,7 @@ describe('built again at the press: what shuts the wallet and what only moved', 
     warnings: o.diff === undefined ? [] : [RANGE_COPY.priceOff(`${Number((Math.abs(o.diff) * 100).toFixed(1))}%`, 'below', o.cost ?? '0.002 SOL')],
     price: o.diff === undefined ? { state: 'agrees', pool: 0.0003, reference: 0.0003, diff: 0 } : { state: 'disagrees', pool: 0.0003, reference: 0.0003 / (1 + o.diff), diff: o.diff, lossQuote: 2_000_000n },
     poolLine: {
+      feeCeiling: null,
       pool: KEY(51), tokenMint: KEY(52), tokenDecimals: 6, quote: SOL_QUOTE, tokenIsToken0: true, tradeFeeRate: 10_000, venueShareRate: 160_000,
       protocolFeeRate: o.protocol ?? 104_000, fundFeeRate: o.fund ?? 56_000, owner: PLATFORM_TREASURY_VAULT.toBase58(), fundOwner: STRANGER,
     },

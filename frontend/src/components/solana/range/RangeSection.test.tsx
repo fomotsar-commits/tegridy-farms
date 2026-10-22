@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor, within, fireEvent } from '@testing-library/react';
+import { cleanup, render, screen, waitFor, within, fireEvent } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { PublicKey } from '@solana/web3.js';
 import * as validate from '../../../lib/launchMetadata/validate.js';
@@ -21,7 +21,7 @@ import { depositFrom, pairOf, planFromCeiling, presetRange } from '../../../lib/
 import { bothAmounts } from './rangeText';
 import { RANGE_RISK_SHORT } from './RangeRisks';
 import { prepared } from '../curve/fakeWriteApi.fixture';
-import { SOL_QUOTE } from '../../../lib/solana/lp/quotes';
+import { SOL_QUOTE, USDC_QUOTE } from '../../../lib/solana/lp/quotes';
 import type { RangeSummary } from '../../../lib/launcher/solana/write/types';
 
 /**
@@ -97,7 +97,7 @@ function fakeApi(): RangeWriteApi {
 /** Jupiter's price for BAYLA by default: the pool's own, 0.0003 SOL. */
 const MARKET_AGREES: OutsidePrice = { kind: 'ok', solPerToken: 0.0003, source: 'Jupiter' };
 
-function readers(o: { tiers?: Read<AmmConfigView[]>; pools?: Read<RangePool[]>; positions?: Read<WalletPositionsRead>; market?: OutsidePrice } = {}): RangeReaders {
+function readers(o: { tiers?: Read<AmmConfigView[]>; pools?: Read<RangePool[]>; positions?: Read<WalletPositionsRead>; market?: OutsidePrice; freeze?: Read<string | null> } = {}): RangeReaders {
   const t = tier();
   return {
     programId: PROG,
@@ -105,13 +105,14 @@ function readers(o: { tiers?: Read<AmmConfigView[]>; pools?: Read<RangePool[]>; 
     pairPools: vi.fn(async () => o.pools ?? { kind: 'ok' as const, value: [poolOn(t)] }),
     walletPositions: vi.fn(async () => o.positions ?? { kind: 'ok' as const, value: { positions: [], unread: [] } }),
     outsidePrice: vi.fn(async () => o.market ?? MARKET_AGREES),
+    freezeAuthority: vi.fn(async () => o.freeze ?? { kind: 'ok' as const, value: null }),
   };
 }
 
-function show(r: RangeReaders, api: RangeWriteApi | null = fakeApi(), mode: 'on' | 'withdraw-only' | 'off' = 'on') {
+function show(r: RangeReaders, api: RangeWriteApi | null = fakeApi(), mode: 'on' | 'withdraw-only' | 'off' = 'on', path = '/range-pools') {
   const load = vi.fn(async () => api!);
   render(
-    <MemoryRouter>
+    <MemoryRouter initialEntries={[path]}>
       <RangeInner readers={r} load={load} mode={mode} />
     </MemoryRouter>,
   );
@@ -158,6 +159,18 @@ describe('how a range position earns', () => {
     const flag = await screen.findByTestId('range-venue-elsewhere');
     expect(flag.closest('details')).toBeNull();
     expect(flag.querySelector('strong')?.textContent).toMatch(/16% of each fee \(0\.16% of the swap\) to the team’s shared wallet, 0% of each fee \(0% of the swap\) to the island’s Workshop\./);
+  });
+
+  it('a pool with a dynamic fee: the card says the fee as a range and each share of the swap as a floor, as the position link does', async () => {
+    const t = tier();
+    const base = poolOn(t);
+    const dyn: RangePool = { ...base, pool: { ...base.pool, dynamicFeeInfo: { ...(base.pool.dynamicFeeInfo ?? {}), dynamicFeeControl: 100_000, maxVolatilityAccumulator: 100_000 } as NonNullable<RangePool['pool']['dynamicFeeInfo']> } };
+    show(readers({ pools: { kind: 'ok', value: [dyn] } }));
+    const card = await screen.findByTestId('range-earns');
+    await waitFor(() => expect(card.textContent).toContain('pays a 1% to 4% fee'));
+    expect(card.textContent).toContain('share 84% of it (at least 0.84% of the swap)');
+    expect(card.textContent).toContain('The venue keeps 16% (at least 0.16% of the swap)');
+    expect(within(await screen.findByTestId('range-pools')).getByText(/1% to 4% fee per swap/)).toBeInTheDocument();
   });
 
   it('a tier with another split is said with that split: nothing is hard-coded', async () => {
@@ -241,6 +254,32 @@ describe('picking a range', () => {
     const open = await screen.findByTestId('range-open');
     await waitFor(() => expect(open.textContent).toContain('Market price (Jupiter)none: Jupiter has no route for this pair'));
     expect(open.textContent).toContain('so this pool’s price cannot be checked against a market price');
+  });
+
+  it('the TOKEN can be the freezable one: USDC as the token says Circle can freeze it, where it is picked', async () => {
+    show(readers(), fakeApi(), 'on', `/range-pools?mint=${USDC_QUOTE.mint}`);
+    const card = await screen.findByTestId('range-pools');
+    await waitFor(() => expect(within(card).getByTestId('lp-coin-risk')).toHaveTextContent(/Circle/));
+    expect(within(card).getAllByTestId('lp-coin-risk')).toHaveLength(1);
+  });
+
+  it('a token with a live freeze authority is said where it is picked, in the LP deposit’s words; none says nothing, an unread check says so', async () => {
+    const freezable = key(91).toBase58();
+    const auth = key(92).toBase58();
+    show(readers({ freeze: { kind: 'ok', value: auth } }), fakeApi(), 'on', `/range-pools?mint=${freezable}`);
+    const card = await screen.findByTestId('range-pools');
+    await waitFor(() => expect(within(card).getByTestId('range-token-freeze')).toHaveTextContent(`Its creator can freeze any account that holds it (freeze authority ${auth}), a pool’s own vault and your own account included.`));
+  });
+
+  it('no freeze authority: nothing is said; a freeze check that did not read: said as unread, never as safe', async () => {
+    show(readers());
+    const card = await screen.findByTestId('range-pools');
+    await waitFor(() => expect(card.textContent).toContain('1% fee per swap'));
+    expect(within(card).queryByTestId('range-token-freeze')).toBeNull();
+    cleanup();
+    show(readers({ freeze: { kind: 'unread', detail: 'down' } }));
+    const again = await screen.findByTestId('range-pools');
+    await waitFor(() => expect(within(again).getByTestId('range-token-freeze')).toHaveTextContent('could not be read just now (down)'));
   });
 
   it('paired with USDC, the picker says Circle can freeze the pool’s USDC, where the coin is chosen', async () => {
@@ -433,6 +472,7 @@ function openSummary(): RangeSummary {
     warnings: [],
     price: { state: 'agrees', pool: 0.0003, reference: 0.0003, diff: 0 },
     poolLine: {
+      feeCeiling: null,
       pool: POOL, tokenMint: new PublicKey(BAYLA_MINT), tokenDecimals: 6, quote: SOL_QUOTE, tokenIsToken0: BAYLA_IS_0,
       tradeFeeRate: 10_000, venueShareRate: 160_000, protocolFeeRate: 104_000, fundFeeRate: 56_000,
       owner: PLATFORM_TREASURY_VAULT.toBase58(), fundOwner: WORKSHOP_WALLET.toBase58(),

@@ -333,7 +333,7 @@ export async function prepareRangeSwap(rpc: WriteRpc, cfg: CurveWriteConfig, pro
       if (!s || s.kind !== 'range-swap') return 'The swap is missing from the transaction.';
       return {
         kind: 'range-swap',
-        poolLine: poolLine(pins, pinned.pair, tier),
+        poolLine: poolLine(pins, pinned.pair, tier, pool),
         paysCoin,
         amountIn: s.amountIn,
         minimumAmountOut: s.minimumAmountOut,
