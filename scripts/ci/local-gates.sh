@@ -34,12 +34,15 @@ if in_onedrive "$ROOT"; then
   exit 2
 fi
 export CI=true
+# ci.yml hands these to the build step alone (see "build"); from a caller's shell they would
+# reach every gate, and three unit tests fail on them.
+unset VITE_BAYLA_LADDER_PROGRAM VITE_BAYLA_LADDER_POOL
 RESULTS=()
 
 want() { [ "$AREA" = all ] || [ "$AREA" = "$1" ]; }
 have() { command -v "$1" >/dev/null 2>&1; }
-# <area> <label> <dir from the repo root> <command...>. Keep each call on one line:
-# the test reads the command from this file.
+# <area> <label> <dir from the repo root> <command...>, after any NAME=value its ci.yml step
+# sets. Keep each call on one line: the test reads the command and those names from this file.
 gate() {
   local area=$1 label=$2 dir=$3 start=$SECONDS status
   shift 3
@@ -60,6 +63,7 @@ gate root "one-shot guard self-test" . node scripts/oneshot-guard.mjs --self-tes
 gate root "git-hosting script tests" . bash scripts/git-hosting/test/run-all.sh
 gate root "monitoring rules" . node --test contracts/monitoring/lib/arbLinkage.test.mjs scripts/monitoring/lib/pausePlan.test.mjs
 gate root "endpoint redaction" . node --test scripts/lib/redact-url.test.mjs
+gate root "lcov merge unit tests" . node --test scripts/lib/lcov-merge.test.mjs
 gate root "ops runner unit tests" . node --test scripts/ops/env-file.test.mjs scripts/ops/supabase-backup.test.mjs scripts/ops/run-job.test.mjs scripts/ops/pull-github-backups.test.mjs scripts/ops/heartbeat.test.mjs
 gate root "act wrapper verdict self-test" . bash scripts/ci/act-job.sh --self-test
 
@@ -83,7 +87,13 @@ gate frontend "address registry" frontend node scripts/verify-addresses.mjs
 gate frontend "address registry self-test" frontend node scripts/verify-addresses.mjs --self-test
 gate frontend "outage-as-zero ratchet" frontend node scripts/check-unread-signal.mjs
 gate frontend "outage-as-zero self-test" frontend node scripts/check-unread-signal.mjs --self-test
-gate frontend "build" frontend npm run build
+ladder_program=$(from_workflow ci.yml 's/^ *VITE_BAYLA_LADDER_PROGRAM: *\([[:alnum:]]*\) *$/\1/p')
+ladder_pool=$(from_workflow ci.yml 's/^ *VITE_BAYLA_LADDER_POOL: *\([[:alnum:]]*\) *$/\1/p')
+if [ -n "$ladder_program" ] && [ -n "$ladder_pool" ]; then
+  VITE_BAYLA_LADDER_PROGRAM=$ladder_program VITE_BAYLA_LADDER_POOL=$ladder_pool gate frontend "build" frontend npm run build
+else
+  note frontend "build" FAIL "could not read the BAYLA ladder addresses from ci.yml"
+fi
 gate frontend "playwright browsers" frontend npx playwright install --with-deps chromium webkit
 gate frontend "e2e" frontend npx playwright test
 note frontend "e2e on an anvil fork" "CI only" "needs Foundry at the CI pin, an archive RPC and jq"

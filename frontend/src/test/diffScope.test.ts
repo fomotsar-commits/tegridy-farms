@@ -202,3 +202,34 @@ describe('the scope jobs call this script correctly', () => {
     }
   });
 });
+
+// solana-ci's launch-curve job diffs one file outside solana/**: the frontend's curve
+// fixture, rebuilt from curve.rs. A PR that edits only that fixture, or only the
+// generator, must still run the job, or a hand-edited row merges unchecked.
+describe('solana-ci runs on a diff that touches only the curve fixture or its generator', () => {
+  const GENERATOR = 'solana/tegridy-amm/tools/gen_curve_vectors.rs';
+  const src = (): string =>
+    readFileSync(join(WORKFLOW_DIR, 'solana-ci.yml'), 'utf-8')
+      .split(/\r?\n/)
+      .filter((l) => !/^\s*#/.test(l))
+      .join('\n');
+  /** The repo path of the fixture the job diffs against the generator's output. */
+  const fixture = (): string | undefined => /\$GITHUB_WORKSPACE\/(frontend\/\S+\.fixture\.ts)"/.exec(src())?.[1];
+
+  it('rebuilds the generator and diffs a fixture that exists', () => {
+    expect(src()).toMatch(/rustc [^\n]*gen_curve_vectors\.rs/);
+    expect(existsSync(join(REPO_ROOT, GENERATOR))).toBe(true);
+    const f = fixture();
+    expect(f, 'the job reads no frontend fixture').toBeDefined();
+    expect(existsSync(join(REPO_ROOT, f!))).toBe(true);
+  });
+
+  it('scopes both files in', () => {
+    const call = /diff-scope\.mjs \\\n(?<args>(?: +'[^']+'[^\n]*\n)+)/.exec(src());
+    expect(call, 'solana-ci.yml does not call diff-scope.mjs with a pattern list').not.toBeNull();
+    const patterns = [...call!.groups!.args.matchAll(/'([^']+)'/g)].map((m) => m[1]);
+    for (const f of [fixture() ?? 'no fixture found', GENERATOR]) {
+      expect(inScope([f], patterns), `a diff of only ${f} skips solana-ci`).toBe(true);
+    }
+  });
+});

@@ -1,6 +1,8 @@
 {
   "about": "Every key that may appear in the venue's Solana programs (our copies of cp-swap and tegridy-clmm, and our own tegridy-launch and bayla-ladder), each named. key-guard.mjs fails on any other key, on any key the pinned upstream hard-codes, and on any entry here that appears nowhere. Change this list only in a pull request of its own (provenance.mjs --pr-files).",
   "ours": {
+    "7ghzbbmq59QEbdweSzM1ggpeBH1Q2CyxZg4Tr2x8Aso": "tegridy-clmm's program id, made by the owner on 2026-10-21; its upgrade authority is the vault once deployed (docs/RANGE_POOLS_PLAN.md step 7).",
+    "RangePoo1DEVNETarmNotDep1oyed11111111111111": "tegridy-clmm's id in a devnet build only: not a key, nobody can deploy at it, so a devnet build (every power to a test key) runs nowhere. The release build never names it.",
     "GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd": "The venue's Squads v4 vault (vault 0 of multisig EVGSnRZFWqjCaWR7z2xKbSXnuddY8upevEQK5HFmj6NK, two signatures). Mainnet admin, fee owner and fee receiver of both programs.",
     "EVGSnRZFWqjCaWR7z2xKbSXnuddY8upevEQK5HFmj6NK": "The venue's Squads multisig account that owns the vault. Named only in a cp-swap comment; it can sign nothing.",
     "2sa31zceMSTAAbSu5wfSnNA6sBYzS7r97nvZYaQouEXa": "The vault's wrapped-SOL account: cp-swap's mainnet pool-opening fee lands here.",
@@ -15,9 +17,6 @@
     "CpFnacrACftonjeQ4hJBkja3PkrwvFSRFzBEk9oKhzED": "A spent cp-swap program id. Named only in tegridy-launch's host test, which asserts the pin is never this id again.",
     "GKwgTQtVyPGxspxvciDAStY4Jq7rB1STuVvXic7EG6E4": "bayla-ladder's committed program id, a placeholder made 2026-09-06; solana-deploy-artifact.yml sets the real id at build time (lib.rs says so).",
     "ASLXdST48ivBZ4xV7VjgD51FJ6rHH5CN5s8XS5TLwygP": "bayla-ladder's devnet deployer placeholder (deployer::ID, devnet arm). Devnet only."
-  },
-  "placeholder": {
-    "RangePoo1PLACEHo1DERnotDep1oyed111111111111": "tegridy-clmm's program id until the owner's deploy pack makes the real one. Nobody holds its key, a release build refuses it (lib.rs compile_error! gate) and key-guard --release refuses it."
   },
   "system": {
     "So11111111111111111111111111111111111111112": "Wrapped SOL mint (SPL Token). Used only inside an upstream unit test in tegridy-clmm states/pool.rs.",

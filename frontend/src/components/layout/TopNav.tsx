@@ -237,7 +237,7 @@ export const TopNav = React.memo(function TopNav() {
           background: 'linear-gradient(90deg, transparent 0%, var(--color-purple-75) 30%, var(--color-purple-50) 50%, var(--color-purple-75) 70%, transparent 100%)',
         }} />
         {/* px-2 below 400px, px-3 to 480, then px-4: the narrowest phones need every pixel. */}
-        <div className="max-w-[1200px] mx-auto h-14 px-2 min-[400px]:px-3 min-[480px]:px-4 md:px-6 flex items-center justify-between">
+        <div className="page-column mx-auto h-14 px-2 min-[400px]:px-3 min-[480px]:px-4 md:px-6 flex items-center justify-between">
           {/* THE 360px ROW. The wordmark stays whole at every width (owner, 2026-08-31), so the
               row fits on its gaps and padding: its intrinsic width is 350px. CI rasterises
               Archivo a shade wider than a local run, so re-run e2e/header-reachability.spec.ts

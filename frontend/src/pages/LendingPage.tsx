@@ -246,7 +246,7 @@ export default function LendingPage() {
         <ArtImg pageId="nft-finance" idx={0} alt="" loading="lazy" className="w-full h-full object-cover" />
       </div>
 
-      <div className="relative z-10 max-w-[1200px] mx-auto px-4 md:px-6 pt-24 pb-16">
+      <div className="relative z-10 page-column mx-auto px-4 md:px-6 pt-24 pb-16">
         {/* Header */}
         <m.div
           className="text-center mb-6"
