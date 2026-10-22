@@ -38,9 +38,10 @@ import { CopyButton } from '../components/ui/CopyButton';
 import { TOWELI_ADDRESS, SITE_URL, ETHERSCAN_TOKEN, GECKOTERMINAL_URL, CURVE_LAUNCHER_ADDRESS, isDeployed } from '../lib/constants';
 import { shortenAddress } from '../lib/formatting';
 import { safeGetItem, safeSetItem } from '../lib/storage';
-import { bungalowTradeBlurb, getBungalowIdentity, stakePoolMembersOnly, TOWELI_HERO } from '../lib/bungalows';
+import { bungalowTradeBlurb, CARDS_ROOM_ID, getBungalowIdentity, stakePoolMembersOnly, TOWELI_HERO } from '../lib/bungalows';
 import { arrivalVoice, VENUE, OPEN_VENUE_WELCOME_EVENT } from '../lib/arrival';
-import { VenueCards, VenueHero, VenueHeroFooter } from '../components/VenueHero';
+import { VenueHero, VenueHeroFooter } from '../components/VenueHero';
+import { VenueCards } from '../components/VenueCards';
 import { HeatCard } from '../components/HeatCard';
 import { VenueDoors } from '../components/VenueDoors';
 import { ThreePaths } from '../components/ThreePaths';
@@ -522,6 +523,10 @@ export default function HomePage() {
               <VenueHeroFooter />
             </>
           )}
+          {/* The same cards on BAYLA's own door, under her hero (owner, 2026-10-19, on /bayla: "on
+              here"): the Island word opens this page inside her room. They are her coin's, so no
+              other room draws them (lib/bungalows.ts CARDS_ROOM_ID). */}
+          {bungalowIdentity?.id === CARDS_ROOM_ID && <VenueCards />}
 
           {/* Wallet-less yield calculator for first-time visitors.
               Only shown when disconnected — once they connect, the live stats
@@ -717,26 +722,31 @@ export default function HomePage() {
                   address proves a record, not a deployment, so the live question
                   goes to Earn. A members-only pool is tested FIRST and never named:
                   this page reads no wallet, and that pool still carries a stakePool.
-                  The no-pool sentence is BungalowFarmPanel's own. */}
-              <p className="text-white/55 text-[12px] mt-4 pt-4" style={{ borderTop: '1px solid rgba(255,255,255,0.08)' }}>
+                  The no-pool sentence is BungalowFarmPanel's own. The pool on record is small
+                  print, folded (owner, 2026-10-21); the no-pool sentence stays on the page. */}
+              <div className="text-white/55 text-[12px] mt-4 pt-4" style={{ borderTop: '1px solid rgba(255,255,255,0.08)' }}>
                 {stakePoolMembersOnly(bungalowIdentity) ? (
-                  <>
-                    A {bungalowIdentity.symbol} lock-ladder pool is on record at{' '}
-                    <span className="font-mono text-white/70">{shortenAddress(bungalowIdentity.ladderPool)}</span>.
-                    Whether it is funded, and what it pays, is read live on{' '}
-                    <Link to={`/earn/${bungalowIdentity.id}`} className="text-emerald-400/80 hover:text-emerald-300 underline transition-colors">Earn</Link>.
-                  </>
+                  <FinePrint summary={`${bungalowIdentity.symbol} staking`}>
+                    <p>
+                      A {bungalowIdentity.symbol} lock-ladder pool is on record at{' '}
+                      <span className="font-mono text-white/70">{shortenAddress(bungalowIdentity.ladderPool)}</span>.
+                      Whether it is funded, and what it pays, is read live on{' '}
+                      <Link to={`/earn/${bungalowIdentity.id}`} className="text-emerald-400/80 hover:text-emerald-300 underline transition-colors">Earn</Link>.
+                    </p>
+                  </FinePrint>
                 ) : bungalowIdentity.stakePool ? (
-                  <>
-                    A {bungalowIdentity.symbol} pool is on record at{' '}
-                    <span className="font-mono text-white/70">{shortenAddress(bungalowIdentity.stakePool)}</span>.
-                    Whether it is funded, and what it pays, is read live on{' '}
-                    <Link to={`/earn/${bungalowIdentity.id}`} className="text-emerald-400/80 hover:text-emerald-300 underline transition-colors">Earn</Link>.
-                  </>
+                  <FinePrint summary={`${bungalowIdentity.symbol} staking`}>
+                    <p>
+                      A {bungalowIdentity.symbol} pool is on record at{' '}
+                      <span className="font-mono text-white/70">{shortenAddress(bungalowIdentity.stakePool)}</span>.
+                      Whether it is funded, and what it pays, is read live on{' '}
+                      <Link to={`/earn/${bungalowIdentity.id}`} className="text-emerald-400/80 hover:text-emerald-300 underline transition-colors">Earn</Link>.
+                    </p>
+                  </FinePrint>
                 ) : (
-                  <>No {bungalowIdentity.symbol} staking program exists on-chain today.</>
+                  <p>No {bungalowIdentity.symbol} staking program exists on-chain today.</p>
                 )}
-              </p>
+              </div>
             </div>
           </div>
         )}
@@ -765,12 +775,15 @@ export default function HomePage() {
               <div className="absolute inset-0" style={{ background: 'rgba(4,9,18,0.72)' }} />
               <div className="relative z-10 p-6 md:p-10 max-w-2xl">
                 <p className="text-[11px] uppercase tracking-[0.2em] mb-2" style={{ color: 'var(--color-kyle)' }}>The lore</p>
-                <h2 className="heading-luxury text-2xl md:text-3xl text-white mb-4">{bungalowIdentity.identity.lore.title}</h2>
-                {bungalowIdentity.identity.lore.paragraphs.map((para, i, all) => (
-                  <p key={i} className={`text-white/90 text-[14px] leading-relaxed ${i === all.length - 1 ? 'mb-5' : 'mb-3'}`}>
-                    {para}
-                  </p>
-                ))}
+                <h2 className="heading-luxury text-2xl md:text-3xl text-white mb-2">{bungalowIdentity.identity.lore.title}</h2>
+                {/* The story is one press away (owner, 2026-10-21: "keep every movable line folded"). */}
+                <FinePrint summary="Read the story" className="mb-3">
+                  {bungalowIdentity.identity.lore.paragraphs.map((para, i) => (
+                    <p key={i} className="text-white/90 text-[14px] leading-relaxed">
+                      {para}
+                    </p>
+                  ))}
+                </FinePrint>
                 <div className="flex flex-wrap gap-2">
                   {bungalowIdentity.identity.lore.links.map((l) => (
                     <a key={l.href} href={l.href} target="_blank" rel="noopener noreferrer"
