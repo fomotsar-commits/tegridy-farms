@@ -164,7 +164,9 @@ only.
    chain); the notice went public the same day and the proposal is #19. #19's second approval came
    through the Squads app minutes after the first, so the chain allows its execute from
    2026-10-23 13:45:21 UTC. The owner then ruled (2026-10-22) to update the promise date: the notice
-   now names 2026-10-23 14:00 UTC, and the page holds the execute until then.
+   now names 2026-10-23 14:00 UTC, and the page holds the execute until then. One sitting is left,
+   the execute, from that time, in a folder of its own (`stage.mjs --tiers-only`), because the
+   deploy's folder is in use: no 10-26 approval sitting.
 3. **Serve the position link before any position can exist.** Each position NFT keeps the link it
    was born with, `https://memetics.finance/position/<id>.json`. No position can be made before the
    fee tiers execute, so the page refuses to approve or execute them until the link answers 404 for

@@ -38,14 +38,17 @@ only by the deploy itself:
    notice's end - 48 hours, so the chain itself holds the execute to the notice; the execute. The
    notice ends 7 days after it went public, or at the date it names (`notice.notBefore`; mainnet:
    2026-10-23 14:00 UTC, the owner's ruling of 2026-10-22 after #19 was approved around the page).
-   Tests of that gate: `node --test "solana/clmm-deploy/test/*.test.mjs"`.
+   Tests of that gate: `node --test "solana/clmm-deploy/test/*.test.mjs"`, and in CI
+   `frontend/src/test/clmmTierGate.test.ts`. `stage.mjs --kind mainnet --tiers-only` makes the
+   folder for that last sitting (`START-HERE-TIERS.md`: scripts 4, 5 and 6 and the page), because
+   the deploy folder is in use and is never restaged over.
 
 ## Files
 
 | | |
 |---|---|
 | `stage.mjs` | makes a folder (key, devnet, mainnet, rehearsal): scripts, the bundled page, the program file, the filled paper, `config.json`, `SHA256SUMS`. Every address from `frontend/scripts/addresses.json`, `solana/guards/allowed-keys.json`, the pool pack or the chain. Builds beside the target and moves it in at the end; never replaces a folder it did not make or one whose `owner-run\` holds files. |
-| `START-HERE-KEY.md`, `START-HERE-DEVNET.md`, `START-HERE.md` | the owner's papers, templates (`{{BLANK}}`s filled at staging; a blank left unfilled refuses the staging) |
+| `START-HERE-KEY.md`, `START-HERE-DEVNET.md`, `START-HERE.md`, `START-HERE-TIERS.md` | the owner's papers, templates (`{{BLANK}}`s filled at staging; a blank left unfilled refuses the staging) |
 | `program-id-change.mjs` | step 3 above |
 | `ci-matches-chain.mjs` | step 4 above |
 | `scripts/` | `0` key, `1` preflight, `2` buffer check, `3` deploy + hand-over, `4` program check, `5` notice record, `6` tier check, `7` buffer return (pinned to this build: the paying wallet also runs the pool pack, whose SOL `1` sets aside until that pack's buffers are parked); `lib/pack.mjs` shared; `lib/tiers.mjs` the proposal core the page and scripts share |

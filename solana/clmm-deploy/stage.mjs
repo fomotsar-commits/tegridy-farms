@@ -8,6 +8,7 @@
 //   --kind key        [--out <dir>]                                          the program key's folder: only step 0
 //   --kind devnet     --binary <so> --program-key <throwaway key> --rehearsal <results> [--out <dir>]
 //   --kind mainnet    --binary <so> --rebuilt <a second build's so> --expect-sha256 <hex> --rehearsal <results> [--out <dir>]
+//                     [--tiers-only]: for the program already deployed, only the fee-tier sittings
 //   --kind rehearsal  --binary <so> --out <dir> --rpc <local rpc> --program-key <file> --payer-key <file>
 //                     --notice-days <d> --notice-repo <url> --position-base <url> [--port <n>] [--pool-pack-peak <lamports>]
 //                     [--notice-not-before <ISO time, UTC>]  a notice that names its own date (mainnet: 2026-10-23T14:00:00Z)
@@ -96,6 +97,9 @@ const TIERS = [
 // names its own date instead of counting seven days. This line must match CHANGELOG.md byte for byte.
 const NOTICE_LINE = '- Notice, updated: range pools get two fee tiers, 1% and 0.25% of each swap, no sooner than 2026-10-23 14:00 UTC (it said seven days from 2026-10-21). Of each fee, 84% stays with the liquidity providers whose range is in use, 10.4% goes to memetics.finance and 5.6% to Jungle Bay Island.';
 const NOTICE_NOT_BEFORE = '2026-10-23T14:00:00Z';
+if (!NOTICE_LINE.includes(`no sooner than ${NOTICE_NOT_BEFORE.slice(0, 10)} ${NOTICE_NOT_BEFORE.slice(11, 16)} UTC`)) fail('the notice line does not name NOTICE_NOT_BEFORE');
+const TIERS_ONLY = argv.includes('--tiers-only');
+if (TIERS_ONLY && KIND !== 'mainnet') fail('--tiers-only is for a mainnet folder');
 
 async function rpc(url, method, params = []) {
   const r = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }) });
@@ -148,11 +152,24 @@ if (KIND !== 'key') {
   if (b.indexOf(new web3.PublicKey(placeholder).toBuffer()) >= 0) fail('the binary still holds the placeholder id');
   binary = { file: `binary-to-deploy/raydium_clmm.${sha(b).slice(0, 8)}.so`, bytes: b.length, sha256: sha(b), src: so };
 }
+// A tiers-only folder is for the program already on mainnet: byte for byte this build, the vault
+// its upgrade authority.
+let deployedSlot = null;
+if (TIERS_ONLY) {
+  const p = await rpc(RPCS.mainnet, 'getAccountInfo', [programId, { encoding: 'base64' }]);
+  const stub = p?.value && Buffer.from(p.value.data[0], 'base64');
+  if (!stub || p.value.owner !== loader || stub.length !== 36) fail(`${programId} is not deployed on mainnet: stage the full mainnet folder`);
+  const dataId = new web3.PublicKey(stub.subarray(4, 36)).toBase58();
+  const d = Buffer.from((await rpc(RPCS.mainnet, 'getAccountInfo', [dataId, { encoding: 'base64' }])).value.data[0], 'base64');
+  if (d[12] !== 1 || new web3.PublicKey(d.subarray(13, 45)).toBase58() !== row('squads-vault')) fail('the program\'s upgrade authority is not the vault');
+  if (sha(d.subarray(45, 45 + binary.bytes)) !== binary.sha256 || !d.subarray(45 + binary.bytes).every((x) => x === 0)) fail('the program on mainnet is not byte for byte this build');
+  deployedSlot = Number(d.readBigUInt64LE(4));
+}
 const reh = opt('--rehearsal') ? JSON.parse(readFileSync(opt('--rehearsal'), 'utf-8')) : null;
 if (['devnet', 'mainnet'].includes(KIND) && (!reh || !reh.results.length || reh.results.some((x) => !x.pass))) fail('--rehearsal <rehearsal-results.json> of a rehearsal where every step passed');
 
 // ---- where: a new folder, or one this script made that the owner has not begun to use ----------
-const OUT = resolve(opt('--out') ?? join(RELEASE, { key: 'range-pools-key-2026-10', devnet: 'range-pools-devnet-2026-10', mainnet: 'range-pools-deploy-2026-10', rehearsal: '' }[KIND]));
+const OUT = resolve(opt('--out') ?? join(RELEASE, TIERS_ONLY ? 'range-pools-tiers-2026-10' : { key: 'range-pools-key-2026-10', devnet: 'range-pools-devnet-2026-10', mainnet: 'range-pools-deploy-2026-10', rehearsal: '' }[KIND]));
 if (KIND === 'rehearsal' && !opt('--out')) fail('--out <dir> for a rehearsal');
 if (existsSync(OUT)) {
   const prev = existsSync(join(OUT, 'config.json')) ? JSON.parse(readFileSync(join(OUT, 'config.json'), 'utf-8')) : null;
@@ -181,7 +198,7 @@ What it could not cover: mainnet itself (its fees, its load, its rate limits), G
 const vtBytes = (msgLen) => 8 + 32 + 32 + 8 + 1 + 1 + 1 + 4 + msgLen;
 const local = KIND === 'rehearsal' ? chainRpc : null;
 const cfg = {
-  stagedBy: STAGED_BY, kind: KIND, stagedAt: new Date().toISOString(), repoCommit: execFileSync('git', ['-C', REPO, 'rev-parse', 'HEAD'], { encoding: 'utf-8' }).trim(),
+  stagedBy: STAGED_BY, kind: KIND, tiersOnly: TIERS_ONLY, stagedAt: new Date().toISOString(), repoCommit: execFileSync('git', ['-C', REPO, 'rev-parse', 'HEAD'], { encoding: 'utf-8' }).trim(),
   programId, binary: binary && { file: binary.file, bytes: binary.bytes, sha256: binary.sha256 }, placeholder,
   addr: {
     vault: row('squads-vault'), multisig, squads, loader, memberA: members[0], memberB: members[1],
@@ -205,10 +222,10 @@ const cfg = {
       : { api: 'https://api.github.com/repos/fomotsar-commits/tegridy-farms', raw: 'https://raw.githubusercontent.com/fomotsar-commits/tegridy-farms', branch: 'mvp-launch' },
   },
   positionLink: { base: KIND === 'rehearsal' ? opt('--position-base') : 'https://memetics.finance/position/', expect: 'No range position at this address.' },
-  poolPack: KIND === 'mainnet' ? poolPack() : KIND === 'rehearsal' && opt('--pool-pack-peak')
+  poolPack: KIND === 'mainnet' && !TIERS_ONLY ? poolPack() : KIND === 'rehearsal' && opt('--pool-pack-peak')
     ? { program: web3.Keypair.generate().publicKey.toBase58(), newSha256: '0'.repeat(64), newBytes: 1, bufferKeyFiles: [join(OUT, 'no-such-pool-buffer-1.json'), join(OUT, 'no-such-pool-buffer-2.json')], peakLamports: opt('--pool-pack-peak') }
     : null,
-  devnetRun: KIND === 'mainnet' ? devnetRun() : null,
+  devnetRun: KIND === 'mainnet' && !TIERS_ONLY ? devnetRun() : null,
   page: { port: Number(opt('--port') ?? 5499) },
   cuPrice: 10_000, feeAllowanceLamports: 30_000_000,
   denyKeys,
@@ -235,6 +252,7 @@ if (KIND === 'key') {
   cpSync(join(HERE, 'scripts', 'lib'), join(TMP, 'scripts', 'lib'), { recursive: true });
 } else {
   cpSync(join(HERE, 'scripts'), join(TMP, 'scripts'), { recursive: true });
+  if (TIERS_ONLY) for (const f of ['0-program-key.mjs', '1-preflight.mjs', '2-verify-buffer.mjs', '3-deploy.mjs', '7-close-buffer.mjs']) rmSync(join(TMP, 'scripts', f));
   if (KIND === 'devnet') for (const f of ['5-record-notice.mjs', '6-verify-tiers.mjs']) rmSync(join(TMP, 'scripts', f));
   else {
     mkdirSync(join(TMP, 'proposer'), { recursive: true });
@@ -281,11 +299,18 @@ if (binary) {
     REHEARSAL: reh ? rehearsalWords(reh) : 'Not yet run for this folder.',
   });
 }
-const template = { key: 'START-HERE-KEY.md', devnet: 'START-HERE-DEVNET.md', mainnet: 'START-HERE.md', rehearsal: 'START-HERE.md' }[KIND];
+// The notice's date as the page and 5-record-notice.mjs each print it.
+if (cfg.notice.notBefore) Object.assign(fill, { NOTICE_WHEN_PAGE: cfg.notice.notBefore, NOTICE_WHEN_SCRIPT: new Date(cfg.notice.notBefore).toISOString() });
+if (TIERS_ONLY) fill.DEPLOYED_SLOT = deployedSlot.toLocaleString('en-US');
+const template = TIERS_ONLY ? 'START-HERE-TIERS.md' : { key: 'START-HERE-KEY.md', devnet: 'START-HERE-DEVNET.md', mainnet: 'START-HERE.md', rehearsal: 'START-HERE.md' }[KIND];
 const paper = readFileSync(join(HERE, template), 'utf-8').replace(/\{\{(\w+)\}\}/g, (m, k) => (k in fill ? fill[k] : m));
 const left = [...new Set(paper.match(/\{\{\w+\}\}/g) ?? [])];
 if (left.length) { rmSync(TMP, { recursive: true, force: true }); fail(`the paper has blanks this staging cannot fill: ${left.join(' ')}`); }
 writeFileSync(join(TMP, 'START-HERE.md'), paper);
+
+// A folder that makes or executes the tiers has its page; a devnet or key folder has none.
+const hasPage = existsSync(join(TMP, 'proposer', 'app.bundle.js'));
+if (hasPage !== ['mainnet', 'rehearsal'].includes(KIND)) { rmSync(TMP, { recursive: true, force: true }); fail(`a ${KIND} folder ${hasPage ? 'must not have' : 'must have'} the page`); }
 
 const all = [];
 const walk = (d) => { for (const n of readdirSync(d)) { const p = join(d, n); if (statSync(p).isDirectory()) { if (n !== 'owner-run') walk(p); } else all.push(p); } };
