@@ -26,6 +26,7 @@ import {
   PERSONAL_POSITION,
   PLACEHOLDER_PROGRAM_ID,
   POOL_STATE,
+  DYNAMIC_FEE_INFO,
   MAX_FEE_RATE,
   perMillion,
   POSITION_IMAGE,
@@ -182,7 +183,10 @@ describe("held to the program source", () => {
     expect([pool.amm_config, pool.token_mint_0, pool.token_mint_1, pool.mint_decimals_0, pool.mint_decimals_1, pool.tick_spacing, pool.dynamic_fee_info, pool.total]).toEqual([
       POOL_STATE.ammConfig, POOL_STATE.mint0, POOL_STATE.mint1, POOL_STATE.decimals0, POOL_STATE.decimals1, POOL_STATE.tickSpacing, POOL_STATE.dynamicFeeInfo, POOL_STATE.len,
     ]);
-    expect(POOL_STATE.dynamicFeeInfoLen).toBe(offsets("states/pool_fee.rs", "DynamicFeeInfo", 0).total);
+    const dfi = offsets("states/pool_fee.rs", "DynamicFeeInfo", 0);
+    expect(POOL_STATE.dynamicFeeInfoLen).toBe(dfi.total);
+    expect([dfi.dynamic_fee_control, dfi.max_volatility_accumulator]).toEqual([DYNAMIC_FEE_INFO.dynamicFeeControl, DYNAMIC_FEE_INFO.maxVolatilityAccumulator]);
+    expect([DYNAMIC_FEE_INFO.dynamicFeeControl, DYNAMIC_FEE_INFO.maxVolatilityAccumulator]).toEqual([6, 10]);
     // The fee ceiling the page says for a dynamic fee is the program's own.
     expect(rust("states/pool_fee.rs")).toContain(`pub const MAX_FEE_RATE_NUMERATOR: u32 = ${MAX_FEE_RATE.toLocaleString("en-US").replace(/,/g, "_")};`);
     const cfg = offsets("states/config.rs", "AmmConfig", 8);
@@ -217,11 +221,12 @@ describe("real accounts of the live range program whose layout the venue's copy 
   };
   const agreed = () => tierWith();
   /** The fixture pool with a dynamic fee: DynamicFeeInfo's dynamic_fee_control and max_volatility_accumulator. */
-  const dynamicPoolBytes = ({ control = 100_000, maxVolatility = 100_000 } = {}) => {
+  // 99,999: the most control validate_params lets a config have (it must stay under DYNAMIC_FEE_CONTROL_DENOMINATOR).
+  const dynamicPoolBytes = ({ control = 99_999, maxVolatility = 100_000 } = {}) => {
     const b = Uint8Array.from(bytes(FIX.pool.gz));
     const v = new DataView(b.buffer);
-    v.setUint32(POOL_STATE.dynamicFeeInfo + 6, control, true);
-    v.setUint32(POOL_STATE.dynamicFeeInfo + 10, maxVolatility, true);
+    v.setUint32(POOL_STATE.dynamicFeeInfo + DYNAMIC_FEE_INFO.dynamicFeeControl, control, true);
+    v.setUint32(POOL_STATE.dynamicFeeInfo + DYNAMIC_FEE_INFO.maxVolatilityAccumulator, maxVolatility, true);
     return b;
   };
   const STRANGER = new PublicKey("Stranger11111111111111111111111111111111111");
@@ -396,10 +401,12 @@ describe("real accounts of the live range program whose layout the venue's copy 
     const total = /fn get_total_fee_rate\([\s\S]*?\n {4}\}/.exec(swap)[0];
     expect(total).toContain("let total_fee_rate = self.base_fee_rate + dynamic_fee_rate;");
     expect(total).toContain("total_fee_rate.min(MAX_FEE_RATE_NUMERATOR)");
-    // The volatility accumulator is capped at max_volatility_accumulator, so that is its top.
-    expect(fee).toMatch(/max_volatility_accumulator/);
-    // Worked by hand: control 100,000, (100,000 x 120)^2 = 1.44e14 -> 1.44e6, capped at 40,000; the total capped too.
-    expect([feeCeiling(10_000, { dynamicFeeControl: 100_000, maxVolatilityAccumulator: 100_000 }, 120), feeCeiling(10_000, null, 120)]).toEqual([40_000, null]);
+    // The volatility accumulator is clamped to max_volatility_accumulator, so that is its top;
+    // and a config's control stays under the denominator (validate_params).
+    expect(fee).toMatch(/self\.volatility_accumulator = std::cmp::min\(\s*volatility_accumulator,\s*u64::from\(self\.max_volatility_accumulator\),\s*\) as u32;/);
+    expect(fee).toContain("if dynamic_fee_control == 0 || dynamic_fee_control >= DYNAMIC_FEE_CONTROL_DENOMINATOR {");
+    // Worked by hand: control 99,999, (100,000 x 120)^2 = 1.44e14 -> ceil(1,439,985.6), capped at 40,000; the total capped too.
+    expect([feeCeiling(10_000, { dynamicFeeControl: 99_999, maxVolatilityAccumulator: 100_000 }, 120), feeCeiling(10_000, null, 120)]).toEqual([40_000, null]);
   });
 
   it("an input that is not a real rate is refused, never read as 0%", () => {
