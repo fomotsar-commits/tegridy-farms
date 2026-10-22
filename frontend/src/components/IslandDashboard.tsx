@@ -65,11 +65,12 @@ function ChainMark({ chain }: { chain: string }) {
   );
 }
 
+/** The pool's terms. Never cut: "0.40×–4.00×" with its ceiling cut off would misstate the ladder. */
 function Terms({ terms }: { terms: string }) {
   return (
     <span className="inline-flex items-center gap-2 min-w-0">
       {hasLadder(terms) && <LadderWedge className="text-[#f5e4b8]/70 group-hover/row:text-[#22c55e] transition-colors" />}
-      <span className="truncate">{rowTerms(terms)}</span>
+      <span className="whitespace-nowrap">{rowTerms(terms)}</span>
     </span>
   );
 }
@@ -77,6 +78,9 @@ function Terms({ terms }: { terms: string }) {
 /** One pool: its number, its word, its chain and terms, and the door into its room. */
 function PoolRow({ n, row, onShow }: { n: number; row: VenuePoolRow; onShow: () => void }) {
   const door = doorOf(row.id);
+  // The 44px thumbnail takes the smallest derivative, as the hall's doors do (VenueDoors.tsx):
+  // a door's source is up to 2048px wide, and a phone draws twelve of them here.
+  const thumbSet = door ? artSrcSet(door.src) : undefined;
   return (
     <li>
       {/* A real link to the pool's own address, /earn/<id>, which enters its room on arrival
@@ -86,7 +90,7 @@ function PoolRow({ n, row, onShow }: { n: number; row: VenuePoolRow; onShow: () 
         aria-label={`Open ${row.symbol}`}
         onMouseEnter={onShow}
         onFocus={onShow}
-        className="group/row relative grid items-center gap-x-3 min-[640px]:gap-x-5 grid-cols-[2.75rem_minmax(0,1fr)_2.5rem] min-[640px]:grid-cols-[2rem_minmax(0,1fr)_6.5rem_minmax(0,14rem)_2.75rem] min-h-[64px] py-2.5 pl-0 min-[640px]:pl-3 border-b border-white/[0.10] no-underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#22c55e]"
+        className="group/row relative grid items-center gap-x-3 md:gap-x-4 lg:gap-x-5 grid-cols-[2.75rem_minmax(0,1fr)_2.5rem] md:grid-cols-[2.75rem_1.5rem_minmax(0,1fr)_6.5rem_13rem_2.75rem] lg:grid-cols-[2rem_minmax(0,1fr)_6.5rem_13.5rem_2.75rem] min-h-[64px] py-2.5 pl-0 md:pl-3 border-b border-white/[0.10] no-underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#22c55e]"
         style={{ color: EDITORIAL_INK }}
       >
         {/* The resident's color, rising up the row's edge on hover. */}
@@ -97,39 +101,39 @@ function PoolRow({ n, row, onShow }: { n: number; row: VenuePoolRow; onShow: () 
         <span aria-hidden="true"
           className="absolute left-0 right-0 -bottom-px h-px origin-left scale-x-0 bg-[#22c55e] transition-transform duration-500 ease-out group-hover/row:scale-x-100 group-focus-visible/row:scale-x-100" />
 
-        {/* A phone: the door's picture. From 640px: the number (the big frame shows the picture). */}
-        <span aria-hidden="true" className="min-[640px]:hidden relative w-11 h-11 overflow-hidden border border-white/15">
+        {/* Under 1024px: the door's picture beside the word. From 1024px the big frame shows it. */}
+        <span aria-hidden="true" className="lg:hidden relative w-11 h-11 overflow-hidden border border-white/15">
           {door && (
-            <img src={door.src} alt="" loading="lazy" decoding="async" width={44} height={44}
+            <img src={door.src} {...(thumbSet ? { srcSet: thumbSet, sizes: '44px' } : {})} alt="" loading="lazy" decoding="async" width={44} height={44}
               className="w-full h-full object-cover" style={door.objectPosition ? { objectPosition: door.objectPosition } : undefined} />
           )}
         </span>
         <span aria-hidden="true"
-          className="hidden min-[640px]:block self-start pt-1 font-mono text-[11px] tracking-[0.12em] tabular-nums text-[#f5e4b8]/45 transition-colors group-hover/row:text-[#22c55e]">
+          className="hidden md:block self-start pt-1 font-mono text-[11px] tracking-[0.12em] tabular-nums text-[#f5e4b8]/45 transition-colors group-hover/row:text-[#22c55e]">
           {pad2(n)}
         </span>
 
         <span className="min-w-0">
-          <span className="block truncate font-black leading-[0.95] tracking-[-0.045em] text-[24px] min-[640px]:text-[30px] lg:text-[34px] transition-[transform,color] duration-300 ease-out group-hover/row:translate-x-1.5 group-hover/row:text-white"
+          <span className="block truncate font-black leading-[0.95] tracking-[-0.045em] text-[24px] md:text-[28px] lg:text-[34px] transition-[transform,color] duration-300 ease-out group-hover/row:translate-x-1.5 group-hover/row:text-white"
             style={HEADING_FONT}>
             {row.symbol}
           </span>
-          {/* A phone: the chain and the terms under the word. */}
-          <span className="min-[640px]:hidden mt-1.5 flex items-center gap-2 min-w-0 font-mono text-[10px] uppercase tracking-[0.1em] text-[#f5e4b8]/65">
-            <ChainMark chain={row.chain} />
+          {/* A phone: the chain and the terms under the word, the terms on a line of their own when they need it. */}
+          <span className="md:hidden mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 min-w-0 font-mono text-[10px] tracking-[0.06em] text-[#f5e4b8]/65">
+            <span className="uppercase tracking-[0.1em]"><ChainMark chain={row.chain} /></span>
             <Terms terms={row.terms} />
           </span>
         </span>
 
-        <span className="hidden min-[640px]:block font-mono text-[11px] uppercase tracking-[0.12em] text-[#f5e4b8]/70">
+        <span className="hidden md:block font-mono text-[11px] uppercase tracking-[0.12em] text-[#f5e4b8]/70">
           <ChainMark chain={row.chain} />
         </span>
-        <span className="hidden min-[640px]:flex min-w-0 font-mono text-[11px] tracking-[0.04em] text-[#f5e4b8]/70">
+        <span className="hidden md:flex font-mono text-[11px] tracking-[0.04em] text-[#f5e4b8]/70">
           <Terms terms={row.terms} />
         </span>
 
         <span aria-hidden="true"
-          className="justify-self-end w-10 h-10 min-[640px]:w-11 min-[640px]:h-11 flex items-center justify-center border border-white/20 transition-colors duration-300 group-hover/row:bg-[#22c55e] group-hover/row:border-[#22c55e] group-hover/row:text-[#05080f] group-focus-visible/row:bg-[#22c55e] group-focus-visible/row:text-[#05080f]">
+          className="justify-self-end w-10 h-10 md:w-11 md:h-11 flex items-center justify-center border border-white/20 transition-colors duration-300 group-hover/row:bg-[#22c55e] group-hover/row:border-[#22c55e] group-hover/row:text-[#05080f] group-focus-visible/row:bg-[#22c55e] group-focus-visible/row:text-[#05080f]">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"
             className="transition-transform duration-300 group-hover/row:translate-x-0.5">
             <path d="M4 12h15M13 6l6 6-6 6" />
@@ -189,7 +193,7 @@ export function IslandDashboard({ headingLevel = 2 }: { headingLevel?: 1 | 2 }) 
     <section
       id="dashboard"
       aria-labelledby="island-dashboard-heading"
-      className="relative isolate overflow-hidden scroll-mt-24 border border-white/15 px-4 pt-5 pb-4 min-[640px]:px-7 min-[640px]:pt-7 lg:px-10 lg:pt-9 lg:pb-6"
+      className="relative isolate overflow-hidden scroll-mt-24 border border-white/15 px-4 pt-5 pb-4 md:px-7 md:pt-7 lg:px-10 lg:pt-9 lg:pb-6"
       style={{ background: EDITORIAL_BG, color: EDITORIAL_INK, textShadow: 'none' }}
     >
       <CardArt pageId="island-dashboard" idx={0} scrim="rgba(5,8,15,0.8)" />

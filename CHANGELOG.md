@@ -9,6 +9,8 @@ The site's Changelog tab shows both files.
 
 ### 2026-10-22
 
+- The home has the island's dashboard on top of the Swap, Lock BAYLA and Add SOL + BAYLA cards: every pool on the island, numbered, with its picture, its chain and its lock terms. /dashboard shows the same.
+- The home's Add SOL + BAYLA card stays in its place while its pool is being read, and says so if the read fails; it used to disappear until the read came back.
 - Notice, updated: range pools get two fee tiers, 1% and 0.25% of each swap, no sooner than 2026-10-23 14:00 UTC (it said seven days from 2026-10-21). Of each fee, 84% stays with the liquidity providers whose range is in use, 10.4% goes to memetics.finance and 5.6% to Jungle Bay Island.
 
 ### 2026-10-21
