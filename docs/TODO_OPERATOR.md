@@ -29,6 +29,16 @@ stop and say so — a surprise is information.
 
 ---
 
+## 2026-10-21: the position link's two limits (nothing to do unless wallets report refusals)
+
+A range position NFT's link, `/position/<id>.json`, has two limits, both Vercel env vars:
+`POSITION_IP_RPM` (default 60 a minute per caller; an IPv6 caller counts by its /64) and
+`POSITION_GLOBAL_RPM` (default 600 a minute, shared by everyone). Two limits remain by design:
+about ten callers at the per-caller cap can fill the shared one for a minute (documents the edge
+already holds keep serving; a new link gets a 503 and wallets retry), and a big wallet indexer
+reading many new positions from one address can get 429s. If either is reported, raise the env
+var, or add a Vercel firewall rate rule on `/position/*`.
+
 ## 🔴 2026-10-20: the BAYLA ladder's four-year upgrade and the December refill
 
 Newer than every section below. You decided on 2026-10-19: keep the four-year change, with the
