@@ -353,6 +353,39 @@ the rest of `docs/` out.
 (`gh api repos/<owner>/<repo>/commits/<sha>/statuses`); "merged" is not "live". For a file a build
 reads from outside the uploaded folder, add the `.vercelignore` line and a test that evaluates the
 ignore file against the plugin's own file list.
+
+## 2026-10-19: under a Squads time lock, a proposal checked the day it is approved is checked against the wrong day
+
+**Believed:** a vault proposal that simulates green when it is approved will execute green, and one
+that simulates red is wrong. That held while the vault had no lock.
+
+**Measured** (2026-10-19): Squads v4 executes an approved vault proposal only when
+`Clock - approvedAt >= time_lock` (`vault_transaction_execute.rs`), so the execute meets the chain 48
+hours after the approval; on a local validator with mainnet's multisig the page and the chain both
+refused it until then (6021). A ladder reload simulated as the vault on mainnet, inside the running
+window (`notify_reward`, 0 fresh + 1,000 from budget, sigVerify off, nothing sent) came back 6028
+(`RewardRateWouldDecrease`). Approved two days before the window's end, that same reload is right:
+the guard is `now >= period_finish || new_rate >= old_rate` (math.rs), so it is off when the lock
+releases. The reverse also holds: mainnet epochs were ~26 h that day, so a 48 h wait spans at least
+one feature-activation boundary; what can change in 48 hours must be read again at the execute.
+
+**Do:** a page that proposes under a lock must run every gate again before the execute, read the
+network's Clock sysvar (not the computer's clock) for "is the wait over", and, where a step is
+meant to wait for a chain event, accept exactly the one refusal that event lifts, and only when the
+event falls before the release.
+
+## 2026-10-19: a JSON round trip of a `solana account --output json` file stops the test validator from starting
+
+**Believed:** reading an account file the harness wrote, changing one field of its data, and writing
+it back with `JSON.stringify` keeps it loadable by `solana-test-validator --account`.
+
+**Measured** (solana-test-validator 3.1.11, 2026-10-19): the validator exited during startup, three
+times in a row. The file's `"rentEpoch": 18446744073709551615` (u64::MAX) came back as
+`18446744073709552000`, a float past u64.
+
+**Do:** treat the file as text: replace only the base64 data string, and assert `rentEpoch` is still
+`18446744073709551615` before writing.
+
 ## 2026-10-19: drpc's free tier says it caps eth_getLogs at 10,000 blocks, but it refuses anything over 100
 
 **Believed:** keyless Ethereum logs come from `eth.drpc.org` in windows under 10,000 blocks (the

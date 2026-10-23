@@ -88,3 +88,19 @@ describe('getQuote: a pin asks for one hop on one DEX, and only a pin does', () 
     expect(params().has('dexes')).toBe(false);
   });
 });
+
+// V1 refuses the venue's SOL fee on a coin that is Token-2022 (6014), so the swap went out
+// with no fee; V2 takes it (measured 2026-10-23, SOL -> BAYLA: +0.5% of the SOL paid).
+describe('getQuote: every trade quote asks for Jupiter’s V2 instructions', () => {
+  it.each([
+    ['an ordinary quote', ASK],
+    ['a pinned quote', { ...ASK, pin: { dex: 'Pump.fun Amm' } }],
+    ['the no-fee re-quote', { ...ASK, noPlatformFee: true }],
+  ])('%s', async (_name, ask) => {
+    const f = vi.fn(async () => new Response(JSON.stringify({ outAmount: '1' }), { status: 200 }));
+    vi.stubGlobal('fetch', f);
+    await getQuote(ask);
+    const params = new URL(String((f.mock.calls[0] as unknown[])[0]), 'https://x.test').searchParams;
+    expect(params.get('instructionVersion')).toBe('V2');
+  });
+});

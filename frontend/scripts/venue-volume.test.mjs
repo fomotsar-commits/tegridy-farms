@@ -20,6 +20,7 @@ import {
   poolSwap,
   readEvmChain,
   readSolanaPools,
+  base58,
   unbase58,
 } from "./lib/venue-volume-chain.mjs";
 import { addUp, legUsd, main, spotPrice } from "./venue-volume.mjs";
@@ -27,6 +28,8 @@ import { VOLUME_SOURCES, summarize } from "../api/_lib/venueVolumePolicy.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const FX = JSON.parse(readFileSync(join(HERE, "fixtures", "venue-volume", "mainnet.json"), "utf-8"));
+// Test runs of V2 builds (2026-10-23), shaped as transactions: no V2 swap of ours was on chain yet.
+const V2 = JSON.parse(readFileSync(join(HERE, "fixtures", "venue-volume", "v2-simulation.json"), "utf-8"));
 const [WSOL_FEE, USDC_FEE] = JUPITER_FEE_ACCOUNTS;
 const BAYLA = "7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump";
 const SOL_BAYLA = decodePool("ErvzV1NMZmcfAqZtGH4AQhYAjn77nJEworKK1mYPz5w4", FX.pool_solBayla);
@@ -100,6 +103,36 @@ describe("Jupiter: the swap's own SOL or USDC leg, from Jupiter's events", () =>
       g.instructions = g.instructions.filter((ix) => !ix.data || jupiterKind(ix.data) !== "swap");
     }
     expect(() => jupiterSwap(stripped, WSOL_FEE)).toThrow(/no SwapEvent/);
+  });
+});
+
+describe("Jupiter V2 builds: one SwapsEvent, no FeeEvent, the fee read from the fee account", () => {
+  it("SOL to BAYLA, fee taken from the SOL input: the full 0.097 SOL", () => {
+    expect(jupiterSwap(V2.v2SolToBaylaFeeIn, WSOL_FEE).leg).toEqual({ mint: SOL_MINT, raw: 97_000_000n });
+  });
+
+  it("USDC to BAYLA through SOL, two hops, fee taken from the USDC input: the full 10 USDC", () => {
+    expect(jupiterSwap(V2.v2UsdcToBaylaFeeIn, USDC_FEE).leg).toEqual({ mint: USDC_MINT, raw: 10_000_000n });
+  });
+
+  it("BAYLA to SOL, fee taken from the SOL output: the SOL out before the fee", () => {
+    expect(jupiterSwap(V2.v2BaylaToSolFeeOut, WSOL_FEE).leg).toEqual({ mint: SOL_MINT, raw: 368_788_466n });
+  });
+
+  it("counts a V2 swap only under the fee account that grew", () => {
+    expect(jupiterSwap(V2.v2SolToBaylaFeeIn, USDC_FEE)).toBeNull();
+  });
+
+  it("refuses a SwapsEvent cut short instead of counting fewer hops", () => {
+    const cut = structuredClone(V2.v2UsdcToBaylaFeeIn);
+    for (const g of cut.meta.innerInstructions) {
+      for (const ix of g.instructions) {
+        if (typeof ix.data !== "string" || ix.programId !== "JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4") continue;
+        const d = unbase58(ix.data);
+        if (d.subarray(8, 16).toString("hex") === "982f4eebc0606e6a") ix.data = base58(d.subarray(0, d.length - 1));
+      }
+    }
+    expect(() => jupiterSwap(cut, USDC_FEE)).toThrow(/shorter than its 2 hops/);
   });
 });
 

@@ -151,6 +151,10 @@ export async function getQuote(params: {
     slippageBps: String(params.slippageBps),
     swapMode: 'ExactIn',
     restrictIntermediateTokens: 'true',
+    // Jupiter's V1 instructions refuse the venue's SOL fee when the coin bought is Token-2022
+    // (6014, every time, so the no-fee rebuild went out instead). V2 takes it; the swap built
+    // from this quote follows the quote's version.
+    instructionVersion: 'V2',
   });
   if (params.pin) {
     qs.set('onlyDirectRoutes', 'true');
