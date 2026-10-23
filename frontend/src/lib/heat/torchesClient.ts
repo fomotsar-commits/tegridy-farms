@@ -63,6 +63,8 @@ export interface IslandTorches {
   fireBurned: number | null;
   season: { number: number; endsAtMs: number } | null;
   flames: number | null;
+  /** When this tab read it: the "now" an age or a day count is measured against. */
+  readAtMs: number;
 }
 
 export class TorchesUnavailableError extends Error {
@@ -133,6 +135,7 @@ function parse(body: Record<string, unknown>): IslandTorches {
       ? { number: season.season, endsAtMs }
       : null,
     flames: isCount(body.flames) ? body.flames : null,
+    readAtMs: Date.now(),
   };
 }
 
@@ -171,6 +174,7 @@ export interface RoomTorchView {
   nextPrice: number;
   last: Torch | null;
   href: string;
+  readAtMs: number;
 }
 
 /** A room's torches, or null on any miss: an unpinned room, an unserved place, or a count that does not add up. */
@@ -181,7 +185,7 @@ export function roomTorches(data: IslandTorches | null, roomId: string): RoomTor
   // The island lights twelve to a row; the open row is the one still filling.
   const lit = p.torches - (p.openRow - 1) * p.slotsPerRow;
   if (lit < 0 || lit > p.slotsPerRow) return null;
-  return { lit, of: p.slotsPerRow, nextPrice: p.nextPrice, last: p.last, href: islandRoomHref(roomId)! };
+  return { lit, of: p.slotsPerRow, nextPrice: p.nextPrice, last: p.last, href: islandRoomHref(roomId)!, readAtMs: data!.readAtMs };
 }
 
 /** The island's own page for a room, where a torch is lit. */

@@ -37,14 +37,13 @@ function wholeTokens(raw: bigint, decimals: number): string {
 export function IslandStrip() {
   const torches = useIslandTorches();
   const locked = useLadderLocked();
-  const now = Date.now();
 
   const figures: { key: string; text: string }[] = [];
   if (locked) figures.push({ key: 'locked', text: `${wholeTokens(locked.raw, locked.decimals)} $${locked.symbol} locked` });
   if (torches?.fireBurned != null) figures.push({ key: 'fire', text: `${wholeNumber(torches.fireBurned)} $BAYLA fed to the fire` });
   if (torches?.flames != null) figures.push({ key: 'flames', text: `${wholeNumber(torches.flames)} flame${torches.flames === 1 ? '' : 's'}` });
 
-  const season = torches?.season ? seasonLine(torches.season, now) : null;
+  const season = torches?.season ? seasonLine(torches.season, torches.readAtMs) : null;
   const last = torches?.lastTorch ?? null;
   const lastRoom = last ? roomOfPlace(last.place) : null;
 
@@ -84,7 +83,7 @@ export function IslandStrip() {
                 ) : (
                   last.label ?? 'a room'
                 )}
-                , by {last.name ?? 'someone with no name yet'}, {ageWords(last.litAtMs, now)}
+                , by {last.name ?? 'someone with no name yet'}, {ageWords(last.litAtMs, torches!.readAtMs)}
               </span>
             )}
           </p>

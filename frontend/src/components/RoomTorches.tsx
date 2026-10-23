@@ -25,7 +25,7 @@ function Lines({ view }: { view: RoomTorchView }) {
       </p>
       {view.last && (
         <p className="text-white/70 text-[13px] mt-1 mb-0">
-          Last lit by {view.last.name ?? 'someone with no name yet'}, {ageWords(view.last.litAtMs, Date.now())}
+          Last lit by {view.last.name ?? 'someone with no name yet'}, {ageWords(view.last.litAtMs, view.readAtMs)}
         </p>
       )}
       <a

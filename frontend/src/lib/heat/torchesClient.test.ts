@@ -106,6 +106,7 @@ describe('roomTorches', () => {
       lit: 7, of: 12, nextPrice: 200000,
       last: { name: '_seacasa', amount: 175000, litAtMs: Date.parse('2026-10-15T00:27:48.000Z') },
       href: 'https://memetics.wtf/b/bayla',
+      readAtMs: expect.any(Number),
     });
   });
 
