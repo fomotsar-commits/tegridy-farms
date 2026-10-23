@@ -38,10 +38,10 @@ export function IslandStrip() {
   const torches = useIslandTorches();
   const locked = useLadderLocked();
 
-  const figures: { key: string; text: string }[] = [];
-  if (locked) figures.push({ key: 'locked', text: `${wholeTokens(locked.raw, locked.decimals)} $${locked.symbol} locked` });
-  if (torches?.fireBurned != null) figures.push({ key: 'fire', text: `${wholeNumber(torches.fireBurned)} $BAYLA fed to the fire` });
-  if (torches?.flames != null) figures.push({ key: 'flames', text: `${wholeNumber(torches.flames)} flame${torches.flames === 1 ? '' : 's'}` });
+  const figures: { key: string; value: string; words: string }[] = [];
+  if (locked) figures.push({ key: 'locked', value: wholeTokens(locked.raw, locked.decimals), words: `$${locked.symbol} locked` });
+  if (torches?.fireBurned != null) figures.push({ key: 'fire', value: wholeNumber(torches.fireBurned), words: '$BAYLA fed to the fire' });
+  if (torches?.flames != null) figures.push({ key: 'flames', value: wholeNumber(torches.flames), words: `flame${torches.flames === 1 ? '' : 's'}` });
 
   const season = torches?.season ? seasonLine(torches.season, torches.readAtMs) : null;
   const last = torches?.lastTorch ?? null;
@@ -62,11 +62,11 @@ export function IslandStrip() {
       >
         <CardArt pageId="island-strip" idx={0} />
         {figures.length > 0 && (
-          <p className="stat-value text-white text-[16px] md:text-[18px] leading-snug m-0">
+          <p className="text-white text-[15px] md:text-[17px] leading-loose m-0">
             {figures.map((f, i) => (
               <span key={f.key} data-testid={`island-strip-${f.key}`}>
                 {i > 0 && <span className="text-white/40"> &middot; </span>}
-                {f.text}
+                <span className="stat-value">{f.value}</span> {f.words}
               </span>
             ))}
           </p>
