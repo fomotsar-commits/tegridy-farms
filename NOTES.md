@@ -443,7 +443,7 @@ rebuilt, and the enlarge size only once the real upload is tried.
 
 **Measured** (WSL, 2026-10-19): `cargo build-sbf -- --locked` (2.3.0, platform-tools v1.48,
 rustc 1.84.1) in `programs/cp-swap` of a clean `git archive` of trunk `71a7bba8` gave
-`99a9e73d…`, 724,688 bytes: byte for byte the pack's file, built on another day in other folders.
+the 2026-10-06 build, 724,688 bytes: byte for byte the pack's file, built on another day in other folders.
 The same build of a source change gives that change's pack hash. On a local validator holding
 mainnet's binary, `solana program extend <id> <new − current bytes>` and then
 `solana program deploy --no-auto-extend` upgraded with no error, so that byte count is enough.
