@@ -109,6 +109,7 @@ export const PAGE_ROUTES: Record<string, string> = {
   'flames-board': '/',
   'three-paths': '/',
   'venue-doors': '/',
+  'island-dashboard': '/',
   'yield-calculator': '/',
   'bungalow-dashboard': '/dashboard',
   portfolio: '/dashboard',
@@ -136,6 +137,8 @@ export const PAGE_ROUTES: Record<string, string> = {
   'pending-trade': '/solana-lp',
   'solana-lp': '/solana-lp',
   'venue-amm': '/solana-lp',
+  // Listed and routed only while range pools show (clmm/programId.ts).
+  'range-pools': '/range-pools',
   zap: '/zap',
   'venue-launch-lines': '/curve-launch',
   'gate-audit-panel': '/launch',
@@ -639,6 +642,7 @@ export const SURFACES: Surface[] = [
   { group: 'Home', pageId: 'three-paths', idx: 1, label: 'Three paths card 2 (Marketplace)' },
   { group: 'Home', pageId: 'three-paths', idx: 2, label: 'Three paths card 3 (Launch)' },
   { group: 'Home', pageId: 'venue-doors', idx: 0, label: 'Hall of doors panel (venue home)' },
+  { group: 'Home', pageId: 'island-dashboard', idx: 0, label: 'Dashboard panel (venue home, above the three cards; also /dashboard)' },
   { group: 'Home', pageId: 'yield-calculator', idx: 0, label: 'Yield calculator (TOWELI room, not connected)' },
 
   // Dashboard
@@ -779,6 +783,12 @@ export const SURFACES: Surface[] = [
   { group: 'Pools · Solana LP', pageId: 'solana-lp', idx: 13, label: 'All pools card (every pool on the venue, before a lookup)' },
   { group: 'Pools · Solana LP', pageId: 'venue-amm', idx: 0, label: 'Venue status card' },
   { group: 'Pools · Solana LP', pageId: 'venue-amm', idx: 1, label: 'The program card' },
+
+  // Pools · Range (hidden until range pools open; 'swap' idx 0 is its backdrop too)
+  { group: 'Pools · Range', pageId: 'range-pools', idx: 0, label: 'How a range position earns' },
+  { group: 'Pools · Range', pageId: 'range-pools', idx: 1, label: 'Pick a pool' },
+  { group: 'Pools · Range', pageId: 'range-pools', idx: 2, label: 'Pick your range (a pool picked)' },
+  { group: 'Pools · Range', pageId: 'range-pools', idx: 3, label: 'Your range positions' },
 
   // Pools · Venue AMM
   { group: 'Pools · Venue AMM', pageId: 'venue-amm', idx: 3, label: 'For liquidity providers card' },

@@ -891,7 +891,7 @@ describe('a review too old to sign when Sign in wallet is pressed', () => {
 // figures, and the two ways on (the swap, opened on the token; the All pools list). Only the
 // Remove panel's confirmed card says this: the shared outcome card is otherwise unchanged.
 describe('after a confirmed withdrawal', () => {
-  const listed = { listPools: vi.fn(async () => ({ kind: 'ok' as const, list: { pools: [], unread: 0, truncated: false, chainNow: null } })) };
+  const listed = { listPools: vi.fn(async () => ({ kind: 'ok' as const, list: { pools: [], unread: 0, truncated: false, chainNow: null, safety: new Map() } })) };
   const confirmed = () => vi.fn(async (): Promise<TxOutcome> => ({ status: 'confirmed', signature: SIG, slot: 1 }));
 
   async function removeHalf(o: Partial<LpReaders> = {}, where: () => Promise<HTMLElement> = () => screen.findByTestId('lp-position')) {
@@ -942,7 +942,7 @@ describe('after a confirmed withdrawal', () => {
     expect(within(outcome).getByRole('button', { name: 'Add to another pool' })).toBeInTheDocument();
   });
 
-  it('a token whose symbol copies a well-known one is not named by it', async () => {
+  it('a token whose symbol copies a well-known one is named "fake", never by it alone', async () => {
     const copy = {
       ...okToken,
       name: 'USD Coin',
@@ -951,8 +951,8 @@ describe('after a confirmed withdrawal', () => {
       warnings: [{ code: 'copies-known-name', text: 'It calls itself USDC, but it is not USDC.' }],
     } as TokenSafety;
     const { outcome } = await removeHalf({ ...listed, safety: vi.fn(async () => new Map([[M, copy]])) });
-    expect(within(outcome).getByTestId('lp-removed')).toHaveTextContent(/^You got about 0\.05 SOL and 5 tokens\./);
-    expect(within(outcome).getByTestId('lp-removed')).not.toHaveTextContent('USDC');
+    expect(within(outcome).getByTestId('lp-removed')).toHaveTextContent(/^You got about 0\.05 SOL and 5 fake USDC\./);
+    expect(within(outcome).getByTestId('lp-removed')).not.toHaveTextContent(/\b5 USDC/);
   });
 
   it('a confirmed deposit says none of it', async () => {

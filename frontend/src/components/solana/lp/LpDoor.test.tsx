@@ -192,10 +192,11 @@ describe('the home card', () => {
     expect(within(card).getByRole('button', { name: 'Add liquidity' })).toBeInTheDocument();
     // Its pool is read with the lookup, whatever the index lists.
     expect(r.findPools).toHaveBeenCalledWith(expect.anything(), [sol.address]);
-    // How LPs earn and what the venue takes, in view; the price and the rest a press away.
+    // How LPs earn, what the venue takes and the pool's price, in view; the rest a press away.
     expect(within(card).getByTestId('lp-pool-split')).toHaveTextContent(/^LPs keep [\d.]+% of each trade, the venue [\d.]+%\.$/);
     expect(within(card).getByTestId('lp-pool-more')).not.toHaveAttribute('open');
-    expect(within(within(card).getByTestId('lp-pool-more')).getByText('Price')).toBeInTheDocument();
+    expect(within(card).getByText('Price here', { exact: true })).toBeVisible();
+    expect(within(within(card).getByTestId('lp-pool-more')).queryByText('Price', { exact: true })).toBeNull();
     // Nothing to search with, nothing else to open, no clean token card.
     expect(screen.queryByTestId('lp-tasks')).toBeNull();
     expect(screen.queryByRole('textbox', { name: /Token mint address/ })).toBeNull();
@@ -234,7 +235,7 @@ describe('the home card', () => {
 
   it('keeps the actions and leaves every pool, the rates and the routes to the tabs', async () => {
     const sol = view();
-    mountHome(readers([sol], { kind: 'ok', list: { pools: [sol], unread: 0, truncated: false, chainNow: null } }), '/', sol.address);
+    mountHome(readers([sol], { kind: 'ok', list: { pools: [sol], unread: 0, truncated: false, chainNow: null, safety: new Map() } }), '/', sol.address);
     await waitFor(() => cardOf(sol.address));
     // No risk line on the page (owner, 2026-10-17): its sentence leads the closed Risks drop-down.
     expect(screen.queryByTestId('lp-risk-line')).toBeNull();
@@ -365,7 +366,7 @@ describe('the door’s link', () => {
 describe('the list of every pool', () => {
   it('each row has Add: one press to that pool’s Add with one coin', async () => {
     const sol = view();
-    mount(readers([sol], { kind: 'ok', list: { pools: [sol], unread: 0, truncated: false, chainNow: null } }), '/solana-lp');
+    mount(readers([sol], { kind: 'ok', list: { pools: [sol], unread: 0, truncated: false, chainNow: null, safety: new Map() } }), '/solana-lp');
     const [row] = await screen.findAllByTestId('lp-all-pools-row');
     fireEvent.click(within(row!).getByRole('button', { name: /^Add to / }));
     const panel = await screen.findByTestId('lp-one-coin-panel');

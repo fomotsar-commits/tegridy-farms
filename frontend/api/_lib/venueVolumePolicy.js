@@ -1,12 +1,16 @@
-// What the all-time volume counter is made of and when it is behind, shared by the hourly
+// What the all-time volume counter is made of and when it is behind, shared by the scheduled
 // job (scripts/venue-volume.mjs) and the public read (venueVolume.js). No imports: the job
 // runs with no npm install, next to the service key.
 
 /** Every source the total is made of. A row missing from this list is not counted. */
 export const VOLUME_SOURCES = Object.freeze(["solana-pools", "jupiter", "ethereum", "base", "robinhood"]);
 
-/** Hourly runs, and GitHub starts scheduled runs late: three hours without one is behind. */
-export const STALE_AFTER_MS = 3 * 60 * 60 * 1000;
+/**
+ * The job is scheduled hourly, but GitHub ran this repo's hourly jobs up to 7.8 h apart
+ * (10-14..10-22), and an EVM count ends at the finalized block, ~16 min back. Nine hours
+ * without a count is behind; a failed run is behind at once.
+ */
+export const STALE_AFTER_MS = 9 * 60 * 60 * 1000;
 
 /**
  * The rows, summed. `unread` when any source has never finished a run (the sum would

@@ -59,25 +59,26 @@ function resolveSplashCollection() {
 }
 
 // ═══ Art pieces config — SPLASH ONLY ═══
-// Mobile: fewer pieces, smaller sizes for performance
+// Mobile: fewer pieces, smaller sizes for performance. `aspect` is the file's
+// height over width, for stillStack.
 const ART_PIECES_DESKTOP = [
-  { src: "/splash/watercolor.jpg", size: 420, pixel: false },
-  { src: "/splash/HBbsuPEacAAX0VA.jpg", size: 400, pixel: false },
-  { src: "/splash/G24BZRrakAA1M_9.jpg", size: 380, pixel: false },
-  { src: "/splash/frogking.jpg", size: 320, pixel: true },
-  { src: "/splash/skeleton.jpg", size: 220, pixel: true },
-  { src: "/splash/G--r5iuXIAEPwLt.jpg", size: 380, pixel: false },
-  { src: "/splash/G-FPcYdXMAAKsWR.jpg", size: 420, pixel: false },
-  { src: "/splash/G8jE1EcWMAAvHTy.jpg", size: 360, pixel: false },
-  { src: "/splash/HA5Fd6kWMAAMqL_.jpg", size: 340, pixel: false },
-  { src: "/splash/HC6HNXsW4AA-UwM.jpg", size: 420, pixel: false },
+  { src: "/splash/watercolor.jpg", size: 420, aspect: 1, pixel: false },
+  { src: "/splash/HBbsuPEacAAX0VA.jpg", size: 400, aspect: 0.996, pixel: false },
+  { src: "/splash/G24BZRrakAA1M_9.jpg", size: 380, aspect: 1.398, pixel: false },
+  { src: "/splash/frogking.jpg", size: 320, aspect: 1, pixel: true },
+  { src: "/splash/skeleton.jpg", size: 220, aspect: 1, pixel: true },
+  { src: "/splash/G--r5iuXIAEPwLt.jpg", size: 380, aspect: 1.4, pixel: false },
+  { src: "/splash/G-FPcYdXMAAKsWR.jpg", size: 420, aspect: 1, pixel: false },
+  { src: "/splash/G8jE1EcWMAAvHTy.jpg", size: 360, aspect: 1.583, pixel: false },
+  { src: "/splash/HA5Fd6kWMAAMqL_.jpg", size: 340, aspect: 1.144, pixel: false },
+  { src: "/splash/HC6HNXsW4AA-UwM.jpg", size: 420, aspect: 1.25, pixel: false },
 ];
 const ART_PIECES_MOBILE = [
-  { src: "/splash/skeleton.jpg", size: 140, pixel: true },
-  { src: "/splash/frogking.jpg", size: 160, pixel: true },
-  { src: "/splash/watercolor.jpg", size: 200, pixel: false },
-  { src: "/splash/HBbsuPEacAAX0VA.jpg", size: 180, pixel: false },
-  { src: "/splash/G24BZRrakAA1M_9.jpg", size: 170, pixel: false },
+  { src: "/splash/skeleton.jpg", size: 140, aspect: 1, pixel: true },
+  { src: "/splash/frogking.jpg", size: 160, aspect: 1, pixel: true },
+  { src: "/splash/watercolor.jpg", size: 200, aspect: 1, pixel: false },
+  { src: "/splash/HBbsuPEacAAX0VA.jpg", size: 180, aspect: 0.996, pixel: false },
+  { src: "/splash/G24BZRrakAA1M_9.jpg", size: 170, aspect: 1.398, pixel: false },
 ];
 const ART_PIECES = IS_MOBILE ? ART_PIECES_MOBILE : ART_PIECES_DESKTOP;
 
@@ -94,6 +95,81 @@ const FACE_FORMATION = [
   { x: 0.5, y: 0.82 },   // chin
 ];
 
+// Held still, the spread buries pieces (they overlap by design; motion used to
+// uncover them). settleBodies eases overlapping pieces apart once, as the
+// collisions would, without jamming them on the walls; the clamp keeps every
+// piece's width on screen, as initBodies does.
+function settleBodies(bodies, w, h) {
+  for (let round = 0; round < 100; round++) {
+    for (let i = 0; i < bodies.length; i++) {
+      for (let j = i + 1; j < bodies.length; j++) {
+        const a = bodies[i];
+        const b = bodies[j];
+        const dx = b.x - a.x;
+        const dy = b.y - a.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        const push = (a.radius + b.radius - dist) * 0.1;
+        if (push <= 0 || dist === 0) continue;
+        a.x -= (dx / dist) * push;
+        a.y -= (dy / dist) * push;
+        b.x += (dx / dist) * push;
+        b.y += (dy / dist) * push;
+      }
+    }
+    for (const b of bodies) {
+      b.x = Math.max(b.radius, Math.min(w - b.radius, b.x));
+      b.y = Math.max(b.radius, Math.min(h - b.radius, b.y));
+    }
+  }
+}
+
+// Then the draw order is chosen once, bottom to top: each turn the piece that
+// shows most under all the rest goes down next. Returns indices, bottom first.
+function stillStack(bodies, pieces, w, h) {
+  // Each piece as drawn: its box turned by `rot` about its centre.
+  const rects = bodies.map((b, i) => {
+    const { size, aspect } = pieces[i];
+    const turn = (b.rot * Math.PI) / 180;
+    return {
+      cx: b.x, cy: b.y - size / 2 + (size * aspect) / 2, hw: size / 2, hh: (size * aspect) / 2,
+      cos: Math.cos(turn), sin: Math.sin(turn),
+    };
+  });
+  const covers = (r, x, y) => {
+    const dx = x - r.cx;
+    const dy = y - r.cy;
+    return Math.abs(dx * r.cos + dy * r.sin) <= r.hw && Math.abs(dy * r.cos - dx * r.sin) <= r.hh;
+  };
+  const shown = (i, others) => {
+    const r = rects[i];
+    let seen = 0;
+    for (let gu = 0.5; gu < 16; gu++) {
+      for (let gv = 0.5; gv < 16; gv++) {
+        const u = (gu / 8 - 1) * r.hw;
+        const v = (gv / 8 - 1) * r.hh;
+        const x = r.cx + u * r.cos - v * r.sin;
+        const y = r.cy + u * r.sin + v * r.cos;
+        if (x < 0 || y < 0 || x > w || y > h) continue;
+        if (!others.some((j) => covers(rects[j], x, y))) seen++;
+      }
+    }
+    return seen;
+  };
+  let rest = bodies.map((_, i) => i);
+  const order = [];
+  while (rest.length) {
+    let next = rest[0];
+    let most = -1;
+    for (const i of rest) {
+      const s = shown(i, rest.filter((j) => j !== i));
+      if (s > most) { most = s; next = i; }
+    }
+    order.push(next);
+    rest = rest.filter((j) => j !== next);
+  }
+  return order;
+}
+
 // ═══ Physics simulation — the brain ═══
 function usePhysics(pieces, containerRef, phase) {
   const bodiesRef = useRef(null);
@@ -108,6 +184,13 @@ function usePhysics(pieces, containerRef, phase) {
   const [mousePos, setMousePos] = useState({ x: -9999, y: -9999 });
   const phaseRef = useRef(phase);
   phaseRef.current = phase;
+  // Reduced motion: the pieces hold still, eased apart and drawn in stillStack's
+  // order, with no frame loop, sparks, flash or click shockwave. The CSS rule
+  // and framer's MotionConfig never reach these inline transforms.
+  const [reduceMotion] = useState(() => {
+    try { return !!window.matchMedia?.("(prefers-reduced-motion: reduce)").matches; } catch { return false; }
+  });
+  const [stack, setStack] = useState(null);
 
   const initBodies = useCallback((w, h) => {
     const bodies = [];
@@ -194,10 +277,10 @@ function usePhysics(pieces, containerRef, phase) {
 
   useEffect(() => {
     const container = containerRef.current;
-    if (!container) return;
+    if (!container || reduceMotion) return;
     container.addEventListener("mousedown", triggerShockwave);
     return () => container.removeEventListener("mousedown", triggerShockwave);
-  }, [containerRef, triggerShockwave]);
+  }, [containerRef, triggerShockwave, reduceMotion]);
 
   // Bass drop: pull all images to center
   useEffect(() => {
@@ -223,10 +306,15 @@ function usePhysics(pieces, containerRef, phase) {
     if (!container) return;
     const rect = container.getBoundingClientRect();
     bodiesRef.current = initBodies(rect.width, rect.height);
+    if (reduceMotion) settleBodies(bodiesRef.current, rect.width, rect.height);
     setPositions(bodiesRef.current.map(b => ({
       x: b.x, y: b.y, rot: b.rot, glow: 0, glitch: 0, trail: [],
       breath: 1, holo: 0, speed: 0, tiltX: 0, tiltY: 0,
     })));
+    if (reduceMotion) {
+      setStack(stillStack(bodiesRef.current, pieces, rect.width, rect.height));
+      return;
+    }
 
     let lastTime = performance.now();
     let sparkId = 0;
@@ -419,9 +507,9 @@ function usePhysics(pieces, containerRef, phase) {
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
       document.removeEventListener("visibilitychange", onVisibility);
     };
-  }, [containerRef, initBodies]);
+  }, [containerRef, initBodies, reduceMotion, pieces]);
 
-  return { positions, sparks, shockwave, impactFlash, mousePos };
+  return { positions, stack, sparks, shockwave, impactFlash, mousePos };
 }
 
 // ═══ Pixel dust particles ═══
@@ -709,7 +797,7 @@ export default function SplashScreen({ onComplete }) {
   // Resolve once on mount — the splash plays for one entry, the destination
   // collection doesn't change mid-splash (F546).
   const [splashSlug] = useState(resolveSplashCollection);
-  const { positions, sparks, shockwave, impactFlash, mousePos } = usePhysics(ART_PIECES, containerRef, phase);
+  const { positions, stack, sparks, shockwave, impactFlash, mousePos } = usePhysics(ART_PIECES, containerRef, phase);
 
   useEffect(() => {
     const t = setTimeout(() => setShowContent(true), 100);
@@ -1199,8 +1287,9 @@ export default function SplashScreen({ onComplete }) {
 
       {/* Constellation lines removed for performance */}
 
-      {/* ═══ BOUNCING ART PIECES ═══ */}
-      {positions.map((pos, i) => {
+      {/* ═══ BOUNCING ART PIECES ═══ (held still in `stack` order under reduced motion) */}
+      {(stack || positions.map((_, i) => i)).map((i) => {
+        const pos = positions[i];
         const piece = ART_PIECES[i];
         const glowIntensity = pos.glow;
         // Disabled depth blur for performance — was causing per-frame filter recalc
@@ -1235,7 +1324,7 @@ export default function SplashScreen({ onComplete }) {
               position: "absolute",
               left: 0, top: 0,
               width: piece.size,
-              zIndex: piece.pixel ? 3 : 2,
+              zIndex: stack ? 2 : piece.pixel ? 3 : 2,
               pointerEvents: "none",
               transform: `translate3d(${pos.x - piece.size / 2}px, ${pos.y - piece.size / 2}px, 0) rotate(${pos.rot}deg) scale(${pos.breath}) perspective(800px) rotateX(${pos.tiltX * 1.3}deg) rotateY(${pos.tiltY * 1.3}deg)`,
               willChange: "transform",

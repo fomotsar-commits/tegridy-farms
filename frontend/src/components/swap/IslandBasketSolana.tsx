@@ -7,6 +7,7 @@ import { NoRouteError, buildSwapTransaction, fromBaseUnits, getQuote, getUsdPric
 import { MIN_USD_PER_COIN, SOL_BASKET, shortAmount, splitEvenly, usdText, usdToBaseUnits, type SolBasketCoin } from '../../lib/islandBasket';
 import { pinnedGetQuote, prepareSolLeg, retryingGetQuote, solLegRoute, BASKET_COPY, PoolNotNamedError } from '../../lib/solana/swap/islandBasketSol';
 import { within } from '../../lib/solana/swap/ownPoolRoute';
+import { whileJupiterBusy } from '../../lib/solana/swap/jupiterBusy';
 import type { VenuePoolCandidate } from '../../lib/solana/swap/venuePools';
 import { pollConfirm } from '../../lib/solana/confirm';
 import { readSendThrow } from '../../lib/solana/walletThrow';
@@ -24,14 +25,26 @@ import { BasketCta, IslandBasketButton, IslandBasketDialog, type BasketRow, type
 
 /**
  * The order's figures are asked for again this often while it is open. Longer than the
- * swap's 30 s: five coins a round against Jupiter's rate limit (the site's relay allows 60
- * calls a minute). What is sent is quoted again at the press and held to these figures.
+ * swap's 30 s: five coins a round against Jupiter's rate limit (see QUOTE_GAP_MS). What is
+ * sent is quoted again at the press and held to these figures.
  */
 const REQUOTE_MS = 60_000;
 /** While a price is missing, it is asked for again this soon. */
 const RETRY_MS = 15_000;
-/** Between one coin's Jupiter quote and the next: Jupiter's keyless tier refuses a burst. */
+/**
+ * Between one coin's Jupiter quote and the next. Jupiter's free key allows the whole site
+ * one request a second, every visitor and every call alike (developers.jup.ag rate limits,
+ * 2026-10-23), and refuses a burst: the five quotes cannot all be asked at once. The
+ * figures do not wait for them (PRICE_IDS).
+ */
 const QUOTE_GAP_MS = 1_100;
+/**
+ * SOL's and every island coin's USD price, in one read the relay shares between visitors
+ * for 30 s (`shared`, api/aggregator.js). Read as soon as the order's stub is on screen,
+ * so the order opens sized, with every coin's figure at its market price; each quote
+ * replaces its coin's figure as it lands, and Buy waits for every quote.
+ */
+const PRICE_IDS = [SOL_MINT, ...SOL_BASKET.map((c) => c.mint)];
 /** How long one coin's Jupiter quote (retries included) may take before it counts as unread. */
 const QUOTE_TIMEOUT_MS = 15_000;
 const PRESS_QUOTE_TIMEOUT_MS = 30_000;
@@ -52,13 +65,20 @@ const shownRetry = retryingGetQuote(getQuote, [2_500]);
 const pressRetry = retryingGetQuote(getQuote, [2_500, 5_000, 10_000]);
 const quoteJupiter: typeof shownRetry = (q) => timed(shownRetry(q), QUOTE_TIMEOUT_MS);
 const quoteForPress: typeof pressRetry = (q) => timed(pressRetry(q), PRESS_QUOTE_TIMEOUT_MS);
+/** A coin's build, asked again while Jupiter refuses the call (jupiterBusy.ts). */
+const pressBuild = whileJupiterBusy((p: Parameters<typeof buildSwapTransaction>[0]) => buildSwapTransaction(p));
 /** How long a sent coin is watched before the order says it cannot tell (the swap's own wait). */
 const CONFIRM_TIMEOUT_MS = 90_000;
 /** About what opening one coin's account costs (rent, refunded if it is closed), plus its fees. */
 const PER_COIN_RESERVE_LAMPORTS = 3_000_000n;
 
 type Leg = { coin: SolBasketCoin; amountIn: bigint };
+/** One coin's reads: Jupiter's quote (null with `why` for no route, null alone for a read that failed) and our pools' (null for a read that did not answer). */
 type LegQuote = { jupiter: JupiterQuote | null; own: VenuePoolCandidate[] | null; why: string | null };
+/** The same while the reads are on their way: a field still `undefined` has not answered. */
+type LegRead = Partial<LegQuote>;
+/** Every read of the coin has answered, or given up: what a press holds its price to. */
+const settled = (q: LegRead): q is LegQuote => q.jupiter !== undefined && q.own !== undefined;
 type LegState =
   | { kind: 'busy'; text: string }
   | { kind: 'bought' }
@@ -74,11 +94,13 @@ const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const buyable = (s: LegState | undefined): boolean => !s || s.kind === 'not-sent' || s.kind === 'refused';
 
 /**
- * Where a coin goes on the quotes shown, and what it is quoted to pay there. A Jupiter price
- * that could not be read is `unread`: never a route for our pool by default.
+ * Where a coin goes on the quotes shown, and what it is quoted to pay there. Null until
+ * Jupiter has answered. A Jupiter price that could not be read is `unread`: never a route
+ * for our pool by default. Our pools still on their way, or unread, are no pool for now:
+ * the row says which, and the order waits for the read before anything is bought.
  */
-function shownRoute(q: LegQuote | undefined): { decision: 'own' | 'jupiter' | 'none' | 'unread'; out: bigint | null } | null {
-  if (!q) return null;
+function shownRoute(q: LegRead | undefined): { decision: 'own' | 'jupiter' | 'none' | 'unread'; out: bigint | null } | null {
+  if (!q || q.jupiter === undefined) return null;
   if (!q.jupiter && !q.why) return { decision: 'unread', out: null };
   let jup: bigint | null;
   try { jup = q.jupiter ? BigInt(q.jupiter.outAmount) : null; } catch { jup = null; }
@@ -108,9 +130,11 @@ export function IslandBasketSolana(p: {
   const { publicKey, sendTransaction } = useWallet();
   const [open, setOpen] = useState(false);
   const [usd, setUsd] = useState('10');
-  const [solUsd, setSolUsd] = useState<number | null>(null);
+  // USD prices by mint (PRICE_IDS), the last read that answered.
+  const [prices, setPrices] = useState<Record<string, number> | null>(null);
+  const solUsd = prices?.[SOL_MINT] ?? null;
   const [lamports, setLamports] = useState<bigint | null>(null);
-  const [quotes, setQuotes] = useState<{ key: string; legs: LegQuote[] } | null>(null);
+  const [quotes, setQuotes] = useState<{ key: string; legs: LegRead[] } | null>(null);
   const [quoting, setQuoting] = useState(false);
   const [running, setRunning] = useState(false);
   const [states, setStates] = useState<Record<number, LegState>>({});
@@ -144,54 +168,86 @@ export function IslandBasketSolana(p: {
     setFrozen(null);
   }
 
-  // SOL's price and this wallet's SOL while the order is open.
+  // The prices (PRICE_IDS): once as soon as the stub is on screen, then each REQUOTE_MS
+  // while the order is open. A read younger than that is not made again on opening: a new
+  // SOL price re-sizes the split, and a new split starts its quotes over.
+  const alive = useRef(true);
+  useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
+  const pricesAt = useRef(0);
+  const pricesBusy = useRef(false);
+  const readPrices = useCallback(() => {
+    if (pricesBusy.current) return;
+    pricesBusy.current = true;
+    void getUsdPrices(PRICE_IDS, undefined, { shared: true })
+      .then((pr) => { if (alive.current) { pricesAt.current = Date.now(); setPrices(pr); } })
+      .catch(() => { /* the last prices stand */ })
+      .finally(() => { pricesBusy.current = false; });
+  }, []);
+  useEffect(() => { readPrices(); }, [readPrices]);
   useEffect(() => {
     if (!open) return;
+    if (Date.now() - pricesAt.current >= REQUOTE_MS) readPrices();
+    const iv = running ? null : setInterval(readPrices, REQUOTE_MS);
+    return () => { if (iv) clearInterval(iv); };
+  }, [open, running, tick, readPrices]);
+
+  // This wallet's SOL while the order is open.
+  useEffect(() => {
+    if (!open || !publicKey) return;
     let cancelled = false;
-    const read = () => {
-      void getUsdPrices([SOL_MINT]).then((pr) => { if (!cancelled) setSolUsd(pr[SOL_MINT] ?? null); }).catch(() => { /* the last price stands */ });
-      if (publicKey) void connection.getBalance(publicKey, 'confirmed').then((b) => { if (!cancelled) setLamports(BigInt(b)); }).catch(() => { if (!cancelled) setLamports(null); });
-    };
+    const read = () => { void connection.getBalance(publicKey, 'confirmed').then((b) => { if (!cancelled) setLamports(BigInt(b)); }).catch(() => { if (!cancelled) setLamports(null); }); };
     read();
     const iv = running ? null : setInterval(read, REQUOTE_MS);
     return () => { cancelled = true; if (iv) clearInterval(iv); };
   }, [open, running, publicKey, connection, tick]);
 
-  // Our pools for every coin at once (they are not Jupiter's), then Jupiter one coin at a time.
-  const quoteAll = useCallback(async (ls: Leg[], live: () => boolean): Promise<LegQuote[] | null> => {
-    const own = await Promise.all(ls.map((l) => within(readOwnPoolsFor(SOL_MINT, l.coin.mint, l.amountIn), OWN_READ_MS, null)));
-    const out: LegQuote[] = [];
-    for (let i = 0; i < ls.length; i++) {
-      if (!live()) return null;
-      if (i > 0 && gap > 0) await wait(gap);
-      const l = ls[i]!;
-      try {
-        const jupiter = await pinnedGetQuote(quoteJupiter, l.coin)({ inputMint: SOL_MINT, outputMint: l.coin.mint, amount: l.amountIn.toString(), slippageBps: p.slippageBps });
-        out.push({ jupiter, own: own[i] ?? null, why: null });
-      } catch (e) {
-        const why = e instanceof PoolNotNamedError ? BASKET_COPY.poolNotNamed : e instanceof NoRouteError ? BASKET_COPY.noRoute : null;
-        out.push({ jupiter: null, own: own[i] ?? null, why });
+  // Our pools for every coin at once (they are not Jupiter's) and Jupiter one coin at a
+  // time, started together, each answer handed over as it lands: the first coin's figure
+  // waits for no other read, and a read of our pools that stalls (up to OWN_READ_MS) holds
+  // only its own coin's comparison. Before 2026-10-22 the Jupiter quotes waited for every
+  // pool read and the figures were shown together, after the last of them.
+  const quoteAll = useCallback((ls: Leg[], live: () => boolean, landed: (i: number, read: LegRead) => void): Promise<void> => {
+    const own = ls.map((l, i) => within(readOwnPoolsFor(SOL_MINT, l.coin.mint, l.amountIn), OWN_READ_MS, null).then((o) => { if (live()) landed(i, { own: o }); }));
+    const jupiter = (async () => {
+      for (let i = 0; i < ls.length; i++) {
+        if (!live()) return;
+        if (i > 0 && gap > 0) await wait(gap);
+        const l = ls[i]!;
+        let read: LegRead;
+        try {
+          read = { jupiter: await pinnedGetQuote(quoteJupiter, l.coin)({ inputMint: SOL_MINT, outputMint: l.coin.mint, amount: l.amountIn.toString(), slippageBps: p.slippageBps }), why: null };
+        } catch (e) {
+          read = { jupiter: null, why: e instanceof PoolNotNamedError ? BASKET_COPY.poolNotNamed : e instanceof NoRouteError ? BASKET_COPY.noRoute : null };
+        }
+        if (live()) landed(i, read);
       }
-    }
-    return out;
+    })();
+    return Promise.all([...own, jupiter]).then(() => undefined);
   }, [p.slippageBps, gap]);
 
   const latest = useRef(0);
+  // The order last asked for: an amount being typed waits half a second before its quotes
+  // are asked; an order opened, or asked again, is asked at once.
+  const askedKey = useRef<string | null>(null);
   useEffect(() => {
     if (!open || running || !legs || !orderKey) return;
     const id = ++latest.current;
+    const key = orderKey;
+    const delay = askedKey.current !== null && askedKey.current !== key ? 500 : 0;
+    askedKey.current = key;
     const t = setTimeout(() => {
       setQuoting(true);
-      void quoteAll(legs, () => latest.current === id).then((q) => {
-        if (latest.current !== id || !q) return;
-        setQuotes({ key: orderKey, legs: q });
-        setQuoting(false);
-      });
-    }, 500);
+      // The same order asked again keeps its figures on screen while they are re-read; another order starts blank.
+      setQuotes((was) => (was && was.key === key ? was : { key, legs: legs.map(() => ({})) }));
+      const landed = (i: number, read: LegRead) => setQuotes((was) => (was && was.key === key ? { key, legs: was.legs.map((q, j) => (j === i ? { ...q, ...read } : q)) } : was));
+      void quoteAll(legs, () => latest.current === id, landed).then(() => { if (latest.current === id) setQuoting(false); });
+    }, delay);
     return () => clearTimeout(t);
   }, [open, running, legs, orderKey, quoteAll, tick]);
 
   const shown = quotes && quotes.key === orderKey ? quotes.legs : null;
+  // Every coin's reads have answered: the figures a press holds each price to.
+  const ready = shown && shown.every(settled) ? shown : null;
   const setLeg = (i: number, s: LegState) => setStates((was) => ({ ...was, [i]: s }));
   // Asked again every REQUOTE_MS while idle, and every RETRY_MS while a price is missing: one
   // unread coin holds the whole order, so it is not left waiting a full round.
@@ -203,7 +259,7 @@ export function IslandBasketSolana(p: {
   }, [open, running, anyUnread]);
 
   async function buy() {
-    if (!publicKey || !legs || !shares || !shown || running) return;
+    if (!publicKey || !legs || !shares || !ready || running) return;
     const user = publicKey.toBase58();
     const scope = swapPendingScope(user);
     const before = states;
@@ -217,7 +273,7 @@ export function IslandBasketSolana(p: {
         if (!buyable(before[i])) continue;
         if (stopAfter.current) break;
         const leg = legs[i]!;
-        const q = shown[i]!;
+        const q = ready[i]!;
         if (!q.jupiter) {
           // No Jupiter price was shown for it: our pool takes it if it quoted, otherwise nothing is sent.
           if (shownRoute(q)?.decision === 'own') setLeg(i, { kind: 'own' });
@@ -228,7 +284,7 @@ export function IslandBasketSolana(p: {
         const prepared = await prepareSolLeg(
           {
             getQuote: pinnedGetQuote(quoteForPress, leg.coin),
-            buildSwapTransaction,
+            buildSwapTransaction: pressBuild,
             simulateSwap: (b64) => simulateSwap(b64),
             swapCarriesPlatformFee,
             ownPools: () => within(readOwnPoolsFor(SOL_MINT, leg.coin.mint, leg.amountIn), OWN_CHECK_MS, null),
@@ -304,12 +360,19 @@ export function IslandBasketSolana(p: {
     }
   }
 
+  // Until a coin's quote lands, its figure is its dollars at its market price, less the
+  // site fee where one is taken: a figure to look at, never one a press is held to.
+  const feeShare = isSolanaFeeConfigured() ? SOLANA_PLATFORM_FEE_BPS / 10_000 : 0;
+  const usdEach = orderKey && Number.isFinite(dollars) && dollars > 0 ? dollars / n : 0;
   const rows: BasketRow[] = SOL_BASKET.map((coin, i) => {
-    const r = shownRoute(shown?.[i]);
+    const q = shown?.[i];
+    const r = shownRoute(q);
     const s = states[i];
-    const venue = !r ? null : r.decision === 'own' ? 'Our pool' : r.decision === 'jupiter' ? `${coin.pool.dex === 'pumpswap' ? 'PumpSwap' : 'Raydium'} via Jupiter` : r.decision === 'unread' ? 'Price not read' : 'No route';
+    const coinUsd = prices?.[coin.mint];
+    const estimate = !r && usdEach > 0 && typeof coinUsd === 'number' && Number.isFinite(coinUsd) && coinUsd > 0 ? (usdEach / coinUsd) * (1 - feeShare) : null;
+    const venue = !r ? (estimate !== null ? 'market price' : null) : r.decision === 'own' ? 'Our pool' : r.decision === 'jupiter' ? `${coin.pool.dex === 'pumpswap' ? 'PumpSwap' : 'Raydium'} via Jupiter` : r.decision === 'unread' ? 'Price not read' : 'No route';
     const status: BasketRow['status'] =
-      !s ? (shown?.[i] && shown[i]!.own === null ? { tone: 'muted', text: 'Our pools not read' } : undefined)
+      !s ? (q?.own === null ? { tone: 'muted', text: 'Our pools not read' } : r && q && q.own === undefined ? { tone: 'busy', text: 'Comparing our pool…' } : undefined)
       : s.kind === 'busy' ? { tone: 'busy', text: s.text }
       : s.kind === 'bought' ? { tone: 'ok', text: 'Bought' }
       : s.kind === 'own' ? { tone: 'warn', text: 'Our pool: review below' }
@@ -318,9 +381,12 @@ export function IslandBasketSolana(p: {
       : { tone: 'err', text: s.why };
     return {
       key: coin.room,
+      room: coin.room,
       symbol: coin.symbol,
       venue,
-      pays: r?.out != null ? `≈ ${shortAmount(Number(fromBaseUnits(r.out.toString(), coin.decimals)))}` : quoting || (!shown && orderKey) ? null : '–',
+      // A coin not yet quoted shows its market-price figure, or nothing while there is an order to quote it for.
+      pays: r?.out != null ? `≈ ${shortAmount(Number(fromBaseUnits(r.out.toString(), coin.decimals)))}` : estimate !== null ? `≈ ${shortAmount(estimate)}` : r || !orderKey ? '–' : null,
+      estimate: estimate !== null,
       status,
     };
   });
@@ -348,7 +414,7 @@ export function IslandBasketSolana(p: {
   else if (solUsd === null && !frozen) [label, disabled] = ['SOL price unavailable', true];
   else if (short) [label, disabled] = ['Not enough SOL', true];
   else if (p.busy) [label, disabled] = ['A swap is on its way', true];
-  else if (!shown || quoting) [label, disabled] = ['Getting prices…', true];
+  else if (!ready || quoting) [label, disabled] = ['Getting prices…', true];
   else if (left === 0) [label, disabled] = ['Nothing left to buy', true];
   else if (unread) [label, disabled] = ['A price could not be read', true];
 
@@ -359,7 +425,7 @@ export function IslandBasketSolana(p: {
 
   return (
     <>
-      <IslandBasketButton count={n} onOpen={() => setOpen(true)} />
+      <IslandBasketButton count={n} symbols={SOL_BASKET.map((c) => c.symbol)} onOpen={() => setOpen(true)} />
       <IslandBasketDialog
         open={open}
         onClose={() => setOpen(false)}

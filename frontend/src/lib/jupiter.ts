@@ -18,6 +18,7 @@ import {
   SOL_MINT,
   USDC_MINT,
 } from './solana';
+import { JupiterBusyError, jupiterBusy } from './solana/swap/jupiterBusy';
 
 // We only read a few fields; the whole object is passed back to /swap verbatim,
 // so keep an index signature for the rest of Jupiter's response shape.
@@ -166,7 +167,10 @@ export async function getQuote(params: {
     signal: params.signal,
   });
   if (await isNoRouteAnswer(res)) throw new NoRouteError();
-  if (!res.ok) throw new Error(`Quote unavailable (${res.status})`);
+  if (!res.ok) {
+    const said = `Quote unavailable (${res.status})`;
+    throw jupiterBusy(res.status) ? new JupiterBusyError(said, res.status) : new Error(said);
+  }
   return (await res.json()) as JupiterQuote;
 }
 
@@ -222,7 +226,10 @@ export async function buildSwapTransaction(params: {
     headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
     body: JSON.stringify(body),
   });
-  if (!res.ok) throw new Error(`Could not build swap (${res.status})`);
+  if (!res.ok) {
+    const said = `Could not build swap (${res.status})`;
+    throw jupiterBusy(res.status) ? new JupiterBusyError(said, res.status) : new Error(said);
+  }
   const json = (await res.json()) as { swapTransaction?: string };
   if (!json.swapTransaction) throw new Error('No swap transaction returned');
   return json.swapTransaction;
@@ -284,11 +291,15 @@ export function fromBaseUnits(raw: string, decimals: number): string {
 
 // ─── Conversion polish: USD prices + route transparency ─────────────────────
 
-/** USD prices for a set of mints in one keyless price/v3 call (via our proxy). */
-export async function getUsdPrices(mints: string[], signal?: AbortSignal): Promise<Record<string, number>> {
+/**
+ * USD prices for a set of mints in one price/v3 call (via our proxy). `shared`: a fixed
+ * list every visitor asks for alike, which the proxy keeps at the edge for 30 s
+ * (`priceCheck`, api/aggregator.js); never for a pair a visitor picked.
+ */
+export async function getUsdPrices(mints: string[], signal?: AbortSignal, opts: { shared?: boolean } = {}): Promise<Record<string, number>> {
   const ids = [...new Set(mints.filter(Boolean))];
   if (ids.length === 0) return {};
-  const res = await fetch(`${JUPITER_TOKENS_BASE}/price/v3?ids=${ids.join(',')}`, {
+  const res = await fetch(`${JUPITER_TOKENS_BASE}/price/v3?ids=${ids.join(',')}${opts.shared ? '&priceCheck=1' : ''}`, {
     headers: { Accept: 'application/json' },
     signal,
   });

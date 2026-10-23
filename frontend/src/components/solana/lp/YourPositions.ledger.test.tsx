@@ -38,6 +38,8 @@ const OWNER = key();
 const MINT = key();
 const M = MINT.toBase58();
 const SHORT = shortAddress(M);
+/** What its check says the coin calls itself: the row names it so (identity.ts). */
+const TICKER = 'CORN';
 const SOL = 10n ** 9n;
 const TOK = 10n ** 6n;
 const DAY = 86_400;
@@ -177,7 +179,7 @@ describe('the row, top to bottom', () => {
     mount(readers({}, [p]));
     const li = await rowOf(p);
     // The registry names the pair, never the token's own metadata: this mint has no room, so its short address heads the row.
-    expect(within(li).getByRole('heading', { level: 3 })).toHaveTextContent(`${SHORT} / SOL · 1% tier`);
+    expect(within(li).getByRole('heading', { level: 3 })).toHaveTextContent(`${TICKER} / SOL · 1% tier`);
     expect(within(li).getByText('Your share: 10.0000% of the pool')).toBeInTheDocument();
     const pool = within(li).getByRole('group', { name: 'Pool' });
     expect(pool).toHaveTextContent(shortAddress(v.address));
@@ -186,7 +188,7 @@ describe('the row, top to bottom', () => {
     // The whole address is one press away.
     fireEvent.click(within(pool).getByRole('button', { name: /Show full address/ }));
     expect(within(pool).getByText(v.address)).toBeInTheDocument();
-    expect(value(li, 'Worth now')).toBe(`1 SOL and 100 ${SHORT}`);
+    expect(value(li, 'Worth now')).toBe(`1 SOL and 100 ${TICKER}`);
     expect(value(li, 'Pool swaps')).toBe('open');
     expect(value(li, 'Withdrawals')).toBe('open');
     // The rest is behind one fold, closed, with a 44px summary.
@@ -287,7 +289,7 @@ describe('which shares work out their earnings by themselves', () => {
     expect(state(rc)).toBe('idle');
     expect(within(rc).getByText(FEES)).toBeInTheDocument();
     expect(within(rc).queryByText('Put in')).toBeNull();
-    expect(value(rc, 'Worth now')).toBe(`1 SOL and 100 ${SHORT}`);
+    expect(value(rc, 'Worth now')).toBe(`1 SOL and 100 ${TICKER}`);
     const press = within(rc).getByRole('button', { name: BUTTON });
     expect(press).toHaveClass('min-h-[44px]');
     fireEvent.click(press);
@@ -306,7 +308,7 @@ describe('which shares work out their earnings by themselves', () => {
     expect(li.closest('details')).toHaveAttribute('data-testid', 'lp-positions-set-aside');
     expect(within(li).queryByRole('button', { name: BUTTON })).toBeNull();
     expect(within(li).queryByTestId('lp-ledger')).toBeNull();
-    expect(value(li, 'Worth now')).toBe(`1 SOL and 100 ${SHORT}`);
+    expect(value(li, 'Worth now')).toBe(`1 SOL and 100 ${TICKER}`);
     // Long enough for an effect to have run.
     await new Promise((r) => setTimeout(r, 30));
     expect(ledger).not.toHaveBeenCalled();
@@ -339,7 +341,7 @@ describe('which shares work out their earnings by themselves', () => {
     expect(within(li).getByText(FEES)).toBeInTheDocument();
     const b = block(li);
     expect(status(b)).toHaveTextContent(READING);
-    expect(value(b, 'Worth now')).toBe(`1 SOL and 100 ${SHORT}`);
+    expect(value(b, 'Worth now')).toBe(`1 SOL and 100 ${TICKER}`);
     // The button is on the page, switched off: a press while the read runs starts no second read.
     const press = within(b).getByRole('button', { name: BUTTON });
     expect(press).toHaveAttribute('aria-disabled', 'true');
@@ -368,9 +370,9 @@ describe('which shares work out their earnings by themselves', () => {
       .mockResolvedValue({ kind: 'ok', positions: [p2], chainNow: 6n, totalShares: 1 });
     const li = await shown(readers({ ledger, positions }, []), p1);
     expect(value(li, 'Fees earned')).toBe('none yet');
-    expect(value(li, 'Worth now')).toBe(`1 SOL and 100 ${SHORT}`);
+    expect(value(li, 'Worth now')).toBe(`1 SOL and 100 ${TICKER}`);
     fireEvent.click(screen.getByRole('button', { name: 'Read my positions again' }));
-    await waitFor(() => expect(value(li, 'Worth now')).toBe(`1.05 SOL and 100 ${SHORT}`));
+    await waitFor(() => expect(value(li, 'Worth now')).toBe(`1.05 SOL and 100 ${TICKER}`));
     // By hand: the position is now worth 1.05 + 1.05 = 2.1 SOL; a fee-free pool would have made it
     // 2 x sqrt(1 SOL x 100 tokens) at the new price, 2.0494 SOL. The difference, 0.0506 SOL, is the growth.
     const fees = value(li, 'Fees earned');
@@ -397,7 +399,7 @@ describe('which shares work out their earnings by themselves', () => {
     expect(ledger).toHaveBeenCalledTimes(3);
     fireEvent.click(screen.getByRole('button', { name: 'Read my positions again' }));
     // The first row reads again by itself for the shares it holds now; the second, unchanged, does not; the third offers its press again.
-    await waitFor(() => expect(value(ra, 'Put in')).toBe(`0.5 SOL and 50 ${SHORT}`));
+    await waitFor(() => expect(value(ra, 'Put in')).toBe(`0.5 SOL and 50 ${TICKER}`));
     expect(ledger).toHaveBeenCalledTimes(4);
     expect(ledger).toHaveBeenLastCalledWith({ lpAccount: a.lpAccount, lpMint: a.lpMint, owner: OWNER, lpAmount: half }, v);
     expect(state(rb)).toBe('ok');
@@ -412,7 +414,7 @@ describe('which shares work out their earnings by themselves', () => {
     const li = await rowOf(p);
     expect(within(li).queryByRole('button', { name: BUTTON })).toBeNull();
     expect(within(li).queryByTestId('lp-ledger')).toBeNull();
-    expect(value(li, 'Worth now')).toBe(`1 SOL and 100 ${SHORT}`);
+    expect(value(li, 'Worth now')).toBe(`1 SOL and 100 ${TICKER}`);
   });
 });
 
@@ -486,7 +488,7 @@ describe('the earnings block, answered', () => {
     // A week after the deposit by the chain's clock: a pace could be worked out, if there were a fee.
     const li = await shown(readers({ ledger }, [p], BigInt(AT_SEC + 7 * DAY)), p);
     const b = block(li);
-    expect(value(b, 'Put in')).toBe(`1 SOL and 100 ${SHORT}`);
+    expect(value(b, 'Put in')).toBe(`1 SOL and 100 ${TICKER}`);
     expect(note(b, 'Put in')).toBe(`In 1 deposit, since ${AT_TEXT}.`);
     expect(within(b).queryByText('Taken out')).toBeNull();
     expect(within(b).queryByText('Locked at opening')).toBeNull();
@@ -527,7 +529,7 @@ describe('the earnings block, answered', () => {
     expect(value(b, 'Versus just holding')).toBe('-0.003 SOL');
     expect(note(b, 'Versus just holding')).toBe(`${VERSUS} ${PRICE_DID_IT}`);
     expect(value(b, 'Price effect')).toBe('-0.005 SOL');
-    expect(value(b, 'Put in')).toBe(`1 SOL and 100 ${SHORT}`);
+    expect(value(b, 'Put in')).toBe(`1 SOL and 100 ${TICKER}`);
     expect(note(b, 'Put in')).toBe(`In 1 deposit, since ${AT_TEXT}. (not final yet)`);
     cleanup();
     // The same figures on a pool no trade has ever reached: the growth is not called fees, and no pace is drawn from it.
@@ -557,8 +559,8 @@ describe('the earnings block, answered', () => {
     }, 'B');
     const li = await shown(readers({ ledger: vi.fn(async () => read) }, [p]), p);
     const b = block(li);
-    expect(within(b).getByText(`0.000000001 shares arrived another way (sent to this account, or older than the transactions read): worth 0.01 SOL and 1 ${SHORT} now. They are part of Worth now and of no other figure here.`)).toBeInTheDocument();
-    expect(value(b, 'Taken out')).toBe(`0.1 SOL and 10 ${SHORT}`);
+    expect(within(b).getByText(`0.000000001 shares arrived another way (sent to this account, or older than the transactions read): worth 0.01 SOL and 1 ${TICKER} now. They are part of Worth now and of no other figure here.`)).toBeInTheDocument();
+    expect(value(b, 'Taken out')).toBe(`0.1 SOL and 10 ${TICKER}`);
     expect(note(b, 'Taken out')).toBe('In 1 withdrawal.');
     expect(within(b).queryByText('Locked at opening')).toBeNull();
     const fold = within(li).getByText('More about this share').closest('details')!;
@@ -578,7 +580,7 @@ describe('the earnings block, answered', () => {
     for (const l of ['Put in', 'Fees earned', 'Versus just holding', 'Price effect']) expect(within(b).queryByText(l)).toBeNull();
     expect(b.textContent).not.toMatch(/none yet/);
     expect(sentences(b)).toContain('From the 1 transaction on your shares in this pool since 2026-10-03 22:30 UTC.');
-    expect(value(b, 'Worth now')).toBe(`1 SOL and 100 ${SHORT}`);
+    expect(value(b, 'Worth now')).toBe(`1 SOL and 100 ${TICKER}`);
     expect(within(b).getByRole('button', { name: AGAIN })).toBeInTheDocument();
   });
 
@@ -636,7 +638,7 @@ describe('the earnings block, answered', () => {
     await within(b).findByText('Put in');
     expect(ledger).toHaveBeenLastCalledWith({ lpAccount: p.lpAccount, lpMint: p.lpMint, owner: OWNER, lpAmount: p.lpAmount }, v, { before: dep2.signature });
     // Both deposits: 0.4 + 0.6 SOL and 40 + 60 tokens, from the older one; the books balance (10 shares held), so nothing "arrived another way".
-    expect(value(b, 'Put in')).toBe(`1 SOL and 100 ${SHORT}`);
+    expect(value(b, 'Put in')).toBe(`1 SOL and 100 ${TICKER}`);
     expect(note(b, 'Put in')).toBe('In 2 deposits, since 2026-10-03 22:20 UTC.');
     expect(b).not.toHaveTextContent('arrived another way');
     expect(sentences(b)).toContain('From the 2 transactions on your shares in this pool since 2026-10-03 22:20 UTC.');
@@ -793,7 +795,7 @@ describe('the automatic read fires once, and an answer is shown only for its own
     await waitFor(() => expect(ledger).toHaveBeenCalledTimes(1));
     expect(state(li)).toBe('reading');
     fireEvent.click(screen.getByRole('button', { name: 'Read my positions again' }));
-    await waitFor(() => expect(value(li, 'Put in')).toBe(`0.5 SOL and 50 ${SHORT}`));
+    await waitFor(() => expect(value(li, 'Put in')).toBe(`0.5 SOL and 50 ${TICKER}`));
     expect(ledger).toHaveBeenCalledTimes(2);
     // Now the first question's answer lands, with the old shares' figures.
     await act(async () => {
@@ -801,7 +803,7 @@ describe('the automatic read fires once, and an answer is shown only for its own
     });
     await new Promise((r) => setTimeout(r, 30));
     expect(state(li)).toBe('ok');
-    expect(value(li, 'Put in')).toBe(`0.5 SOL and 50 ${SHORT}`);
+    expect(value(li, 'Put in')).toBe(`0.5 SOL and 50 ${TICKER}`);
     expect(within(li).queryByText(READING)).toBeNull();
   });
 });

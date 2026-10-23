@@ -110,10 +110,12 @@ function reachable(): Set<string> {
 describe('the nav strands no page', () => {
   it('reaches every routed page from the bar, the drawer or the footer, in a few taps', () => {
     const redirects = new Set(REDIRECT_ROUTES.map((r) => r.path));
+    // Not routed in this build at all (the route table's 'not-yet-routed'), so nothing to reach.
+    const notRouted = new Set(ROUTES.filter((r) => r.gate === 'not-yet-routed').map((r) => r.path));
     const seen = reachable();
     const offToday = new Set(NAV_SECTIONS.flatMap((s) => s.items).filter((i) => i.soon).map((i) => i.to));
     const stranded = ROUTES.map((r) => r.path).filter(
-      (p) => !p.includes(':') && p !== '/*' && !redirects.has(p) && !(p in URL_ONLY) && !offToday.has(p) && !seen.has(p),
+      (p) => !p.includes(':') && p !== '/*' && !redirects.has(p) && !notRouted.has(p) && !(p in URL_ONLY) && !offToday.has(p) && !seen.has(p),
     );
     expect(stranded, 'reachable only by typing the URL').toEqual([]);
   });
