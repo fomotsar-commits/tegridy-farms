@@ -270,6 +270,8 @@ const CONFIGS = {
       "slippageBps",
       "swapMode",
       "platformFeeBps",
+      // V2 lets the venue's fee be taken in SOL when the coin bought is Token-2022 (V1: 6014).
+      "instructionVersion",
       "restrictIntermediateTokens",
       "onlyDirectRoutes",
       "asLegacyTransaction",
