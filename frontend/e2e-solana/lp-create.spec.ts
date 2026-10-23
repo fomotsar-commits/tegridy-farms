@@ -30,7 +30,7 @@ import {
   actor, closeAll, connect, ensureConnected, openPools, openRemove, pendingNotes, poolCard, positionRow, press, pressable, reviewDeposit, reviewRows,
   shareRow, signConfirmed, signedSol, solExact, SOL, tok, units, withdrawPlan, openAdd, type Actor, type Prices,
 } from './fixtures/lpPage';
-import { ui, expectPressableAtSizes, tokensToInput } from './fixtures/ui';
+import { ui, expectNoWord, expectPressableAtSizes, guardText, tokensToInput } from './fixtures/ui';
 import { formatSol, parseDecimalToBaseUnits } from '../src/lib/launcher/solana/curve/format';
 import { initializeIx, withdrawIx } from '../src/lib/solana/cpswap/ix';
 import {
@@ -401,7 +401,7 @@ test.describe('group A (chromium and mobile-chrome)', () => {
     const signature = a.wallet.lastSigned().signature!;
     await expect(out).toContainText(signature);
     await expect(out).toContainText('It may still land. Opening a pool again now could open a second pool and pay the fee to open twice.');
-    await expect(out).not.toContainText(/fail/i);
+    await expectNoWord(out, /fail/i);
     // It did land: the chain holds the pool. Asked of the pool itself, not of the
     // signature. By now the opening is over a minute old, and under a full run's load the
     // local validator keeps only a few hundred slots of transaction history (chain.ts
@@ -413,7 +413,7 @@ test.describe('group A (chromium and mobile-chrome)', () => {
     await expect(pending).toBeVisible({ timeout: 60_000 });
     await expect(pending).toContainText(signature);
     await expect(pending).toContainText('opening a pool. Opening another pool stays off until this is checked.');
-    await expect(pending).not.toContainText(/fail/i);
+    await expectNoWord(pending, /fail/i);
     expect(await pendingNotes(p)).toContain(signature);
     await expect(createCard(p)).toHaveAttribute('data-create', 'held', { timeout: 60_000 });
     await expect(ui.lp.create.openButton(p)).toHaveCount(0);
@@ -433,7 +433,7 @@ test.describe('group A (chromium and mobile-chrome)', () => {
     await expect.poll(() => a.rpc.failedCount('getSignatureStatuses'), { timeout: 60_000 }).toBeGreaterThan(failedBefore);
     await expect(pending.getByRole('button', { name: 'Check again' })).toBeEnabled({ timeout: 60_000 });
     await expect(pending).toBeVisible();
-    await expect(pending).not.toContainText(/fail/i);
+    await expectNoWord(pending, /fail/i);
     expect(await pendingNotes(p)).toContain(signature);
     await expect(createCard(p)).toHaveAttribute('data-create', 'held');
 
@@ -1306,9 +1306,10 @@ test.describe('group B (chromium only)', () => {
     await expect(ui.review(p).getByTestId('lp-review-disclosure')).toContainText(MONEY);
     // No "yield" anywhere in the section, small print included: what a pool or a position
     // earned is said as a measure from the chain (the Risks sentence says so), never as a
-    // forecast. Whole words only: a random base58 address can spell "apr" or "apy".
+    // forecast. Whole words, read without the addresses (guardText): a random base58
+    // address can spell "apr" or "apy", or start with "yieLd".
     const section = ((await ui.lp.section(p).textContent()) ?? '').replace(/\s+/g, ' ');
-    expect(section).not.toMatch(/\bAPR\b|\bAPY\b|\byield/i);
+    expect(await guardText(ui.lp.section(p))).not.toMatch(/\bAPR\b|\bAPY\b|\byield/i);
     expect(section).toContain('What this page says a pool or a position earned is measured from the chain, and is never a forecast.');
     expect(section).not.toMatch(/earn fees on every trade/i);
     await press(p.getByRole('button', { name: 'Cancel', exact: true }), 'Cancel');

@@ -36,7 +36,7 @@ import {
 } from './fixtures/lpPage';
 // The market sums, worked out by hand (never the page's own): see fixtures/market.ts.
 import { gapCostOf, gapOf, lossAtMarketUp, priceOf, stubMid } from './fixtures/market';
-import { ui, expectPressableAtSizes } from './fixtures/ui';
+import { ui, expectNoWord, expectPressableAtSizes, guardText } from './fixtures/ui';
 import { formatSol, parseDecimalToBaseUnits } from '../src/lib/launcher/solana/curve/format';
 import { poolStatePda } from '../src/lib/launcher/solana/curve/program';
 import { withdrawIx } from '../src/lib/solana/cpswap/ix';
@@ -210,7 +210,7 @@ test.describe('group A (chromium and mobile-chrome)', () => {
     const signature = a.wallet.lastSigned().signature!;
     await expect(out).toContainText(signature);
     await expect(out).toContainText('Sent, not confirmed yet');
-    await expect(out).not.toContainText(/fail/i);
+    await expectNoWord(out, /fail/i);
     expect(a.rpc.failedCount('getSignatureStatuses')).toBeGreaterThan(0);
     // It did land: the chain holds the shares. Asked of the share account, not of the
     // signature. By now the deposit is over a minute old, and under a full run's load the
@@ -223,7 +223,7 @@ test.describe('group A (chromium and mobile-chrome)', () => {
     await expect(pending).toBeVisible({ timeout: 60_000 });
     await expect(pending).toContainText(signature);
     await expect(pending).toContainText('adding liquidity');
-    await expect(pending).not.toContainText(/fail/i);
+    await expectNoWord(pending, /fail/i);
     // At the top of the section: above the pool finder.
     const top = (l: Locator) => l.evaluate((el) => el.getBoundingClientRect().top + window.scrollY);
     expect(await top(pending)).toBeLessThan(await top(ui.lp.finder(p)));
@@ -980,8 +980,8 @@ test.describe('group B (chromium only)', () => {
     const tierText = (f: PoolFacts) =>
       // The pool's own creator-fee switch decides whether the tier's creator fee is in the cost.
       `${f.ammConfig.index}: traders pay ${tradeCostText(f.ammConfig, f.pool.enableCreatorFee)}; LPs keep ${feeSplit(f.ammConfig).lpKeepsPct.toFixed(3)}% of each trade`;
-    // Whole words only: a random base58 address in the section can spell "apr" or "apy"
-    // (DYbyM8apn7KA5g1ApYWR… failed it once).
+    // Whole words, small print included, read without the addresses (guardText): a random
+    // base58 address in the section can spell "apr" or "apy" (DYbyM8apn7KA5g1ApYWR… failed it once).
     const NO_YIELD = /\bAPR\b|\bAPY\b|yield of/i;
     const seen: string[] = [];
     for (const pool of [B.a1, B.b1]) {
@@ -989,12 +989,12 @@ test.describe('group B (chromium only)', () => {
       const { rows, f } = await reviewDeposit(a, panel, pool.address, 'sol', sol(0.05));
       expect(rows['Fee tier']).toBe(tierText(f));
       seen.push(rows['Fee tier']!);
-      expect((await ui.lp.section(p).innerText())).not.toMatch(NO_YIELD);
+      expect(await guardText(ui.lp.section(p))).not.toMatch(NO_YIELD);
       await press(p.getByRole('button', { name: 'Cancel', exact: true }), 'Cancel');
       await press(panel.getByRole('button', { name: 'Close', exact: true }), 'close the panel');
     }
     expect(seen[0]).not.toBe(seen[1]);
-    expect(await ui.lp.section(p).innerText()).not.toMatch(NO_YIELD);
+    expect(await guardText(ui.lp.section(p))).not.toMatch(NO_YIELD);
     expect(a.wallet.records).toEqual([]);
     expect(a.rpc.violations).toEqual([]);
     await a.ctx.close();
