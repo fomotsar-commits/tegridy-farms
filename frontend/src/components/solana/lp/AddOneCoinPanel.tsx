@@ -22,6 +22,7 @@ import { tokenTicker } from '../../../lib/solana/lp/identity';
 import type { TokenSafety } from '../../../lib/solana/lp/tokenSafety';
 import { NO_SITE_FEE_ROUTE_COPY, prepareJupiterSwap, type PreparedJupiterSwap } from '../../../lib/solana/swap/jupiterFeeRetry';
 import { OWN_ROUTE_COPY, freshDecision, ownPoolNowWins, prepareOwnPoolSwap, within } from '../../../lib/solana/swap/ownPoolRoute';
+import { whileJupiterBusy } from '../../../lib/solana/swap/jupiterBusy';
 import type { VenuePoolCandidate } from '../../../lib/solana/swap/venuePools';
 import { CHECK_KEEPS_FAILING, LOST_ANSWER_TITLE, LOST_NO_SIGNATURE, OWN_POOL_REVIEW_OFFER } from '../../../lib/solana/swap/walletCopy';
 import type { AggregatorSeen } from '../../../lib/launcher/solana/write/types';
@@ -51,7 +52,10 @@ export const SWAP_SOL_RESERVE = 10_000_000n;
 /** How long the press waits for our pool to be read again before Jupiter's transaction goes to the wallet. */
 const OWN_CHECK_MS = 4_000;
 
-const JUPITER = { getQuote, buildSwapTransaction, simulateSwap, swapCarriesPlatformFee };
+// The press's quote and build, each asked again while Jupiter refuses the call (jupiterBusy.ts).
+const pressQuote = whileJupiterBusy((p: Parameters<typeof getQuote>[0]) => getQuote(p));
+const pressBuild = whileJupiterBusy((p: Parameters<typeof buildSwapTransaction>[0]) => buildSwapTransaction(p));
+const JUPITER = { getQuote: pressQuote, buildSwapTransaction: pressBuild, simulateSwap, swapCarriesPlatformFee };
 const notBuilt = (message: string): Prepared => ({ ok: false, outcome: { status: 'not-sent', stage: 'build', message } });
 const shortSig = (sig: string) => `${sig.slice(0, 6)}…${sig.slice(-4)}`;
 const floorOf = (q: JupiterQuote): bigint => {
@@ -395,7 +399,7 @@ function OneCoinInner({
         aggregatorOut: async () => {
           let fresh: JupiterQuote;
           try {
-            fresh = await getQuote({ inputMint: p.inputMint, outputMint: p.outputMint, amount, slippageBps: Number(bps) });
+            fresh = await pressQuote({ inputMint: p.inputMint, outputMint: p.outputMint, amount, slippageBps: Number(bps) });
           } catch (e) {
             if (e instanceof NoRouteError) return null;
             throw e;
@@ -453,7 +457,7 @@ function OneCoinInner({
     const [rIn, rOut] = in0 ? [v.snapshot.reserve0, v.snapshot.reserve1] : [v.snapshot.reserve1, v.snapshot.reserve0];
     const own = venueSwap.ready && v.config && !v.vaultsFrozen ? ownPoolShare(v.snapshot, v.config, inputMint, total, read.now) : null;
     const noFee = noFeePairs.current.has(`${inputMint}|${outputMint}`) ? { noPlatformFee: true } : {};
-    const ask = (amount: bigint) => getQuote({ inputMint, outputMint, amount: amount.toString(), slippageBps: Number(slippageBps), ...noFee });
+    const ask = (amount: bigint) => pressQuote({ inputMint, outputMint, amount: amount.toString(), slippageBps: Number(slippageBps), ...noFee });
     const base = { view: v, paid, inputMint, outputMint, total, bps: slippageBps };
 
     if (force) {

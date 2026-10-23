@@ -7,6 +7,7 @@ const SOL = 'So11111111111111111111111111111111111111112';
 const h = vi.hoisted(() => ({
   send: vi.fn(),
   prepare: vi.fn(),
+  build: vi.fn(),
   confirm: vi.fn(),
   balance: 10_000_000_000,
   failQuoteFor: null as string | null,
@@ -30,6 +31,7 @@ vi.mock('@solana/web3.js', async (orig) => {
 vi.mock('../../lib/jupiter', async (orig) => ({
   ...(await orig<typeof import('../../lib/jupiter')>()),
   getUsdPrices: async () => ({ [SOL]: 100 }),
+  buildSwapTransaction: (...a: unknown[]) => h.build(...a),
   // Every coin quoted through the pool the list names; `failQuoteFor` refuses one coin's quote every time.
   getQuote: async (p: { outputMint: string }) => {
     if (p.outputMint === h.failQuoteFor) throw new Error('Quote unavailable (429)');
@@ -49,6 +51,7 @@ vi.mock('../../lib/heat/lastBuy', () => ({ setLastBuy: vi.fn() }));
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn(), warning: vi.fn(), info: vi.fn() } }));
 
 import { IslandBasketSolana } from './IslandBasketSolana';
+import { JupiterBusyError } from '../../lib/solana/swap/jupiterBusy';
 
 const ready = { kind: 'ready', quote: { outAmount: '5000000' }, swapTransaction: 'AAAA', siteFeeWaived: false };
 const pending = () => ({ hold: vi.fn(), release: vi.fn(), holdsNow: vi.fn(() => false) });
@@ -148,6 +151,20 @@ describe('IslandBasketSolana', () => {
     // $10 at $100 a SOL = 0.1 SOL, split five ways.
     expect(lamports).toBe(20_000_000n);
   });
+
+  it('a build Jupiter refuses once is asked again: every coin is bought', async () => {
+    let refused = 0;
+    h.build.mockImplementation(async () => {
+      if (refused++ === 0) throw new JupiterBusyError('Could not build swap (502)', 502);
+      return 'AAAA';
+    });
+    h.prepare.mockImplementation(async (d: { buildSwapTransaction: (p: unknown) => Promise<string> }) => ({ ...ready, swapTransaction: await d.buildSwapTransaction({}) }));
+    mount();
+    await openAndPrice();
+    fireEvent.click(screen.getByTestId('island-basket-buy'));
+    await waitFor(() => expect(screen.getAllByText('Bought')).toHaveLength(5), { timeout: 10_000 });
+    expect(h.build).toHaveBeenCalledTimes(6);
+  }, 20_000);
 
   it('a coin that was not sent goes on to the next, and stays buyable', async () => {
     h.prepare.mockImplementation(async (_d: unknown, a: { coin: { symbol: string } }) => (a.coin.symbol === 'BOBO' ? { kind: 'not-sent', why: 'Its price dropped beyond your slippage since the order was shown, so nothing was sent for it.' } : ready));
