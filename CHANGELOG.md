@@ -20,6 +20,7 @@ The site's Changelog tab shows both files.
 - With reduced motion on, the Tradermigos splash holds its art still, every piece in sight, with no sparks or flashes; the pieces had kept bouncing.
 - Opening a new pool on Ethereum, Base or Robinhood Chain: the form shows the market price from that network's Uniswap V2 pool, Match the market price fills the other amount at it, and a price you type off the market says how far off it is.
 - Base and Robinhood Chain: Liquidity lists the venue's own pools on that network, with what each holds and how its 0.3% fee is split; Add or Remove opens the form on that pool.
+- Solana pools: every coin shows its ticker. A coin that is not one of the island's shows the ticker it gives itself, with its whole address under it, on the All pools list, its pool card and Your positions. One that copies the ticker of one of ours, or of SOL, USDC or USDT, reads “fake”, as in “fake SOY”.
 
 ### 2026-10-21
 

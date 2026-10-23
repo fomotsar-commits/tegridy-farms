@@ -2,6 +2,7 @@ import type { SolanaRpc } from '../../launcher/solana/curve/rpc';
 import { IX_DEPOSIT, IX_INITIALIZE, IX_SWAP_BASE_INPUT, IX_SWAP_BASE_OUTPUT, IX_WITHDRAW } from '../cpswap/program';
 import { minuteText, quoteText, tokenText } from './format';
 import { tokenSymbol } from './identity';
+import type { TokenSafety } from './tokenSafety';
 import { detailOf, discriminatorIs, stepsNaming, transactionsOf, vaultMoves } from './ledger';
 import type { PoolView } from './poolFinder';
 import { formatWhen } from './poolHealth';
@@ -177,7 +178,7 @@ const plural = (n: number, one: string): string => `${n} ${n === 1 ? one : `${on
  * pays a fee. One transaction is never "All 1 transactions", and a partly read page names
  * how many it held, never the page size.
  */
-export function poolPastText(read: PoolPastRead, view: PoolView): string {
+export function poolPastText(read: PoolPastRead, view: PoolView, safety?: TokenSafety | null): string {
   if (read.kind === 'paused') return pausedText();
   if (read.kind === 'unread') return `This pool’s history could not be read (${read.detail}).`;
   if (read.kind === 'partial') return `${read.unreadCount} of the ${plural(read.count, 'transaction')} could not be read, so no totals are shown. Try again.`;
@@ -199,7 +200,7 @@ export function poolPastText(read: PoolPastRead, view: PoolView): string {
   ].filter((part) => part !== null);
   const sides = [
     read.volumeIn.coin > 0n ? quoteText(read.volumeIn.coin, view.quote) : null,
-    read.volumeIn.token > 0n ? tokenText(read.volumeIn.token, tokenDecimals, tokenSymbol(view.tokenMint)) : null,
+    read.volumeIn.token > 0n ? tokenText(read.volumeIn.token, tokenDecimals, tokenSymbol(view.tokenMint, safety)) : null,
   ].filter((side) => side !== null);
   const traded = sides.length ? ` Traded in: ${sides.join(' and ')}. ${POOL_PAST_FEE_LINE}` : '';
   const body = `${head}: ${counts.join(', ')}.${traded}`;

@@ -11,6 +11,7 @@ import { IX_DEPOSIT, IX_INITIALIZE, IX_WITHDRAW } from '../cpswap/program';
 import { lpWithdrawValue } from '../cpswap/read';
 import { minuteText } from './format';
 import { tokenSymbol } from './identity';
+import type { TokenSafety } from './tokenSafety';
 import { LOCKED_LP, LOCKED_SHARES_TEXT, isqrt } from './liquidityMath';
 import { paceText } from './pace';
 import type { PoolView } from './poolFinder';
@@ -330,11 +331,11 @@ export interface LedgerUnits {
 }
 
 /** How the ledger prints amounts: every unit, in the coin's and the token's own decimals. */
-export function ledgerUnits(view: PoolView): LedgerUnits {
+export function ledgerUnits(view: PoolView, safety?: TokenSafety | null): LedgerUnits {
   const q = view.quote;
   const p = view.snapshot.pool;
   const decimals = view.quoteIsToken0 ? p.mint1Decimals : p.mint0Decimals;
-  const symbol = tokenSymbol(view.tokenMint);
+  const symbol = tokenSymbol(view.tokenMint, safety);
   const coin = (raw: bigint): string => (q.native ? `${formatSol(raw, 9)} SOL` : `${formatTokenAmount(raw, q.decimals, q.decimals).text} ${q.symbol}`);
   const token = (raw: bigint): string => `${formatTokenAmount(raw, decimals, decimals).text} ${symbol}`;
   const signed = (x: bigint): string => `${x < 0n ? '-' : '+'}${coin(x < 0n ? -x : x)}`;

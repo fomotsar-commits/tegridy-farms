@@ -12,14 +12,13 @@ import {
   type PriorityLevel,
 } from '../../../lib/jupiter';
 import { decimalCommaToPoint, formatTokenAmount, parseDecimalToBaseUnits } from '../../../lib/launcher/solana/curve/format';
-import { displaySafe } from '../../../lib/launchMetadata/validate';
 import { holdReload } from '../../../lib/reloadHold';
 import { quoteOwnPool } from '../../../lib/solana/cpswap/read';
 import { feeReserveFor, isPlanProblem, solSetAside } from '../../../lib/solana/lp/liquidityMath';
 import { outsideShare, ownPoolShare, stepTwo, type Side, type StepTwo } from '../../../lib/solana/lp/oneCoin';
 import type { PoolView } from '../../../lib/solana/lp/poolFinder';
 import type { PoolHealth } from '../../../lib/solana/lp/poolHealth';
-import { quoteCoin } from '../../../lib/solana/lp/quotes';
+import { tokenTicker } from '../../../lib/solana/lp/identity';
 import type { TokenSafety } from '../../../lib/solana/lp/tokenSafety';
 import { NO_SITE_FEE_ROUTE_COPY, prepareJupiterSwap, type PreparedJupiterSwap } from '../../../lib/solana/swap/jupiterFeeRetry';
 import { OWN_ROUTE_COPY, freshDecision, ownPoolNowWins, prepareOwnPoolSwap, within } from '../../../lib/solana/swap/ownPoolRoute';
@@ -142,8 +141,8 @@ function OneCoinInner({
   const coin = view.quote;
   const decimals = tokenDecimals ?? (view.quoteIsToken0 ? pool.mint1Decimals : pool.mint0Decimals);
   const tokenProgram = view.quoteIsToken0 ? pool.token1Program : pool.token0Program;
-  const tokenName =
-    quoteCoin(view.tokenMint)?.symbol ?? (safety?.kind === 'read' && safety.verdict !== 'blocked' && safety.symbol ? displaySafe(safety.symbol, 12) : 'tokens');
+  // Its ticker as the pool's heading says it (identity.ts): a copy of a well-known one reads "fake USDC", never "USDC".
+  const tokenName = (safety?.kind !== 'read' || safety.verdict !== 'blocked' ? tokenTicker(view.tokenMint, safety) : null) ?? 'tokens';
   const signer = writes.signerState.kind === 'ready' ? writes.signerState.signer : null;
   const owner = signer?.publicKey ?? null;
   const ownerKey = owner?.toBase58() ?? null;

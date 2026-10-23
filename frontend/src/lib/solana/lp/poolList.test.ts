@@ -10,6 +10,8 @@ import { CLOCK, LAUNCH, PROGRAM, buildPool, clockAccount, fakeRpc, key, observat
 import { BAYLA_QUOTE, USDC_QUOTE, type QuoteCoin } from './quotes';
 import { decodeObservationState } from './ownPrice';
 import type { PoolView } from './poolFinder';
+import { BAYLA_MINT } from './tokenSafety';
+import { metadataPda } from '../../launcher/solana/write/metaplex';
 
 /** A fetch for `/api/pools?all=1` answering `pools`; `calls` collects each URL asked. */
 function allIndex(pools: string[], o: { status?: number; program?: string; truncated?: boolean; all?: unknown; calls?: string[] } = {}): typeof fetch {
@@ -67,7 +69,7 @@ describe('listPools', () => {
   it('an index that answered with no pools is an empty list, read without asking the chain', async () => {
     const calls: [string, unknown[]][] = [];
     const r = await listPools(fakeRpc({}, { calls }), opts(allIndex([])));
-    expect(r).toEqual({ kind: 'ok', list: { pools: [], unread: 0, truncated: false, chainNow: null } });
+    expect(r).toEqual({ kind: 'ok', list: { pools: [], unread: 0, truncated: false, chainNow: null, safety: new Map() } });
     expect(calls).toHaveLength(0);
   });
 
@@ -77,6 +79,32 @@ describe('listPools', () => {
     expect(read.kind === 'ok' && read.list.chainNow).toBe(1_234n);
     const noClock = await listPools(fakeRpc(b.accounts), opts(allIndex([b.address.toBase58()])));
     expect(noClock.kind === 'ok' && noClock.list.chainNow).toBeNull();
+  });
+
+  it('reads the check of every listed coin the site does not name itself, in one batch, for its ticker', async () => {
+    const coin = key();
+    const other = buildPool({ mint: coin, address: at(), quoteReserve: 2n * 10n ** 9n, tokenReserve: 10n ** 9n });
+    const ours = buildPool({ mint: new PublicKey(BAYLA_MINT), address: at(), quoteReserve: 9n * 10n ** 9n, tokenReserve: 10n ** 9n });
+    const calls: [string, unknown[]][] = [];
+    const r = await listPools(fakeRpc({ ...other.accounts, ...ours.accounts, [CLOCK]: clockAccount(7n) }, { calls }), opts(allIndex([other.address, ours.address].map(String))));
+    const mint = coin.toBase58();
+    // The last call asks for that coin and its name record, and nothing for BAYLA.
+    expect(calls.at(-1)).toEqual(['getMultipleAccounts', [[mint, metadataPda(coin).toBase58()], { encoding: 'base64' }]]);
+    expect(r.kind === 'ok' && [...r.list.safety.keys()]).toEqual([mint]);
+  });
+
+  it('a check that could not be read leaves the list standing', async () => {
+    const coin = key();
+    const b = buildPool({ mint: coin, address: at(), quoteReserve: 10n ** 9n, tokenReserve: 10n ** 9n });
+    const rpc = fakeRpc({ ...b.accounts, [CLOCK]: clockAccount(7n) });
+    // The pools and their vaults read; the call that asks for the coin itself fails.
+    const flaky: typeof rpc = async (method, params) => {
+      if (method === 'getMultipleAccounts' && (params as [string[]])[0].includes(coin.toBase58())) throw new Error('HTTP 429');
+      return rpc(method, params);
+    };
+    const r = await listPools(flaky, opts(allIndex([b.address.toBase58()])));
+    expect(r.kind === 'ok' && r.list.pools).toHaveLength(1);
+    expect(r.kind === 'ok' && r.list.safety.get(coin.toBase58())?.kind).toBe('unread');
   });
 
   it('a chain that did not answer is unread', async () => {

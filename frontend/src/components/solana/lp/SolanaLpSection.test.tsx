@@ -109,7 +109,7 @@ describe('the LP section', () => {
     const card = await screen.findByTestId('lp-pool');
     expect(card).toHaveAttribute('data-deposits', 'allowed');
     expect(card).toHaveAttribute('data-price', 'agrees');
-    expect(within(card).getAllByText('1 token = 0.01 SOL')).toHaveLength(2); // here and outside
+    expect(within(card).getAllByText('1 CORN = 0.01 SOL')).toHaveLength(2); // here and outside
     expect(screen.getByTestId('token-safety')).toHaveAttribute('data-verdict', 'ok');
     // The mint is always on screen, in full.
     expect(within(screen.getByTestId('token-safety')).getByText(M)).toBeInTheDocument();
@@ -772,7 +772,7 @@ describe('the pool card’s explorer links', () => {
       const expected: Array<[string, string, string]> = [
         ['Pool address', 'Transactions', `account/${v.address}`],
         ['Holds its SOL', 'Balance', `account/${solVault}`],
-        ['Holds its tokens', 'Balance', `account/${tokenVault}`],
+        ['Holds its CORN', 'Balance', `account/${tokenVault}`],
         ['Token', 'Token', `token/${M}`],
         ['Opened by', 'Wallet', `account/${p.poolCreator}`],
       ];
