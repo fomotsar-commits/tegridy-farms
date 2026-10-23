@@ -190,10 +190,16 @@ const CONFIGS = {
     // which never reaches Jupiter (it is not in allowedQuery). A quote with a platform
     // fee is a trade being built and is never shared. runProxy asks this for a 200 GET
     // only, so an error or a "no route" answer stays private, no-store.
-    edgeCache: (segments, query) =>
-      segments.join("/") === "swap/v1/quote" && query.priceCheck === "1" && query.platformFeeBps == null
-        ? "s-maxage=30, stale-while-revalidate=15"
-        : null,
+    // The island order's price read (price/v3 with the same marker: SOL's and the island
+    // coins' USD prices, one fixed list) is shared the same way, so the order opens with
+    // every coin's figure while all its visitors together spend about one call a half
+    // minute of the plan's one request a second (developers.jup.ag, free key, 2026-10-23).
+    edgeCache: (segments, query) => {
+      if (query.priceCheck !== "1") return null;
+      const path = segments.join("/");
+      const shareable = (path === "swap/v1/quote" && query.platformFeeBps == null) || path === "price/v3";
+      return shareable ? "s-maxage=30, stale-while-revalidate=15" : null;
+    },
     // swap/v1/{quote,swap} (trade) + tokens/v2/search (any-pair token search +
     // paste-a-mint resolve). Exact segment matches only — keep the surface narrow.
     matchPath: (segments) => {
@@ -270,6 +276,8 @@ const CONFIGS = {
       "slippageBps",
       "swapMode",
       "platformFeeBps",
+      // V2 lets the venue's fee be taken in SOL when the coin bought is Token-2022 (V1: 6014).
+      "instructionVersion",
       "restrictIntermediateTokens",
       "onlyDirectRoutes",
       "asLegacyTransaction",

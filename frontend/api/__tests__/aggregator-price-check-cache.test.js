@@ -1,10 +1,11 @@
 // The LP price check (src/lib/solana/lp/outsidePrice.ts) reads two Jupiter quotes per
 // pool through /api/jupiter, and every visitor used to make them afresh, so under load
 // (and on the key's 60 a minute) an unread check held Add buttons back. Its quotes, and
-// only its quotes, are now kept at Vercel's edge for 30 seconds. These pin: the price
-// check's 200 answer is shareable; the marker never reaches Jupiter; the swap page's
-// quotes, a fee-bearing quote, the swap build, every other path and every error stay
-// private, no-store; the fee settings still reach Jupiter unchanged.
+// the island order's price read, are now kept at Vercel's edge for 30 seconds. These
+// pin: the price check's and the price read's 200 answers are shareable; the marker never
+// reaches Jupiter; the swap page's quotes, a fee-bearing quote, the swap build, every
+// other path and every error stay private, no-store; the fee settings still reach
+// Jupiter unchanged.
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
@@ -115,6 +116,37 @@ describe("the price check's quote is kept at the edge for 30 seconds", () => {
   });
 });
 
+describe("the island order's price read is kept at the edge for 30 seconds", () => {
+  const IDS = "So11111111111111111111111111111111111111112,7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump";
+
+  it("a 200 answer with the marker is shareable, on the free host and the keyed one; without it, private", async () => {
+    for (const key of [undefined, "fake-jupiter-test-value"]) {
+      if (key) process.env.JUPITER_API_KEY = key;
+      globalThis.fetch = upstream({ status: 200, payload: { So11111111111111111111111111111111111111112: { usdPrice: 100 } } });
+      const marked = await run(jupiter(["price", "v3"], { ids: IDS, priceCheck: "1" }));
+      expect(marked.statusSpy).toHaveBeenCalledWith(200);
+      expect(cacheHeaders(marked.headerSpy)).toEqual([SHARED]);
+      const plain = await run(jupiter(["price", "v3"], { ids: IDS }));
+      expect(cacheHeaders(plain.headerSpy)).toEqual([PRIVATE]);
+    }
+  });
+
+  it("the marker never reaches Jupiter: the upstream call is the plain price read, to the byte", async () => {
+    globalThis.fetch = upstream({ status: 200, payload: {} });
+    await run(jupiter(["price", "v3"], { ids: IDS, priceCheck: "1" }));
+    await run(jupiter(["price", "v3"], { ids: IDS }));
+    const [marked, plain] = globalThis.fetch.mock.calls.map((c) => String(c[0]));
+    expect(marked).toBe(plain);
+    expect(new URL(marked).searchParams.has("priceCheck")).toBe(false);
+  });
+
+  it("a price read that failed is never kept", async () => {
+    globalThis.fetch = upstream({ status: 500, payload: {} });
+    const { headerSpy } = await run(jupiter(["price", "v3"], { ids: IDS, priceCheck: "1" }));
+    expect(cacheHeaders(headerSpy).every((v) => !/s-maxage/.test(v))).toBe(true);
+  });
+});
+
 describe("nothing else is ever kept at the edge", () => {
   it("the swap page's quote (no marker), with or without the 0.5% fee, stays private", async () => {
     for (const query of [SWAP_QUOTE, { ...SWAP_QUOTE, platformFeeBps: "50" }]) {
@@ -151,7 +183,6 @@ describe("nothing else is ever kept at the edge", () => {
 
   it("another Jupiter path carrying the marker is not shared", async () => {
     for (const [path, query] of [
-      [["price", "v3"], { ids: "So11111111111111111111111111111111111111112", priceCheck: "1" }],
       [["tokens", "v2", "search"], { query: "bayla", priceCheck: "1" }],
       [["ultra", "v1", "shield"], { mints: "So11111111111111111111111111111111111111112", priceCheck: "1" }],
     ]) {

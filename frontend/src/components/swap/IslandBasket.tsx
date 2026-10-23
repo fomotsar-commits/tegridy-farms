@@ -35,6 +35,8 @@ export interface BasketRow {
   venue: string | null;
   /** What it is quoted to pay, already formatted ("≈ 1.2M"). Null while quoting. */
   pays: string | null;
+  /** `pays` is from the coin's market price while its quote is on its way: drawn dimmer. */
+  estimate?: boolean;
   status?: { tone: RowTone; text: string };
 }
 
@@ -226,7 +228,7 @@ export function IslandBasketDialog(p: {
                 <span className="mt-1 block truncate font-mono text-[10px] tracking-[0.04em] text-[#f5e4b8]/60">{r.tag ? ` ${r.tag}` : ''}{` · ${r.venue ?? '…'}`}</span>
                 {r.status && <span className={`mt-0.5 block text-[11px] leading-snug ${TONE[r.status.tone]}`}>{r.status.text}</span>}
               </span>
-              <span className="shrink-0 pr-1 text-right font-mono text-[13px] tabular-nums">{r.pays ?? '…'}</span>
+              <span className={`shrink-0 pr-1 text-right font-mono text-[13px] tabular-nums${r.estimate ? ' text-[#f5e4b8]/55' : ''}`}>{r.pays ?? '…'}</span>
             </li>
           ))}
         </ul>

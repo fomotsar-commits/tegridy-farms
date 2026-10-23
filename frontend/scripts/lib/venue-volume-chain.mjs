@@ -136,13 +136,17 @@ export function poolSwap(tx, pool) {
 const EVENT_TAG = "e445a52e51cb9a1d"; // Anchor's self-CPI event instruction
 const SWAP_EVENT = "40c6cde8260871e2";
 const FEE_EVENT = "494f4e7fb8d50ddc";
+// Jupiter's V2 instructions emit one SwapsEvent instead: a u32 hop count, then per hop the
+// in mint, in amount, out mint, out amount and AMM (112 bytes), and no FeeEvent.
+const SWAPS_EVENT = "982f4eebc0606e6a";
+const SWAPS_HOP = 112;
 
 /**
  * A Jupiter swap that paid our fee into `feeAccount`, read from Jupiter's own events:
- * FeeEvent says where the fee went, the SwapEvents give each hop. The swap's SOL or
- * USDC leg is its net amount across hops; a fee taken from the input is added back, so
- * the leg is what the trader put in or got out before our fee. Returns null when the
- * transaction paid no fee into `feeAccount`; throws when it did but has no SwapEvent.
+ * FeeEvent (V1) or the fee account's own balance change (V2) says what our fee was; the
+ * SwapEvents or the SwapsEvent give each hop. The leg is the swap's net SOL or USDC across
+ * hops, with a fee taken from the input added back: what the trader put in or got out
+ * before our fee. Null when no fee reached `feeAccount`; throws when one did with no hops.
  */
 export function jupiterSwap(tx, feeAccount) {
   if (tx.meta.err) return null;
@@ -152,6 +156,12 @@ export function jupiterSwap(tx, feeAccount) {
   let fee = null;
   const net = {};
   let hops = 0;
+  let v2 = false;
+  const hop = (inMint, inAmount, outMint, outAmount) => {
+    net[inMint] = (net[inMint] ?? 0n) - inAmount;
+    net[outMint] = (net[outMint] ?? 0n) + outAmount;
+    hops++;
+  };
   for (const group of tx.meta.innerInstructions ?? []) {
     for (const ix of group.instructions) {
       if (ix.programId !== JUPITER_PROGRAM || typeof ix.data !== "string") continue;
@@ -163,13 +173,25 @@ export function jupiterSwap(tx, feeAccount) {
           fee = { mint: base58(d.subarray(48, 80)), amount: d.readBigUInt64LE(80) };
         }
       } else if (kind === SWAP_EVENT && d.length >= 128) {
-        const inMint = base58(d.subarray(48, 80));
-        const outMint = base58(d.subarray(88, 120));
-        net[inMint] = (net[inMint] ?? 0n) - d.readBigUInt64LE(80);
-        net[outMint] = (net[outMint] ?? 0n) + d.readBigUInt64LE(120);
-        hops++;
+        hop(base58(d.subarray(48, 80)), d.readBigUInt64LE(80), base58(d.subarray(88, 120)), d.readBigUInt64LE(120));
+      } else if (kind === SWAPS_EVENT && d.length >= 20) {
+        const count = d.readUInt32LE(16);
+        if (d.length < 20 + count * SWAPS_HOP) {
+          throw new Error(`a SwapsEvent shorter than its ${count} hops: ${tx.transaction.signatures?.[0] ?? "?"}`);
+        }
+        for (let h = 0; h < count; h++) {
+          const o = 20 + h * SWAPS_HOP;
+          hop(base58(d.subarray(o, o + 32)), d.readBigUInt64LE(o + 32), base58(d.subarray(o + 40, o + 72)), d.readBigUInt64LE(o + 72));
+        }
+        v2 = true;
       }
     }
+  }
+  if (!fee && v2) {
+    const i = keys.indexOf(feeAccount);
+    const paid = i < 0 ? 0n : tokenDelta(tx, i);
+    const mint = (tx.meta.postTokenBalances ?? []).find((b) => b.accountIndex === i)?.mint;
+    if (paid > 0n && mint) fee = { mint, amount: paid };
   }
   if (!fee) return null;
   if (hops === 0) throw new Error(`a Jupiter fee with no SwapEvent (new event shape?): ${tx.transaction.signatures?.[0] ?? "?"}`);

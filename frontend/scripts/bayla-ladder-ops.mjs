@@ -116,7 +116,43 @@ const REWARD_VAULT_SEED = Buffer.from('rvault');
 /** math.rs — the ladder's own bounds. Quoted so a mistake is refused locally. */
 const MIN_LOCK_SECS = 7 * 86_400;
 const MAX_LOCK_SECS = 4 * 365 * 86_400;
-const REWARDS_DURATION_SECS = 90 * 86_400;
+/**
+ * THIS SOURCE's emission window: four years, equal to MAX_LOCK_SECS. The parity test pins it
+ * to math.rs. It is NOT the window a reload is sized with: the program on chain may be
+ * another build, so `notify` sizes with the LIVE build's window (LADDER_BUILDS, below).
+ */
+const REWARDS_DURATION_SECS = 4 * 365 * 86_400;
+/** A window in the words an operator reads, derived from its seconds and never typed. */
+const windowLabel = (secs) => (secs % (365 * 86_400) === 0 ? `${secs / (365 * 86_400)} years` : `${secs / 86_400} days`);
+
+/** The upgradeable loader. A program's bytes live in its program data account, a PDA of it. */
+const BPF_LOADER_UPGRADEABLE = new PublicKey('BPFLoaderUpgradeab1e11111111111111111111111');
+/** The loader's ProgramData header: u32 tag 3, u64 slot, Option<Pubkey> upgrade authority. */
+const PROGRAMDATA_HEADER = 45;
+/**
+ * The ladder builds a reload may be sized for. A build is live when the first `len` bytes
+ * after the header hash to `sha256` and every byte after them is zero. Anything else is
+ * refused. A placeholder (`sha256` and `len` both null) never matches: the four-year build
+ * is pinned only after CI builds it and its hash is checked against that build.
+ */
+const LADDER_BUILDS = Object.freeze([
+  Object.freeze({
+    name: 'bayla-ladder-mainnet (50065ef0), the 90-day window',
+    sha256: 'b21e1277e104817886a31d6f5b16ba2a35fa6732558cbd6d227e4fb8e21bb0a1',
+    len: 515_352,
+    windowSecs: 90 * 86_400,
+  }),
+  // The four-year build of this source, built 2026-10-19 with CI's toolchain (solana 2.3.0,
+  // anchor 0.32.1), which rebuilt the deployed tag byte for byte as b21e1277. It differs from
+  // that build in 30 bytes: the window at four sites and the line numbers of panic messages.
+  // solana-deploy-artifact.yml on this commit must print the same sha256 before the upgrade.
+  Object.freeze({
+    name: 'the four-year window (e0fd775d)',
+    sha256: 'e0fd775d59b2eed1d356fc341b1c0acdcf6254d3928e24cc46308fbc5654a6bd',
+    len: 515_352,
+    windowSecs: 4 * 365 * 86_400,
+  }),
+]);
 /**
  * math.rs's penalty schedule constants, mirrored exactly (the test reads the first two back
  * out of math.rs). veYFI's schedule: `penaltyFor` below, used by BOTH early doors.
@@ -400,6 +436,64 @@ function decodeFunderAta(info, p) {
   return holder.equals(p.authority) ? t : { ok: false, reason: `held by ${holder.toBase58()}, not the pool authority` };
 }
 
+// ── which ladder build is LIVE, and so which reward window ───────────────────
+
+/** The program data account of an upgradeable program: the PDA of [program id] under the loader. */
+const programDataAddress = (programId) => PublicKey.findProgramAddressSync([programId.toBuffer()], BPF_LOADER_UPGRADEABLE)[0];
+
+/** The program's bytes after the loader header, or a reason. Nothing is stripped. */
+function decodeProgramData(info) {
+  if (!info) return { ok: false, reason: 'missing: no account at that address' };
+  if (!info.owner?.equals?.(BPF_LOADER_UPGRADEABLE)) {
+    return { ok: false, reason: `owned by ${info.owner?.toBase58?.() ?? String(info.owner)}, not the upgradeable loader` };
+  }
+  const data = info.data;
+  if (!data || data.length < PROGRAMDATA_HEADER) return { ok: false, reason: `bad-length ${data?.length} < ${PROGRAMDATA_HEADER}` };
+  const tag = new DataView(data.buffer, data.byteOffset, data.byteLength).getUint32(0, true);
+  if (tag !== 3) return { ok: false, reason: `loader account tag ${tag}, not 3 (ProgramData)` };
+  return { ok: true, value: data.subarray(PROGRAMDATA_HEADER) };
+}
+
+const isPlaceholder = (b) => b.sha256 === null && b.len === null;
+const isPinned = (b) => typeof b.sha256 === 'string' && /^[0-9a-f]{64}$/.test(b.sha256) &&
+  Number.isSafeInteger(b.len) && b.len > 0 && Number.isSafeInteger(b.windowSecs) && b.windowSecs > 0;
+
+/**
+ * The pinned build `body` holds, as `{ ok, build | reason }`. Refused: a table entry that is
+ * neither pinned nor a placeholder, no match, or more than one. A placeholder is skipped and
+ * named in the refusal. Never a fallback to REWARDS_DURATION_SECS.
+ */
+function whichLadderBuild(body, builds = LADDER_BUILDS) {
+  const bad = builds.find((b) => !isPinned(b) && !isPlaceholder(b));
+  if (bad) return { ok: false, reason: `the build table entry "${bad.name}" is half-pinned or malformed: refusing every build until it is fixed` };
+  const matches = builds.filter((b) => isPinned(b) && body.length >= b.len && body.subarray(b.len).every((x) => x === 0) &&
+    createHash('sha256').update(body.subarray(0, b.len)).digest('hex') === b.sha256);
+  if (matches.length === 1) return { ok: true, build: matches[0] };
+  if (matches.length > 1) return { ok: false, reason: `the live bytes match ${matches.length} pinned builds; the table is ambiguous` };
+  const unpinned = builds.filter(isPlaceholder).map((b) => `"${b.name}"`);
+  return {
+    ok: false,
+    reason: `the live program is not a build this CLI knows: its ${body.length} bytes match no pinned build ` +
+      `(sha256 of all of them ${createHash('sha256').update(body).digest('hex')})` +
+      (unpinned.length ? `. Not pinned yet: ${unpinned.join(', ')}. If it is that build, pin its sha256 and length from the CI build first` : ''),
+  };
+}
+
+/** The live build from its program data account, as `{ ok, build | reason }`. Unread is refused. */
+function liveLadderBuild(info, builds = LADDER_BUILDS) {
+  const pd = decodeProgramData(info);
+  if (!pd.ok) return { ok: false, reason: `the ladder program's data account could not be read (${pd.reason})` };
+  return whichLadderBuild(pd.value, builds);
+}
+
+/** The window a reload is sized with: the LIVE build's, a positive whole number of seconds, or a throw. */
+function windowOf(windowSecs) {
+  if (!Number.isSafeInteger(windowSecs) || windowSecs <= 0) {
+    throw new TypeError(`the reward window must be the LIVE build's windowSecs (a positive integer), got ${windowSecs}`);
+  }
+  return BigInt(windowSecs);
+}
+
 // ── the reward engine, replayed off-chain (PURE, BigInt) ─────────────────────
 //
 // `rewards_emitted` is only BANKED when an instruction checkpoints the pool, so the
@@ -471,9 +565,9 @@ function checkpointReplay(p, now) {
   };
 }
 
-/** math.rs `new_reward_rate`: fresh after the window, the unspent tail folded in during it. */
-function newRewardRate(amount, now, periodFinish, oldRate) {
-  const dur = BigInt(REWARDS_DURATION_SECS);
+/** math.rs `new_reward_rate` over the LIVE build's window: fresh after it, the unspent tail folded in during it. */
+function newRewardRate(amount, now, periodFinish, oldRate, windowSecs) {
+  const dur = windowOf(windowSecs);
   if (now >= periodFinish) return amount / dur;
   return satAdd(amount, satMul(periodFinish - now, oldRate)) / dur;
 }
@@ -698,10 +792,13 @@ function fromBudgetMax({ pool, now, rewardVaultRaw, amount = 0n, margin = budget
  *   notes     printed only
  */
 function notifyPreview({ pool, now, rewardVaultRaw, amount, fromBudget, funder, allowEmptyPool = false,
-  slackSecs = LANDING_SLACK_SECS }) {
+  slackSecs = LANDING_SLACK_SECS, windowSecs }) {
   chainTime(now);
   const d = pool.decimals;
-  const DUR = BigInt(REWARDS_DURATION_SECS);
+  // The LIVE build's window, required: there is no default, so a caller cannot size a
+  // reload by this source's constant without saying so.
+  const DUR = windowOf(windowSecs);
+  const label = windowLabel(windowSecs);
   const problems = [];
   const risks = [];
   const notes = [];
@@ -738,11 +835,11 @@ function notifyPreview({ pool, now, rewardVaultRaw, amount, fromBudget, funder, 
   if (outstanding > vaultPost) {
     program(6020, `the pool owes ${fmt(outstanding, d)} at chain now but the vault would hold ${fmt(vaultPost, d)}`);
   }
-  const newRate = newRewardRate(scheduled > U64_MAX ? U64_MAX : scheduled, now, pf, oldRate);
+  const newRate = newRewardRate(scheduled > U64_MAX ? U64_MAX : scheduled, now, pf, oldRate, windowSecs);
   const budget = fundable(vaultPost, c.rewardsEmitted, pool.rewardsPaid);
   const ceiling = budget / DUR;
   if (newRate > ceiling) {
-    program(6014, `rate ${fmt(newRate, d)}/s exceeds what the vault can fund, ${fmt(ceiling, d)}/s (budget ${fmt(budget, d)} over 90 days)`);
+    program(6014, `rate ${fmt(newRate, d)}/s exceeds what the vault can fund, ${fmt(ceiling, d)}/s (budget ${fmt(budget, d)} over ${label})`);
   }
   if (newRate === 0n) {
     program(6024, `the new rate floors to ZERO per second — the window would emit nothing`);
@@ -796,7 +893,7 @@ function notifyPreview({ pool, now, rewardVaultRaw, amount, fromBudget, funder, 
   if (pool.totalWeighted < floor) {
     const text = `total_weighted ${pool.totalWeighted} is below the floor ${floor}${pool.totalWeighted === 0n ? ' (nobody is staked)' : ''}: ` +
       `every second until the first stake is BURNED, not emitted`;
-    const cost = 'Funding before anyone stakes loses window TIME, not tokens: the 90 days start now and ' +
+    const cost = `Funding before anyone stakes loses window TIME, not tokens: the ${label} start now and ` +
       'the burned seconds never come back, but their tokens stay in the reward vault and remain schedulable (--from-budget)';
     if (allowEmptyPool) notes.push(`${text}. Proceeding (--allow-empty-pool). ${cost}.`);
     else problems.push({ code: null, text: `${text}. ${cost}. Pass --allow-empty-pool to fund an empty pool knowingly.` });
@@ -805,7 +902,7 @@ function notifyPreview({ pool, now, rewardVaultRaw, amount, fromBudget, funder, 
   return {
     problems, risks, notes, checkpoint: c, midWindow, oldRate, newRate, remaining, leftover, scheduled,
     vaultPost, outstanding, budget, ceiling, minScheduled, minScheduledAtSlack, floor, drift,
-    newPeriodFinish: now + DUR,
+    newPeriodFinish: now + DUR, windowSecs,
     // basis points of the old rate; null when there is no live window to compare against
     pctChangeBps: midWindow && oldRate > 0n ? ((newRate - oldRate) * 10_000n) / oldRate : null,
   };
@@ -832,7 +929,7 @@ function notifyReport(pv, pool, { amount, fromBudget, now, slot }) {
   if (pv.midWindow) {
     out.push(`  unemitted tail ${fmt(pv.leftover, d)}  (${pv.remaining}s left x current rate, folded into the new window)`);
   }
-  out.push(`  new finish     ${iso(pv.newPeriodFinish)}  (chain now + 90 days; the program uses its landing time)`);
+  out.push(`  new finish     ${iso(pv.newPeriodFinish)}  (chain now + ${windowLabel(pv.windowSecs)}; the program uses its landing time)`);
   out.push(`  owed (LIVE)    ${fmt(pv.outstanding, d)}  (emitted to chain now, minus paid; reserved first)`);
   out.push(`  vault after    ${fmt(pv.vaultPost, d)}`);
   out.push(`  fundable       ${fmt(pv.budget, d)}  (ceiling ${fmt(pv.ceiling, d)} / s)`);
@@ -1458,7 +1555,7 @@ function solvencyVerdicts(p, now, { stakeVault: sv, rewardVault: rv } = {}) {
  * test can drive the command itself: above all, that `--preview` never asks for a keypair
  * and never reaches anything that builds, simulates or sends. Returns the exit code.
  */
-async function notifyCommand(args, { conn, programId, broadcast, signer, log = console.log }) {
+async function notifyCommand(args, { conn, programId, broadcast, signer, log = console.log, builds = LADDER_BUILDS }) {
   const { preview, needsKeypair } = notifyMode(args);
   // --preview reads NO keypair. Once the pool authority is a Squads multisig nobody holds
   // it as a file, and the rate guard (6028) makes previewing a reload essential.
@@ -1466,31 +1563,43 @@ async function notifyCommand(args, { conn, programId, broadcast, signer, log = c
   const poolKey = new PublicKey(need(args, 'pool'));
   // The funder ATA is derived from the pool's mint, authority and token program, so the
   // pool is read once to ADDRESS it. Every figure used below then comes from ONE same-slot
-  // read of the pool, the Clock, both vaults and that ATA. The preview is meaningless
-  // against a balance nobody read, so an unreadable vault throws.
+  // read of the pool, the Clock, both vaults, that ATA and the program's own bytes. An
+  // unreadable vault or program throws: nothing is sized against what nobody read.
   const addressed = await loadPool(conn, programId, poolKey);
   const funderKey = ataFor(addressed.mint, addressed.authority, addressed.tokenProgram);
-  const snap = await loadSnapshot(conn, programId, poolKey, { requireVaults: true, extra: [funderKey] });
+  const programDataKey = programDataAddress(programId);
+  const snap = await loadSnapshot(conn, programId, poolKey, { requireVaults: true, extra: [funderKey, programDataKey] });
   const p = snap.pool;
   if (!ataFor(p.mint, p.authority, p.tokenProgram).equals(funderKey)) {
     throw new Error('the pool authority changed between addressing its ATA and the snapshot — re-run');
   }
+  // The window is the LIVE build's: a 4-year reload against the 90-day program pays 16.2x too fast.
+  const live = liveLadderBuild(snap.extra[1], builds);
+  if (!live.ok) {
+    throw new Error(`notify refused before anything was sized: ${live.reason} (program data ${programDataKey.toBase58()}). ` +
+      'The reward window depends on which build is live, so no reload is sized without knowing it.');
+  }
+  const windowSecs = live.build.windowSecs;
   if (needsKeypair) {
     const notMine = authorityProblem(p, authority.publicKey);
     if (notMine) throw new Error(notMine);
   }
   const { amount, fromBudget, max } = resolveNotifyAmounts(args, snap);
   // The program's own order of checks, replayed at chain now: the rate is the
-  // mid-window fold-in (not scheduled / 90 days), and nothing is sent that it would refuse.
+  // mid-window fold-in (not scheduled / the window), and nothing is sent that it would refuse.
   const pv = notifyPreview({
     pool: p, now: snap.now, rewardVaultRaw: snap.rewardVault.value.amount, amount, fromBudget,
     funder: decodeFunderAta(snap.extra[0], p),
     allowEmptyPool: args.allowEmptyPool === true,
+    windowSecs,
   });
-  log(`\nnotify-reward over ${REWARDS_DURATION_SECS / 86400} days${max ? '  (--from-budget max)' : ''}${preview ? '  (--preview)' : ''}`);
+  log(`\nnotify-reward over ${windowLabel(windowSecs)}${max ? '  (--from-budget max)' : ''}${preview ? '  (--preview)' : ''}`);
+  log(`  live build     ${live.build.name}  (sha256 ${live.build.sha256.slice(0, 16)}..., read in the snapshot's slot)`);
   for (const line of notifyReport(pv, p, { amount, fromBudget, now: snap.now, slot: snap.slot })) log(line);
   if (preview) {
     for (const line of notifyPreviewLines(pv, p, { fromBudget })) log(line);
+    log(`  sized for the build live at slot ${snap.slot}. If the program is upgraded before this executes, ` +
+      'preview again: another build can have another window.');
     return pv.problems.length ? 1 : 0;
   }
   if (pv.problems.length) {
@@ -1514,6 +1623,9 @@ const USAGE = `bayla-ladder ops
   init-pool  --mint <addr> --nonce <n> --min-stake <t> --deposit-cap <t> --max-wallet <t>
   notify     --pool <addr> --amount <t> [--from-budget <t>|max] [--allow-empty-pool] [--preview]
                                              # mid-window the rate may not fall; the preview prints the minimum
+                                             # the window is the LIVE build's, read from the program's own
+                                             #   bytes; an unknown or unread build is refused (this source
+                                             #   is the ${windowLabel(REWARDS_DURATION_SECS)} build)
                                              # --preview: NO --keypair, nothing built/simulated/sent; prints the
                                              #   pool authority and the minimum --amount (for a Squads authority).
                                              #   Exits 1 on a refusal it models. NOT every refusal: the funder
@@ -1940,7 +2052,7 @@ export {
   acceptAuthorityProblem, declareDegradedProblem, confirmPermanentProblem,
   toRaw, fmt, parseArgs, intArg, MAX_EARLY_EXIT_PENALTY_BPS, BPS,
   POOL_SEED, POSITION_SEED, USER_SEED, STAKE_VAULT_SEED, REWARD_VAULT_SEED,
-  MIN_LOCK_SECS, MAX_LOCK_SECS, REWARDS_DURATION_SECS,
+  MIN_LOCK_SECS, MAX_LOCK_SECS, REWARDS_DURATION_SECS, windowLabel,
 };
 
 // Chain time, the off-chain replay of the reward engine, and the previews built on them.
@@ -1962,6 +2074,12 @@ export {
 export {
   PENALTY_SCALE, MAX_PENALTY_RATIO, MAX_PENALTY_PCT, CAP_YEARS, PENALTY_SCHEDULE,
   fmtPct, fmtDuration, positionLine, USAGE,
+};
+
+// Which build is live, and so which window a reload is sized with.
+export {
+  BPF_LOADER_UPGRADEABLE, PROGRAMDATA_HEADER, LADDER_BUILDS,
+  programDataAddress, decodeProgramData, whichLadderBuild, liveLadderBuild,
 };
 
 // The header every run prints. Exported because it is the surface that leaked a live
