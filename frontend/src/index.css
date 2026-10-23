@@ -820,6 +820,20 @@ input, textarea, select {
    `fixed inset-0`, not `absolute inset-0`, and is intentionally
    unaffected by the rule above. */
 
+/* ─── The editorial tape (IslandBasket.tsx stub, IslandDashboard.tsx): two copies of one run
+   slide left by a copy's width, so the loop never shows a seam. The reduced-motion rule above
+   freezes it, on a copy. ─── */
+@keyframes editorial-tape {
+  from { transform: translateX(0); }
+  to { transform: translateX(-50%); }
+}
+.editorial-tape {
+  display: inline-flex;
+  width: max-content;
+  animation: editorial-tape var(--tape-s, 22s) linear infinite;
+  will-change: transform;
+}
+
 /* ─── Print stylesheet ─── */
 @media print {
   body { background: white; color: black; text-shadow: none; }

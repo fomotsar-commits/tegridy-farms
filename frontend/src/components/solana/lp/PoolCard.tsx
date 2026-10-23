@@ -2,7 +2,7 @@ import { useEffect, useId, useRef, useState, type ReactNode, type RefObject } fr
 import { isCreatedPool, type PoolEntry, type PoolView } from '../../../lib/solana/lp/poolFinder';
 import { REFERENCE_NAME, formatWhen, vaultFreezer, type PoolHealth, type PriceReference, type WithdrawalsState } from '../../../lib/solana/lp/poolHealth';
 import { feeRateText, quoteText, tokenText, tradeCostText, turnedDiff } from '../../../lib/solana/lp/format';
-import { pairLabel, registryToken } from '../../../lib/solana/lp/identity';
+import { pairLabel, tokenTicker } from '../../../lib/solana/lp/identity';
 import type { QuoteCoin } from '../../../lib/solana/lp/quotes';
 import { noPriceClause } from '../../../lib/solana/lp/poolHealth';
 import { TOO_NEW_WHY } from '../../../lib/solana/lp/ownPrice';
@@ -43,11 +43,11 @@ const ORIGIN_LABEL: Record<PoolView['origin'], string> = {
 };
 
 /**
- * The token in an amount or a price: the site's registry symbol for a listed mint ("BAYLA"),
- * else the plain word. Never the token's own metadata, which can copy another token's name (identity.ts).
+ * The token in an amount or a price: its ticker as the heading names it ("BAYLA", or "fake
+ * BAYLA" for a copy: identity.ts), else the plain word.
  */
-const tokenUnits = (mint: string): { one: string; many: string } => {
-  const symbol = registryToken(mint)?.symbol;
+const tokenUnits = (mint: string, safety: TokenSafety | null): { one: string; many: string } => {
+  const symbol = tokenTicker(mint, safety);
   return symbol ? { one: symbol, many: symbol } : { one: 'token', many: 'tokens' };
 };
 
@@ -261,7 +261,7 @@ export function PoolCard({
   view: PoolView;
   health: PoolHealth;
   tokenDecimals: number | null;
-  /** The token's check, for the Add panel's warnings and its "calls itself" row. */
+  /** The token's check, for the heading's ticker, the Add panel's warnings and its "calls itself" row. */
   safety?: TokenSafety | null;
   /** The chain's clock as read with the pools: the pace is measured to it, never to the device's. */
   chainNow?: bigint | null;
@@ -299,7 +299,7 @@ export function PoolCard({
   const depositsHead = depositHeading(health.deposits);
   // What its shares have earned, from what the finder already read: no call of its own.
   const earned = poolEarned(view, chainNow);
-  const unit = tokenUnits(view.tokenMint);
+  const unit = tokenUnits(view.tokenMint, safety);
   // The explorer link comes with the write code (lpWriteApi.ts); until it loads there is none.
   const explorer = explorerOf(writes);
   // The wallet a creator fee is paid to stays in view whenever this pool charges one.
@@ -336,7 +336,7 @@ export function PoolCard({
           <Notice>
             LPs’ share of fees is not paid out separately: it stays in the pool, so each pool share is worth a little more after every trade.
           </Notice>
-          {readers?.poolPast && <PoolPastBlock view={view} readers={readers} />}
+          {readers?.poolPast && <PoolPastBlock view={view} safety={safety} readers={readers} />}
         </Part>
 
         <Part title="What each trade pays">
@@ -385,9 +385,9 @@ export function PoolCard({
       data-add={offer}
     >
       <CardArt pageId="solana-lp" idx={7} />
-      {/* Named as a position names its pool (identity.ts): the registry's symbol, the pairing coin, the tier. */}
+      {/* Named as a position names its pool (identity.ts): the coin's ticker, the pairing coin, the tier. */}
       <h3 ref={headingRef} tabIndex={-1} aria-describedby={why ? whyId : undefined} className="text-white font-semibold text-[15px] mb-1 outline-none [overflow-wrap:anywhere]" style={SHADOW}>
-        {pairLabel(view)}
+        {pairLabel(view, safety)}
       </h3>
       {why && <WishWhy id={whyId} why={why} fromDoor={shownFromDoor} />}
       {isCreatedPool(view.address) && (
@@ -477,7 +477,7 @@ const PAST_BUTTON = 'btn-secondary w-full sm:w-auto min-h-[44px] px-4 text-[13px
  * totals them again, up to HISTORY_PAGES_MAX pages. A failed read prints its reason and no
  * count. The first button and the status line stay mounted: focus stays, answers are read out.
  */
-function PoolPastBlock({ view, readers }: { view: PoolView; readers: Pick<LpReaders, 'poolPast'> }) {
+function PoolPastBlock({ view, safety, readers }: { view: PoolView; safety: TokenSafety | null; readers: Pick<LpReaders, 'poolPast'> }) {
   const [answer, setAnswer] = useState<PastAnswer | null>(null);
   const [problem, setProblem] = useState<{ text: string; tone: 'info' | 'warn' } | null>(null);
   const [busy, setBusy] = useState(false);
@@ -512,13 +512,13 @@ function PoolPastBlock({ view, readers }: { view: PoolView; readers: Pick<LpRead
     } else if (page.kind === 'page') setAnswer({ items: page.items, more: page.more, pages: 1 });
     else {
       setAnswer(null);
-      said(page, poolPastText(page, view));
+      said(page, poolPastText(page, view, safety));
     }
     setBusy(false);
   };
   const past = answer ? pagePast({ kind: 'page', items: answer.items, more: answer.more }) : null;
   const canPage = past?.kind === 'ok' && answer !== null && answer.more && answer.pages < HISTORY_PAGES_MAX;
-  const pastText = past ? poolPastText(past, view) : null;
+  const pastText = past ? poolPastText(past, view, safety) : null;
   return (
     <div data-testid="lp-pool-past" data-past={past?.kind ?? 'idle'} className="relative space-y-2 text-white/75">
       {past && pastText !== null &&

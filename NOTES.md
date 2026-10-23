@@ -15,6 +15,88 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-10-23: "Swap not checked" blamed the test run, but the test run never failed: one Jupiter press is four Jupiter calls
+
+**Believed:** a Solana swap toast saying the check "keeps failing on our side" means the
+pre-sign test run (`simulateTransaction` through `/api/solrpc`) is failing, so the RPC is
+the place to look.
+
+**Measured** (2026-10-23 ~04:20Z, a node script making the browser's exact calls against
+production, read-only: fee quote and build through `/api/jupiter`, the test run through
+`/api/solrpc` with a funded mainnet wallet as payer, nothing signed): the test run answered
+200 with a result every time. For SOL to BAYLA (a Token-2022 pump coin, fee taken in WSOL)
+the fee-bearing build's test run is Jupiter's 6014 on every press, so every press also runs
+the no-fee re-quote and rebuild: four calls to Jupiter's keyless tier, which refuses at
+random behind Vercel's shared egress (our relay says 502). Five presses spaced 8 s apart:
+3 died on a 502, at the fee quote twice and the fee build once. A refusal in the no-fee half
+is reported as a test run that could not run, so the toast named the wrong step. PR #958
+asks again on a 502 or 429 (`lib/solana/swap/jupiterBusy.ts`).
+
+**Do:** before blaming the RPC for an "unchecked" test run, list every network call between
+the press and the simulate, and run them yourself in order with the page's exact parameters
+and a funded wallet as payer (a simulation with `sigVerify: false` needs no signature). Count
+the failures per call, not per press.
+
+### Incidental
+
+- `vercel logs` on this project returned at most 50 rows per query whatever `--limit` said,
+  and nothing older than about 50 minutes: a `--since 24h --status-code 5xx` query gave 46
+  rows, the oldest 50 minutes old. To read a window, slice it under a minute; for anything
+  older, reproduce instead of reading.
+- `--query solrpc` and `--query jupiter` matched; `--query jupiter/swap/v1/swap` matched
+  nothing. A path with slashes is not a usable query.
+
+## 2026-10-22: testing the indexer's GraphQL needs no RPC, no Postgres and no sync
+
+**Believed:** a change under the indexer's GraphQL (graphql-yoga, @graphql-tools) can only be
+tested against a running `ponder start`, which needs an RPC and a synced database.
+
+**Measured** (ponder 0.8.33, node 24.13, 2026-10-22): ponder's own handler runs outside
+`ponder start`. Import `getSql`, `buildGraphQLSchema` and `graphql` from
+`node_modules/ponder/dist/chunk-*.js`; node 24 imports `ponder.schema.ts` as is. Create the tables
+in an in-memory PGlite from `getSql(schema).tables.sql`, insert rows, set `db` (drizzle-orm/pglite,
+`casing: "snake_case"`), `metadataStore` and `graphqlSchema` on the Hono context as
+`createServer` in `dist/bin/ponder.js` does, and serve it with `@hono/node-server`. 24 probes
+(the site's own queries, `@include`/`@skip` on variables, fragments, paging, the armor limits,
+errors) gave the same answers on trunk's tree and on graphql-yoga 5.24.6. Five differed only in key
+order: executor 2 returns fields in the order the query asks, executor 1 put `_meta` first.
+Forcing utils 12.1.0 under executor 1.5.2 failed the five directive probes, the break found on
+2026-10-06, so the probe does catch it.
+
+**Do:** prove an indexer GraphQL bump this way: old tree against new tree, queries with variables
+in directives, answers compared with key order ignored.
+
+## 2026-10-22: an inline `style` colour silently cancels every `hover:` class on the element
+
+**Believed:** a Tailwind `hover:bg-[#22c55e]` on a button works whatever else the
+element carries, so a base colour may live in `style={{ background }}` while the
+hover state lives in a class.
+
+**Measured** (branch build of PR #954, Playwright chromium, `getComputedStyle` after
+`locator.hover()`): the "Buy all bungalows" stub with `style={{ background:
+'rgba(5,8,15,0.92)' }}` and `hover:bg-[#22c55e]` read `backgroundColor:
+rgba(5, 8, 15, 0.92)` on hover while its inner span's `group-hover:text-[#05080f]` had
+already turned the ink `rgb(5, 8, 15)`: near-black on near-black, an empty box. An
+inline declaration outranks any class, hover variants included, and no lint or test
+says so; jsdom unit tests pass because they never compute styles. With the
+background moved to `bg-[#05080f]/90` the same read gave `rgb(34, 197, 94)`. Two
+dashboard controls shipped a week earlier had the same shape (`style={{ color }}` plus
+`hover:text-*`) and had never changed colour on hover.
+
+**Do:** a colour that changes on hover, focus or `group-hover` is a class, and so is
+its resting value; keep `style` for what no class expresses (a per-row accent read
+from data, a font family). Verify a hover state by computed style in a real
+browser, not by the class list.
+
+### Incidental
+
+- An `inline-grid` whose column holds a `width: max-content` marquee grows to the
+  whole run (a seven-ticker tape made the stub 510 px). `w-0 min-w-full` on the
+  tape's wrapper fills the column without asking for any width.
+- A clipped `page.screenshot({ clip })` taken after `locator.hover()` can catch the
+  card's own hover transform mid-move and show the wrong element; `locator.screenshot()`
+  re-resolves the box.
+
 ## 2026-10-22: a backfill that saves nothing when it stops never finishes on GitHub's shared runners
 
 **Believed:** a history read that works from this machine works the same in a scheduled
@@ -387,6 +469,19 @@ path conversion rewrites any argument that starts with `/`. `MSYS_NO_PATHCONV=1 
 scratchpad cannot `import '@playwright/test'`, since resolution starts from the script's own
 folder: `createRequire('<worktree>/frontend/package.json')('@playwright/test')` loads the
 worktree's copy.
+
+## 2026-10-20: a test with one `expect` per item in a 130,000-step loop passes alone and times out in the full suite
+
+**Believed:** a round trip over every 7th tick of the range program (about 130,000 ticks, up to
+three `expect` calls each) is a few seconds of plain arithmetic, inside vitest's default 5 s.
+
+**Measured** (vitest 5.0.3, `npx vitest run` of all 1,028 files on the shared box, 2026-10-20):
+the test passed when its file ran alone, then failed the full run at 6,169 ms with `Test timed
+out in 5000ms`. The arithmetic was not the cost: with plain `!==` comparisons, mismatches pushed
+to an array and one `expect(bad).toEqual([])`, the whole file ran in 1.08 s.
+
+**Do:** in a big loop, compare without `expect`, collect what differs, assert once, and give the
+test its own timeout as headroom. A test that only passes alone is a CI flake waiting for a busy runner.
 
 ## 2026-10-20: in Raydium's range-pool program, a top-up of someone else's reward goes to that reward's starter
 

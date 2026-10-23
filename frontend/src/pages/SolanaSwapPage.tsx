@@ -20,7 +20,8 @@ import { SolanaRouteLine } from '../components/swap/SolanaRouteLine';
 import { FillScoreLine } from '../components/swap/FillScoreLine';
 import { IslandBasketSolana } from '../components/swap/IslandBasketSolana';
 import type { SolBasketCoin } from '../lib/islandBasket';
-import { useSolanaRoute } from '../components/swap/useSolanaRoute';
+import { isRangeCandidate, useSolanaRoute } from '../components/swap/useSolanaRoute';
+import type { TxSummary } from '../components/solana/curve/ports';
 import { useVenueSwap } from '../components/swap/useVenueSwap';
 import { useReturnFocus, type OnSettled } from '../components/solana/curve/useTxFlow';
 import { holdReload } from '../lib/reloadHold';
@@ -86,8 +87,11 @@ import {
 } from '../lib/jupiter';
 import { prepareJupiterSwap, refusalWhy, refusedSaid, asTested, testedShort, NO_SITE_FEE_ROUTE_COPY, NOT_TEST_RUN_COPY, TESTED_SHORT_COPY, type PreparedJupiterSwap } from '../lib/solana/swap/jupiterFeeRetry';
 import { OWN_ROUTE_COPY, freshDecision, ownPoolNowWins, prepareOwnPoolSwap, within } from '../lib/solana/swap/ownPoolRoute';
+import { whileJupiterBusy } from '../lib/solana/swap/jupiterBusy';
 import { applySlippage } from '../lib/launcher/solana/curve/math';
 import { tradeCostText } from '../lib/solana/lp/format';
+import { perMillionPercent } from '../lib/solana/clmm/feeText';
+import { isFeeOnInput } from '../lib/solana/clmm/program';
 import { quietEnding } from '../components/swap/quietSwap';
 import { checkDcaPair, dcaToken2022Copy, DCA_MIN_PER_BUY_USD, DCA_UNREAD_COPY, DCA_UNREAD_NOTE, type DcaPairCheck } from '../lib/solana/swap/dcaPair';
 import { CHECK_KEEPS_FAILING, HELD_NOT_SENT, LOST_ANSWER_TITLE, OWN_POOL_REVIEW_OFFER, lostAnswerCopy, nothingSentCopy } from '../lib/solana/swap/walletCopy';
@@ -116,6 +120,10 @@ const VenueSwapFlow = lazy(loadVenueSwapFlow);
 
 /** How long Buy waits for our pools to be read again before it goes on with the route on screen. */
 const OWN_CHECK_MS = 4_000;
+
+// A press's quote and build, each asked again while Jupiter refuses the call (jupiterBusy.ts).
+const pressQuote = whileJupiterBusy((p: Parameters<typeof getQuote>[0]) => getQuote(p));
+const pressBuild = whileJupiterBusy((p: Parameters<typeof buildSwapTransaction>[0]) => buildSwapTransaction(p));
 
 const SLIPPAGE_PRESETS = [50, 100, 300]; // bps
 
@@ -1575,8 +1583,9 @@ export function SolanaSwapInner({ home = false }: { home?: boolean } = {}) {
       const sent = outcome.status === 'confirmed' || (outcome.status === 'unknown' && outcome.signature !== '');
       // Recorded for the wallet that signed it, whichever is connected when the chain answers.
       const wallet = t?.owner;
-      if (prepared?.summary.kind === 'venue-swap' && t && wallet && sent) {
-        const got = prettyAmount(fromBaseUnits(prepared.summary.quoted.outAmount.toString(), t.outDecimals));
+      const ownGot = ownSwapOut(prepared?.summary);
+      if (ownGot !== null && t && wallet && sent) {
+        const got = prettyAmount(fromBaseUnits(ownGot.toString(), t.outDecimals));
         const words = `≈${got} ${t.buy} with ${t.amount} ${t.pay}, in our own pool`;
         // Kept in "Your recent activity", as a Jupiter swap is, so the signature outlives the page.
         recordActivity(wallet, { sig: outcome.signature, ts: Date.now(), kind: 'swap', summary: outcome.status === 'confirmed' ? `Bought ${words}` : `Sent, not confirmed: ${words}` });
@@ -1631,7 +1640,7 @@ export function SolanaSwapInner({ home = false }: { home?: boolean } = {}) {
   const { target: buyRef, fallback: headingRef } = useReturnFocus(ownFlowOpen ? flowState.step : 'idle');
   // The swap at the wallet or on its way to the chain, as built.
   const inFlightTx = flowState.step === 'review' || flowState.step === 'submitting' || flowState.step === 'sent' ? flowState.prepared : null;
-  const inFlight = inFlightTx?.summary.kind === 'venue-swap' ? inFlightTx.summary : null;
+  const inFlight = inFlightTx ? ownSwapView(inFlightTx.summary) : null;
 
   const { reset: resetOwn } = venueSwap.flow;
   const explorerOwn = venueSwap.api?.explorerTxUrl;
@@ -1642,8 +1651,8 @@ export function SolanaSwapInner({ home = false }: { home?: boolean } = {}) {
     if (!ending) return;
     const t = ownTrade.current;
     if (ending.kind === 'confirmed') {
-      const s = flowState.prepared?.summary;
-      const got = s?.kind === 'venue-swap' && t ? `≈${prettyAmount(fromBaseUnits(s.quoted.outAmount.toString(), t.outDecimals))} ${t.buy} for ${t.amount} ${t.pay}` : shortSig(ending.signature);
+      const out = ownSwapOut(flowState.prepared?.summary);
+      const got = out !== null && t ? `≈${prettyAmount(fromBaseUnits(out.toString(), t.outDecimals))} ${t.buy} for ${t.amount} ${t.pay}` : shortSig(ending.signature);
       const url = explorerOwn ? explorerOwn(ending.signature, ownCluster) : `https://solscan.io/tx/${ending.signature}`;
       toast.success(t ? `${t.done} ${t.symbol}` : 'Swap confirmed', { description: got, action: { label: 'View', onClick: () => window.open(url, '_blank', 'noopener,noreferrer') } });
     } else if (ending.kind === 'not-signed') {
@@ -1724,7 +1733,7 @@ export function SolanaSwapInner({ home = false }: { home?: boolean } = {}) {
         paySymbol: pressed.pay,
         buySymbol: pressed.buy,
         payAmount: Number(inFlight.amountIn) / 10 ** (inFlight.paysCoin ? inFlight.coin.decimals : inFlight.tokenDecimals),
-        buyAmount: Number(inFlight.quoted.outAmount) / 10 ** (inFlight.paysCoin ? inFlight.tokenDecimals : inFlight.coin.decimals),
+        buyAmount: Number(inFlight.outAmount) / 10 ** (inFlight.paysCoin ? inFlight.tokenDecimals : inFlight.coin.decimals),
       }}
     />
   ) : null;
@@ -1855,8 +1864,8 @@ export function SolanaSwapInner({ home = false }: { home?: boolean } = {}) {
     const user = owner.toBase58();
     ownTrade.current = { owner: user, pay: payToken.symbol, buy: buyToken.symbol, buyMint: outputMint, amount: prettyAmount(tokenAmount), outDecimals: buyToken.decimals, done: said.done, symbol: said.symbol };
     const priority = speed;
-    const buildIn = (pool: string, aggregator: AggregatorSeen) =>
-      ready.api.prepareVenueSwap(venueSwap.rpc, ready.gate, {
+    const buildIn = (pool: string, aggregator: AggregatorSeen) => {
+      const args = {
         owner,
         pool: new PublicKey(pool),
         inputMint: new PublicKey(inputMint),
@@ -1864,7 +1873,10 @@ export function SolanaSwapInner({ home = false }: { home?: boolean } = {}) {
         amountIn,
         slippageBps: BigInt(bps),
         aggregator,
-      });
+      };
+      // A range pool (shown only once the range program is deployed) has its own builder.
+      return route.isRangePool(pool) ? ready.api.prepareRangeSwap(venueSwap.rpc, ready.gate, args) : ready.api.prepareVenueSwap(venueSwap.rpc, ready.gate, args);
+    };
     void venueSwap.flow.prepare(
       async () => {
         // Offered after Jupiter's test run could not run press after press: our best pool, built
@@ -1891,7 +1903,7 @@ export function SolanaSwapInner({ home = false }: { home?: boolean } = {}) {
         };
         const jupiterTx = (fresh: JupiterQuote) =>
           prepareJupiterSwap(
-            { getQuote, buildSwapTransaction, simulateSwap, swapCarriesPlatformFee },
+            { getQuote: pressQuote, buildSwapTransaction: pressBuild, simulateSwap, swapCarriesPlatformFee },
             { fresh, shown: fresh, inputMint, outputMint, amount: baseAmount, slippageBps: bps, user, priority },
           );
         const built = await prepareOwnPoolSwap(
@@ -1903,7 +1915,7 @@ export function SolanaSwapInner({ home = false }: { home?: boolean } = {}) {
             aggregatorOut: async () => {
               let fresh: JupiterQuote;
               try {
-                fresh = await getQuote({ inputMint, outputMint, amount: baseAmount, slippageBps: bps });
+                fresh = await pressQuote({ inputMint, outputMint, amount: baseAmount, slippageBps: bps });
               } catch (e) {
                 // "No route" is Jupiter's own answer: there is no other venue to hold the pool to.
                 if (e instanceof NoRouteError) return null;
@@ -2058,7 +2070,7 @@ export function SolanaSwapInner({ home = false }: { home?: boolean } = {}) {
     try {
       // Re-quote right before building so the on-chain min-out + routing match
       // the live market (the displayed quote may be seconds-to-minutes stale).
-      const fresh = await getQuote({
+      const fresh = await pressQuote({
         inputMint: payToken.mint,
         outputMint: buyToken.mint,
         amount: baseAmount,
@@ -2099,7 +2111,7 @@ export function SolanaSwapInner({ home = false }: { home?: boolean } = {}) {
       // build is answered by ONE no-fee rebuild that must pass too (jupiterFeeRetry.ts).
       step = 'build';
       const prepared = await prepareJupiterSwap(
-        { getQuote, buildSwapTransaction, simulateSwap, swapCarriesPlatformFee },
+        { getQuote: pressQuote, buildSwapTransaction: pressBuild, simulateSwap, swapCarriesPlatformFee },
         {
           fresh,
           shown,
@@ -2625,7 +2637,7 @@ export function SolanaSwapInner({ home = false }: { home?: boolean } = {}) {
             // The transaction's own figures, not the form's: the form's quote can be older.
             <p role="status" data-testid="own-swap-status" className="text-[10px] leading-relaxed mt-2 rounded-lg px-2.5 py-1.5 text-white/80" style={{ background: 'rgba(0,0,0,0.35)', border: '1px solid rgba(255,255,255,0.10)' }}>
               {inFlight && pressed
-                ? `At your wallet: ${pressed.amount} ${pressed.pay} for ${prettyAmount(fromBaseUnits(inFlight.quoted.outAmount.toString(), pressed.outDecimals))} ${pressed.buy}, at least ${prettyAmount(fromBaseUnits(inFlight.minimumAmountOut.toString(), pressed.outDecimals))}.`
+                ? `At your wallet: ${pressed.amount} ${pressed.pay} for ${prettyAmount(fromBaseUnits(inFlight.outAmount.toString(), pressed.outDecimals))} ${pressed.buy}, at least ${prettyAmount(fromBaseUnits(inFlight.minimumAmountOut.toString(), pressed.outDecimals))}.`
                 : 'Checking both prices once more…'}
             </p>
           ) : swapping ? (
@@ -2643,7 +2655,11 @@ export function SolanaSwapInner({ home = false }: { home?: boolean } = {}) {
               // Our own pool: no platform fee is added. Its own fee is inside the quote.
               <div className="flex items-center justify-between text-white/70" data-testid="own-pool-fee">
                 <span>Pool fee (inside the quote)</span>
-                <span className="font-mono">{ownBest.view.config ? tradeCostText(ownBest.view.config, ownBest.view.snapshot.pool.enableCreatorFee) : '–'}</span>
+                <span className="font-mono">
+                  {isRangeCandidate(ownBest)
+                    ? `${perMillionPercent(ownBest.range.config.tradeFeeRate)} of ${isFeeOnInput(ownBest.range.pool.feeOn, payToken.mint === ownBest.range.pool.tokenMint0) ? 'what you pay' : 'what the pool pays out'}`
+                    : ownBest.view.config ? tradeCostText(ownBest.view.config, ownBest.view.snapshot.pool.enableCreatorFee) : '–'}
+                </span>
               </div>
             ) : (
               <SiteFeeRow feePct={feePct} feeMintSymbol={feeMintSymbol} waived={feeWaived} />
@@ -2855,6 +2871,22 @@ export function SolanaSwapInner({ home = false }: { home?: boolean } = {}) {
     </>
   );
 }
+
+/**
+ * A swap in one of our pools, either kind, as the page says it: what is paid and what comes
+ * out, from the prepared transaction's own summary. Null for any other transaction.
+ */
+function ownSwapView(s: TxSummary | undefined) {
+  if (s?.kind === 'venue-swap') {
+    return { paysCoin: s.paysCoin, coin: s.coin, tokenMint: s.tokenMint, tokenDecimals: s.tokenDecimals, amountIn: s.amountIn, minimumAmountOut: s.minimumAmountOut, outAmount: s.quoted.outAmount };
+  }
+  if (s?.kind === 'range-swap') {
+    const l = s.poolLine;
+    return { paysCoin: s.paysCoin, coin: l.quote, tokenMint: l.tokenMint, tokenDecimals: l.tokenDecimals, amountIn: s.amountIn, minimumAmountOut: s.minimumAmountOut, outAmount: s.quotedOut };
+  }
+  return null;
+}
+const ownSwapOut = (s: TxSummary | undefined): bigint | null => ownSwapView(s)?.outAmount ?? null;
 
 export default function SolanaSwapPage() {
   usePageTitle('Solana Swap', 'Swap Solana tokens on memetics.finance, through our own pools or Jupiter.');

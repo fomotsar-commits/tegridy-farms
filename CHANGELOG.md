@@ -7,15 +7,27 @@ The site's Changelog tab shows both files.
 
 ## [Unreleased]
 
+### 2026-10-23
+
+- Solana swap: when Jupiter is busy and turns a call away during Buy, the press waits a moment and asks again (up to twice) instead of stopping with "Not sent" or "Swap not checked". The same holds for Buy all bungalows and Add with one coin.
+
 ### 2026-10-22
 
 - Solana swap: before your wallet opens, the test run now reads what Jupiter's transaction will actually pay. Under the quote, the page shows the lower amount; our own pool takes the trade if it pays more; past your slippage, nothing is sent.
 - Solana swap: a line under the swap says how Jupiter trades made here filled against their quotes over the last 30 days, read from the chain every hour.
+- Solana swap: the Buy all bungalows order shows each coin's figure as soon as it is read, instead of holding all five until the slowest read came back. Our pools are read alongside Jupiter's quotes now, not before them; a coin whose comparison is still on its way says "Comparing our pool…" under its figure, and Buy waits for it.
+- Swap: Buy all bungalows is a numbered ticket stub with the order's coins running on a tape, and the order it opens is a numbered sheet with each coin's door picture and a strip that shows the order's progress. The dashboard draws what the wallet holds by value, each coin's share of it, a tape of the coins held, and each lock's place on the ladder.
+- The dashboard shows your connected wallets: the SOL, ETH and island coins they hold, with dollar values where a price was read, and your positions here (locks, stakes and pool shares) with amounts, unlock dates and what each has earned. A part that could not be read says so, with Try again. Every pool on the island is one press away under it.
+- The home has the island's dashboard on top of the Swap, Lock BAYLA and Add SOL + BAYLA cards: every pool on the island, numbered, with its picture, its chain and its lock terms. /dashboard shows the same.
+- The home's Add SOL + BAYLA card stays in its place while its pool is being read, and says so if the read fails; it used to disappear until the read came back.
+- Solana pools' Rates card says each part of the venue's cut as a share of the fee and of the trade, and says in bold, in plain sight, when a fee tier pays anything but the agreed split: the island's part kept by the team's vault, another wallet, or other rates. Before, a tier that sent the island's part to the vault read as fine.
+- The home's all-time volume says it counts our pools on Base and Robinhood as well as Ethereum, and is counted every few hours, which is how often it runs. It says "not up to date" only after nine hours with no count, or when a count fails.
 - Solana LP: every pool card now shows what is in the pool, its price, the outside price and the difference in plain view, above the deposit checks and the Add buttons. They were inside More about this pool.
 - Notice, updated: range pools get two fee tiers, 1% and 0.25% of each swap, no sooner than 2026-10-23 14:00 UTC (it said seven days from 2026-10-21). Of each fee, 84% stays with the liquidity providers whose range is in use, 10.4% goes to memetics.finance and 5.6% to Jungle Bay Island.
 - With reduced motion on, the Tradermigos splash holds its art still, every piece in sight, with no sparks or flashes; the pieces had kept bouncing.
 - Opening a new pool on Ethereum, Base or Robinhood Chain: the form shows the market price from that network's Uniswap V2 pool, Match the market price fills the other amount at it, and a price you type off the market says how far off it is.
 - Base and Robinhood Chain: Liquidity lists the venue's own pools on that network, with what each holds and how its 0.3% fee is split; Add or Remove opens the form on that pool.
+- Solana pools: every coin shows its ticker. A coin that is not one of the island's shows the ticker it gives itself, with its whole address under it, on the All pools list, its pool card and Your positions. One that copies the ticker of one of ours, or of SOL, USDC or USDT, reads “fake”, as in “fake SOY”.
 
 ### 2026-10-21
 

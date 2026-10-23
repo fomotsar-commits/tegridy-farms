@@ -45,7 +45,12 @@ export type RouteGate =
    * plugin declared `apply: 'serve'`, so no write endpoint is served at all.
    * Unlike `dev-only` there is no redirect to assert, so no `redirectsTo`.
    */
-  | 'unlisted';
+  | 'unlisted'
+  /**
+   * Routed only once what it needs is on the chain. Until then App.tsx declares no route for
+   * it in any build the suite runs, the nav lists nothing, and the path is the not-found page.
+   */
+  | 'not-yet-routed';
 
 export interface RouteSpec {
   /** Path as written in App.tsx. */
@@ -414,6 +419,18 @@ export const ROUTES: readonly RouteSpec[] = [
     why:
       'The LP section mounts only once the venue read returns live, which in this suite depends on the ' +
       'preview proxy reaching Solana; with no answer it audits the hero, the status card and the program card alone.',
+    knownViolations: [],
+  },
+  {
+    path: '/range-pools',
+    voice: null,
+    owner: 'pages/RangePoolsPage.tsx',
+    tabOf: 'PoolsHostPage · range-pools',
+    gate: 'not-yet-routed',
+    why:
+      'The Range tab is routed only while rangePoolsVisible() (lib/solana/clmm/programId.ts): never until ' +
+      'the owner opens range pools (RANGE_POOLS_OPEN), except in a `--mode range-preview` build. The suite runs ' +
+      'the production build, where the path is the not-found page; the sweep asserts that instead.',
     knownViolations: [],
   },
   { path: '/curve-launch', voice: 'venue', owner: 'pages/CurveLaunchPage.tsx',

@@ -6,7 +6,7 @@ const usdFmt = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'US
 const whenFmt = new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
 
 /**
- * The venue's all-time volume, counted hourly (venue-volume.yml). Says when it was counted,
+ * The venue's all-time volume, counted every few hours (venue-volume.yml). Says when it was counted,
  * and says so when that count is not up to date. A failed read says it could not be read.
  */
 export function VenueVolume() {
@@ -40,7 +40,8 @@ export function VenueVolume() {
           <FinePrint summary="What counts">
             <p>
               {volume.swaps.toLocaleString('en-US')} swaps in our Solana pools, Jupiter swaps made here, and our
-              Ethereum pool. Each is valued in dollars the hour it is counted. Counted hourly.
+              pools on Ethereum, Base and Robinhood. Each is valued in dollars the hour it is counted. Counted every
+              few hours.
             </p>
           </FinePrint>
         </>

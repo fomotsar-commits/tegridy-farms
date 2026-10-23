@@ -73,7 +73,7 @@ describe('a press on any pool price turns every pool price round', () => {
   it('on every card and in the All pools list, and a second press turns them back', async () => {
     const bayla = view(BAYLA_MINT);
     const other = view(UNLISTED);
-    const listPools = vi.fn(async () => ({ kind: 'ok' as const, list: { pools: [bayla, other], unread: 0, truncated: false, chainNow: null } }));
+    const listPools = vi.fn(async () => ({ kind: 'ok' as const, list: { pools: [bayla, other], unread: 0, truncated: false, chainNow: null, safety: new Map() } }));
     render(
       <>
         <ul>
@@ -102,15 +102,16 @@ describe('a press on any pool price turns every pool price round', () => {
     const above = rowValue(first, 'Difference')!;
     expect(above).toBe(`${((0.000006 / POOL_PRICE - 1) * 100).toFixed(1)}% above the outside price`);
     expect(within(first).getByText('Difference', { exact: true }).nextElementSibling).toHaveClass('text-amber-300/90');
-    // The other card and both list rows turned with it; a token the site does not list stays "tokens".
-    expect(rowValue(second, 'Price here')).toBe(`1 SOL = ${BAYLA_PER_SOL.toLocaleString('en-US')} tokens`);
+    // The other card and both list rows turned with it. The other card's coin calls itself BAYLA at another
+    // mint, so it reads "fake BAYLA"; the list read no check for it, so its row stays "tokens".
+    expect(rowValue(second, 'Price here')).toBe(`1 SOL = ${BAYLA_PER_SOL.toLocaleString('en-US')} fake BAYLA`);
     expect(rows[0]).toHaveTextContent(turned);
     expect(rows[1]).toHaveTextContent(`1 SOL = ${BAYLA_PER_SOL.toLocaleString('en-US')} tokens`);
 
     // A press anywhere else, here a list row, turns them all back.
     fireEvent.click(within(rows[1]).getByTestId('lp-price-flip'));
     expect(rowValue(first, 'Price here')).toBe(`1 BAYLA = ${formatSolPrice(POOL_PRICE)} SOL`);
-    expect(rowValue(second, 'Price here')).toBe(`1 token = ${formatSolPrice(POOL_PRICE)} SOL`);
+    expect(rowValue(second, 'Price here')).toBe(`1 fake BAYLA = ${formatSolPrice(POOL_PRICE)} SOL`);
     expect(rows[0]).toHaveTextContent(`1 BAYLA = ${formatSolPrice(POOL_PRICE)} SOL`);
   });
 

@@ -4,21 +4,13 @@ import { useEffect, useRef, useState, type Ref } from 'react';
 import { DASHBOARD_NAV, INDEX_GROUPS, indexName, type IndexGroup, type NavItem } from '../../lib/navConfig';
 import { VENUE } from '../../lib/arrival';
 import { ArtImg } from '../ArtImg';
+// The menu's own look (lib/editorial.ts), the same in both themes. A full-screen index that opens
+// as a circle from the menu button.
+import { EDITORIAL_BG as BG, EDITORIAL_INK as INK, EDITORIAL_EASE as EASE, EDITORIAL_GRAIN as GRAIN, HEADING_FONT, pad2 as pad } from '../../lib/editorial';
 
-// The menu's own look, the same in both themes: near-black, cream, and the venue's green for
-// "here". A full-screen index that opens as a circle from the menu button.
-const BG = '#05080f';
-const INK = '#f5e4b8';
-const EASE = [0.22, 1, 0.36, 1] as const;
-// Film grain over the black, tiled from an inline SVG (the CSP's img-src allows data:).
-const GRAIN =
-  "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23g)'/%3E%3C/svg%3E\")";
 // Each group's picture is `nav-drawer:N` in /art-studio (artSurfaces.ts): navConfig's INDEX_GROUPS
 // carry theirs; 0 is the menu's own; Dashboard's row, once a wallet connects, is 4.
 const DASHBOARD_ART = 4;
-const HEADING_FONT = { fontFamily: 'var(--font-family-heading)' } as const;
-
-const pad = (n: number) => String(n).padStart(2, '0');
 
 /** What the big frame shows: a picture and its caption. */
 interface Shown {
