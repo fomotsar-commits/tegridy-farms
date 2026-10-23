@@ -9,6 +9,7 @@ The site's Changelog tab shows both files.
 
 ### 2026-10-23
 
+- Solana swap: Buy all bungalows opens with every coin's figure already on it, at the coin's market price less the site fee, marked "market price". Each coin's exact quote replaces its figure as it lands, about one a second, and Buy waits for all five. Reopening the order within a minute keeps its quotes instead of starting over.
 - Solana swap: when Jupiter is busy and turns a call away during Buy, the press waits a moment and asks again (up to twice) instead of stopping with "Not sent" or "Swap not checked". The same holds for Buy all bungalows and Add with one coin.
 
 ### 2026-10-22
