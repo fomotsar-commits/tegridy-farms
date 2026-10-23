@@ -11,7 +11,13 @@ const h = vi.hoisted(() => ({
   balance: 10_000_000_000,
   failQuoteFor: null as string | null,
   own: [] as unknown[],
+  /** This coin's Jupiter quote, or every read of our pools, waits until `release()`. */
+  holdQuoteFor: null as string | null,
+  holdOwn: false,
+  gate: Promise.resolve(),
+  release: () => {},
 }));
+const hold = () => { h.gate = new Promise<void>((r) => { h.release = r; }); };
 
 vi.mock('@solana/wallet-adapter-react', () => ({
   useConnection: () => ({ connection: { getBalance: async () => h.balance, getBlockHeight: async () => 100 } }),
@@ -27,6 +33,7 @@ vi.mock('../../lib/jupiter', async (orig) => ({
   // Every coin quoted through the pool the list names; `failQuoteFor` refuses one coin's quote every time.
   getQuote: async (p: { outputMint: string }) => {
     if (p.outputMint === h.failQuoteFor) throw new Error('Quote unavailable (429)');
+    if (p.outputMint === h.holdQuoteFor) await h.gate;
     return {
     inputMint: SOL, outputMint: p.outputMint, inAmount: '1', outAmount: '5000000', otherAmountThreshold: '1', swapMode: 'ExactIn', slippageBps: 50, priceImpactPct: '0',
     routePlan: [{ percent: 100, swapInfo: { ammKey: SOL_BASKET.find((c) => c.mint === p.outputMint)!.pool.address } }],
@@ -34,7 +41,7 @@ vi.mock('../../lib/jupiter', async (orig) => ({
   },
 }));
 vi.mock('../../lib/solana/swap/islandBasketSol', async (orig) => ({ ...(await orig<typeof import('../../lib/solana/swap/islandBasketSol')>()), prepareSolLeg: h.prepare }));
-vi.mock('./useSolanaRoute', () => ({ readOwnPoolsFor: async () => h.own }));
+vi.mock('./useSolanaRoute', () => ({ readOwnPoolsFor: async () => { if (h.holdOwn) await h.gate; return h.own; } }));
 vi.mock('../../lib/solana/confirm', () => ({ pollConfirm: h.confirm }));
 vi.mock('../../lib/solana/blockhashWindow', () => ({ blockhashSeen: async () => null, recentBlockhashOf: () => null }));
 vi.mock('../../lib/solanaActivity', () => ({ recordActivity: vi.fn() }));
@@ -62,6 +69,9 @@ beforeEach(() => {
   h.balance = 10_000_000_000;
   h.failQuoteFor = null;
   h.own = [];
+  h.holdQuoteFor = null;
+  h.holdOwn = false;
+  h.gate = Promise.resolve();
   h.prepare.mockResolvedValue(ready);
   let n = 0;
   h.send.mockImplementation(async () => `sig${++n}`);
@@ -147,6 +157,41 @@ describe('IslandBasketSolana', () => {
     await waitFor(() => expect(screen.getAllByText('Bought')).toHaveLength(4), { timeout: 4000 });
     expect(within(status('bobo')).getByText(/dropped beyond your slippage/)).toBeInTheDocument();
     await waitFor(() => expect(screen.getByTestId('island-basket-buy')).toHaveTextContent('Buy the 1 left'));
+  });
+
+  it('shows each coin’s figure as it is read: the first coin is priced while the last coin’s quote is still on its way', async () => {
+    hold();
+    h.holdQuoteFor = SOL_BASKET[4]!.mint;
+    mount();
+    fireEvent.click(screen.getByTestId('island-basket-open'));
+    await waitFor(() => expect(within(status('bayla')).getByText(/^≈ /)).toBeInTheDocument(), { timeout: 4000 });
+    expect(within(status('bayla')).getByText(/· PumpSwap via Jupiter$/)).toBeInTheDocument();
+    expect(within(status('brainlet')).getByText(/^≈ /)).toBeInTheDocument();
+    expect(within(status('rizz')).queryByText(/^≈ /)).not.toBeInTheDocument();
+    // Nothing is bought on four prices.
+    expect(screen.getByTestId('island-basket-buy')).toHaveTextContent('Getting prices…');
+    expect(screen.getByTestId('island-basket-buy')).toBeDisabled();
+    h.release();
+    await waitFor(() => expect(within(status('rizz')).getByText(/^≈ /)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByTestId('island-basket-buy')).toHaveTextContent('Buy all 5'));
+  });
+
+  it('a read of our pools on its way holds no Jupiter figure: the figures show, and the order waits for the comparison', async () => {
+    hold();
+    h.holdOwn = true;
+    h.own = [{ venue: 'own-pool', outAmount: 9_000_000n, label: 'venue pool', poolAddress: 'OwnPool111' }];
+    mount();
+    fireEvent.click(screen.getByTestId('island-basket-open'));
+    await waitFor(() => expect(within(status('rizz')).getByText(/^≈ /)).toBeInTheDocument(), { timeout: 4000 });
+    expect(within(status('bayla')).getByText(/· PumpSwap via Jupiter$/)).toBeInTheDocument();
+    expect(within(status('bayla')).getByText('Comparing our pool…')).toBeInTheDocument();
+    expect(screen.getByTestId('island-basket-buy')).toHaveTextContent('Getting prices…');
+    expect(screen.getByTestId('island-basket-buy')).toBeDisabled();
+    h.release();
+    // Our pool pays more than Jupiter here (9 to 5): read, it takes the coin.
+    await waitFor(() => expect(within(status('bayla')).getByText(/· Our pool$/)).toBeInTheDocument());
+    expect(within(status('bayla')).queryByText('Comparing our pool…')).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.getByTestId('island-basket-buy')).toHaveTextContent('Buy all 5'));
   });
 
   it('says when the wallet holds too little SOL', async () => {

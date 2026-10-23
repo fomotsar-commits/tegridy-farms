@@ -13,6 +13,7 @@ The site's Changelog tab shows both files.
 
 ### 2026-10-22
 
+- Solana swap: the Buy all bungalows order shows each coin's figure as soon as it is read, instead of holding all five until the slowest read came back. Our pools are read alongside Jupiter's quotes now, not before them; a coin whose comparison is still on its way says "Comparing our pool…" under its figure, and Buy waits for it.
 - Swap: Buy all bungalows is a numbered ticket stub with the order's coins running on a tape, and the order it opens is a numbered sheet with each coin's door picture and a strip that shows the order's progress. The dashboard draws what the wallet holds by value, each coin's share of it, a tape of the coins held, and each lock's place on the ladder.
 - The dashboard shows your connected wallets: the SOL, ETH and island coins they hold, with dollar values where a price was read, and your positions here (locks, stakes and pool shares) with amounts, unlock dates and what each has earned. A part that could not be read says so, with Try again. Every pool on the island is one press away under it.
 - The home has the island's dashboard on top of the Swap, Lock BAYLA and Add SOL + BAYLA cards: every pool on the island, numbered, with its picture, its chain and its lock terms. /dashboard shows the same.

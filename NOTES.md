@@ -15,6 +15,26 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-10-22: testing the indexer's GraphQL needs no RPC, no Postgres and no sync
+
+**Believed:** a change under the indexer's GraphQL (graphql-yoga, @graphql-tools) can only be
+tested against a running `ponder start`, which needs an RPC and a synced database.
+
+**Measured** (ponder 0.8.33, node 24.13, 2026-10-22): ponder's own handler runs outside
+`ponder start`. Import `getSql`, `buildGraphQLSchema` and `graphql` from
+`node_modules/ponder/dist/chunk-*.js`; node 24 imports `ponder.schema.ts` as is. Create the tables
+in an in-memory PGlite from `getSql(schema).tables.sql`, insert rows, set `db` (drizzle-orm/pglite,
+`casing: "snake_case"`), `metadataStore` and `graphqlSchema` on the Hono context as
+`createServer` in `dist/bin/ponder.js` does, and serve it with `@hono/node-server`. 24 probes
+(the site's own queries, `@include`/`@skip` on variables, fragments, paging, the armor limits,
+errors) gave the same answers on trunk's tree and on graphql-yoga 5.24.6. Five differed only in key
+order: executor 2 returns fields in the order the query asks, executor 1 put `_meta` first.
+Forcing utils 12.1.0 under executor 1.5.2 failed the five directive probes, the break found on
+2026-10-06, so the probe does catch it.
+
+**Do:** prove an indexer GraphQL bump this way: old tree against new tree, queries with variables
+in directives, answers compared with key order ignored.
+
 ## 2026-10-22: an inline `style` colour silently cancels every `hover:` class on the element
 
 **Believed:** a Tailwind `hover:bg-[#22c55e]` on a button works whatever else the
