@@ -9,6 +9,7 @@ The site's Changelog tab shows both files.
 
 ### 2026-10-23
 
+- Solana LP: a new card, Every position, lists who holds a share of each of our pools, with each holder's whole address, share of the pool and what it pays out now; the connected wallet's own rows say You. Your positions still lists only your wallet's.
 - Analytics events are kept for 90 days and then deleted automatically, every hour, and the Privacy page now says so. Before, nothing deleted them.
 - Solana swap: buying a Token-2022 coin such as BAYLA with SOL now carries the 0.50% site fee shown on the form, paid in SOL, like every other SOL pair. Before, Jupiter refused the fee on these coins and the swap went out with no fee.
 - Solana swap: Buy all bungalows opens with every coin's figure already on it, at the coin's market price less the site fee, marked "market price". Each coin's exact quote replaces its figure as it lands, about one a second, and Buy waits for all five. Reopening the order within a minute keeps its quotes instead of starting over.

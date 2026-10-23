@@ -17,6 +17,7 @@ import { parseMintInput } from '../../../lib/solana/lp/mintInput';
 import { SOL_MINT } from '../../../lib/solana';
 import { YourPositions } from './YourPositions';
 import { VenuePoolList } from './VenuePoolList';
+import { EveryPosition } from './EveryPosition';
 import { Rates, Routes } from './RatesAndRoutes';
 import { LpGateBanner } from './LpGateBanner';
 import { RISK_SHORT } from './LpDisclosures';
@@ -202,7 +203,7 @@ function LpBody({ readers, mode, reloadKey, home }: { readers: LpReaders; mode: 
   }
 
   // Actions first, under the one line on earning; then every pool;
-  // then what you hold; then the rates and the routes; the long notice last.
+  // then what you hold, and everyone's positions; then the rates and the routes; the long notice last.
   return (
     <div className="flex flex-col gap-4" data-testid="lp-section" data-lp-mode={mode}>
       <LpEarnLine />
@@ -210,6 +211,7 @@ function LpBody({ readers, mode, reloadKey, home }: { readers: LpReaders; mode: 
       {finder}
       {allPools}
       {positions}
+      <EveryPosition readers={readers} owner={publicKey ?? null} reloadKey={reloadKey} />
       <Rates read={tierRead} />
       <Routes />
       {disclosure}
