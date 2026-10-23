@@ -58,7 +58,8 @@ export interface PlaceTorches {
 
 export interface IslandTorches {
   places: PlaceTorches[] | null;
-  lastTorch: (Torch & { place: string; label: string | null }) | null;
+  /** The island's newest torch: lit in a room, or fed to the fire, as its own page counts it. */
+  lastTorch: (Torch & { kind: 'bungalow' | 'fire'; place: string; label: string | null }) | null;
   /** $BAYLA fed to the fire, all time: the island's own served total. */
   fireBurned: number | null;
   season: { number: number; endsAtMs: number } | null;
@@ -127,8 +128,8 @@ function parse(body: Record<string, unknown>): IslandTorches {
   const endsAtMs = season ? timeOf(season.ends_at) : null;
   return {
     places,
-    lastTorch: lastTorch && textOf(last?.place)
-      ? { ...lastTorch, place: last!.place as string, label: textOf(last!.label) }
+    lastTorch: lastTorch && textOf(last?.place) && (last!.kind === 'bungalow' || last!.kind === 'fire')
+      ? { ...lastTorch, kind: last!.kind, place: last!.place as string, label: textOf(last!.label) }
       : null,
     fireBurned: fire && isAmount(fire.burned) ? fire.burned : null,
     season: season && isCount(season.season) && season.season >= 1 && endsAtMs !== null
@@ -209,10 +210,11 @@ export function ageWords(thenMs: number, nowMs: number): string {
 
 const SEASON_WORDS = ['one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten'];
 
-/** "86 days left in season one", or null once the season has ended. */
+/** "86 days left in season one", whole days as the island counts them; null once the season has ended. */
 export function seasonLine(season: { number: number; endsAtMs: number }, nowMs: number): string | null {
-  const days = Math.ceil((season.endsAtMs - nowMs) / 86_400_000);
-  if (days < 1) return null;
+  const left = season.endsAtMs - nowMs;
+  if (left <= 0) return null;
   const name = SEASON_WORDS[season.number - 1] ?? String(season.number);
-  return `${days} day${days === 1 ? '' : 's'} left in season ${name}`;
+  const days = Math.floor(left / 86_400_000);
+  return days < 1 ? `The last day of season ${name}` : `${days} day${days === 1 ? '' : 's'} left in season ${name}`;
 }

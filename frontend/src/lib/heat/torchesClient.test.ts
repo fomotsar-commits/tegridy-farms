@@ -20,7 +20,7 @@ const PROXY_BODY = {
     },
     { place: 'jungle-bay', label: '$JBM', torches: 3, open_row: 1, next_price: 100000, slots_per_row: 12, last: null },
   ],
-  last_torch: { place: 'jungle-bay', label: '$JBM', name: '_seacasa', amount: 75000, lit_at: '2026-10-15T21:05:11.000Z' },
+  last_torch: { kind: 'bungalow', place: 'jungle-bay', label: '$JBM', name: '_seacasa', amount: 75000, lit_at: '2026-10-15T21:05:11.000Z' },
   fire: { burned: 5716710 },
   season: { season: 1, ends_at: '2026-12-29T04:38:15.000Z' },
   flames: 134,
@@ -74,7 +74,15 @@ describe('fetchIslandTorches', () => {
     expect(data.fireBurned).toBe(5716710);
     expect(data.flames).toBe(134);
     expect(data.season).toEqual({ number: 1, endsAtMs: Date.parse('2026-12-29T04:38:15.000Z') });
-    expect(data.lastTorch).toEqual({ place: 'jungle-bay', label: '$JBM', name: '_seacasa', amount: 75000, litAtMs: Date.parse('2026-10-15T21:05:11.000Z') });
+    expect(data.lastTorch).toEqual({ kind: 'bungalow', place: 'jungle-bay', label: '$JBM', name: '_seacasa', amount: 75000, litAtMs: Date.parse('2026-10-15T21:05:11.000Z') });
+  });
+
+  it('keeps a feed to the fire as the last torch, and drops a last torch of a kind it does not know', async () => {
+    const feed = { kind: 'fire', place: 'fire', label: 'THE FIRE', name: '_seacasa', amount: 100000, lit_at: '2026-10-23T05:26:26.000Z' };
+    vi.stubGlobal('fetch', answer(200, { ...PROXY_BODY, last_torch: feed }));
+    expect((await fetchIslandTorches()).lastTorch).toMatchObject({ kind: 'fire', place: 'fire', label: 'THE FIRE' });
+    vi.stubGlobal('fetch', answer(200, { ...PROXY_BODY, last_torch: { ...feed, kind: 'mint' } }));
+    expect((await fetchIslandTorches({ fresh: true })).lastTorch).toBeNull();
   });
 
   it('a part the proxy could not read stays null; it never becomes a zero', async () => {
@@ -141,10 +149,12 @@ describe('the words', () => {
     expect(ageWords(NOW - 10_000, NOW)).toBe('just now');
   });
 
-  it('says the days left in the season, and nothing once it has ended', () => {
+  it('says the whole days left in the season, as the island counts them, and nothing once it has ended', () => {
     const season = { number: 1, endsAtMs: Date.parse('2026-12-29T04:38:15.000Z') };
-    expect(seasonLine(season, NOW)).toBe('68 days left in season one');
-    expect(seasonLine({ ...season, endsAtMs: NOW + 3_600_000 }, NOW)).toBe('1 day left in season one');
+    // 67 days and 1 h 38 m: the island's page says 67, so whole days round down.
+    expect(seasonLine(season, NOW)).toBe('67 days left in season one');
+    expect(seasonLine({ ...season, endsAtMs: NOW + 36 * 3_600_000 }, NOW)).toBe('1 day left in season one');
+    expect(seasonLine({ ...season, endsAtMs: NOW + 3_600_000 }, NOW)).toBe('The last day of season one');
     expect(seasonLine({ number: 12, endsAtMs: NOW + 5 * 86_400_000 }, NOW)).toBe('5 days left in season 12');
     expect(seasonLine({ ...season, endsAtMs: NOW - 1 }, NOW)).toBeNull();
   });

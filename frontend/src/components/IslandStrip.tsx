@@ -1,7 +1,7 @@
 // The island today, on the venue's home, under the doors (the island's venue review,
 // item 9): $BAYLA locked in the ladder, read from the pool; $BAYLA fed to the fire, the
 // island's own served total; the flames, counted from its board. Under them, the
-// island's season and its last torch, with the room and how long ago.
+// island's season and its last torch, with the room (or the fire) and how long ago.
 //
 // READ ON LOAD, NEVER TYPED. Each part is its own read and stands alone: a part that
 // could not be read is left out, never shown as a zero, and with nothing read the strip
@@ -78,7 +78,9 @@ export function IslandStrip() {
             {last && (
               <span data-testid="island-strip-last">
                 The last torch:{' '}
-                {lastRoom ? (
+                {last.kind === 'fire' ? (
+                  'the fire'
+                ) : lastRoom ? (
                   <Link to={`/${lastRoom}`} className="underline underline-offset-4 text-white/90">{last.label ?? lastRoom}</Link>
                 ) : (
                   last.label ?? 'a room'

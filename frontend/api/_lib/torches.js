@@ -85,13 +85,16 @@ const amount = (v) => typeof v === "number" && Number.isFinite(v) && v >= 0;
 const when = (v) => typeof v === "string" && Number.isFinite(Date.parse(v));
 const word = (v, max) => (typeof v === "string" && v.length > 0 && v.length <= max ? v : null);
 
-/** The rooms' torches from /api/torches: kind "bungalow" only (a feed to the fire has no room). */
-function roomTorchRows(body) {
+/**
+ * Every torch from /api/torches: one lit in a room (kind "bungalow") or one fed to the fire
+ * (kind "fire", place "fire"). The island's own page counts both as its last torch.
+ */
+function torchRows(body) {
   if (!Array.isArray(body?.torches)) return null;
   const rows = [];
   for (const t of body.torches) {
-    if (t?.kind !== "bungalow" || !word(t.place, 128) || !when(t.lit_at) || !amount(t.amount)) continue;
-    rows.push({ place: t.place, label: word(t.label, 32), name: word(t.name, 64), amount: t.amount, lit_at: t.lit_at });
+    if ((t?.kind !== "bungalow" && t?.kind !== "fire") || !word(t.place, 128) || !when(t.lit_at) || !amount(t.amount)) continue;
+    rows.push({ kind: t.kind, place: t.place, label: word(t.label, 32), name: word(t.name, 64), amount: t.amount, lit_at: t.lit_at });
   }
   // Newest first by the time each was lit, not by the order served.
   return rows.sort((a, b) => Date.parse(b.lit_at) - Date.parse(a.lit_at));
@@ -166,17 +169,18 @@ export async function handleTorches(req, res) {
     readJson(ROUTES.flames),
   ]);
 
-  const rows = roomTorchRows(torchesBody);
+  const rows = torchRows(torchesBody);
   let lastByPlace = null;
   if (rows) {
+    // A room's last torch is lit in that room; a feed to the fire belongs to no room.
     lastByPlace = new Map();
-    for (const r of rows) if (!lastByPlace.has(r.place)) lastByPlace.set(r.place, r);
+    for (const r of rows) if (r.kind === "bungalow" && !lastByPlace.has(r.place)) lastByPlace.set(r.place, r);
   }
   const newest = rows?.[0] ?? null;
   const out = {
     places: parsePlaces(placesBody, lastByPlace),
     last_torch: newest
-      ? { place: newest.place, label: newest.label, name: newest.name, amount: newest.amount, lit_at: newest.lit_at }
+      ? { kind: newest.kind, place: newest.place, label: newest.label, name: newest.name, amount: newest.amount, lit_at: newest.lit_at }
       : null,
     fire: parseFire(fireBody),
     season: parseSeason(seasonBody),

@@ -174,18 +174,26 @@ describe("the island read", () => {
     expect(body.places.find((p) => p.label === "$SOY").last).toBeNull();
   });
 
-  it("the island's last torch is its newest room torch; a feed to the fire has no room", async () => {
+  it("the island's last torch is its newest, a feed to the fire included, as the island's own page counts it", async () => {
     const { body } = await call();
     expect(body.last_torch).toEqual({
-      place: "jungle-bay", label: "$JBM", name: "_seacasa", amount: 75000, lit_at: "2026-10-15T21:05:11.000Z",
+      kind: "fire", place: "fire", label: "THE FIRE", name: "_seacasa", amount: 100000, lit_at: "2026-10-23T05:26:26.000Z",
     });
+  });
+
+  it("a feed to the fire is never a room's last torch", async () => {
+    const feedIntoJbm = { ...TORCHES.torches[0], place: "jungle-bay", lit_at: "2026-10-23T06:00:00.000Z" };
+    fetchMock = islandWith({ [URLS.torches]: { torches: [feedIntoJbm, ...TORCHES.torches] } });
+    vi.stubGlobal("fetch", fetchMock);
+    const { body } = await call();
+    expect(body.places.find((p) => p.label === "$JBM").last).toEqual({ name: "_seacasa", amount: 75000, lit_at: "2026-10-15T21:05:11.000Z" });
   });
 
   it("orders by the time lit, not by the order served", async () => {
     fetchMock = islandWith({ [URLS.torches]: { torches: [...TORCHES.torches].reverse() } });
     vi.stubGlobal("fetch", fetchMock);
     const { body } = await call();
-    expect(body.last_torch.label).toBe("$JBM");
+    expect(body.last_torch.label).toBe("THE FIRE");
     expect(body.places.find((p) => p.label === "$BAYLA").last.amount).toBe(175000);
   });
 

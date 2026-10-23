@@ -19,7 +19,7 @@ const { IslandStrip } = await import('./IslandStrip');
 
 const PROXY_BODY = {
   places: [],
-  last_torch: { place: 'jungle-bay', label: '$JBM', name: '_seacasa', amount: 75000, lit_at: '2026-10-15T21:05:11.000Z' },
+  last_torch: { kind: 'bungalow', place: 'jungle-bay', label: '$JBM', name: '_seacasa', amount: 75000, lit_at: '2026-10-15T21:05:11.000Z' },
   fire: { burned: 5716710 },
   season: { season: 1, ends_at: '2026-12-29T04:38:15.000Z' },
   flames: 134,
@@ -51,10 +51,21 @@ describe('the strip, every part read', () => {
     expect(await screen.findByTestId('island-strip-locked')).toHaveTextContent('15,104,482 $BAYLA locked');
     expect(screen.getByTestId('island-strip-fire')).toHaveTextContent('5,716,710 $BAYLA fed to the fire');
     expect(screen.getByTestId('island-strip-flames')).toHaveTextContent('134 flames');
-    expect(screen.getByTestId('island-strip-season')).toHaveTextContent('68 days left in season one');
+    expect(screen.getByTestId('island-strip-season')).toHaveTextContent('67 days left in season one');
     expect(screen.getByTestId('island-strip-last')).toHaveTextContent('The last torch: $JBM, by _seacasa, 7 days ago');
     expect(screen.getByRole('link', { name: '$JBM' })).toHaveAttribute('href', '/jbm');
     expect(container.querySelector('[data-card-art]')).not.toBeNull();
+  });
+});
+
+describe('the last torch, as the island counts it', () => {
+  it('a feed to the fire is the last torch when it is the newest, and its place is the fire', async () => {
+    ladder.read.mockResolvedValue(null);
+    const feed = { kind: 'fire', place: 'fire', label: 'THE FIRE', name: '_seacasa', amount: 100000, lit_at: '2026-10-23T02:24:43.000Z' };
+    vi.stubGlobal('fetch', answer(200, { ...PROXY_BODY, last_torch: feed }));
+    draw();
+    expect(await screen.findByTestId('island-strip-last')).toHaveTextContent('The last torch: the fire, by _seacasa, 35 minutes ago');
+    expect(screen.queryByRole('link', { name: /THE FIRE/ })).toBeNull();
   });
 });
 
