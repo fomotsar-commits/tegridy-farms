@@ -25,14 +25,26 @@ import { BasketCta, IslandBasketButton, IslandBasketDialog, type BasketRow, type
 
 /**
  * The order's figures are asked for again this often while it is open. Longer than the
- * swap's 30 s: five coins a round against Jupiter's rate limit (the site's relay allows 60
- * calls a minute). What is sent is quoted again at the press and held to these figures.
+ * swap's 30 s: five coins a round against Jupiter's rate limit (see QUOTE_GAP_MS). What is
+ * sent is quoted again at the press and held to these figures.
  */
 const REQUOTE_MS = 60_000;
 /** While a price is missing, it is asked for again this soon. */
 const RETRY_MS = 15_000;
-/** Between one coin's Jupiter quote and the next: Jupiter's keyless tier refuses a burst. */
+/**
+ * Between one coin's Jupiter quote and the next. Jupiter's free key allows the whole site
+ * one request a second, every visitor and every call alike (developers.jup.ag rate limits,
+ * 2026-10-23), and refuses a burst: the five quotes cannot all be asked at once. The
+ * figures do not wait for them (PRICE_IDS).
+ */
 const QUOTE_GAP_MS = 1_100;
+/**
+ * SOL's and every island coin's USD price, in one read the relay shares between visitors
+ * for 30 s (`shared`, api/aggregator.js). Read as soon as the order's stub is on screen,
+ * so the order opens sized, with every coin's figure at its market price; each quote
+ * replaces its coin's figure as it lands, and Buy waits for every quote.
+ */
+const PRICE_IDS = [SOL_MINT, ...SOL_BASKET.map((c) => c.mint)];
 /** How long one coin's Jupiter quote (retries included) may take before it counts as unread. */
 const QUOTE_TIMEOUT_MS = 15_000;
 const PRESS_QUOTE_TIMEOUT_MS = 30_000;
@@ -118,7 +130,9 @@ export function IslandBasketSolana(p: {
   const { publicKey, sendTransaction } = useWallet();
   const [open, setOpen] = useState(false);
   const [usd, setUsd] = useState('10');
-  const [solUsd, setSolUsd] = useState<number | null>(null);
+  // USD prices by mint (PRICE_IDS), the last read that answered.
+  const [prices, setPrices] = useState<Record<string, number> | null>(null);
+  const solUsd = prices?.[SOL_MINT] ?? null;
   const [lamports, setLamports] = useState<bigint | null>(null);
   const [quotes, setQuotes] = useState<{ key: string; legs: LegRead[] } | null>(null);
   const [quoting, setQuoting] = useState(false);
@@ -154,14 +168,34 @@ export function IslandBasketSolana(p: {
     setFrozen(null);
   }
 
-  // SOL's price and this wallet's SOL while the order is open.
+  // The prices (PRICE_IDS): once as soon as the stub is on screen, then each REQUOTE_MS
+  // while the order is open. A read younger than that is not made again on opening: a new
+  // SOL price re-sizes the split, and a new split starts its quotes over.
+  const alive = useRef(true);
+  useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
+  const pricesAt = useRef(0);
+  const pricesBusy = useRef(false);
+  const readPrices = useCallback(() => {
+    if (pricesBusy.current) return;
+    pricesBusy.current = true;
+    void getUsdPrices(PRICE_IDS, undefined, { shared: true })
+      .then((pr) => { if (alive.current) { pricesAt.current = Date.now(); setPrices(pr); } })
+      .catch(() => { /* the last prices stand */ })
+      .finally(() => { pricesBusy.current = false; });
+  }, []);
+  useEffect(() => { readPrices(); }, [readPrices]);
   useEffect(() => {
     if (!open) return;
+    if (Date.now() - pricesAt.current >= REQUOTE_MS) readPrices();
+    const iv = running ? null : setInterval(readPrices, REQUOTE_MS);
+    return () => { if (iv) clearInterval(iv); };
+  }, [open, running, tick, readPrices]);
+
+  // This wallet's SOL while the order is open.
+  useEffect(() => {
+    if (!open || !publicKey) return;
     let cancelled = false;
-    const read = () => {
-      void getUsdPrices([SOL_MINT]).then((pr) => { if (!cancelled) setSolUsd(pr[SOL_MINT] ?? null); }).catch(() => { /* the last price stands */ });
-      if (publicKey) void connection.getBalance(publicKey, 'confirmed').then((b) => { if (!cancelled) setLamports(BigInt(b)); }).catch(() => { if (!cancelled) setLamports(null); });
-    };
+    const read = () => { void connection.getBalance(publicKey, 'confirmed').then((b) => { if (!cancelled) setLamports(BigInt(b)); }).catch(() => { if (!cancelled) setLamports(null); }); };
     read();
     const iv = running ? null : setInterval(read, REQUOTE_MS);
     return () => { cancelled = true; if (iv) clearInterval(iv); };
@@ -192,17 +226,22 @@ export function IslandBasketSolana(p: {
   }, [p.slippageBps, gap]);
 
   const latest = useRef(0);
+  // The order last asked for: an amount being typed waits half a second before its quotes
+  // are asked; an order opened, or asked again, is asked at once.
+  const askedKey = useRef<string | null>(null);
   useEffect(() => {
     if (!open || running || !legs || !orderKey) return;
     const id = ++latest.current;
     const key = orderKey;
+    const delay = askedKey.current !== null && askedKey.current !== key ? 500 : 0;
+    askedKey.current = key;
     const t = setTimeout(() => {
       setQuoting(true);
       // The same order asked again keeps its figures on screen while they are re-read; another order starts blank.
       setQuotes((was) => (was && was.key === key ? was : { key, legs: legs.map(() => ({})) }));
       const landed = (i: number, read: LegRead) => setQuotes((was) => (was && was.key === key ? { key, legs: was.legs.map((q, j) => (j === i ? { ...q, ...read } : q)) } : was));
       void quoteAll(legs, () => latest.current === id, landed).then(() => { if (latest.current === id) setQuoting(false); });
-    }, 500);
+    }, delay);
     return () => clearTimeout(t);
   }, [open, running, legs, orderKey, quoteAll, tick]);
 
@@ -321,11 +360,17 @@ export function IslandBasketSolana(p: {
     }
   }
 
+  // Until a coin's quote lands, its figure is its dollars at its market price, less the
+  // site fee where one is taken: a figure to look at, never one a press is held to.
+  const feeShare = isSolanaFeeConfigured() ? SOLANA_PLATFORM_FEE_BPS / 10_000 : 0;
+  const usdEach = orderKey && Number.isFinite(dollars) && dollars > 0 ? dollars / n : 0;
   const rows: BasketRow[] = SOL_BASKET.map((coin, i) => {
     const q = shown?.[i];
     const r = shownRoute(q);
     const s = states[i];
-    const venue = !r ? null : r.decision === 'own' ? 'Our pool' : r.decision === 'jupiter' ? `${coin.pool.dex === 'pumpswap' ? 'PumpSwap' : 'Raydium'} via Jupiter` : r.decision === 'unread' ? 'Price not read' : 'No route';
+    const coinUsd = prices?.[coin.mint];
+    const estimate = !r && usdEach > 0 && typeof coinUsd === 'number' && Number.isFinite(coinUsd) && coinUsd > 0 ? (usdEach / coinUsd) * (1 - feeShare) : null;
+    const venue = !r ? (estimate !== null ? 'market price' : null) : r.decision === 'own' ? 'Our pool' : r.decision === 'jupiter' ? `${coin.pool.dex === 'pumpswap' ? 'PumpSwap' : 'Raydium'} via Jupiter` : r.decision === 'unread' ? 'Price not read' : 'No route';
     const status: BasketRow['status'] =
       !s ? (q?.own === null ? { tone: 'muted', text: 'Our pools not read' } : r && q && q.own === undefined ? { tone: 'busy', text: 'Comparing our pool…' } : undefined)
       : s.kind === 'busy' ? { tone: 'busy', text: s.text }
@@ -339,8 +384,9 @@ export function IslandBasketSolana(p: {
       room: coin.room,
       symbol: coin.symbol,
       venue,
-      // A coin not yet read shows nothing while there is an order to read it for.
-      pays: r?.out != null ? `≈ ${shortAmount(Number(fromBaseUnits(r.out.toString(), coin.decimals)))}` : r || !orderKey ? '–' : null,
+      // A coin not yet quoted shows its market-price figure, or nothing while there is an order to quote it for.
+      pays: r?.out != null ? `≈ ${shortAmount(Number(fromBaseUnits(r.out.toString(), coin.decimals)))}` : estimate !== null ? `≈ ${shortAmount(estimate)}` : r || !orderKey ? '–' : null,
+      estimate: estimate !== null,
       status,
     };
   });
