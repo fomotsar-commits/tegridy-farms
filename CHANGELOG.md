@@ -7,6 +7,10 @@ The site's Changelog tab shows both files.
 
 ## [Unreleased]
 
+### 2026-10-23
+
+- Solana swap: when Jupiter is busy and turns a call away during Buy, the press waits a moment and asks again (up to twice) instead of stopping with "Not sent" or "Swap not checked". The same holds for Buy all bungalows and Add with one coin.
+
 ### 2026-10-22
 
 - Solana swap: the Buy all bungalows order shows each coin's figure as soon as it is read, instead of holding all five until the slowest read came back. Our pools are read alongside Jupiter's quotes now, not before them; a coin whose comparison is still on its way says "Comparing our pool…" under its figure, and Buy waits for it.
