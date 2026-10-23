@@ -48,6 +48,13 @@ describe('RoomTorches on a room door', () => {
     expect(container.querySelector('[data-card-art]')).not.toBeNull();
   });
 
+  it('the row size is the island\'s, not a typed twelve', async () => {
+    const six = { ...PROXY_BODY.places[0], torches: 3, slots_per_row: 6 };
+    vi.stubGlobal('fetch', answer(200, { ...PROXY_BODY, places: [six] }));
+    render(<RoomTorches roomId="bayla" />);
+    expect(await screen.findByTestId('room-torches-line')).toHaveTextContent('3 of 6 lit');
+  });
+
   it('a torch lit by someone with no name says so, instead of a blank', async () => {
     vi.stubGlobal('fetch', answer(200, PROXY_BODY));
     render(<RoomTorches roomId="pepe" />);
