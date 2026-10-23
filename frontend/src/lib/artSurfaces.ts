@@ -98,6 +98,7 @@ export const PAGE_ROUTES: Record<string, string> = {
   terminal: '/terminal',
   developer: '/developers',
   'nav-drawer': '/',
+  'island-basket': '/swap',
   'legacy-exit': '/earn/toweli',
   wizard: '/nft-finance',
   // 2026-10-03: the pageIds minted for card art, plus the older ones that had
@@ -108,6 +109,7 @@ export const PAGE_ROUTES: Record<string, string> = {
   'flames-board': '/',
   'three-paths': '/',
   'venue-doors': '/',
+  'island-dashboard': '/',
   'yield-calculator': '/',
   'bungalow-dashboard': '/dashboard',
   portfolio: '/dashboard',
@@ -135,6 +137,8 @@ export const PAGE_ROUTES: Record<string, string> = {
   'pending-trade': '/solana-lp',
   'solana-lp': '/solana-lp',
   'venue-amm': '/solana-lp',
+  // Listed and routed only while range pools show (clmm/programId.ts).
+  'range-pools': '/range-pools',
   zap: '/zap',
   'venue-launch-lines': '/curve-launch',
   'gate-audit-panel': '/launch',
@@ -599,12 +603,18 @@ export const SURFACES: Surface[] = [
   // happen to be on, so the Live-page preview can't scroll to them (it will
   // report "not found"). Use the Art tab to place them.
   { group: 'Popups', pageId: 'nav-drawer', idx: 0, label: 'MO3 — Mobile nav drawer' },
-  // The menu's rows, each with its own picture (NavDrawer.tsx ROW_ART), and its More list's (MORE_ART).
-  { group: 'Popups', pageId: 'nav-drawer', idx: 1, label: 'MO3a — Menu row: Pools' },
-  { group: 'Popups', pageId: 'nav-drawer', idx: 2, label: 'MO3b — Menu row: Check' },
-  { group: 'Popups', pageId: 'nav-drawer', idx: 3, label: 'MO3c — Menu: the More list' },
+  // The index's groups, each with its own picture (navConfig.ts INDEX_GROUPS `art`; Dashboard's
+  // is NavDrawer.tsx DASHBOARD_ART). 0 is the menu's own, and the Records group's.
+  { group: 'Popups', pageId: 'nav-drawer', idx: 1, label: 'MO3a — Menu group: Pools' },
+  { group: 'Popups', pageId: 'nav-drawer', idx: 2, label: 'MO3b — Menu group: Check' },
+  { group: 'Popups', pageId: 'nav-drawer', idx: 3, label: 'MO3c — Menu group: Island' },
   { group: 'Popups', pageId: 'nav-drawer', idx: 4, label: 'MO3d — Menu row: Dashboard' },
+  { group: 'Popups', pageId: 'nav-drawer', idx: 5, label: 'MO3e — Menu group: Swap' },
+  { group: 'Popups', pageId: 'nav-drawer', idx: 6, label: 'MO3f — Menu group: Lock' },
+  { group: 'Popups', pageId: 'nav-drawer', idx: 7, label: 'MO3g — Menu group: Launch' },
   { group: 'Popups', pageId: 'legacy-exit', idx: 0, label: 'MO6 — Legacy staking notice' },
+  // "Buy all bungalows" on the swap card (IslandBasket.tsx).
+  { group: 'Popups', pageId: 'island-basket', idx: 0, label: 'MO7 — Buy all bungalows' },
 
   // Launchpad wizard (gated) — the last cards in the app that had no art at all.
   { group: 'Launchpad wizard', pageId: 'wizard', idx: 0, label: 'WZ1 — Arweave upload cost' },
@@ -632,6 +642,7 @@ export const SURFACES: Surface[] = [
   { group: 'Home', pageId: 'three-paths', idx: 1, label: 'Three paths card 2 (Marketplace)' },
   { group: 'Home', pageId: 'three-paths', idx: 2, label: 'Three paths card 3 (Launch)' },
   { group: 'Home', pageId: 'venue-doors', idx: 0, label: 'Hall of doors panel (venue home)' },
+  { group: 'Home', pageId: 'island-dashboard', idx: 0, label: 'Dashboard panel (venue home, above the three cards; also /dashboard)' },
   { group: 'Home', pageId: 'yield-calculator', idx: 0, label: 'Yield calculator (TOWELI room, not connected)' },
 
   // Dashboard
@@ -772,6 +783,12 @@ export const SURFACES: Surface[] = [
   { group: 'Pools · Solana LP', pageId: 'solana-lp', idx: 13, label: 'All pools card (every pool on the venue, before a lookup)' },
   { group: 'Pools · Solana LP', pageId: 'venue-amm', idx: 0, label: 'Venue status card' },
   { group: 'Pools · Solana LP', pageId: 'venue-amm', idx: 1, label: 'The program card' },
+
+  // Pools · Range (hidden until range pools open; 'swap' idx 0 is its backdrop too)
+  { group: 'Pools · Range', pageId: 'range-pools', idx: 0, label: 'How a range position earns' },
+  { group: 'Pools · Range', pageId: 'range-pools', idx: 1, label: 'Pick a pool' },
+  { group: 'Pools · Range', pageId: 'range-pools', idx: 2, label: 'Pick your range (a pool picked)' },
+  { group: 'Pools · Range', pageId: 'range-pools', idx: 3, label: 'Your range positions' },
 
   // Pools · Venue AMM
   { group: 'Pools · Venue AMM', pageId: 'venue-amm', idx: 3, label: 'For liquidity providers card' },

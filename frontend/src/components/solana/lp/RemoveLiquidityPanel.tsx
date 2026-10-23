@@ -10,6 +10,7 @@ import type { PoolView } from '../../../lib/solana/lp/poolFinder';
 import { formatWhen } from '../../../lib/solana/lp/poolHealth';
 import type { Position } from '../../../lib/solana/lp/positions';
 import { quoteCoin } from '../../../lib/solana/lp/quotes';
+import { tokenTicker } from '../../../lib/solana/lp/identity';
 import { TOKEN_PROGRAM, type TokenSafety } from '../../../lib/solana/lp/tokenSafety';
 import { Notice, Row, SlippagePicker } from '../curve/ui';
 import { DEFAULT_SLIPPAGE_BPS, sharePercent } from '../curve/uiFormat';
@@ -225,14 +226,11 @@ function RemoveInner({
     ? `${displaySafe(safety.name ?? '', 32)} (${displaySafe(safety.symbol ?? '', 12)})`
     : null;
 
-  // The token by name on the confirmed card: a pairing coin's own symbol, or the symbol it
-  // gives itself once read and not blocked, on a row that is not set aside. A symbol that
-  // copies a well-known one or is written in look-alike letters is never said as the
-  // name ("5 USDC" from a copy). Else "tokens".
-  const copiesAName = safety?.kind === 'read' && safety.warnings.some((w) => w.code === 'copies-known-name' || w.code === 'lookalike-letters');
+  // The token by name on the confirmed card, as the pool's heading says it (identity.ts): a
+  // copy of a well-known ticker reads "fake USDC", never "5 USDC". A row set aside, or a
+  // blocked token, is named only when it is a pairing coin. Else "tokens".
   const tokenName =
-    quoteCoin(view.tokenMint)?.symbol ??
-    (!setAside && !copiesAName && safety?.kind === 'read' && safety.verdict !== 'blocked' && safety.symbol ? displaySafe(safety.symbol, 12) : null);
+    !setAside && (safety?.kind !== 'read' || safety.verdict !== 'blocked') ? tokenTicker(view.tokenMint, safety) : (quoteCoin(view.tokenMint)?.symbol ?? null);
   // What came out, from the transaction that was signed: "about", as the review said it
   // (the pool read when it was built). Nothing is said without that summary.
   const removed = (prepared: PreparedTx | null) => {

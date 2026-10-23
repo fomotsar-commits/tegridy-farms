@@ -6,6 +6,8 @@ import { POOLS_SECTION } from '../lib/navConfig';
 const LiquidityPage = lazy(() => import('./LiquidityPage'));
 // Solana liquidity: the venue AMM's LP section, behind its live read.
 const SolanaLpPage = lazy(() => import('./SolanaLpPage'));
+// The Range tab: liquidity between two prices, in the venue's own range program.
+const RangePoolsPage = lazy(() => import('./RangePoolsPage'));
 // The venue's Solana AMM: its live status, fee sheet and the same LP section.
 const PoolsPage = lazy(() => import('./PoolsPage'));
 // One token in, LP position out, as one resumable run.
@@ -27,6 +29,7 @@ export default function PoolsHostPage() {
       panels={{
         '/liquidity': LiquidityPage,
         '/solana-lp': SolanaLpPage,
+        '/range-pools': RangePoolsPage,
         '/pools': PoolsPage,
         '/zap': ZapPage,
       }}

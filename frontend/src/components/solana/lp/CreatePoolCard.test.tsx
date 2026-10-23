@@ -551,8 +551,8 @@ describe('each answer has its own line, and only `offer` has the button', () => 
       expect(within(card).getByTestId('lp-pool-warnings')).toHaveTextContent(
         'Its price is 900.0% above the launch pool’s price. If you add now, whoever trades it back takes up to about 42.5% of what you add (about $42.50 per $100).',
       );
-      expect(row(card, 'Price here')).toBe('1 token = 0.1 SOL');
-      expect(row(card, 'The launch pool’s price')).toBe('1 token = 0.01 SOL');
+      expect(row(card, 'Price here')).toBe('1 CORN = 0.1 SOL');
+      expect(row(card, 'The launch pool’s price')).toBe('1 CORN = 0.01 SOL');
       expect(row(card, 'Difference')).toBe('900.0% above the launch pool’s price');
       // Nothing on it says its price was compared with nothing.
       expect(card).not.toHaveTextContent('Jupiter has no market price');
@@ -576,7 +576,7 @@ describe('each answer has its own line, and only `offer` has the button', () => 
       const card = poolCard(theirs.address);
       expect(card).toHaveAttribute('data-price', 'agrees');
       expect(within(card).getByText('Deposits: the checks pass')).toBeInTheDocument();
-      expect(row(card, 'The launch pool’s price')).toBe('1 token = 0.01 SOL');
+      expect(row(card, 'The launch pool’s price')).toBe('1 CORN = 0.01 SOL');
       expect(within(c).getByTestId('lp-create-refer')).toHaveTextContent('We suggest adding to it: liquidity in one place gives traders a better price.');
       const add = await within(c).findByRole('button', { name: 'Go to that pool' });
       fireEvent.click(add);

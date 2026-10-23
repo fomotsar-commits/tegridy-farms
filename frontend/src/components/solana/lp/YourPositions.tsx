@@ -375,7 +375,7 @@ function PositionRow({
     position: p,
     held: writes !== null && poolAddress !== null && lpHeld(writes.pending.notes, poolAddress, 'remove'),
   });
-  const units = view ? ledgerUnits(view) : null;
+  const units = view ? ledgerUnits(view, safety) : null;
   // What the opener's 100 locked share units are worth, once the ledger has read the opening: shown in the fold.
   const [locked, setLocked] = useState<string | null>(null);
   // Needs no history: the share of the pool's two reserves, to the unit, under the token's registry name.
@@ -425,7 +425,7 @@ function PositionRow({
       data-pool-kind={pool?.kind ?? 'none'}
       data-remove={offer}
     >
-      {view ? <h3 className={HEAD}>{pairLabel(view)}</h3> : shareRows}
+      {view ? <h3 className={HEAD}>{pairLabel(view, safety)}</h3> : shareRows}
       {setAside && <Notice tone="warn">Set aside: {setAside}.</Notice>}
       {p.placement === 'index-unread' && (
         <Notice tone="warn">
@@ -460,7 +460,7 @@ function PositionRow({
           {!checkedClean && tokenCheck}
           <p data-testid="lp-fees-in-shares">{LEDGER_COPY.feesInShares}</p>
           {!setAside && readers.ledger ? (
-            <LedgerBlock p={p} owner={owner} view={view} readers={readers} auto={autoLedger} chainNow={chainNow} worth={worth} onLocked={setLocked} />
+            <LedgerBlock p={p} owner={owner} view={view} safety={safety} readers={readers} auto={autoLedger} chainNow={chainNow} worth={worth} onLocked={setLocked} />
           ) : (
             worth
           )}
@@ -558,6 +558,7 @@ function LedgerBlock({
   p,
   owner,
   view,
+  safety,
   readers,
   auto,
   chainNow,
@@ -567,6 +568,8 @@ function LedgerBlock({
   p: Position;
   owner: PublicKey;
   view: PoolView;
+  /** The token's check, for its ticker in the amounts. */
+  safety: TokenSafety | null;
   readers: LpReaders;
   auto: boolean;
   chainNow: bigint | null;
@@ -639,7 +642,7 @@ function LedgerBlock({
     if (shown.forView === view || (kept.kind !== 'ok' && kept.kind !== 'worth-only')) return kept;
     return ledgerFigures(shown.entries, view, p.lpAmount, kept.window.more);
   }, [shown, view, p.lpAmount]);
-  const u = ledgerUnits(view);
+  const u = ledgerUnits(view, safety);
   const locked = r?.kind === 'ok' ? ledgerText.locked(r.figures, u) : null;
   useEffect(() => {
     onLocked(locked);

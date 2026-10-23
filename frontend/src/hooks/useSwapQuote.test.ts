@@ -379,3 +379,39 @@ describe('useSwapQuote on Base: our pools vs Uniswap V2, the better one wins (20
     expect(q.outputAmount).toBe(0n);
   });
 });
+
+describe('useSwapQuote: ETH into WETH is one coin, not a route', () => {
+  // The path is [weth, weth]: no pool swaps a coin for itself, the quote is 0 and the Swap
+  // button stays off. Before, the route line still read "Direct swap via Uniswap V2".
+  const BASE_WETH: TokenInfo = {
+    address: '0x4200000000000000000000000000000000000006', symbol: 'WETH', name: 'Wrapped Ether', decimals: 18, logoURI: '',
+  };
+  const MAINNET_WETH: TokenInfo = { ...BASE_WETH, address: WETH_ADDRESS };
+  const SAME_COIN = 'ETH and WETH are the same coin; wrap or unwrap it in your wallet';
+
+  beforeEach(() => wagmiMock.reset());
+
+  it('says so on Base, both ways round', () => {
+    wagmiMock.setChainId(8453);
+    for (const [from, to] of [[ETH, BASE_WETH], [BASE_WETH, ETH]] as const) {
+      const q = renderHook(() => useSwapQuote(from, to, parseEther('1'), 0.5, undefined, 8453)).result.current;
+      expect(q.routeLabel).toBe(SAME_COIN);
+      expect(q.outputAmount).toBe(0n);
+    }
+  });
+
+  it('says so on Ethereum too, where an aggregator quote is never routable in-app', () => {
+    wagmiMock.setChainId(CHAIN_ID);
+    const q = renderHook(() => useSwapQuote(ETH, MAINNET_WETH, parseEther('1'), 0.5, undefined)).result.current;
+    expect(q.routeLabel).toBe(SAME_COIN);
+  });
+
+  it('leaves a real pair alone', () => {
+    wagmiMock.setChainId(CHAIN_ID);
+    stubDirectPair(PAIR);
+    stubUniQuote(DUST_IN, AT_MID_OUT);
+    stubPairReads();
+    const q = renderHook(() => useSwapQuote(ETH, TKN, DUST_IN, 0.5, undefined)).result.current;
+    expect(q.routeLabel).toMatch(/^Direct swap via/);
+  });
+});

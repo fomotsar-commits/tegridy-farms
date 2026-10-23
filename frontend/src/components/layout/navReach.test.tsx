@@ -22,7 +22,7 @@ import {
   BAR_NAV,
   DASHBOARD_NAV,
   DRAWER_LINKS,
-  DRAWER_MORE,
+  INDEX_PAGES,
   DRAWER_SECTIONS,
   ISLAND_SECTION,
   NAV_SECTIONS,
@@ -70,7 +70,7 @@ function starts(): string[] {
     ...BAR_NAV.map((w) => w.to),
     ...DRAWER_SECTIONS.map((s) => s.primaryTo ?? s.hub),
     ...DRAWER_LINKS.map((l) => l.to),
-    ...DRAWER_MORE.map((i) => i.to),
+    ...INDEX_PAGES.map((i) => i.to), // the menu's index: every section's pages, one tap each
     DASHBOARD_NAV.to, // a drawer row once a wallet connects
     ...footer,
   ].map((to) => to.split('#')[0]!);
@@ -110,10 +110,12 @@ function reachable(): Set<string> {
 describe('the nav strands no page', () => {
   it('reaches every routed page from the bar, the drawer or the footer, in a few taps', () => {
     const redirects = new Set(REDIRECT_ROUTES.map((r) => r.path));
+    // Not routed in this build at all (the route table's 'not-yet-routed'), so nothing to reach.
+    const notRouted = new Set(ROUTES.filter((r) => r.gate === 'not-yet-routed').map((r) => r.path));
     const seen = reachable();
     const offToday = new Set(NAV_SECTIONS.flatMap((s) => s.items).filter((i) => i.soon).map((i) => i.to));
     const stranded = ROUTES.map((r) => r.path).filter(
-      (p) => !p.includes(':') && p !== '/*' && !redirects.has(p) && !(p in URL_ONLY) && !offToday.has(p) && !seen.has(p),
+      (p) => !p.includes(':') && p !== '/*' && !redirects.has(p) && !notRouted.has(p) && !(p in URL_ONLY) && !offToday.has(p) && !seen.has(p),
     );
     expect(stranded, 'reachable only by typing the URL').toEqual([]);
   });

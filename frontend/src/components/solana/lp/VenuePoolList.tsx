@@ -1,14 +1,16 @@
 import { useEffect, useState, type Ref } from 'react';
 import type { PoolView } from '../../../lib/solana/lp/poolFinder';
+import type { TokenSafety } from '../../../lib/solana/lp/tokenSafety';
 import { LITTLE_MONEY_TEXT, poolTags, type PoolListRead } from '../../../lib/solana/lp/poolList';
 import { poolPricePerToken } from '../../../lib/solana/lp/poolHealth';
-import { priceText, quoteText, tokenText } from '../../../lib/solana/lp/format';
-import { pairLabel, registryToken } from '../../../lib/solana/lp/identity';
-import { QUOTE_COINS_OR, quoteCoin } from '../../../lib/solana/lp/quotes';
+import { quoteText, tokenText } from '../../../lib/solana/lp/format';
+import { pairLabel, siteNamed, tokenTicker } from '../../../lib/solana/lp/identity';
+import { QUOTE_COINS_OR } from '../../../lib/solana/lp/quotes';
 import { Card, Notice } from '../curve/ui';
 import { CardArt } from '../../ui/CardArt';
 import { FinePrint } from '../../ui/FinePrint';
 import type { LpReaders } from './readers';
+import { PriceFlip } from './PriceFlip';
 import { BUNGALOWS } from '../../../lib/bungalows';
 import { useActiveBungalowId } from '../../../hooks/useActiveBungalowId';
 
@@ -63,7 +65,12 @@ export function VenuePoolList({
           </p>
           <p>Anyone can open a pool, at any price. View one to see its checks before adding to it.</p>
           <p>
-            The tags on a row come from what the list read. Trading off, Adding off and Removing off: the pool has that switched off. Frozen:
+            A coin that is not one of ours shows the ticker it gives itself, with its whole address under it. Anyone can give a coin
+          any ticker: one that copies the ticker of one of ours, or of SOL, USDC or USDT, reads “fake”. Only the address says which
+          coin it is.
+        </p>
+        <p>
+          The tags on a row come from what the list read. Trading off, Adding off and Removing off: the pool has that switched off. Frozen:
             a coin’s issuer froze one of the pool’s accounts, so nothing moves in or out. Trading not open yet: its trading starts later,
             maybe years from now. Little money in pool: it holds {LITTLE_MONEY_TEXT} (a pool priced in BAYLA never gets this tag). No
             trades yet, and No trades in 7 days: from the pool’s own trade record. Anything not read gives no tag, and a row with no tag is
@@ -84,7 +91,7 @@ function PoolRows({
   onView: (tokenMint: string) => void;
   onAdd?: (tokenMint: string, pool: string, quoteMint: string) => void;
 }) {
-  const { pools: listed, unread, truncated, chainNow } = list;
+  const { pools: listed, unread, truncated, chainNow, safety } = list;
   // A reader in a Solana room sees that coin's pools first (the LP door, island answer twenty); the rest keep the list's order.
   const roomId = useActiveBungalowId();
   const roomMint = BUNGALOWS.find((b) => b.id === roomId && b.chain === 'solana')?.address ?? null;
@@ -95,7 +102,7 @@ function PoolRows({
       {pools.length > 0 && (
         <ul className="space-y-2" aria-label="All pools: SOL pools first, then USDC, then BAYLA, the deepest of each first">
           {pools.map((view) => (
-            <PoolRow key={view.address} view={view} chainNow={chainNow} onView={onView} onAdd={onAdd} />
+            <PoolRow key={view.address} view={view} safety={safety.get(view.tokenMint) ?? null} chainNow={chainNow} onView={onView} onAdd={onAdd} />
           ))}
         </ul>
       )}
@@ -109,13 +116,25 @@ function PoolRows({
   );
 }
 
-function PoolRow({ view, chainNow, onView, onAdd }: { view: PoolView; chainNow: bigint | null; onView: (tokenMint: string) => void; onAdd?: (tokenMint: string, pool: string, quoteMint: string) => void }) {
+function PoolRow({
+  view,
+  safety,
+  chainNow,
+  onView,
+  onAdd,
+}: {
+  view: PoolView;
+  safety: TokenSafety | null;
+  chainNow: bigint | null;
+  onView: (tokenMint: string) => void;
+  onAdd?: (tokenMint: string, pool: string, quoteMint: string) => void;
+}) {
   const { pool } = view.snapshot;
   const tokenDecimals = view.quoteIsToken0 ? pool.mint1Decimals : pool.mint0Decimals;
-  // Named only by an address this site knows: a room's token, or a pairing coin (USDC in USDC / SOL).
-  const symbol = registryToken(view.tokenMint)?.symbol ?? quoteCoin(view.tokenMint)?.symbol ?? null;
+  // Our coins and the pairing coins by the site's own name; any other coin by its own ticker (identity.ts).
+  const symbol = tokenTicker(view.tokenMint, safety);
   const price = poolPricePerToken(view.snapshot, view.tokenMint, tokenDecimals);
-  const label = pairLabel(view);
+  const label = pairLabel(view, safety);
   const tags = poolTags(view, chainNow);
   return (
     <li
@@ -125,12 +144,14 @@ function PoolRow({ view, chainNow, onView, onAdd }: { view: PoolView; chainNow: 
     >
       <div className="min-w-0 flex-1 space-y-0.5">
         <p className="text-white font-semibold text-[14px]">{label}</p>
-        {/* Any other token is headed by its short address, which can be ground to collide: the whole one is said too. */}
-        {symbol === null && <p className="font-mono text-white/55 text-[11px] break-all">{view.tokenMint}</p>}
+        {/* Any other coin's ticker is its own claim, and a short address can be ground to collide: the whole address is said too. */}
+        {!siteNamed(view.tokenMint) && <p className="font-mono text-white/55 text-[11px] break-all">{view.tokenMint}</p>}
         <p className="text-white/75 text-[12.5px] [overflow-wrap:anywhere]">
           Holds {quoteText(view.quoteReserve, view.quote)} and {tokenText(view.tokenReserve, tokenDecimals, symbol ?? 'tokens')}
         </p>
-        <p className="text-white/75 text-[12.5px] [overflow-wrap:anywhere]">{price === null ? 'No price: one side is empty' : priceText(price, view.quote, symbol ?? 'token')}</p>
+        <p className="text-white/75 text-[12.5px] [overflow-wrap:anywhere]">
+          {price === null ? 'No price: one side is empty' : <PriceFlip perToken={price} quote={view.quote} unit={symbol ? { one: symbol, many: symbol } : { one: 'token', many: 'tokens' }} />}
+        </p>
         {tags.length > 0 && (
           <ul className="flex flex-wrap gap-1.5 pt-1" aria-label={`${label}: warnings`}>
             {tags.map((t) => (

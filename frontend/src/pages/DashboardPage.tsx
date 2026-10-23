@@ -51,7 +51,7 @@ import { usePortfolio } from '../hooks/usePortfolio';
 import { UnifiedPortfolio } from '../components/portfolio/UnifiedPortfolio';
 import { getBungalowIdentity } from '../lib/bungalows';
 import { isToweliVoice } from '../lib/arrival';
-import { VenuePoolIndex } from '../components/farm/VenuePoolIndex';
+import { IslandDashboard } from '../components/IslandDashboard';
 import { PageSkeleton } from '../components/PageSkeleton';
 
 // Jungle Bay bungalows: lazy so the @solana/* wallet stack rides ONLY the
@@ -136,30 +136,12 @@ export default function DashboardPage() {
  */
 function VenueDashboard() {
   usePageTitle(
-    'Your positions',
-    'Positions on Jungle Bay Island live in the room they were opened in — each resident pool is its own token, on its own chain.',
+    'Dashboard',
+    'Every pool on Jungle Bay Island. Positions live in the room they were opened in — each resident pool is its own token, on its own chain.',
   );
   return (
-    <div className="mx-auto w-full max-w-[900px] px-4 py-8 sm:py-10">
-      <header className="mb-6">
-        <p className="text-[11px] uppercase tracking-wider label-pill mb-2" style={{ color: 'var(--color-kyle)' }}>
-          Jungle Bay Island
-        </p>
-        <h1 className="heading-luxury text-3xl md:text-4xl text-white leading-tight mb-3">
-          Your positions
-        </h1>
-        <p className="text-white/75 text-[14px] md:text-[15px] leading-relaxed max-w-[62ch]">
-          Open a room to see what you hold there.
-        </p>
-        <FinePrint className="mt-1">
-          <p>
-            Positions live in the room they were opened in. Each resident&apos;s pool is its own
-            token, on its own chain, read by its own panel. The venue itself holds nothing on your
-            behalf.
-          </p>
-        </FinePrint>
-      </header>
-      <VenuePoolIndex />
+    <div className="page-column mx-auto w-full px-4 md:px-6 py-8 sm:py-10">
+      <IslandDashboard headingLevel={1} />
     </div>
   );
 }
@@ -388,7 +370,7 @@ function ToweliDashboard() {
       </div>
 
       <ErrorBoundary>
-      <div className="relative z-10 max-w-[1200px] mx-auto px-4 md:px-6 pt-20 pb-28 md:pb-12">
+      <div className="relative z-10 page-column mx-auto px-4 md:px-6 pt-20 pb-28 md:pb-12">
         {isWrongNetwork && (
           <div role="alert" aria-live="assertive" className="relative isolate mb-4 px-4 py-3 rounded-xl bg-warning/10 border border-warning/30 text-warning text-[13px] text-center">
             <CardArt pageId="dashboard" idx={17} />

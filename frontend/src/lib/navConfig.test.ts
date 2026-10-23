@@ -19,7 +19,9 @@ import {
   poolsRoute,
   islandRoute,
   litWord,
-  DRAWER_MORE,
+  INDEX_GROUPS,
+  INDEX_PAGES,
+  indexName,
   ISLAND_SECTION,
 } from './navConfig';
 import { readFileSync } from 'node:fs';
@@ -525,48 +527,69 @@ describe('islandRoute', () => {
 
 // Owner, 2026-10-18: "put marketplace, nft finance, and other things here that dont have a
 // direct access on the app ... until we can organize them better". One tap each from the menu.
-describe("the drawer's More list", () => {
-  const more = () => DRAWER_MORE.map((i) => i.to);
+// Owner, 2026-10-18: the shadowed features went in the side nav "until we can organize them
+// better"; 2026-10-19: organised, under their sections' words, on the desktop as on a phone.
+describe("the menu's index", () => {
+  const pages = () => INDEX_PAGES.map((i) => i.to);
+  const group = (heading: string) => INDEX_GROUPS.find((g) => g.heading === heading)!;
 
-  it('leads with the two the owner named, the Marketplace and NFT Finance', () => {
-    expect(DRAWER_MORE.slice(0, 2).map((i) => [i.to, i.label])).toEqual([
-      ['/nakamigos', 'Marketplace'],
-      ['/nft-finance', 'NFT Finance'],
-    ]);
+  it('runs Island, Swap, Pools, Lock, Launch, Check, then the records: one group per section', () => {
+    expect(INDEX_GROUPS.map((g) => g.heading)).toEqual(['Island', 'Swap', 'Pools', 'Lock', 'Launch', 'Check', 'Records']);
+    for (const s of NAV_SECTIONS) expect(group(s.heading).to, `${s.heading}'s word`).toBe(s.primaryTo ?? s.hub);
+    expect(group('Records').to).toBeUndefined();
+    expect(group('Records').items).toEqual(DRAWER_LINKS);
   });
 
-  it("lists every island lobby door, now that Island is a bar word and not a drawer row", () => {
-    for (const door of ISLAND_SECTION.items.filter((i) => i.to !== ISLAND_SECTION.hub)) {
-      expect(more(), door.to).toContain(door.to);
+  it("carries every page that is on under its section's word, in tab order", () => {
+    for (const s of NAV_SECTIONS) {
+      const own = s.items.filter((i) => !i.soon).map((i) => i.to);
+      expect(group(s.heading).items.map((i) => i.to).filter((to) => own.includes(to)), s.heading).toEqual(own);
     }
-    expect(more(), "the lobby itself is the hall's link, not a menu entry").not.toContain(ISLAND_SECTION.hub);
   });
 
-  it('lists the pages no section carries: the Gold Card, History and Lore', () => {
-    for (const path of ['/premium', '/history', '/lore']) expect(more(), path).toContain(path);
+  it("files the venue's own pages (the Gold Card, History, Lore) under Island, after the lobby's doors", () => {
+    const island = group('Island').items.map((i) => i.to);
+    const doors = ISLAND_SECTION.items.map((i) => i.to);
+    expect(island.slice(0, doors.length)).toEqual(doors);
+    for (const path of ['/premium', '/history', '/lore']) expect(island, path).toContain(path);
   });
 
-  it('opens a routed page with every entry, each once, and repeats no bar word or drawer row', () => {
+  it("names a page by its tab label under the word, unless that only repeats the word", () => {
+    const island = group('Island');
+    expect(indexName(island, island.items.find((i) => i.to === '/island')!)).toBe('The island');
+    expect(indexName(island, island.items.find((i) => i.to === '/tokenomics')!)).toBe('Numbers');
+    const swap = group('Swap');
+    expect(indexName(swap, swap.items.find((i) => i.to === '/swap')!)).toBe('Ethereum');
+    const lock = group('Lock');
+    expect(indexName(lock, lock.items.find((i) => i.to === '/earn')!)).toBe('Staking');
+    expect(indexName(lock, lock.items.find((i) => i.to === '/nft-finance')!)).toBe('NFT Loans');
+  });
+
+  it('lands the Pools word on Solana LP and the Check word on the overview', () => {
+    expect(group('Pools').to).toBe('/solana-lp');
+    expect(group('Check').to).toBe('/trust');
+  });
+
+  it('gives every group a picture of its own in the menu', () => {
+    const arts = INDEX_GROUPS.filter((g) => g.heading !== 'Records').map((g) => g.art);
+    expect(new Set(arts).size, 'two groups share a picture').toBe(arts.length);
+    expect(arts, "0 is the menu's own picture, and the records'").not.toContain(0);
+  });
+
+  it('opens a routed page with every entry, each once', () => {
     const routed = new Set(ROUTES.map((r) => r.path));
-    for (const to of more()) expect(routed, `${to} is listed but no route draws it`).toContain(to);
-    expect(new Set(more()).size, 'an entry is listed twice').toBe(more().length);
-    const elsewhere = [
-      ...BAR_NAV.map((w) => w.to),
-      ...DRAWER_SECTIONS.map((s) => s.primaryTo ?? s.hub),
-      ...DRAWER_LINKS.map((l) => l.to),
-      DASHBOARD_NAV.to,
-    ];
-    for (const to of more()) expect(elsewhere, `${to} already has a word or a row`).not.toContain(to);
+    for (const to of pages()) expect(routed, `${to} is listed but no route draws it`).toContain(to);
+    expect(new Set(pages()).size, 'a page is listed twice').toBe(pages().length);
   });
 
   it('lists no page that is off today', () => {
     const off = ALL_NAV.filter((n) => n.soon).map((n) => n.to);
-    for (const to of more()) expect(off, `${to} is off, and its own strip hides it`).not.toContain(to);
+    for (const to of pages()) expect(off, `${to} is off, and its own strip hides it`).not.toContain(to);
   });
 
   // Every entry is on today, so the guard above cannot fail on its own: switch one off.
   it('drops a page the moment it is off, as its strip does', async () => {
-    expect(more(), 'the precondition: Copy Trading is listed while its tape is readable').toContain('/copy-trading');
+    expect(pages(), 'the precondition: Copy Trading is listed while its tape is readable').toContain('/copy-trading');
     vi.resetModules();
     vi.doMock('./copytrade/tape', async (importOriginal) => ({
       ...(await importOriginal<typeof import('./copytrade/tape')>()),
@@ -575,7 +598,7 @@ describe("the drawer's More list", () => {
     try {
       const off = await import('./navConfig');
       expect(off.ALL_NAV.find((n) => n.to === '/copy-trading')?.soon, 'Copy Trading reads as off').toBe(true);
-      expect(off.DRAWER_MORE.map((i) => i.to)).not.toContain('/copy-trading');
+      expect(off.INDEX_PAGES.map((i) => i.to)).not.toContain('/copy-trading');
     } finally {
       vi.doUnmock('./copytrade/tape');
       vi.resetModules();

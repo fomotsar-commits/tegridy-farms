@@ -20,6 +20,7 @@ import {
   USDC_MINT,
 } from './solana';
 import { LST_TOKENS, SOL, USDC, USDT } from './solanaTokenList';
+import { JupiterBusyError, jupiterBusy } from './solana/swap/jupiterBusy';
 
 // We only read a few fields; the whole object is passed back to /swap verbatim,
 // so keep an index signature for the rest of Jupiter's response shape.
@@ -149,6 +150,11 @@ export async function getQuote(params: {
    * later quotes of that pair.
    */
   noPlatformFee?: boolean;
+  /**
+   * One pool's DEX, direct: the island order asks for a single hop on the DEX of the pool
+   * it names (lib/solana/swap/islandBasketSol.ts checks the pool Jupiter answers with).
+   */
+  pin?: { dex: string };
 }): Promise<JupiterQuote> {
   const qs = new URLSearchParams({
     inputMint: params.inputMint,
@@ -158,6 +164,10 @@ export async function getQuote(params: {
     swapMode: 'ExactIn',
     restrictIntermediateTokens: 'true',
   });
+  if (params.pin) {
+    qs.set('onlyDirectRoutes', 'true');
+    qs.set('dexes', params.pin.dex);
+  }
   // Attach the platform fee ONLY when a leg of the pair is fee-supported. The
   // SAME decision drives /swap, so platformFeeBps is never sent without a
   // matching feeAccount (which Jupiter rejects) and the fee account always exists.
@@ -169,7 +179,10 @@ export async function getQuote(params: {
     signal: params.signal,
   });
   if (await isNoRouteAnswer(res)) throw new NoRouteError();
-  if (!res.ok) throw new Error(`Quote unavailable (${res.status})`);
+  if (!res.ok) {
+    const said = `Quote unavailable (${res.status})`;
+    throw jupiterBusy(res.status) ? new JupiterBusyError(said, res.status) : new Error(said);
+  }
   return (await res.json()) as JupiterQuote;
 }
 
@@ -225,7 +238,10 @@ export async function buildSwapTransaction(params: {
     headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
     body: JSON.stringify(body),
   });
-  if (!res.ok) throw new Error(`Could not build swap (${res.status})`);
+  if (!res.ok) {
+    const said = `Could not build swap (${res.status})`;
+    throw jupiterBusy(res.status) ? new JupiterBusyError(said, res.status) : new Error(said);
+  }
   const json = (await res.json()) as { swapTransaction?: string };
   if (!json.swapTransaction) throw new Error('No swap transaction returned');
   return json.swapTransaction;

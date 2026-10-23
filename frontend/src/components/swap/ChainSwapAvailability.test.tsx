@@ -1,6 +1,14 @@
-import { describe, it, expect } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
+
+const wallet = vi.hoisted(() => ({ isConnected: false, switchChain: vi.fn() }));
+vi.mock('wagmi', () => ({
+  useAccount: () => ({ isConnected: wallet.isConnected }),
+  useSwitchChain: () => ({ switchChain: wallet.switchChain }),
+}));
+const toastError = vi.hoisted(() => vi.fn());
+vi.mock('sonner', () => ({ toast: { error: toastError } }));
 
 import { ChainSwapAvailability } from './ChainSwapAvailability';
 import { CHAINS, CONFIGURED_CHAIN_IDS, getChainConfig } from '../../lib/chains/registry';
@@ -16,9 +24,9 @@ import { CHAIN_ID } from '../../lib/constants';
  * on Ethereum only. These assert the RULE, derived from the registry, so a chain that
  * gains or loses `ammSwap` moves between the cases without a stale literal.
  */
-function mount(chainId: number | undefined | null, swapTab = false) {
+function mount(chainId: number | undefined | null, swapTab = false, url = '/swap') {
   return render(
-    <MemoryRouter>
+    <MemoryRouter initialEntries={[url]}>
       <ChainSwapAvailability chainId={chainId} swapTab={swapTab} />
     </MemoryRouter>,
   );
@@ -28,6 +36,12 @@ const L2_SWAPS = CONFIGURED_CHAIN_IDS.filter((id) => id !== CHAIN_ID && CHAINS[i
 const NOT_SWAPPABLE = CONFIGURED_CHAIN_IDS.filter((id) => !CHAINS[id]!.capabilities.ammSwap);
 
 describe('ChainSwapAvailability', () => {
+  beforeEach(() => {
+    wallet.isConnected = false;
+    wallet.switchChain.mockReset();
+    toastError.mockReset();
+  });
+
   it('the fixture is not vacuous: at least one chain other than Ethereum swaps', () => {
     expect(L2_SWAPS.length, 'no L2 swaps — the "only Swap runs here" case is untested').toBeGreaterThan(0);
   });
@@ -82,6 +96,32 @@ describe('ChainSwapAvailability', () => {
     expect(getChainConfig(unconfigured), 'fixture drifted — 999999 is configured now').toBeNull();
     const { container } = mount(unconfigured);
     expect(container.textContent ?? '').toBe('');
+  });
+
+  // The swap follows a connected wallet's chain, so a link to /swap left the visitor on the
+  // same L2 tab with the same notice. Only the wallet can move a connected visitor.
+  it('asks a connected wallet to switch to Ethereum, and says so if it refuses', () => {
+    wallet.isConnected = true;
+    for (const id of L2_SWAPS) {
+      const { unmount } = mount(id, false, `/swap?c=${id}&tab=dca`);
+      expect(screen.queryByRole('link', { name: /Ethereum/ })).toBeNull();
+      fireEvent.click(screen.getByRole('button', { name: 'Switch your wallet to Ethereum for these tabs' }));
+      expect(wallet.switchChain).toHaveBeenLastCalledWith({ chainId: CHAIN_ID }, expect.anything());
+      const [, handlers] = wallet.switchChain.mock.lastCall as [unknown, { onError: (e: Error) => void }];
+      handlers.onError(new Error('User rejected the request.'));
+      expect(toastError).toHaveBeenLastCalledWith('Your wallet did not switch to Ethereum. Switch it in your wallet to use these tabs.');
+      unmount();
+    }
+  });
+
+  it('with no wallet, opens the same tab on Ethereum by its URL', () => {
+    for (const id of L2_SWAPS) {
+      const { unmount } = mount(id, false, `/swap?c=${id}&tab=dca`);
+      expect(screen.getByRole('link', { name: 'Open these tabs on Ethereum' }))
+        .toHaveAttribute('href', `/swap?c=${CHAIN_ID}&tab=dca`);
+      expect(wallet.switchChain).not.toHaveBeenCalled();
+      unmount();
+    }
   });
 
   it('stays quiet with no chain at all, rather than rendering a nameless warning', () => {

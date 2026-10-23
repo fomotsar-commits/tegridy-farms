@@ -1,6 +1,7 @@
 // Polyfill MUST load before any @solana/* import, the same rule as SolanaProviders.
 import '../lib/solanaPolyfill';
 import { lazy, Suspense, useMemo } from 'react';
+import { Link } from 'react-router-dom';
 import { SolanaProviders } from './solana/SolanaProviders';
 import { SolanaLadderPoolCard } from './bungalow/SolanaLadderPoolLive';
 import { LighthouseClaimStrip } from './bungalow/LighthousePoolLive';
@@ -12,10 +13,7 @@ import { useSectionChain } from '../hooks/useSectionChain';
 import { POOLS_SECTION } from '../lib/navConfig';
 import { useVenueStatus } from '../hooks/useVenueStatus';
 import { isSolanaSwapLive } from '../lib/solana';
-import { BUNGALOWS, bungalowLpDoor, stakePoolMembersOnly } from '../lib/bungalows';
-
-/** The room whose pool and liquidity the home offers (owner, 2026-10-16: "the bayla staking module and the lp pool module"). */
-const HOME_ROOM_ID = 'bayla';
+import { BUNGALOWS, bungalowLpDoor, CARDS_ROOM_ID, stakePoolMembersOnly } from '../lib/bungalows';
 
 // The swap page's own form, in its home mode. Its own chunk, so the other two cards never wait on it.
 const SolanaSwapInner = lazy(() => import('../pages/SolanaSwapPage').then((m) => ({ default: m.SolanaSwapInner })));
@@ -39,17 +37,20 @@ function PoolsNetwork() {
  * LP section of /solana-lp), in a short mode, so every check before a signature is theirs.
  * ONE SolanaProviders for all three: a second WalletProvider reads the saved wallet only when
  * it mounts, so a visitor who connected in one card would look disconnected in another until
- * a reload. It is also the top bar's Solana connection on the home (`mixed`, lib/routeVoice.ts
- * hasMixedSolanaSection), so it mounts even when no card has anything on record to act on;
- * such a card is not drawn.
+ * a reload. It is also the top bar's Solana connection on the home, the island lobby and BAYLA's
+ * door (`mixed`, lib/routeVoice.ts hasMixedSolanaSection), so it mounts even when no card has
+ * anything on record to act on; such a card is not drawn.
  */
 export default function HomeModules({ readers: given }: { readers?: LpReaders } = {}) {
-  const room = BUNGALOWS.find((b) => b.id === HOME_ROOM_ID);
+  const room = BUNGALOWS.find((b) => b.id === CARDS_ROOM_ID);
   const readers = useMemo(() => given ?? browserLpReaders(), [given]);
-  // As on /solana-lp: the LP card is drawn only once a chain read says the venue is open.
-  const { status } = useVenueStatus();
+  // The LP card holds its place in the row whatever the venue read says (owner, 2026-10-21: "idk
+  // why you keep taking them out put them back"): it was drawn only once a read said the venue
+  // was open, so a slow or failed read took a card off the home. Its form, the only thing that
+  // can start a deposit, still waits for that read, as on /solana-lp.
+  const { status, retry } = useVenueStatus();
   const door = room ? bungalowLpDoor(room) : null;
-  const lp = status?.kind === 'live' && readers && door && room?.address && room.venueSolPool
+  const lp = readers && door && room?.address && room.venueSolPool
     ? { readers, mint: room.address, pool: room.venueSolPool, label: door.label }
     : null;
   const ladder = room?.ladderPool ? { ...room, ladderPool: room.ladderPool } : null;
@@ -88,7 +89,25 @@ export default function HomeModules({ readers: given }: { readers?: LpReaders } 
                 </h2>
                 <PoolsNetwork />
               </div>
-              <LpInner readers={lp.readers} home={{ mint: lp.mint, pool: lp.pool }} />
+              {status?.kind === 'live' ? (
+                <LpInner readers={lp.readers} home={{ mint: lp.mint, pool: lp.pool }} />
+              ) : status === null ? (
+                <p className="text-[13px] text-white/75" role="status">Reading the pool…</p>
+              ) : (
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-[13px]" data-testid="home-lp-unread">
+                  <p className="text-white/80">
+                    {status.kind === 'unreadable' ? 'The pool could not be read just now.' : 'The pool is not open right now.'}
+                  </p>
+                  {status.kind === 'unreadable' && (
+                    <button type="button" onClick={retry} className="underline underline-offset-4" style={{ color: 'var(--color-kyle)' }}>
+                      Try again
+                    </button>
+                  )}
+                  <Link to="/solana-lp" className="underline underline-offset-4" style={{ color: 'var(--color-kyle)' }}>
+                    Open the Pools page
+                  </Link>
+                </div>
+              )}
             </section>
           )}
         </div>
