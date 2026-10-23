@@ -336,10 +336,10 @@ does not have the shape of what it names.
 
 | | |
 |---|---|
-| Day of the execute (UTC) | `UNFILLED-UNTIL-THE-UPGRADE-EXECUTES` |
-| Slot of the execute (the program's "Last Deployed In Slot") | `UNFILLED-UNTIL-THE-UPGRADE-EXECUTES` |
-| Transaction of the execute (its signature) | `UNFILLED-UNTIL-THE-UPGRADE-EXECUTES` |
-| Size of the program's data account afterwards (bytes) | `UNFILLED-UNTIL-THE-UPGRADE-EXECUTES` |
+| Day of the execute (UTC) | `2026-10-23` |
+| Slot of the execute (the program's "Last Deployed In Slot") | `460,379,427` |
+| Transaction of the execute (its signature) | `QBcqHKiFwwjNBWXmtB1d4PhFXekQTB7FyK4YtPec4iUcMJz56AA5WRCWq3beyzaSCmSTu2YDpSt5wAvgffqjoQC` |
+| Size of the program's data account afterwards (bytes) | `725,221` |
 
 The four values are printed by `frontend/scripts/solana-localnet/read-upgrade-record.mjs`. It
 reads mainnet, sends nothing, and prints the rows only when the program there hashes to the

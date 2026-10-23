@@ -9,6 +9,7 @@ The site's Changelog tab shows both files.
 
 ### 2026-10-23
 
+- Solana pools: the pool program was upgraded. It now has one added instruction, which lets a pool's share token carry a name and a picture in wallets, and one added check: opening a pool the public way no longer accepts the launch fee tier, which is kept for launches. Its on-chain security contact is an email and links on memetics.finance. The lines you read before adding liquidity or opening a pool say so: our pool program is Raydium's, with its admin keys changed, one added instruction that names pool share tokens and one added check that keeps the launch fee tier for launches, and those changes have not had their own independent review yet. "The program" card on /pools and /solana-lp no longer says the program is waiting for an upgrade.
 - Solana swap: Buy all bungalows opens with every coin's figure already on it, at the coin's market price less the site fee, marked "market price". Each coin's exact quote replaces its figure as it lands, about one a second, and Buy waits for all five. Reopening the order within a minute keeps its quotes instead of starting over.
 - Solana swap: when Jupiter is busy and turns a call away during Buy, the press waits a moment and asks again (up to twice) instead of stopping with "Not sent" or "Swap not checked". The same holds for Buy all bungalows and Add with one coin.
 
@@ -205,7 +206,6 @@ The site's Changelog tab shows both files.
 
 ### 2026-10-08
 
-- UNFILLED-UNTIL-THE-UPGRADE-EXECUTES (move this line under the heading of the day it reaches trunk, then delete these brackets and the word before them) Solana pools: the pool program was upgraded. It now has one added instruction, which lets a pool's share token carry a name and a picture in wallets, and one added check: opening a pool the public way no longer accepts the launch fee tier, which is kept for launches. Its on-chain security contact is an email and links on memetics.finance. The lines you read before adding liquidity or opening a pool say so: our pool program is Raydium's, with its admin keys changed, one added instruction that names pool share tokens and one added check that keeps the launch fee tier for launches, and those changes have not had their own independent review yet. "The program" card on /pools and /solana-lp no longer says the program is waiting for an upgrade.
 - Token names in wallets: the files a wallet reads now name our tokens by the bungalow and then by what the token does: Bayla Staking for the lighthouse staking receipt, Bayla LP SOL and Bayla LP USDC for the two pool shares. The short tickers are unchanged.
 - Solana swap: fewer steps and less to read. A swap in our own pool goes straight to your wallet when nothing needs a second look, and the risk tick-box is gone for SOL, USDC and BAYLA and asked once per token for the rest.
 - Solana LP: a pool priced in a coin Jupiter has no price for (in practice only BAYLA) can be opened and added to, with a warning before you sign. A price that could not be read still switches both off.
