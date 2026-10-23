@@ -578,11 +578,14 @@ export function explorerTxUrl(signature: string, cluster: SolanaCluster): string
   return cluster === 'devnet' ? `https://solscan.io/tx/${sig}?cluster=devnet` : `https://solscan.io/tx/${sig}`;
 }
 
-/** Same, for an account. */
-export function explorerAddressUrl(address: PublicKey | string, cluster: SolanaCluster): string {
+/**
+ * Same, for an address. A mint opens on Solscan's token page (holders, supply, price);
+ * anything else on its account page. The Solana Explorer has one page for both.
+ */
+export function explorerAddressUrl(address: PublicKey | string, cluster: SolanaCluster, page: 'account' | 'token' = 'account'): string {
   const a = encodeURIComponent(typeof address === 'string' ? address : address.toBase58());
   if (cluster === 'localnet') {
     return `https://explorer.solana.com/address/${a}?cluster=custom&customUrl=${encodeURIComponent(LOCAL_RPC)}`;
   }
-  return cluster === 'devnet' ? `https://solscan.io/account/${a}?cluster=devnet` : `https://solscan.io/account/${a}`;
+  return cluster === 'devnet' ? `https://solscan.io/${page}/${a}?cluster=devnet` : `https://solscan.io/${page}/${a}`;
 }

@@ -24,7 +24,6 @@ import { Skeleton } from '../components/ui/Skeleton';
 import { AnimatedCounter } from '../components/AnimatedCounter';
 import { Sparkline } from '../components/Sparkline';
 import { PulseDot } from '../components/PulseDot';
-import { TegridyScoreMini } from '../components/TegridyScoreMini';
 import { PositionHealth } from '../components/PositionHealth';
 import { usePriceHistory } from '../hooks/usePriceHistory';
 import { FlashValue } from '../components/FlashValue';
@@ -52,7 +51,7 @@ import { usePortfolio } from '../hooks/usePortfolio';
 import { UnifiedPortfolio } from '../components/portfolio/UnifiedPortfolio';
 import { getBungalowIdentity } from '../lib/bungalows';
 import { isToweliVoice } from '../lib/arrival';
-import { VenuePoolIndex } from '../components/farm/VenuePoolIndex';
+import { IslandDashboard } from '../components/IslandDashboard';
 import { PageSkeleton } from '../components/PageSkeleton';
 
 // Jungle Bay bungalows: lazy so the @solana/* wallet stack rides ONLY the
@@ -137,30 +136,12 @@ export default function DashboardPage() {
  */
 function VenueDashboard() {
   usePageTitle(
-    'Your positions',
-    'Positions on Jungle Bay Island live in the room they were opened in — each resident pool is its own token, on its own chain.',
+    'Dashboard',
+    'Every pool on Jungle Bay Island. Positions live in the room they were opened in — each resident pool is its own token, on its own chain.',
   );
   return (
-    <div className="mx-auto w-full max-w-[900px] px-4 py-8 sm:py-10">
-      <header className="mb-6">
-        <p className="text-[11px] uppercase tracking-wider label-pill mb-2" style={{ color: 'var(--color-kyle)' }}>
-          Jungle Bay Island
-        </p>
-        <h1 className="heading-luxury text-3xl md:text-4xl text-white leading-tight mb-3">
-          Your positions
-        </h1>
-        <p className="text-white/75 text-[14px] md:text-[15px] leading-relaxed max-w-[62ch]">
-          Open a room to see what you hold there.
-        </p>
-        <FinePrint className="mt-1">
-          <p>
-            Positions live in the room they were opened in. Each resident&apos;s pool is its own
-            token, on its own chain, read by its own panel. The venue itself holds nothing on your
-            behalf.
-          </p>
-        </FinePrint>
-      </header>
-      <VenuePoolIndex />
+    <div className="page-column mx-auto w-full px-4 md:px-6 py-8 sm:py-10">
+      <IslandDashboard headingLevel={1} />
     </div>
   );
 }
@@ -389,7 +370,7 @@ function ToweliDashboard() {
       </div>
 
       <ErrorBoundary>
-      <div className="relative z-10 max-w-[1200px] mx-auto px-4 md:px-6 pt-20 pb-28 md:pb-12">
+      <div className="relative z-10 page-column mx-auto px-4 md:px-6 pt-20 pb-28 md:pb-12">
         {isWrongNetwork && (
           <div role="alert" aria-live="assertive" className="relative isolate mb-4 px-4 py-3 rounded-xl bg-warning/10 border border-warning/30 text-warning text-[13px] text-center">
             <CardArt pageId="dashboard" idx={17} />
@@ -408,9 +389,6 @@ function ToweliDashboard() {
               )}
             </div>
             <div className="flex items-center gap-3">
-              <Link to="/leaderboard" className="text-[12px] text-white/70 hover:text-white transition-colors">
-                Points &#8594;
-              </Link>
               <Link to="/history" className="text-[12px] text-white/70 hover:text-white transition-colors">
                 History &#8594;
               </Link>
@@ -540,20 +518,6 @@ function ToweliDashboard() {
         {tab === 'overview' && (
           <m.div role="tabpanel" id="dash-panel-overview" aria-labelledby="dash-tab-overview" tabIndex={0} className="outline-none" key="overview"
             initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.25 }}>
-            {/* Venue Score */}
-            <m.div className="relative overflow-hidden rounded-xl glass-card-animated mb-6" style={{ border: '1px solid var(--color-purple-75)' }}
-              initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05 }}>
-              <div className="absolute inset-0">
-                <ArtImg pageId="dashboard" idx={6} alt="" loading="lazy" className="w-full h-full object-cover" />
-              </div>
-              <div className="relative z-10 m-2 md:m-3 rounded-lg p-3 md:p-4 flex items-center justify-between flex-wrap gap-2" style={{ background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(2px)', border: '1px solid rgba(255,255,255,0.08)' }}>
-                <TegridyScoreMini />
-                <Link to="/leaderboard" className="text-[11px] text-white/70 hover:text-white transition-colors">
-                  View Breakdown &#8594;
-                </Link>
-              </div>
-            </m.div>
-
             {/* DCA Due Alerts */}
             {dca.dueSchedules.length > 0 && (
               <m.div className="relative overflow-hidden rounded-xl glass-card-animated mb-5" style={{ border: '1px solid var(--color-purple-75)' }}

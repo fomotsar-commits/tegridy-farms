@@ -116,7 +116,7 @@ import {
  * this page's list on screen before that, the list is the answer and the tap
  * is used up: it does not open the list again after they have closed it.
  */
-export function SolanaSurfaceBridge({ own = false }: { own?: boolean }) {
+export function SolanaSurfaceBridge({ own = false, mixed = false }: { own?: boolean; mixed?: boolean }) {
   const { publicKey, connecting, connected, wallets, wallet, select } = useWallet();
   const open = useSolanaConnect();
   const address = publicKey ? publicKey.toBase58() : null;
@@ -132,8 +132,8 @@ export function SolanaSurfaceBridge({ own = false }: { own?: boolean }) {
   if (!settled && surface?.open === open) setSettled(true);
   const busy = connecting || !settled;
   useEffect(() => {
-    setSolanaSurface(owner, { open, address, connecting: busy }, own);
-  }, [owner, open, address, busy, own]);
+    setSolanaSurface(owner, { open, address, connecting: busy }, own, mixed);
+  }, [owner, open, address, busy, own, mixed]);
   useEffect(() => {
     if (surface?.open !== open || !openPending || connecting) return;
     // A restore that connected answers the tap; otherwise it is the card's click.
@@ -202,16 +202,19 @@ export function SolanaSurfaceBridge({ own = false }: { own?: boolean }) {
  * restore is a full connect (Trust's injected provider) prompt with no press
  * (skeptic, 2026-10-03). Mounted by the visitor's own press on the Solana row,
  * it restores as before. A page's own connection keeps the plain rule: it is
- * mounted by the page, never by a link.
+ * mounted by the page, never by a link. A `mixed` one (the home's cards) takes
+ * this rule: the home is where a hand-off lands, and it kept this rule before
+ * the cards brought their own connection (owner, 2026-10-16).
  */
 const restoreOwn = async () => !solanaHandoffPending() || solanaWasConnectedHere();
 
 /**
  * `own` marks the top bar's own connection (TopBarSolanaProviders below), the
  * one mounted where the page has no Solana section. Every page site leaves it
- * unset.
+ * unset. `mixed` marks a page section on a page that connects Ethereum too
+ * (lib/solanaSurface.ts): the top bar keeps its wallet sheet there.
  */
-export function SolanaProviders({ children, own = false }: { children: ReactNode; own?: boolean }) {
+export function SolanaProviders({ children, own = false, mixed = false }: { children: ReactNode; own?: boolean; mixed?: boolean }) {
   const endpoint = useMemo(() => solanaRpcEndpoint(), []);
   const wallets = useMemo(
     () => [
@@ -233,9 +236,9 @@ export function SolanaProviders({ children, own = false }: { children: ReactNode
   );
   return (
     <ConnectionProvider endpoint={endpoint} config={{ commitment: 'confirmed' }}>
-      <WalletProvider wallets={wallets} autoConnect={own ? restoreOwn : true}>
+      <WalletProvider wallets={wallets} autoConnect={own || mixed ? restoreOwn : true}>
         <SolanaWalletModalProvider>
-          <SolanaSurfaceBridge own={own} />
+          <SolanaSurfaceBridge own={own} mixed={mixed} />
           {children}
         </SolanaWalletModalProvider>
       </WalletProvider>

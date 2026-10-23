@@ -16,9 +16,9 @@ import { FinePrint } from '../ui/FinePrint';
  * `SwapFeeRouter.totalETHFees()` (usePoolTVL.ts) — the VENUE's own platform
  * fee, skimmed off `msg.value` BEFORE the swap ever reaches the pair — and
  * annualised against this pool's TVL. It is the protocol's income, not the
- * liquidity provider's. An LP's income is the pair's 0.3% swap fee, all of
- * which accrues into the reserves while the pair's one-sixth `feeTo` cut
- * (TegridyPair.sol:16-17) stays off, as it was on 2026-10-10 (`kLast` = 0):
+ * liquidity provider's. An LP's income is the pair's 0.3% swap fee, which
+ * accrues into the reserves, less the pair's one-sixth `feeTo` cut (minted
+ * to the treasury Safe; switched on for TOWELI/WETH 2026-10-16, `kLast` set):
  * a different party, a different cut, a different base. `totalETHFees` also counts only swaps that went THROUGH the fee
  * router, so it undercounts the pool's real activity on top of that.
  *

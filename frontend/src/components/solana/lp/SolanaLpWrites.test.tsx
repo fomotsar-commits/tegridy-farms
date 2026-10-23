@@ -183,7 +183,8 @@ describe('Add liquidity', () => {
     const c = await card();
     expect(await within(c).findByRole('button', { name: 'Add liquidity' })).toBeInTheDocument();
     expect(c).toHaveAttribute('data-add', 'offer');
-    expect(within(c).getByText('Checks run again on fresh reads when you press Review.')).toBeInTheDocument();
+    // The checks are said at Review, where they run; nothing about them under the buttons (owner, 2026-10-17).
+    expect(within(c).queryByText('Checks run again on fresh reads when you press Review.')).toBeNull();
     expect(screen.getByTestId('lp-disclosure')).toHaveTextContent(/Opening a pool, adding and removing liquidity here send real transactions/);
     expect(screen.getByTestId('lp-disclosure')).not.toHaveTextContent(/only reads/);
     // A clean token at the market price: the same green pass as ever, and no warning anywhere.
@@ -328,7 +329,7 @@ describe('Add liquidity', () => {
     expect(panel).toHaveAccessibleName('Add liquidity to this pool');
     const before = within(panel).getByTestId('lp-before-you-add');
     expect(before).toHaveTextContent(/Our pool program is Raydium's, with only its admin keys changed\. Those changes have not had their own independent review yet\./);
-    expect(before).toHaveTextContent(/change its fee rates at once/);
+    expect(before).toHaveTextContent(/change its fee rates, and upgrade the program. Each change waits 48 hours after both have signed./);
     expect(before).toHaveTextContent("Jupiter does not send trades to these pools yet. This site's own swap sends a trade to this pool only when it pays the trader at least as much as Jupiter does, so fees can be small.");
     expect(before).toHaveTextContent('When the price moves, you can end up with less than if you had just held both tokens.');
     // No word on who trades a pool: "mostly bots" was a guess the chain has not borne out.
@@ -814,11 +815,11 @@ describe('the review', () => {
     expect(await within(panel).findByRole('heading', { name: 'Review: add liquidity' })).toBeInTheDocument();
     const disclosure = within(panel).getByTestId('lp-review-disclosure');
     expect(disclosure).toHaveTextContent(/have not had their own independent review yet/);
-    expect(disclosure).toHaveTextContent(/change its fee rates at once/);
+    expect(disclosure).toHaveTextContent(/change its fee rates, and upgrade the program. Each change waits 48 hours after both have signed./);
     // Island, answer eighteen: the two risk notices stand once, above the rows. The list under
     // the panel said them again under the Sign button; it keeps its other lines.
     expect(within(panel).getAllByText(/have not had their own independent review yet/)).toHaveLength(1);
-    expect(within(panel).getAllByText(/change its fee rates at once/)).toHaveLength(1);
+    expect(within(panel).getAllByText(/change its fee rates, and upgrade the program. Each change waits 48 hours after both have signed./)).toHaveLength(1);
     expect(within(panel).getAllByText(RISK_SHORT)).toHaveLength(1);
     expect(within(panel).getByTestId('lp-before-you-add')).toHaveTextContent('When the price moves, you can end up with less than if you had just held both tokens.');
     // Back on the form, with no review on screen, the list says them again.
@@ -890,7 +891,7 @@ describe('a review too old to sign when Sign in wallet is pressed', () => {
 // figures, and the two ways on (the swap, opened on the token; the All pools list). Only the
 // Remove panel's confirmed card says this: the shared outcome card is otherwise unchanged.
 describe('after a confirmed withdrawal', () => {
-  const listed = { listPools: vi.fn(async () => ({ kind: 'ok' as const, list: { pools: [], unread: 0, truncated: false, chainNow: null } })) };
+  const listed = { listPools: vi.fn(async () => ({ kind: 'ok' as const, list: { pools: [], unread: 0, truncated: false, chainNow: null, safety: new Map() } })) };
   const confirmed = () => vi.fn(async (): Promise<TxOutcome> => ({ status: 'confirmed', signature: SIG, slot: 1 }));
 
   async function removeHalf(o: Partial<LpReaders> = {}, where: () => Promise<HTMLElement> = () => screen.findByTestId('lp-position')) {
@@ -941,7 +942,7 @@ describe('after a confirmed withdrawal', () => {
     expect(within(outcome).getByRole('button', { name: 'Add to another pool' })).toBeInTheDocument();
   });
 
-  it('a token whose symbol copies a well-known one is not named by it', async () => {
+  it('a token whose symbol copies a well-known one is named "fake", never by it alone', async () => {
     const copy = {
       ...okToken,
       name: 'USD Coin',
@@ -950,8 +951,8 @@ describe('after a confirmed withdrawal', () => {
       warnings: [{ code: 'copies-known-name', text: 'It calls itself USDC, but it is not USDC.' }],
     } as TokenSafety;
     const { outcome } = await removeHalf({ ...listed, safety: vi.fn(async () => new Map([[M, copy]])) });
-    expect(within(outcome).getByTestId('lp-removed')).toHaveTextContent(/^You got about 0\.05 SOL and 5 tokens\./);
-    expect(within(outcome).getByTestId('lp-removed')).not.toHaveTextContent('USDC');
+    expect(within(outcome).getByTestId('lp-removed')).toHaveTextContent(/^You got about 0\.05 SOL and 5 fake USDC\./);
+    expect(within(outcome).getByTestId('lp-removed')).not.toHaveTextContent(/\b5 USDC/);
   });
 
   it('a confirmed deposit says none of it', async () => {
@@ -1002,7 +1003,7 @@ describe('adding to a launch pool that charges the creator fee', () => {
     mount(readers({ findPools: vi.fn(async () => search([off])) }));
     fireEvent.click(await within(await card()).findByRole('button', { name: 'Add liquidity' }));
     const before = await screen.findByTestId('lp-before-you-add');
-    expect(before).toHaveTextContent("Of each trade, liquidity providers keep 0.200%, read from this pool's fee tier just now. The vault can change");
+    expect(before).toHaveTextContent("Of each trade, liquidity providers keep 0.200%, read from this pool's fee tier just now. The vault can change that tier's rates. A change waits 48 hours after both its keys approve");
     // ("creator" alone also names the token's creator, in the freeze-account risk line.)
     expect(before).not.toHaveTextContent(/pool's creator|creator fee/i);
   });

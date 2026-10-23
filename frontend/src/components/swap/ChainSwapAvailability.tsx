@@ -1,4 +1,6 @@
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
+import { useAccount, useSwitchChain } from 'wagmi';
+import { toast } from 'sonner';
 import { CardArt } from '../ui/CardArt';
 import { FinePrint } from '../ui/FinePrint';
 // FROM ./registry, NOT the ../../lib/chains barrel — deliberate, and the same
@@ -9,39 +11,53 @@ import { FinePrint } from '../ui/FinePrint';
 // whose wagmi mock has no `fallback` export — and it broke it as a suite that
 // would not LOAD, which reports as 'all passed' with one fewer file.
 import { getChainConfig } from '../../lib/chains/registry';
+import { CHAIN_ID } from '../../lib/constants';
+
+/** The visitor's own query (the open tab) with the swap's chain set to Ethereum. */
+function ethereumParams(params: URLSearchParams): string {
+  const next = new URLSearchParams(params);
+  next.set('c', String(CHAIN_ID));
+  return next.toString();
+}
 
 /**
- * Says WHY the swap form is inert on a chain the app serves but cannot swap on.
+ * Says WHY a trade tab is inert on a chain the app serves.
  *
- * 🔴 THE DEFECT THIS EXISTS FOR. Connect to Base or Robinhood and the swap page
- * went quietly dead: every quote read is disabled by the `chainId === CHAIN_ID`
- * gate, `outputAmount` falls to 0n, the CTA disables itself and its label stays
- * the plain word "Swap". No error, no explanation. The global wrong-network
- * banner does NOT cover it either — that fires on UNCONFIGURED chains
- * (AppLayout reads `!isChainConfigured`), and Base and Robinhood are both
- * configured. So the one state the app had no words for was the one a real
- * visitor on an L2 actually hit.
+ * 🔴 THE DEFECT THIS EXISTS FOR. Connect to a chain we serve and a form that does
+ * not run there went quietly dead: its reads are gated off, the CTA disables
+ * itself, and the global wrong-network banner stays silent because the chain IS
+ * configured (AppLayout reads `!isChainConfigured`).
  *
- * IT DOES NOT PROMISE ANYTHING. types.ts already records why: "a UI that shows
- * 'coming soon' for a chain nobody has decided to launch on is making a promise
- * the roadmap has not made." This says what is true today and what works
- * instead — the curve, which IS live on both L2s (registry `curveLauncher`) —
+ * TWO CASES since 2026-10-17, when Swap went live on Base and Robinhood Chain:
+ *   - a chain whose `ammSwap` is off: the whole surface is empty there;
+ *   - a chain that swaps but is not Ethereum: Swap works, and DCA, Limit, TWAP and
+ *     Trigger still run on Ethereum only (their hooks pin CHAIN_ID).
+ * Ethereum says nothing; an unconfigured chain says nothing (the app-wide banner
+ * owns it).
+ *
+ * IT DOES NOT PROMISE ANYTHING. It says what is true today and what works instead,
  * and stops there.
- *
- * IT READS A CAPABILITY, NOT AN ADDRESS. `capabilities.ammSwap` is the whole
- * gate. Inferring from `contracts.router != null` is what produced the silence:
- * the router IS deployed on both L2s. Deployed and usable are different claims.
  */
-export function ChainSwapAvailability({ chainId }: { chainId: number | undefined | null }) {
+export function ChainSwapAvailability({ chainId, swapTab = false }: {
+  chainId: number | undefined | null;
+  /** True while the Swap tab is open (it runs on every chain with `ammSwap`). */
+  swapTab?: boolean;
+}) {
   const config = getChainConfig(chainId);
+  const { isConnected } = useAccount();
+  const { switchChain } = useSwitchChain();
+  const [params] = useSearchParams();
 
   // Unconfigured chain → the app-wide wrong-network banner owns that state, and
   // two banners saying different things about one wallet is worse than one.
   if (!config) return null;
-  // The chain can swap. Nothing to explain.
-  if (config.capabilities.ammSwap) return null;
+  // Ethereum runs every tab. Nothing to explain.
+  if (config.id === CHAIN_ID) return null;
+  // The chain swaps and the Swap tab is open. Nothing to explain.
+  if (config.capabilities.ammSwap && swapTab) return null;
 
   const curveHref = `/eth-curve?c=${config.id}`;
+  const swaps = config.capabilities.ammSwap;
 
   return (
     <div
@@ -54,27 +70,45 @@ export function ChainSwapAvailability({ chainId }: { chainId: number | undefined
     >
       <CardArt pageId="trade" idx={5} />
       <p className="text-amber-200 text-[13px] font-semibold mb-1">
-        Swapping is not live on {config.name} yet
+        {swaps ? `Only Swap runs on ${config.name}` : `Swapping is not live on ${config.name} yet`}
       </p>
       <p className="text-white/70 text-[12px] leading-relaxed">
-        This form reads Ethereum only, so it stays empty here.
+        {swaps
+          ? 'DCA, Limit, TWAP and Trigger run on Ethereum only.'
+          : 'This form reads Ethereum only, so it stays empty here.'}
       </p>
       <div className="mt-3 flex flex-wrap gap-3 text-[12px]">
         <Link to={curveHref} className="text-emerald-300 hover:text-emerald-200 underline">
           Trade on the {config.name} curve &rarr;
         </Link>
-        <Link to="/swap" className="text-white/60 hover:text-white/80 underline">
-          Switch your wallet to Ethereum to swap
-        </Link>
+        {/* The swap follows a connected wallet's chain, so only the wallet can move it: a
+            link to /swap left the visitor on this same chain. With no wallet, `?c=` picks
+            the chain, so the same tab opens on Ethereum. */}
+        {isConnected ? (
+          <button
+            type="button"
+            onClick={() => switchChain({ chainId: CHAIN_ID }, {
+              onError: () => toast.error('Your wallet did not switch to Ethereum. Switch it in your wallet to use these tabs.'),
+            })}
+            className="text-white/60 hover:text-white/80 underline"
+          >
+            Switch your wallet to Ethereum for {swaps ? 'these tabs' : 'swaps'}
+          </button>
+        ) : (
+          <Link to={`/swap?${ethereumParams(params)}`} className="text-white/60 hover:text-white/80 underline">
+            Open {swaps ? 'these tabs' : 'swaps'} on Ethereum
+          </Link>
+        )}
       </div>
-      <FinePrint summary="Why">
-        <p>
-          The venue&rsquo;s router and factory are deployed on {config.name}, but no pair has been
-          created here yet — so there is nothing to quote a price against. This form reads
-          Ethereum only, which is why it stays empty rather than showing you a number it cannot
-          fill.
-        </p>
-      </FinePrint>
+      {!swaps && (
+        <FinePrint summary="Why">
+          <p>
+            The venue&rsquo;s router and factory are deployed on {config.name}, but the swap does
+            not run here, so there is nothing to quote a price against. This form reads Ethereum
+            only, which is why it stays empty rather than showing you a number it cannot fill.
+          </p>
+        </FinePrint>
+      )}
     </div>
   );
 }

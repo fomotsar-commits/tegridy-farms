@@ -54,8 +54,7 @@ const VENUE_VOICE_DEBT: Record<string, number> = {
   '/terminal': 2,
   '/solana': 1,
   '/launch-simulator': 2,
-  '/leaderboard': 3,
-  '/community': 2,
+  '/community': 1,
   '/liquidity': 5,
   '/privacy': 7,
   '/trust': 5,
@@ -69,18 +68,16 @@ const VENUE_VOICE_DEBT: Record<string, number> = {
   '/curve-launch': 7,
   '/eth-curve': 9,
   '/alerts': 16,
-  // ScoringRules' written paragraphs; the Cup's coverage notice is a data-unread-ledger.
-  '/competitions': 3,
   '/yield': 21,
   '/launch': 24,
 
 };
 
-/** The four GeckoTerminal routes, read with the feed aborted, so the degraded branch is
+/** The three GeckoTerminal routes, read with the feed aborted, so the degraded branch is
  *  what is pinned. The abort needs serviceWorkers: 'block' in playwright.config and a glob
  *  that matches the same-origin edge: import GECKO_EDGE_GLOB, never a literal. A dead stub
  *  fails nothing; it measures the SPA fallback's parse failure instead. */
-const FEED_ROUTES = new Set(['/terminal', '/chart', '/copy-trading', '/competitions']);
+const FEED_ROUTES = new Set(['/terminal', '/chart', '/copy-trading']);
 
 /** The routes that ask /api/solrpc, which the preview proxies to Solana mainnet: what the
  *  chain answers picks the branch (/curve-launch's write mode, /pools' live AMM card), so
@@ -243,8 +240,8 @@ test.describe('element I: em dashes in venue-voice prose', () => {
 const ROOM_VOICE_DEBT: Record<string, number> = {
   // The settled rooms are at 0 and fail on their first prose dash (roomProse.test.tsx guards
   // the same sources on every push). The TOWELI-skin doors carry the protocol cluster.
-  '/toweli': 12,
-  '/towelie': 12,
+  '/toweli': 11,
+  '/towelie': 11,
   '/bayla': 0,
   '/pepe': 0,
   '/qr': 0,

@@ -151,27 +151,21 @@ function isDesktopClassIPad(): boolean {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Phantom on iPad
+// Phantom on iPad and Android
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Upstream's PhantomWalletAdapter, unchanged except on an iPad.
- *
- * Upstream decides "open the page inside Phantom" with isIosAndRedirectable,
- * which looks for "iphone"/"ipad" in the user agent. iPad Safari has sent a
- * Mac's user agent since iPadOS 13, so on an iPad Phantom read "Install" and a
- * tap opened phantom.app, even with the app on the device — the same blind
- * spot fixed for Trust, MetaMask and Coinbase in isMobileAndRedirectable
- * above. This subclass reports Loadable in exactly that case. Everything else
- * is upstream's: its connect() and autoConnect() both read `this.readyState`,
- * so the deep link (phantom.app/ul/browse/...) and the no-redirect-on-page-load
- * guard follow from this one getter. The name stays "Phantom", so Phantom's
- * own Wallet Standard registration still replaces it wherever it exists.
+ * Upstream's PhantomWalletAdapter, plus the two browsers its own test misses.
+ * Upstream offers "open this page inside Phantom" only where the user agent
+ * says iphone or ipad, so an iPad (a Mac's user agent since iPadOS 13) and
+ * Android Chrome read "Install" and opened phantom.app. Here they report
+ * Loadable. Upstream's connect() and autoConnect() read `this.readyState`, so
+ * the link and the no-redirect-on-load guard follow. The name stays "Phantom".
  */
 export class IPadAwarePhantomWalletAdapter extends PhantomWalletAdapter {
   override get readyState(): WalletReadyState {
     const upstream = super.readyState;
-    if (upstream === WalletReadyState.NotDetected && isMobileAndRedirectable() && isDesktopClassIPad() && !phantomInjected()) {
+    if (upstream === WalletReadyState.NotDetected && isMobileAndRedirectable() && !phantomInjected()) {
       return WalletReadyState.Loadable;
     }
     return upstream;

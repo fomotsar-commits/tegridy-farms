@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, type Ref } from 'react';
+import { Link } from 'react-router-dom';
 import { PublicKey } from '@solana/web3.js';
 import { parseMintInput } from '../../../lib/solana/lp/mintInput';
 import { assessPools, type PoolHealth } from '../../../lib/solana/lp/poolHealth';
@@ -38,6 +39,22 @@ export interface LpWish {
    * to the pool they are already in, not to whichever pool is deepest today.
    */
   pool?: string;
+  /** The form an 'add' wish opens: 'one' is Add with one coin (the LP door, island answer twenty). Absent: Add liquidity. */
+  form?: 'one';
+  /** An 'add' wish with no `pool` goes to the deepest pool paired with this coin (a mint), and to no other. */
+  quote?: string;
+  /**
+   * Asked by the LP door (a room's Add SOL + coin, or ?task=add), not by a position: its
+   * lines say "this pool", never "your position's pool", to someone who may hold none.
+   */
+  door?: true;
+}
+
+/** How the LP door asks for an Add form (`openAdd`). */
+export interface AddAsk {
+  pool?: string;
+  quote?: string;
+  form?: 'one';
 }
 
 /** What the section can ask of the finder from outside it. */
@@ -50,6 +67,12 @@ export interface PoolFinderHandle {
   addTo(mint: string, pool: string): void;
   /** Look `mint` up as a press in the finder does, ending in no form: a View in the list of every pool. */
   show(mint: string): void;
+  /**
+   * The LP door: look `mint` up as a press does and end in an Add form, of the pool named
+   * (`ask.pool`, to that pool or to nowhere) or of the deepest pool paired with `ask.quote`.
+   * `ask.form` 'one' opens Add with one coin. The same lookup and checks as every other press.
+   */
+  openAdd(mint: string, ask: AddAsk): void;
 }
 
 /** Is this pool in the lookup's answer, read or not? A lookup that failed lists nothing. */
@@ -64,7 +87,12 @@ function listsPool(pools: PoolSearchRead, address: string): boolean {
  * answered and that address did not hold a pool for this token. Both end in the press
  * that works: the wish is spent, so Read again alone opens nothing.
  */
-function unfoundText(pools: PoolSearchRead, pool: string): string {
+function unfoundText(pools: PoolSearchRead, pool: string, door = false): string {
+  if (door) {
+    return pools.kind !== 'ok'
+      ? `This token’s pools could not be read just now, so the Add form for this pool (${pool}) was not opened. Try again in a minute.`
+      : `This pool (${pool}) did not read as a pool for this token just now, so its Add form was not opened, and no other pool’s was opened in its place.`;
+  }
   return pools.kind !== 'ok'
     ? `This token’s pools could not be read just now, so the Add form for your position’s pool (${pool}) was not opened. Press Add more liquidity on your position again.`
     : `Your position’s pool (${pool}) did not read as a pool for this token just now, so its Add form was not opened, and no other pool’s was opened in its place. Press Add more liquidity on your position again in a minute.`;
@@ -189,6 +217,7 @@ export function PoolFinder({
   wantOutside = false,
   feeTiers,
   onRemove,
+  only,
   ref,
 }: {
   /** For the section: a position's "Add more liquidity" starts its lookup here. */
@@ -212,6 +241,12 @@ export function PoolFinder({
   feeTiers: FeeTierRead | null;
   /** Remove liquidity was pressed: the section brings the visitor's positions onto the screen. */
   onRemove?: () => void;
+  /**
+   * The home card (owner, 2026-10-16): this one pool's card, short, and nothing to search
+   * with. No buttons, tokens or address field, no other pool, no Open a pool card. A token
+   * check that found anything still shows, and so does every line about a read that failed.
+   */
+  only?: string;
 }) {
   const [input, setInput] = useState(mint ?? linkError?.raw ?? '');
   const [error, setError] = useState<string | null>(linkError?.reason ?? null);
@@ -221,8 +256,24 @@ export function PoolFinder({
   // kept, so a later re-read (after a deposit, say) never drops the card an open form sits
   // on, and it is only ever read with its own token's lookups.
   const [extra, setExtra] = useState<{ mint: string; pool: string } | null>(null);
-  const state = usePoolSearch(readers, mint, nonce, reloadKey, wantOutside, extra && extra.mint === mint ? extra.pool : null);
+  // The home card's pool is read with every lookup, as a position's pool is from its press on.
+  const state = usePoolSearch(readers, mint, nonce, reloadKey, wantOutside, extra && extra.mint === mint ? extra.pool : only ?? null);
   const reread = useCallback(() => setNonce((n) => n + 1), []);
+  // The home card reads again by itself when a read failed, a few times and spaced out: a busy
+  // RPC answers a later ask more often than not, and the card has no field to press Find in.
+  // Each try is a fresh lookup. After the last, Read again and the Solana LP tab stay on screen.
+  const autoTries = useRef(0);
+  const onlyFailed =
+    Boolean(only) && state.status === 'done' && !state.refreshing &&
+    (state.pools.kind !== 'ok' || state.safety.kind === 'unread' || !listsPool(state.pools, only!) || state.outside?.kind === 'unread');
+  useEffect(() => {
+    if (!onlyFailed || autoTries.current >= ONLY_RETRY_MS.length) return;
+    const t = setTimeout(() => {
+      autoTries.current += 1;
+      setNonce((n) => n + 1);
+    }, ONLY_RETRY_MS[autoTries.current]);
+    return () => clearTimeout(t);
+  }, [onlyFailed, state]);
   // A new ?mint= (a link, or back/forward) fills the field: adjusted during render, the
   // React way to follow a prop, rather than in an effect.
   const linkKey = mint ?? (linkError ? `bad:${linkError.raw}` : null);
@@ -235,7 +286,7 @@ export function PoolFinder({
   // the line the page keeps in its place (`unfoundText`). It is about one lookup of one
   // token: the next thing the visitor asks for, or the page moving to another token,
   // takes it away.
-  const [unfound, setUnfound] = useState<{ mint: string; pool: string } | null>(null);
+  const [unfound, setUnfound] = useState<{ mint: string; pool: string; door?: true } | null>(null);
   if (linkKey !== shownLink) {
     setShownLink(linkKey);
     if (wish && wish.mint !== mint) setWish(null);
@@ -254,11 +305,11 @@ export function PoolFinder({
   // A later answer that does list the pool takes the line away again.
   if (state.status === 'done' && !state.refreshing) {
     if (wish?.pool && wish.mint === state.mint && !listsPool(state.pools, wish.pool)) {
-      setUnfound({ mint: wish.mint, pool: wish.pool });
+      setUnfound({ mint: wish.mint, pool: wish.pool, ...(wish.door ? { door: true as const } : {}) });
       setWish(null);
     } else if (unfound && unfound.mint === state.mint && listsPool(state.pools, unfound.pool)) setUnfound(null);
   }
-  const unfoundLine = unfound && state.status === 'done' && unfound.mint === state.mint ? unfoundText(state.pools, unfound.pool) : null;
+  const unfoundLine = unfound && state.status === 'done' && unfound.mint === state.mint ? unfoundText(state.pools, unfound.pool, unfound.door) : null;
 
   // A lookup the visitor asked for is brought onto the screen. On a phone the answer
   // begins below the fold, so a press on Find pools looked as if it had done nothing
@@ -288,12 +339,16 @@ export function PoolFinder({
   // then Forward reopened a form the visitor had closed (review, 2026-10-03).
   const spent = useCallback((n: number) => setWish((w) => (w?.n === n ? null : w)), []);
   const lookUp = useCallback(
-    (next: string, want: LpWish['task'] | null, pool?: string) => {
+    (next: string, want: LpWish['task'] | null, pool?: string, ask: Omit<AddAsk, 'pool'> & { door?: true } = {}) => {
       asked.current = true;
       wishes.current += 1;
       setUnfound(null);
       if (pool) setExtra({ mint: next, pool });
-      setWish(want ? { task: want, mint: next, n: wishes.current, ...(pool ? { pool } : {}) } : null);
+      setWish(
+        want
+          ? { task: want, mint: next, n: wishes.current, ...(pool ? { pool } : {}), ...(ask.form ? { form: ask.form } : {}), ...(ask.quote ? { quote: ask.quote } : {}), ...(ask.door ? { door: true as const } : {}) }
+          : null,
+      );
       if (next === mint) setNonce((n) => n + 1);
       else onMint(next);
     },
@@ -316,6 +371,12 @@ export function PoolFinder({
         setInput(next);
         setError(null);
         lookUp(next, null);
+      },
+      openAdd(next, ask) {
+        setInput(next);
+        setError(null);
+        setTask('add');
+        lookUp(next, 'add', ask.pool, { form: ask.form, quote: ask.quote, door: true });
       },
     }),
     [lookUp],
@@ -380,7 +441,7 @@ export function PoolFinder({
   return (
     <section data-testid="lp-finder" aria-label="Find pools for a token" className="space-y-4">
       {/* Named for a visitor, not for the buttons under it, which say what each does. */}
-      <Card
+      {!only && <Card
         title={tasks.length > 0 ? 'Start here' : 'Find a pool'}
         art={<CardArt pageId="solana-lp" idx={2} />}
       >
@@ -475,14 +536,14 @@ export function PoolFinder({
             <p>The buttons are the tokens with a room on this site. Each is looked up by its address from this site’s own list, not by its name.</p>
           </FinePrint>
         )}
-      </Card>
+      </Card>}
 
       {/* Where a lookup the visitor asked for scrolls to. The page's scroll-padding
           (index.css) keeps it clear of the fixed bar and the tabs. */}
       <div ref={answerRef} data-testid="lp-answer" />
 
       <p role="status" aria-live="polite" className="sr-only" data-testid="lp-status">
-        {state.status === 'loading' ? 'Reading the token and its pools.' : state.status === 'done' ? `${announce(state)}${unfoundLine ? ` ${unfoundLine}` : ''}` : ''}
+        {state.status === 'loading' ? 'Reading the token and its pools.' : state.status === 'done' ? `${only ? announceOne(state, only) : announce(state)}${unfoundLine ? ` ${unfoundLine}` : ''}` : ''}
       </p>
 
       {state.status === 'loading' && <p className="text-white/70 text-[13px]">Reading the token and its pools from the chain…</p>}
@@ -501,6 +562,8 @@ export function PoolFinder({
           onReread={reread}
           wish={wish && !state.refreshing && wish.mint === state.mint ? wish : null}
           onActed={spent}
+          only={only}
+          onRetry={reread}
         />
       )}
     </section>
@@ -508,6 +571,15 @@ export function PoolFinder({
 }
 
 const count = (n: number, one: string, many: string) => (n === 1 ? `One ${one}` : `${n} ${many}`);
+
+/** The home card's line: it shows one pool, so it speaks of that one, never of a count it does not show. */
+function announceOne(s: Extract<SearchState, { status: 'done' }>, only: string): string {
+  const read = s.pools.kind === 'ok' && s.pools.search.pools.some((p) => p.kind === 'pool' && p.view.address === only);
+  const parts = [read ? 'The pool was read.' : 'The pool could not be read.'];
+  if (s.safety.kind !== 'read') parts.push('The token could not be read.');
+  else if (s.safety.verdict === 'blocked') parts.push('This site does not open or add to pools for this token.');
+  return parts.join(' ');
+}
 
 function announce(s: Extract<SearchState, { status: 'done' }>): string {
   if (s.pools.kind === 'unread') return 'The pools could not be read.';
@@ -536,7 +608,13 @@ function SearchResults({
   onReread,
   wish,
   onActed,
+  only,
+  onRetry,
 }: {
+  /** The home card's one pool (PoolFinder `only`). */
+  only?: string;
+  /** The home card's Read again. */
+  onRetry?: () => void;
   state: Extract<SearchState, { status: 'done' }>;
   /** For each pool card's own past, read on a press. */
   readers: LpReaders;
@@ -576,8 +654,10 @@ function SearchResults({
   const addTo = useMemo(() => {
     if (wish?.task !== 'add' || pools.kind !== 'ok' || !notes) return null;
     let warned: string | null = null;
+    const quote = named === null ? wish.quote ?? null : null;
     for (const p of pools.search.pools) {
       if (p.kind !== 'pool' || (named !== null && p.view.address !== named)) continue;
+      if (quote !== null && p.view.quote.mint !== quote) continue;
       const health = healths.get(p.view.address);
       if (!health || depositOffer({ mode, gate, health, held: lpHeld(notes, p.view.address, 'add') }) !== 'offer') continue;
       if (!priceWarned(health)) return p.view.address;
@@ -597,11 +677,35 @@ function SearchResults({
   // is. The list said "SOL, USDC or BAYLA" whatever was searched: for USDC that told a
   // pair nobody looked for as "none", and USDC with USDC is no pair at all.
   const searched = searchedCoinsOr(mint);
-  const otherSide = otherSideLine(mint);
+  const otherSide = only ? null : otherSideLine(mint);
+  // The home card: its one pool, read or not, and a pool a position's Add more liquidity named.
+  const listed =
+    pools.kind === 'ok'
+      ? pools.search.pools.filter((p) => {
+          const at = p.kind === 'pool' ? p.view.address : p.address;
+          return !only || at === only || at === named;
+        })
+      : [];
+  // The token's card stays whenever its check found anything, or could not run.
+  const tokenClean = safety.kind === 'read' && safety.verdict === 'ok' && safety.warnings.length === 0;
   return (
     <div className="space-y-4">
-      <TokenSafetyCard mint={mint} safety={safety} />
-      {pools.kind === 'unread' ? (
+      {only && safety.kind === 'unread' ? (
+        // The home card: a token that could not be read is one line, not a card. Nothing is called checked.
+        <div data-testid="token-safety" data-verdict="unread" className="space-y-2">
+          <Notice tone="warn">This token could not be read just now, so nothing on this card counts as checked.</Notice>
+          {/* Once per card: when the pool did not read either, its line below carries the way on. */}
+          {listed.length > 0 && <OnlyWayOn mint={mint} pool={only} onRetry={onRetry} />}
+        </div>
+      ) : (
+        (!only || !tokenClean) && <TokenSafetyCard mint={mint} safety={safety} />
+      )}
+      {pools.kind === 'unread' && only ? (
+        <div data-testid="lp-only-unread" className="space-y-2">
+          <Notice tone="warn">The pool could not be read just now.</Notice>
+          <OnlyWayOn mint={mint} pool={only} onRetry={onRetry} />
+        </div>
+      ) : pools.kind === 'unread' ? (
         <Card title="Pools" art={<CardArt pageId="solana-lp" idx={6} />}>
           <Notice tone="warn">
             We could not read the pools ({pools.detail}). That is a problem on our side; it does not mean there are none.
@@ -609,8 +713,13 @@ function SearchResults({
         </Card>
       ) : (
         <div data-testid="lp-pools" className="space-y-3">
-          <IndexNote read={pools} />
-          {pools.search.pools.length === 0 ? (
+          {!only && <IndexNote read={pools} />}
+          {only && listed.length === 0 ? (
+            <div data-testid="lp-only-unread" className="space-y-2">
+              <Notice tone="warn">The pool could not be read just now.</Notice>
+              <OnlyWayOn mint={mint} pool={only} onRetry={onRetry} />
+            </div>
+          ) : pools.search.pools.length === 0 ? (
             <Card title="Pools" art={<CardArt pageId="solana-lp" idx={6} />}>
               <p data-testid="lp-no-pools">
                 {pools.search.index.kind !== 'ok'
@@ -627,8 +736,8 @@ function SearchResults({
               )}
             </Card>
           ) : (
-            <ul className="space-y-3" aria-label="Pools: SOL pools first, then USDC, then BAYLA, the deepest of each first">
-              {pools.search.pools.map((p) =>
+            <ul className="space-y-3" aria-label={only ? 'The pool' : 'Pools: SOL pools first, then USDC, then BAYLA, the deepest of each first'}>
+              {listed.map((p) =>
                 p.kind === 'pool' ? (
                   <PoolCard
                     key={p.view.address}
@@ -639,7 +748,9 @@ function SearchResults({
                     readers={readers}
                     health={healths.get(p.view.address)!}
                     openNow={wish && addTo === p.view.address ? wish.n : 0}
+                    openForm={wish && addTo === p.view.address ? wish.form : undefined}
                     showNow={named === p.view.address ? showNamed : 0}
+                    fromDoor={named === p.view.address && wish?.door === true}
                     onActed={onActed}
                   />
                 ) : (
@@ -648,7 +759,10 @@ function SearchResults({
               )}
             </ul>
           )}
-          {pools.search.pools.length > 0 && pools.search.otherPairs > 0 && (
+          {/* The home card: an outside price that could not be read leaves deposits unchecked
+              and adding off. The pool's card says why; this is the way on from it. */}
+          {only && listed.length > 0 && outside?.kind === 'unread' && <OnlyWayOn mint={mint} pool={only} onRetry={onRetry} />}
+          {!only && pools.search.pools.length > 0 && pools.search.otherPairs > 0 && (
             <Notice>{pools.search.otherPairs} more pool(s) pair this token with something other than {QUOTE_COINS_OR} and are not shown.</Notice>
           )}
           {/* With pools listed there is no "no pools" sentence to carry it, so it is said under the list. */}
@@ -659,7 +773,7 @@ function SearchResults({
           )}
         </div>
       )}
-      <CreatePoolCard
+      {!only && <CreatePoolCard
         mint={mint}
         safety={safety}
         decimals={decimals}
@@ -672,7 +786,33 @@ function SearchResults({
         refreshing={state.refreshing === true}
         openNow={openCreate}
         onActed={onActed}
-      />
+      />}
+    </div>
+  );
+}
+
+/** How long the home card waits before each read it tries again by itself (PoolFinder `only`). */
+const ONLY_RETRY_MS = [2_000, 6_000, 15_000] as const;
+
+/**
+ * The home card's way on when a read failed: read again here, or add on the Solana LP tab,
+ * where the LP door opens Add with one coin on this pool (SolanaLpSection, `task=add`).
+ */
+function OnlyWayOn({ mint, pool, onRetry }: { mint: string; pool: string; onRetry?: () => void }) {
+  return (
+    <div className="flex flex-wrap items-center gap-2" data-testid="lp-only-way-on">
+      {onRetry && (
+        <button type="button" onClick={onRetry} className="btn-secondary min-h-[44px] px-4 text-[13px]">
+          Read again
+        </button>
+      )}
+      <Link
+        to={`/solana-lp?mint=${mint}&task=add&pool=${pool}`}
+        className="inline-flex items-center min-h-[44px] px-1 text-[13px] underline underline-offset-4"
+        style={{ color: 'var(--color-kyle)' }}
+      >
+        Add on the Solana LP tab
+      </Link>
     </div>
   );
 }

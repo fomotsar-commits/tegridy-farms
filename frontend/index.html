@@ -143,7 +143,8 @@
          file on every route. FirstFrame.tsx reuses the ff-* classes, and .ff-h1's two sizes
          are the hero headings' two, so no swap moves. The frame also holds the hero's chain-pill
          row and letter-spacing, as a door's does, and .ff-input and .ff-btn are HeatCard's field and
-         button (font-mono, btn-primary). Pinned by src/lib/firstFrame.test.ts. -->
+         button (font-mono, btn-primary), and .ff-wrap steps up with the page column (page-column,
+         index.css) so a wide screen's hero does not move. Pinned by src/lib/firstFrame.test.ts. -->
     <style>
       html{background:#060c1a}
       #first-frame{display:none}
@@ -165,13 +166,16 @@
       @media (max-width:767px){.ff-btn{min-height:44px}}
       @media (min-width:640px){.ff-input{min-width:280px}}
       @media (min-width:768px){.ff-wrap{padding-left:24px;padding-right:24px}.ff-h1{font-size:3.75rem}.ff-plain,.ff-hook{font-size:1.125rem}}
+      @media (min-width:1536px){.ff-wrap{max-width:1360px}}
+      @media (min-width:1920px){.ff-wrap{max-width:1600px}}
+      @media (min-width:2560px){.ff-wrap{max-width:1800px}}
     </style>
     <script type="application/ld+json">
     {"@context":"https://schema.org","@type":"WebApplication","name":"MEMETICS.FINANCE","description":"The venue of Jungle Bay Island. Memetic finance on Ethereum, Base and Solana.","url":"https://memetics.finance","applicationCategory":"DeFi","operatingSystem":"Web","creator":{"@type":"Organization","name":"Jungle Bay Artists Collective","sameAs":["https://open.spotify.com/artist/0tviFMxqVFawAkZmsLDjOV","https://www.youtube.com/@junglebayisland"]}}
     </script>
   </head>
   <body>
-    <div id="root"><!-- first-frame --><div id="first-frame"><div class="ff-bg"><img src="/art/door-home.jpg" srcset="/_derived/art/door-home-jpg-128.webp 128w, /_derived/art/door-home-jpg-480.webp 480w, /_derived/art/door-home-jpg-960.webp 960w, /art/door-home.jpg 2048w" sizes="100vw" alt="" width="1200" height="800" loading="lazy" decoding="async"></div><div class="ff-wrap"><div class="ff-col"><div aria-hidden="true" style="height:24.5px;margin:0 0 1.25rem"></div><h1 class="ff-h1" elementtiming="first-frame-h1" style="letter-spacing:0.01em">MEMETICS.FINANCE <br><span>Held time counts here.</span></h1><p class="ff-plain">Stake meme tokens, swap on Ethereum, Base and Solana, and check any token before you buy.</p><p class="ff-hook">Your heat already exists. Your clock on a token starts at your first hold.</p><form class="ff-form" method="get" action="/"><input class="ff-input" name="heat" placeholder="0x&hellip; or a Solana address" aria-label="Wallet address to read Heat for (Ethereum, Base, or Solana)" autocomplete="off" spellcheck="false" required><button class="ff-btn" type="submit">Read Heat</button></form></div></div></div><!-- /first-frame --></div>
+    <div id="root"><!-- first-frame --><div id="first-frame"><div class="ff-bg"><img src="/art/door-home.jpg" srcset="/_derived/art/door-home-jpg-128.webp 128w, /_derived/art/door-home-jpg-480.webp 480w, /_derived/art/door-home-jpg-960.webp 960w, /art/door-home.jpg 2048w" sizes="100vw" alt="" width="1200" height="800" loading="lazy" decoding="async"></div><div class="ff-wrap"><div class="ff-col"><div aria-hidden="true" style="height:24.5px;margin:0 0 1.25rem"></div><h1 class="ff-h1" elementtiming="first-frame-h1" style="letter-spacing:0.01em">MEMETICS.FINANCE <br><span>Held time counts here.</span></h1><form class="ff-form" method="get" action="/"><input class="ff-input" name="heat" placeholder="0x&hellip; or a Solana address" aria-label="Wallet address to read Heat for (Ethereum, Base, or Solana)" autocomplete="off" spellcheck="false" required><button class="ff-btn" type="submit">Read Heat</button></form></div></div></div><!-- /first-frame --></div>
     <!-- F30: JS-disabled visitors otherwise get a blank #root. -->
     <noscript>
       <div style="max-width:640px;margin:48px auto;padding:24px;font-family:system-ui,sans-serif;color:#ede9fe;text-align:center;line-height:1.5">

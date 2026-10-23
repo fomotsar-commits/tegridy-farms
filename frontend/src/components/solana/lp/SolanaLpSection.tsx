@@ -14,6 +14,7 @@ import { PendingTradeCard } from '../curve/PendingTradeCard';
 import type { GateRpc, LpKind, LpWriteApi } from '../curve/ports';
 import { PoolFinder, type PoolFinderHandle } from './PoolFinder';
 import { parseMintInput } from '../../../lib/solana/lp/mintInput';
+import { SOL_MINT } from '../../../lib/solana';
 import { YourPositions } from './YourPositions';
 import { VenuePoolList } from './VenuePoolList';
 import { Rates, Routes } from './RatesAndRoutes';
@@ -25,7 +26,7 @@ import { browserLpReaders, type LpReaders } from './readers';
 /**
  * The Solana LP section on /pools and /solana-lp, in one order on both (owner, 2026-10-14:
  * "the actions people need to take spotlighted and their positions and the rates and
- * routes getting the attention"): the risk line and the earn line, the three actions
+ * routes getting the attention"): the earn line, the three actions
  * (the finder), every pool, the wallet's positions, the rates read from the chain, where a swap goes,
  * and the full notice last. Adding, removing and opening pools follow LP's own switch (lpWriteFlag.ts):
  * with it 'off' no write code is fetched and nothing here can sign; otherwise
@@ -50,14 +51,27 @@ export interface LpWritesOverrides {
   gateRpc?: GateRpc;
 }
 
-export function LpInner({ readers, writes }: { readers: LpReaders; writes?: LpWritesOverrides }) {
+/**
+ * The home's LP card (owner, 2026-10-16): `pool`'s card alone, short, with its Add buttons.
+ * No form opens by itself: an open form takes focus and the screen, and the home's first
+ * screen is the heat reader's. It reads and writes nothing
+ * in the address (the home is not the Pools tab), and keeps only the actions: the risk and
+ * earn line, the pool and the notice. The
+ * finder's controls, every pool, Open a pool, the rates and the routes stay on the tabs.
+ */
+export interface LpHome {
+  mint: string;
+  pool: string;
+}
+
+export function LpInner({ readers, writes, home }: { readers: LpReaders; writes?: LpWritesOverrides; home?: LpHome }) {
   // Fixed for the life of a build: a production build reads only the committed constant.
   const mode = writes?.mode ?? lpWriteMode();
   // Bumped when a liquidity flow goes back to idle after an outcome: the finder and the
   // positions read again, keeping what they show until the new answer arrives.
   const [reloadKey, setReloadKey] = useState(0);
   const finished = useCallback(() => setReloadKey((k) => k + 1), []);
-  const body = <LpBody readers={readers} mode={mode} reloadKey={reloadKey} />;
+  const body = <LpBody readers={readers} mode={mode} reloadKey={reloadKey} home={home} />;
   if (mode === 'off') return body;
   return (
     <LpWritesProvider readers={readers} mode={mode} load={writes?.load} gateRpc={writes?.gateRpc} onFinished={finished}>
@@ -66,14 +80,22 @@ export function LpInner({ readers, writes }: { readers: LpReaders; writes?: LpWr
   );
 }
 
-function LpBody({ readers, mode, reloadKey }: { readers: LpReaders; mode: LpWriteMode; reloadKey: number }) {
+function LpBody({ readers, mode, reloadKey, home }: { readers: LpReaders; mode: LpWriteMode; reloadKey: number; home?: LpHome }) {
   const [params, setParams] = useSearchParams();
-  const raw = params.get('mint');
+  const homeMint = home?.mint ?? null;
+  const homePool = home?.pool ?? null;
+  // On the home the token lives here, not in the address.
+  const [heldMint, setHeldMint] = useState<string | null>(homeMint);
+  const raw = homeMint ? null : params.get('mint');
   const parsed = raw ? parseMintInput(raw) : null;
-  const mint = parsed?.ok ? parsed.mint : null;
+  const mint = homeMint ? heldMint : parsed?.ok ? parsed.mint : null;
   const linkError = raw && parsed && !parsed.ok ? { raw, reason: parsed.reason } : null;
   const onMint = useCallback(
     (m: string | null) => {
+      if (homeMint) {
+        setHeldMint(m);
+        return;
+      }
       setParams((prev) => {
         const next = new URLSearchParams(prev);
         if (m) next.set('mint', m);
@@ -81,12 +103,12 @@ function LpBody({ readers, mode, reloadKey }: { readers: LpReaders; mode: LpWrit
         return next;
       });
     },
-    [setParams],
+    [homeMint, setParams],
   );
   const { publicKey } = useWallet();
 
-  // The risk line above the actions says RISK_SHORT, so the notice says that risk only in full, in its small print.
-  const disclosure = <LpDisclosure programId={readers.programId} mode={mode} riskAbove />;
+  // The vault risk is said in the notice's Risks drop-down, not on the page (owner, 2026-10-17).
+  const disclosure = <LpDisclosure programId={readers.programId} mode={mode} programBelow={!homeMint} bare={Boolean(homeMint)} />;
   const writesTop = mode !== 'off' && <LpWritesTop />;
   const tierRead = useFeeTiers(readers);
   // Remove liquidity (the finder's third button) brings the positions onto the screen:
@@ -107,6 +129,29 @@ function LpBody({ readers, mode, reloadKey }: { readers: LpReaders; mode: LpWrit
   const addMore = useCallback((tokenMint: string, pool: string) => finderRef.current?.addTo(tokenMint, pool), []);
   // Every pool, under the finder: a View there is a lookup in the finder, like a picked token.
   const view = useCallback((tokenMint: string) => finderRef.current?.show(tokenMint), []);
+  // A row's Add: that pool's Add form, Add with one coin when it is paired with SOL.
+  const addFromList = useCallback(
+    (tokenMint: string, pool: string, quoteMint: string) => finderRef.current?.openAdd(tokenMint, { pool, ...(quoteMint === SOL_MINT ? { form: 'one' as const } : {}) }),
+    [],
+  );
+  // The LP door (island, answer twenty): ?mint=<token>&task=add[&pool=<address>] ends in Add with
+  // one coin, of the pool named or of the token's deepest SOL pool. Asked once, then dropped from the
+  // address, so a reload or Back does not open the form again over what the visitor did since.
+  const doorTask = homeMint ? null : params.get('task');
+  const doorPool = params.get('pool');
+  useEffect(() => {
+    if (doorTask !== 'add' || !mint || !finderRef.current) return;
+    finderRef.current.openAdd(mint, { form: 'one', ...(doorPool ? { pool: doorPool } : { quote: SOL_MINT }) });
+    setParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        next.delete('task');
+        next.delete('pool');
+        return next;
+      },
+      { replace: true },
+    );
+  }, [doorTask, doorPool, mint, setParams]);
   // "Add to another pool", under a confirmed withdrawal, brings that list onto the screen
   // and sends focus there, as Remove liquidity does for the positions. Offered only where
   // the list can be drawn.
@@ -117,7 +162,7 @@ function LpBody({ readers, mode, reloadKey }: { readers: LpReaders; mode: LpWrit
     el.focus({ preventScroll: true });
     el.scrollIntoView?.({ block: 'start' });
   }, []);
-  const allPools = <VenuePoolList readers={readers} reloadKey={reloadKey} onView={view} sectionRef={allPoolsRef} />;
+  const allPools = <VenuePoolList readers={readers} reloadKey={reloadKey} onView={view} onAdd={addFromList} sectionRef={allPoolsRef} />;
   const finder = (
     <PoolFinder
       ref={finderRef}
@@ -129,6 +174,7 @@ function LpBody({ readers, mode, reloadKey }: { readers: LpReaders; mode: LpWrit
       wantOutside={mode === 'on'}
       feeTiers={tierRead}
       onRemove={toPositions}
+      only={homePool ?? undefined}
     />
   );
   const positions = (
@@ -138,15 +184,27 @@ function LpBody({ readers, mode, reloadKey }: { readers: LpReaders; mode: LpWrit
       reloadKey={reloadKey}
       sectionRef={positionsRef}
       onAddMore={addMore}
-      onAllPools={readers.listPools ? toAllPools : undefined}
+      onAllPools={readers.listPools && !homeMint ? toAllPools : undefined}
     />
   );
 
-  // Actions first, under the one risk line and the one line on earning; then every pool;
+  if (homeMint) {
+    return (
+      <div className="flex flex-col gap-3" data-testid="lp-section" data-lp-mode={mode} data-lp-home="">
+        <LpEarnLine />
+        {writesTop}
+        {finder}
+        {/* No Your positions card: each Add form carries its own Connect, and a wallet's
+            shares are on the Solana LP tab. The full notice is one drop-down. */}
+        {disclosure}
+      </div>
+    );
+  }
+
+  // Actions first, under the one line on earning; then every pool;
   // then what you hold; then the rates and the routes; the long notice last.
   return (
     <div className="flex flex-col gap-4" data-testid="lp-section" data-lp-mode={mode}>
-      <LpRiskLine />
       <LpEarnLine />
       {writesTop}
       {finder}
@@ -159,21 +217,6 @@ function LpBody({ readers, mode, reloadKey }: { readers: LpReaders; mode: LpWrit
   );
 }
 
-const RISK_LINE_STYLE = { background: 'rgba(28,21,6,0.92)', border: '1px solid rgba(227,179,65,0.45)' } as const;
-
-/**
- * The short form of LpDisclosure, above the finder on a tab that opens on it. It may be
- * short only because the full card is on the same page, below the positions.
- * Set tighter on a phone, where each of its lines pushes the finder's field down.
- */
-function LpRiskLine() {
-  return (
-    <p data-testid="lp-risk-line" className="relative isolate rounded-xl px-4 py-2.5 sm:py-3 text-amber-200 text-[13px] leading-snug sm:leading-relaxed" style={RISK_LINE_STYLE}>
-      <CardArt pageId="solana-lp" idx={10} />
-      {RISK_SHORT}
-    </p>
-  );
-}
 
 /**
  * One line saying fees need no claim, and where the earning cards are. It stands above the
@@ -240,43 +283,42 @@ const DISCLOSURE_NOTICE: Record<LpWriteMode, string> = {
     'Adding liquidity from this site is paused right now. Removing it still works, and each removal is checked and test-run before your wallet is asked to sign.',
 };
 
-export function LpDisclosure({ programId, mode = 'off', riskAbove = false }: {
+export function LpDisclosure({ programId, mode = 'off', programBelow = true, bare = false }: {
   programId: string;
   mode?: LpWriteMode;
-  /**
-   * The page already shows RISK_SHORT above the finder (LpRiskLine, finder first): the
-   * card then does not say it again. Said once per page visibly (owner, 2026-10-14), and
-   * once in full, with the addresses, in the small print below.
-   */
-  riskAbove?: boolean;
+  /** The home's card: the Risks drop-down alone, with the program's address inside it. */
+  bare?: boolean;
+  /** "The program" card is below on this page (the Pools tabs); the home has none, so it points at the tab. */
+  programBelow?: boolean;
 }) {
   // "The program" (VenueProgramCard) is the last section of every page that mounts this one.
-  return (
-    <section data-testid="lp-disclosure" aria-label="Before you provide liquidity">
-      <Card title="Before you provide liquidity" art={<CardArt pageId="solana-lp" idx={0} />}>
-        {!riskAbove && <p className="text-white/80">{RISK_SHORT}</p>}
-        <Row label="Pool program" value={programId} />
+  const risks = (
         <FinePrint summary="Risks">
+          {/* The vault risk in one sentence, once on screen and now here (owner, 2026-10-17: "remove this warning from everywhere"). */}
+          <p>{RISK_SHORT}</p>
           {/* True of the pool program RUNNING on mainnet, built before the source gained create_lp_metadata.
               It goes false the day that program is upgraded: reword it in the same release as the upgrade
               (src/test/poolProgramCopy.test.ts fails that release until you do, and holds the wording). */}
           <p>
-            Our pool program is Raydium’s constant-product pool; we changed only its admin keys (see “The program” below).{' '}
+            Our pool program is Raydium’s constant-product pool; we changed only its admin keys (see “The program”{' '}
+            {programBelow ? 'below' : 'on the Solana LP tab'}).{' '}
             <strong>Those changes have not had their own independent review yet.</strong> Put in only what you can afford to lose.
           </p>
-          {/* Read on chain 2026-10-16. The vault's powers are the pool program's admin instructions (update_pool_status,
+          {/* Multisig read 2026-10-20, finalized slot 459,251,370: threshold 2 of 2 members, time_lock 172,800 (Squads #14),
+              no config authority. The vault's powers are the pool program's admin instructions (update_pool_status,
               update_amm_config, create_amm_config, collect_protocol_fee, collect_fund_fee) and its upgrade authority. */}
           <p>
-            Read on chain 2026-10-16: one key is both the admin of pool program{' '}
+            Read on chain 2026-10-20: one key is both the admin of pool program{' '}
             <span className="font-mono break-all">EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT</span> and the only key that can replace it.
             That key is the team’s vault <span className="font-mono break-all">GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd</span>, vault 0
             of the Squads multisig <span className="font-mono break-all">EVGSnRZFWqjCaWR7z2xKbSXnuddY8upevEQK5HFmj6NK</span>. The multisig
-            needs 2 of its 2 keys to sign, has no waiting period (a time lock of 0 seconds), and only those 2 keys, together, can change
-            its rules.
+            needs 2 of its 2 keys to approve anything the vault does. Since 2026-10-19 each approved action then waits 48 hours (a time
+            lock of 172,800 seconds) before it can run. Only those 2 keys, together, can change its rules, and such a change waits 48
+            hours too.
           </p>
           <p>
-            The vault can switch off adding, removing or trading on any pool. It can change any fee tier’s fees, and who collects the
-            venue’s share, at once, and that applies to pools already open. It can add fee tiers, collect the venue’s share of trading
+            The vault can switch off adding, removing or trading on any pool. It can change any fee tier’s fees and who collects the
+            venue’s share, and that applies to pools already open. It can add fee tiers, collect the venue’s share of trading
             fees, and replace the program. Every pool’s coins sit in accounts that program controls, so a replacement could move
             them. If it switched off removing on a pool, you could not take your money out of that pool until it switched removing
             back on.
@@ -288,6 +330,14 @@ export function LpDisclosure({ programId, mode = 'off', riskAbove = false }: {
           </p>
           <p>{DISCLOSURE_NOTICE[mode]}</p>
         </FinePrint>
+  );
+  // The program's address is in the drop-down's second paragraph, so the bare form loses nothing.
+  if (bare) return <section data-testid="lp-disclosure" aria-label="Before you provide liquidity">{risks}</section>;
+  return (
+    <section data-testid="lp-disclosure" aria-label="Before you provide liquidity">
+      <Card title="Before you provide liquidity" art={<CardArt pageId="solana-lp" idx={0} />}>
+        <Row label="Pool program" value={programId} />
+        {risks}
       </Card>
     </section>
   );

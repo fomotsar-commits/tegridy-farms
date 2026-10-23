@@ -19,7 +19,6 @@ const LANDINGS = [
   { path: '/eth-curve', strip: 'Launch sections' },
   { path: '/launch-simulator', strip: 'Launch sections' },
   { path: '/copy-trading', strip: 'Earn sections' },
-  { path: '/competitions', strip: 'Earn sections' },
   { path: '/checkout', strip: 'Earn sections' },
   { path: '/terminal', strip: 'Token-checking tools' },
   { path: '/chart', strip: 'Token-checking tools' },

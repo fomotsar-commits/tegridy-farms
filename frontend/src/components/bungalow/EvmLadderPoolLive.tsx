@@ -6,7 +6,7 @@ import { ConnectButton } from '@rainbow-me/rainbowkit';
 import type { Bungalow } from '../../lib/bungalows';
 import { LIGHTHOUSE_LADDER_ABI, ERC20_ABI } from '../../lib/contracts';
 import {
-  deriveLadder, boostLabel, boostBpsFor, projectedRawPerSec, penaltyOn, lockRemaining, MIN_STAKE_RAW,
+  deriveLadder, boostLabel, boostBpsFor, projectedRawPerSec, penaltyOn, penaltyPct, penaltyShare, lockRemaining, MIN_STAKE_RAW,
   isC1UnsafeLadder,
 } from '../../lib/lighthouseLadder';
 import { fmtRaw, fmtRunway } from '../../lib/evmLighthouse';
@@ -36,16 +36,16 @@ import { PositionMark, positionHost } from '../ui/PositionMark';
  *  - NEVER-FUNDED is its own state, distinct from "the period ended".
  */
 
-const CHAIN_IDS: Record<string, number> = { ethereum: 1, base: 8453 };
-const CHAIN_LABEL: Record<number, string> = { 1: 'Ethereum', 8453: 'Base' };
+// Robinhood Chain is listed before any room lives there (owner, 2026-10-18): the
+// fallback below is Ethereum, and a pool on an unlisted chain would read mainnet.
+const CHAIN_IDS: Record<string, number> = { ethereum: 1, base: 8453, robinhood: 4663 };
+const CHAIN_LABEL: Record<number, string> = { 1: 'Ethereum', 8453: 'Base', 4663: 'Robinhood Chain' };
 const PLACEHOLDER = '0x0000000000000000000000000000000000000001' as const;
 const DAY = 86_400n;
-// The venue's OWN lock tiers, straight from lib/copy.ts — the same six rungs,
-// the same names, that the TOWELI farm has always shown. A staker meets one
-// ladder across the whole island.
-const RUNGS: { label: string; sublabel: string; secs: bigint }[] = LOCK_DURATIONS.map((d) => ({
-  label: d.label,
-  sublabel: d.sublabel,
+// The same six rungs the TOWELI farm uses (lib/copy.ts), named by their plain length
+// only: the farm's own names stay in the farm's room (island, answer seventeen item 3).
+const RUNGS: { length: string; secs: bigint }[] = LOCK_DURATIONS.map((d) => ({
+  length: d.sublabel,
   secs: BigInt(d.days) * DAY,
 }));
 
@@ -98,6 +98,12 @@ export function EvmLadderPoolLive({ bungalow }: { bungalow: Bungalow & { stakePo
       // any figure is trusted (a design-review finding — a mispasted address
       // would otherwise render a stranger pool's numbers under our symbol).
       { ...poolC, functionName: 'stakingToken' },
+      // The exit is the pool's own, read and never assumed. The six ladders live
+      // today answer a flat rate (EARLY_EXIT_PENALTY_BPS, 25%); the ladder's-law
+      // build answers a cap (MAX_EARLY_EXIT_PENALTY_BPS, 75%) and quotes each
+      // position with penaltyFor() below. An unread penalty is no number.
+      { ...poolC, functionName: 'EARLY_EXIT_PENALTY_BPS' },
+      { ...poolC, functionName: 'MAX_EARLY_EXIT_PENALTY_BPS' },
     ],
     query: { refetchInterval: 30_000 },
   });
@@ -109,6 +115,14 @@ export function EvmLadderPoolLive({ bungalow }: { bungalow: Bungalow & { stakePo
   const decimals = reads?.[6]?.status === 'success' ? Number(reads[6].result) : bungalow.decimals ?? 18;
   const poolToken = reads?.[12]?.status === 'success' ? String(reads[12].result) : null;
   const identityMismatch = poolToken !== null && poolToken.toLowerCase() !== token.toLowerCase();
+  const flatBps = big(13);
+  const capBps = big(14);
+  const capWord = capBps === null ? '' : penaltyPct(capBps);
+  const penaltyWord = flatBps !== null
+    ? penaltyPct(flatBps)
+    : capBps !== null
+      ? `the time left on it over four years, capped at ${capWord}`
+      : 'a penalty that could not be read just now';
 
   const view = useMemo(
     () => deriveLadder({
@@ -136,6 +150,17 @@ export function EvmLadderPoolLive({ bungalow }: { bungalow: Bungalow & { stakePo
     const t = r.result as readonly [string, bigint, bigint, bigint];
     return { id, lockEnd: BigInt(t[1]), amount: t[2], boosted: t[3] };
   }).filter(Boolean) as Pos[];
+
+  // The ladder's law prices each position by the time left on it, so the figure on
+  // an exit button is the pool's own penaltyFor() for that position: read, not derived.
+  const { data: quoteReads } = useReadContracts({
+    contracts: positions.map((p) => ({ ...poolC, functionName: 'penaltyFor' as const, args: [p.amount, p.lockEnd] as const })),
+    query: { enabled: capBps !== null && positions.length > 0, refetchInterval: 30_000 },
+  });
+  const quoteFor = (i: number): bigint | null => {
+    const r = quoteReads?.[i];
+    return r && r.status === 'success' ? (r.result as bigint) : null;
+  };
 
   // An RPC that fails must never render as "you have nothing staked". That is
   // the outage-as-zero the Solana card was built to refuse, and here it is
@@ -189,7 +214,7 @@ export function EvmLadderPoolLive({ bungalow }: { bungalow: Bungalow & { stakePo
   const unfunded = view.vaultRaw !== null && view.vaultRaw === 0n;
   // A landed periodFinish in the past, or a pool paying 0 now (never funded, or a
   // rate of 0): no new stake (owner, 2026-10-14), as a lock of up to 4 years would
-  // earn nothing and leaving early costs 25%. Claim and every position exit stay.
+  // earn nothing and leaving early costs the pool's penalty. Claim and every position exit stay.
   // An unread end or rate holds Stake.
   const periodFinishRaw = big(4);
   const rewardsEnded = rewardsHaveEnded(periodFinishRaw, nowSecs);
@@ -246,7 +271,7 @@ export function EvmLadderPoolLive({ bungalow }: { bungalow: Bungalow & { stakePo
                 <p className="m-0">{rewardsZeroLine(view.everFunded === false)}</p>
                 <FinePrint summary="Why">
                   <p className="m-0">
-                    A lock here would earn nothing, and leaving before it opens costs 25%. Staking opens again
+                    A lock here would earn nothing, and leaving before it opens costs {penaltyWord}. Staking opens again
                     by itself once the pool is funded and pays a reward rate. Tokens merely sent to the pool
                     earn no one anything.
                   </p>
@@ -258,8 +283,8 @@ export function EvmLadderPoolLive({ bungalow }: { bungalow: Bungalow & { stakePo
               </p>
             )}
 
-            <p className="text-[11px] text-white/60 mb-4 leading-relaxed">
-              Longer locks earn a larger <em>share</em>. Leaving before your lock opens costs 25%.
+            <p className="text-[11px] text-white/60 mb-4 leading-relaxed" data-testid="ladder-exit-cost">
+              Longer locks earn a larger <em>share</em>. Leaving before your lock opens costs {penaltyWord}.
             </p>
 
             {/* THE WAY IN, above the ladder (owner, 2026-10-14: "see the stuff they are to
@@ -287,28 +312,27 @@ export function EvmLadderPoolLive({ bungalow }: { bungalow: Bungalow & { stakePo
             <p className="text-[10px] uppercase tracking-wider text-white/50 mb-2">Lock duration</p>
             <div className="grid grid-cols-3 gap-2 mb-3">
               {RUNGS.map((r, i) => (
-                <button key={r.label} type="button" onClick={() => setRung(i)}
+                <button key={r.length} type="button" onClick={() => setRung(i)}
                   className="rounded-lg px-2 py-2 text-[12px] border transition-colors"
                   style={{
                     background: i === rung ? 'rgba(127,224,176,0.14)' : 'rgba(0,0,0,0.4)',
                     borderColor: i === rung ? accent : 'rgba(255,255,255,0.12)',
                     color: i === rung ? '#fff' : 'rgba(255,255,255,0.75)',
                   }}>
-                  {r.sublabel}
+                  {r.length}
                   <span className="block text-[10px] text-white/50">{boostLabel(r.secs)}</span>
-                  <span className="block text-[9px] text-white/35 truncate">{r.label}</span>
                 </button>
               ))}
             </div>
             <FinePrint summary="How it works" className="mb-3">
               <p className="m-0">
-                {boostLabel(chosen.secs)} for {chosen.sublabel}, {chosen.label}.
+                {boostLabel(chosen.secs)} for {chosen.length}.
               </p>
               <p className="m-0">
                 Longer locks earn a larger <em>share</em>: 0.40× at seven days up to 4.00× at four years, the
                 venue&apos;s standard lock ladder. Rewards are
                 never paid out of anyone&apos;s principal: the contract caps every payout at its surplus, so your
-                deposit can always come back. Leaving before your lock opens costs 25%, which stays in the pool for
+                deposit can always come back. Leaving before your lock opens costs {penaltyWord}, which stays in the pool for
                 the stakers who waited. <strong>Emergency withdraw is always open</strong> and needs nothing from the
                 reward side.
               </p>
@@ -387,7 +411,7 @@ export function EvmLadderPoolLive({ bungalow }: { bungalow: Bungalow & { stakePo
                     <button type="button" disabled={busy !== null || !amountRaw || amountRaw === 0n || belowMin || (walletRaw !== null && amountRaw > walletRaw)}
                       className="btn-primary px-5 py-2 text-[13px] disabled:opacity-50"
                       onClick={() => send('stake', () => writeContractAsync({ ...poolC, functionName: 'stake', args: [amountRaw ?? 0n, chosen.secs] }))}>
-                      {busy === 'stake' ? 'Staking…' : belowMin ? `Minimum ${fmtRaw(MIN_STAKE_RAW, decimals, 0)} ${bungalow.symbol}` : walletRaw !== null && amountRaw !== null && amountRaw > walletRaw ? 'More than your balance' : `Stake for ${chosen.label}`}
+                      {busy === 'stake' ? 'Staking…' : belowMin ? `Minimum ${fmtRaw(MIN_STAKE_RAW, decimals, 0)} ${bungalow.symbol}` : walletRaw !== null && amountRaw !== null && amountRaw > walletRaw ? 'More than your balance' : `Stake for ${chosen.length}`}
                     </button>
                   )}
                   <button type="button" disabled={busy !== null || earnedRaw === null || earnedRaw === 0n} className="btn-secondary px-5 py-2 text-[13px] disabled:opacity-50"
@@ -412,10 +436,10 @@ export function EvmLadderPoolLive({ bungalow }: { bungalow: Bungalow & { stakePo
                   <div className="rounded-xl p-3" style={{ background: 'rgba(0,0,0,0.4)', border: '1px solid rgba(255,255,255,0.08)' }}>
                     <p className="text-[10px] uppercase tracking-wider text-white/50 mb-2">Your positions</p>
                     <div className="space-y-2">
-                      {positions.map((p) => {
+                      {positions.map((p, i) => {
                         const left = lockRemaining(p.lockEnd, nowSecs);
                         const open = left === 0n;
-                        const fee = penaltyOn(p.amount);
+                        const fee = flatBps !== null ? penaltyOn(p.amount, flatBps) : capBps !== null ? quoteFor(i) : null;
                         return (
                           <div key={String(p.id)} className="flex flex-wrap items-center gap-2 text-[12px]">
                             <span className="text-white tabular-nums">{fmtRaw(p.amount, decimals)} {bungalow.symbol}</span>
@@ -431,14 +455,18 @@ export function EvmLadderPoolLive({ bungalow }: { bungalow: Bungalow & { stakePo
                               </button>
                             ) : (
                               <button type="button" disabled={busy !== null} className="btn-secondary px-3 py-1 text-[11px] disabled:opacity-50"
-                                title={`Leaving early costs ${fmtRaw(fee, decimals)} ${bungalow.symbol} (25%), which stays in the pool for the stakers who waited.`}
+                                title={fee === null
+                                  ? 'The penalty could not be read just now. The pool charges it either way, and it stays in the pool for the stakers who waited.'
+                                  : flatBps !== null
+                                    ? `Leaving early costs ${fmtRaw(fee, decimals)} ${bungalow.symbol} (${penaltyWord}), which stays in the pool for the stakers who waited.`
+                                    : `Leaving now costs ${fmtRaw(fee, decimals)} ${bungalow.symbol} (about ${penaltyShare(fee, p.amount)}): the time left on your lock over four years, capped at ${capWord}. It stays in the pool for the stakers who waited.`}
                                 onClick={() => send('e' + p.id, () => writeContractAsync({ ...poolC, functionName: 'earlyExit', args: [p.id] }))}>
-                                Exit early (−{fmtRaw(fee, decimals)})
+                                {fee === null ? 'Exit early' : `Exit early (−${fmtRaw(fee, decimals)})`}
                               </button>
                             )}
                             {/* AUDIT (2026-09-01): this used to promise "Principal
                                 only" unconditionally. On a LOCKED position that is
-                                false — emergencyWithdraw applies the SAME 25%
+                                false — emergencyWithdraw applies the SAME
                                 penalty as earlyExit
                                 (LighthouseLadder.sol: `if (block.timestamp <
                                 p.lockEnd) out = amount - penalty`). A user taking
@@ -449,9 +477,13 @@ export function EvmLadderPoolLive({ bungalow }: { bungalow: Bungalow & { stakePo
                             <button type="button" disabled={busy !== null} className="text-[11px] text-white/45 hover:text-white underline underline-offset-2"
                               title={open
                                 ? 'Principal only, forfeiting unclaimed rewards, using nothing from the reward side. Always available — this is the last resort if rewards are ever broken.'
-                                : `Still locked, so this costs the same ${fmtRaw(fee, decimals)} ${bungalow.symbol} (25%) as exiting early, AND forfeits unclaimed rewards. It uses nothing from the reward side, so it works even if rewards are broken — that is the only reason to prefer it over Exit early.`}
+                                : fee === null
+                                  ? 'Still locked, so this costs the same penalty as exiting early (it could not be read just now), AND forfeits unclaimed rewards. It uses nothing from the reward side, so it works even if rewards are broken, which is the only reason to prefer it over Exit early.'
+                                  : flatBps !== null
+                                    ? `Still locked, so this costs the same ${fmtRaw(fee, decimals)} ${bungalow.symbol} (${penaltyWord}) as exiting early, AND forfeits unclaimed rewards. It uses nothing from the reward side, so it works even if rewards are broken — that is the only reason to prefer it over Exit early.`
+                                    : `Still locked, so this costs the same ${fmtRaw(fee, decimals)} ${bungalow.symbol} (about ${penaltyShare(fee, p.amount)}) as exiting early, AND forfeits unclaimed rewards. It uses nothing from the reward side, so it works even if rewards are broken, which is the only reason to prefer it over Exit early.`}
                               onClick={() => send('x' + p.id, () => writeContractAsync({ ...poolC, functionName: 'emergencyWithdraw', args: [p.id] }))}>
-                              {open ? 'emergency' : `emergency (−${fmtRaw(fee, decimals)})`}
+                              {open || fee === null ? 'emergency' : `emergency (−${fmtRaw(fee, decimals)})`}
                             </button>
                           </div>
                         );

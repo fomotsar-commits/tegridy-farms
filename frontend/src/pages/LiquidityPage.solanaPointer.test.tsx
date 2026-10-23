@@ -14,6 +14,11 @@ vi.mock('../lib/launcher/solana/lpWriteFlag', async (orig) => ({
   ...(await orig<typeof import('../lib/launcher/solana/lpWriteFlag')>()),
   lpWriteMode: () => lp.mode,
 }));
+vi.mock('wagmi', () => ({
+  useAccount: () => ({ isConnected: false }),
+  useChainId: () => 1,
+  useSwitchChain: () => ({ switchChain: vi.fn() }),
+}));
 vi.mock('../hooks/usePageTitle', () => ({ usePageTitle: () => {} }));
 vi.mock('../hooks/usePoolTVL', () => ({ usePoolTVL: () => ({}) }));
 vi.mock('../components/swap/LiquidityTab', () => ({ LiquidityTab: () => null }));
@@ -49,11 +54,11 @@ describe('/liquidity points a Solana visitor at the Solana LP tab', () => {
     expect(before(link, screen.getByTestId('pool-table'))).toBe(true);
   });
 
-  // How the venue earns stays on screen (owner, 2026-10-09): its cut of the pool fee is off,
-  // but swaps routed through this site still pay it a fee of its own.
-  it('says on screen that the venue cut is off and that swaps through this site pay the venue a separate fee', () => {
+  // How the venue earns stays on screen (owner, 2026-10-09): its cut of the TOWELI/ETH pool
+  // fee (on since 2026-10-16), and the separate fee on swaps routed through this site.
+  it('says on screen what the venue takes from the TOWELI/ETH pool fee and that swaps through this site pay it a separate fee', () => {
     mount();
-    expect(screen.getByText(/Venue cut: off/)).toBeVisible();
+    expect(screen.getByText(/On TOWELI\/ETH: 0\.25% to providers, 0\.05% to the venue's treasury \(read 17 October 2026\)/)).toBeVisible();
     expect(screen.getByText(/Swaps made through this site pay the venue a separate fee/)).toBeVisible();
   });
 

@@ -140,8 +140,7 @@ export function QuickBuyPanel({ token, safety, network, pool }: QuickBuyPanelPro
       <Shell>
         {header}
         <p className="mt-3 text-xs leading-relaxed text-white/80">
-          The venue&rsquo;s in-app swap is Ethereum mainnet only, so nothing is bought from this
-          page.
+          Quick buy is Ethereum mainnet only, so nothing is bought from this page.
         </p>
         <p className="mt-3">
           <Link to={`/solana?out=${encodeURIComponent(address)}`} className={`text-xs ${LINK}`}>
@@ -166,17 +165,22 @@ export function QuickBuyPanel({ token, safety, network, pool }: QuickBuyPanelPro
     );
   }
 
-  // ── Base: no rail, said out loud, with the two reads that do work ──────────
+  // ── Base: quick buy has no rail here (useSwap() with no chain is Ethereum's); the
+  //    Swap page trades on Base since 2026-10-17, so it is offered, plus the two reads ──
   if (network === 'base') {
     const poolAddress = pool ? validAddress(pool, 'base') : null;
     return (
       <Shell>
         {header}
         <p className="mt-3 text-xs leading-relaxed text-white/80">
-          This pool is on Base. The venue&rsquo;s swap path is Ethereum mainnet only, so there is no
-          in-app buy here.
+          This pool is on Base. Quick buy is Ethereum mainnet only, so there is no buy on this page.
         </p>
         <ul className="mt-3 space-y-2 text-xs">
+          <li>
+            <Link to="/swap?c=8453" className={LINK}>
+              Open the Base swap (paste this token&rsquo;s address there) &rarr;
+            </Link>
+          </li>
           <li>
             <Link to={`/scan?token=${encodeURIComponent(address)}&chain=base`} className={LINK}>
               Scan this token&rsquo;s holder distribution on Base &rarr;

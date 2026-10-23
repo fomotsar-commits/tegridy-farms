@@ -1,7 +1,9 @@
 // The Ethereum-side money sentences, pinned as claim shapes (the reads are in the commit).
 // 1. Staker ETH does not wait on the pool: the pool is live, a payout round waits on 1 ETH.
-// 2. Liquidity providers keep the whole 0.3% until the owner wallet starts the venue's
-//    one-sixth cut, so copy describes that cut only as a switch.
+// 2. The venue's one-sixth cut of the pool fee is a switch the owner wallet flips pool by
+//    pool. It has been on for TOWELI/WETH since 2026-10-16 (kLast set, feeTo = treasury;
+//    re-read 2026-10-17), so copy may not call the Ethereum cut off, and a pool's providers
+//    keep the whole 0.3% only where it has not been switched on.
 // 3. The router fee does not all reach stakers: a referral share comes off first.
 // 4. A static answer cannot read the chain: a figure that can move is dated or points live.
 
@@ -36,6 +38,9 @@ const SHAPES: { id: string; re: RegExp }[] = [
   { id: 'WAITS_ON_THE_POOL_STATE', re: /\bnative[- ]pool (?:launch(?:es)?|goes live|is live|is trading|opens|comes online)\b/i },
   // "five sixths of it accrues into the reserves", "swap fees split 5/6 to LPs"
   { id: 'LPS_ON_FIVE_SIXTHS', re: /\bfive[- ]sixths\b|\b5\/6 (?:to|goes to|stays? with|for) (?:the )?(?:LPs?|liquidity|pool)/i },
+  // "Venue cut: off", "the optional cut was off", "the cut had never been switched on",
+  // "kLast is 0": all true on 2026-10-10, all false for TOWELI/WETH since 2026-10-16
+  { id: 'ETH_CUT_STILL_OFF', re: /\bvenue cut: off\b|\boptional cut was off\b|\bcut (?:had |has )?never (?:been )?switched on\b|\bkLast is 0\b/i },
   // "a 0.5% protocol fee that flows to TOWELI stakers"
   { id: 'FEE_FLOWS_TO_STAKERS', re: /\bfees?\b[^.]{0,40}\bflows? to (?:TOWELI )?stakers\b/i },
   // "to stakers, the liquidity engine, and operations", "fees → stakers, liquidity & ops":
@@ -88,6 +93,7 @@ describe('no surface in src/ makes a money claim the chain contradicts', () => {
       WAITS_ON_THE_POOL: 'the ETH share begins flowing with the native pool',
       WAITS_ON_THE_POOL_STATE: 'fees reach stakers as soon as the native pool goes live',
       LPS_ON_FIVE_SIXTHS: 'providers earn five sixths of every fee',
+      ETH_CUT_STILL_OFF: 'on that date the cut had never been switched on',
       FEE_FLOWS_TO_STAKERS: 'the fee on each swap flows to stakers',
       FEES_TO_LIQUIDITY: 'every fee is split between stakers, the liquidity reserve and the team',
       STAKERS_WITHOUT_REFERRAL: 'all swap fees route onchain to stakers as ETH',
@@ -105,6 +111,8 @@ describe('no surface in src/ makes a money claim the chain contradicts', () => {
       'protocol swap fees route on-chain, after a referral share, to stakers in ETH',
       'Protocol fees route on-chain to stakers, after the referral carve.',
       'add liquidity, stake LP tokens, earn rewards',
+      'Swap fee 0.3%, all to providers until the venue switches on its one-sixth cut for that pool',
+      'To check a pool today, read kLast on its pair contract: 0 means its cut is not on.',
     ];
     for (const line of legal) {
       const hit = SHAPES.find((s) => s.re.test(line));
@@ -192,8 +200,10 @@ describe('the limits table on /risks says where each swap fee goes', () => {
   it('the pool fee row says who keeps it, and that the venue holds a switch', () => {
     expect(row('Pool trading fee')).toMatch(/0\.3%/);
     expect(row('Pool trading fee')).toMatch(/can switch on a one-sixth cut/i);
-    // Conditional on the switch, so it is true before and after the owner uses it.
-    expect(row('Pool trading fee')).toMatch(/until it does, liquidity providers keep/i);
+    // The switch is per pool: conditional for a pool not yet switched on...
+    expect(row('Pool trading fee')).toMatch(/pool by pool; until it does, liquidity providers keep/i);
+    // ...and dated where the owner has used it.
+    expect(row('Pool trading fee')).toMatch(/On TOWELI\/ETH it has been on since 16 October 2026/);
   });
 });
 
@@ -203,11 +213,13 @@ describe('the liquidity primer says what a liquidity provider is paid today', ()
     return screen.getByTestId('primer-how-paid').textContent ?? '';
   };
 
-  it('names the pool fee, and does not shrink the provider’s share to a part of it', () => {
+  it('names the pool fee, and what a provider keeps with the venue’s cut on and without it', () => {
     const text = answer();
     expect(text).toMatch(/0\.3% fee/);
-    expect(text).toMatch(/kept the whole 0\.3%|keep the whole 0\.3%/);
-    expect(text).not.toMatch(/0\.25%/);
+    // TOWELI/WETH since 2026-10-16: the cut is on, so its providers keep about 0.25%.
+    expect(text).toMatch(/On TOWELI\/ETH it has been on since 16 October 2026, so providers there keep about 0\.25%/);
+    // A pool not yet switched on.
+    expect(text).toMatch(/where it is not on keeps the whole 0\.3%/);
   });
 
   it('describes the venue’s cut as a switch: who holds it, how fast, and how to check it', () => {

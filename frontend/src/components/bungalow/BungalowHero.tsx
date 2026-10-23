@@ -1,6 +1,6 @@
 import { Link } from 'react-router-dom';
 import type { Bungalow, BungalowIdentity } from '../../lib/bungalows';
-import { bungalowExplorerUrl, bungalowScanRoute, bungalowTradeRoute, OPEN_BUNGALOW_ABOUT_EVENT } from '../../lib/bungalows';
+import { bungalowExplorerUrl, bungalowLpDoor, bungalowScanRoute, bungalowTradeRoute, OPEN_BUNGALOW_ABOUT_EVENT } from '../../lib/bungalows';
 import { isSolanaSwapLive } from '../../lib/solana';
 import { CopyButton } from '../ui/CopyButton';
 import { shortenAddress } from '../../lib/formatting';
@@ -17,6 +17,8 @@ export function BungalowHero({ bungalow }: { bungalow: Bungalow & { identity: Bu
   const explorer = bungalowExplorerUrl(bungalow);
   // In-venue swap preset when the Solana surface is live; canon deep link otherwise.
   const trade = bungalowTradeRoute(bungalow, isSolanaSwapLive());
+  // The LP door (island, answer twenty): second, before Stake, only where the coin has a SOL pool on the venue.
+  const lpDoor = bungalowLpDoor(bungalow);
   const tradeClass = 'px-7 py-2.5 text-[14px] font-semibold rounded-lg transition-all inline-block text-center hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent focus-visible:ring-[#d4a843]';
   const tradeStyle = { background: 'linear-gradient(135deg, #d4a843 0%, #b8892e 100%)', color: '#0a0a0f' } as const;
   // Scan's outline, shared by the Marketplace and NFT loans doors.
@@ -55,7 +57,17 @@ export function BungalowHero({ bungalow }: { bungalow: Bungalow & { identity: Bu
         ))}
         {/* One filled button, the rule VenueHero keeps too: Trade, the action any visitor
             can complete. Stake is an outline in the same kyle green, and Scan wears
-            --color-stan, the trust hue, so the two secondary actions differ by meaning. */}
+            --color-stan, the trust hue, so the two secondary actions differ by meaning.
+            The LP door wears the pool teal. */}
+        {lpDoor && (
+          <Link
+            to={lpDoor.to}
+            className="px-7 py-2.5 text-[14px] font-semibold rounded-lg transition-all inline-block text-center hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent focus-visible:ring-[#31d0aa]"
+            style={{ background: 'rgba(0,0,0,0.72)', border: '1px solid rgba(49,208,170,0.6)', color: '#31d0aa', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)' }}
+          >
+            {lpDoor.label}
+          </Link>
+        )}
         <Link
           to={`/earn/${bungalow.id}`}
           className="px-7 py-2.5 text-[14px] font-semibold rounded-lg transition-all inline-block text-center hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent focus-visible:ring-[#4CAF50]"

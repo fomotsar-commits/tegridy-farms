@@ -33,7 +33,7 @@ export function Rates({ read, jupiterFee = BUILD_JUPITER_FEE }: { read: FeeTierR
   // The public tier first: every pool opened from this site is on it.
   const tiers = read?.kind === 'ok' ? [...read.tiers].sort((a, b) => rank(a.index) - rank(b.index)) : [];
   const wallets = venue.wallets.map((w) => (
-    <AddressRow key={w.address} label={w.label} value={w.address} explorerUrl={explorer(w.address)} />
+    <AddressRow key={w.address} label={w.label} value={w.address} explorer={explorer(w.address, 'wallet')} />
   ));
   return (
     <section data-testid="fee-tiers" aria-label="Rates">
@@ -75,8 +75,8 @@ export function Rates({ read, jupiterFee = BUILD_JUPITER_FEE }: { read: FeeTierR
                 {openLine(publicTier, read.openingDeposits)}
               </p>
             )}
-            {/* Venue money going to a wallet other than the team's shared one is said in plain
-                sight, in bold (owner, 2026-10-10). The usual case keeps the wallet one press away. */}
+            {/* A cut that is anything but the agreed split (wallets or rates) is said in plain
+                sight, in bold (owner, 2026-10-10). The agreed split keeps its wallets one press away. */}
             {venue.elsewhere && (
               <div data-testid="lp-venue-elsewhere" className="space-y-1">
                 <p className="text-amber-200 text-[12px]"><strong>{venue.where}</strong></p>

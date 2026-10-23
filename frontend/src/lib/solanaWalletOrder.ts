@@ -54,11 +54,22 @@ const WALLETCONNECT_ROW = 'WalletConnect';
  */
 export const SCANNABLE_WALLETS: ReadonlySet<string> = new Set(['Trust', 'Jupiter']);
 
+/**
+ * The row WalletProvider adds itself on Android Chrome: its Mobile Wallet
+ * Adapter, which asks Android for any wallet app on the phone and connects it
+ * without leaving this browser. No visitor knows the protocol's name, so the
+ * row says what it is. Spelled out, not imported: the package is
+ * wallet-adapter-react's dependency (@solana-mobile/wallet-adapter-mobile).
+ */
+export const PHONE_WALLET_ROW = 'Mobile Wallet Adapter';
+const PHONE_WALLET_LABEL = 'Any wallet app';
+
 const LABELS = new Map(OFFERED_WALLETS.map((w) => [w.name, w.label]));
 const PRIORITY = new Map(OFFERED_WALLETS.map((w, i) => [w.name, i]));
 
 /** The row label for an adapter name: ours where we have one, else its own. */
 export function walletLabel(name: string): string {
+  if (name === PHONE_WALLET_ROW) return PHONE_WALLET_LABEL;
   return LABELS.get(name) ?? name;
 }
 
@@ -66,21 +77,29 @@ export function walletLabel(name: string): string {
  * The name to say for a wallet a connect is still waiting on ("Open Phantom: it
  * may be locked"), or null where that sentence would be untrue. WalletConnect
  * waits on its QR code in the list, or on the restore of its saved session:
- * there is no app of that name to open and nothing that can be locked. One rule
- * for the list's notice and the card's (SolanaWalletModal, SolanaConnectButton).
+ * there is no app of that name to open and nothing that can be locked. The
+ * phone-wallet row waits on whichever app Android opened. One rule for the
+ * list's notice and the card's (SolanaWalletModal, SolanaConnectButton).
  */
 export function waitedOnWalletLabel(name: string): string | null {
-  return name === WALLETCONNECT_ROW ? null : walletLabel(name);
+  if (name === WALLETCONNECT_ROW) return null;
+  return name === PHONE_WALLET_ROW ? 'your wallet app' : walletLabel(name);
 }
 
 /**
  * Detected first; then the offered order; then everything else as given;
  * WalletConnect last of all. Fixed on purpose: Standard wallets register in
- * whatever order their extensions happen to load, so registration order is not
- * stable per visit.
+ * whatever order their extensions load. A row that is not detected is dropped
+ * when a detected wallet carries its label: WalletProvider dedupes by exact
+ * name only, so a wallet registered as "Trust Wallet" left our "Trust" row
+ * beside it, as a link out of the browser the visitor is already in.
  */
 export function orderWallets(wallets: readonly Wallet[]): Wallet[] {
+  const detected = new Set(
+    wallets.filter((w) => w.readyState === WalletReadyState.Installed).map((w) => walletLabel(w.adapter.name)),
+  );
   return wallets
+    .filter((w) => w.readyState === WalletReadyState.Installed || !detected.has(walletLabel(w.adapter.name)))
     .map((wallet, index) => ({ wallet, index }))
     .sort((a, b) => {
       const lastA = a.wallet.adapter.name === WALLETCONNECT_ROW ? 1 : 0;

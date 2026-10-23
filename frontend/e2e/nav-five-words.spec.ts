@@ -1,12 +1,13 @@
 // The island's venue review, item 1, as the owner took it on 2026-10-03: the bar reads
-// Heat · Rooms · Lock · Launch · Swap at every width, Pools and Check live in one drawer that
-// opens at every width, the footer is eight links on one screen, and no bar or tab strip says
-// Soon. Walked on the production build at a phone, an iPad held upright and a laptop.
+// Island · Lock · Launch · Swap at every width (Heat and Rooms became Island on 2026-10-18),
+// one menu opens at every width and is the site's index, every section's word with its pages
+// under it (owner, 2026-10-19), the footer is eight links on one screen, and no bar or tab
+// strip says Soon. Walked on the production build at a phone, an iPad held upright and a laptop.
 import { test, expect, type Page } from '@playwright/test';
 
 test.use({ serviceWorkers: 'block' });
 
-const WORDS = ['Heat', 'Rooms', 'Lock', 'Launch', 'Swap'];
+const WORDS = ['Island', 'Lock', 'Launch', 'Swap'];
 
 const SIZES = [
   { name: 'phone', width: 390, height: 844 },
@@ -44,11 +45,13 @@ for (const size of SIZES) {
       await page.setViewportSize({ width: size.width, height: size.height });
     });
 
-    test('the bar reads Heat · Rooms · Lock · Launch · Swap on every route, one word lit where it owns the page', async ({ page }) => {
+    test('the bar reads Island · Lock · Launch · Swap on every route, one word lit where it owns the page', async ({ page }) => {
       test.slow();
       const expectLit: Record<string, string[]> = {
-        '/': ['Heat'],
-        '/bayla': ['Rooms'],
+        '/': ['Island'],
+        // Entering BAYLA's room makes Island her room's own page (owner, 2026-10-17).
+        '/bayla': ['Island'],
+        '/island': ['Island'],
         '/earn': ['Lock'],
         '/launch': ['Launch'],
         '/swap': ['Swap'],
@@ -63,23 +66,56 @@ for (const size of SIZES) {
       }
     });
 
-    test('the drawer opens and carries Pools, Check and Island; Pools opens the Solana LP tab', async ({ page }) => {
+    test("the menu is the site's index: every section's word with its pages under it, two columns at most; Pools opens the Solana LP tab", async ({ page }) => {
       await open(page, '/');
       await page.getByRole('button', { name: 'Open navigation menu' }).click();
       const drawer = page.getByRole('dialog', { name: 'Navigation menu' });
       await expect(drawer).toBeVisible();
-      for (const row of ['Pools', 'Check', 'Island']) {
-        await expect(drawer.getByRole('link', { name: row, exact: true }), row).toBeVisible();
+      const index = drawer.getByRole('navigation', { name: 'Site index' });
+      await expect(index.getByRole('heading', { level: 2 })).toHaveText(['Island', 'Swap', 'Pools', 'Lock', 'Launch', 'Check', 'Records']);
+      for (const word of ['Island', 'Swap', 'Pools', 'Lock', 'Launch', 'Check']) {
+        await expect(index.getByRole('link', { name: word, exact: true }), word).toBeVisible();
       }
-      // One row per line, aligned: .nav-link is inline-flex on touch widths (index.css).
-      const boxes = await drawer.getByRole('link').evaluateAll((as) => as.map((a) => a.getBoundingClientRect()).map((b) => ({ top: Math.round(b.top), left: Math.round(b.left) })));
-      for (let i = 1; i < boxes.length; i++) {
-        expect(boxes[i]!.top, `drawer row ${i + 1} shares a line with the row before it`).toBeGreaterThan(boxes[i - 1]!.top);
-        expect(boxes[i]!.left, `drawer row ${i + 1} is not aligned with the first`).toBe(boxes[0]!.left);
+      // Owner, 2026-10-18: the shadowed features, each one tap; 2026-10-19: organised, under their words.
+      for (const [word, name] of [['Island', 'Marketplace'], ['Lock', 'NFT Loans'], ['Check', 'Charting'], ['Island', 'Lore']] as const) {
+        await expect(index.getByRole('region', { name: word }).getByRole('link', { name, exact: true }), `${name} under ${word}`).toBeVisible();
       }
-      await drawer.getByRole('link', { name: 'Pools', exact: true }).click();
+      // The groups run in one, two or three columns, never more; no word is cut short, and the
+      // index runs off the screen neither sideways nor under the picture.
+      const lefts = await index.getByRole('heading', { level: 2 }).evaluateAll((hs) => hs.map((h) => Math.round(h.getBoundingClientRect().left)));
+      expect(new Set(lefts).size, 'the index runs in more than three columns').toBeLessThanOrEqual(3);
+      const cut = await index.getByRole('link').evaluateAll((as) => as.filter((a) => a.scrollWidth > a.clientWidth + 1).map((a) => a.textContent));
+      expect(cut, 'a word in the index is cut short').toEqual([]);
+      expect(await index.evaluate((n) => n.scrollWidth <= n.clientWidth + 1), 'the index scrolls sideways').toBe(true);
+      await index.getByRole('link', { name: 'Pools', exact: true }).click();
       await expect.poll(() => new URL(page.url()).pathname).toBe('/solana-lp');
       await expect(page.getByRole('tab', { name: 'Solana LP', exact: true })).toHaveAttribute('aria-selected', 'true', { timeout: 30_000 });
+    });
+
+    test('nothing lies over the open drawer: every row takes its own tap', async ({ page }) => {
+      // The menu covers the screen, where the phone's bottom bar (z-50) and Towelie (z-[60])
+      // also live; at the bar's z the bar was drawn over the menu's last rows.
+      await open(page, '/');
+      await page.getByRole('button', { name: 'Open navigation menu' }).click();
+      const drawer = page.getByRole('dialog', { name: 'Navigation menu' });
+      await expect(drawer.getByRole('link').last()).toBeVisible();
+      // Each row is the topmost thing at its own centre.
+      const covered = await drawer.getByRole('link').evaluateAll((as) => as.flatMap((a) => {
+        a.scrollIntoView({ block: 'nearest' });
+        const b = a.getBoundingClientRect();
+        const top = document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2);
+        return top && a.contains(top) ? [] : [`${a.textContent} (under ${top?.tagName ?? 'nothing'} ${top?.closest('nav')?.getAttribute('aria-label') ?? ''})`];
+      }));
+      expect(covered, 'a drawer row is covered by something drawn over it').toEqual([]);
+      // And the screen's edges, where the bars sit, whether or not a row reaches them today.
+      const edges = await drawer.evaluate((d) => {
+        const w = innerWidth, h = innerHeight;
+        return [[w / 2, h - 8], [8, h - 8], [w - 8, h - 8], [w / 2, 8], [w - 8, h / 2]].flatMap(([x, y]) => {
+          const top = document.elementFromPoint(x!, y!);
+          return top && d.contains(top) ? [] : [`${Math.round(x!)},${Math.round(y!)} is ${top?.tagName ?? 'nothing'} ${top?.closest('nav')?.getAttribute('aria-label') ?? ''}`];
+        });
+      });
+      expect(edges, 'something is drawn over the open menu').toEqual([]);
     });
 
     test('the footer is eight links, on one screen above the bar', async ({ page }) => {
@@ -102,12 +138,15 @@ for (const size of SIZES) {
   });
 }
 
-test('Rooms, pressed on another page, opens the hall of doors', async ({ page }) => {
+test('Island, pressed on another page, opens the home, whose hall opens the island page', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await open(page, '/swap');
-  await page.locator('nav[aria-label="Main navigation"]:visible').getByRole('link', { name: 'Rooms' }).click();
-  await expect.poll(() => new URL(page.url()).pathname + new URL(page.url()).hash).toBe('/#hall');
-  await expect(page.getByRole('heading', { name: 'The bungalows' })).toBeInViewport({ timeout: 30_000 });
+  await page.locator('nav[aria-label="Main navigation"]:visible').getByRole('link', { name: 'Island' }).click();
+  await expect.poll(() => new URL(page.url()).pathname).toBe('/');
+  // The lobby (the whole board, the arrival film) has no word of its own: the hall links it.
+  await page.getByRole('link', { name: 'The whole island' }).click();
+  await expect.poll(() => new URL(page.url()).pathname).toBe('/island');
+  await expect(page.getByRole('heading', { name: 'The island', level: 1 })).toBeVisible({ timeout: 30_000 });
 });
 
 test('the footer fits the height a real iPhone browser gives a page', async ({ page }) => {

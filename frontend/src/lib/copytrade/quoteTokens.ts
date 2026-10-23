@@ -11,10 +11,6 @@
 // are short, and a wallet that wants to follow a leader on some other quote asset
 // gets a surface that says so rather than a control that quietly mis-sizes.
 //
-// lib/competitions reads this table too — a season is denominated in one of these
-// tokens for the same reason a follow is, and two tables would be two chances for
-// a decimals value to be wrong in only one place.
-//
 // ─── THE TABLE IS PER NETWORK, NOT PER SYMBOL ────────────────────────────────
 //
 // WETH on Ethereum and WETH on Base are two different contracts with one symbol.

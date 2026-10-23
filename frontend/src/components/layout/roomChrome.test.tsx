@@ -103,7 +103,7 @@ describe("the footer's chrome follows the route", () => {
     expect(text).not.toContain('—');
   });
 
-  // The footer carries no room label since 2026-10-15: Rooms is a word on the bar. So a TOWELI
+  // The footer carries no room label since 2026-10-15: the bar's Island word opens the hall. So a TOWELI
   // room, carrying Bayla, names no resident anywhere in its footer, and bills no prose dash.
   it('names no resident in a TOWELI room', () => {
     walkedThrough('bayla');

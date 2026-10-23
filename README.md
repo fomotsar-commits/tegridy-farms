@@ -49,13 +49,14 @@ Our pool program is a fork of Raydium's constant-product AMM
 code is Raydium's; the admin keys and names are ours.
 
 - **A pool opened from the site uses the 1% fee tier.** Every swap pays 1%: **0.84% stays in
-  the pool** for its liquidity providers and **0.16% goes to the venue's vault**.
+  the pool** for its liquidity providers and **0.16% is the venue's take**: 0.104% to the venue's
+  vault and 0.056% to the island's Workshop (Jungle Bay Island's share, agreed 2026-10-18).
 - **How liquidity providers earn:** there is no claim button. The 0.84% stays in the pool, so
   each pool share redeems for more over time. You collect it when you remove liquidity.
 - **How the venue earns:** the 0.16% cut, plus **0.15 SOL** paid to the vault by whoever opens
   a new pool.
 - **Launch pools** (where a launched token graduates) use a separate 0.25% tier, of which
-  0.05% of each swap goes to the venue. None exist yet, because nothing has launched.
+  0.05% of each swap is the venue's take, shared the same way. None exist yet, because nothing has launched.
 
 The site reads the live rates from the chain on the **Venue AMM** tab
 ([/pools](https://memetics.finance/pools)). Detail: [`TEGRIDY_FORK.md`](solana/tegridy-amm/TEGRIDY_FORK.md).

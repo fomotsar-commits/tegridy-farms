@@ -13,28 +13,25 @@ import { tabDomId } from '../components/layout/routeTabId';
  * literal that has to stay in step with this one.
  */
 const ALL_TABS: readonly NavItem[] = [
-  { to: '/leaderboard', label: 'Points' },
   { to: '/premium', label: 'Gold Card' },
   { to: '/history', label: 'History' },
   { to: '/changelog', label: 'Changelog' },
 ];
 
-const LeaderboardPage = lazy(() => import('./LeaderboardPage'));
 const PremiumPage = lazy(() => import('./PremiumPage'));
 const HistoryPage = lazy(() => import('./HistoryPage'));
 const ChangelogPage = lazy(() => import('./ChangelogPage'));
 
 function tabFromPath(pathname: string): string {
   if (pathname.startsWith('/premium')) return '/premium';
-  if (pathname.startsWith('/history')) return '/history';
   if (pathname.startsWith('/changelog')) return '/changelog';
-  return '/leaderboard';
+  return '/history';
 }
 
-/// ActivityPage — tabbed host for Points (Leaderboard), Gold Card (Premium),
-/// History, and Changelog. URLs `/leaderboard`, `/premium`, `/history`, and
-/// `/changelog` all route here with the correct tab pre-selected, preserving
-/// deep-link compatibility. The strip is the shared one
+/// ActivityPage — tabbed host for Gold Card (Premium), History, and Changelog.
+/// URLs `/premium`, `/history` and `/changelog` all route here with the right tab
+/// selected. (Points, at `/leaderboard`, was deleted 2026-10-15: island item 4;
+/// App.tsx sends that address to History.) The strip is the shared one
 /// (components/layout/RouteTabs.tsx).
 export default function ActivityPage() {
   const location = useLocation();
@@ -46,13 +43,13 @@ export default function ActivityPage() {
   // F523: /premium maps to the Gold Card tab, but its content is a SOON
   // placeholder until the PremiumAccess contract deploys. Landing first-time
   // visitors on an empty feature is a poor impression, so while !PREMIUM_LIVE
-  // the Gold Card tab self-heals to the live Points content. The bar highlights
-  // Points to stay coherent, and the moment PREMIUM_LIVE flips true (address
+  // the Gold Card tab self-heals to History. The bar highlights History to stay
+  // coherent, and the moment PREMIUM_LIVE flips true (address
   // wired in constants.ts) /premium shows the real Gold Card with no code change.
   //
   // This is the one host whose active tab is not simply its URL, which is why
   // RouteTabs takes `active` as a prop instead of reading the location itself.
-  const effectiveTab = tab === '/premium' && !PREMIUM_LIVE ? '/leaderboard' : tab;
+  const effectiveTab = tab === '/premium' && !PREMIUM_LIVE ? '/history' : tab;
 
   // F9: don't promote the Gold Card tab while PREMIUM_ACCESS is zeroed — it would
   // dead-end in the not-deployed placeholder. The tab returns automatically the
@@ -60,7 +57,7 @@ export default function ActivityPage() {
   const visibleTabs = ALL_TABS.filter((t) => t.to !== '/premium' || PREMIUM_LIVE);
 
   // Compared against effectiveTab, not tab: while !PREMIUM_LIVE the URL can be
-  // /premium with Points selected, and clicking Points there must stay a no-op
+  // /premium with History selected, and clicking History there must stay a no-op
   // rather than navigate to the tab the user is already looking at.
   const handleTab = (to: string) => {
     if (to === effectiveTab) return;
@@ -79,7 +76,6 @@ export default function ActivityPage() {
 
       <div role="tabpanel" id="activity-panel" aria-labelledby={tabDomId('activity', effectiveTab)}>
         <Suspense fallback={<PageSkeleton />}>
-          {effectiveTab === '/leaderboard' && <LeaderboardPage />}
           {effectiveTab === '/premium' && <PremiumPage />}
           {effectiveTab === '/history' && <HistoryPage />}
           {effectiveTab === '/changelog' && <ChangelogPage />}

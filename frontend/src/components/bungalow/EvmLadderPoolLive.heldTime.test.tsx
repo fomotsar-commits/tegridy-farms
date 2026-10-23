@@ -122,3 +122,17 @@ describe('the held-time line on the EVM ladder card', () => {
     expect(screen.queryByText(READ)).toBeNull();
   });
 });
+
+// Island, answer seventeen item 3: the farm's lock names stay in the farm's room. An
+// island room's rungs read their plain lengths and the weight, nothing else.
+describe('the lock rungs on an island room', () => {
+  it('read their plain lengths, never the farm names', async () => {
+    const { LOCK_DURATIONS } = await import('../../lib/copy');
+    render(<EvmLadderPoolLive bungalow={QR} />);
+    for (const d of LOCK_DURATIONS) {
+      expect(screen.getByRole('button', { name: new RegExp(`^${d.sublabel}`) })).toBeTruthy();
+    }
+    const text = document.body.textContent ?? '';
+    for (const d of LOCK_DURATIONS) expect(text).not.toContain(d.label);
+  });
+});

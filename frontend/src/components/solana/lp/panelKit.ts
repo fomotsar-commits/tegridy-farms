@@ -11,9 +11,36 @@ import type { LpWrites } from './useLpWrites';
 // buttons, the debounced status line, how they report "busy" and "finished" to the
 // section. The panel's frame is PanelFrame.tsx.
 
+/**
+ * What an address is, which decides both the explorer page a link opens and what the link
+ * says it will show there, so the two cannot disagree. A pool's own account holds only its
+ * records (Solscan prints its rent, about $0.40, as its "Total Value"); its coins sit in its
+ * two vaults, which are `balance`.
+ */
+export type ExplorerKind = 'token' | 'wallet' | 'balance' | 'activity';
+const SHOWS: Record<ExplorerKind, string> = {
+  token: 'Token',
+  wallet: 'Wallet',
+  balance: 'Balance',
+  activity: 'Transactions',
+};
+export interface ExplorerLink {
+  href: string;
+  /** Says where the link goes and what is there: "Token on Solscan". */
+  text: string;
+}
+
 /** An address's explorer link, once the write code (which knows the cluster) has loaded; null until then. */
-export const explorerOf = (writes: LpWrites | null) => (address: string): string | null =>
-  writes?.api && writes.cfg ? writes.api.explorerAddressUrl(address, writes.cfg.cluster) : null;
+export const explorerOf =
+  (writes: LpWrites | null) =>
+  (address: string, kind: ExplorerKind): ExplorerLink | null => {
+    if (!writes?.api || !writes.cfg) return null;
+    const { cluster } = writes.cfg;
+    return {
+      href: writes.api.explorerAddressUrl(address, cluster, kind === 'token' ? 'token' : 'account'),
+      text: `${SHOWS[kind]} on ${cluster === 'localnet' ? 'the Solana Explorer' : 'Solscan'}`,
+    };
+  };
 
 /** A bound or a share count, to its last digit: rounding "at most" or "you get" would misstate it. */
 export const solExact = (lamports: bigint) => `${formatSol(lamports, 9)} SOL`;

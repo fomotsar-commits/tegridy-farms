@@ -6,6 +6,7 @@ import { useTokenScan } from '../hooks/useTokenScan';
 import { detectChain } from '../lib/scanner';
 import { ScanReport } from '../components/scanner/ScanReport';
 import { TOWELI_ADDRESS } from '../lib/constants';
+import { getBungalowIdentity } from '../lib/bungalows';
 import { PageArtBackdrop } from '../components/PageArtBackdrop';
 import { CardArt } from '../components/ui/CardArt';
 import { FinePrint } from '../components/ui/FinePrint';
@@ -55,10 +56,17 @@ export default function ScannerPage() {
     setParams(next);
   }
 
+  // Inside a room the example is the room's coin (owner, 2026-10-17: the BAYLA room offered
+  // TOWELI); elsewhere it is ours.
+  const room = getBungalowIdentity();
+  const example = room?.address
+    ? { address: room.address, label: `Try ${room.symbol}`, base: room.chain === 'base' }
+    : { address: TOWELI_ADDRESS, label: 'Try our token (TOWELI)', base: false };
   function loadExample() {
-    setDraft(TOWELI_ADDRESS);
+    setDraft(example.address);
     const next = new URLSearchParams();
-    next.set('token', TOWELI_ADDRESS);
+    next.set('token', example.address);
+    if (example.base) next.set('chain', 'base');
     setParams(next);
   }
 
@@ -143,7 +151,7 @@ export default function ScannerPage() {
             </span>
           )}
           <button type="button" onClick={loadExample} className="text-[11px] text-text-muted underline underline-offset-2 hover:text-text-secondary">
-            Try our token (TOWELI)
+            {example.label}
           </button>
         </div>
         <FinePrint summary="How it works">

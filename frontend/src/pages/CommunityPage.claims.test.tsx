@@ -117,10 +117,11 @@ describe('CommunityPage — deployed-but-unwired is not the same as "not live"',
 
   it('keeps the "Live now" section and every tab — the claim changed, nothing was removed', () => {
     // HARD RULE: additive only. These are the surfaces that were already on the
-    // page and must still be there.
+    // page and must still be there. The one exception was the owner's own call:
+    // the Venue Score card left with the points program on 2026-10-15 (island item 4).
     renderTab('');
     expect(screen.getByText(/Live now/i)).toBeTruthy();
-    expect(screen.getByText(/Venue Score/)).toBeTruthy();
+    expect(screen.queryByText(/Venue Score/)).toBeNull();
     expect(screen.getByText(/Community chat/)).toBeTruthy();
     expect(screen.getByText(/Gallery/)).toBeTruthy();
     for (const tab of ['Governance', 'Bounties', 'Vote Incentives', 'Gauge Voting']) {

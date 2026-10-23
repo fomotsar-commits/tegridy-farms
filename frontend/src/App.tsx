@@ -23,6 +23,7 @@ import { EARN_PATH, isEarnPoolId, legacyFarmTarget } from './lib/earnRoutes';
 import { lazyLoadFailed } from './lib/staleBuild';
 import { holdReloadWhileWalletWorks } from './lib/reloadHold';
 import { StaleBuildFallback } from './components/StaleBuildFallback';
+import { rangePoolsVisible } from './lib/solana/clmm/programId';
 
 const HomePage = lazy(() => import('./pages/HomePage'));
 const DashboardPage = lazy(() => import('./pages/DashboardPage'));
@@ -312,6 +313,8 @@ function AnimatedRoutes() {
         {/* Pools is its own section: /liquidity, /solana-lp, /pools and /zap. */}
         <Route path="liquidity" element={<Suspense fallback={<SwapSkeleton />}><PoolsHostPage /></Suspense>} />
         <Route path="solana-lp" element={<Suspense fallback={<SwapSkeleton />}><PoolsHostPage /></Suspense>} />
+        {/* The Range tab: no route at all until range pools open (clmm/programId.ts). */}
+        {rangePoolsVisible() && <Route path="range-pools" element={<Suspense fallback={<SwapSkeleton />}><PoolsHostPage /></Suspense>} />}
         <Route path="pools" element={<Suspense fallback={<SwapSkeleton />}><PoolsHostPage /></Suspense>} />
         {/* No /solana-launch and no redirect for it: it 404s, because the rail it
             would point at cannot launch either. */}
@@ -329,7 +332,8 @@ function AnimatedRoutes() {
         <Route path="yield" element={<Suspense fallback={<PageSkeleton />}><EarnPage /></Suspense>} />
         {/* The nav labels this "Trade" — make the natural /trade URL resolve instead of 404. */}
         <Route path="copy-trading" element={<Suspense fallback={<PageSkeleton />}><EarnPage /></Suspense>} />
-        <Route path="competitions" element={<Suspense fallback={<PageSkeleton />}><EarnPage /></Suspense>} />
+        {/* The trading competitions were deleted 2026-10-15 (island item 4); old links land on Earn. */}
+        <Route path="competitions" element={<Navigate to="/earn" replace />} />
         <Route path="trade" element={<Navigate to="/swap" replace />} />
         <Route path="dashboard" element={<Suspense fallback={<DashboardSkeleton />}><DashboardPage /></Suspense>} />
         {/* The Island lobby is cards, not tabs (IslandPage.tsx). */}
@@ -340,7 +344,8 @@ function AnimatedRoutes() {
         <Route path="lore" element={<Suspense fallback={<PageSkeleton />}><LearnPage /></Suspense>} />
         {/* /learn is a legacy alias for the first tab LearnPage owns. */}
         <Route path="learn" element={<Navigate to="/lore" replace />} />
-        <Route path="leaderboard" element={<Suspense fallback={<PageSkeleton />}><ActivityPage /></Suspense>} />
+        {/* The points program was deleted 2026-10-15 (island item 4); old links land on History. */}
+        <Route path="leaderboard" element={<Navigate to="/history" replace />} />
         <Route path="community" element={<Suspense fallback={<PageSkeleton />}><CommunityPage /></Suspense>} />
         <Route path="grants" element={<Navigate to="/community" replace />} />
         <Route path="bounties" element={<Navigate to="/community?section=bounties" replace />} />

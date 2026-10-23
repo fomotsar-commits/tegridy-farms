@@ -70,18 +70,21 @@ export function LiquidityPrimer() {
         <div>
           <h3 className="text-white text-[13px] font-semibold mb-1">How do I get paid?</h3>
           {/* The pair can mint the venue one sixth of the fee as LP (`_mintFee`), but only
-              after `harvest()` from the factory's feeToSetter first writes `kLast`. Read
-              2026-10-10: kLast is 0 and feeTo holds no LP, so the cut is off. This page has
-              no kLast read, so the copy dates what it saw and names who can change it.
+              after `harvest()` from the factory's feeToSetter first writes `kLast`, pool by
+              pool. TOWELI/WETH: switched on 2026-10-16 04:48Z by the owner (kLast set, feeTo =
+              the treasury Safe; re-read 2026-10-17). This page has no kLast read, so the copy
+              dates what it saw and names who can change it.
               src/lib/moneyWordsMatchTheChain.test.tsx pins the shape. */}
           <p data-testid="primer-how-paid">
             Every swap through the pool pays a 0.3% fee, and the fee stays in the pool. It is not
             claimed and not paid out. It sits in the reserves, so the share you hold becomes
             redeemable for more than you put in. The pair contract lets the venue take one sixth
-            of that fee (about 0.05% of a trade) as newly minted pool shares. On 10 October 2026
-            that cut had never been switched on, and liquidity providers kept the whole 0.3%. Only
-            the venue&apos;s owner wallet can switch it on, in one transaction with no waiting
-            period. To check today, read kLast on the pair contract: 0 means the cut is off. The
+            of that fee (about 0.05% of a trade) as newly minted pool shares. Only the venue&apos;s
+            owner wallet (on Base, its multisig) can switch that cut on, pool by pool, in one
+            transaction with no waiting period.
+            On TOWELI/ETH it has been on since 16 October 2026, so providers there keep about 0.25%
+            of each trade. A pool where it is not on keeps the whole 0.3% for its providers. To
+            check a pool today, read kLast on its pair contract: 0 means its cut is not on. The
             venue earns another way: swaps sent through this site&apos;s own router pay a separate
             venue fee, shown on the swap screen before you sign. You earn in proportion to your
             share, for as long as you hold it. Nothing is locked; you can withdraw at any block.

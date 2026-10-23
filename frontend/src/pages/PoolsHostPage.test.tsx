@@ -8,6 +8,12 @@ import { POOLS_SECTION } from '../lib/navConfig';
 import PoolsHostPage from './PoolsHostPage';
 
 // Every Pools tab is a URL that opens this host, and the URL picks the panel.
+// The network drop-down reads the wallet: no wallet here.
+vi.mock('wagmi', () => ({
+  useAccount: () => ({ isConnected: false }),
+  useChainId: () => 1,
+  useSwitchChain: () => ({ switchChain: vi.fn() }),
+}));
 vi.mock('./LiquidityPage', () => ({ default: () => <div>add-remove panel</div> }));
 vi.mock('./SolanaLpPage', () => ({ default: () => <div>solana-lp panel</div> }));
 vi.mock('./PoolsPage', () => ({ default: () => <div>venue-amm panel</div> }));

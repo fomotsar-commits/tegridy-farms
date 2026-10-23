@@ -106,7 +106,6 @@ const ROUTE_TIPS: Record<string, string> = {
   // behind a timelock). The Farm strip quotes the live number; this points at it.
   '/tokenomics':  "1B supply. Protocol fees route on-chain to stakers, after the referral carve.",
   '/security':    "Internally red-teamed to hell and back. Safer than my last job.",
-  '/leaderboard': "Climb the ranks. Earn points. Brag responsibly.",
   '/changelog':   "Every shipped feature, receipts and all.",
   '/premium':     "Randy's Gold Card. Bonus rewards for the loyal.",
   '/gallery':     "All the art. Look, don't lick.",

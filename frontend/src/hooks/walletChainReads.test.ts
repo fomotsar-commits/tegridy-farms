@@ -63,7 +63,6 @@ import { useNFTDropV2 } from './useNFTDropV2';
 import { useZapPlan } from './useZapPlan';
 import { useMyLoans } from './useMyLoans';
 import { useUserPosition } from './useUserPosition';
-import { usePoints } from './usePoints';
 import { useRestaking } from './useRestaking';
 import { useNFTBoost } from './useNFTBoost';
 import {
@@ -219,13 +218,6 @@ describe('mainnet reads do not depend on the wallet chain', () => {
       expect(off.stakedAmount).toBe(1_000n * E18);
       expect(off.positionUnread).toBe(false);
       expect(figures(off)).toEqual(figures(reportOn(useUserPosition, CHAIN_ID)));
-    });
-
-    it('usePoints scores the mainnet position, not the swap count alone', () => {
-      const off = reportOn(usePoints, chainId);
-      expect(off.onChainMetrics?.stakedAmount).toBe(1_000n * E18);
-      expect(off.onChainMetrics?.lpBalance).toBe(40n * E18);
-      expect(figures(off)).toEqual(figures(reportOn(usePoints, CHAIN_ID)));
     });
 
     it('useNFTBoost confirms a mainnet JBAC rather than calling it unknown', () => {

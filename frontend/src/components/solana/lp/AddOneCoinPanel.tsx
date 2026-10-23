@@ -12,14 +12,13 @@ import {
   type PriorityLevel,
 } from '../../../lib/jupiter';
 import { decimalCommaToPoint, formatTokenAmount, parseDecimalToBaseUnits } from '../../../lib/launcher/solana/curve/format';
-import { displaySafe } from '../../../lib/launchMetadata/validate';
 import { holdReload } from '../../../lib/reloadHold';
 import { quoteOwnPool } from '../../../lib/solana/cpswap/read';
 import { feeReserveFor, isPlanProblem, solSetAside } from '../../../lib/solana/lp/liquidityMath';
 import { outsideShare, ownPoolShare, stepTwo, type Side, type StepTwo } from '../../../lib/solana/lp/oneCoin';
 import type { PoolView } from '../../../lib/solana/lp/poolFinder';
 import type { PoolHealth } from '../../../lib/solana/lp/poolHealth';
-import { quoteCoin } from '../../../lib/solana/lp/quotes';
+import { tokenTicker } from '../../../lib/solana/lp/identity';
 import type { TokenSafety } from '../../../lib/solana/lp/tokenSafety';
 import { NO_SITE_FEE_ROUTE_COPY, prepareJupiterSwap, type PreparedJupiterSwap } from '../../../lib/solana/swap/jupiterFeeRetry';
 import { OWN_ROUTE_COPY, freshDecision, ownPoolNowWins, prepareOwnPoolSwap, within } from '../../../lib/solana/swap/ownPoolRoute';
@@ -37,13 +36,16 @@ import { DEFAULT_SLIPPAGE_BPS, TOGGLE_CLS, baseUnitsToInput, impactWarning, inpu
 import { useReturnFocus, type OnSettled } from '../curve/useTxFlow';
 import { WalletNeeded } from '../curve/WalletNeeded';
 import { AddLiquidityPanel } from './AddLiquidityPanel';
+import { RISK_SHORT } from './LpDisclosures';
+import { PercentPicker } from './PercentPicker';
+import { tick } from '../../../lib/tick';
 import { clearStepTwo, priceChangeOf, readStepTwo, receivedBy, saveStepTwo, sendJupiterLeg, stepOneLanded, type StepTwoNote } from './oneCoinSwap';
 import { PanelFrame } from './PanelFrame';
 import { coinAbout, coinExact, solExact, unitsExact, useWalletFacts } from './panelKit';
 import { useLpWrites, type LpWrites } from './useLpWrites';
 
 /** The one line under the button (owner, 2026-10-13: minimal words; D10: an ordinary swap). */
-export const ONE_COIN_LINE = 'Part of it is swapped first, as an ordinary swap with the swap page’s fees. Then both coins go in. Two signatures.';
+export const ONE_COIN_LINE = 'Part of it is swapped first, as an ordinary swap with the swap page’s fees. Then both coins go in. Two signatures: the swap, then the add.';
 /** Kept back from a SOL amount for the swap's fees and its temporary accounts: the swap page's own Max reserve. */
 export const SWAP_SOL_RESERVE = 10_000_000n;
 /** How long the press waits for our pool to be read again before Jupiter's transaction goes to the wallet. */
@@ -109,7 +111,7 @@ type Said = { title: string; text: string; tone: 'warn' | 'bad' | 'info' };
  * A swap this wallet sent and the chain has not answered for holds step 1 (useVenueSwap's
  * notes, the swap page's, by the wallet that signed); once step 1 lands, only step 2 is offered.
  */
-export function AddOneCoinPanel(p: { view: PoolView; health: PoolHealth; safety: TokenSafety | null; tokenDecimals: number | null; onClose: () => void }) {
+export function AddOneCoinPanel(p: { view: PoolView; health: PoolHealth; safety: TokenSafety | null; tokenDecimals: number | null; onClose: () => void; onPair?: () => void }) {
   const writes = useLpWrites();
   if (!writes || !writes.api || writes.gate?.kind !== 'open') return null;
   return <OneCoinInner {...p} writes={writes} />;
@@ -122,6 +124,7 @@ function OneCoinInner({
   tokenDecimals,
   onClose,
   writes,
+  onPair,
 }: {
   view: PoolView;
   health: PoolHealth;
@@ -129,6 +132,8 @@ function OneCoinInner({
   tokenDecimals: number | null;
   onClose: () => void;
   writes: LpWrites;
+  /** "I have both coins": this pool's Add liquidity form, in one press. */
+  onPair?: () => void;
 }) {
   const { connection } = useConnection();
   const { sendTransaction } = useWallet();
@@ -136,8 +141,8 @@ function OneCoinInner({
   const coin = view.quote;
   const decimals = tokenDecimals ?? (view.quoteIsToken0 ? pool.mint1Decimals : pool.mint0Decimals);
   const tokenProgram = view.quoteIsToken0 ? pool.token1Program : pool.token0Program;
-  const tokenName =
-    quoteCoin(view.tokenMint)?.symbol ?? (safety?.kind === 'read' && safety.verdict !== 'blocked' && safety.symbol ? displaySafe(safety.symbol, 12) : 'tokens');
+  // Its ticker as the pool's heading says it (identity.ts): a copy of a well-known one reads "fake USDC", never "USDC".
+  const tokenName = (safety?.kind !== 'read' || safety.verdict !== 'blocked' ? tokenTicker(view.tokenMint, safety) : null) ?? 'tokens';
   const signer = writes.signerState.kind === 'ready' ? writes.signerState.signer : null;
   const owner = signer?.publicKey ?? null;
   const ownerKey = owner?.toBase58() ?? null;
@@ -146,6 +151,8 @@ function OneCoinInner({
 
   const [paid, setPaid] = useState<Side>('quote');
   const [text, setText] = useState('');
+  // The percent row's pick (25, 50, 75); typing or Max clears it.
+  const [pctBps, setPctBps] = useState<bigint | null>(null);
   const [slippageBps, setSlippageBps] = useState<bigint | null>(DEFAULT_SLIPPAGE_BPS);
   const [phase, setPhase] = useState<Phase>({ kind: 'form' });
   const [said, setSaid] = useState<Said | null>(null);
@@ -192,6 +199,13 @@ function OneCoinInner({
   const total = text.trim() === '' ? null : parseDecimalToBaseUnits(text, decimalsOf(paid));
   const bad = text.trim() !== '' && total === null;
   const over = total !== null && available !== null && total > available;
+  // About how much of the pool the amount buys (the share bar): its value at the pool's own
+  // price against the pool's, from the reserves as read. The review works out the real figure.
+  const sharePct = (() => {
+    if (total === null || total <= 0n || view.quoteReserve <= 0n || view.tokenReserve <= 0n) return null;
+    const value = paid === 'quote' ? Number(total) : (Number(total) * Number(view.quoteReserve)) / Number(view.tokenReserve);
+    return (value / (2 * Number(view.quoteReserve) + value)) * 100;
+  })();
 
   const pair = (p: { inputMint: string; outputMint: string }) => `${p.inputMint}|${p.outputMint}`;
 
@@ -717,7 +731,10 @@ function OneCoinInner({
           <Notice>Two transactions, two signatures. Step 2 has its own review.</Notice>
           {phase.kind === 'review' && (
             <div className="flex flex-col sm:flex-row gap-2">
-              <button type="button" className="btn-primary w-full min-h-[44px] text-[13px] disabled:opacity-60" disabled={held} onClick={() => void signJupiter(plan_)}>
+              <button type="button" className="btn-primary w-full min-h-[44px] text-[13px] disabled:opacity-60" disabled={held} onClick={() => {
+                  tick();
+                  void signJupiter(plan_);
+                }}>
                 Sign in wallet
               </button>
               <button type="button" className="btn-secondary min-h-[44px] px-4 text-[13px]" onClick={() => setPhase({ kind: 'form' })}>
@@ -738,6 +755,9 @@ function OneCoinInner({
 
       {(phase.kind === 'form' || phase.kind === 'planning') && (
         <>
+          <p data-testid="lp-one-what" className="text-white text-[14px] leading-relaxed">
+            A share of the {tokenName}/{coin.symbol} pool and its fee on every trade. No lock, but the team&apos;s vault can pause removing.
+          </p>
           <div role="group" aria-label="Pay with" className="flex gap-2">
             {(['quote', 'token'] as const).map((side) => (
               <button
@@ -750,6 +770,7 @@ function OneCoinInner({
                 onClick={() => {
                   setPaid(side);
                   setText('');
+                  setPctBps(null);
                 }}
               >
                 {name(side)}
@@ -764,7 +785,10 @@ function OneCoinInner({
                   className={`${inputCls} flex-1 min-w-0`}
                   style={inputStyle}
                   value={text}
-                  onChange={(e) => setText(decimalCommaToPoint(e.target.value, text))}
+                  onChange={(e) => {
+                    setText(decimalCommaToPoint(e.target.value, text));
+                    setPctBps(null);
+                  }}
                   placeholder="0.0"
                   inputMode="decimal"
                   spellCheck={false}
@@ -777,7 +801,11 @@ function OneCoinInner({
                     className={`${TOGGLE_CLS} !flex-none min-w-[56px] px-3`}
                     style={{ background: 'rgba(0,0,0,0.45)', border: '1px solid rgba(255,255,255,0.12)' }}
                     aria-label={`Max ${name(paid)}`}
-                    onClick={() => setText(baseUnitsToInput(available, decimalsOf(paid)))}
+                    onClick={() => {
+                      tick();
+                      setPctBps(null);
+                      setText(baseUnitsToInput(available, decimalsOf(paid)));
+                    }}
                   >
                     Max
                   </button>
@@ -785,6 +813,35 @@ function OneCoinInner({
               </div>
             )}
           </Field>
+          {available !== null && available > 0n && (
+            <PercentPicker
+              partsOnly
+              legend={`How much of your ${name(paid)}`}
+              valueBps={pctBps}
+              disabled={phase.kind !== 'form'}
+              onChange={({ bps }) => {
+                tick();
+                setPctBps(bps);
+                if (bps !== null) setText(baseUnitsToInput((available * bps) / 10_000n, decimalsOf(paid)));
+              }}
+            />
+          )}
+          {sharePct !== null && !bad && (
+            <div data-testid="lp-one-share">
+              <div
+                className="h-2 rounded-full overflow-hidden"
+                style={{ background: 'rgba(255,255,255,0.10)' }}
+                role="img"
+                aria-label={`About ${shareText(sharePct)} of the pool`}
+              >
+                <div
+                  className="h-full rounded-full motion-safe:transition-[width] motion-safe:duration-300"
+                  style={{ width: `${Math.min(100, sharePct)}%`, minWidth: '3px', background: '#31d0aa' }}
+                />
+              </div>
+              <p className="text-white/70 text-[12px] mt-1">About {shareText(sharePct)} of the pool, at its price now.</p>
+            </div>
+          )}
           <SlippagePicker valueBps={slippageBps} onChange={setSlippageBps} hint="Used by both steps. If a price moves more than this first, that step is refused and only its network fee is spent." />
           {over && available !== null && <Notice tone="warn">That is more than you can use. The most is {exact(paid, available)}.</Notice>}
           {shortOfSol && setAside !== null && <Notice tone="warn">Your wallet needs {solExact(setAside)} for both steps’ fees and deposits.</Notice>}
@@ -794,22 +851,40 @@ function OneCoinInner({
             </Notice>
           ))}
           {coin.risk && <Notice tone="warn">{coin.risk}</Notice>}
+          <p className="text-white/60" data-testid="lp-one-line">
+            {ONE_COIN_LINE}
+          </p>
           <div className="flex flex-col sm:flex-row gap-2">
-            <button ref={reviewRef} type="button" className="btn-primary w-full min-h-[44px] text-[13px] disabled:opacity-60 disabled:grayscale" disabled={!canReview} onClick={() => void plan()}>
+            <button
+              ref={reviewRef}
+              type="button"
+              className="btn-primary w-full min-h-[44px] text-[13px] disabled:opacity-60 disabled:grayscale"
+              disabled={!canReview}
+              onClick={() => {
+                tick();
+                void plan();
+              }}
+            >
               Review: add with one coin
             </button>
             <button type="button" className="btn-secondary min-h-[44px] px-4 text-[13px]" onClick={onClose}>
               Close
             </button>
           </div>
+          {/* Off the page (owner, 2026-10-17: "remove this warning from everywhere"), one press away. */}
+          <FinePrint summary="Risks" testId="lp-one-risk">
+            <p>{RISK_SHORT}</p>
+          </FinePrint>
+          {onPair && (
+            <button type="button" className="min-h-[44px] text-[13px] text-white/85 underline underline-offset-2 text-left" onClick={onPair}>
+              I have both coins
+            </button>
+          )}
           {signer && loadingOwn && phase.kind === 'form' && (
             <p role="status" className="text-white/60" data-testid="lp-one-loading">
               Getting this pool’s swap ready, so Review can compare it with Jupiter…
             </p>
           )}
-          <p className="text-white/60" data-testid="lp-one-line">
-            {ONE_COIN_LINE}
-          </p>
           <FinePrint summary="How it works">
             <p>
               Step 1 swaps part of your coin for the other one, through whichever pays more for that swap: Jupiter or this pool. It is an ordinary swap
@@ -828,6 +903,11 @@ function OneCoinInner({
       )}
     </PanelFrame>
   );
+}
+
+/** The share bar's words: two decimals, and never a zero for a share that is not one. */
+function shareText(pct: number): string {
+  return pct < 0.01 ? 'under 0.01%' : `${pct.toFixed(2)}%`;
 }
 
 /** What step 1 costs in price, from Jupiter's own figure, and the swap page's warning when it is large. */

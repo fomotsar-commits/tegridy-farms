@@ -5,16 +5,34 @@ import { CONNECT_ETHEREUM_WALLET } from '../../lib/copy';
 import { formatUnits, parseUnits } from 'viem';
 import { toast } from 'sonner';
 import { useAddLiquidity } from '../../hooks/useAddLiquidity';
-import { DEFAULT_TOKENS, type TokenInfo } from '../../lib/tokenList';
+import { useUniswapV2MarketPrice, matchAtMarket, gapFromMarketBps, formatMarketPrice } from '../../hooks/useUniswapV2MarketPrice';
+import { DEFAULT_TOKENS, defaultTokensFor, headlineTokenFor, type TokenInfo } from '../../lib/tokenList';
 import { TokenSelectModal } from './TokenSelectModal';
 import { getTxUrl } from '../../lib/explorer';
 import { CHAIN_ID } from '../../lib/constants';
 import { liquidityVenueOn } from '../../lib/chains/liquidityVenue';
-import { formatTokenAmount, formatNumber } from '../../lib/formatting';
+import { CONFIGURED_CHAIN_IDS, getChainConfig } from '../../lib/chains/registry';
+import { formatTokenAmount, formatNumber, shortenAddress } from '../../lib/formatting';
 import { ArtImg } from '../ArtImg';
 import { FinePrint } from '../ui/FinePrint';
 
-type LiquidityMode = 'add' | 'remove';
+export type LiquidityMode = 'add' | 'remove';
+
+/** A pool picked from the page's pool list: the form opens on it, on that chain only. */
+export interface LiquidityPick {
+  readonly chainId: number;
+  readonly a: TokenInfo;
+  readonly b: TokenInfo;
+  readonly mode: LiquidityMode;
+}
+
+/** "Ethereum, Base or Robinhood Chain": every chain the form runs on, read from the registry. */
+const VENUE_CHAIN_NAMES = (() => {
+  const names = CONFIGURED_CHAIN_IDS
+    .filter((id) => liquidityVenueOn(id) !== null)
+    .map((id) => (id === CHAIN_ID ? 'Ethereum' : getChainConfig(id)!.name));
+  return names.length > 1 ? `${names.slice(0, -1).join(', ')} or ${names[names.length - 1]}` : (names[0] ?? 'Ethereum');
+})();
 
 // Aligned with TradePage swap presets (0.1, 0.5, 1.0, 2.0%) so the surfaces
 // don't surprise users who toggle between Swap and Liquidity tabs.
@@ -23,6 +41,20 @@ const SLIPPAGE_BPS = [10, 50, 100, 200] as const;
 const blockNegativeKey = (e: React.KeyboardEvent<HTMLInputElement>) => {
   if (e.key === '-' || e.key === 'e') e.preventDefault();
 };
+
+/** A typed amount in base units, or null when it is empty, zero or does not parse. */
+const toUnits = (v: string, decimals: number): bigint | null => {
+  if (!v) return null;
+  try {
+    const n = parseUnits(v, decimals);
+    return n > 0n ? n : null;
+  } catch { return null; }
+};
+
+/** A gap under this many basis points reads as "matches the market". */
+const MATCHES_BPS = 10;
+/** From this gap up, the form says what opening off the market costs. */
+const WARN_BPS = 300;
 
 // MULTICHAIN (2026-08-20): chain-scoped key, matching useSwap's
 // `tegridy_custom_tokens_v2_${CHAIN_ID}` pattern. The unscoped predecessor key
@@ -86,36 +118,50 @@ function loadCustomTokens(chainId: number): TokenInfo[] {
   } catch { return []; }
 }
 
-export function LiquidityTab() {
+/**
+ * `chainId`: the page's chain (useLiquidityChainId); without it, wagmi's chain as before.
+ * The page keys this on the chain and on each pick, so a network change starts a fresh pair
+ * and reloads that chain's pasted tokens, and `pick` (a pool from the page's list) opens it
+ * on that pair and mode.
+ */
+export function LiquidityTab({ chainId: chainIdProp, pick }: { chainId?: number; pick?: LiquidityPick | null } = {}) {
   const { address, isConnected } = useAccount();
-  const chainId = useChainId();
+  const walletChainId = useChainId();
+  const chainId = chainIdProp ?? walletChainId;
   const venue = useMemo(() => liquidityVenueOn(chainId), [chainId]);
   /**
-   * The curated token list is Ethereum's, so it is offered ONLY on Ethereum.
-   * Those are mainnet ERC20 addresses; the same symbol sits at a different
-   * address on Base, and this repo has seven addresses that are a different live
-   * contract on another chain. Offering them off mainnet would let someone add
-   * liquidity against a token that is not the token named. A pasted address
-   * still works on every chain — what is withdrawn is the CURATED list, on the
-   * chains it was not curated for.
+   * Each chain's own list, the one its swap offers (lib/tokenList.ts defaultTokensFor):
+   * Ethereum's curated list on Ethereum; ETH, WETH and USDC on Base; ETH and WETH on
+   * Robinhood Chain. Never Ethereum's list off Ethereum: those are mainnet ERC20
+   * addresses, the same symbol sits at a different address on Base, and this repo has
+   * seven addresses that are a different live contract on another chain. A pasted
+   * address still works on every chain.
    */
-  const curatedTokens = useMemo(() => (chainId === CHAIN_ID ? DEFAULT_TOKENS : []), [chainId]);
+  const curatedTokens = useMemo(() => defaultTokensFor(chainId), [chainId]);
 
   const ethToken = DEFAULT_TOKENS.find(t => t.symbol === 'ETH')!;
-  const toweliToken = DEFAULT_TOKENS.find(t => t.symbol === 'TOWELI')!;
 
-  const [mode, setMode] = useState<LiquidityMode>('add');
-  const [tokenA, setTokenA] = useState<TokenInfo>(ethToken);
-  const [tokenB, setTokenB] = useState<TokenInfo>(toweliToken);
+  // A pick made on another chain is ignored: its addresses mean another contract here.
+  const picked = pick && pick.chainId === chainId ? pick : null;
+  const [mode, setMode] = useState<LiquidityMode>(picked?.mode ?? 'add');
+  const [tokenA, setTokenA] = useState<TokenInfo>(picked?.a ?? ethToken);
+  // Token B opens on the chain's headline token, the one the swap opens on (USDC on Base,
+  // USDG on Robinhood Chain). Never Ethereum's TOWELI off Ethereum: that address holds no
+  // token there, and the form opened on a balance it could not read. Null on a chain with
+  // nothing listed but ETH and WETH: the visitor picks or pastes one.
+  const [tokenB, setTokenB] = useState<TokenInfo | null>(() => picked?.b ?? headlineTokenFor(chainId));
+  const symB = tokenB?.symbol ?? 'Token B';
+  const decimalsB = tokenB?.decimals ?? 18;
   const [showPicker, setShowPicker] = useState<'A' | 'B' | null>(null);
   const [customTokens, setCustomTokens] = useState<TokenInfo[]>(() => loadCustomTokens(chainId));
 
   const [amountA, setAmountA] = useState('');
   const [amountB, setAmountB] = useState('');
+  const [lastEdited, setLastEdited] = useState<'A' | 'B'>('A');
   const [removePct, setRemovePct] = useState(0);
   const [slippageBps, setSlippageBps] = useState<number>(50);
 
-  const liq = useAddLiquidity(tokenA, tokenB);
+  const liq = useAddLiquidity(tokenA, tokenB, chainId);
   const { data: walletClient } = useWalletClient();
 
   // The #1 source of "my LP disappeared" confusion: the LP receipt is a plain ERC-20
@@ -141,9 +187,9 @@ export function LiquidityTab() {
     try {
       const a = (liq.reserveA * liq.lpBalance) / liq.lpTotalSupply;
       const b = (liq.reserveB * liq.lpBalance) / liq.lpTotalSupply;
-      return { a: formatUnits(a, tokenA.decimals), b: formatUnits(b, tokenB.decimals) };
+      return { a: formatUnits(a, tokenA.decimals), b: formatUnits(b, decimalsB) };
     } catch { return null; }
-  }, [liq.reserveA, liq.reserveB, liq.lpBalance, liq.lpTotalSupply, tokenA.decimals, tokenB.decimals]);
+  }, [liq.reserveA, liq.reserveB, liq.lpBalance, liq.lpTotalSupply, tokenA.decimals, decimalsB]);
 
   // Native ETH balance (useAddLiquidity reads the WETH ERC20 balance for native tokens,
   // which is wrong — user might hold ETH but no WETH). Fetch real native balance here.
@@ -151,13 +197,13 @@ export function LiquidityTab() {
     address, chainId: venue?.chainId ?? 0, query: { enabled: !!address && !!venue && tokenA.isNative },
   });
   const { data: nativeBalanceB, isError: nativeBalanceBError } = useBalance({
-    address, chainId: venue?.chainId ?? 0, query: { enabled: !!address && !!venue && tokenB.isNative },
+    address, chainId: venue?.chainId ?? 0, query: { enabled: !!address && !!venue && !!tokenB?.isNative },
   });
 
   const balanceADisplay = tokenA.isNative
     ? (nativeBalanceA ? parseFloat(formatUnits(nativeBalanceA.value, nativeBalanceA.decimals)) : 0)
     : parseFloat(liq.tokenABalanceFormatted || '0');
-  const balanceBDisplay = tokenB.isNative
+  const balanceBDisplay = tokenB?.isNative
     ? (nativeBalanceB ? parseFloat(formatUnits(nativeBalanceB.value, nativeBalanceB.decimals)) : 0)
     : parseFloat(liq.tokenBBalanceFormatted || '0');
 
@@ -168,24 +214,50 @@ export function LiquidityTab() {
   // The CTA was already disabled in that state (0 is short of any amount), so no
   // control changes here - only what it asserts.
   const balanceAKnown = tokenA.isNative ? nativeBalanceA !== undefined : liq.tokenABalanceReadOk;
-  const balanceBKnown = tokenB.isNative ? nativeBalanceB !== undefined : liq.tokenBBalanceReadOk;
+  const balanceBKnown = !tokenB ? false : tokenB.isNative ? nativeBalanceB !== undefined : liq.tokenBBalanceReadOk;
   const balanceAUnread = tokenA.isNative ? nativeBalanceAError : liq.tokenABalanceUnread;
-  const balanceBUnread = tokenB.isNative ? nativeBalanceBError : liq.tokenBBalanceUnread;
+  const balanceBUnread = !tokenB ? false : tokenB.isNative ? nativeBalanceBError : liq.tokenBBalanceUnread;
 
   // Auto-pair inputs
   const handleAmountAChange = (v: string) => {
     setAmountA(v);
+    setLastEdited('A');
     if (!liq.isEmptyPool) setAmountB(liq.getAmountB(v));
   };
   const handleAmountBChange = (v: string) => {
     setAmountB(v);
+    setLastEdited('B');
     if (!liq.isEmptyPool) setAmountA(liq.getAmountA(v));
   };
+
+  // A NEW pool opens at whatever price its two amounts set. Offer the market's: the
+  // Uniswap V2 pool for the same pair on this chain (hooks/useUniswapV2MarketPrice.ts).
+  // Only once the pool is KNOWN to be new: on a pool with reserves the amounts already
+  // follow the pool's own price, and while that read is out nothing is known yet.
+  const market = useUniswapV2MarketPrice(tokenA, tokenB, chainId, mode === 'add' && liq.knownNewPool);
+  const marketChain = chainId === CHAIN_ID ? 'Ethereum' : (venue?.name ?? '');
+  const pairLabel = `${tokenA.symbol}/${symB}`;
+  const unitsA = toUnits(amountA, tokenA.decimals);
+  const unitsB = tokenB ? toUnits(amountB, tokenB.decimals) : null;
+  // The side typed last drives, as on Solana's Open a pool: Match fills the OTHER box.
+  const matchFrom: 'A' | 'B' | null = lastEdited === 'B' && unitsB !== null ? 'B' : unitsA !== null ? 'A' : unitsB !== null ? 'B' : null;
+  const matchMarket = () => {
+    if (market.price.kind !== 'ok' || !tokenB) return;
+    const { reserveA, reserveB } = market.price;
+    if (matchFrom === 'A' && unitsA !== null) setAmountB(formatUnits(matchAtMarket(unitsA, reserveA, reserveB), tokenB.decimals));
+    if (matchFrom === 'B' && unitsB !== null) setAmountA(formatUnits(matchAtMarket(unitsB, reserveB, reserveA), tokenA.decimals));
+  };
+  const marketGapBps = market.price.kind === 'ok' && unitsA !== null && unitsB !== null
+    ? gapFromMarketBps(unitsA, unitsB, market.price.reserveA, market.price.reserveB)
+    : null;
+  const marketPrice = market.price.kind === 'ok'
+    ? Number(formatUnits(market.price.reserveB, decimalsB)) / Number(formatUnits(market.price.reserveA, tokenA.decimals))
+    : 0;
 
   // Reset amounts when token pair changes
   useEffect(() => {
     setAmountA(''); setAmountB(''); setRemovePct(0);
-  }, [tokenA.address, tokenB.address]);
+  }, [tokenA.address, tokenB?.address]);
 
   // LP amount derived from percent slider. Compute the burn from the EXACT on-chain LP
   // bigint (liq.lpBalance), not a lossy float of the formatted balance: at 100% this burns
@@ -209,7 +281,7 @@ export function LiquidityTab() {
   }, [tokenA, amountA, liq.tokenAAllowance]);
 
   const needsApproveB = useMemo(() => {
-    if (tokenB.isNative || !amountB) return false;
+    if (!tokenB || tokenB.isNative || !amountB) return false;
     try {
       const needed = parseUnits(amountB, tokenB.decimals);
       return liq.tokenBAllowance < needed;
@@ -237,9 +309,9 @@ export function LiquidityTab() {
     if (!lpRemoveAmount || liq.reserveB === 0n || liq.lpTotalSupply === 0n) return '0';
     try {
       const lp = parseUnits(lpRemoveAmount, 18);
-      return formatUnits((lp * liq.reserveB) / liq.lpTotalSupply, tokenB.decimals);
+      return formatUnits((lp * liq.reserveB) / liq.lpTotalSupply, decimalsB);
     } catch { return '0'; }
-  }, [lpRemoveAmount, liq.reserveB, liq.lpTotalSupply, tokenB.decimals]);
+  }, [lpRemoveAmount, liq.reserveB, liq.lpTotalSupply, decimalsB]);
 
   const poolShare = amountA ? liq.getPoolShare(amountA) : 0;
 
@@ -249,10 +321,10 @@ export function LiquidityTab() {
 
   const handleTokenPick = (tok: TokenInfo) => {
     if (showPicker === 'A') {
-      if (tok.address.toLowerCase() === tokenB.address.toLowerCase()) { setTokenB(tokenA); }
+      if (tok.address.toLowerCase() === tokenB?.address.toLowerCase()) { setTokenB(tokenA); }
       setTokenA(tok);
     } else if (showPicker === 'B') {
-      if (tok.address.toLowerCase() === tokenA.address.toLowerCase()) { setTokenA(tokenB); }
+      if (tokenB && tok.address.toLowerCase() === tokenA.address.toLowerCase()) { setTokenA(tokenB); }
       setTokenB(tok);
     }
     setShowPicker(null);
@@ -318,7 +390,7 @@ export function LiquidityTab() {
               {yourUnderlying && (
                 <> Redeemable now for about{' '}
                   <span className="text-white font-mono">{parseFloat(yourUnderlying.a).toFixed(4)} {tokenA.symbol}</span> +{' '}
-                  <span className="text-white font-mono">{parseFloat(yourUnderlying.b).toFixed(2)} {tokenB.symbol}</span>,
+                  <span className="text-white font-mono">{parseFloat(yourUnderlying.b).toFixed(2)} {symB}</span>,
                   and it earns a cut of every swap through the pool.</>
               )}
             </p>
@@ -339,9 +411,10 @@ export function LiquidityTab() {
           </div>
         )}
 
-        {/* F201: wrong-network banner — the reads are pinned to mainnet, so on
-            another chain pool data is empty by design. Tell the user to switch
-            rather than letting them read "No pool exists" as the pair's truth. */}
+        {/* F201: wrong-network banner. The form runs only where our venue is deployed
+            (Ethereum, Base, Robinhood Chain), so on any other chain pool data is empty
+            by design. Tell the user to switch rather than letting them read "No pool
+            exists" as the pair's truth. */}
         {isConnected && !liq.onRightChain && (
           <div className="mb-3 px-3 py-2 rounded-lg flex items-start gap-2"
             style={{ background: 'rgba(255,178,55,0.10)', border: '1px solid rgba(255,178,55,0.35)' }}
@@ -349,7 +422,7 @@ export function LiquidityTab() {
             <span className="text-warning text-[14px] leading-none mt-0.5" aria-hidden="true">&#9888;</span>
             <div className="text-warning text-[11px] leading-snug">
               <strong className="font-semibold">Wrong network</strong>{' — '}
-              switch to Ethereum Mainnet to view pool data and add or remove liquidity.
+              switch to {VENUE_CHAIN_NAMES} to view pool data and add or remove liquidity.
             </div>
           </div>
         )}
@@ -393,15 +466,61 @@ export function LiquidityTab() {
               </div>
               <div className="flex items-center gap-3 rounded-xl p-3" style={{ background: 'rgba(0,0,0,0.35)', border: '1px solid rgba(255,255,255,0.10)' }}>
                 <button onClick={() => setShowPicker('B')} className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg min-h-[36px] hover:bg-white/5 transition-colors">
-                  {tokenB.logoURI && <img src={tokenB.logoURI} alt="" className="w-5 h-5 rounded-full" />}
-                  <span className="text-white font-medium text-[14px]">{tokenB.symbol}</span>
+                  {tokenB?.logoURI && <img src={tokenB.logoURI} alt="" className="w-5 h-5 rounded-full" />}
+                  <span className="text-white font-medium text-[14px]">{tokenB?.symbol ?? 'Select'}</span>
                   <span className="text-white/70">▾</span>
                 </button>
                 <input type="number" inputMode="decimal" placeholder="0.0" value={amountB}
                   onChange={e => handleAmountBChange(e.target.value)} onKeyDown={blockNegativeKey}
+                  disabled={!tokenB}
                   className="flex-1 bg-transparent text-right text-white text-[18px] font-mono outline-none min-w-0" />
               </div>
             </div>
+
+            {/* The market price a new pool can open at. Drawn only once the pool is known to
+                be new (market.price is 'off' otherwise). */}
+            {market.price.kind !== 'off' && (
+              <div data-testid="liquidity-market" className="mb-3 rounded-lg p-3 text-[11px] space-y-2"
+                style={{ background: 'rgba(0,0,0,0.35)', border: '1px solid rgba(255,255,255,0.12)' }}>
+                <p className="text-white/80">
+                  {market.price.kind === 'reading' && <>Market price: reading Uniswap V2 on {marketChain}…</>}
+                  {market.price.kind === 'none' && <>No Uniswap V2 pool for {pairLabel} on {marketChain}, so there is no market price to match. You set the first price yourself.</>}
+                  {market.price.kind === 'unread' && <>The market price could not be read from Uniswap V2 on {marketChain}.</>}
+                  {market.price.kind === 'ok' && <>Market price (Uniswap V2 on {marketChain}): <span className="text-white font-mono">1 {tokenA.symbol} = {formatMarketPrice(marketPrice)} {symB}</span></>}
+                </p>
+                {market.price.kind === 'ok' && (
+                  <button type="button" data-testid="liquidity-match" onClick={matchMarket} disabled={matchFrom === null}
+                    className="w-full py-2 min-h-[40px] rounded-lg text-[12px] font-medium text-white transition-colors disabled:opacity-50"
+                    style={{ background: 'var(--color-purple-40)', border: '1px solid var(--color-purple-60)' }}>
+                    {matchFrom === null ? 'Type an amount to match the market price' : 'Match the market price'}
+                  </button>
+                )}
+                {market.price.kind === 'unread' && (
+                  <button type="button" onClick={market.readAgain}
+                    className="w-full py-2 min-h-[40px] rounded-lg text-[12px] font-medium text-white"
+                    style={{ background: 'rgba(0,0,0,0.35)', border: '1px solid rgba(255,255,255,0.12)' }}>
+                    Read the market price again
+                  </button>
+                )}
+                {marketGapBps !== null && (
+                  <p data-testid="liquidity-market-gap" className={Math.abs(marketGapBps) >= WARN_BPS ? 'text-amber-300' : 'text-white/80'}>
+                    {Math.abs(marketGapBps) < MATCHES_BPS
+                      ? 'Your price matches the market.'
+                      : <>Your price is {(Math.abs(marketGapBps) / 100).toFixed(1)}% {marketGapBps > 0 ? 'above' : 'below'} the market.{Math.abs(marketGapBps) >= WARN_BPS && ' Traders will trade your pool back to the market price, and you lose the difference.'}</>}
+                  </p>
+                )}
+                {market.price.kind === 'ok' && (
+                  <FinePrint summary="Where this price comes from">
+                    <p>
+                      The Uniswap V2 pool {shortenAddress(market.price.pair)} on {marketChain}, which
+                      holds {formatTokenAmount(formatUnits(market.price.reserveA, tokenA.decimals))} {tokenA.symbol} and{' '}
+                      {formatTokenAmount(formatUnits(market.price.reserveB, decimalsB))} {symB}. It is the pool our
+                      swap compares against. A small pool&apos;s price can be far off: check it before you add.
+                    </p>
+                  </FinePrint>
+                )}
+              </div>
+            )}
 
             {/* Pool stats — transparent so the page background shows through */}
             {liq.pairExists && !liq.isEmptyPool && (
@@ -412,8 +531,8 @@ export function LiquidityTab() {
                 </div>
                 <div className="flex justify-between text-white/70 mb-1">
                   <span>Rate</span>
-                  <span className="text-white font-mono" title={liq.priceRatio > 0 ? `${liq.priceRatio.toFixed(8)} ${tokenB.symbol} per 1 ${tokenA.symbol}` : ''}>
-                    1 {tokenA.symbol} {liq.priceRatio > 0 ? '≈' : '='} {liq.priceRatio > 0 ? formatNumber(liq.priceRatio, 4) : '—'} {tokenB.symbol}
+                  <span className="text-white font-mono" title={liq.priceRatio > 0 ? `${liq.priceRatio.toFixed(8)} ${symB} per 1 ${tokenA.symbol}` : ''}>
+                    1 {tokenA.symbol} {liq.priceRatio > 0 ? '≈' : '='} {liq.priceRatio > 0 ? formatNumber(liq.priceRatio, 4) : '—'} {symB}
                   </span>
                 </div>
                 <div className="flex justify-between text-white/70">
@@ -432,7 +551,7 @@ export function LiquidityTab() {
 
             {(balanceAUnread || balanceBUnread) && (
               <div data-testid="liquidity-balance-unread" className="mb-3 px-3 py-2 rounded-lg text-[11px] text-amber-300" style={{ background: 'rgba(255,178,55,0.10)', border: '1px solid rgba(255,178,55,0.35)' }}>
-                Your {[balanceAUnread && tokenA.symbol, balanceBUnread && tokenB.symbol].filter(Boolean).join(' and ')} balance
+                Your {[balanceAUnread && tokenA.symbol, balanceBUnread && symB].filter(Boolean).join(' and ')} balance
                 could not be read. This is not a statement that you hold none; reload before adding.
               </div>
             )}
@@ -506,7 +625,7 @@ export function LiquidityTab() {
             ) : needsApproveB ? (
               <button data-testid="liquidity-submit" onClick={() => liq.approveTokenB(amountB)} disabled={liq.isPending || liq.isConfirming}
                 className="w-full btn-primary py-3 min-h-[48px] text-[14px] font-semibold rounded-xl">
-                {liq.isPending ? 'Granting permission…' : `Approve ${tokenB.symbol}`}
+                {liq.isPending ? 'Granting permission…' : `Approve ${symB}`}
               </button>
             ) : (
               <button data-testid="liquidity-submit" onClick={() => liq.addLiquidity(amountA, amountB, slippageBps)}
@@ -514,11 +633,12 @@ export function LiquidityTab() {
                 className="w-full btn-primary py-3 min-h-[48px] text-[14px] font-semibold rounded-xl disabled:opacity-40">
                 {liq.isPending ? 'Confirm in wallet…'
                   : liq.isConfirming ? 'Adding…'
+                  : !tokenB ? 'Pick token B'
                   : !amountA || !amountB ? 'Enter amounts'
                   : !balanceAKnown ? (balanceAUnread ? `${tokenA.symbol} balance unavailable — reload` : `Reading ${tokenA.symbol} balance…`)
-                  : !balanceBKnown ? (balanceBUnread ? `${tokenB.symbol} balance unavailable — reload` : `Reading ${tokenB.symbol} balance…`)
+                  : !balanceBKnown ? (balanceBUnread ? `${symB} balance unavailable — reload` : `Reading ${symB} balance…`)
                   : insufficientA ? `Not enough ${tokenA.symbol}`
-                  : insufficientB ? `Not enough ${tokenB.symbol}`
+                  : insufficientB ? `Not enough ${symB}`
                   : 'Add liquidity'}
               </button>
             )}
@@ -528,7 +648,7 @@ export function LiquidityTab() {
           <>
             <div className="mb-3 rounded-xl p-3" style={{ background: 'rgba(0,0,0,0.35)', border: '1px solid rgba(255,255,255,0.10)' }}>
               <div className="flex items-center justify-between mb-2">
-                <span className="text-white/70 text-[11px]">Your LP in {tokenA.symbol} / {tokenB.symbol}</span>
+                <span className="text-white/70 text-[11px]">Your LP in {tokenA.symbol} / {symB}</span>
                 <span className="text-white/70 text-[10px] font-mono">{formatTokenAmount(liq.lpBalanceFormatted)} LP</span>
               </div>
               <div className="flex items-baseline gap-2">
@@ -562,7 +682,7 @@ export function LiquidityTab() {
                   <span>~{parseFloat(expectedRemoveA).toFixed(6)}</span>
                 </div>
                 <div className="flex justify-between text-white font-mono text-[12px] mt-0.5">
-                  <span>{tokenB.symbol}</span>
+                  <span>{symB}</span>
                   <span>~{parseFloat(expectedRemoveB).toFixed(6)}</span>
                 </div>
               </div>
@@ -636,9 +756,10 @@ export function LiquidityTab() {
           open={true}
           onClose={() => setShowPicker(null)}
           onSelect={handleTokenPick}
-          disabledAddress={showPicker === 'A' ? tokenB.address : tokenA.address}
+          disabledAddress={showPicker === 'A' ? tokenB?.address : tokenA.address}
           customTokens={customTokens}
           tokens={curatedTokens}
+          chainId={chainId}
           onAddCustomToken={handleAddCustom}
         />
       )}

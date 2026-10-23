@@ -3,8 +3,10 @@ import { depositEnabled, swapEnabled, withdrawEnabled } from '../cpswap/program'
 import { quoteText } from './format';
 import { readPoolIndex } from './poolIndex';
 import { readPools, type PoolView, type ReadPoolsOptions } from './poolFinder';
+import { siteNamed } from './identity';
 import { lastTrade } from './poolPast';
 import { QUOTE_COINS, SOL_QUOTE, USDC_QUOTE, orList, type QuoteCoin } from './quotes';
+import { readTokenSafety, type TokenSafety } from './tokenSafety';
 
 /**
  * Every pool on the venue, for the list a visitor sees before picking a token.
@@ -24,6 +26,8 @@ export interface PoolList {
   truncated: boolean;
   /** The chain's clock, read with the pools; null when it was not read, or no pool was. */
   chainNow: bigint | null;
+  /** Each listed coin's check, by mint, for its ticker (identity.ts): one batch for the whole list. Coins the site names itself are not read. */
+  safety: ReadonlyMap<string, TokenSafety>;
 }
 
 export type PoolListRead = { kind: 'ok'; list: PoolList } | { kind: 'unread'; detail: string };
@@ -31,7 +35,7 @@ export type PoolListRead = { kind: 'ok'; list: PoolList } | { kind: 'unread'; de
 export async function listPools(rpc: SolanaRpc, opts: ReadPoolsOptions & { fetchImpl?: typeof fetch }): Promise<PoolListRead> {
   const index = await readPoolIndex({ all: true }, opts.programId.toBase58(), opts.fetchImpl);
   if (index.kind === 'unread') return { kind: 'unread', detail: index.detail };
-  if (index.pools.length === 0) return { kind: 'ok', list: { pools: [], unread: 0, truncated: index.truncated, chainNow: null } };
+  if (index.pools.length === 0) return { kind: 'ok', list: { pools: [], unread: 0, truncated: index.truncated, chainNow: null, safety: new Map() } };
   const read = await readPools(rpc, index.pools, opts);
   if (read.kind === 'unread') return { kind: 'unread', detail: read.detail };
   const pools: PoolView[] = [];
@@ -49,7 +53,9 @@ export async function listPools(rpc: SolanaRpc, opts: ReadPoolsOptions & { fetch
     if (a.quoteReserve !== b.quoteReserve) return a.quoteReserve > b.quoteReserve ? -1 : 1;
     return a.address < b.address ? -1 : 1;
   });
-  return { kind: 'ok', list: { pools, unread, truncated: index.truncated, chainNow: read.chainNow } };
+  // Never throws: a coin whose check was not read is headed by its short address.
+  const safety = await readTokenSafety(rpc, pools.map((v) => v.tokenMint).filter((m) => !siteNamed(m)));
+  return { kind: 'ok', list: { pools, unread, truncated: index.truncated, chainNow: read.chainNow, safety } };
 }
 
 /**

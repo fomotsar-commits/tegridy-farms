@@ -15,6 +15,7 @@ import {
   readEntries,
   unlockTs,
   configuredAnnualRate,
+  vaultIsMateriallyEmpty,
   rateIsPercent,
   splitAccruedByRisk,
   type PoolView,
@@ -231,7 +232,7 @@ function Inner({ bungalow }: { bungalow: Bungalow & { identity: BungalowIdentity
     if (!poolRead || !rp || vaultRaw === null) return null;
     const rate = configuredAnnualRate(poolRead, rp, poolRead.minDurationSecs);
     if (!rateIsPercent(poolRead, rp)) return null;
-    return { vaultRaw, ratePct: rate * 100, decimals: rp.decimals };
+    return { vaultRaw, ratePct: rate * 100, decimals: rp.decimals, dry: vaultIsMateriallyEmpty(poolRead, rp) };
   })();
 
   // The wallet's OWN position, shared by the open pool's card and the members-only card.
@@ -315,7 +316,7 @@ function Inner({ bungalow }: { bungalow: Bungalow & { identity: BungalowIdentity
         <ArtImg pageId="bungalow-dashboard" idx={0} alt="" loading="lazy" className="w-full h-full object-cover" />
         <div className="absolute inset-0" style={{ background: 'rgba(6,12,26,0.6)' }} />
       </div>
-      <div className="relative z-10 max-w-[1200px] mx-auto px-4 md:px-6 pt-8 pb-16">
+      <div className="relative z-10 page-column mx-auto px-4 md:px-6 pt-8 pb-16">
         <div className="mb-6">
           <h1 className="heading-luxury text-3xl md:text-5xl text-white tracking-tight mb-3">
             {bungalow.symbol} Dashboard.
@@ -550,9 +551,12 @@ function Inner({ bungalow }: { bungalow: Bungalow & { identity: BungalowIdentity
   );
 }
 
-/** The pool's rate, never without the vault that has to back it; a failed read says so. */
+/**
+ * The pool's rate, never without the vault that has to back it; a failed read says so.
+ * Over an empty vault the rate is not printed at all (island, answer seventeen item 3).
+ */
 function PoolFacts({ facts, failed, onRetry, symbol }: {
-  facts: { vaultRaw: bigint; ratePct: number; decimals: number } | null;
+  facts: { vaultRaw: bigint; ratePct: number; decimals: number; dry: boolean } | null;
   failed: boolean;
   onRetry: () => void;
   symbol: string;
@@ -569,21 +573,23 @@ function PoolFacts({ facts, failed, onRetry, symbol }: {
   const empty = facts.vaultRaw === 0n;
   return (
     <dl className="text-[12px] space-y-1 mb-3">
-      <div className="flex justify-between gap-3">
-        <dt className="text-white/60">Configured rate</dt>
-        <dd className="text-white font-mono">
-          {facts.ratePct.toLocaleString(undefined, { maximumFractionDigits: 1 })}% APR
-        </dd>
-      </div>
+      {!facts.dry && (
+        <div className="flex justify-between gap-3">
+          <dt className="text-white/60">Configured rate</dt>
+          <dd className="text-white font-mono">
+            {facts.ratePct.toLocaleString(undefined, { maximumFractionDigits: 1 })}% APR
+          </dd>
+        </div>
+      )}
       <div className="flex justify-between gap-3">
         <dt className="text-white/60">Reward vault</dt>
-        <dd className="font-mono" style={{ color: empty ? '#e3b341' : '#ffffff' }}>
+        <dd className="font-mono" style={{ color: facts.dry ? '#e3b341' : '#ffffff' }}>
           {fmtRaw(facts.vaultRaw, facts.decimals)} {symbol}
         </dd>
       </div>
-      {empty && (
+      {facts.dry && (
         <p className="text-[11px] pt-1" style={{ color: '#e3b341' }}>
-          Empty vault: it pays 0 today, whatever the rate says.
+          {empty ? 'Empty vault' : 'Vault effectively empty'}: it pays nothing until someone funds it.
         </p>
       )}
     </dl>

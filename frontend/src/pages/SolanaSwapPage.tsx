@@ -17,7 +17,10 @@ import { SolanaProviders } from '../components/solana/SolanaProviders';
 import { SolanaConnectButton } from '../components/solana/SolanaConnectButton';
 import { ChainSwitch } from '../components/swap/ChainSwitch';
 import { SolanaRouteLine } from '../components/swap/SolanaRouteLine';
-import { useSolanaRoute } from '../components/swap/useSolanaRoute';
+import { IslandBasketSolana } from '../components/swap/IslandBasketSolana';
+import type { SolBasketCoin } from '../lib/islandBasket';
+import { isRangeCandidate, useSolanaRoute } from '../components/swap/useSolanaRoute';
+import type { TxSummary } from '../components/solana/curve/ports';
 import { useVenueSwap } from '../components/swap/useVenueSwap';
 import { useReturnFocus, type OnSettled } from '../components/solana/curve/useTxFlow';
 import { holdReload } from '../lib/reloadHold';
@@ -85,6 +88,8 @@ import { prepareJupiterSwap, refusalWhy, refusedSaid, NO_SITE_FEE_ROUTE_COPY, NO
 import { OWN_ROUTE_COPY, freshDecision, ownPoolNowWins, prepareOwnPoolSwap, within } from '../lib/solana/swap/ownPoolRoute';
 import { applySlippage } from '../lib/launcher/solana/curve/math';
 import { tradeCostText } from '../lib/solana/lp/format';
+import { perMillionPercent } from '../lib/solana/clmm/feeText';
+import { isFeeOnInput } from '../lib/solana/clmm/program';
 import { quietEnding } from '../components/swap/quietSwap';
 import { checkDcaPair, dcaToken2022Copy, DCA_MIN_PER_BUY_USD, DCA_UNREAD_COPY, DCA_UNREAD_NOTE, type DcaPairCheck } from '../lib/solana/swap/dcaPair';
 import { CHECK_KEEPS_FAILING, HELD_NOT_SENT, LOST_ANSWER_TITLE, OWN_POOL_REVIEW_OFFER, lostAnswerCopy, nothingSentCopy } from '../lib/solana/swap/walletCopy';
@@ -1327,14 +1332,28 @@ function LimitTab({ payToken, buyToken, shieldWarnings, needsAck, ack, setAck, o
   );
 }
 
-function SolanaSwapInner() {
+/**
+ * The swap form. `home` is the home page's card (owner, 2026-10-16: swap, stake and add
+ * liquidity right on the home): SOL to BAYLA to start, nothing read from the address (the
+ * home's address is not a share link), no page header, no Limit or DCA tabs, no chart and
+ * no rails. The trade itself, its route, its fee line and every check are this form's own.
+ */
+export function SolanaSwapInner({ home = false }: { home?: boolean } = {}) {
   const { connection } = useConnection();
   const { publicKey, sendTransaction } = useWallet();
+  // The address this form reads its opening pair and amount from: none on the home.
+  const [linkSearch] = useState(() => {
+    try {
+      return home ? '' : window.location.search;
+    } catch {
+      return '';
+    }
+  });
 
   // ?in=<mint> presets the PAY side (share links). Same rules as ?out= below.
   const [payToken, setPayToken] = useState<SolToken>(() => {
     try {
-      const inp = new URLSearchParams(window.location.search).get('in')?.trim();
+      const inp = new URLSearchParams(linkSearch).get('in')?.trim();
       if (inp && looksLikeMint(inp)) {
         const known = findSolToken(inp);
         if (known) return known;
@@ -1347,7 +1366,8 @@ function SolanaSwapInner() {
   // any other resolves async below, with $BAYLA standing until it does.
   const [openingBuy] = useState(() => {
     try {
-      return openingBuyMint(window.location.search, getActiveBungalow());
+      // The home's card opens on BAYLA whatever room was last entered.
+      return openingBuyMint(linkSearch, home ? null : getActiveBungalow());
     } catch { /* URL APIs unavailable — default stands */ }
     return BAYLA.mint;
   });
@@ -1356,7 +1376,7 @@ function SolanaSwapInner() {
   // values fall back silently — a bad deep link must never break the page.
   const [amount, setAmount] = useState(() => {
     try {
-      const amt = new URLSearchParams(window.location.search).get('amt')?.trim();
+      const amt = new URLSearchParams(linkSearch).get('amt')?.trim();
       // Same unambiguous-regex rule as acceptAmountInput (query strings are
       // attacker-length): the dot is anchored, so no polynomial backtracking.
       if (amt && /^(?:\d*\.)?\d+$/.test(amt) && /[1-9]/.test(amt)) return amt;
@@ -1439,7 +1459,7 @@ function SolanaSwapInner() {
   // failed lookup leaves the honest default in place — a bad deep link must never break
   // the page. The curated cases were already handled in the state initializers.
   useEffect(() => {
-    const search = new URLSearchParams(window.location.search);
+    const search = new URLSearchParams(linkSearch);
     const ctrl = new AbortController();
     for (const [mint, set] of [[openingBuy, setBuyToken], [search.get('in')?.trim(), setPayToken]] as const) {
       if (!mint || !looksLikeMint(mint) || findSolToken(mint)) continue;
@@ -1448,7 +1468,7 @@ function SolanaSwapInner() {
         .catch(() => { /* honest default stands */ });
     }
     return () => ctrl.abort();
-  }, [openingBuy]);
+  }, [openingBuy, linkSearch]);
 
   // Tokens ticked while this pair is on screen: their box stays, so the tick can be taken back.
   const [tickedNow, setTickedNow] = useState<ReadonlySet<string>>(() => new Set());
@@ -1557,8 +1577,9 @@ function SolanaSwapInner() {
       const sent = outcome.status === 'confirmed' || (outcome.status === 'unknown' && outcome.signature !== '');
       // Recorded for the wallet that signed it, whichever is connected when the chain answers.
       const wallet = t?.owner;
-      if (prepared?.summary.kind === 'venue-swap' && t && wallet && sent) {
-        const got = prettyAmount(fromBaseUnits(prepared.summary.quoted.outAmount.toString(), t.outDecimals));
+      const ownGot = ownSwapOut(prepared?.summary);
+      if (ownGot !== null && t && wallet && sent) {
+        const got = prettyAmount(fromBaseUnits(ownGot.toString(), t.outDecimals));
         const words = `≈${got} ${t.buy} with ${t.amount} ${t.pay}, in our own pool`;
         // Kept in "Your recent activity", as a Jupiter swap is, so the signature outlives the page.
         recordActivity(wallet, { sig: outcome.signature, ts: Date.now(), kind: 'swap', summary: outcome.status === 'confirmed' ? `Bought ${words}` : `Sent, not confirmed: ${words}` });
@@ -1613,7 +1634,7 @@ function SolanaSwapInner() {
   const { target: buyRef, fallback: headingRef } = useReturnFocus(ownFlowOpen ? flowState.step : 'idle');
   // The swap at the wallet or on its way to the chain, as built.
   const inFlightTx = flowState.step === 'review' || flowState.step === 'submitting' || flowState.step === 'sent' ? flowState.prepared : null;
-  const inFlight = inFlightTx?.summary.kind === 'venue-swap' ? inFlightTx.summary : null;
+  const inFlight = inFlightTx ? ownSwapView(inFlightTx.summary) : null;
 
   const { reset: resetOwn } = venueSwap.flow;
   const explorerOwn = venueSwap.api?.explorerTxUrl;
@@ -1624,8 +1645,8 @@ function SolanaSwapInner() {
     if (!ending) return;
     const t = ownTrade.current;
     if (ending.kind === 'confirmed') {
-      const s = flowState.prepared?.summary;
-      const got = s?.kind === 'venue-swap' && t ? `≈${prettyAmount(fromBaseUnits(s.quoted.outAmount.toString(), t.outDecimals))} ${t.buy} for ${t.amount} ${t.pay}` : shortSig(ending.signature);
+      const out = ownSwapOut(flowState.prepared?.summary);
+      const got = out !== null && t ? `≈${prettyAmount(fromBaseUnits(out.toString(), t.outDecimals))} ${t.buy} for ${t.amount} ${t.pay}` : shortSig(ending.signature);
       const url = explorerOwn ? explorerOwn(ending.signature, ownCluster) : `https://solscan.io/tx/${ending.signature}`;
       toast.success(t ? `${t.done} ${t.symbol}` : 'Swap confirmed', { description: got, action: { label: 'View', onClick: () => window.open(url, '_blank', 'noopener,noreferrer') } });
     } else if (ending.kind === 'not-signed') {
@@ -1706,7 +1727,7 @@ function SolanaSwapInner() {
         paySymbol: pressed.pay,
         buySymbol: pressed.buy,
         payAmount: Number(inFlight.amountIn) / 10 ** (inFlight.paysCoin ? inFlight.coin.decimals : inFlight.tokenDecimals),
-        buyAmount: Number(inFlight.quoted.outAmount) / 10 ** (inFlight.paysCoin ? inFlight.tokenDecimals : inFlight.coin.decimals),
+        buyAmount: Number(inFlight.outAmount) / 10 ** (inFlight.paysCoin ? inFlight.tokenDecimals : inFlight.coin.decimals),
       }}
     />
   ) : null;
@@ -1786,6 +1807,29 @@ function SolanaSwapInner() {
   }
 
   /**
+   * A coin of the island order that our own pool wins: its share goes on this form, in SOL,
+   * where our pool's review buys it (every swap in our pool shows its review first).
+   */
+  function takeOwnLeg(coin: SolBasketCoin, lamports: bigint) {
+    if (held) return;
+    setMode('swap');
+    setPayToken(SOL);
+    setUsdMode(false);
+    setAmount(fromBaseUnits(lamports.toString(), SOL.decimals));
+    const known = findSolToken(coin.mint);
+    if (known) {
+      setBuyToken(known);
+      return;
+    }
+    resolveMint(coin.mint)
+      .then((t) => {
+        if (t) setBuyToken(t);
+        else toast.error('Not loaded', { description: `${coin.symbol} could not be loaded into the form. Pick it there to buy it.` });
+      })
+      .catch(() => toast.error('Not loaded', { description: `${coin.symbol} could not be loaded into the form. Pick it there to buy it.` }));
+  }
+
+  /**
    * The trade goes to our own pool: build it, test-run it and show its review. Every
    * number is read again when it is built, and the route is decided again on fresh
    * quotes from both venues (swap/ownPoolRoute.ts): if Jupiter pays more by then,
@@ -1814,8 +1858,8 @@ function SolanaSwapInner() {
     const user = owner.toBase58();
     ownTrade.current = { owner: user, pay: payToken.symbol, buy: buyToken.symbol, buyMint: outputMint, amount: prettyAmount(tokenAmount), outDecimals: buyToken.decimals, done: said.done, symbol: said.symbol };
     const priority = speed;
-    const buildIn = (pool: string, aggregator: AggregatorSeen) =>
-      ready.api.prepareVenueSwap(venueSwap.rpc, ready.gate, {
+    const buildIn = (pool: string, aggregator: AggregatorSeen) => {
+      const args = {
         owner,
         pool: new PublicKey(pool),
         inputMint: new PublicKey(inputMint),
@@ -1823,7 +1867,10 @@ function SolanaSwapInner() {
         amountIn,
         slippageBps: BigInt(bps),
         aggregator,
-      });
+      };
+      // A range pool (shown only once the range program is deployed) has its own builder.
+      return route.isRangePool(pool) ? ready.api.prepareRangeSwap(venueSwap.rpc, ready.gate, args) : ready.api.prepareVenueSwap(venueSwap.rpc, ready.gate, args);
+    };
     void venueSwap.flow.prepare(
       async () => {
         // Offered after Jupiter's test run could not run press after press: our best pool, built
@@ -2275,19 +2322,20 @@ function SolanaSwapInner() {
     : quoteFail === 'unavailable' ? 'Quote unavailable'
     : 'Fetching quote…';
 
+  const Heading = home ? 'h2' : 'h1';
   return (
     <>
-    <PageArtBackdrop pageId="solana-swap" />
+    {!home && <PageArtBackdrop pageId="solana-swap" />}
     {/* `relative` with no z-index on purpose: it paints above the backdrop by
         coming after it, without becoming a stacking context. A z-10 here would
         trap the token pickers below (z-[60]) under the tab strip (z-30). */}
-    <div className="relative max-w-md mx-auto px-4 py-8">
-      <ChainSwitch />
+    <div className={home ? 'relative' : 'relative max-w-md mx-auto px-4 py-8'}>
+      {!home && <ChainSwitch />}
       <m.div
         initial={{ opacity: 0, y: 16 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.4 }}
-        className="rounded-2xl p-5 relative overflow-hidden"
+        className={home ? 'rounded-2xl p-4 relative overflow-hidden' : 'rounded-2xl p-5 relative overflow-hidden'}
         style={{ border: '1px solid rgba(255,255,255,0.12)' }}
       >
         <div className="absolute inset-0">
@@ -2297,10 +2345,15 @@ function SolanaSwapInner() {
 
         <div className="relative z-10">
           {/* Header */}
-          <div className="flex items-center justify-between mb-4">
-            <div>
-              <h1 ref={headingRef} tabIndex={-1} className="heading-luxury text-[18px] text-white outline-none">Solana Swap</h1>
-              <p className="text-white/60 text-[11px]">Buy Solana tokens through our own pools or Jupiter, whichever pays more.</p>
+          <div className={home ? 'flex flex-wrap items-center justify-between gap-2 mb-3' : 'flex items-center justify-between mb-4'}>
+            {/* On the home the card's network drop-down sits by its name, as /solana's sits above
+                its card: the other three networks are /swap's. */}
+            <div className={home ? 'flex items-center gap-2' : undefined}>
+              <Heading ref={headingRef} tabIndex={-1} className={home ? 'heading-luxury text-xl text-white outline-none' : 'heading-luxury text-[18px] text-white outline-none'}>
+                {home ? 'Swap' : 'Solana Swap'}
+              </Heading>
+              {home && <ChainSwitch at="/solana" />}
+              {!home && <p className="text-white/60 text-[11px]">Buy Solana tokens through our own pools or Jupiter, whichever pays more.</p>}
             </div>
             {publicKey ? (
               <span className="text-white/70 text-[11px] font-mono px-2 py-1 rounded-md" style={{ background: 'var(--color-purple-15)' }}>
@@ -2310,7 +2363,8 @@ function SolanaSwapInner() {
             ) : null}
           </div>
 
-          {/* Mode tabs */}
+          {/* Mode tabs: not on the home's card, which is an instant swap only. */}
+          {!home && (
           <div className="flex gap-1 mb-4">
             {(['swap', 'limit', 'dca'] as const).map((mTab) => (
               <button
@@ -2329,6 +2383,7 @@ function SolanaSwapInner() {
               </button>
             ))}
           </div>
+          )}
 
           {mode === 'swap' && ownFlowOpen ? (
             // A review that has to be read, or an ending with something to say, takes
@@ -2337,7 +2392,18 @@ function SolanaSwapInner() {
               <VenueSwapFlow swap={venueSwap} extraReview={reviewAverage} />
             </Suspense>
           ) : mode === 'swap' ? (
-            // Held while a trade is on its way, by either route (`held`).
+            <>
+            {/* One amount split across every island coin on Solana (owner, 2026-10-18). */}
+            <div className="flex justify-end mb-2">
+              <IslandBasketSolana
+                slippageBps={slippageBps}
+                priority={speed}
+                pending={venueSwap.pending}
+                onOwnLeg={takeOwnLeg}
+                busy={held || pendingNote}
+              />
+            </div>
+            {/* Held while a trade is on its way, by either route (`held`). */}
             <fieldset disabled={held} className="border-0 p-0 m-0 min-w-0">
           {/* You pay */}
           <div className="mb-1">
@@ -2544,7 +2610,7 @@ function SolanaSwapInner() {
             // The transaction's own figures, not the form's: the form's quote can be older.
             <p role="status" data-testid="own-swap-status" className="text-[10px] leading-relaxed mt-2 rounded-lg px-2.5 py-1.5 text-white/80" style={{ background: 'rgba(0,0,0,0.35)', border: '1px solid rgba(255,255,255,0.10)' }}>
               {inFlight && pressed
-                ? `At your wallet: ${pressed.amount} ${pressed.pay} for ${prettyAmount(fromBaseUnits(inFlight.quoted.outAmount.toString(), pressed.outDecimals))} ${pressed.buy}, at least ${prettyAmount(fromBaseUnits(inFlight.minimumAmountOut.toString(), pressed.outDecimals))}.`
+                ? `At your wallet: ${pressed.amount} ${pressed.pay} for ${prettyAmount(fromBaseUnits(inFlight.outAmount.toString(), pressed.outDecimals))} ${pressed.buy}, at least ${prettyAmount(fromBaseUnits(inFlight.minimumAmountOut.toString(), pressed.outDecimals))}.`
                 : 'Checking both prices once more…'}
             </p>
           ) : swapping ? (
@@ -2562,7 +2628,11 @@ function SolanaSwapInner() {
               // Our own pool: no platform fee is added. Its own fee is inside the quote.
               <div className="flex items-center justify-between text-white/70" data-testid="own-pool-fee">
                 <span>Pool fee (inside the quote)</span>
-                <span className="font-mono">{ownBest.view.config ? tradeCostText(ownBest.view.config, ownBest.view.snapshot.pool.enableCreatorFee) : '–'}</span>
+                <span className="font-mono">
+                  {isRangeCandidate(ownBest)
+                    ? `${perMillionPercent(ownBest.range.config.tradeFeeRate)} of ${isFeeOnInput(ownBest.range.pool.feeOn, payToken.mint === ownBest.range.pool.tokenMint0) ? 'what you pay' : 'what the pool pays out'}`
+                    : ownBest.view.config ? tradeCostText(ownBest.view.config, ownBest.view.snapshot.pool.enableCreatorFee) : '–'}
+                </span>
               </div>
             ) : (
               <SiteFeeRow feePct={feePct} feeMintSymbol={feeMintSymbol} waived={feeWaived} />
@@ -2729,6 +2799,7 @@ function SolanaSwapInner() {
             )}
           </p>
             </fieldset>
+            </>
           ) : mode === 'limit' ? (
             <LimitTab payToken={payToken} buyToken={buyToken} shieldWarnings={shieldWarnings} needsAck={needsAck} ack={ack} setAck={onAck} onPickPay={() => setPicker('pay')} onPickBuy={() => setPicker('buy')} />
           ) : (
@@ -2737,7 +2808,7 @@ function SolanaSwapInner() {
         </div>
       </m.div>
 
-      {mode === 'swap' && (
+      {mode === 'swap' && !home && (
         <>
           {/* Skip the chart for stablecoin buys — a $1.00 flatline is noise. */}
           {buyToken.mint !== USDC.mint && buyToken.mint !== USDT.mint && (
@@ -2772,6 +2843,22 @@ function SolanaSwapInner() {
     </>
   );
 }
+
+/**
+ * A swap in one of our pools, either kind, as the page says it: what is paid and what comes
+ * out, from the prepared transaction's own summary. Null for any other transaction.
+ */
+function ownSwapView(s: TxSummary | undefined) {
+  if (s?.kind === 'venue-swap') {
+    return { paysCoin: s.paysCoin, coin: s.coin, tokenMint: s.tokenMint, tokenDecimals: s.tokenDecimals, amountIn: s.amountIn, minimumAmountOut: s.minimumAmountOut, outAmount: s.quoted.outAmount };
+  }
+  if (s?.kind === 'range-swap') {
+    const l = s.poolLine;
+    return { paysCoin: s.paysCoin, coin: l.quote, tokenMint: l.tokenMint, tokenDecimals: l.tokenDecimals, amountIn: s.amountIn, minimumAmountOut: s.minimumAmountOut, outAmount: s.quotedOut };
+  }
+  return null;
+}
+const ownSwapOut = (s: TxSummary | undefined): bigint | null => ownSwapView(s)?.outAmount ?? null;
 
 export default function SolanaSwapPage() {
   usePageTitle('Solana Swap', 'Swap Solana tokens on memetics.finance, through our own pools or Jupiter.');

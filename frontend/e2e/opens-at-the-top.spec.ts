@@ -212,7 +212,9 @@ test.describe('a page reached from another page', () => {
     await expectScrolled(page);
     await pool.evaluate((h1) => h1.setAttribute('data-leaving', ''));
     await arm(page, { leaves: '[data-leaving]' });
-    await page.locator('nav[aria-label="Main navigation"]:visible a', { hasText: /^Lock$/ }).first().click();
+    // Not the bar's Lock: inside a room it opens that room's own pool (owner, 2026-10-15),
+    // which is this page. The pool's own way out to every pool is Back to Earn.
+    await page.getByRole('link', { name: /Back to Earn/ }).first().click();
     await expect(page.getByRole('heading', { level: 1, name: 'Earn' })).toBeVisible({ timeout: 30_000 });
     // A page sets its title in an effect of the commit that mounted it, so the
     // title says that commit's effects have run.

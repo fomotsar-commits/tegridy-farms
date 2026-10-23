@@ -6,12 +6,12 @@ import { createPortal } from 'react-dom';
 import { toast } from 'sonner';
 import { AnimatePresence, m } from 'framer-motion';
 import { useTheme } from '../../contexts/ThemeContext';
-import { BAR_NAV, DASHBOARD_NAV, DRAWER_LINKS, DRAWER_SECTIONS, sectionIsActive } from '../../lib/navConfig';
+import { BAR_NAV } from '../../lib/navConfig';
 import { safeGetItem } from '../../lib/storage';
 import { pageArt } from '../../lib/artConfig';
 import { getActiveBungalow, getBungalowIdentity, OPEN_BUNGALOWS_EVENT } from '../../lib/bungalows';
 import { useActiveBungalowId } from '../../hooks/useActiveBungalowId';
-import { isSolanaPage, isToweliRoomPage } from '../../lib/routeVoice';
+import { hasMixedSolanaSection, isSolanaPage, isToweliRoomPage } from '../../lib/routeVoice';
 import {
   cancelSolanaOpenRequest,
   requestSolanaOpen,
@@ -19,11 +19,11 @@ import {
   useSolanaSurface,
   type SolanaSurface,
 } from '../../lib/solanaSurface';
-import { ArtImg } from '../ArtImg';
 import { VENUE } from '../../lib/arrival';
 import { artImgProps } from '../../lib/artSrcSet';
 import { WalletSheet } from './WalletSheet';
 import { TopBarSolana } from './TopBarSolana';
+import { NavDrawer } from './NavDrawer';
 
 // The wallet button's two looks, shared by the Ethereum (RainbowKit) and Solana
 // slots so they are the same width: the 360px row has no room to spare.
@@ -88,6 +88,27 @@ export const TopNav = React.memo(function TopNav() {
   const kebabRef = useRef<HTMLDivElement>(null);
   const drawerRef = useRef<HTMLDivElement>(null);
   const menuButtonRef = useRef<HTMLButtonElement>(null);
+  // The menu opens as a circle from the centre of its button.
+  const [menuFrom, setMenuFrom] = useState<{ x: number; y: number } | null>(null);
+  // Opened from the keyboard, the cursor starts in the menu's "Jump to" (NavDrawer.tsx).
+  const [focusSearch, setFocusSearch] = useState(false);
+  const openMenu = useCallback((search = false) => {
+    const r = menuButtonRef.current?.getBoundingClientRect();
+    setMenuFrom(r ? { x: r.left + r.width / 2, y: r.top + r.height / 2 } : null);
+    setFocusSearch(search);
+    setOpen(true);
+  }, []);
+  // Ctrl+K / ⌘K opens the index from any page, and closes it again.
+  useEffect(() => {
+    function handleShortcut(e: KeyboardEvent) {
+      if (!(e.metaKey || e.ctrlKey) || e.altKey || e.shiftKey || e.key.toLowerCase() !== 'k') return;
+      e.preventDefault();
+      if (open) setOpen(false);
+      else openMenu(true);
+    }
+    window.addEventListener('keydown', handleShortcut);
+    return () => window.removeEventListener('keydown', handleShortcut);
+  }, [open, openMenu]);
   const location = useLocation();
   // The chip names the room and Swap follows it; both re-read on a skin switch.
   useActiveBungalowId();
@@ -96,8 +117,9 @@ export const TopNav = React.memo(function TopNav() {
   const { isConnected } = useAccount();
   // On a page with a Solana section the wallet slot connects Solana, through that section's
   // own connection: the path answers while it loads, its provider after (lib/solanaSurface.ts).
-  const { surface: solana, openPending: solanaOpenPending, page: solanaHere } = useSolanaSurface();
-  const solanaPage = solanaHere || isSolanaPage(location.pathname, getBungalowIdentity());
+  const { surface: solana, openPending: solanaOpenPending, page: solanaHere, mixed: solanaMixed } = useSolanaSurface();
+  // A section on a page that connects Ethereum too (the home's cards) keeps the sheet below.
+  const solanaPage = (solanaHere && !solanaMixed) || isSolanaPage(location.pathname, getBungalowIdentity());
   // Everywhere else the slot opens the wallet sheet: Solana, or Ethereum (WalletSheet.tsx).
   const [walletSheetOpen, setWalletSheetOpen] = useState(false);
   const openWalletSheet = useCallback(() => setWalletSheetOpen(true), []);
@@ -215,7 +237,7 @@ export const TopNav = React.memo(function TopNav() {
           background: 'linear-gradient(90deg, transparent 0%, var(--color-purple-75) 30%, var(--color-purple-50) 50%, var(--color-purple-75) 70%, transparent 100%)',
         }} />
         {/* px-2 below 400px, px-3 to 480, then px-4: the narrowest phones need every pixel. */}
-        <div className="max-w-[1200px] mx-auto h-14 px-2 min-[400px]:px-3 min-[480px]:px-4 md:px-6 flex items-center justify-between">
+        <div className="page-column mx-auto h-14 px-2 min-[400px]:px-3 min-[480px]:px-4 md:px-6 flex items-center justify-between">
           {/* THE 360px ROW. The wordmark stays whole at every width (owner, 2026-08-31), so the
               row fits on its gaps and padding: its intrinsic width is 350px. CI rasterises
               Archivo a shade wider than a local run, so re-run e2e/header-reachability.spec.ts
@@ -272,8 +294,8 @@ export const TopNav = React.memo(function TopNav() {
               this nav, BottomNav.tsx, AppLayout.tsx's content pb and index.css's two max-width:799px
               blocks; a split opens a band with no bar. e2e/header-reachability.spec.ts sweeps it. */}
           <nav aria-label="Main navigation" className="hidden min-[800px]:flex items-center gap-0.5">
-            {/* Five words (navConfig BAR_NAV), each lit on every page it owns, never by its own
-                URL alone: Heat and Rooms both open the home. */}
+            {/* Four words (navConfig BAR_NAV), each lit on every page it owns, never by its own
+                URL alone: Island owns the home, each room's door and the island's pages. */}
             {BAR_NAV.map((word) => {
               const lit = word.lit(location.pathname, location.hash);
               return (
@@ -297,8 +319,8 @@ export const TopNav = React.memo(function TopNav() {
               {({ account, chain, openAccountModal, openChainModal, openConnectModal, mounted }) => {
                 const connected = mounted && account && chain;
                 const wrongNetwork = Boolean(connected && chain.unsupported);
-                // The top bar's own Solana connection (TopBarSolana.tsx): this
-                // page has no Solana section, so `solana` can only be that one.
+                // The top bar's own Solana connection (TopBarSolana.tsx), or the
+                // connection of a section on a mixed page (the home's cards).
                 const solanaAddress = solana?.address ?? null;
                 return (
                   <div className="min-w-0" {...(!mounted && { 'aria-hidden': true, style: { opacity: 0, pointerEvents: 'none', userSelect: 'none' } })}>
@@ -346,7 +368,7 @@ export const TopNav = React.memo(function TopNav() {
               }}
             </ConnectButton.Custom>
             )}
-            <TopBarSolana solanaPage={solanaPage} />
+            <TopBarSolana solanaPage={solanaPage || hasMixedSolanaSection(location.pathname)} />
 
             {/* The admin kebab, only with the tegridy_admin flag. */}
             {showAdmin && (
@@ -393,7 +415,12 @@ export const TopNav = React.memo(function TopNav() {
               </div>
             )}
 
-            <button ref={menuButtonRef} onClick={() => setOpen(true)} aria-label="Open navigation menu" aria-expanded={open} className="p-2 -mr-1 flex-shrink-0 text-text-muted min-w-[44px] min-h-[44px] flex items-center justify-center">
+            {/* The index behind one button, at every width. From 1100px the button says so: a bare
+                icon after the wallet read, on a desktop, as a phone's leftover (owner, 2026-10-19).
+                The row needs about 790px at 800px, so the word waits for room. */}
+            <button ref={menuButtonRef} onClick={() => openMenu()} aria-label="Open navigation menu" aria-expanded={open}
+              className="p-2 -mr-1 flex-shrink-0 text-text-muted min-w-[44px] min-h-[44px] flex items-center justify-center gap-2 transition-colors hover:text-white">
+              <span aria-hidden="true" className="hidden min-[1100px]:inline font-mono text-[11px] tracking-[0.14em] uppercase">Menu</span>
               <svg width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
                 <path d="M3 5h14M3 10h14M3 15h14" />
               </svg>
@@ -402,85 +429,10 @@ export const TopNav = React.memo(function TopNav() {
         </div>
       </header>
 
-      {/* The drawer, at every width: Pools, Check and Island, the records, and Dashboard once connected. */}
-      <AnimatePresence>
-        {open && (
-          <>
-            <m.div className="fixed inset-0 z-50 bg-black/50"
-              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-              onClick={() => setOpen(false)} />
-            <m.div
-              ref={drawerRef}
-              role="dialog"
-              aria-modal="true"
-              aria-label="Navigation menu"
-              className="fixed right-0 top-0 bottom-0 z-50 w-56 flex flex-col overflow-hidden"
-              style={{ background: 'var(--color-bg-surface)', borderLeft: '1px solid var(--color-purple-75)' }}
-              initial={{ x: '100%' }} animate={{ x: 0 }} exit={{ x: '100%' }}
-              transition={{ type: 'spring', damping: 25, stiffness: 300 }}>
-              {/* Art behind the drawer, under a heavy scrim so the rows keep their contrast.
-                  Pickable as `nav-drawer:0` in /art-studio. */}
-              <div className="absolute inset-0" aria-hidden="true">
-                <ArtImg pageId="nav-drawer" idx={0} alt="" loading="lazy" className="w-full h-full object-cover" />
-              </div>
-              <div className="absolute inset-0" aria-hidden="true" style={{ background: 'rgba(6,12,26,0.82)' }} />
-              <div className="relative z-10 p-4 flex justify-end">
-                <button onClick={() => setOpen(false)} aria-label="Close navigation menu" className="text-text-muted p-2.5 min-w-[48px] min-h-[48px] flex items-center justify-center">
-                  <svg width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
-                    <path d="M5 5l10 10M15 5l-10 10" />
-                  </svg>
-                </button>
-              </div>
-              <nav className="relative z-10 flex-1 px-3 overflow-y-auto pb-6">
-                {/* One row per section, its page and not its tabs: the page's strip lists them
-                    (owner, 2026-09-05: printed, the tabs outgrew the screen). A row per <li>: index.css
-                    makes .nav-link inline-flex on touch, so bare links would share a line. */}
-                <ul>
-                  {DRAWER_SECTIONS.map((section) => {
-                    const here = sectionIsActive(section, location.pathname);
-                    return (
-                      <li key={section.heading}>
-                        <Link to={section.primaryTo ?? section.hub} onClick={() => setOpen(false)}
-                          aria-current={here ? 'page' : undefined}
-                          className={`nav-link ${here ? 'active' : ''}`} style={{ fontSize: 16, fontWeight: 600 }}>
-                          {section.heading}
-                        </Link>
-                      </li>
-                    );
-                  })}
-                  {isConnected && (
-                    <li>
-                      <NavLink to={DASHBOARD_NAV.to} onClick={() => setOpen(false)}
-                        className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`} style={{ fontSize: 16, fontWeight: 600 }}>
-                        {DASHBOARD_NAV.label}
-                      </NavLink>
-                    </li>
-                  )}
-                </ul>
-                <div className="my-3 h-px" style={{ background: 'rgba(255,255,255,0.10)' }} aria-hidden="true" />
-                <ul>
-                  {DRAWER_LINKS.map((link) => (
-                    <li key={link.to}>
-                      <NavLink to={link.to} onClick={() => setOpen(false)}
-                        className={({ isActive }) => `nav-link ${isActive ? 'active' : 'opacity-80'}`} style={{ fontSize: 13 }}>
-                        {link.label}
-                      </NavLink>
-                    </li>
-                  ))}
-                  {showAdmin && (
-                    <li>
-                      <NavLink to="/admin" onClick={() => setOpen(false)}
-                        className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`} style={{ fontSize: 13 }}>
-                        Admin
-                      </NavLink>
-                    </li>
-                  )}
-                </ul>
-              </nav>
-            </m.div>
-          </>
-        )}
-      </AnimatePresence>
+      {/* The menu, full screen at every width (NavDrawer.tsx). z-[70]: over the phone's bottom bar
+          (z-50) and Towelie (z-[60]), which hid its last rows when it shared their z. */}
+      <NavDrawer ref={drawerRef} open={open} onClose={() => setOpen(false)} from={menuFrom}
+        pathname={location.pathname} isConnected={isConnected} showAdmin={showAdmin} focusSearch={focusSearch} />
     </>
   );
 });

@@ -48,9 +48,28 @@ describe('solanaSurface: who answers', () => {
       surface: null,
       openPending: false,
       page: false,
+      mixed: false,
       ownWanted: false,
       ownFailed: false,
     });
+  });
+
+  // The home's cards (owner, 2026-10-16) sit on a page that connects Ethereum too.
+  it('is mixed only while every page section mounted is mixed; the top bar’s own never counts', () => {
+    const cards = owner();
+    const pool = owner();
+    const own = owner();
+    setSolanaSurface(own, surface(), true);
+    expect(getSolanaSurfaceState().mixed).toBe(false);
+    setSolanaSurface(cards, surface(), false, true);
+    expect(getSolanaSurfaceState()).toMatchObject({ page: true, mixed: true });
+    setSolanaSurface(pool, surface());
+    expect(getSolanaSurfaceState()).toMatchObject({ page: true, mixed: false });
+    setSolanaSurface(pool, null);
+    expect(getSolanaSurfaceState().mixed).toBe(true);
+    setSolanaSurface(cards, null);
+    expect(getSolanaSurfaceState()).toMatchObject({ page: false, mixed: false });
+    setSolanaSurface(own, null);
   });
 
   it('answers with the provider mounted last, and falls back as each one leaves', () => {

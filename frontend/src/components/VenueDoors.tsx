@@ -3,6 +3,7 @@ import { artSrcSet } from '../lib/artSrcSet';
 import { Link } from 'react-router-dom';
 import { m } from 'framer-motion';
 import { BUNGALOWS, type Bungalow } from '../lib/bungalows';
+import { ISLAND_SECTION } from '../lib/navConfig';
 import { doorArt } from '../lib/doorArt';
 import { CardArt } from './ui/CardArt';
 import { FinePrint } from './ui/FinePrint';
@@ -275,6 +276,14 @@ export function VenueDoors() {
           <p>The island grows a door at a time. More open as their people move in.</p>
         </FinePrint>
       </div>
+      {/* The island's own page, from its hall: the whole board, the arrival film and its doors.
+          The bar's Island word opens this home (2026-10-18), so this is the lobby's way in. */}
+      <p className="mt-3 px-1 text-[13px]">
+        <Link to={ISLAND_SECTION.hub} className="underline underline-offset-4 text-white/80 hover:text-white transition-colors"
+          style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>
+          The whole island <span aria-hidden="true">→</span>
+        </Link>
+      </p>
     </m.section>
   );
 }

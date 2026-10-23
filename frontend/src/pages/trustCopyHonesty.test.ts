@@ -18,8 +18,6 @@ describe('the retired brand does not reach the reader', () => {
   const surfaces: { what: string; source: string }[] = [
     { what: '/contracts meta description and lead paragraph', source: read('src', 'pages', 'ContractsPage.tsx') },
     { what: 'the marketplace header back-link', source: read('src', 'nakamigos', 'components', 'Header.jsx') },
-    { what: 'the dashboard score card', source: read('src', 'components', 'TegridyScoreMini.tsx') },
-    { what: 'the score improvement tips', source: read('src', 'hooks', 'useTegridyScore.ts') },
     { what: '/gallery attribution', source: read('src', 'pages', 'GalleryPage.tsx') },
     { what: 'the offline shell', source: read('public', 'offline.html') },
     { what: 'the public security.txt', source: read('public', '.well-known', 'security.txt') },
@@ -45,13 +43,6 @@ describe('the retired brand does not reach the reader', () => {
     });
   }
 
-  it('the points instrument has exactly one rendered name across its two hosts', () => {
-    const mini = read('src', 'components', 'TegridyScoreMini.tsx');
-    const board = read('src', 'pages', 'LeaderboardPage.tsx');
-    expect(mini).toContain('>Venue Score<');
-    expect(board).toContain('Your Venue Score');
-    expect(mini).not.toContain('>Tegridy Score<');
-  });
 });
 
 // ── Evidence links point at the branch the site ships from ──────────────────

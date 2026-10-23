@@ -175,7 +175,7 @@ const TAB_KEYS = {
 // regardless of how the NFT was opened. The Gallery/Floor grids pre-merge these,
 // but Hero, marquee, favorites, and the ?token= deep link set `selected` from a
 // raw token — without this they lost the price/buy button and the buyer (and the
-// 1% treasury fee) got redirected to OpenSea. Doing it at render time covers
+// 0.5% treasury fee) got redirected to OpenSea. Doing it at render time covers
 // every entry path in one place. (2026-07-24)
 function enrichWithListing(nft, listings) {
   if (!nft) return null;

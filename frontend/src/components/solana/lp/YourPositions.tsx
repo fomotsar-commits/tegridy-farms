@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type Ref } from 'react';
+import { m } from 'framer-motion';
 import type { PublicKey } from '@solana/web3.js';
 import { displaySafe } from '../../../lib/launchMetadata/validate';
 import { MAX_POSITIONS, type PositionsRead, type Position } from '../../../lib/solana/lp/positions';
@@ -235,6 +236,16 @@ function PositionsList({
   const aside = read.positions.filter((p) => setAsideReason(p, safetyOf(p)) !== null);
   const autoLedger = new Set(main.filter((p) => p.pool?.kind === 'pool').slice(0, AUTO_LEDGER_ROWS).map((p) => p.lpAccount));
   const more = read.totalShares - read.positions.length;
+  // THE LANDING (island, answer twenty): a share that is new, or larger than on the read before,
+  // rises into place once. Only a read after an earlier one can land anything, so opening the page
+  // moves nothing; MotionConfig reducedMotion="user" (App.tsx) stills it for anyone who asked.
+  const [last, setLast] = useState<{ read: typeof read; landed: Set<string>; held: Map<string, bigint> } | null>(null);
+  if (last?.read !== read) {
+    const landed = new Set<string>();
+    if (last) for (const p of read.positions) if (!last.held.has(p.lpAccount) || p.lpAmount > last.held.get(p.lpAccount)!) landed.add(p.lpAccount);
+    setLast({ read, landed, held: new Map(read.positions.map((p) => [p.lpAccount, p.lpAmount])) });
+  }
+  const landedNow = last?.read === read ? last.landed : null;
   if (read.totalShares === 0) {
     return (
       <>
@@ -261,6 +272,7 @@ function PositionsList({
               readers={readers}
               onReadAgain={onReadAgain}
               onAddMore={onAddMore}
+              landed={landedNow?.has(p.lpAccount) ?? false}
               onAllPools={onAllPools}
             />
           ))}
@@ -333,6 +345,7 @@ function PositionRow({
   readers,
   onReadAgain,
   onAddMore,
+  landed = false,
   onAllPools,
 }: {
   p: Position;
@@ -345,6 +358,8 @@ function PositionRow({
   readers: LpReaders;
   onReadAgain: () => void;
   onAddMore?: AddMore;
+  /** New, or grown since the read before (THE LANDING): rises into place once. */
+  landed?: boolean;
   onAllPools?: () => void;
 }) {
   const view = p.pool?.kind === 'pool' ? p.pool.view : null;
@@ -360,7 +375,7 @@ function PositionRow({
     position: p,
     held: writes !== null && poolAddress !== null && lpHeld(writes.pending.notes, poolAddress, 'remove'),
   });
-  const units = view ? ledgerUnits(view) : null;
+  const units = view ? ledgerUnits(view, safety) : null;
   // What the opener's 100 locked share units are worth, once the ledger has read the opening: shown in the fold.
   const [locked, setLocked] = useState<string | null>(null);
   // Needs no history: the share of the pool's two reserves, to the unit, under the token's registry name.
@@ -387,22 +402,30 @@ function PositionRow({
   const checkedClean = safety?.kind === 'read' && safety.verdict === 'ok';
   const shareRows = (
     <>
-      <AddressRow label="Pool share token" value={p.lpMint} explorerUrl={explorer(p.lpMint)} />
+      <AddressRow label="Pool share token" value={p.lpMint} explorer={explorer(p.lpMint, 'token')} />
       <Row label="You hold" value={tokenText(p.lpAmount, view ? view.snapshot.pool.lpMintDecimals : null, 'shares')} mono={false} />
     </>
   );
   return (
-    <li
+    <m.li
+      initial={landed ? { opacity: 0, y: 24, scale: 0.97 } : false}
+      animate={{ opacity: 1, y: 0, scale: 1 }}
+      transition={{ type: 'spring', stiffness: 260, damping: 22 }}
       className="rounded-lg p-3 space-y-1.5"
-      style={{ background: 'rgba(0,0,0,0.35)', border: '1px solid rgba(255,255,255,0.08)' }}
+      style={{
+        background: 'rgba(0,0,0,0.35)',
+        border: landed ? '1px solid rgba(49,208,170,0.65)' : '1px solid rgba(255,255,255,0.08)',
+        boxShadow: landed ? '0 0 24px rgba(49,208,170,0.25)' : undefined,
+      }}
       data-testid="lp-position"
+      data-landed={landed ? 'true' : undefined}
       data-pool={view?.address ?? ''}
       data-lp-mint={p.lpMint}
       data-placement={p.placement}
       data-pool-kind={pool?.kind ?? 'none'}
       data-remove={offer}
     >
-      {view ? <h3 className={HEAD}>{pairLabel(view)}</h3> : shareRows}
+      {view ? <h3 className={HEAD}>{pairLabel(view, safety)}</h3> : shareRows}
       {setAside && <Notice tone="warn">Set aside: {setAside}.</Notice>}
       {p.placement === 'index-unread' && (
         <Notice tone="warn">
@@ -433,11 +456,11 @@ function PositionRow({
       {view && (
         <>
           {p.value && <p className={HINT}>Your share: {p.value.sharePct.toFixed(4)}% of the pool</p>}
-          <AddressRow label="Pool" value={view.address} explorerUrl={explorer(view.address)} />
+          <AddressRow label="Pool" value={view.address} explorer={explorer(view.address, 'activity')} />
           {!checkedClean && tokenCheck}
           <p data-testid="lp-fees-in-shares">{LEDGER_COPY.feesInShares}</p>
           {!setAside && readers.ledger ? (
-            <LedgerBlock p={p} owner={owner} view={view} readers={readers} auto={autoLedger} chainNow={chainNow} worth={worth} onLocked={setLocked} />
+            <LedgerBlock p={p} owner={owner} view={view} safety={safety} readers={readers} auto={autoLedger} chainNow={chainNow} worth={worth} onLocked={setLocked} />
           ) : (
             worth
           )}
@@ -476,10 +499,10 @@ function PositionRow({
         <div className="space-y-1.5 px-3 pb-3">
           {view && shareRows}
           {locked && <Row label={LEDGER_LABELS.locked} value={locked} mono={false} />}
-          <AddressRow label="Share account" value={p.lpAccount} explorerUrl={explorer(p.lpAccount)} />
+          <AddressRow label="Share account" value={p.lpAccount} explorer={explorer(p.lpAccount, 'balance')} />
           {view && (
             <>
-              <AddressRow label="Token" value={view.tokenMint} explorerUrl={explorer(view.tokenMint)} />
+              <AddressRow label="Token" value={view.tokenMint} explorer={explorer(view.tokenMint, 'token')} />
               {!setAside && safety?.kind === 'read' && (safety.name || safety.symbol) && (
                 <Row label="Calls itself" value={`${displaySafe(safety.name ?? '', 32)} (${displaySafe(safety.symbol ?? '', 12)})`} mono={false} />
               )}
@@ -488,7 +511,7 @@ function PositionRow({
           )}
         </div>
       </details>
-    </li>
+    </m.li>
   );
 }
 
@@ -535,6 +558,7 @@ function LedgerBlock({
   p,
   owner,
   view,
+  safety,
   readers,
   auto,
   chainNow,
@@ -544,6 +568,8 @@ function LedgerBlock({
   p: Position;
   owner: PublicKey;
   view: PoolView;
+  /** The token's check, for its ticker in the amounts. */
+  safety: TokenSafety | null;
   readers: LpReaders;
   auto: boolean;
   chainNow: bigint | null;
@@ -616,7 +642,7 @@ function LedgerBlock({
     if (shown.forView === view || (kept.kind !== 'ok' && kept.kind !== 'worth-only')) return kept;
     return ledgerFigures(shown.entries, view, p.lpAmount, kept.window.more);
   }, [shown, view, p.lpAmount]);
-  const u = ledgerUnits(view);
+  const u = ledgerUnits(view, safety);
   const locked = r?.kind === 'ok' ? ledgerText.locked(r.figures, u) : null;
   useEffect(() => {
     onLocked(locked);

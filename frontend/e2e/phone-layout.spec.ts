@@ -143,7 +143,7 @@ for (const path of ['/', '/toweli']) {
         };
       }),
     );
-    expect(pills.map((p) => p.text)).toEqual(['SOLANA', 'ETHEREUM', 'BASE']);
+    expect(pills.map((p) => p.text)).toEqual(['SOLANA', 'ETHEREUM', 'BASE', 'ROBINHOOD']);
     for (const p of pills) {
       expect(p.painted, `${p.text}: the pill grew`).toBeLessThan(30);
       expect(p.tall, `${p.text}: a press 22px above or below its middle misses it`).toEqual([true, true]);
