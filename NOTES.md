@@ -15,6 +15,37 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-10-23: "Swap not checked" blamed the test run, but the test run never failed: one Jupiter press is four Jupiter calls
+
+**Believed:** a Solana swap toast saying the check "keeps failing on our side" means the
+pre-sign test run (`simulateTransaction` through `/api/solrpc`) is failing, so the RPC is
+the place to look.
+
+**Measured** (2026-10-23 ~04:20Z, a node script making the browser's exact calls against
+production, read-only: fee quote and build through `/api/jupiter`, the test run through
+`/api/solrpc` with a funded mainnet wallet as payer, nothing signed): the test run answered
+200 with a result every time. For SOL to BAYLA (a Token-2022 pump coin, fee taken in WSOL)
+the fee-bearing build's test run is Jupiter's 6014 on every press, so every press also runs
+the no-fee re-quote and rebuild: four calls to Jupiter's keyless tier, which refuses at
+random behind Vercel's shared egress (our relay says 502). Five presses spaced 8 s apart:
+3 died on a 502, at the fee quote twice and the fee build once. A refusal in the no-fee half
+is reported as a test run that could not run, so the toast named the wrong step. PR #958
+asks again on a 502 or 429 (`lib/solana/swap/jupiterBusy.ts`).
+
+**Do:** before blaming the RPC for an "unchecked" test run, list every network call between
+the press and the simulate, and run them yourself in order with the page's exact parameters
+and a funded wallet as payer (a simulation with `sigVerify: false` needs no signature). Count
+the failures per call, not per press.
+
+### Incidental
+
+- `vercel logs` on this project returned at most 50 rows per query whatever `--limit` said,
+  and nothing older than about 50 minutes: a `--since 24h --status-code 5xx` query gave 46
+  rows, the oldest 50 minutes old. To read a window, slice it under a minute; for anything
+  older, reproduce instead of reading.
+- `--query solrpc` and `--query jupiter` matched; `--query jupiter/swap/v1/swap` matched
+  nothing. A path with slashes is not a usable query.
+
 ## 2026-10-22: testing the indexer's GraphQL needs no RPC, no Postgres and no sync
 
 **Believed:** a change under the indexer's GraphQL (graphql-yoga, @graphql-tools) can only be

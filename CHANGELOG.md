@@ -10,6 +10,7 @@ The site's Changelog tab shows both files.
 ### 2026-10-23
 
 - Analytics events are kept for 90 days and then deleted automatically, every hour, and the Privacy page now says so. Before, nothing deleted them.
+- Solana swap: when Jupiter is busy and turns a call away during Buy, the press waits a moment and asks again (up to twice) instead of stopping with "Not sent" or "Swap not checked". The same holds for Buy all bungalows and Add with one coin.
 
 ### 2026-10-22
 

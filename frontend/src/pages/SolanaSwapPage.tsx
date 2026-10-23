@@ -86,6 +86,7 @@ import {
 } from '../lib/jupiter';
 import { prepareJupiterSwap, refusalWhy, refusedSaid, NO_SITE_FEE_ROUTE_COPY, NOT_TEST_RUN_COPY, type PreparedJupiterSwap } from '../lib/solana/swap/jupiterFeeRetry';
 import { OWN_ROUTE_COPY, freshDecision, ownPoolNowWins, prepareOwnPoolSwap, within } from '../lib/solana/swap/ownPoolRoute';
+import { whileJupiterBusy } from '../lib/solana/swap/jupiterBusy';
 import { applySlippage } from '../lib/launcher/solana/curve/math';
 import { tradeCostText } from '../lib/solana/lp/format';
 import { perMillionPercent } from '../lib/solana/clmm/feeText';
@@ -118,6 +119,10 @@ const VenueSwapFlow = lazy(loadVenueSwapFlow);
 
 /** How long Buy waits for our pools to be read again before it goes on with the route on screen. */
 const OWN_CHECK_MS = 4_000;
+
+// A press's quote and build, each asked again while Jupiter refuses the call (jupiterBusy.ts).
+const pressQuote = whileJupiterBusy((p: Parameters<typeof getQuote>[0]) => getQuote(p));
+const pressBuild = whileJupiterBusy((p: Parameters<typeof buildSwapTransaction>[0]) => buildSwapTransaction(p));
 
 const SLIPPAGE_PRESETS = [50, 100, 300]; // bps
 
@@ -1897,7 +1902,7 @@ export function SolanaSwapInner({ home = false }: { home?: boolean } = {}) {
         };
         const jupiterTx = (fresh: JupiterQuote) =>
           prepareJupiterSwap(
-            { getQuote, buildSwapTransaction, simulateSwap, swapCarriesPlatformFee },
+            { getQuote: pressQuote, buildSwapTransaction: pressBuild, simulateSwap, swapCarriesPlatformFee },
             { fresh, shown: fresh, inputMint, outputMint, amount: baseAmount, slippageBps: bps, user, priority },
           );
         const built = await prepareOwnPoolSwap(
@@ -1909,7 +1914,7 @@ export function SolanaSwapInner({ home = false }: { home?: boolean } = {}) {
             aggregatorOut: async () => {
               let fresh: JupiterQuote;
               try {
-                fresh = await getQuote({ inputMint, outputMint, amount: baseAmount, slippageBps: bps });
+                fresh = await pressQuote({ inputMint, outputMint, amount: baseAmount, slippageBps: bps });
               } catch (e) {
                 // "No route" is Jupiter's own answer: there is no other venue to hold the pool to.
                 if (e instanceof NoRouteError) return null;
@@ -2064,7 +2069,7 @@ export function SolanaSwapInner({ home = false }: { home?: boolean } = {}) {
     try {
       // Re-quote right before building so the on-chain min-out + routing match
       // the live market (the displayed quote may be seconds-to-minutes stale).
-      const fresh = await getQuote({
+      const fresh = await pressQuote({
         inputMint: payToken.mint,
         outputMint: buyToken.mint,
         amount: baseAmount,
@@ -2105,7 +2110,7 @@ export function SolanaSwapInner({ home = false }: { home?: boolean } = {}) {
       // build is answered by ONE no-fee rebuild that must pass too (jupiterFeeRetry.ts).
       step = 'build';
       const prepared = await prepareJupiterSwap(
-        { getQuote, buildSwapTransaction, simulateSwap, swapCarriesPlatformFee },
+        { getQuote: pressQuote, buildSwapTransaction: pressBuild, simulateSwap, swapCarriesPlatformFee },
         {
           fresh,
           shown,

@@ -7,6 +7,7 @@ import { NoRouteError, buildSwapTransaction, fromBaseUnits, getQuote, getUsdPric
 import { MIN_USD_PER_COIN, SOL_BASKET, shortAmount, splitEvenly, usdText, usdToBaseUnits, type SolBasketCoin } from '../../lib/islandBasket';
 import { pinnedGetQuote, prepareSolLeg, retryingGetQuote, solLegRoute, BASKET_COPY, PoolNotNamedError } from '../../lib/solana/swap/islandBasketSol';
 import { within } from '../../lib/solana/swap/ownPoolRoute';
+import { whileJupiterBusy } from '../../lib/solana/swap/jupiterBusy';
 import type { VenuePoolCandidate } from '../../lib/solana/swap/venuePools';
 import { pollConfirm } from '../../lib/solana/confirm';
 import { readSendThrow } from '../../lib/solana/walletThrow';
@@ -52,6 +53,8 @@ const shownRetry = retryingGetQuote(getQuote, [2_500]);
 const pressRetry = retryingGetQuote(getQuote, [2_500, 5_000, 10_000]);
 const quoteJupiter: typeof shownRetry = (q) => timed(shownRetry(q), QUOTE_TIMEOUT_MS);
 const quoteForPress: typeof pressRetry = (q) => timed(pressRetry(q), PRESS_QUOTE_TIMEOUT_MS);
+/** A coin's build, asked again while Jupiter refuses the call (jupiterBusy.ts). */
+const pressBuild = whileJupiterBusy((p: Parameters<typeof buildSwapTransaction>[0]) => buildSwapTransaction(p));
 /** How long a sent coin is watched before the order says it cannot tell (the swap's own wait). */
 const CONFIRM_TIMEOUT_MS = 90_000;
 /** About what opening one coin's account costs (rent, refunded if it is closed), plus its fees. */
@@ -242,7 +245,7 @@ export function IslandBasketSolana(p: {
         const prepared = await prepareSolLeg(
           {
             getQuote: pinnedGetQuote(quoteForPress, leg.coin),
-            buildSwapTransaction,
+            buildSwapTransaction: pressBuild,
             simulateSwap: (b64) => simulateSwap(b64),
             swapCarriesPlatformFee,
             ownPools: () => within(readOwnPoolsFor(SOL_MINT, leg.coin.mint, leg.amountIn), OWN_CHECK_MS, null),

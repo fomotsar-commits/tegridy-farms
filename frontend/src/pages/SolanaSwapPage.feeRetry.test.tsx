@@ -110,6 +110,7 @@ vi.mock('@solana/wallet-adapter-react', () => ({
 import SolanaSwapPage from './SolanaSwapPage';
 import { getActivity } from '../lib/solanaActivity';
 import { NOT_TEST_RUN_COPY, REFUSED_COPY } from '../lib/solana/swap/jupiterFeeRetry';
+import { JupiterBusyError } from '../lib/solana/swap/jupiterBusy';
 
 const WOULD_FAIL = 'Swap would fail';
 
@@ -134,6 +135,9 @@ beforeEach(() => {
   h.sendTransaction.mockReset();
   h.getSignatureStatuses.mockReset();
   h.getSignatureStatuses.mockImplementation(async () => ({ value: [{ err: null, confirmationStatus: 'confirmed' }] }));
+  // Reset, not only cleared: a one-time answer a failed test never used must not reach the next.
+  h.getQuote.mockReset();
+  h.buildSwapTransaction.mockReset();
   h.getQuote.mockImplementation(async (p: { noPlatformFee?: boolean }) => (p.noPlatformFee ? NO_FEE_QUOTE : FEE_QUOTE));
   h.buildSwapTransaction.mockImplementation(async (p: { noPlatformFee?: boolean }) => (p.noPlatformFee ? TX_NO_FEE : TX_FEE));
   h.sendTransaction.mockImplementation(async () => {
@@ -152,7 +156,7 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-async function typeAmountAndBuy() {
+async function typeAmountAndBuy(beforeClick?: () => void) {
   render(<SolanaSwapPage />);
   fireEvent.change(screen.getByLabelText('Amount of SOL to pay'), { target: { value: '0.1' } });
   const buy = await screen.findByRole('button', { name: 'Buy USDC' }, { timeout: 3000 });
@@ -160,6 +164,7 @@ async function typeAmountAndBuy() {
   // The fee-bearing quote is what the trader sees before clicking.
   expect(screen.getByText(/% · in USDC$/)).toBeInTheDocument();
   expect(screen.queryByTestId('site-fee-waived')).toBeNull();
+  beforeClick?.();
   fireEvent.click(buy);
 }
 
@@ -243,6 +248,63 @@ describe('SolanaSwapPage: "Swap would fail" shows only what the network itself w
     await waitFor(() => expect(h.toast.error).toHaveBeenCalledWith(WOULD_FAIL, {
       description: `${REFUSED_COPY} The test run paid less than your 0.5% slippage allows. A wider slippage may let Jupiter's transaction run.`,
     }));
+    expect(h.sendTransaction).not.toHaveBeenCalled();
+  });
+});
+
+// Measured against production 2026-10-23: 3 of 5 SOL -> BAYLA presses met a refusal from
+// Jupiter's keyless tier, and one in the no-fee half said "Swap not checked" (lib/solana/swap/jupiterBusy.ts).
+describe('SolanaSwapPage: Jupiter refusing a call mid-press is a wait, and the press goes on', () => {
+  const noFee = (c: unknown[]) => (c[0] as { noPlatformFee?: boolean }).noPlatformFee === true;
+
+  it('the no-fee re-quote refused once is asked again, and the rebuilt transaction goes to the wallet', async () => {
+    let refused = 0;
+    h.getQuote.mockImplementation(async (p: { noPlatformFee?: boolean }) => {
+      if (p.noPlatformFee && refused++ === 0) throw new JupiterBusyError('Quote unavailable (502)', 502);
+      return p.noPlatformFee ? NO_FEE_QUOTE : FEE_QUOTE;
+    });
+    h.simulateSwap.mockImplementation(async (b64: string) => (b64 === TX_FEE ? JUP_6014 : OK));
+    await typeAmountAndBuy();
+    await waitFor(() => expect(h.sendTransaction).toHaveBeenCalledTimes(1), { timeout: 10_000 });
+    expect(signedMarker()).toBe(2);
+    expect(h.getQuote.mock.calls.filter(noFee)).toHaveLength(2);
+    expect(h.toast.error).not.toHaveBeenCalled();
+  });
+
+  it('the no-fee rebuild refused once is asked again, and goes to the wallet', async () => {
+    let refused = 0;
+    h.buildSwapTransaction.mockImplementation(async (p: { noPlatformFee?: boolean }) => {
+      if (p.noPlatformFee && refused++ === 0) throw new JupiterBusyError('Could not build swap (502)', 502);
+      return p.noPlatformFee ? TX_NO_FEE : TX_FEE;
+    });
+    h.simulateSwap.mockImplementation(async (b64: string) => (b64 === TX_FEE ? JUP_6014 : OK));
+    await typeAmountAndBuy();
+    await waitFor(() => expect(h.sendTransaction).toHaveBeenCalledTimes(1), { timeout: 10_000 });
+    expect(signedMarker()).toBe(2);
+    expect(h.buildSwapTransaction.mock.calls.filter(noFee)).toHaveLength(2);
+    expect(h.toast.error).not.toHaveBeenCalled();
+  });
+
+  it('the press’s own quote and build, each refused once, are asked again, and the swap goes on', async () => {
+    h.simulateSwap.mockResolvedValue(OK);
+    await typeAmountAndBuy(() => {
+      h.getQuote.mockRejectedValueOnce(new JupiterBusyError('Quote unavailable (429)', 429));
+      h.buildSwapTransaction.mockRejectedValueOnce(new JupiterBusyError('Could not build swap (502)', 502));
+    });
+    await waitFor(() => expect(h.sendTransaction).toHaveBeenCalledTimes(1), { timeout: 15_000 });
+    expect(signedMarker()).toBe(1);
+    expect(h.toast.error).not.toHaveBeenCalled();
+  });
+
+  it('a failure that is not a refusal still ends the press at once: nothing goes to the wallet', async () => {
+    h.simulateSwap.mockImplementation(async (b64: string) => (b64 === TX_FEE ? JUP_6014 : OK));
+    h.getQuote.mockImplementation(async (p: { noPlatformFee?: boolean }) => {
+      if (p.noPlatformFee) throw new Error('Quote unavailable (400)');
+      return FEE_QUOTE;
+    });
+    await typeAmountAndBuy();
+    await waitFor(() => expect(h.toast.error).toHaveBeenCalledWith('Swap not checked', { description: NOT_TEST_RUN_COPY }));
+    expect(h.getQuote.mock.calls.filter(noFee)).toHaveLength(1);
     expect(h.sendTransaction).not.toHaveBeenCalled();
   });
 });
