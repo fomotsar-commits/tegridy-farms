@@ -14,14 +14,20 @@ import { summarize, STALE_AFTER_MS } from "../api/_lib/fillScoreboardPolicy.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const FX = JSON.parse(readFileSync(join(HERE, "fixtures", "fill-scoreboard", "mainnet.json"), "utf-8"));
+// Test runs of V2 builds (2026-10-23), shaped as transactions: no V2 swap of ours was on chain yet.
+const V2 = JSON.parse(readFileSync(join(HERE, "fixtures", "fill-scoreboard", "v2-simulation.json"), "utf-8"));
 const [SOL_FEE, USDC_FEE] = JUPITER_FEE_ACCOUNTS;
 const USDC = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
 const BAYLA = "7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump";
+const JUP = "JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4";
+const SWAPS_EVENT = "982f4eebc0606e6a";
 const tx = (name) => structuredClone(FX.txs[name]);
+const v2 = (name) => structuredClone(V2.txs[name]);
 const sigOf = (t) => ({ signature: t.transaction.signatures[0], blockTime: t.blockTime });
+const TEST_SIG = { signature: "1".repeat(88), blockTime: 1_792_713_600 };
 
 describe("the route instructions it reads", () => {
-  it("are Anchor's discriminators for Jupiter's four ExactIn routes (a typo would score nothing)", () => {
+  it("are Anchor's discriminators for Jupiter's ExactIn routes, V1 and V2 (a typo would score nothing)", () => {
     for (const [hex, name] of Object.entries(EXACT_IN_ROUTES)) {
       expect(createHash("sha256").update(`global:${name}`).digest().subarray(0, 8).toString("hex")).toBe(hex);
     }
@@ -128,6 +134,89 @@ describe("jupiterFill: a swap that paid our fee but cannot be scored is said, ne
       bot: false,
       unread_reason: "0 Jupiter instructions at the top level",
     });
+  });
+});
+
+describe("jupiterFill: Jupiter V2 builds, quote at the front of the route, one SwapsEvent, no FeeEvent", () => {
+  const jupIx = (t) => t.transaction.message.instructions.find((ix) => ix.programId === JUP);
+  const swapsEvents = (t) =>
+    t.meta.innerInstructions.flatMap((g) => g.instructions).filter((ix) => ix.programId === JUP && unbase58(ix.data).subarray(8, 16).toString("hex") === SWAPS_EVENT);
+
+  it("reads Jupiter's own quote on every build, route_v2 and shared_accounts_route_v2 alike", () => {
+    expect(EXACT_IN_ROUTES[unbase58(jupIx(V2.txs.solToUsdcShared).data).subarray(0, 8).toString("hex")]).toBe("shared_accounts_route_v2");
+    for (const [name, t] of Object.entries(V2.txs)) {
+      const hit = jupiterFill(v2(name), t.feeAccount);
+      expect({ name, quotedOut: hit.quotedOut, slippageBps: hit.slippageBps, platformFeeBps: hit.platformFeeBps }).toEqual({
+        name,
+        quotedOut: BigInt(t.quote.outAmount),
+        slippageBps: 50,
+        platformFeeBps: 50,
+      });
+    }
+  });
+
+  it("a buy with our fee taken from the SOL in: the full SOL in, the fill from the trader's token account", () => {
+    expect(jupiterFill(v2("solToBayla"), SOL_FEE)).toMatchObject({
+      inMint: SOL_MINT,
+      outMint: BAYLA,
+      inAmount: 97_000_000n,
+      quotedOut: 14_916_630_236n,
+      deliveredOut: 14_916_650_298n,
+    });
+  });
+
+  it("a sell into SOL with our fee taken from the SOL out: the route's SOL less what the fee account received", () => {
+    const hit = jupiterFill(v2("baylaToSol"), SOL_FEE);
+    expect(hit).toMatchObject({ inMint: BAYLA, outMint: SOL_MINT, inAmount: 50_000_000_000n, deliveredOut: 315_158_228n });
+    expect(rowOf(hit, TEST_SIG).fill_bps).toBe(0);
+    // pump's AMM opened an account for this trader and left it open.
+    expect(hit.depositLamports).toBe(1_346_200n);
+  });
+
+  it("two hops, USDC to BAYLA through SOL, our fee taken from the USDC in", () => {
+    expect(jupiterFill(v2("usdcToBayla"), USDC_FEE)).toMatchObject({ inMint: USDC, outMint: BAYLA, inAmount: 10_000_000n, deliveredOut: 14_700_008_842n });
+  });
+
+  it("a sell into USDC with our fee taken from the USDC out, scored where it landed: under the quote", () => {
+    const hit = jupiterFill(v2("baylaToUsdc"), USDC_FEE);
+    expect(hit).toMatchObject({ inMint: BAYLA, outMint: USDC, quotedOut: 13_186_556n, deliveredOut: 13_186_308n });
+    expect(rowOf(hit, TEST_SIG).fill_bps).toBe(-0.18);
+  });
+
+  it("counts a V2 swap only under the fee account that grew", () => {
+    expect(jupiterFill(v2("solToBayla"), USDC_FEE)).toBeNull();
+    expect(jupiterFill(v2("baylaToUsdc"), SOL_FEE)).toBeNull();
+  });
+
+  it("a V2 swap that paid us with no SwapsEvent is said, never dropped", () => {
+    const t = v2("solToBayla");
+    const gone = new Set(swapsEvents(t));
+    for (const g of t.meta.innerInstructions) g.instructions = g.instructions.filter((ix) => !gone.has(ix));
+    expect(gone.size).toBe(1);
+    expect(jupiterFill(t, SOL_FEE)).toMatchObject({ unread: "a fee with no swap event" });
+  });
+
+  it("a SwapsEvent shorter than its own hop count is said, not read as fewer hops", () => {
+    const t = v2("usdcToBayla");
+    const [ev] = swapsEvents(t);
+    ev.data = base58(unbase58(ev.data).subarray(0, -1));
+    expect(jupiterFill(t, USDC_FEE)).toMatchObject({ unread: "a SwapsEvent shorter than its 2 hops" });
+  });
+
+  it("a fee account that grew by more than the route's SOL out is said, never written as a negative fill", () => {
+    // Anyone may send the fee account SOL in the same transaction: the job must not stall on it.
+    const t = v2("baylaToSol");
+    const i = t.transaction.message.accountKeys.findIndex((k) => k.pubkey === SOL_FEE);
+    const post = t.meta.postTokenBalances.find((b) => b.accountIndex === i);
+    post.uiTokenAmount.amount = String(BigInt(post.uiTokenAmount.amount) + 1_000_000_000n);
+    expect(jupiterFill(t, SOL_FEE)).toMatchObject({ unread: "a delivered amount below zero" });
+  });
+});
+
+describe("migration 029", () => {
+  it("takes any basis points a route instruction can carry (u16), so no one swap can stall the job", () => {
+    const sql = readFileSync(join(HERE, "..", "supabase", "migrations", "029_fill_scoreboard.sql"), "utf-8");
+    expect(sql).toMatch(/slippage_bps BETWEEN 0 AND 65535 AND platform_fee_bps BETWEEN 0 AND 65535/);
   });
 });
 

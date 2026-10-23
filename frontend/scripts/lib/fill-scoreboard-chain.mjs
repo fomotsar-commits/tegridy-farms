@@ -13,28 +13,46 @@ import {
   walk,
 } from "./venue-volume-chain.mjs";
 
-// The ExactIn route instructions the site's builds use. Each ends in quoted_out_amount u64,
-// slippage_bps u16, platform_fee_bps u8, after a route plan of any length: read from the end.
+// The ExactIn route instructions the site's builds use. V1 ends in quoted_out_amount u64,
+// slippage_bps u16, platform_fee_bps u8 after a route plan of any length: read from the end.
 export const EXACT_IN_ROUTES = Object.freeze({
   e517cb977ae3ad2a: "route",
   "96564774a75d0e68": "route_with_token_ledger",
   c1209b3341d69c81: "shared_accounts_route",
   e6798f50779f6aaa: "shared_accounts_route_with_token_ledger",
+  bb64facc31c4af14: "route_v2",
+  d19853937cfed8e9: "shared_accounts_route_v2",
 });
+// V2 opens with in_amount u64, quoted_out_amount u64, slippage_bps u16, platform_fee_bps u16,
+// positive_slippage_bps u16, then the route plan: the quote's offset, after shared's u8 id.
+const V2_QUOTE_AT = { route_v2: 16, shared_accounts_route_v2: 17 };
 
 const EVENT_TAG = "e445a52e51cb9a1d"; // Anchor's self-CPI event instruction
 const SWAP_EVENT = "40c6cde8260871e2";
 const FEE_EVENT = "494f4e7fb8d50ddc";
+// V2's one event: a u32 hop count, then per hop in mint, in amount (after a fee taken from
+// it), out mint, out amount (before a fee taken from it) and AMM, 112 bytes. No FeeEvent.
+const SWAPS_EVENT = "982f4eebc0606e6a";
+const SWAPS_HOP = 112;
 
 const keysOf = (tx) => tx.transaction.message.accountKeys.map((k) => (typeof k === "string" ? k : k.pubkey));
 const innerOf = (tx) => (tx.meta.innerInstructions ?? []).flatMap((g) => g.instructions);
 const allIxs = (tx) => [...tx.transaction.message.instructions, ...innerOf(tx)];
 
-/** Jupiter's own events in a transaction: the fee (where it went) and each hop's net per mint. */
+/**
+ * Jupiter's own events in a transaction: each hop's net per mint, and the fee where a FeeEvent
+ * says it (V1 only). `cut`: the hop count of a SwapsEvent too short to hold it, else null.
+ */
 export function jupiterEvents(instructions) {
   let fee = null;
   const net = {};
   let hops = 0;
+  let cut = null;
+  const hop = (inMint, inAmount, outMint, outAmount) => {
+    net[inMint] = (net[inMint] ?? 0n) - inAmount;
+    net[outMint] = (net[outMint] ?? 0n) + outAmount;
+    hops++;
+  };
   for (const ix of instructions) {
     if (ix.programId !== JUPITER_PROGRAM || typeof ix.data !== "string") continue;
     const d = unbase58(ix.data);
@@ -43,14 +61,36 @@ export function jupiterEvents(instructions) {
     if (kind === FEE_EVENT && d.length >= 88) {
       fee = { account: base58(d.subarray(16, 48)), mint: base58(d.subarray(48, 80)), amount: d.readBigUInt64LE(80) };
     } else if (kind === SWAP_EVENT && d.length >= 128) {
-      const inMint = base58(d.subarray(48, 80));
-      const outMint = base58(d.subarray(88, 120));
-      net[inMint] = (net[inMint] ?? 0n) - d.readBigUInt64LE(80);
-      net[outMint] = (net[outMint] ?? 0n) + d.readBigUInt64LE(120);
-      hops++;
+      hop(base58(d.subarray(48, 80)), d.readBigUInt64LE(80), base58(d.subarray(88, 120)), d.readBigUInt64LE(120));
+    } else if (kind === SWAPS_EVENT && d.length >= 20) {
+      const count = d.readUInt32LE(16);
+      if (d.length < 20 + count * SWAPS_HOP) {
+        cut = count;
+        continue;
+      }
+      for (let h = 0; h < count; h++) {
+        const o = 20 + h * SWAPS_HOP;
+        hop(base58(d.subarray(o, o + 32)), d.readBigUInt64LE(o + 32), base58(d.subarray(o + 40, o + 72)), d.readBigUInt64LE(o + 72));
+      }
     }
   }
-  return { fee, net, hops };
+  return { fee, net, hops, cut };
+}
+
+/**
+ * What this transaction paid `feeAccount`: V1's FeeEvent, or, when Jupiter is in it with no
+ * FeeEvent (V2 emits none), the account's own token balance rise. Null: nothing paid to it.
+ */
+export function feePaid(tx, ev, feeAccount) {
+  if (ev.fee) return ev.fee.account === feeAccount ? ev.fee : null;
+  const keys = keysOf(tx);
+  const i = keys.indexOf(feeAccount);
+  if (i < 0 || !keys.includes(JUPITER_PROGRAM)) return null;
+  const at = (list) => (list ?? []).find((b) => b.accountIndex === i);
+  const post = at(tx.meta.postTokenBalances);
+  if (!post) return null;
+  const amount = BigInt(post.uiTokenAmount.amount) - BigInt(at(tx.meta.preTokenBalances)?.uiTokenAmount.amount ?? 0);
+  return amount > 0n ? { account: feeAccount, mint: post.mint, amount } : null;
 }
 
 /** The one mint the route spent and the one it delivered; null when the events name more. */
@@ -66,7 +106,9 @@ function quoteOf(tx) {
   if (routes.length !== 1 || typeof routes[0].data !== "string") return { why: `${routes.length} Jupiter instructions at the top level` };
   const d = unbase58(routes[0].data);
   const kind = EXACT_IN_ROUTES[d.subarray(0, 8).toString("hex")];
-  if (!kind || d.length < 8 + 4 + 11) return { why: `not an ExactIn route (${d.subarray(0, 8).toString("hex")})` };
+  const at = V2_QUOTE_AT[kind];
+  if (!kind || d.length < (at === undefined ? 8 + 4 + 11 : at + 8 + 6 + 4)) return { why: `not an ExactIn route (${d.subarray(0, 8).toString("hex")})` };
+  if (at !== undefined) return { quotedOut: d.readBigUInt64LE(at), slippageBps: d.readUInt16LE(at + 8), platformFeeBps: d.readUInt16LE(at + 10) };
   const n = d.length;
   return { quotedOut: d.readBigUInt64LE(n - 11), slippageBps: d.readUInt16LE(n - 3), platformFeeBps: d[n - 1] };
 }
@@ -118,21 +160,24 @@ export function jupiterFill(tx, feeAccount) {
   const keys = keysOf(tx);
   if (keys.includes(VENUE_PROGRAM)) return null;
   const ev = jupiterEvents(innerOf(tx));
-  if (!ev.fee || ev.fee.account !== feeAccount) return null;
+  const fee = feePaid(tx, ev, feeAccount);
+  if (!fee) return null;
   const trader = keys[0];
   const unread = (why) => ({ unread: why, trader });
-  if (ev.hops === 0) return unread("a fee with no SwapEvent");
+  if (ev.cut !== null) return unread(`a SwapsEvent shorter than its ${ev.cut} hops`);
+  if (ev.hops === 0) return unread("a fee with no swap event");
   const legs = legsOf(ev.net);
   if (!legs) return unread("the route's events name more than one mint in or out");
   const q = quoteOf(tx);
   if (q.why) return unread(q.why);
   if (q.quotedOut === 0n) return unread("a quote of zero");
   const { inMint, outMint } = legs;
-  const feeOn = (m) => (ev.fee.mint === m ? ev.fee.amount : 0n);
+  const feeOn = (m) => (fee.mint === m ? fee.amount : 0n);
   // SOL arrives wrapped and is unwrapped 1:1; its lamports also pay rent and the network
   // fee, so the route's own figure is the honest one. A token is read where it landed.
   const delivered = outMint === SOL_MINT ? ev.net[SOL_MINT] - feeOn(SOL_MINT) : ownerDelta(tx, trader, outMint);
   if (delivered === null) return unread("the trader's account for the output is not in the transaction");
+  if (delivered < 0n) return unread("a delivered amount below zero");
   return {
     trader,
     inMint,

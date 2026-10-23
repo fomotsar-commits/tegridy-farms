@@ -2,6 +2,8 @@
 // (node, not jsdom: web3.js cannot serialize a transaction under jsdom, where
 // Buffer and Uint8Array come from different realms.)
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { PublicKey, TransactionInstruction, TransactionMessage, VersionedTransaction } from '@solana/web3.js';
 
 /**
@@ -23,6 +25,9 @@ const BAYLA = '7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump';
 const USER = '5tzFkiKscXHK5ZXCGbXZxdw7gTjjD1mBwuoFbhUvuAi9';
 const VAULT = 'GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd';
 const VAULT_WSOL_FEE_ACCOUNT = '2sa31zceMSTAAbSu5wfSnNA6sBYzS7r97nvZYaQouEXa';
+const USDC = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
+// Test runs of Jupiter V2 builds with the vault's fee accounts (2026-10-23).
+const V2_RUNS = JSON.parse(readFileSync(join(__dirname, '../../scripts/fixtures/fill-scoreboard/v2-simulation.json'), 'utf-8'));
 
 /** A real, serialized v0 transaction whose instructions call `programs`, in order. */
 function txCalling(programs: string[]): string {
@@ -215,6 +220,15 @@ describe('simulateSwap reads what the route delivers on a pass', () => {
     expect(await simulateSwap(SWAP_TX)).toEqual({ ok: true, reason: null, jupiterIncorrectTokenProgram: false });
     const body = JSON.parse(String(((fetchMock.mock.calls[0] as unknown[])[1] as RequestInit).body));
     expect(body.params[1]).toMatchObject({ innerInstructions: true, sigVerify: false, replaceRecentBlockhash: true });
+  });
+
+  it('takes our fee off a V2 route that paid it from the output, at the fee accounts the build used', async () => {
+    const { simulateSwap } = await load();
+    for (const [name, delivered] of [['baylaToSol', { mint: SOL, amount: 315_158_228n }], ['baylaToUsdc', { mint: USDC, amount: 13_186_308n }]] as const) {
+      const inner = V2_RUNS.txs[name].meta.innerInstructions;
+      vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ jsonrpc: '2.0', id: 1, result: { value: { err: null, logs: [], innerInstructions: inner } } }), { status: 200 })));
+      expect((await simulateSwap(SWAP_TX)).delivered).toEqual(delivered);
+    }
   });
 
   it('an RPC that refuses the option is asked again without it, and its answer stands', async () => {

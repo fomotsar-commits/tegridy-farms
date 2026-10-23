@@ -77,6 +77,16 @@ function feeAccountFor(feeMint: string): string | null {
   }
 }
 
+/** Each fee account a build may name, with its mint: a V2 route pays the fee by plain transfer to one. */
+function feeAccountMints(): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const mint of [SOL_MINT, USDC_MINT]) {
+    const account = feeAccountFor(mint);
+    if (account) out[account] = mint;
+  }
+  return out;
+}
+
 /**
  * Would a swap of this pair be built WITH the platform fee? The one decision
  * getQuote and buildSwapTransaction both follow, exported so the send path can
@@ -480,7 +490,7 @@ export async function simulateSwap(b64Tx: string, signal?: AbortSignal): Promise
   const value = json.result?.value;
   if (!value) throw new Error('No simulation result');
   if (value.err === null || value.err === undefined) {
-    const delivered = deliveredByRoute(value.innerInstructions);
+    const delivered = deliveredByRoute(value.innerInstructions, feeAccountMints());
     return { ok: true, reason: null, jupiterIncorrectTokenProgram: false, ...(delivered ? { delivered } : {}) };
   }
   return {

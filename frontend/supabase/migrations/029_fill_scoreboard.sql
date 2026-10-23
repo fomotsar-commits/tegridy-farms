@@ -40,6 +40,8 @@ CREATE TABLE IF NOT EXISTS fill_scoreboard (
   unread_reason    text
 );
 
+-- The bps bounds are the u16 the route instruction holds: anyone can send a swap that pays
+-- our fee, and one row this check refused would hold every later row back with it.
 ALTER TABLE fill_scoreboard DROP CONSTRAINT IF EXISTS fill_scoreboard_shape;
 ALTER TABLE fill_scoreboard
   ADD CONSTRAINT fill_scoreboard_shape
@@ -51,7 +53,7 @@ ALTER TABLE fill_scoreboard
         unread_reason IS NULL
         AND in_mint IS NOT NULL AND out_mint IS NOT NULL
         AND in_amount >= 0 AND quoted_out > 0 AND delivered_out >= 0
-        AND slippage_bps BETWEEN 0 AND 10000 AND platform_fee_bps BETWEEN 0 AND 255
+        AND slippage_bps BETWEEN 0 AND 65535 AND platform_fee_bps BETWEEN 0 AND 65535
         AND fill_bps IS NOT NULL AND deposit_lamports >= 0
       )
     )
