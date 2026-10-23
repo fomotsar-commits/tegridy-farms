@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, afterEach } from 'vitest';
+import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import { FillScoreLine } from './FillScoreLine';
 import { againstQuote, parseFillScoreboard } from '../../lib/fillScoreboard';
@@ -59,7 +59,15 @@ describe('againstQuote', () => {
 });
 
 describe('<FillScoreLine />', () => {
-  afterEach(() => vi.unstubAllGlobals());
+  // The record's staleAt is fixed, so the line is read at NOW, not on whatever day the suite runs.
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(NOW);
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
   const serve = (body: unknown, status = 200) =>
     vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(body), { status })));
 
