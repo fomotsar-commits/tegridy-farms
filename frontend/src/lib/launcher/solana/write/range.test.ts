@@ -394,7 +394,10 @@ describe('an account this opens keeps the deposit its own mint needs', () => {
     const c = ready(chainWith({ token2022: true, tokens: null }));
     const p = ok(await prepareRangeOpen(W(c), cfgLocal, PROG, READS, { owner: ME, pool: POOL, ...coinOnly, side: 'coin', amount: 2_000_000_000n, toleranceBps: 100 }));
     expect(p.steps.some((x) => x.kind === 'create-token-account' && x.address.equals(TOKEN_ATA_2022))).toBe(true);
-    expect(p.fees.newAccountRentLamports).toBe(BigInt(rent(281) + rent(512) + rent(170) + rent(170)));
+    // When the token sorts first, coin only is the band below the price, whose lower end is in
+    // the band at -7200: nobody has used it yet, so its deposit is in the total too.
+    const newBand = coinOnly === below ? rent(10_240) : 0;
+    expect(p.fees.newAccountRentLamports).toBe(BigInt(rent(281) + rent(512) + rent(170) + rent(170) + newBand));
   });
 
   it('taking out: the account opened for a Token-2022 token is 170 bytes, not 165', async () => {
