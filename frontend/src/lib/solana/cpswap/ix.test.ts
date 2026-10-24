@@ -11,6 +11,7 @@ import {
   DEPOSIT_ACCOUNTS,
   WITHDRAW_ACCOUNTS,
   INITIALIZE_ACCOUNTS,
+  CREATE_LP_METADATA_ACCOUNTS,
   swapBaseInputIx,
   depositIx,
   withdrawIx,
@@ -83,9 +84,11 @@ describe.each([
   ['Swap', 'swap_base_input.rs', SWAP_ACCOUNTS],
   ['Deposit', 'deposit.rs', DEPOSIT_ACCOUNTS],
   ['Withdraw', 'withdraw.rs', WITHDRAW_ACCOUNTS],
-  ['Initialize', 'initialize.rs', INITIALIZE_ACCOUNTS],
+  ['Initialize', 'instructions/initialize.rs', INITIALIZE_ACCOUNTS],
+  // The fork's one added instruction lives in lib.rs itself.
+  ['CreateLpMetadata', 'lib.rs', CREATE_LP_METADATA_ACCOUNTS],
 ] as const)('%s account list matches the program', (structName, file, ours) => {
-  const theirs = parseAccounts(rust(`instructions/${file}`), structName);
+  const theirs = parseAccounts(rust(file.includes('/') || file === 'lib.rs' ? file : `instructions/${file}`), structName);
 
   it('has the same accounts, in the same order', () => {
     expect(ours.map((a) => a.name)).toEqual(theirs.map((a) => a.name));

@@ -98,7 +98,7 @@ const facts = (over: Partial<Extract<WalletFacts, { kind: 'ok' }>> = {}): Wallet
   wsol: { exists: false, amount: 0n },
   coin: null,
   lpAccountExists: false,
-  rents: { walletFloor: 890_880n, tokenAccount165: 2_039_280n, neverRefunded: 40_000_000n },
+  rents: { walletFloor: 890_880n, tokenAccount165: 2_039_280n, neverRefunded: 40_000_000n, nameRecord: 13_733_800n },
   ...over,
 });
 
@@ -160,7 +160,7 @@ describe('the panel', () => {
     expect(before).toHaveTextContent('Any other trade has to come from someone using our pool program directly.');
     expect(before).not.toHaveTextContent(/\bbots?\b|arbitrage|mostly/i);
     expect(before).toHaveTextContent(/Expect little or nothing in fees at first\./);
-    expect(before).toHaveTextContent('Opening costs 0.15 SOL, paid to the team\'s vault, and about 0.04 SOL in account deposits that never come back.');
+    expect(before).toHaveTextContent("Opening costs 0.15 SOL, paid to the team's vault, and about 0.04 SOL in account deposits that never come back, plus 0.0137338 SOL for the pool share's name record (Metaplex's fee and the record's deposit).");
     // Shares are said in 9 decimals everywhere on this page: never "100 pool shares".
     expect(before).toHaveTextContent('0.0000001 pool shares (100 of the smallest unit) stay locked in the pool forever');
     expect(before).toHaveTextContent("Anyone can open other pools for this token, at any price. Yours will not be 'the' pool.");
@@ -199,7 +199,7 @@ describe('the panel', () => {
     // isqrt(1e9 × 1e8) = 316,227,766; the program keeps 100.
     expect(within(panel).getByText('You get').nextElementSibling).toHaveTextContent('0.316227666 pool shares');
     expect(within(panel).getByText('Locked in the pool forever').nextElementSibling).toHaveTextContent('0.0000001 pool shares (100 of the smallest unit), worth about');
-    expect(within(panel).getByText('In all, from your wallet').nextElementSibling).toHaveTextContent('about 1.192 SOL and 100 tokens, plus the network fee');
+    expect(within(panel).getByText('In all, from your wallet').nextElementSibling).toHaveTextContent('about 1.2057 SOL and 100 tokens, plus the network fee');
     // Typing in the token box afterwards moves nothing else.
     fireEvent.change(tokens(panel), { target: { value: '101' } });
     expect(sol(panel)).toHaveValue('1');
@@ -426,9 +426,9 @@ describe('the panel', () => {
     mount(readers());
     const { panel } = await openPanel();
     fireEvent.click(await within(panel).findByRole('button', { name: 'Max SOL' }));
-    // 5 SOL − (10,000 + 1,000,000) − 2,039,280 (share account) − (150,000,000 + 40,000,000) − max(2,039,280, 890,880).
-    expect(sol(panel)).toHaveValue('4.80491144');
-    expect(panel).toHaveTextContent('Up to 4.80491144 SOL can go in after the fee to open, the account deposits and network fees.');
+    // 5 SOL − (10,000 + 1,000,000) − 2,039,280 (share account) − (150,000,000 + 40,000,000) − 13,733,800 (name record) − max(2,039,280, 890,880).
+    expect(sol(panel)).toHaveValue('4.79117764');
+    expect(panel).toHaveTextContent('Up to 4.79117764 SOL can go in after the fee to open, the account deposits, the name record and network fees.');
   });
 
   it('SOL above that: the rent-band line and Use that much', async () => {
@@ -439,11 +439,11 @@ describe('the panel', () => {
     fireEvent.click(matchButton(panel));
     await waitFor(() => expect(within(panel).getByRole('alert')).not.toHaveTextContent(''));
     expect(within(panel).getByRole('alert')).toHaveTextContent(
-      'That would leave your wallet with too little SOL to pay the fee to open, the account deposits and stay open on the network. The most you can put in from this wallet is 4.80491144 SOL.',
+      "That would leave your wallet with too little SOL to pay the fee to open, the account deposits and the share's name record, and stay open on the network. The most you can put in from this wallet is 4.79117764 SOL.",
     );
     expect(reviewButton(panel)).toBeDisabled();
-    fireEvent.click(within(panel).getByRole('button', { name: 'Use 4.80491144 SOL' }));
-    expect(sol(panel)).toHaveValue('4.80491144');
+    fireEvent.click(within(panel).getByRole('button', { name: 'Use 4.79117764 SOL' }));
+    expect(sol(panel)).toHaveValue('4.79117764');
   });
 
   // Phone walk of the build, 2026-10-03: Max on both sides, then the two offered fixes
@@ -456,11 +456,11 @@ describe('the panel', () => {
     fireEvent.change(tokens(panel), { target: { value: '490' } });
     fireEvent.click(matchButton(panel));
     expect(sol(panel)).toHaveValue('4.9');
-    fireEvent.click(await within(panel).findByRole('button', { name: 'Use 4.80491144 SOL' }));
-    expect(sol(panel)).toHaveValue('4.80491144');
+    fireEvent.click(await within(panel).findByRole('button', { name: 'Use 4.79117764 SOL' }));
+    expect(sol(panel)).toHaveValue('4.79117764');
     fireEvent.click(matchButton(panel));
-    expect(sol(panel)).toHaveValue('4.80491144');
-    expect(tokens(panel)).toHaveValue('480.491144');
+    expect(sol(panel)).toHaveValue('4.79117764');
+    expect(tokens(panel)).toHaveValue('479.117764');
   });
 
   it('more tokens than the wallet holds: says so, and the most both balances allow fits', async () => {
@@ -485,15 +485,15 @@ describe('the panel', () => {
     // What opening takes before any SOL goes in: (10,000 + 1,000,000) for two signatures
     // and the reserve, 2,039,280 for the share account, 150,000,000 + 40,000,000 for the
     // fee and the deposits, and max(2,039,280, 890,880) kept in the wallet.
-    const NEEDS = 195_088_560n;
+    const NEEDS = 208_822_360n;
 
     it('too little SOL and none of the token: says how much opening needs, what the wallet has, and that it holds none', async () => {
       mount(readers({ wallet: vi.fn(async () => facts({ lamports: 5_960_758n, token: null })) }));
       const { panel } = await openPanel();
       const cannot = await within(panel).findByTestId('lp-create-cannot');
       expect(cannot).toHaveTextContent('This wallet cannot open a pool yet.');
-      // Rounded UP at four decimals: 0.19508856 reads 0.1951, never 0.195 (less than it is).
-      expect(cannot).toHaveTextContent('needs about 0.1951 SOL');
+      // Rounded UP at four decimals: 0.20882236 reads 0.2089, never 0.2088 (less than it is).
+      expect(cannot).toHaveTextContent('needs about 0.2089 SOL');
       expect(cannot).toHaveTextContent('this wallet has 0.005960758 SOL');
       expect(cannot).toHaveTextContent('holds none of this token');
       expect(reviewButton(panel)).toBeDisabled();

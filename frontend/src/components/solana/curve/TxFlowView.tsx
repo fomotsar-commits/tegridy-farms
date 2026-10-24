@@ -594,6 +594,11 @@ function LpCreateRows({ summary: s }: { summary: Extract<TxSummary, { kind: 'lp-
         value={`${solExact(s.rents.neverRefunded)} (the pool, its price record, its share token and its two vaults; none can be closed)`}
         mono={false}
       />
+      <Row
+        label="Name record of the pool share"
+        value={`${solExact(s.nameRecord.rent + s.nameRecord.metaplexFee)}: ${solExact(s.nameRecord.metaplexFee)} is Metaplex's fee for making it, ${solExact(s.nameRecord.rent)} stays in the record for good. It gives the share its name and picture in wallets; the team gets none of it`}
+        mono={false}
+      />
       <Row label="Your pool-share account" value={`${solExact(s.rents.lpAccount)} (it comes back if you close that account later)`} mono={false} />
       <Row label="You get" value={`${shares(s.lpAmount)} pool shares, exactly`} mono={false} />
       <Row

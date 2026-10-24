@@ -73,6 +73,7 @@ const create = (coin: QuoteCoin, over: Partial<Create> = {}) =>
     createFee: 150_000_000n,
     feeReceiver: FEE_RECEIVER,
     rents: { neverRefunded: 40_000_000n, lpAccount: 2_039_280n },
+    nameRecord: { rent: 3_733_800n, metaplexFee: 10_000_000n },
     price: { state: 'agrees', pool: 0.025, reference: 0.0249, against: 'outside', diff: 0.025 / 0.0249 - 1 },
     ...over,
   });

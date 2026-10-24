@@ -59,6 +59,8 @@ import { associatedTokenAddress } from '../curve/ix';
 import { formatSol, formatTokenAmount } from '../curve/format';
 import { clipDetail } from '../curve/read';
 import {
+  LP_NAME_RECORD_LEN,
+  METAPLEX_CREATE_FEE_LAMPORTS,
   POOL_STATE_LEN,
   deriveLpMint,
   deriveObservation,
@@ -67,7 +69,7 @@ import {
   publicTierConfig,
   sortMints,
 } from '../../../solana/cpswap/program';
-import { initializeIx } from '../../../solana/cpswap/ix';
+import { createLpMetadataIx, initializeIx } from '../../../solana/cpswap/ix';
 import { ratePercent } from '../../../solana/cpswap/math';
 import type { RawAccount } from '../../../solana/lp/accounts';
 import { LOCKED_LP, LOCKED_SHARES_TEXT, U64_MAX, feeReserveFor, isqrt, lockedBehind, planCreate, solSetAside, spendableSol, type CreateProblem } from '../../../solana/lp/liquidityMath';
@@ -78,7 +80,7 @@ import { BUILDABLE_EXTENSIONS, classifyToken, decodeMintAccount, extensionPlain 
 import { MAX_OWN_PRIORITY_LAMPORTS } from './budget';
 import { CP_CREATE_POOL_FEE_RECEIVER, MAX_CREATE_FEE_LAMPORTS, feeAccountStateOf, tierStateOf } from './config';
 import { LP_COPY, accountCheck, coinAccount, rentOf, toRaw, type LpPrepareReads } from './liquidity';
-import { metadataPda } from './metaplex';
+import { METAPLEX_TOKEN_METADATA_ID, metadataPda } from './metaplex';
 import { bodySteps, buildAndSimulate, notSent } from './prepare';
 import type { CurveWriteConfig, IntentStep, LpCreateSummary, LpOpenGate, PoolPins, Prepared, PriceGap, TierTerms, TxSummary, WriteRpc } from './types';
 import { closeWsolIxs, openWsolIx, opened, syncCredit, wrapIxs, wsolPlanFrom } from './wsol';
@@ -111,7 +113,7 @@ export const CREATE_COPY = {
   // The fee to open is most of this sum, so it is named first: "the network fee and the
   // account deposits" alone would not explain 0.19 SOL.
   needSol: (need: string, have: string) =>
-    `Your wallet needs about ${need} for the fee to open, the account deposits and the network fee, and has ${have}. The fee and the deposits are paid in SOL whatever the pool is paired with. Nothing was built.`,
+    `Your wallet needs about ${need} for the fee to open, the account deposits, the pool share's name record and the network fee, and has ${have}. The fee, the deposits and the name record are paid in SOL whatever the pool is paired with. Nothing was built.`,
   cannotPair: (symbol: string) => `This site does not open a pool that prices this token in ${symbol}.`,
   coinPriceUnread: (symbol: string, detail: string) =>
     `We could not get the price of ${symbol} from Jupiter just now (${detail}), so we could not check the opening price. Try again in a moment.`,
@@ -131,7 +133,7 @@ export const CREATE_COPY = {
   cannotLeave: (what: string) =>
     `Too small: your own share of this pool could never be taken out, because it would pay out less than one unit of ${what}. Put in more of it.`,
   rentBand: (most: string) =>
-    `That would leave your wallet with too little SOL to pay the fee to open, the account deposits and stay open on the network. The most you can put in from this wallet is ${most}.`,
+    `That would leave your wallet with too little SOL to pay the fee to open, the account deposits and the share's name record, and stay open on the network. The most you can put in from this wallet is ${most}.`,
   signerMismatch: "Internal check failed: the pool's signer does not match the review.",
 } as const;
 
@@ -319,6 +321,8 @@ export function createStepsProblem(
   if (!c.pool.equals(want.pool) || !c.ammConfig.equals(want.ammConfig) || c.init0 !== want.init0 || c.init1 !== want.init1) {
     return 'The opening in the transaction does not match the amounts worked out.';
   }
+  const names = body.filter((s) => s.kind === 'pool-name');
+  if (names.length !== 1 || names[0]?.kind !== 'pool-name' || !names[0].pool.equals(want.pool)) return 'The transaction does not name the new pool share exactly once.';
   const wraps = body.filter((s) => s.kind === 'wrap-sol');
   const syncs = body.filter((s) => s.kind === 'sync-wsol').length;
   const creates = body.filter((s) => s.kind === 'create-token-account');
@@ -571,6 +575,7 @@ export async function prepareLpCreate(rpc: WriteRpc, gate: LpOpenGate, reads: Lp
   let r4075: bigint;
   let rVault: bigint;
   let rQuoteVault: bigint;
+  let rName: bigint;
   try {
     const got = await Promise.all([
       rpc.getMinimumBalanceForRentExemption(0),
@@ -578,12 +583,13 @@ export async function prepareLpCreate(rpc: WriteRpc, gate: LpOpenGate, reads: Lp
       rpc.getMinimumBalanceForRentExemption(TOKEN_ACCOUNT_SIZE),
       rpc.getMinimumBalanceForRentExemption(POOL_ACCOUNT_SIZE),
       rpc.getMinimumBalanceForRentExemption(PRICE_RECORD_SIZE),
+      rpc.getMinimumBalanceForRentExemption(LP_NAME_RECORD_LEN),
       vaultSize === TOKEN_ACCOUNT_SIZE ? Promise.resolve(null) : rpc.getMinimumBalanceForRentExemption(vaultSize),
       quoteVaultSize === TOKEN_ACCOUNT_SIZE ? Promise.resolve(null) : rpc.getMinimumBalanceForRentExemption(quoteVaultSize),
     ]);
-    [r0, r82, r165, r637, r4075] = got.slice(0, 5).map(rentOf) as [bigint, bigint, bigint, bigint, bigint];
-    rVault = got[5] === null ? r165 : rentOf(got[5]);
-    rQuoteVault = got[6] === null ? r165 : rentOf(got[6]);
+    [r0, r82, r165, r637, r4075, rName] = got.slice(0, 6).map(rentOf) as [bigint, bigint, bigint, bigint, bigint, bigint];
+    rVault = got[6] === null ? r165 : rentOf(got[6]);
+    rQuoteVault = got[7] === null ? r165 : rentOf(got[7]);
   } catch {
     return notSent('build', CREATE_COPY.readFailed);
   }
@@ -591,6 +597,10 @@ export async function prepareLpCreate(rpc: WriteRpc, gate: LpOpenGate, reads: Lp
   // wrapped-SOL vault for SOL) and the token vault.
   const neverRefunded = r637 + r4075 + r82 + rQuoteVault + rVault;
   const lpAccountRent = r165;
+  // The share token's name record: its deposit stays in it for good, and Metaplex keeps
+  // its fee for making a record. Paid by the opener; nothing of it goes to the team.
+  const nameRecord = { rent: rName, metaplexFee: METAPLEX_CREATE_FEE_LAMPORTS };
+  const namePaid = nameRecord.rent + nameRecord.metaplexFee;
 
   // 12. The plan. Two signatures' worth of fees whichever path it takes. SOL: inside the
   // rent band (3.4). Any other coin: what the wallet holds of it, and its SOL must cover
@@ -605,10 +615,10 @@ export async function prepareLpCreate(rpc: WriteRpc, gate: LpOpenGate, reads: Lp
       feeReserve: feeReserveFor(2),
       lpAccountRent,
       wsolCreateRent: snap.quoteAccount.account ? 0n : r165,
-      alsoPaid: createFee + neverRefunded,
+      alsoPaid: createFee + neverRefunded + namePaid,
     });
   } else {
-    const setAside = solSetAside({ walletFloor: r0, feeReserve: feeReserveFor(2), lpAccountRent, wsolCreateRent: 0n, alsoPaid: createFee + neverRefunded });
+    const setAside = solSetAside({ walletFloor: r0, feeReserve: feeReserveFor(2), lpAccountRent, wsolCreateRent: 0n, alsoPaid: createFee + neverRefunded + namePaid });
     if (snap.signerLamports < setAside) return notSent('build', CREATE_COPY.needSol(solText(setAside), solText(snap.signerLamports)));
     availableQuote = snap.quoteAccount.account ? amountOf(snap.quoteAccount.account) : 0n;
   }
@@ -640,8 +650,12 @@ export async function prepareLpCreate(rpc: WriteRpc, gate: LpOpenGate, reads: Lp
     openTime: 0n,
     poolState: origin === 'other' ? address : undefined,
   });
-  // A coin that is not SOL: the pool instruction alone. Nothing is wrapped or opened.
-  const body: TransactionInstruction[] = plan ? [openWsolIx(a.owner), ...wrapIxs(a.owner, a.quote), open, ...closeWsolIxs(plan, a.owner)] : [open];
+  // Right after it, in the same transaction: the new share token's name record, so the
+  // share has its name and picture from the pool's first block (the words are the
+  // program's; its link answers the site's file for that share).
+  const name = createLpMetadataIx({ programId: cp, payer: a.owner, pool: address, record: metadataPda(deriveLpMint(cp, address)), metadataProgram: METAPLEX_TOKEN_METADATA_ID });
+  // A coin that is not SOL: the pool instruction and its name alone. Nothing is wrapped or opened.
+  const body: TransactionInstruction[] = plan ? [openWsolIx(a.owner), ...wrapIxs(a.owner, a.quote), open, name, ...closeWsolIxs(plan, a.owner)] : [open, name];
   const quoteAddress = snap.quoteAccount.address;
 
   // 15. Simulate twice and compare (3.3). The balances are read a slot or more before the
@@ -652,7 +666,7 @@ export async function prepareLpCreate(rpc: WriteRpc, gate: LpOpenGate, reads: Lp
   // is what catches it, and it is exact.
   // The fee to open is paid in SOL whatever the pool is paired with; only a SOL opening
   // also puts SOL into the pool.
-  const maxSolOut = (plan ? a.quote : 0n) + createFee + neverRefunded + lpAccountRent;
+  const maxSolOut = (plan ? a.quote : 0n) + createFee + neverRefunded + namePaid + lpAccountRent;
   const r = await buildAndSimulate(rpc, {
     kind: 'lp-create',
     body,
@@ -699,7 +713,7 @@ export async function prepareLpCreate(rpc: WriteRpc, gate: LpOpenGate, reads: Lp
         ],
       };
     },
-    newAccountRent: () => neverRefunded + lpAccountRent,
+    newAccountRent: () => neverRefunded + nameRecord.rent + lpAccountRent,
     summarize: (steps): TxSummary | string => {
       const base = { pool: address, ammConfig: pins.ammConfig, init0: planned.init0, init1: planned.init1 };
       const problem = createStepsProblem(steps, plan ? { ...base, sol: a.quote, closeAfter: plan.closeAfter, wsolAta: plan.ata } : { ...base, quoteNative: false });
@@ -725,6 +739,7 @@ export async function prepareLpCreate(rpc: WriteRpc, gate: LpOpenGate, reads: Lp
         createFee,
         feeReceiver: CP_CREATE_POOL_FEE_RECEIVER,
         rents: { neverRefunded, lpAccount: lpAccountRent },
+        nameRecord,
         price,
         tokenWarnings: safety.warnings,
         warnings,

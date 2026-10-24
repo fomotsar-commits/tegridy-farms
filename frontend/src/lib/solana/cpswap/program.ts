@@ -24,7 +24,7 @@ import { PublicKey } from '@solana/web3.js';
  * lines across `lib.rs`, `create_support_mint_associated.rs` and `Cargo.toml`,
  * all of it authority constants, the program's own name and contact text,
  * comments and ONE added instruction, `create_lp_metadata` (it names a pool's
- * lp token; this site does not send it, and it adds no account type). So
+ * lp token; this site sends it with every pool it opens, and it adds no account type). So
  * every layout, seed and discriminator below is Raydium's, and a resync that
  * changes any of them fails `program.test.ts` before it can misdecode an
  * account.
@@ -190,6 +190,19 @@ export const IX_DEPOSIT = Uint8Array.from([242, 35, 198, 137, 82, 225, 242, 182]
 export const IX_WITHDRAW = Uint8Array.from([183, 18, 70, 156, 148, 109, 161, 34]);
 export const IX_SWAP_BASE_INPUT = Uint8Array.from([143, 190, 90, 218, 196, 30, 51, 222]);
 export const IX_SWAP_BASE_OUTPUT = Uint8Array.from([55, 217, 98, 86, 163, 74, 180, 173]);
+/**
+ * The fork's one added instruction, `create_lp_metadata` (lib.rs): gives a pool's share
+ * token its Metaplex name record. No arguments: the words and the link are fixed in the
+ * program, so the caller chooses nothing and only pays. Live from the build 1e55bcdc on;
+ * the build that came back by the roll-back of 2026-10-24 does not have it.
+ */
+export const IX_CREATE_LP_METADATA = Uint8Array.from([148, 193, 160, 116, 87, 25, 123, 103]);
+/** The name record's editor, compiled into the program (`admin::ID`): the Squads vault. */
+export const LP_NAME_EDITOR = new PublicKey('GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd');
+/** A share token's name record as the program writes it: Metaplex MetadataV1, 607 bytes. */
+export const LP_NAME_RECORD_LEN = 607;
+/** What Metaplex takes for creating a record, on top of its rent; it stays in the record for Metaplex to collect. */
+export const METAPLEX_CREATE_FEE_LAMPORTS = 10_000_000n;
 
 export const ACCOUNT_POOL_STATE = Uint8Array.from([247, 237, 227, 245, 215, 195, 222, 70]);
 export const ACCOUNT_AMM_CONFIG = Uint8Array.from([218, 244, 33, 104, 203, 203, 43, 111]);

@@ -6,7 +6,8 @@
 // checks, the tier's terms, the one-off key's secrecy) are tested there once.
 //
 // What differs for a coin that is not SOL, and so what these pin:
-//   - nothing is wrapped and no account is opened: the body is the pool instruction alone;
+//   - nothing is wrapped and no account is opened: the body is the pool instruction and the
+//     call that names its share, nothing else;
 //   - the coin leaves the signer's own account for it, which must exist and hold it;
 //   - the single read also takes the coin's own mint, which must be the mint this site knows;
 //   - the opening price is checked in the coin, never in SOL;
@@ -24,8 +25,8 @@ import {
 import { TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID, WSOL_MINT } from '../curve/program';
 import { associatedTokenAddress } from '../curve/ix';
 import { formatSol } from '../curve/format';
-import { deriveAmmConfig, deriveLpMint, deriveObservation, derivePool, deriveVault, publicTierConfig, sortMints } from '../../../solana/cpswap/program';
-import { initializeIx } from '../../../solana/cpswap/ix';
+import { deriveAmmConfig, deriveAuthority, deriveLpMint, deriveObservation, derivePool, deriveVault, publicTierConfig, sortMints } from '../../../solana/cpswap/program';
+import { createLpMetadataIx, initializeIx } from '../../../solana/cpswap/ix';
 import { feeReserveFor, isqrt, solSetAside } from '../../../solana/lp/liquidityMath';
 import { arbitrageLoss, assessOpening, estimatedLoss, matchMarket, mostBothAtMarket, openingPricePerToken } from '../../../solana/lp/opening';
 import type { OutsidePrice } from '../../../solana/lp/outsidePrice';
@@ -35,7 +36,7 @@ import { CP_CREATE_POOL_FEE_RECEIVER } from './config';
 import { CREATE_COPY, createPins, createStepsProblem, prepareLpCreate, readCreateSnapshot, type CreateSnapshot, type LpCreateArgs } from './createPool';
 import { decodeIntent } from './intent';
 import { LP_COPY, type LpPrepareReads } from './liquidity';
-import { metadataPda } from './metaplex';
+import { METAPLEX_TOKEN_METADATA_ID, metadataPda } from './metaplex';
 import { TX_SIZE_LIMIT, bodySteps } from './prepare';
 import {
   CPSWAP,
@@ -73,6 +74,8 @@ const FEE = TIER1_VALUES.createPoolFee;
 const R = (n: number) => BigInt(rent(n));
 /** What `initialize` pays for and never returns: pool, price record, share token, the coin's vault and the token's. */
 const NEVER_REFUNDED = R(637) + R(4075) + R(82) + R(165) + R(165);
+/** The new share's name record: its deposit (607 bytes) and Metaplex's fee for making it. */
+const NAME = R(607) + 10_000_000n;
 /** A row with no upper bound: more arriving than the review says cannot hurt the signer. */
 const NO_CEILING = 2n ** 64n;
 const BLOCKED_SOL = 'Blocked: the simulation shows more SOL leaving your wallet than this screen says.';
@@ -347,19 +350,24 @@ const HAPPY: Array<[string, QuoteCoin, TokenKind]> = [
 ];
 
 describe.each(HAPPY)('prepareLpCreate, a clean opening: %s', (_name, quote, token) => {
-  it('the body is the pool instruction alone: nothing is wrapped and no account is opened', async () => {
+  it('the body is the pool instruction and the name of its share: nothing is wrapped and no account is opened', async () => {
     const w = world(quote, { token });
     const reads = priced(quote);
     const p = ok(await create(w, {}, reads));
     expect(p.kind).toBe('lp-create');
     expect(p.extraSigners).toEqual([]);
-    expect(p.steps.map((s) => s.kind)).toEqual(['compute-limit', 'compute-price', 'pool-create']);
+    expect(p.steps.map((s) => s.kind)).toEqual(['compute-limit', 'compute-price', 'pool-create', 'pool-name']);
     expect(p.tx.instructions.map((i) => i.programId.toBase58())).toEqual([
       ComputeBudgetProgram.programId.toBase58(),
       ComputeBudgetProgram.programId.toBase58(),
       CPSWAP.toBase58(),
+      CPSWAP.toBase58(),
     ]);
-    expect(p.check.body).toHaveLength(1);
+    expect(p.check.body).toHaveLength(2);
+    // The share's name: paid by the signer, for the pool just opened and its own share token.
+    const name = p.tx.instructions[3]!;
+    const share = deriveLpMint(CPSWAP, w.standard);
+    expect(name.keys.map((k) => k.pubkey.toBase58()).slice(0, 5)).toEqual([ME.toBase58(), deriveAuthority(CPSWAP).toBase58(), w.standard.toBase58(), share.toBase58(), metadataPda(share).toBase58()]);
     expect(p.tx.compileMessage().header.numRequiredSignatures).toBe(1);
 
     // The instruction itself: tier 1, the fee account, open now, and each side spent from
@@ -409,7 +417,8 @@ describe.each(HAPPY)('prepareLpCreate, a clean opening: %s', (_name, quote, toke
     expect(s.createFee).toBe(FEE);
     expect(s.feeReceiver.equals(CP_CREATE_POOL_FEE_RECEIVER)).toBe(true);
     expect(s.rents).toEqual({ neverRefunded: NEVER_REFUNDED, lpAccount: R(165) });
-    expect(p.fees.newAccountRentLamports).toBe(NEVER_REFUNDED + R(165));
+    expect(s.nameRecord).toEqual({ rent: R(607), metaplexFee: 10_000_000n });
+    expect(p.fees.newAccountRentLamports).toBe(NEVER_REFUNDED + R(607) + R(165));
     // 2 coins a token against a market of 2 coins a token.
     expect(s.price).toMatchObject({ state: 'agrees', against: 'outside' });
     expect(s.price.state === 'agrees' && s.price.pool).toBeCloseTo(2, 9);
@@ -433,7 +442,7 @@ describe.each(HAPPY)('prepareLpCreate, a clean opening: %s', (_name, quote, toke
     ]);
   });
 
-  it('what may leave: at most the coins typed and the tokens typed; SOL only for the fee to open and the deposits; the shares exact', async () => {
+  it('what may leave: at most the coins typed and the tokens typed; SOL only for the fee to open, the deposits and the name record; the shares exact', async () => {
     const w = world(quote, { token });
     const p = ok(await create(w));
     const s = summaryOf(p);
@@ -443,10 +452,10 @@ describe.each(HAPPY)('prepareLpCreate, a clean opening: %s', (_name, quote, toke
     expect(row(p, w.quoteAta)).toEqual([-COINS, NO_CEILING]);
     expect(row(p, CP_CREATE_POOL_FEE_RECEIVER)).toEqual([FEE, NO_CEILING]);
     // None of the coin's amount is in the SOL that may leave.
-    expect(p.check.expect.maxSolOut).toBe(FEE + NEVER_REFUNDED + R(165));
+    expect(p.check.expect.maxSolOut).toBe(FEE + NEVER_REFUNDED + NAME + R(165));
     expect(p.check.expect.minSolIn).toBeUndefined();
     // And the test run moved exactly that.
-    expect(p.simulated.signerLamportsDelta).toBe(-(FEE + NEVER_REFUNDED + R(165)));
+    expect(p.simulated.signerLamportsDelta).toBe(-(FEE + NEVER_REFUNDED + NAME + R(165)));
     expect(p.simulated.tokenDeltas.map((d) => [d.role, d.decimals, d.delta])).toEqual([
       ['token', w.tokenDecimals, -tokensOf(w)],
       ['quote', quote.decimals, -COINS],
@@ -526,8 +535,8 @@ describe('where a pool paired with USDC or BAYLA goes', () => {
     const ix = initIx(p);
     expect(ix.keys[3]!.pubkey.equals(s.pool) && ix.keys[3]!.isSigner).toBe(true);
     expect(p.tx.compileMessage().header.numRequiredSignatures).toBe(2);
-    // Still the pool instruction alone, and the shares go to the account derived from the NEW address.
-    expect(bodySteps(p.steps).map((x) => x.kind)).toEqual(['pool-create']);
+    // Still the pool instruction and its share's name, and the shares go to the account derived from the NEW address.
+    expect(bodySteps(p.steps).map((x) => x.kind)).toEqual(['pool-create', 'pool-name']);
     expect(ix.keys[9]!.pubkey.equals(associatedTokenAddress(deriveLpMint(CPSWAP, s.pool), ME))).toBe(true);
   });
 
@@ -784,13 +793,13 @@ describe('prepareLpCreate with USDC or BAYLA: what refuses it, each in its own w
   it.each(COIN_ROWS)('%s: a wallet with the coin but not the SOL for the fee to open and the deposits is told how much SOL it needs', async (_n, quote) => {
     // The network fee for two signatures, the pool-share account, the fee to open, the
     // pool's own accounts, and what the wallet itself must keep. None of the coin's amount.
-    const need = feeReserveFor(2) + R(165) + FEE + NEVER_REFUNDED + R(0);
-    expect(solSetAside({ walletFloor: R(0), feeReserve: feeReserveFor(2), lpAccountRent: R(165), wsolCreateRent: 0n, alsoPaid: FEE + NEVER_REFUNDED })).toBe(need);
+    const need = feeReserveFor(2) + R(165) + FEE + NEVER_REFUNDED + NAME + R(0);
+    expect(solSetAside({ walletFloor: R(0), feeReserve: feeReserveFor(2), lpAccountRent: R(165), wsolCreateRent: 0n, alsoPaid: FEE + NEVER_REFUNDED + NAME })).toBe(need);
     const msg = refused(await create(world(quote, { wallet: need - 1n })));
     expect(msg).toBe(CREATE_COPY.needSol(solText(need), solText(need - 1n)));
     // The fee to open is most of the sum, so the sentence names it.
     expect(msg).toBe(
-      'Your wallet needs about 0.1940576 SOL for the fee to open, the account deposits and the network fee, and has 0.194057599 SOL. The fee and the deposits are paid in SOL whatever the pool is paired with. Nothing was built.',
+      "Your wallet needs about 0.2091732 SOL for the fee to open, the account deposits, the pool share's name record and the network fee, and has 0.209173199 SOL. The fee, the deposits and the name record are paid in SOL whatever the pool is paired with. Nothing was built.",
     );
     // The rent band is the SOL pool's rule: its words are never said here.
     expect(msg).not.toMatch(/too little SOL|The most you can put in/);
@@ -866,7 +875,7 @@ describe('the balance check for an opening paired with USDC or BAYLA', () => {
     const free = { ...TERMS, createPoolFee: 0n };
     const w = world(BAYLA_QUOTE, { tier: { createPoolFee: 0n }, feeReceiver: { unsynced: 1_000n } });
     const p = ok(await create(w, { shown: { terms: free, standard: 'empty' } }));
-    expect(p.check.expect.maxSolOut).toBe(NEVER_REFUNDED + R(165));
+    expect(p.check.expect.maxSolOut).toBe(NEVER_REFUNDED + NAME + R(165));
     expect(row(p, CP_CREATE_POOL_FEE_RECEIVER)).toEqual([0n, NO_CEILING]);
     expect(summaryOf(p).createFee).toBe(0n);
   });
@@ -892,7 +901,7 @@ describe('the balance check for an opening paired with USDC or BAYLA', () => {
 
     // Enough to pay, but one lamport left over: less than a wallet may hold.
     const dustLeft = world(BAYLA_QUOTE);
-    beforeEveryRun(dustLeft, (c) => c.fund(ME, Number(FEE + NEVER_REFUNDED + R(165)) + 1));
+    beforeEveryRun(dustLeft, (c) => c.fund(ME, Number(FEE + NEVER_REFUNDED + NAME + R(165)) + 1));
     expect(outcome(await create(dustLeft))).toMatchObject(
       stopped('An account in this transaction would be left below the minimum SOL Solana requires. Add a little SOL and try again.'),
     );
@@ -902,7 +911,7 @@ describe('the balance check for an opening paired with USDC or BAYLA', () => {
     const w = world(USDC_QUOTE);
     w.chain.fund(w.lpAta, rent(0));
     const p = ok(await create(w));
-    const paid = FEE + NEVER_REFUNDED + R(165) - R(0);
+    const paid = FEE + NEVER_REFUNDED + NAME + R(165) - R(0);
     expect(summaryOf(p).origin).toBe('standard');
     expect(p.check.expect.maxSolOut).toBe(paid);
     expect(p.simulated.signerLamportsDelta).toBe(-paid);
@@ -915,6 +924,7 @@ describe('the balance check for an opening paired with USDC or BAYLA', () => {
 describe('createStepsProblem: an opening that is not paired with SOL', () => {
   const pool = fresh();
   const open: IntentStep = { kind: 'pool-create', pool, ammConfig: TIER1, init0: 100n, init1: 7n };
+  const name: IntentStep = { kind: 'pool-name', pool, lpMint: deriveLpMint(CPSWAP, pool) };
   const want = { pool, ammConfig: TIER1, init0: 100n, init1: 7n, quoteNative: false as const };
   const openAccount = (mint: PublicKey, program: PublicKey = TOKEN_PROGRAM_ID): IntentStep => ({
     kind: 'create-token-account',
@@ -923,38 +933,45 @@ describe('createStepsProblem: an opening that is not paired with SOL', () => {
     address: associatedTokenAddress(mint, ME, program),
   });
 
-  it('the pool instruction alone is the plan, with or without the two compute-budget steps', () => {
-    expect(createStepsProblem([open], want)).toBeNull();
-    expect(createStepsProblem([{ kind: 'compute-limit', units: 1 }, { kind: 'compute-price', microLamports: 1n }, open], want)).toBeNull();
+  it("the pool instruction and its share's name are the plan, with or without the two compute-budget steps", () => {
+    expect(createStepsProblem([open, name], want)).toBeNull();
+    expect(createStepsProblem([{ kind: 'compute-limit', units: 1 }, { kind: 'compute-price', microLamports: 1n }, open, name], want)).toBeNull();
+  });
+
+  it('the share named not at all, twice, or for another pool is a mismatch', () => {
+    const naming = /does not name the new pool share exactly once/;
+    expect(createStepsProblem([open], want)).toMatch(naming);
+    expect(createStepsProblem([open, name, name], want)).toMatch(naming);
+    expect(createStepsProblem([open, { kind: 'pool-name', pool: fresh(), lpMint: deriveLpMint(CPSWAP, pool) }], want)).toMatch(naming);
   });
 
   it('any wrap, sync or close is a mismatch', () => {
     for (const extra of [{ kind: 'wrap-sol', lamports: 1n }, { kind: 'sync-wsol' }, { kind: 'close-wsol' }] as IntentStep[]) {
-      expect(createStepsProblem([extra, open], want), extra.kind).toBe('The transaction wraps or unwraps SOL, and this pool is not paired with SOL.');
-      expect(createStepsProblem([open, extra], want), extra.kind).toBe('The transaction wraps or unwraps SOL, and this pool is not paired with SOL.');
+      expect(createStepsProblem([extra, open, name], want), extra.kind).toBe('The transaction wraps or unwraps SOL, and this pool is not paired with SOL.');
+      expect(createStepsProblem([open, name, extra], want), extra.kind).toBe('The transaction wraps or unwraps SOL, and this pool is not paired with SOL.');
     }
   });
 
   it('any account opening is a mismatch: the coin’s, the token’s, wrapped SOL’s or the pool shares’', () => {
     const lpMint = deriveLpMint(CPSWAP, pool);
     for (const step of [openAccount(USDC), openAccount(BAYLA, TOKEN_2022_PROGRAM_ID), openAccount(fresh()), openAccount(WSOL_MINT), openAccount(lpMint)]) {
-      expect(createStepsProblem([step, open], want)).toBe('The transaction opens an account, and this opening opens none.');
+      expect(createStepsProblem([step, open, name], want)).toBe('The transaction opens an account, and this opening opens none.');
     }
   });
 
   it('an opening that differs from the plan in any field, is missing, or is there twice', () => {
-    const differs = (over: Partial<Extract<IntentStep, { kind: 'pool-create' }>>) => createStepsProblem([{ ...open, ...over } as IntentStep], want);
+    const differs = (over: Partial<Extract<IntentStep, { kind: 'pool-create' }>>) => createStepsProblem([{ ...open, ...over } as IntentStep, name], want);
     expect(differs({ pool: fresh() })).toMatch(/does not match/);
     expect(differs({ ammConfig: TIER0 })).toMatch(/does not match/);
     expect(differs({ init0: 101n })).toMatch(/does not match/);
     expect(differs({ init1: 6n })).toMatch(/does not match/);
-    expect(createStepsProblem([], want)).toMatch(/missing/);
-    expect(createStepsProblem([open, open], want)).toMatch(/missing/);
+    expect(createStepsProblem([name], want)).toMatch(/missing/);
+    expect(createStepsProblem([open, open, name], want)).toMatch(/missing/);
   });
 
   it('the same lone instruction is NOT a SOL opening’s plan: that one must wrap', () => {
     const solWant = { pool, ammConfig: TIER1, init0: 100n, init1: 7n, sol: 100n, closeAfter: true, wsolAta: associatedTokenAddress(WSOL_MINT, ME) };
-    expect(createStepsProblem([open], solWant)).toBe('The SOL wrapped for the opening does not match the amount to put in.');
+    expect(createStepsProblem([open, name], solWant)).toBe('The SOL wrapped for the opening does not match the amount to put in.');
   });
 });
 
@@ -1042,8 +1059,9 @@ describe('decodeIntent: opening a pool paired with USDC or BAYLA', () => {
       poolState: p.origin === 'other' ? p.address : undefined,
     });
   }
-  /** The whole transaction the site builds for a coin that is not SOL: the pool instruction, and nothing around it. */
-  const siteOpening = (p: PoolPins, ix: TransactionInstruction = opening(p)) => [ComputeBudgetProgram.setComputeUnitLimit({ units: 300_000 }), ix];
+  /** The whole transaction the site builds for a coin that is not SOL: the pool instruction and the call that names its share, nothing around them. */
+  const naming = (p: PoolPins) => createLpMetadataIx({ programId: CPSWAP, payer: ME, pool: p.address, record: metadataPda(deriveLpMint(CPSWAP, p.address)), metadataProgram: METAPLEX_TOKEN_METADATA_ID });
+  const siteOpening = (p: PoolPins, ix: TransactionInstruction = opening(p)) => [ComputeBudgetProgram.setComputeUnitLimit({ units: 300_000 }), ix, naming(p)];
   const createAta = (mint: PublicKey, program: PublicKey) => createAssociatedTokenAccountIdempotentInstruction(ME, mine(mint, program), ME, mint, program);
   const withKey = (ix: TransactionInstruction, i: number, pubkey: PublicKey) =>
     new TransactionInstruction({ programId: ix.programId, keys: ix.keys.map((k, n) => (n === i ? { ...k, pubkey } : k)), data: ix.data });
@@ -1051,14 +1069,14 @@ describe('decodeIntent: opening a pool paired with USDC or BAYLA', () => {
   const judge = (ixs: TransactionInstruction[], pins: PoolPins) => reasonOf(decodeIntent(ixs, ctxFor(pins)));
   const otherProgram = (program: PublicKey) => (program.equals(TOKEN_PROGRAM_ID) ? TOKEN_2022_PROGRAM_ID : TOKEN_PROGRAM_ID);
 
-  it.each(COIN_ROWS)('%s: the site’s own opening is one pool-create and nothing else, at the standard address and at a one-off one', (_n, quote) => {
+  it.each(COIN_ROWS)('%s: the site’s own opening is one pool-create and its share’s name, nothing else, at the standard address and at a one-off one', (_n, quote) => {
     for (const oneOff of [false, true]) {
       const p = pinsFor(quote, { oneOff });
       expect(p.origin).toBe(oneOff ? 'other' : 'standard');
       const r = decodeIntent(siteOpening(p), ctxFor(p));
       expect(r.ok, r.ok ? '' : r.reason).toBe(true);
       if (r.ok) {
-        expect(r.steps.map((s) => s.kind)).toEqual(['compute-limit', 'pool-create']);
+        expect(r.steps.map((s) => s.kind)).toEqual(['compute-limit', 'pool-create', 'pool-name']);
         expect(r.steps[1]).toEqual({ kind: 'pool-create', pool: p.address, ammConfig: TIER1, init0: 1_000_000_000n, init1: 5_000_000_000n });
       }
     }

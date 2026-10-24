@@ -13,6 +13,7 @@ The site's Changelog tab shows both files.
 - Solana pools: adding to a launch pool Jupiter has no price for now warns when its price may have been moved without a trade: when nobody has traded it yet it holds more than its shares account for, or when it has had long gaps between trades over the last half hour. Its own average counts only after 24 minutes of trading, not 10. Such a pool is no longer the price the token's other pools are checked against. Removing liquidity is unchanged.
 - Solana swap: Buy asks Jupiter for less, so it waits less. A quote under 10 seconds old is built as shown instead of asked for again, our pools are read at the click instead of after Jupiter's answer, the trending list, the risk warnings and the pair's prices are shared by every visitor for a short time (prices are still read fresh in USD mode), and "Swap confirmed" is checked every second for the first 10 seconds.
 - On a 320px-wide phone the menu button stays on screen: below 360px the top bar's memetics.finance name sits on two lines. The Solana swap page no longer slides sideways at that width.
+- Solana pools: opening a pool also gives its pool share its name record in the same transaction, so wallets show a name and a picture for the share from its first block. It costs the opener 0.0137 SOL more: 0.01 SOL is Metaplex's fee for making the record and the rest stays in the record. The team gets none of it. The review and the form say so.
 
 ### 2026-10-23
 
