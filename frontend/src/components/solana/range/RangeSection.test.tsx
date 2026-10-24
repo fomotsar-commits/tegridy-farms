@@ -173,6 +173,33 @@ describe('how a range position earns', () => {
     expect(within(await screen.findByTestId('range-pools')).getByText(/1% to 4% fee per swap/)).toBeInTheDocument();
   });
 
+  it('lists the fee tiers as the chain has them, each with its split, before any pool exists', async () => {
+    const low = { ...tier({ tradeFeeRate: 2_500 }), address: key(31).toBase58() };
+    show(readers({ tiers: { kind: 'ok', value: [tier(), low] }, pools: { kind: 'ok', value: [] } }));
+    const list = await screen.findByTestId('range-tiers');
+    const rows = within(list).getAllByRole('listitem');
+    expect(rows.map((r) => r.textContent)).toEqual([
+      '011%of each swap. 84% of that fee (0.84% of the swap) goes to the positions in range, by their liquidity; the venue keeps 16% (0.16%).',
+      '020.25%of each swap. 84% of that fee (0.21% of the swap) goes to the positions in range, by their liquidity; the venue keeps 16% (0.04%).',
+    ]);
+    expect(list.closest('details')).toBeNull();
+    expect(within(await screen.findByTestId('range-pools')).getByText('No range pool for BAYLA with SOL yet.')).toBeInTheDocument();
+  });
+
+  it('a tier whose venue cut goes anywhere but the agreed split is said in bold in its row, before any pool is picked', async () => {
+    const t = tier({ fundOwner: PLATFORM_TREASURY_VAULT });
+    show(readers({ tiers: { kind: 'ok', value: [t] }, pools: { kind: 'ok', value: [] } }));
+    const row = within(await screen.findByTestId('range-tiers')).getByRole('listitem');
+    expect(row.querySelector('strong')?.textContent).toMatch(/does not follow the agreed split/);
+    expect(row.closest('details')).toBeNull();
+  });
+
+  it('no tier list when the tiers did not read: the unread notice speaks instead', async () => {
+    show(readers({ tiers: { kind: 'unread', detail: 'down' } }));
+    await within(await screen.findByTestId('range-pools')).findByText(/could not be read just now/);
+    expect(screen.queryByTestId('range-tiers')).toBeNull();
+  });
+
   it('a tier with another split is said with that split: nothing is hard-coded', async () => {
     const t = tier({ tradeFeeRate: 2_500, protocolFeeRate: 100_000, fundFeeRate: 20_000 });
     show(readers({ tiers: { kind: 'ok', value: [t] }, pools: { kind: 'ok', value: [poolOn(t)] } }));
@@ -249,6 +276,22 @@ describe('picking a range', () => {
     // Before the presets and before Review.
     const presets = within(open).getByRole('group', { name: 'Range presets' });
     expect(warning.compareDocumentPosition(presets) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('draws the range: this pool’s price, the market’s, and the picked range as a band that says where the price is', async () => {
+    show(readers({ market: { kind: 'ok', solPerToken: 0.0004, source: 'Jupiter' } }));
+    const open = await screen.findByTestId('range-open');
+    const strip = await within(open).findByTestId('range-strip');
+    await waitFor(() => expect(within(strip).getByRole('img').getAttribute('aria-label')).toContain('The market price is 0.0004 SOL per BAYLA.'));
+    expect(strip.getAttribute('data-where')).toBe('none');
+    expect(within(strip).queryByTestId('range-strip-band')).toBeNull();
+    fireEvent.click(within(open).getByRole('button', { name: 'Wide' }));
+    expect(strip.getAttribute('data-where')).toBe('inside');
+    expect(within(strip).getByTestId('range-strip-band')).toBeInTheDocument();
+    expect(within(strip).getByRole('img').getAttribute('aria-label')).toMatch(/^This pool’s price, 0\.0003 SOL per BAYLA, is inside your range, .+ to .+\. The market price is 0\.0004 SOL per BAYLA\.$/);
+    fireEvent.click(within(open).getByRole('button', { name: 'BAYLA only, above this pool’s price' }));
+    expect(strip.getAttribute('data-where')).toBe('below');
+    expect(strip.textContent).toContain('out of range now: earns once the price reaches it');
   });
 
   it('a market price that agrees is shown, with no warning', async () => {

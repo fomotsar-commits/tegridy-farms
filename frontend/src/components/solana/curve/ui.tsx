@@ -4,6 +4,7 @@
 
 import { useId, useState, type ReactNode, type Ref } from 'react';
 import { decimalCommaToPoint } from '../../../lib/launcher/solana/curve/format';
+import { EDITORIAL_GRAIN, EDITORIAL_INK, HEADING_FONT, pad2 } from '../../../lib/editorial';
 import {
   CARD,
   CARD_STYLE,
@@ -26,6 +27,7 @@ export function Card({
   headingRef,
   art,
   className,
+  index,
 }: {
   title: string;
   children: ReactNode;
@@ -36,22 +38,41 @@ export function Card({
   headingRef?: Ref<HTMLHeadingElement>;
   /** The card's CardArt, written at the call site so the studio's scan finds a literal pageId and idx. */
   art?: ReactNode;
+  /** Set, the card wears the editorial look (lib/editorial.ts) under this index number. */
+  index?: number;
 }) {
+  const editorial = index !== undefined;
   return (
-    <section className={`${art ? `${CARD} isolate` : CARD}${className ? ` ${className}` : ''}`} style={CARD_STYLE} data-testid={testId}>
+    <section
+      className={`${editorial ? EDITORIAL_CARD : CARD}${art ? ' isolate' : ''}${className ? ` ${className}` : ''}`}
+      style={editorial ? EDITORIAL_CARD_STYLE : CARD_STYLE}
+      data-testid={testId}
+    >
       {art}
+      {editorial && <div aria-hidden="true" className="absolute inset-0 pointer-events-none opacity-[0.08] mix-blend-screen" style={{ backgroundImage: EDITORIAL_GRAIN }} />}
       <h2
         ref={headingRef}
         tabIndex={headingRef ? -1 : undefined}
-        className="text-white font-semibold text-[13px] mb-2.5 outline-none"
+        className={editorial ? 'relative flex items-baseline gap-3 pb-2.5 mb-3 border-b border-white/[0.18] outline-none' : 'text-white font-semibold text-[13px] mb-2.5 outline-none'}
         style={SHADOW}
       >
-        {title}
+        {editorial ? (
+          <>
+            <span aria-hidden="true" className="font-mono text-[11px] tracking-[0.12em] tabular-nums text-[#22c55e]">{pad2(index)}</span>
+            <span className="font-black text-[19px] md:text-[21px] leading-none tracking-[-0.03em]" style={{ ...HEADING_FONT, color: EDITORIAL_INK }}>{title}</span>
+          </>
+        ) : (
+          title
+        )}
       </h2>
-      <div className="text-white/60 text-[11px] leading-relaxed space-y-2">{children}</div>
+      <div className={`${editorial ? 'relative ' : ''}text-white/60 text-[11px] leading-relaxed space-y-2`}>{children}</div>
     </section>
   );
 }
+
+/** The editorial card: hard corners and a cream hairline over the black, art kept behind, grain laid over both. */
+const EDITORIAL_CARD = 'p-5 md:p-6 relative overflow-hidden';
+const EDITORIAL_CARD_STYLE = { border: '1px solid rgba(245,228,184,0.16)', background: 'rgba(5,8,15,0.8)' } as const;
 
 /**
  * Label/value row. Both sides wrap rather than truncate: the cards are

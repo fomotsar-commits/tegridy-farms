@@ -32,6 +32,8 @@ import type { OutsidePrice } from '../../../lib/solana/lp/outsidePrice';
 import { RangeReviewDisclosure, RangeRisks } from './RangeRisks';
 import { bothAmounts, coinAmount, priceNumberText, priceText, tokenAmount, tokenName, tokenWord } from './rangeText';
 import { useFlowReports } from './useRangeData';
+import { RangeStrip } from './RangeStrip';
+import { FIELD_CLS, FIELD_LABEL_CLS, chipCls } from './editorialUi';
 
 const TOLERANCE_HINT =
   'Your deposit takes at most this much more of either coin than shown. If the price moves enough to need more before it runs, it is refused and only the network fee is spent.';
@@ -154,7 +156,7 @@ export function RangeOpenCard(p: {
           : null;
 
   return (
-    <Card title="Pick your range" testId="range-open" art={<CardArt pageId="range-pools" idx={2} />}>
+    <Card title="Pick your range" testId="range-open" index={3} art={<CardArt pageId="range-pools" idx={2} />}>
       <Row label="This pool’s price now" value={priceText(pair, now)} mono={false} />
       <Row label="Market price (Jupiter)" value={marketText} mono={false} />
       {gap?.state === 'disagrees' && (
@@ -165,6 +167,19 @@ export function RangeOpenCard(p: {
       {gap?.state === 'no-market' && (
         <Notice tone="warn">Jupiter has no route for this pair, so this pool’s price cannot be checked against a market price. Anyone can open a range pool at any price.</Notice>
       )}
+      <RangeStrip
+        now={priceNumber(now)}
+        market={gap && (gap.state === 'agrees' || gap.state === 'disagrees') ? gap.reference : null}
+        lo={r ? priceNumber(rangePrices(pair, r).min) : null}
+        hi={r ? priceNumber(rangePrices(pair, r).max) : null}
+        words={{
+          now: priceText(pair, now),
+          market: gap && (gap.state === 'agrees' || gap.state === 'disagrees') ? priceNumberText(pair, gap.reference) : null,
+          lo: r ? priceText(pair, rangePrices(pair, r).min) : null,
+          hi: r ? priceText(pair, rangePrices(pair, r).max) : null,
+          unit: `${pair.quote.symbol} per ${tokenWord(pair) === 'tokens' ? 'token' : tokenWord(pair)}`,
+        }}
+      />
       <fieldset disabled={busy} className="space-y-2 min-w-0 disabled:opacity-70">
       <div className="flex flex-wrap gap-2" role="group" aria-label="Range presets">
         {PRESETS.map((x) => (
@@ -172,7 +187,7 @@ export function RangeOpenCard(p: {
             key={x.id}
             type="button"
             aria-pressed={preset === x.id}
-            className={`min-h-[44px] px-3 rounded-lg border text-[12px] ${preset === x.id ? 'border-emerald-300/70 bg-emerald-400/15 text-white' : 'border-white/15 bg-white/5 text-white/80 hover:text-white'}`}
+            className={chipCls(preset === x.id)}
             onClick={() => pick(x.id)}
           >
             {x.label}
@@ -181,11 +196,11 @@ export function RangeOpenCard(p: {
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
         <label className="block">
-          <span className="block text-white/70 text-[11px] mb-1">Lowest price ({pair.quote.symbol} per {tokenWord(pair) === 'tokens' ? 'token' : tokenWord(pair)})</span>
+          <span className={FIELD_LABEL_CLS}>Lowest price ({pair.quote.symbol} per {tokenWord(pair) === 'tokens' ? 'token' : tokenWord(pair)})</span>
           <input
             inputMode="decimal"
             autoComplete="off"
-            className="w-full min-h-[44px] rounded-lg bg-black/40 border border-white/15 px-3 text-white text-[14px]"
+            className={FIELD_CLS}
             value={minText}
             onChange={(e) => {
               setPreset(null);
@@ -194,11 +209,11 @@ export function RangeOpenCard(p: {
           />
         </label>
         <label className="block">
-          <span className="block text-white/70 text-[11px] mb-1">Highest price ({pair.quote.symbol} per {tokenWord(pair) === 'tokens' ? 'token' : tokenWord(pair)})</span>
+          <span className={FIELD_LABEL_CLS}>Highest price ({pair.quote.symbol} per {tokenWord(pair) === 'tokens' ? 'token' : tokenWord(pair)})</span>
           <input
             inputMode="decimal"
             autoComplete="off"
-            className="w-full min-h-[44px] rounded-lg bg-black/40 border border-white/15 px-3 text-white text-[14px]"
+            className={FIELD_CLS}
             value={maxText}
             onChange={(e) => {
               setPreset(null);
@@ -223,7 +238,7 @@ export function RangeOpenCard(p: {
                   key={s}
                   type="button"
                   aria-pressed={side === s}
-                  className={`min-h-[44px] px-3 rounded-lg border text-[12px] ${side === s ? 'border-emerald-300/70 bg-emerald-400/15 text-white' : 'border-white/15 bg-white/5 text-white/80'}`}
+                  className={chipCls(side === s)}
                   onClick={() => setChosenSide(s)}
                 >
                   {s === 'token' ? `Amount in ${tokenWord(pair)}` : `Amount in ${pair.quote.symbol}`}
@@ -232,11 +247,11 @@ export function RangeOpenCard(p: {
             </div>
           )}
           <label className="block">
-            <span className="block text-white/70 text-[11px] mb-1">How much {side === 'token' ? tokenWord(pair) : pair.quote.symbol} to put in</span>
+            <span className={FIELD_LABEL_CLS}>How much {side === 'token' ? tokenWord(pair) : pair.quote.symbol} to put in</span>
             <input
               inputMode="decimal"
               autoComplete="off"
-              className="w-full min-h-[44px] rounded-lg bg-black/40 border border-white/15 px-3 text-white text-[14px]"
+              className={FIELD_CLS}
               value={amountText}
               onChange={(e) => setAmountText(e.target.value)}
             />

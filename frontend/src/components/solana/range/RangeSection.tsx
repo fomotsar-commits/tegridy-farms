@@ -36,6 +36,8 @@ import { RangePositionsCard } from './RangePositionsCard';
 import { loadRangeWriteApi } from './rangeWriteApi';
 import { priceText, tokenWord } from './rangeText';
 import { useChainRead, useRangeWrites } from './useRangeData';
+import { chipCls } from './editorialUi';
+import { EDITORIAL_INK, HEADING_FONT, pad2 } from '../../../lib/editorial';
 
 /**
  * The Range tab's section: how a range position pays, the pools of one pair (one per fee
@@ -149,7 +151,7 @@ export function RangeInner({ readers, load, mode }: { readers: RangeReaders; loa
 
   return (
     <div className="space-y-4">
-      <HowItPays pool={pool} pair={pair} />
+      <HowItPays pool={pool} pair={pair} tiers={tierList} />
 
       {held && write && (
         <PendingTradeCard
@@ -167,7 +169,7 @@ export function RangeInner({ readers, load, mode }: { readers: RangeReaders; loa
         />
       )}
 
-      <Card title="Pick a pool" testId="range-pools" art={<CardArt pageId="range-pools" idx={1} />}>
+      <Card title="Pick a pool" testId="range-pools" index={2} art={<CardArt pageId="range-pools" idx={1} />}>
         <Row label="Token" value={quoteCoin(tokenMint)?.symbol ?? tokenMint} mono={!quoteCoin(tokenMint)} />
         <TokenFreezeNotice mint={tokenMint} read={freeze.read} />
         {raw && parsed && !parsed.ok && <Notice tone="warn">{`The token in the link is not one this page can read (${parsed.reason}). Showing BAYLA.`}</Notice>}
@@ -183,7 +185,7 @@ export function RangeInner({ readers, load, mode }: { readers: RangeReaders; loa
               type="button"
               aria-pressed={q.mint === coin.mint}
               disabled={busy}
-              className={`min-h-[44px] px-3 rounded-lg border text-[12px] ${q.mint === coin.mint ? 'border-emerald-300/70 bg-emerald-400/15 text-white' : 'border-white/15 bg-white/5 text-white/80'}`}
+              className={chipCls(q.mint === coin.mint)}
               onClick={() => pickCoin(q.mint)}
             >
               With {q.symbol}
@@ -217,11 +219,14 @@ export function RangeInner({ readers, load, mode }: { readers: RangeReaders; loa
                   type="button"
                   aria-pressed={on}
                   disabled={busy}
-                  className={`w-full text-left min-h-[44px] rounded-lg border px-3 py-2 ${on ? 'border-emerald-300/70 bg-emerald-400/10' : 'border-white/15 bg-white/5'}`}
+                  className={`w-full text-left min-h-[44px] border px-3.5 py-2.5 grid grid-cols-[5.25rem_minmax(0,1fr)] gap-x-3 items-baseline transition-colors ${on ? 'border-[#22c55e] bg-[#22c55e]/10' : 'border-white/20 bg-black/20 hover:border-white/40'}`}
                   onClick={() => setChosen(x.pool.address)}
                 >
-                  <span className="block text-white text-[12px]">{`${s.fee} fee per swap`}</span>
-                  <span className="block text-white/60 text-[11px]">{pr ? `Pool price now ${priceText(pr, priceAtSqrt(pr, x.pool.sqrtPriceX64))}` : 'A pair this site does not read'}</span>
+                  <span aria-hidden="true" className="font-black text-[22px] leading-none tracking-[-0.035em] tabular-nums" style={{ ...HEADING_FONT, color: on ? '#22c55e' : EDITORIAL_INK }}>{s.fee}</span>
+                  <span className="min-w-0">
+                    <span className="block text-white text-[12px]">{`${s.fee} fee per swap`}</span>
+                    <span className="block font-mono text-[10.5px] tracking-[0.04em] text-[#f5e4b8]/65">{pr ? `Pool price now ${priceText(pr, priceAtSqrt(pr, x.pool.sqrtPriceX64))}` : 'A pair this site does not read'}</span>
+                  </span>
                 </button>
               );
             })}
@@ -308,12 +313,40 @@ function TokenFreezeNotice({ mint, read }: { mint: string; read: Read<MintFreeze
 }
 
 /**
+ * The program's fee tiers as the chain has them, one numbered row each: the fee, and what
+ * of it the positions in range share and the venue keeps, said before any pool is picked.
+ * A tier whose venue cut goes anywhere but the agreed split says so in bold, in its row.
+ */
+function TierIndex({ tiers, picked }: { tiers: AmmConfigView[]; picked: string | null }) {
+  return (
+    <ol data-testid="range-tiers" aria-label="Fee tiers on the chain" className="!mt-4 border-t border-white/[0.14]">
+      {tiers.map((t, i) => {
+        const s = feeSplit(t);
+        const venue = rangeVenueEarns(t);
+        const on = t.address === picked;
+        return (
+          <li key={t.address} className="grid grid-cols-[1.75rem_minmax(0,1fr)] sm:grid-cols-[1.75rem_7.25rem_minmax(0,1fr)] gap-x-3 gap-y-1 py-3 border-b border-white/[0.14] items-baseline">
+            <span aria-hidden="true" className={`font-mono text-[11px] tracking-[0.12em] tabular-nums ${on ? 'text-[#22c55e]' : 'text-[#f5e4b8]/45'}`}>{pad2(i + 1)}</span>
+            <span className="font-black text-[30px] sm:text-[34px] leading-none tracking-[-0.045em] tabular-nums" style={{ ...HEADING_FONT, color: on ? '#22c55e' : EDITORIAL_INK }}>{s.fee}</span>
+            <span className="col-start-2 sm:col-start-auto text-[12px] leading-relaxed text-[#f5e4b8]/85">
+              {`of each swap. ${s.lpOfFee} of that fee (${s.lpOfSwap} of the swap) goes to the positions in range, by their liquidity; the venue keeps ${s.venueOfFee} (${s.venueOfSwap}).`}
+              {/* The picked pool's tier says it above, with the wallets named. */}
+              {venue.elsewhere && !on && <strong className="block mt-1 text-amber-200">{venue.where}</strong>}
+            </span>
+          </li>
+        );
+      })}
+    </ol>
+  );
+}
+
+/**
  * How a range position pays, said where the deposit is (never folded away): what LPs earn
  * and what the venue keeps, both read from the chosen pool's fee tier, and that a position
  * out of range earns nothing. Where the venue's cut goes is said as the /solana-lp Rates
  * card says it: the agreed split in the fine print, any other wallet in bold in plain sight.
  */
-function HowItPays({ pool, pair }: { pool: RangePool | null; pair: Pair | null }) {
+function HowItPays({ pool, pair, tiers }: { pool: RangePool | null; pair: Pair | null; tiers: AmmConfigView[] | null }) {
   const ceiling = pool ? poolFeeCeiling(pool.pool, pool.config.tradeFeeRate) : null;
   const s = pool ? feeSplit(pool.config, ceiling) : null;
   const venue = pool ? rangeVenueEarns(pool.config, ceiling) : null;
@@ -325,7 +358,7 @@ function HowItPays({ pool, pair }: { pool: RangePool | null; pair: Pair | null }
     </div>
   );
   return (
-    <Card title="How a range position earns" testId="range-earns" art={<CardArt pageId="range-pools" idx={0} />}>
+    <Card title="How a range position earns" testId="range-earns" index={1} art={<CardArt pageId="range-pools" idx={0} />}>
       {s ? (
         <p className="text-white/85">
           {`Each swap through your range pays a ${s.fee} fee. Positions whose range the price is in share ${s.lpOfFee} of it (${s.lpOfSwap} of the swap), split by how much liquidity each has there. The venue keeps ${s.venueOfFee} (${s.venueOfSwap} of the swap). Both shares are read from this pool’s fee tier on the chain.`}
@@ -335,6 +368,7 @@ function HowItPays({ pool, pair }: { pool: RangePool | null; pair: Pair | null }
           Each swap through your range pays the pool’s fee. Positions whose range the price is in share most of it, and the venue keeps a part; pick a pool to see both, read from its fee tier on the chain.
         </p>
       )}
+      {tiers && tiers.length > 0 && <TierIndex tiers={tiers} picked={pool?.config.address ?? null} />}
       {/* Venue money going anywhere but the agreed split is said in plain sight, in bold (owner, 2026-10-10). */}
       {venue?.elsewhere && (
         <div data-testid="range-venue-elsewhere" className="space-y-1">
