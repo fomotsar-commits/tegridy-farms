@@ -129,6 +129,7 @@ describe('card 03, Liquidity', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Zoom out' }));
     fireEvent.click(screen.getByRole('button', { name: 'Zoom out' }));
     expect(card.querySelector('[data-gap="unread"]')).not.toBeNull();
+    expect(screen.getByTestId('range-depth-gap-unread').textContent).toBe('could not be read');
     expect(screen.getByTestId('range-depth-caption').textContent).toContain('2 bands read 14:02:11 UTC · 1 could not be read');
     // The band at the price and the one below still draw their bars.
     expect(screen.getAllByTestId('range-depth-bar').length).toBeGreaterThan(0);

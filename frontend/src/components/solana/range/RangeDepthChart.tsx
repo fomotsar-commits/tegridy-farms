@@ -450,13 +450,16 @@ function LineLabel({ at, color, text, row }: { at: number; color: string; text: 
 
 const GAP_WORDS: Record<DepthGap['kind'], string> = { unread: 'could not be read', 'not-read': 'not read', 'not-known': 'not known' };
 
+/** A part not known, named across it; a narrow one is named down its height. */
 function GapLabel({ gap, left, right }: { gap: DepthGap; left: number; right: number }) {
-  if (right - left < 64) return null;
+  const w = right - left;
+  if (w < 14) return null;
+  const down = w < 116;
   return (
     <span
       data-testid={`range-depth-gap-${gap.kind}`}
-      className={`absolute top-1/2 -translate-y-1/2 -translate-x-1/2 whitespace-nowrap font-mono text-[10px] tracking-[0.1em] px-1 bg-black/80 ${gap.kind === 'unread' ? 'text-amber-200' : 'text-[#f5e4b8]/55'}`}
-      style={{ left: (left + right) / 2 }}
+      className={`absolute top-1/2 -translate-y-1/2 -translate-x-1/2 whitespace-nowrap font-mono text-[10px] tracking-[0.1em] bg-black/80 ${down ? 'py-1' : 'px-1'} ${gap.kind === 'unread' ? 'text-amber-200' : 'text-[#f5e4b8]/55'}`}
+      style={{ left: (left + right) / 2, writingMode: down ? 'vertical-rl' : undefined }}
     >
       {GAP_WORDS[gap.kind]}
     </span>
