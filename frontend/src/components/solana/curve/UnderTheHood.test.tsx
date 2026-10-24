@@ -5,11 +5,14 @@ import { useTxFlow } from './useTxFlow';
 import { CREATOR, KEY, SIG, buySummary, fakeApi } from './fakeWriteApi.fixture';
 import { BAYLA, EVERY_KIND, LOG, RANGE_PROGRAM, TEST_RUN_AT, rangeOpening, underTheHood } from './reviewKinds.fixture';
 import type { Prepared, PreparedTx, TxSigner, WriteApi, WriteRpc } from './ports';
-import { unsignedBase64 } from './signingFacts';
+import { siteAndNetwork, unsignedBase64 } from './signingFacts';
 
 // web3's byte encoders refuse jsdom's Uint8Array, so the bytes are checked in signingFacts.test.ts
 // (node); here the button is checked to hand over exactly what that function makes.
-vi.mock('./signingFacts', async (actual) => ({ ...(await actual<typeof import('./signingFacts')>()), unsignedBase64: vi.fn(() => 'AQID') }));
+vi.mock('./signingFacts', async (actual) => {
+  const real = await actual<typeof import('./signingFacts')>();
+  return { ...real, unsignedBase64: vi.fn(() => 'AQID'), siteAndNetwork: vi.fn(real.siteAndNetwork) };
+});
 
 // What a visitor meets under a review: this site's figures beside the network's test run, and
 // the fold "What you are signing". Neither may ever make a signable review unsignable.
@@ -62,7 +65,7 @@ describe('What you are signing', () => {
   });
 
   it('says what the network did not say: units it did not report are never the limit, a slot it did not give is said as missing', async () => {
-    const fold = await reviewOf(underTheHood(EVERY_KIND.buy, { simulation: { unitsConsumed: null, logs: [], slot: null, at: TEST_RUN_AT } }));
+    const fold = await reviewOf(underTheHood(EVERY_KIND.buy, { simulation: { unitsConsumed: null, logs: [], slot: null, at: TEST_RUN_AT, wsolLamportsDelta: null } }));
     expect(fold).toHaveTextContent('Compute: the test run did not say how many units it used; limit 120,000.');
     expect(fold).toHaveTextContent('Test run at 14:02:11 UTC; the network did not give its slot.');
     expect(fold).toHaveTextContent('Test run log (0 lines)');
@@ -72,7 +75,7 @@ describe('What you are signing', () => {
   it('the log: its lines, Copy log, and a log the network cut short says so', async () => {
     const writeText = vi.fn(async () => {});
     vi.stubGlobal('navigator', { ...navigator, clipboard: { writeText } });
-    const fold = await reviewOf(underTheHood(EVERY_KIND['range-open'], { simulation: { unitsConsumed: 84_211, logs: [...LOG, 'Log truncated'], slot: 1, at: TEST_RUN_AT } }));
+    const fold = await reviewOf(underTheHood(EVERY_KIND['range-open'], { simulation: { unitsConsumed: 84_211, logs: [...LOG, 'Log truncated'], slot: 1, at: TEST_RUN_AT, wsolLamportsDelta: null } }));
     const log = within(fold).getByTestId('tx-under-the-hood-log');
     expect(log).toHaveTextContent('Test run log (7 lines)');
     expect(log).toHaveTextContent('The network cut this log short.');
@@ -110,6 +113,18 @@ describe('What you are signing', () => {
     expect(writeText).not.toHaveBeenCalled();
   });
 
+  it('steps that do not line up with the instructions are said as that, never listed short', async () => {
+    const p = underTheHood(EVERY_KIND['range-open']);
+    const fold = await reviewOf({ ...p, steps: p.steps.slice(0, 2) });
+    expect(fold).toHaveTextContent("The steps could not be lined up with this transaction's instructions here. Your wallet decodes them itself.");
+    expect(within(fold).queryByText(/^Compute limit/)).toBeNull();
+  });
+
+  it('a review that is never built again says these are the bytes the wallet is handed', async () => {
+    const fold = await reviewOf(underTheHood(EVERY_KIND['range-open']));
+    expect(fold).toHaveTextContent("Read back out of this build's own bytes, the ones your wallet is handed.");
+  });
+
   it('a fold that cannot be drawn says so in one line, and the review stays signable', async () => {
     const broken = { ...underTheHood(EVERY_KIND.buy), simulation: undefined } as unknown as PreparedTx;
     const api = confirmedApi();
@@ -141,7 +156,7 @@ describe("this site's figures beside the test run", () => {
     expect(box).toHaveTextContent('Worked out by this site-10,000 BAYLA and -4.0988 SOL');
     expect(box).toHaveTextContent("The network's test run moved-10,000 BAYLA and -4.0988 SOL");
     expect(box).toHaveTextContent('They agree, to the last unit.');
-    expect(box).toHaveTextContent('SOL on both lines leaves out the fees and deposits listed above.');
+    expect(box).toHaveTextContent('SOL on both lines counts your wrapped-SOL account as SOL, and leaves out the fees and deposits listed above.');
   });
 
   it('a coin the test run reported no account for is not compared, and is never read as 0', async () => {
@@ -156,6 +171,27 @@ describe("this site's figures beside the test run", () => {
     const s = EVERY_KIND['range-remove'];
     await reviewOf(underTheHood({ ...s, fees: null } as typeof s));
     expect(screen.getByTestId('tx-site-and-network')).toHaveTextContent('Worked out by this siteCould not be worked out: the fees owed did not read.');
+  });
+
+  it('figures that cannot be set side by side say so in one line; the fold and Sign stay', async () => {
+    const spy = vi.mocked(siteAndNetwork);
+    const real = spy.getMockImplementation()!;
+    spy.mockImplementation(() => {
+      throw new Error('a figure would not work out');
+    });
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const api = confirmedApi();
+      await reviewOf(underTheHood(rangeOpening()), api);
+      expect(screen.getByText("This site's figures could not be set beside the test run here.")).toBeInTheDocument();
+      expect(screen.getByTestId('tx-under-the-hood')).toBeInTheDocument();
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: 'Sign in wallet' }));
+      });
+      expect(api.submitPrepared).toHaveBeenCalledTimes(1);
+    } finally {
+      spy.mockImplementation(real);
+    }
   });
 
   it('graduation has no figures of the wallet’s own to set side by side, and draws none', async () => {
@@ -184,7 +220,7 @@ describe('never a line that Sign compares', () => {
     const fresh = underTheHood(buySummary(), {
       blockhash: '2'.repeat(32),
       lastValidBlockHeight: 5_000,
-      simulation: { unitsConsumed: 91_007, logs: [...LOG, 'Program log: one more line'], slot: 460_730_002, at: TEST_RUN_AT + 21_000 },
+      simulation: { unitsConsumed: 91_007, logs: [...LOG, 'Program log: one more line'], slot: 460_730_002, at: TEST_RUN_AT + 21_000, wsolLamportsDelta: null },
     });
     const build = vi.fn<() => Promise<Prepared>>().mockResolvedValueOnce({ ok: true, prepared: first }).mockResolvedValueOnce({ ok: true, prepared: fresh });
     const api = confirmedApi();
@@ -201,5 +237,42 @@ describe('never a line that Sign compares', () => {
     expect(build).toHaveBeenCalledTimes(2);
     expect(screen.queryByTestId('tx-review-changed')).toBeNull();
     expect(vi.mocked(api.submitPrepared).mock.calls.map((c) => c[2])).toEqual([fresh]);
+  });
+
+  it('a review that can be built again says so: past 30 seconds, Sign hands the wallet a new build, not these bytes', async () => {
+    render(<Flow api={confirmedApi()} build={async () => ({ ok: true, prepared: underTheHood(buySummary()) })} />);
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Review' }));
+    });
+    const fold = screen.getByTestId('tx-under-the-hood');
+    expect(fold).toHaveTextContent("Read back out of this build's own bytes. Press Sign 30 seconds or more after asking for this review");
+    expect(fold).toHaveTextContent("that build goes to your wallet without another press, so check your wallet's copy.");
+    expect(fold).not.toHaveTextContent('the ones your wallet');
+  });
+
+  it('a copy made under one build is not said under the next', async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal('navigator', { ...navigator, clipboard: { writeText: vi.fn(async () => {}) } });
+    const first = underTheHood(buySummary());
+    const moved = buySummary();
+    if (moved.kind !== 'buy') throw new Error('kind');
+    const fresh = underTheHood({ ...moved, quote: { ...moved.quote, tokensOut: 3_400_000_000n } }, { blockhash: '2'.repeat(32), lastValidBlockHeight: 5_000 });
+    const build = vi.fn<() => Promise<Prepared>>().mockResolvedValueOnce({ ok: true, prepared: first }).mockResolvedValueOnce({ ok: true, prepared: fresh });
+    render(<Flow api={confirmedApi()} build={build} />);
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Review' }));
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Copy the unsigned transaction (base64)' }));
+    });
+    expect(screen.getByTestId('tx-under-the-hood')).toHaveTextContent('Copied.');
+    act(() => {
+      vi.advanceTimersByTime(31_000);
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Sign in wallet' }));
+    });
+    expect(screen.getByTestId('tx-review-changed')).toBeInTheDocument();
+    expect(screen.getByTestId('tx-under-the-hood')).not.toHaveTextContent('Copied.');
   });
 });

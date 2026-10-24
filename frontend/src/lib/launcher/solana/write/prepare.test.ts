@@ -19,7 +19,7 @@ import { prepareMigrate } from './graduate';
 import { LAUNCH_TERMS_CHANGED, METADATA_URI_MAX_BYTES, prepareCreateLaunch, quoteOpeningBuy } from './launch';
 import { BAYLA_MINT, WORKSHOP_BAYLA_ACCOUNT, WORKSHOP_WALLET, baylaAccountOf } from './plant';
 import { preparePoolSwap } from './poolSwap';
-import { TX_SIZE_LIMIT, checkEffect } from './prepare';
+import { TX_SIZE_LIMIT, checkEffect, wsolLamportsDelta } from './prepare';
 import { prepareCurveBuy, prepareCurveSell, priceImpactBps } from './trade';
 import {
   AMM_CONFIG,
@@ -338,7 +338,7 @@ describe('the test run kept on the prepared transaction', () => {
 
   it("keeps the final bytes' test run: its units, its log, the slot it ran at and when it answered", async () => {
     const { p, startedAt } = await buy([60_000, 58_123]);
-    expect(p.simulation).toEqual({ unitsConsumed: 58_123, logs: ['Program log: run 2'], slot: 200, at: expect.any(Number) });
+    expect(p.simulation).toEqual({ unitsConsumed: 58_123, logs: ['Program log: run 2'], slot: 200, at: expect.any(Number), wsolLamportsDelta: null });
     expect(p.simulation.at).toBeGreaterThanOrEqual(startedAt);
     expect(p.simulation.at).toBeLessThanOrEqual(Date.now());
   });
@@ -348,6 +348,23 @@ describe('the test run kept on the prepared transaction', () => {
     expect(p.steps[0]).toEqual({ kind: 'compute-limit', units: 69_000 });
     expect(p.simulation.unitsConsumed).toBeNull();
     expect(p.simulation.slot).toBeNull();
+  });
+});
+
+describe("the wrapped-SOL account's lamports, the whole account", () => {
+  const acct = Keypair.generate().publicKey;
+  const other = Keypair.generate().publicKey;
+  const watch = (role: 'wsol' | 'token') => ({ signer: ME, tokenAccounts: [{ account: other, mint: MINT, role: 'token' as const }, { account: acct, mint: WSOL_MINT, role }] });
+  const pre = (lamports: bigint) => ({ signerLamports: 0n, tokens: new Map([[acct.toBase58(), { exists: true, amount: 0n, lamports, nativeReserve: lamports }]]) });
+  const post = (lamports: number | null) => [{ lamports: 1, data: [] }, { lamports: 7, data: [] }, lamports === null ? null : { lamports, data: [] }];
+
+  it('a close hands back all it held; a kept account counts what it gained', () => {
+    expect(wsolLamportsDelta(watch('wsol'), pre(2_039_280n), post(null))).toBe(-2_039_280n);
+    expect(wsolLamportsDelta(watch('wsol'), pre(2_039_280n), post(102_039_280))).toBe(100_000_000n);
+  });
+
+  it('no wrapped-SOL account watched: null, not 0', () => {
+    expect(wsolLamportsDelta(watch('token'), pre(2_039_280n), post(null))).toBeNull();
   });
 });
 

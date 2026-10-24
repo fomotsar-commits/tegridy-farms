@@ -87,7 +87,7 @@ function preparedSwap(a: VenueSwapArgs, out: bigint): PreparedTx {
     blockhash: 'EkSnNWid2cvwEVnVx9aBqawnmiCNiDgp3gUdkDPTKN1N',
     lastValidBlockHeight: 1_000,
     sizeBytes: 600,
-    simulation: { unitsConsumed: 60_000, logs: [], slot: 1, at: 0 },
+    simulation: { unitsConsumed: 60_000, logs: [], slot: 1, at: 0, wsolLamportsDelta: null },
     fees: { baseLamports: 5_000n, priorityLamports: 0n, priorityFeeRead: true, newAccountRentLamports: 2_074_080n },
     steps: [],
     simulated: { signerLamportsDelta: -102_074_080n, tokenDeltas: [{ mint: a.outputMint, account: USER, delta: out, role: 'token', decimals: 6 }] },

@@ -658,10 +658,11 @@ export interface PreparedTx {
   sizeBytes: number;
   /**
    * The test run of these final bytes, as the network answered it: units it used (null when
-   * it did not say), its log, the slot it ran at (null when not given) and when it answered
-   * (this device's clock, ms). Shown under "What you are signing".
+   * it did not say), its log, the slot it ran at (null when not given), when it answered (this
+   * device's clock, ms), and the lamports the signer's wrapped-SOL account gained or lost, the
+   * whole account (null when none is watched). Shown under "What you are signing".
    */
-  simulation: { unitsConsumed: number | null; logs: string[]; slot: number | null; at: number };
+  simulation: { unitsConsumed: number | null; logs: string[]; slot: number | null; at: number; wsolLamportsDelta: bigint | null };
   fees: {
     /** 5,000 lamports per signature. */
     baseLamports: bigint;

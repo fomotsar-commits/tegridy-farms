@@ -3,6 +3,7 @@ import { clipDetail } from '../../../lib/launcher/solana/curve';
 import { FinePrint } from '../../ui/FinePrint';
 import type { PreparedTx, SolanaCluster, TxViewApi } from './ports';
 import { Row } from './ui';
+import { REVIEW_TTL_MS } from './useTxFlow';
 import {
   SOLANA_TX_BYTES,
   decodedSteps,
@@ -65,10 +66,20 @@ function SiteAndNetworkRows({ prepared, decimals }: { prepared: PreparedTx; deci
       <Row label="Worked out by this site" value={c.unread ? `Could not be worked out: ${c.unread}.` : legsLine(c.legs, 'site')} mono={!c.unread} words />
       <Row label="The network's test run moved" value={legsLine(c.legs, 'network')} words />
       {agree && <p className="text-white/55 [overflow-wrap:anywhere]">{agree}</p>}
-      {c.solNetted && <p className="text-white/40 text-[10px]">SOL on both lines leaves out the fees and deposits listed above.</p>}
+      {c.solNetted && <p className="text-white/40 text-[10px]">SOL on both lines counts your wrapped-SOL account as SOL, and leaves out the fees and deposits listed above.</p>}
       {c.solLeftOut && <p className="text-white/40 text-[10px]">{c.solLeftOut}</p>}
     </div>
   );
+}
+
+/** One number per build, so what a copy button said under one build never shows under the next. */
+const builds = new WeakMap<PreparedTx, number>();
+let lastBuild = 0;
+function buildKey(p: PreparedTx): number {
+  const known = builds.get(p);
+  if (known !== undefined) return known;
+  builds.set(p, ++lastBuild);
+  return lastBuild;
 }
 
 /** Copies on a press; where the browser refuses, the text is shown to select by hand. */
@@ -155,7 +166,13 @@ function Part({ title, children }: { title: string; children: ReactNode }) {
   );
 }
 
-function WhatYouAreSigning({ prepared: p, api, cluster }: { prepared: PreparedTx; api: TxViewApi; cluster: SolanaCluster }) {
+/** Whose bytes these are. A review that can be built again (useTxFlow `renewable`) is built again at Sign once it is old. */
+function whoseBytes(rebuilds: boolean): string {
+  if (!rebuilds) return "Read back out of this build's own bytes, the ones your wallet is handed.";
+  return `Read back out of this build's own bytes. Press Sign ${REVIEW_TTL_MS / 1000} seconds or more after asking for this review, or when the network is close to refusing it, and the site builds it again first: a new blockhash, and a new address for anything it makes fresh, such as an opening's NFT. If the review above reads the same, that build goes to your wallet without another press, so check your wallet's copy.`;
+}
+
+function WhatYouAreSigning({ prepared: p, api, cluster, rebuilds }: { prepared: PreparedTx; api: TxViewApi; cluster: SolanaCluster; rebuilds: boolean }) {
   const wallet = p.tx.feePayer?.toBase58() ?? null;
   const link = (address: string) => api.explorerAddressUrl(address, cluster);
   const steps = orNull(() => decodedSteps(p));
@@ -164,7 +181,7 @@ function WhatYouAreSigning({ prepared: p, api, cluster }: { prepared: PreparedTx
   const logs = p.simulation.logs;
   return (
     <FinePrint summary="What you are signing" testId="tx-under-the-hood">
-      <p>Read back out of the transaction&apos;s own bytes, the ones your wallet will show you.</p>
+      <p>{whoseBytes(rebuilds)}</p>
       <Part title="Steps, in order">
         {steps ? (
           <ol className="list-decimal pl-5 space-y-2 [overflow-wrap:anywhere]">
@@ -210,12 +227,12 @@ function WhatYouAreSigning({ prepared: p, api, cluster }: { prepared: PreparedTx
         ) : (
           <>
             {logCutShort(logs) && <p>The network cut this log short.</p>}
-            <CopyButton label="Copy log" text={() => logs.join('\n')} />
+            <CopyButton key={buildKey(p)} label="Copy log" text={() => logs.join('\n')} />
             <pre className="max-h-64 overflow-auto whitespace-pre-wrap [overflow-wrap:anywhere] rounded bg-black/30 p-2 font-mono text-[10px] text-white/70">{logs.join('\n')}</pre>
           </>
         )}
       </FinePrint>
-      <CopyButton label="Copy the unsigned transaction (base64)" text={() => unsignedBase64(p.tx)} />
+      <CopyButton key={buildKey(p)} label="Copy the unsigned transaction (base64)" text={() => unsignedBase64(p.tx)} />
       <p className="text-white/40 text-[10px]">
         No link here goes to an outside inspector, and your wallet&apos;s address is in no link: the transaction holds your address, and this site never puts it in a URL.
       </p>
@@ -223,15 +240,15 @@ function WhatYouAreSigning({ prepared: p, api, cluster }: { prepared: PreparedTx
   );
 }
 
-/** Drawn by TxFlowView under the review, for every kind. */
-export function UnderTheHood({ prepared, decimals, api, cluster }: { prepared: PreparedTx; decimals: number | null; api: TxViewApi; cluster: SolanaCluster }) {
+/** Drawn by TxFlowView under the review, for every kind. `rebuilds`: the review's `renewable`. */
+export function UnderTheHood({ prepared, decimals, api, cluster, rebuilds }: { prepared: PreparedTx; decimals: number | null; api: TxViewApi; cluster: SolanaCluster; rebuilds: boolean }) {
   return (
     <>
       <Guard fallback="This site's figures could not be set beside the test run here.">
         <SiteAndNetworkRows prepared={prepared} decimals={decimals} />
       </Guard>
       <Guard fallback="What you are signing could not be shown here. Your wallet shows the transaction itself before you sign.">
-        <WhatYouAreSigning prepared={prepared} api={api} cluster={cluster} />
+        <WhatYouAreSigning prepared={prepared} api={api} cluster={cluster} rebuilds={rebuilds} />
       </Guard>
     </>
   );

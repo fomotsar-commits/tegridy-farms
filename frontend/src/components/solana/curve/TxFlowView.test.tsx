@@ -417,7 +417,7 @@ describe('under the review', () => {
     expect(within(box).getByText('Worked out by this site').parentElement).toHaveTextContent(/^Worked out by this site-10,000 BAYLA and -4\.0988 SOL$/);
     expect(within(box).getByText("The network's test run moved").parentElement).toHaveTextContent(/^The network's test run moved-10,000 BAYLA and -4\.0991 SOL$/);
     expect(box).toHaveTextContent("They differ by 0.0003 SOL. The price can move between this site's read and the test run. You are held to the limits above, not to either line.");
-    expect(box).toHaveTextContent('SOL on both lines leaves out the fees and deposits listed above.');
+    expect(box).toHaveTextContent('SOL on both lines counts your wrapped-SOL account as SOL, and leaves out the fees and deposits listed above.');
     const sign = screen.getByRole('button', { name: 'Sign in wallet' });
     expect(sign).not.toBeDisabled();
     await act(async () => {

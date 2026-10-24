@@ -1318,7 +1318,7 @@ export function TxFlowView({
           headingRef={setFocus}
         />
         {/* Outside TxReview: these move with every rebuild, so they are never lines Sign compares. */}
-        <UnderTheHood prepared={s.prepared} decimals={decimals} api={api} cluster={cluster} />
+        <UnderTheHood prepared={s.prepared} decimals={decimals} api={api} cluster={cluster} rebuilds={s.renewable} />
         {s.replaced && <ReviewChanged changed={s.replaced} boxRef={changedRef} />}
         {dead ? (
           <p ref={staleRef} tabIndex={-1} role="alert" className="text-amber-300/90 outline-none">

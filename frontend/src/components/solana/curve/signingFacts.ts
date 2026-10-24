@@ -5,7 +5,7 @@
 import { Transaction, type PublicKey } from '@solana/web3.js';
 import { formatSol, formatTokenAmount } from '../../../lib/launcher/solana/curve';
 import { CLOSE_POSITION_ACCOUNTS, DECREASE_LIQUIDITY_V2_ACCOUNTS, OPEN_POSITION_WITH_TOKEN22_NFT_ACCOUNTS, SWAP_V2_ACCOUNTS, type AccountSpec } from '../../../lib/solana/clmm/ix';
-import { SOL_QUOTE, quoteCoin, type QuoteCoin } from '../../../lib/solana/lp/quotes';
+import { quoteCoin, type QuoteCoin } from '../../../lib/solana/lp/quotes';
 import type { PreparedTx, SimulatedEffect, TxSummary } from './ports';
 
 /** Solana's packet limit: prepare.ts `TX_SIZE_LIMIT` (the write layer is not imported here; a test pins the two). */
@@ -49,13 +49,15 @@ function ownChange(p: PreparedTx, match: (d: Delta) => boolean): bigint | null {
 const ofMint = (mint: string) => (d: Delta) => d.mint.toBase58() === mint;
 
 /**
- * The signer's SOL and wrapped SOL as the test run moved them, without the network fee, the
- * priority fee, the deposits the review lists and `listed` (a fee to open the pool). The
- * network charges both fees in its test run (measured on mainnet, 2026-10-24).
+ * The signer's SOL and wrapped-SOL account, every lamport, as the test run moved them, without
+ * the network fee, the priority fee, the deposits the review lists and `listed` (a fee to open
+ * the pool). Whole lamports, not the wrapped balance: closing an old account hands back its
+ * deposit, and a sync turns lamports it held into balance. The network charges both fees in
+ * its test run (measured on mainnet, 2026-10-24).
  */
 function testRunSol(p: PreparedTx, listed = 0n): bigint {
   const f = p.fees;
-  const wrapped = ownChange(p, ofMint(SOL_QUOTE.mint)) ?? 0n;
+  const wrapped = p.simulation.wsolLamportsDelta ?? 0n;
   return p.simulated.signerLamportsDelta + wrapped + f.baseLamports + f.priorityLamports + f.newAccountRentLamports + listed;
 }
 
@@ -74,6 +76,22 @@ const sharesLeg = (p: PreparedTx, decimals: number, site: bigint): Leg => ({ nam
 
 const CLOSE_SOL = "SOL is not compared here: closing also gives back your position's deposits, and this review does not list them.";
 const LAUNCH_SOL = 'SOL is not compared for a launch: the token details program takes a fee of its own that this review does not list.';
+
+/**
+ * Why a take-out's own figure cannot be worked out: a reward paid in one of its coins lands in
+ * the same account, and the summary holds no reward amounts. Each reward's mint rides in the
+ * take-out's accounts past the ones the program names.
+ */
+function rewardInSameCoin(p: PreparedTx, coins: Array<{ mint: string; name: string }>): string | undefined {
+  const ixs = p.tx.instructions;
+  if (ixs.length !== p.steps.length) return 'its steps could not be lined up with its instructions';
+  const past = new Set<string>();
+  p.steps.forEach((s, i) => {
+    if (s.kind === 'range-decrease') for (const k of ixs[i]!.keys.slice(DECREASE_LIQUIDITY_V2_ACCOUNTS.length)) past.add(k.pubkey.toBase58());
+  });
+  const hit = coins.find((c) => past.has(c.mint));
+  return hit && `it also pays a reward in ${hit.name} into the same account, and this review does not count it`;
+}
 
 /** Takes `never`, so a kind of transaction with no comparison below does not compile. */
 function noComparisonFor(_s: never): null {
@@ -140,10 +158,12 @@ export function siteAndNetwork(p: PreparedTx, decimals: number | null): SiteAndN
       const token = mintLeg(p, l.tokenMint, l.tokenDecimals, s.quoted.token + fees.token);
       const closeSol = s.kind === 'range-close' && l.quote.native;
       const legs = closeSol ? [token] : [token, coinLeg(p, l.quote, s.quoted.quote + fees.quote)];
+      const coins = [{ mint: l.tokenMint.toBase58(), name: token.name }, ...(closeSol ? [] : [{ mint: l.quote.mint, name: l.quote.symbol }])];
+      const unread = s.fees ? rewardInSameCoin(p, coins) : 'the fees owed did not read';
       return {
         legs,
         solNetted: l.quote.native && !closeSol,
-        ...(s.fees ? {} : { unread: 'the fees owed did not read' }),
+        ...(unread ? { unread } : {}),
         ...(closeSol ? { solLeftOut: CLOSE_SOL } : {}),
       };
     }

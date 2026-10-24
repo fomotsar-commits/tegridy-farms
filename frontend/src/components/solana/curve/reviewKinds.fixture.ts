@@ -130,7 +130,7 @@ export function underTheHood(summary: TxSummary, over: Partial<PreparedTx> = {})
       { kind: 'compute-price', microLamports: 10_000n },
       { kind: 'range-open', pool: KEY(51), nftMint: KEY(52), tickLower: -1200, tickUpper: 1200, liquidity: 1_284_112n, max0: 10_100_000_000n, max1: 4_139_788_000n },
     ],
-    simulation: { unitsConsumed: 84_211, logs: LOG, slot: 460_729_140, at: TEST_RUN_AT },
+    simulation: { unitsConsumed: 84_211, logs: LOG, slot: 460_729_140, at: TEST_RUN_AT, wsolLamportsDelta: null },
     ...over,
   });
 }

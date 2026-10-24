@@ -5,14 +5,15 @@
 // the unsigned bytes. Node, not jsdom: web3's byte encoders need the real Uint8Array.
 import { describe, expect, it } from 'vitest';
 import { ComputeBudgetProgram, Keypair, PublicKey, Transaction, TransactionInstruction, VersionedTransaction } from '@solana/web3.js';
-import { openPositionWithToken22NftIx } from '../../../lib/solana/clmm/ix';
+import { decreaseLiquidityV2Ix, openPositionWithToken22NftIx } from '../../../lib/solana/clmm/ix';
+import type { PoolStateView } from '../../../lib/solana/clmm/program';
 import { TX_SIZE_LIMIT } from '../../../lib/launcher/solana/write/prepare';
 import { SOL_QUOTE, USDC_QUOTE } from '../../../lib/solana/lp/quotes';
 import { lpCreateSummary, lpDepositSummary } from '../lp/fakeLpWriteApi.fixture';
 import { CREATOR, KEY } from './fakeWriteApi.fixture';
 import type { PreparedTx } from './ports';
 import { BAYLA, EVERY_KIND, POOL_LINE, rangeOpening, rangeTakeOut, underTheHood } from './reviewKinds.fixture';
-import { SOLANA_TX_BYTES, legAmount, logCutShort, poolCoins, programName, siteAndNetwork, stepText, unsignedBase64, writtenAccounts, type StepContext } from './signingFacts';
+import { SOLANA_TX_BYTES, decodedSteps, legAmount, logCutShort, poolCoins, programName, siteAndNetwork, stepText, unsignedBase64, writtenAccounts, type StepContext } from './signingFacts';
 
 type Step = PreparedTx['steps'][number];
 const FEES = { baseLamports: 5_000n, priorityLamports: 12_000n, priorityFeeRead: true, newAccountRentLamports: 59_300_000n };
@@ -49,6 +50,23 @@ describe("this site's figures beside the network's test run", () => {
           { mint: new PublicKey(SOL_QUOTE.mint), account: KEY(61), delta: 100_000_000n, role: 'wsol' },
         ],
       },
+      simulation: { ...underTheHood(rangeOpening()).simulation, wsolLamportsDelta: 100_000_000n },
+    });
+    expect(siteAndNetwork(p, 6)!.legs[1]).toMatchObject({ site: -400_000_000n, network: -400_000_000n });
+  });
+
+  it("an old wrapped-SOL account's lamports count, not its balance: a sync's credit is no price move", () => {
+    // The kept account held 550,840 lamports above today's reserve: the sync made them balance.
+    const p = underTheHood(rangeOpening({ quoted: { token: 1_000_000n, quote: 400_000_000n }, unwrapsWsol: false }), {
+      fees: FEES,
+      simulated: {
+        signerLamportsDelta: -(500_000_000n + LISTED),
+        tokenDeltas: [
+          { mint: BAYLA, account: KEY(60), delta: -1_000_000n, role: 'token' },
+          { mint: new PublicKey(SOL_QUOTE.mint), account: KEY(61), delta: 100_550_840n, role: 'wsol' },
+        ],
+      },
+      simulation: { ...underTheHood(rangeOpening()).simulation, wsolLamportsDelta: 100_000_000n },
     });
     expect(siteAndNetwork(p, 6)!.legs[1]).toMatchObject({ site: -400_000_000n, network: -400_000_000n });
   });
@@ -90,6 +108,37 @@ describe("this site's figures beside the network's test run", () => {
   it('a removal whose fees owed did not read: the site’s figure is said as could not be worked out', () => {
     const c = siteAndNetwork(underTheHood(rangeTakeOut('range-remove', { fees: null })), 6)!;
     expect(c.unread).toBe('the fees owed did not read');
+  });
+
+  describe('a take-out that also pays a reward', () => {
+    const pool = {
+      address: KEY(51).toBase58(), tokenMint0: BAYLA.toBase58(), tokenMint1: SOL_QUOTE.mint, tokenVault0: KEY(58).toBase58(), tokenVault1: KEY(59).toBase58(),
+      tickSpacing: 120, status: 0, rewardInfos: [{ initialized: true }] as unknown as PoolStateView['rewardInfos'],
+    };
+    const decrease: Step = { kind: 'range-decrease', pool: KEY(51), position: KEY(53), liquidity: 1_000n, min0: 1n, min1: 1n };
+    /** A real take-out instruction whose one reward pays in `mint`, its decoded step beside it. */
+    const takeOut = (mint: PublicKey, steps: Step[] = [decrease]): PreparedTx => {
+      const ix = decreaseLiquidityV2Ix({
+        programId: KEY(70), nftOwner: CREATOR, position: { nftMint: KEY(52).toBase58(), tickLowerIndex: 0, tickUpperIndex: 1200 }, pool,
+        recipientTokenAccount0: KEY(60), recipientTokenAccount1: KEY(61), liquidity: 1_000n, amount0Min: 1n, amount1Min: 1n,
+        rewards: [{ vault: KEY(62), recipient: KEY(60), mint }],
+      });
+      const tx = new Transaction({ feePayer: CREATOR, blockhash: KEY(7).toBase58(), lastValidBlockHeight: 1 }).add(ix);
+      return { ...underTheHood(rangeTakeOut('range-remove')), tx, steps };
+    };
+
+    it("in one of the take-out's own coins: it lands in the same account, so the site's figure could not be worked out", () => {
+      expect(siteAndNetwork(takeOut(BAYLA), 6)!.unread).toBe('it also pays a reward in BAYLA into the same account, and this review does not count it');
+      expect(siteAndNetwork(takeOut(new PublicKey(SOL_QUOTE.mint)), 6)!.unread).toBe('it also pays a reward in SOL into the same account, and this review does not count it');
+    });
+
+    it('in another coin: its own account, so the figures stand', () => {
+      expect(siteAndNetwork(takeOut(new PublicKey(USDC_QUOTE.mint)), 6)!.unread).toBeUndefined();
+    });
+
+    it('steps that do not line up with the instructions: could not be worked out, never read as no reward', () => {
+      expect(siteAndNetwork(takeOut(BAYLA, [decrease, decrease]), 6)!.unread).toBe('its steps could not be lined up with its instructions');
+    });
   });
 
   it('an account the test run did not report is null, never 0', () => {
@@ -223,6 +272,19 @@ describe('the accounts it writes', () => {
     ]);
   });
 
+  it('a token account the transaction opens if missing is called yours only when your wallet owns it', () => {
+    const p = underTheHood(EVERY_KIND['range-open']);
+    const opens = (address: PublicKey) => new TransactionInstruction({ programId: KEY(71), keys: [{ pubkey: address, isSigner: false, isWritable: true }], data: Buffer.from([1]) });
+    const tx = new Transaction({ feePayer: CREATOR, blockhash: KEY(7).toBase58(), lastValidBlockHeight: 1 }).add(opens(KEY(80)), opens(KEY(81)));
+    const steps: Step[] = [
+      { kind: 'create-token-account', address: KEY(80), mint: BAYLA, owner: CREATOR },
+      { kind: 'create-token-account', address: KEY(81), mint: BAYLA, owner: KEY(82) },
+    ];
+    const labelOf = (k: PublicKey) => writtenAccounts({ ...p, tx, steps }).find((a) => a.address === k.toBase58())?.label;
+    expect(labelOf(KEY(80))).toBe('A token account of yours, opened if missing');
+    expect(labelOf(KEY(81))).toBe('A token account, opened if missing');
+  });
+
   it("a real range opening's accounts carry the program's own names, as its account list has them", () => {
     const owner = Keypair.generate().publicKey;
     const pool = { address: KEY(51).toBase58(), tokenMint0: SOL_QUOTE.mint, tokenMint1: BAYLA.toBase58(), tokenVault0: KEY(58).toBase58(), tokenVault1: KEY(59).toBase58(), tickSpacing: 120 };
@@ -243,6 +305,14 @@ describe('the accounts it writes', () => {
     expect(got.map((a) => a.field)).toEqual(expect.arrayContaining(['tick_array_lower', 'tick_array_upper', 'personal_position', 'position_nft_account']));
     // Read-only accounts (the programs, the mints, the protocol position) are not written, so not listed.
     expect(got.map((a) => a.field)).not.toContain('system_program');
+  });
+});
+
+describe('the steps beside their instructions', () => {
+  it('each instruction with its decoded step; when the two do not line up, a refusal, never a short list', () => {
+    const p = underTheHood(EVERY_KIND['range-open']);
+    expect(decodedSteps(p).map((x) => x.program)).toEqual([ComputeBudgetProgram.programId.toBase58(), ComputeBudgetProgram.programId.toBase58(), KEY(70).toBase58()]);
+    expect(() => decodedSteps({ ...p, steps: p.steps.slice(0, 2) })).toThrow('3 instructions and 2 decoded steps');
   });
 });
 

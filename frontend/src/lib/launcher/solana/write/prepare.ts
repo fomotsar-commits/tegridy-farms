@@ -195,6 +195,19 @@ export function simulatedEffect(watch: WatchList, pre: PreState, post: SimOutcom
   return { signerLamportsDelta, tokenDeltas };
 }
 
+/**
+ * The lamports the signer's wrapped-SOL account (`role: 'wsol'`) gained or lost: the whole
+ * account, so a close hands back all it held and a sync moves none. Null when none is watched.
+ */
+export function wsolLamportsDelta(watch: WatchList, pre: PreState, post: NonNullable<SimOutcome['accounts']>): bigint | null {
+  let sum: bigint | null = null;
+  watch.tokenAccounts.forEach((t, i) => {
+    if (t.role !== 'wsol') return;
+    sum = (sum ?? 0n) + BigInt(post[i + 1]?.lamports ?? 0) - (pre.tokens.get(t.account.toBase58())?.lamports ?? 0n);
+  });
+  return sum;
+}
+
 /** Does the simulated effect fall inside the expectation? `null` = yes, else the reason. */
 export function checkEffect(effect: SimulatedEffect, expect: Expectation, networkFees: bigint): string | null {
   const loss = -effect.signerLamportsDelta;
@@ -330,7 +343,14 @@ export async function buildAndSimulate(rpc: WriteRpc, spec: BuildSpec): Promise<
     lastValidBlockHeight,
     sizeBytes,
     // Units the node did not report stay null: the limit is not what it used.
-    simulation: { unitsConsumed: second.unitsConsumed ?? null, logs: second.logs, slot: second.slot, at: ranAt },
+    simulation: {
+      unitsConsumed: second.unitsConsumed ?? null,
+      logs: second.logs,
+      slot: second.slot,
+      at: ranAt,
+      // simulatedEffect above checked that every watched account came back.
+      wsolLamportsDelta: wsolLamportsDelta(spec.watch, pre, second.accounts ?? []),
+    },
     fees: {
       baseLamports,
       priorityLamports: priorityFee,
