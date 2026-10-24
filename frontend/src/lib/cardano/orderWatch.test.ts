@@ -3,7 +3,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { parseAddressBech32 } from './address';
 import { ADA } from './minswapV2';
-import { readOrderNotes, readOrderStatus, writeOrderNote, dropOrderNote, type PendingOrder } from './orderWatch';
+import { EXPIRY_MARGIN_SLOTS, markOrderSubmitted, readOrderNotes, readOrderStatus, writeOrderNote, dropOrderNote, type PendingOrder } from './orderWatch';
 import { ASCEND, ORDER_TXS, fixture } from './testkit.fixture';
 
 const NIGHT = { policyId: '0691b2fecca1ac4f53cb6dfb00b7013e561d1f34403b957cbb5af1fa', assetName: '4e49474854' };
@@ -11,7 +11,8 @@ const FILLS = fixture<{ tx_hash: string }[]>('koios-tx-info-two-fills.json');
 
 function note(txHash: string, bech: string, assetIn: PendingOrder['assetIn'], assetOut: PendingOrder['assetOut']): PendingOrder {
   const a = parseAddressBech32(bech)!;
-  return { txHash, orderIndex: 0, traderHex: a.hex, traderPaymentCred: a.payment.hash, assetIn, assetOut, amountIn: '1', minimumReceive: '1', ttlSlot: 201256000, placedAt: 1 };
+  const label = (x: PendingOrder['assetIn']) => (x.policyId === '' ? { ticker: 'ADA', decimals: 6 } : { ticker: 'COIN', decimals: 0 });
+  return { txHash, orderIndex: 0, traderHex: a.hex, traderPaymentCred: a.payment.hash, assetIn, assetOut, amountIn: '1', minimumReceive: '1', inLabel: label(assetIn), outLabel: label(assetOut), ttlSlot: 201256000, submitted: true, placedAt: 1 };
 }
 
 const SELL_ASCEND = note(ORDER_TXS.tokenIn, 'addr1qyawx3jznhwfhsen5kg3dq4nxgvkexrw7fa6uj8qkx95cynn60n5e0298xn7eyj7lzks2lv5tcmxsqsu7ne7sa7jf4xsulzg6g', ASCEND, ADA);
@@ -114,9 +115,46 @@ describe('readOrderStatus', () => {
     expect(await readOrderStatus(BUY_NIGHT)).toEqual({ kind: 'not-seen' });
   });
 
-  it('says expired, safe to retry, once a never-seen transaction is past its expiry', async () => {
+  it('still says not seen just past its expiry: the reads may lag each other (review 2026-10-24)', async () => {
     stubProxy({ utxo: [], txstatus: [{ tx_hash: BUY_NIGHT.txHash, num_confirmations: null }], tip: [{ abs_slot: 201256001, block_height: 1, block_time: 1 }] });
+    expect(await readOrderStatus(BUY_NIGHT)).toEqual({ kind: 'not-seen' });
+  });
+
+  it('says expired, safe to retry, only well past its expiry', async () => {
+    stubProxy({ utxo: [], txstatus: [{ tx_hash: BUY_NIGHT.txHash, num_confirmations: null }], tip: [{ abs_slot: 201256001 + EXPIRY_MARGIN_SLOTS, block_height: 1, block_time: 1 }] });
     expect(await readOrderStatus(BUY_NIGHT)).toEqual({ kind: 'expired' });
+  });
+
+  it('says spent, not a figure, when one batch pays the trader twice (two of their orders)', async () => {
+    const bech = 'addr1qyawx3jznhwfhsen5kg3dq4nxgvkexrw7fa6uj8qkx95cynn60n5e0298xn7eyj7lzks2lv5tcmxsqsu7ne7sa7jf4xsulzg6g';
+    const tx = [
+      {
+        tx_hash: 'ab'.repeat(32),
+        inputs: [{ tx_hash: SELL_ASCEND.txHash, tx_index: 0 }],
+        outputs: [
+          { tx_index: 0, payment_addr: { bech32: bech }, value: '113723847', inline_datum: null, asset_list: null },
+          { tx_index: 1, payment_addr: { bech32: bech }, value: '2000000', inline_datum: null, asset_list: [{ policy_id: ASCEND.policyId, asset_name: ASCEND.assetName, quantity: '5' }] },
+        ],
+      },
+    ];
+    stubProxy({ ...spentAt(SELL_ASCEND), tx });
+    expect(await readOrderStatus(SELL_ASCEND)).toEqual({ kind: 'spent', fillTx: 'ab'.repeat(32) });
+  });
+
+  it('reads past a stranger output it cannot parse in the trader’s history', async () => {
+    const bech = 'addr1qyawx3jznhwfhsen5kg3dq4nxgvkexrw7fa6uj8qkx95cynn60n5e0298xn7eyj7lzks2lv5tcmxsqsu7ne7sa7jf4xsulzg6g';
+    const tx = [
+      {
+        tx_hash: 'ab'.repeat(32),
+        inputs: [{ tx_hash: SELL_ASCEND.txHash, tx_index: 0 }],
+        outputs: [
+          { tx_index: 0, payment_addr: { bech32: 'Ae2tdPwUPEZ5faoeL5MHatcnmV9U5HW2NvfQRCRvjATKa1HNiBbHmmT5vKy' }, value: '1000000', inline_datum: null, asset_list: null },
+          { tx_index: 1, payment_addr: { bech32: bech }, value: '113723847', inline_datum: null, asset_list: null },
+        ],
+      },
+    ];
+    stubProxy({ ...spentAt(SELL_ASCEND), tx });
+    expect((await readOrderStatus(SELL_ASCEND)).kind).toBe('filled');
   });
 
   it('says unknown, never failed, when a read fails', async () => {
@@ -143,6 +181,13 @@ describe('order notes', () => {
     expect(readOrderNotes().map((n) => n.txHash)).toEqual([SELL_ASCEND.txHash, BUY_NIGHT.txHash]);
     dropOrderNote(SELL_ASCEND.txHash);
     expect(readOrderNotes().map((n) => n.txHash)).toEqual([BUY_NIGHT.txHash]);
+  });
+
+  it('say whether the wallet sent it, and are marked when it did', () => {
+    expect(writeOrderNote({ ...BUY_NIGHT, submitted: false, placedAt: Date.now() })).toBe(true);
+    expect(readOrderNotes()[0]?.submitted).toBe(false);
+    markOrderSubmitted(BUY_NIGHT.txHash);
+    expect(readOrderNotes()[0]?.submitted).toBe(true);
   });
 
   it('forget notes a week old and anything malformed', () => {

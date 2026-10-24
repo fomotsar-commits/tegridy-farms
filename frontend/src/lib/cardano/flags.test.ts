@@ -14,11 +14,13 @@ describe('the Cardano swap switch', () => {
     expect(cardanoSwapVisible(true, 'production')).toBe(true);
   });
 
-  it('marks /cardano as a Cardano page, exactly', () => {
-    expect(isCardanoPage('/cardano')).toBe(true);
-    expect(isCardanoPage('/cardano/')).toBe(true);
-    expect(isCardanoPage('/solana')).toBe(false);
-    expect(isCardanoPage('/cardano-lp')).toBe(false);
+  it('marks /cardano as a Cardano page, exactly, and only while the swap is shown', () => {
+    expect(isCardanoPage('/cardano', true)).toBe(true);
+    expect(isCardanoPage('/cardano/', true)).toBe(true);
+    expect(isCardanoPage('/solana', true)).toBe(false);
+    expect(isCardanoPage('/cardano-lp', true)).toBe(false);
+    // Off (as shipped), /cardano is the 404 page: the top bar keeps its usual wallet button.
+    expect(isCardanoPage('/cardano')).toBe(false);
   });
 });
 

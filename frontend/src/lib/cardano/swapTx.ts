@@ -11,7 +11,7 @@
 // collateral, no required signer, no script, no metadata. A Cardano transaction can move a
 // trader's stake or rewards as well as coins, so each of those is refused by name.
 
-import type { FixedTransaction, TransactionOutput, TransactionWitnessSet, Value } from '@emurgo/cardano-serialization-lib-browser';
+import type { FixedTransaction, Transaction, TransactionOutput, TransactionWitnessSet, Value } from '@emurgo/cardano-serialization-lib-browser';
 import type { Csl } from './csl';
 import type { ProtocolParams } from './chain';
 import { bytesToHex, hexToBytes, type ParsedAddress } from './address';
@@ -100,7 +100,26 @@ export class SwapBuildError extends Error {
   }
 }
 
-/** Builds the swap order transaction from the wallet's UTxOs. CSL picks the inputs and makes the change. */
+/**
+ * A leftover under this is not "burned": it is rounding between CSL's fee estimate and the
+ * fee it sets. Above it, CSL found the change too small to be an output and paid it as fee.
+ */
+const BURN_TOLERANCE = 20_000n;
+
+/** How many extra coins are tried, one more each time, to make a burned leftover into change. */
+const EXTRA_INPUT_TRIES = 6;
+
+/**
+ * Builds the swap order transaction from the wallet's UTxOs.
+ *
+ * Inputs and change are CSL's own CIP-2 selection with change included
+ * (add_inputs_from_and_change), so a wallet whose largest coin also holds tokens still gets
+ * change that can carry them. One case CSL leaves: a leftover too small to be a change output
+ * (under about 1 ADA) is paid as network fee, even when the wallet holds more coins. Then the
+ * build is tried again with the wallet's next largest coins put in first, so the leftover
+ * becomes change; if none helps, the cheapest build is kept, and the review says how much of
+ * its network fee is that leftover (checkSwapTx `networkFeeExcess`).
+ */
 export function buildSwapTx(csl: Csl, params: ProtocolParams, utxos: WalletUtxo[], plan: SwapPlan): BuiltSwap {
   const datumHex = encodeSwapOrderDatum(csl, plan);
   const config = csl.TransactionBuilderConfigBuilder.new()
@@ -112,31 +131,55 @@ export function buildSwapTx(csl: Csl, params: ProtocolParams, utxos: WalletUtxo[
     .max_tx_size(params.maxTxSize)
     .ref_script_coins_per_byte(csl.UnitInterval.new(bn(csl, params.minFeeRefScriptCostPerByte), bn(csl, 1)))
     .build();
-  const tb = csl.TransactionBuilder.new(config);
 
   const lock = orderValue(plan);
-  const order = csl.TransactionOutput.new(address(csl, orderAddressFor(plan.trader)), valueOf(csl, lock.lovelace, lock.token));
-  order.set_plutus_data(csl.PlutusData.from_hex(datumHex));
-  const orderMin = BigInt(csl.min_ada_for_output(order, csl.DataCost.new_coins_per_byte(bn(csl, params.utxoCostPerByte))).to_str());
+  const orderOutput = () => {
+    const o = csl.TransactionOutput.new(address(csl, orderAddressFor(plan.trader)), valueOf(csl, lock.lovelace, lock.token));
+    o.set_plutus_data(csl.PlutusData.from_hex(datumHex));
+    return o;
+  };
+  const orderMin = BigInt(csl.min_ada_for_output(orderOutput(), csl.DataCost.new_coins_per_byte(bn(csl, params.utxoCostPerByte))).to_str());
   // Minswap's orders lock exactly the swap + 4 ADA. An order that would need more is not one
   // this rail knows how to write, so it is refused rather than written differently.
   if (lock.lovelace < orderMin) throw new SwapBuildError('This order needs more ADA than Minswap orders lock.');
-  tb.add_output(order);
-  if (plan.venueFee.kind === 'charged') {
-    tb.add_output(csl.TransactionOutput.new(address(csl, plan.venueFee.address), csl.Value.new(bn(csl, plan.venueFee.lovelace))));
-  }
-  tb.set_ttl_bignum(bn(csl, plan.tipSlot + TTL_SLOTS));
 
-  const set = csl.TransactionUnspentOutputs.new();
-  for (const u of utxos) set.add(csl.TransactionUnspentOutput.from_hex(u.hex));
-  try {
-    tb.add_inputs_from(set, csl.CoinSelectionStrategyCIP2.LargestFirstMultiAsset);
-    tb.add_change_if_needed(address(csl, plan.trader));
-  } catch {
-    throw new SwapBuildError('This wallet does not hold enough for the swap, its 4 ADA order lock, the fees and its change.');
+  const parsed = utxos.map((u) => csl.TransactionUnspentOutput.from_hex(u.hex));
+  // The coins tried first on a retry: the most ADA first.
+  const byAda = [...parsed].sort((a, b) => {
+    const d = BigInt(b.output().amount().coin().to_str()) - BigInt(a.output().amount().coin().to_str());
+    return d > 0n ? 1 : d < 0n ? -1 : 0;
+  });
+
+  const attempt = (forced: number): { tx: Transaction | null; burned: bigint } => {
+    const tb = csl.TransactionBuilder.new(config);
+    tb.add_output(orderOutput());
+    if (plan.venueFee.kind === 'charged') {
+      tb.add_output(csl.TransactionOutput.new(address(csl, plan.venueFee.address), csl.Value.new(bn(csl, plan.venueFee.lovelace))));
+    }
+    tb.set_ttl_bignum(bn(csl, plan.tipSlot + TTL_SLOTS));
+    const rest = csl.TransactionUnspentOutputs.new();
+    byAda.forEach((u, i) => {
+      if (i < forced) tb.add_regular_input(u.output().address(), u.input(), u.output().amount());
+      else rest.add(u);
+    });
+    try {
+      tb.add_inputs_from_and_change(rest, csl.CoinSelectionStrategyCIP2.LargestFirstMultiAsset, csl.ChangeConfig.new(address(csl, plan.trader)));
+      const tx = tb.build_tx();
+      return { tx, burned: BigInt(tx.body().fee().to_str()) - BigInt(tb.min_fee().to_str()) };
+    } catch {
+      return { tx: null, burned: 0n };
+    }
+  };
+
+  let best: { tx: Transaction; burned: bigint } | null = null;
+  for (let forced = 0; forced <= Math.min(EXTRA_INPUT_TRIES, byAda.length); forced++) {
+    const a = attempt(forced);
+    if (!a.tx) continue;
+    if (!best || BigInt(a.tx.body().fee().to_str()) < BigInt(best.tx.body().fee().to_str())) best = { tx: a.tx, burned: a.burned };
+    if (a.burned <= BURN_TOLERANCE) break;
   }
-  const tx = tb.build_tx();
-  const fixed = csl.FixedTransaction.from_bytes(tx.to_bytes());
+  if (!best) throw new SwapBuildError('This wallet does not hold enough for the swap, its 4 ADA order lock, the fees and its change.');
+  const fixed = csl.FixedTransaction.from_bytes(best.tx.to_bytes());
   return { txHex: fixed.to_hex(), txHash: fixed.transaction_hash().to_hex(), datumHex };
 }
 
@@ -148,7 +191,17 @@ export interface CheckedSwap {
   orderLovelace: bigint;
   venueFeeLovelace: bigint;
   networkFee: bigint;
+  /**
+   * How much of the network fee is more than the transaction's size calls for: a leftover CSL
+   * paid as fee because it was too small to come back as change. 0 when it is only rounding.
+   */
+  networkFeeExcess: bigint;
 }
+
+/** A vkey witness in the signed transaction: [vkey (2+32 bytes), signature (2+64 bytes)] plus its array header. */
+const VKEY_WITNESS_BYTES = 101;
+/** The signed witness set's map and list headers, over the unsigned one's empty map. */
+const WITNESS_SET_OVERHEAD = 3;
 
 export type SwapCheck = { ok: true; swap: CheckedSwap } | { ok: false; problems: string[] };
 
@@ -180,7 +233,15 @@ function outputAddressHex(o: CslOutput): string {
  * Independent of how it was built: a different builder, a bug in ours, or a hooked library
  * that rewrote the bytes all fail here, before any wallet sees them.
  */
-export function checkSwapTx(csl: Csl, txHex: string, plan: SwapPlan, walletUtxos: WalletUtxo[]): SwapCheck {
+export function checkSwapTx(
+  csl: Csl,
+  txHex: string,
+  plan: SwapPlan,
+  walletUtxos: WalletUtxo[],
+  fee: Pick<ProtocolParams, 'txFeePerByte' | 'txFeeFixed'>,
+): SwapCheck {
+  const feePerByte = fee.txFeePerByte;
+  const feeFixed = fee.txFeeFixed;
   const problems: string[] = [];
   let tx: CslTx;
   try {
@@ -216,6 +277,7 @@ export function checkSwapTx(csl: Csl, txHex: string, plan: SwapPlan, walletUtxos
 
   // Inputs: only the wallet's own UTxOs, and the total they hold.
   const own = new Map(walletUtxos.map((u) => [`${u.txHash}#${u.index}`, u]));
+  const signers = new Set<string>();
   const inputs = body.inputs();
   let totalIn = csl.Value.zero();
   if (inputs.len() === 0) problems.push('it spends nothing');
@@ -226,7 +288,10 @@ export function checkSwapTx(csl: Csl, txHex: string, plan: SwapPlan, walletUtxos
       problems.push('it spends a coin that is not in this wallet');
       continue;
     }
-    totalIn = totalIn.checked_add(csl.TransactionUnspentOutput.from_hex(u.hex).output().amount());
+    const spent = csl.TransactionUnspentOutput.from_hex(u.hex).output();
+    totalIn = totalIn.checked_add(spent.amount());
+    // One signature per payment key spent from: the signed size, for the fee check below.
+    signers.add(bytesToHex(spent.address().to_bytes()).slice(2, 58));
   }
 
   // Outputs, by position.
@@ -278,6 +343,12 @@ export function checkSwapTx(csl: Csl, txHex: string, plan: SwapPlan, walletUtxos
 
   const networkFee = BigInt(body.fee().to_str());
   if (networkFee > MAX_NETWORK_FEE) problems.push('the network fee is above 1 ADA');
+  // What the signed transaction's size calls for (Shelley's linear fee), against what it pays.
+  const signedSize = BigInt(tx.to_bytes().length + WITNESS_SET_OVERHEAD + VKEY_WITNESS_BYTES * Math.max(1, signers.size));
+  const minFee = feePerByte * signedSize + feeFixed;
+  if (networkFee < minFee - 1_000n) problems.push('the network fee is below what the network accepts');
+  const excess = networkFee - minFee;
+  const networkFeeExcess = excess > 20_000n ? excess : 0n;
 
   // Conservation: what went in is the outputs plus the fee, exactly. With nothing minted,
   // withdrawn or deposited, the ledger demands it; checking it here means "what you pay" below
@@ -298,6 +369,7 @@ export function checkSwapTx(csl: Csl, txHex: string, plan: SwapPlan, walletUtxos
       orderLovelace: want.lovelace,
       venueFeeLovelace,
       networkFee,
+      networkFeeExcess,
     },
   };
 }

@@ -65,11 +65,18 @@ function walletUtxoHex(i: number, lovelace: bigint): string {
   return csl.TransactionUnspentOutput.new(input, out).to_hex();
 }
 
+/** The stand-in wallet's knobs, reset before each test. */
+let wallet: { changeAddress: () => string; utxosGate: Promise<void> };
+
 function installWallet() {
+  wallet = { changeAddress: () => trader.hex, utxosGate: Promise.resolve() };
   const api = {
     getNetworkId: async () => 1,
-    getChangeAddress: async () => trader.hex,
-    getUtxos: async () => [walletUtxoHex(1, 900_000_000n), walletUtxoHex(2, 40_000_000n)],
+    getChangeAddress: async () => wallet.changeAddress(),
+    getUtxos: async () => {
+      await wallet.utxosGate;
+      return [walletUtxoHex(1, 900_000_000n), walletUtxoHex(2, 40_000_000n)];
+    },
     signTx: async (txHex: string) => {
       signed.push(txHex);
       const tx = csl.FixedTransaction.from_hex(txHex);
@@ -193,6 +200,49 @@ describe('CardanoSwapPage', () => {
     // The order is followed below, and was noted before it left.
     await waitFor(() => expect(screen.getAllByTestId('cardano-order')).toHaveLength(1));
     expect(JSON.parse(localStorage.getItem('tegridy.cardano.orders.v1') ?? '[]')).toHaveLength(1);
+    // The row says its own coins, by ticker and whole id, whatever the form holds now.
+    fireEvent.change(screen.getByLabelText(/The coin/), { target: { value: '' } });
+    const row = screen.getByTestId('cardano-order');
+    expect(row.textContent).toMatch(/400 ADA for at least [\d,.]+ ASCEND/);
+    expect(row.textContent).toContain(`ASCEND: ${ASCEND.policyId}.${ASCEND.assetName}`);
+  });
+
+  it('holds the form still while a review is built, so what is signed is what was asked', async () => {
+    renderPage();
+    await connect();
+    let release = () => {};
+    wallet.utxosGate = new Promise<void>((r) => {
+      release = r;
+    });
+    fireEvent.change(screen.getByLabelText(/The coin/), { target: { value: ASCEND.policyId + ASCEND.assetName } });
+    await screen.findByText('ASCEND');
+    fireEvent.change(screen.getByLabelText(/You pay/), { target: { value: '400' } });
+    await screen.findByTestId('cardano-quote', {}, { timeout: 3000 });
+    fireEvent.click(screen.getByRole('button', { name: 'Review swap' }));
+    await screen.findByRole('button', { name: 'Building and checking…' });
+    expect(screen.getByLabelText(/The coin/)).toBeDisabled();
+    expect(screen.getByLabelText(/You pay/)).toBeDisabled();
+    expect(screen.getByRole('button', { name: '3%' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Sell for ADA' })).toBeDisabled();
+    await act(async () => release());
+    await screen.findByTestId('cardano-review', {}, { timeout: 3000 });
+    // Changing anything after the review is built takes the review away.
+    fireEvent.click(screen.getByRole('button', { name: '3%' }));
+    expect(screen.queryByTestId('cardano-review')).toBeNull();
+  });
+
+  it('builds nothing when the wallet switched account since it connected', async () => {
+    renderPage();
+    await connect();
+    wallet.changeAddress = () => composeAddress({ kind: 'key', hash: 'ee'.repeat(28) }, null).hex;
+    fireEvent.change(screen.getByLabelText(/The coin/), { target: { value: ASCEND.policyId + ASCEND.assetName } });
+    await screen.findByText('ASCEND');
+    fireEvent.change(screen.getByLabelText(/You pay/), { target: { value: '400' } });
+    await screen.findByTestId('cardano-quote', {}, { timeout: 3000 });
+    fireEvent.click(screen.getByRole('button', { name: 'Review swap' }));
+    await screen.findByText(/switched to another account/, {}, { timeout: 3000 });
+    expect(screen.queryByTestId('cardano-review')).toBeNull();
+    expect(signed).toHaveLength(0);
   });
 
   it('says nothing was sent when the visitor declines in the wallet', async () => {

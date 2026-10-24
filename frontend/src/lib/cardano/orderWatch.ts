@@ -2,12 +2,17 @@
 // order; Minswap's batcher fills it (or returns it) in a later transaction of its own. So the
 // page has more states than "sent" and "done", and each is said for what it is:
 //
-//   not-seen   sent, and the chain has not shown it yet
-//   expired    never seen, and its expiry slot has passed: it can never land, so a retry is safe
+//   not-seen   sent (or maybe sent), and the chain has not shown it yet
+//   expired    never seen, and its expiry slot is well past: it can never land, so a retry is
+//              safe. Well past (EXPIRY_MARGIN_SLOTS), because the reads come from separate
+//              indexer calls that can lag each other: a transaction that landed just before
+//              its expiry must never read as "never placed" and be paid for twice.
 //   placed     the order is on chain, waiting for the batcher (with its depth)
 //   filled     the batcher paid the trader the coins bought
-//   returned   the batcher returned the coins (the price moved past the minimum)
-//   spent      the order was spent and this page could not tell how; the trader's wallet can
+//   returned   the coins came back (the price moved past the minimum, or the order was cancelled)
+//   spent      the order was spent and this page could not tell how; the trader's wallet can.
+//              Also when one transaction pays the trader twice (two of their orders in one
+//              batch): the outputs are not attributed by guesswork.
 //   unknown    a read failed. NEVER "failed": the order may well have filled.
 //
 // Notes are kept in this browser so a reload does not lose an order still on its way.
@@ -25,10 +30,21 @@ export interface PendingOrder {
   assetOut: CardanoAsset;
   amountIn: string;
   minimumReceive: string;
+  /** The coins' names and decimals as read when the order was placed: each row is said in its own coins, never the form's. */
+  inLabel: CoinLabel;
+  outLabel: CoinLabel;
   /** The transaction's expiry slot: past it, a transaction never seen can never land. */
   ttlSlot: number;
+  /** False from the note's writing until the wallet said it sent the transaction. */
+  submitted: boolean;
   /** Unix ms, from this browser's clock, for ordering notes only. */
   placedAt: number;
+}
+
+export interface CoinLabel {
+  /** The ticker, or 'ADA'; null when the coin has none on record. */
+  ticker: string | null;
+  decimals: number;
 }
 
 export type OrderStatus =
@@ -42,6 +58,9 @@ export type OrderStatus =
 
 /** How many history transactions are searched for the fill before saying "spent". */
 const FILL_SEARCH = 12;
+
+/** 20 minutes of slots past the expiry before a never-seen transaction is called expired. */
+export const EXPIRY_MARGIN_SLOTS = 1200;
 
 function outputsTo(tx: { outputs: { addressHex: string; lovelace: bigint; assets: { policyId: string; assetName: string; quantity: bigint }[] }[] }, hex: string) {
   return tx.outputs.filter((o) => o.addressHex === hex);
@@ -63,10 +82,10 @@ export async function readOrderStatus(order: PendingOrder, signal?: AbortSignal)
     const depth = await readTxDepth(order.txHash, signal);
     if (depth.status !== 'ok') return { kind: 'unknown', reason: depth.reason };
     if (depth.data !== null) return { kind: 'placed', depth: depth.data };
-    // Never seen. Past its expiry it can never land; before it, it still may.
+    // Never seen. Well past its expiry it can never land; before then, it still may.
     const tip = await readTip(signal);
     if (tip.status !== 'ok') return { kind: 'unknown', reason: tip.reason };
-    return tip.data.slot > order.ttlSlot ? { kind: 'expired' } : { kind: 'not-seen' };
+    return tip.data.slot > order.ttlSlot + EXPIRY_MARGIN_SLOTS ? { kind: 'expired' } : { kind: 'not-seen' };
   }
 
   // Spent: find the transaction that spent it, among the trader's own (the fill pays them).
@@ -81,6 +100,9 @@ export async function readOrderStatus(order: PendingOrder, signal?: AbortSignal)
     if (tx.status !== 'ok') return { kind: 'unknown', reason: tx.reason };
     if (!tx.data || !tx.data.inputs.some((i) => i.txHash === order.txHash && i.index === order.orderIndex)) continue;
     const mine = outputsTo(tx.data, order.traderHex);
+    // Exactly one output to the trader is this order's. Two (two of their orders in one batch)
+    // or none cannot be attributed without the batch's redeemer: said as spent, not guessed.
+    if (mine.length !== 1) return { kind: 'spent', fillTx: h.txHash };
     const bought = mine.reduce((s, o) => s + held(o, order.assetOut), 0n);
     const back = mine.reduce((s, o) => s + held(o, order.assetIn), 0n);
     if (!isAda(order.assetOut) && bought > 0n) {
@@ -106,9 +128,12 @@ const NOTE_LIFETIME_MS = 7 * 24 * 3600 * 1000;
 function isNote(x: unknown): x is PendingOrder {
   if (typeof x !== 'object' || x === null) return false;
   const o = x as Record<string, unknown>;
+  const label = (l: unknown) =>
+    typeof l === 'object' && l !== null && ((l as CoinLabel).ticker === null || typeof (l as CoinLabel).ticker === 'string') && Number.isInteger((l as CoinLabel).decimals);
   return (
     typeof o.txHash === 'string' && /^[0-9a-f]{64}$/.test(o.txHash) && o.orderIndex === 0 && typeof o.traderHex === 'string' &&
-    typeof o.traderPaymentCred === 'string' && typeof o.ttlSlot === 'number' && typeof o.placedAt === 'number'
+    typeof o.traderPaymentCred === 'string' && typeof o.ttlSlot === 'number' && typeof o.placedAt === 'number' &&
+    typeof o.submitted === 'boolean' && label(o.inLabel) && label(o.outLabel)
   );
 }
 
@@ -121,13 +146,28 @@ export function readOrderNotes(now: number = Date.now()): PendingOrder[] {
   }
 }
 
-/** Written BEFORE the transaction leaves, so a reload mid-send still knows the order exists. */
-export function writeOrderNote(note: PendingOrder): void {
+/**
+ * Written BEFORE the transaction leaves, so a reload mid-send still knows the order exists.
+ * False when this browser would not keep it: the page then says the order will not be
+ * followed after a reload.
+ */
+export function writeOrderNote(note: PendingOrder): boolean {
   try {
     const notes = readOrderNotes().filter((n) => n.txHash !== note.txHash);
     localStorage.setItem(NOTES_KEY, JSON.stringify([note, ...notes].slice(0, 20)));
+    return readOrderNotes().some((n) => n.txHash === note.txHash);
   } catch {
-    /* storage blocked: the page still follows the order until it is closed */
+    return false;
+  }
+}
+
+/** The wallet said it sent the transaction: the note stops saying it may not have been sent. */
+export function markOrderSubmitted(txHash: string): void {
+  try {
+    const notes = readOrderNotes();
+    localStorage.setItem(NOTES_KEY, JSON.stringify(notes.map((n) => (n.txHash === txHash ? { ...n, submitted: true } : n))));
+  } catch {
+    /* storage blocked: the page holds the order in memory */
   }
 }
 

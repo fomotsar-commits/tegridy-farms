@@ -147,7 +147,7 @@ let original = '';
 
 function expectRefused(txHex: string, plan: SwapPlan, problem: RegExp) {
   expect(txHex).not.toBe(original);
-  const r = checkSwapTx(csl, txHex, plan, wallet);
+  const r = checkSwapTx(csl, txHex, plan, wallet, PARAMS);
   expect(r.ok).toBe(false);
   if (!r.ok) expect(r.problems.join(' | ')).toMatch(problem);
 }
@@ -157,7 +157,7 @@ describe('buildSwapTx + checkSwapTx: the untampered build', () => {
     const plan = adaInPlan();
     expect(plan.venueFee.kind).toBe('charged');
     const built = buildSwapTx(csl, PARAMS, wallet, plan);
-    const r = checkSwapTx(csl, built.txHex, plan, wallet);
+    const r = checkSwapTx(csl, built.txHex, plan, wallet, PARAMS);
     expect(r.ok).toBe(true);
     if (!r.ok) return;
     expect(r.swap.txHash).toBe(built.txHash);
@@ -176,7 +176,7 @@ describe('buildSwapTx + checkSwapTx: the untampered build', () => {
   it('builds token → ADA with no fee line when no fee is charged', () => {
     const plan = adaInPlan({ assetIn: ASCEND, swapAmount: 100_000_000n, minimumReceive: 50_000_000n, venueFee: { kind: 'none', reason: 'no-address' } });
     const built = buildSwapTx(csl, PARAMS, wallet, plan);
-    const r = checkSwapTx(csl, built.txHex, plan, wallet);
+    const r = checkSwapTx(csl, built.txHex, plan, wallet, PARAMS);
     expect(r.ok).toBe(true);
     if (!r.ok) return;
     expect(r.swap.venueFeeLovelace).toBe(0n);
@@ -197,6 +197,38 @@ describe('buildSwapTx + checkSwapTx: the untampered build', () => {
   });
 });
 
+describe('coin selection (review 2026-10-24)', () => {
+  it('builds for a wallet whose largest coin also holds tokens, with change that carries them', () => {
+    // Before: CSL picked only the 50 ADA coin, whose tokens left no room for change, and the
+    // build said the wallet did not hold enough.
+    const w = [utxo(11, trader, 50n * ADA_1, 900_000_000n), utxo(12, trader, 10n * ADA_1)];
+    const plan = adaInPlan({ swapAmount: 45n * ADA_1, minimumReceive: 1n, venueFee: { kind: 'none', reason: 'off' } });
+    const built = buildSwapTx(csl, PARAMS, w, plan);
+    const r = checkSwapTx(csl, built.txHex, plan, w, PARAMS);
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.swap.paidToken).toBeNull();
+  });
+
+  it('turns a leftover CSL would burn as fee into change when the wallet has another coin', () => {
+    // Before: 10 ADA picked alone for a 9 ADA order, about 0.83 ADA burned as network fee.
+    const w = [utxo(13, trader, 10n * ADA_1), utxo(14, trader, 5n * ADA_1)];
+    const plan = adaInPlan({ swapAmount: 5n * ADA_1, minimumReceive: 1n, venueFee: { kind: 'none', reason: 'off' } });
+    const r = checkSwapTx(csl, buildSwapTx(csl, PARAMS, w, plan).txHex, plan, w, PARAMS);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.swap.networkFee).toBeLessThan(300_000n);
+    expect(r.swap.networkFeeExcess).toBe(0n);
+  });
+
+  it('says how much of the network fee is a leftover when no other coin can absorb it', () => {
+    const w = [utxo(15, trader, 9_900_000n)];
+    const plan = adaInPlan({ swapAmount: 5n * ADA_1, minimumReceive: 1n, venueFee: { kind: 'none', reason: 'off' } });
+    const r = checkSwapTx(csl, buildSwapTx(csl, PARAMS, w, plan).txHex, plan, w, PARAMS);
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.swap.networkFeeExcess).toBeGreaterThan(500_000n);
+  });
+});
+
 describe('checkSwapTx refuses every tamper', () => {
   let plan: SwapPlan;
   let txHex: string;
@@ -206,9 +238,9 @@ describe('checkSwapTx refuses every tamper', () => {
     txHex = buildSwapTx(csl, PARAMS, wallet, plan).txHex;
     original = txHex;
     last = bodyOf(txHex).outputs().len() - 1;
-    expect(checkSwapTx(csl, txHex, plan, wallet).ok).toBe(true);
+    expect(checkSwapTx(csl, txHex, plan, wallet, PARAMS).ok).toBe(true);
     // The rebuild itself changes nothing: an untouched rebuild still passes.
-    expect(checkSwapTx(csl, rebuild(txHex, {}), plan, wallet).ok).toBe(true);
+    expect(checkSwapTx(csl, rebuild(txHex, {}), plan, wallet, PARAMS).ok).toBe(true);
   });
 
   it('an extra output to a stranger', () => {
@@ -321,7 +353,7 @@ describe('checkSwapTx refuses every tamper', () => {
         }),
     });
     expectRefused(bad, plan, /network fee is above 1 ADA/);
-    const r = checkSwapTx(csl, bad, plan, wallet);
+    const r = checkSwapTx(csl, bad, plan, wallet, PARAMS);
     if (!r.ok) expect(r.problems.join(' | ')).not.toMatch(/add up/);
   });
 

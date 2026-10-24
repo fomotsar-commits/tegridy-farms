@@ -72,13 +72,30 @@ export function chainUtxoFromKoios(row: unknown): ChainUtxo | null {
   return { txHash: tx_hash, index: tx_index, addressHex: parsed.hex, lovelace, assets, inlineDatumHex };
 }
 
-/** Every UTxO at Minswap V2's pool script holding this LP token. The caller decides which is the pool. */
+/** Minswap V2's pool NFT ("MSP" under the authen policy): minted only into a real pool. */
+const POOL_NFT_POLICY = 'f5808c2c990d86da54bfc97d89cee6efa20cd8461616359478d96b4c';
+const POOL_NFT_NAME = '4d5350';
+
+function carriesPoolNft(row: unknown): boolean {
+  if (!isRecord(row) || !Array.isArray(row.asset_list)) return false;
+  return row.asset_list.some((a) => isRecord(a) && a.policy_id === POOL_NFT_POLICY && a.asset_name === POOL_NFT_NAME);
+}
+
+/**
+ * Every UTxO at Minswap V2's pool script holding this LP token and the pool NFT. The caller
+ * decides which is the pool (minswapV2.readPool).
+ *
+ * A row without the pool NFT is dropped unread: it can never be the pool, and anyone can park
+ * such a row at the pool script for about 1.5 ADA (with an address this page cannot parse, it
+ * would otherwise turn every quote for the pair into "unread", for good). A row WITH the NFT
+ * that cannot be read is a real pool unread, and the whole read says so.
+ */
 export async function readPoolCandidates(lpName: string, signal?: AbortSignal): Promise<Read<ChainUtxo[]>> {
   const r = await getJson('pool', { lp: lpName }, signal);
   if (r.status !== 'ok') return r;
   if (!Array.isArray(r.data)) return unread('the pool read was not a list');
   const out: ChainUtxo[] = [];
-  for (const row of r.data) {
+  for (const row of r.data.filter(carriesPoolNft)) {
     const u = chainUtxoFromKoios(row);
     if (!u) return unread('a pool row could not be read');
     out.push(u);
@@ -269,13 +286,14 @@ export async function readTx(txHash: string, signal?: AbortSignal): Promise<Read
     inputs.push({ txHash: i.tx_hash, index: i.tx_index });
   }
   const outputs: ChainUtxo[] = [];
-  for (const o of row.outputs) {
+  for (const [i, o] of row.outputs.entries()) {
     // tx_info nests the address as payment_addr.bech32; flatten it to the UTxO shape. It sends
     // no datum bytes ({ bytes: null }), and nothing that reads a fill needs them.
     const flat = isRecord(o) && isRecord(o.payment_addr) ? { ...o, tx_hash: txHash, address: o.payment_addr.bech32, inline_datum: null } : null;
-    const u = chainUtxoFromKoios(flat);
-    if (!u) return unread('an output was malformed');
-    outputs.push(u);
+    // An output this rail cannot parse (a Byron or pointer address) is kept as paying nobody
+    // it knows: it can never be the trader's, and one stranger's output must not make every
+    // later transaction in a wallet's history unreadable.
+    outputs.push(chainUtxoFromKoios(flat) ?? { txHash, index: i, addressHex: '', lovelace: 0n, assets: [], inlineDatumHex: null });
   }
   return { status: 'ok', data: { txHash, inputs, outputs } };
 }

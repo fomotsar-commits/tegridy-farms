@@ -4,7 +4,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { buildKoiosRequest, CARDANO_OPS, MINSWAP_V2_AUTHEN_POLICY, MINSWAP_V2_POOL_SCRIPT } from "../_lib/cardano-ops.js";
 import { MINSWAP_V2 } from "../../src/lib/cardano/minswapV2";
 
-vi.mock("../_lib/ratelimit.js", () => ({ checkRateLimit: vi.fn(async () => true) }));
+vi.mock("../_lib/ratelimit.js", () => ({ checkRateLimit: vi.fn(async () => true), checkGlobalLimit: vi.fn(async () => true) }));
 
 function makeReq({ method = "GET", query = {}, headers = {} } = {}) {
   return { method, query, headers: { "sec-fetch-site": "same-origin", ...headers } };
@@ -155,6 +155,26 @@ describe("api/cardano", () => {
     r = makeRes();
     await handler(makeReq({ query: { op: "tip" } }), r.res);
     expect(r.out.status).toBe(502);
+  });
+
+  it("never caches an empty answer, which may be an indexer that has not caught up", async () => {
+    globalThis.fetch = upstream("[]");
+    const { res, headers } = makeRes();
+    await handler(makeReq({ query: { op: "asset", policy: "ab".repeat(28), name: "" } }), res);
+    expect(headers["Cache-Control"]).toBe("private, no-store");
+  });
+
+  it("stops at the site-wide cap before any upstream read", async () => {
+    const rl = await import("../_lib/ratelimit.js");
+    rl.checkGlobalLimit.mockImplementationOnce(async (r) => {
+      r.status(503).json({ error: "Service temporarily unavailable" });
+      return false;
+    });
+    globalThis.fetch = upstream("[]");
+    const { res, out } = makeRes();
+    await handler(makeReq({ query: { op: "tip" } }), res);
+    expect(out.status).toBe(503);
+    expect(globalThis.fetch).not.toHaveBeenCalled();
   });
 
   it("never reflects the key", async () => {

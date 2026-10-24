@@ -1,4 +1,6 @@
 import { BUNGALOWS, CARDS_ROOM_ID, type Bungalow } from './bungalows';
+// Plain text only: whether the Cardano swap is shown (lib/cardano/flags.ts).
+import { cardanoSwapVisible } from './cardano/flags';
 
 /**
  * WAVE SEVEN, ruling 2 (row Q): EVERY ROUTE SPEAKS AS THE VENUE OR LIVES BEHIND
@@ -105,8 +107,9 @@ const SOLANA_PATHS: ReadonlySet<string> = new Set(['/solana', '/pools', '/solana
  */
 const CARDANO_PATHS: ReadonlySet<string> = new Set(['/cardano']);
 
-export function isCardanoPage(pathname: string): boolean {
-  return CARDANO_PATHS.has(normalize(pathname));
+/** Only while the Cardano swap is shown: with it off, /cardano is the 404 page, with no Cardano wallet to connect. */
+export function isCardanoPage(pathname: string, shown: boolean = cardanoSwapVisible()): boolean {
+  return shown && CARDANO_PATHS.has(normalize(pathname));
 }
 
 /**

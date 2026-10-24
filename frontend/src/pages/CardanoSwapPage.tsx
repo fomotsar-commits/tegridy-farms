@@ -15,7 +15,7 @@ import { prepareSwap, quoteNow, signAndSend, type Prepared } from '../lib/cardan
 import type { SwapQuote } from '../lib/cardano/quote';
 import { venueFeeText } from '../lib/cardano/venueFee';
 import { cardanoscanToken, cardanoscanTx, formatAda, formatAmount, LOVELACE_DECIMALS, parseAmount, parseTokenId } from '../lib/cardano/format';
-import { dropOrderNote, readOrderNotes, readOrderStatus, type OrderStatus, type PendingOrder } from '../lib/cardano/orderWatch';
+import { dropOrderNote, readOrderNotes, readOrderStatus, type CoinLabel, type OrderStatus, type PendingOrder } from '../lib/cardano/orderWatch';
 import { restoreCardanoWallet, subscribeCardanoWalletList, takeCardanoWalletListRequest, useCardanoWallet } from '../lib/cardano/walletStore';
 import { shortCardanoAddress } from '../lib/cardano/address';
 
@@ -35,24 +35,41 @@ type QuoteState =
   | { kind: 'refused'; reason: string }
   | { kind: 'unread'; reason: string };
 
+/** The coins of one review, fixed when Review is pressed: the card never borrows the live form's. */
+interface ReviewLabels {
+  inLabel: CoinLabel;
+  outLabel: CoinLabel;
+  /** The coin that is not ADA, for its whole id on the card. */
+  coin: CardanoAsset;
+}
+
 type Flow =
   | { kind: 'form' }
   | { kind: 'preparing' }
-  | { kind: 'review'; prepared: Extract<Prepared, { kind: 'review' }> }
+  | { kind: 'review'; prepared: Extract<Prepared, { kind: 'review' }>; labels: ReviewLabels }
   | { kind: 'moved'; quote: SwapQuote }
   | { kind: 'stopped'; message: string; problems?: string[] }
-  | { kind: 'signing' }
+  | { kind: 'signing'; labels: ReviewLabels }
   | { kind: 'done'; message: string; tone: 'ok' | 'warn' };
 
 const SLIPPAGES = [50, 100, 300] as const;
 const POLL_MS = 10_000;
+/** "Expired" is believed only when this many polls in a row say so (orderWatch.ts EXPIRY_MARGIN_SLOTS). */
+const EXPIRED_POLLS = 2;
 
 const CARD = { border: '1px solid rgba(255,255,255,0.12)' } as const;
 const FIELD = { background: 'rgba(0,0,0,0.55)', border: '1px solid rgba(255,255,255,0.18)' } as const;
 const PRIMARY = { background: 'var(--color-stan)', border: '1px solid var(--color-stan)' } as const;
+const NETWORK_FEE_NOTE = 'set by the transaction’s size; goes to Cardano’s fee pot, paid out to stake pools, stakers and the treasury';
+
+const ADA_LABEL: CoinLabel = { ticker: 'ADA', decimals: LOVELACE_DECIMALS };
 
 function coinName(info: TokenInfo | null): string {
   return info?.ticker ?? info?.name ?? 'This coin';
+}
+
+function amountText(n: bigint, label: CoinLabel): string {
+  return label.ticker === 'ADA' ? formatAda(n) : `${formatAmount(n, label.decimals)} ${label.ticker ?? 'units'}`;
 }
 
 function Line({ label, value, note }: { label: string; value: string; note?: string }) {
@@ -67,24 +84,26 @@ function Line({ label, value, note }: { label: string; value: string; note?: str
   );
 }
 
-function statusText(s: OrderStatus | undefined, order: PendingOrder, out: { name: string; decimals: number }): { text: string; final: boolean } {
+function statusText(s: OrderStatus | undefined, order: PendingOrder, expiredPolls: number): { text: string; final: boolean } {
   if (!s) return { text: 'Reading…', final: false };
   switch (s.kind) {
     case 'not-seen':
-      return { text: 'Sent. The chain has not shown it yet.', final: false };
+      return { text: order.submitted ? 'Sent. The chain has not shown it yet.' : 'Not seen on the chain yet; it may not have been sent.', final: false };
     case 'expired':
-      return { text: 'Never placed: its expiry has passed, so it can no longer land. Nothing left your wallet. Safe to try again.', final: true };
+      return expiredPolls >= EXPIRED_POLLS
+        ? { text: 'Never placed: it is well past its expiry, so it can no longer land. Nothing left your wallet. Safe to try again.', final: true }
+        : { text: 'Not seen on the chain, and past its expiry. Checking once more before calling it.', final: false };
     case 'placed':
       return { text: `Order placed${s.depth > 0 ? ` (${s.depth} block${s.depth === 1 ? '' : 's'} deep)` : ''}. Waiting for Minswap’s batcher to fill it.`, final: false };
     case 'filled':
       return {
         text: isAda(order.assetOut)
           ? `Filled: ${formatAda(s.received)} came back, with your 2 ADA deposit.`
-          : `Filled: ${formatAmount(s.received, out.decimals)} ${out.name}, with ${formatAda(s.depositBack)} back.`,
+          : `Filled: ${amountText(s.received, order.outLabel)}, with ${formatAda(s.depositBack)} back.`,
         final: true,
       };
     case 'returned':
-      return { text: 'Returned: the price moved past your minimum, so the batcher sent your coins back, keeping its fee.', final: true };
+      return { text: 'Returned: your coins came back, less the batcher’s fee (the price moved past your minimum, or the order was cancelled).', final: true };
     case 'spent':
       return { text: 'The order was spent, and this page could not tell how. Your wallet shows what arrived.', final: true };
     case 'unknown':
@@ -103,12 +122,15 @@ function CardanoSwapInner({ csl, cslError, retryCsl }: { csl: Csl | null; cslErr
   // Every read is kept with the inputs it answered, and shown only while they are still the
   // form's: an answer for an earlier coin or amount is never on screen for the current one.
   const [infoRead, setInfoRead] = useState<{ key: string; value: Read<TokenInfo | null> } | null>(null);
-  const [amountText, setAmountText] = useState('');
+  const [amountInput, setAmountInput] = useState('');
   const [slippageBps, setSlippageBps] = useState<number>(100);
   const [quoteRead, setQuoteRead] = useState<{ key: string; value: QuoteState } | null>(null);
   const [flow, setFlow] = useState<Flow>({ kind: 'form' });
   const [notesVersion, notesChanged] = useReducer((n: number) => n + 1, 0);
+  // Orders sent from this page, held here too: a browser that will not keep notes still follows them.
+  const [sessionOrders, setSessionOrders] = useState<PendingOrder[]>([]);
   const [statuses, setStatuses] = useState<Record<string, OrderStatus>>({});
+  const [expiredPolls, setExpiredPolls] = useState<Record<string, number>>({});
 
   useEffect(() => {
     void restoreCardanoWallet();
@@ -130,10 +152,13 @@ function CardanoSwapInner({ csl, cslError, retryCsl }: { csl: Csl | null; cslErr
 
   const info = tokenInfo !== null && tokenInfo !== 'loading' && tokenInfo.status === 'ok' ? tokenInfo.data : null;
   const tokenDecimals = info?.decimals ?? 0;
+  const tokenLabelTicker = info?.ticker ?? info?.name ?? null;
+  const tokenLabel = useMemo<CoinLabel>(() => ({ ticker: tokenLabelTicker, decimals: tokenDecimals }), [tokenLabelTicker, tokenDecimals]);
   const assetIn: CardanoAsset | null = token ? (side === 'buy' ? ADA : token) : null;
   const inDecimals = side === 'buy' ? LOVELACE_DECIMALS : tokenDecimals;
   const tokenKnown = tokenInfo !== null && tokenInfo !== 'loading' && tokenInfo.status === 'ok' && tokenInfo.data !== null;
-  const amountIn = tokenKnown ? parseAmount(amountText, inDecimals) : null;
+  const amountIn = tokenKnown ? parseAmount(amountInput, inDecimals) : null;
+  const traderHex = wallet.status === 'connected' ? wallet.address.hex : null;
 
   // The quote, a moment after the form stops changing.
   const quoteKey = csl && tokenKey && tokenKnown && amountIn !== null && amountIn > 0n ? [tokenKey, side, amountIn.toString(), slippageBps].join('|') : null;
@@ -158,14 +183,22 @@ function CardanoSwapInner({ csl, cslError, retryCsl }: { csl: Csl | null; cslErr
     [quoteKey, quoteRead],
   );
 
+  // The whole form, and the wallet, as one key: a review built for any other key is dropped.
+  const formKey = [tokenKey, side, amountInput, slippageBps, traderHex].join('|');
+  const formKeyRef = useRef(formKey);
+  useEffect(() => {
+    formKeyRef.current = formKey;
+  }, [formKey]);
+
   // This wallet's orders, followed until each one ends.
-  const traderHex = wallet.status === 'connected' ? wallet.address.hex : null;
-  const orders = useMemo<PendingOrder[]>(
-    () => (traderHex ? readOrderNotes().filter((n) => n.traderHex === traderHex) : []),
-    // flow.kind: a send just wrote a note; notesVersion: one was cleared.
+  const orders = useMemo<PendingOrder[]>(() => {
+    if (!traderHex) return [];
+    const noted = readOrderNotes().filter((n) => n.traderHex === traderHex);
+    const extra = sessionOrders.filter((o) => o.traderHex === traderHex && !noted.some((n) => n.txHash === o.txHash));
+    return [...extra, ...noted];
+    // notesVersion: a note was cleared.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [traderHex, flow.kind, notesVersion],
-  );
+  }, [traderHex, sessionOrders, notesVersion]);
   const finals = useRef(new Set<string>());
   useEffect(() => {
     if (orders.length === 0) return;
@@ -177,7 +210,12 @@ function CardanoSwapInner({ csl, cslError, retryCsl }: { csl: Csl | null; cslErr
         const s = await readOrderStatus(o, ac.signal);
         if (stopped) return;
         setStatuses((prev) => ({ ...prev, [o.txHash]: s }));
-        if (s.kind === 'filled' || s.kind === 'returned' || s.kind === 'expired' || s.kind === 'spent') finals.current.add(o.txHash);
+        setExpiredPolls((prev) => {
+          const n = s.kind === 'expired' ? (prev[o.txHash] ?? 0) + 1 : 0;
+          if (s.kind === 'expired' && n >= EXPIRED_POLLS) finals.current.add(o.txHash);
+          return { ...prev, [o.txHash]: n };
+        });
+        if (s.kind === 'filled' || s.kind === 'returned' || s.kind === 'spent') finals.current.add(o.txHash);
       }
     };
     void tick();
@@ -191,30 +229,41 @@ function CardanoSwapInner({ csl, cslError, retryCsl }: { csl: Csl | null; cslErr
 
   const onReview = useCallback(async () => {
     if (!csl || wallet.status !== 'connected' || !token || !assetIn || amountIn === null || quote.kind !== 'quote') return;
+    const pressedFor = formKeyRef.current;
+    const labels: ReviewLabels = side === 'buy' ? { inLabel: ADA_LABEL, outLabel: tokenLabel, coin: token } : { inLabel: tokenLabel, outLabel: ADA_LABEL, coin: token };
     setFlow({ kind: 'preparing' });
     const p = await prepareSwap(csl, wallet.api, wallet.address, token, assetIn, amountIn, slippageBps, quote.quote);
-    if (p.kind === 'review') setFlow({ kind: 'review', prepared: p });
-    else if (p.kind === 'moved') {
+    // The form or the wallet changed while this was built: it answers a question no longer asked.
+    if (formKeyRef.current !== pressedFor) {
+      setFlow({ kind: 'form' });
+      return;
+    }
+    if (p.kind === 'review') {
+      if (quoteKey) setQuoteRead({ key: quoteKey, value: { kind: 'quote', quote: p.quote } });
+      setFlow({ kind: 'review', prepared: p, labels });
+    } else if (p.kind === 'moved') {
       if (quoteKey) setQuoteRead({ key: quoteKey, value: { kind: 'quote', quote: p.quote } });
       setFlow({ kind: 'moved', quote: p.quote });
     } else setFlow({ kind: 'stopped', message: p.message, problems: p.problems });
-  }, [csl, wallet, token, assetIn, amountIn, slippageBps, quote, quoteKey]);
+  }, [csl, wallet, token, assetIn, amountIn, slippageBps, quote, quoteKey, side, tokenLabel]);
 
   const onSign = useCallback(async () => {
     if (!csl || wallet.status !== 'connected' || flow.kind !== 'review') return;
-    const prepared = flow.prepared;
-    setFlow({ kind: 'signing' });
-    const r = await signAndSend(csl, wallet.api, prepared);
-    if (r.kind === 'sent') setFlow({ kind: 'done', tone: 'ok', message: 'Order sent. Minswap’s batcher fills it a few blocks after it lands; it is followed below.' });
-    else if (r.kind === 'unsure') setFlow({ kind: 'done', tone: 'warn', message: r.message });
+    const { prepared, labels } = flow;
+    setFlow({ kind: 'signing', labels });
+    const r = await signAndSend(csl, wallet.api, prepared, { inLabel: labels.inLabel, outLabel: labels.outLabel });
+    const notKept = ' This browser will not keep a note of it, so after a reload it is not followed here: find it on Cardanoscan.';
+    if (r.kind === 'sent' || r.kind === 'unsure') setSessionOrders((prev) => [r.order, ...prev.filter((o) => o.txHash !== r.order.txHash)]);
+    if (r.kind === 'sent') setFlow({ kind: 'done', tone: 'ok', message: `Order sent. Minswap’s batcher fills it a few blocks after it lands; it is followed below.${r.kept ? '' : notKept}` });
+    else if (r.kind === 'unsure') setFlow({ kind: 'done', tone: 'warn', message: `${r.message}${r.kept ? '' : notKept}` });
     else if (r.kind === 'declined') setFlow({ kind: 'done', tone: 'warn', message: 'You declined in the wallet. Nothing was sent.' });
     else setFlow({ kind: 'done', tone: 'warn', message: r.message });
   }, [csl, wallet, flow]);
 
-  const outName = side === 'buy' ? coinName(info) : 'ADA';
-  const fmtOut = (n: bigint) => (side === 'buy' ? `${formatAmount(n, tokenDecimals)} ${outName}` : formatAda(n));
-  const fmtIn = (n: bigint) => (side === 'buy' ? formatAda(n) : `${formatAmount(n, tokenDecimals)} ${coinName(info)}`);
-  const busy = flow.kind === 'preparing' || flow.kind === 'signing';
+  const outLabel = side === 'buy' ? tokenLabel : ADA_LABEL;
+  // While a review is built or signed, the form holds still: what is signed is what was asked.
+  const locked = flow.kind === 'preparing' || flow.kind === 'signing';
+  const toForm = () => setFlow({ kind: 'form' });
 
   let cta: { label: string; disabled: boolean; onClick?: () => void };
   if (wallet.status !== 'connected') cta = { label: 'Connect a Cardano wallet', disabled: false, onClick: () => setWalletOpen(true) };
@@ -222,7 +271,7 @@ function CardanoSwapInner({ csl, cslError, retryCsl }: { csl: Csl | null; cslErr
   else if (!token) cta = { label: 'Paste a coin’s policy id and name', disabled: true };
   else if (quote.kind === 'loading') cta = { label: 'Getting a price…', disabled: true };
   else if (quote.kind !== 'quote') cta = { label: 'Enter an amount', disabled: true };
-  else cta = { label: flow.kind === 'preparing' ? 'Building and checking…' : 'Review swap', disabled: busy, onClick: () => void onReview() };
+  else cta = { label: flow.kind === 'preparing' ? 'Building and checking…' : 'Review swap', disabled: locked, onClick: () => void onReview() };
 
   return (
     <div className="relative">
@@ -251,11 +300,11 @@ function CardanoSwapInner({ csl, cslError, retryCsl }: { csl: Csl | null; cslErr
                 key={s}
                 type="button"
                 aria-pressed={side === s}
-                disabled={busy}
+                disabled={locked}
                 onClick={() => {
                   setSide(s);
-                  setAmountText('');
-                  setFlow({ kind: 'form' });
+                  setAmountInput('');
+                  toForm();
                 }}
                 className="flex-1 min-h-[44px] rounded-lg text-[12px] font-medium text-white disabled:opacity-60"
                 style={side === s ? PRIMARY : { background: 'rgba(0,0,0,0.45)', border: '1px solid rgba(255,255,255,0.12)' }}
@@ -276,11 +325,12 @@ function CardanoSwapInner({ csl, cslError, retryCsl }: { csl: Csl | null; cslErr
               spellCheck={false}
               placeholder="policy id (56 hex) + asset name (hex)"
               value={tokenText}
+              disabled={locked}
               onChange={(e) => {
                 setTokenText(e.target.value);
-                setFlow({ kind: 'form' });
+                toForm();
               }}
-              className="w-full rounded-xl p-3 bg-transparent text-white text-[12px] font-mono outline-none"
+              className="w-full rounded-xl p-3 bg-transparent text-white text-[12px] font-mono outline-none disabled:opacity-60"
               style={FIELD}
             />
             {tokenText.trim() !== '' && !token && <p className="mt-1 text-[11px] text-danger">That is not a coin id: 56 hex characters of policy id, then the asset name in hex.</p>}
@@ -291,7 +341,7 @@ function CardanoSwapInner({ csl, cslError, retryCsl }: { csl: Csl | null; cslErr
                   <p className="text-[12px] text-danger">The coin could not be read just now ({tokenInfo.reason}). No price is shown for a coin this page cannot name.</p>
                 )}
                 {tokenInfo !== null && tokenInfo !== 'loading' && tokenInfo.status === 'ok' && tokenInfo.data === null && (
-                  <p className="text-[12px] text-danger">No coin with this id has ever been minted.</p>
+                  <p className="text-[12px] text-danger">The chain has no record of this coin yet. Check the id.</p>
                 )}
                 {info && (
                   <>
@@ -328,16 +378,16 @@ function CardanoSwapInner({ csl, cslError, retryCsl }: { csl: Csl | null; cslErr
               inputMode="decimal"
               autoComplete="off"
               placeholder="0.0"
-              value={amountText}
-              disabled={!tokenKnown}
+              value={amountInput}
+              disabled={!tokenKnown || locked}
               onChange={(e) => {
-                setAmountText(e.target.value);
-                setFlow({ kind: 'form' });
+                setAmountInput(e.target.value);
+                toForm();
               }}
               className="w-full rounded-xl p-3 bg-transparent text-right text-white text-[20px] font-mono outline-none disabled:opacity-50"
               style={FIELD}
             />
-            {amountText.trim() !== '' && tokenKnown && amountIn === null && <p className="mt-1 text-[11px] text-danger">Not an amount this coin can hold (at most {inDecimals} decimals).</p>}
+            {amountInput.trim() !== '' && tokenKnown && amountIn === null && <p className="mt-1 text-[11px] text-danger">Not an amount this coin can hold (at most {inDecimals} decimals).</p>}
           </div>
 
           <div className="flex items-center gap-2 text-[11px] text-white/70" role="group" aria-label="Slippage">
@@ -347,8 +397,12 @@ function CardanoSwapInner({ csl, cslError, retryCsl }: { csl: Csl | null; cslErr
                 key={bps}
                 type="button"
                 aria-pressed={slippageBps === bps}
-                onClick={() => setSlippageBps(bps)}
-                className="min-h-[44px] px-3 rounded-md text-white"
+                disabled={locked}
+                onClick={() => {
+                  setSlippageBps(bps);
+                  toForm();
+                }}
+                className="min-h-[44px] min-w-[44px] px-3 rounded-md text-white disabled:opacity-60"
                 style={slippageBps === bps ? PRIMARY : { background: 'rgba(0,0,0,0.45)', border: '1px solid rgba(255,255,255,0.12)' }}
               >
                 {bps / 100}%
@@ -362,7 +416,7 @@ function CardanoSwapInner({ csl, cslError, retryCsl }: { csl: Csl | null; cslErr
 
           {quote.kind === 'quote' && (
             <div className="rounded-xl p-3 space-y-2" style={FIELD} data-testid="cardano-quote">
-              <Line label="You get about" value={fmtOut(quote.quote.expectedOut)} note={`at least ${fmtOut(quote.quote.minimumReceive)}, or your coins come back`} />
+              <Line label="You get about" value={amountText(quote.quote.expectedOut, outLabel)} note={`at least ${amountText(quote.quote.minimumReceive, outLabel)}, or your coins come back`} />
               <Line label="Venue fee" value={venueFeeText(quote.quote.venueFee)} note={quote.quote.venueFee.kind === 'charged' ? formatAda(quote.quote.venueFee.lovelace) : undefined} />
               <Line
                 label="Pool fee"
@@ -396,15 +450,11 @@ function CardanoSwapInner({ csl, cslError, retryCsl }: { csl: Csl | null; cslErr
             </button>
           )}
 
-          {(flow.kind === 'review' || flow.kind === 'signing') && quote.kind === 'quote' && (
-            <ReviewCard
-              prepared={flow.kind === 'review' ? flow.prepared : null}
-              signing={flow.kind === 'signing'}
-              fmtIn={fmtIn}
-              fmtOut={fmtOut}
-              onSign={() => void onSign()}
-              onBack={() => setFlow({ kind: 'form' })}
-            />
+          {flow.kind === 'review' && <ReviewCard prepared={flow.prepared} labels={flow.labels} onSign={() => void onSign()} onBack={toForm} />}
+          {flow.kind === 'signing' && (
+            <p role="status" className="text-[12px] text-white/75">
+              Waiting for your wallet…
+            </p>
           )}
           {flow.kind === 'done' && (
             <p role="status" className={`text-[12px] ${flow.tone === 'ok' ? 'text-success' : 'text-white/85'}`}>
@@ -437,9 +487,16 @@ function CardanoSwapInner({ csl, cslError, retryCsl }: { csl: Csl | null; cslErr
           <div className="relative z-10 space-y-3">
             <h2 className="text-white text-[14px] font-semibold">Your orders</h2>
             {orders.map((o) => {
-              const s = statusText(statuses[o.txHash], o, { name: o.assetOut.policyId === token?.policyId && o.assetOut.assetName === token?.assetName ? coinName(info) : 'coins', decimals: tokenDecimals });
+              const s = statusText(statuses[o.txHash], o, expiredPolls[o.txHash] ?? 0);
+              const coin = isAda(o.assetIn) ? o.assetOut : o.assetIn;
               return (
                 <div key={o.txHash} className="text-[12px] text-white/85 space-y-1" data-testid="cardano-order">
+                  <p className="text-white">
+                    {amountText(BigInt(o.amountIn), o.inLabel)} for at least {amountText(BigInt(o.minimumReceive), o.outLabel)}
+                  </p>
+                  <p className="font-mono text-[10px] text-white/55 break-all">
+                    {(isAda(o.assetIn) ? o.outLabel : o.inLabel).ticker ?? 'Coin'}: {coin.policyId}.{coin.assetName || '(no name)'}
+                  </p>
                   <p>{s.text}</p>
                   <div className="flex flex-wrap gap-x-4">
                     <a href={cardanoscanTx(o.txHash)} target="_blank" rel="noopener noreferrer nofollow" className="min-h-[44px] inline-flex items-center underline">
@@ -448,9 +505,10 @@ function CardanoSwapInner({ csl, cslError, retryCsl }: { csl: Csl | null; cslErr
                     {s.final && (
                       <button
                         type="button"
-                        className="min-h-[44px] underline text-white/70"
+                        className="min-h-[44px] px-2 underline text-white/70"
                         onClick={() => {
                           dropOrderNote(o.txHash);
+                          setSessionOrders((prev) => prev.filter((x) => x.txHash !== o.txHash));
                           notesChanged();
                         }}
                       >
@@ -472,38 +530,44 @@ function CardanoSwapInner({ csl, cslError, retryCsl }: { csl: Csl | null; cslErr
 
 function ReviewCard({
   prepared,
-  signing,
-  fmtIn,
-  fmtOut,
+  labels,
   onSign,
   onBack,
 }: {
-  prepared: Extract<Prepared, { kind: 'review' }> | null;
-  signing: boolean;
-  fmtIn: (n: bigint) => string;
-  fmtOut: (n: bigint) => string;
+  prepared: Extract<Prepared, { kind: 'review' }>;
+  labels: ReviewLabels;
   onSign: () => void;
   onBack: () => void;
 }) {
-  if (!prepared) return <p role="status" className="text-[12px] text-white/75">Waiting for your wallet…</p>;
   const c = prepared.checked;
+  const fmtIn = (n: bigint) => amountText(n, labels.inLabel);
+  const fmtOut = (n: bigint) => amountText(n, labels.outLabel);
+  const coinTicker = (isAda(prepared.plan.assetIn) ? labels.outLabel : labels.inLabel).ticker ?? 'Coin';
   return (
     <div className="rounded-xl p-3 space-y-2" style={FIELD} data-testid="cardano-review">
       <p className="text-white text-[13px] font-semibold">Check, then sign</p>
+      <p className="font-mono text-[10px] text-white/60 break-all">
+        {coinTicker}: {labels.coin.policyId}.{labels.coin.assetName || '(no name)'}
+      </p>
       <Line label="You pay" value={fmtIn(prepared.plan.swapAmount)} />
+      <Line label="You get about" value={fmtOut(prepared.quote.expectedOut)} note="from the pool as read just now" />
       <Line label="You get at least" value={fmtOut(prepared.plan.minimumReceive)} note="or your coins come back" />
       <Line label="Leaves your wallet, all in" value={formatAda(c.paidLovelace)} note={c.paidToken ? `and ${fmtIn(c.paidToken.quantity)}` : undefined} />
       <Line label="Of that: the order" value={formatAda(c.orderLovelace)} note="the swap, up to 2 ADA batcher fee, and the 2 ADA deposit that comes back" />
-      <Line label="Venue fee" value={c.venueFeeLovelace > 0n ? formatAda(c.venueFeeLovelace) : 'None'} />
-      <Line label="Network fee" value={formatAda(c.networkFee)} />
+      <Line label="Venue fee" value={c.venueFeeLovelace > 0n ? formatAda(c.venueFeeLovelace) : 'None'} note={venueFeeText(prepared.plan.venueFee)} />
+      <Line
+        label="Network fee"
+        value={formatAda(c.networkFee)}
+        note={c.networkFeeExcess > 0n ? `${NETWORK_FEE_NOTE}. It includes ${formatAda(c.networkFeeExcess)} left over: too little to send back as change` : NETWORK_FEE_NOTE}
+      />
       <Line label="Paid to" value={shortCardanoAddress(prepared.plan.trader.bech32)} note="your own address, whole, as the order says" />
       <p className="text-[11px] text-white/60">Checked: nothing in this transaction pays anyone else or touches your stake.</p>
       <div className="flex gap-2">
-        <button type="button" onClick={onBack} disabled={signing} className="flex-1 min-h-[48px] rounded-xl text-white text-[13px] disabled:opacity-50" style={{ background: 'rgba(0,0,0,0.45)', border: '1px solid rgba(255,255,255,0.18)' }}>
+        <button type="button" onClick={onBack} className="flex-1 min-h-[48px] rounded-xl text-white text-[13px]" style={{ background: 'rgba(0,0,0,0.45)', border: '1px solid rgba(255,255,255,0.18)' }}>
           Back
         </button>
-        <button type="button" onClick={onSign} disabled={signing} className="flex-[2] min-h-[48px] rounded-xl text-white text-[14px] font-semibold disabled:opacity-50" style={PRIMARY}>
-          {signing ? 'Waiting for your wallet…' : 'Sign in wallet'}
+        <button type="button" onClick={onSign} className="flex-[2] min-h-[48px] rounded-xl text-white text-[14px] font-semibold" style={PRIMARY}>
+          Sign in wallet
         </button>
       </div>
     </div>
@@ -542,3 +606,4 @@ export default function CardanoSwapPage() {
     </>
   );
 }
+

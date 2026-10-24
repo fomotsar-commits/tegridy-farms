@@ -11,7 +11,8 @@ import { minAdaForPayment, buildSwapTx, checkSwapTx, assembleSigned, parseWallet
 import { venueFeeAddress } from './venueFee';
 import { sortWalletError, type Cip30Api } from './cip30';
 import type { ParsedAddress } from './address';
-import { writeOrderNote, type PendingOrder } from './orderWatch';
+import { markOrderSubmitted, writeOrderNote, type CoinLabel, type PendingOrder } from './orderWatch';
+import { MAINNET_NETWORK_ID } from './address';
 
 /** The one Minswap V2 pool for ADA and `token`. null: the chain answered, and there is none. */
 export async function findAdaPool(csl: Csl, token: CardanoAsset, signal?: AbortSignal): Promise<Read<PoolState | null>> {
@@ -74,8 +75,15 @@ export async function prepareSwap(
   if (fresh.quote.expectedOut < shown.minimumReceive) return { kind: 'moved', quote: fresh.quote };
   const tip = await readTip();
   if (tip.status !== 'ok') return { kind: 'stop', message: `The chain's clock could not be read (${tip.reason}). Nothing was built.` };
+  // The wallet may have switched account or network since it connected, without saying so
+  // (Lace follows its active account). Its coins are read now, so its address is too: an order
+  // paying the old account from the new one's coins is never built.
   let utxosHex: unknown;
   try {
+    if ((await api.getNetworkId()) !== MAINNET_NETWORK_ID) return { kind: 'stop', message: 'The wallet is no longer on Cardano mainnet. Nothing was built.' };
+    if ((await api.getChangeAddress()) !== trader.hex) {
+      return { kind: 'stop', message: 'The wallet switched to another account since it connected. Reconnect it to swap from that account. Nothing was built.' };
+    }
     utxosHex = await api.getUtxos();
   } catch {
     return { kind: 'stop', message: 'The wallet did not share its coins. Nothing was built.' };
@@ -87,8 +95,9 @@ export async function prepareSwap(
     pool: fresh.quote.pool,
     assetIn,
     swapAmount: amountIn,
-    // The order carries the minimum the trader was SHOWN, never a lower fresh one.
-    minimumReceive: shown.minimumReceive,
+    // Never below the minimum the trader was shown, and never below the fresh quote's own:
+    // a pool that moved in the trader's favour keeps their slippage, not the old figure.
+    minimumReceive: fresh.quote.minimumReceive > shown.minimumReceive ? fresh.quote.minimumReceive : shown.minimumReceive,
     venueFee: fresh.quote.venueFee,
     tipSlot: tip.data.slot,
   };
@@ -98,19 +107,25 @@ export async function prepareSwap(
   } catch (err) {
     return { kind: 'stop', message: err instanceof Error ? err.message : 'The swap could not be built.' };
   }
-  const check = checkSwapTx(csl, built.txHex, plan, utxos);
+  const check = checkSwapTx(csl, built.txHex, plan, utxos, fresh.params);
   if (!check.ok) return { kind: 'stop', message: 'The built transaction is not the one planned, so it was not offered for signing.', problems: check.problems };
   return { kind: 'review', plan, txHex: built.txHex, checked: check.swap, quote: fresh.quote };
 }
 
 export type SendResult =
-  | { kind: 'sent'; order: PendingOrder }
+  /** `kept`: false when this browser would not keep the order's note, so a reload loses it. */
+  | { kind: 'sent'; order: PendingOrder; kept: boolean }
   | { kind: 'declined' }
   | { kind: 'not-sent'; message: string }
   /** The wallet errored while sending: the order may or may not be on its way. It is followed, never called failed. */
-  | { kind: 'unsure'; order: PendingOrder; message: string };
+  | { kind: 'unsure'; order: PendingOrder; message: string; kept: boolean };
 
-export async function signAndSend(csl: Csl, api: Cip30Api, prepared: Extract<Prepared, { kind: 'review' }>): Promise<SendResult> {
+export async function signAndSend(
+  csl: Csl,
+  api: Cip30Api,
+  prepared: Extract<Prepared, { kind: 'review' }>,
+  labels: { inLabel: CoinLabel; outLabel: CoinLabel },
+): Promise<SendResult> {
   let witnessHex: string;
   try {
     witnessHex = await api.signTx(prepared.txHex, true);
@@ -128,19 +143,24 @@ export async function signAndSend(csl: Csl, api: Cip30Api, prepared: Extract<Pre
     assetOut: prepared.quote.assetOut,
     amountIn: prepared.plan.swapAmount.toString(),
     minimumReceive: prepared.plan.minimumReceive.toString(),
+    inLabel: labels.inLabel,
+    outLabel: labels.outLabel,
     ttlSlot: prepared.plan.tipSlot + TTL_SLOTS,
+    submitted: false,
     placedAt: Date.now(),
   };
   // Written before the first byte leaves: a reload mid-send still knows this order exists.
-  writeOrderNote(order);
+  const kept = writeOrderNote(order);
   try {
     await api.submitTx(assembled.signedHex);
-    return { kind: 'sent', order };
+    markOrderSubmitted(order.txHash);
+    return { kind: 'sent', order: { ...order, submitted: true }, kept };
   } catch {
     return {
       kind: 'unsure',
       order,
-      message: 'The wallet reported a problem sending it. It may still have gone through: this page follows it until it shows, or until its expiry passes and it never can.',
+      kept,
+      message: 'The wallet reported a problem sending it. It may still have gone through: this page follows it until it shows, or until well past its expiry, when it never can.',
     };
   }
 }
