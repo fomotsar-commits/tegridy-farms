@@ -34,13 +34,13 @@ afterEach(() => {
 
 describe('the Cardano wallet connection', () => {
   it('offers no Yoroi, SecondFi, Nami or Flint', () => {
-    const keys = CARDANO_WALLETS.map((w) => w.key);
+    const keys = CARDANO_WALLETS.map((w) => w.walletId);
     for (const gone of ['yoroi', 'secondfi', 'nami', 'flint', 'ctrl']) expect(keys).not.toContain(gone);
   });
 
   it('detects only a wallet that can actually be enabled', () => {
     (window as unknown as { cardano: unknown }).cardano = { eternl: { enable: () => 0, isEnabled: () => 0 }, lace: { name: 'Lace' } };
-    const found = detectWallets(window).filter((w) => w.installed).map((w) => w.info.key);
+    const found = detectWallets(window).filter((w) => w.installed).map((w) => w.info.walletId);
     expect(found).toEqual(['eternl']);
   });
 

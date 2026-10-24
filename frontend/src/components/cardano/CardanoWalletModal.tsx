@@ -59,18 +59,18 @@ export function CardanoWalletModal({ open, onClose }: { open: boolean; onClose: 
         ) : (
           <ul className="space-y-2">
             {rows.map(({ info, installed }) => (
-              <li key={info.key}>
+              <li key={info.walletId}>
                 {installed ? (
                   <button
                     type="button"
-                    onClick={() => void connectCardanoWallet(info.key)}
+                    onClick={() => void connectCardanoWallet(info.walletId)}
                     disabled={wallet.status === 'connecting'}
                     className="w-full min-h-[48px] flex items-center justify-between rounded-xl px-4 text-[14px] disabled:opacity-60"
                     style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.14)' }}
                   >
                     <span>{info.name}</span>
                     <span className="text-[11px] text-success">
-                      {wallet.status === 'connecting' && wallet.key === info.key ? 'Waiting for the wallet…' : 'Detected · Connect'}
+                      {wallet.status === 'connecting' && wallet.walletId === info.walletId ? 'Waiting for the wallet…' : 'Detected · Connect'}
                     </span>
                   </button>
                 ) : (

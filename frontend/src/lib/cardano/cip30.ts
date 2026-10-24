@@ -24,8 +24,8 @@ export interface Cip30Wallet {
 }
 
 export interface CardanoWalletInfo {
-  /** The window.cardano key the wallet injects under. */
-  key: string;
+  /** The window.cardano property the wallet injects under (a public extension id). */
+  walletId: string;
   name: string;
   /** The wallet's own site, for "Install". */
   site: string;
@@ -38,25 +38,25 @@ export interface CardanoWalletInfo {
  * - Nami: folded into Lace. Flint: discontinued.
  */
 export const CARDANO_WALLETS: readonly CardanoWalletInfo[] = [
-  { key: 'eternl', name: 'Eternl', site: 'https://eternl.io' },
-  { key: 'lace', name: 'Lace', site: 'https://www.lace.io' },
-  { key: 'vespr', name: 'VESPR', site: 'https://vespr.xyz' },
-  { key: 'begin', name: 'Begin', site: 'https://begin.is' },
-  { key: 'typhoncip30', name: 'Typhon', site: 'https://typhonwallet.io' },
-  { key: 'gerowallet', name: 'GeroWallet', site: 'https://gerowallet.io' },
-  { key: 'nufi', name: 'NuFi', site: 'https://nu.fi' },
+  { walletId: 'eternl', name: 'Eternl', site: 'https://eternl.io' },
+  { walletId: 'lace', name: 'Lace', site: 'https://www.lace.io' },
+  { walletId: 'vespr', name: 'VESPR', site: 'https://vespr.xyz' },
+  { walletId: 'begin', name: 'Begin', site: 'https://begin.is' },
+  { walletId: 'typhoncip30', name: 'Typhon', site: 'https://typhonwallet.io' },
+  { walletId: 'gerowallet', name: 'GeroWallet', site: 'https://gerowallet.io' },
+  { walletId: 'nufi', name: 'NuFi', site: 'https://nu.fi' },
 ];
 
-/** The wallet object injected under `key`, or null when none is there that can be enabled. */
-export function injectedWallet(key: string, win: unknown = typeof window !== 'undefined' ? window : undefined): Cip30Wallet | null {
+/** The wallet object injected under `walletId`, or null when none is there that can be enabled. */
+export function injectedWallet(walletId: string, win: unknown = typeof window !== 'undefined' ? window : undefined): Cip30Wallet | null {
   const cardano = (win as { cardano?: Record<string, unknown> } | undefined)?.cardano;
-  const w = cardano?.[key] as Partial<Cip30Wallet> | undefined;
+  const w = cardano?.[walletId] as Partial<Cip30Wallet> | undefined;
   return w && typeof w.enable === 'function' && typeof w.isEnabled === 'function' ? (w as Cip30Wallet) : null;
 }
 
 /** The offered wallets, each marked by whether this browser has it. */
 export function detectWallets(win?: unknown): { info: CardanoWalletInfo; installed: boolean }[] {
-  return CARDANO_WALLETS.map((info) => ({ info, installed: injectedWallet(info.key, win) !== null }));
+  return CARDANO_WALLETS.map((info) => ({ info, installed: injectedWallet(info.walletId, win) !== null }));
 }
 
 /**

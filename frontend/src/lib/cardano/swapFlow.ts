@@ -138,7 +138,7 @@ export async function signAndSend(
     txHash: assembled.txHash,
     orderIndex: 0,
     traderHex: prepared.plan.trader.hex,
-    traderPaymentCred: prepared.plan.trader.payment.hash,
+    traderPaymentHash: prepared.plan.trader.payment.hash,
     assetIn: prepared.plan.assetIn,
     assetOut: prepared.quote.assetOut,
     amountIn: prepared.plan.swapAmount.toString(),

@@ -14,11 +14,12 @@ import { CARDANO_WALLETS, injectedWallet, sortWalletError, type Cip30Api } from 
 
 export type CardanoWalletState =
   | { status: 'idle' }
-  | { status: 'connecting'; key: string }
-  | { status: 'connected'; key: string; name: string; api: Cip30Api; address: ParsedAddress }
-  | { status: 'error'; key: string; message: string };
+  | { status: 'connecting'; walletId: string }
+  | { status: 'connected'; walletId: string; name: string; api: Cip30Api; address: ParsedAddress }
+  | { status: 'error'; walletId: string; message: string };
 
-const REMEMBER_KEY = 'tegridy.cardano.wallet';
+/** Which wallet extension this browser last connected: its public id, never anything from inside it. */
+const REMEMBERED_WALLET = 'tegridy.cardano.wallet';
 
 let state: CardanoWalletState = { status: 'idle' };
 const listeners = new Set<() => void>();
@@ -30,10 +31,10 @@ function set(next: CardanoWalletState) {
   for (const l of listeners) l();
 }
 
-function remember(key: string | null) {
+function remember(walletId: string | null) {
   try {
-    if (key) localStorage.setItem(REMEMBER_KEY, key);
-    else localStorage.removeItem(REMEMBER_KEY);
+    if (walletId) localStorage.setItem(REMEMBERED_WALLET, walletId);
+    else localStorage.removeItem(REMEMBERED_WALLET);
   } catch {
     /* storage blocked: the visitor presses Connect next time */
   }
@@ -41,7 +42,7 @@ function remember(key: string | null) {
 
 function remembered(): string | null {
   try {
-    return localStorage.getItem(REMEMBER_KEY);
+    return localStorage.getItem(REMEMBERED_WALLET);
   } catch {
     return null;
   }
@@ -70,32 +71,32 @@ async function readAddress(api: Cip30Api): Promise<ParsedAddress | string> {
   return address;
 }
 
-async function finishConnect(key: string, api: Cip30Api) {
-  const name = CARDANO_WALLETS.find((w) => w.key === key)?.name ?? key;
+async function finishConnect(walletId: string, api: Cip30Api) {
+  const name = CARDANO_WALLETS.find((w) => w.walletId === walletId)?.name ?? walletId;
   const address = await readAddress(api);
   if (typeof address === 'string') {
-    set({ status: 'error', key, message: address });
+    set({ status: 'error', walletId, message: address });
     remember(null);
     return;
   }
-  set({ status: 'connected', key, name, api, address });
-  remember(key);
+  set({ status: 'connected', walletId, name, api, address });
+  remember(walletId);
 }
 
 /** On a press only: asks the wallet to connect. */
-export async function connectCardanoWallet(key: string): Promise<void> {
-  const wallet = injectedWallet(key);
+export async function connectCardanoWallet(walletId: string): Promise<void> {
+  const wallet = injectedWallet(walletId);
   if (!wallet) {
-    set({ status: 'error', key, message: 'That wallet is not installed in this browser.' });
+    set({ status: 'error', walletId, message: 'That wallet is not installed in this browser.' });
     return;
   }
-  set({ status: 'connecting', key });
+  set({ status: 'connecting', walletId });
   try {
-    await finishConnect(key, await wallet.enable());
+    await finishConnect(walletId, await wallet.enable());
   } catch (err) {
     set({
       status: 'error',
-      key,
+      walletId,
       message: sortWalletError(err, 'enable') === 'declined' ? 'The wallet was not connected: the request was declined.' : 'The wallet did not connect. Try again, or open the wallet first.',
     });
   }
@@ -104,14 +105,14 @@ export async function connectCardanoWallet(key: string): Promise<void> {
 /** On page load: reconnects the wallet this browser last connected, only if it says it is still connected. */
 export async function restoreCardanoWallet(): Promise<void> {
   if (state.status !== 'idle') return;
-  const key = remembered();
-  if (!key) return;
-  const wallet = injectedWallet(key);
+  const walletId = remembered();
+  if (!walletId) return;
+  const wallet = injectedWallet(walletId);
   if (!wallet) return;
   try {
     if (!(await wallet.isEnabled())) return;
     if (state.status !== 'idle') return;
-    await finishConnect(key, await wallet.enable());
+    await finishConnect(walletId, await wallet.enable());
   } catch {
     // A silent restore that fails stays silent: the visitor presses Connect.
   }

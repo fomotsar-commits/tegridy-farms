@@ -12,7 +12,7 @@ const FILLS = fixture<{ tx_hash: string }[]>('koios-tx-info-two-fills.json');
 function note(txHash: string, bech: string, assetIn: PendingOrder['assetIn'], assetOut: PendingOrder['assetOut']): PendingOrder {
   const a = parseAddressBech32(bech)!;
   const label = (x: PendingOrder['assetIn']) => (x.policyId === '' ? { ticker: 'ADA', decimals: 6 } : { ticker: 'COIN', decimals: 0 });
-  return { txHash, orderIndex: 0, traderHex: a.hex, traderPaymentCred: a.payment.hash, assetIn, assetOut, amountIn: '1', minimumReceive: '1', inLabel: label(assetIn), outLabel: label(assetOut), ttlSlot: 201256000, submitted: true, placedAt: 1 };
+  return { txHash, orderIndex: 0, traderHex: a.hex, traderPaymentHash: a.payment.hash, assetIn, assetOut, amountIn: '1', minimumReceive: '1', inLabel: label(assetIn), outLabel: label(assetOut), ttlSlot: 201256000, submitted: true, placedAt: 1 };
 }
 
 const SELL_ASCEND = note(ORDER_TXS.tokenIn, 'addr1qyawx3jznhwfhsen5kg3dq4nxgvkexrw7fa6uj8qkx95cynn60n5e0298xn7eyj7lzks2lv5tcmxsqsu7ne7sa7jf4xsulzg6g', ASCEND, ADA);

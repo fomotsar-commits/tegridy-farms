@@ -25,7 +25,7 @@ export interface PendingOrder {
   /** The order is always output 0 (swapTx.ts). */
   orderIndex: 0;
   traderHex: string;
-  traderPaymentCred: string;
+  traderPaymentHash: string;
   assetIn: CardanoAsset;
   assetOut: CardanoAsset;
   amountIn: string;
@@ -93,7 +93,7 @@ export async function readOrderStatus(order: PendingOrder, signal?: AbortSignal)
   if (tip.status !== 'ok') return { kind: 'unknown', reason: tip.reason };
   if (depth.status !== 'ok') return { kind: 'unknown', reason: depth.reason };
   const placedHeight = Math.max(0, tip.data.blockHeight - (depth.data ?? 0));
-  const history = await readCredentialTxs(order.traderPaymentCred, placedHeight, signal);
+  const history = await readCredentialTxs(order.traderPaymentHash, placedHeight, signal);
   if (history.status !== 'ok') return { kind: 'unknown', reason: history.reason };
   for (const h of history.data.filter((x) => x.txHash !== order.txHash).slice(0, FILL_SEARCH)) {
     const tx = await readTx(h.txHash, signal);
@@ -132,7 +132,7 @@ function isNote(x: unknown): x is PendingOrder {
     typeof l === 'object' && l !== null && ((l as CoinLabel).ticker === null || typeof (l as CoinLabel).ticker === 'string') && Number.isInteger((l as CoinLabel).decimals);
   return (
     typeof o.txHash === 'string' && /^[0-9a-f]{64}$/.test(o.txHash) && o.orderIndex === 0 && typeof o.traderHex === 'string' &&
-    typeof o.traderPaymentCred === 'string' && typeof o.ttlSlot === 'number' && typeof o.placedAt === 'number' &&
+    typeof o.traderPaymentHash === 'string' && typeof o.ttlSlot === 'number' && typeof o.placedAt === 'number' &&
     typeof o.submitted === 'boolean' && label(o.inLabel) && label(o.outLabel)
   );
 }
