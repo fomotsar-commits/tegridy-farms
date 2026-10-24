@@ -15,6 +15,24 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-10-24: a pool on fee tier 0 read as a cheaper public pool, but only a graduation may open one there
+
+**Believed:** the pool finder, the swap route and the builders may treat every pool of ours
+alike, whatever its fee tier: tier 0 (0.25%) is just the cheaper tier.
+
+**Measured** (vitest, 2026-10-24, on trunk 2ae979945 before the fix): with a free pool on
+tier 0 beside a tier-1 pool, the swap route quoted both, and the router picks the free one
+when reserves match (a lower fee pays more); the venue-swap and deposit builders built
+transactions into it. A test, "prices each pool with the fee of the tier it is on", pinned the
+router choosing it as correct. The write testkit's default pool sat on tier 0 at the standard
+address: every builder test's "ordinary pool" was the case the owner now refuses. 14 new
+tests failed on trunk; 16 of 16 mutants of the guards were killed.
+
+**Do:** judge a pool's tier with its address. Tier 0 is the launch tier: the one pool on it
+the site uses is `["launchpool", mint]` under the launch program (`PoolView.launchTierWithoutLaunch`,
+poolFinder.ts). The write testkit's default pool is on tier 1 now. In jsdom a fixture cannot
+derive program addresses, so a flag a fixture works out reads the config's own bytes.
+
 ## 2026-10-24: a test pool's round share count looked neutral, but no pool program ever makes one
 
 **Believed:** the LP testkits' default `lp_supply` (1,000,000 in `buildPool`, 1,000,000,000 in
@@ -1103,6 +1121,21 @@ that build).
 
 **Do:** a word that shares a pathname with another is a plain `Link` with `aria-current` from
 its own rule; give each drawer row its own block (`<li>`).
+
+## 2026-10-14: a Solana address is not always 44 characters; a random one is 43 about 1 time in 17
+
+**Believed:** a Solana address is 44 base58 characters, so a test may pin `toHaveLength(44)` on
+a key from `Keypair.generate()`.
+
+**Measured:** 32 bytes spell 44 characters only when their number is at least 58^43, about
+14.9 × 2^248: a first byte of 15 or more always gives 44, 13 or less never does. A random key
+falls short 5.8% of the time; 25 of 500 drawn in a test were 43. The pool card test pinned 44
+on two random keys and failed 19 of 200 runs on trunk `6c3119e0` (and real checks on #821 and
+#800). The testkit's `keyStartingWith(6)`, a token that sorts before wrapped SOL, is never 44.
+
+**Do:** pin a length only on a fixed address. The LP testkit's `key()` hands out seeded
+keypairs, skipping any under 44, so its keys are the same on every run. Where a key must be
+random, assert 32 to 44 characters.
 
 ## 2026-10-14: an element fading out with `visibility` still takes presses, and WebKit can call it hidden while it does
 
@@ -4247,6 +4280,29 @@ empty (`recursivelyFlushAsyncActWork`), so a state update from a microtask chain
 queued and committed before act resolves. Where a click acts synchronously, assert right
 after it: a `waitFor` around a call that never happens only turns a wrong state into a
 one-second timeout.
+
+---
+
+## 2026-09-30 — the Vite dev server does not 404 an `/api/x` it has no proxy for: it serves `api/x.js` as a browser module
+
+**Believed:** a same-origin `/api/aggregator?...` read under `npx vite` goes through some dev
+middleware that runs the function, and an import error naming `api/aggregator.js?resource=...`
+means that middleware loaded the module with the query attached.
+
+**Measured** (Vite 8.3.0, trunk `a9efbf05`, curl and Playwright Chromium against
+`npx vite --host 127.0.0.1`): no such middleware existed. Vite's transform middleware takes any
+extensionless URL for a module request and resolves `/api/aggregator` to `api/aggregator.js`
+under the root. With `?resource=heat` it answered 200 `text/javascript`: the server source,
+where the page wanted JSON. With `?resource=gecko-read&path=/simple/...` the query stays in the
+module id, the importer's directory is cut inside that query, `./_lib/*.js` fails to resolve,
+and the request gets a 500 plus the error overlay (stack ends in `viteTransformMiddleware`).
+Plugin middleware added in `configureServer` runs after Vite's host check and CORS, before
+`server.proxy` and the transform middleware.
+
+**Do:** read the overlay's stack before blaming config: `viteTransformMiddleware` means Vite
+served the URL as a module. `/api/<route>` in dev is now `devApiPlugin` in `vite.config.ts`.
+`src/` imports `api/_lib/*.js`, so the browser fetches `/api/_lib/*.js` as modules: a dev
+route for `/api/*` must leave URLs with an extension to Vite.
 
 ---
 
